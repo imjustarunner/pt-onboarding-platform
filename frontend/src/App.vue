@@ -87,11 +87,32 @@
                 <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }">
                   Manager Dashboard
                 </router-link>
-                <router-link
-                  v-if="myClubPublicNav"
-                  :to="myClubPublicNav.to"
-                  @click="closeMobileMenu"
-                >{{ myClubPublicNav.label }}</router-link>
+                <template v-if="myClubPublicNav">
+                  <router-link
+                    v-if="!myClubPublicNav.isDropdown"
+                    :to="myClubPublicNav.to"
+                    @click="closeMobileMenu"
+                  >{{ myClubPublicNav.label }}</router-link>
+                  <div v-else class="nav-dropdown" @click.stop>
+                    <button
+                      type="button"
+                      class="nav-dropdown-trigger"
+                      title="My Clubs"
+                      :aria-expanded="myClubsMenuOpen ? 'true' : 'false'"
+                      @click.stop="myClubsMenuOpen = !myClubsMenuOpen"
+                    >
+                      <span class="nav-dropdown-label">{{ myClubPublicNav.label }}</span> <span class="brand-caret">▾</span>
+                    </button>
+                    <div v-if="myClubsMenuOpen" class="nav-dropdown-menu">
+                      <router-link
+                        v-for="club in sstcMyClubsList"
+                        :key="`mc-${club.id}`"
+                        :to="club.to"
+                        @click.stop="closeMyClubsMenu"
+                      >{{ club.name }}</router-link>
+                    </div>
+                  </div>
+                </template>
                 <router-link
                   v-if="sstcActiveSeasonNav"
                   :to="sstcActiveSeasonNav.to"
@@ -126,11 +147,32 @@
               </template>
               <template v-else-if="isSummitStatsChallengeChrome && isAuthenticated">
                 <router-link :to="myAccountNavTo" @click="closeMobileMenu">My Account</router-link>
-                <router-link
-                  v-if="sstcMemberMyClubNav"
-                  :to="sstcMemberMyClubNav.to"
-                  @click="closeMobileMenu"
-                >{{ sstcMemberMyClubNav.label }}</router-link>
+                <template v-if="sstcMemberMyClubNav">
+                  <router-link
+                    v-if="!sstcMemberMyClubNav.isDropdown"
+                    :to="sstcMemberMyClubNav.to"
+                    @click="closeMobileMenu"
+                  >{{ sstcMemberMyClubNav.label }}</router-link>
+                  <div v-else class="nav-dropdown" @click.stop>
+                    <button
+                      type="button"
+                      class="nav-dropdown-trigger"
+                      title="My Clubs"
+                      :aria-expanded="myClubsMenuOpen ? 'true' : 'false'"
+                      @click.stop="myClubsMenuOpen = !myClubsMenuOpen"
+                    >
+                      <span class="nav-dropdown-label">{{ sstcMemberMyClubNav.label }}</span> <span class="brand-caret">▾</span>
+                    </button>
+                    <div v-if="myClubsMenuOpen" class="nav-dropdown-menu">
+                      <router-link
+                        v-for="club in sstcMyClubsList"
+                        :key="`mc-mem-${club.id}`"
+                        :to="club.to"
+                        @click.stop="closeMyClubsMenu"
+                      >{{ club.name }}</router-link>
+                    </div>
+                  </div>
+                </template>
                 <router-link
                   v-if="sstcActiveSeasonNav"
                   :to="sstcActiveSeasonNav.to"
@@ -698,12 +740,34 @@
             <template v-if="isSummitStatsChallengeChrome && isAuthenticated && isSscClubManager">
               <router-link :to="myAccountNavTo" @click="closeMobileMenu" class="mobile-nav-link">My Account</router-link>
               <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }" class="mobile-nav-link">Manager Dashboard</router-link>
-              <router-link
-                v-if="myClubPublicNav"
-                :to="myClubPublicNav.to"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >{{ myClubPublicNav.label }}</router-link>
+              <template v-if="myClubPublicNav">
+                <router-link
+                  v-if="!myClubPublicNav.isDropdown"
+                  :to="myClubPublicNav.to"
+                  @click="closeMobileMenu"
+                  class="mobile-nav-link"
+                >{{ myClubPublicNav.label }}</router-link>
+                <div v-else class="mobile-nav-group mobile-nav-group-collapsible">
+                  <button
+                    type="button"
+                    class="mobile-nav-group-trigger"
+                    :aria-expanded="mobileMyClubsExpanded ? 'true' : 'false'"
+                    @click="mobileMyClubsExpanded = !mobileMyClubsExpanded"
+                  >
+                    <span>{{ myClubPublicNav.label }}</span>
+                    <span class="mobile-nav-group-caret" :class="{ open: mobileMyClubsExpanded }" aria-hidden="true">▸</span>
+                  </button>
+                  <template v-if="mobileMyClubsExpanded">
+                    <router-link
+                      v-for="club in sstcMyClubsList"
+                      :key="`mob-mc-mgr-${club.id}`"
+                      :to="club.to"
+                      @click="closeMobileMenu"
+                      class="mobile-nav-link mobile-nav-sublink"
+                    >{{ club.name }}</router-link>
+                  </template>
+                </div>
+              </template>
               <router-link
                 v-if="sstcActiveSeasonNav"
                 :to="sstcActiveSeasonNav.to"
@@ -739,12 +803,34 @@
             </template>
             <template v-else-if="isSummitStatsChallengeChrome && isAuthenticated">
               <router-link :to="myAccountNavTo" @click="closeMobileMenu" class="mobile-nav-link">My Account</router-link>
-              <router-link
-                v-if="sstcMemberMyClubNav"
-                :to="sstcMemberMyClubNav.to"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >{{ sstcMemberMyClubNav.label }}</router-link>
+              <template v-if="sstcMemberMyClubNav">
+                <router-link
+                  v-if="!sstcMemberMyClubNav.isDropdown"
+                  :to="sstcMemberMyClubNav.to"
+                  @click="closeMobileMenu"
+                  class="mobile-nav-link"
+                >{{ sstcMemberMyClubNav.label }}</router-link>
+                <div v-else class="mobile-nav-group mobile-nav-group-collapsible">
+                  <button
+                    type="button"
+                    class="mobile-nav-group-trigger"
+                    :aria-expanded="mobileMyClubsExpanded ? 'true' : 'false'"
+                    @click="mobileMyClubsExpanded = !mobileMyClubsExpanded"
+                  >
+                    <span>{{ sstcMemberMyClubNav.label }}</span>
+                    <span class="mobile-nav-group-caret" :class="{ open: mobileMyClubsExpanded }" aria-hidden="true">▸</span>
+                  </button>
+                  <template v-if="mobileMyClubsExpanded">
+                    <router-link
+                      v-for="club in sstcMyClubsList"
+                      :key="`mob-mc-mem-${club.id}`"
+                      :to="club.to"
+                      @click="closeMobileMenu"
+                      class="mobile-nav-link mobile-nav-sublink"
+                    >{{ club.name }}</router-link>
+                  </template>
+                </div>
+              </template>
               <router-link
                 v-if="sstcActiveSeasonNav"
                 :to="sstcActiveSeasonNav.to"
@@ -1596,6 +1682,8 @@ const managementMenuOpen = ref(false);
 const gamesMenuOpen = ref(false);
 const clubManagementMenuOpen = ref(false);
 const mobileClubMgmtExpanded = ref(false);
+const myClubsMenuOpen = ref(false);
+const mobileMyClubsExpanded = ref(false);
 const engagementMenuOpen = ref(false);
 
 const navDropdownOpen = computed(() => {
@@ -1891,6 +1979,12 @@ const closeClubManagementMenu = () => {
   closeMobileMenu();
 };
 
+const closeMyClubsMenu = () => {
+  myClubsMenuOpen.value = false;
+  mobileMyClubsExpanded.value = false;
+  closeMobileMenu();
+};
+
 watch(mobileMenuOpen, (open) => {
   if (open) {
     applyDirectorySubgroupStateFromRoute();
@@ -1899,6 +1993,8 @@ watch(mobileMenuOpen, (open) => {
 
 watch(() => route.path, () => {
   clubManagementMenuOpen.value = false;
+  myClubsMenuOpen.value = false;
+  mobileMyClubsExpanded.value = false;
 });
 
 // Navigation title - only show if it's not "PlotTwistCo" and there's a valid platform template name.
@@ -2727,37 +2823,49 @@ const orgTo = (path) => {
   return `/${slug}${path}`;
 };
 
-/** Summit club managers: link to public club home (one club) or multi-club dashboard. */
+/** SSTC affiliations the signed-in user belongs to, normalized for the
+ *  "My Clubs" nav. Each entry links to that club's public page. */
+const sstcMyClubsList = computed(() => {
+  return (agencyStore.userAgencies || [])
+    .filter(
+      (a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation'
+    )
+    .map((a) => {
+      const id = Number(a?.id);
+      if (!Number.isFinite(id) || id < 1) return null;
+      return {
+        id,
+        name: String(a?.name || a?.slug || 'Club').trim() || 'Club',
+        to: orgTo(`/clubs/${id}`)
+      };
+    })
+    .filter(Boolean);
+});
+
+/** Summit club managers: link to public club home (one club) or multi-club dropdown. */
 const myClubPublicNav = computed(() => {
   if (!isSscClubManager.value) return null;
-  const clubs = (agencyStore.userAgencies || []).filter(
-    (a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation'
-  );
+  const clubs = sstcMyClubsList.value;
   if (!clubs.length) return null;
   if (clubs.length === 1) {
-    const id = Number(clubs[0].id);
-    if (!Number.isFinite(id) || id < 1) return null;
-    return { label: 'My Club', to: orgTo(`/clubs/${id}`) };
+    return { label: 'My Club', to: clubs[0].to, isDropdown: false };
   }
-  return { label: 'My Clubs', to: orgTo('/my_club_dashboard') };
+  // 2+ clubs: render a dropdown of public-page links (handled in template).
+  return { label: 'My Clubs', to: null, isDropdown: true };
 });
 
 /** SSTC members (non club managers): My Club / My Clubs — includes applicants with no affiliation yet (hub lists applications + contact manager). */
 const sstcMemberMyClubNav = computed(() => {
   if (!isSummitStatsChallengeChrome.value || hideGlobalNavForSchoolStaff.value) return null;
   if (isSscClubManager.value) return null;
-  const clubs = (agencyStore.userAgencies || []).filter(
-    (a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation'
-  );
+  const clubs = sstcMyClubsList.value;
   if (!clubs.length) {
-    return { label: 'My Club', to: orgTo('/my_club_dashboard') };
+    return { label: 'My Club', to: orgTo('/my_club_dashboard'), isDropdown: false };
   }
   if (clubs.length === 1) {
-    const id = Number(clubs[0].id);
-    if (!Number.isFinite(id) || id < 1) return { label: 'My Club', to: orgTo('/my_club_dashboard') };
-    return { label: 'My Club', to: orgTo(`/clubs/${id}`) };
+    return { label: 'My Club', to: clubs[0].to, isDropdown: false };
   }
-  return { label: 'My Clubs', to: orgTo('/my_club_dashboard') };
+  return { label: 'My Clubs', to: null, isDropdown: true };
 });
 
 /** Active season nav link — shown for every SSTC user when a season is currently live. */
