@@ -985,6 +985,64 @@ export const closeWeek = async (req, res, next) => {
       [classId, weekStart, JSON.stringify(snapshotData)]
     );
 
+    // Phase 4b: persist per-member award grants to the trophy-case ledger.
+    // Each recognition entry may have a single `winner` or an array of `winners`
+    // (milestone + perfect_season). We upsert on (class, user, category, week)
+    // so re-closing a week simply overwrites the prior grant row instead of
+    // duplicating it. Wrapped in try/catch so grant-writing failures never
+    // block week close.
+    try {
+      const upsertGrant = async (entry, winner) => {
+        if (!entry || !winner?.user_id) return;
+        const label = String(entry.label || '').slice(0, 255);
+        const icon = entry.icon ? String(entry.icon).slice(0, 128) : null;
+        const period = ['weekly', 'monthly', 'season', 'challenge'].includes(entry.period) ? entry.period : 'weekly';
+        const metric = entry.metric ? String(entry.metric).slice(0, 64) : '';
+        const aggregation = entry.aggregation ? String(entry.aggregation).slice(0, 64) : 'most';
+        const categoryId = entry.categoryId ? String(entry.categoryId).slice(0, 64) : '';
+        if (!categoryId || !label) return;
+        const metricValue = winner.value != null && Number.isFinite(Number(winner.value))
+          ? Number(winner.value)
+          : null;
+        const detailsJson = JSON.stringify({
+          firstName: winner.first_name || null,
+          lastName: winner.last_name || null,
+          teamName: winner.team_name || null,
+          milestoneThreshold: entry.milestoneThreshold ?? null,
+          referenceTarget: entry.referenceTarget ?? null
+        });
+        await pool.execute(
+          `INSERT INTO challenge_member_award_grants
+             (learning_class_id, user_id, category_id, label, icon, period, metric, aggregation,
+              week_start_date, metric_value, details_json, granted_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+           ON DUPLICATE KEY UPDATE
+             label        = VALUES(label),
+             icon         = VALUES(icon),
+             period       = VALUES(period),
+             metric       = VALUES(metric),
+             aggregation  = VALUES(aggregation),
+             metric_value = VALUES(metric_value),
+             details_json = VALUES(details_json),
+             updated_at   = CURRENT_TIMESTAMP`,
+          [classId, Number(winner.user_id), categoryId, label, icon, period, metric, aggregation,
+           weekStart, metricValue, detailsJson]
+        );
+      };
+
+      for (const entry of recognitionOfTheWeek) {
+        if (Array.isArray(entry?.winners) && entry.winners.length) {
+          for (const w of entry.winners) await upsertGrant(entry, w);
+        } else if (entry?.winner?.user_id) {
+          await upsertGrant(entry, entry.winner);
+        }
+      }
+    } catch (grantErr) {
+      // Non-fatal — week close still succeeds even if grant ledger write fails.
+      // eslint-disable-next-line no-console
+      console.warn('[closeWeek] failed to write member award grants:', grantErr?.message || grantErr);
+    }
+
     const eliminations = [];
     const [members] = await pool.execute(
       `SELECT pm.provider_user_id, tm.team_id

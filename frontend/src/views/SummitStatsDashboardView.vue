@@ -363,6 +363,9 @@
       </div>
     </section>
 
+    <!-- ── My Awards & Records (Trophy Case) ──────────────────────── -->
+    <MemberTrophyCase :club-id="focusedClubId || null" />
+
     <!-- ── Club Feed ──────────────────────────────────────────────── -->
     <section v-if="primaryClubId" class="card dash-section dash-section--club-feed">
       <ClubFeedPanel
@@ -873,6 +876,7 @@ import SeasonParticipationPill from '../components/sstc/SeasonParticipationPill.
 import SeasonAnnouncementSplash from '../components/sstc/SeasonAnnouncementSplash.vue';
 import AnnounceSeasonModal from '../components/sstc/AnnounceSeasonModal.vue';
 import ClubDismissalsCard from '../components/sstc/ClubDismissalsCard.vue';
+import MemberTrophyCase from '../components/summit/MemberTrophyCase.vue';
 import ClubAddSeasonModal from '../components/club/ClubAddSeasonModal.vue';
 import {
   AVERAGE_MILES_PER_WEEK_OPTIONS,

@@ -121,6 +121,7 @@ import {
   putClubMemberTeamCaptain,
   getMyApplications,
   getMyDashboardSummary,
+  getMyAwards,
   putMyAccountSnapshot,
   requestSeasonJoin,
   listSeasonJoinRequests,
@@ -153,6 +154,7 @@ router.get('/clubs/:id/members/directory', listClubMembersDirectory);
 router.get('/clubs/:id/members/:userId/profile', getClubMemberProfile);
 
 router.get('/me/dashboard', getMyDashboardSummary);
+router.get('/me/awards', getMyAwards);
 router.put('/me/account-snapshot', putMyAccountSnapshot);
 router.post('/me/leave-club', leaveSummitClubMembership);
 router.get('/me/data-export', exportMySummitChallengeData);

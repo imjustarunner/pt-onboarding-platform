@@ -343,7 +343,23 @@ const normalizeSeasonSettings = (input = {}) => {
       mode: toModerationMode(workoutModeration.mode)
     },
     records: {
-      metrics: parseList(records.metrics)
+      metrics: parseList(records.metrics),
+      // Phase 3: per-record icon attachments ({ key, icon }[]) so the trophy case
+      // and leaderboards can show a distinctive icon for each record type.
+      metricsWithIcons: (() => {
+        const raw = Array.isArray(records.metricsWithIcons) ? records.metricsWithIcons : [];
+        const validKeys = new Set(parseList(records.metrics) || []);
+        const out = [];
+        for (const row of raw) {
+          if (!row || typeof row !== 'object') continue;
+          const key = asNonEmptyString(row.key, null);
+          if (!key || !validKeys.has(key)) continue;
+          const icon = asNonEmptyString(row.icon, null);
+          if (!icon) continue;
+          out.push({ key, icon });
+        }
+        return out;
+      })()
     },
     postseason: {
       enabled: asBool(postseason.enabled, false),

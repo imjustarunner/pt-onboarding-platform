@@ -101,6 +101,49 @@
         </div>
 
         <div class="ctlm-modal-body">
+          <!-- Guided Draft Helper strip: lets managers scaffold a whole template with one click -->
+          <div class="ctlm-guided-draft">
+            <div class="ctlm-guided-draft-head">
+              <span class="ctlm-guided-title">Guided draft helper</span>
+              <span class="ctlm-guided-hint">Pick an activity, give it a title (or leave blank), then "Generate example" to fill description and criteria.</span>
+            </div>
+            <div class="ctlm-guided-draft-grid">
+              <div class="ctlm-field">
+                <label class="ctlm-label">Activity</label>
+                <select v-model="guidedDraft.activityType" class="ctlm-select">
+                  <option v-for="opt in ACTIVITY_TYPES" :key="opt" :value="opt">{{ opt }}</option>
+                </select>
+              </div>
+              <div class="ctlm-field" style="flex:2">
+                <label class="ctlm-label">Working title (optional)</label>
+                <input v-model="guidedDraft.name" type="text" class="ctlm-input" placeholder="e.g. 5-Mile Tempo (blank = Generate invents one)" />
+              </div>
+              <div class="ctlm-field">
+                <label class="ctlm-label">Icon source</label>
+                <div class="ctlm-icon-source-row">
+                  <label><input v-model="guidedDraft.useLibraryIcon" :value="false" type="radio" /> Emoji</label>
+                  <label><input v-model="guidedDraft.useLibraryIcon" :value="true" type="radio" /> Library</label>
+                </div>
+              </div>
+            </div>
+
+            <div class="ctlm-guided-draft-actions">
+              <button
+                type="button"
+                class="btn btn-sm"
+                :disabled="guidedDraftShuffling"
+                @click="shuffleGuidedDraftIcon"
+                :title="guidedDraft.useLibraryIcon ? 'Pick a random icon from the Challenge sub-category' : 'Pick a random emoji'"
+              >
+                {{ guidedDraftShuffling ? 'Randomizing…' : '🎲 Randomly choose icon' }}
+              </button>
+              <button type="button" class="btn btn-sm btn-secondary" @click="applyGuidedDraft">
+                Generate example
+              </button>
+              <span v-if="guidedDraftStatus" class="ctlm-guided-status">{{ guidedDraftStatus }}</span>
+            </div>
+          </div>
+
           <div class="ctlm-field-row">
             <div class="ctlm-field ctlm-field--narrow">
               <label class="ctlm-label">Icon</label>
@@ -172,13 +215,24 @@
           </div>
 
           <div class="ctlm-field">
-            <label class="ctlm-label">Description / AI seed</label>
+            <div class="ctlm-desc-label-row">
+              <label class="ctlm-label">Description</label>
+              <button
+                type="button"
+                class="ctlm-ghost-btn"
+                :disabled="!templateForm.name && !templateForm.description"
+                @click="remixDescription"
+                title="Re-mix the description and re-parse distance/duration from the title"
+              >
+                🎲 Re-mix
+              </button>
+            </div>
             <textarea
               v-model="templateForm.description"
               rows="3"
               maxlength="4000"
               class="ctlm-textarea"
-              placeholder="Describe the intended workout or challenge idea. This is the text you’ll reuse in season management or hand to the guided draft helper."
+              placeholder="Describe the intended workout or challenge idea."
             ></textarea>
           </div>
 
@@ -187,20 +241,92 @@
               <input v-model="templateForm.isSeasonLong" type="checkbox" />
               Season-long challenge
             </label>
-            <label>
-              <input v-model="templateForm.splitRunEnabled" type="checkbox" />
-              Split-run example
-            </label>
           </div>
 
-          <div class="ctlm-field-row">
-            <div class="ctlm-field">
-              <label class="ctlm-label">Min distance (miles)</label>
-              <input v-model.number="templateForm.minMiles" type="number" min="0" step="0.1" class="ctlm-input" placeholder="e.g. 3.1" />
+          <!-- Rich criteria builder — mirrors the Manage Season weekly-slot editor -->
+          <div class="ctlm-criteria-head">
+            <span class="ctlm-criteria-title">Rich criteria</span>
+            <button type="button" class="ctlm-ghost-btn" @click="showCriteria = !showCriteria">
+              {{ showCriteria ? '▲ Hide criteria' : '▼ Show criteria' }}
+            </button>
+          </div>
+
+          <div v-if="showCriteria" class="ctlm-criteria">
+            <div class="ctlm-criteria-hint">These fields validate workouts tagged to this template when it's used in a season.</div>
+
+            <div class="ctlm-field-row">
+              <div class="ctlm-field">
+                <label class="ctlm-label">Task type</label>
+                <select v-model="templateForm.criteriaJson.challengeType" class="ctlm-select">
+                  <option value="">Any</option>
+                  <option value="workout">Workout</option>
+                  <option value="race">Race</option>
+                  <option value="once_per_season">Once per season</option>
+                </select>
+              </div>
             </div>
+
             <div class="ctlm-field">
-              <label class="ctlm-label">Min duration (minutes)</label>
-              <input v-model.number="templateForm.minMinutes" type="number" min="0" step="1" class="ctlm-input" placeholder="e.g. 30" />
+              <label class="ctlm-label">Activity types allowed</label>
+              <div class="ctlm-multi-check-row">
+                <label v-for="at in ACTIVITY_TYPES" :key="at">
+                  <input type="checkbox" :value="at" v-model="templateForm.criteriaJson.activityTypes" />
+                  {{ at }}
+                </label>
+              </div>
+            </div>
+
+            <div class="ctlm-field">
+              <label class="ctlm-label">Terrain allowed</label>
+              <div class="ctlm-multi-check-row">
+                <label v-for="tr in TERRAIN_OPTIONS" :key="tr">
+                  <input type="checkbox" :value="tr" v-model="templateForm.criteriaJson.terrain" />
+                  {{ tr }}
+                </label>
+              </div>
+            </div>
+
+            <div class="ctlm-field-row">
+              <div class="ctlm-field">
+                <label class="ctlm-label">Time-of-day start</label>
+                <input type="time" v-model="templateForm.criteriaJson.timeOfDay.start" class="ctlm-input" />
+              </div>
+              <div class="ctlm-field">
+                <label class="ctlm-label">Time-of-day end</label>
+                <input type="time" v-model="templateForm.criteriaJson.timeOfDay.end" class="ctlm-input" />
+              </div>
+            </div>
+
+            <div class="ctlm-field-row">
+              <div class="ctlm-field">
+                <label class="ctlm-label">Min distance (miles)</label>
+                <input v-model.number="templateForm.criteriaJson.distance.minMiles" type="number" min="0" step="0.1" class="ctlm-input" placeholder="e.g. 3.1" />
+              </div>
+              <div class="ctlm-field">
+                <label class="ctlm-label">Min duration (minutes)</label>
+                <input v-model.number="templateForm.criteriaJson.duration.minMinutes" type="number" min="0" step="1" class="ctlm-input" placeholder="e.g. 30" />
+              </div>
+              <div class="ctlm-field">
+                <label class="ctlm-label">Max pace (seconds/mile)</label>
+                <input v-model.number="templateForm.criteriaJson.pace.maxSecondsPerMile" type="number" min="0" class="ctlm-input" placeholder="e.g. 720 = 12:00/mi" />
+              </div>
+            </div>
+
+            <div class="ctlm-field">
+              <label class="ctlm-check-label">
+                <input type="checkbox" v-model="templateForm.criteriaJson._splitRunEnabled" />
+                Split-run (multiple workouts in one day)
+              </label>
+            </div>
+            <div v-if="templateForm.criteriaJson._splitRunEnabled" class="ctlm-field-row">
+              <div class="ctlm-field">
+                <label class="ctlm-label">Number of runs required</label>
+                <input v-model.number="templateForm.criteriaJson.splitRuns.count" type="number" min="2" max="5" class="ctlm-input" />
+              </div>
+              <div class="ctlm-field">
+                <label class="ctlm-label">Min separation between runs (minutes)</label>
+                <input v-model.number="templateForm.criteriaJson.splitRuns.minSeparationMinutes" type="number" min="0" class="ctlm-input" placeholder="e.g. 120" />
+              </div>
             </div>
           </div>
 
@@ -242,6 +368,15 @@ import api from '../../services/api';
 import IconSelector from '../admin/IconSelector.vue';
 import { CHALLENGE_PROOF_POLICY_OPTIONS, challengeProofPolicyLabel } from '../../utils/challengeProofPolicies.js';
 import { toUploadsUrl } from '../../utils/uploadsUrl.js';
+import {
+  CHALLENGE_EMOJI_POOL,
+  parseChallengeMetricsFromTitle,
+  pickDescriptionFactory,
+  generateAutoTitleForActivity,
+  guidedDraftProofPolicy,
+  shuffleLibraryIcon,
+  randomPick
+} from '../../composables/useGuidedChallengeDraft.js';
 
 const props = defineProps({
   clubId: { type: [Number, String], default: null },
@@ -253,6 +388,7 @@ const emit = defineEmits(['templates-updated']);
 
 const ICONS = ['🏃', '🥾', '🌲', '🚴', '💪', '🔥', '⚡', '🎯', '🏔', '⭐', '👟', '🏆'];
 const ACTIVITY_TYPES = ['Run', 'Trail Run', 'Ruck', 'Walk', 'Bike', 'Swim', 'Fitness', 'Other'];
+const TERRAIN_OPTIONS = ['Road', 'Trail', 'Track', 'Treadmill', 'Race', 'Other'];
 
 const clubTemplates = ref([]);
 const tenantTemplates = ref([]);
@@ -272,6 +408,20 @@ const libraryIconId = ref(null);
 const deleteConfirm = ref(null);
 const deleteLoading = ref(false);
 const cloningToTenantId = ref(null);
+const showCriteria = ref(false);
+
+// Guided draft helper state — mirrors the per-slot helper in ChallengeManagement.vue.
+// Keeps a signature so repeated "Generate example" clicks with the same inputs
+// re-mix to a new concept instead of re-rendering the identical text.
+const guidedDraft = ref({
+  activityType: 'Run',
+  name: '',
+  useLibraryIcon: false
+});
+const guidedDraftShuffling = ref(false);
+const guidedDraftStatus = ref('');
+const guidedDraftLastSignature = ref('');
+const lastGuidedDescription = ref('');
 
 const canWriteTenantLibrary = computed(() =>
   props.userRole === 'super_admin' ||
@@ -283,9 +433,13 @@ function defaultCriteria() {
   return {
     challengeType: '',
     activityTypes: [],
+    terrain: [],
+    timeOfDay: { start: '', end: '' },
     distance: { minMiles: null },
     duration: { minMinutes: null },
-    splitRuns: { count: 2, minSeparationMinutes: 60 }
+    pace: { maxSecondsPerMile: null },
+    splitRuns: { count: 2, minSeparationMinutes: 60 },
+    _splitRunEnabled: false
   };
 }
 
@@ -298,9 +452,6 @@ function defaultTemplateForm() {
     mode: 'volunteer_or_elect',
     proofPolicy: 'none',
     isSeasonLong: false,
-    minMiles: null,
-    minMinutes: null,
-    splitRunEnabled: false,
     criteriaJson: defaultCriteria()
   };
 }
@@ -402,15 +553,25 @@ function onLibraryIconSelected(iconId) {
 }
 
 function formFromTemplate(tpl) {
-  const criteria = tpl?.criteriaJson && typeof tpl.criteriaJson === 'object'
-    ? {
-        ...defaultCriteria(),
-        ...tpl.criteriaJson,
-        distance: { minMiles: tpl.criteriaJson?.distance?.minMiles ?? null },
-        duration: { minMinutes: tpl.criteriaJson?.duration?.minMinutes ?? null },
-        splitRuns: tpl.criteriaJson?.splitRuns || { count: 2, minSeparationMinutes: 60 }
-      }
-    : defaultCriteria();
+  const baseDefaults = defaultCriteria();
+  const raw = tpl?.criteriaJson && typeof tpl.criteriaJson === 'object' ? tpl.criteriaJson : {};
+  const criteria = {
+    ...baseDefaults,
+    ...raw,
+    activityTypes: Array.isArray(raw.activityTypes) ? [...raw.activityTypes] : [],
+    terrain: Array.isArray(raw.terrain) ? [...raw.terrain] : [],
+    timeOfDay: {
+      start: raw?.timeOfDay?.start || '',
+      end: raw?.timeOfDay?.end || ''
+    },
+    distance: { minMiles: raw?.distance?.minMiles ?? null },
+    duration: { minMinutes: raw?.duration?.minMinutes ?? null },
+    pace: { maxSecondsPerMile: raw?.pace?.maxSecondsPerMile ?? null },
+    splitRuns: raw?.splitRuns && raw.splitRuns.count
+      ? { count: raw.splitRuns.count, minSeparationMinutes: raw.splitRuns.minSeparationMinutes ?? 60 }
+      : { count: 2, minSeparationMinutes: 60 },
+    _splitRunEnabled: !!(raw?.splitRuns?.count && raw.splitRuns.count > 1)
+  };
   return {
     name: tpl?.name || '',
     description: tpl?.description || '',
@@ -419,33 +580,31 @@ function formFromTemplate(tpl) {
     mode: tpl?.mode || 'volunteer_or_elect',
     proofPolicy: tpl?.proofPolicy || 'none',
     isSeasonLong: !!tpl?.isSeasonLong,
-    minMiles: criteria?.distance?.minMiles ?? null,
-    minMinutes: criteria?.duration?.minMinutes ?? null,
-    splitRunEnabled: !!(criteria?.splitRuns?.count > 1),
     criteriaJson: criteria
   };
 }
 
 function buildCriteriaPayload() {
-  const criteria = {
-    ...(templateForm.value.criteriaJson || {})
-  };
-  if (templateForm.value.activityType) {
-    criteria.activityTypes = [templateForm.value.activityType];
-  } else if (!Array.isArray(criteria.activityTypes)) {
-    criteria.activityTypes = [];
+  const c = templateForm.value.criteriaJson || {};
+  const out = {};
+  if (c.challengeType) out.challengeType = c.challengeType;
+
+  const explicit = Array.isArray(c.activityTypes) ? c.activityTypes.filter(Boolean) : [];
+  if (explicit.length) out.activityTypes = explicit;
+  else if (templateForm.value.activityType) out.activityTypes = [templateForm.value.activityType];
+
+  if (Array.isArray(c.terrain) && c.terrain.length) out.terrain = [...c.terrain];
+  if (c.timeOfDay?.start || c.timeOfDay?.end) out.timeOfDay = { start: c.timeOfDay.start || '', end: c.timeOfDay.end || '' };
+  if (c.distance?.minMiles) out.distance = { minMiles: Number(c.distance.minMiles) };
+  if (c.duration?.minMinutes) out.duration = { minMinutes: Number(c.duration.minMinutes) };
+  if (c.pace?.maxSecondsPerMile) out.pace = { maxSecondsPerMile: Number(c.pace.maxSecondsPerMile) };
+  if (c._splitRunEnabled && c.splitRuns?.count > 1) {
+    out.splitRuns = {
+      count: Number(c.splitRuns.count),
+      minSeparationMinutes: Number(c.splitRuns.minSeparationMinutes || 0)
+    };
   }
-  criteria.distance = templateForm.value.minMiles ? { minMiles: Number(templateForm.value.minMiles) } : undefined;
-  criteria.duration = templateForm.value.minMinutes ? { minMinutes: Number(templateForm.value.minMinutes) } : undefined;
-  if (templateForm.value.splitRunEnabled) {
-    criteria.splitRuns = criteria.splitRuns?.count > 1 ? criteria.splitRuns : { count: 2, minSeparationMinutes: 60 };
-  } else {
-    delete criteria.splitRuns;
-  }
-  if (!criteria.activityTypes?.length) delete criteria.activityTypes;
-  if (!criteria.distance?.minMiles) delete criteria.distance;
-  if (!criteria.duration?.minMinutes) delete criteria.duration;
-  return Object.keys(criteria).length ? criteria : null;
+  return Object.keys(out).length ? out : null;
 }
 
 function openTemplateModal(scope, tpl = null) {
@@ -457,6 +616,16 @@ function openTemplateModal(scope, tpl = null) {
   saveError.value = '';
   showIconPicker.value = false;
   showTemplateModal.value = true;
+  // Pre-seed the guided draft panel with the current form so Generate picks up the user's context.
+  guidedDraft.value = {
+    activityType: templateForm.value.activityType || 'Run',
+    name: templateForm.value.name || '',
+    useLibraryIcon: useLibraryIcon.value
+  };
+  guidedDraftLastSignature.value = '';
+  guidedDraftStatus.value = '';
+  lastGuidedDescription.value = templateForm.value.description || '';
+  showCriteria.value = hasMeaningfulCriteria(templateForm.value.criteriaJson);
 }
 
 function closeTemplateModal() {
@@ -464,6 +633,120 @@ function closeTemplateModal() {
   editingTemplate.value = null;
   templateForm.value = defaultTemplateForm();
   saveError.value = '';
+  guidedDraftStatus.value = '';
+  guidedDraftLastSignature.value = '';
+  lastGuidedDescription.value = '';
+}
+
+function hasMeaningfulCriteria(c) {
+  if (!c) return false;
+  return !!(
+    c.challengeType ||
+    (c.activityTypes && c.activityTypes.length) ||
+    (c.terrain && c.terrain.length) ||
+    c.timeOfDay?.start || c.timeOfDay?.end ||
+    c.distance?.minMiles ||
+    c.duration?.minMinutes ||
+    c.pace?.maxSecondsPerMile ||
+    c._splitRunEnabled
+  );
+}
+
+/**
+ * Parse the title/activity, pick a description, and seed the criteria block so
+ * the generated challenge is actually validated against workouts. Called by
+ * "Generate example" and by remix (with preserveUserCriteria=true).
+ */
+function fillFormFromGuidedDraft({ preserveUserCriteria = false, avoidTitle = '' } = {}) {
+  const activity = guidedDraft.value.activityType || 'Run';
+  let title = String(guidedDraft.value.name || templateForm.value.name || '').trim();
+  if (!title) {
+    title = generateAutoTitleForActivity(activity, { avoidTitle });
+    guidedDraft.value.name = title;
+  }
+  templateForm.value.name = title;
+  templateForm.value.activityType = activity;
+  templateForm.value.proofPolicy = templateForm.value.proofPolicy || guidedDraftProofPolicy(activity);
+
+  const { factory } = pickDescriptionFactory(activity, {
+    title,
+    avoidText: lastGuidedDescription.value
+  });
+  const desc = factory(title);
+  templateForm.value.description = desc;
+  lastGuidedDescription.value = desc;
+
+  const metrics = parseChallengeMetricsFromTitle(title);
+  const criteria = templateForm.value.criteriaJson || defaultCriteria();
+  if (!preserveUserCriteria) {
+    if (!criteria.activityTypes || !criteria.activityTypes.length) criteria.activityTypes = [activity];
+    if (metrics.challengeType && !criteria.challengeType) criteria.challengeType = metrics.challengeType;
+  }
+  if (metrics.minMiles != null) criteria.distance = { minMiles: metrics.minMiles };
+  if (metrics.minMinutes != null) criteria.duration = { minMinutes: metrics.minMinutes };
+  templateForm.value.criteriaJson = criteria;
+  showCriteria.value = true;
+}
+
+function applyGuidedDraft() {
+  const signature = `${guidedDraft.value.activityType}|${String(guidedDraft.value.name || '').trim().toLowerCase()}`;
+  // On repeated clicks with the same inputs, invent a fresh title so the concept visibly cycles.
+  const sameAsLast = guidedDraftLastSignature.value && guidedDraftLastSignature.value === signature;
+  if (sameAsLast && !String(guidedDraft.value.name || '').trim()) {
+    guidedDraft.value.name = '';
+  }
+  const avoidTitle = sameAsLast ? (templateForm.value.name || '') : '';
+  fillFormFromGuidedDraft({ preserveUserCriteria: false, avoidTitle });
+  guidedDraftLastSignature.value = `${guidedDraft.value.activityType}|${String(guidedDraft.value.name || '').trim().toLowerCase()}`;
+  guidedDraftStatus.value = 'Generated';
+  setTimeout(() => { if (guidedDraftStatus.value === 'Generated') guidedDraftStatus.value = ''; }, 1500);
+}
+
+function remixDescription() {
+  if (!templateForm.value.name && !templateForm.value.description) return;
+  // Preserve manually-entered criteria but re-roll the description and re-parse metrics.
+  guidedDraft.value.name = templateForm.value.name || '';
+  guidedDraft.value.activityType = templateForm.value.activityType || guidedDraft.value.activityType || 'Run';
+  fillFormFromGuidedDraft({ preserveUserCriteria: true });
+  guidedDraftStatus.value = 'Re-mixed';
+  setTimeout(() => { if (guidedDraftStatus.value === 'Re-mixed') guidedDraftStatus.value = ''; }, 1500);
+}
+
+/**
+ * Pick a random icon for the template. When the user is in emoji mode we pick
+ * from the local pool; when in library mode we fetch the Challenge sub-category
+ * so global template icons stay on-theme. Falls back to the full library if the
+ * sub-category is empty.
+ */
+async function shuffleGuidedDraftIcon() {
+  if (guidedDraftShuffling.value) return;
+  guidedDraftShuffling.value = true;
+  try {
+    if (!guidedDraft.value.useLibraryIcon) {
+      const current = templateForm.value.icon || '🏃';
+      const pool = CHALLENGE_EMOJI_POOL.filter((e) => e !== current);
+      const chosen = randomPick(pool.length ? pool : CHALLENGE_EMOJI_POOL);
+      templateForm.value.icon = chosen || '🏃';
+      useLibraryIcon.value = false;
+      return;
+    }
+    const current = libraryIconId.value ? Number(libraryIconId.value) : null;
+    const pick = await shuffleLibraryIcon(props.clubId, { subCategory: 'Challenge', avoidIconId: current });
+    if (!pick) {
+      guidedDraftStatus.value = 'No library icons yet';
+      setTimeout(() => { guidedDraftStatus.value = ''; }, 1800);
+      return;
+    }
+    libraryIconId.value = pick.id;
+    templateForm.value.icon = `icon:${pick.id}`;
+    useLibraryIcon.value = true;
+    if (pick.url) iconUrlCache.value[pick.id] = toUploadsUrl(pick.url) || pick.url;
+  } catch (e) {
+    guidedDraftStatus.value = 'Could not load icons';
+    setTimeout(() => { guidedDraftStatus.value = ''; }, 1800);
+  } finally {
+    guidedDraftShuffling.value = false;
+  }
 }
 
 async function saveTemplate() {
@@ -854,6 +1137,124 @@ defineExpose({ loadTemplates });
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid #dbe3ef;
+}
+.ctlm-guided-draft {
+  border: 1px dashed #bae6fd;
+  background: #f0f9ff;
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ctlm-guided-draft-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ctlm-guided-title {
+  font-weight: 700;
+  color: #0369a1;
+  font-size: 0.9rem;
+}
+.ctlm-guided-hint {
+  font-size: 0.78rem;
+  color: #64748b;
+}
+.ctlm-guided-draft-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.ctlm-guided-draft-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.ctlm-guided-status {
+  font-size: 0.8rem;
+  color: #0f766e;
+  font-weight: 600;
+}
+.ctlm-icon-source-row {
+  display: inline-flex;
+  gap: 10px;
+  font-size: 0.84rem;
+  color: #334155;
+  align-items: center;
+  padding: 6px 0;
+}
+.ctlm-icon-source-row label {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  cursor: pointer;
+}
+.ctlm-ghost-btn {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.ctlm-ghost-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ctlm-desc-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ctlm-criteria-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px dashed #dbe3ef;
+  margin-top: 4px;
+}
+.ctlm-criteria-title {
+  font-weight: 700;
+  color: #0f172a;
+  font-size: 0.95rem;
+}
+.ctlm-criteria {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.ctlm-criteria-hint {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+.ctlm-multi-check-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 0.86rem;
+  color: #334155;
+}
+.ctlm-multi-check-row label {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+}
+.ctlm-check-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.88rem;
+  color: #334155;
 }
 @media (max-width: 720px) {
   .ctlm-row,

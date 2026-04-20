@@ -109,6 +109,28 @@
         <span class="rcb-panel-hint">Each award is given to a winner based on the rules you set.</span>
       </div>
 
+      <!-- Standardized award preset drawer: one-click scaffolds for common awards
+           so managers start from a sensible icon + label + metric combo. -->
+      <div class="rcb-preset-drawer">
+        <button type="button" class="rcb-preset-toggle" @click="showPresets = !showPresets">
+          {{ showPresets ? '▲ Hide standardized presets' : '✨ Standardized award presets' }}
+        </button>
+        <div v-if="showPresets" class="rcb-preset-grid">
+          <button
+            v-for="p in awardPresets"
+            :key="p.key"
+            type="button"
+            class="rcb-preset-btn"
+            :title="p.description"
+            @click="addAwardFromPreset(p)"
+          >
+            <span class="rcb-preset-icon">{{ p.icon }}</span>
+            <span class="rcb-preset-label">{{ p.label }}</span>
+            <span class="rcb-preset-sub">{{ p.subtitle }}</span>
+          </button>
+        </div>
+      </div>
+
       <!-- ── Import panel ─────────────────────────────────────────── -->
       <div v-if="props.clubId" class="rcb-import-panel">
         <!-- Row 1: Add one from club library (existing) -->
@@ -237,6 +259,27 @@
           <button type="button" class="rcb-icon-btn rcb-remove-btn" @click="removeAward(aw.id)">×</button>
         </div>
 
+        <!-- Assist row: one-click helpers to pick an on-brand icon and a standardized label -->
+        <div class="rcb-assist-row">
+          <button
+            type="button"
+            class="rcb-assist-btn"
+            :disabled="shufflingIconAwardId === aw.id"
+            @click="shuffleAwardIcon(aw)"
+            title="Pick a random icon from the Award sub-category"
+          >
+            {{ shufflingIconAwardId === aw.id ? 'Randomizing…' : '🎲 Random icon' }}
+          </button>
+          <button
+            type="button"
+            class="rcb-assist-btn"
+            @click="suggestAwardLabel(aw)"
+            title="Fill in a standardized label based on the current period, metric, and aggregation"
+          >
+            ✨ Suggest label
+          </button>
+        </div>
+
         <!-- Row 2: Period / Activity type / Metric / Winner by -->
         <div class="rcb-award-settings">
           <div class="rcb-award-field">
@@ -307,7 +350,43 @@
               <option v-if="aw.metric !== 'kudos_received'" value="best_single">Best single workout</option>
               <option v-if="aw.metric !== 'kudos_received'" value="best_day">Best single day</option>
               <option v-if="aw.metric !== 'kudos_received'" value="milestone">Milestone (everyone who reaches target)</option>
+              <option v-if="aw.metric !== 'kudos_received'" value="longest_streak">Longest streak (consecutive days)</option>
+              <option v-if="aw.metric !== 'kudos_received'" value="most_active_days">Most active days</option>
+              <option v-if="aw.metric !== 'kudos_received'" value="perfect_season">Perfect season (everyone who hits daily target)</option>
             </select>
+          </div>
+        </div>
+
+        <!-- Streak-specific configuration: daily threshold that counts a day as "active" for streak awards -->
+        <div v-if="isStreakAggregation(aw.aggregation)" class="rcb-streak-config">
+          <div class="rcb-award-field">
+            <label class="rcb-field-label">Min miles per day (0 = any workout counts)</label>
+            <input
+              v-model.number="aw.streakMinMilesPerDay"
+              type="number"
+              class="rcb-num-input"
+              min="0"
+              step="0.1"
+              placeholder="e.g. 1 or 3"
+              @input="emit_"
+            />
+          </div>
+          <div class="rcb-award-field">
+            <label class="rcb-field-label">Min activities per day</label>
+            <input
+              v-model.number="aw.streakMinActivitiesPerDay"
+              type="number"
+              class="rcb-num-input"
+              min="0"
+              step="1"
+              placeholder="e.g. 1"
+              @input="emit_"
+            />
+          </div>
+          <div class="rcb-panel-hint" style="flex-basis:100%;">
+            <span v-if="aw.aggregation === 'longest_streak'">Winner has the longest unbroken run of qualifying days during the period.</span>
+            <span v-else-if="aw.aggregation === 'most_active_days'">Winner has the most distinct qualifying days during the period.</span>
+            <span v-else-if="aw.aggregation === 'perfect_season'">Everyone who hits the daily threshold on every day of the season earns this award.</span>
           </div>
         </div>
 
@@ -323,6 +402,9 @@
             @input="emit_"
           />
           <span class="rcb-panel-hint" style="margin:0;">Same units as metric. Everyone at or above this total earns the award.</span>
+        </div>
+        <div v-else-if="isStreakAggregation(aw.aggregation)" class="rcb-award-row">
+          <span class="rcb-panel-hint" style="margin:0;">Streak-based awards compute from daily activity — no total target needed.</span>
         </div>
         <div v-else class="rcb-award-row">
           <label class="rcb-field-label">Reference amount (optional)</label>
@@ -391,6 +473,7 @@
 import { ref, computed, watch, nextTick } from 'vue';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl.js';
+import { shuffleLibraryIcon } from '../../composables/useGuidedChallengeDraft.js';
 
 const props = defineProps({
   modelValue: { type: Array, default: () => [] },
@@ -598,7 +681,9 @@ function addAwardFromLibrary(libAward) {
     aggregation: libAward.aggregation || 'most',
     milestoneThreshold: libAward.milestoneThreshold != null ? Number(libAward.milestoneThreshold) : undefined,
     referenceTarget: libAward.referenceTarget != null ? Number(libAward.referenceTarget) : undefined,
-    groupFilter: libAward.groupFilter || ''
+    groupFilter: libAward.groupFilter || '',
+    streakMinMilesPerDay: libAward.streakMinMilesPerDay != null ? Number(libAward.streakMinMilesPerDay) : undefined,
+    streakMinActivitiesPerDay: libAward.streakMinActivitiesPerDay != null ? Number(libAward.streakMinActivitiesPerDay) : undefined
   });
   emit_();
   selectedLibraryAwardId.value = '';
@@ -623,7 +708,9 @@ function addAward() {
     aggregation: 'most',
     milestoneThreshold: undefined,
     referenceTarget: undefined,
-    groupFilter: ''
+    groupFilter: '',
+    streakMinMilesPerDay: undefined,
+    streakMinActivitiesPerDay: undefined
   });
   emit_();
   nextTick(() => {
@@ -649,6 +736,157 @@ watch(awards, (list) => {
 // ── Library selection ─────────────────────────────────────────────
 const selectedLibraryAwardId = ref('');
 const selectedSummitStatsAwardId = ref('');
+
+// ── Standardized award preset drawer (Phase 2) ────────────────────
+// These scaffolds pre-fill period/metric/aggregation/icon so managers can
+// spin up the most common awards in one click. Kept deterministic so the
+// names stay consistent across seasons and clubs.
+const showPresets = ref(false);
+const awardPresets = [
+  {
+    key: '100_mile_club', icon: '💯', label: '100 Mile Club', subtitle: 'Season milestone',
+    description: 'Everyone who logs 100+ miles over the season earns this award.',
+    fields: { period: 'season', metric: 'distance_miles', aggregation: 'milestone', milestoneThreshold: 100 }
+  },
+  {
+    key: '250_mile_club', icon: '🏔️', label: '250 Mile Club', subtitle: 'Season milestone',
+    description: 'Everyone who logs 250+ miles over the season earns this award.',
+    fields: { period: 'season', metric: 'distance_miles', aggregation: 'milestone', milestoneThreshold: 250 }
+  },
+  {
+    key: 'season_miles_leader', icon: '🏆', label: 'Season Miles Leader', subtitle: 'Top miles',
+    description: 'Member with the most total miles over the season.',
+    fields: { period: 'season', metric: 'distance_miles', aggregation: 'most' }
+  },
+  {
+    key: 'season_mvp', icon: '🥇', label: 'Season MVP', subtitle: 'Top points',
+    description: 'Member with the most total points over the season.',
+    fields: { period: 'season', metric: 'points', aggregation: 'most' }
+  },
+  {
+    key: 'weekly_points_leader', icon: '⭐', label: 'Weekly Points Leader', subtitle: 'Top points (weekly)',
+    description: 'Weekly award for the member with the most points this week.',
+    fields: { period: 'weekly', metric: 'points', aggregation: 'most' }
+  },
+  {
+    key: 'most_active_week', icon: '🔥', label: 'Most Active Week', subtitle: 'Top activity count',
+    description: 'Weekly award for the member with the most logged activities.',
+    fields: { period: 'weekly', metric: 'activities_count', aggregation: 'most' }
+  },
+  {
+    key: 'iron_week', icon: '💪', label: 'Iron Week', subtitle: '7-day streak',
+    description: 'Members who log a qualifying activity every single day of the week.',
+    fields: { period: 'weekly', metric: 'activities_count', aggregation: 'longest_streak', streakMinMilesPerDay: 0, streakMinActivitiesPerDay: 1 }
+  },
+  {
+    key: 'perfect_season_one_mile', icon: '🌟', label: 'Perfect Season (1 mi/day)', subtitle: 'Every day, 1+ mile',
+    description: 'Everyone who logs 1+ miles on every day of the season.',
+    fields: { period: 'season', metric: 'distance_miles', aggregation: 'perfect_season', streakMinMilesPerDay: 1, streakMinActivitiesPerDay: 0 }
+  },
+  {
+    key: 'longest_active_streak', icon: '🛤️', label: 'Longest Active Streak', subtitle: 'Consecutive days',
+    description: 'Member with the longest unbroken run of active days during the season.',
+    fields: { period: 'season', metric: 'activities_count', aggregation: 'longest_streak', streakMinMilesPerDay: 0, streakMinActivitiesPerDay: 1 }
+  },
+  {
+    key: 'most_active_days', icon: '📅', label: 'Most Active Days', subtitle: 'Distinct days',
+    description: 'Member with the most distinct active days during the season.',
+    fields: { period: 'season', metric: 'activities_count', aggregation: 'most_active_days', streakMinMilesPerDay: 0, streakMinActivitiesPerDay: 1 }
+  }
+];
+
+function addAwardFromPreset(preset) {
+  const id = `award_${Date.now()}`;
+  cats.value.push({
+    id,
+    type: 'award',
+    icon: preset.icon,
+    label: preset.label,
+    active: true,
+    period: preset.fields.period || 'weekly',
+    monthEndDay: 'last',
+    activityType: '',
+    metric: preset.fields.metric || 'distance_miles',
+    aggregation: preset.fields.aggregation || 'most',
+    milestoneThreshold: preset.fields.milestoneThreshold ?? undefined,
+    referenceTarget: undefined,
+    groupFilter: '',
+    streakMinMilesPerDay: preset.fields.streakMinMilesPerDay ?? undefined,
+    streakMinActivitiesPerDay: preset.fields.streakMinActivitiesPerDay ?? undefined
+  });
+  emit_();
+}
+
+// ── Random icon (Phase 2): scoped to Award sub-category ───────────
+const shufflingIconAwardId = ref(null);
+async function shuffleAwardIcon(aw) {
+  if (!props.clubId) return;
+  if (shufflingIconAwardId.value === aw.id) return;
+  shufflingIconAwardId.value = aw.id;
+  try {
+    const current = isLibraryIcon(aw.icon)
+      ? Number.parseInt(String(aw.icon).replace(/^icon:/i, ''), 10) || null
+      : null;
+    const pick = await shuffleLibraryIcon(props.clubId, { subCategory: 'Award', avoidIconId: current });
+    if (!pick) return;
+    const key = `icon:${pick.id}`;
+    if (pick.url) libraryIconCache.value = { ...libraryIconCache.value, [key]: toUploadsUrl(pick.url) || pick.url };
+    aw.icon = key;
+    emit_();
+  } catch {
+    // swallow — the user can try again or pick manually
+  } finally {
+    shufflingIconAwardId.value = null;
+  }
+}
+
+// ── Suggest label (Phase 2) ───────────────────────────────────────
+// Deterministic lookup — not a creative AI call — so standard awards stay consistent.
+function suggestAwardLabel(aw) {
+  const metric = String(aw.metric || '').toLowerCase();
+  const agg = String(aw.aggregation || '').toLowerCase();
+  const period = String(aw.period || 'weekly').toLowerCase();
+  const periodWord = { weekly: 'Weekly', monthly: 'Monthly', season: 'Season', challenge: 'Challenge' }[period] || 'Season';
+  const metricWord = {
+    points: 'Points',
+    distance_miles: 'Miles',
+    duration_minutes: 'Minutes',
+    activities_count: 'Activities',
+    challenge_completions: 'Challenges',
+    kudos_received: 'Kudos'
+  }[metric] || 'Score';
+
+  let label = '';
+  if (agg === 'milestone') {
+    const threshold = Number(aw.milestoneThreshold) || 100;
+    if (metric === 'distance_miles') label = `${threshold} Mile Club`;
+    else if (metric === 'points') label = `${threshold} Point Club`;
+    else label = `${threshold} ${metricWord} Club`;
+  } else if (agg === 'longest_streak') {
+    label = period === 'weekly' ? 'Iron Week' : 'Longest Active Streak';
+  } else if (agg === 'most_active_days') {
+    label = 'Most Active Days';
+  } else if (agg === 'perfect_season') {
+    label = 'Perfect Season';
+  } else if (agg === 'best_single') {
+    label = `Best Single ${metricWord}`;
+  } else if (agg === 'best_day') {
+    label = `Best Day ${metricWord}`;
+  } else if (agg === 'average') {
+    label = `Average ${metricWord} Leader`;
+  } else if (agg === 'least') {
+    label = `Least ${metricWord}`;
+  } else {
+    label = `${periodWord} ${metricWord} Leader`;
+  }
+  aw.label = label;
+  emit_();
+}
+
+// ── Streak aggregation detection (shared with Phase 5 UI) ─────────
+function isStreakAggregation(agg) {
+  return agg === 'longest_streak' || agg === 'most_active_days' || agg === 'perfect_season';
+}
 
 // ── Tenant award import ───────────────────────────────────────────
 const tenantImportAwards  = ref([]);
@@ -1494,6 +1732,86 @@ function commitActivityType() {
 .rcb-library-select {
   flex: 1;
   min-width: 0;
+}
+
+/* ── Standardized award preset drawer (Phase 2) ──────────────── */
+.rcb-preset-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  margin-bottom: 6px;
+}
+.rcb-preset-toggle {
+  align-self: flex-start;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #9a3412;
+  cursor: pointer;
+}
+.rcb-preset-toggle:hover { background: #ffedd5; }
+.rcb-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 8px;
+}
+.rcb-preset-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.rcb-preset-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(250, 204, 21, 0.25);
+}
+.rcb-preset-icon { font-size: 1.4rem; line-height: 1; }
+.rcb-preset-label { font-size: 0.82rem; font-weight: 700; color: #0f172a; }
+.rcb-preset-sub { font-size: 0.72rem; color: #64748b; }
+
+/* ── Assist row on each award card (random icon + suggest label) ─ */
+.rcb-assist-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 2px;
+}
+.rcb-assist-btn {
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #0369a1;
+  cursor: pointer;
+}
+.rcb-assist-btn:hover:not(:disabled) { background: #e0f2fe; border-color: #7dd3fc; }
+.rcb-assist-btn:disabled { opacity: 0.6; cursor: default; }
+
+/* ── Streak-specific config (Phase 5) ────────────────────────── */
+.rcb-streak-config {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px;
+  background: #ecfeff;
+  border: 1px dashed #67e8f9;
+  border-radius: 8px;
 }
 
 /* ── Save to library footer on each award card ───────────────── */

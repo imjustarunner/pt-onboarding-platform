@@ -745,13 +745,38 @@
           </div>
           <div class="form-group">
             <label>Record board metrics</label>
-            <div class="checkbox-group">
-              <label v-for="opt in recordMetricOptions" :key="`record-metric-${opt.value}`">
-                <input v-model="challengeForm.recordMetrics" type="checkbox" :value="opt.value" />
-                {{ opt.label }}
-              </label>
+            <small>Enable the records you want shown in season and all-time boards. Attach an icon to each record so it gets a distinctive badge in the trophy case and leaderboards.</small>
+            <div class="record-metric-grid">
+              <div
+                v-for="opt in recordMetricOptions"
+                :key="`record-metric-${opt.value}`"
+                class="record-metric-card"
+                :class="{ 'record-metric-card--active': challengeForm.recordMetrics.includes(opt.value) }"
+              >
+                <label class="record-metric-toggle">
+                  <input v-model="challengeForm.recordMetrics" type="checkbox" :value="opt.value" />
+                  <span>{{ opt.label }}</span>
+                </label>
+                <div v-if="challengeForm.recordMetrics.includes(opt.value)" class="record-metric-icon-row">
+                  <span class="record-metric-icon-label">Icon</span>
+                  <IconSelector
+                    :modelValue="getRecordIconId(opt.value)"
+                    :summitStatsClubId="resolvedRecordIconClubId"
+                    :context="`season-record-${opt.value}`"
+                    @update:modelValue="(iconId) => setRecordIcon(opt.value, iconId)"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs record-metric-random-btn"
+                    :disabled="recordIconShufflingKey === opt.value"
+                    @click="shuffleRecordIcon(opt.value)"
+                    title="Pick a random icon from the Award sub-category"
+                  >
+                    {{ recordIconShufflingKey === opt.value ? 'Randomizing…' : '🎲 Random' }}
+                  </button>
+                </div>
+              </div>
             </div>
-            <small>Select the records you want shown in season and all-time boards.</small>
           </div>
           <!-- Season Branding: Banner + Logo -->
           <div class="form-section season-branding-section">
@@ -2010,6 +2035,78 @@ const normalizeRecordMetricSelection = (raw) => {
     .filter((v) => recordMetricOptionSet.has(v));
 };
 
+/**
+ * Phase 3: read a {key, icon} array from season settings into a lookup map.
+ * Falls back to an empty object if the new shape is missing.
+ */
+const normalizeRecordIconMap = (metricsWithIcons) => {
+  const map = {};
+  if (!Array.isArray(metricsWithIcons)) return map;
+  for (const row of metricsWithIcons) {
+    if (!row || typeof row !== 'object') continue;
+    const key = String(row.key || '').trim();
+    if (!key || !recordMetricOptionSet.has(key)) continue;
+    const icon = row.icon ? String(row.icon).trim() : '';
+    if (icon) map[key] = icon;
+  }
+  return map;
+};
+
+const serializeRecordIconMap = (iconMap, selectedKeys) => {
+  const arr = [];
+  const keys = Array.isArray(selectedKeys) ? selectedKeys : [];
+  for (const key of keys) {
+    if (!recordMetricOptionSet.has(key)) continue;
+    const icon = iconMap && typeof iconMap === 'object' ? iconMap[key] : null;
+    if (icon) arr.push({ key, icon: String(icon) });
+  }
+  return arr;
+};
+
+// Reactive state for record icons: shape is { [recordKey]: 'icon:<id>' }
+const recordIconShufflingKey = ref(null);
+
+const resolvedRecordIconClubId = computed(() => {
+  return Number.parseInt(String(organizationId.value || ''), 10) || null;
+});
+
+const getRecordIconId = (key) => {
+  const raw = challengeForm.value?.recordIcons?.[key];
+  if (!raw || typeof raw !== 'string') return null;
+  const m = raw.match(/^icon:(\d+)$/);
+  return m ? Number(m[1]) : null;
+};
+
+const setRecordIcon = (key, iconId) => {
+  if (!challengeForm.value) return;
+  if (!challengeForm.value.recordIcons || typeof challengeForm.value.recordIcons !== 'object') {
+    challengeForm.value.recordIcons = {};
+  }
+  if (iconId == null || iconId === '' || Number.isNaN(Number(iconId))) {
+    delete challengeForm.value.recordIcons[key];
+  } else {
+    challengeForm.value.recordIcons[key] = `icon:${Number(iconId)}`;
+  }
+};
+
+const shuffleRecordIcon = async (key) => {
+  const clubId = resolvedRecordIconClubId.value;
+  if (!clubId) return;
+  if (recordIconShufflingKey.value === key) return;
+  recordIconShufflingKey.value = key;
+  try {
+    const { shuffleLibraryIcon } = await import('../../composables/useGuidedChallengeDraft.js');
+    const current = getRecordIconId(key);
+    const pick = await shuffleLibraryIcon(clubId, { subCategory: 'Award', avoidIconId: current });
+    if (!pick) return;
+    setRecordIcon(key, pick.id);
+  } catch {
+    // swallow — user can retry or pick manually
+  } finally {
+    recordIconShufflingKey.value = null;
+  }
+};
+
 const loading = ref(false);
 const error = ref('');
 const challenges = ref([]);
@@ -2184,7 +2281,8 @@ const challengeForm = ref({
   autoImportEnabled: false,
   dailyDeadlineTime: '23:59',
   showInClubFeed: true,
-  recordMetrics: []
+  recordMetrics: [],
+  recordIcons: {}
 });
 
 const weeklyTasksWeek = ref(getThisWeekSunday());
@@ -3277,7 +3375,8 @@ const openCreateModal = () => {
     autoImportEnabled: false,
     dailyDeadlineTime: '23:59',
     showInClubFeed: true,
-    recordMetrics: []
+    recordMetrics: [],
+    recordIcons: {}
   };
   challengeFormSnapshotJson.value = JSON.stringify(challengeForm.value || {});
   showChallengeModal.value = true;
@@ -3407,7 +3506,8 @@ const openEditModal = async (c) => {
       : null,
     workoutModerationMode: moderationSettings.mode || 'treadmill_only',
     showInClubFeed: seasonSettings?.feedSettings?.showInClubFeed !== false,
-    recordMetrics: normalizeRecordMetricSelection(recordsSettings.metrics)
+    recordMetrics: normalizeRecordMetricSelection(recordsSettings.metrics),
+    recordIcons: normalizeRecordIconMap(recordsSettings.metricsWithIcons)
   };
   challengeFormSnapshotJson.value = JSON.stringify(challengeForm.value || {});
   showChallengeModal.value = true;
@@ -3606,7 +3706,11 @@ const saveChallenge = async () => {
           showInClubFeed: challengeForm.value.showInClubFeed !== false
         },
         records: {
-          metrics: normalizeRecordMetricSelection(challengeForm.value.recordMetrics)
+          metrics: normalizeRecordMetricSelection(challengeForm.value.recordMetrics),
+          metricsWithIcons: serializeRecordIconMap(
+            challengeForm.value.recordIcons || {},
+            normalizeRecordMetricSelection(challengeForm.value.recordMetrics)
+          )
         },
         challengePublish: {
           tasksPerWeek: Number(challengeForm.value.tasksPerWeek ?? 3),
@@ -5212,6 +5316,53 @@ onMounted(async () => {
   gap: 6px;
   font-weight: normal;
   cursor: pointer;
+}
+.record-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+.record-metric-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  transition: border-color 0.15s, background 0.15s;
+}
+.record-metric-card--active {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+.record-metric-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+.record-metric-icon-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed #dbe3ef;
+}
+.record-metric-icon-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+}
+.record-metric-random-btn {
+  font-size: 0.72rem;
 }
 .profiles-list {
   display: flex;

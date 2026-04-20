@@ -4092,6 +4092,79 @@ export const getMyDashboardSummary = async (req, res, next) => {
       // caller from seeing their own clubs because of a stale URL param.
     }
 
+    // Phase 4 (Trophy Case): pull the caller's recent award grants + aggregate
+    // lifetime counts so the dashboard can surface a "My Awards & Records"
+    // section. Scoped to the active club filter when present. Forward-only —
+    // older weeks that were closed before migration 734 simply won't appear.
+    let recentAwards = [];
+    let awardTotals = { lifetimeCount: 0, distinctLabels: 0 };
+    try {
+      const recentParams = [userId];
+      let scopeSql = '';
+      if (clubIdFilter) {
+        scopeSql = ` AND c.organization_id = ?`;
+        recentParams.push(clubIdFilter);
+      }
+      const [awardRows] = await pool.execute(
+        `SELECT g.id, g.learning_class_id AS class_id, g.category_id, g.label, g.icon,
+                g.period, g.metric, g.aggregation, g.week_start_date, g.metric_value,
+                g.details_json, g.granted_at,
+                c.class_name, c.organization_id AS club_id, a.name AS club_name, a.slug AS club_slug
+         FROM challenge_member_award_grants g
+         INNER JOIN learning_program_classes c ON c.id = g.learning_class_id
+         INNER JOIN agencies a ON a.id = c.organization_id
+         WHERE g.user_id = ?${scopeSql}
+         ORDER BY g.granted_at DESC, g.id DESC
+         LIMIT 20`,
+        recentParams
+      );
+      recentAwards = (awardRows || []).map((r) => {
+        let details = null;
+        try { details = r.details_json ? (typeof r.details_json === 'string' ? JSON.parse(r.details_json) : r.details_json) : null; } catch { details = null; }
+        return {
+          id: Number(r.id),
+          classId: Number(r.class_id),
+          categoryId: r.category_id,
+          label: r.label,
+          icon: r.icon || null,
+          period: r.period,
+          metric: r.metric || null,
+          aggregation: r.aggregation,
+          weekStartDate: r.week_start_date ? String(r.week_start_date).slice(0, 10) : null,
+          metricValue: r.metric_value != null ? Number(r.metric_value) : null,
+          grantedAt: r.granted_at || null,
+          seasonName: r.class_name || null,
+          clubId: Number(r.club_id),
+          clubName: r.club_name || '',
+          clubSlug: r.club_slug || '',
+          details
+        };
+      });
+
+      const countParams = [userId];
+      let countScope = '';
+      if (clubIdFilter) {
+        countScope = ` AND c.organization_id = ?`;
+        countParams.push(clubIdFilter);
+      }
+      const [countRows] = await pool.execute(
+        `SELECT COUNT(*) AS lifetime_count, COUNT(DISTINCT g.label) AS distinct_labels
+         FROM challenge_member_award_grants g
+         INNER JOIN learning_program_classes c ON c.id = g.learning_class_id
+         WHERE g.user_id = ?${countScope}`,
+        countParams
+      );
+      awardTotals = {
+        lifetimeCount: Number(countRows?.[0]?.lifetime_count || 0),
+        distinctLabels: Number(countRows?.[0]?.distinct_labels || 0)
+      };
+    } catch (awardErr) {
+      // Table may not exist in environments that haven't run migration 734 —
+      // treat as empty so the dashboard still renders.
+      recentAwards = [];
+      awardTotals = { lifetimeCount: 0, distinctLabels: 0 };
+    }
+
     return res.json({
       member: {
         userId,
@@ -4162,8 +4235,103 @@ export const getMyDashboardSummary = async (req, res, next) => {
         homeCity: user.home_city || null,
         homeState: user.home_state || null,
         homePostalCode: user.home_postal_code || null
+      },
+      awards: {
+        recent: recentAwards,
+        totals: awardTotals
       }
     });
+  } catch (e) { next(e); }
+};
+
+/**
+ * GET /summit-stats/me/awards
+ * Full paginated trophy-case listing for the caller. Groups grants by label so
+ * the frontend can show each award with its count + list of seasons, similar
+ * to the Apple Fitness awards UI. Optional ?clubId=N narrows to one club.
+ */
+export const getMyAwards = async (req, res, next) => {
+  try {
+    const userId = toInt(req.user?.id);
+    if (!userId) return res.status(401).json({ error: { message: 'Sign in required' } });
+    const clubIdFilter = toInt(req.query?.clubId) || null;
+
+    const params = [userId];
+    let scopeSql = '';
+    if (clubIdFilter) {
+      scopeSql = ` AND c.organization_id = ?`;
+      params.push(clubIdFilter);
+    }
+
+    let rows = [];
+    try {
+      const [grants] = await pool.execute(
+        `SELECT g.id, g.learning_class_id AS class_id, g.category_id, g.label, g.icon,
+                g.period, g.metric, g.aggregation, g.week_start_date, g.metric_value,
+                g.details_json, g.granted_at,
+                c.class_name, c.starts_at, c.ends_at,
+                c.organization_id AS club_id, a.name AS club_name, a.slug AS club_slug
+         FROM challenge_member_award_grants g
+         INNER JOIN learning_program_classes c ON c.id = g.learning_class_id
+         INNER JOIN agencies a ON a.id = c.organization_id
+         WHERE g.user_id = ?${scopeSql}
+         ORDER BY g.granted_at DESC, g.id DESC`,
+        params
+      );
+      rows = grants || [];
+    } catch (err) {
+      // Migration 734 not yet applied — surface an empty trophy case.
+      return res.json({ awards: [], totals: { lifetimeCount: 0, distinctLabels: 0 } });
+    }
+
+    // Group by (label + icon) so repeats of the same award ("100 Mile Club")
+    // collapse into a single card with a list of when/where it was earned.
+    const buckets = new Map();
+    for (const r of rows) {
+      const key = `${String(r.label || '').toLowerCase().trim()}__${String(r.icon || '')}`;
+      if (!buckets.has(key)) {
+        buckets.set(key, {
+          label: r.label,
+          icon: r.icon || null,
+          metric: r.metric || null,
+          aggregation: r.aggregation || null,
+          count: 0,
+          latestGrantedAt: null,
+          grants: []
+        });
+      }
+      const bucket = buckets.get(key);
+      bucket.count += 1;
+      const grantedAt = r.granted_at || null;
+      if (grantedAt && (!bucket.latestGrantedAt || new Date(grantedAt) > new Date(bucket.latestGrantedAt))) {
+        bucket.latestGrantedAt = grantedAt;
+      }
+      let details = null;
+      try { details = r.details_json ? (typeof r.details_json === 'string' ? JSON.parse(r.details_json) : r.details_json) : null; } catch { details = null; }
+      bucket.grants.push({
+        id: Number(r.id),
+        classId: Number(r.class_id),
+        seasonName: r.class_name || null,
+        seasonStartsAt: r.starts_at || null,
+        seasonEndsAt: r.ends_at || null,
+        period: r.period || null,
+        weekStartDate: r.week_start_date ? String(r.week_start_date).slice(0, 10) : null,
+        metricValue: r.metric_value != null ? Number(r.metric_value) : null,
+        grantedAt,
+        clubId: Number(r.club_id),
+        clubName: r.club_name || '',
+        clubSlug: r.club_slug || '',
+        details
+      });
+    }
+
+    const awards = Array.from(buckets.values())
+      .sort((a, b) => (new Date(b.latestGrantedAt || 0)) - (new Date(a.latestGrantedAt || 0)));
+    const totals = {
+      lifetimeCount: rows.length,
+      distinctLabels: awards.length
+    };
+    return res.json({ awards, totals });
   } catch (e) { next(e); }
 };
 

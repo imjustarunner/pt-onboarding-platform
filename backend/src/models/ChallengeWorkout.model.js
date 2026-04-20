@@ -834,6 +834,164 @@ class ChallengeWorkout {
               return Number.isFinite(n) && n >= 0 ? n : null;
             })();
 
+      // Phase 5: streak aggregations — compute daily activity per user within
+      // the period, then evaluate in JS. These share the joinClause/whereExtra
+      // already resolved for the current gender variant / group filter.
+      if (
+        aggregation === 'longest_streak' ||
+        aggregation === 'most_active_days' ||
+        aggregation === 'perfect_season'
+      ) {
+        const minMiles = Number(cat.streakMinMilesPerDay);
+        const minActivities = Number(cat.streakMinActivitiesPerDay);
+        const milesThreshold = Number.isFinite(minMiles) && minMiles > 0 ? minMiles : 0;
+        const activitiesThreshold = Number.isFinite(minActivities) && minActivities > 0
+          ? minActivities
+          : (milesThreshold > 0 ? 0 : 1); // if neither is set, require 1 activity by default
+
+        const dayAggSql = `
+          SELECT w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name,
+                 DATE(w.completed_at) AS activity_day,
+                 COALESCE(SUM(w.distance_value), 0) AS day_miles,
+                 COUNT(w.id) AS day_count
+          FROM challenge_workouts w
+          INNER JOIN users u ON u.id = w.user_id
+          LEFT JOIN challenge_teams t ON t.id = w.team_id
+          ${joinClause}
+          WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')} AND w.completed_at >= ? AND w.completed_at < ?
+            ${whereExtra}
+          GROUP BY w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name, DATE(w.completed_at)
+          ORDER BY w.user_id, activity_day`;
+
+        try {
+          const [dayRows] = await pool.execute(dayAggSql, params);
+          // Group daily totals per user.
+          const byUser = new Map();
+          for (const r of dayRows || []) {
+            const uid = Number(r.user_id);
+            if (!byUser.has(uid)) {
+              byUser.set(uid, {
+                user_id: uid,
+                first_name: r.first_name,
+                last_name: r.last_name,
+                profile_photo_path: r.profile_photo_path || null,
+                team_name: r.team_name,
+                days: []
+              });
+            }
+            byUser.get(uid).days.push({
+              day: String(r.activity_day).slice(0, 10),
+              miles: Number(r.day_miles || 0),
+              count: Number(r.day_count || 0)
+            });
+          }
+
+          const qualifies = (d) => (d.miles >= milesThreshold) && (d.count >= activitiesThreshold);
+
+          // Total days in the configured period (used for perfect_season).
+          const periodTotalDays = (() => {
+            try {
+              const start = new Date(rangeStart);
+              const end = new Date(rangeEnd);
+              const ms = end.getTime() - start.getTime();
+              return Math.max(0, Math.round(ms / (1000 * 60 * 60 * 24)));
+            } catch { return 0; }
+          })();
+
+          // Compute per-user streak metric in JS.
+          const scored = [];
+          for (const user of byUser.values()) {
+            const qualifyingDays = new Set(user.days.filter(qualifies).map((d) => d.day));
+            if (!qualifyingDays.size) continue;
+            let metricValue = 0;
+            if (aggregation === 'most_active_days') {
+              metricValue = qualifyingDays.size;
+            } else if (aggregation === 'longest_streak' || aggregation === 'perfect_season') {
+              const sortedDays = Array.from(qualifyingDays).sort();
+              let longest = 0;
+              let current = 0;
+              let prev = null;
+              for (const d of sortedDays) {
+                if (!prev) {
+                  current = 1;
+                } else {
+                  const dayMs = 24 * 60 * 60 * 1000;
+                  const gap = (new Date(d).getTime() - new Date(prev).getTime()) / dayMs;
+                  current = gap === 1 ? current + 1 : 1;
+                }
+                if (current > longest) longest = current;
+                prev = d;
+              }
+              metricValue = longest;
+            }
+            scored.push({ user, metricValue, qualifyingDaysCount: qualifyingDays.size });
+          }
+
+          if (aggregation === 'perfect_season') {
+            // Everyone who hit the daily threshold on every single day of the period.
+            const winners = scored
+              .filter((s) => periodTotalDays > 0 && s.qualifyingDaysCount >= periodTotalDays)
+              .map((s) => ({
+                user_id: s.user.user_id,
+                first_name: s.user.first_name,
+                last_name: s.user.last_name,
+                profile_photo_path: s.user.profile_photo_path,
+                team_name: s.user.team_name,
+                value: s.qualifyingDaysCount
+              }));
+            results.push({
+              categoryId: cat.id,
+              label: displayLabel,
+              icon: cat.icon || null,
+              period,
+              metric,
+              aggregation,
+              milestoneThreshold: null,
+              referenceTarget: periodTotalDays || null,
+              winner: null,
+              winners
+            });
+          } else {
+            scored.sort((a, b) => b.metricValue - a.metricValue);
+            const top = scored[0] || null;
+            results.push({
+              categoryId: cat.id,
+              label: displayLabel,
+              icon: cat.icon || null,
+              period,
+              metric,
+              aggregation,
+              referenceTarget: referenceTargetOut,
+              winner: top
+                ? {
+                    user_id: top.user.user_id,
+                    first_name: top.user.first_name,
+                    last_name: top.user.last_name,
+                    profile_photo_path: top.user.profile_photo_path,
+                    team_name: top.user.team_name,
+                    value: Number(top.metricValue)
+                  }
+                : null
+            });
+          }
+        } catch (err) {
+          // Swallow streak-computation failures so one bad category doesn't abort close-week.
+          results.push({
+            categoryId: cat.id,
+            label: displayLabel,
+            icon: cat.icon || null,
+            period,
+            metric,
+            aggregation,
+            referenceTarget: null,
+            winner: null,
+            winners: [],
+            error: err?.message || String(err)
+          });
+        }
+        continue; // skip the remaining SQL-building branch for this gender variant
+      }
+
       // For best_day we need a two-level GROUP BY:
       // 1) sum per user+day, 2) take the max day per user.
       let sql;
