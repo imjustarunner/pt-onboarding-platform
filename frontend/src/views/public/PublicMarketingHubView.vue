@@ -1455,7 +1455,7 @@ const skillbuildersSessionPickerVisible = computed(
     hubSlug.value === 'skillbuilders' &&
     !!skillbuildersJourneyChoice.value &&
     !skillbuildersAudienceGateVisible.value &&
-    skillbuildersSessionRows.value.length > 1
+    skillbuildersSessionRows.value.length > 0
 );
 
 function isSkillbuildersListingSessionActive(row) {
@@ -1573,6 +1573,30 @@ watch(
     const r = rows[0];
     skillbuildersListingSessionLabel.value = String(r.publicSessionLabel || '').trim();
     skillbuildersListingSessionDateRange.value = String(r.publicSessionDateRange || '').trim();
+  },
+  { immediate: true }
+);
+
+/** Auto-select the Skill Builders path when only one has any events (skip the gate). */
+watch(
+  () => [
+    hubSlug.value,
+    skillbuildersAudienceGateVisible.value,
+    skillbuildersJourneyPaths.value,
+    events.value,
+    skillbuildersOfficeSources.value
+  ],
+  () => {
+    if (hubSlug.value !== 'skillbuilders') return;
+    if (!skillbuildersAudienceGateVisible.value) return;
+    const all = events.value || [];
+    if (!all.length) return;
+    const officeSrc = skillbuildersOfficeSources.value;
+    const viable = (skillbuildersJourneyPaths.value || []).filter((p) =>
+      all.some((ev) => eventMatchesSkillbuildersPath(ev, p, officeSrc))
+    );
+    if (viable.length !== 1) return;
+    chooseSkillbuildersAudiencePath(viable[0].id);
   },
   { immediate: true }
 );
@@ -3587,7 +3611,7 @@ watch(hubSlug, () => {
   border-radius: 14px;
   flex: 1 1 210px;
   min-width: min(210px, 100%);
-  padding: 12px 16px;
+  padding: 14px 18px;
   text-align: left;
   border-width: 2px;
   background: #fff;
@@ -3611,11 +3635,11 @@ watch(hubSlug, () => {
 
 .pmh-chip-session-title {
   font-weight: 800;
-  font-size: 1rem;
+  font-size: 1.1rem;
 }
 
 .pmh-chip-session-sub {
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   font-weight: 600;
   color: var(--hub-text-muted);
 }
@@ -4173,14 +4197,14 @@ watch(hubSlug, () => {
 .sb-skillbuilders-sessions-title {
   margin: 0 0 6px;
   font-weight: 800;
-  font-size: 1rem;
+  font-size: 1.1rem;
   color: var(--hub-text, #0f172a);
   font-family: var(--hub-font-display, inherit);
 }
 
 .sb-skillbuilders-sessions-hint {
   margin: 0 0 12px;
-  font-size: 0.86rem;
+  font-size: 0.95rem;
   line-height: 1.45;
   color: var(--hub-text-muted, #475569);
 }
@@ -4197,7 +4221,7 @@ watch(hubSlug, () => {
   background: color-mix(in srgb, #ffffff 92%, rgba(163, 38, 35, 0.06));
   color: var(--hub-link-dark, #7a1f1d);
   border-radius: 14px;
-  padding: 12px 16px;
+  padding: 14px 18px;
   cursor: pointer;
   text-align: left;
   min-width: min(210px, 100%);
@@ -4230,13 +4254,13 @@ watch(hubSlug, () => {
 .sb-skillbuilders-session-chip-title {
   display: block;
   font-weight: 800;
-  font-size: 1rem;
+  font-size: 1.1rem;
 }
 
 .sb-skillbuilders-session-chip-sub {
   display: block;
   margin-top: 4px;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   font-weight: 600;
   color: color-mix(in srgb, var(--hub-text, #0f172a) 72%, #64748b);
 }
