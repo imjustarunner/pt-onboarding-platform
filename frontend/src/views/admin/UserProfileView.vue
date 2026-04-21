@@ -2546,8 +2546,67 @@
         <div v-if="activeTab === 'preferences' && isViewingGuardian" class="tab-panel">
           <h2>Communication Preferences</h2>
           <p class="section-description" style="margin-top: -6px;">
-            How this guardian prefers to be contacted. These answers are sourced from their intake submissions per linked client.
+            Guardian-level delivery settings below control how notifications are sent to this guardian account. Intake answers per linked client are shown for reference.
           </p>
+
+          <!-- Guardian-level delivery preferences (drives notifications) -->
+          <div class="card" style="padding: 16px; margin-bottom: 14px;">
+            <h3 style="margin: 0 0 6px;">Notification delivery (guardian account)</h3>
+            <p class="hint" style="margin-top: 0;">
+              Notifications are delivered to the guardian user (not the client). These settings apply across all linked clients.
+            </p>
+
+            <div v-if="guardianDeliveryPrefsLoading" class="loading">Loading delivery settings…</div>
+            <div v-else>
+              <div v-if="guardianDeliveryPrefsError" class="error" style="margin-bottom: 10px;">{{ guardianDeliveryPrefsError }}</div>
+
+              <div class="comm-pref-row">
+                <span class="comm-pref-label">In-app notifications</span>
+                <span class="comm-pref-value"><strong>Required</strong></span>
+              </div>
+              <div class="comm-pref-row">
+                <span class="comm-pref-label">Email notifications</span>
+                <span class="comm-pref-value">
+                  <label class="field checkbox" style="margin: 0;">
+                    <input type="checkbox" v-model="guardianDeliveryPrefs.email_enabled" :disabled="!canEditUser || guardianDeliveryPrefsSaving" />
+                    Enabled
+                  </label>
+                </span>
+              </div>
+              <div class="comm-pref-row">
+                <span class="comm-pref-label">SMS / text notifications</span>
+                <span class="comm-pref-value">
+                  <label class="field checkbox" style="margin: 0;">
+                    <input type="checkbox" v-model="guardianDeliveryPrefs.sms_enabled" :disabled="!canEditUser || guardianDeliveryPrefsSaving" />
+                    Enabled
+                  </label>
+                </span>
+              </div>
+
+              <div style="display:flex; gap: 10px; align-items:center; margin-top: 12px; flex-wrap: wrap;">
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  :disabled="!canEditUser || guardianDeliveryPrefsSaving"
+                  @click="saveGuardianDeliveryPrefs"
+                >
+                  {{ guardianDeliveryPrefsSaving ? 'Saving…' : 'Save delivery settings' }}
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="!canEditUser || guardianDeliveryPrefsSaving || guardianLinkedClientsLoading || guardianLinkedClients.length === 0"
+                  @click="applyGuardianDeliveryPrefsFromIntake"
+                  title="Use the latest intake communication preferences to set delivery toggles"
+                >
+                  Use intake answers
+                </button>
+                <span v-if="!guardianDeliveryPrefsExists" class="muted" style="font-size: 13px;">
+                  No saved guardian preferences yet — defaults shown until saved.
+                </span>
+              </div>
+            </div>
+          </div>
 
           <div v-if="guardianLinkedClientsLoading" class="loading">Loading preferences…</div>
           <div v-else-if="guardianLinkedClients.length === 0" class="empty-state">
@@ -2950,6 +3009,18 @@ const guardianCommPrefsLoading = ref({});
 
 // Guardian insurance info (keyed by client_id)
 const guardianInsuranceByClient = ref({});
+
+// Guardian delivery preferences (user_preferences) — drives notification delivery for guardian accounts
+const guardianDeliveryPrefs = ref({
+  email_enabled: true,
+  sms_enabled: false,
+  in_app_enabled: true,
+});
+const guardianDeliveryPrefsLoading = ref(false);
+const guardianDeliveryPrefsSaving = ref(false);
+const guardianDeliveryPrefsError = ref('');
+const guardianDeliveryPrefsExists = ref(false);
+let guardianDeliveryPrefsAutoSynced = false;
 
 const insuranceSlotFromFieldKey = (key) => {
   const m = String(key || '').match(/^insurance__(primary|secondary)_(front|back)_url$/i);
@@ -3416,6 +3487,106 @@ const loadGuardianCommPrefsForClient = async (clientId) => {
   } finally {
     guardianCommPrefsLoading.value = { ...guardianCommPrefsLoading.value, [clientId]: false };
   }
+};
+
+const loadGuardianDeliveryPrefs = async () => {
+  if (!userId.value || !isViewingGuardian.value) return;
+  guardianDeliveryPrefsLoading.value = true;
+  guardianDeliveryPrefsError.value = '';
+  try {
+    const r = await api.get(`/users/${userId.value}/preferences`);
+    const data = r?.data || {};
+    guardianDeliveryPrefsExists.value = !!(data?.user_id || data?.userId);
+    guardianDeliveryPrefs.value = {
+      email_enabled: data?.email_enabled !== false,
+      sms_enabled: data?.sms_enabled === true,
+      in_app_enabled: true,
+    };
+  } catch (e) {
+    guardianDeliveryPrefsError.value = e.response?.data?.error?.message || 'Failed to load delivery settings';
+  } finally {
+    guardianDeliveryPrefsLoading.value = false;
+  }
+};
+
+const saveGuardianDeliveryPrefs = async () => {
+  if (!userId.value || !isViewingGuardian.value) return;
+  if (!canEditUser.value) return;
+  guardianDeliveryPrefsSaving.value = true;
+  guardianDeliveryPrefsError.value = '';
+  try {
+    await api.put(`/users/${userId.value}/preferences`, {
+      email_enabled: guardianDeliveryPrefs.value.email_enabled === true,
+      sms_enabled: guardianDeliveryPrefs.value.sms_enabled === true,
+      in_app_enabled: true,
+    });
+    guardianDeliveryPrefsExists.value = true;
+  } catch (e) {
+    guardianDeliveryPrefsError.value = e.response?.data?.error?.message || 'Failed to save delivery settings';
+  } finally {
+    guardianDeliveryPrefsSaving.value = false;
+  }
+};
+
+const parseYesNoLike = (raw) => {
+  const s = String(raw ?? '').trim().toLowerCase();
+  if (!s) return null;
+  if (s === 'yes' || s === 'true' || s === '1') return true;
+  if (s === 'no' || s === 'false' || s === '0') return false;
+  // Common structured variants from intake comm prefs
+  if (s === 'scheduling_only' || s === 'scheduling only' || s === 'schedulingonly') return true;
+  if (s.startsWith('yes_')) return true;
+  if (s.startsWith('no_')) return false;
+  return null;
+};
+
+const deriveGuardianDeliveryPrefsFromIntake = () => {
+  const byClient = guardianCommPrefs.value || {};
+  const all = [];
+  for (const cid of Object.keys(byClient)) {
+    const rows = byClient[cid];
+    if (Array.isArray(rows)) all.push(...rows);
+  }
+  if (!all.length) return null;
+
+  const pick = (predicate) => {
+    for (const f of all) {
+      if (!f) continue;
+      if (predicate(f)) {
+        const v = parseYesNoLike(f.value);
+        if (v !== null) return v;
+      }
+    }
+    return null;
+  };
+
+  const email = pick((f) => String(f.key || '').toLowerCase().includes('emailpreference') || /\bemail\b/i.test(String(f.label || '')));
+  const sms = pick((f) => String(f.key || '').toLowerCase().includes('smspreference') || /\b(sms|text)\b/i.test(String(f.label || '')));
+
+  if (email === null && sms === null) return null;
+  return {
+    email_enabled: email === null ? guardianDeliveryPrefs.value.email_enabled : email,
+    sms_enabled: sms === null ? guardianDeliveryPrefs.value.sms_enabled : sms,
+  };
+};
+
+const applyGuardianDeliveryPrefsFromIntake = async () => {
+  const next = deriveGuardianDeliveryPrefsFromIntake();
+  if (!next) return;
+  guardianDeliveryPrefs.value = { ...guardianDeliveryPrefs.value, ...next, in_app_enabled: true };
+  // Save immediately (admin intent)
+  await saveGuardianDeliveryPrefs();
+};
+
+const maybeAutoSyncGuardianDeliveryPrefsFromIntake = async () => {
+  if (!isViewingGuardian.value) return;
+  if (guardianDeliveryPrefsExists.value) return;
+  if (guardianDeliveryPrefsAutoSynced) return;
+  const next = deriveGuardianDeliveryPrefsFromIntake();
+  if (!next) return;
+  guardianDeliveryPrefsAutoSynced = true;
+  guardianDeliveryPrefs.value = { ...guardianDeliveryPrefs.value, ...next, in_app_enabled: true };
+  await saveGuardianDeliveryPrefs();
 };
 
 const searchGuardianClients = async () => {
@@ -4399,29 +4570,35 @@ watch(() => accountForm.value.role, (newRole) => {
   }
 });
 
-watch(activeTab, async (t) => {
-  if (t === 'account' && isViewingGuardian.value) {
+watch([activeTab, isViewingGuardian], async ([t, viewingGuardian]) => {
+  // NOTE: On initial mount, `activeTab` is already set (often "account"), but `user` isn't loaded yet.
+  // This watch includes `isViewingGuardian` so we still load linked clients/insurance once the target
+  // profile resolves as a guardian account.
+  if (t === 'account' && viewingGuardian) {
     if (guardianLinkedClients.value.length === 0) await loadGuardianLinkedClients();
     // Load insurance + communication prefs from linked client intakes
     for (const client of guardianLinkedClients.value) {
       loadGuardianCommPrefsForClient(client.client_id);
     }
+    // Delivery settings are guardian-level (user_preferences)
+    await loadGuardianDeliveryPrefs();
     return;
   }
-  if (t === 'linked_clients' && isViewingGuardian.value) {
+  if (t === 'linked_clients' && viewingGuardian) {
     await loadGuardianLinkedClients();
     return;
   }
-  if ((t === 'assignments' || t === 'preferences') && isViewingGuardian.value) {
+  if ((t === 'assignments' || t === 'preferences') && viewingGuardian) {
     if (guardianLinkedClients.value.length === 0) await loadGuardianLinkedClients();
     if (t === 'preferences') {
+      await loadGuardianDeliveryPrefs();
       for (const client of guardianLinkedClients.value) {
         loadGuardianCommPrefsForClient(client.client_id);
       }
     }
     return;
   }
-  if (t === 'events' && isViewingGuardian.value) {
+  if (t === 'events' && viewingGuardian) {
     await loadGuardianEvents();
     return;
   }
@@ -4436,7 +4613,7 @@ watch(activeTab, async (t) => {
     await loadSchoolAssignments();
     syncProviderSchoolBlurbFromUser();
   }
-});
+}, { immediate: true });
 
 watch([isSscMemberProfileMode, selectedClubIdForMemberProfile], async ([enabled, clubId]) => {
   if (!enabled || !clubId || !userId.value) return;
@@ -4450,6 +4627,12 @@ watch(guardianLinkedClients, (clients) => {
     }
   }
 });
+
+watch(guardianCommPrefs, () => {
+  if (isViewingGuardian.value) {
+    void maybeAutoSyncGuardianDeliveryPrefsFromIntake();
+  }
+}, { deep: true });
 
 let guardianClientSearchTimer = null;
 watch(guardianClientQuery, (q) => {

@@ -295,48 +295,131 @@ const loadRegistrationEventFieldPlaceholders = async (intakeData, link) => {
     EVENT_DATES: '',
     EVENT_ADDRESS: '',
     EVENT_REPORT_TIME: '',
-    EVENT_DURATION: ''
+    EVENT_DURATION: '',
+    // Optional: derived from company_event_session_dates
+    EVENT_SESSIONS: ''
   };
   try {
     const evSel = normalizeRegistrationSelections(intakeData).find(
       (s) => registrationEntityType(s) === 'company_event'
     );
-    // intake_links has no agency_id column — its organization_id IS the
-    // agency for intake-scoped links. Falling back to organization_id is
-    // critical here: without it this lookup silently returns null and the
-    // ticket PDF/email render "EVENT #<id>" with no date/address.
+    if (!evSel?.entityId) return empty;
+    const eventId = Number(evSel.entityId);
+    if (!eventId) return empty;
+
+    // Prefer scoped lookup when we can, but DO NOT fail hard if the intake link
+    // is school-scoped (organization_id != agency_id). In those cases the strict
+    // agency filter makes placeholders silently empty and the packet shows
+    // "EVENT #<id>" despite the event having a title.
     const aid = Number(link?.agency_id || link?.organization_id || 0) || null;
-    if (!evSel?.entityId || !aid) return empty;
-    const [rows] = await pool.execute(
-      `SELECT title, starts_at, ends_at, timezone,
-              public_location_address, event_location_name, event_location_address
-       FROM company_events
-       WHERE id = ? AND agency_id = ?
-       LIMIT 1`,
-      [Number(evSel.entityId), aid]
-    );
-    const er = rows?.[0];
+    let er = null;
+    try {
+      if (aid) {
+        const [rows] = await pool.execute(
+          `SELECT title, starts_at, ends_at, timezone,
+                  public_location_address, event_location_name, event_location_address
+           FROM company_events
+           WHERE id = ? AND agency_id = ?
+           LIMIT 1`,
+          [eventId, aid]
+        );
+        er = rows?.[0] || null;
+      }
+    } catch {
+      // fall through
+    }
+    if (!er) {
+      const [rows2] = await pool.execute(
+        `SELECT title, starts_at, ends_at, timezone,
+                public_location_address, event_location_name, event_location_address
+         FROM company_events
+         WHERE id = ?
+         LIMIT 1`,
+        [eventId]
+      );
+      er = rows2?.[0] || null;
+    }
     if (!er) return empty;
+
     const title = String(er.title || '').trim();
     const tz = String(er.timezone || '').trim();
-    const start = er.starts_at ? new Date(er.starts_at) : null;
-    const end = er.ends_at ? new Date(er.ends_at) : null;
     const fmtOpts = tz ? { timeZone: tz } : {};
+
+    // Prefer the per-session schedule (most accurate) when available.
+    let sessions = [];
+    try {
+      const [sdRows] = await pool.execute(
+        `SELECT session_date, starts_at, ends_at, timezone, location_label, location_address
+         FROM company_event_session_dates
+         WHERE company_event_id = ?
+         ORDER BY starts_at ASC, session_date ASC`,
+        [eventId]
+      );
+      sessions = Array.isArray(sdRows) ? sdRows : [];
+    } catch {
+      sessions = [];
+    }
+
+    const normalizeDate = (d) => {
+      try {
+        const dt = d instanceof Date ? d : new Date(d);
+        if (!Number.isFinite(dt.getTime())) return '';
+        return dt.toLocaleDateString(undefined, fmtOpts);
+      } catch {
+        return '';
+      }
+    };
+    const normalizeTime = (d) => {
+      try {
+        const dt = d instanceof Date ? d : new Date(d);
+        if (!Number.isFinite(dt.getTime())) return '';
+        return dt.toLocaleTimeString(undefined, { ...fmtOpts, hour: 'numeric', minute: '2-digit' });
+      } catch {
+        return '';
+      }
+    };
+
+    const firstSession = sessions.length ? sessions[0] : null;
+    const lastSession = sessions.length ? sessions[sessions.length - 1] : null;
+
+    const start = firstSession?.starts_at ? new Date(firstSession.starts_at) : (er.starts_at ? new Date(er.starts_at) : null);
+    const end = lastSession?.ends_at ? new Date(lastSession.ends_at) : (er.ends_at ? new Date(er.ends_at) : null);
+
     const dates = start
-      ? `${start.toLocaleDateString(undefined, fmtOpts)}${
-          end && end.getTime() !== start.getTime()
-            ? ` – ${end.toLocaleDateString(undefined, fmtOpts)}`
+      ? `${normalizeDate(start)}${
+          end && Number.isFinite(end.getTime()) && normalizeDate(end) && normalizeDate(end) !== normalizeDate(start)
+            ? ` – ${normalizeDate(end)}`
             : ''
         }`
       : '';
-    const reportTime = start
-      ? start.toLocaleTimeString(undefined, { ...fmtOpts, hour: 'numeric', minute: '2-digit' })
-      : '';
+    const reportTime = start ? normalizeTime(start) : '';
     let duration = '';
-    if (start && end && Number.isFinite(end.getTime()) && Number.isFinite(start.getTime())) {
-      const mins = Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
-      if (mins) duration = mins >= 120 ? `${Math.round(mins / 60)} hr` : `${mins} min`;
+    if (firstSession?.starts_at && firstSession?.ends_at) {
+      try {
+        const a = new Date(firstSession.starts_at);
+        const b = new Date(firstSession.ends_at);
+        const mins = Number.isFinite(a.getTime()) && Number.isFinite(b.getTime())
+          ? Math.max(0, Math.round((b.getTime() - a.getTime()) / 60000))
+          : 0;
+        if (mins) duration = mins >= 120 ? `${Math.round(mins / 60)} hr` : `${mins} min`;
+      } catch {
+        duration = '';
+      }
     }
+
+    let sessionsText = '';
+    if (sessions.length) {
+      const lines = sessions.map((s) => {
+        const d = s?.starts_at || s?.session_date;
+        const st = s?.starts_at ? normalizeTime(s.starts_at) : '';
+        const et = s?.ends_at ? normalizeTime(s.ends_at) : '';
+        const t = st && et ? `${st} – ${et}` : (st || et || '');
+        const dateStr = d ? normalizeDate(d) : '';
+        return [dateStr, t].filter(Boolean).join(': ');
+      }).filter(Boolean);
+      sessionsText = lines.join('\n');
+    }
+
     const addr = String(er.public_location_address || '').trim()
       || [er.event_location_name, er.event_location_address].filter(Boolean).join(' — ');
     return {
@@ -344,7 +427,8 @@ const loadRegistrationEventFieldPlaceholders = async (intakeData, link) => {
       EVENT_DATES: dates,
       EVENT_ADDRESS: addr,
       EVENT_REPORT_TIME: reportTime,
-      EVENT_DURATION: duration
+      EVENT_DURATION: duration,
+      EVENT_SESSIONS: sessionsText
     };
   } catch {
     return empty;

@@ -227,6 +227,14 @@ const buildSelectionDisplay = (sel, eventPlaceholders, palette = null) => {
   const scheduleBlocks = Array.isArray(sel?.scheduleBlocks)
     ? sel.scheduleBlocks.map(formatScheduleBlock).filter(Boolean)
     : [];
+  // For company events, the intake payload often has no explicit scheduleBlocks.
+  // If placeholders include a pre-rendered session schedule, use that as the
+  // "Schedule" section so the packet contains the real event details.
+  const sessionsText = String(eventPlaceholders?.EVENT_SESSIONS || '').trim();
+  const placeholderScheduleBlocks = sessionsText
+    ? sessionsText.split('\n').map((s) => String(s || '').trim()).filter(Boolean)
+    : [];
+  const finalScheduleBlocks = scheduleBlocks.length ? scheduleBlocks : (isEvent ? placeholderScheduleBlocks : []);
 
   const payerType = String(sel?.payerType || sel?.payer_type || '').trim();
   const payerLabel = payerType
@@ -249,7 +257,7 @@ const buildSelectionDisplay = (sel, eventPlaceholders, palette = null) => {
     dateLine,
     location,
     duration,
-    scheduleBlocks,
+    scheduleBlocks: finalScheduleBlocks,
     payerLabel,
     cost,
     paymentLinkUrl,
@@ -455,112 +463,128 @@ export async function buildRegistrationTicketPdf({
   for (const sel of selections) {
     const display = buildSelectionDisplay(sel, eventPlaceholders, palette);
 
-    // Estimate card height before drawing so we can page-break cleanly.
-    const titleLines = wrapText(display.title, fontBold, 14, CONTENT_W - 28 - 70);
-    const descLines = display.description
-      ? wrapText(display.description, font, 10, CONTENT_W - 28)
-      : [];
-    const detailRows = [];
-    if (display.dateLine) detailRows.push(['When', display.dateLine]);
-    if (display.duration) detailRows.push(['Duration', display.duration]);
-    if (display.location) detailRows.push(['Location', display.location]);
-    if (display.scheduleBlocks.length) {
-      display.scheduleBlocks.forEach((b, idx) => {
-        detailRows.push([idx === 0 ? 'Schedule' : '', b]);
+    // If a company event has lots of per-day sessions, split the schedule into
+    // multiple cards so every date/time can print without overflowing a single box.
+    const chunk = (arr, size) => {
+      const out = [];
+      for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+      return out.length ? out : [[]];
+    };
+    const scheduleChunks = display.scheduleBlocks.length ? chunk(display.scheduleBlocks, 14) : [[]];
+
+    for (let chunkIdx = 0; chunkIdx < scheduleChunks.length; chunkIdx += 1) {
+      const scheduleSlice = scheduleChunks[chunkIdx] || [];
+
+      // Estimate card height before drawing so we can page-break cleanly.
+      const titleSuffix = chunkIdx > 0 ? ' (continued)' : '';
+      const titleLines = wrapText(`${display.title}${titleSuffix}`, fontBold, 14, CONTENT_W - 28 - 70);
+      const descLines = display.description && chunkIdx === 0
+        ? wrapText(display.description, font, 10, CONTENT_W - 28)
+        : [];
+      const detailRows = [];
+      if (display.dateLine) detailRows.push(['When', display.dateLine]);
+      if (display.duration) detailRows.push(['Duration', display.duration]);
+      if (display.location) detailRows.push(['Location', display.location]);
+      if (scheduleSlice.length) {
+        scheduleSlice.forEach((b, idx) => {
+          detailRows.push([idx === 0 ? (chunkIdx === 0 ? 'Schedule' : 'Schedule (cont.)') : '', b]);
+        });
+      }
+      if (chunkIdx === 0) {
+        if (display.frequency) detailRows.push(['Frequency', display.frequency]);
+        if (display.terms) detailRows.push(['Terms', display.terms]);
+        if (display.payerLabel) detailRows.push(['Paid by', display.payerLabel]);
+        if (display.cost) detailRows.push(['Cost', display.cost]);
+        if (display.paymentLinkUrl) detailRows.push(['Payment', display.paymentLinkUrl]);
+        if (display.videoJoinUrl) detailRows.push(['Join URL', display.videoJoinUrl]);
+      }
+
+      // Pre-wrap detail values to estimate height accurately.
+      const detailRowsWrapped = detailRows.map(([label, value]) => ({
+        label,
+        lines: wrapText(value, font, 10, CONTENT_W - 28 - 80)
+      }));
+
+      const cardHeight = 14   // top padding
+        + 18                  // badge row
+        + 10                  // gap
+        + titleLines.length * 17
+        + (descLines.length ? 6 + descLines.length * 13 : 0)
+        + 8                   // gap before details
+        + detailRowsWrapped.reduce((acc, r) => acc + r.lines.length * 13, 0)
+        + 14;                 // bottom padding
+
+      ensureRoom(cardHeight + 14);
+
+      const cardTop = y;
+      const cardBottom = y - cardHeight;
+      page.drawRectangle({
+        x: MARGIN, y: cardBottom,
+        width: CONTENT_W, height: cardHeight,
+        color: WHITE,
+        borderColor: GRAY_BORDER,
+        borderWidth: 0.75
       });
-    }
-    if (display.frequency) detailRows.push(['Frequency', display.frequency]);
-    if (display.terms) detailRows.push(['Terms', display.terms]);
-    if (display.payerLabel) detailRows.push(['Paid by', display.payerLabel]);
-    if (display.cost) detailRows.push(['Cost', display.cost]);
-    if (display.paymentLinkUrl) detailRows.push(['Payment', display.paymentLinkUrl]);
-    if (display.videoJoinUrl) detailRows.push(['Join URL', display.videoJoinUrl]);
+      // Left accent bar tinted by entity type.
+      page.drawRectangle({
+        x: MARGIN, y: cardBottom,
+        width: 4, height: cardHeight,
+        color: display.badgeColor
+      });
 
-    // Pre-wrap detail values to estimate height accurately.
-    const detailRowsWrapped = detailRows.map(([label, value]) => ({
-      label,
-      lines: wrapText(value, font, 10, CONTENT_W - 28 - 80)
-    }));
+      // Badge in top-right
+      const badgeText = display.typeLabel;
+      const badgeTextW = fontBold.widthOfTextAtSize(badgeText, 8);
+      const badgeW = badgeTextW + 14;
+      const badgeH = 14;
+      const badgeX = MARGIN + CONTENT_W - 14 - badgeW;
+      const badgeY = cardTop - 14 - badgeH + 2;
+      page.drawRectangle({
+        x: badgeX, y: badgeY,
+        width: badgeW, height: badgeH,
+        color: display.badgeColor
+      });
+      page.drawText(badgeText, {
+        x: badgeX + 7, y: badgeY + 4,
+        size: 8, font: fontBold, color: WHITE
+      });
 
-    const cardHeight = 14   // top padding
-      + 18                  // badge row
-      + 10                  // gap
-      + titleLines.length * 17
-      + (descLines.length ? 6 + descLines.length * 13 : 0)
-      + 8                   // gap before details
-      + detailRowsWrapped.reduce((acc, r) => acc + r.lines.length * 13, 0)
-      + 14;                 // bottom padding
-
-    ensureRoom(cardHeight + 14);
-
-    const cardTop = y;
-    const cardBottom = y - cardHeight;
-    page.drawRectangle({
-      x: MARGIN, y: cardBottom,
-      width: CONTENT_W, height: cardHeight,
-      color: WHITE,
-      borderColor: GRAY_BORDER,
-      borderWidth: 0.75
-    });
-    // Left accent bar tinted by entity type.
-    page.drawRectangle({
-      x: MARGIN, y: cardBottom,
-      width: 4, height: cardHeight,
-      color: display.badgeColor
-    });
-
-    // Badge in top-right
-    const badgeText = display.typeLabel;
-    const badgeTextW = fontBold.widthOfTextAtSize(badgeText, 8);
-    const badgeW = badgeTextW + 14;
-    const badgeH = 14;
-    const badgeX = MARGIN + CONTENT_W - 14 - badgeW;
-    const badgeY = cardTop - 14 - badgeH + 2;
-    page.drawRectangle({
-      x: badgeX, y: badgeY,
-      width: badgeW, height: badgeH,
-      color: display.badgeColor
-    });
-    page.drawText(badgeText, {
-      x: badgeX + 7, y: badgeY + 4,
-      size: 8, font: fontBold, color: WHITE
-    });
-
-    // Title
-    let lineY = cardTop - 30;
-    for (const line of titleLines) {
-      page.drawText(line, { x: MARGIN + 14, y: lineY, size: 14, font: fontBold, color: BLACK });
-      lineY -= 17;
-    }
-
-    // Description
-    if (descLines.length) {
-      lineY -= 6;
-      for (const line of descLines) {
-        page.drawText(line, { x: MARGIN + 14, y: lineY, size: 10, font, color: GRAY_TEXT });
-        lineY -= 13;
+      // Title
+      let lineY = cardTop - 30;
+      for (const line of titleLines) {
+        page.drawText(line, { x: MARGIN + 14, y: lineY, size: 14, font: fontBold, color: BLACK });
+        lineY -= 17;
       }
-    }
 
-    // Details (label / value rows)
-    lineY -= 8;
-    for (const row of detailRowsWrapped) {
-      if (row.label) {
-        page.drawText(`${row.label}:`, {
-          x: MARGIN + 14, y: lineY, size: 10, font: fontBold, color: GRAY_TEXT
-        });
+      // Description
+      if (descLines.length) {
+        lineY -= 6;
+        for (const line of descLines) {
+          page.drawText(line, { x: MARGIN + 14, y: lineY, size: 10, font, color: GRAY_TEXT });
+          lineY -= 13;
+        }
       }
-      let valueY = lineY;
-      for (const valueLine of row.lines) {
-        page.drawText(valueLine, {
-          x: MARGIN + 14 + 70, y: valueY, size: 10, font, color: BLACK
-        });
-        valueY -= 13;
-      }
-      lineY -= row.lines.length * 13;
-    }
 
-    y = cardBottom - 14;
+      // Details (label / value rows)
+      lineY -= 8;
+      for (const row of detailRowsWrapped) {
+        if (row.label) {
+          page.drawText(`${row.label}:`, {
+            x: MARGIN + 14, y: lineY, size: 10, font: fontBold, color: GRAY_TEXT
+          });
+        }
+        let valueY = lineY;
+        for (const valueLine of row.lines) {
+          page.drawText(valueLine, {
+            x: MARGIN + 14 + 70, y: valueY, size: 10, font, color: BLACK
+          });
+          valueY -= 13;
+        }
+        lineY -= row.lines.length * 13;
+      }
+
+      y = cardBottom - 14;
+    }
   }
 
   // ----------------------------------------------------- Footer / receipt URL
