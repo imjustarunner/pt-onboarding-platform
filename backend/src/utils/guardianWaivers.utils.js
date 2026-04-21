@@ -4,6 +4,13 @@
 export const GUARDIAN_WAIVER_SECTION_KEYS = [
   'esignature_consent',
   'pickup_authorization',
+  // Walk-home authorization is an alternative to / companion of pickup
+  // authorization: instead of (or in addition to) listing approved pickup
+  // adults, the guardian explicitly waives release of an unaccompanied minor
+  // to walk home alone. It carries its own attestation + signature and is
+  // treated as a fully separate waiver section so program staff can see at
+  // check-out time that the parent specifically authorized walking home.
+  'walk_home_authorization',
   'emergency_contacts',
   'allergies_snacks',
   'meal_preferences'
@@ -189,6 +196,24 @@ export function summarizeWaiverPayloadForKiosk(key, payload) {
         return [name, rel && `(${rel})`, phone && `· ${phone}`].filter(Boolean).join(' ');
       })
       .filter(Boolean);
+  }
+  if (k === 'walk_home_authorization') {
+    // Walk-home is an explicit attestation. The kiosk needs to surface it as
+    // a single, unambiguous line at check-out so staff don't accidentally
+    // require an adult signature for a child the parent already authorized
+    // to walk home alone.
+    const allowed = p.allowedToWalkHome === true;
+    if (!allowed) {
+      return ['Walk home alone: NOT authorized'];
+    }
+    const lines = ['Walk home alone: AUTHORIZED'];
+    const window = String(p.allowedWindow || '').trim();
+    if (window) lines.push(`Approved time window: ${window}`);
+    const conditions = String(p.conditions || '').trim();
+    if (conditions) lines.push(`Conditions: ${conditions}`);
+    const route = String(p.route || '').trim();
+    if (route) lines.push(`Route / destination: ${route}`);
+    return lines;
   }
   if (k === 'emergency_contacts') {
     const rows = Array.isArray(p.contacts) ? p.contacts : [];

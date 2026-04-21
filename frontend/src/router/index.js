@@ -417,6 +417,17 @@ const routes = [
     meta: { requiresGuest: false, organizationSlug: true }
   },
   {
+    // Program-event kiosk station (non–Skill Builders events). Reached
+    // automatically from the shared /:organizationSlug/kiosk PIN entry
+    // when the unlocked event's `kind` is `program_event`. Has its own
+    // path so a coordinator can also bookmark / scan-QR straight into a
+    // station for a specific event.
+    path: '/:organizationSlug/program-event/kiosk/:eventId',
+    name: 'OrganizationProgramEventKioskStation',
+    component: () => import('../views/public/PublicProgramEventKioskStationView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/event-day-kiosk',
     name: 'OrganizationEventDayKiosk',
     component: () => import('../views/public/PublicEventDayKioskView.vue'),
@@ -823,6 +834,12 @@ const routes = [
     path: '/:organizationSlug/schedule',
     name: 'OrganizationScheduleHub',
     component: () => import('../views/ScheduleHubView.vue'),
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/schedule/event-staffing',
+    name: 'OrganizationEventStaffingRequests',
+    component: () => import('../views/EventStaffingRequestsView.vue'),
     meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES, organizationSlug: true }
   },
   {
@@ -1563,6 +1580,12 @@ const routes = [
     path: '/schedule',
     name: 'OfficeScheduleLegacy',
     component: () => import('../views/ScheduleHubView.vue'),
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
+  },
+  {
+    path: '/schedule/event-staffing',
+    name: 'EventStaffingRequests',
+    component: () => import('../views/EventStaffingRequestsView.vue'),
     meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
   },
   {

@@ -55,18 +55,38 @@
         </div>
 
         <div class="pi-gw-sig-action">
-          <div v-if="sectionMeta(cIdx, def.key).signatureData" class="pi-gw-sig-applied">
-            <span class="pi-gw-sig-check">&#10003;</span> Signature applied for this section.
+          <div v-if="sectionMeta(cIdx, def.key).signatureData" class="pi-gw-sig-applied-wrap">
+            <div class="pi-gw-sig-applied">
+              <span class="pi-gw-sig-check">&#10003;</span>
+              <div class="pi-gw-sig-applied-text">
+                <div>
+                  <strong>Signed</strong>
+                  <span v-if="sectionSignerName(cIdx, def.key)"> by {{ sectionSignerName(cIdx, def.key) }}</span>
+                </div>
+                <div class="pi-gw-sig-stamp muted small">
+                  e-Signature applied {{ sectionSignedAtDisplay(cIdx, def.key) }} ·
+                  source: {{ sectionSignatureSourceLabel(cIdx, def.key) }}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm pi-gw-sig-resign"
+              @click="resignSection(cIdx, def.key)"
+            >
+              Sign again
+            </button>
           </div>
           <template v-else>
             <div v-if="savedSignatureData" class="pi-gw-sig-btn-wrap">
               <button
                 type="button"
-                class="btn btn-primary btn-sm"
+                class="btn btn-primary btn-sm pi-gw-sig-apply pi-gw-sig-apply--pulse"
                 @click="applySavedSignature(cIdx, def.key)"
               >
-                Use saved signature for this section
+                Apply my signature to this section
               </button>
+              <span class="muted small pi-gw-sig-hint">You must apply your signature here to record this waiver — it will be re-used from the signature you drew earlier.</span>
             </div>
             <div v-else class="muted small">
               Complete the earlier signature step to sign waivers.
@@ -84,6 +104,7 @@ import GwvFieldsPickup from '../../views/guardian/waivers/GwvFieldsPickup.vue';
 import GwvFieldsEmergency from '../../views/guardian/waivers/GwvFieldsEmergency.vue';
 import GwvFieldsAllergies from '../../views/guardian/waivers/GwvFieldsAllergies.vue';
 import GwvFieldsMeals from '../../views/guardian/waivers/GwvFieldsMeals.vue';
+import GwvFieldsWalkHome from '../../views/guardian/waivers/GwvFieldsWalkHome.vue';
 
 const props = defineProps({
   modelValue: { type: Object, required: true },
@@ -91,6 +112,12 @@ const props = defineProps({
   clientLabels: { type: Array, default: () => [] },
   guardianDefaultPickup: { type: Object, default: () => ({}) },
   savedSignatureData: { type: String, default: '' },
+  /**
+   * Display name to attribute the signature to in the per-section confirmation
+   * (e.g. "Signed by Alex Jordan"). Required for the e-sign attestation to
+   * surface a recognizable signer; falls back to "the guardian" if blank.
+   */
+  signerDisplayName: { type: String, default: '' },
   /**
    * eventWaiverContext: { snacksAvailable: bool, snackOptions: string[], mealsAvailable: bool, mealOptions: string[] }
    * Passed down from PublicIntakeSigningView once a registration event is selected.
@@ -120,6 +147,12 @@ const sectionCatalog = [
     title: 'Pickup authorization',
     blurb: null,
     fields: GwvFieldsPickup
+  },
+  {
+    key: 'walk_home_authorization',
+    title: 'Walk-home authorization',
+    blurb: 'Use this section ONLY if you authorize your child to walk home alone after this program.',
+    fields: GwvFieldsWalkHome
   },
   {
     key: 'emergency_contacts',
@@ -193,6 +226,17 @@ function defaultPayload(key) {
         declinePickupAuthorization: false,
         authorizedPickups: defaultGuardianPickupRow
       };
+    case 'walk_home_authorization':
+      // Default to "not authorized" so the parent has to make an explicit
+      // affirmative choice before they can sign — matches the legal weight
+      // of releasing an unaccompanied minor.
+      return {
+        allowedToWalkHome: false,
+        allowedWindow: '',
+        route: '',
+        conditions: '',
+        attestation: false
+      };
     case 'emergency_contacts':
       return {
         declineEmergencyContacts: false,
@@ -248,6 +292,57 @@ function applySavedSignature(idx, key) {
   if (!sig) return;
   const sec = ensureSection(idx, key);
   sec.signatureData = sig;
+  // Capture per-section e-signature audit metadata at the moment the
+  // guardian explicitly applied their signature. The server will stamp
+  // ip / user_agent / submission_id at finalize, but the timestamp +
+  // source method must be recorded here so we can prove the signature
+  // wasn't silently auto-applied by validation as it used to be.
+  sec.signatureMeta = {
+    signedAt: new Date().toISOString(),
+    signerName: String(props.signerDisplayName || '').trim() || null,
+    sourceMethod: 'reused_guardian_signature',
+    consentAcknowledged: true,
+    intentToSign: true,
+    sectionKey: String(key || ''),
+    clientIndex: Number(idx)
+  };
+}
+
+function resignSection(idx, key) {
+  // "Sign again" clears the applied signature on this section so the
+  // parent can re-apply it (or, in the future, draw a new one). We
+  // intentionally don't auto-re-apply — the next click of the Apply
+  // button records a fresh signedAt timestamp, which is the whole
+  // point of giving the parent a way to "sign again".
+  const sec = ensureSection(idx, key);
+  sec.signatureData = '';
+  sec.signatureMeta = null;
+}
+
+function sectionSignerName(idx, key) {
+  const sec = ensureSection(idx, key);
+  return String(sec?.signatureMeta?.signerName || props.signerDisplayName || '').trim();
+}
+
+function sectionSignedAtDisplay(idx, key) {
+  const sec = ensureSection(idx, key);
+  const iso = sec?.signatureMeta?.signedAt;
+  if (!iso) return 'just now';
+  try {
+    const d = new Date(iso);
+    if (!Number.isFinite(d.getTime())) return 'just now';
+    return d.toLocaleString();
+  } catch {
+    return 'just now';
+  }
+}
+
+function sectionSignatureSourceLabel(idx, key) {
+  const sec = ensureSection(idx, key);
+  const src = String(sec?.signatureMeta?.sourceMethod || 'reused_guardian_signature');
+  if (src === 'reused_guardian_signature') return 'reused signature drawn earlier in this session';
+  if (src === 'redrawn_for_section') return 'newly drawn for this section';
+  return src.replace(/_/g, ' ');
 }
 
 // Map of section refs for scroll-to-first-error behavior. Key format is
@@ -399,21 +494,57 @@ function copyFromPreviousChild(cIdx, key) {
 .pi-gw-sig-action {
   margin-top: 14px;
 }
+.pi-gw-sig-applied-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  background: #ecfdf5;
+  border: 1px solid #86efac;
+  border-radius: 8px;
+  padding: 8px 12px;
+}
 .pi-gw-sig-applied {
   font-size: 14px;
   color: var(--success, #166534);
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: flex-start;
+  gap: 8px;
+}
+.pi-gw-sig-applied-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pi-gw-sig-stamp {
+  font-size: 11.5px;
 }
 .pi-gw-sig-check {
   font-size: 18px;
-  line-height: 1;
+  line-height: 1.1;
+}
+.pi-gw-sig-resign {
+  align-self: flex-start;
+  font-size: 12px;
 }
 .pi-gw-sig-btn-wrap {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.pi-gw-sig-hint {
+  max-width: 480px;
+}
+.pi-gw-sig-apply--pulse {
+  animation: piGwSigPulse 1.6s ease-in-out infinite;
+  box-shadow: 0 0 0 0 rgba(15, 118, 110, 0.55);
+}
+@keyframes piGwSigPulse {
+  0%   { box-shadow: 0 0 0 0   rgba(15, 118, 110, 0.55); transform: translateY(0); }
+  50%  { box-shadow: 0 0 0 10px rgba(15, 118, 110, 0);    transform: translateY(-1px); }
+  100% { box-shadow: 0 0 0 0   rgba(15, 118, 110, 0);    transform: translateY(0); }
 }
 .pi-gw-copy-prev {
   margin-top: 10px;

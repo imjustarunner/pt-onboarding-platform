@@ -9,6 +9,8 @@ import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import pool from '../config/database.js';
+import StorageService from '../services/storage.service.js';
+import DocumentEncryptionService from '../services/documentEncryption.service.js';
 import { adjustProviderSlots } from '../services/providerSlots.service.js';
 import { notifyClientBecameCurrent, notifyClientChecklistUpdated, notifyPaperworkReceived, notifyClientTerminated } from '../services/clientNotifications.service.js';
 import { createClientOnboardingTaskForProvider } from '../services/clientOnboardingTask.service.js';
@@ -27,6 +29,127 @@ import {
   decryptIntakeSubmissionRows,
   isIntakeResponsesEncryptionConfigured
 } from '../services/intakeResponsesEncryption.service.js';
+
+const INSURANCE_CARD_SLOTS = new Set(['primary_front', 'primary_back', 'secondary_front', 'secondary_back']);
+
+function inferImageContentTypeFromKey(key) {
+  const k = String(key || '').toLowerCase();
+  if (k.endsWith('.png')) return 'image/png';
+  if (k.endsWith('.webp')) return 'image/webp';
+  if (k.endsWith('.gif')) return 'image/gif';
+  if (k.endsWith('.svg')) return 'image/svg+xml';
+  // default jpg/jpeg
+  return 'image/jpeg';
+}
+
+function parseGcsPathToKey(gsPath) {
+  const raw = String(gsPath || '').trim();
+  if (!raw.startsWith('gs://')) return null;
+  const without = raw.substring('gs://'.length);
+  const firstSlash = without.indexOf('/');
+  if (firstSlash === -1) return null;
+  const key = without.substring(firstSlash + 1).replace(/^\//, '');
+  return key || null;
+}
+
+/**
+ * GET /api/clients/:id/insurance-card?slot=primary_front|primary_back|secondary_front|secondary_back
+ * Returns the insurance card image for the most recent intake submission where it was provided.
+ * This is authenticated (admin/support/provider roles) and decrypts the object if it was stored encrypted in GCS metadata.
+ */
+export const getClientInsuranceCard = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const slot = String(req.query.slot || '').trim().toLowerCase();
+    if (!INSURANCE_CARD_SLOTS.has(slot)) {
+      return res.status(400).json({ error: { message: 'Invalid slot (expected primary_front, primary_back, secondary_front, secondary_back)' } });
+    }
+
+    const userRole = String(req.user?.role || '').toLowerCase();
+    const allowedRoles = ['super_admin', 'admin', 'support', 'provider', 'provider_plus'];
+    if (!allowedRoles.includes(userRole)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const access = await ensureAgencyAccessToClient({ userId: req.user.id, role: userRole, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    let submRows = [];
+    try {
+      [submRows] = await pool.execute(
+        `SELECT DISTINCT s.id, s.intake_data, s.intake_link_id, s.submitted_at, s.status,
+                s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id
+         FROM intake_submissions s
+         LEFT JOIN intake_submission_clients isc ON isc.intake_submission_id = s.id
+         WHERE (s.client_id = ? OR isc.client_id = ?)
+         ORDER BY s.submitted_at DESC, s.id DESC
+         LIMIT 10`,
+        [clientId, clientId]
+      );
+      decryptIntakeSubmissionRows(submRows);
+    } catch (tableErr) {
+      if (String(tableErr?.message || '').includes("doesn't exist") || tableErr?.errno === 1146) {
+        submRows = [];
+      } else {
+        throw tableErr;
+      }
+    }
+
+    const desiredKeyName = `${slot}_url`; // e.g. primary_front_url
+    let gsPath = null;
+    for (const row of submRows || []) {
+      const submissionData = parseIntakeData(row.intake_data);
+      const bag = getSubmissionBag(submissionData);
+      const insuranceInfo = bag?.insuranceInfo && typeof bag.insuranceInfo === 'object' ? bag.insuranceInfo : null;
+      const candidate = insuranceInfo ? String(insuranceInfo?.[desiredKeyName] || '').trim() : '';
+      if (candidate.startsWith('gs://')) {
+        gsPath = candidate;
+        break;
+      }
+    }
+
+    if (!gsPath) {
+      return res.status(404).json({ error: { message: 'No insurance card on file for this slot' } });
+    }
+
+    const key = parseGcsPathToKey(gsPath);
+    if (!key || !key.startsWith('intake-insurance/')) {
+      return res.status(404).json({ error: { message: 'Insurance card path is invalid' } });
+    }
+
+    const bucket = await StorageService.getGCSBucket();
+    const file = bucket.file(key);
+    const [exists] = await file.exists();
+    if (!exists) return res.status(404).json({ error: { message: 'Insurance card file not found' } });
+
+    const [buffer] = await file.download();
+    const [metadata] = await file.getMetadata();
+    const custom = metadata?.metadata || {};
+
+    let outBuffer = buffer;
+    const isEncrypted = String(custom?.isEncrypted || custom?.is_encrypted || '') === '1';
+    if (isEncrypted) {
+      outBuffer = await DocumentEncryptionService.decryptBuffer({
+        encryptedBuffer: buffer,
+        encryptionKeyId: custom?.encryptionKeyId || custom?.encryption_key_id || null,
+        encryptionWrappedKeyB64: custom?.encryptionWrappedKey || custom?.encryption_wrapped_key || null,
+        encryptionIvB64: custom?.encryptionIv || custom?.encryption_iv || null,
+        encryptionAuthTagB64: custom?.encryptionAuthTag || custom?.encryption_auth_tag || null,
+        aad: custom?.encryptionAad || custom?.encryption_aad || undefined
+      });
+    }
+
+    const contentType = inferImageContentTypeFromKey(key);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Disposition', `inline; filename=\"insurance-${slot}${key.includes('.') ? key.substring(key.lastIndexOf('.')) : ''}\"`);
+    res.send(outBuffer);
+  } catch (e) {
+    next(e);
+  }
+};
 
 function normalizeSixDigitClientCode(value) {
   const raw = String(value || '').trim();
@@ -4804,6 +4927,58 @@ export const getClientClinicalResponses = async (req, res, next) => {
         title: 'Additional Intake Responses',
         fields: generalClinicalFields.map(({ key, label, value }) => ({ key, label, value }))
       });
+    }
+
+    // ── 8. Intake insurance info (guardian-entered) ─────────────────────────
+    // Displayable for clinical/admin viewers and also reused by guardian admin profile.
+    const insuranceInfo = chosenSubmissionBag?.insuranceInfo && typeof chosenSubmissionBag.insuranceInfo === 'object'
+      ? chosenSubmissionBag.insuranceInfo
+      : null;
+    if (insuranceInfo) {
+      const pri = insuranceInfo.primary && typeof insuranceInfo.primary === 'object' ? insuranceInfo.primary : null;
+      const sec = insuranceInfo.secondary && typeof insuranceInfo.secondary === 'object' ? insuranceInfo.secondary : null;
+      const isMedicaidPrimary = !!insuranceInfo.primaryIsMedicaid;
+      const fields = [];
+      const pushIf = (key, label, value) => {
+        if (!hasVal(value)) return;
+        fields.push({ key, label, value: String(value).trim() });
+      };
+
+      pushIf('insurance__noPrimaryCardAvailable', 'Insurance card on file', insuranceInfo.noPrimaryCardAvailable ? 'No' : 'Yes');
+
+      if (pri) {
+        pushIf('insurance__primary_insurerName', 'Primary carrier', pri.insurerName);
+        pushIf('insurance__primary_subscriberName', 'Primary subscriber name', pri.subscriberName);
+        pushIf('insurance__primary_memberId', 'Primary member ID', pri.memberId);
+        if (!isMedicaidPrimary) {
+          pushIf('insurance__primary_groupNumber', 'Primary group number', pri.groupNumber);
+          pushIf('insurance__primary_patientSuffix', 'Primary patient suffix', pri.patientSuffix);
+        }
+      }
+      if (sec) {
+        pushIf('insurance__secondary_insurerName', 'Secondary carrier', sec.insurerName);
+        pushIf('insurance__secondary_subscriberName', 'Secondary subscriber name', sec.subscriberName);
+        pushIf('insurance__secondary_memberId', 'Secondary member ID', sec.memberId);
+        pushIf('insurance__secondary_groupNumber', 'Secondary group number', sec.groupNumber);
+      }
+
+      // Per-client Medicaid ID (when families have multiple dependents)
+      const medicaidByClient = Array.isArray(insuranceInfo.medicaidByClient) ? insuranceInfo.medicaidByClient : [];
+      const thisClientMedicaid = medicaidByClient.find((mc) => Number(mc?.clientId) === Number(clientId))
+        || medicaidByClient.find((mc) => String(mc?.client_id || '') === String(clientId));
+      if (thisClientMedicaid) {
+        pushIf('insurance__medicaid_memberId', 'Medicaid member ID (this client)', thisClientMedicaid.memberId);
+      }
+
+      // Card photo URLs (stored as gs:// paths from intake upload)
+      pushIf('insurance__primary_front_url', 'Primary card (front)', insuranceInfo.primary_front_url);
+      pushIf('insurance__primary_back_url', 'Primary card (back)', insuranceInfo.primary_back_url);
+      pushIf('insurance__secondary_front_url', 'Secondary card (front)', insuranceInfo.secondary_front_url);
+      pushIf('insurance__secondary_back_url', 'Secondary card (back)', insuranceInfo.secondary_back_url);
+
+      if (fields.length) {
+        sections.push({ title: 'Insurance Information', fields });
+      }
     }
 
     res.json({

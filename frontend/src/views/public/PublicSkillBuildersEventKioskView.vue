@@ -1,10 +1,10 @@
 <template>
   <div class="sbe-kiosk-entry">
     <div class="sbe-kiosk-card">
-      <h1 class="sbe-kiosk-title">Skill Builders station</h1>
+      <h1 class="sbe-kiosk-title">Event kiosk station</h1>
       <p class="sbe-kiosk-lead muted">
-        Enter the 6-digit station PIN for today’s program. Staff still use their personal 4-digit kiosk PIN on the next
-        screen after the station unlocks.
+        Enter the 6-digit station PIN for today’s event. Staff will still use their personal 4-digit kiosk PIN on the next
+        screen after the station unlocks (when required).
       </p>
       <div v-if="error" class="error-box sbe-kiosk-err">{{ error }}</div>
       <form class="sbe-kiosk-form" @submit.prevent="submit">
@@ -62,16 +62,25 @@ async function submit() {
     );
     const token = res.data?.token;
     const eventId = Number(res.data?.eventId);
+    const kind = String(res.data?.kind || 'skill_builders');
     if (!token || !eventId) {
       error.value = 'Unexpected response from server.';
       return;
     }
     sessionStorage.setItem(
       storageKey(),
-      JSON.stringify({ token, eventId, savedAt: Date.now() })
+      JSON.stringify({ token, eventId, kind, savedAt: Date.now() })
     );
+    // Route to the correct station view based on the event kind embedded
+    // in the issued token. Skill Builders events use the legacy station
+    // (with skills_group_clients-driven roster); generic program events
+    // use the new program-event station that pulls from
+    // company_event_clients + the per-client authorized-pickup list.
+    const stationRoute = kind === 'program_event'
+      ? 'OrganizationProgramEventKioskStation'
+      : 'OrganizationSkillBuildersEventKioskStation';
     await router.push({
-      name: 'OrganizationSkillBuildersEventKioskStation',
+      name: stationRoute,
       params: { organizationSlug: slug.value, eventId: String(eventId) }
     });
   } catch (e) {

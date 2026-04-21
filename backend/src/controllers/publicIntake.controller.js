@@ -186,6 +186,61 @@ const normalizeRegistrationSelections = (intakeData = null) => {
  * registration-aware code path (ticket PDF, email placeholders,
  * registration_completion_event persistence) sees the bound event.
  */
+/**
+ * Stamp the request IP + user-agent + a server-side signedAt onto the
+ * Insurance Authorization & Assignment of Benefits e-signature inside the
+ * submission's insuranceInfo block, in place, so that:
+ *   - the persisted intake_data row carries a complete audit record
+ *   - the answers PDF / packet renders the same "signed by + when + how +
+ *     IP + UA" attestation we already render for waiver sections
+ *   - re-signing later overwrites the stamp atomically with the new request
+ *
+ * No-op if the parent never signed the insurance authorization (neither
+ * a typed name nor a re-used drawn signature is present). Intended to be
+ * called once per finalize handler, *before* JSON.stringify(intakeData).
+ */
+const stampInsuranceAuthorizationSignatureMeta = (intakeData, req, signedAtFallback) => {
+  if (!intakeData || typeof intakeData !== 'object') return;
+  // Find the submission bag in either the nested or flat shape.
+  let submission = null;
+  if (intakeData.responses && typeof intakeData.responses === 'object') {
+    if (intakeData.responses.submission && typeof intakeData.responses.submission === 'object') {
+      submission = intakeData.responses.submission;
+    }
+  }
+  if (!submission && intakeData.submission && typeof intakeData.submission === 'object') {
+    submission = intakeData.submission;
+  }
+  if (!submission || typeof submission !== 'object') return;
+  const insInfo = submission.insuranceInfo;
+  if (!insInfo || typeof insInfo !== 'object') return;
+  const typed = String(insInfo.authorizationSignature || '').trim();
+  const drawn = String(insInfo.authorizationSignatureData || '').trim();
+  // No signature applied at all? Don't fabricate audit metadata.
+  if (!typed && drawn.length < 50) return;
+  let ip = null;
+  try {
+    ip = getClientIpAddress(req);
+  } catch {
+    ip = null;
+  }
+  const ua = req?.get ? req.get('user-agent') : (req?.headers?.['user-agent'] || null);
+  insInfo.authorizationSignedIp = ip || null;
+  insInfo.authorizationSignedUserAgent = ua || null;
+  // Prefer the client-recorded signedAt (captured at the moment the parent
+  // clicked "Apply my signature"), but fall back to server time at finalize
+  // so we always have a trustworthy timestamp even if the client clock is
+  // wildly skewed or omitted.
+  if (!String(insInfo.authorizationSignedAt || '').trim()) {
+    insInfo.authorizationSignedAt = (signedAtFallback || new Date()).toISOString
+      ? (signedAtFallback || new Date()).toISOString()
+      : new Date().toISOString();
+  }
+  if (!String(insInfo.authorizationSourceMethod || '').trim()) {
+    insInfo.authorizationSourceMethod = drawn.length >= 50 ? 'reused_guardian_signature' : 'typed_full_name';
+  }
+};
+
 const ensureLinkBoundCompanyEventSelection = (intakeData, link) => {
   const eventId = Number(link?.company_event_id || 0) || null;
   if (!eventId) return;
@@ -2845,6 +2900,40 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
           if (name || mid) output.push(`  ${name || 'Client'}: ${mid || '(not provided)'}`);
         });
       }
+      // Insurance Authorization & Assignment of Benefits e-signature attestation.
+      // Surface the same audit trail we record for every other waiver section
+      // (signed name + when + how + IP + UA + the underlying assignment-of-
+      // benefits language) so the answers PDF / packet shows this as a
+      // legitimate e-signature instead of just a stray typed name.
+      const authTyped = String(insInfo.authorizationSignature || '').trim();
+      const authDrawn = String(insInfo.authorizationSignatureData || '').trim();
+      if (authTyped || authDrawn) {
+        output.push('');
+        output.push('Insurance Authorization & Assignment of Benefits — Electronic Signature');
+        output.push('  I authorize the provider to release information to the insurance companies listed above');
+        output.push('  in order to submit insurance claims, and assign all insurance benefits to the provider.');
+        output.push('  I remain responsible for copays, coinsurance, deductibles, and any non-covered services.');
+        const signerLabel = authTyped
+          || String(insInfo.authorizationSignerName || '').trim()
+          || String(submissionResponses?.signerName || '').trim()
+          || 'Guardian';
+        output.push(`  Signed by: ${signerLabel}`);
+        if (insInfo.authorizationSignedAt) {
+          output.push(`  Signed at: ${insInfo.authorizationSignedAt}`);
+        }
+        const sourceMethod = String(
+          insInfo.authorizationSourceMethod
+          || (authDrawn ? 'reused_guardian_signature' : 'typed_full_name')
+        );
+        output.push(`  Signature method: ${sourceMethod}`);
+        if (insInfo.authorizationSignedIp) {
+          output.push(`  Signer IP: ${insInfo.authorizationSignedIp}`);
+        }
+        if (insInfo.authorizationSignedUserAgent) {
+          output.push(`  Signer browser: ${insInfo.authorizationSignedUserAgent}`);
+        }
+        output.push('  This electronic signature has the same legal effect as a hand-written one.');
+      }
     }
   }
 
@@ -5113,6 +5202,7 @@ export const finalizePublicIntake = async (req, res, next) => {
     // status poll, retry, or rebuildIntakeBundle picks up the same event
     // without needing to know about the link binding separately.
     ensureLinkBoundCompanyEventSelection(intakeData, link);
+    stampInsuranceAuthorizationSignatureMeta(intakeData, req, now);
     const packetDocumentTemplates = filterPacketDocumentTemplates(link, allAllowedTemplates, intakeData);
     const retentionPolicy = await resolveRetentionPolicy(link);
     const retentionExpiresAt = buildRetentionExpiresAt({ policy: retentionPolicy, submittedAt: now });
@@ -7420,6 +7510,7 @@ export const submitPublicIntake = async (req, res, next) => {
     // event placeholder + completion email + frontend success card all
     // see the event the family signed up for via the link itself.
     ensureLinkBoundCompanyEventSelection(intakeData, link);
+    stampInsuranceAuthorizationSignatureMeta(intakeData, req, now);
     const retentionPolicy = await resolveRetentionPolicy(link);
     const retentionExpiresAt = buildRetentionExpiresAt({ policy: retentionPolicy, submittedAt: now });
     const intakeDataHash = hashIntakeData(intakeData);

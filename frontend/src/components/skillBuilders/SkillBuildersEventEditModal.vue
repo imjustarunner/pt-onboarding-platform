@@ -91,6 +91,31 @@
           <div v-else-if="loading" class="muted sb-ce-msg">Loading event…</div>
           <template v-else>
             <div v-if="formError" class="error-box sb-ce-msg">{{ formError }}</div>
+            <div class="sb-ce-tabs" role="tablist" aria-label="Edit event sections">
+              <button
+                type="button"
+                class="sb-ce-tab"
+                role="tab"
+                :class="{ active: activeTab === 'details' }"
+                :aria-selected="activeTab === 'details'"
+                @click="activeTab = 'details'"
+              >
+                Details
+              </button>
+              <button
+                v-if="!isSkillsGroupIntegrated"
+                type="button"
+                class="sb-ce-tab"
+                role="tab"
+                :class="{ active: activeTab === 'staffing' }"
+                :aria-selected="activeTab === 'staffing'"
+                @click="activeTab = 'staffing'"
+              >
+                Staffing
+              </button>
+            </div>
+
+            <div v-show="activeTab === 'details'">
             <div
               v-if="eventContextBannerLines.length"
               class="sb-ce-event-context"
@@ -470,17 +495,33 @@
               </template>
             </div>
 
-            <div v-if="isSkillsGroupIntegrated" class="sb-ce-section">
+            <div v-if="isSkillsGroupIntegrated || isServiceProgramEventType" class="sb-ce-section">
               <strong class="sb-ce-subhead">Program station kiosk</strong>
               <p class="muted small sb-ce-pattern-lead">
-                At the station, staff open your portal link, enter this program’s <strong>6-digit station PIN</strong>, then
-                their personal <strong>4-digit kiosk PIN</strong> (from profile preferences). Each station PIN must be unique
-                across Skill Builders programs for this agency.
+                <template v-if="isSkillsGroupIntegrated">
+                  At the station, staff open this link, enter this program’s <strong>6-digit station PIN</strong>, then their
+                  personal <strong>4-digit kiosk PIN</strong> (from profile preferences). Each station PIN must be unique
+                  across Skill Builders programs for this agency.
+                </template>
+                <template v-else>
+                  At the station, staff open this link and enter this event’s <strong>6-digit station PIN</strong> to unlock
+                  the program-event kiosk (pickup / walk-home checkout + release signature).
+                </template>
               </p>
-              <p v-if="kioskEntryUrl" class="muted small sb-ce-kiosk-url">
-                <strong>Station link:</strong> <code class="sb-ce-code">{{ kioskEntryUrl }}</code>
-              </p>
-              <p v-else class="muted small">Set the agency portal slug so this link is complete.</p>
+              <div v-if="kioskEntryUrl" class="sb-ce-kiosk-url-row">
+                <div class="muted small">
+                  <strong>Kiosk link:</strong> <code class="sb-ce-code">{{ kioskEntryUrl }}</code>
+                </div>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="!kioskEntryUrl"
+                  @click="copyKioskUrl"
+                >
+                  {{ kioskCopied ? 'Copied' : 'Copy' }}
+                </button>
+              </div>
+              <p v-else class="muted small">Set the portal slug so this link is complete.</p>
 
               <div class="sb-ce-pin-status" role="status">
                 <template v-if="draft.kioskEventPinSet">
@@ -1054,6 +1095,239 @@
               :event-id="eventId"
               :potluck-enabled="draft.potluckEnabled"
             />
+            </div>
+
+            <div v-show="activeTab === 'staffing'" class="sb-ce-section">
+              <strong class="sb-ce-subhead">Staffing rules (program sessions)</strong>
+              <p class="muted small sb-ce-card-lead">
+                Configure minimum staffing and automatic scaling rules per scheduled session date. Required providers are computed as the
+                maximum of the client-count rule and the group-count rule (plus the minimum baseline).
+              </p>
+
+              <div class="sb-ce-grid">
+                <div class="form-group">
+                  <label class="sb-ce-lbl">Enable staffing blocks</label>
+                  <select v-model="draft.staffingConfig.enabled" class="input">
+                    <option :value="false">No</option>
+                    <option :value="true">Yes</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="sb-ce-lbl">Minimum providers per session</label>
+                  <input
+                    v-model.number="draft.staffingConfig.minProvidersPerSession"
+                    class="input"
+                    type="number"
+                    min="0"
+                    max="99"
+                  />
+                </div>
+              </div>
+
+              <div class="sb-ce-section">
+                <strong class="sb-ce-subhead">Client-count scaling</strong>
+                <div class="sb-ce-grid">
+                  <div class="form-group">
+                    <label class="sb-ce-lbl">Enabled</label>
+                    <select v-model="draft.staffingConfig.clientRule.enabled" class="input" :disabled="!draft.staffingConfig.enabled">
+                      <option :value="false">No</option>
+                      <option :value="true">Yes</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="sb-ce-lbl">Threshold (confirmed clients)</label>
+                    <input
+                      v-model.number="draft.staffingConfig.clientRule.threshold"
+                      class="input"
+                      type="number"
+                      min="0"
+                      max="999"
+                      :disabled="!draft.staffingConfig.enabled || !draft.staffingConfig.clientRule.enabled"
+                    />
+                    <small class="form-help">No additional providers are added until confirmed clients exceed this number.</small>
+                  </div>
+                  <div class="form-group">
+                    <label class="sb-ce-lbl">Step size (clients)</label>
+                    <input
+                      v-model.number="draft.staffingConfig.clientRule.confirmedStepSize"
+                      class="input"
+                      type="number"
+                      min="1"
+                      max="999"
+                      :disabled="!draft.staffingConfig.enabled || !draft.staffingConfig.clientRule.enabled"
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label class="sb-ce-lbl">Providers per step</label>
+                    <input
+                      v-model.number="draft.staffingConfig.clientRule.additionalProvidersPerStep"
+                      class="input"
+                      type="number"
+                      min="0"
+                      max="99"
+                      :disabled="!draft.staffingConfig.enabled || !draft.staffingConfig.clientRule.enabled"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div class="sb-ce-section">
+                <strong class="sb-ce-subhead">Group-count scaling</strong>
+                <div class="sb-ce-grid">
+                  <div class="form-group">
+                    <label class="sb-ce-lbl">Enabled</label>
+                    <select v-model="draft.staffingConfig.groupRule.enabled" class="input" :disabled="!draft.staffingConfig.enabled">
+                      <option :value="false">No</option>
+                      <option :value="true">Yes</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="sb-ce-lbl">Providers for 1 group</label>
+                    <input
+                      v-model.number="draft.staffingConfig.groupRule.baseProvidersForOneGroup"
+                      class="input"
+                      type="number"
+                      min="0"
+                      max="99"
+                      :disabled="!draft.staffingConfig.enabled || !draft.staffingConfig.groupRule.enabled"
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label class="sb-ce-lbl">Additional providers per added group</label>
+                    <input
+                      v-model.number="draft.staffingConfig.groupRule.additionalProvidersPerGroup"
+                      class="input"
+                      type="number"
+                      min="0"
+                      max="99"
+                      :disabled="!draft.staffingConfig.enabled || !draft.staffingConfig.groupRule.enabled"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div class="sb-ce-section">
+                <strong class="sb-ce-subhead">Provider signup options</strong>
+                <div class="sb-ce-grid">
+                  <div class="form-group">
+                    <label class="sb-ce-lbl">Providers can request shifts</label>
+                    <select v-model="draft.staffingConfig.providerSignup.enabled" class="input" :disabled="!draft.staffingConfig.enabled">
+                      <option :value="false">No</option>
+                      <option :value="true">Yes</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="sb-ce-lbl">Waitlist enabled</label>
+                    <select v-model="draft.staffingConfig.waitlist.enabled" class="input" :disabled="!draft.staffingConfig.enabled">
+                      <option :value="false">No</option>
+                      <option :value="true">Yes</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="sb-ce-lbl">On-call enabled</label>
+                    <select v-model="draft.staffingConfig.onCall.enabled" class="input" :disabled="!draft.staffingConfig.enabled">
+                      <option :value="false">No</option>
+                      <option :value="true">Yes</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="sb-ce-lbl">On-call lead time (hours)</label>
+                    <input
+                      v-model.number="draft.staffingConfig.onCall.leadHours"
+                      class="input"
+                      type="number"
+                      min="0"
+                      max="168"
+                      :disabled="!draft.staffingConfig.enabled || !draft.staffingConfig.onCall.enabled"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div class="sb-ce-section">
+                <strong class="sb-ce-subhead">Session groups</strong>
+                <p class="muted small sb-ce-card-lead">
+                  Configure group labels and age ranges per scheduled session. These groups drive the group-count staffing rule.
+                </p>
+                <div v-if="!eventSessionDates.length" class="muted small">
+                  No scheduled sessions found yet. Add session dates in the Schedule workspace first.
+                </div>
+                <template v-else>
+                  <div class="sb-ce-grid">
+                    <div class="form-group">
+                      <label class="sb-ce-lbl">Session</label>
+                      <select v-model.number="staffingSessionDateId" class="input">
+                        <option :value="0">Select a session…</option>
+                        <option v-for="sd in eventSessionDates" :key="`staff-sd-${sd.id}`" :value="Number(sd.id)">
+                          {{ formatDate(sd.sessionDate) }} · {{ sd.startsAt ? String(sd.startsAt).slice(11, 16) : '' }}
+                          {{ sd.endsAt ? '–' + String(sd.endsAt).slice(11, 16) : '' }}
+                        </option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label class="sb-ce-lbl">Actions</label>
+                      <div class="sb-ce-inline-actions">
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-sm"
+                          :disabled="!staffingSessionDateId || staffingGroupsLoading"
+                          @click="addStaffingGroupRow"
+                        >
+                          Add group
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-primary btn-sm"
+                          :disabled="!staffingSessionDateId || staffingGroupsSaving"
+                          @click="saveStaffingGroupsForSession"
+                        >
+                          {{ staffingGroupsSaving ? 'Saving…' : 'Save groups' }}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div v-if="staffingGroupsError" class="error-box sb-ce-msg">{{ staffingGroupsError }}</div>
+                  <div v-if="staffingGroupsLoading" class="muted small">Loading groups…</div>
+
+                  <div v-else-if="staffingSessionGroups.length" class="sb-ce-groups-table">
+                    <div v-for="(g, idx) in staffingSessionGroups" :key="`sg-${g.id || idx}`" class="sb-ce-group-row">
+                      <div class="form-group">
+                        <label class="sb-ce-lbl">Label</label>
+                        <input v-model.trim="g.label" class="input" maxlength="64" placeholder="Group A" />
+                      </div>
+                      <div class="form-group">
+                        <label class="sb-ce-lbl">Age min</label>
+                        <input v-model="g.ageMin" class="input" type="number" min="0" max="120" placeholder="e.g. 6" />
+                      </div>
+                      <div class="form-group">
+                        <label class="sb-ce-lbl">Age max</label>
+                        <input v-model="g.ageMax" class="input" type="number" min="0" max="120" placeholder="e.g. 8" />
+                      </div>
+                      <div class="form-group sb-ce-group-row-actions">
+                        <label class="sb-ce-lbl">&nbsp;</label>
+                        <button type="button" class="btn btn-link btn-sm" @click="removeStaffingGroupRow(idx)">Remove</button>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-else class="muted small">No groups yet for this session.</div>
+                </template>
+              </div>
+
+              <div class="sb-ce-actions">
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  :disabled="saving || duplicateSaveBlocked"
+                  @click="save"
+                >
+                  {{ saving ? 'Saving…' : duplicateMode ? 'Save as new event' : 'Save changes' }}
+                </button>
+              </div>
+              <p v-if="duplicateMode && duplicateSaveBlocked" class="muted small sb-ce-dup-block-msg">
+                Adjust the event so it is not identical to the source, then save.
+              </p>
+            </div>
           </template>
         </div>
       </div>
@@ -1142,6 +1416,15 @@ const sessionSurveyAttachments = ref([]);
 const attachSurveyId = ref('');
 const attachSessionDateId = ref('');
 
+const activeTab = ref('details'); // 'details' | 'staffing'
+
+// Staffing (program events / non-SB): per-session groups editor.
+const staffingSessionDateId = ref(0);
+const staffingGroupsLoading = ref(false);
+const staffingGroupsError = ref('');
+const staffingGroupsSaving = ref(false);
+const staffingSessionGroups = ref([]);
+
 const rosterAssignedIds = computed(() => new Set((roster.value.assignedProviders || []).map((p) => p.id)));
 const addableProviders = computed(() =>
   (roster.value.eligibleProviders || []).filter((p) => !rosterAssignedIds.value.has(p.id))
@@ -1169,6 +1452,18 @@ const kioskEntryUrl = computed(() => {
   if (!s || typeof window === 'undefined') return '';
   return `${window.location.origin}/${encodeURI(s)}/kiosk`;
 });
+
+const kioskCopied = ref(false);
+async function copyKioskUrl() {
+  try {
+    if (!kioskEntryUrl.value) return;
+    await navigator.clipboard.writeText(kioskEntryUrl.value);
+    kioskCopied.value = true;
+    setTimeout(() => { kioskCopied.value = false; }, 2000);
+  } catch {
+    kioskCopied.value = false;
+  }
+}
 
 const weekdayOptions = [
   { value: 0, label: 'Sun' },
@@ -1300,7 +1595,32 @@ function emptyDraft() {
     virtualSessionsEnabled: true,
     kioskEventPinSet: false,
     kioskEventPinNew: '',
-    kioskEventPinClear: false
+    kioskEventPinClear: false,
+    staffingConfig: {
+      enabled: false,
+      minProvidersPerSession: 0,
+      clientRule: {
+        enabled: true,
+        confirmedStepSize: 10,
+        additionalProvidersPerStep: 1,
+        threshold: 0
+      },
+      groupRule: {
+        enabled: true,
+        baseProvidersForOneGroup: 0,
+        additionalProvidersPerGroup: 0
+      },
+      onCall: {
+        enabled: false,
+        leadHours: 0
+      },
+      waitlist: {
+        enabled: false
+      },
+      providerSignup: {
+        enabled: false
+      }
+    }
   };
 }
 
@@ -1612,7 +1932,36 @@ function populateFromEvent(event) {
     virtualSessionsEnabled: event.virtualSessionsEnabled !== false,
     kioskEventPinSet: !!event.kioskEventPinSet,
     kioskEventPinNew: '',
-    kioskEventPinClear: false
+    kioskEventPinClear: false,
+    staffingConfig: (() => {
+      const cfg = event?.staffingConfig;
+      if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return emptyDraft().staffingConfig;
+      return {
+        enabled: !!cfg.enabled,
+        minProvidersPerSession: Number.isFinite(Number(cfg.minProvidersPerSession)) ? Number(cfg.minProvidersPerSession) : 0,
+        clientRule: {
+          enabled: cfg.clientRule?.enabled !== false,
+          confirmedStepSize: Number.isFinite(Number(cfg.clientRule?.confirmedStepSize)) ? Number(cfg.clientRule.confirmedStepSize) : 10,
+          additionalProvidersPerStep: Number.isFinite(Number(cfg.clientRule?.additionalProvidersPerStep)) ? Number(cfg.clientRule.additionalProvidersPerStep) : 1,
+          threshold: cfg.clientRule?.threshold == null ? 0 : Number(cfg.clientRule.threshold)
+        },
+        groupRule: {
+          enabled: cfg.groupRule?.enabled !== false,
+          baseProvidersForOneGroup: Number.isFinite(Number(cfg.groupRule?.baseProvidersForOneGroup)) ? Number(cfg.groupRule.baseProvidersForOneGroup) : 0,
+          additionalProvidersPerGroup: Number.isFinite(Number(cfg.groupRule?.additionalProvidersPerGroup)) ? Number(cfg.groupRule.additionalProvidersPerGroup) : 0
+        },
+        onCall: {
+          enabled: !!cfg.onCall?.enabled,
+          leadHours: Number.isFinite(Number(cfg.onCall?.leadHours)) ? Number(cfg.onCall.leadHours) : 0
+        },
+        waitlist: {
+          enabled: !!cfg.waitlist?.enabled
+        },
+        providerSignup: {
+          enabled: !!cfg.providerSignup?.enabled
+        }
+      };
+    })()
   };
   selectedPreset.value = '';
   selectedEventCategory.value = deriveCategoryFromEventType(draft.value.eventType);
@@ -1756,6 +2105,79 @@ async function loadEventSessionSurveyAttachments() {
   });
   eventSessionDates.value = Array.isArray(res.data?.sessionDates) ? res.data.sessionDates : [];
   sessionSurveyAttachments.value = Array.isArray(res.data?.attachments) ? res.data.attachments : [];
+}
+
+async function loadStaffingGroupsForSession() {
+  staffingGroupsError.value = '';
+  const sid = Number(staffingSessionDateId.value || 0);
+  if (!props.agencyId || !props.eventId || !sid) {
+    staffingSessionGroups.value = [];
+    return;
+  }
+  staffingGroupsLoading.value = true;
+  try {
+    const res = await api.get(`/company-events/${props.eventId}/session-groups`, {
+      params: { agencyId: props.agencyId, sessionDateId: sid },
+      skipGlobalLoading: true
+    });
+    const groups = Array.isArray(res.data?.groups) ? res.data.groups : [];
+    staffingSessionGroups.value = groups.map((g) => ({
+      id: Number(g.id || 0) || 0,
+      label: String(g.label || '').trim(),
+      ageMin: g.ageMin == null ? '' : String(g.ageMin),
+      ageMax: g.ageMax == null ? '' : String(g.ageMax)
+    }));
+  } catch (e) {
+    staffingGroupsError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load staffing groups';
+    staffingSessionGroups.value = [];
+  } finally {
+    staffingGroupsLoading.value = false;
+  }
+}
+
+function addStaffingGroupRow() {
+  staffingSessionGroups.value = [
+    ...(Array.isArray(staffingSessionGroups.value) ? staffingSessionGroups.value : []),
+    { id: 0, label: '', ageMin: '', ageMax: '' }
+  ];
+}
+
+function removeStaffingGroupRow(idx) {
+  staffingSessionGroups.value = (staffingSessionGroups.value || []).filter((_, i) => i !== idx);
+}
+
+async function saveStaffingGroupsForSession() {
+  staffingGroupsError.value = '';
+  const sid = Number(staffingSessionDateId.value || 0);
+  if (!props.agencyId || !props.eventId || !sid) return;
+  if (staffingGroupsSaving.value) return;
+  staffingGroupsSaving.value = true;
+  try {
+    const groups = (staffingSessionGroups.value || [])
+      .map((g) => ({
+        id: Number(g.id || 0) || undefined,
+        label: String(g.label || '').trim(),
+        ageMin: String(g.ageMin || '').trim(),
+        ageMax: String(g.ageMax || '').trim()
+      }))
+      .filter((g) => g.label)
+      .map((g) => ({
+        ...g,
+        ageMin: g.ageMin ? Number(g.ageMin) : null,
+        ageMax: g.ageMax ? Number(g.ageMax) : null
+      }));
+
+    await api.post(
+      `/company-events/${props.eventId}/session-groups`,
+      { agencyId: props.agencyId, sessionDateId: sid, groups },
+      { skipGlobalLoading: true }
+    );
+    await loadStaffingGroupsForSession();
+  } catch (e) {
+    staffingGroupsError.value = e?.response?.data?.error?.message || e?.message || 'Failed to save staffing groups';
+  } finally {
+    staffingGroupsSaving.value = false;
+  }
 }
 
 async function attachSurveyToSession() {
@@ -2329,7 +2751,37 @@ function validateAndBuildPersistPayload() {
     mealsAvailable: !!draft.value.mealsAvailable,
     mealOptions: draft.value.mealsAvailable
       ? (draft.value.mealOptions || []).map((s) => String(s || '').trim()).filter(Boolean)
-      : []
+      : [],
+    staffingConfig: (() => {
+      if (isSkillsGroupIntegrated.value) return null;
+      const cfg = draft.value.staffingConfig;
+      if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return null;
+      return {
+        enabled: !!cfg.enabled,
+        minProvidersPerSession: Number.isFinite(Number(cfg.minProvidersPerSession)) ? Number(cfg.minProvidersPerSession) : 0,
+        clientRule: {
+          enabled: cfg.clientRule?.enabled !== false,
+          confirmedStepSize: Number.isFinite(Number(cfg.clientRule?.confirmedStepSize)) ? Number(cfg.clientRule.confirmedStepSize) : 1,
+          additionalProvidersPerStep: Number.isFinite(Number(cfg.clientRule?.additionalProvidersPerStep)) ? Number(cfg.clientRule.additionalProvidersPerStep) : 0,
+          threshold: cfg.clientRule?.threshold == null ? null : Number(cfg.clientRule.threshold)
+        },
+        groupRule: {
+          enabled: cfg.groupRule?.enabled !== false,
+          baseProvidersForOneGroup: Number.isFinite(Number(cfg.groupRule?.baseProvidersForOneGroup)) ? Number(cfg.groupRule.baseProvidersForOneGroup) : 0,
+          additionalProvidersPerGroup: Number.isFinite(Number(cfg.groupRule?.additionalProvidersPerGroup)) ? Number(cfg.groupRule.additionalProvidersPerGroup) : 0
+        },
+        onCall: {
+          enabled: !!cfg.onCall?.enabled,
+          leadHours: Number.isFinite(Number(cfg.onCall?.leadHours)) ? Number(cfg.onCall.leadHours) : 0
+        },
+        waitlist: {
+          enabled: !!cfg.waitlist?.enabled
+        },
+        providerSignup: {
+          enabled: !!cfg.providerSignup?.enabled
+        }
+      };
+    })()
   };
   return { ok: true, payload };
 }
@@ -2410,6 +2862,10 @@ watch(
   (open) => {
     if (open) {
       formError.value = '';
+      activeTab.value = 'details';
+      staffingSessionDateId.value = 0;
+      staffingSessionGroups.value = [];
+      staffingGroupsError.value = '';
       effectiveAgencyId.value = Number(props.agencyId) || 0;
       loadEditBundle();
     } else {
@@ -2418,6 +2874,10 @@ watch(
       effectiveAgencyId.value = 0;
       skillsGroupMeetingsPreview.value = [];
       draft.value = emptyDraft();
+      activeTab.value = 'details';
+      staffingSessionDateId.value = 0;
+      staffingSessionGroups.value = [];
+      staffingGroupsError.value = '';
       rosterError.value = '';
       roster.value = {
         skillsGroupId: null,
@@ -2438,6 +2898,30 @@ watch(
     }
   },
   { immediate: true }
+);
+
+watch(
+  () => activeTab.value,
+  async (tab) => {
+    if (!props.modelValue) return;
+    if (tab !== 'staffing') return;
+    if (isSkillsGroupIntegrated.value) return;
+    if (!staffingSessionDateId.value) {
+      const first = Number(eventSessionDates.value?.[0]?.id || 0);
+      if (first) staffingSessionDateId.value = first;
+    }
+    await loadStaffingGroupsForSession();
+  }
+);
+
+watch(
+  () => staffingSessionDateId.value,
+  async () => {
+    if (!props.modelValue) return;
+    if (activeTab.value !== 'staffing') return;
+    if (isSkillsGroupIntegrated.value) return;
+    await loadStaffingGroupsForSession();
+  }
 );
 
 watch([effectiveAgencyId, () => props.duplicateMode, () => props.modelValue], () => {
@@ -2572,6 +3056,62 @@ watch(
 }
 .sb-ce-msg {
   margin-bottom: 12px;
+}
+.sb-ce-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+}
+.sb-ce-tab {
+  appearance: none;
+  border: 1px solid var(--border, #e2e8f0);
+  background: #f8fafc;
+  color: var(--text, #0f172a);
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.sb-ce-tab.active {
+  background: var(--primary, #0f766e);
+  border-color: var(--primary, #0f766e);
+  color: #fff;
+}
+.sb-ce-inline-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.sb-ce-groups-table {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sb-ce-group-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr auto;
+  gap: 10px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.sb-ce-group-row-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+@media (max-width: 640px) {
+  .sb-ce-group-row {
+    grid-template-columns: 1fr;
+  }
+  .sb-ce-group-row-actions {
+    justify-content: flex-start;
+  }
 }
 .sb-ce-grid {
   display: grid;
@@ -2725,6 +3265,13 @@ watch(
   max-width: 420px;
 }
 .sb-ce-kiosk-url {
+  margin: 8px 0 0;
+}
+.sb-ce-kiosk-url-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   margin: 8px 0 0;
 }
 .sb-ce-section {

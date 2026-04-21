@@ -1676,6 +1676,120 @@ export const deleteUser = async (req, res, next) => {
   }
 };
 
+export const bulkDeleteGuardians = async (req, res, next) => {
+  try {
+    if (!req.user?.id) return res.status(401).json({ error: { message: 'Unauthorized' } });
+
+    const rawIds = Array.isArray(req.body.guardianIds) ? req.body.guardianIds : [];
+    const guardianIds = rawIds
+      .map((id) => parseInt(id, 10))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    if (guardianIds.length === 0) {
+      return res.status(400).json({ error: { message: 'No valid guardian IDs provided' } });
+    }
+    if (guardianIds.length > 100) {
+      return res.status(400).json({ error: { message: 'Cannot bulk delete more than 100 guardians at a time' } });
+    }
+
+    const results = [];
+
+    for (const guardianId of guardianIds) {
+      try {
+        const guardian = await User.findById(guardianId);
+        if (!guardian || String(guardian.role || '').toLowerCase() !== 'client_guardian') {
+          results.push({ id: guardianId, ok: false, error: 'Not a guardian account' });
+          continue;
+        }
+
+        // Collect linked client IDs for event de-enrollment
+        const [clientRows] = await pool.execute(
+          'SELECT client_id FROM client_guardians WHERE guardian_user_id = ?',
+          [guardianId]
+        );
+        const clientIds = (clientRows || []).map((r) => Number(r.client_id)).filter(Boolean);
+
+        // De-enroll linked clients from company events and skill-builder events
+        if (clientIds.length > 0) {
+          const ph = clientIds.map(() => '?').join(',');
+          try {
+            await pool.execute(`DELETE FROM company_event_clients WHERE client_id IN (${ph})`, clientIds);
+          } catch { /* table may not exist */ }
+          try {
+            await pool.execute(`DELETE FROM skills_group_clients WHERE client_id IN (${ph})`, clientIds);
+          } catch { /* table may not exist */ }
+        }
+
+        // Detach from all linked client accounts
+        await pool.execute('DELETE FROM client_guardians WHERE guardian_user_id = ?', [guardianId]);
+
+        // Remove from all tenant / sub-org memberships
+        await pool.execute('DELETE FROM user_agencies WHERE user_id = ?', [guardianId]);
+
+        // Hard-delete the guardian user (guardian accounts are portal-only, no archival required)
+        await pool.execute('DELETE FROM users WHERE id = ? AND role = ?', [guardianId, 'client_guardian']);
+
+        results.push({ id: guardianId, ok: true });
+      } catch (err) {
+        results.push({ id: guardianId, ok: false, error: err?.message || 'Unknown error' });
+      }
+    }
+
+    const allOk = results.every((r) => r.ok);
+    res.status(allOk ? 200 : 207).json({ ok: allOk, results });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** GET /api/users/:id/guardian-events — admin view of events for a guardian's linked clients */
+export const getGuardianEvents = async (req, res, next) => {
+  try {
+    const guardianUserId = parseInt(req.params.id, 10);
+    if (!guardianUserId) return res.status(400).json({ error: { message: 'Invalid guardian user id' } });
+
+    const guardian = await User.findById(guardianUserId);
+    if (!guardian || String(guardian.role || '').toLowerCase() !== 'client_guardian') {
+      return res.status(400).json({ error: { message: 'User is not a guardian account' } });
+    }
+
+    const [clientRows] = await pool.execute(
+      'SELECT client_id FROM client_guardians WHERE guardian_user_id = ?',
+      [guardianUserId]
+    );
+    const clientIds = (clientRows || []).map((r) => Number(r.client_id)).filter(Boolean);
+    if (!clientIds.length) return res.json([]);
+
+    const ph = clientIds.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT ce.id AS company_event_id,
+              ce.title,
+              ce.starts_at,
+              ce.ends_at,
+              ce.event_type,
+              ag.name AS agency_name,
+              prog.name AS program_name,
+              c.id AS client_id,
+              c.initials,
+              c.full_name,
+              cec.enrolled_at,
+              cec.is_active
+       FROM company_event_clients cec
+       INNER JOIN company_events ce ON ce.id = cec.company_event_id
+       INNER JOIN agencies ag ON ag.id = ce.agency_id
+       LEFT JOIN agencies prog ON prog.id = ce.organization_id
+       INNER JOIN clients c ON c.id = cec.client_id
+       WHERE cec.client_id IN (${ph})
+       ORDER BY ce.starts_at DESC`,
+      clientIds
+    );
+
+    res.json(rows || []);
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const deleteMe = async (req, res, next) => {
   try {
     const user = req.user;

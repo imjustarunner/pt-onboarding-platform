@@ -964,7 +964,17 @@
                     class="ov-row"
                   >
                     <div class="ov-row-label">{{ field.label }}</div>
-                    <div class="ov-row-value" style="white-space: pre-wrap;">{{ field.value }}</div>
+                    <div class="ov-row-value" style="white-space: pre-wrap;">
+                      <button
+                        v-if="isInsuranceCardField(field)"
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        @click="viewInsuranceCard(props.client.id, insuranceSlotFromFieldKey(field.key))"
+                      >
+                        View
+                      </button>
+                      <span v-else>{{ field.value }}</span>
+                    </div>
                   </div>
                 </div>
               </section>
@@ -4241,6 +4251,34 @@ const clinicalDebugLoading = ref(false);
 // key configured in the runtime env. In that state the data is physically
 // present but unreadable — the UI should say so instead of "no responses".
 const clinicalEncryptionKeyMissing = ref(false);
+
+const insuranceSlotFromFieldKey = (key) => {
+  const m = String(key || '').match(/^insurance__(primary|secondary)_(front|back)_url$/i);
+  return m ? `${m[1].toLowerCase()}_${m[2].toLowerCase()}` : null;
+};
+
+const isInsuranceCardField = (field) => {
+  const slot = insuranceSlotFromFieldKey(field?.key);
+  return !!slot && String(field?.value || '').trim().toLowerCase().startsWith('gs://');
+};
+
+const viewInsuranceCard = async (clientId, slot) => {
+  const cid = Number(clientId || 0);
+  if (!cid || !slot) return;
+  try {
+    const r = await api.get(`/clients/${cid}/insurance-card`, {
+      params: { slot },
+      responseType: 'blob'
+    });
+    const contentType = r?.headers?.['content-type'] || 'application/octet-stream';
+    const blob = new Blob([r.data], { type: contentType });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank', 'noopener');
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (e) {
+    console.error('[client insurance] view failed', e?.response?.data?.error?.message || e?.message || e);
+  }
+};
 
 const clinicalTotalFieldCount = computed(() =>
   (clinicalSections.value || []).reduce((acc, s) => acc + (s?.fields?.length || 0), 0)

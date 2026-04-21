@@ -50,11 +50,18 @@
           <div v-show="dashHubMode && hubRailItems.length" class="sbep-hub">
             <section class="sbep-hub-hero" aria-labelledby="sbep-hub-hero-title">
               <p class="sbep-hub-eyebrow">Event workspace</p>
-              <h2 id="sbep-hub-hero-title" class="sbep-hub-hero-title">Pick where to work next</h2>
+              <h2 id="sbep-hub-hero-title" class="sbep-hub-hero-title">
+                Event workspace overview
+              </h2>
               <p class="sbep-hub-hero-sub">
-                Same tools as before: use the tabs under this banner for a quick jump, the cards below for context, or the
-                slim rail after you open a section.
+                Choose a section below to manage this event. Use the tabs for quick switching, or open a section card to
+                jump straight into the workspace.
               </p>
+              <div class="sbep-hub-hero-actions">
+                <button type="button" class="btn btn-secondary btn-sm" @click="selectRailSection('event-chat')">
+                  Post an update
+                </button>
+              </div>
               <div v-if="hubQuickStats.length" class="sbep-hub-stats" role="list">
                 <div v-for="s in hubQuickStats" :key="s.label" class="sbep-hub-stat" role="listitem">
                   <span class="sbep-hub-stat-val">{{ s.value }}</span>
@@ -579,17 +586,349 @@
               <p v-else-if="genericParticipantsError" class="error-box sbep-add-client-err">{{ genericParticipantsError }}</p>
               <div v-else-if="genericParticipants.length" class="sbep-roster-summary-block">
                 <p class="sbep-subh sbep-roster-summary-heading">Enrolled participants</p>
-                <div class="sbep-roster-table-wrap">
+                <p v-if="participantProvidersError" class="error-box sbep-add-client-err">{{ participantProvidersError }}</p>
+                <div v-if="staffingEnabled" class="sbep-staffing-wrap">
+                  <div class="sbep-staffing-top">
+                    <div class="form-group sbep-staffing-session">
+                      <label class="sbep-subh">Session</label>
+                      <select v-model.number="staffingActiveSessionDateId" class="input">
+                        <option :value="0">Select a session…</option>
+                        <option v-for="s in staffingSessions" :key="`ss-${s.sessionDateId}`" :value="Number(s.sessionDateId)">
+                          {{ formatSessionDateDisplay(s.sessionDate) }}
+                          <template v-if="s.startsAt"> · {{ String(s.startsAt).slice(11, 16) }}</template>
+                          <template v-if="s.endsAt">–{{ String(s.endsAt).slice(11, 16) }}</template>
+                        </option>
+                      </select>
+                    </div>
+                    <div class="sbep-staffing-meta">
+                      <div v-if="staffingSummaryLoading" class="muted small">Loading staffing…</div>
+                      <div v-else-if="staffingSummaryError" class="error-box sbep-add-client-err">{{ staffingSummaryError }}</div>
+                      <div v-else-if="staffingActiveSession" class="muted small">
+                        <strong>Required:</strong> {{ staffingActiveSession.requiredProviders }}
+                        · <strong>Approved:</strong> {{ staffingActiveSession.approvedProvidersCount }}
+                        · <strong>Confirmed:</strong> {{ staffingActiveSession.confirmedClientsCount }}
+                        · <strong>Groups:</strong> {{ staffingActiveSession.groupCount }}
+                      </div>
+                      <div class="sbep-staffing-actions">
+                        <button type="button" class="btn btn-secondary btn-sm" @click="refreshStaffingForActiveSession">
+                          Refresh staffing
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div v-if="!staffingActiveSessionDateId" class="muted small">Select a session to view groups and staffing.</div>
+                  <div v-else class="sbep-staffing-layout">
+                    <div class="sbep-staffing-main">
+                      <div v-if="staffingSessionGroupsError" class="error-box sbep-add-client-err">
+                        {{ staffingSessionGroupsError }}
+                      </div>
+                      <div v-if="staffingSessionAssignmentsError" class="error-box sbep-add-client-err">
+                        {{ staffingSessionAssignmentsError }}
+                      </div>
+                      <div v-if="staffingSessionGroupsLoading || staffingSessionAssignmentsLoading" class="muted small">
+                        Loading groups…
+                      </div>
+
+                      <div v-else>
+                        <div class="sbep-group-block">
+                          <p class="sbep-subh">Unassigned</p>
+                          <p class="muted small sbep-card-lead">Participants not yet assigned to a session group.</p>
+                          <div class="sbep-roster-table-wrap" v-if="staffingParticipantGroups.unassigned.length">
+                            <table class="sbep-roster-table">
+                              <thead>
+                                <tr>
+                                  <th>Participant</th>
+                                  <th>Grade</th>
+                                  <th>Age</th>
+                                  <th>Group</th>
+                                  <th>Intake</th>
+                                  <th>Treatment plan</th>
+                                  <th>Confirm</th>
+                                  <th>Provider</th>
+                                  <th>Notes</th>
+                                  <th></th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <tr
+                                  v-for="c in staffingParticipantGroups.unassigned"
+                                  :key="`gp-un-${c.clientId}`"
+                                  :class="{ 'sbep-row-mine': isMyParticipant(c) }"
+                                >
+                                  <td>
+                                    <router-link
+                                      v-if="rosterClientLinkTo({ id: c.clientId })"
+                                      :to="rosterClientLinkTo({ id: c.clientId })"
+                                      class="sbep-roster-client-link"
+                                    >
+                                      {{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}
+                                    </router-link>
+                                    <template v-else>{{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}</template>
+                                  </td>
+                                  <td>{{ c.grade || '—' }}</td>
+                                  <td>{{ c.ageYears != null ? c.ageYears : '—' }}</td>
+                                  <td style="min-width: 220px;">
+                                    <select
+                                      class="input sbep-provider-select"
+                                      :value="participantGroupId(c.clientId) ? String(participantGroupId(c.clientId)) : ''"
+                                      @change="assignParticipantToGroup(c, $event.target.value)"
+                                    >
+                                      <option value="">Unassigned</option>
+                                      <option v-for="g in staffingSessionGroups" :key="`gopt-${g.id}`" :value="String(g.id)">
+                                        {{ groupDisplayLabel(g) }}
+                                      </option>
+                                    </select>
+                                  </td>
+                                  <td>
+                                    <button
+                                      type="button"
+                                      class="sbep-workflow-btn"
+                                      :class="{ 'is-complete': c.intakeComplete }"
+                                      :disabled="participantWorkflowSavingClientId === c.clientId"
+                                      :title="formatWorkflowTooltip(c.intakeComplete ? 'Intake complete' : 'Intake needed', c.intakeCompletedAt, c.intakeCompletedByName)"
+                                      @click="toggleParticipantIntake(c)"
+                                    >
+                                      {{ c.intakeComplete ? 'Complete' : 'Needed' }}
+                                    </button>
+                                  </td>
+                                  <td>
+                                    <button
+                                      type="button"
+                                      class="sbep-workflow-btn"
+                                      :class="{ 'is-complete': c.treatmentPlanComplete }"
+                                      :disabled="participantWorkflowSavingClientId === c.clientId || (!c.intakeComplete && !c.treatmentPlanComplete)"
+                                      :title="formatWorkflowTooltip(c.treatmentPlanComplete ? 'Treatment plan complete' : 'Treatment plan needed', c.treatmentPlanCompletedAt, c.treatmentPlanCompletedByName)"
+                                      @click="toggleParticipantTreatmentPlan(c)"
+                                    >
+                                      {{ c.treatmentPlanComplete ? 'Complete' : 'Needed' }}
+                                    </button>
+                                  </td>
+                                  <td>
+                                    <button type="button" class="sbep-confirm-pill" disabled>
+                                      {{ c.treatmentPlanComplete ? 'Confirmed' : 'Confirm' }}
+                                    </button>
+                                  </td>
+                                  <td style="min-width: 220px;">
+                                    <select
+                                      class="input sbep-provider-select"
+                                      :disabled="participantWorkflowSavingClientId === c.clientId || participantProvidersLoading"
+                                      :value="c.assignedProviderUserId ? String(c.assignedProviderUserId) : ''"
+                                      @change="changeParticipantProvider(c, $event.target.value)"
+                                    >
+                                      <option value="">Unassigned</option>
+                                      <option v-for="p in participantProviders" :key="`prov-un-${p.id}`" :value="String(p.id)">
+                                        {{ p.name }}
+                                      </option>
+                                    </select>
+                                  </td>
+                                  <td style="min-width: 240px;">
+                                    <input
+                                      v-model.trim="c.notes"
+                                      class="input"
+                                      type="text"
+                                      placeholder="Optional…"
+                                      :disabled="participantNotesSavingClientId === c.clientId"
+                                      @blur="saveParticipantNotes(c)"
+                                    />
+                                  </td>
+                                  <td class="sbep-roster-actions">
+                                    <button type="button" class="btn btn-link btn-sm" @click="removeGenericParticipant(c)">Remove</button>
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+                          <p v-else class="muted small">No unassigned participants.</p>
+                        </div>
+
+                        <div v-for="g in staffingParticipantGroups.byGroup" :key="`grp-${g.id}`" class="sbep-group-block">
+                          <p class="sbep-subh">{{ groupDisplayLabel(g) }}</p>
+                          <div class="sbep-roster-table-wrap" v-if="g.participants.length">
+                            <table class="sbep-roster-table">
+                              <thead>
+                                <tr>
+                                  <th>Participant</th>
+                                  <th>Grade</th>
+                                  <th>Age</th>
+                                  <th>Group</th>
+                                  <th>Intake</th>
+                                  <th>Treatment plan</th>
+                                  <th>Confirm</th>
+                                  <th>Provider</th>
+                                  <th>Notes</th>
+                                  <th></th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <tr
+                                  v-for="c in g.participants"
+                                  :key="`gp-g-${g.id}-${c.clientId}`"
+                                  :class="{ 'sbep-row-mine': isMyParticipant(c) }"
+                                >
+                                  <td>
+                                    <router-link
+                                      v-if="rosterClientLinkTo({ id: c.clientId })"
+                                      :to="rosterClientLinkTo({ id: c.clientId })"
+                                      class="sbep-roster-client-link"
+                                    >
+                                      {{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}
+                                    </router-link>
+                                    <template v-else>{{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}</template>
+                                  </td>
+                                  <td>{{ c.grade || '—' }}</td>
+                                  <td>{{ c.ageYears != null ? c.ageYears : '—' }}</td>
+                                  <td style="min-width: 220px;">
+                                    <select
+                                      class="input sbep-provider-select"
+                                      :value="participantGroupId(c.clientId) ? String(participantGroupId(c.clientId)) : ''"
+                                      @change="assignParticipantToGroup(c, $event.target.value)"
+                                    >
+                                      <option value="">Unassigned</option>
+                                      <option v-for="opt in staffingSessionGroups" :key="`gopt2-${opt.id}`" :value="String(opt.id)">
+                                        {{ groupDisplayLabel(opt) }}
+                                      </option>
+                                    </select>
+                                  </td>
+                                  <td>
+                                    <button
+                                      type="button"
+                                      class="sbep-workflow-btn"
+                                      :class="{ 'is-complete': c.intakeComplete }"
+                                      :disabled="participantWorkflowSavingClientId === c.clientId"
+                                      :title="formatWorkflowTooltip(c.intakeComplete ? 'Intake complete' : 'Intake needed', c.intakeCompletedAt, c.intakeCompletedByName)"
+                                      @click="toggleParticipantIntake(c)"
+                                    >
+                                      {{ c.intakeComplete ? 'Complete' : 'Needed' }}
+                                    </button>
+                                  </td>
+                                  <td>
+                                    <button
+                                      type="button"
+                                      class="sbep-workflow-btn"
+                                      :class="{ 'is-complete': c.treatmentPlanComplete }"
+                                      :disabled="participantWorkflowSavingClientId === c.clientId || (!c.intakeComplete && !c.treatmentPlanComplete)"
+                                      :title="formatWorkflowTooltip(c.treatmentPlanComplete ? 'Treatment plan complete' : 'Treatment plan needed', c.treatmentPlanCompletedAt, c.treatmentPlanCompletedByName)"
+                                      @click="toggleParticipantTreatmentPlan(c)"
+                                    >
+                                      {{ c.treatmentPlanComplete ? 'Complete' : 'Needed' }}
+                                    </button>
+                                  </td>
+                                  <td>
+                                    <button type="button" class="sbep-confirm-pill" disabled>
+                                      {{ c.treatmentPlanComplete ? 'Confirmed' : 'Confirm' }}
+                                    </button>
+                                  </td>
+                                  <td style="min-width: 220px;">
+                                    <select
+                                      class="input sbep-provider-select"
+                                      :disabled="participantWorkflowSavingClientId === c.clientId || participantProvidersLoading"
+                                      :value="c.assignedProviderUserId ? String(c.assignedProviderUserId) : ''"
+                                      @change="changeParticipantProvider(c, $event.target.value)"
+                                    >
+                                      <option value="">Unassigned</option>
+                                      <option v-for="p in participantProviders" :key="`prov-g-${g.id}-${p.id}`" :value="String(p.id)">
+                                        {{ p.name }}
+                                      </option>
+                                    </select>
+                                  </td>
+                                  <td style="min-width: 240px;">
+                                    <input
+                                      v-model.trim="c.notes"
+                                      class="input"
+                                      type="text"
+                                      placeholder="Optional…"
+                                      :disabled="participantNotesSavingClientId === c.clientId"
+                                      @blur="saveParticipantNotes(c)"
+                                    />
+                                  </td>
+                                  <td class="sbep-roster-actions">
+                                    <button type="button" class="btn btn-link btn-sm" @click="removeGenericParticipant(c)">Remove</button>
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+                          <p v-else class="muted small">No participants assigned to this group.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <aside class="sbep-staffing-side">
+                      <p class="sbep-subh">Staffing</p>
+                      <div v-if="staffingSessionRequestsError" class="error-box sbep-add-client-err">
+                        {{ staffingSessionRequestsError }}
+                      </div>
+                      <div v-if="staffingSessionRequestsLoading" class="muted small">Loading requests…</div>
+                      <template v-else>
+                        <div class="sbep-staffing-card">
+                          <p class="muted small" style="margin: 0;">
+                            <strong>Required:</strong> {{ staffingActiveSession?.requiredProviders ?? 0 }}<br />
+                            <strong>Approved:</strong> {{ staffingActiveSession?.approvedProvidersCount ?? 0 }}<br />
+                            <strong>Pending:</strong> {{ (staffingSessionRequests || []).filter((r) => r.status === 'pending').length }}
+                          </p>
+                        </div>
+
+                        <div class="sbep-staffing-card">
+                          <p class="sbep-subh">Pending requests</p>
+                          <div v-if="!(staffingSessionRequests || []).some((r) => r.status === 'pending')" class="muted small">
+                            No pending requests.
+                          </div>
+                          <div
+                            v-for="r in (staffingSessionRequests || []).filter((x) => x.status === 'pending')"
+                            :key="`req-${r.id}`"
+                            class="sbep-req-row"
+                          >
+                            <div class="sbep-req-meta">
+                              <div class="sbep-req-name">{{ r.providerName }}</div>
+                              <div class="muted small">{{ r.requestType }}</div>
+                            </div>
+                            <div class="sbep-req-actions">
+                              <button
+                                type="button"
+                                class="btn btn-primary btn-sm"
+                                :disabled="staffingRequestDecisionSavingId === r.id"
+                                @click="approveSessionRequest(r)"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                type="button"
+                                class="btn btn-secondary btn-sm"
+                                :disabled="staffingRequestDecisionSavingId === r.id"
+                                @click="denySessionRequest(r)"
+                              >
+                                Deny
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </template>
+                    </aside>
+                  </div>
+                </div>
+
+                <div v-else class="sbep-roster-table-wrap">
                   <table class="sbep-roster-table">
                     <thead>
                       <tr>
                         <th>Participant</th>
-                        <th>Status</th>
+                        <th>Grade</th>
+                        <th>Age</th>
+                        <th>Intake</th>
+                        <th>Treatment plan</th>
+                        <th>Confirm</th>
+                        <th>Provider</th>
+                        <th>Notes</th>
                         <th></th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr v-for="c in genericParticipants" :key="`gp-${c.clientId}`">
+                      <tr
+                        v-for="c in genericParticipants"
+                        :key="`gp-${c.clientId}`"
+                        :class="{ 'sbep-row-mine': isMyParticipant(c) }"
+                      >
                         <td>
                           <router-link
                             v-if="rosterClientLinkTo({ id: c.clientId })"
@@ -600,7 +939,60 @@
                           </router-link>
                           <template v-else>{{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}</template>
                         </td>
-                        <td class="sbep-roster-docs">{{ c.documentStatus || c.status || '—' }}</td>
+                        <td>{{ c.grade || '—' }}</td>
+                        <td>{{ c.ageYears != null ? c.ageYears : '—' }}</td>
+                        <td>
+                          <button
+                            type="button"
+                            class="sbep-workflow-btn"
+                            :class="{ 'is-complete': c.intakeComplete }"
+                            :disabled="participantWorkflowSavingClientId === c.clientId"
+                            :title="formatWorkflowTooltip(c.intakeComplete ? 'Intake complete' : 'Intake needed', c.intakeCompletedAt, c.intakeCompletedByName)"
+                            @click="toggleParticipantIntake(c)"
+                          >
+                            {{ c.intakeComplete ? 'Complete' : 'Needed' }}
+                          </button>
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            class="sbep-workflow-btn"
+                            :class="{ 'is-complete': c.treatmentPlanComplete }"
+                            :disabled="participantWorkflowSavingClientId === c.clientId || (!c.intakeComplete && !c.treatmentPlanComplete)"
+                            :title="formatWorkflowTooltip(c.treatmentPlanComplete ? 'Treatment plan complete' : 'Treatment plan needed', c.treatmentPlanCompletedAt, c.treatmentPlanCompletedByName)"
+                            @click="toggleParticipantTreatmentPlan(c)"
+                          >
+                            {{ c.treatmentPlanComplete ? 'Complete' : 'Needed' }}
+                          </button>
+                        </td>
+                        <td>
+                          <button type="button" class="sbep-confirm-pill" disabled>
+                            {{ c.treatmentPlanComplete ? 'Confirmed' : 'Confirm' }}
+                          </button>
+                        </td>
+                        <td style="min-width: 220px;">
+                          <select
+                            class="input sbep-provider-select"
+                            :disabled="participantWorkflowSavingClientId === c.clientId || participantProvidersLoading"
+                            :value="c.assignedProviderUserId ? String(c.assignedProviderUserId) : ''"
+                            @change="changeParticipantProvider(c, $event.target.value)"
+                          >
+                            <option value="">Unassigned</option>
+                            <option v-for="p in participantProviders" :key="`prov-${p.id}`" :value="String(p.id)">
+                              {{ p.name }}
+                            </option>
+                          </select>
+                        </td>
+                        <td style="min-width: 240px;">
+                          <input
+                            v-model.trim="c.notes"
+                            class="input"
+                            type="text"
+                            placeholder="Optional…"
+                            :disabled="participantNotesSavingClientId === c.clientId"
+                            @blur="saveParticipantNotes(c)"
+                          />
+                        </td>
                         <td class="sbep-roster-actions">
                           <button type="button" class="btn btn-link btn-sm" @click="removeGenericParticipant(c)">Remove</button>
                         </td>
@@ -1302,6 +1694,27 @@ const detail = ref(null);
 const genericParticipants = ref([]);
 const genericParticipantsLoading = ref(false);
 const genericParticipantsError = ref('');
+const participantProviders = ref([]);
+const participantProvidersLoading = ref(false);
+const participantProvidersError = ref('');
+const participantWorkflowSavingClientId = ref(0);
+const participantNotesSavingClientId = ref(0);
+
+// Staffing blocks (non–Skill Builders program events)
+const staffingSummaryLoading = ref(false);
+const staffingSummaryError = ref('');
+const staffingSummary = ref(null); // { staffingConfig, sessions: [] }
+const staffingActiveSessionDateId = ref(0);
+const staffingSessionGroupsLoading = ref(false);
+const staffingSessionGroupsError = ref('');
+const staffingSessionGroups = ref([]);
+const staffingSessionAssignmentsLoading = ref(false);
+const staffingSessionAssignmentsError = ref('');
+const staffingSessionAssignments = ref({}); // { [clientId]: groupId|null }
+const staffingSessionRequestsLoading = ref(false);
+const staffingSessionRequestsError = ref('');
+const staffingSessionRequests = ref([]);
+const staffingRequestDecisionSavingId = ref(0);
 const editEventModalOpen = ref(false);
 const sessions = ref([]);
 const sessionsLoading = ref(false);
@@ -2355,15 +2768,333 @@ async function loadGenericParticipants() {
   genericParticipantsError.value = '';
   try {
     const res = await api.get(`/company-events/${eid}/clients`, {
-      params: { agencyId: aid },
+      params: { agencyId: aid, includeWorkflow: 1 },
       skipGlobalLoading: true
     });
     genericParticipants.value = Array.isArray(res.data?.clients) ? res.data.clients : [];
+    // Provider dropdown options for the Participants panel
+    loadParticipantProviders();
   } catch (e) {
     genericParticipants.value = [];
     genericParticipantsError.value = e.response?.data?.error?.message || e.message || 'Could not load participants';
   } finally {
     genericParticipantsLoading.value = false;
+  }
+}
+
+async function loadParticipantProviders() {
+  const aid = eventBillingAgencyId.value;
+  const eid = eventId.value;
+  if (!aid || !eid || detail.value?.skillsGroup) {
+    participantProviders.value = [];
+    participantProvidersError.value = '';
+    participantProvidersLoading.value = false;
+    return;
+  }
+  if (participantProvidersLoading.value) return;
+  participantProvidersLoading.value = true;
+  participantProvidersError.value = '';
+  try {
+    const res = await api.get(`/company-events/${eid}/provider-options`, {
+      params: { agencyId: aid },
+      skipGlobalLoading: true
+    });
+    participantProviders.value = Array.isArray(res.data?.providers) ? res.data.providers : [];
+  } catch (e) {
+    participantProviders.value = [];
+    participantProvidersError.value = e.response?.data?.error?.message || e.message || 'Could not load providers';
+  } finally {
+    participantProvidersLoading.value = false;
+  }
+}
+
+const staffingEnabled = computed(() => !!detail.value?.event?.staffingConfig?.enabled && !detail.value?.skillsGroup);
+const staffingConfig = computed(() => (detail.value?.event?.staffingConfig && typeof detail.value.event.staffingConfig === 'object'
+  ? detail.value.event.staffingConfig
+  : null));
+const staffingSessions = computed(() => (Array.isArray(staffingSummary.value?.sessions) ? staffingSummary.value.sessions : []));
+const staffingActiveSession = computed(() =>
+  staffingSessions.value.find((s) => Number(s.sessionDateId) === Number(staffingActiveSessionDateId.value)) || null
+);
+
+function ensureDefaultStaffingSessionSelected() {
+  if (staffingActiveSessionDateId.value) return;
+  const first = Number(staffingSessions.value?.[0]?.sessionDateId || 0);
+  if (first) staffingActiveSessionDateId.value = first;
+}
+
+async function loadStaffingSummary() {
+  const aid = eventBillingAgencyId.value;
+  const eid = eventId.value;
+  if (!aid || !eid || !staffingEnabled.value) {
+    staffingSummary.value = null;
+    staffingSummaryError.value = '';
+    staffingSummaryLoading.value = false;
+    return;
+  }
+  staffingSummaryLoading.value = true;
+  staffingSummaryError.value = '';
+  try {
+    const res = await api.get(`/company-events/${eid}/session-staffing-summary`, {
+      params: { agencyId: aid },
+      skipGlobalLoading: true
+    });
+    staffingSummary.value = res.data || null;
+    ensureDefaultStaffingSessionSelected();
+  } catch (e) {
+    staffingSummary.value = null;
+    staffingSummaryError.value = e.response?.data?.error?.message || e.message || 'Could not load staffing summary';
+  } finally {
+    staffingSummaryLoading.value = false;
+  }
+}
+
+async function loadStaffingSessionGroups() {
+  const aid = eventBillingAgencyId.value;
+  const eid = eventId.value;
+  const sid = Number(staffingActiveSessionDateId.value || 0);
+  if (!aid || !eid || !sid || !staffingEnabled.value) {
+    staffingSessionGroups.value = [];
+    staffingSessionGroupsError.value = '';
+    staffingSessionGroupsLoading.value = false;
+    return;
+  }
+  staffingSessionGroupsLoading.value = true;
+  staffingSessionGroupsError.value = '';
+  try {
+    const res = await api.get(`/company-events/${eid}/session-groups`, {
+      params: { agencyId: aid, sessionDateId: sid },
+      skipGlobalLoading: true
+    });
+    staffingSessionGroups.value = Array.isArray(res.data?.groups) ? res.data.groups : [];
+  } catch (e) {
+    staffingSessionGroups.value = [];
+    staffingSessionGroupsError.value = e.response?.data?.error?.message || e.message || 'Could not load session groups';
+  } finally {
+    staffingSessionGroupsLoading.value = false;
+  }
+}
+
+async function loadStaffingSessionAssignments() {
+  const aid = eventBillingAgencyId.value;
+  const eid = eventId.value;
+  const sid = Number(staffingActiveSessionDateId.value || 0);
+  if (!aid || !eid || !sid || !staffingEnabled.value) {
+    staffingSessionAssignments.value = {};
+    staffingSessionAssignmentsError.value = '';
+    staffingSessionAssignmentsLoading.value = false;
+    return;
+  }
+  staffingSessionAssignmentsLoading.value = true;
+  staffingSessionAssignmentsError.value = '';
+  try {
+    const res = await api.get(`/company-events/${eid}/session-client-group-assignments`, {
+      params: { agencyId: aid, sessionDateId: sid },
+      skipGlobalLoading: true
+    });
+    const rows = Array.isArray(res.data?.assignments) ? res.data.assignments : [];
+    const map = {};
+    for (const r of rows) {
+      const cid = Number(r.clientId || 0);
+      if (!cid) continue;
+      map[cid] = r.groupId == null ? null : Number(r.groupId);
+    }
+    staffingSessionAssignments.value = map;
+  } catch (e) {
+    staffingSessionAssignments.value = {};
+    staffingSessionAssignmentsError.value = e.response?.data?.error?.message || e.message || 'Could not load group assignments';
+  } finally {
+    staffingSessionAssignmentsLoading.value = false;
+  }
+}
+
+async function loadStaffingSessionRequests() {
+  const aid = eventBillingAgencyId.value;
+  const eid = eventId.value;
+  const sid = Number(staffingActiveSessionDateId.value || 0);
+  if (!aid || !eid || !sid || !staffingEnabled.value) {
+    staffingSessionRequests.value = [];
+    staffingSessionRequestsError.value = '';
+    staffingSessionRequestsLoading.value = false;
+    return;
+  }
+  staffingSessionRequestsLoading.value = true;
+  staffingSessionRequestsError.value = '';
+  try {
+    const res = await api.get(`/company-events/${eid}/session-requests`, {
+      params: { agencyId: aid, sessionDateId: sid },
+      skipGlobalLoading: true
+    });
+    staffingSessionRequests.value = Array.isArray(res.data?.requests) ? res.data.requests : [];
+  } catch (e) {
+    staffingSessionRequests.value = [];
+    staffingSessionRequestsError.value = e.response?.data?.error?.message || e.message || 'Could not load session requests';
+  } finally {
+    staffingSessionRequestsLoading.value = false;
+  }
+}
+
+async function refreshStaffingForActiveSession() {
+  if (!staffingEnabled.value) return;
+  await Promise.all([
+    loadStaffingSummary(),
+    loadStaffingSessionGroups(),
+    loadStaffingSessionAssignments(),
+    loadStaffingSessionRequests()
+  ]);
+}
+
+function participantGroupId(clientId) {
+  const cid = Number(clientId || 0);
+  if (!cid) return null;
+  const map = staffingSessionAssignments.value || {};
+  return Object.prototype.hasOwnProperty.call(map, cid) ? map[cid] : null;
+}
+
+function groupDisplayLabel(g) {
+  const min = g?.ageMin != null ? Number(g.ageMin) : null;
+  const max = g?.ageMax != null ? Number(g.ageMax) : null;
+  const range = (min != null || max != null)
+    ? `${min != null ? min : '—'}–${max != null ? max : '—'}`
+    : '';
+  return `${String(g?.label || '').trim() || 'Group'}${range ? ` · ages ${range}` : ''}`;
+}
+
+const staffingParticipantGroups = computed(() => {
+  const groups = Array.isArray(staffingSessionGroups.value) ? staffingSessionGroups.value : [];
+  const roster = Array.isArray(genericParticipants.value) ? genericParticipants.value : [];
+  const byGroup = groups.map((g) => ({
+    ...g,
+    participants: roster.filter((c) => participantGroupId(c.clientId) === Number(g.id))
+  }));
+  const unassigned = roster.filter((c) => {
+    const gid = participantGroupId(c.clientId);
+    return gid == null || gid === 0;
+  });
+  return { byGroup, unassigned };
+});
+
+async function assignParticipantToGroup(row, rawGroupId) {
+  const aid = eventBillingAgencyId.value;
+  const eid = eventId.value;
+  const sid = Number(staffingActiveSessionDateId.value || 0);
+  const clientId = Number(row?.clientId || 0);
+  const groupId = rawGroupId === '' || rawGroupId == null ? 0 : Number(rawGroupId);
+  if (!aid || !eid || !sid || !clientId) return;
+  try {
+    await api.post(
+      `/company-events/${eid}/session-groups/${groupId || 0}/assign-client`,
+      { agencyId: aid, sessionDateId: sid, clientId },
+      { skipGlobalLoading: true }
+    );
+    await loadStaffingSessionAssignments();
+    await loadStaffingSummary();
+  } catch (e) {
+    window.alert(e.response?.data?.error?.message || e.message || 'Could not assign group');
+  }
+}
+
+async function approveSessionRequest(reqRow) {
+  const aid = eventBillingAgencyId.value;
+  const eid = eventId.value;
+  const rid = Number(reqRow?.id || 0);
+  if (!aid || !eid || !rid) return;
+  staffingRequestDecisionSavingId.value = rid;
+  try {
+    await api.post(
+      `/company-events/${eid}/session-requests/${rid}/approve`,
+      { agencyId: aid },
+      { skipGlobalLoading: true }
+    );
+    await refreshStaffingForActiveSession();
+  } catch (e) {
+    window.alert(e.response?.data?.error?.message || e.message || 'Could not approve request');
+  } finally {
+    staffingRequestDecisionSavingId.value = 0;
+  }
+}
+
+async function denySessionRequest(reqRow) {
+  const aid = eventBillingAgencyId.value;
+  const eid = eventId.value;
+  const rid = Number(reqRow?.id || 0);
+  if (!aid || !eid || !rid) return;
+  staffingRequestDecisionSavingId.value = rid;
+  try {
+    await api.post(
+      `/company-events/${eid}/session-requests/${rid}/deny`,
+      { agencyId: aid },
+      { skipGlobalLoading: true }
+    );
+    await refreshStaffingForActiveSession();
+  } catch (e) {
+    window.alert(e.response?.data?.error?.message || e.message || 'Could not deny request');
+  } finally {
+    staffingRequestDecisionSavingId.value = 0;
+  }
+}
+
+const isMyParticipant = (row) => {
+  const mine = Number(authStore.user?.id || 0);
+  return mine > 0 && Number(row?.assignedProviderUserId || 0) === mine;
+};
+
+const formatWorkflowTooltip = (label, at, by) => {
+  if (!at && !by) return label;
+  const d = at ? new Date(at) : null;
+  const dateStr = d && Number.isFinite(d.getTime()) ? d.toLocaleString() : null;
+  return `${label}${dateStr ? ` · ${dateStr}` : ''}${by ? ` · ${by}` : ''}`;
+};
+
+async function patchParticipantWorkflow(row, patch) {
+  const aid = eventBillingAgencyId.value;
+  const eid = eventId.value;
+  const clientId = Number(row?.clientId || 0);
+  if (!aid || !eid || !clientId) return;
+  participantWorkflowSavingClientId.value = clientId;
+  try {
+    await api.patch(`/company-events/${eid}/clients/${clientId}/workflow`, {
+      agencyId: aid,
+      ...patch
+    });
+    await loadGenericParticipants();
+  } catch (e) {
+    window.alert(e.response?.data?.error?.message || e.message || 'Could not update participant');
+  } finally {
+    participantWorkflowSavingClientId.value = 0;
+  }
+}
+
+async function toggleParticipantIntake(row) {
+  const next = !row?.intakeComplete;
+  await patchParticipantWorkflow(row, { intakeComplete: next });
+}
+
+async function toggleParticipantTreatmentPlan(row) {
+  const next = !row?.treatmentPlanComplete;
+  await patchParticipantWorkflow(row, { treatmentPlanComplete: next });
+}
+
+async function changeParticipantProvider(row, rawId) {
+  const id = rawId === '' ? null : Number.parseInt(String(rawId), 10);
+  await patchParticipantWorkflow(row, { assignedProviderUserId: Number.isFinite(id) ? id : null });
+}
+
+async function saveParticipantNotes(row) {
+  const aid = eventBillingAgencyId.value;
+  const eid = eventId.value;
+  const clientId = Number(row?.clientId || 0);
+  if (!aid || !eid || !clientId) return;
+  participantNotesSavingClientId.value = clientId;
+  try {
+    await api.patch(`/company-events/${eid}/clients/${clientId}`, {
+      agencyId: aid,
+      notes: row?.notes ?? null
+    });
+  } catch (e) {
+    window.alert(e.response?.data?.error?.message || e.message || 'Could not save notes');
+  } finally {
+    participantNotesSavingClientId.value = 0;
   }
 }
 
@@ -2857,6 +3588,12 @@ async function loadDetail() {
     detail.value = res.data;
     await loadGenericParticipants();
     await loadSessions();
+    await loadStaffingSummary();
+    await Promise.all([
+      loadStaffingSessionGroups(),
+      loadStaffingSessionAssignments(),
+      loadStaffingSessionRequests()
+    ]);
     await loadAttendance();
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load';
@@ -3179,6 +3916,18 @@ watch(
 );
 
 watch(
+  () => staffingActiveSessionDateId.value,
+  async () => {
+    if (!staffingEnabled.value) return;
+    await Promise.all([
+      loadStaffingSessionGroups(),
+      loadStaffingSessionAssignments(),
+      loadStaffingSessionRequests()
+    ]);
+  }
+);
+
+watch(
   () => [clientAttSessionId.value, sessions.value],
   () => {
     syncClientAttTimesFromSelectedSession();
@@ -3294,6 +4043,12 @@ watch(
   font-size: 0.95rem;
   line-height: 1.55;
   color: #52607a;
+}
+.sbep-hub-hero-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 .sbep-hub-stats {
   display: grid;
@@ -4184,6 +4939,118 @@ watch(
 .sbep-roster-actions {
   text-align: right;
   white-space: nowrap;
+}
+.sbep-row-mine {
+  background: rgba(15, 118, 110, 0.06);
+}
+.sbep-workflow-btn {
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  background: #fff;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-weight: 700;
+  font-size: 12px;
+  color: #334155;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sbep-workflow-btn.is-complete {
+  border-color: rgba(15, 118, 110, 0.5);
+  background: rgba(16, 185, 129, 0.12);
+  color: #0f766e;
+}
+.sbep-workflow-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.sbep-confirm-pill {
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  background: rgba(148, 163, 184, 0.08);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-weight: 700;
+  font-size: 12px;
+  color: #475569;
+  white-space: nowrap;
+}
+.sbep-provider-select {
+  width: 100%;
+  min-width: 180px;
+}
+.sbep-staffing-wrap {
+  margin-top: 10px;
+}
+.sbep-staffing-top {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.sbep-staffing-session {
+  min-width: min(520px, 100%);
+}
+.sbep-staffing-meta {
+  flex: 1;
+  min-width: 260px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+.sbep-staffing-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sbep-staffing-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 16px;
+  align-items: start;
+}
+.sbep-group-block + .sbep-group-block {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(148, 163, 184, 0.25);
+}
+.sbep-staffing-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sbep-staffing-card {
+  padding: 12px 12px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.sbep-req-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 10px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 12px;
+  background: #fff;
+  margin-top: 8px;
+}
+.sbep-req-name {
+  font-weight: 700;
+  color: #0f172a;
+}
+.sbep-req-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+@media (max-width: 920px) {
+  .sbep-staffing-layout {
+    grid-template-columns: 1fr;
+  }
 }
 .sbep-roster-att {
   line-height: 1.45;

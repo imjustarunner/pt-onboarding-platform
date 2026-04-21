@@ -14,6 +14,12 @@
         <div class="card-cta">Open</div>
       </router-link>
 
+      <router-link class="card" :to="orgTo('/schedule/event-staffing')">
+        <div class="card-title">Event shift requests</div>
+        <div class="card-desc">Request to work upcoming program-event sessions (regular, waitlist, or on-call).</div>
+        <div class="card-cta">Open</div>
+      </router-link>
+
       <router-link class="card" :to="orgTo('/schedule/staff')" data-tour="schedule-hub-card-staff">
         <div class="card-title">Staff schedules (compare)</div>
         <div class="card-desc">Select multiple providers and compare schedules; reorder and view two+ at once.</div>

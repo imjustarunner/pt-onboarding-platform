@@ -136,6 +136,7 @@ import publicProviderAvailabilityRoutes from './routes/publicProviderAvailabilit
 import publicSchoolsRoutes from './routes/publicSchools.routes.js';
 import skillBuildersProviderHubRoutes from './routes/skillBuildersProviderHub.routes.js';
 import publicSkillBuildersRoutes from './routes/publicSkillBuilders.routes.js';
+import publicProgramEventKioskRoutes from './routes/publicProgramEventKiosk.routes.js';
 import publicHiringReferenceRoutes from './routes/publicHiringReference.routes.js';
 import communicationTrackingRoutes from './routes/communicationTracking.routes.js';
 import publicMarketingPagesRoutes from './routes/publicMarketingPages.routes.js';
@@ -165,6 +166,7 @@ import meRoutes from './routes/me.routes.js';
 import gameProgressRoutes from './routes/gameProgress.routes.js';
 import billingPolicyRoutes from './routes/billingPolicy.routes.js';
 import companyEventClientsRoutes from './routes/companyEventClients.routes.js';
+import companyEventStaffingRoutes from './routes/companyEventStaffing.routes.js';
 import companyEventsPublicRoutes from './routes/companyEventsPublic.routes.js';
 import surveyRoutes from './routes/survey.routes.js';
 import stripeWebhookRoutes from './routes/stripeWebhook.routes.js';
@@ -578,6 +580,7 @@ app.use('/api/health-check', healthCheckRoutes);
 app.use('/api/public/provider-availability', publicProviderAvailabilityRoutes);
 app.use('/api/public/schools', publicSchoolsRoutes);
 app.use('/api/public/skill-builders', publicSkillBuildersRoutes);
+app.use('/api/public/program-event', publicProgramEventKioskRoutes);
 app.use('/api/public/marketing-pages', publicMarketingPagesRoutes);
 app.use('/api/public/hiring/reference', publicHiringReferenceRoutes);
 app.use('/api/email', communicationTrackingRoutes);
@@ -724,6 +727,7 @@ app.use('/api/emergency-broadcasts', emergencyBroadcastRoutes);
 app.use('/api/payroll', payrollRoutes);
 app.use('/api/company-car', companyCarRoutes);
 app.use('/api/company-events', companyEventClientsRoutes);
+app.use('/api/company-events', companyEventStaffingRoutes);
 app.use('/api/surveys', surveyRoutes);
 app.use('/api/budget', (req, res, next) => {
   import('./routes/budget.routes.js')

@@ -431,6 +431,7 @@ function mapEventRow(row, req, opts = {}) {
     familyProvisionNote: row.family_provision_note ? String(row.family_provision_note) : '',
     registrationFormUrl: row.registration_form_url ? String(row.registration_form_url).trim() : '',
     smsDraft: parseJsonMaybe(row.sms_draft_json),
+    staffingConfig: parseJsonMaybe(row.staffing_config_json),
     publicRegistrationStatus: String(row.public_registration_status || 'open').trim().toLowerCase(),
     publicRegistrationStatusLabel: row.public_registration_status_label
       ? String(row.public_registration_status_label).trim()
@@ -685,6 +686,69 @@ function parseEventPayload(body = {}) {
     };
   }
 
+  const rawStaffingConfig = body.staffingConfig ?? body.staffing_config_json;
+  let staffingConfig = null;
+  if (rawStaffingConfig !== undefined && rawStaffingConfig !== null && rawStaffingConfig !== '') {
+    const parsedCfg =
+      typeof rawStaffingConfig === 'string'
+        ? (() => { try { return JSON.parse(rawStaffingConfig); } catch { return null; } })()
+        : rawStaffingConfig;
+    if (!parsedCfg || typeof parsedCfg !== 'object' || Array.isArray(parsedCfg)) {
+      return { error: 'staffingConfig must be an object' };
+    }
+    const triBoolCfg = (raw, fallback = false) => {
+      if (raw === undefined) return fallback;
+      return raw === true || raw === 1 || raw === '1' || String(raw).toLowerCase() === 'true';
+    };
+    const parseIntBounded = (raw, { min = 0, max = 999 } = {}) => {
+      if (raw === undefined || raw === null || raw === '') return null;
+      const n = parseInt(String(raw).trim(), 10);
+      if (!Number.isFinite(n) || n < min || n > max) return null;
+      return n;
+    };
+
+    const enabled = triBoolCfg(parsedCfg.enabled, false);
+    const minProvidersPerSession = parseIntBounded(parsedCfg.minProvidersPerSession, { min: 0, max: 99 }) ?? 0;
+
+    const rawClientRule = parsedCfg.clientRule && typeof parsedCfg.clientRule === 'object' ? parsedCfg.clientRule : {};
+    const clientRuleEnabled = enabled && triBoolCfg(rawClientRule.enabled, true);
+    const confirmedStepSize = parseIntBounded(rawClientRule.confirmedStepSize, { min: 1, max: 999 }) ?? 1;
+    const additionalProvidersPerStep = parseIntBounded(rawClientRule.additionalProvidersPerStep, { min: 0, max: 99 }) ?? 0;
+    const threshold = parseIntBounded(rawClientRule.threshold, { min: 0, max: 999 });
+
+    const rawGroupRule = parsedCfg.groupRule && typeof parsedCfg.groupRule === 'object' ? parsedCfg.groupRule : {};
+    const groupRuleEnabled = enabled && triBoolCfg(rawGroupRule.enabled, true);
+    const baseProvidersForOneGroup = parseIntBounded(rawGroupRule.baseProvidersForOneGroup, { min: 0, max: 99 }) ?? 0;
+    const additionalProvidersPerGroup = parseIntBounded(rawGroupRule.additionalProvidersPerGroup, { min: 0, max: 99 }) ?? 0;
+
+    const rawOnCall = parsedCfg.onCall && typeof parsedCfg.onCall === 'object' ? parsedCfg.onCall : {};
+    const onCall = {
+      enabled: enabled && triBoolCfg(rawOnCall.enabled, false),
+      leadHours: parseIntBounded(rawOnCall.leadHours, { min: 0, max: 168 }) ?? 0
+    };
+    const waitlist = { enabled: enabled && triBoolCfg(parsedCfg.waitlist?.enabled, false) };
+    const providerSignup = { enabled: enabled && triBoolCfg(parsedCfg.providerSignup?.enabled, false) };
+
+    staffingConfig = {
+      enabled,
+      minProvidersPerSession,
+      clientRule: {
+        enabled: clientRuleEnabled,
+        confirmedStepSize,
+        additionalProvidersPerStep,
+        threshold
+      },
+      groupRule: {
+        enabled: groupRuleEnabled,
+        baseProvidersForOneGroup,
+        additionalProvidersPerGroup
+      },
+      onCall,
+      waitlist,
+      providerSignup
+    };
+  }
+
   let kioskPinOutcome = { mode: 'unchanged' };
   const pinRaw = body.kioskEventPin ?? body.kiosk_event_pin;
   const clearRaw = body.kioskEventPinClear ?? body.kiosk_event_pin_clear;
@@ -794,6 +858,7 @@ function parseEventPayload(body = {}) {
     familyProvisionNote,
     registrationFormUrl,
     smsDraft,
+    staffingConfig,
     publicRegistrationStatus,
     publicRegistrationStatusLabel
   };
@@ -1675,8 +1740,8 @@ async function createCompanyEventCore(req, agencyId, userId, parsed) {
 
   const [insertResult] = await pool.execute(
     `INSERT INTO company_events
-     (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, public_hero_image_url, public_hero_focal_point, public_listing_details, in_person_public, public_location_address, public_location_lat, public_location_lng, public_age_min, public_age_max, public_session_label, public_session_date_range, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible, program_cost_billing_mode, program_cost_dollars, per_session_cost_dollars, client_check_in_display_time, client_check_out_display_time, employee_report_time, employee_departure_time, virtual_sessions_enabled, kiosk_event_pin_hash, snacks_available, snack_options_json, meals_available, meal_options_json, guest_policy, potluck_enabled, organizer_providing_json, event_image_url, event_image_urls_json, rsvp_deadline, event_location_name, event_location_address, event_location_phone, family_provision_note, registration_form_url, sms_draft_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, public_hero_image_url, public_hero_focal_point, public_listing_details, in_person_public, public_location_address, public_location_lat, public_location_lng, public_age_min, public_age_max, public_session_label, public_session_date_range, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible, program_cost_billing_mode, program_cost_dollars, per_session_cost_dollars, client_check_in_display_time, client_check_out_display_time, employee_report_time, employee_departure_time, virtual_sessions_enabled, kiosk_event_pin_hash, snacks_available, snack_options_json, meals_available, meal_options_json, guest_policy, potluck_enabled, organizer_providing_json, event_image_url, event_image_urls_json, rsvp_deadline, event_location_name, event_location_address, event_location_phone, family_provision_note, registration_form_url, sms_draft_json, staffing_config_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       agencyId,
       organizationIdForRow,
@@ -1735,7 +1800,8 @@ async function createCompanyEventCore(req, agencyId, userId, parsed) {
       parsed.eventLocationPhone || null,
       parsed.familyProvisionNote || null,
       parsed.registrationFormUrl || null,
-      parsed.smsDraft ? JSON.stringify(parsed.smsDraft) : null
+      parsed.smsDraft ? JSON.stringify(parsed.smsDraft) : null,
+      parsed.staffingConfig ? JSON.stringify(parsed.staffingConfig) : null
     ]
   );
   const eventId = Number(insertResult.insertId);
@@ -1900,7 +1966,7 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
 
   await pool.execute(
     `UPDATE company_events
-     SET updated_by_user_id = ?, organization_id = ?, title = ?, description = ?, event_type = ?, splash_content = ?, public_hero_image_url = ?, public_hero_focal_point = ?, public_listing_details = ?, in_person_public = ?, public_location_address = ?, public_location_lat = ?, public_location_lng = ?, public_age_min = ?, public_age_max = ?, public_session_label = ?, public_session_date_range = ?, starts_at = ?, ends_at = ?, timezone = ?, recurrence_json = ?, is_active = ?, rsvp_mode = ?, voting_config_json = ?, reminder_config_json = ?, voting_closed_at = ?, sms_code = ?, skill_builder_direct_hours = ?, registration_eligible = ?, public_registration_status = ?, public_registration_status_label = ?, medicaid_eligible = ?, cash_eligible = ?, program_cost_billing_mode = ?, program_cost_dollars = ?, per_session_cost_dollars = ?, client_check_in_display_time = ?, client_check_out_display_time = ?, employee_report_time = ?, employee_departure_time = ?, virtual_sessions_enabled = ?, kiosk_event_pin_hash = ?, snacks_available = ?, snack_options_json = ?, meals_available = ?, meal_options_json = ?, guest_policy = ?, potluck_enabled = ?, organizer_providing_json = ?, event_image_url = ?, event_image_urls_json = ?, rsvp_deadline = ?, event_location_name = ?, event_location_address = ?, event_location_phone = ?, family_provision_note = ?, registration_form_url = ?, sms_draft_json = ?
+     SET updated_by_user_id = ?, organization_id = ?, title = ?, description = ?, event_type = ?, splash_content = ?, public_hero_image_url = ?, public_hero_focal_point = ?, public_listing_details = ?, in_person_public = ?, public_location_address = ?, public_location_lat = ?, public_location_lng = ?, public_age_min = ?, public_age_max = ?, public_session_label = ?, public_session_date_range = ?, starts_at = ?, ends_at = ?, timezone = ?, recurrence_json = ?, is_active = ?, rsvp_mode = ?, voting_config_json = ?, reminder_config_json = ?, voting_closed_at = ?, sms_code = ?, skill_builder_direct_hours = ?, registration_eligible = ?, public_registration_status = ?, public_registration_status_label = ?, medicaid_eligible = ?, cash_eligible = ?, program_cost_billing_mode = ?, program_cost_dollars = ?, per_session_cost_dollars = ?, client_check_in_display_time = ?, client_check_out_display_time = ?, employee_report_time = ?, employee_departure_time = ?, virtual_sessions_enabled = ?, kiosk_event_pin_hash = ?, snacks_available = ?, snack_options_json = ?, meals_available = ?, meal_options_json = ?, guest_policy = ?, potluck_enabled = ?, organizer_providing_json = ?, event_image_url = ?, event_image_urls_json = ?, rsvp_deadline = ?, event_location_name = ?, event_location_address = ?, event_location_phone = ?, family_provision_note = ?, registration_form_url = ?, sms_draft_json = ?, staffing_config_json = ?
      WHERE id = ? AND agency_id = ?`,
     [
       userId,
@@ -1961,6 +2027,7 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
       parsed.familyProvisionNote || null,
       parsed.registrationFormUrl || null,
       parsed.smsDraft ? JSON.stringify(parsed.smsDraft) : null,
+      parsed.staffingConfig ? JSON.stringify(parsed.staffingConfig) : null,
       eventId,
       agencyId
     ]

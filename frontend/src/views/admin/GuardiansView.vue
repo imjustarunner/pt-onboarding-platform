@@ -2,7 +2,17 @@
   <div class="container">
     <div class="page-header">
       <h1>Guardians</h1>
-      <button class="btn btn-primary" type="button" @click="openCreateModal">Add Guardian</button>
+      <div class="header-actions">
+        <button
+          v-if="selectedIds.size > 0"
+          class="btn btn-danger"
+          type="button"
+          @click="openBulkDeleteModal"
+        >
+          Delete {{ selectedIds.size }} Selected
+        </button>
+        <button class="btn btn-primary" type="button" @click="openCreateModal">Add Guardian</button>
+      </div>
     </div>
 
     <div class="filters-row">
@@ -43,6 +53,15 @@
       <table class="table">
         <thead>
           <tr>
+            <th class="col-check">
+              <input
+                type="checkbox"
+                :checked="allOnPageSelected"
+                :indeterminate="someOnPageSelected"
+                @change="toggleSelectAll"
+                title="Select all"
+              />
+            </th>
             <th>Name</th>
             <th>Email</th>
             <th>Status</th>
@@ -56,24 +75,71 @@
             v-for="g in filteredGuardians"
             :key="g.id"
             class="clickable-row"
-            @click="openGuardianProfile(g.id)"
+            :class="{ 'row-selected': selectedIds.has(g.id) }"
           >
-            <td>{{ guardianName(g) }}</td>
-            <td>{{ g.email || '—' }}</td>
-            <td>
+            <td class="col-check" @click.stop>
+              <input
+                type="checkbox"
+                :checked="selectedIds.has(g.id)"
+                @change="toggleSelect(g.id)"
+              />
+            </td>
+            <td @click="openGuardianProfile(g.id)">{{ guardianName(g) }}</td>
+            <td @click="openGuardianProfile(g.id)">{{ g.email || '—' }}</td>
+            <td @click="openGuardianProfile(g.id)">
               <span :class="['badge', statusBadgeClass(g.status)]">{{ statusLabel(g.status) }}</span>
             </td>
-            <td>{{ g.agencies || '—' }}</td>
-            <td>{{ Number(g.linked_clients_count || 0) }}</td>
-            <td>{{ formatDate(g.created_at) }}</td>
+            <td @click="openGuardianProfile(g.id)">{{ g.agencies || '—' }}</td>
+            <td @click="openGuardianProfile(g.id)">{{ Number(g.linked_clients_count || 0) }}</td>
+            <td @click="openGuardianProfile(g.id)">{{ formatDate(g.created_at) }}</td>
           </tr>
           <tr v-if="filteredGuardians.length === 0">
-            <td colspan="6" class="empty-row">No guardians found.</td>
+            <td colspan="7" class="empty-row">No guardians found.</td>
           </tr>
         </tbody>
       </table>
     </div>
 
+    <!-- Bulk Delete Confirmation Modal -->
+    <div v-if="showBulkDeleteModal" class="modal-overlay" @click.self="closeBulkDeleteModal">
+      <div class="modal-content" style="max-width: 520px;">
+        <div class="modal-header">
+          <h3 style="margin: 0; color: var(--danger, #dc3545);">Delete {{ selectedIds.size }} Guardian{{ selectedIds.size === 1 ? '' : 's' }}</h3>
+          <button class="btn-close" @click="closeBulkDeleteModal">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="warning-box">
+            <strong>This action is permanent and cannot be undone.</strong>
+            <p style="margin-top: 8px;">For each selected guardian, this will:</p>
+            <ul style="margin: 6px 0 0 18px; padding: 0;">
+              <li>Detach them from all linked client (kid) accounts</li>
+              <li>De-enroll their clients from any associated events</li>
+              <li>Remove them from their tenant and sub-organization</li>
+              <li>Permanently delete the guardian account</li>
+            </ul>
+          </div>
+          <div v-if="bulkDeleteError" class="error" style="margin-top: 10px;">{{ bulkDeleteError }}</div>
+          <div v-if="bulkDeleteResults.length > 0" style="margin-top: 12px;">
+            <div
+              v-for="r in bulkDeleteResults"
+              :key="r.id"
+              :class="['result-row', r.ok ? 'result-ok' : 'result-fail']"
+            >
+              <span>ID {{ r.id }}</span>
+              <span>{{ r.ok ? 'Deleted' : `Failed: ${r.error}` }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" :disabled="bulkDeleting" @click="closeBulkDeleteModal">Cancel</button>
+          <button class="btn btn-danger" :disabled="bulkDeleting" @click="confirmBulkDelete">
+            {{ bulkDeleting ? 'Deleting...' : `Delete ${selectedIds.size} Guardian${selectedIds.size === 1 ? '' : 's'}` }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Create Guardian Modal -->
     <div v-if="showCreateModal" class="modal-overlay" @click.self="closeCreateModal">
       <div class="modal-content" style="max-width: 680px;">
         <div class="modal-header">
@@ -156,6 +222,16 @@ const search = ref('');
 const statusFilter = ref('');
 const agencyFilter = ref('');
 
+// Bulk selection
+const selectedIds = ref(new Set());
+
+// Bulk delete modal
+const showBulkDeleteModal = ref(false);
+const bulkDeleting = ref(false);
+const bulkDeleteError = ref('');
+const bulkDeleteResults = ref([]);
+
+// Create modal
 const showCreateModal = ref(false);
 const savingCreate = ref(false);
 const createError = ref('');
@@ -193,6 +269,70 @@ const filteredGuardians = computed(() => {
     return true;
   });
 });
+
+const allOnPageSelected = computed(() => {
+  const list = filteredGuardians.value;
+  return list.length > 0 && list.every((g) => selectedIds.value.has(g.id));
+});
+
+const someOnPageSelected = computed(() => {
+  const list = filteredGuardians.value;
+  return !allOnPageSelected.value && list.some((g) => selectedIds.value.has(g.id));
+});
+
+const toggleSelect = (id) => {
+  const next = new Set(selectedIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  selectedIds.value = next;
+};
+
+const toggleSelectAll = () => {
+  if (allOnPageSelected.value) {
+    const next = new Set(selectedIds.value);
+    filteredGuardians.value.forEach((g) => next.delete(g.id));
+    selectedIds.value = next;
+  } else {
+    const next = new Set(selectedIds.value);
+    filteredGuardians.value.forEach((g) => next.add(g.id));
+    selectedIds.value = next;
+  }
+};
+
+const openBulkDeleteModal = () => {
+  bulkDeleteError.value = '';
+  bulkDeleteResults.value = [];
+  showBulkDeleteModal.value = true;
+};
+
+const closeBulkDeleteModal = () => {
+  if (bulkDeleting.value) return;
+  showBulkDeleteModal.value = false;
+  bulkDeleteResults.value = [];
+  bulkDeleteError.value = '';
+};
+
+const confirmBulkDelete = async () => {
+  bulkDeleteError.value = '';
+  bulkDeleteResults.value = [];
+  bulkDeleting.value = true;
+  try {
+    const response = await api.delete('/users/guardians/bulk', {
+      data: { guardianIds: [...selectedIds.value] }
+    });
+    bulkDeleteResults.value = Array.isArray(response?.data?.results) ? response.data.results : [];
+    const allOk = bulkDeleteResults.value.every((r) => r.ok);
+    if (allOk) {
+      selectedIds.value = new Set();
+      await fetchGuardians();
+      closeBulkDeleteModal();
+    }
+  } catch (err) {
+    bulkDeleteError.value = err?.response?.data?.error?.message || 'Failed to delete guardians';
+  } finally {
+    bulkDeleting.value = false;
+  }
+};
 
 const guardianName = (g) => {
   const first = String(g?.first_name || '').trim();
@@ -350,6 +490,12 @@ onMounted(async () => {
   margin-bottom: 16px;
 }
 
+.header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
 .filters-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -367,13 +513,50 @@ onMounted(async () => {
   justify-content: flex-end;
 }
 
-.clickable-row {
+.col-check {
+  width: 40px;
+  text-align: center;
+}
+
+.clickable-row td:not(.col-check) {
   cursor: pointer;
+}
+
+.row-selected {
+  background: rgba(var(--primary-rgb, 13, 110, 253), 0.06);
 }
 
 .empty-row {
   text-align: center;
   color: var(--text-secondary);
+}
+
+.warning-box {
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.result-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.result-ok {
+  background: #d1e7dd;
+  color: #0f5132;
+}
+
+.result-fail {
+  background: #f8d7da;
+  color: #842029;
 }
 
 .form-grid {

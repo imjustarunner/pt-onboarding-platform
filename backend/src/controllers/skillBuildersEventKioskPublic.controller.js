@@ -9,6 +9,31 @@ import {
 
 const TOKEN_TYPE = 'skill_builders_event_kiosk';
 
+// Identifies whether a kiosk session is bound to a Skill Builders event
+// (legacy default) or a generic non–Skill Builders program event. The
+// frontend uses this to decide which kiosk UI to render after unlock and
+// the program-event kiosk controller asserts on it before serving the
+// program-event roster + checkout endpoints.
+const KIND_SKILL_BUILDERS = 'skill_builders';
+const KIND_PROGRAM_EVENT = 'program_event';
+
+function classifyKioskEventType(eventTypeRaw) {
+  const t = String(eventTypeRaw || '').trim().toLowerCase();
+  // Supported kiosk unlock:
+  // - skills_group: Skill Builders (school-integrated) kiosk data sources
+  // - program_event / guardian_program_class / program_*: program-event kiosk
+  //   data sources (company_event_clients roster + waiver-driven checkout)
+  // Unsupported (for now): staff_event, company_event, learning-only flows, etc.
+  if (t === 'skills_group') return KIND_SKILL_BUILDERS;
+  const programEventLike = (
+    t === 'program_event'
+    || t === 'guardian_program_class'
+    || t.startsWith('program_')
+  );
+  if (programEventLike) return KIND_PROGRAM_EVENT;
+  return null;
+}
+
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw || ''), 10);
   return Number.isFinite(value) && value > 0 ? value : null;
@@ -24,9 +49,16 @@ function normalizeStaffKioskPin(pin) {
   return /^\d{4}$/.test(p) ? p : null;
 }
 
-function signSkillBuildersEventKioskToken({ agencyId, companyEventId }) {
+function signSkillBuildersEventKioskToken({ agencyId, companyEventId, kind }) {
   return jwt.sign(
-    { type: TOKEN_TYPE, agencyId, companyEventId },
+    {
+      type: TOKEN_TYPE,
+      agencyId,
+      companyEventId,
+      // Backwards-compatible: tokens issued before kiosk-for-program-events
+      // landed simply omit `kind`, and consumers default to skill_builders.
+      kind: kind || KIND_SKILL_BUILDERS
+    },
     config.jwt.secret,
     { expiresIn: '14h' }
   );
@@ -43,10 +75,27 @@ function verifySkillBuildersEventKioskBearer(req) {
     const agencyId = parsePositiveInt(decoded.agencyId);
     const companyEventId = parsePositiveInt(decoded.companyEventId);
     if (!agencyId || !companyEventId) return { error: { status: 401, message: 'Invalid kiosk session' } };
-    return { ok: true, agencyId, companyEventId };
+    const kind = decoded.kind === KIND_PROGRAM_EVENT ? KIND_PROGRAM_EVENT : KIND_SKILL_BUILDERS;
+    return { ok: true, agencyId, companyEventId, kind };
   } catch {
     return { error: { status: 401, message: 'Kiosk session expired or invalid' } };
   }
+}
+
+// Public so the program-event kiosk controller can validate sessions
+// against the same JWT type without re-implementing the verification
+// surface (token shape, slug binding, event id binding).
+export function verifyKioskBearerForProgramEvent(req) {
+  const ctx = verifySkillBuildersEventKioskBearer(req);
+  if (ctx.error) return ctx;
+  if (ctx.kind !== KIND_PROGRAM_EVENT) {
+    return { error: { status: 403, message: 'This kiosk session is not for a program event' } };
+  }
+  return ctx;
+}
+
+export async function assertKioskTokenMatchesSlugAndEvent(ctx, slug, eventIdParam) {
+  return assertTokenMatchesSlugAndEvent(ctx, slug, eventIdParam);
 }
 
 async function resolveAgencyIdBySlug(slug) {
@@ -79,12 +128,16 @@ export const unlockSkillBuildersEventKiosk = async (req, res, next) => {
     if (!pin) return res.status(400).json({ error: { message: 'Enter the 6-digit station PIN' } });
 
     const pinHash = KioskModel.hashPin(pin);
+    // The same unlock endpoint serves Skill Builders events AND generic
+    // program events now. The only requirement is that the event has a
+    // kiosk_event_pin_hash assigned. We classify by `event_type` after
+    // matching, then issue a token whose `kind` claim tells the kiosk
+    // frontend (and downstream endpoints) which UI / data shape to use.
     const [rows] = await pool.execute(
-      `SELECT id, title, agency_id, kiosk_event_pin_hash
+      `SELECT id, title, agency_id, event_type, kiosk_event_pin_hash
        FROM company_events
        WHERE agency_id = ?
          AND (is_active = TRUE OR is_active IS NULL)
-         AND LOWER(COALESCE(event_type, '')) = 'skills_group'
          AND kiosk_event_pin_hash IS NOT NULL`,
       [agencyId]
     );
@@ -104,13 +157,27 @@ export const unlockSkillBuildersEventKiosk = async (req, res, next) => {
 
     const ev = matches[0];
     const eventId = Number(ev.id);
-    const token = signSkillBuildersEventKioskToken({ agencyId, companyEventId: eventId });
+    const kind = classifyKioskEventType(ev.event_type);
+    if (!kind) {
+      return res.status(403).json({
+        error: {
+          message:
+            'This event type is not kiosk-enabled yet. Kiosk currently supports Skill Builders events and program events (program_event / guardian_program_class / program_*).'
+        }
+      });
+    }
+    const token = signSkillBuildersEventKioskToken({ agencyId, companyEventId: eventId, kind });
     res.json({
       ok: true,
       token,
       agencyId,
       eventId,
-      eventTitle: ev.title || 'Skill Builders event'
+      eventTitle: ev.title || (kind === KIND_PROGRAM_EVENT ? 'Program event' : 'Skill Builders event'),
+      // Echo the event kind so the public PIN view can decide whether to
+      // route the staff to the legacy Skill Builders kiosk station view
+      // or the new program-event station view.
+      kind,
+      eventType: ev.event_type || null
     });
   } catch (e) {
     if (e?.code === 'ER_BAD_FIELD_ERROR' && String(e?.sqlMessage || '').includes('kiosk_event_pin_hash')) {

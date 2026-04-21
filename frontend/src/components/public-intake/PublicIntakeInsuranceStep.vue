@@ -87,7 +87,11 @@
       </div>
 
       <!-- Insurance card photos -->
-      <div class="pi-ins-photos">
+      <div
+        class="pi-ins-photos"
+        data-pi-ins-anchor="card"
+        :class="{ 'pi-ins-photos--err': !!validationErrorFor('card') }"
+      >
         <div class="pi-ins-photo-slot">
           <label class="pi-ins-lbl">Insurance card – front</label>
           <div class="pi-ins-photo-area" @click="triggerUpload('primary_front')">
@@ -137,6 +141,9 @@
           <span>I do not have my primary insurance card right now</span>
         </label>
       </div>
+      <div v-if="validationErrorFor('card')" class="pi-ins-inline-error">
+        {{ validationErrorFor('card') }}
+      </div>
 
       <div class="pi-ins-grid">
         <div class="form-group">
@@ -153,9 +160,18 @@
               : 'For private/commercial plans, this is usually the parent/guardian policy holder.' }}
           </div>
         </div>
-        <div class="form-group">
+        <div class="form-group" data-pi-ins-anchor="memberId">
           <label class="pi-ins-lbl">Subscriber ID / Member ID</label>
-          <input v-model="local.primary.memberId" class="pi-ins-input" type="text" placeholder="e.g. COA123456789" />
+          <input
+            v-model="local.primary.memberId"
+            class="pi-ins-input"
+            :class="{ 'pi-ins-input--err': !!validationErrorFor('memberId') && !String(local.primary.memberId || '').trim() }"
+            type="text"
+            placeholder="e.g. COA123456789"
+          />
+          <div v-if="validationErrorFor('memberId')" class="pi-ins-inline-error">
+            {{ validationErrorFor('memberId') }}
+          </div>
           <div v-if="primaryIsMedicaid" class="pi-ins-field-note">
             For Medicaid plans, Member ID is recommended but not required.
           </div>
@@ -300,7 +316,12 @@
     </div>
 
     <!-- Insurance Authorization Acknowledgment -->
-    <div class="pi-ins-auth-block">
+    <div
+      class="pi-ins-auth-block"
+      :class="{ 'pi-ins-auth-block--err': !!validationErrorFor('authorization') }"
+      ref="authBlockRef"
+      data-pi-ins-anchor="authorization"
+    >
       <h4 class="pi-ins-auth-title">Insurance Authorization &amp; Assignment of Benefits</h4>
       <div class="pi-ins-auth-text">
         <p>
@@ -315,21 +336,82 @@
         <p>
           I understand that I remain responsible for all amounts due by me, including (but not limited to) copays, coinsurance, deductible amounts, and all services not covered by my insurance plan (including those for which I fail to obtain prior authorization), and mutually agreed-upon services or fees that are deemed not medically necessary.
         </p>
+        <p class="pi-ins-auth-esign-notice">
+          This is a binding electronic signature. By signing below, you acknowledge that your
+          electronic signature has the same legal effect as a hand-written one. We record your
+          name, the date and time you signed, your IP address, and your browser at finalize time
+          and embed that information in the signed PDF kept on file.
+        </p>
       </div>
-      <div class="pi-ins-auth-sign">
+
+      <div v-if="validationErrorFor('authorization')" class="pi-ins-auth-error">
+        {{ validationErrorFor('authorization') }}
+      </div>
+
+      <!-- PRIMARY PATH: re-use the signature drawn earlier in this session -->
+      <div v-if="savedSignatureData" class="pi-ins-auth-sign">
+        <label class="pi-ins-lbl">Sign this authorization</label>
+        <div v-if="!authorizationSignatureData" class="pi-ins-auth-apply-wrap">
+          <button
+            type="button"
+            class="btn btn-primary btn-sm pi-ins-auth-apply pi-ins-auth-apply--pulse"
+            @click="applySavedAuthSignature"
+          >
+            Apply my signature to this authorization
+          </button>
+          <span class="pi-ins-field-note">
+            We'll re-use the signature you drew earlier in this session — same legal weight as
+            signing here in pen, and you'll see it on the signed PDF.
+          </span>
+        </div>
+        <div v-else class="pi-ins-auth-applied-wrap">
+          <div class="pi-ins-auth-applied">
+            <span class="pi-ins-auth-check">&#10003;</span>
+            <div>
+              <div>
+                <strong>Signed</strong>
+                <span v-if="props.guardianName"> by {{ props.guardianName }}</span>
+              </div>
+              <div class="pi-ins-auth-stamp">
+                e-Signature applied {{ formatSignedAt(authorizationSignedAt) }} ·
+                source: reused signature from earlier in this session
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm pi-ins-auth-resign"
+            @click="resignAuth"
+          >
+            Sign again
+          </button>
+        </div>
+      </div>
+
+      <!-- FALLBACK PATH: typed signature for parents who didn't draw one earlier
+           (e.g. they bypassed the drawn-signature step). We still capture audit
+           metadata so the PDF can show the same "signed by + when + how" block. -->
+      <div v-else class="pi-ins-auth-sign">
         <label class="pi-ins-lbl" for="ins-auth-sig">
-          Type your full name to sign this authorization <span class="req">*</span>
+          Type your name to sign this authorization <span class="req">*</span>
         </label>
         <input
           id="ins-auth-sig"
-          v-model="authorizationSignature"
+          :value="authorizationSignature"
           type="text"
           class="pi-ins-input"
-          placeholder="Full legal name"
+          :class="{ 'pi-ins-input--err': !!validationErrorFor('authorization') && !authorizationSignature.trim() }"
+          placeholder="Your name"
           autocomplete="name"
+          @input="onTypedAuthInput($event.target.value)"
         />
         <div v-if="authorizationSignature.trim().length >= 2" class="pi-ins-auth-confirmed">
           ✓ Signed by {{ authorizationSignature.trim() }}
+          <span v-if="authorizationSignedAt" class="pi-ins-auth-stamp"> ({{ formatSignedAt(authorizationSignedAt) }})</span>
+        </div>
+        <div class="pi-ins-field-note">
+          You can use whatever name you go by — it does not have to be your legal name. We'll
+          capture the date, time, IP, and browser as part of the audit trail.
         </div>
       </div>
     </div>
@@ -351,7 +433,23 @@ const props = defineProps({
   guardianPhone: { type: String, default: '' },
   clientNames: { type: Array, default: () => [] },
   intakeForSelf: { type: Boolean, default: false },
-  agencyName: { type: String, default: '' }
+  agencyName: { type: String, default: '' },
+  /**
+   * The signature image data URL the parent already drew earlier in the
+   * intake. When present, the Insurance Authorization block lets them re-use
+   * it (preferred) instead of typing a name into a text box. Same legal
+   * weight, way more legitimate-looking on the saved PDF, and matches how
+   * the rest of the document signing step works.
+   */
+  savedSignatureData: { type: String, default: '' },
+  /**
+   * Map of inline validation errors keyed by anchor:
+   *   { card: '...', memberId: '...', authorization: '...' }
+   * The parent step populates this when it blocks Continue so the parent
+   * sees the offending control highlighted, instead of just a top banner
+   * they have to scroll up to read.
+   */
+  validationErrors: { type: Object, default: () => ({}) }
 });
 const emit = defineEmits(['update:modelValue', 'medicaid-change']);
 
@@ -656,13 +754,119 @@ watch(
 );
 
 const authorizationSignature = ref(String(props.modelValue?.authorizationSignature || ''));
+const authorizationSignatureData = ref(String(props.modelValue?.authorizationSignatureData || ''));
+const authorizationSignedAt = ref(String(props.modelValue?.authorizationSignedAt || ''));
+const authorizationSourceMethod = ref(String(props.modelValue?.authorizationSourceMethod || ''));
+const authBlockRef = ref(null);
 
 function getAuthorizationSignature() {
   return authorizationSignature.value;
 }
 
+function getAuthorizationSignatureBundle() {
+  return {
+    authorizationSignature: authorizationSignature.value,
+    authorizationSignatureData: authorizationSignatureData.value,
+    authorizationSignedAt: authorizationSignedAt.value,
+    authorizationSourceMethod: authorizationSourceMethod.value
+  };
+}
+
+function applySavedAuthSignature() {
+  const sig = String(props.savedSignatureData || '').trim();
+  if (!sig) return;
+  authorizationSignatureData.value = sig;
+  authorizationSignedAt.value = new Date().toISOString();
+  authorizationSourceMethod.value = 'reused_guardian_signature';
+  // Mirror the displayed signer name into authorizationSignature so legacy
+  // PDF readers that only know about the typed-name field still surface
+  // *something* in the "Signed by" line. The data URL is the real artifact.
+  if (!authorizationSignature.value.trim() && props.guardianName) {
+    authorizationSignature.value = String(props.guardianName).trim();
+  }
+  push();
+}
+
+function resignAuth() {
+  authorizationSignatureData.value = '';
+  authorizationSignedAt.value = '';
+  authorizationSourceMethod.value = '';
+  push();
+}
+
+function onTypedAuthInput(v) {
+  authorizationSignature.value = String(v || '');
+  if (authorizationSignature.value.trim().length >= 2) {
+    if (!authorizationSignedAt.value) {
+      authorizationSignedAt.value = new Date().toISOString();
+    }
+    if (!authorizationSourceMethod.value) {
+      authorizationSourceMethod.value = 'typed_full_name';
+    }
+  } else {
+    authorizationSignedAt.value = '';
+    authorizationSourceMethod.value = '';
+  }
+  push();
+}
+
+function formatSignedAt(iso) {
+  if (!iso) return 'just now';
+  try {
+    const d = new Date(iso);
+    if (!Number.isFinite(d.getTime())) return 'just now';
+    return d.toLocaleString();
+  } catch {
+    return 'just now';
+  }
+}
+
+function validationErrorFor(anchor) {
+  const map = props.validationErrors || {};
+  return String(map[anchor] || '').trim();
+}
+
+function scrollToAnchor(anchor) {
+  const el = (anchor === 'authorization')
+    ? authBlockRef.value
+    : (typeof document !== 'undefined'
+        ? document.querySelector(`[data-pi-ins-anchor="${anchor}"]`)
+        : null);
+  if (el && typeof el.scrollIntoView === 'function') {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+// Watch the auth-signature trio and re-emit so the parent step always
+// sees the latest signature artifact + timestamp + source method at
+// finalize time. push() above already emits modelValue; this watcher
+// just makes sure another push happens whenever the auth signature
+// fields change so the parent's reactive ref picks it up. We also
+// stash the bundle directly on props.modelValue so legacy pickers
+// still see the typed-name field via the same key.
+watch(
+  [authorizationSignature, authorizationSignatureData, authorizationSignedAt, authorizationSourceMethod],
+  () => {
+    const insBag = props.modelValue;
+    if (insBag && typeof insBag === 'object') {
+      insBag.authorizationSignature = authorizationSignature.value;
+      insBag.authorizationSignatureData = authorizationSignatureData.value;
+      insBag.authorizationSignedAt = authorizationSignedAt.value;
+      insBag.authorizationSourceMethod = authorizationSourceMethod.value;
+    }
+    push();
+  }
+);
+
 // Expose for parent
-defineExpose({ getPhotoFiles, getInsuranceEntryState, primaryIsMedicaid, getAuthorizationSignature });
+defineExpose({
+  getPhotoFiles,
+  getInsuranceEntryState,
+  primaryIsMedicaid,
+  getAuthorizationSignature,
+  getAuthorizationSignatureBundle,
+  scrollToAnchor
+});
 </script>
 
 <style scoped>
@@ -925,5 +1129,90 @@ defineExpose({ getPhotoFiles, getInsuranceEntryState, primaryIsMedicaid, getAuth
   color: #059669;
   font-weight: 600;
   margin-top: 4px;
+}
+.pi-ins-auth-block--err {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
+  background: #fff8f8;
+}
+.pi-ins-auth-error {
+  margin: 8px 0 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 13px;
+  border: 1px solid #fecaca;
+}
+.pi-ins-input--err {
+  border-color: #dc2626 !important;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12) !important;
+}
+.pi-ins-inline-error {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 12.5px;
+  border: 1px solid #fecaca;
+}
+.pi-ins-photos--err {
+  outline: 2px solid #dc2626;
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+.pi-ins-auth-esign-notice {
+  background: #f0fdfa;
+  border-left: 3px solid #14b8a6;
+  padding: 8px 12px;
+  border-radius: 0 6px 6px 0;
+  font-size: 12.5px;
+  color: #115e59;
+  margin-top: 4px;
+}
+.pi-ins-auth-apply-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pi-ins-auth-apply--pulse {
+  animation: piInsAuthPulse 1.6s ease-in-out infinite;
+}
+@keyframes piInsAuthPulse {
+  0%   { box-shadow: 0 0 0 0   rgba(15, 118, 110, 0.55); transform: translateY(0); }
+  50%  { box-shadow: 0 0 0 10px rgba(15, 118, 110, 0);    transform: translateY(-1px); }
+  100% { box-shadow: 0 0 0 0   rgba(15, 118, 110, 0);    transform: translateY(0); }
+}
+.pi-ins-auth-applied-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  background: #ecfdf5;
+  border: 1px solid #86efac;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.pi-ins-auth-applied {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 13.5px;
+  color: #166534;
+}
+.pi-ins-auth-check {
+  font-size: 18px;
+  line-height: 1.1;
+}
+.pi-ins-auth-stamp {
+  font-size: 11.5px;
+  color: #475569;
+  margin-top: 2px;
+}
+.pi-ins-auth-resign {
+  align-self: flex-start;
+  font-size: 12px;
 }
 </style>

@@ -21,14 +21,14 @@
             {{ getStatusLabel(user.status, user.is_active) }}
           </span>
           <span
-            v-if="!isSscMemberProfileMode && isOnLeave"
+            v-if="!isSscMemberProfileMode && !isViewingGuardian && isOnLeave"
             class="status-badge-header status-badge-header--leave"
             :title="leaveOfAbsenceLabel"
           >
             {{ leaveBadgeText }}
           </span>
           <button
-            v-if="!isSscMemberProfileMode && showLeaveOfAbsenceButton"
+            v-if="!isSscMemberProfileMode && !isViewingGuardian && showLeaveOfAbsenceButton"
             type="button"
             class="btn btn-secondary btn-sm"
             @click="showLeaveOfAbsenceModal = true"
@@ -122,6 +122,64 @@
                 This is a guardian (non-employee) portal account. They can access their client portal to view billing, waivers, and program information for their linked clients.
                 This account does not go through the hiring workflow and has no payroll or contract settings.
               </p>
+            </div>
+          </div>
+
+          <!-- Guardian insurance (from linked client intakes) -->
+          <div v-if="isViewingGuardian" class="card" style="padding: 16px; margin-bottom: 18px;">
+            <h3 style="margin: 0 0 6px;">Insurance</h3>
+            <p class="hint" style="margin-top: 0;">
+              Insurance details collected during each linked client's intake.
+            </p>
+
+            <div v-if="guardianLinkedClientsLoading" class="loading">Loading insurance…</div>
+            <div v-else-if="guardianLinkedClientsError" class="error">{{ guardianLinkedClientsError }}</div>
+            <div v-else-if="guardianLinkedClients.length === 0" class="empty-state">
+              <p>No linked clients — no insurance to show.</p>
+            </div>
+            <div v-else>
+              <div
+                v-for="client in guardianLinkedClients"
+                :key="`ins-client-${client.client_id}`"
+                class="card"
+                style="padding: 14px; margin-top: 12px; background: var(--bg-alt, #f8fafc);"
+              >
+                <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                  <strong>
+                    <a href="" @click.prevent="openLinkedClient(client.client_id)" style="text-decoration: none;">
+                      {{ client.full_name || client.initials || `Client ${client.client_id}` }}
+                    </a>
+                  </strong>
+                  <span class="muted" style="font-size: 13px;">{{ client.organization_name || '—' }}</span>
+                </div>
+
+                <div v-if="guardianCommPrefsLoading[client.client_id]" class="muted" style="font-size: 13px;">Loading…</div>
+                <div v-else>
+                  <div v-if="(guardianInsuranceByClient[client.client_id] || []).length">
+                    <div
+                      v-for="f in guardianInsuranceByClient[client.client_id]"
+                      :key="String(f.key || f.label)"
+                      class="comm-pref-row"
+                    >
+                      <span class="comm-pref-label">{{ f.label }}</span>
+                      <span class="comm-pref-value">
+                        <button
+                          v-if="isInsuranceCardField(f)"
+                          type="button"
+                          class="btn btn-secondary btn-sm"
+                          @click="viewInsuranceCard(client.client_id, insuranceSlotFromFieldKey(f.key))"
+                        >
+                          View
+                        </button>
+                        <span v-else>{{ f.value || '—' }}</span>
+                      </span>
+                    </div>
+                  </div>
+                  <div v-else class="muted" style="font-size: 13px;">
+                    No insurance information on file for this client.
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -868,7 +926,7 @@
                 </label>
               </div>
 
-              <div v-if="canManageFeatureAccess && perUserFeatureAccessRows.length > 0" class="feature-access-section">
+              <div v-if="!isViewingGuardian && canManageFeatureAccess && perUserFeatureAccessRows.length > 0" class="feature-access-section">
                 <h3>Feature access</h3>
                 <p class="feature-access-help">
                   Per-user entitlements driven by the platform feature catalog. Toggling here writes a
@@ -1352,7 +1410,7 @@
                       </small>
                     </div>
                     
-                    <div class="download-section">
+                    <div v-if="!isViewingGuardian" class="download-section">
                       <h4>Download Completion Package</h4>
                       <p class="download-description">
                         Download a complete package of all completed items for this user, including signed documents, 
@@ -1794,6 +1852,100 @@
                     >
                       Remove
                     </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Guardian: Assignments tab -->
+        <div v-if="activeTab === 'assignments' && isViewingGuardian" class="tab-panel">
+          <h2>Assignments</h2>
+          <p class="hint" style="margin-top: -6px;">
+            Programs and organizations this guardian's linked clients are enrolled in.
+          </p>
+          <div v-if="guardianLinkedClientsLoading" class="loading">Loading assignments…</div>
+          <div v-else-if="guardianLinkedClientsError" class="error">{{ guardianLinkedClientsError }}</div>
+          <div v-else-if="guardianLinkedClients.length === 0" class="empty-state">
+            <p>No linked clients — no assignments to show.</p>
+          </div>
+          <div v-else class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Client</th>
+                  <th>Organization</th>
+                  <th>Agency</th>
+                  <th>Status</th>
+                  <th>Relationship</th>
+                  <th>Portal Access</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in guardianLinkedClients" :key="`assign-${row.client_id}`">
+                  <td>
+                    <a href="" @click.prevent="openLinkedClient(row.client_id)">
+                      {{ row.full_name || row.initials || `Client ${row.client_id}` }}
+                    </a>
+                  </td>
+                  <td>{{ row.organization_name || '—' }}</td>
+                  <td>{{ row.agency_name || '—' }}</td>
+                  <td>
+                    <span :class="['badge', row.status === 'ACTIVE' ? 'badge-success' : 'badge-secondary']">
+                      {{ row.status || '—' }}
+                    </span>
+                  </td>
+                  <td>{{ row.relationship_title || row.relationship_type || '—' }}</td>
+                  <td>
+                    <span :class="row.access_enabled ? 'badge badge-success' : 'badge badge-secondary'">
+                      {{ row.access_enabled ? 'Enabled' : 'Disabled' }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Guardian: Events tab -->
+        <div v-if="activeTab === 'events' && isViewingGuardian" class="tab-panel">
+          <h2>Events</h2>
+          <p class="hint" style="margin-top: -6px;">
+            Company events that this guardian's linked clients are enrolled in.
+          </p>
+          <div v-if="guardianEventsLoading" class="loading">Loading events…</div>
+          <div v-else-if="guardianEventsError" class="error">{{ guardianEventsError }}</div>
+          <div v-else-if="guardianEvents.length === 0" class="empty-state">
+            <p>No event enrollments found for this guardian's clients.</p>
+          </div>
+          <div v-else class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Event</th>
+                  <th>Client</th>
+                  <th>Agency</th>
+                  <th>Program</th>
+                  <th>Type</th>
+                  <th>Start Date</th>
+                  <th>Enrolled</th>
+                  <th>Active</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, idx) in guardianEvents" :key="`event-${idx}`">
+                  <td>{{ row.title || `Event ${row.company_event_id}` }}</td>
+                  <td>{{ row.full_name || row.initials || `Client ${row.client_id}` }}</td>
+                  <td>{{ row.agency_name || '—' }}</td>
+                  <td>{{ row.program_name || '—' }}</td>
+                  <td>{{ row.event_type || '—' }}</td>
+                  <td>{{ row.starts_at ? new Date(row.starts_at).toLocaleDateString() : '—' }}</td>
+                  <td>{{ row.enrolled_at ? new Date(row.enrolled_at).toLocaleDateString() : '—' }}</td>
+                  <td>
+                    <span :class="row.is_active ? 'badge badge-success' : 'badge badge-secondary'">
+                      {{ row.is_active ? 'Yes' : 'No' }}
+                    </span>
                   </td>
                 </tr>
               </tbody>
@@ -2390,7 +2542,56 @@
           :userId="userId"
         />
 
-        <div v-if="activeTab === 'preferences'" class="tab-panel">
+        <!-- Guardian: Communication Preferences (replaces full staff preferences hub) -->
+        <div v-if="activeTab === 'preferences' && isViewingGuardian" class="tab-panel">
+          <h2>Communication Preferences</h2>
+          <p class="section-description" style="margin-top: -6px;">
+            How this guardian prefers to be contacted. These answers are sourced from their intake submissions per linked client.
+          </p>
+
+          <div v-if="guardianLinkedClientsLoading" class="loading">Loading preferences…</div>
+          <div v-else-if="guardianLinkedClients.length === 0" class="empty-state">
+            <p>No linked clients — no communication preferences to display.</p>
+          </div>
+          <div v-else>
+            <div
+              v-for="client in guardianLinkedClients"
+              :key="`pref-client-${client.client_id}`"
+              class="card"
+              style="padding: 16px; margin-bottom: 14px;"
+            >
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <div>
+                  <strong>
+                    <a href="" @click.prevent="openLinkedClient(client.client_id)" style="text-decoration: none;">
+                      {{ client.full_name || client.initials || `Client ${client.client_id}` }}
+                    </a>
+                  </strong>
+                  <span class="muted" style="margin-left: 8px; font-size: 13px;">{{ client.organization_name }}</span>
+                </div>
+              </div>
+
+              <div v-if="guardianCommPrefs[client.client_id]">
+                <div
+                  v-for="pref in guardianCommPrefs[client.client_id]"
+                  :key="pref.key"
+                  class="comm-pref-row"
+                >
+                  <span class="comm-pref-label">{{ pref.label }}</span>
+                  <span class="comm-pref-value">{{ pref.value || '—' }}</span>
+                </div>
+              </div>
+              <div v-else-if="guardianCommPrefsLoading[client.client_id]" class="muted" style="font-size: 13px;">
+                Loading…
+              </div>
+              <div v-else class="muted" style="font-size: 13px;">
+                No communication preferences on record for this client.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="activeTab === 'preferences' && !isViewingGuardian" class="tab-panel">
           <h2>User Preferences</h2>
           <div class="preferences-admin-section">
             <p class="section-description">Manage this user's preferences. Some settings are user-editable, while others are admin-controlled.</p>
@@ -2437,7 +2638,7 @@
 
     <!-- Leave of Absence Modal -->
     <LeaveOfAbsenceModal
-      :show="showLeaveOfAbsenceModal && !isSscMemberProfileMode"
+      :show="showLeaveOfAbsenceModal && !isSscMemberProfileMode && !isViewingGuardian"
       :userId="userId"
       :user="user"
       @close="showLeaveOfAbsenceModal = false"
@@ -2737,6 +2938,47 @@ const guardianSearchLoading = ref(false);
 const guardianLinkSaving = ref(false);
 const guardianLinkError = ref('');
 const guardianLinkRelationshipType = ref('guardian');
+
+// Guardian events
+const guardianEvents = ref([]);
+const guardianEventsLoading = ref(false);
+const guardianEventsError = ref('');
+
+// Guardian communication prefs (keyed by client_id)
+const guardianCommPrefs = ref({});
+const guardianCommPrefsLoading = ref({});
+
+// Guardian insurance info (keyed by client_id)
+const guardianInsuranceByClient = ref({});
+
+const insuranceSlotFromFieldKey = (key) => {
+  const m = String(key || '').match(/^insurance__(primary|secondary)_(front|back)_url$/i);
+  return m ? `${m[1].toLowerCase()}_${m[2].toLowerCase()}` : null;
+};
+
+const isInsuranceCardField = (field) => {
+  const slot = insuranceSlotFromFieldKey(field?.key);
+  return !!slot && String(field?.value || '').trim().toLowerCase().startsWith('gs://');
+};
+
+const viewInsuranceCard = async (clientId, slot) => {
+  const cid = Number(clientId || 0);
+  if (!cid || !slot) return;
+  try {
+    const r = await api.get(`/clients/${cid}/insurance-card`, {
+      params: { slot },
+      responseType: 'blob'
+    });
+    const contentType = r?.headers?.['content-type'] || 'application/octet-stream';
+    const blob = new Blob([r.data], { type: contentType });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank', 'noopener');
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (e) {
+    // Best-effort: fall back to copying the raw stored path
+    console.error('[guardian insurance] view failed', e?.response?.data?.error?.message || e?.message || e);
+  }
+};
 
 const profilePhotoInput = ref(null);
 const photoUploading = ref(false);
@@ -3131,6 +3373,51 @@ const loadGuardianLinkedClients = async () => {
   }
 };
 
+const loadGuardianEvents = async () => {
+  if (!userId.value || !isViewingGuardian.value) return;
+  guardianEventsLoading.value = true;
+  guardianEventsError.value = '';
+  try {
+    const response = await api.get(`/users/${userId.value}/guardian-events`);
+    guardianEvents.value = Array.isArray(response?.data) ? response.data : [];
+  } catch (e) {
+    guardianEventsError.value = e?.response?.data?.error?.message || 'Failed to load events';
+    guardianEvents.value = [];
+  } finally {
+    guardianEventsLoading.value = false;
+  }
+};
+
+const loadGuardianCommPrefsForClient = async (clientId) => {
+  if (!clientId || guardianCommPrefs.value[clientId] !== undefined) return;
+  guardianCommPrefsLoading.value = { ...guardianCommPrefsLoading.value, [clientId]: true };
+  try {
+    const response = await api.get(`/clients/${clientId}/clinical-responses`);
+    const data = response?.data || {};
+    // Pull from the structured intakeCommunicationPreferences section
+    const rawFields = Array.isArray(data?.intakeCommunicationPreferences?.fields)
+      ? data.intakeCommunicationPreferences.fields
+      : [];
+    const commFields = rawFields.map((f) => ({
+      key: String(f?.key || ''),
+      label: String(f?.label || f?.key || ''),
+      value: String(f?.value ?? '—')
+    }));
+    guardianCommPrefs.value = { ...guardianCommPrefs.value, [clientId]: commFields };
+
+    // Pull insurance fields from the clinical sections payload
+    const sections = Array.isArray(data?.sections) ? data.sections : [];
+    const insuranceSection = sections.find((s) => String(s?.title || '').toLowerCase() === 'insurance information');
+    const insuranceFields = Array.isArray(insuranceSection?.fields) ? insuranceSection.fields : [];
+    guardianInsuranceByClient.value = { ...guardianInsuranceByClient.value, [clientId]: insuranceFields };
+  } catch {
+    guardianCommPrefs.value = { ...guardianCommPrefs.value, [clientId]: [] };
+    guardianInsuranceByClient.value = { ...guardianInsuranceByClient.value, [clientId]: [] };
+  } finally {
+    guardianCommPrefsLoading.value = { ...guardianCommPrefsLoading.value, [clientId]: false };
+  }
+};
+
 const searchGuardianClients = async () => {
   const q = String(guardianClientQuery.value || '').trim();
   if (!q) {
@@ -3283,6 +3570,8 @@ const tabs = computed(() => {
     return [
       { id: 'account', label: 'Account' },
       { id: 'linked_clients', label: 'Linked Clients' },
+      { id: 'assignments', label: 'Assignments' },
+      { id: 'events', label: 'Events' },
       { id: 'communications', label: 'Communications' },
       { id: 'preferences', label: 'Preferences' },
       ...(canViewActivityLog.value ? [{ id: 'activity', label: 'Activity Log' }] : [])
@@ -4111,8 +4400,29 @@ watch(() => accountForm.value.role, (newRole) => {
 });
 
 watch(activeTab, async (t) => {
+  if (t === 'account' && isViewingGuardian.value) {
+    if (guardianLinkedClients.value.length === 0) await loadGuardianLinkedClients();
+    // Load insurance + communication prefs from linked client intakes
+    for (const client of guardianLinkedClients.value) {
+      loadGuardianCommPrefsForClient(client.client_id);
+    }
+    return;
+  }
   if (t === 'linked_clients' && isViewingGuardian.value) {
     await loadGuardianLinkedClients();
+    return;
+  }
+  if ((t === 'assignments' || t === 'preferences') && isViewingGuardian.value) {
+    if (guardianLinkedClients.value.length === 0) await loadGuardianLinkedClients();
+    if (t === 'preferences') {
+      for (const client of guardianLinkedClients.value) {
+        loadGuardianCommPrefsForClient(client.client_id);
+      }
+    }
+    return;
+  }
+  if (t === 'events' && isViewingGuardian.value) {
+    await loadGuardianEvents();
     return;
   }
   if (t === 'season_history' && isSscMemberProfileMode.value) {
@@ -4131,6 +4441,14 @@ watch(activeTab, async (t) => {
 watch([isSscMemberProfileMode, selectedClubIdForMemberProfile], async ([enabled, clubId]) => {
   if (!enabled || !clubId || !userId.value) return;
   await loadMemberSeasonHistory();
+});
+
+watch(guardianLinkedClients, (clients) => {
+  if (activeTab.value === 'preferences' && isViewingGuardian.value) {
+    for (const client of clients) {
+      loadGuardianCommPrefsForClient(client.client_id);
+    }
+  }
 });
 
 let guardianClientSearchTimer = null;
@@ -4288,7 +4606,7 @@ async function loadFeatureCatalogOnce() {
 
 async function loadFeatureAccessRows() {
   featureAccessError.value = '';
-  if (!canManageFeatureAccess.value || !userId.value || !primaryFeatureAgencyId.value) {
+  if (isViewingGuardian.value || !canManageFeatureAccess.value || !userId.value || !primaryFeatureAgencyId.value) {
     perUserFeatureAccessRows.value = [];
     return;
   }
@@ -6638,6 +6956,29 @@ onMounted(() => {
   background: var(--bg-alt);
   border-radius: 8px;
   border: 2px dashed var(--border);
+}
+
+.comm-pref-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  font-size: 14px;
+}
+
+.comm-pref-row:last-child {
+  border-bottom: none;
+}
+
+.comm-pref-label {
+  min-width: 220px;
+  color: var(--text-secondary, #6b7280);
+  font-size: 13px;
+}
+
+.comm-pref-value {
+  font-weight: 500;
 }
 
 .preferences-placeholder p {

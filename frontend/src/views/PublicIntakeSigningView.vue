@@ -811,6 +811,7 @@
             :client-labels="guardianWaiverClientLabels"
             :guardian-default-pickup="guardianDefaultPickup"
             :saved-signature-data="lastSignatureData"
+            :signer-display-name="guardianDisplayNameForInsurance"
             :event-waiver-context="eventWaiverContext"
             :pulse-emergency="emergencyPulse"
             :validation-errors="guardianWaiverErrors"
@@ -828,7 +829,9 @@
             :client-names="insuranceClientNames"
             :intake-for-self="intakeForSelf"
             :agency-name="agencyInfo?.official_name || agencyInfo?.name || ''"
-            @update:model-value="(v) => { intakeResponses.submission.insuranceInfo = v; }"
+            :saved-signature-data="lastSignatureData"
+            :validation-errors="insuranceErrors"
+            @update:model-value="(v) => { intakeResponses.submission.insuranceInfo = v; clearInsuranceErrorsOnEdit(v); }"
             @medicaid-change="(isMedicaid) => { if (intakeResponses.submission.insuranceInfo) intakeResponses.submission.insuranceInfo.primaryIsMedicaid = isMedicaid; }"
           />
         </div>
@@ -2149,6 +2152,7 @@ const hasRegistrationStep = computed(() =>
 );
 const DEFAULT_GUARDIAN_WAIVER_SECTION_KEYS = [
   'pickup_authorization',
+  'walk_home_authorization',
   'emergency_contacts',
   'allergies_snacks',
   'meal_preferences'
@@ -2276,12 +2280,14 @@ const currentGuardianWaiverSectionKeys = computed(() => {
 });
 const GUARDIAN_WAIVER_RENDERABLE_SECTION_KEYS = new Set([
   'pickup_authorization',
+  'walk_home_authorization',
   'emergency_contacts',
   'allergies_snacks',
   'meal_preferences'
 ]);
 const guardianWaiverSectionLabels = {
   pickup_authorization: 'pickup authorization',
+  walk_home_authorization: 'walk-home authorization',
   emergency_contacts: 'emergency contacts',
   allergies_snacks: 'medical information & allergies',
   meal_preferences: 'meals'
@@ -2315,6 +2321,25 @@ function isOptionalGuardianWaiverSectionSkipped(sectionKey, payload) {
     return !rows.some((row) =>
       hasAnyFilledText([row?.name, row?.relationship, row?.phone])
     );
+  }
+  if (sectionKey === 'walk_home_authorization') {
+    // The walk-home section is "satisfied" two ways: the parent explicitly
+    // declined to authorize walk-home (allowedToWalkHome === false), OR
+    // they affirmatively authorized AND filled in the required attestation.
+    // The first case still needs a signature (to record the attestation
+    // that they refused) only when the section was actually rendered AND
+    // the parent flipped a value. We treat "untouched + still false" as
+    // skippable so a program that renders the section but the parent
+    // never touched it doesn't block submission.
+    if (payload.allowedToWalkHome === true) return false;
+    if (payload.allowedToWalkHome === false
+        && !payload.allowedWindow
+        && !payload.route
+        && !payload.conditions
+        && !payload.attestation) {
+      return true;
+    }
+    return false;
   }
   return false;
 }
@@ -4527,12 +4552,58 @@ const completeGuardianWaiverStep = () => {
     }
   };
 
+  // Real US-style phone validation. The previous validator only required a
+  // non-empty string, which is how "78899902" (8 digits) made it through.
+  const isRealPhone = (v) => {
+    const d = String(v ?? '').replace(/\D+/g, '');
+    return d.length === 10 || (d.length === 11 && d.startsWith('1'));
+  };
+
   for (let i = 0; i < gw.clients.length; i += 1) {
     const label = guardianWaiverClientLabels.value[i] || `Child ${i + 1}`;
     for (const key of keys) {
       const sec = gw.clients[i].sections?.[key];
-      if (key === 'pickup_authorization' && isOptionalGuardianWaiverSectionSkipped(key, sec?.payload)) {
+      if ((key === 'pickup_authorization' || key === 'walk_home_authorization')
+          && isOptionalGuardianWaiverSectionSkipped(key, sec?.payload)) {
         continue;
+      }
+      if (key === 'pickup_authorization') {
+        const puPayload = sec?.payload || {};
+        const puRows = Array.isArray(puPayload.authorizedPickups) ? puPayload.authorizedPickups : [];
+        const badPhoneRow = puRows.find((row) => {
+          const hasAny = hasAnyFilledText([row?.name, row?.relationship, row?.phone]);
+          if (!hasAny) return false;
+          return !isRealPhone(row?.phone);
+        });
+        if (badPhoneRow) {
+          recordError(
+            i,
+            key,
+            `Please enter a real 10-digit phone number for every pickup contact you list for ${label} (we'll need to call them at check-out time).`
+          );
+          continue;
+        }
+      }
+      if (key === 'walk_home_authorization') {
+        const whPayload = sec?.payload || {};
+        if (whPayload.allowedToWalkHome === true) {
+          const fieldErrors = {};
+          if (!String(whPayload.allowedWindow || '').trim()) {
+            fieldErrors.allowedWindow = 'Required — describe when your child is approved to walk home.';
+          }
+          if (whPayload.attestation !== true) {
+            fieldErrors.attestation = 'Please check the attestation box to confirm you authorize this.';
+          }
+          if (Object.keys(fieldErrors).length) {
+            recordError(
+              i,
+              key,
+              `Please complete the walk-home authorization details for ${label}, or change your selection to "I do NOT authorize."`,
+              fieldErrors
+            );
+            continue;
+          }
+        }
       }
       if (key === 'emergency_contacts') {
         const ecPayload = sec?.payload || {};
@@ -4566,6 +4637,22 @@ const completeGuardianWaiverStep = () => {
           emergencyPulseTimer = setTimeout(() => { emergencyPulse.value = false; }, 2600);
           continue;
         }
+        const badPhoneRow = ecRows.find((row) => {
+          const hasAny = hasAnyFilledText([row?.name, row?.relationship, row?.phone]);
+          if (!hasAny) return false;
+          return !isRealPhone(row?.phone);
+        });
+        if (badPhoneRow) {
+          recordError(
+            i,
+            key,
+            `Please enter a real 10-digit phone number for every emergency contact you list for ${label} — we have to be able to actually reach them.`
+          );
+          emergencyPulse.value = true;
+          if (emergencyPulseTimer) clearTimeout(emergencyPulseTimer);
+          emergencyPulseTimer = setTimeout(() => { emergencyPulse.value = false; }, 2600);
+          continue;
+        }
       }
       if (!sec) {
         recordError(
@@ -4575,16 +4662,41 @@ const completeGuardianWaiverStep = () => {
         );
         continue;
       }
-      if (String(sec.signatureData || '').trim().length < 10 && savedSig) {
-        sec.signatureData = savedSig;
-      }
+      // IMPORTANT — DO NOT silently auto-apply the saved signature here.
+      // The previous version did `sec.signatureData = savedSig` whenever a
+      // signature was missing, which let the parent advance through the
+      // entire waiver pipeline without ever clicking "Apply my signature
+      // to this section". That broke the e-signature audit trail because
+      // signatureMeta.{signedAt, sourceMethod} was never recorded for those
+      // sections — the kid's waiver looked legally signed but no human had
+      // clicked anything to attest. Now we treat a missing signature as a
+      // hard block, which is what makes the per-section pulse + click-to-
+      // apply UX legitimate.
       if (String(sec.signatureData || '').trim().length < 10) {
         recordError(
           i,
           key,
-          `Please apply your saved signature to the ${guardianWaiverSectionLabels[key] || 'waiver'} section for ${label}.`
+          `Please click "Apply my signature" on the ${guardianWaiverSectionLabels[key] || 'waiver'} section for ${label} — we don't accept un-signed waivers.`
         );
         continue;
+      }
+      // Stamp signature metadata even if the signature was applied via the
+      // earlier pulsing button — this guarantees every signed section has an
+      // audit row at finalize time. (The button's onClick already populates
+      // signatureMeta; this is the safety-net for legacy in-flight sessions
+      // saved before signatureMeta existed.)
+      if (!sec.signatureMeta || typeof sec.signatureMeta !== 'object') {
+        sec.signatureMeta = {
+          signedAt: new Date().toISOString(),
+          signerName:
+            [guardianFirstName.value, guardianLastName.value].filter(Boolean).join(' ').trim()
+            || null,
+          sourceMethod: 'reused_guardian_signature',
+          consentAcknowledged: true,
+          intentToSign: true,
+          sectionKey: key,
+          clientIndex: i
+        };
       }
       if (key === 'allergies_snacks') {
         const p = sec?.payload || {};
@@ -4627,6 +4739,40 @@ const completeGuardianWaiverStep = () => {
 };
 
 const insuranceStepRef = ref(null);
+// Inline error map for the insurance step. Populated by completeInsuranceStep
+// whenever Continue is blocked, then passed into PublicIntakeInsuranceStep
+// so the parent sees the offending control highlighted in-place instead of
+// only seeing a top-of-page banner they have to scroll back up to read.
+// Keys: 'card', 'memberId', 'authorization'.
+const insuranceErrors = reactive({});
+function clearInsuranceErrors() {
+  for (const k of Object.keys(insuranceErrors)) delete insuranceErrors[k];
+}
+function setInsuranceError(anchor, message) {
+  insuranceErrors[anchor] = message;
+}
+// Auto-clear an inline error on the insurance step the moment the user
+// edits the related field, so they don't see a stale red banner after
+// fixing the issue. Called from the @update:model-value handler.
+function clearInsuranceErrorsOnEdit(insBag) {
+  if (!insBag || typeof insBag !== 'object') return;
+  if (insuranceErrors.card) {
+    const hasFront = !!(insBag.primary_front_url || insBag.cardFrontUrl);
+    const hasBack = !!(insBag.primary_back_url || insBag.cardBackUrl);
+    const noCard = !!insBag.noPrimaryCardAvailable;
+    if (hasFront || hasBack || noCard) delete insuranceErrors.card;
+  }
+  if (insuranceErrors.memberId) {
+    const memberId = String(insBag?.primary?.memberId || '').trim();
+    const insurer = String(insBag?.primary?.insurerName || '').trim();
+    if (memberId || insurer) delete insuranceErrors.memberId;
+  }
+  if (insuranceErrors.authorization) {
+    const hasDrawn = String(insBag.authorizationSignatureData || '').trim().length >= 50;
+    const hasTyped = String(insBag.authorizationSignature || '').trim().length >= 2;
+    if (hasDrawn || hasTyped) delete insuranceErrors.authorization;
+  }
+}
 
 const completeInsuranceStep = async () => {
   const step = currentFlowStep.value;
@@ -4714,10 +4860,16 @@ const completeInsuranceStep = async () => {
     insInfo.hasSecondary = false;
     insInfo.secondary = null;
   } else if (!hasPrimaryCardImage && !noPrimaryCardAvailable) {
-    stepError.value = 'Please upload your primary insurance card, or check "I do not have my primary insurance card right now."';
+    const msg = 'Please upload your primary insurance card, or check "I do not have my primary insurance card right now."';
+    stepError.value = msg;
+    setInsuranceError('card', msg);
+    nextTick(() => insuranceStepRef.value?.scrollToAnchor?.('card'));
     return;
   } else if (!insInfo.primary?.insurerName && memberId) {
-    stepError.value = 'Please select your primary insurance provider before continuing.';
+    const msg = 'Please select your primary insurance provider before continuing.';
+    stepError.value = msg;
+    setInsuranceError('memberId', msg);
+    nextTick(() => insuranceStepRef.value?.scrollToAnchor?.('memberId'));
     return;
   } else if (noPrimaryCardAvailable && !insurerName && !memberId) {
     insInfo.primary.insurerName = 'Self-Pay / No Insurance';
@@ -4728,20 +4880,47 @@ const completeInsuranceStep = async () => {
     insInfo.primary.isMedicaid = false;
     insInfo.primaryIsMedicaid = false;
   } else if (insurerName && !memberId && !medicaidPrimary && !/self.pay|no insurance/i.test(insurerName)) {
-    stepError.value = 'Please enter your primary insurance Member / Policy ID (or choose Medicaid if applicable).';
+    const msg = 'Please enter your primary insurance Member / Policy ID (or choose Medicaid if applicable).';
+    stepError.value = msg;
+    setInsuranceError('memberId', msg);
+    nextTick(() => insuranceStepRef.value?.scrollToAnchor?.('memberId'));
     return;
   } else {
     insInfo.primary.isMedicaid = medicaidPrimary;
     insInfo.primaryIsMedicaid = medicaidPrimary;
   }
-  // Require the insurance authorization to be acknowledged.
-  const authSig = insuranceStepRef.value?.getAuthorizationSignature?.();
-  if (!authSig || String(authSig).trim().length < 2) {
-    stepError.value = 'Please sign the Insurance Authorization acknowledgment at the bottom of this step before continuing.';
+  // Require the insurance authorization to be acknowledged. The signature
+  // can come from either path:
+  //   1) The parent clicked "Apply my signature" — produces
+  //      authorizationSignatureData (data URL) + authorizationSignedAt.
+  //   2) The parent typed a name (only available when no drawn signature
+  //      exists yet) — produces authorizationSignature (>= 2 chars) +
+  //      authorizationSignedAt.
+  // Either is a legal e-signature; both record signedAt locally and the
+  // server stamps ip + user_agent at finalize.
+  const authBundle = insuranceStepRef.value?.getAuthorizationSignatureBundle?.() || {};
+  const typedName = String(authBundle.authorizationSignature || '').trim();
+  const drawnData = String(authBundle.authorizationSignatureData || '').trim();
+  const hasDrawn = drawnData.length >= 50;
+  const hasTyped = typedName.length >= 2;
+  if (!hasDrawn && !hasTyped) {
+    const msg = lastSignatureData.value
+      ? 'Please click "Apply my signature to this authorization" to sign the Insurance Authorization at the bottom of this step.'
+      : 'Please sign the Insurance Authorization acknowledgment at the bottom of this step before continuing.';
+    stepError.value = msg;
+    setInsuranceError('authorization', msg);
+    nextTick(() => insuranceStepRef.value?.scrollToAnchor?.('authorization'));
     return;
   }
-  insInfo.authorizationSignature = String(authSig).trim();
+  insInfo.authorizationSignature = typedName;
+  insInfo.authorizationSignatureData = drawnData;
+  insInfo.authorizationSignedAt = String(authBundle.authorizationSignedAt || new Date().toISOString());
+  insInfo.authorizationSourceMethod = String(
+    authBundle.authorizationSourceMethod
+    || (hasDrawn ? 'reused_guardian_signature' : 'typed_full_name')
+  );
 
+  clearInsuranceErrors();
   stepError.value = '';
   void nextFlowStep();
 };
