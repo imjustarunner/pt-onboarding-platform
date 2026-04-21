@@ -5079,6 +5079,29 @@ export const getClientDemographics = async (req, res, next) => {
 
     const debug = userRole === 'super_admin' && String(req.query?.debug || '') === '1';
 
+    const formatDateOnly = (value) => {
+      if (!value) return '';
+      try {
+        // mysql2 can return DATE columns as JS Date objects depending on config.
+        if (value instanceof Date) {
+          const t = value.getTime();
+          if (!Number.isFinite(t)) return '';
+          const y = value.getFullYear();
+          const m = String(value.getMonth() + 1).padStart(2, '0');
+          const d = String(value.getDate()).padStart(2, '0');
+          return `${y}-${m}-${d}`;
+        }
+      } catch {
+        // fall through
+      }
+      const raw = String(value || '').trim();
+      const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (m) return m[1];
+      // Last-resort: preserve legacy behaviour but avoid weekday truncation.
+      // If this is a non-ISO string, keep it as-is.
+      return raw;
+    };
+
     // ── 1. Known demographics columns from clients table ────────────────────
     let clientRow = {};
     try {
@@ -5130,7 +5153,7 @@ export const getClientDemographics = async (req, res, next) => {
       { key: 'full_name',               label: 'Full Name',             value: clientRow.full_name || '' },
       { key: 'initials',                label: 'Initials',              value: clientRow.initials || '' },
       { key: 'identifier_code',         label: 'Client Code',           value: clientRow.identifier_code || '' },
-      { key: 'date_of_birth',           label: 'Date of Birth',         value: clientRow.date_of_birth ? String(clientRow.date_of_birth).slice(0, 10) : '' },
+      { key: 'date_of_birth',           label: 'Date of Birth',         value: formatDateOnly(clientRow.date_of_birth) },
       { key: 'gender',                  label: 'Gender',                value: clientRow.gender || '' },
       { key: 'ethnicity',               label: 'Race / Ethnicity',      value: clientRow.ethnicity || '' },
       { key: 'preferred_language',      label: 'Preferred Language',    value: clientRow.preferred_language || '' },
@@ -5142,7 +5165,7 @@ export const getClientDemographics = async (req, res, next) => {
       { key: 'address_city',            label: 'City',                  value: clientRow.address_city || '' },
       { key: 'address_state',           label: 'State',                 value: clientRow.address_state || '' },
       { key: 'address_zip',             label: 'Zip Code',              value: clientRow.address_zip || '' },
-      { key: 'submission_date',         label: 'Submission Date',       value: clientRow.submission_date ? String(clientRow.submission_date).slice(0, 10) : '' },
+      { key: 'submission_date',         label: 'Submission Date',       value: formatDateOnly(clientRow.submission_date) },
       { key: 'source',                  label: 'Source',                value: clientRow.source || '' },
     ].filter((f) => hasVal(f.value)).map(tagField);
 
