@@ -1601,6 +1601,54 @@ watch(
   { immediate: true }
 );
 
+/** Auto-select navigator location/session when only one option exists (skip extra clicks). */
+watch(
+  () => [
+    eventNavigatorEnabled.value,
+    journeyPrimary.value,
+    navigatorAgencyFilterId.value,
+    allNavigatorLocations.value,
+    navigatorLocationName.value
+  ],
+  () => {
+    if (!eventNavigatorEnabled.value) return;
+    if (journeyPrimary.value !== 'school') return;
+    if (String(navigatorLocationName.value || '').trim()) return;
+    const locs = allNavigatorLocations.value || [];
+    if (locs.length !== 1) return;
+    selectNavigatorLocation(locs[0]);
+  },
+  { immediate: true }
+);
+
+watch(
+  () => [
+    eventNavigatorEnabled.value,
+    journeyPrimary.value,
+    navigatorLocationName.value,
+    summerSessionsForSelectedLocation.value,
+    navigatorSessionLabel.value,
+    navigatorSessionDateRange.value
+  ],
+  () => {
+    if (!eventNavigatorEnabled.value) return;
+    if (journeyPrimary.value !== 'school') return;
+    const loc = String(navigatorLocationName.value || '').trim();
+    if (!loc) return;
+    if (
+      String(navigatorSessionLabel.value || '').trim() ||
+      String(navigatorSessionDateRange.value || '').trim()
+    ) {
+      return;
+    }
+    const rows = summerSessionsForSelectedLocation.value || [];
+    if (rows.length !== 1) return;
+    // will also auto-open registration if only one program matches
+    selectNavigatorSessionForLocationFlow(rows[0]);
+  },
+  { immediate: true }
+);
+
 onUnmounted(() => {
   clearGallerySlideshowTimer();
 });
