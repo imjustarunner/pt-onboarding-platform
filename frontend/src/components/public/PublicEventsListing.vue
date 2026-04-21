@@ -474,16 +474,28 @@ const canUseNearest = computed(() => {
   return !!nearestAgencySlug.value;
 });
 
+function distinctInPersonDestinationCount(list) {
+  const set = new Set();
+  const rows = Array.isArray(list) ? list : [];
+  for (const ev of rows) {
+    if (!ev?.inPersonPublic) continue;
+    const main = normalizeAddrLine(ev?.publicLocationAddress);
+    if (main) set.add(main);
+    const sessions = Array.isArray(ev?.sessionLocations) ? ev.sessionLocations : [];
+    for (const s of sessions) {
+      const a = normalizeAddrLine(s?.address);
+      if (a) set.add(a);
+    }
+  }
+  return set.size;
+}
+
 const showDrivingDistanceCta = computed(() => {
   if (props.hideNearestCta) return false;
   if (!canUseNearest.value) return false;
-  // Hide the CTA when there's effectively only one destination after the journey filter — nothing to rank.
-  const maxPool = allowedEventIdSet.value
-    ? allowedEventIdSet.value.size
-    : Array.isArray(props.events) ? props.events.length : 0;
-  if (maxPool < 2) return false;
-  // Marketing hub: always show address search (backend geocodes text addresses; useful when only one event or coords not saved yet)
-  if (hubSlugNorm.value) return true;
+  // Hide the CTA when there's effectively only one destination in the current view — nothing to rank.
+  const distinct = distinctInPersonDestinationCount(displayEvents.value || []);
+  if (distinct < 2) return false;
   return (props.events || []).some((ev) => {
     if (!ev?.inPersonPublic) return false;
     if (ev.publicLocationLat != null && ev.publicLocationLng != null) return true;
