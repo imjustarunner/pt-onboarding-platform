@@ -246,7 +246,11 @@ const loadRegistrationEventFieldPlaceholders = async (intakeData, link) => {
     const evSel = normalizeRegistrationSelections(intakeData).find(
       (s) => registrationEntityType(s) === 'company_event'
     );
-    const aid = Number(link?.agency_id || 0) || null;
+    // intake_links has no agency_id column — its organization_id IS the
+    // agency for intake-scoped links. Falling back to organization_id is
+    // critical here: without it this lookup silently returns null and the
+    // ticket PDF/email render "EVENT #<id>" with no date/address.
+    const aid = Number(link?.agency_id || link?.organization_id || 0) || null;
     if (!evSel?.entityId || !aid) return empty;
     const [rows] = await pool.execute(
       `SELECT title, starts_at, ends_at, timezone,
@@ -4478,7 +4482,9 @@ export const getPublicIntakeStatus = async (req, res, next) => {
     // having to round-trip through the registration catalog endpoint.
     if (registrationCompletion && linkBindsEvent) {
       try {
-        const aid = Number(link?.agency_id || 0) || null;
+        // intake_links has no agency_id column — its organization_id IS the
+        // agency for intake-scoped links.
+        const aid = Number(link?.agency_id || link?.organization_id || 0) || null;
         const eid = Number(link?.company_event_id || 0) || null;
         if (aid && eid) {
           const [erows] = await pool.execute(
@@ -4493,13 +4499,26 @@ export const getPublicIntakeStatus = async (req, res, next) => {
           if (er) {
             const addr = String(er.public_location_address || '').trim()
               || [er.event_location_name, er.event_location_address].filter(Boolean).join(' — ');
+            // Public-facing event page (CompanyEventPublicView). The
+            // frontend can render this as a "View event page" link on
+            // the success card so families can revisit details/share
+            // with co-parents without digging through their email.
+            const frontendBase = String(
+              process.env.FRONTEND_URL ||
+              process.env.CORS_ORIGIN ||
+              ''
+            ).replace(/\/$/, '');
+            const publicEventUrl = frontendBase
+              ? `${frontendBase}/company-events/${er.id}`
+              : `/company-events/${er.id}`;
             registrationCompletion.event = {
               id: er.id,
               title: String(er.title || '').trim() || null,
               startsAt: er.starts_at ? new Date(er.starts_at).toISOString() : null,
               endsAt: er.ends_at ? new Date(er.ends_at).toISOString() : null,
               timezone: String(er.timezone || '').trim() || null,
-              address: addr || null
+              address: addr || null,
+              publicEventUrl
             };
             // Backfill eventSummary if persistence hasn't finished yet
             // (status poll can race the async finalize block).
@@ -6763,7 +6782,12 @@ export const finalizePublicIntake = async (req, res, next) => {
     let registrationEventSummary = '';
     try {
       const evSel = normalizeRegistrationSelections(intakeData).find((s) => registrationEntityType(s) === 'company_event');
-      const aid = Number(link?.agency_id || 0) || null;
+      // intake_links has no agency_id column — its organization_id IS
+      // the agency for intake-scoped links. Without this fallback, the
+      // event summary silently resolves to empty for every link-bound
+      // company_event flow (and the success card / email fall back to
+      // "Event #<id>" instead of the real title).
+      const aid = Number(link?.agency_id || link?.organization_id || 0) || null;
       if (evSel?.entityId && aid) {
         const [erows] = await pool.execute(
           'SELECT title, starts_at FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1',

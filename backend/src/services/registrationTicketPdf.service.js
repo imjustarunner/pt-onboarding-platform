@@ -29,6 +29,48 @@ const ACCENT = rgb(0.93, 0.36, 0.20);        // #ED5C33 (warm orange for the typ
 const WHITE = rgb(1, 1, 1);
 const BLACK = rgb(0, 0, 0);
 
+// ----------------------------------------------------------- Brand-aware color
+// Convert a hex string (#RRGGBB or RRGGBB) into a pdf-lib rgb() color, returning
+// `fallback` for any malformed input. Brand colors are sourced from
+// agency.color_palette which itself originates in the platform branding UI, so
+// any value we get here has already been user-validated; we still defensively
+// clamp to [0,1] to keep pdf-lib from throwing.
+const hexToPdfColor = (hex, fallback) => {
+  const raw = String(hex || '').trim().replace(/^#/, '');
+  if (!/^[0-9a-fA-F]{6}$/.test(raw)) return fallback;
+  const r = parseInt(raw.slice(0, 2), 16) / 255;
+  const g = parseInt(raw.slice(2, 4), 16) / 255;
+  const b = parseInt(raw.slice(4, 6), 16) / 255;
+  return rgb(
+    Math.min(1, Math.max(0, r)),
+    Math.min(1, Math.max(0, g)),
+    Math.min(1, Math.max(0, b))
+  );
+};
+// Slightly darken an RGB color by `amount` (0..1). Used to derive the thin
+// header underline shade from the agency primary color so the bar feels
+// "brand layered" without needing the agency to also configure a secondary.
+const darkenPdfColor = (color, amount = 0.18) => {
+  if (!color || typeof color !== 'object') return color;
+  const a = Math.min(1, Math.max(0, amount));
+  return rgb(
+    Math.min(1, Math.max(0, (color.red ?? 0) * (1 - a))),
+    Math.min(1, Math.max(0, (color.green ?? 0) * (1 - a))),
+    Math.min(1, Math.max(0, (color.blue ?? 0) * (1 - a)))
+  );
+};
+// Pull a brand palette out of an agency row (color_palette JSON column),
+// always returning safe pdf-lib colors. Falls back to the historical
+// navy/orange theme so anything without a configured palette renders
+// identically to before.
+const resolveBrandPalette = (agency) => {
+  const cp = agency && typeof agency.color_palette === 'object' ? agency.color_palette : null;
+  const headerBg = hexToPdfColor(cp?.primary, NAVY);
+  const headerStripe = hexToPdfColor(cp?.secondary, darkenPdfColor(headerBg, 0.18));
+  const accent = hexToPdfColor(cp?.accent, ACCENT);
+  return { headerBg, headerStripe, accent };
+};
+
 const PAGE_W = 612;
 const PAGE_H = 792;
 const MARGIN = 48;
@@ -150,14 +192,25 @@ const dollars = (val) => {
   return `$${n.toFixed(2)}`;
 };
 
-const buildSelectionDisplay = (sel, eventPlaceholders) => {
+const buildSelectionDisplay = (sel, eventPlaceholders, palette = null) => {
   const entityType = String(sel?.entityType || '').trim().toLowerCase();
   const typeLabel = ENTITY_TYPE_LABEL[entityType] || 'REGISTRATION';
-  const badgeColor = ENTITY_TYPE_BADGE_COLOR[entityType] || GRAY_TEXT;
+  // Brand accent overrides the historical orange/green badge palette for
+  // company_event/event rows (the most common public registration type)
+  // so the badge color matches the header bar. Other entity types keep
+  // their distinguishing colors so a packet that mixes a class +
+  // company_event still visually separates them.
+  const isEvent = entityType === 'company_event' || entityType === 'event';
+  const badgeColor = isEvent && palette?.accent
+    ? palette.accent
+    : (ENTITY_TYPE_BADGE_COLOR[entityType] || GRAY_TEXT);
 
   // Title preference: explicit label from the picker UI, then the event
   // placeholder title (when it's a company_event), then a generic fallback.
-  const isEvent = entityType === 'company_event' || entityType === 'event';
+  // Note: the bare `EVENT #<id>` fallback is intentional — if you see it in
+  // a packet, eventPlaceholders.EVENT_TITLE failed to resolve (usually a
+  // wrong agency_id on the company_events lookup; see
+  // loadRegistrationEventFieldPlaceholders in publicIntake.controller.js).
   const title = String(sel?.label || '').trim()
     || (isEvent && String(eventPlaceholders?.EVENT_TITLE || '').trim())
     || (sel?.entityId ? `${typeLabel} #${sel.entityId}` : typeLabel);
@@ -259,6 +312,11 @@ export async function buildRegistrationTicketPdf({
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
+  // Brand-aware palette for the header bar / accent stripe / type badge.
+  // Falls back to the historical navy + orange when the agency hasn't
+  // configured a color_palette, so existing tenants render unchanged.
+  const palette = resolveBrandPalette(agency);
+
   let page = pdfDoc.addPage([PAGE_W, PAGE_H]);
   let y = PAGE_H;
 
@@ -276,13 +334,13 @@ export async function buildRegistrationTicketPdf({
   page.drawRectangle({
     x: 0, y: PAGE_H - headerHeight,
     width: PAGE_W, height: headerHeight,
-    color: NAVY
+    color: palette.headerBg
   });
   // Thin accent stripe just under the header for the "ticket" vibe.
   page.drawRectangle({
     x: 0, y: PAGE_H - headerHeight - 6,
     width: PAGE_W, height: 6,
-    color: ACCENT
+    color: palette.accent
   });
 
   const orgName = sanitizeForWinAnsi(String(organization?.name || agency?.name || link?.organization_name || '').trim());
@@ -395,7 +453,7 @@ export async function buildRegistrationTicketPdf({
   y -= 20;
 
   for (const sel of selections) {
-    const display = buildSelectionDisplay(sel, eventPlaceholders);
+    const display = buildSelectionDisplay(sel, eventPlaceholders, palette);
 
     // Estimate card height before drawing so we can page-break cleanly.
     const titleLines = wrapText(display.title, fontBold, 14, CONTENT_W - 28 - 70);

@@ -1432,13 +1432,26 @@
               <div v-if="registeredEventSummary.startsAtFormatted" class="intake-thankyou-event-date">
                 📅 {{ registeredEventSummary.startsAtFormatted }}
               </div>
-              <div v-if="registeredEventSummary.icalUrl" class="intake-thankyou-event-actions">
+              <div
+                v-if="registeredEventSummary.icalUrl || registeredEventSummary.publicEventUrl"
+                class="intake-thankyou-event-actions"
+              >
                 <a
+                  v-if="registeredEventSummary.icalUrl"
                   :href="registeredEventSummary.icalUrl"
                   download="event.ics"
                   class="btn btn-outline btn-sm"
                 >
                   Add to Calendar
+                </a>
+                <a
+                  v-if="registeredEventSummary.publicEventUrl"
+                  :href="registeredEventSummary.publicEventUrl"
+                  target="_blank"
+                  rel="noopener"
+                  class="btn btn-outline btn-sm"
+                >
+                  View event page →
                 </a>
               </div>
             </div>
@@ -2778,7 +2791,8 @@ const registeredEventSummary = computed(() => {
           description: String(backendEvent.address || '').trim()
         })
       : null;
-    return { title, startsAtFormatted, icalUrl, startsAtRaw, endsAtRaw };
+    const publicEventUrl = String(backendEvent.publicEventUrl || '').trim() || null;
+    return { title, startsAtFormatted, icalUrl, startsAtRaw, endsAtRaw, publicEventUrl };
   }
 
   const selections = Array.isArray(intakeResponses.submission?.registrationSelections)
@@ -2808,7 +2822,15 @@ const registeredEventSummary = computed(() => {
     endsAt: endsAtRaw,
     description: String(catRow?.summary || '').trim()
   });
-  return { title, startsAtFormatted, icalUrl, startsAtRaw, endsAtRaw };
+  // Public-event URL prefers backend-supplied path (so it's
+  // env-aware), then catalog hint. Best-effort.
+  const publicEventUrl = String(
+    registrationCompletion.value?.event?.publicEventUrl
+    || catRow?.publicUrl
+    || (eventSel?.entityId ? `/company-events/${eventSel.entityId}` : '')
+    || ''
+  ).trim() || null;
+  return { title, startsAtFormatted, icalUrl, startsAtRaw, endsAtRaw, publicEventUrl };
 });
 const fieldValuesByTemplate = reactive({});
 const sessionToken = ref(String(route.query?.session || '').trim());
@@ -5058,7 +5080,14 @@ const pollForDownloadUrl = async () => {
     await new Promise((r) => setTimeout(r, wait));
     if (downloadUrl.value || step.value !== 3) break;
     try {
-      const resp = await api.get(`/public-intake/${publicKey}/status/${submissionId.value}`);
+      const resp = await api.get(`/public-intake/${publicKey}/status/${submissionId.value}`, {
+        // Suppress the global "Loading…" overlay during packet polling —
+        // we already render an inline "Preparing N packets… (X of N
+        // ready)" header on the success card, so the modal would just
+        // spam the screen every 1–5 seconds for the duration of the
+        // background bundle build.
+        skipGlobalLoading: true
+      });
       // Refresh per-child packets every poll so multi-child families see
       // each child's link appear the moment that child's bundle finishes
       // building, instead of waiting for ALL children to be ready.
@@ -5482,7 +5511,12 @@ const lookupRegistrationAccount = async (emailRaw) => {
   registrationAccountLookupLoading.value = true;
   try {
     const resp = await api.get(`/public-intake/${publicKey}/account-lookup`, {
-      params: { email }
+      params: { email },
+      // Suppress the global "Loading…" overlay — this fires on every
+      // keystroke in the email field, so the full-page modal felt
+      // jarring. The inline `registrationAccountLookupLoading` flag
+      // already handles the small per-field spinner.
+      skipGlobalLoading: true
     });
     const exists = !!resp.data?.exists;
     registrationAccountExists.value = exists;
@@ -6160,6 +6194,9 @@ onBeforeUnmount(() => {
 }
 .intake-thankyou-event-actions {
   margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .intake-download-panel {
   border: 1px solid var(--border);
