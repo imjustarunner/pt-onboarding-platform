@@ -164,7 +164,10 @@ const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
 
 const agencies = computed(() => {
   const list = isSuperAdmin.value ? agencyStore.agencies || [] : agencyStore.userAgencies || [];
-  return (list || []).filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
+  return (list || []).filter((a) => {
+    const tRaw = a?.organization_type ?? a?.organizationType ?? 'agency';
+    return String(tRaw || '').toLowerCase() === 'agency';
+  });
 });
 
 const selectedAgencyId = ref('');
