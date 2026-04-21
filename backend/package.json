@@ -26,7 +26,9 @@
     "gen-chat-key": "node src/scripts/generateChatEncryptionKey.js",
     "gen-vapid": "node src/scripts/generateVapidKeys.js",
     "backfill:skills-groups-company-events": "node src/scripts/backfillSkillsGroupsCompanyEvents.js",
-    "backfill:skill-builder-program-affiliations": "node src/scripts/backfillSkillBuilderProgramAffiliations.js"
+    "backfill:skill-builder-program-affiliations": "node src/scripts/backfillSkillBuilderProgramAffiliations.js",
+    "smoke:intake": "node src/scripts/verifyMultiChildIntake.js --latest --count 3",
+    "smoke:intake:submission": "node src/scripts/verifyMultiChildIntake.js --submissionId"
   },
   "keywords": [],
   "author": "",

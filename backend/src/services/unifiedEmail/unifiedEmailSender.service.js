@@ -120,7 +120,7 @@ async function resolveRecipientUserIdByEmail(to) {
  *   - 'skipped'  → send gate returned allowed=false (platform or agency disabled auto mail)
  *   - 'failed'   → we tried to send but the call threw before a provider ID was issued
  */
-async function logSkippedOrFailedEmail({
+export async function logSkippedOrFailedEmail({
   to,
   subject,
   text,

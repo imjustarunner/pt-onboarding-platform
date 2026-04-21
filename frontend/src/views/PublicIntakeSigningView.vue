@@ -575,7 +575,8 @@
           </p>
         </div>
         <div class="muted" style="margin-top: 8px;">
-          This session expires after approximately {{ sessionExpiryMinutes }} minutes of inactivity. Unsaved data is deleted.
+          Most families complete this in about 15 minutes. To protect your information, the form clears
+          itself after roughly an hour of inactivity and any unsaved entries are removed.
         </div>
 
         <div class="actions">
@@ -1417,6 +1418,30 @@
                 Submitted for: <strong>{{ name }}</strong>
               </li>
             </ul>
+            <!--
+              Registration event summary surfaced for ANY intake link that
+              also enrolls the family in an event (link.company_event_id
+              binding OR an interactive registration step). Previously this
+              card was only rendered inside the smart_registration block,
+              so school/intake+event flows showed the thank-you copy
+              without any "you registered for X on Y" reassurance.
+            -->
+            <div v-if="registeredEventSummary" class="intake-thankyou-event">
+              <div class="intake-thankyou-event-label">You're registered for:</div>
+              <div class="intake-thankyou-event-title">{{ registeredEventSummary.title }}</div>
+              <div v-if="registeredEventSummary.startsAtFormatted" class="intake-thankyou-event-date">
+                📅 {{ registeredEventSummary.startsAtFormatted }}
+              </div>
+              <div v-if="registeredEventSummary.icalUrl" class="intake-thankyou-event-actions">
+                <a
+                  :href="registeredEventSummary.icalUrl"
+                  download="event.ics"
+                  class="btn btn-outline btn-sm"
+                >
+                  Add to Calendar
+                </a>
+              </div>
+            </div>
             <p class="intake-thankyou-email">
               {{ intakeSuccessEmailMessage }}
             </p>
@@ -1431,7 +1456,15 @@
           flip the Download buttons into a loading state until the URL is
           ready. A copy still gets emailed even if they don't wait.
         -->
-        <div class="intake-download-panel">
+        <!--
+          Multi-child submissions deliberately have no combined packet —
+          each child gets their own per-child bundle. Hide the
+          single-bundle download panel entirely in that case so the parent
+          isn't staring at a "Preparing PDF…" spinner that will never
+          resolve. Use the per-child list below as the single source of
+          truth instead, with a multi-child specific status header.
+        -->
+        <div v-if="!isMultiChildPostSubmit" class="intake-download-panel">
           <div class="intake-download-meta">
             <div v-if="downloadUrl" class="intake-download-ready-label">✓ Packet ready</div>
             <div v-else class="intake-download-preparing-label">
@@ -1476,12 +1509,45 @@
             </button>
           </div>
         </div>
-        <div v-if="clientBundleLinks.length && !jobApplicationSubmitted" class="bundle-list">
+        <!--
+          Multi-child progressive status: shows total expected vs. ready
+          and continues to spin in-place while siblings are still being
+          built. Replaces the single-packet "Preparing PDF" panel above so
+          parents who just submitted 2+ kids aren't confused by a spinner
+          that will never resolve into a combined download.
+        -->
+        <div v-if="isMultiChildPostSubmit" class="multi-child-prep">
+          <div v-if="!isMultiChildPacketsAllReady" class="multi-child-prep-header">
+            <span class="preparing-spinner"></span>
+            <span>
+              Preparing {{ expectedChildCount }} packets… ({{ clientBundleLinks.length }} of {{ expectedChildCount }} ready)
+              <br />
+              <span class="muted small">A copy will also be emailed to you. This can take a couple of minutes for multi-child submissions.</span>
+            </span>
+          </div>
+          <div v-else class="multi-child-prep-header multi-child-prep-header--ready">
+            <span class="check-mark">✓</span>
+            <span>All {{ expectedChildCount }} packets ready. Download links below expire in 7 days.</span>
+          </div>
+        </div>
+        <div v-if="(clientBundleLinks.length || isMultiChildPostSubmit) && !jobApplicationSubmitted" class="bundle-list">
           <div class="bundle-title">{{ formTypeKey === 'smart_school_roi' ? 'Download per-client releases' : 'Download per-child packets' }}</div>
           <div v-for="bundle in clientBundleLinks" :key="bundle.clientId || bundle.filename" class="bundle-item">
             <div class="bundle-name">{{ bundle.clientName || `Client ${bundle.clientId}` }}</div>
             <a class="btn btn-secondary btn-sm" :href="bundle.downloadUrl" target="_blank" rel="noopener">View</a>
             <a class="btn btn-outline btn-sm" :href="bundle.downloadUrl" download>Download</a>
+          </div>
+          <!-- Pending-child placeholder rows so the parent SEES the kids
+               that haven't finished bundling yet, instead of an empty list.
+               Drops out automatically once that child's bundle appears. -->
+          <div
+            v-for="pendingName in pendingChildPlaceholders"
+            :key="`pending:${pendingName}`"
+            class="bundle-item bundle-item--pending"
+          >
+            <div class="bundle-name">{{ pendingName }}</div>
+            <span class="preparing-spinner preparing-spinner--inline"></span>
+            <span class="muted small">Building packet…</span>
           </div>
         </div>
         <div class="actions">
@@ -2693,6 +2759,28 @@ const missingRequiredQuestionKeys = ref([]);
 
 /** The event the user just registered for (title, date, iCal link) — derived from selections + catalog. */
 const registeredEventSummary = computed(() => {
+  // Highest-fidelity source: structured event metadata from the backend
+  // (populated when the link is hard-bound to a company_event_id, where
+  // the user never went through an interactive selection step). This
+  // path gives us title + starts_at + address without depending on the
+  // registration catalog being loaded.
+  const backendEvent = registrationCompletion.value?.event;
+  if (backendEvent && (backendEvent.title || backendEvent.startsAt)) {
+    const title = String(backendEvent.title || '').trim();
+    const startsAtRaw = backendEvent.startsAt || null;
+    const endsAtRaw = backendEvent.endsAt || null;
+    const startsAtFormatted = startsAtRaw ? formatIsoDatetime(startsAtRaw) : null;
+    const icalUrl = startsAtRaw
+      ? buildIcalDataUri({
+          title,
+          startsAt: startsAtRaw,
+          endsAt: endsAtRaw,
+          description: String(backendEvent.address || '').trim()
+        })
+      : null;
+    return { title, startsAtFormatted, icalUrl, startsAtRaw, endsAtRaw };
+  }
+
   const selections = Array.isArray(intakeResponses.submission?.registrationSelections)
     ? intakeResponses.submission.registrationSelections
     : [];
@@ -2749,6 +2837,55 @@ const guardianRelationship = ref('');
 const downloadUrl = ref('');
 const clientBundleLinks = ref([]);
 const jobApplicationSubmitted = ref(false);
+
+// Multi-child post-submit UX helpers — used on step 3 ("Successfully
+// Submitted") to replace the single "Preparing PDF…" panel with a
+// multi-child progressive list. We can't rely solely on
+// clientBundleLinks.length to detect multi-child because polling starts
+// with an empty list and ramps up, so we capture the expected child count
+// from the form state at submit time and keep it stable through polling.
+const expectedChildCount = computed(() => {
+  const kids = Array.isArray(intakeResponses?.clients)
+    ? intakeResponses.clients
+    : [];
+  return Math.max(1, kids.length || 1);
+});
+const isMultiChildPostSubmit = computed(() => {
+  // Job applications never have multiple "kids", so opt them out cleanly.
+  if (jobApplicationSubmitted.value) return false;
+  return expectedChildCount.value > 1;
+});
+const isMultiChildPacketsAllReady = computed(() => {
+  if (!isMultiChildPostSubmit.value) return false;
+  return Array.isArray(clientBundleLinks.value)
+    && clientBundleLinks.value.length >= expectedChildCount.value;
+});
+// While waiting for siblings to finish bundling, render placeholder rows
+// for each child whose name we know but whose packet hasn't appeared in
+// clientBundleLinks yet. Falls back to "Child N" labels if we don't have
+// a name for some reason. Keeps the parent oriented re: how many packets
+// are still being generated so they don't think a kid was dropped.
+const pendingChildPlaceholders = computed(() => {
+  if (!isMultiChildPostSubmit.value) return [];
+  const ready = new Set(
+    (clientBundleLinks.value || [])
+      .map((b) => String(b?.clientName || `Client ${b?.clientId}` || '').trim().toLowerCase())
+      .filter(Boolean)
+  );
+  const allKids = Array.isArray(intakeResponses?.clients)
+    ? intakeResponses.clients
+    : [];
+  const labels = [];
+  allKids.forEach((kid, idx) => {
+    const first = String(kid?.firstName || '').trim();
+    const last = String(kid?.lastName || '').trim();
+    const full = [first, last].filter(Boolean).join(' ').trim() || `Child ${idx + 1}`;
+    if (!ready.has(full.toLowerCase())) labels.push(full);
+  });
+  // If we somehow ended up with more bundles than expected names (race
+  // condition on the children array), don't surface bogus placeholders.
+  return labels.slice(0, Math.max(0, expectedChildCount.value - (clientBundleLinks.value || []).length));
+});
 const consentErrors = reactive({
   guardianFirstName: '',
   guardianLastName: '',
@@ -4875,12 +5012,16 @@ const finalizePacket = async () => {
     }
     registrationReturningAutoMatch.value = resp.data?.registrationReturningAutoMatch || null;
     jobApplicationSubmitted.value = !!resp.data?.jobApplicationSubmitted;
-    if (downloadUrl.value || jobApplicationSubmitted.value) {
+    // Multi-child submissions deliberately have no combined download URL —
+    // each child's packet is in clientBundles. Treat any per-child bundle as
+    // "ready" so the post-submit page stops spinning.
+    const hasPerChildPackets = Array.isArray(clientBundleLinks.value) && clientBundleLinks.value.length > 0;
+    if (downloadUrl.value || jobApplicationSubmitted.value || hasPerChildPackets) {
       pollingForDownload.value = false;
     }
     step.value = 3;
     clearPersistedDraft();
-    if (!downloadUrl.value && !jobApplicationSubmitted.value) {
+    if (!downloadUrl.value && !jobApplicationSubmitted.value && !hasPerChildPackets) {
       pollForDownloadUrl();
     }
   } catch (e) {
@@ -4901,27 +5042,54 @@ const finalizePacket = async () => {
 const pollForDownloadUrl = async () => {
   if (downloadUrl.value || jobApplicationSubmitted.value) return;
   pollingForDownload.value = true;
+  // Adaptive cadence: poll fast at the start (1s, 2s, 3s, 4s) so single-
+  // child finalizes that complete in <10s feel instant. Then settle into a
+  // 5s cadence for multi-child / slow-network situations. Still capped at
+  // ~5 minutes total wall time so a stuck backend can't hang the UI forever.
+  // Previous behaviour was a flat `await sleep(5000)` BEFORE the first
+  // request, which meant a fast-finishing single-child run still spun for a
+  // minimum of 5 seconds AND a multi-child user staring at the screen had
+  // no incremental "child 1's packet is ready" feedback for the first 5s.
+  const delays = [1000, 2000, 3000, 4000, 5000];
+  // Total ~5 minutes worth of polling (4 × 1-4s + ~58 × 5s ≈ 300s)
   const maxAttempts = 60;
   for (let i = 0; i < maxAttempts; i++) {
-    await new Promise((r) => setTimeout(r, 5000));
+    const wait = delays[Math.min(i, delays.length - 1)];
+    await new Promise((r) => setTimeout(r, wait));
     if (downloadUrl.value || step.value !== 3) break;
     try {
       const resp = await api.get(`/public-intake/${publicKey}/status/${submissionId.value}`);
-      if (resp.data?.downloadUrl) {
-        downloadUrl.value = resp.data.downloadUrl;
-        if (Array.isArray(resp.data?.clientBundles)) {
-          clientBundleLinks.value = resp.data.clientBundles;
+      // Refresh per-child packets every poll so multi-child families see
+      // each child's link appear the moment that child's bundle finishes
+      // building, instead of waiting for ALL children to be ready.
+      if (Array.isArray(resp.data?.clientBundles)) {
+        clientBundleLinks.value = resp.data.clientBundles;
+      }
+      if (resp.data?.emailDelivery) {
+        emailDeliveryStatus.value = resp.data.emailDelivery;
+      }
+      if (resp.data?.registrationCompletion) {
+        registrationCompletion.value = resp.data.registrationCompletion;
+      }
+      if (resp.data?.registrationReturningAutoMatch) {
+        registrationReturningAutoMatch.value = resp.data.registrationReturningAutoMatch;
+      }
+      const hasPerChildPackets = Array.isArray(clientBundleLinks.value) && clientBundleLinks.value.length > 0;
+      // Backend now reports packetReady=true once finalize is done AND there
+      // is something downloadable (combined OR per-child). Either explicit
+      // flag or the presence of bundles ends the poll loop.
+      if (resp.data?.downloadUrl || resp.data?.packetReady || hasPerChildPackets) {
+        if (resp.data?.downloadUrl) {
+          downloadUrl.value = resp.data.downloadUrl;
         }
-        if (resp.data?.emailDelivery) {
-          emailDeliveryStatus.value = resp.data.emailDelivery;
+        // For multi-child, keep polling a couple more times so any siblings
+        // still being built show up, but stop blocking the UI.
+        const _expectedKids = (intakeResponses?.clients || []).length || 1;
+        const haveAllExpected = Array.isArray(clientBundleLinks.value)
+          && clientBundleLinks.value.length >= _expectedKids;
+        if (resp.data?.downloadUrl || haveAllExpected) {
+          break;
         }
-        if (resp.data?.registrationCompletion) {
-          registrationCompletion.value = resp.data.registrationCompletion;
-        }
-        if (resp.data?.registrationReturningAutoMatch) {
-          registrationReturningAutoMatch.value = resp.data.registrationReturningAutoMatch;
-        }
-        break;
       }
     } catch {
       // continue polling
@@ -5480,6 +5648,19 @@ const nextFlowStep = async () => {
     if (currentFlowStep.value?.type === 'upload') {
       uploadStepFiles.value = [];
     }
+    // Scroll to the top whenever we advance to a new step. Without this,
+    // multi-section steps (e.g. Guardian waivers per child, multi-kid
+    // demographics) load with the previous step's scroll position retained,
+    // dropping the guardian mid-page on a section that isn't the start of
+    // the new step. Use 'auto' (instant) so the new step content is visible
+    // before the user starts scrolling/clicking.
+    if (typeof window !== 'undefined') {
+      try {
+        window.scrollTo({ top: 0, behavior: 'auto' });
+      } catch {
+        window.scrollTo(0, 0);
+      }
+    }
   } else {
     await finalizePacket();
   }
@@ -5952,6 +6133,34 @@ onBeforeUnmount(() => {
   font-size: 13.5px;
   color: var(--text-secondary, #475569);
 }
+.intake-thankyou-event {
+  margin: 12px 0 6px;
+  padding: 10px 12px;
+  background: #f0f7ff;
+  border: 1px solid #cfe4ff;
+  border-radius: 8px;
+}
+.intake-thankyou-event-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #475569);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+.intake-thankyou-event-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+}
+.intake-thankyou-event-date {
+  margin-top: 4px;
+  font-size: 13.5px;
+  color: var(--text-secondary, #475569);
+}
+.intake-thankyou-event-actions {
+  margin-top: 8px;
+}
 .intake-download-panel {
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -6211,6 +6420,31 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--bg-alt);
+}
+.bundle-item--pending {
+  background: var(--bg, #fff);
+  border-style: dashed;
+  color: var(--muted, #64748b);
+}
+.multi-child-prep {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-alt);
+}
+.multi-child-prep-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+}
+.multi-child-prep-header--ready {
+  color: var(--success, #166534);
+}
+.check-mark {
+  font-size: 18px;
+  line-height: 1;
 }
 .actions {
   margin-top: 12px;

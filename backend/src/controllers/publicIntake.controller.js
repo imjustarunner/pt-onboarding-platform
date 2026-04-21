@@ -21,7 +21,7 @@ import applyClientRoiCompletion from '../services/clientRoiCompletion.service.js
 import applyClientIntakeCompletion from '../services/clientIntakeCompletion.service.js';
 import { getClientIpAddress } from '../utils/ipAddress.util.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
-import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
+import { attachSignedPdfToClient } from '../services/phiDocumentAttachment.service.js';
 import Client from '../models/Client.model.js';
 import StorageService from '../services/storage.service.js';
 import { compressPdfBuffer } from '../services/pdfCompression.service.js';
@@ -71,7 +71,7 @@ import PlatformRetentionSettings from '../models/PlatformRetentionSettings.model
 import Notification from '../models/Notification.model.js';
 import { notifyNewPacketUploaded, notifyCompanyEventRegistrationSubmitted } from '../services/clientNotifications.service.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
-import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
+import { sendEmailFromIdentity, logSkippedOrFailedEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import { buildJobDescriptionAttachmentForEmail } from '../services/hiringReferenceRequests.service.js';
 import { resolveJobApplicationSenderIdentity } from '../services/hiringReferenceIdentity.service.js';
@@ -165,6 +165,60 @@ const normalizeRegistrationSelections = (intakeData = null) => {
     }))
     .filter((row) => !!row.entityType);
 };
+/**
+ * Some intake links have a hard-bound company_event_id (the link is "for"
+ * a specific event), but the user doesn't go through an interactive
+ * Registration step — the enrollment is implicit from the link itself.
+ * Without a synthetic registration selection in intakeData.responses
+ * .submission.registrationSelections, downstream consumers think there's
+ * no registration on this submission and therefore:
+ *   - Skip the Registration Confirmation ticket PDF (returned null).
+ *   - Skip the EVENT_TITLE / EVENT_DATES placeholders for the email.
+ *   - Persist registration_completion_event = null, so the frontend
+ *     success page never displays the event the family signed up for.
+ *
+ * This helper mutates intakeData in-place to inject a single synthesized
+ * { entityType: 'company_event', entityId: link.company_event_id } row
+ * IFF (a) the link has a bound event, AND (b) no user-selected
+ * company_event/event row already exists. It's a safe no-op otherwise.
+ *
+ * Called once at the top of each finalize handler so every downstream
+ * registration-aware code path (ticket PDF, email placeholders,
+ * registration_completion_event persistence) sees the bound event.
+ */
+const ensureLinkBoundCompanyEventSelection = (intakeData, link) => {
+  const eventId = Number(link?.company_event_id || 0) || null;
+  if (!eventId) return;
+  if (!intakeData || typeof intakeData !== 'object') return;
+  if (!intakeData.responses || typeof intakeData.responses !== 'object') {
+    intakeData.responses = {};
+  }
+  if (!intakeData.responses.submission || typeof intakeData.responses.submission !== 'object') {
+    intakeData.responses.submission = {};
+  }
+  const sub = intakeData.responses.submission;
+  if (!Array.isArray(sub.registrationSelections)) {
+    sub.registrationSelections = [];
+  }
+  const alreadyHasEvent = sub.registrationSelections.some((row) => {
+    if (!row || typeof row !== 'object') return false;
+    const t = String(row.entityType || '').trim().toLowerCase();
+    return (t === 'company_event' || t === 'event') && Number(row.entityId || 0) === eventId;
+  });
+  if (alreadyHasEvent) return;
+  sub.registrationSelections.push({
+    entityType: 'company_event',
+    entityId: eventId,
+    sourceProgramId: Number(link?.program_id || 0) || null,
+    sourceSiteId: null,
+    scheduleBlocks: [],
+    payerType: null,
+    // Diagnostic — easy to spot in raw intake_data when debugging which
+    // selections came from the link vs. an interactive selection step.
+    _autoFromLinkBinding: true
+  });
+};
+
 const extractRegistrationPayerType = (intakeData = null) => {
   const sub = intakeData?.responses?.submission && typeof intakeData.responses.submission === 'object'
     ? intakeData.responses.submission
@@ -718,23 +772,58 @@ const parseIntakeYesNo = (val) => {
   return null;
 };
 
-/** Merge demographics step + clinical question keys used for client / guardian profile sync. */
-const buildMergedDemographicsForPersist = (submission = {}) => {
+/** Merge demographics step + clinical question keys used for client / guardian profile sync.
+ *  Pass `perClientResponses` (i.e. intakeData.responses.clients[i]) so per-child
+ *  question answers (`client_grade`, `client_dob`, `client_sex`, `client_street`,
+ *  ...) are layered on top of the submission-level demographics step. Without
+ *  this, multi-child submissions stamped every sibling with the same (often
+ *  empty) submission-level data and lost per-child grade/DOB/address/sex.
+ */
+const buildMergedDemographicsForPersist = (submission = {}, perClientResponses = null) => {
   const base = submission?.demographicsInfo && typeof submission.demographicsInfo === 'object'
     ? { ...submission.demographicsInfo }
     : {};
   const clinical = submission?.clinicalResponses && typeof submission.clinicalResponses === 'object'
     ? submission.clinicalResponses
     : {};
+  const perClient = perClientResponses && typeof perClientResponses === 'object'
+    ? perClientResponses
+    : {};
+  // Per-child fields take precedence over both the submission-level
+  // demographics step and the submission-level clinical responses, since they
+  // are the most specific answer for THIS sibling on THIS submission.
+  const pickPerChild = (perChildKey, fallback) => {
+    const v = perClient[perChildKey];
+    if (v === null || v === undefined) return fallback;
+    if (typeof v === 'string' && !v.trim()) return fallback;
+    return v;
+  };
   const merged = {
     ...base,
-    preferredLanguage: clinical.client_preferred_language || base.preferredLanguage,
-    grade: clinical.client_grade || base.grade,
+    preferredLanguage: pickPerChild(
+      'client_preferred_language',
+      clinical.client_preferred_language || base.preferredLanguage
+    ),
+    grade: pickPerChild('client_grade', clinical.client_grade || base.grade),
     guardianPreferredLanguage: clinical.guardian_preferred_language || base.guardianPreferredLanguage,
-    eloping: clinical.client_eloping ?? base.eloping,
-    elopingNotes: clinical.client_eloping_notes ?? base.elopingNotes,
-    extraAssistance: clinical.client_extra_assistance ?? base.extraAssistance,
-    extraAssistanceNotes: clinical.client_extra_assistance_notes ?? base.extraAssistanceNotes
+    dob: pickPerChild('client_dob', base.dob),
+    gender: pickPerChild('client_sex', base.gender || pickPerChild('client_gender', null)),
+    ethnicity: pickPerChild('client_ethnicity', base.ethnicity),
+    addressStreet: pickPerChild('client_street', base.addressStreet),
+    addressApt: pickPerChild('client_apt', base.addressApt),
+    addressCity: pickPerChild('client_city', base.addressCity),
+    addressState: pickPerChild('client_state', base.addressState),
+    addressZip: pickPerChild('client_zip', base.addressZip),
+    eloping: pickPerChild('client_eloping', clinical.client_eloping ?? base.eloping),
+    elopingNotes: pickPerChild('client_eloping_notes', clinical.client_eloping_notes ?? base.elopingNotes),
+    extraAssistance: pickPerChild(
+      'client_extra_assistance',
+      clinical.client_extra_assistance ?? base.extraAssistance
+    ),
+    extraAssistanceNotes: pickPerChild(
+      'client_extra_assistance_notes',
+      clinical.client_extra_assistance_notes ?? base.extraAssistanceNotes
+    )
   };
   const hasAny = Object.values(merged).some((v) => {
     if (v === null || v === undefined) return false;
@@ -857,6 +946,101 @@ const persistClientDemographicsIfProvided = async ({ clientId, demographicsInfo 
     console.warn('[publicIntake] demographics persist failed', { clientId: cid, message: e?.message });
   }
   await persistGuardianPreferredLanguageOnIntakeProfile({ clientId: cid, demographicsInfo });
+};
+
+/**
+ * Per-child "save what the parent typed" orchestration. Called once per child
+ * inside the per-client loop, after that child's signed PDFs have been
+ * attached. Replaces three near-identical inline blocks (school-roi flow +
+ * registration flow) with one call so future regressions hit one place.
+ *
+ * Does, in order:
+ *   1. Build per-child demographics (per-child responses take priority over
+ *      submission-level fields — this is what was missing for sibling 2).
+ *   2. Persist demographics to `clients` (grade, language, address, DOB,
+ *      sex, eloping/assistance flags + their notes).
+ *   3. Mirror primary insurer name from insurance step.
+ *   4. Auto-mark Document Status checklist items as RECEIVED.
+ *
+ * Each step is independent — failure in one does not abort the others — and
+ * each failure logs with enough context to diagnose later.
+ */
+const persistChildIntakeData = async ({
+  clientId,
+  intakeData,
+  clientIndex,
+  submissionId,
+  completedAt,
+  flowLabel = 'public_intake',
+  intakeCompletionNote = 'Marked received automatically after intake completion'
+}) => {
+  const cid = Number(clientId || 0);
+  if (!cid) return { ok: false, reason: 'missing_client_id' };
+
+  const result = { ok: true, demographicsPersisted: false, insurerPersisted: false, checklistMarked: false };
+
+  // 1) + 2) Demographics. Per-child responses (intakeData.responses.clients[i])
+  // take priority over submission-level fields; without that merge, siblings
+  // got each other's grade/DOB/address (or nothing).
+  try {
+    const perChildResponses = Array.isArray(intakeData?.responses?.clients)
+      ? (intakeData.responses.clients[clientIndex] || null)
+      : null;
+    const demographicsInfo = buildMergedDemographicsForPersist(
+      intakeData?.responses?.submission || {},
+      perChildResponses
+    );
+    if (demographicsInfo) {
+      await persistClientDemographicsIfProvided({ clientId: cid, demographicsInfo });
+      result.demographicsPersisted = true;
+    }
+  } catch (demoErr) {
+    console.error('[publicIntake] per-child demographics persist failed', {
+      clientId: cid,
+      submissionId,
+      clientIndex,
+      flow: flowLabel,
+      error: demoErr?.message || demoErr
+    });
+  }
+
+  // 3) Primary insurer name from the insurance step.
+  try {
+    const insuranceInfo = intakeData?.responses?.submission?.insuranceInfo;
+    const primaryInsurerName = String(insuranceInfo?.primary?.insurerName || '').trim();
+    if (primaryInsurerName) {
+      await pool.execute(
+        `UPDATE clients SET primary_insurer_name = ? WHERE id = ?`,
+        [primaryInsurerName.slice(0, 255), cid]
+      );
+      result.insurerPersisted = true;
+    }
+  } catch {
+    // primary_insurer_name column may not exist yet (migration pending) — non-fatal.
+  }
+
+  // 4) Auto-mark the Document Status checklist as RECEIVED. Intake completion
+  // delivers every item on the checklist (emailed packet, ROI, new docs,
+  // disclosure & consent, insurance info, etc.), so leaving them flagged as
+  // "Needed" forces unnecessary manual outreach.
+  try {
+    await applyClientIntakeCompletion({
+      clientId: cid,
+      completedAt: completedAt || new Date(),
+      note: intakeCompletionNote,
+      actorUserId: null
+    });
+    result.checklistMarked = true;
+  } catch (intakeCompletionErr) {
+    console.error('[publicIntake] applyClientIntakeCompletion failed', {
+      clientId: cid,
+      submissionId,
+      flow: flowLabel,
+      error: intakeCompletionErr?.message || intakeCompletionErr
+    });
+  }
+
+  return result;
 };
 
 const ensureGuardianAccountLinkedForClient = async ({ clientId, profile = {}, accessEnabled = false }) => {
@@ -1226,6 +1410,31 @@ const resolvePacketCompletionEmailContent = async ({
     : '';
 
   const fallbackSubject = `Thank you for completing your intake packet${params.SCHOOL_NAME ? ` for ${params.SCHOOL_NAME}` : ''}`;
+  // Plain-text version of the standalone event details block. Mirrors the
+  // HTML eventDetailsHtmlBlock so non-HTML email clients (or quoted-only
+  // forwards) still surface what the family registered for. We compose
+  // this BEFORE fallbackText so it can be inserted as a discrete block.
+  const eventDetailsTextBlock = (() => {
+    const lines = [];
+    const title = String(params.EVENT_TITLE || '').trim() || String(regEvent || '').trim();
+    const dates = String(params.EVENT_DATES || '').trim();
+    const reportTime = String(params.EVENT_REPORT_TIME || '').trim();
+    const duration = String(params.EVENT_DURATION || '').trim();
+    const addr = String(params.EVENT_ADDRESS || '').trim();
+    if (!title && !dates && !addr) return '';
+    lines.push('');
+    lines.push("— You're registered for —");
+    if (title) lines.push(title);
+    if (dates) {
+      const extras = [reportTime ? `Arrive by ${reportTime}` : '', duration].filter(Boolean).join(' · ');
+      lines.push(extras ? `${dates} · ${extras}` : dates);
+    } else if (reportTime) {
+      lines.push(`Arrive by ${reportTime}${duration ? ` · ${duration}` : ''}`);
+    }
+    if (addr) lines.push(addr);
+    return lines.join('\n');
+  })();
+
   const fallbackText = [
     `Hello ${params.SIGNER_NAME || 'there'},`,
     '',
@@ -1233,6 +1442,7 @@ const resolvePacketCompletionEmailContent = async ({
     `${params.CLIENT_SUMMARY ? `${params.CLIENT_SUMMARY}\n` : ''}Thank you for completing the intake packet${params.SCHOOL_NAME ? ` for ${params.SCHOOL_NAME}` : ''}.`,
     'Our staff will be in touch with next steps.',
     'Once your client is assigned to a provider, they will reach out to schedule intake and begin services.',
+    eventDetailsTextBlock,
     credsBlock,
     perChildTextBlock,
     '',
@@ -1272,6 +1482,28 @@ const resolvePacketCompletionEmailContent = async ({
     text = `${text}\n${appendedBlock}`;
   }
 
+  // Same idea as the portal-credentials append: if a custom email template
+  // is in use AND we have an event the family registered for AND the
+  // template body doesn't already mention the event title or any
+  // EVENT_* placeholder, automatically append a "you're registered for"
+  // block to the plain-text version. Without this, agencies that
+  // configured a generic completion email template silently drop the
+  // event details (the user only saw "we received your registration"
+  // with no mention of WHICH event).
+  const eventTitleStr = String(params.EVENT_TITLE || '').trim();
+  const eventDatesStr = String(params.EVENT_DATES || '').trim();
+  const hasEventInfo = !!(eventTitleStr || eventDatesStr || regEvent);
+  const textMissesEventInfo = usedCustomTemplate
+    && hasEventInfo
+    && eventDetailsTextBlock
+    && (
+      (eventTitleStr && !text.includes(eventTitleStr))
+      || (!eventTitleStr && regEvent && !text.includes(regEvent))
+    );
+  if (textMissesEventInfo) {
+    text = `${text}\n${eventDetailsTextBlock}`;
+  }
+
   if (!regPw) {
     text = stripEmptyTemporaryPasswordLines(text);
   }
@@ -1305,6 +1537,28 @@ const resolvePacketCompletionEmailContent = async ({
        </div>`
     : '';
 
+  // Standalone "what you registered for" block — visible whenever the
+  // submission has a bound event, INDEPENDENT of whether the family also
+  // got portal credentials. Previously the only mention of the event lived
+  // inside the Guardian Portal credentials box, which meant intake links
+  // that auto-bind an event but don't issue portal access (most school +
+  // event-only flows) silently dropped the event details from the email.
+  const eventTitleEsc = escapeHtml(String(params.EVENT_TITLE || '').trim());
+  const eventDatesEsc = escapeHtml(String(params.EVENT_DATES || '').trim());
+  const eventAddressEsc = escapeHtml(String(params.EVENT_ADDRESS || '').trim());
+  const eventReportTimeEsc = escapeHtml(String(params.EVENT_REPORT_TIME || '').trim());
+  const eventDurationEsc = escapeHtml(String(params.EVENT_DURATION || '').trim());
+  const regEventEsc = escapeHtml(String(regEvent || '').trim());
+  const hasAnyEventDetail = eventTitleEsc || eventDatesEsc || eventAddressEsc || regEventEsc;
+  const eventDetailsHtmlBlock = hasAnyEventDetail
+    ? `<div style="margin:16px 0;padding:12px;border:1px solid #cfe4ff;border-radius:8px;background:#f0f7ff;">
+         <p style="margin:0 0 6px 0;"><strong>You're registered for:</strong></p>
+         ${eventTitleEsc ? `<p style="margin:4px 0;font-size:15px;font-weight:600;">${eventTitleEsc}</p>` : (regEventEsc ? `<p style="margin:4px 0;">${regEventEsc}</p>` : '')}
+         ${eventDatesEsc ? `<p style="margin:4px 0;">📅 ${eventDatesEsc}${eventReportTimeEsc ? ` &nbsp;·&nbsp; ⏰ Arrive by ${eventReportTimeEsc}` : ''}${eventDurationEsc ? ` &nbsp;·&nbsp; ⏳ ${eventDurationEsc}` : ''}</p>` : ''}
+         ${eventAddressEsc ? `<p style="margin:4px 0;">📍 ${eventAddressEsc}</p>` : ''}
+       </div>`
+    : '';
+
   const html = selectedTemplate?.body || customBody
     ? toSimpleHtmlEmail(text)
     : `
@@ -1313,6 +1567,7 @@ const resolvePacketCompletionEmailContent = async ({
         <p>Thank you for completing the intake packet${params.SCHOOL_NAME ? ` for <strong>${escapeHtml(params.SCHOOL_NAME)}</strong>` : ''}.</p>
         <p>Our staff will be in touch with next steps.</p>
         <p>Once your client is assigned to a provider, they will reach out to schedule intake and begin services.</p>
+        ${eventDetailsHtmlBlock}
         ${(needsSetup || regPw || regPasswordless)
           ? `<div style="margin:16px 0;padding:12px;border:1px solid #ddd;border-radius:8px;background:#f9fafb;">
                <p><strong>Guardian portal</strong></p>
@@ -1323,7 +1578,6 @@ const resolvePacketCompletionEmailContent = async ({
                ${regPlainLogin && regPasswordless && regPw ? `<p style="font-size:13px;color:#555;">Or open the <a href="${escapeHtml(regPlainLogin)}">login page</a> and sign in with your email and temporary password.</p>` : ''}
                ${regPlainLogin && regPasswordless && !regPw ? `<p style="font-size:13px;color:#555;">You can also open the <a href="${escapeHtml(regPlainLogin)}">login page</a> after your setup is complete.</p>` : ''}
                ${!regPasswordless && regPlainLogin ? `<p><a href="${escapeHtml(regPlainLogin)}">Sign in</a></p>` : ''}
-               ${regEvent ? `<p><strong>Event:</strong> ${escapeHtml(regEvent)}</p>` : ''}
              </div>`
           : ''}
         ${perChildHtmlBlock}
@@ -1425,6 +1679,226 @@ const resolveFallbackSignatureIdentity = async ({ organizationId, scopeType, age
   if (!agencyId) return null;
   const list = await EmailSenderIdentity.list({ agencyId, includePlatformDefaults: true, onlyActive: true });
   return pickPreferredSenderIdentity(withSignatureFilter(list), preferredKeys);
+};
+
+/**
+ * Single canonical "send the intake completion email and ALWAYS leave a row
+ * on the Communications tab" helper. Replaces two near-identical inline
+ * blocks (school-roi flow + registration flow) so we stop fixing one branch
+ * while the other quietly regresses.
+ *
+ * Behavior:
+ *   - If the link/agency has a configured EmailSenderIdentity, send via it.
+ *   - Otherwise fall back to the platform-default `EmailService.sendEmail`
+ *     with the shared signature block applied.
+ *   - On any failure (prep or send), write a `user_communications` row via
+ *     `logSkippedOrFailedEmail` so the failure surfaces on the
+ *     Communications tab — the user explicitly required this.
+ *   - Honor `sendResult.skipped` from the unified sender (the platform send
+ *     gate can suppress sends; we record the reason so it's visible).
+ *
+ * Returns: { sent, skipped, error, errorMessage }. NEVER throws — callers
+ * use the returned `error`/`errorMessage` to populate `emailDelivery` for
+ * the API response.
+ */
+const deliverPacketCompletionEmail = async ({
+  to,
+  subject,
+  text,
+  html,
+  packetPdfBuffer = null,
+  link,
+  agencyId,
+  clientId,
+  organizationId,
+  scopeType,
+  templateType = 'intake_packet_completion',
+  submissionId,
+  flowLabel = 'public_intake'
+}) => {
+  const result = { sent: false, skipped: false, error: null, errorMessage: null };
+  // Same attachment shape both branches used: actual PDF bytes on the email
+  // so the family always has the packet on hand even if the signed download
+  // URL eventually expires.
+  const packetAttachments = packetPdfBuffer
+    ? [{
+        filename: `intake-packet-${submissionId}.pdf`,
+        contentType: 'application/pdf',
+        contentBase64: packetPdfBuffer.toString('base64')
+      }]
+    : null;
+
+  try {
+    const identity = await resolveIntakeSenderIdentity({ organizationId, scopeType });
+    let sendResult = null;
+    if (identity?.id) {
+      sendResult = await sendEmailFromIdentity({
+        senderIdentityId: identity.id,
+        to,
+        subject,
+        text,
+        html,
+        attachments: packetAttachments,
+        source: 'auto',
+        clientId,
+        templateType
+      });
+    } else {
+      if (!EmailService.isConfigured()) {
+        throw new Error('email_not_configured');
+      }
+      const fallbackSignatureIdentity = await resolveFallbackSignatureIdentity({ organizationId, scopeType });
+      const signed = applyIdentitySignatureBlock({
+        identity: fallbackSignatureIdentity,
+        text,
+        html
+      });
+      sendResult = await EmailService.sendEmail({
+        to,
+        subject,
+        text: signed.text,
+        html: signed.html,
+        fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
+        fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+        replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+        attachments: packetAttachments,
+        source: 'auto',
+        agencyId: organizationId || agencyId,
+        clientId,
+        templateType
+      });
+    }
+    if (sendResult?.skipped) {
+      result.skipped = true;
+      result.error = `skipped_${sendResult.reason || 'gate'}`;
+      result.errorMessage = `Send skipped by email gate: ${sendResult.reason || 'unknown'}`;
+      console.warn('[publicIntake] completion email skipped by gate', {
+        submissionId,
+        flow: flowLabel,
+        reason: sendResult.reason,
+        to
+      });
+    } else {
+      result.sent = true;
+    }
+  } catch (sendErr) {
+    const isUnconfigured = String(sendErr?.message || '').includes('email_not_configured');
+    result.error = isUnconfigured ? 'email_not_configured' : 'send_failed';
+    result.errorMessage = String(sendErr?.message || result.error).slice(0, 500);
+    console.error('[publicIntake] completion email send failed', {
+      submissionId,
+      flow: flowLabel,
+      to,
+      message: sendErr?.message || String(sendErr || ''),
+      stack: sendErr?.stack || null
+    });
+    // Defensive Communications-tab row — the per-service pre-log SHOULD
+    // already have one for sends that made it as far as the Gmail client,
+    // but bootstrap/auth failures throw before the pre-log row is ever
+    // written. Without this, a failed send is invisible to staff.
+    await logSkippedOrFailedEmail({
+      to,
+      subject: `${subject || 'Intake completion'} (failed)`,
+      text: `Completion email could not be sent: ${sendErr?.message || 'unknown failure'}`,
+      html: null,
+      agencyId: agencyId || link?.agency_id || link?.organization_id || null,
+      clientId,
+      templateType,
+      deliveryStatus: isUnconfigured ? 'skipped' : 'failed',
+      errorMessage: result.errorMessage || result.error,
+      metadata: { submissionId, reason: result.error, flow: flowLabel }
+    });
+  }
+  return result;
+};
+
+// Mirror the per-submission completion-email outcome onto every sibling beyond
+// the primary client of a multi-child submission. The actual outbound send is
+// still ONCE (one email to the signer, attached to the submission's primary
+// `client_id`) — these mirror rows simply make the same email visible on each
+// sibling's Communications tab so staff don't see "no completion email" for
+// child 2+ when in fact the family did receive the packet email.
+//
+// Mirrored rows:
+//   - reuse the same template_type so existing UI filters pick them up
+//   - carry the same delivery_status (sent / skipped / failed) as the primary
+//   - include `metadata.mirroredFromClientId` pointing at the primary so we can
+//     tell at a glance these are mirrors of one outbound email
+//   - subject is suffixed with "(sibling copy)" purely as a forensic hint
+//
+// All failures are swallowed — a mirror-write failure should NEVER block the
+// finalize handler. The primary row already exists and downstream consumers
+// keep working.
+const mirrorPacketCompletionRowToSiblings = async ({
+  to,
+  subject,
+  text,
+  html,
+  templateType = 'intake_packet_completion',
+  link,
+  agencyId,
+  primaryClientId,
+  siblingClientIds = [],
+  submissionId,
+  flowLabel = 'public_intake',
+  outcome
+}) => {
+  const safeSiblings = (Array.isArray(siblingClientIds) ? siblingClientIds : [])
+    .map((id) => Number(id || 0))
+    .filter((id) => Number.isFinite(id) && id > 0 && id !== Number(primaryClientId || 0));
+  if (!safeSiblings.length) return { mirrored: 0 };
+  let deliveryStatus = 'sent';
+  let errorMessage = null;
+  if (outcome?.skipped) {
+    deliveryStatus = 'skipped';
+    errorMessage = outcome.errorMessage || outcome.error || 'skipped';
+  } else if (outcome && outcome.sent === false) {
+    deliveryStatus = 'failed';
+    errorMessage = outcome.errorMessage || outcome.error || 'send_failed';
+  }
+  let mirrored = 0;
+  for (const siblingId of safeSiblings) {
+    try {
+      await logSkippedOrFailedEmail({
+        to: to || null,
+        subject: subject ? `${subject} (sibling copy)` : 'Intake completion (sibling copy)',
+        text: text || null,
+        html: html || null,
+        agencyId: agencyId || link?.agency_id || link?.organization_id || null,
+        clientId: siblingId,
+        templateType,
+        deliveryStatus,
+        errorMessage,
+        metadata: {
+          submissionId,
+          flow: flowLabel,
+          mirroredFromClientId: Number(primaryClientId || 0) || null,
+          isSiblingMirror: true
+        }
+      });
+      mirrored += 1;
+    } catch (mirrorErr) {
+      // Non-blocking — primary row is already in place
+      console.warn('[publicIntake] sibling completion-email mirror failed', {
+        submissionId,
+        flow: flowLabel,
+        siblingClientId: siblingId,
+        primaryClientId,
+        message: mirrorErr?.message || mirrorErr
+      });
+    }
+  }
+  if (mirrored > 0) {
+    console.log('[publicIntake] mirrored completion email row to siblings', {
+      submissionId,
+      flow: flowLabel,
+      primaryClientId: Number(primaryClientId || 0) || null,
+      siblingCount: safeSiblings.length,
+      mirrored,
+      deliveryStatus
+    });
+  }
+  return { mirrored };
 };
 
 const resolvePublicIntakeContext = async (publicKey) => {
@@ -2745,44 +3219,31 @@ const createIntakeTextDocuments = async ({
         fileBuffer: Buffer.from(doc.text, 'utf8'),
         filename: doc.filename
       });
-      const resolvedOrgId =
-        clientRow?.organization_id ||
-        clientRow?.school_organization_id ||
-        organizationId ||
-        agencyId ||
-        null;
-      const phiDoc = await ClientPhiDocument.create({
+      await attachSignedPdfToClient({
         clientId,
-        agencyId,
-        schoolOrganizationId: resolvedOrgId || agencyId,
-        intakeSubmissionId: submissionId,
+        link,
+        clientRow,
         storagePath: storageResult.relativePath,
         originalName: doc.filename,
         documentTitle: doc.title,
         documentType: doc.type,
         mimeType: 'text/plain',
-        uploadedByUserId: null,
-        scanStatus: 'clean',
-        expiresAt: expiresAt || null
-      });
-      await PhiDocumentAuditLog.create({
-        documentId: phiDoc.id,
-        clientId,
-        action: 'uploaded',
-        actorUserId: null,
-        actorLabel: 'public_intake',
+        intakeSubmissionId: submissionId,
+        expiresAt: expiresAt || null,
         ipAddress: ipAddress || null,
-        metadata: { submissionId, kind: doc.auditKind }
+        agencyIdOverride: agencyId,
+        schoolOrganizationIdOverride: organizationId || orgId,
+        auditMetadata: { submissionId, kind: doc.auditKind },
+        callerLabel: 'public_intake_text_doc'
       });
     } catch (err) {
-      // best-effort; do not block public intake
-      console.error('createIntakeTextDocuments failed', {
+      // Storage upload itself failed — helper handles its own DB errors and
+      // logs them, but a GCS failure happens before we even call the helper.
+      console.error('createIntakeTextDocuments storage upload failed', {
         clientId,
         submissionId,
         filename: doc.filename,
-        error: err?.message || err,
-        code: err?.code,
-        sqlState: err?.sqlState
+        error: err?.message || err
       });
     }
   }
@@ -2846,38 +3307,26 @@ const createIntakePiecePdfDocuments = async ({
         fileBuffer: answersPdf,
         filename: `intake-answers-client-${clientId}.pdf`
       });
-      const phiDoc = await ClientPhiDocument.create({
+      await attachSignedPdfToClient({
         clientId,
-        agencyId,
-        schoolOrganizationId,
-        intakeSubmissionId: submissionId,
+        link: null,
         storagePath: storageResult.relativePath,
         originalName: 'Intake Responses (Answers).pdf',
         documentTitle: 'Intake Responses (Answers)',
         documentType: 'Intake Responses',
-        mimeType: 'application/pdf',
-        uploadedByUserId: null,
-        scanStatus: 'clean',
-        expiresAt: expiresAt || null
-      });
-      await PhiDocumentAuditLog.create({
-        documentId: phiDoc.id,
-        clientId,
-        action: 'uploaded',
-        actorUserId: null,
-        actorLabel: 'public_intake',
+        intakeSubmissionId: submissionId,
+        expiresAt: expiresAt || null,
         ipAddress: ipAddress || null,
-        metadata: { submissionId, kind: 'intake_answers_pdf' }
-      }).catch(() => {});
+        agencyIdOverride: agencyId,
+        schoolOrganizationIdOverride: schoolOrganizationId,
+        auditMetadata: { submissionId, kind: 'intake_answers_pdf' },
+        callerLabel: 'public_intake_piece_answers'
+      });
     } catch (err) {
-      // Loud log so a NOT NULL / FK / dup-key failure here is diagnosable.
-      // Do NOT throw — answers .txt + per-template signed PDFs still landed.
-      console.error('[publicIntake] piece: answers PDF PHI insert failed', {
+      console.error('[publicIntake] piece: answers PDF storage upload failed', {
         clientId,
         submissionId,
-        message: err?.message || String(err || ''),
-        code: err?.code,
-        sqlState: err?.sqlState
+        message: err?.message || String(err || '')
       });
     }
   }
@@ -2894,36 +3343,26 @@ const createIntakePiecePdfDocuments = async ({
         fileBuffer: ticketPdf,
         filename: `registration-confirmation-client-${clientId}.pdf`
       });
-      const phiDoc = await ClientPhiDocument.create({
+      await attachSignedPdfToClient({
         clientId,
-        agencyId,
-        schoolOrganizationId,
-        intakeSubmissionId: submissionId,
+        link: null,
         storagePath: storageResult.relativePath,
         originalName: 'Registration Confirmation.pdf',
         documentTitle: 'Registration Confirmation',
         documentType: 'Registration Confirmation',
-        mimeType: 'application/pdf',
-        uploadedByUserId: null,
-        scanStatus: 'clean',
-        expiresAt: expiresAt || null
-      });
-      await PhiDocumentAuditLog.create({
-        documentId: phiDoc.id,
-        clientId,
-        action: 'uploaded',
-        actorUserId: null,
-        actorLabel: 'public_intake',
+        intakeSubmissionId: submissionId,
+        expiresAt: expiresAt || null,
         ipAddress: ipAddress || null,
-        metadata: { submissionId, kind: 'registration_confirmation_pdf' }
-      }).catch(() => {});
+        agencyIdOverride: agencyId,
+        schoolOrganizationIdOverride: schoolOrganizationId,
+        auditMetadata: { submissionId, kind: 'registration_confirmation_pdf' },
+        callerLabel: 'public_intake_piece_ticket'
+      });
     } catch (err) {
-      console.error('[publicIntake] piece: registration confirmation PHI insert failed', {
+      console.error('[publicIntake] piece: registration confirmation storage upload failed', {
         clientId,
         submissionId,
-        message: err?.message || String(err || ''),
-        code: err?.code,
-        sqlState: err?.sqlState
+        message: err?.message || String(err || '')
       });
     }
   }
@@ -2950,66 +3389,21 @@ const createIntakePacketDocument = async ({
   expiresAt,
   link,
   organizationId = null
-}) => {
-  if (!clientId || !storagePath) {
-    return { ok: false, reason: 'missing_required', clientId, storagePath };
-  }
-  const agencyId = clientRow?.agency_id || link?.organization_id || null;
-  const orgId =
-    clientRow?.organization_id ||
-    clientRow?.school_organization_id ||
-    organizationId ||
-    link?.organization_id ||
-    null;
-  try {
-    const phiDoc = await ClientPhiDocument.create({
-      clientId,
-      agencyId,
-      schoolOrganizationId: orgId || agencyId,
-      intakeSubmissionId: submissionId,
-      storagePath,
-      originalName: 'Intake Packet (Signed)',
-      documentTitle: 'Intake Packet',
-      documentType: 'Intake Packet',
-      mimeType: 'application/pdf',
-      uploadedByUserId: null,
-      scanStatus: 'clean',
-      expiresAt: expiresAt || null
-    });
-    await PhiDocumentAuditLog.create({
-      documentId: phiDoc.id,
-      clientId,
-      action: 'uploaded',
-      actorUserId: null,
-      actorLabel: 'public_intake',
-      ipAddress: ipAddress || null,
-      metadata: { submissionId, kind: 'intake_packet' }
-    });
-    return { ok: true, phiDoc };
-  } catch (err) {
-    const isDuplicate = err?.code === 'ER_DUP_ENTRY' || /duplicate/i.test(err?.message || '');
-    // Surface clearly — multi-child submissions used to silently lose child 2+
-    // because callers reused the combined bundle path. Loud logging here means
-    // we can detect and retry, while the caller can decide if it's fatal.
-    console.error('[multi_child_packet_failures] createIntakePacketDocument failed', {
-      clientId,
-      submissionId,
-      storagePath,
-      duplicate: isDuplicate,
-      error: err?.message || err,
-      code: err?.code,
-      sqlState: err?.sqlState
-    });
-    return {
-      ok: false,
-      reason: isDuplicate ? 'duplicate_storage_path' : 'create_failed',
-      error: err?.message || String(err),
-      code: err?.code || null,
-      clientId,
-      storagePath
-    };
-  }
-};
+}) => attachSignedPdfToClient({
+  clientId,
+  link,
+  clientRow,
+  storagePath,
+  originalName: 'Intake Packet (Signed)',
+  documentTitle: 'Intake Packet',
+  documentType: 'Intake Packet',
+  intakeSubmissionId: submissionId,
+  expiresAt: expiresAt || null,
+  ipAddress: ipAddress || null,
+  schoolOrganizationIdOverride: organizationId,
+  auditMetadata: { submissionId, kind: 'intake_packet' },
+  callerLabel: 'public_intake_packet'
+});
 
 export const approvePublicIntake = async (req, res, next) => {
   try {
@@ -4062,23 +4456,87 @@ export const getPublicIntakeStatus = async (req, res, next) => {
     const sub = intakeData?.responses?.submission && typeof intakeData.responses.submission === 'object'
       ? intakeData.responses.submission
       : {};
-    const registrationCompletion = linkSupportsPublicRegistrationFeatures(link)
-      ? {
-          newGuardianAccount: !!sub.registration_completion_new_guardian,
-          loginEmail: sub.registration_completion_login_email || null,
-          portalLoginUrl: sub.registration_completion_portal_url || null,
-          eventSummary: sub.registration_completion_event || null
+    // Surface registrationCompletion either when the link is a registration
+    // form OR when the link is hard-bound to an event (link.company_event_id),
+    // so the frontend success card can show "you're registered for X" even
+    // for school-roi / school_intake flows that piggyback an event on the link.
+    const linkBindsEvent = !!Number(link?.company_event_id || 0);
+    const registrationCompletion =
+      linkSupportsPublicRegistrationFeatures(link) || linkBindsEvent
+        ? {
+            newGuardianAccount: !!sub.registration_completion_new_guardian,
+            loginEmail: sub.registration_completion_login_email || null,
+            portalLoginUrl: sub.registration_completion_portal_url || null,
+            eventSummary: sub.registration_completion_event || null
+          }
+        : null;
+
+    // Enrich with structured event metadata (title, starts_at, address)
+    // pulled live from company_events when the link binds an event. The
+    // frontend uses these to render a richer "You're registered for"
+    // card with a calendar date row + Add-to-Calendar button without
+    // having to round-trip through the registration catalog endpoint.
+    if (registrationCompletion && linkBindsEvent) {
+      try {
+        const aid = Number(link?.agency_id || 0) || null;
+        const eid = Number(link?.company_event_id || 0) || null;
+        if (aid && eid) {
+          const [erows] = await pool.execute(
+            `SELECT id, title, starts_at, ends_at, timezone,
+                    public_location_address, event_location_name, event_location_address
+             FROM company_events
+             WHERE id = ? AND agency_id = ?
+             LIMIT 1`,
+            [eid, aid]
+          );
+          const er = erows?.[0];
+          if (er) {
+            const addr = String(er.public_location_address || '').trim()
+              || [er.event_location_name, er.event_location_address].filter(Boolean).join(' — ');
+            registrationCompletion.event = {
+              id: er.id,
+              title: String(er.title || '').trim() || null,
+              startsAt: er.starts_at ? new Date(er.starts_at).toISOString() : null,
+              endsAt: er.ends_at ? new Date(er.ends_at).toISOString() : null,
+              timezone: String(er.timezone || '').trim() || null,
+              address: addr || null
+            };
+            // Backfill eventSummary if persistence hasn't finished yet
+            // (status poll can race the async finalize block).
+            if (!registrationCompletion.eventSummary && registrationCompletion.event.title) {
+              const datePart = er.starts_at ? new Date(er.starts_at).toLocaleString() : '';
+              registrationCompletion.eventSummary = [registrationCompletion.event.title, datePart]
+                .filter(Boolean).join(' — ');
+            }
+          }
         }
-      : null;
+      } catch (eventLookupErr) {
+        console.warn('[publicIntake] registrationCompletion.event lookup failed', {
+          submissionId,
+          message: eventLookupErr?.message || eventLookupErr
+        });
+      }
+    }
 
     const registrationReturningAutoMatch =
       sub.registration_returning_guardian_auto_match === true && String(sub.registration_returning_matched_initials || '').trim()
         ? { matched: true, initials: String(sub.registration_returning_matched_initials || '').trim() }
         : null;
 
+    // The frontend polls this endpoint waiting for the packet to be "ready".
+    // Historically it only watched `downloadUrl`, but multi-child submissions
+    // intentionally never produce a combined bundle — so polling spun forever
+    // even though every per-child packet was already in clientBundles. Expose
+    // an explicit packetReady flag that's true whenever the submission is
+    // finalized AND something downloadable exists (combined OR per-child).
+    const packetReady =
+      String(submission.status || '').toLowerCase() === 'submitted'
+        && (Boolean(downloadUrl) || (Array.isArray(clientBundles) && clientBundles.length > 0));
+
     res.json({
       submissionId,
       status: submission.status,
+      packetReady,
       totalDocuments: templates.length,
       signedTemplateIds: Array.from(signedTemplateIds),
       signedDocuments: signedDocs,
@@ -4629,6 +5087,13 @@ export const finalizePublicIntake = async (req, res, next) => {
 
     const now = new Date();
     let intakeData = req.body?.intakeData || null;
+    // Inject the link-bound company_event_id as a synthetic registration
+    // selection BEFORE we hash + persist intakeData. This way the saved
+    // intake_data row is the same one downstream (ticket PDF, event
+    // placeholders, registration_completion_event) reads, so a future
+    // status poll, retry, or rebuildIntakeBundle picks up the same event
+    // without needing to know about the link binding separately.
+    ensureLinkBoundCompanyEventSelection(intakeData, link);
     const packetDocumentTemplates = filterPacketDocumentTemplates(link, allAllowedTemplates, intakeData);
     const retentionPolicy = await resolveRetentionPolicy(link);
     const retentionExpiresAt = buildRetentionExpiresAt({ policy: retentionPolicy, submittedAt: now });
@@ -5063,31 +5528,25 @@ export const finalizePublicIntake = async (req, res, next) => {
       const roiDocTitle = effectiveRoiContext?.school?.name
         ? `${effectiveRoiContext.school.name} - Release of Information (Signed)`
         : `${selectedTemplate.name || 'School ROI'} (Signed)`;
-      const phiDoc = await ClientPhiDocument.create({
+      const phiDocAttach = await attachSignedPdfToClient({
         clientId: boundClient.id,
-        agencyId: boundClient.agency_id || agency?.id || null,
-        schoolOrganizationId: schoolOrganizationId || boundClient.agency_id || agency?.id || null,
-        intakeSubmissionId: submissionId,
+        link,
+        clientRow: boundClient,
         storagePath: signedResult.storagePath,
         originalName: roiDocTitle,
-        mimeType: 'application/pdf',
-        uploadedByUserId: null,
-        scanStatus: 'clean',
-        expiresAt: retentionExpiresAt
+        intakeSubmissionId: submissionId,
+        expiresAt: retentionExpiresAt,
+        ipAddress: updatedSubmission.ip_address,
+        agencyIdOverride: boundClient.agency_id || agency?.id || null,
+        schoolOrganizationIdOverride: schoolOrganizationId || boundClient.agency_id || agency?.id || null,
+        auditMetadata: { submissionId, templateId: selectedTemplate.id, smartSchoolRoi: true },
+        callerLabel: 'public_intake_smart_school_roi'
       });
-      await PhiDocumentAuditLog.create({
-        documentId: phiDoc.id,
-        clientId: boundClient.id,
-        action: 'uploaded',
-        actorUserId: null,
-        actorLabel: 'public_intake',
-        ipAddress: updatedSubmission.ip_address || null,
-        metadata: {
-          submissionId,
-          templateId: selectedTemplate.id,
-          smartSchoolRoi: true
-        }
-      });
+      // Hoisted outside the attach call so the downstream
+      // ClientSchoolRoiSigningLink.markCompleted call can reference the new
+      // PHI doc id even when the attach failed (it'll be null in that case,
+      // matching the previous "best-effort" semantics).
+      const phiDoc = phiDocAttach?.phiDoc || null;
 
       const accessUpdates = await applySmartSchoolRoiAccessDecisions({
         clientId: boundClient.id,
@@ -5139,7 +5598,7 @@ export const finalizePublicIntake = async (req, res, next) => {
           id: issuedRoiLink.id,
           intakeSubmissionId: submissionId,
           signedAt: now,
-          completedClientPhiDocumentId: phiDoc.id
+          completedClientPhiDocumentId: phiDoc?.id || null
         });
       }
 
@@ -5296,6 +5755,58 @@ export const finalizePublicIntake = async (req, res, next) => {
       if (attachInfo.attachClientId) {
         const existingClient = await Client.findById(attachInfo.attachClientId, { includeSensitive: true });
         if (existingClient?.id) {
+          // Returning-family-with-new-sibling support. resolveIntakeExistingClientAttach
+          // only inspects payload.clients[0] when deciding whether to attach to a
+          // returning client, so any additional siblings the parent submitted in the
+          // SAME packet (payload.clients[1..N]) used to be silently dropped here:
+          // `createdClients = [existingClient]` discarded everything else, and the
+          // downstream per-client signing loop, per-client packet attach loop, and
+          // per-child completion email sections never saw them. This matches the
+          // historical Carter/Carmen Bleem report and submission 300's
+          // "Client1 Example" matched + "Client Example2" lost. Now we explicitly
+          // create the additional siblings via createAdditionalSiblingClients
+          // (no guardian provisioning — that runs once across the full set below)
+          // and concat onto createdClients so every child the parent submitted gets
+          // a real client_id and rides the rest of finalize like a fresh-family
+          // submission. See DIGITAL_FORMS_INTAKE_CONTRACT.md §11.
+          const submittedClients = Array.isArray(req.body?.clients) ? req.body.clients : [];
+          let newSiblings = [];
+          if (submittedClients.length > 1) {
+            try {
+              const siblingResult = await PublicIntakeClientService.createAdditionalSiblingClients({
+                link,
+                payload: req.body,
+                siblings: submittedClients.slice(1)
+              });
+              newSiblings = Array.isArray(siblingResult?.clients) ? siblingResult.clients : [];
+              if (newSiblings.length) {
+                console.info('[publicIntake] returning-family matched + created brand-new siblings (school-roi flow)', {
+                  submissionId,
+                  matchedClientId: existingClient.id,
+                  matchSource: attachInfo.attachSource,
+                  submittedClientCount: submittedClients.length,
+                  siblingsCreatedIds: newSiblings.map((s) => s.id)
+                });
+              }
+            } catch (siblingErr) {
+              // Do NOT block the matched attach + guardian provisioning if
+              // sibling creation fails (e.g. a single bad sibling payload).
+              // We loudly log so the gap is attributable, and downstream
+              // smoke + per_child_bundle_path checks will surface the missing
+              // child too. Better: matched child's packet still lands today,
+              // sibling can be re-finalized via support tooling tomorrow.
+              console.error('[publicIntake] createAdditionalSiblingClients failed (school-roi flow) — matched client will proceed, additional siblings dropped', {
+                submissionId,
+                matchedClientId: existingClient.id,
+                attemptedSiblingCount: submittedClients.length - 1,
+                error: siblingErr?.message || siblingErr,
+                stack: siblingErr?.stack
+              });
+              newSiblings = [];
+            }
+          }
+
+          const allClientsForGuardian = [existingClient, ...newSiblings];
           const {
             guardianUser,
             newGuardianCreated: ngCreated,
@@ -5304,10 +5815,10 @@ export const finalizePublicIntake = async (req, res, next) => {
           } = await PublicIntakeClientService.provisionGuardianForIntakeClients({
             link,
             agencyId: attachInfo.agencyIdResolved,
-            clients: [existingClient],
+            clients: allClientsForGuardian,
             payload: req.body
           });
-          createdClients = [existingClient];
+          createdClients = allClientsForGuardian;
           newGuardianCreated = !!ngCreated;
           newGuardianTemporaryPassword = ngpw || null;
           newGuardianPasswordlessLoginUrl = ngMagic || null;
@@ -5528,35 +6039,29 @@ export const finalizePublicIntake = async (req, res, next) => {
                   boundClient?.organization_id || link.organization_id || 0
                 ) || null;
 
-                try {
-                  const clientRow = boundClient || await Client.findById(roiClientId, { includeSensitive: true });
-                  const agencyId = clientRow?.agency_id || null;
+                {
+                  const clientRow = boundClient || await Client.findById(roiClientId, { includeSensitive: true }).catch(() => null);
                   const roiDocTitle = effectiveRoiContext?.school?.name
                     ? `${effectiveRoiContext.school.name} - Release of Information (Signed)`
                     : `${selectedTemplate.name || 'School ROI'} (Signed)`;
-                  const embeddedPhiDoc = await ClientPhiDocument.create({
+                  await attachSignedPdfToClient({
                     clientId: roiClientId,
-                    agencyId,
-                    schoolOrganizationId: schoolOrganizationId || agencyId,
-                    intakeSubmissionId: submissionId,
+                    link,
+                    clientRow,
                     storagePath: roiSignedResult.storagePath,
                     originalName: roiDocTitle,
-                    mimeType: 'application/pdf',
-                    uploadedByUserId: null,
-                    scanStatus: 'clean',
-                    expiresAt: retentionExpiresAt
+                    intakeSubmissionId: submissionId,
+                    expiresAt: retentionExpiresAt,
+                    ipAddress: updatedSubmission.ip_address,
+                    schoolOrganizationIdOverride: schoolOrganizationId,
+                    auditMetadata: {
+                      submissionId,
+                      templateId: selectedTemplate.id,
+                      smartSchoolRoi: true,
+                      embeddedStep: true
+                    },
+                    callerLabel: 'public_intake_smart_school_roi_embedded'
                   });
-                  await PhiDocumentAuditLog.create({
-                    documentId: embeddedPhiDoc.id,
-                    clientId: roiClientId,
-                    action: 'uploaded',
-                    actorUserId: null,
-                    actorLabel: 'public_intake',
-                    ipAddress: updatedSubmission.ip_address || null,
-                    metadata: { submissionId, templateId: selectedTemplate.id, smartSchoolRoi: true, embeddedStep: true }
-                  });
-                } catch (phiErr) {
-                  console.error('[publicIntake] embedded ROI PHI doc creation failed', { clientId: roiClientId, error: phiErr?.message });
                 }
 
                 try {
@@ -5855,10 +6360,32 @@ export const finalizePublicIntake = async (req, res, next) => {
     });
 
     let roiCompletionPhiDocument = null;
+    // Same diagnostic story as the registration flow: log loop entry + each
+    // iteration so missing PHI rows are immediately attributable to a
+    // skipped iteration vs. an insert failure.
+    console.info('[publicIntake] intake/school finalize per-client loop starting', {
+      submissionId,
+      linkId: link?.id || null,
+      linkType: link?.type || null,
+      linkCreateClient: !!link?.create_client,
+      rawClientsCount: rawClients.length,
+      rawClientIds: rawClients.map((c) => c?.id || null),
+      packetDocumentTemplateCount: Array.isArray(packetDocumentTemplates) ? packetDocumentTemplates.length : 0
+    });
+    let phiDocsAttemptedSchool = 0;
+    let phiDocsCreatedSchool = 0;
+    let phiDocsFailedSchool = 0;
     for (let i = 0; i < rawClients.length; i += 1) {
       const clientPayload = rawClients[i];
       const clientId = clientPayload?.id || null;
       const clientName = String(clientPayload?.fullName || '').trim() || null;
+      console.info('[publicIntake] intake/school finalize processing client', {
+        submissionId,
+        loopIndex: i,
+        clientId,
+        clientName,
+        willCreatePhiDocs: Boolean(clientId)
+      });
 
       intakeClientRows.push(
         await IntakeSubmissionClient.create({
@@ -5985,97 +6512,71 @@ export const finalizePublicIntake = async (req, res, next) => {
 
           if (storagePath) clientPaths.push(storagePath);
           if (clientId && storagePath) {
-            try {
-              const clientRow = await Client.findById(clientId, { includeSensitive: true });
-              const agencyId = clientRow?.agency_id || null;
-              const orgId = clientRow?.organization_id || clientRow?.school_organization_id || null;
-              const phiDoc = await ClientPhiDocument.create({
-                clientId,
-                agencyId,
-                schoolOrganizationId: orgId || agencyId,
-                intakeSubmissionId: submissionId,
-                storagePath,
-                originalName: `${template.name || 'Document'} (Signed)`,
-                mimeType: 'application/pdf',
-                uploadedByUserId: null,
-                scanStatus: 'clean',
-                expiresAt: retentionExpiresAt
-              });
-              await PhiDocumentAuditLog.create({
-                documentId: phiDoc.id,
-                clientId,
-                action: 'uploaded',
-                actorUserId: null,
-                actorLabel: 'public_intake',
-                ipAddress: updatedSubmission.ip_address || null,
-                metadata: { submissionId, templateId: template.id }
-              });
-            } catch (phiDocErr) {
-              // Log PHI doc insert failures so they surface in server logs
-              // instead of silently missing from the client's Documentation tab.
-              console.error('[publicIntake] client_phi_documents insert failed (per-template)', {
-                submissionId,
-                clientId,
-                templateId: template.id,
-                storagePath,
-                message: phiDocErr?.message || String(phiDocErr || ''),
-                stack: phiDocErr?.stack || null
-              });
+            phiDocsAttemptedSchool += 1;
+            const attachResult = await attachSignedPdfToClient({
+              clientId,
+              link,
+              storagePath,
+              originalName: `${template.name || 'Document'} (Signed)`,
+              intakeSubmissionId: submissionId,
+              expiresAt: retentionExpiresAt,
+              ipAddress: updatedSubmission.ip_address,
+              auditMetadata: { submissionId, templateId: template.id },
+              callerLabel: 'public_intake_school'
+            });
+            if (attachResult.ok) {
+              phiDocsCreatedSchool += 1;
+            } else {
+              phiDocsFailedSchool += 1;
             }
+          } else if (storagePath && !clientId) {
+            console.info('[publicIntake] phi doc skipped — no clientId (intake/school flow)', {
+              submissionId,
+              loopIndex: i,
+              templateId: template.id,
+              linkCreateClient: !!link?.create_client
+            });
           }
         }
       } else {
         for (const template of packetDocumentTemplates) {
           const docRow = signedByTemplate.get(template.id);
           if (!docRow) continue;
-          try {
-            const clientRow = await Client.findById(clientId, { includeSensitive: true });
-            const agencyId = clientRow?.agency_id || link?.organization_id || null;
-            const orgId =
-              clientRow?.organization_id ||
-              clientRow?.school_organization_id ||
-              (req.body?.organizationId ? Number(req.body.organizationId) : null) ||
-              link?.organization_id ||
-              null;
-            const phiDoc = await ClientPhiDocument.create({
-              clientId,
-              agencyId,
-              schoolOrganizationId: orgId || agencyId,
-              intakeSubmissionId: submissionId,
-              storagePath: docRow.signed_pdf_path,
-              originalName: `${template.name || 'Document'} (Signed)`,
-              mimeType: 'application/pdf',
-              uploadedByUserId: null,
-              scanStatus: 'clean',
-              expiresAt: retentionExpiresAt
-            });
-            await PhiDocumentAuditLog.create({
-              documentId: phiDoc.id,
-              clientId,
-              action: 'uploaded',
-              actorUserId: null,
-              actorLabel: 'public_intake',
-              ipAddress: updatedSubmission.ip_address || null,
-              metadata: { submissionId, templateId: template.id }
-            });
+          // ROI / pre-signed path: docRow already has signed_pdf_path from
+          // the wizard signing step, so we only need to attach to this child.
+          phiDocsAttemptedSchool += 1;
+          const attachResult = await attachSignedPdfToClient({
+            clientId,
+            link,
+            storagePath: docRow.signed_pdf_path,
+            originalName: `${template.name || 'Document'} (Signed)`,
+            intakeSubmissionId: submissionId,
+            expiresAt: retentionExpiresAt,
+            ipAddress: updatedSubmission.ip_address,
+            schoolOrganizationIdOverride: req.body?.organizationId
+              ? Number(req.body.organizationId) || null
+              : null,
+            auditMetadata: { submissionId, templateId: template.id, source: 'roi_path' },
+            callerLabel: 'public_intake_school_roi_path'
+          });
+          if (attachResult.ok) {
+            phiDocsCreatedSchool += 1;
             if (!roiCompletionPhiDocument && issuedRoiLink?.id) {
-              roiCompletionPhiDocument = phiDoc;
+              roiCompletionPhiDocument = attachResult.phiDoc;
             }
-          } catch (phiDocErr) {
-            console.error('[publicIntake] client_phi_documents insert failed (ROI path)', {
-              submissionId,
-              clientId,
-              templateId: template.id,
-              storagePath: docRow.signed_pdf_path,
-              message: phiDocErr?.message || String(phiDocErr || ''),
-              stack: phiDocErr?.stack || null
-            });
+          } else {
+            phiDocsFailedSchool += 1;
           }
         }
       }
 
       const mergePaths = clientPaths.length ? clientPaths : pdfPaths;
-      const isMultiClient = Array.isArray(rawClients) && rawClients.length > 1;
+      // NOTE: `isMultiClient` is the outer-scoped const declared at the top of
+      // the school-ROI finalize block (rawClients.length > 1). Do NOT redeclare
+      // here — a `const isMultiClient = ...` inside this for-loop body would
+      // shadow the outer binding and put the earlier `if (isMultiClient)`
+      // guard above (per-child template signing) into a Temporal Dead Zone,
+      // crashing the whole packet pipeline.
       // Storage dedup: for single-child submissions the per-client bundle would
       // be a near-duplicate of the combined bundle (same per-template signed
       // PDFs, with the combined bundle additionally including the answers PDF
@@ -6182,44 +6683,28 @@ export const finalizePublicIntake = async (req, res, next) => {
           organizationId: req.body?.organizationId || null
         });
 
-        // Save demographics + mapped clinical intake fields to client / guardian profile
-        const demographicsInfo = buildMergedDemographicsForPersist(intakeData?.responses?.submission || {});
-        if (demographicsInfo) {
-          await persistClientDemographicsIfProvided({ clientId, demographicsInfo });
-        }
-
-        // Save the primary insurer name from insurance step (best-effort)
-        const insuranceInfo = intakeData?.responses?.submission?.insuranceInfo;
-        const primaryInsurerName = String(insuranceInfo?.primary?.insurerName || '').trim();
-        if (primaryInsurerName) {
-          try {
-            await pool.execute(
-              `UPDATE clients SET primary_insurer_name = ? WHERE id = ?`,
-              [primaryInsurerName.slice(0, 255), clientId]
-            );
-          } catch { /* column may not exist yet (migration pending) */ }
-        }
-
-        // Auto-mark the per-client Document Status checklist as RECEIVED.
-        // Intake completion delivers every item on the checklist (emailed
-        // packet, ROI, new docs, disclosure & consent, insurance info, etc.),
-        // so leaving them flagged "Needed" forces unnecessary manual work.
-        try {
-          await applyClientIntakeCompletion({
-            clientId,
-            completedAt: now,
-            note: 'Marked received automatically after intake/ROI completion',
-            actorUserId: null
-          });
-        } catch (intakeCompletionErr) {
-          console.error('[publicIntake] applyClientIntakeCompletion failed (school-roi flow)', {
-            clientId,
-            submissionId,
-            error: intakeCompletionErr?.message || intakeCompletionErr
-          });
-        }
+        // Save per-child intake data (demographics, insurer, checklist
+        // auto-mark) — one helper call instead of three duplicated blocks.
+        await persistChildIntakeData({
+          clientId,
+          intakeData,
+          clientIndex: i,
+          submissionId,
+          completedAt: now,
+          flowLabel: 'school_roi',
+          intakeCompletionNote: 'Marked received automatically after intake/ROI completion'
+        });
       }
     }
+
+    console.info('[publicIntake] intake/school finalize per-client loop summary', {
+      submissionId,
+      rawClientsCount: rawClients.length,
+      packetDocumentTemplateCount: Array.isArray(packetDocumentTemplates) ? packetDocumentTemplates.length : 0,
+      phiDocsAttempted: phiDocsAttemptedSchool,
+      phiDocsCreated: phiDocsCreatedSchool,
+      phiDocsFailed: phiDocsFailedSchool
+    });
 
     if (issuedRoiLink?.id && updatedSubmission?.client_id) {
       let completedClientRow = null;
@@ -6266,11 +6751,53 @@ export const finalizePublicIntake = async (req, res, next) => {
     // Single-child submissions still produce the combined bundle because it
     // doubles as the only per-client packet via the dedup block below.
     const isMultiChildSubmission = Array.isArray(rawClients) && rawClients.length > 1;
-    if (pdfPaths.length > 0 && !isMultiChildSubmission) {
+
+    // Hoisted so the registration-completion-hints persist block below
+    // (which lives OUTSIDE the if-pdfPaths block) can read it without
+    // throwing ReferenceError. Also intentionally available for multi-child
+    // submissions, which deliberately skip the combined-bundle build but
+    // still need the persist hints + any future per-child email path to know
+    // which event the registrant signed up for. Resolution is best-effort:
+    // any failure leaves the value as an empty string and the downstream
+    // consumers fall back to null via `|| null`.
+    let registrationEventSummary = '';
+    try {
+      const evSel = normalizeRegistrationSelections(intakeData).find((s) => registrationEntityType(s) === 'company_event');
+      const aid = Number(link?.agency_id || 0) || null;
+      if (evSel?.entityId && aid) {
+        const [erows] = await pool.execute(
+          'SELECT title, starts_at FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1',
+          [Number(evSel.entityId), aid]
+        );
+        const er = erows?.[0];
+        if (er) {
+          const st = er.starts_at ? new Date(er.starts_at).toLocaleString() : '';
+          registrationEventSummary = [String(er.title || '').trim(), st].filter(Boolean).join(' — ');
+        }
+      }
+    } catch (evResolveErr) {
+      console.warn('[publicIntake] registrationEventSummary resolve failed (school-roi flow)', {
+        submissionId,
+        message: evResolveErr?.message || evResolveErr
+      });
+      registrationEventSummary = '';
+    }
+
+    // Multi-child correctness note (see DIGITAL_FORMS_INTAKE_CONTRACT.md §11):
+    // the per-client Intake Packet attach loop, staff notifications, and
+    // completion-email block ALL run for both single-child and multi-child
+    // finalizes. Only the combined-bundle build is gated to single-child —
+    // multi-child intentionally skips merging PHI from different kids into one
+    // file. Previously the entire block was gated by `!isMultiChildSubmission`,
+    // which silently dropped packet PHI docs and completion emails for
+    // siblings. The registration flow already mirrors this structure (see
+    // line ~7691); keep them in sync.
+    if (pdfPaths.length > 0) {
       // Combined-bundle build/upload is wrapped in its own try/catch so that
       // a failure here does NOT abort the per-client Intake Packet PHI doc
       // creation, the completion email, or the staff notifications below.
       // Historically a silent GCS upload hang here orphaned the entire packet.
+      if (!isMultiChildSubmission) {
       try {
         // Combined bundle prefix order: registration ticket → answers summary
         // → all per-template signed PDFs. The ticket lands the registrant on
@@ -6344,6 +6871,7 @@ export const finalizePublicIntake = async (req, res, next) => {
           stack: combinedBundleErr?.stack
         });
       }
+      } // end if(!isMultiChildSubmission) — combined bundle build only runs for single-child
 
       // Multi-child safe per-client packet attachment.
       // We must NOT pass `bundleResult.relativePath` (the combined bundle) for
@@ -6437,25 +6965,13 @@ export const finalizePublicIntake = async (req, res, next) => {
         });
       }
 
-      // Resolve event summary once so it can be used by both the email and the persist block.
-      let registrationEventSummary = '';
-      try {
-        const evSel = normalizeRegistrationSelections(intakeData).find((s) => registrationEntityType(s) === 'company_event');
-        const aid = Number(link?.agency_id || 0) || null;
-        if (evSel?.entityId && aid) {
-          const [erows] = await pool.execute(
-            'SELECT title, starts_at FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1',
-            [Number(evSel.entityId), aid]
-          );
-          const er = erows?.[0];
-          if (er) {
-            const st = er.starts_at ? new Date(er.starts_at).toLocaleString() : '';
-            registrationEventSummary = [String(er.title || '').trim(), st].filter(Boolean).join(' — ');
-          }
-        }
-      } catch {
-        registrationEventSummary = '';
-      }
+      // `registrationEventSummary` is hoisted above the `if (pdfPaths.length > 0
+      // && !isMultiChildSubmission)` block so it stays in scope for both the
+      // email block here AND the registration-completion-hints persist block
+      // below. Do NOT redeclare it here — a `let registrationEventSummary = ''`
+      // inside this block would shadow the outer one only within this block,
+      // but the outer one is what the persist block relies on, and a stale
+      // shadow inside this block is a footgun for future edits.
 
       // Reuse the registration ticket setup hoisted earlier (event
       // placeholders, receipt token + URL, org context). Generating new ones
@@ -6545,70 +7061,120 @@ export const finalizePublicIntake = async (req, res, next) => {
             returningMatchClientInitials: returningAutoMatchInitialsForEmail || '',
             clientBundles: bundlesForEmail
           });
-          const identity = await resolveIntakeSenderIdentity({
+          const sendOutcome = await deliverPacketCompletionEmail({
+            to: updatedSubmission.signer_email,
+            subject: packetEmail.subject,
+            text: packetEmail.text,
+            html: packetEmail.html,
+            packetPdfBuffer: combinedPdfBuffer,
+            link,
+            agencyId: link?.agency_id || agency?.id || null,
+            clientId: updatedSubmission?.client_id || null,
             organizationId: link?.organization_id || null,
-            scopeType: link?.scope_type || null
-          });
-          // Attach the actual packet PDF (not just the signed download URL)
-          // so the family always has the bytes — see registration flow for
-          // the rationale.
-          const packetAttachments = combinedPdfBuffer
-            ? [{
-                filename: `intake-packet-${submissionId}.pdf`,
-                contentType: 'application/pdf',
-                contentBase64: combinedPdfBuffer.toString('base64')
-              }]
-            : null;
-          if (identity?.id) {
-            await sendEmailFromIdentity({
-              senderIdentityId: identity.id,
-              to: updatedSubmission.signer_email,
-              subject: packetEmail.subject,
-              text: packetEmail.text,
-              html: packetEmail.html,
-              attachments: packetAttachments,
-              source: 'auto',
-              clientId: updatedSubmission?.client_id || null,
-              templateType: 'intake_packet_completion'
-            });
-          } else {
-            if (!EmailService.isConfigured()) {
-              throw new Error('email_not_configured');
-            }
-            const fallbackSignatureIdentity = await resolveFallbackSignatureIdentity({
-              organizationId: link?.organization_id || null,
-              scopeType: link?.scope_type || null
-            });
-            const signedPacketEmail = applyIdentitySignatureBlock({
-              identity: fallbackSignatureIdentity,
-              text: packetEmail.text,
-              html: packetEmail.html
-            });
-            await EmailService.sendEmail({
-              to: updatedSubmission.signer_email,
-              subject: packetEmail.subject,
-              text: signedPacketEmail.text,
-              html: signedPacketEmail.html,
-              fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
-              fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
-              replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-              attachments: packetAttachments,
-              source: 'auto',
-              agencyId: link?.organization_id || null,
-              clientId: updatedSubmission?.client_id || null,
-              templateType: 'intake_packet_completion'
-            });
-          }
-          emailDelivery.sent = true;
-        } catch (emailErr) {
-          emailDelivery.error = String(emailErr?.message || '').includes('email_not_configured')
-            ? 'email_not_configured'
-            : 'send_failed';
-          console.error('[publicIntake] packet completion email failed', {
+            scopeType: link?.scope_type || null,
+            templateType: 'intake_packet_completion',
             submissionId,
-            message: emailErr?.message || emailErr
+            flowLabel: 'school-roi'
+          });
+          emailDelivery.sent = sendOutcome.sent;
+          if (!sendOutcome.sent) {
+            emailDelivery.error = sendOutcome.error;
+            emailDelivery.errorMessage = sendOutcome.errorMessage;
+          }
+          // Multi-child: mirror the same Communications-tab row onto every
+          // sibling beyond the primary client so each child's tab shows the
+          // completion email instead of looking silently empty.
+          await mirrorPacketCompletionRowToSiblings({
+            to: updatedSubmission.signer_email,
+            subject: packetEmail.subject,
+            text: packetEmail.text,
+            html: packetEmail.html,
+            templateType: 'intake_packet_completion',
+            link,
+            agencyId: link?.agency_id || agency?.id || null,
+            primaryClientId: updatedSubmission?.client_id || null,
+            siblingClientIds: (rawClients || []).map((c) => c?.id).filter(Boolean),
+            submissionId,
+            flowLabel: 'school-roi',
+            outcome: sendOutcome
+          });
+        } catch (emailErr) {
+          // deliverPacketCompletionEmail handles its own logging & never
+          // throws, so this catch is for the BUILDING of `packetEmail` /
+          // bundlesForEmail above. Keep it loud so a template render failure
+          // is visible on the Communications tab and in server logs.
+          emailDelivery.error = 'prep_failed';
+          emailDelivery.errorMessage = String(emailErr?.message || 'prep_failed').slice(0, 500);
+          console.error('[publicIntake] packet completion email prep failed (school-roi flow)', {
+            submissionId,
+            to: updatedSubmission?.signer_email || null,
+            message: emailErr?.message || emailErr,
+            stack: emailErr?.stack || null
+          });
+          await logSkippedOrFailedEmail({
+            to: updatedSubmission?.signer_email || null,
+            subject: 'School-ROI completion email (prep failed)',
+            text: `Completion email could not be prepared: ${emailErr?.message || 'unknown failure'}`,
+            html: null,
+            agencyId: link?.organization_id || link?.agency_id || null,
+            clientId: updatedSubmission?.client_id || null,
+            templateType: 'intake_packet_completion',
+            deliveryStatus: 'failed',
+            errorMessage: emailDelivery.errorMessage,
+            metadata: { submissionId, reason: 'prep_failed', flow: 'school-roi' }
+          });
+          // Mirror the prep-failure row to siblings so child 2+ Communications
+          // tabs aren't silently empty when the primary fails at prep.
+          await mirrorPacketCompletionRowToSiblings({
+            to: updatedSubmission?.signer_email || null,
+            subject: 'School-ROI completion email (prep failed)',
+            text: `Completion email could not be prepared: ${emailErr?.message || 'unknown failure'}`,
+            html: null,
+            templateType: 'intake_packet_completion',
+            link,
+            agencyId: link?.organization_id || link?.agency_id || null,
+            primaryClientId: updatedSubmission?.client_id || null,
+            siblingClientIds: (rawClients || []).map((c) => c?.id).filter(Boolean),
+            submissionId,
+            flowLabel: 'school-roi',
+            outcome: { sent: false, error: 'prep_failed', errorMessage: emailDelivery.errorMessage }
           });
         }
+      } else {
+        // No signer_email at all — write the same kind of trace row so this
+        // skipped attempt still appears on the client's Communications tab.
+        console.warn('[publicIntake] school-roi completion email skipped — no signer_email', {
+          submissionId,
+          emailServiceConfigured: EmailService.isConfigured()
+        });
+        await logSkippedOrFailedEmail({
+          to: null,
+          subject: 'School-ROI completion email (skipped — no signer email)',
+          text: 'Completion email was not sent because the submission did not include a signer email address.',
+          html: null,
+          agencyId: link?.organization_id || link?.agency_id || null,
+          clientId: updatedSubmission?.client_id || null,
+          templateType: 'intake_packet_completion',
+          deliveryStatus: 'skipped',
+          errorMessage: 'send skipped — no_signer_email',
+          metadata: { submissionId, reason: 'no_signer_email', flow: 'school-roi' }
+        });
+        // Even with no signer email, mirror the skip row to each sibling so the
+        // Communications tabs stay consistent across the submission.
+        await mirrorPacketCompletionRowToSiblings({
+          to: null,
+          subject: 'School-ROI completion email (skipped — no signer email)',
+          text: 'Completion email was not sent because the submission did not include a signer email address.',
+          html: null,
+          templateType: 'intake_packet_completion',
+          link,
+          agencyId: link?.organization_id || link?.agency_id || null,
+          primaryClientId: updatedSubmission?.client_id || null,
+          siblingClientIds: (rawClients || []).map((c) => c?.id).filter(Boolean),
+          submissionId,
+          flowLabel: 'school-roi',
+          outcome: { skipped: true, error: 'no_signer_email', errorMessage: 'send skipped — no_signer_email' }
+        });
       }
     }
 
@@ -6825,6 +7391,11 @@ export const submitPublicIntake = async (req, res, next) => {
 
     const now = new Date();
     let intakeData = req.body?.intakeData || null;
+    // Mirror the school-roi flow: inject the link-bound company_event_id
+    // as a synthetic registration selection so downstream ticket PDF +
+    // event placeholder + completion email + frontend success card all
+    // see the event the family signed up for via the link itself.
+    ensureLinkBoundCompanyEventSelection(intakeData, link);
     const retentionPolicy = await resolveRetentionPolicy(link);
     const retentionExpiresAt = buildRetentionExpiresAt({ policy: retentionPolicy, submittedAt: now });
     const intakeDataHash = hashIntakeData(intakeData);
@@ -6851,6 +7422,48 @@ export const submitPublicIntake = async (req, res, next) => {
       if (attachInfo.attachClientId) {
         const existingClient = await Client.findById(attachInfo.attachClientId, { includeSensitive: true });
         if (existingClient?.id) {
+          // See the school-ROI flow's matched-attach branch for the full
+          // rationale and history (Carter/Carmen Bleem report, sub 300
+          // Client1 Example matched + Client Example2 dropped). In the
+          // registration flow the same `createdClients = [existingClient]`
+          // pattern would silently discard payload.clients[1..N] when child
+          // #1 matched a returning record. This block extends the registration
+          // flow to also create the brand-new siblings via
+          // createAdditionalSiblingClients (no guardian provisioning — that
+          // runs once across the full set below). See
+          // DIGITAL_FORMS_INTAKE_CONTRACT.md §11.
+          const submittedClients = Array.isArray(req.body?.clients) ? req.body.clients : [];
+          let newSiblings = [];
+          if (submittedClients.length > 1) {
+            try {
+              const siblingResult = await PublicIntakeClientService.createAdditionalSiblingClients({
+                link,
+                payload: req.body,
+                siblings: submittedClients.slice(1)
+              });
+              newSiblings = Array.isArray(siblingResult?.clients) ? siblingResult.clients : [];
+              if (newSiblings.length) {
+                console.info('[publicIntake] returning-family matched + created brand-new siblings (registration flow)', {
+                  submissionId,
+                  matchedClientId: existingClient.id,
+                  matchSource: attachInfo.attachSource,
+                  submittedClientCount: submittedClients.length,
+                  siblingsCreatedIds: newSiblings.map((s) => s.id)
+                });
+              }
+            } catch (siblingErr) {
+              console.error('[publicIntake] createAdditionalSiblingClients failed (registration flow) — matched client will proceed, additional siblings dropped', {
+                submissionId,
+                matchedClientId: existingClient.id,
+                attemptedSiblingCount: submittedClients.length - 1,
+                error: siblingErr?.message || siblingErr,
+                stack: siblingErr?.stack
+              });
+              newSiblings = [];
+            }
+          }
+
+          const allClientsForGuardian = [existingClient, ...newSiblings];
           const {
             guardianUser,
             newGuardianCreated: ngCreated,
@@ -6859,10 +7472,10 @@ export const submitPublicIntake = async (req, res, next) => {
           } = await PublicIntakeClientService.provisionGuardianForIntakeClients({
             link,
             agencyId: attachInfo.agencyIdResolved,
-            clients: [existingClient],
+            clients: allClientsForGuardian,
             payload: req.body
           });
-          createdClients = [existingClient];
+          createdClients = allClientsForGuardian;
           newGuardianCreated = !!ngCreated;
           newGuardianTemporaryPassword = ngpw || null;
           newGuardianPasswordlessLoginUrl = ngMagic || null;
@@ -7033,6 +7646,24 @@ export const submitPublicIntake = async (req, res, next) => {
     }
 
     const intakeClientRows = [];
+    // Loud entry log — every time a registration finalize lost paperwork it
+    // turned out we either had 0 rawClients (so the loop never ran) or a
+    // null clientId (so the `if (clientId)` PHI doc block was skipped). Print
+    // exactly what we're about to iterate so the production server log shows
+    // it instead of us guessing later.
+    console.info('[publicIntake] registration finalize per-client loop starting', {
+      submissionId,
+      linkId: link?.id || null,
+      linkCreateClient: !!link?.create_client,
+      createdClientsCount: Array.isArray(createdClients) ? createdClients.length : 0,
+      createdClientIds: Array.isArray(createdClients) ? createdClients.map((c) => c?.id || null) : [],
+      rawClientsCount: rawClients.length,
+      rawClientIds: rawClients.map((c) => c?.id || null),
+      packetDocumentTemplateCount: Array.isArray(packetDocumentTemplates) ? packetDocumentTemplates.length : 0
+    });
+    let phiDocsAttempted = 0;
+    let phiDocsCreated = 0;
+    let phiDocsFailed = 0;
     for (let i = 0; i < rawClients.length; i += 1) {
       const clientPayload = rawClients[i];
       const clientId = clientPayload?.id || null;
@@ -7040,6 +7671,17 @@ export const submitPublicIntake = async (req, res, next) => {
       const auditTrail = buildAuditTrail({
         link,
         submission: { ...updatedSubmission, submitted_at: now, client_name: clientName }
+      });
+
+      // Per-iteration log — single child or sibling — so that if the loop
+      // runs but one child gets no PHI rows, we can see exactly which
+      // (clientId/name) was processed and which was skipped due to a null id.
+      console.info('[publicIntake] registration finalize processing client', {
+        submissionId,
+        loopIndex: i,
+        clientId,
+        clientName,
+        willCreatePhiDocs: Boolean(clientId)
       });
 
       intakeClientRows.push(
@@ -7095,52 +7737,42 @@ export const submitPublicIntake = async (req, res, next) => {
         }
 
         if (clientId) {
-          try {
-            const clientRow = await Client.findById(clientId, { includeSensitive: true });
-            const agencyId = clientRow?.agency_id || link?.organization_id || null;
-            const orgId =
-              clientRow?.organization_id ||
-              clientRow?.school_organization_id ||
-              (req.body?.organizationId ? Number(req.body.organizationId) : null) ||
-              link?.organization_id ||
-              null;
-            const phiDoc = await ClientPhiDocument.create({
-              clientId,
-              agencyId,
-              schoolOrganizationId: orgId || agencyId,
-              intakeSubmissionId: submissionId,
-              storagePath: result.storagePath,
-              originalName: `${template.name || 'Document'} (Signed)`,
-              mimeType: 'application/pdf',
-              uploadedByUserId: null,
-              scanStatus: 'clean',
-              expiresAt: retentionExpiresAt
-            });
-            await PhiDocumentAuditLog.create({
-              documentId: phiDoc.id,
-              clientId,
-              action: 'uploaded',
-              actorUserId: null,
-              actorLabel: 'public_intake',
-              ipAddress: updatedSubmission.ip_address || null,
-              metadata: { submissionId, templateId: template.id }
-            });
-          } catch (phiDocErr) {
-            // Historically this catch was silent ("best-effort"), which meant
-            // PHI row failures (e.g., column mismatch, NULL agency_id, etc.)
-            // caused signed packet PDFs to never appear on the client's
-            // Documentation tab — with no log to tell us why. Surface the
-            // failure loudly so it's diagnosable, while still not aborting the
-            // public intake (the signed PDF in GCS is the source of truth).
-            console.error('[publicIntake] client_phi_documents insert failed', {
-              submissionId,
-              clientId,
-              templateId: template.id,
-              storagePath: result.storagePath,
-              message: phiDocErr?.message || String(phiDocErr || ''),
-              stack: phiDocErr?.stack || null
-            });
+          phiDocsAttempted += 1;
+          // Per-template signed PDF attaches to this child's profile via the
+          // shared helper. The helper resolves agency/school org with the
+          // same fallback chain everywhere and emits structured failure logs
+          // so silent "PHI row never landed" regressions stop happening.
+          const attachResult = await attachSignedPdfToClient({
+            clientId,
+            link,
+            storagePath: result.storagePath,
+            originalName: `${template.name || 'Document'} (Signed)`,
+            intakeSubmissionId: submissionId,
+            expiresAt: retentionExpiresAt,
+            ipAddress: updatedSubmission.ip_address,
+            schoolOrganizationIdOverride: req.body?.organizationId
+              ? Number(req.body.organizationId) || null
+              : null,
+            auditMetadata: { submissionId, templateId: template.id },
+            callerLabel: 'public_intake_registration'
+          });
+          if (attachResult.ok) {
+            phiDocsCreated += 1;
+          } else {
+            phiDocsFailed += 1;
           }
+        } else {
+          // Skipped because there's no client to attach to. This commonly
+          // happens for non-create_client public links where we use a virtual
+          // signer entry — those signed PDFs intentionally don't land on a
+          // client profile (there is none). Log it so we can tell the
+          // difference between "intentionally skipped" and "data lost".
+          console.info('[publicIntake] phi doc skipped — no clientId', {
+            submissionId,
+            loopIndex: i,
+            templateId: template.id,
+            linkCreateClient: !!link?.create_client
+          });
         }
 
         signedDocs.push(doc);
@@ -7249,25 +7881,34 @@ export const submitPublicIntake = async (req, res, next) => {
           organizationId: req.body?.organizationId || null
         });
 
-        // Auto-mark the per-client Document Status checklist as RECEIVED on
-        // intake/registration completion. See clientIntakeCompletion.service.js
-        // for the rationale and the rollup logic.
-        try {
-          await applyClientIntakeCompletion({
-            clientId,
-            completedAt: now,
-            note: 'Marked received automatically after intake/registration completion',
-            actorUserId: null
-          });
-        } catch (intakeCompletionErr) {
-          console.error('[publicIntake] applyClientIntakeCompletion failed (registration flow)', {
-            clientId,
-            submissionId,
-            error: intakeCompletionErr?.message || intakeCompletionErr
-          });
-        }
+        // Same per-child persistence as the school-roi flow — one shared
+        // helper means future fixes only need to be made in one place.
+        await persistChildIntakeData({
+          clientId,
+          intakeData,
+          clientIndex: i,
+          submissionId,
+          completedAt: now,
+          flowLabel: 'registration',
+          intakeCompletionNote: 'Marked received automatically after intake/registration completion'
+        });
       }
     }
+
+    // Per-client loop summary so the operator can immediately tell whether
+    // PHI rows landed for every signed PDF or whether some failed at the DB
+    // layer. If `phiDocsCreated < phiDocsAttempted` the per-iteration
+    // `[publicIntake] client_phi_documents insert failed` log above has the
+    // exact SQL/code/state for diagnosis.
+    console.info('[publicIntake] registration finalize per-client loop summary', {
+      submissionId,
+      rawClientsCount: rawClients.length,
+      intakeClientRowsCreated: intakeClientRows.length,
+      packetDocumentTemplateCount: Array.isArray(packetDocumentTemplates) ? packetDocumentTemplates.length : 0,
+      phiDocsAttempted,
+      phiDocsCreated,
+      phiDocsFailed
+    });
 
     const answersPdfStart = Date.now();
     const answersPdf = await buildAnswersPdfBuffer({ link, intakeData });
@@ -7647,92 +8288,44 @@ export const submitPublicIntake = async (req, res, next) => {
           returningMatchClientInitials: returningAutoMatchInitialsForEmailSubmit || '',
           clientBundles: bundlesForEmailSubmit
         });
-        try {
-          const identity = await resolveIntakeSenderIdentity({
+        {
+          const sendOutcome = await deliverPacketCompletionEmail({
+            to: updatedSubmission.signer_email,
+            subject: packetEmail.subject,
+            text: packetEmail.text,
+            html: packetEmail.html,
+            packetPdfBuffer: combinedPdfBuffer,
+            link,
+            agencyId: link?.agency_id || agency?.id || null,
+            clientId: updatedSubmission?.client_id || null,
             organizationId: link?.organization_id || null,
-            scopeType: link?.scope_type || null
-          });
-          // Build the packet attachment array. We attach the actual PDF
-          // bytes (not just the signed download URL) so the family always has
-          // the packet on hand even if the signed link expires or lands in
-          // spam — the user explicitly called this out as how the rest of
-          // the app behaves with email packets.
-          const packetAttachments = combinedPdfBuffer
-            ? [{
-                filename: `intake-packet-${submissionId}.pdf`,
-                contentType: 'application/pdf',
-                contentBase64: combinedPdfBuffer.toString('base64')
-              }]
-            : null;
-          let sendResult = null;
-          if (identity?.id) {
-            sendResult = await sendEmailFromIdentity({
-              senderIdentityId: identity.id,
-              to: updatedSubmission.signer_email,
-              subject: packetEmail.subject,
-              text: packetEmail.text,
-              html: packetEmail.html,
-              attachments: packetAttachments,
-              source: 'auto',
-              clientId: updatedSubmission?.client_id || null,
-              templateType: 'intake_packet_completion'
-            });
-          } else {
-            const fallbackSignatureIdentity = await resolveFallbackSignatureIdentity({
-              organizationId: link?.organization_id || null,
-              scopeType: link?.scope_type || null
-            });
-            const signedPacketEmail = applyIdentitySignatureBlock({
-              identity: fallbackSignatureIdentity,
-              text: packetEmail.text,
-              html: packetEmail.html
-            });
-            sendResult = await EmailService.sendEmail({
-              to: updatedSubmission.signer_email,
-              subject: packetEmail.subject,
-              text: signedPacketEmail.text,
-              html: signedPacketEmail.html,
-              fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
-              fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
-              replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-              attachments: packetAttachments,
-              source: 'auto',
-              agencyId: link?.organization_id || null,
-              clientId: updatedSubmission?.client_id || null,
-              templateType: 'intake_packet_completion'
-            });
-          }
-          // The unified sender returns { skipped: true, reason } when the
-          // platform/agency send gate suppresses the email. Treat that as a
-          // non-sent delivery so the API response and the Communications tab
-          // both reflect why no email actually went out.
-          if (sendResult?.skipped) {
-            emailDelivery.sent = false;
-            emailDelivery.error = `skipped_${sendResult.reason || 'gate'}`;
-            emailDelivery.errorMessage = `Send skipped by email gate: ${sendResult.reason || 'unknown'}`;
-            console.warn('[publicIntake] registration completion email skipped by gate', {
-              submissionId,
-              reason: sendResult.reason,
-              to: updatedSubmission?.signer_email || null
-            });
-          } else {
-            emailDelivery.sent = true;
-          }
-        } catch (emailSendErr) {
-          // Historically this catch was blank (`} catch {`), which meant any
-          // real failure (Google Workspace auth, SPF rejection, template
-          // render error, network timeout) reported only
-          // "emailDelivery.error = 'send_failed'" with NO visibility into why.
-          // Log the actual error so we can diagnose missed completion emails.
-          console.error('[publicIntake] registration completion email send failed', {
-            submissionId,
-            to: updatedSubmission?.signer_email || null,
+            scopeType: link?.scope_type || null,
             templateType: 'intake_packet_completion',
-            message: emailSendErr?.message || String(emailSendErr || ''),
-            stack: emailSendErr?.stack || null
+            submissionId,
+            flowLabel: 'registration'
           });
-          emailDelivery.error = 'send_failed';
-          emailDelivery.errorMessage = String(emailSendErr?.message || 'send_failed').slice(0, 500);
+          emailDelivery.sent = sendOutcome.sent;
+          if (!sendOutcome.sent) {
+            emailDelivery.error = sendOutcome.error;
+            emailDelivery.errorMessage = sendOutcome.errorMessage;
+          }
+          // Multi-child: mirror the same Communications-tab row onto every
+          // sibling so each child's tab shows the completion email rather
+          // than appearing silently empty. (Mirrors the school-ROI flow.)
+          await mirrorPacketCompletionRowToSiblings({
+            to: updatedSubmission.signer_email,
+            subject: packetEmail.subject,
+            text: packetEmail.text,
+            html: packetEmail.html,
+            templateType: 'intake_packet_completion',
+            link,
+            agencyId: link?.agency_id || agency?.id || null,
+            primaryClientId: updatedSubmission?.client_id || null,
+            siblingClientIds: (rawClients || []).map((c) => c?.id).filter(Boolean),
+            submissionId,
+            flowLabel: 'registration',
+            outcome: sendOutcome
+          });
         }
         } catch (emailPrepErr) {
           // Catches everything BEFORE the inner send's try — org-context
@@ -7750,6 +8343,38 @@ export const submitPublicIntake = async (req, res, next) => {
           });
           emailDelivery.error = emailDelivery.error || 'prep_failed';
           emailDelivery.errorMessage = String(emailPrepErr?.message || 'prep_failed').slice(0, 500);
+          // Same diagnostic breadcrumb — if prep died (template lookup, org
+          // context resolution, etc.) the staff have nothing in the
+          // Communications tab to look at. Write a row so the failure is
+          // visible at the same place as a successful send would have been.
+          await logSkippedOrFailedEmail({
+            to: updatedSubmission?.signer_email || null,
+            subject: 'Registration packet completion (prep failed)',
+            text: `Completion email could not be prepared: ${emailPrepErr?.message || 'unknown failure'}`,
+            html: null,
+            agencyId: link?.organization_id || link?.agency_id || null,
+            clientId: updatedSubmission?.client_id || null,
+            templateType: 'intake_packet_completion',
+            deliveryStatus: 'failed',
+            errorMessage: emailDelivery.errorMessage,
+            metadata: { submissionId, reason: 'prep_failed', flow: 'registration' }
+          });
+          // Mirror the prep-failure to siblings so child 2+ Communications
+          // tabs aren't silently empty when the primary fails at prep.
+          await mirrorPacketCompletionRowToSiblings({
+            to: updatedSubmission?.signer_email || null,
+            subject: 'Registration packet completion (prep failed)',
+            text: `Completion email could not be prepared: ${emailPrepErr?.message || 'unknown failure'}`,
+            html: null,
+            templateType: 'intake_packet_completion',
+            link,
+            agencyId: link?.organization_id || link?.agency_id || null,
+            primaryClientId: updatedSubmission?.client_id || null,
+            siblingClientIds: (rawClients || []).map((c) => c?.id).filter(Boolean),
+            submissionId,
+            flowLabel: 'registration',
+            outcome: { sent: false, error: 'prep_failed', errorMessage: emailDelivery.errorMessage }
+          });
         }
       } else if (updatedSubmission.signer_email && !EmailService.isConfigured()) {
         emailDelivery.attempted = true;
@@ -7759,6 +8384,36 @@ export const submitPublicIntake = async (req, res, next) => {
           submissionId,
           to: updatedSubmission?.signer_email || null
         });
+        // Always leave a Communications-tab breadcrumb. Without this row the
+        // user has no way to tell "EmailService unconfigured" apart from
+        // "we just lost the send" — and they explicitly asked that EVERY
+        // attempted/skipped email show up.
+        await logSkippedOrFailedEmail({
+          to: updatedSubmission.signer_email,
+          subject: 'Registration packet completion (skipped)',
+          text: 'Completion email was not sent because the platform email integration is not configured.',
+          html: null,
+          agencyId: link?.organization_id || link?.agency_id || null,
+          clientId: updatedSubmission?.client_id || null,
+          templateType: 'intake_packet_completion',
+          deliveryStatus: 'skipped',
+          errorMessage: 'send skipped — email_not_configured',
+          metadata: { submissionId, reason: 'email_not_configured', flow: 'registration' }
+        });
+        await mirrorPacketCompletionRowToSiblings({
+          to: updatedSubmission.signer_email,
+          subject: 'Registration packet completion (skipped)',
+          text: 'Completion email was not sent because the platform email integration is not configured.',
+          html: null,
+          templateType: 'intake_packet_completion',
+          link,
+          agencyId: link?.organization_id || link?.agency_id || null,
+          primaryClientId: updatedSubmission?.client_id || null,
+          siblingClientIds: (rawClients || []).map((c) => c?.id).filter(Boolean),
+          submissionId,
+          flowLabel: 'registration',
+          outcome: { skipped: true, error: 'email_not_configured', errorMessage: 'send skipped — email_not_configured' }
+        });
       } else if (!updatedSubmission.signer_email) {
         // Parents occasionally reported no email even with a single client —
         // trace exactly why so we can tell the difference between
@@ -7767,6 +8422,35 @@ export const submitPublicIntake = async (req, res, next) => {
           submissionId,
           hasSignerEmail: false,
           emailServiceConfigured: EmailService.isConfigured()
+        });
+        // Same Communications-tab breadcrumb story — if the family submitted
+        // without leaving us an email address we still want a trace of it on
+        // the client's record, attached via client_id only.
+        await logSkippedOrFailedEmail({
+          to: null,
+          subject: 'Registration packet completion (skipped — no signer email)',
+          text: 'Completion email was not sent because the submission did not include a signer email address.',
+          html: null,
+          agencyId: link?.organization_id || link?.agency_id || null,
+          clientId: updatedSubmission?.client_id || null,
+          templateType: 'intake_packet_completion',
+          deliveryStatus: 'skipped',
+          errorMessage: 'send skipped — no_signer_email',
+          metadata: { submissionId, reason: 'no_signer_email', flow: 'registration' }
+        });
+        await mirrorPacketCompletionRowToSiblings({
+          to: null,
+          subject: 'Registration packet completion (skipped — no signer email)',
+          text: 'Completion email was not sent because the submission did not include a signer email address.',
+          html: null,
+          templateType: 'intake_packet_completion',
+          link,
+          agencyId: link?.organization_id || link?.agency_id || null,
+          primaryClientId: updatedSubmission?.client_id || null,
+          siblingClientIds: (rawClients || []).map((c) => c?.id).filter(Boolean),
+          submissionId,
+          flowLabel: 'registration',
+          outcome: { skipped: true, error: 'no_signer_email', errorMessage: 'send skipped — no_signer_email' }
         });
       }
     }

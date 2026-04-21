@@ -111,6 +111,95 @@ const ensureOrganizationIsChild = async (organizationId) => {
   return org;
 };
 
+/**
+ * Per-payload client provisioning. Extracted from createClientAndGuardian's
+ * for-loop so the matched-attach-with-new-siblings flow (returning family
+ * adds a brand-new sibling onto the same packet) can reuse the EXACT same
+ * client_type resolution, identifier code, paperwork seeding, affiliations,
+ * and status history that a fresh-family flow uses. Sharing this seam is
+ * how we guarantee a sibling created via the matched branch is
+ * indistinguishable from a sibling created via the fresh branch.
+ *
+ * Caller is responsible for guardian provisioning (run once across the full
+ * sibling set, not per-sibling) and for any tenant/scope precondition checks.
+ *
+ * @param {object} params
+ * @param {object} params.link            - intake_links row
+ * @param {object} params.organization    - resolved organization row (from ensureOrganizationIsChild)
+ * @param {string} params.scopeType       - link.scope_type lowercased ('agency' | 'school' | ...)
+ * @param {string} params.orgType         - organization.organization_type lowercased
+ * @param {number} params.organizationId  - resolved organization id
+ * @param {number} params.agencyId        - resolved agency id (resolveAgencyId)
+ * @param {object} params.clientPayload   - { firstName, lastName, fullName?, initials?, contactPhone? }
+ * @param {boolean} [params.createGuardian=false] - whether to flag guardian_portal_enabled on the row
+ * @returns {Promise<object>} the created Client row
+ */
+const provisionSingleIntakeClient = async ({
+  link,
+  organization,
+  scopeType,
+  orgType,
+  organizationId,
+  agencyId,
+  clientPayload,
+  createGuardian = false
+}) => {
+  const firstName = String(clientPayload?.firstName || '').trim();
+  const lastName = String(clientPayload?.lastName || '').trim();
+  const fullName = String(clientPayload?.fullName || `${firstName} ${lastName}` || '').trim();
+  const initials = String(clientPayload?.initials || deriveInitials(fullName)).trim() || 'TBD';
+  const contactPhone = String(clientPayload?.contactPhone || '').trim() || null;
+
+  const identifierCode = await generateUniqueSixDigitClientCode({ agencyId });
+  const paperworkStatusId = await resolvePaperworkStatusId({ agencyId });
+  const clientStatusId = await getClientStatusIdByKey({ agencyId, statusKey: 'packet' });
+  const clientType =
+    scopeType === 'school' || orgType === 'school'
+      ? 'school'
+      : orgType === 'learning'
+        ? 'learning'
+        : (orgType === 'program' || orgType === 'clinical')
+          ? 'clinical'
+          : 'basic_nonclinical';
+
+  const client = await Client.create({
+    organization_id: organizationId,
+    agency_id: agencyId,
+    provider_id: null,
+    initials,
+    full_name: fullName || null,
+    contact_phone: contactPhone,
+    identifier_code: identifierCode,
+    status: 'PACKET',
+    submission_date: new Date().toISOString().split('T')[0],
+    document_status: 'UPLOADED',
+    paperwork_status_id: paperworkStatusId,
+    client_status_id: clientStatusId,
+    client_type: clientType,
+    source: 'PUBLIC_INTAKE_LINK',
+    created_by_user_id: null,
+    ...(createGuardian ? { guardian_portal_enabled: true } : {})
+  });
+
+  await seedClientAffiliations({
+    clientId: client.id,
+    agencyId,
+    organizationId
+  });
+  await seedClientPaperworkItems({ clientId: client.id, agencyId });
+
+  await ClientStatusHistory.create({
+    client_id: client.id,
+    changed_by_user_id: null,
+    field_changed: 'created',
+    from_value: null,
+    to_value: JSON.stringify({ source: 'PUBLIC_INTAKE_LINK', status: 'PACKET' }),
+    note: `Client created via public intake link${organization?.name ? ` (org=${organization.name})` : ''}`
+  });
+
+  return client;
+};
+
 class PublicIntakeClientService {
   static async createClientAndGuardian({ link, payload }) {
     const scopeType = String(link.scope_type || 'agency').toLowerCase();
@@ -139,59 +228,16 @@ class PublicIntakeClientService {
     const createdClients = [];
     const createGuardian = !!link.create_guardian;
     for (const clientPayload of rawClients) {
-      const firstName = String(clientPayload?.firstName || '').trim();
-      const lastName = String(clientPayload?.lastName || '').trim();
-      const fullName = String(clientPayload?.fullName || `${firstName} ${lastName}` || '').trim();
-      const initials = String(clientPayload?.initials || deriveInitials(fullName)).trim() || 'TBD';
-      const contactPhone = String(clientPayload?.contactPhone || '').trim() || null;
-
-      const identifierCode = await generateUniqueSixDigitClientCode({ agencyId });
-      const paperworkStatusId = await resolvePaperworkStatusId({ agencyId });
-      const clientStatusId = await getClientStatusIdByKey({ agencyId, statusKey: 'packet' });
-      const clientType =
-        scopeType === 'school' || orgType === 'school'
-          ? 'school'
-          : orgType === 'learning'
-            ? 'learning'
-            : (orgType === 'program' || orgType === 'clinical')
-              ? 'clinical'
-              : 'basic_nonclinical';
-
-      const client = await Client.create({
-        organization_id: organizationId,
-        agency_id: agencyId,
-        provider_id: null,
-        initials,
-        full_name: fullName || null,
-        contact_phone: contactPhone,
-        identifier_code: identifierCode,
-        status: 'PACKET',
-        submission_date: new Date().toISOString().split('T')[0],
-        document_status: 'UPLOADED',
-        paperwork_status_id: paperworkStatusId,
-        client_status_id: clientStatusId,
-        client_type: clientType,
-        source: 'PUBLIC_INTAKE_LINK',
-        created_by_user_id: null,
-        ...(createGuardian ? { guardian_portal_enabled: true } : {})
-      });
-
-      await seedClientAffiliations({
-        clientId: client.id,
+      const client = await provisionSingleIntakeClient({
+        link,
+        organization,
+        scopeType,
+        orgType,
+        organizationId,
         agencyId,
-        organizationId
+        clientPayload,
+        createGuardian
       });
-      await seedClientPaperworkItems({ clientId: client.id, agencyId });
-
-      await ClientStatusHistory.create({
-        client_id: client.id,
-        changed_by_user_id: null,
-        field_changed: 'created',
-        from_value: null,
-        to_value: JSON.stringify({ source: 'PUBLIC_INTAKE_LINK', status: 'PACKET' }),
-        note: 'Client created via public intake link'
-      });
-
       createdClients.push(client);
     }
 
@@ -277,6 +323,82 @@ class PublicIntakeClientService {
       newGuardianTemporaryPassword,
       newGuardianPasswordlessLoginUrl
     };
+  }
+
+  /**
+   * Returning-family-with-new-sibling path. Used by the finalize controller
+   * when child #1 matched an existing client (returning auto-match or
+   * consent_org_match) but the parent ALSO submitted brand-new sibling(s)
+   * in the same packet. Without this the controller's matched-attach branch
+   * would set `createdClients = [existingClient]` and the additional siblings
+   * in `payload.clients[1..N]` would be silently dropped — they'd never get
+   * a client row, never enroll, never receive PHI docs, never get listed on
+   * the completion email per-child packets list. (Symptom you saw on
+   * submission 300 and the historical Carter/Carmen Bleem report.)
+   *
+   * IMPORTANT: this helper does NOT provision a guardian. Guardian linking
+   * happens once across the full sibling set via
+   * `provisionGuardianForIntakeClients`, called by the controller AFTER it
+   * has the concatenated [existing, ...newSiblings] list. That single-call
+   * pattern guarantees one guardian → many clients in one user_agencies/
+   * client_guardians transaction shape regardless of which children are new
+   * vs returning.
+   *
+   * IMPORTANT: callers should pass ONLY the brand-new siblings here, not
+   * the matched existing client. Mixing them would create a duplicate
+   * client row for the matched child.
+   *
+   * Tenant precondition mirrors createClientAndGuardian: the resolved
+   * organization must be a child org (school/program/learning/clinical),
+   * not a top-level agency.
+   *
+   * @param {object} params
+   * @param {object} params.link        - intake_links row
+   * @param {object} params.payload     - the full finalize POST body (used for organizationId fallback)
+   * @param {Array}  params.siblings    - payload.clients.slice(1) — brand-new siblings only
+   * @returns {Promise<{ clients: Array, organization: object, agencyId: number, organizationId: number }>}
+   */
+  static async createAdditionalSiblingClients({ link, payload, siblings }) {
+    const trimmed = Array.isArray(siblings)
+      ? siblings.filter((s) => s && (String(s.firstName || '').trim() || String(s.lastName || '').trim() || String(s.fullName || '').trim()))
+      : [];
+    if (!trimmed.length) {
+      return { clients: [], organization: null, agencyId: null, organizationId: null };
+    }
+
+    const scopeType = String(link.scope_type || 'agency').toLowerCase();
+    let organizationId = link.organization_id;
+    if (scopeType === 'agency') {
+      const payloadOrg = payload?.organizationId ? Number(payload.organizationId) : null;
+      organizationId = payloadOrg || organizationId || null;
+    }
+    if (!organizationId) {
+      throw new Error('organizationId is required to create sibling clients for this intake link');
+    }
+
+    const organization = await ensureOrganizationIsChild(organizationId);
+    const orgType = String(organization?.organization_type || 'agency').toLowerCase();
+    const agencyId = await resolveAgencyId(organizationId);
+    if (!agencyId) {
+      throw new Error('Unable to resolve agency for intake organization (sibling create path)');
+    }
+
+    const createGuardian = !!link.create_guardian;
+    const created = [];
+    for (const siblingPayload of trimmed) {
+      const client = await provisionSingleIntakeClient({
+        link,
+        organization,
+        scopeType,
+        orgType,
+        organizationId,
+        agencyId,
+        clientPayload: siblingPayload,
+        createGuardian
+      });
+      created.push(client);
+    }
+    return { clients: created, organization, agencyId, organizationId };
   }
 
   /**

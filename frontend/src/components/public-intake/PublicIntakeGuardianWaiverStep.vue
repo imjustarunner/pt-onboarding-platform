@@ -33,6 +33,27 @@
           @update:model-value="(v) => setSectionPayload(cIdx, def.key, v)"
         />
 
+        <!--
+          For child #2+ on the contact-style sections (pickup + emergency
+          contacts), surface a "Copy from [previous child]" button so the
+          parent doesn't have to retype the same handful of names/phones
+          for every sibling. Only shows when the previous child has data
+          to copy and the current child's section is still empty/default
+          (so we don't silently clobber edits).
+        -->
+        <div
+          v-if="cIdx > 0 && canCopyFromPrevious(cIdx, def.key)"
+          class="pi-gw-copy-prev"
+        >
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            @click="copyFromPreviousChild(cIdx, def.key)"
+          >
+            Copy {{ sectionShortName(def.key) }} from {{ clientLabels[cIdx - 1] || `Child ${cIdx}` }}
+          </button>
+        </div>
+
         <div class="pi-gw-sig-action">
           <div v-if="sectionMeta(cIdx, def.key).signatureData" class="pi-gw-sig-applied">
             <span class="pi-gw-sig-check">&#10003;</span> Signature applied for this section.
@@ -253,6 +274,81 @@ function scrollToSection(cIdx, key) {
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 }
+
+/**
+ * Sections that benefit from a "copy from previous child" shortcut.
+ * Most multi-kid families use the same pickup contacts and the same
+ * emergency contacts across siblings; the medical/allergy and meal
+ * sections are intentionally NOT copyable because they're per-child.
+ */
+const COPYABLE_SECTION_KEYS = new Set(['pickup_authorization', 'emergency_contacts']);
+
+function sectionShortName(key) {
+  if (key === 'pickup_authorization') return 'pickup contacts';
+  if (key === 'emergency_contacts') return 'emergency contacts';
+  return 'this section';
+}
+
+/** Deep clone via JSON. The payloads here are plain string/bool/array
+ *  shapes so this is safe and avoids any reactive proxy entanglement
+ *  between the source child and the destination child. */
+function clonePayload(p) {
+  if (!p || typeof p !== 'object') return p;
+  try { return JSON.parse(JSON.stringify(p)); } catch { return p; }
+}
+
+/** Returns true if the previous child has at least one populated row in
+ *  the given section AND the current child's section is still empty /
+ *  default. We deliberately bail out when the current child already has
+ *  any user-entered values so a stray button click can't wipe their work. */
+function canCopyFromPrevious(cIdx, key) {
+  if (cIdx <= 0) return false;
+  if (!COPYABLE_SECTION_KEYS.has(key)) return false;
+  const prev = ensureSection(cIdx - 1, key);
+  const cur = ensureSection(cIdx, key);
+  if (key === 'pickup_authorization') {
+    const prevRows = Array.isArray(prev?.payload?.authorizedPickups) ? prev.payload.authorizedPickups : [];
+    const curRows = Array.isArray(cur?.payload?.authorizedPickups) ? cur.payload.authorizedPickups : [];
+    const prevHasContent = prevRows.some((r) =>
+      [r?.name, r?.phone, r?.relationship].some((v) => String(v || '').trim().length > 0)
+    );
+    const curHasUserContent = curRows.some((r) =>
+      [r?.name, r?.phone, r?.relationship].some((v) => String(v || '').trim().length > 0)
+    );
+    return prevHasContent && (!curHasUserContent || curRows.length === 1);
+  }
+  if (key === 'emergency_contacts') {
+    const prevRows = Array.isArray(prev?.payload?.contacts) ? prev.payload.contacts : [];
+    const curRows = Array.isArray(cur?.payload?.contacts) ? cur.payload.contacts : [];
+    const prevHasContent = prevRows.some((r) =>
+      [r?.name, r?.phone, r?.relationship].some((v) => String(v || '').trim().length > 0)
+    );
+    const curHasUserContent = curRows.some((r) =>
+      [r?.name, r?.phone, r?.relationship].some((v) => String(v || '').trim().length > 0)
+    );
+    return prevHasContent && (!curHasUserContent || curRows.length === 1);
+  }
+  return false;
+}
+
+function copyFromPreviousChild(cIdx, key) {
+  if (!canCopyFromPrevious(cIdx, key)) return;
+  const prev = ensureSection(cIdx - 1, key);
+  const cur = ensureSection(cIdx, key);
+  const cloned = clonePayload(prev.payload);
+  // Preserve the per-section opt-out state if the parent already toggled
+  // it on the current child — copying contacts shouldn't silently re-enable
+  // the section.
+  if (key === 'pickup_authorization' && cur.payload?.declinePickupAuthorization) {
+    cloned.declinePickupAuthorization = true;
+    cloned.authorizedPickups = [{ name: '', relationship: '', phone: '' }];
+  }
+  if (key === 'emergency_contacts' && cur.payload?.declineEmergencyContacts) {
+    cloned.declineEmergencyContacts = true;
+    cloned.contacts = [{ name: '', phone: '', relationship: '' }];
+  }
+  setSectionPayload(cIdx, key, cloned);
+}
 </script>
 
 <style scoped>
@@ -318,5 +414,10 @@ function scrollToSection(cIdx, key) {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+.pi-gw-copy-prev {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>

@@ -31,17 +31,19 @@ import { decryptIntakeSubmissionRow } from '../services/intakeResponsesEncryptio
 import { decryptIntakeSubmissionClientRows } from '../models/IntakeSubmissionClient.model.js';
 
 function parseArgs(argv) {
-  const out = { submissionId: null, guardianId: null, latest: false };
+  const out = { submissionId: null, guardianId: null, latest: false, count: 1, multiOnly: false };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--submissionId' || a === '--submission') out.submissionId = Number(argv[++i]);
     else if (a === '--guardianId' || a === '--guardian') out.guardianId = Number(argv[++i]);
     else if (a === '--latest') out.latest = true;
+    else if (a === '--count') out.count = Math.max(1, Number(argv[++i]) || 1);
+    else if (a === '--multiOnly') out.multiOnly = true;
   }
   return out;
 }
 
-async function resolveSubmissionId({ submissionId, guardianId, latest }) {
+async function resolveSubmissionId({ submissionId, guardianId, latest, count, multiOnly }) {
   if (submissionId) return [submissionId];
   if (guardianId) {
     const [rows] = await pool.execute(
@@ -54,15 +56,22 @@ async function resolveSubmissionId({ submissionId, guardianId, latest }) {
     return rows.map((r) => r.id);
   }
   if (latest) {
-    // Find the most recent submission with 2+ linked clients (multi-child).
+    // Default: most-recent N submissions of any size (single OR multi-child).
+    // The post-refactor smoke needs to confirm that single-child still
+    // produces a combined Intake Packet AND that multi-child produces
+    // per-child pieces — checking only multi-child would miss single-child
+    // regressions.
+    const limit = Math.max(1, Math.min(20, Number(count) || 1));
+    const having = multiOnly ? 'HAVING childCount >= 2' : '';
     const [rows] = await pool.execute(
       `SELECT s.id, COUNT(isc.id) AS childCount
          FROM intake_submissions s
          JOIN intake_submission_clients isc ON isc.intake_submission_id = s.id
+        WHERE s.status = 'submitted'
         GROUP BY s.id
-       HAVING childCount >= 2
+        ${having}
         ORDER BY s.id DESC
-        LIMIT 1`
+        LIMIT ${limit}`
     );
     return rows.map((r) => r.id);
   }
@@ -78,13 +87,16 @@ async function inspectSubmission(submissionId) {
     guardianUserId: null
   };
 
+  // intake_links has no `agency_id` column — its `organization_id` is the
+  // FK to `agencies(id)`, so that IS the link's agency. Alias it both ways
+  // so downstream checks that look at "link agency" still work.
   const [subRows] = await pool.execute(
     `SELECT s.id, s.guardian_user_id, s.signer_email, s.status, s.combined_pdf_path,
             s.intake_link_id, s.intake_data,
             s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id,
             l.organization_id AS link_org_id, l.scope_type AS link_scope_type,
             l.program_id AS link_program_id, l.company_event_id AS link_company_event_id,
-            l.agency_id AS link_agency_id
+            l.organization_id AS link_agency_id
        FROM intake_submissions s
        LEFT JOIN intake_links l ON l.id = s.intake_link_id
       WHERE s.id = ?`,
@@ -184,21 +196,57 @@ async function inspectSubmission(submissionId) {
         detail: 'intake_submission_clients row has NULL client_id'
       });
     } else {
+      // Pull EVERY PHI doc tied to this child + this submission so we can
+      // bucket them by kind. Post-refactor, multi-child submissions
+      // intentionally skip the combined "Intake Packet (Signed)" bundle and
+      // instead produce a per-template signed PDF + per-child answers PDF
+      // (+ optional registration ticket PDF) per child. Old check only
+      // matched "Intake Packet" and would false-fail those.
       const [phiRows] = await pool.execute(
-        `SELECT id, storage_path, original_name
+        `SELECT id, storage_path, original_name, document_type, mime_type
            FROM client_phi_documents
           WHERE client_id = ?
-            AND intake_submission_id = ?
-            AND original_name LIKE '%Intake Packet%'`,
+            AND intake_submission_id = ?`,
         [child.clientId, submissionId]
       );
-      child.intakePacketPhiDocs = phiRows.length;
-      child.intakePacketStoragePaths = phiRows.map((r) => r.storage_path);
-      if (!phiRows.length) {
+      const allPhi = phiRows || [];
+      const intakePacketRows = allPhi.filter((r) =>
+        /Intake Packet/i.test(r.original_name || '') || /Intake Packet/i.test(r.document_type || ''));
+      const answersPdfRows = allPhi.filter((r) =>
+        /Intake Responses/i.test(r.original_name || '') && r.mime_type === 'application/pdf');
+      const ticketPdfRows = allPhi.filter((r) =>
+        /Registration Confirmation/i.test(r.original_name || ''));
+      const signedTemplateRows = allPhi.filter((r) =>
+        /\(Signed\)$/i.test((r.original_name || '').trim()) && !/Intake Packet/i.test(r.original_name || ''));
+
+      child.intakePacketPhiDocs = intakePacketRows.length;
+      child.intakePacketStoragePaths = intakePacketRows.map((r) => r.storage_path);
+      child.answersPdfCount = answersPdfRows.length;
+      child.ticketPdfCount = ticketPdfRows.length;
+      child.signedTemplateCount = signedTemplateRows.length;
+      child.totalPhiDocs = allPhi.length;
+
+      // The pass condition is "this child has SOMETHING on their Documents
+      // tab from this submission" — either the combined packet OR per-child
+      // pieces. A child with zero PHI docs from a finalized submission is
+      // always a finalize-time bug.
+      const hasAnyPhi = allPhi.length > 0;
+      if (!hasAnyPhi) {
         result.failures.push({
-          check: 'intake_packet_phi_doc_per_child',
+          check: 'phi_docs_per_child',
           clientId: child.clientId,
-          detail: 'no Intake Packet PHI document attached to this child'
+          detail: 'no PHI documents at all attached to this child for this submission'
+        });
+      }
+      // Multi-child submissions should NOT produce a combined Intake Packet
+      // (it would collide on storage_path UNIQUE), but they SHOULD produce
+      // at least one per-template signed PDF or one answers PDF.
+      const isMultiChild = iscRows.length > 1;
+      if (isMultiChild && !signedTemplateRows.length && !answersPdfRows.length) {
+        result.failures.push({
+          check: 'multi_child_per_child_pieces',
+          clientId: child.clientId,
+          detail: 'multi-child submission produced no per-template signed PDFs or per-child answers PDF for this child'
         });
       }
 
@@ -221,7 +269,7 @@ async function inspectSubmission(submissionId) {
       if (submission.guardian_user_id) {
         const [guardianLinkRows] = await pool.execute(
           `SELECT 1 FROM client_guardians
-            WHERE client_id = ? AND user_id = ?
+            WHERE client_id = ? AND guardian_user_id = ?
             LIMIT 1`,
           [child.clientId, submission.guardian_user_id]
         );
@@ -238,6 +286,89 @@ async function inspectSubmission(submissionId) {
         result.warnings.push({
           check: 'submission_has_guardian_user',
           detail: 'submission has no guardian_user_id; guardian-portal verification skipped'
+        });
+      }
+
+      // ---- Demographics on the client row (post-refactor expectations) ----
+      // Post `persistChildIntakeData`, every finalized child should have at
+      // least ONE of: grade, primary_client_language, address_street,
+      // date_of_birth populated. A child with all four blank after a
+      // submission containing those fields means `persistChildIntakeData`
+      // either wasn't called or was called with submission-level (not
+      // per-child) data — which was the carter-vs-carmen regression.
+      try {
+        const [demoRows] = await pool.execute(
+          `SELECT date_of_birth, grade, preferred_language, primary_client_language,
+                  primary_parent_language, address_street, address_city, address_zip
+             FROM clients WHERE id = ? LIMIT 1`,
+          [child.clientId]
+        );
+        const demo = demoRows?.[0] || null;
+        const filled = demo ? Object.values(demo).filter((v) => v != null && String(v).trim() !== '').length : 0;
+        child.demographicsFieldsFilled = filled;
+        child.demographicsSnapshot = demo ? {
+          dob: demo.date_of_birth || null,
+          grade: demo.grade || null,
+          preferredLanguage: demo.preferred_language || null,
+          primaryClientLanguage: demo.primary_client_language || null,
+          primaryParentLanguage: demo.primary_parent_language || null,
+          address: [demo.address_street, demo.address_city, demo.address_zip].filter(Boolean).join(', ') || null
+        } : null;
+        if (!filled) {
+          // WARN, not FAIL — some submissions legitimately don't ask for
+          // demographics. If you submitted with grade/DOB/language and this
+          // is empty, that's the regression.
+          result.warnings.push({
+            check: 'demographics_persisted',
+            clientId: child.clientId,
+            detail: 'no demographic fields (DOB/grade/language/address) on clients row — confirm the submission included these fields'
+          });
+        }
+      } catch (demoErr) {
+        result.warnings.push({
+          check: 'demographics_check',
+          clientId: child.clientId,
+          detail: demoErr?.message || 'demographics query failed'
+        });
+      }
+
+      // ---- Communications-tab breadcrumb ----
+      // The user explicitly required: "there should at least be an email
+      // attempted... something." Every finalized submission with a
+      // signer_email should have AT LEAST ONE user_communications row tied
+      // to this client (sent OR skipped OR failed). Zero rows means
+      // `deliverPacketCompletionEmail` regressed back to the silent-fail
+      // mode this refactor was supposed to eliminate.
+      try {
+        // user_communications uses generated_at (insert time) and sent_at
+        // (actual API send time). Order by both so a successful send sorts
+        // ahead of a same-second placeholder row.
+        const [commsRows] = await pool.execute(
+          `SELECT id, delivery_status, error_message, template_type, generated_at, sent_at
+             FROM user_communications
+            WHERE client_id = ?
+              AND template_type = 'intake_packet_completion'
+            ORDER BY generated_at DESC, id DESC
+            LIMIT 5`,
+          [child.clientId]
+        );
+        child.completionEmailRows = (commsRows || []).map((r) => ({
+          status: r.delivery_status,
+          error: r.error_message,
+          when: r.sent_at || r.generated_at
+        }));
+        if (submission.signer_email && !commsRows.length) {
+          result.failures.push({
+            check: 'completion_email_communications_row',
+            clientId: child.clientId,
+            detail: 'submission has signer_email but no user_communications row for intake_packet_completion — Communications tab will be empty'
+          });
+        }
+      } catch (commsErr) {
+        result.warnings.push({
+          check: 'communications_row_check',
+          clientId: child.clientId,
+          detail: commsErr?.message || 'user_communications query failed'
         });
       }
 
@@ -425,10 +556,32 @@ function formatResult(result) {
       + ` events=[${child.enrolledEventIds.join(',')}]${child.missingEventIds.length ? ` MISSING=[${child.missingEventIds.join(',')}]` : ''}`
       + ` classes=[${child.enrolledClassIds.join(',')}]${child.missingClassIds.length ? ` MISSING=[${child.missingClassIds.join(',')}]` : ''}`
       + ` perChildBundle=${child.hasPerChildBundlePath ? 'yes' : 'NO'}`
-      + ` packetDocs=${child.intakePacketPhiDocs}`
-      + ` isdRows=${child.isdRowsForChild}`
       + ` guardianLinked=${child.guardianLinked ? 'yes' : 'no'}`
     );
+    lines.push(
+      `        phi: total=${child.totalPhiDocs ?? 0}`
+      + ` packet=${child.intakePacketPhiDocs}`
+      + ` answersPdf=${child.answersPdfCount ?? 0}`
+      + ` ticketPdf=${child.ticketPdfCount ?? 0}`
+      + ` signedTemplates=${child.signedTemplateCount ?? 0}`
+      + ` isdRows=${child.isdRowsForChild}`
+    );
+    if (child.demographicsSnapshot) {
+      const d = child.demographicsSnapshot;
+      lines.push(
+        `        demo: dob=${d.dob || '-'}`
+        + ` grade=${d.grade || '-'}`
+        + ` clientLang=${d.primaryClientLanguage || d.preferredLanguage || '-'}`
+        + ` parentLang=${d.primaryParentLanguage || '-'}`
+        + ` addr=${d.address || '-'}`
+      );
+    }
+    if (child.completionEmailRows?.length) {
+      const latest = child.completionEmailRows[0];
+      lines.push(`        comms: latest=${latest.status}${latest.error ? ` (${String(latest.error).slice(0, 80)})` : ''}`);
+    } else {
+      lines.push(`        comms: (no user_communications rows for this child)`);
+    }
   }
   if (result.warnings.length) {
     lines.push(`  warnings:`);
@@ -446,24 +599,32 @@ function formatResult(result) {
 (async () => {
   const args = parseArgs(process.argv.slice(2));
   if (!args.submissionId && !args.guardianId && !args.latest) {
-    console.error('Usage: node verifyMultiChildIntake.js (--submissionId N | --guardianId N | --latest)');
+    console.error('Usage: node verifyMultiChildIntake.js (--submissionId N | --guardianId N | --latest [--count N] [--multiOnly])');
     process.exit(2);
   }
+  let exitCode = 0;
   try {
     const ids = await resolveSubmissionId(args);
     if (!ids.length) {
       console.error('No submissions matched the given criteria.');
-      process.exit(3);
+      exitCode = 3;
+    } else {
+      let anyFailure = false;
+      for (const id of ids) {
+        const result = await inspectSubmission(id);
+        console.log(formatResult(result));
+        if (result.failures.length) anyFailure = true;
+      }
+      exitCode = anyFailure ? 1 : 0;
     }
-    let anyFailure = false;
-    for (const id of ids) {
-      const result = await inspectSubmission(id);
-      console.log(formatResult(result));
-      if (result.failures.length) anyFailure = true;
-    }
-    process.exit(anyFailure ? 1 : 0);
   } catch (err) {
     console.error('verifyMultiChildIntake failed', err);
-    process.exit(4);
+    exitCode = 4;
+  } finally {
+    // pool.execute opens connections that block process exit when the
+    // script finishes; close them explicitly so `npm run smoke:intake`
+    // returns to the shell promptly.
+    try { await pool.end(); } catch { /* best-effort */ }
   }
+  process.exit(exitCode);
 })();
