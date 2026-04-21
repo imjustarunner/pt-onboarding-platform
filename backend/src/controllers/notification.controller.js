@@ -9,6 +9,23 @@ import NotificationDispatcherService from '../services/notificationDispatcher.se
 import ProgramReminderService from '../services/programReminder.service.js';
 import pool from '../config/database.js';
 
+// Guardians should not see the full internal staff notification feed.
+// They only need a narrow, family-facing set: announcements/reminders and
+// updates tied to their child(ren) (documents / paperwork).
+//
+// NOTE: We enforce this in the notification listing + counts endpoints so
+// guardians don't accumulate "33 internal notifications" and get confused.
+const GUARDIAN_ALLOWED_NOTIFICATION_TYPES = new Set([
+  // Family-facing announcements / reminders
+  'emergency_broadcast',
+  'program_reminder',
+  // Child account postings / paperwork status
+  'paperwork_received',
+  'new_packet_uploaded',
+  'client_checklist_updated'
+]);
+const GUARDIAN_ANNOUNCEMENT_TYPES = new Set(['emergency_broadcast', 'program_reminder']);
+
 function parseJsonMaybe(v) {
   if (!v) return null;
   if (typeof v === 'object') return v;
@@ -84,7 +101,46 @@ const SELF_ACTIVITY_TYPES = new Set(['user_login', 'user_logout']);
 
 function filterNotificationsForViewer(notifications, viewerUserId, viewerRole, opts = {}) {
   const uid = Number(viewerUserId);
-  const { hasMedicalRecordsReleaseAccess = false, notificationCategories = null } = opts;
+  const {
+    hasMedicalRecordsReleaseAccess = false,
+    notificationCategories = null,
+    guardianClientIds = null,
+    guardianAgencyIds = null
+  } = opts;
+
+  // Guardian feed: strict allowlist + only items tied to this guardian or
+  // to one of their linked clients. This is intentionally independent of
+  // the staff/admin audience map, which was built for internal roles.
+  if (String(viewerRole || '').trim().toLowerCase() === 'guardian') {
+    const clientIdSet = guardianClientIds instanceof Set ? guardianClientIds : new Set();
+    const agencyIdSet = guardianAgencyIds instanceof Set ? guardianAgencyIds : new Set();
+    return (notifications || []).filter((n) => {
+      const t = String(n?.type || '').trim().toLowerCase();
+      if (!GUARDIAN_ALLOWED_NOTIFICATION_TYPES.has(t)) return false;
+
+      // Never show another user's personal notifications.
+      if (n?.user_id != null && Number(n.user_id) !== uid) return false;
+
+      // Personal notifications to the guardian are allowed if on allowlist.
+      if (Number(n?.user_id) === uid) return true;
+
+      // Announcements/reminders: allow agency-scoped items for agencies where
+      // the guardian has at least one linked client.
+      if (GUARDIAN_ANNOUNCEMENT_TYPES.has(t)) {
+        const aid = Number(n?.agency_id || 0);
+        return !aid || agencyIdSet.size === 0 ? true : agencyIdSet.has(aid);
+      }
+
+      // Child-tied items: must point at a client the guardian is linked to.
+      if (String(n?.related_entity_type || '').trim().toLowerCase() === 'client') {
+        const cid = Number(n?.related_entity_id || 0);
+        return cid && clientIdSet.has(cid);
+      }
+
+      return false;
+    });
+  }
+
   return (notifications || [])
     .filter((n) => {
       const key = IN_APP_CATEGORY_BY_TYPE[String(n?.type || '').toLowerCase()];
@@ -174,6 +230,22 @@ function collapseEquivalentNotifications(notifications) {
 }
 
 const PERSONAL_ONLY_ROLES = new Set(['provider', 'staff', 'intern', 'facilitator']);
+
+async function loadGuardianClientAccess({ guardianUserId }) {
+  const uid = Number(guardianUserId);
+  if (!uid) return { clientIds: [], agencyIds: [] };
+  const [rows] = await pool.execute(
+    `SELECT DISTINCT c.id AS client_id, c.agency_id
+       FROM client_guardians cg
+       JOIN clients c ON c.id = cg.client_id
+      WHERE cg.guardian_user_id = ?
+        AND (cg.access_enabled = 1 OR cg.access_enabled IS NULL)`,
+    [uid]
+  ).catch(() => [[]]);
+  const clientIds = uniquePositiveIds((rows || []).map((r) => r.client_id));
+  const agencyIds = uniquePositiveIds((rows || []).map((r) => r.agency_id));
+  return { clientIds, agencyIds };
+}
 
 async function appendNotificationContext(notifications) {
   const list = Array.isArray(notifications) ? notifications : [];
@@ -307,6 +379,79 @@ export const getNotifications = async (req, res, next) => {
     const hasMedicalRecordsReleaseAccess = !!(fullUser?.has_medical_records_release_access === 1 || fullUser?.has_medical_records_release_access === true);
     const notificationCategories = await getViewerNotificationCategories(userId);
     const filterOpts = { hasMedicalRecordsReleaseAccess, notificationCategories };
+
+    // Guardian portal: limit notifications to a small family-facing set.
+    if (String(userRole || '').trim().toLowerCase() === 'guardian') {
+      const { clientIds, agencyIds } = await loadGuardianClientAccess({ guardianUserId: userId });
+      // Optional agency filter: guardians can only scope to agencies where they
+      // have linked clients.
+      if (agencyId) {
+        const requestedAgencyId = Number.parseInt(String(agencyId || ''), 10);
+        if (requestedAgencyId && agencyIds.length && !agencyIds.includes(requestedAgencyId)) {
+          return res.status(403).json({ error: { message: 'Access denied to this agency' } });
+        }
+      }
+      const effectiveAgencyIds = agencyId ? [Number.parseInt(String(agencyId), 10)] : agencyIds;
+      const allowedType = String(type || '').trim().toLowerCase();
+      if (allowedType && !GUARDIAN_ALLOWED_NOTIFICATION_TYPES.has(allowedType)) {
+        // Explicitly requested a type guardians can't see.
+        return res.json([]);
+      }
+
+      // Fetch any matching notifications for the guardian's agencies.
+      // We rely on filterNotificationsForViewer to enforce client binding for
+      // client-related items and allow only the strict allowlist.
+      const baseTypes = allowedType ? [allowedType] : Array.from(GUARDIAN_ALLOWED_NOTIFICATION_TYPES);
+      const typePlaceholders = baseTypes.map(() => '?').join(',');
+      const agencyPlaceholders = (effectiveAgencyIds || []).map(() => '?').join(',');
+      const clientPlaceholders = clientIds.map(() => '?').join(',');
+
+      let sql = `SELECT * FROM notifications WHERE 1=1`;
+      const params = [];
+      if (baseTypes.length) {
+        sql += ` AND LOWER(type) IN (${typePlaceholders})`;
+        params.push(...baseTypes);
+      }
+      if (effectiveAgencyIds && effectiveAgencyIds.length) {
+        sql += ` AND agency_id IN (${agencyPlaceholders})`;
+        params.push(...effectiveAgencyIds);
+      }
+      // Personal-to-guardian OR client-tied OR agency announcements.
+      sql += ` AND (user_id = ?`;
+      params.push(Number(userId));
+      if (clientIds.length) {
+        sql += ` OR (LOWER(COALESCE(related_entity_type,'')) = 'client' AND related_entity_id IN (${clientPlaceholders}))`;
+        params.push(...clientIds);
+      }
+      sql += ` OR (user_id IS NULL AND LOWER(type) IN ('emergency_broadcast','program_reminder'))`;
+      sql += ` )`;
+
+      if (isResolved !== undefined) {
+        sql += ' AND is_resolved = ?';
+        params.push(isResolved === 'true' ? 1 : 0);
+      }
+      sql += ' ORDER BY created_at DESC';
+
+      // Limit is a validated integer; do not bind LIMIT ? (mysql2 prepared-statement quirk).
+      const limitNum = limitParam ? Number.parseInt(String(limitParam || ''), 10) : 0;
+      const safeLimit = Number.isFinite(limitNum) && limitNum > 0 ? Math.min(500, limitNum) : 0;
+      if (safeLimit) sql += ` LIMIT ${safeLimit}`;
+
+      const [rows] = await pool.execute(sql, params).catch(() => [[]]);
+      const list = dedupeNotificationsById(rows || []);
+      await Notification.applyReadStateForViewer(list, userId);
+      filterOpts.guardianClientIds = new Set(clientIds);
+      filterOpts.guardianAgencyIds = new Set(effectiveAgencyIds || []);
+      let filtered = filterNotificationsForViewer(list, userId, userRole, filterOpts);
+      if (isRead !== undefined) {
+        const wantRead = isRead === 'true';
+        filtered = filtered.filter((n) => (n._is_read_for_viewer === wantRead));
+      }
+      filtered = filtered.filter(isUnmuted);
+      filtered = collapseEquivalentNotifications(filtered);
+      await appendNotificationContext(filtered);
+      return res.json(filtered);
+    }
 
     // Determine which agencies the user can access
     let accessibleAgencyIds = [];
@@ -542,6 +687,43 @@ export const getNotificationCounts = async (req, res, next) => {
     const hasMedicalRecordsReleaseAccess = !!(fullUser?.has_medical_records_release_access === 1 || fullUser?.has_medical_records_release_access === true);
     const notificationCategories = await getViewerNotificationCategories(userId);
     const filterOpts = { hasMedicalRecordsReleaseAccess, notificationCategories };
+
+    // Guardian counts: only count the guardian-allowed subset across the agencies
+    // where the guardian has linked clients.
+    if (String(userRole || '').trim().toLowerCase() === 'guardian') {
+      const { clientIds, agencyIds } = await loadGuardianClientAccess({ guardianUserId: userId });
+      if (!agencyIds.length) return res.json({});
+      const agencyIdSet = new Set(agencyIds);
+      const clientIdSet = new Set(clientIds);
+      filterOpts.guardianAgencyIds = agencyIdSet;
+      filterOpts.guardianClientIds = clientIdSet;
+
+      // Fetch unresolved notifications for these agencies for counting; apply per-user read state
+      const placeholders = agencyIds.map(() => '?').join(',');
+      const typeList = Array.from(GUARDIAN_ALLOWED_NOTIFICATION_TYPES);
+      const typePlaceholders = typeList.map(() => '?').join(',');
+      const [rows] = await pool.execute(
+        `SELECT * FROM notifications
+          WHERE agency_id IN (${placeholders})
+            AND is_resolved = 0
+            AND LOWER(type) IN (${typePlaceholders})`,
+        [...agencyIds, ...typeList]
+      ).catch(() => [[]]);
+      const list = dedupeNotificationsById(rows || []);
+      await Notification.applyReadStateForViewer(list, userId);
+      const visible = filterNotificationsForViewer(list, userId, userRole, filterOpts).filter(isUnmuted);
+      const collapsed = collapseEquivalentNotifications(visible);
+      const counts = {};
+      for (const aid of agencyIds) counts[aid] = 0;
+      for (const n of collapsed) {
+        const aid = Number(n?.agency_id || 0);
+        if (!aid) continue;
+        if (n._is_read_for_viewer) continue;
+        if (n.is_resolved) continue;
+        counts[aid] = (counts[aid] || 0) + 1;
+      }
+      return res.json(counts);
+    }
 
     let agencyIds = [];
 
