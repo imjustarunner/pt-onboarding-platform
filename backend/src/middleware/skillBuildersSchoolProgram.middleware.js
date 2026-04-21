@@ -28,6 +28,12 @@ export async function requireSkillBuildersSchoolProgramForAgencyContext(req, res
   try {
     const role = String(req.user?.role || '').trim().toLowerCase();
     if (role === 'super_admin') return next();
+    // Backoffice roles can access Program events tooling even when the
+    // Skill Builders school-program feature flag is not enabled.
+    // (Feature flag primarily gates the end-user SB experience.)
+    if (role === 'admin' || role === 'staff' || role === 'support' || role === 'clinical_practice_assistant' || role === 'provider_plus') {
+      return next();
+    }
 
     const agencyId = parseAgencyIdFromRequest(req);
     if (!agencyId) {
