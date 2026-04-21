@@ -2275,7 +2275,9 @@ const parentIntroResolved = computed(() => {
 
 const showParentIntroCard = computed(() => {
   if (hubSubFlowActive.value) return false;
-  if (hubSlug.value === 'skillbuilders') return false;
+  // Default off (the address/intro panel felt redundant/confusing on multiple hubs).
+  // Can be re-enabled per hub via branding JSON: { "showParentIntroCard": true }.
+  if (hubBranding.value?.showParentIntroCard !== true) return false;
   return !!String(parentIntroResolved.value || '').trim();
 });
 
@@ -3292,7 +3294,6 @@ watch(hubSlug, () => {
 }
 
 /* Keep narrative prose readable while letting card grids and sub-flows use the wider shell. */
-.pmh-shell > .pmh-offer,
 .pmh-shell > .pmh-cta-band,
 .pmh-shell > .pmh-process,
 .pmh-shell > .pmh-metrics {
@@ -3301,9 +3302,11 @@ watch(hubSlug, () => {
   margin-right: auto;
 }
 
-/* SkillBuilders: “What we offer” should align with media width. */
-.pmh-page--hub-skillbuilders .pmh-shell > .pmh-offer {
+/* “What we offer” should align with media width. */
+.pmh-shell > .pmh-offer {
   max-width: min(960px, calc(100vw - 32px));
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* Keep header copy readable, but allow the hero media to span wide screens. */
@@ -3972,7 +3975,7 @@ watch(hubSlug, () => {
 }
 
 .pmh-offer {
-  margin: 16px 16px 0;
+  margin: 16px auto 0;
 }
 
 .pmh-placeholder-editor-hint {
