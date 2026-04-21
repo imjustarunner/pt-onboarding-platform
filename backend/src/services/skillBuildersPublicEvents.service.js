@@ -17,7 +17,9 @@ export const PUBLIC_EVENT_SELECT = `ce.id, ce.title, ce.description, ce.splash_c
        ce.public_location_address, ce.public_location_lat, ce.public_location_lng,
        ce.public_age_min, ce.public_age_max,
        ce.public_session_label, ce.public_session_date_range,
-       ce.starts_at, ce.ends_at, ce.timezone, ce.registration_eligible, ce.agency_id AS owning_agency_id,
+       ce.starts_at, ce.ends_at, ce.timezone, ce.registration_eligible,
+       ce.public_registration_status, ce.public_registration_status_label,
+       ce.agency_id AS owning_agency_id,
        ce.organization_id AS program_organization_id,
        (SELECT a_prog.name FROM agencies a_prog WHERE a_prog.id = ce.organization_id LIMIT 1) AS program_organization_name,
        (SELECT il.public_key FROM intake_links il
@@ -55,6 +57,10 @@ export function formatPublicEvent(row, sessionLocations = []) {
     timezone: row.timezone || 'UTC',
     registrationEligible: !!(row.registration_eligible === 1 || row.registration_eligible === true),
     registrationPublicKey: regKey || null,
+    publicRegistrationStatus: String(row.public_registration_status || 'open').trim().toLowerCase(),
+    publicRegistrationStatusLabel: row.public_registration_status_label
+      ? String(row.public_registration_status_label).trim()
+      : null,
     publicAgeMin,
     publicAgeMax,
     publicSessionLabel: row.public_session_label ? String(row.public_session_label).trim() : null,
@@ -229,11 +235,20 @@ export async function attachDistanceScoresToPublicEvents(events, origin, _addrGe
   for (const ev of events) {
     const eid = ev.id;
     let v = 0;
-    if (ev.inPersonPublic && ev.publicLocationLat != null && ev.publicLocationLng != null) {
+    const lat = ev?.publicLocationLat != null ? Number(ev.publicLocationLat) : NaN;
+    const lng = ev?.publicLocationLng != null ? Number(ev.publicLocationLng) : NaN;
+    const hasUsableLatLng =
+      Number.isFinite(lat) &&
+      Number.isFinite(lng) &&
+      Math.abs(lat) <= 90 &&
+      Math.abs(lng) <= 180 &&
+      !(lat === 0 && lng === 0);
+
+    if (ev.inPersonPublic && hasUsableLatLng) {
       const key = `e${eid}_v${v++}`;
       matrixEntries.push({
         key,
-        destination: `${ev.publicLocationLat},${ev.publicLocationLng}`,
+        destination: `${lat},${lng}`,
         eventId: eid,
         label: ev.publicLocationAddress || 'Venue'
       });

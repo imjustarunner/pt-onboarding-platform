@@ -63,8 +63,8 @@
               <div v-if="logoUrl" class="pmh-splash-program-logo-wrap" title="Program logo">
                 <img class="pmh-splash-program-logo" :src="logoUrl" :alt="`${displayHeadline} logo`" />
               </div>
-              <p class="pmh-splash-kicker">Start here</p>
-              <h1 class="pmh-splash-title">D11 Summer 2026</h1>
+              <p class="pmh-splash-kicker">Welcome to the</p>
+              <h1 class="pmh-splash-title">{{ displayHeadline }}</h1>
               <p class="pmh-splash-sub">Choose how you want to find the best option for your family.</p>
             </div>
 
@@ -316,7 +316,7 @@
             preload="metadata"
           />
         </div>
-        <div v-if="parentIntroResolved && !hubSubFlowActive" class="pmh-intro-card">
+        <div v-if="showParentIntroCard" class="pmh-intro-card">
           <div class="pmh-intro-icon" aria-hidden="true">
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 7 8 11.7z" />
@@ -1003,6 +1003,7 @@
           :error="''"
           :hub-slug="hubSlug"
           :show-hub-source-chips="true"
+          :show-hub-session-filters="!skillbuildersSessionPickerVisible"
           :suppress-page-title="true"
           :nearest-cta-label="nearestCtaLabel"
           :nearest-modal-title="nearestModalTitle"
@@ -1337,10 +1338,13 @@ function prettifySlugLike(s) {
 }
 
 const displayHeadline = computed(() => {
+  const slug = String(hubSlug.value || '').trim().toLowerCase();
+  if (slug === 'd11summer2026') {
+    return '2026 D11 Summer Mental Health Skills Program';
+  }
   const hero = String(heroTitle.value || '').trim();
   if (hero) return hero;
   const raw = String(pageTitle.value || '').trim();
-  const slug = hubSlug.value;
   const slugNorm = slug.replace(/[^a-z0-9]/gi, '');
   const rawNorm = raw.replace(/[^a-z0-9]/gi, '');
   if (!raw || rawNorm === slugNorm) return prettifySlugLike(slug);
@@ -2267,6 +2271,12 @@ const DEFAULT_PARENT_INTRO =
 const parentIntroResolved = computed(() => {
   const custom = String(hubBranding.value.parentIntro || '').trim();
   return custom || DEFAULT_PARENT_INTRO;
+});
+
+const showParentIntroCard = computed(() => {
+  if (hubSubFlowActive.value) return false;
+  if (hubSlug.value === 'skillbuilders') return false;
+  return !!String(parentIntroResolved.value || '').trim();
 });
 
 /** Optional overrides from branding JSON (nearestCtaLabel, nearestModalTitle, nearestModalHint). */
@@ -3289,6 +3299,11 @@ watch(hubSlug, () => {
   max-width: 44rem;
   margin-left: auto;
   margin-right: auto;
+}
+
+/* SkillBuilders: “What we offer” should align with media width. */
+.pmh-page--hub-skillbuilders .pmh-shell > .pmh-offer {
+  max-width: min(960px, calc(100vw - 32px));
 }
 
 /* Keep header copy readable, but allow the hero media to span wide screens. */
@@ -5200,6 +5215,12 @@ watch(hubSlug, () => {
   text-align: center;
 }
 
+.pmh-page--dark .sb-audience-card {
+  background: rgba(15, 23, 42, 0.92);
+  border-color: rgba(148, 163, 184, 0.22);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+}
+
 .sb-audience-logo-wrap {
   margin: 0 0 16px;
 }
@@ -5221,12 +5242,20 @@ watch(hubSlug, () => {
   color: var(--hub-eyebrow, #64748b);
 }
 
+.pmh-page--dark .sb-audience-eyebrow {
+  color: rgba(226, 232, 240, 0.62);
+}
+
 .sb-audience-title {
   margin: 0 0 22px;
   font-size: clamp(1.15rem, 3.6vw, 1.45rem);
   font-weight: 800;
   line-height: 1.35;
   color: var(--hub-text);
+}
+
+.pmh-page--dark .sb-audience-title {
+  color: rgba(226, 232, 240, 0.95);
 }
 
 .sb-audience-actions {
@@ -5261,9 +5290,19 @@ watch(hubSlug, () => {
   transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
 }
 
+.pmh-page--dark .sb-audience-btn {
+  background: rgba(2, 6, 23, 0.35);
+  border-color: rgba(148, 163, 184, 0.22);
+  color: rgba(226, 232, 240, 0.92);
+}
+
 .sb-audience-btn:hover {
   border-color: var(--hub-brand);
   box-shadow: 0 8px 22px rgba(15, 23, 42, 0.1);
+}
+
+.pmh-page--dark .sb-audience-btn:hover {
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.4);
 }
 
 .sb-audience-btn--primary {
@@ -5279,6 +5318,10 @@ watch(hubSlug, () => {
 
 .sb-audience-btn--secondary {
   background: #f8fafc;
+}
+
+.pmh-page--dark .sb-audience-btn--secondary {
+  background: rgba(148, 163, 184, 0.12);
 }
 
 .sb-audience-change {
@@ -5334,6 +5377,11 @@ watch(hubSlug, () => {
   background: color-mix(in srgb, var(--hub-surface, #fff) 94%, var(--hub-brand, #6a9c5c) 6%);
 }
 
+.pmh-page--dark .sb-skillbuilders-sessions {
+  border-color: rgba(148, 163, 184, 0.18);
+  background: rgba(2, 6, 23, 0.55);
+}
+
 .sb-skillbuilders-sessions-title {
   margin: 0 0 6px;
   font-weight: 800;
@@ -5342,11 +5390,19 @@ watch(hubSlug, () => {
   font-family: var(--hub-font-display, inherit);
 }
 
+.pmh-page--dark .sb-skillbuilders-sessions-title {
+  color: rgba(226, 232, 240, 0.95);
+}
+
 .sb-skillbuilders-sessions-hint {
   margin: 0 0 12px;
   font-size: 0.95rem;
   line-height: 1.45;
   color: var(--hub-text-muted, #475569);
+}
+
+.pmh-page--dark .sb-skillbuilders-sessions-hint {
+  color: rgba(226, 232, 240, 0.72);
 }
 
 .sb-skillbuilders-sessions-row {
@@ -5374,6 +5430,13 @@ watch(hubSlug, () => {
   box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
 }
 
+.pmh-page--dark .sb-skillbuilders-session-chip {
+  background: rgba(17, 24, 39, 0.7);
+  border-color: rgba(148, 163, 184, 0.22);
+  color: rgba(226, 232, 240, 0.92);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.35);
+}
+
 .sb-skillbuilders-session-chip:hover {
   border-color: rgba(163, 38, 35, 0.75);
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
@@ -5391,6 +5454,12 @@ watch(hubSlug, () => {
   box-shadow: 0 0 0 2px rgba(163, 38, 35, 0.2);
 }
 
+.pmh-page--dark .sb-skillbuilders-session-chip.active {
+  border-color: rgba(163, 38, 35, 0.75);
+  background: rgba(163, 38, 35, 0.18);
+  box-shadow: 0 0 0 2px rgba(163, 38, 35, 0.28), 0 18px 44px rgba(0, 0, 0, 0.35);
+}
+
 .sb-skillbuilders-session-chip-title {
   display: block;
   font-weight: 800;
@@ -5403,6 +5472,10 @@ watch(hubSlug, () => {
   font-size: 0.95rem;
   font-weight: 600;
   color: color-mix(in srgb, var(--hub-text, #0f172a) 72%, #64748b);
+}
+
+.pmh-page--dark .sb-skillbuilders-session-chip-sub {
+  color: rgba(226, 232, 240, 0.72);
 }
 
 .sb-skillbuilders-sessions-callout {

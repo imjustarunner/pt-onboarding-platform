@@ -57,7 +57,7 @@
             </p>
             <p v-if="nearestError" class="pel-finder-err">{{ nearestError }}</p>
 
-            <div v-if="originSummary && addressSortChipGroups.length" class="pel-sort-chips">
+            <div v-if="originSummary && addressSortChipGroups.length && !hubSlugNorm" class="pel-sort-chips">
               <p class="pel-sort-chips-label">Sort by</p>
               <div class="pel-sort-chips-row">
                 <button
@@ -97,15 +97,20 @@
         </section>
 
         <div
-          v-if="hubSlugNorm && (hubAgencyFilterId != null || sessionLabelFilter || distinctHubPartners.length > 1)"
+          v-if="
+            hubSlugNorm &&
+            (distinctHubPartners.length > 1 ||
+              (props.showHubSessionFilters && hubSessionFilterOptions.length > 1) ||
+              hubAgencyFilterId != null ||
+              sessionLabelFilter)
+          "
           class="pel-hub-filter-bar"
         >
-          <p v-if="distinctHubPartners.length > 1" class="pel-hub-filter-lead muted">
-            Tap an agency logo to see only that agency&rsquo;s locations.
-          </p>
-          <div v-if="distinctHubPartners.length > 1" class="pel-hub-logo-row">
+          <p class="pel-hub-filter-lead muted">Filter locations by agency and session.</p>
+          <div class="pel-hub-filter-row" role="group" aria-label="Agency and session filters">
             <button
               v-for="p in distinctHubPartners"
+              v-show="distinctHubPartners.length > 1"
               :key="`hpf-${p.sourceAgencyId}`"
               type="button"
               class="pel-agency-logo-btn pel-agency-logo-btn--bar"
@@ -122,20 +127,158 @@
               />
               <span v-else class="pel-agency-fallback">{{ agencyInitials(p.sourceAgencyName) }}</span>
             </button>
+
+            <button
+              v-for="opt in hubSessionFilterOptions"
+              v-show="props.showHubSessionFilters && hubSessionFilterOptions.length > 1"
+              :key="`hsf-${opt.key}`"
+              type="button"
+              class="pel-session-card"
+              :style="sessionAccentStyle(opt)"
+              :class="{ 'pel-session-card--active': isSessionFilterActive(opt) }"
+              :aria-label="`Filter events to ${opt.label}`"
+              @click="toggleSessionFilter(opt)"
+            >
+              <span class="pel-session-card-title">{{ opt.sessionLabel || opt.label }}</span>
+              <span class="pel-session-card-sub">
+                <span v-if="opt.sessionDateRange">{{ opt.sessionDateRange }}</span>
+                <span v-else-if="opt.label !== (opt.sessionLabel || '')">{{ opt.label }}</span>
+              </span>
+              <span class="pel-session-card-foot">
+                {{ opt.count }} location{{ opt.count === 1 ? '' : 's' }}
+                <span v-if="hasNearestResults && opt.closestMi != null"> · {{ opt.closestMi }} mi</span>
+              </span>
+            </button>
           </div>
+
           <div v-if="hubAgencyFilterId != null || sessionLabelFilter" class="pel-filter-active-row">
             <span v-if="hubAgencyFilterId != null" class="pel-filter-pill">
               Agency filter on
               <button type="button" class="pel-linkish" @click="clearAgencyFilter">Show all agencies</button>
             </span>
             <span v-if="sessionLabelFilter" class="pel-filter-pill">
-              {{ sessionLabelFilter }}
+              {{ sessionLabelFilter }}<span v-if="sessionDateRangeFilter"> · {{ sessionDateRangeFilter }}</span>
               <button type="button" class="pel-linkish" @click="clearSessionFilter">Clear session filter</button>
             </span>
           </div>
         </div>
 
-        <TransitionGroup name="pel-card" tag="ul" class="pel-list">
+        <template v-if="hubSlugNorm">
+          <div v-for="group in hubSessionGroups" :key="`hsg-${group.key}`" class="pel-group">
+            <div class="pel-group-head">
+              <h2 class="pel-group-title">{{ group.label }}</h2>
+              <span class="pel-group-count"
+                >{{ group.events.length }} location{{ group.events.length === 1 ? '' : 's' }}</span
+              >
+            </div>
+            <TransitionGroup name="pel-card" tag="ul" class="pel-list pel-list--group">
+              <li v-for="(ev, idx) in group.events" :key="ev.id" class="pel-item" :style="{ '--stagger': idx }">
+                <article class="pel-card" :style="eventHubCardThemeStyle(ev)">
+                  <div class="pel-status-banner" :class="`pel-status-banner--${registrationStatusKey(ev)}`">
+                    <span class="pel-status-text">{{ registrationBannerText(ev) }}</span>
+                    <span v-if="hubBannerLogoUrl(ev)" class="pel-status-logo-wrap" aria-hidden="true">
+                      <img class="pel-status-logo" :src="hubBannerLogoUrl(ev)" :alt="hubBannerLogoAlt(ev)" loading="lazy" />
+                    </span>
+                  </div>
+                  <div
+                    v-if="showHubSourceChips && hubPartnerEntries(ev).length > 1"
+                    class="pel-card-agency-logos"
+                  >
+                    <button
+                      v-for="(p, pi) in hubPartnerEntries(ev)"
+                      :key="`pl-${ev.id}-${pi}`"
+                      type="button"
+                      class="pel-agency-logo-btn"
+                      :class="{ 'pel-agency-logo-btn--active': hubAgencyFilterId === p.sourceAgencyId }"
+                      :aria-label="`Filter events to ${p.sourceAgencyName} only`"
+                      @click="toggleAgencyFilter(p.sourceAgencyId)"
+                    >
+                      <span class="pel-agency-logo-tip">{{ agencyFilterTipCard(p) }}</span>
+                      <img
+                        v-if="p.sourceAgencyLogoUrl"
+                        :src="p.sourceAgencyLogoUrl"
+                        :alt="`${p.sourceAgencyName} logo`"
+                        loading="lazy"
+                      />
+                      <span v-else class="pel-agency-fallback">{{ agencyInitials(p.sourceAgencyName) }}</span>
+                    </button>
+                  </div>
+
+                  <div class="pel-card-hero">
+                    <a
+                      v-if="ev.publicHeroImageUrl && primaryMapsQuery(ev)"
+                      :href="googleMapsSearchUrl(primaryMapsQuery(ev))"
+                      class="pel-thumb-maps pel-thumb-maps--hero"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      :aria-label="`Open ${locationDisplayName(ev)} in Maps`"
+                    >
+                      <img :src="ev.publicHeroImageUrl" :alt="eventPrimaryTitle(ev)" loading="lazy" />
+                    </a>
+                    <div v-else-if="ev.publicHeroImageUrl" class="pel-thumb-maps pel-thumb-maps--static pel-thumb-maps--hero">
+                      <img :src="ev.publicHeroImageUrl" :alt="eventPrimaryTitle(ev)" loading="lazy" />
+                    </div>
+                    <div class="pel-card-hero-main">
+                      <div class="pel-card-hero-head">
+                        <h3 class="pel-card-title">{{ eventPrimaryTitle(ev) }}</h3>
+                        <span
+                          v-if="hasNearestResults"
+                          class="pel-drive-pill"
+                          :class="{ 'pel-drive-pill--missing': drivingDistanceDisplay(ev) == null }"
+                        >
+                          <template v-if="drivingDistanceDisplay(ev) != null">
+                            ~{{ formatDistanceMi(drivingDistanceDisplay(ev)) }} mi
+                            <span v-if="ev.drivingDurationText"> · {{ ev.drivingDurationText }}</span>
+                          </template>
+                          <template v-else>Distance unavailable</template>
+                        </span>
+                      </div>
+                      <div class="pel-card-hero-row">
+                        <p v-if="publicEventScheduleLine(ev)" class="pel-card-schedule pel-card-schedule--row">
+                          {{ publicEventScheduleLine(ev) }}
+                        </p>
+                        <a
+                          v-if="!registrationCtaDisabled(ev)"
+                          class="pel-btn pel-btn-primary pel-btn-register pel-btn-register--row"
+                          :href="registrationUrl(ev.registrationPublicKey)"
+                        >
+                          Register now
+                        </a>
+                        <span
+                          v-else
+                          class="pel-btn pel-btn-primary pel-btn-register pel-btn-register--row pel-btn-register--disabled"
+                        >
+                          Registration unavailable
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="pel-card-body pel-card-body--compact">
+                    <div v-if="locationDisplayName(ev) || ageRangeLabel(ev) || (primaryVenueShouldShow(ev) && ev.publicLocationAddress)" class="pel-meta-row">
+                      <span v-if="ageRangeLabel(ev)" class="pel-meta-pill">{{ ageRangeLabel(ev) }}</span>
+                      <span v-if="locationDisplayName(ev)" class="pel-meta-loc-name">{{ locationDisplayName(ev) }}</span>
+                      <a
+                        v-if="primaryVenueShouldShow(ev) && ev.publicLocationAddress"
+                        class="pel-meta-addr muted"
+                        :href="googleMapsSearchUrl(ev.publicLocationAddress)"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {{ ev.publicLocationAddress }}
+                      </a>
+                    </div>
+                    <p v-if="ev.description" class="pel-desc pel-desc--clamp">{{ ev.description }}</p>
+                    <p v-if="ev.publicListingDetails" class="pel-extra pel-desc--clamp">{{ ev.publicListingDetails }}</p>
+                    <p v-if="sanitizedSplash(ev)" class="pel-splash pel-splash--clamp" v-html="sanitizedSplash(ev)" />
+                  </div>
+                </article>
+              </li>
+            </TransitionGroup>
+          </div>
+        </template>
+
+        <TransitionGroup v-else name="pel-card" tag="ul" class="pel-list">
           <li v-for="(ev, idx) in displayEvents" :key="ev.id" class="pel-item" :style="{ '--stagger': idx }">
             <article class="pel-card" :style="eventHubCardThemeStyle(ev)">
               <div class="pel-status-banner" :class="`pel-status-banner--${registrationStatusKey(ev)}`">
@@ -179,11 +322,19 @@
                 <div class="pel-card-hero-main">
                   <div class="pel-card-hero-head">
                     <h2 class="pel-card-title">{{ eventPrimaryTitle(ev) }}</h2>
+                    <span v-if="drivingDistanceDisplay(ev) != null" class="pel-drive-pill">
+                      ~{{ formatDistanceMi(drivingDistanceDisplay(ev)) }} mi
+                      <span v-if="ev.drivingDurationText"> · {{ ev.drivingDurationText }}</span>
+                    </span>
                   </div>
                   <p v-if="eventLocationMetaLine(ev)" class="pel-card-meta-loc muted">{{ eventLocationMetaLine(ev) }}</p>
                   <p v-if="publicEventScheduleLine(ev)" class="pel-card-schedule">{{ publicEventScheduleLine(ev) }}</p>
                   <p v-if="ev.publicSessionLabel" class="pel-card-sess-filter">
-                    <button type="button" class="pel-sess-filter-btn" @click="setSessionFilter(ev.publicSessionLabel)">
+                    <button
+                      type="button"
+                      class="pel-sess-filter-btn"
+                      @click="setSessionFilter(ev.publicSessionLabel, ev.publicSessionDateRange)"
+                    >
                       All {{ ev.publicSessionLabel }} locations
                     </button>
                   </p>
@@ -331,6 +482,8 @@ const props = defineProps({
   hubSlug: { type: String, default: '' },
   /** Show partner agency chips when events include `hubSourcePartners` (marketing hub). */
   showHubSourceChips: { type: Boolean, default: false },
+  /** Hub-only: show the persistent session filter cards (disable when parent already renders a session picker). */
+  showHubSessionFilters: { type: Boolean, default: true },
   /** When true with hubSlug, hide the duplicate page title (hub shell shows its own h1). */
   suppressPageTitle: { type: Boolean, default: false },
   /** When set, show logo masthead + footer with link to `/{slug}`. */
@@ -438,6 +591,12 @@ const baseEventList = computed(() =>
 
 const displayEvents = computed(() => {
   let list = [...(baseEventList.value || [])];
+  const now = Date.now();
+  list = list.filter((ev) => {
+    const t = new Date(ev?.endsAt || 0).getTime();
+    if (!Number.isFinite(t)) return true;
+    return t >= now;
+  });
   const aid = hubAgencyFilterId.value;
   if (aid != null && Number(aid) > 0) {
     list = list.filter((ev) =>
@@ -473,7 +632,90 @@ const displayEvents = computed(() => {
   if (rankedEvents.value && addressSortMode.value && addressSortValue.value) {
     list = list.filter((ev) => eventMatchesSortValue(ev, addressSortMode.value, addressSortValue.value));
   }
+
+  if (Array.isArray(rankedEvents.value)) list.sort(compareByRegistrationThenDistanceThenTitle);
+  else list.sort(compareByRegistrationThenDateThenTitle);
+
   return list;
+});
+
+const hasNearestResults = computed(() => Array.isArray(rankedEvents.value) && !!originSummary.value);
+
+function registrationSortWeight(ev) {
+  const s = registrationStatusKey(ev);
+  if (s === 'waitlist' || s === 'closed' || s === 'full') return 1;
+  return 0;
+}
+
+function compareByTitle(a, b) {
+  return String(eventPrimaryTitle(a) || '').localeCompare(String(eventPrimaryTitle(b) || ''), undefined, {
+    sensitivity: 'base'
+  });
+}
+
+function compareByDistanceThenTitle(a, b) {
+  const da = drivingDistanceDisplay(a);
+  const db = drivingDistanceDisplay(b);
+  const na = da == null ? Number.POSITIVE_INFINITY : Number(da);
+  const nb = db == null ? Number.POSITIVE_INFINITY : Number(db);
+  if (na !== nb) return na - nb;
+  return compareByTitle(a, b);
+}
+
+function compareByRegistrationThenDistanceThenTitle(a, b) {
+  const wa = registrationSortWeight(a);
+  const wb = registrationSortWeight(b);
+  if (wa !== wb) return wa - wb;
+  return compareByDistanceThenTitle(a, b);
+}
+
+function compareByRegistrationThenDateThenTitle(a, b) {
+  const wa = registrationSortWeight(a);
+  const wb = registrationSortWeight(b);
+  if (wa !== wb) return wa - wb;
+  const ta = new Date(a?.startsAt || 0).getTime();
+  const tb = new Date(b?.startsAt || 0).getTime();
+  const na = Number.isFinite(ta) ? ta : Number.POSITIVE_INFINITY;
+  const nb = Number.isFinite(tb) ? tb : Number.POSITIVE_INFINITY;
+  if (na !== nb) return na - nb;
+  return compareByTitle(a, b);
+}
+
+function sessionGroupLabel(ev) {
+  const label = String(ev?.publicSessionLabel || '').trim();
+  const range = String(ev?.publicSessionDateRange || '').trim();
+  const key = [label, range].filter(Boolean).join(' · ');
+  return key || 'Other sessions';
+}
+
+function sessionGroupKey(ev) {
+  const label = String(ev?.publicSessionLabel || '').trim();
+  const range = String(ev?.publicSessionDateRange || '').trim();
+  const key = [label, range].filter(Boolean).join(' · ');
+  return key || 'other';
+}
+
+const hubSessionGroups = computed(() => {
+  if (!hubSlugNorm.value) return [];
+  const byKey = new Map();
+  for (const ev of displayEvents.value || []) {
+    const k = sessionGroupKey(ev);
+    if (!byKey.has(k)) {
+      byKey.set(k, { key: k, label: sessionGroupLabel(ev), events: [] });
+    }
+    byKey.get(k).events.push(ev);
+  }
+  const groups = [...byKey.values()];
+
+  for (const g of groups) {
+    if (Array.isArray(rankedEvents.value)) g.events.sort(compareByRegistrationThenDistanceThenTitle);
+    else g.events.sort(compareByRegistrationThenDateThenTitle);
+  }
+
+  groups.sort((a, b) =>
+    String(a.label || '').localeCompare(String(b.label || ''), undefined, { sensitivity: 'base' })
+  );
+  return groups;
 });
 
 function eventSortGroupKeys(ev, mode) {
@@ -573,6 +815,139 @@ const distinctHubPartners = computed(() => {
     })
   );
 });
+
+function eventsForHubFilterOptions() {
+  let list = [...(baseEventList.value || [])];
+  const aid = hubAgencyFilterId.value;
+  if (aid != null && Number(aid) > 0) {
+    list = list.filter((ev) =>
+      (Array.isArray(ev.hubSourcePartners) ? ev.hubSourcePartners : []).some(
+        (p) => Number(p.sourceAgencyId) === Number(aid)
+      )
+    );
+  }
+  const locQuery = String(props.presetLocationQuery || '').trim().toLowerCase();
+  if (locQuery) {
+    list = list.filter((ev) => {
+      const fields = [
+        ev?.publicLocationAddress,
+        ev?.nearestVenueLabel,
+        ev?.title,
+        ...(Array.isArray(ev?.sessionLocations) ? ev.sessionLocations.map((s) => `${s?.label || ''} ${s?.address || ''}`) : [])
+      ];
+      return fields.some((v) => String(v || '').toLowerCase().includes(locQuery));
+    });
+  }
+  return list;
+}
+
+function sessionKeyParts(ev) {
+  const label = String(ev?.publicSessionLabel || '').trim();
+  const range = String(ev?.publicSessionDateRange || '').trim();
+  const key = [label, range].filter(Boolean).join(' · ');
+  return { key: key || 'other', label: key || 'Other sessions', sessionLabel: label || '', sessionDateRange: range || '' };
+}
+
+function metersToMiRounded(meters) {
+  const mi = Number(meters) / 1609.34;
+  if (!Number.isFinite(mi)) return null;
+  return mi < 10 ? Number(mi.toFixed(1)) : Math.round(mi);
+}
+
+const hubSessionFilterOptions = computed(() => {
+  if (!hubSlugNorm.value) return [];
+  const byKey = new Map();
+  for (const ev of eventsForHubFilterOptions() || []) {
+    const parts = sessionKeyParts(ev);
+    if (!byKey.has(parts.key)) {
+      byKey.set(parts.key, {
+        key: parts.key,
+        label: parts.label,
+        sessionLabel: parts.sessionLabel,
+        sessionDateRange: parts.sessionDateRange,
+        count: 0,
+        closestMeters: null
+      });
+    }
+    const row = byKey.get(parts.key);
+    row.count += 1;
+    if (hasNearestResults.value) {
+      const d = drivingDistanceDisplay(ev);
+      if (d != null && (row.closestMeters == null || d < row.closestMeters)) row.closestMeters = d;
+    }
+  }
+  const out = [...byKey.values()].map((o) => ({
+    ...o,
+    closestMi: hasNearestResults.value && o.closestMeters != null ? metersToMiRounded(o.closestMeters) : null
+  }));
+  out.sort((a, b) => String(a.label || '').localeCompare(String(b.label || ''), undefined, { sensitivity: 'base' }));
+  return out;
+});
+
+function isSessionFilterActive(opt) {
+  if (!opt) return false;
+  const sl = String(sessionLabelFilter.value || '').trim();
+  const dr = String(sessionDateRangeFilter.value || '').trim();
+  const oSl = String(opt.sessionLabel || '').trim();
+  const oDr = String(opt.sessionDateRange || '').trim();
+  if (!sl && !dr) return false;
+  if (oSl && sl && oSl !== sl) return false;
+  if (oDr && dr && oDr !== dr) return false;
+  if (oSl && sl && oDr && dr) return true;
+  if (oSl && sl && !oDr && !dr) return true;
+  if (!oSl && !sl && oDr && dr) return true;
+  return false;
+}
+
+function toggleSessionFilter(opt) {
+  if (isSessionFilterActive(opt)) {
+    clearSessionFilter();
+    return;
+  }
+  setSessionFilter(opt?.sessionLabel || '', opt?.sessionDateRange || '');
+}
+
+function sessionAccentHexForKey(key) {
+  const s = String(key || '').trim().toLowerCase();
+  // Curated palette that reads well in light + dark.
+  const palette = ['#a32623', '#2563eb', '#059669', '#7c3aed', '#d97706', '#0ea5e9'];
+  let h = 0;
+  for (let i = 0; i < s.length; i += 1) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return palette[h % palette.length];
+}
+
+function sessionAccentStyle(opt) {
+  const hex = sessionAccentHexForKey(opt?.key || opt?.label || opt?.sessionLabel || '');
+  return { '--pel-session-accent': hex };
+}
+
+function hubBannerLogoUrl(ev) {
+  if (!hubSlugNorm.value) return '';
+  const partners = hubPartnerEntries(ev);
+  if (!partners.length) return '';
+  if (partners.length === 1) return String(partners[0]?.sourceAgencyLogoUrl || '').trim();
+  const aid = hubAgencyFilterId.value;
+  if (aid != null) {
+    const match = partners.find((p) => Number(p?.sourceAgencyId) === Number(aid));
+    if (match?.sourceAgencyLogoUrl) return String(match.sourceAgencyLogoUrl).trim();
+  }
+  return '';
+}
+
+function hubBannerLogoAlt(ev) {
+  const partners = hubPartnerEntries(ev);
+  if (partners.length === 1) {
+    const n = String(partners[0]?.sourceAgencyName || '').trim();
+    return n ? `${n} logo` : 'Agency logo';
+  }
+  const aid = hubAgencyFilterId.value;
+  if (aid != null) {
+    const match = partners.find((p) => Number(p?.sourceAgencyId) === Number(aid));
+    const n = String(match?.sourceAgencyName || '').trim();
+    return n ? `${n} logo` : 'Agency logo';
+  }
+  return 'Agency logo';
+}
 
 const showHubTitle = computed(
   () => !(props.suppressPageTitle === true && !!hubSlugNorm.value) && String(props.pageTitle || '').trim()
@@ -708,9 +1083,9 @@ function clearAgencyFilter() {
   emit('hubAgencyFilterChange', null);
 }
 
-function setSessionFilter(label) {
+function setSessionFilter(label, dateRange) {
   sessionLabelFilter.value = String(label || '').trim();
-  sessionDateRangeFilter.value = '';
+  sessionDateRangeFilter.value = String(dateRange || '').trim();
 }
 
 function clearSessionFilter() {
@@ -840,6 +1215,7 @@ function registrationBannerText(ev) {
   if (custom) return custom;
   const s = registrationStatusKey(ev);
   if (s === 'limited') return 'Limited spots remaining';
+  if (s === 'full') return 'Full';
   if (s === 'waitlist') return 'Waitlist — registration not available online';
   if (s === 'closed') return 'Registration closed';
   return 'Open for registration';
@@ -847,7 +1223,7 @@ function registrationBannerText(ev) {
 
 function registrationCtaDisabled(ev) {
   const s = registrationStatusKey(ev);
-  return s === 'waitlist' || s === 'closed';
+  return s === 'waitlist' || s === 'closed' || s === 'full';
 }
 
 function googleMapsSearchUrl(address) {
@@ -1474,6 +1850,34 @@ defineExpose({ focusNearestInput });
   letter-spacing: 0.06em;
   text-transform: uppercase;
   border-bottom: 1px solid rgba(199, 210, 254, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pel-status-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pel-status-logo-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.pel-status-logo {
+  height: 16px;
+  width: auto;
+  display: block;
 }
 .pel-status-banner--open {
   background: rgba(34, 197, 94, 0.22);
@@ -1484,7 +1888,8 @@ defineExpose({ focusNearestInput });
   color: #fef3c7;
 }
 .pel-status-banner--waitlist,
-.pel-status-banner--closed {
+.pel-status-banner--closed,
+.pel-status-banner--full {
   background: rgba(248, 113, 113, 0.18);
   color: #fecaca;
 }
@@ -1519,6 +1924,87 @@ defineExpose({ focusNearestInput });
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+}
+
+.pel-card-hero-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  margin-top: 2px;
+}
+
+.pel-card-schedule--row {
+  margin: 0;
+}
+
+.pel-btn-register--row {
+  margin-top: 0;
+  margin-left: auto;
+}
+
+.pel-drive-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 0.85rem;
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  white-space: nowrap;
+}
+
+.pel-drive-pill--missing {
+  opacity: 0.8;
+  font-weight: 750;
+}
+
+.pel-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 0 0 10px;
+}
+
+.pel-meta-loc-name {
+  font-weight: 750;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.pel-meta-addr {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  text-decoration: underline;
+}
+
+.pel-meta-addr:hover {
+  color: #a5b4fc;
+}
+
+.pel-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 750;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.pel-meta-loc-inline {
+  font-size: 0.9rem;
+  line-height: 1.35;
 }
 
 .pel-card-meta-loc {
@@ -1824,6 +2310,142 @@ defineExpose({ focusNearestInput });
   font-family: var(--hub-font-body, Inter, sans-serif);
 }
 
+.pel-root--hub .pel-drive-pill {
+  background: rgba(148, 163, 184, 0.16);
+  color: var(--hub-text, #111827);
+  border-color: rgba(148, 163, 184, 0.26);
+  font-family: var(--hub-font-body, Inter, sans-serif);
+}
+
+.pel-root--hub .pel-drive-pill {
+  font-size: 0.9rem;
+  padding: 4px 10px;
+}
+
+.pel-root--hub .pel-drive-pill--missing {
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--hub-text-soft, #64748b);
+  border-color: rgba(148, 163, 184, 0.22);
+}
+
+.pel-root--hub .pel-meta-row {
+  margin-bottom: 10px;
+}
+
+.pel-root--hub .pel-meta-pill {
+  background: rgba(163, 38, 35, 0.08);
+  border-color: rgba(163, 38, 35, 0.18);
+  color: var(--hub-link-dark, #7a1f1d);
+  font-family: var(--hub-font-body, Inter, sans-serif);
+}
+
+.pel-root--hub .pel-meta-loc-inline {
+  color: var(--hub-text-muted, #4b5563);
+}
+
+.pel-root--hub .pel-meta-loc-name {
+  color: var(--hub-text, #111827);
+  font-family: var(--hub-font-body, Inter, sans-serif);
+}
+
+.pel-root--hub .pel-meta-addr {
+  color: var(--hub-text-muted, #4b5563);
+}
+
+.pmh-page--dark .pel-root--hub .pel-meta-pill {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.18);
+  color: rgba(226, 232, 240, 0.92);
+}
+
+.pmh-page--dark .pel-root--hub .pel-meta-loc-name {
+  color: rgba(226, 232, 240, 0.92);
+}
+
+.pmh-page--dark .pel-root--hub .pel-meta-addr {
+  color: rgba(226, 232, 240, 0.76);
+}
+
+.pel-root--hub .pel-btn-register {
+  min-height: 40px;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  border-radius: 12px;
+}
+
+.pel-root--hub .pel-thumb-maps--hero {
+  width: 92px;
+  height: 60px;
+}
+
+.pel-root--hub .pel-group {
+  margin: 0 0 20px;
+}
+
+.pel-root--hub .pel-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0 10px;
+  padding: 0 2px;
+}
+
+.pel-root--hub .pel-group-title {
+  font-family: var(--hub-font-display, 'Plus Jakarta Sans', Inter, sans-serif);
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin: 0;
+  color: var(--hub-text, #111827);
+}
+
+.pel-root--hub .pel-group-count {
+  font-size: 0.9rem;
+  font-weight: 750;
+  color: var(--hub-text-soft, #64748b);
+}
+
+.pel-root--hub .pel-list--group {
+  margin-top: 0;
+}
+
+.pel-root--hub .pel-card-hero {
+  gap: 14px;
+}
+
+.pel-root--hub .pel-card-body--compact {
+  padding-top: 10px;
+}
+
+.pel-root--hub .pel-desc--clamp,
+.pel-root--hub .pel-splash--clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.pel-root--hub .pel-venue--compact {
+  padding: 10px 12px;
+}
+
+.pmh-page--dark .pel-root--hub .pel-drive-pill {
+  background: rgba(148, 163, 184, 0.14);
+  color: rgba(226, 232, 240, 0.92);
+  border-color: rgba(148, 163, 184, 0.22);
+}
+
+.pmh-page--dark .pel-root--hub .pel-input {
+  background: rgba(15, 23, 42, 0.6);
+  border-color: rgba(148, 163, 184, 0.22);
+  color: rgba(226, 232, 240, 0.92);
+}
+
+.pmh-page--dark .pel-root--hub .pel-input::placeholder {
+  color: rgba(226, 232, 240, 0.55);
+}
+
 .pel-root--hub .pel-card {
   background: var(--hub-surface, #fff);
   border: 1px solid var(--hub-border, rgba(15, 23, 42, 0.06));
@@ -1836,16 +2458,25 @@ defineExpose({ focusNearestInput });
 .pel-root--hub .pel-card-title {
   color: var(--hub-text, #111827);
   font-family: var(--hub-font-display, 'Plus Jakarta Sans', Inter, sans-serif);
-  font-size: clamp(1.2rem, 3.8vw, 1.45rem);
+  font-size: clamp(1.05rem, 3.3vw, 1.25rem);
 }
 
 .pel-root--hub .pel-card-hero {
   border-bottom-color: var(--hub-border, rgba(15, 23, 42, 0.06));
 }
 
+.pel-root--hub .pel-card-hero {
+  padding: 14px 16px 12px;
+}
+
+.pel-root--hub .pel-card-body {
+  padding: 12px 16px 14px;
+}
+
 .pel-root--hub .pel-card-schedule {
   color: var(--hub-text-muted, #4b5563);
   font-family: var(--hub-font-body, Inter, sans-serif);
+  font-size: 0.92rem;
 }
 
 .pel-root--hub .pel-meta-kicker {
@@ -2155,19 +2786,134 @@ defineExpose({ focusNearestInput });
   overflow: visible;
 }
 
+.pel-hub-filter-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+  overflow-x: auto;
+  padding: 6px 4px 10px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.pel-hub-filter-row::-webkit-scrollbar {
+  height: 10px;
+}
+.pel-hub-filter-row::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+}
+.pel-hub-filter-row::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .pel-hub-filter-lead {
   margin: 0 0 10px;
   font-size: 0.82rem;
   text-align: center;
 }
 
-.pel-hub-logo-row {
+.pel-session-card {
+  flex: 0 0 128px;
+  width: 128px;
+  height: 128px;
+  border-radius: 18px;
+  padding: 12px 12px 10px;
+  text-align: left;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  cursor: pointer;
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  justify-content: center;
-  margin-bottom: 8px;
-  overflow: visible;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.pel-session-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 6px;
+  background: var(--pel-session-accent, var(--hub-brand, #a32623));
+}
+
+.pel-session-card:hover {
+  transform: translateY(-1px);
+  background: #fff;
+  border-color: color-mix(in srgb, var(--pel-session-accent, var(--hub-brand, #a32623)) 30%, rgba(15, 23, 42, 0.12));
+}
+
+.pel-session-card--active {
+  background: color-mix(in srgb, var(--pel-session-accent, var(--hub-brand, #a32623)) 9%, #fff);
+  border-color: color-mix(in srgb, var(--pel-session-accent, var(--hub-brand, #a32623)) 55%, rgba(15, 23, 42, 0.12));
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--pel-session-accent, var(--hub-brand, #a32623)) 22%, transparent);
+}
+
+.pel-session-card-title {
+  font-family: var(--hub-font-display, 'Plus Jakarta Sans', Inter, sans-serif);
+  font-weight: 850;
+  letter-spacing: -0.02em;
+  color: var(--hub-text, #111827);
+  line-height: 1.15;
+  font-size: 0.95rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.pel-session-card-sub {
+  color: var(--hub-text-muted, #4b5563);
+  font-family: var(--hub-font-body, Inter, sans-serif);
+  font-size: 0.82rem;
+  font-weight: 650;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.pel-session-card-foot {
+  color: var(--hub-text-soft, #64748b);
+  font-family: var(--hub-font-body, Inter, sans-serif);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.pmh-page--dark .pel-session-card {
+  background: rgba(17, 24, 39, 0.72);
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+.pmh-page--dark .pel-session-card:hover {
+  background: rgba(17, 24, 39, 0.82);
+  border-color: rgba(226, 232, 240, 0.2);
+}
+
+.pmh-page--dark .pel-session-card--active {
+  background: color-mix(in srgb, var(--pel-session-accent, #a32623) 22%, rgba(17, 24, 39, 0.82));
+  border-color: color-mix(in srgb, var(--pel-session-accent, #a32623) 70%, rgba(226, 232, 240, 0.2));
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
+}
+
+.pmh-page--dark .pel-session-card-title {
+  color: rgba(226, 232, 240, 0.95);
+}
+
+.pmh-page--dark .pel-session-card-sub {
+  color: rgba(226, 232, 240, 0.72);
+}
+
+.pmh-page--dark .pel-hub-filter-bar {
+  background: rgba(2, 6, 23, 0.55);
+  border-color: rgba(148, 163, 184, 0.18);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.35);
 }
 
 .pel-filter-active-row {
@@ -2457,8 +3203,8 @@ defineExpose({ focusNearestInput });
 }
 
 .pel-root--hub .pel-agency-logo-btn--bar {
-  width: 112px;
-  height: 112px;
+  width: 128px;
+  height: 128px;
   border-radius: 18px;
 }
 
