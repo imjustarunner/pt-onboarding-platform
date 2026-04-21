@@ -299,6 +299,130 @@ function buildNextActionsFromToolResults({ toolResults, allowedToolNames }) {
   return dedupeNextActions(actions);
 }
 
+function safeTitle(s, fallback = '') {
+  const t = String(s ?? '').trim();
+  return t || fallback;
+}
+
+function buildNextCardsFromToolResults({ toolResults, allowedToolNames }) {
+  const canOpen = allowedToolNames?.has?.('openEntity');
+  const canNav = allowedToolNames?.has?.('navigateTo');
+  const cards = [];
+
+  const pushCard = (c) => {
+    if (!c || typeof c !== 'object') return;
+    if (!c.title) return;
+    const actions = Array.isArray(c.actions) ? dedupeNextActions(c.actions) : [];
+    cards.push({
+      kind: String(c.kind || '').trim() || 'card',
+      title: safeTitle(c.title, ''),
+      subtitle: c.subtitle == null ? '' : String(c.subtitle),
+      details: c.details && typeof c.details === 'object' ? c.details : null,
+      actions
+    });
+  };
+
+  const schoolRes = lastOkToolResult(toolResults, 'searchSchools');
+  const schools = schoolRes?.result?.results;
+  if (Array.isArray(schools) && schools.length && canOpen) {
+    for (const s of schools.slice(0, 6)) {
+      const id = s?.id == null ? null : Number(s.id);
+      if (!id) continue;
+      const name = safeTitle(s.name, 'School');
+      const portalPath = s.portalPath || (s.slug ? `/${s.slug}/admin/school-portals` : null);
+      pushCard({
+        kind: 'school',
+        title: name,
+        subtitle: portalPath ? 'School portal' : '',
+        details: {
+          slug: s.slug || null,
+          portalPath: portalPath || null
+        },
+        actions: [
+          { type: 'tool', label: 'Open portal', toolCall: { name: 'openEntity', args: { kind: 'school', id } } },
+          ...(canNav ? [{ type: 'tool', label: 'School Portals Hub', toolCall: { name: 'navigateTo', args: { routeName: 'SchoolPortalsHub' } } }] : [])
+        ]
+      });
+    }
+  }
+
+  const eventRes = lastOkToolResult(toolResults, 'searchEvents');
+  const events = eventRes?.result?.results;
+  if (Array.isArray(events) && events.length && canOpen) {
+    for (const ev of events.slice(0, 6)) {
+      const id = ev?.id == null ? null : Number(ev.id);
+      if (!id) continue;
+      const title = safeTitle(ev.title, 'Event');
+      pushCard({
+        kind: 'event',
+        title,
+        subtitle: 'Program event',
+        details: {
+          startsAtIso: ev.startsAtIso || null,
+          endsAtIso: ev.endsAtIso || null,
+          timezone: ev.timezone || null
+        },
+        actions: [
+          { type: 'tool', label: 'Open event', toolCall: { name: 'openEntity', args: { kind: 'event', id } } },
+          ...(canNav ? [{ type: 'tool', label: 'All Program Events', toolCall: { name: 'navigateTo', args: { routeName: 'SkillBuildersProgramsEvents' } } }] : [])
+        ]
+      });
+    }
+  }
+
+  const userRes = lastOkToolResult(toolResults, 'searchUsers');
+  const users = userRes?.result?.results;
+  if (Array.isArray(users) && users.length && canOpen) {
+    for (const u of users.slice(0, 6)) {
+      const id = u?.id == null ? null : Number(u.id);
+      if (!id) continue;
+      const name = safeTitle(u.name || u.email, 'User');
+      pushCard({
+        kind: 'user',
+        title: name,
+        subtitle: 'User profile',
+        details: {
+          email: u.email || null,
+          role: u.role || null
+        },
+        actions: [
+          { type: 'tool', label: 'Open profile', toolCall: { name: 'openEntity', args: { kind: 'user', id } } },
+          ...(canNav ? [{ type: 'tool', label: 'User Manager', toolCall: { name: 'navigateTo', args: { routeName: 'UserManager' } } }] : [])
+        ]
+      });
+    }
+  }
+
+  const refRes = lastOkToolResult(toolResults, 'searchReferralDirectory');
+  const entries = refRes?.result?.entries;
+  if (Array.isArray(entries) && entries.length) {
+    for (const e of entries.slice(0, 6)) {
+      const name = safeTitle(e.name, 'Referral');
+      const org = safeTitle(e.organizationName, '');
+      const cat = safeTitle(e.category, '');
+      const phone = safeTitle(e.phone, '');
+      const subtitle = [org, cat].filter(Boolean).join(' · ');
+      pushCard({
+        kind: 'referral',
+        title: name,
+        subtitle,
+        details: {
+          phone: phone || null,
+          website: e.website || null,
+          email: e.email || null
+        },
+        actions: [
+          ...(canNav ? [{ type: 'tool', label: 'Open Referral Directory', toolCall: { name: 'navigateTo', args: { routeName: 'ReferralDirectory' } } }] : []),
+          { type: 'prefill', label: 'Refine referral search…', prefillText: 'Find referrals for ' }
+        ]
+      });
+    }
+  }
+
+  // Keep cards small and avoid flooding the UI.
+  return cards.slice(0, 8);
+}
+
 function buildAssistantReplyFromTools(assistantText, toolResults) {
   if (!assistantTextLooksLikeToolDump(assistantText)) return assistantText;
 
@@ -487,6 +611,7 @@ export const assist = async (req, res, next) => {
           toolCalls: [tc],
           toolResults,
           nextActions: [],
+          nextCards: [],
           runtime: 'client_action'
         });
       } catch (e) {
@@ -656,6 +781,7 @@ export const assist = async (req, res, next) => {
 
     assistantText = buildAssistantReplyFromTools(assistantText, toolResults);
     const nextActions = buildNextActionsFromToolResults({ toolResults, allowedToolNames });
+    const nextCards = buildNextCardsFromToolResults({ toolResults, allowedToolNames });
 
     // Non-blocking audit logging for the request itself.
     try {
@@ -684,6 +810,7 @@ export const assist = async (req, res, next) => {
       toolCalls,
       toolResults,
       nextActions,
+      nextCards,
       runtime
     });
   } catch (e) {

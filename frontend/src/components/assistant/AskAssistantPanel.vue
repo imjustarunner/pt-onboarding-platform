@@ -90,6 +90,60 @@
                     <span class="aap-nav-path">{{ nav }}</span>
                   </li>
                 </ul>
+                <div v-if="t.cards && t.cards.length" class="aap-cards">
+                  <div v-for="(c, i) in t.cards" :key="i" class="aap-card">
+                    <div class="aap-card-head">
+                      <div class="aap-card-title">{{ c.title }}</div>
+                      <div v-if="c.subtitle" class="aap-card-sub">{{ c.subtitle }}</div>
+                    </div>
+                    <div v-if="c.details" class="aap-card-details">
+                      <div v-if="c.details.portalPath" class="aap-card-detail">
+                        <span class="aap-card-k">Portal</span>
+                        <span class="aap-card-v mono">{{ c.details.portalPath }}</span>
+                      </div>
+                      <div v-if="c.details.slug" class="aap-card-detail">
+                        <span class="aap-card-k">Slug</span>
+                        <span class="aap-card-v mono">{{ c.details.slug }}</span>
+                      </div>
+                      <div v-if="c.details.email" class="aap-card-detail">
+                        <span class="aap-card-k">Email</span>
+                        <span class="aap-card-v">{{ c.details.email }}</span>
+                      </div>
+                      <div v-if="c.details.role" class="aap-card-detail">
+                        <span class="aap-card-k">Role</span>
+                        <span class="aap-card-v mono">{{ c.details.role }}</span>
+                      </div>
+                      <div v-if="c.details.phone" class="aap-card-detail">
+                        <span class="aap-card-k">Phone</span>
+                        <span class="aap-card-v">{{ c.details.phone }}</span>
+                      </div>
+                      <div v-if="c.details.website" class="aap-card-detail">
+                        <span class="aap-card-k">Website</span>
+                        <span class="aap-card-v mono">{{ c.details.website }}</span>
+                      </div>
+                      <div v-if="c.details.startsAtIso" class="aap-card-detail">
+                        <span class="aap-card-k">Starts</span>
+                        <span class="aap-card-v">{{ formatIso(c.details.startsAtIso, c.details.timezone) }}</span>
+                      </div>
+                      <div v-if="c.details.endsAtIso" class="aap-card-detail">
+                        <span class="aap-card-k">Ends</span>
+                        <span class="aap-card-v">{{ formatIso(c.details.endsAtIso, c.details.timezone) }}</span>
+                      </div>
+                    </div>
+                    <div v-if="c.actions && c.actions.length" class="aap-card-actions">
+                      <button
+                        v-for="(a, j) in c.actions"
+                        :key="j"
+                        type="button"
+                        class="aap-card-btn"
+                        :disabled="busy"
+                        @click="handleActionClick(a)"
+                      >
+                        {{ a.label }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
                 <div v-if="t.actions && t.actions.length" class="aap-actions">
                   <button
                     v-for="(a, i) in t.actions"
@@ -378,7 +432,8 @@ async function submit() {
       role: 'assistant',
       text: String(data.assistantText || '').trim() || '(No response)',
       navs,
-      actions: Array.isArray(data.nextActions) ? data.nextActions : []
+      actions: Array.isArray(data.nextActions) ? data.nextActions : [],
+      cards: Array.isArray(data.nextCards) ? data.nextCards : []
     });
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Assistant request failed';
@@ -449,7 +504,8 @@ async function runNextAction(a) {
       role: 'assistant',
       text: String(data.assistantText || '').trim() || '(No response)',
       navs,
-      actions: Array.isArray(data.nextActions) ? data.nextActions : []
+      actions: Array.isArray(data.nextActions) ? data.nextActions : [],
+      cards: Array.isArray(data.nextCards) ? data.nextCards : []
     });
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Action failed';
@@ -462,6 +518,25 @@ async function runNextAction(a) {
     } catch {
       /* noop */
     }
+  }
+}
+
+function formatIso(iso, timezone) {
+  const s = String(iso || '').trim();
+  if (!s) return '';
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s;
+  try {
+    // We display in the user's local timezone; the event timezone is shown in the string if provided.
+    const fmt = new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    });
+    const base = fmt.format(d);
+    const tz = String(timezone || '').trim();
+    return tz ? `${base} (${tz})` : base;
+  } catch {
+    return d.toLocaleString();
   }
 }
 
@@ -951,6 +1026,99 @@ onUnmounted(() => {
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
+}
+
+.aap-cards {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.aap-card {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.9), rgba(255, 255, 255, 1));
+  padding: 10px 12px;
+}
+
+.aap-card-title {
+  font-weight: 850;
+  font-size: 13px;
+  line-height: 1.25;
+  color: var(--aap-slate);
+}
+
+.aap-card-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--aap-muted);
+  line-height: 1.25;
+}
+
+.aap-card-details {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.aap-card-detail {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.aap-card-k {
+  min-width: 52px;
+  font-weight: 800;
+  color: var(--aap-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 10px;
+}
+
+.aap-card-v {
+  color: var(--aap-slate);
+  word-break: break-word;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+
+.aap-card-actions {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.aap-card-btn {
+  border: 1px solid rgba(13, 148, 136, 0.25);
+  background: rgba(13, 148, 136, 0.06);
+  color: var(--aap-teal-d);
+  border-radius: 999px;
+  padding: 7px 10px;
+  font-weight: 800;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+}
+
+.aap-card-btn:hover:not(:disabled) {
+  background: rgba(13, 148, 136, 0.12);
+  border-color: rgba(13, 148, 136, 0.4);
+  transform: translateY(-1px);
+}
+
+.aap-card-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
 }
 
 /* Typing */
