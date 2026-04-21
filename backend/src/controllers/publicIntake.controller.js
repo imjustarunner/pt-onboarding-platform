@@ -864,7 +864,14 @@ const buildMergedDemographicsForPersist = (submission = {}, perClientResponses =
       clinical.client_preferred_language || base.preferredLanguage
     ),
     grade: pickPerChild('client_grade', clinical.client_grade || base.grade),
-    guardianPreferredLanguage: clinical.guardian_preferred_language || base.guardianPreferredLanguage,
+    // guardian_preferred_language is conceptually submission-level, but some
+    // forms (notably per-child clinical question steps) serialize it inside
+    // each `responses.clients[i]` bag. Prefer the per-child value when present
+    // so the Overview's `primary_parent_language` mirrors correctly.
+    guardianPreferredLanguage: pickPerChild(
+      'guardian_preferred_language',
+      clinical.guardian_preferred_language || base.guardianPreferredLanguage
+    ),
     dob: pickPerChild('client_dob', base.dob),
     gender: pickPerChild('client_sex', base.gender || pickPerChild('client_gender', null)),
     ethnicity: pickPerChild('client_ethnicity', base.ethnicity),

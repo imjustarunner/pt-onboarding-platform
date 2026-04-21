@@ -563,7 +563,7 @@
                     <template v-if="editingOverview">
                       <input v-model="overviewForm.primary_parent_language" class="inline-input" placeholder="e.g., Spanish" />
                     </template>
-                    <template v-else>{{ client.primary_parent_language || '-' }}</template>
+                    <template v-else>{{ client.primary_parent_language || guardianIntakeProfile?.primaryLanguage || '-' }}</template>
                   </div>
                 </div>
               </div>
@@ -3230,7 +3230,14 @@ const hydrateOverviewForm = () => {
     return normalizeGradeToStandard(raw) || raw;
   })();
   overviewForm.value.primary_client_language = String(props.client?.primary_client_language || '');
-  overviewForm.value.primary_parent_language = String(props.client?.primary_parent_language || '');
+  // Backward-compatible fallback: older intakes stored guardian language only
+  // on the guardian intake profile (encrypted JSON) and not in
+  // clients.primary_parent_language.
+  overviewForm.value.primary_parent_language = String(
+    props.client?.primary_parent_language
+    || guardianIntakeProfile.value?.primaryLanguage
+    || ''
+  );
   overviewForm.value.skills = isSkillsClientFlag(props.client?.skills);
   overviewForm.value.referral_date = props.client?.referral_date ? String(props.client.referral_date).slice(0, 10) : '';
   overviewForm.value.source = String(props.client?.source || '');
