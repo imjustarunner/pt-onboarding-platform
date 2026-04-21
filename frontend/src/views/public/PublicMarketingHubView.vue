@@ -651,13 +651,13 @@
         <div
           v-if="skillbuildersSessionPickerVisible"
           class="sb-skillbuilders-sessions"
+          :class="{ 'sb-skillbuilders-sessions--awaiting': skillbuildersAwaitingSessionChoice }"
           role="region"
           aria-label="Choose a program session"
         >
           <p class="sb-skillbuilders-sessions-title">Choose a session</p>
           <p class="sb-skillbuilders-sessions-hint">
-            Pick a week, then every site for that session appears below. You can still enter your address to sort by
-            shortest drive.
+            Pick a session below to reveal the available sites and registration for those dates.
           </p>
           <div class="sb-skillbuilders-sessions-row">
             <button
@@ -672,10 +672,13 @@
               <span v-if="s.displaySubtitle" class="sb-skillbuilders-session-chip-sub">{{ s.displaySubtitle }}</span>
             </button>
           </div>
+          <p v-if="skillbuildersAwaitingSessionChoice" class="sb-skillbuilders-sessions-callout" role="status">
+            Select a session to see what’s available.
+          </p>
         </div>
         <PublicEventsListing
           ref="eventsListingRef"
-          v-if="!error"
+          v-if="!error && !skillbuildersAwaitingSessionChoice"
           :page-title="displayHeadline"
           :page-subtitle="listingSubtitle"
           :events="eventsForPublicListing"
@@ -3582,19 +3585,39 @@ watch(hubSlug, () => {
   align-items: flex-start;
   gap: 2px;
   border-radius: 14px;
-  padding: 10px 14px;
+  flex: 1 1 210px;
+  min-width: min(210px, 100%);
+  padding: 12px 16px;
   text-align: left;
+  border-width: 2px;
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease,
+    transform 0.15s ease;
+}
+
+.pmh-chip-btn--session:hover {
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
+  transform: translateY(-1px);
+}
+
+.pmh-chip-btn--session:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--hub-brand, #a32623) 45%, #ffffff);
+  outline-offset: 2px;
 }
 
 .pmh-chip-session-title {
   font-weight: 800;
-  font-size: 0.9rem;
+  font-size: 1rem;
 }
 
 .pmh-chip-session-sub {
-  font-size: 0.78rem;
+  font-size: 0.85rem;
   font-weight: 600;
-  color: var(--hub-text-soft);
+  color: var(--hub-text-muted);
 }
 
 .pmh-cta-band {
@@ -4169,24 +4192,33 @@ watch(hubSlug, () => {
 }
 
 .sb-skillbuilders-session-chip {
-  border: 1px solid rgba(163, 38, 35, 0.35);
-  background: #fff;
+  flex: 1 1 210px;
+  border: 2px solid rgba(163, 38, 35, 0.45);
+  background: color-mix(in srgb, #ffffff 92%, rgba(163, 38, 35, 0.06));
   color: var(--hub-link-dark, #7a1f1d);
   border-radius: 14px;
-  padding: 10px 14px;
+  padding: 12px 16px;
   cursor: pointer;
   text-align: left;
-  min-width: min(200px, 100%);
+  min-width: min(210px, 100%);
   font-family: var(--hub-font-display, inherit);
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease,
-    background 0.15s ease;
+    background 0.15s ease,
+    transform 0.15s ease;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
 }
 
 .sb-skillbuilders-session-chip:hover {
-  border-color: rgba(163, 38, 35, 0.55);
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+  border-color: rgba(163, 38, 35, 0.75);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
+  transform: translateY(-1px);
+}
+
+.sb-skillbuilders-session-chip:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--hub-brand, #a32623) 45%, #ffffff);
+  outline-offset: 2px;
 }
 
 .sb-skillbuilders-session-chip.active {
@@ -4198,14 +4230,50 @@ watch(hubSlug, () => {
 .sb-skillbuilders-session-chip-title {
   display: block;
   font-weight: 800;
-  font-size: 0.95rem;
+  font-size: 1rem;
 }
 
 .sb-skillbuilders-session-chip-sub {
   display: block;
   margin-top: 4px;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   font-weight: 600;
-  color: var(--hub-text-muted, #64748b);
+  color: color-mix(in srgb, var(--hub-text, #0f172a) 72%, #64748b);
+}
+
+.sb-skillbuilders-sessions-callout {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--hub-brand, #a32623) 10%, #ffffff);
+  border: 1px solid color-mix(in srgb, var(--hub-brand, #a32623) 22%, rgba(15, 23, 42, 0.08));
+  color: var(--hub-text, #0f172a);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.sb-skillbuilders-sessions--awaiting .sb-skillbuilders-session-chip:not(.active) {
+  animation: sb-session-pulse 1.5s ease-in-out 4;
+}
+
+@keyframes sb-session-pulse {
+  0%,
+  100% {
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+  }
+  50% {
+    box-shadow:
+      0 16px 36px rgba(15, 23, 42, 0.14),
+      0 0 0 5px rgba(163, 38, 35, 0.12);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sb-skillbuilders-sessions--awaiting .sb-skillbuilders-session-chip:not(.active) {
+    animation: none;
+  }
+  .sb-skillbuilders-session-chip {
+    transition: none;
+  }
 }
 </style>
