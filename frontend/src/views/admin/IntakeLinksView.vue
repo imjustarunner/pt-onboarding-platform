@@ -855,7 +855,7 @@
                   <div class="form-group" style="grid-column: 1 / -1;">
                     <label>Waiver sections</label>
                     <div class="muted" style="margin-bottom: 8px;">
-                      Signers complete pickup, emergency contacts, allergies/meals, and e-sign consent. Saved to the
+                      Signers complete pickup or walk-home release authorization, emergency contacts, allergies/meals, and e-sign consent. Saved to the
                       guardian–client waiver profile when the agency has <code>guardianWaiversEnabled</code>. Kiosk “required”
                       sections follow each <strong>program site</strong> (and optional event), not this form’s scope alone.
                     </div>
@@ -1671,7 +1671,7 @@
             <div v-if="selectedAddOnPreviewId === 'guardian_waiver'" class="addon-preview-form">
               <PublicIntakeGuardianWaiverStep
                 :model-value="previewGuardianWaivers"
-                :section-keys="['pickup_authorization', 'emergency_contacts', 'allergies_snacks', 'meal_preferences']"
+                :section-keys="['pickup_authorization', 'walk_home_authorization', 'emergency_contacts', 'allergies_snacks', 'meal_preferences']"
                 :client-labels="['Client 1']"
                 :guardian-default-pickup="{ name: 'Demo Guardian', relationship: 'Parent/Guardian', phone: '(555) 555-0101' }"
                 saved-signature-data="data:image/png;base64,preview"
@@ -2762,6 +2762,7 @@ const getStepTypeLabel = (t) => {
 
 const guardianWaiverSectionOptions = [
   { value: 'pickup_authorization', label: 'Pickup authorization' },
+  { value: 'walk_home_authorization', label: 'Walk-home authorization (release unaccompanied)' },
   { value: 'emergency_contacts', label: 'Emergency contacts' },
   { value: 'allergies_snacks', label: 'Allergies & snacks (always recommended)' },
   { value: 'meal_preferences', label: 'Meal preferences (only if event provides meals)' }
@@ -4095,6 +4096,7 @@ const sanitizeSteps = (steps, { formType } = {}) => {
           : 'always';
         const allowed = new Set([
           'pickup_authorization',
+          'walk_home_authorization',
           'emergency_contacts',
           'allergies_snacks',
           'meal_preferences'
@@ -4103,6 +4105,13 @@ const sanitizeSteps = (steps, { formType } = {}) => {
         let keys = [...new Set(raw.map((k) => String(k || '').trim()).filter((k) => allowed.has(k)))];
         if (!keys.length) {
           keys = [...allowed];
+        }
+        // Backfill rule: if pickup authorization is enabled, default-enable the
+        // walk-home authorization section too. This keeps older saved forms
+        // (that predate the new waiver) from missing the walk-home release
+        // authorization and ensures admins see it checked automatically.
+        if (keys.includes('pickup_authorization') && !keys.includes('walk_home_authorization')) {
+          keys.push('walk_home_authorization');
         }
         next.sectionKeys = keys;
       } else if (next.type === 'communications') {
@@ -4231,6 +4240,7 @@ const addStep = (type, options = {}) => {
     step.visibility = 'always';
     step.sectionKeys = [
       'pickup_authorization',
+      'walk_home_authorization',
       'emergency_contacts',
       'allergies_snacks',
       'meal_preferences'
