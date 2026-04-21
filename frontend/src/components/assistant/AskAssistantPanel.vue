@@ -21,7 +21,7 @@
           </div>
           <div class="aap-head-text">
             <div class="aap-title">Assistant</div>
-            <div class="aap-sub">Navigate · schools &amp; events · referrals · payroll · activity</div>
+            <div class="aap-sub">{{ subtitle }}</div>
           </div>
         </div>
         <div class="aap-head-actions">
@@ -90,6 +90,18 @@
                     <span class="aap-nav-path">{{ nav }}</span>
                   </li>
                 </ul>
+                <div v-if="t.actions && t.actions.length" class="aap-actions">
+                  <button
+                    v-for="(a, i) in t.actions"
+                    :key="i"
+                    type="button"
+                    class="aap-action"
+                    :disabled="busy"
+                    @click="handleActionClick(a)"
+                  >
+                    {{ a.label }}
+                  </button>
+                </div>
               </div>
             </div>
           </li>
@@ -185,20 +197,54 @@ const route = useRoute();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 
-const ADMIN_AUDIT_ROLES = new Set(['admin', 'super_admin', 'support']);
+const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase().trim());
+const isSuperAdmin = computed(() => roleNorm.value === 'super_admin' || roleNorm.value === 'superadmin');
+const isAdminLike = computed(() => ['admin', 'support', 'staff'].includes(roleNorm.value) || isSuperAdmin.value);
+const isProviderLike = computed(() =>
+  ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'supervisor'].includes(roleNorm.value)
+);
+
+const subtitle = computed(() => {
+  if (isAdminLike.value) return 'Navigate · schools & events · referrals · audit activity';
+  if (isProviderLike.value) return 'Navigate · schedule · referrals · recent activity';
+  return 'Navigate · referrals · recent activity';
+});
+
 const suggestions = computed(() => {
-  const role = String(authStore.user?.role || '').toLowerCase();
-  const base = [
-    'I need a few pediatrics or psychiatry referrals for my client',
-    'When did I last log in?',
-    'Show me what I did today',
-    'Take me to my schedule'
-  ];
-  if (ADMIN_AUDIT_ROLES.has(role)) {
-    base.push('What activity happened in my agency this week?');
-    base.push('Who sent password reset links in the last 7 days?');
+  const s = [];
+  const rn = String(route?.name || '').toLowerCase();
+
+  // Provider-first defaults
+  if (isProviderLike.value) {
+    s.push('Take me to my schedule');
+    s.push('I need a few pediatrics or psychiatry referrals for my client');
+    s.push('Show me what I did today');
+    s.push('When did I last log in?');
+  } else {
+    // Everyone else still gets safe, personal prompts
+    s.push('Show me what I did today');
+    s.push('When did I last log in?');
+    s.push('I need a few pediatrics or psychiatry referrals for my client');
   }
-  return base;
+
+  // Route/context boosts (still safe)
+  if (rn.includes('skillbuilders') || rn.includes('program') || String(route?.path || '').includes('/program-events')) {
+    s.unshift('Find the program event called "Orientation"');
+  }
+  if (String(route?.path || '').includes('/referral-directory')) {
+    s.unshift('Find pediatric psychiatry referrals');
+  }
+
+  // Admin-only prompts
+  if (isAdminLike.value) {
+    s.push('What activity happened in my agency this week?');
+    if (isSuperAdmin.value) {
+      s.push('Who sent password reset links in the last 7 days?');
+    }
+  }
+
+  // Keep it short + stable
+  return Array.from(new Set(s)).slice(0, 6);
 });
 
 const prompt = ref('');
@@ -325,15 +371,75 @@ async function submit() {
     scrollTurnsToBottom();
   });
   try {
+    const resp = await api.post('/agents/assist', { prompt: q, context: buildContextPayload() }, { skipGlobalLoading: true });
+    const data = resp?.data || {};
+    const navs = await executeUiCommands(data.uiCommands);
+    turns.value.push({
+      role: 'assistant',
+      text: String(data.assistantText || '').trim() || '(No response)',
+      navs,
+      actions: Array.isArray(data.nextActions) ? data.nextActions : []
+    });
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Assistant request failed';
+  } finally {
+    busy.value = false;
+    await nextTick();
+    scrollTurnsToBottom();
+    try {
+      textareaRef.value?.focus?.();
+    } catch {
+      /* noop */
+    }
+  }
+}
+
+function buildContextPayload() {
+  return {
+    routeName: route?.name ? String(route.name) : '',
+    placementKey: 'ask_assistant',
+    agencyId: agencyStore.currentAgency?.id || authStore.user?.agencyId || null
+  };
+}
+
+function prefillActionText(a) {
+  const t = a?.prefillText == null ? '' : String(a.prefillText);
+  return t.trim();
+}
+
+function handleActionClick(a) {
+  const type = String(a?.type || '').trim() || (a?.toolCall ? 'tool' : a?.prefillText ? 'prefill' : '');
+  if (type === 'prefill') {
+    const txt = prefillActionText(a);
+    if (!txt) return;
+    prompt.value = txt;
+    nextTick(() => {
+      textareaRef.value?.focus?.();
+      autoGrow();
+    });
+    return;
+  }
+  runNextAction(a);
+}
+
+async function runNextAction(a) {
+  if (!a || busy.value) return;
+  const label = String(a.label || '').trim() || 'Run action';
+  const toolCall = a.toolCall && typeof a.toolCall === 'object' ? a.toolCall : null;
+  if (!toolCall) return;
+
+  busy.value = true;
+  error.value = '';
+  turns.value.push({ role: 'user', text: label });
+  nextTick(() => scrollTurnsToBottom());
+
+  try {
     const resp = await api.post(
       '/agents/assist',
       {
-        prompt: q,
-        context: {
-          routeName: route?.name ? String(route.name) : '',
-          placementKey: 'ask_assistant',
-          agencyId: agencyStore.currentAgency?.id || authStore.user?.agencyId || null
-        }
+        prompt: '',
+        clientAction: { toolCall },
+        context: buildContextPayload()
       },
       { skipGlobalLoading: true }
     );
@@ -342,10 +448,11 @@ async function submit() {
     turns.value.push({
       role: 'assistant',
       text: String(data.assistantText || '').trim() || '(No response)',
-      navs
+      navs,
+      actions: Array.isArray(data.nextActions) ? data.nextActions : []
     });
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Assistant request failed';
+    error.value = e?.response?.data?.error?.message || e?.message || 'Action failed';
   } finally {
     busy.value = false;
     await nextTick();
@@ -810,6 +917,40 @@ onUnmounted(() => {
 .aap-msg.is-user .aap-nav-item {
   background: rgba(255, 255, 255, 0.15);
   color: #e0e7ff;
+}
+
+.aap-actions {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.aap-action {
+  text-align: left;
+  width: 100%;
+  padding: 9px 12px;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--aap-slate);
+  background: linear-gradient(180deg, rgba(13, 148, 136, 0.08), rgba(13, 148, 136, 0.03));
+  border: 1px solid rgba(13, 148, 136, 0.25);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.aap-action:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(13, 148, 136, 0.4);
+  box-shadow: 0 6px 18px rgba(13, 148, 136, 0.12);
+}
+
+.aap-action:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 /* Typing */

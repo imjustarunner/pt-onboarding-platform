@@ -104,10 +104,12 @@ async function assertCanManageHiring(reqUser) {
 // ---------------------------------------------------------------------------
 
 const NAVIGATION_ROUTE_WHITELIST = {
-  // Dashboards / core
+  // Dashboards / core (match frontend router paths)
   Dashboard: { path: '/dashboard', roles: null },
-  MySchedule: { path: '/my-schedule', roles: null },
-  MyAccount: { path: '/my-account', roles: null },
+  Schedule: { path: '/schedule', roles: null },
+  AccountInfo: { path: '/account-info', roles: null },
+  Preferences: { path: '/preferences', roles: null },
+  Credentials: { path: '/credentials', roles: null },
   Notifications: { path: '/admin/notifications', roles: null },
 
   // Admin surfaces (gated via requiresRole in router; tool checks role too)
@@ -117,7 +119,8 @@ const NAVIGATION_ROUTE_WHITELIST = {
   SchoolPortalsHub: { path: '/admin/school-portals-hub', roles: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'] },
   SkillBuildersProgramsEvents: { path: '/admin/program-events', roles: ['admin', 'staff', 'support', 'super_admin', 'provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'] },
   ProviderDirectory: { path: '/admin/provider-directory', roles: ['admin', 'support', 'staff', 'super_admin'] },
-  HiringCandidates: { path: '/admin/hiring-candidates', roles: ['admin', 'super_admin'] }
+  HiringCandidates: { path: '/admin/hiring-candidates', roles: ['admin', 'super_admin'] },
+  AuditCenter: { path: '/admin/audit-center', roles: ['admin', 'support', 'super_admin'] }
 };
 
 const ENTITY_KINDS = new Set(['school', 'event', 'user']);

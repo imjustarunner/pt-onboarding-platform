@@ -124,6 +124,181 @@ function assistantTextLooksLikeToolDump(t) {
   return false;
 }
 
+function resolveNavigateRouteNameFromPrompt(promptLower) {
+  const s = String(promptLower || '').toLowerCase();
+  if (!s) return null;
+
+  // Prefer more specific intents first.
+  if (/\b(referral|referrals|referral directory)\b/.test(s)) return 'ReferralDirectory';
+  if (/\b(client|clients|client management)\b/.test(s)) return 'ClientManagement';
+  if (/\b(school portal|school portals|portals hub|school-portals)\b/.test(s)) return 'SchoolPortalsHub';
+  if (/\b(program events|program event|skill builders|events)\b/.test(s)) return 'SkillBuildersProgramsEvents';
+  if (/\b(notification|notifications)\b/.test(s)) return 'Notifications';
+  if (/\b(user manager|users)\b/.test(s)) return 'UserManager';
+  if (/\b(credentials)\b/.test(s)) return 'Credentials';
+  if (/\b(preferences)\b/.test(s)) return 'Preferences';
+  if (/\b(account|profile|my account|account info)\b/.test(s)) return 'AccountInfo';
+  if (/\b(schedule|calendar)\b/.test(s)) return 'Schedule';
+  if (/\b(dashboard|home)\b/.test(s)) return 'Dashboard';
+
+  return null;
+}
+
+function guessSchoolQueryFromPrompt(promptLower) {
+  const raw = String(promptLower || '').toLowerCase();
+  if (!raw) return '';
+  return raw
+    .replace(/\b(take me to|go to|navigate to|navigate|open|visit|show me|find)\b/g, ' ')
+    .replace(/\b(the|a|an|please|could you|can you|for me)\b/g, ' ')
+    .replace(/\b(school|schools|portal|portals|hub)\b/g, ' ')
+    .replace(/[^a-z0-9\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+}
+
+function lastOkToolResult(toolResults, toolName) {
+  for (let i = (toolResults || []).length - 1; i >= 0; i--) {
+    const r = toolResults[i];
+    if (r?.ok && r.tool === toolName) return r;
+  }
+  return null;
+}
+
+function dedupeNextActions(actions) {
+  const seen = new Set();
+  const out = [];
+  for (const a of actions || []) {
+    const type = String(a?.type || '').trim() || (a?.toolCall ? 'tool' : a?.prefillText ? 'prefill' : '');
+    const label = String(a?.label || '').trim();
+    const tc = a?.toolCall && typeof a.toolCall === 'object' ? a.toolCall : null;
+    const name = String(tc?.name || '').trim();
+    const args = tc?.args && typeof tc.args === 'object' ? tc.args : {};
+    const prefillText = a?.prefillText == null ? '' : String(a.prefillText);
+    if (!label) continue;
+    if (type === 'tool' && !name) continue;
+    if (type === 'prefill' && !String(prefillText || '').trim()) continue;
+    const k = `${type}::${label}::${name}::${JSON.stringify(args)}::${prefillText}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    if (type === 'tool') out.push({ type: 'tool', label, toolCall: { name, args } });
+    else if (type === 'prefill') out.push({ type: 'prefill', label, prefillText });
+    else continue;
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
+function buildNextActionsFromToolResults({ toolResults, allowedToolNames }) {
+  const actions = [];
+  const canOpen = allowedToolNames?.has?.('openEntity');
+  const canNav = allowedToolNames?.has?.('navigateTo');
+  const openedKinds = new Set(
+    (toolResults || [])
+      .filter((r) => r?.ok && r.tool === 'openEntity' && r.result?.kind)
+      .map((r) => String(r.result.kind))
+  );
+
+  if (canOpen) {
+    const schoolRes = lastOkToolResult(toolResults, 'searchSchools');
+    const schools = schoolRes?.result?.results;
+    if (Array.isArray(schools) && schools.length >= 1 && !openedKinds.has('school')) {
+      for (const s of schools.slice(0, 6)) {
+        if (s?.id == null) continue;
+        const nm = String(s.name || '').trim() || 'School';
+        actions.push({
+          type: 'tool',
+          label: `Open ${nm} portal`,
+          toolCall: { name: 'openEntity', args: { kind: 'school', id: Number(s.id) } }
+        });
+      }
+      if (canNav) {
+        actions.push({ type: 'tool', label: 'Open School Portals Hub', toolCall: { name: 'navigateTo', args: { routeName: 'SchoolPortalsHub' } } });
+        actions.push({
+          type: 'prefill',
+          label: 'Refine the school search…',
+          prefillText: 'Find the school portal for '
+        });
+      }
+    }
+
+    const eventRes = lastOkToolResult(toolResults, 'searchEvents');
+    const events = eventRes?.result?.results;
+    if (Array.isArray(events) && events.length >= 1 && !openedKinds.has('event')) {
+      for (const ev of events.slice(0, 6)) {
+        if (ev?.id == null) continue;
+        const title = String(ev.title || '').trim() || 'Event';
+        actions.push({
+          type: 'tool',
+          label: `Open event: ${title}`,
+          toolCall: { name: 'openEntity', args: { kind: 'event', id: Number(ev.id) } }
+        });
+      }
+      if (canNav) {
+        actions.push({
+          type: 'tool',
+          label: 'Open Program Events',
+          toolCall: { name: 'navigateTo', args: { routeName: 'SkillBuildersProgramsEvents' } }
+        });
+        actions.push({
+          type: 'prefill',
+          label: 'Search events in a date range…',
+          prefillText: 'Find program events between 2026-01-01 and 2026-01-31 called '
+        });
+      }
+    }
+
+    const userRes = lastOkToolResult(toolResults, 'searchUsers');
+    const users = userRes?.result?.results;
+    if (Array.isArray(users) && users.length >= 1 && !openedKinds.has('user')) {
+      for (const u of users.slice(0, 6)) {
+        if (u?.id == null) continue;
+        const nm = String(u.name || u.email || '').trim() || 'User';
+        actions.push({
+          type: 'tool',
+          label: `Open profile: ${nm}`,
+          toolCall: { name: 'openEntity', args: { kind: 'user', id: Number(u.id) } }
+        });
+      }
+      if (canNav) {
+        actions.push({ type: 'tool', label: 'Open User Manager', toolCall: { name: 'navigateTo', args: { routeName: 'UserManager' } } });
+      }
+    }
+  }
+
+  if (canNav) {
+    const ref = lastOkToolResult(toolResults, 'searchReferralDirectory');
+    const entries = ref?.result?.entries;
+    if (Array.isArray(entries) && entries.length > 0) {
+      actions.push({
+        type: 'tool',
+        label: 'Open Referral Directory',
+        toolCall: { name: 'navigateTo', args: { routeName: 'ReferralDirectory' } }
+      });
+      actions.push({
+        type: 'prefill',
+        label: 'Search referrals with different specialties…',
+        prefillText: 'Find referrals for '
+      });
+    }
+  }
+
+  // "What next?" helpers for common tools (safe + personal)
+  const myAct = lastOkToolResult(toolResults, 'listMyRecentActivity');
+  if (myAct?.ok) {
+    actions.push({ type: 'prefill', label: 'Show just my logins (last 7 days)', prefillText: 'Show my logins in the last 7 days' });
+    actions.push({ type: 'prefill', label: 'Show what I did this week', prefillText: 'Show me what I did this week' });
+  }
+
+  const agencyAct = lastOkToolResult(toolResults, 'searchAgencyActivity');
+  if (agencyAct?.ok && canNav) {
+    actions.push({ type: 'tool', label: 'Open Audit Center', toolCall: { name: 'navigateTo', args: { routeName: 'AuditCenter' } } });
+    actions.push({ type: 'prefill', label: 'Filter audit: password reset links (last 7 days)', prefillText: 'Who sent password reset links in the last 7 days?' });
+  }
+
+  return dedupeNextActions(actions);
+}
+
 function buildAssistantReplyFromTools(assistantText, toolResults) {
   if (!assistantTextLooksLikeToolDump(assistantText)) return assistantText;
 
@@ -143,7 +318,7 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
       else if (list.length === 1 && openedSchool) {
         /* openEntity row already explains the navigation */
       } else if (list.length === 1) {
-        lines.push(`Found: ${list[0].name}. Say “open it” if you want the school portal.`);
+        lines.push(`Found: ${list[0].name}. Want to open it?`);
       } else lines.push(`Found ${list.length} schools: ${list.map((x) => x.name).join(', ')}. Say which one to open.`);
     } else if (r.tool === 'searchEvents') {
       const list = r.result?.results || [];
@@ -151,7 +326,7 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
       else if (list.length === 1 && openedEvent) {
         /* openEntity covers it */
       } else if (list.length === 1) {
-        lines.push(`Found event: ${list[0].title}. Say “open it” to open that event.`);
+        lines.push(`Found event: ${list[0].title}. Want to open it?`);
       } else lines.push(`Found ${list.length} events: ${list.map((x) => x.title).join('; ')}. Say which one to open.`);
     } else if (r.tool === 'searchUsers') {
       const list = r.result?.results || [];
@@ -159,7 +334,7 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
       else if (list.length === 1 && openedUser) {
         /* openEntity covers it */
       } else if (list.length === 1) {
-        lines.push(`Found: ${list[0].name || list[0].email || 'user'}. Say “open profile” to open them.`);
+        lines.push(`Found: ${list[0].name || list[0].email || 'user'}. Want to open their profile?`);
       } else lines.push(`Found ${list.length} people: ${list.map((x) => x.name || x.email).join(', ')}. Say which one to open.`);
     } else if (r.tool === 'openEntity') {
       const nm = r.result?.name || r.result?.title || '';
@@ -260,11 +435,15 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
 
 export const assist = async (req, res, next) => {
   try {
-    const prompt = String(req.body?.prompt || req.body?.message || '').trim();
-    if (!prompt) return res.status(400).json({ error: { message: 'prompt is required' } });
-
     const context = req.body?.context && typeof req.body.context === 'object' ? req.body.context : {};
     const agentConfig = req.body?.agentConfig && typeof req.body.agentConfig === 'object' ? req.body.agentConfig : null;
+    const prompt = String(req.body?.prompt || req.body?.message || '').trim();
+    const clientToolCall =
+      req.body?.clientAction?.toolCall && typeof req.body.clientAction.toolCall === 'object'
+        ? req.body.clientAction.toolCall
+        : null;
+    if (!prompt && !clientToolCall) return res.status(400).json({ error: { message: 'prompt is required' } });
+
     const grounding = String(req.body?.grounding || '').trim().toLowerCase(); // 'google_search' | ''
     const wantsSearch = grounding === 'google_search';
 
@@ -273,6 +452,48 @@ export const assist = async (req, res, next) => {
     }
 
     const started = Date.now();
+    const allowedToolNames = new Set(getToolSchemasForUser(req.user, agentConfig).map((t) => t.name));
+
+    // Fast path: UI-clickable "next action" buttons execute a single, explicit tool call.
+    // No LLM call; still fully role-gated and scoped.
+    if (clientToolCall) {
+      const tc = toolCallEntryToNormalized(clientToolCall);
+      if (!tc?.name) return res.status(400).json({ error: { message: 'Invalid clientAction.toolCall' } });
+      if (!allowedToolNames.has(tc.name)) return res.status(403).json({ error: { message: 'Tool not allowed for your role' } });
+
+      try {
+        const result = await executeToolCall({ req, toolCall: tc });
+        const uiCommands = Array.isArray(result?.uiCommands) ? normalizeUiCommands(result.uiCommands) : [];
+        const toolResults = [result];
+        const assistantText = buildAssistantReplyFromTools('', toolResults);
+
+        try {
+          ActivityLogService.logActivity(
+            {
+              actionType: 'agent_tool_execute',
+              userId: req.user?.id ?? null,
+              agencyId: context?.agencyId ?? null,
+              metadata: { tool: tc.name, runtime: 'client_action' }
+            },
+            req
+          );
+        } catch {
+          // ignore
+        }
+
+        return res.json({
+          assistantText: String(assistantText || '').trim() || 'Done.',
+          uiCommands,
+          toolCalls: [tc],
+          toolResults,
+          nextActions: [],
+          runtime: 'client_action'
+        });
+      } catch (e) {
+        return res.status(400).json({ error: { message: e?.message || 'Action failed' } });
+      }
+    }
+
     const { rawText, runtime } = await runAgentAssist({
       userId: req.user?.id || null,
       user: req.user,
@@ -288,8 +509,6 @@ export const assist = async (req, res, next) => {
     // Never trust model-supplied navigation/highlight; only successful tools may emit uiCommands.
     const uiCommands = [];
     let toolCalls = merged.toolCalls;
-
-    const allowedToolNames = new Set(getToolSchemasForUser(req.user, agentConfig).map((t) => t.name));
 
     const toolResults = [];
     for (const tc of toolCalls) {
@@ -335,6 +554,62 @@ export const assist = async (req, res, next) => {
     const promptLower = prompt.toLowerCase();
     const impliesNavigate = /\b(open|go to|visit|take me to|show me|navigate)\b/.test(promptLower);
     const hadOpenEntity = toolCalls.some((tc) => tc.name === 'openEntity');
+
+    // Deterministic fallback: if the model returned no tools at all but the prompt
+    // clearly implies navigation, try safe, role-gated tools to avoid dead-ends.
+    if (impliesNavigate && toolCalls.length === 0) {
+      // 1) School portal by name ("Twain school portal") → searchSchools (+ open if unambiguous)
+      const looksLikeSchoolPortal = /\bschool\b/.test(promptLower) && /\bportal\b/.test(promptLower);
+      if (looksLikeSchoolPortal && allowedToolNames.has('searchSchools')) {
+        const q = guessSchoolQueryFromPrompt(promptLower);
+        if (q) {
+          try {
+            const sr = await executeToolCall({ req, toolCall: { name: 'searchSchools', args: { query: q, limit: 10 } } });
+            toolResults.push(sr);
+            if (Array.isArray(sr?.uiCommands) && sr.uiCommands.length) {
+              for (const cmd of normalizeUiCommands(sr.uiCommands)) uiCommands.push(cmd);
+            }
+            const schools = sr?.result?.results;
+            if (
+              Array.isArray(schools) &&
+              schools.length === 1 &&
+              allowedToolNames.has('openEntity') &&
+              schools[0]?.id != null
+            ) {
+              const or = await executeToolCall({
+                req,
+                toolCall: { name: 'openEntity', args: { kind: 'school', id: Number(schools[0].id) } }
+              });
+              toolResults.push(or);
+              if (Array.isArray(or?.uiCommands) && or.uiCommands.length) {
+                for (const cmd of normalizeUiCommands(or.uiCommands)) uiCommands.push(cmd);
+              }
+            }
+            assistantText = '';
+          } catch (e) {
+            toolResults.push({ ok: false, tool: 'searchSchools', error: { message: e?.message || 'Search failed' } });
+          }
+        }
+      }
+
+      // 2) Generic page navigation ("take me to referrals") → navigateTo route whitelist
+      if (!uiCommands.length && allowedToolNames.has('navigateTo')) {
+        const routeName = resolveNavigateRouteNameFromPrompt(promptLower);
+        if (routeName) {
+          try {
+            const nr = await executeToolCall({ req, toolCall: { name: 'navigateTo', args: { routeName } } });
+            toolResults.push(nr);
+            if (Array.isArray(nr?.uiCommands) && nr.uiCommands.length) {
+              for (const cmd of normalizeUiCommands(nr.uiCommands)) uiCommands.push(cmd);
+            }
+            assistantText = '';
+          } catch (e) {
+            toolResults.push({ ok: false, tool: 'navigateTo', error: { message: e?.message || 'Navigation failed' } });
+          }
+        }
+      }
+    }
+
     if (impliesNavigate && !hadOpenEntity) {
       const tryOpen = async (kind, id) => {
         const extra = await executeToolCall({
@@ -380,6 +655,7 @@ export const assist = async (req, res, next) => {
     }
 
     assistantText = buildAssistantReplyFromTools(assistantText, toolResults);
+    const nextActions = buildNextActionsFromToolResults({ toolResults, allowedToolNames });
 
     // Non-blocking audit logging for the request itself.
     try {
@@ -407,6 +683,7 @@ export const assist = async (req, res, next) => {
       uiCommands,
       toolCalls,
       toolResults,
+      nextActions,
       runtime
     });
   } catch (e) {
