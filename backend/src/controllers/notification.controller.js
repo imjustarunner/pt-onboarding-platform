@@ -26,6 +26,12 @@ const GUARDIAN_ALLOWED_NOTIFICATION_TYPES = new Set([
 ]);
 const GUARDIAN_ANNOUNCEMENT_TYPES = new Set(['emergency_broadcast', 'program_reminder']);
 
+function isGuardianRole(role) {
+  const r = String(role || '').trim().toLowerCase();
+  // Legacy naming: guardians are stored as `client_guardian` in `users.role`.
+  return r === 'client_guardian' || r === 'guardian';
+}
+
 function parseJsonMaybe(v) {
   if (!v) return null;
   if (typeof v === 'object') return v;
@@ -57,6 +63,7 @@ const IN_APP_CATEGORY_BY_TYPE = {
 
 function viewerAudienceKey(role) {
   const r = String(role || '').trim().toLowerCase();
+  if (isGuardianRole(r)) return 'guardian';
   if (r === 'school_staff') return 'schoolStaff';
   if (r === 'supervisor') return 'supervisor';
   if (r === 'clinical_practice_assistant' || r === 'provider_plus') return 'clinicalPracticeAssistant';
@@ -111,7 +118,7 @@ function filterNotificationsForViewer(notifications, viewerUserId, viewerRole, o
   // Guardian feed: strict allowlist + only items tied to this guardian or
   // to one of their linked clients. This is intentionally independent of
   // the staff/admin audience map, which was built for internal roles.
-  if (String(viewerRole || '').trim().toLowerCase() === 'guardian') {
+  if (isGuardianRole(viewerRole)) {
     const clientIdSet = guardianClientIds instanceof Set ? guardianClientIds : new Set();
     const agencyIdSet = guardianAgencyIds instanceof Set ? guardianAgencyIds : new Set();
     return (notifications || []).filter((n) => {
@@ -381,7 +388,7 @@ export const getNotifications = async (req, res, next) => {
     const filterOpts = { hasMedicalRecordsReleaseAccess, notificationCategories };
 
     // Guardian portal: limit notifications to a small family-facing set.
-    if (String(userRole || '').trim().toLowerCase() === 'guardian') {
+    if (isGuardianRole(userRole)) {
       const { clientIds, agencyIds } = await loadGuardianClientAccess({ guardianUserId: userId });
       // Optional agency filter: guardians can only scope to agencies where they
       // have linked clients.
@@ -690,7 +697,7 @@ export const getNotificationCounts = async (req, res, next) => {
 
     // Guardian counts: only count the guardian-allowed subset across the agencies
     // where the guardian has linked clients.
-    if (String(userRole || '').trim().toLowerCase() === 'guardian') {
+    if (isGuardianRole(userRole)) {
       const { clientIds, agencyIds } = await loadGuardianClientAccess({ guardianUserId: userId });
       if (!agencyIds.length) return res.json({});
       const agencyIdSet = new Set(agencyIds);

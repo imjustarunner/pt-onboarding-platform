@@ -1546,7 +1546,10 @@
             <span>All {{ expectedChildCount }} packets ready. Download links below expire in 7 days.</span>
           </div>
         </div>
-        <div v-if="(clientBundleLinks.length || isMultiChildPostSubmit) && !jobApplicationSubmitted" class="bundle-list">
+        <div
+          v-if="(isMultiChildPostSubmit || (formTypeKey === 'smart_school_roi' && clientBundleLinks.length > 1)) && (clientBundleLinks.length || isMultiChildPostSubmit) && !jobApplicationSubmitted"
+          class="bundle-list"
+        >
           <div class="bundle-title">{{ formTypeKey === 'smart_school_roi' ? 'Download per-client releases' : 'Download per-child packets' }}</div>
           <div v-for="bundle in clientBundleLinks" :key="bundle.clientId || bundle.filename" class="bundle-item">
             <div class="bundle-name">{{ bundle.clientName || `Client ${bundle.clientId}` }}</div>

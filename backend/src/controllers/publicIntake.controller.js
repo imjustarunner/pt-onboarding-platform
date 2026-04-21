@@ -1396,7 +1396,18 @@ const toSimpleHtmlEmail = (text) => {
     }
     const trimmed = t.trim();
     if (/^https?:\/\//i.test(trimmed) && !/\s/.test(trimmed)) {
-      return `<p style="margin:8px 0"><a href="${escapeHtml(trimmed)}" style="display:inline-block;padding:10px 14px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;">Download signed packet</a></p>`;
+      const urlLower = trimmed.toLowerCase();
+      const label =
+        urlLower.includes('passwordless')
+        || urlLower.includes('reset-password')
+        || urlLower.includes('resetpassword')
+        || urlLower.includes('set-password')
+        || urlLower.includes('setpassword')
+          ? 'Sign in to set your password'
+          : (urlLower.includes('registration-receipt') || urlLower.includes('receipt'))
+            ? 'View live receipt'
+            : 'Download signed packet';
+      return `<p style="margin:8px 0"><a href="${escapeHtml(trimmed)}" style="display:inline-block;padding:10px 14px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;">${escapeHtml(label)}</a></p>`;
     }
     if (!trimmed) {
       return '<p style="margin:8px 0"></p>';
