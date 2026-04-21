@@ -1,5 +1,5 @@
 <template>
-  <div class="pmh-page" :class="hubRootModifierClass" :style="hubPageRootStyle">
+  <div class="pmh-page" :class="[hubRootModifierClass, { 'pmh-page--dark': themeIsDark }]" :style="hubPageRootStyle">
     <!-- Superadmin: quick path to edit content (does not show to public visitors). -->
     <router-link
       v-if="isSuperAdmin"
@@ -8,6 +8,17 @@
     >
       Edit hub
     </router-link>
+
+    <button
+      type="button"
+      class="pmh-theme-toggle"
+      :aria-label="themeToggleTitle"
+      :title="themeToggleTitle"
+      @click="cycleThemePreference"
+    >
+      <span class="pmh-theme-toggle-ico" aria-hidden="true">{{ themeToggleIcon }}</span>
+      <span class="pmh-theme-toggle-text">{{ themeToggleLabel }}</span>
+    </button>
 
     <div v-if="error" class="pmh-fatal">{{ error }}</div>
 
@@ -47,65 +58,70 @@
 
       <section v-if="showNavigatorSplash" class="pmh-splash-overlay" role="dialog" aria-modal="true" aria-label="Choose your summer path">
         <div class="pmh-splash-card">
-          <div class="pmh-splash-logos">
-            <div v-if="logoUrl" class="pmh-splash-program-logo-wrap" title="Program logo">
-              <img class="pmh-splash-program-logo" :src="logoUrl" :alt="`${displayHeadline} logo`" />
+          <div class="pmh-splash-top">
+            <div class="pmh-splash-brand">
+              <div v-if="logoUrl" class="pmh-splash-program-logo-wrap" title="Program logo">
+                <img class="pmh-splash-program-logo" :src="logoUrl" :alt="`${displayHeadline} logo`" />
+              </div>
+              <p class="pmh-splash-kicker">Start here</p>
+              <h1 class="pmh-splash-title">D11 Summer 2026</h1>
+              <p class="pmh-splash-sub">Choose how you want to find the best option for your family.</p>
             </div>
-            <div v-if="splashTenantLogos.length" class="pmh-splash-tenant-logos">
-              <button
-                v-for="p in splashTenantLogos"
-                :key="`splash-tenant-${p.agencyId}`"
-                type="button"
-                class="pmh-splash-tenant-tile"
-                :class="{ active: navigatorAgencyFilterId === p.agencyId }"
-                :title="`${p.agencyName} — tap to show only this agency’s programs`"
-                :aria-pressed="navigatorAgencyFilterId === p.agencyId ? 'true' : 'false'"
-                :aria-label="`Filter to ${p.agencyName} only`"
-                @click="toggleNavigatorAgency(p.agencyId, { openSchoolPath: true })"
-              >
-                <span class="pmh-splash-tenant-logo-wrap">
-                  <img v-if="p.logoUrl" class="pmh-splash-tenant-logo" :src="p.logoUrl" :alt="`${p.agencyName} logo`" />
-                  <span v-else class="pmh-splash-tenant-fallback">{{ agencyFooterInitials(p.agencyName) }}</span>
-                </span>
-                <span class="pmh-splash-tenant-name">{{ p.agencyName }}</span>
-              </button>
+
+            <div v-if="splashTenantLogos.length" class="pmh-splash-agency">
+              <div class="pmh-splash-tenant-logos" aria-label="Agency filters">
+                <button
+                  v-for="p in splashTenantLogos"
+                  :key="`splash-tenant-${p.agencyId}`"
+                  type="button"
+                  class="pmh-splash-tenant-tile"
+                  :class="{ active: navigatorAgencyFilterId === p.agencyId }"
+                  :title="`${p.agencyName} — tap to show only this agency’s programs`"
+                  :aria-pressed="navigatorAgencyFilterId === p.agencyId ? 'true' : 'false'"
+                  :aria-label="`Filter to ${p.agencyName} only`"
+                  @click="toggleNavigatorAgency(p.agencyId, { openSchoolPath: true })"
+                >
+                  <span class="pmh-splash-tenant-logo-wrap">
+                    <img v-if="p.logoUrl" class="pmh-splash-tenant-logo" :src="p.logoUrl" :alt="`${p.agencyName} logo`" />
+                    <span v-else class="pmh-splash-tenant-fallback">{{ agencyFooterInitials(p.agencyName) }}</span>
+                  </span>
+                  <span class="pmh-splash-tenant-name">{{ p.agencyName }}</span>
+                </button>
+              </div>
+              <p v-if="splashTenantLogos.length > 1" class="pmh-splash-agency-hint">
+                Select an agency logo to see only that agency’s open sessions and registration sites. The list below updates as soon
+                as you tap one.
+              </p>
             </div>
           </div>
-          <p
-            v-if="splashTenantLogos.length > 1"
-            class="pmh-splash-agency-hint"
-          >
-            Select an agency logo to see only that agency’s open sessions and registration sites. The list below
-            updates as soon as you tap one.
-          </p>
-          <p class="pmh-pathfinder-eyebrow">Start here</p>
-          <h1 class="pmh-splash-title">D11 Summer 2026</h1>
-          <p class="pmh-pathfinder-sub">Choose how you want to find the best option for your family.</p>
 
-          <div class="pmh-pathfinder-actions">
+          <div class="pmh-splash-choices" aria-label="Choose your path">
             <button
               type="button"
-              class="pmh-path-btn"
-              :class="{ active: journeyPrimary === 'learn' }"
+              class="pmh-choice-btn"
+              :class="{ 'pmh-choice-btn--pulse': showSplashPathPulse, active: journeyPrimary === 'learn' }"
               @click="goLearnMore"
             >
-              I’d like to learn more
+              <span class="pmh-choice-title">This is my first time</span>
+              <span class="pmh-choice-sub">See what the program is, then pick your best fit.</span>
             </button>
             <button
               type="button"
-              class="pmh-path-btn"
-              :class="{ active: journeyPrimary === 'school' }"
+              class="pmh-choice-btn"
+              :class="{ 'pmh-choice-btn--pulse': showSplashPathPulse, active: journeyPrimary === 'school' }"
               @click="choosePrimary('school')"
             >
-              I know my location / school
+              <span class="pmh-choice-title">I know my location / school</span>
+              <span class="pmh-choice-sub">Choose your site first, then pick a session.</span>
             </button>
             <button
               type="button"
-              class="pmh-path-btn"
-              :class="{ active: journeyPrimary === 'program' }"
+              class="pmh-choice-btn"
+              :class="{ 'pmh-choice-btn--pulse': showSplashPathPulse, active: journeyPrimary === 'program' }"
               @click="choosePrimary('program')"
             >
-              I know the D11 Summer program
+              <span class="pmh-choice-title">Help me choose</span>
+              <span class="pmh-choice-sub">Pick by session or choose closest to home.</span>
             </button>
           </div>
 
@@ -202,7 +218,7 @@
         <span class="pmh-blob pmh-blob--c" />
       </div>
 
-      <header class="pmh-header">
+      <header class="pmh-header" :class="{ 'pmh-header--compact': hubSubFlowActive }">
         <div class="pmh-brand-row">
           <img
             v-if="logoUrl"
@@ -219,7 +235,7 @@
         </p>
         <!-- Video + process: one cinema band (silent video + scrolling signup steps). Skips stacked hero image + separate process block. -->
         <section
-          v-if="heroProcessCinemaEnabled"
+          v-if="heroProcessCinemaEnabled && !hubSubFlowActive"
           class="pmh-hero-cinema"
           :aria-label="processSectionResolved.title"
           :style="{ ...hubPageRootStyle, '--pmh-cinema-scroll-sec': `${heroCinemaScrollDurationSec}s` }"
@@ -275,10 +291,10 @@
             </div>
           </div>
         </section>
-        <div v-else-if="heroImageUrl" class="pmh-hero-media">
+        <div v-else-if="heroImageUrl && !hubSubFlowActive" class="pmh-hero-media">
           <img :src="heroImageUrl" :alt="displayHeadline" loading="lazy" />
         </div>
-        <div v-if="heroVideoUrl && !heroProcessCinemaEnabled" class="pmh-hero-media pmh-hero-media--video">
+        <div v-if="heroVideoUrl && !heroProcessCinemaEnabled && !hubSubFlowActive" class="pmh-hero-media pmh-hero-media--video">
           <iframe
             v-if="heroVideoYoutubeEmbed"
             class="pmh-hero-iframe"
@@ -300,7 +316,7 @@
             preload="metadata"
           />
         </div>
-        <div v-if="parentIntroResolved" class="pmh-intro-card">
+        <div v-if="parentIntroResolved && !hubSubFlowActive" class="pmh-intro-card">
           <div class="pmh-intro-icon" aria-hidden="true">
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 7 8 11.7z" />
@@ -311,7 +327,307 @@
         </div>
       </header>
 
-      <section v-if="eventNavigatorEnabled && !showNavigatorSplash" class="pmh-pathfinder">
+      <!-- d11summer2026 branded sub-flow (replaces main body while school/program paths are active). -->
+      <section v-if="hubSubFlowActive" class="pmh-subflow" aria-label="Find your program">
+        <div class="pmh-subflow-inner">
+          <div class="pmh-subflow-header">
+            <button
+              type="button"
+              class="pmh-subflow-back"
+              :aria-label="subFlowBackLabel"
+              @click="goSubFlowBack"
+            >
+              <span aria-hidden="true">&larr;</span> {{ subFlowBackLabel }}
+            </button>
+            <p class="pmh-subflow-eyebrow">{{ subFlowEyebrow }}</p>
+            <h2 class="pmh-subflow-title">{{ subFlowTitle }}</h2>
+            <p v-if="subFlowHint" class="pmh-subflow-hint">{{ subFlowHint }}</p>
+          </div>
+
+          <!-- School path: pick a location card → pick a session → Register Now. -->
+          <template v-if="journeyPrimary === 'school'">
+            <div v-if="!navigatorLocationName" class="pmh-subflow-cards pmh-subflow-cards--loc">
+              <button
+                v-for="loc in schoolFlowLocations"
+                :key="`sfloc-${normalizeNavigatorLocKey(loc)}`"
+                type="button"
+                class="pmh-loc-card"
+                :style="locCardStyle(loc, null)"
+                :aria-label="`Choose ${loc}`"
+                @click="selectNavigatorLocation(loc)"
+              >
+                <span class="pmh-loc-card-scrim" aria-hidden="true" />
+                <span class="pmh-loc-card-body">
+                  <span class="pmh-loc-card-eyebrow">Location</span>
+                  <span class="pmh-loc-card-name">{{ loc }}</span>
+                  <span class="pmh-loc-card-cta">Choose this site &rsaquo;</span>
+                </span>
+              </button>
+              <p v-if="!schoolFlowLocations.length" class="pmh-subflow-empty">
+                No locations are listed yet. Please check back soon.
+              </p>
+            </div>
+
+            <div v-else class="pmh-subflow-picked">
+              <div class="pmh-loc-card pmh-loc-card--picked" :style="locCardStyle(navigatorLocationName, null)">
+                <span class="pmh-loc-card-scrim" aria-hidden="true" />
+                <span class="pmh-loc-card-body">
+                  <span class="pmh-loc-card-eyebrow">You chose</span>
+                  <span class="pmh-loc-card-name">{{ navigatorLocationName }}</span>
+                </span>
+              </div>
+              <p class="pmh-subflow-subtitle">Pick a session</p>
+              <div class="pmh-subflow-cards pmh-subflow-cards--session">
+                <button
+                  v-for="(s, si) in schoolFlowSessionsForLocation"
+                  :key="`sfsess-${s.groupKey}-${si}`"
+                  type="button"
+                  class="pmh-sess-card"
+                  @click="goRegisterForLocationInSession(navigatorLocationName, s)"
+                >
+                  <span class="pmh-sess-card-eyebrow">Session</span>
+                  <span class="pmh-sess-card-title">{{ s.displayTitle }}</span>
+                  <span v-if="s.displaySubtitle" class="pmh-sess-card-sub">{{ s.displaySubtitle }}</span>
+                  <span class="pmh-sess-card-cta pmh-sess-card-cta--register">Register now &rsaquo;</span>
+                </button>
+              </div>
+              <p v-if="!schoolFlowSessionsForLocation.length" class="pmh-subflow-empty">
+                No open sessions here right now. Try another site above.
+              </p>
+            </div>
+          </template>
+
+          <!-- Help me choose: session-first or closest-to-home (address → location → session). -->
+          <template v-else-if="journeyPrimary === 'program'">
+            <div v-if="!programChooseMode" class="pmh-subflow-cards pmh-subflow-cards--session">
+              <button type="button" class="pmh-sess-card" @click="selectProgramChooseMode('session')">
+                <span class="pmh-sess-card-eyebrow">Option</span>
+                <span class="pmh-sess-card-title">I know which session I want</span>
+                <span class="pmh-sess-card-sub">Pick a session first, then choose a site.</span>
+                <span class="pmh-sess-card-cta">Choose by session &rsaquo;</span>
+              </button>
+              <button type="button" class="pmh-sess-card" @click="selectProgramChooseMode('nearest')">
+                <span class="pmh-sess-card-eyebrow">Option</span>
+                <span class="pmh-sess-card-title">I prefer to choose my session that&rsquo;s closest to home</span>
+                <span class="pmh-sess-card-sub">Enter your address, pick a site, then choose a session.</span>
+                <span class="pmh-sess-card-cta">Choose closest to home &rsaquo;</span>
+              </button>
+            </div>
+
+            <template v-else-if="programChooseMode === 'session'">
+              <div v-if="!programSessionRow" class="pmh-subflow-cards pmh-subflow-cards--session">
+                <button
+                  v-for="(s, si) in programSessionRows"
+                  :key="`psess-${s.groupKey}-${si}`"
+                  type="button"
+                  class="pmh-sess-card"
+                  @click="selectProgramSession(s)"
+                >
+                  <span class="pmh-sess-card-eyebrow">Session</span>
+                  <span class="pmh-sess-card-title">{{ s.displayTitle }}</span>
+                  <span v-if="s.displaySubtitle" class="pmh-sess-card-sub">{{ s.displaySubtitle }}</span>
+                  <span class="pmh-sess-card-cta">See sites &rsaquo;</span>
+                </button>
+                <p v-if="!programSessionRows.length" class="pmh-subflow-empty">
+                  No open sessions are listed yet. Please check back soon.
+                </p>
+              </div>
+
+              <div v-else class="pmh-subflow-picked">
+                <div class="pmh-sess-card pmh-sess-card--picked">
+                  <span class="pmh-sess-card-eyebrow">You chose</span>
+                  <span class="pmh-sess-card-title">{{ programSessionRow.displayTitle }}</span>
+                  <span v-if="programSessionRow.displaySubtitle" class="pmh-sess-card-sub">{{ programSessionRow.displaySubtitle }}</span>
+                </div>
+
+                <div class="pmh-subflow-addr-toggle">
+                  <button
+                    type="button"
+                    class="pmh-subflow-addr-toggle-btn"
+                    :class="{ 'pmh-subflow-addr-toggle-btn--active': programUseAddress }"
+                    @click="programUseAddress = !programUseAddress"
+                  >
+                    <span aria-hidden="true">📍</span>
+                    {{ programUseAddress ? 'Hide address search' : 'Use my address to see which is closest' }}
+                  </button>
+                </div>
+
+                <div v-if="programUseAddress" class="pmh-subflow-addr">
+                  <label class="pmh-subflow-addr-label" for="pmh-subflow-addr-input">
+                    Enter your home address
+                  </label>
+                  <div class="pmh-subflow-addr-row">
+                    <input
+                      id="pmh-subflow-addr-input"
+                      ref="programAddressInputEl"
+                      v-model="programAddressInput"
+                      class="pmh-subflow-addr-input"
+                      type="text"
+                      inputmode="text"
+                      autocomplete="street-address"
+                      placeholder="Street, city, state ZIP"
+                      @keydown.enter.prevent="runProgramNearest"
+                    />
+                    <button
+                      type="button"
+                      class="pmh-subflow-addr-btn"
+                      :disabled="programAddressLoading"
+                      @click="runProgramNearest"
+                    >
+                      {{ programAddressLoading ? 'Calculating…' : 'Find' }}
+                    </button>
+                  </div>
+                  <p v-if="programAddressError" class="pmh-subflow-addr-err">{{ programAddressError }}</p>
+                  <p v-if="programAddressOrigin" class="pmh-subflow-addr-note">
+                    Sorted by driving distance from <strong>{{ programAddressOrigin }}</strong>.
+                    <button type="button" class="pmh-subflow-linkish" @click="clearProgramNearest">Clear</button>
+                  </p>
+                </div>
+
+                <p class="pmh-subflow-subtitle">Locations for {{ programSessionRow.displayTitle }}</p>
+                <div class="pmh-subflow-cards pmh-subflow-cards--loc">
+                  <button
+                    v-for="loc in programRankedLocations"
+                    :key="`psloc-${normalizeNavigatorLocKey(loc)}`"
+                    type="button"
+                    class="pmh-loc-card"
+                    :style="locCardStyle(loc, programSessionRow)"
+                    :aria-label="`Register at ${loc}`"
+                    @click="goRegisterForLocationInSession(loc, programSessionRow)"
+                  >
+                    <span class="pmh-loc-card-scrim" aria-hidden="true" />
+                    <span class="pmh-loc-card-body">
+                      <span class="pmh-loc-card-eyebrow">Location</span>
+                      <span class="pmh-loc-card-name">{{ loc }}</span>
+                      <span v-if="distanceInfoForLocation(loc, programSessionRow)" class="pmh-loc-card-distance">
+                        ~{{ formatMiles(distanceInfoForLocation(loc, programSessionRow).meters) }} mi
+                        <span v-if="distanceInfoForLocation(loc, programSessionRow).durationText">
+                          · {{ distanceInfoForLocation(loc, programSessionRow).durationText }}
+                        </span>
+                      </span>
+                      <span
+                        v-else-if="programAddressRankedEvents && programAddressOrigin"
+                        class="pmh-loc-card-distance pmh-loc-card-distance--na"
+                      >
+                        Distance unavailable
+                      </span>
+                      <span class="pmh-loc-card-cta pmh-loc-card-cta--register">Register now &rsaquo;</span>
+                    </span>
+                  </button>
+                  <p v-if="!programRankedLocations.length" class="pmh-subflow-empty">
+                    No sites open for this session right now. Pick another session above.
+                  </p>
+                </div>
+              </div>
+            </template>
+
+            <template v-else-if="programChooseMode === 'nearest'">
+              <div v-if="!programNearestLocationSelected" class="pmh-subflow-picked">
+                <div class="pmh-subflow-addr">
+                  <label class="pmh-subflow-addr-label" for="pmh-subflow-addr-input-nearest">
+                    Enter your home address
+                  </label>
+                  <div class="pmh-subflow-addr-row">
+                    <input
+                      id="pmh-subflow-addr-input-nearest"
+                      v-model="programAddressInput"
+                      class="pmh-subflow-addr-input"
+                      type="text"
+                      inputmode="text"
+                      autocomplete="street-address"
+                      placeholder="Street, city, state ZIP"
+                      @keydown.enter.prevent="runProgramNearest"
+                    />
+                    <button
+                      type="button"
+                      class="pmh-subflow-addr-btn"
+                      :disabled="programAddressLoading"
+                      @click="runProgramNearest"
+                    >
+                      {{ programAddressLoading ? 'Calculating…' : 'Find' }}
+                    </button>
+                  </div>
+                  <p v-if="programAddressError" class="pmh-subflow-addr-err">{{ programAddressError }}</p>
+                  <p v-if="programAddressOrigin" class="pmh-subflow-addr-note">
+                    Sites ranked by driving distance from <strong>{{ programAddressOrigin }}</strong>.
+                    <button type="button" class="pmh-subflow-linkish" @click="clearProgramNearest">Clear</button>
+                  </p>
+                </div>
+
+                <p class="pmh-subflow-subtitle">Choose a location</p>
+                <div class="pmh-subflow-cards pmh-subflow-cards--loc">
+                  <button
+                    v-for="loc in programRankedAllLocations"
+                    :key="`pnloc-${normalizeNavigatorLocKey(loc)}`"
+                    type="button"
+                    class="pmh-loc-card"
+                    :style="locCardStyle(loc, null)"
+                    :aria-label="`Choose ${loc}`"
+                    @click="selectProgramNearestLocation(loc)"
+                  >
+                    <span class="pmh-loc-card-scrim" aria-hidden="true" />
+                    <span class="pmh-loc-card-body">
+                      <span class="pmh-loc-card-eyebrow">Location</span>
+                      <span class="pmh-loc-card-name">{{ loc }}</span>
+                      <span v-if="distanceInfoForLocation(loc, null)" class="pmh-loc-card-distance">
+                        ~{{ formatMiles(distanceInfoForLocation(loc, null).meters) }} mi
+                        <span v-if="distanceInfoForLocation(loc, null).durationText"> · {{ distanceInfoForLocation(loc, null).durationText }}</span>
+                      </span>
+                      <span
+                        v-else-if="programAddressRankedEvents && programAddressOrigin"
+                        class="pmh-loc-card-distance pmh-loc-card-distance--na"
+                      >
+                        Distance unavailable
+                      </span>
+                      <span class="pmh-loc-card-cta">See sessions &rsaquo;</span>
+                    </span>
+                  </button>
+                  <p v-if="!programLocationsAll.length" class="pmh-subflow-empty">
+                    No locations are listed yet. Please check back soon.
+                  </p>
+                </div>
+              </div>
+
+              <div v-else class="pmh-subflow-picked">
+                <div class="pmh-loc-card pmh-loc-card--picked" :style="locCardStyle(programNearestLocation, null)">
+                  <span class="pmh-loc-card-scrim" aria-hidden="true" />
+                  <span class="pmh-loc-card-body">
+                    <span class="pmh-loc-card-eyebrow">You chose</span>
+                    <span class="pmh-loc-card-name">{{ programNearestLocation }}</span>
+                    <span v-if="distanceInfoForLocation(programNearestLocation, null)" class="pmh-loc-card-distance">
+                      ~{{ formatMiles(distanceInfoForLocation(programNearestLocation, null).meters) }} mi
+                      <span v-if="distanceInfoForLocation(programNearestLocation, null).durationText">
+                        · {{ distanceInfoForLocation(programNearestLocation, null).durationText }}
+                      </span>
+                    </span>
+                  </span>
+                </div>
+
+                <p class="pmh-subflow-subtitle">Pick a session</p>
+                <div class="pmh-subflow-cards pmh-subflow-cards--session">
+                  <button
+                    v-for="(s, si) in programSessionsForNearestLocation"
+                    :key="`pnsess-${s.groupKey}-${si}`"
+                    type="button"
+                    class="pmh-sess-card"
+                    @click="goRegisterForLocationInSession(programNearestLocation, s)"
+                  >
+                    <span class="pmh-sess-card-eyebrow">Session</span>
+                    <span class="pmh-sess-card-title">{{ s.displayTitle }}</span>
+                    <span v-if="s.displaySubtitle" class="pmh-sess-card-sub">{{ s.displaySubtitle }}</span>
+                    <span class="pmh-sess-card-cta pmh-sess-card-cta--register">Register now &rsaquo;</span>
+                  </button>
+                </div>
+                <p v-if="!programSessionsForNearestLocation.length" class="pmh-subflow-empty">
+                  No open sessions here right now. Try another site above.
+                </p>
+              </div>
+            </template>
+          </template>
+        </div>
+      </section>
+
+      <section v-if="eventNavigatorEnabled && !showNavigatorSplash && !hubSubFlowActive && !journeyPrimary" class="pmh-pathfinder">
         <div class="pmh-pathfinder-card">
           <p class="pmh-pathfinder-eyebrow">Find your best fit</p>
           <h2 class="pmh-pathfinder-title">How would you like to explore summer options?</h2>
@@ -319,11 +635,11 @@
           <div class="pmh-pathfinder-actions">
             <button
               type="button"
-              class="pmh-path-btn"
+              class="pmh-path-btn pmh-path-btn--firsttime"
               :class="{ active: journeyPrimary === 'learn' }"
               @click="goLearnMore"
             >
-              I’d like to learn more
+              This is my first time
             </button>
             <button
               type="button"
@@ -339,7 +655,7 @@
               :class="{ active: journeyPrimary === 'program' }"
               @click="choosePrimary('program')"
             >
-              I know the D11 Summer program
+              Help me choose
             </button>
           </div>
 
@@ -455,7 +771,7 @@
         </div>
       </section>
 
-      <section v-if="whatWeOfferResolved" class="pmh-offer" aria-labelledby="pmh-offer-heading">
+      <section v-if="whatWeOfferResolved && !hubSubFlowActive" class="pmh-offer" aria-labelledby="pmh-offer-heading">
         <div class="pmh-offer-card">
           <p v-if="isSuperAdmin" class="pmh-placeholder-editor-hint" role="note">
             You’re signed in as super admin — image areas below are labeled
@@ -468,6 +784,7 @@
               id="pmh-offer-toggle"
               type="button"
               class="pmh-offer-toggle"
+              :class="{ 'pmh-offer-toggle--pulsing': showOfferTogglePulse }"
               :aria-expanded="offerExpanded"
               aria-controls="pmh-offer-details"
               @click="offerExpanded = !offerExpanded"
@@ -552,7 +869,7 @@
       </section>
 
       <section
-        v-if="galleryStripUrls.length"
+        v-if="galleryStripUrls.length && !hubSubFlowActive"
         class="pmh-gallery-section"
         aria-label="Photo gallery"
       >
@@ -573,7 +890,7 @@
       </section>
 
       <!-- Built-in narrative blocks (override or disable via branding JSON: ctaSection, processSection). -->
-      <section v-if="ctaSectionResolved && ctaShowStandaloneBand" class="pmh-cta-band">
+      <section v-if="ctaSectionResolved && ctaShowStandaloneBand && !hubSubFlowActive" class="pmh-cta-band">
         <p v-if="ctaSectionResolved.eyebrow" class="pmh-cta-eyebrow">{{ ctaSectionResolved.eyebrow }}</p>
         <h2 class="pmh-cta-title">{{ ctaSectionResolved.title }}</h2>
         <p v-if="ctaSectionResolved.subtitle" class="pmh-cta-subtitle">{{ ctaSectionResolved.subtitle }}</p>
@@ -607,7 +924,7 @@
         </div>
       </section>
 
-      <section v-if="processSectionResolved && !heroProcessCinemaEnabled" class="pmh-process">
+      <section v-if="processSectionResolved && !heroProcessCinemaEnabled && !hubSubFlowActive" class="pmh-process">
         <div class="pmh-process-inner">
           <div class="pmh-process-head">
             <h2 class="pmh-process-title">{{ processSectionResolved.title }}</h2>
@@ -622,7 +939,7 @@
         </div>
       </section>
 
-      <div id="hub-programs" class="pmh-programs-anchor">
+      <div v-if="!hubSubFlowActive" id="hub-programs" class="pmh-programs-anchor">
         <p
           v-if="skillbuildersJourneyActive && skillbuildersJourneyChoice && !skillbuildersAudienceGateVisible"
           class="sb-audience-change"
@@ -700,7 +1017,7 @@
         />
       </div>
 
-      <section v-if="metricsBlock" class="pmh-section pmh-metrics">
+      <section v-if="metricsBlock && !hubSubFlowActive" class="pmh-section pmh-metrics">
         <div class="pmh-section-inner">
           <h2 class="pmh-h2">At a glance</h2>
           <p v-if="metricsBlock.disclaimer" class="pmh-muted pmh-disclaimer">{{ metricsBlock.disclaimer }}</p>
@@ -826,6 +1143,91 @@ const brandingStore = useBrandingStore();
 const route = useRoute();
 const hubSlug = computed(() => String(route.params.hubSlug || '').trim().toLowerCase());
 
+const THEME_PREF_KEY = 'pmh_theme_preference_v1';
+const themePreference = ref('system'); // 'system' | 'dark' | 'light'
+const systemPrefersDark = ref(false);
+let themeMql = null;
+
+function readThemePreference() {
+  try {
+    if (typeof window === 'undefined') return 'system';
+    const raw = window.localStorage?.getItem?.(THEME_PREF_KEY);
+    const v = String(raw || '').trim().toLowerCase();
+    return v === 'dark' || v === 'light' || v === 'system' ? v : 'system';
+  } catch {
+    return 'system';
+  }
+}
+
+function writeThemePreference(v) {
+  try {
+    if (typeof window === 'undefined') return;
+    window.localStorage?.setItem?.(THEME_PREF_KEY, String(v || 'system'));
+  } catch {
+    /* ignore */
+  }
+}
+
+function initSystemThemeListener() {
+  if (typeof window === 'undefined') return;
+  try {
+    themeMql = window.matchMedia?.('(prefers-color-scheme: dark)') || null;
+    systemPrefersDark.value = !!themeMql?.matches;
+    const handler = (e) => {
+      systemPrefersDark.value = !!e?.matches;
+    };
+    themeMql?.addEventListener?.('change', handler);
+    // Safari fallback
+    themeMql?.addListener?.(handler);
+    return handler;
+  } catch {
+    themeMql = null;
+    systemPrefersDark.value = false;
+    return null;
+  }
+}
+
+function teardownSystemThemeListener(handler) {
+  try {
+    themeMql?.removeEventListener?.('change', handler);
+    themeMql?.removeListener?.(handler);
+  } catch {
+    /* ignore */
+  } finally {
+    themeMql = null;
+  }
+}
+
+const themeIsDark = computed(() => {
+  const pref = String(themePreference.value || 'system').toLowerCase();
+  if (pref === 'dark') return true;
+  if (pref === 'light') return false;
+  return !!systemPrefersDark.value;
+});
+
+const themeToggleLabel = computed(() => {
+  const pref = String(themePreference.value || 'system').toLowerCase();
+  if (pref === 'dark') return 'Dark';
+  if (pref === 'light') return 'Light';
+  return 'System';
+});
+
+const themeToggleIcon = computed(() => {
+  const pref = String(themePreference.value || 'system').toLowerCase();
+  if (pref === 'dark') return '🌙';
+  if (pref === 'light') return '☀️';
+  return '🖥️';
+});
+
+const themeToggleTitle = computed(() => `Theme: ${themeToggleLabel.value} (click to change)`);
+
+function cycleThemePreference() {
+  const pref = String(themePreference.value || 'system').toLowerCase();
+  const next = pref === 'system' ? 'dark' : pref === 'dark' ? 'light' : 'system';
+  themePreference.value = next;
+  writeThemePreference(next);
+}
+
 /** Stable class for hub-only CSS, e.g. `.pmh-page--hub-skillbuilders { --hub-brand: … }` — other slugs get their own class but no rules by default. */
 const hubRootModifierClass = computed(() => {
   const s = hubSlug.value.replace(/[^a-z0-9-]/g, '');
@@ -857,6 +1259,30 @@ const skillbuildersJourneyChoice = ref(null);
 /** Skill Builders hub: session chips above listing → syncs to PublicEventsListing session filters */
 const skillbuildersListingSessionLabel = ref('');
 const skillbuildersListingSessionDateRange = ref('');
+
+/** d11summer2026 sub-flow state (replaces main content for school + program paths). */
+const programChooseMode = ref('');
+const programSessionRow = ref(null);
+const programUseAddress = ref(false);
+const programAddressInput = ref('');
+const programAddressLoading = ref(false);
+const programAddressError = ref('');
+const programAddressOrigin = ref('');
+const programAddressRankedEvents = ref(null);
+const programNearestLocation = ref('');
+const programAddressInputEl = ref(null);
+
+// When user hits "back" we want a true step-back even if only one option exists.
+// These suppress the auto-pick watchers for a brief window so we don't immediately re-select.
+const suppressNavigatorAutoPickUntilMs = ref(0);
+
+function suppressNavigatorAutoPick(windowMs = 900) {
+  try {
+    suppressNavigatorAutoPickUntilMs.value = Date.now() + Number(windowMs || 0);
+  } catch {
+    suppressNavigatorAutoPickUntilMs.value = 0;
+  }
+}
 
 const gallerySlideIndex = ref(0);
 let gallerySlideshowTimer = null;
@@ -1140,6 +1566,359 @@ function selectNavigatorSession(row) {
   navigatorSessionLabel.value = String(row?.publicSessionLabel || '').trim();
   navigatorSessionDateRange.value = String(row?.publicSessionDateRange || '').trim();
   selectedSchoolName.value = '';
+}
+
+/** True when the d11summer2026 hub should replace its main page body with the location/session sub-flow. */
+const hubSubFlowActive = computed(() => {
+  if (!eventNavigatorEnabled.value) return false;
+  if (showNavigatorSplash.value) return false;
+  return journeyPrimary.value === 'school' || journeyPrimary.value === 'program';
+});
+
+/** All session rows across the current agency filter (d11summer2026). */
+const programSessionRows = computed(() => {
+  if (!eventNavigatorEnabled.value) return [];
+  const pool = navigatorEventPool.value || [];
+  const eligible = pool.filter(
+    (ev) => String(ev?.registrationPublicKey || '').trim() && !isPastSessionRegistrationCutoff(ev.startsAt)
+  );
+  if (!eligible.length) return [];
+  return buildNavigatorSessionRowsFromEligible(eligible);
+});
+
+function sessionRowsEqual(a, b) {
+  return (
+    String(a?.publicSessionLabel || '').trim() === String(b?.publicSessionLabel || '').trim() &&
+    String(a?.publicSessionDateRange || '').trim() === String(b?.publicSessionDateRange || '').trim()
+  );
+}
+
+function selectProgramSession(row) {
+  programSessionRow.value = row || null;
+  programUseAddress.value = programChooseMode.value === 'session';
+  programAddressRankedEvents.value = null;
+  programAddressOrigin.value = '';
+  programAddressError.value = '';
+}
+
+function selectProgramChooseMode(mode) {
+  const m = String(mode || '').trim().toLowerCase();
+  programChooseMode.value = m === 'nearest' ? 'nearest' : m === 'session' ? 'session' : '';
+  programSessionRow.value = null;
+  programNearestLocation.value = '';
+  programUseAddress.value = false;
+  programAddressRankedEvents.value = null;
+  programAddressOrigin.value = '';
+  programAddressError.value = '';
+  programAddressInput.value = '';
+}
+
+function selectProgramNearestLocation(loc) {
+  programNearestLocation.value = String(loc || '').trim();
+  programSessionRow.value = null;
+}
+
+function eventMatchesSessionRow(ev, row) {
+  if (!row) return true;
+  const lab = String(row.publicSessionLabel || '').trim();
+  const dr = String(row.publicSessionDateRange || '').trim();
+  const evL = String(ev?.publicSessionLabel || '').trim();
+  const evR = String(ev?.publicSessionDateRange || '').trim();
+  if (lab && dr) return evL === lab && evR === dr;
+  if (dr) return evR === dr;
+  if (lab) return evL === lab;
+  return true;
+}
+
+/** Distinct location labels (first-seen order) for events in the given session row (or all sessions if null). */
+function locationsForSession(row) {
+  const pool = navigatorEventPool.value || [];
+  const eligible = pool.filter(
+    (ev) =>
+      String(ev?.registrationPublicKey || '').trim() &&
+      !isPastSessionRegistrationCutoff(ev.startsAt) &&
+      eventMatchesSessionRow(ev, row)
+  );
+  const seen = new Set();
+  const names = [];
+  for (const ev of eligible) {
+    const slocs = Array.isArray(ev.sessionLocations) ? ev.sessionLocations : [];
+    let added = false;
+    for (const x of slocs) {
+      const lbl = String(x?.label || '').trim();
+      if (!lbl) continue;
+      const k = normalizeNavigatorLoc(lbl);
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      names.push(lbl);
+      added = true;
+    }
+    if (!added) {
+      const t = String(ev.title || '').trim();
+      const k = normalizeNavigatorLoc(t);
+      if (t && k && !seen.has(k)) {
+        seen.add(k);
+        names.push(t);
+      }
+    }
+  }
+  names.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  return names;
+}
+
+const programLocationsForSelectedSession = computed(() =>
+  locationsForSession(programSessionRow.value)
+);
+
+const programLocationsAll = computed(() => locationsForSession(null));
+
+/** Find the best event to register for at a specific location (optionally scoped to a session row). */
+function firstEventAtLocationInSession(loc, row) {
+  if (!loc) return null;
+  const pool = navigatorEventPool.value || [];
+  const candidates = pool.filter(
+    (ev) =>
+      String(ev?.registrationPublicKey || '').trim() &&
+      !isPastSessionRegistrationCutoff(ev.startsAt) &&
+      eventHasLocation(ev, loc) &&
+      eventMatchesSessionRow(ev, row)
+  );
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => (startsAtToMs(a.startsAt) || 0) - (startsAtToMs(b.startsAt) || 0));
+  return candidates[0];
+}
+
+function partnerForEvent(ev) {
+  const partners = Array.isArray(ev?.hubSourcePartners) ? ev.hubSourcePartners : [];
+  for (const p of partners) {
+    const id = Number(p?.sourceAgencyId || 0);
+    if (!id) continue;
+    const match = (footerPartners.value || []).find((x) => Number(x.agencyId) === id);
+    if (match) return match;
+  }
+  return null;
+}
+
+function normalizePartnerHexLocal(v) {
+  const s = String(v || '').trim();
+  if (/^#[0-9A-Fa-f]{6}$/i.test(s)) return `#${s.slice(1).toLowerCase()}`;
+  if (/^#[0-9A-Fa-f]{3}$/i.test(s)) return `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}`.toLowerCase();
+  return '';
+}
+
+/** Banner art for a location card: event hero → agency logo fallback → neutral placeholder. */
+function bannerForLocation(loc, row) {
+  const ev = firstEventAtLocationInSession(loc, row);
+  if (!ev) return { kind: 'placeholder', url: '', accent: '' };
+  const hero = String(ev.publicHeroImageUrl || '').trim();
+  const partner = partnerForEvent(ev);
+  const accent = normalizePartnerHexLocal(partner?.brandPrimaryHex);
+  if (hero) return { kind: 'hero', url: hero, accent };
+  const agencyLogo = String(partner?.logoUrl || '').trim();
+  if (agencyLogo) return { kind: 'logo', url: agencyLogo, accent };
+  return { kind: 'placeholder', url: '', accent };
+}
+
+/** For school path: all distinct location names regardless of agency filter. */
+const schoolFlowLocations = computed(() => allNavigatorLocations.value);
+
+/** For school path: sessions available at the currently selected school/location. */
+const schoolFlowSessionsForLocation = computed(() => summerSessionsForSelectedLocation.value);
+
+function formatMiles(meters) {
+  const n = Number(meters);
+  if (!Number.isFinite(n)) return null;
+  const mi = n / 1609.34;
+  if (mi < 10) return mi.toFixed(1);
+  return String(Math.round(mi));
+}
+
+/** Distance meters for a given location from the ranked address results (session-scoped). */
+function distanceInfoForLocation(loc, row = programSessionRow.value) {
+  const list = Array.isArray(programAddressRankedEvents.value) ? programAddressRankedEvents.value : [];
+  if (!list.length) return null;
+  const want = normalizeNavigatorLoc(loc);
+  if (!want) return null;
+  let best = null;
+  for (const ev of list) {
+    if (!eventMatchesSessionRow(ev, row)) continue;
+    if (!eventHasLocation(ev, loc)) continue;
+    const m = ev?.drivingDistanceMeters ?? ev?.distanceMeters;
+    if (m == null) continue;
+    const d = Number(m);
+    if (!Number.isFinite(d)) continue;
+    if (!best || d < best.meters) {
+      best = { meters: d, durationText: String(ev?.drivingDurationText || '').trim() };
+    }
+  }
+  return best;
+}
+
+/** Locations for the selected session re-ranked by drive distance from the submitted address. */
+const programRankedLocations = computed(() => {
+  const list = programLocationsForSelectedSession.value;
+  if (!programAddressRankedEvents.value) return list;
+  return [...list].sort((a, b) => {
+    const da = distanceInfoForLocation(a, programSessionRow.value)?.meters;
+    const db = distanceInfoForLocation(b, programSessionRow.value)?.meters;
+    const av = da != null ? da : Number.POSITIVE_INFINITY;
+    const bv = db != null ? db : Number.POSITIVE_INFINITY;
+    return av - bv;
+  });
+});
+
+const programRankedAllLocations = computed(() => {
+  const list = programLocationsAll.value;
+  if (!programAddressRankedEvents.value) return list;
+  return [...list].sort((a, b) => {
+    const da = distanceInfoForLocation(a, null)?.meters;
+    const db = distanceInfoForLocation(b, null)?.meters;
+    const av = da != null ? da : Number.POSITIVE_INFINITY;
+    const bv = db != null ? db : Number.POSITIVE_INFINITY;
+    return av - bv;
+  });
+});
+
+const programNearestLocationSelected = computed(() => !!String(programNearestLocation.value || '').trim());
+
+const programSessionsForNearestLocation = computed(() => {
+  const loc = String(programNearestLocation.value || '').trim();
+  if (!loc) return [];
+  return (programSessionRows.value || []).filter((row) => !!firstEventAtLocationInSession(loc, row));
+});
+
+async function runProgramNearest() {
+  const addr = String(programAddressInput.value || '').trim();
+  if (!addr) {
+    programAddressError.value = 'Enter your address.';
+    return;
+  }
+  programAddressLoading.value = true;
+  programAddressError.value = '';
+  try {
+    const slug = hubSlug.value;
+    const res = await api.post(
+      `/public/marketing-pages/${encodeURIComponent(slug)}/events/nearest`,
+      { address: addr },
+      { skipGlobalLoading: true }
+    );
+    programAddressRankedEvents.value = Array.isArray(res.data?.events) ? res.data.events : [];
+    programAddressOrigin.value = String(res.data?.origin?.formattedAddress || addr).trim();
+  } catch (e) {
+    programAddressRankedEvents.value = null;
+    programAddressError.value =
+      e.response?.data?.error?.message || e.message || 'Could not calculate driving distances.';
+  } finally {
+    programAddressLoading.value = false;
+  }
+}
+
+function clearProgramNearest() {
+  programAddressRankedEvents.value = null;
+  programAddressOrigin.value = '';
+  programAddressError.value = '';
+}
+
+function goSubFlowBack() {
+  if (journeyPrimary.value === 'program') {
+    if (programChooseMode.value === 'session' && programSessionRow.value) {
+      selectProgramSession(null);
+      return;
+    }
+    if (programChooseMode.value === 'nearest' && programNearestLocationSelected.value) {
+      programNearestLocation.value = '';
+      return;
+    }
+    if (programChooseMode.value) {
+      selectProgramChooseMode('');
+      return;
+    }
+  }
+  if (journeyPrimary.value === 'school' && navigatorLocationName.value) {
+    suppressNavigatorAutoPick();
+    selectNavigatorLocation('');
+    return;
+  }
+  journeyPrimary.value = '';
+  showNavigatorSplash.value = !!eventNavigatorEnabled.value;
+}
+
+function goRegisterForEvent(ev) {
+  if (!ev) return;
+  const url = buildPublicIntakeUrl(String(ev.registrationPublicKey || '').trim());
+  if (url) window.location.assign(url);
+}
+
+function goRegisterForLocationInSession(loc, row) {
+  const ev = firstEventAtLocationInSession(loc, row);
+  if (ev) goRegisterForEvent(ev);
+}
+
+const subFlowEyebrow = computed(() => {
+  if (journeyPrimary.value === 'school') return 'I know my location / school';
+  if (journeyPrimary.value === 'program') return 'Help me choose';
+  return '';
+});
+
+const subFlowTitle = computed(() => {
+  if (journeyPrimary.value === 'school') {
+    return navigatorLocationName.value ? 'Pick a session for this site' : 'Choose your site or school';
+  }
+  if (journeyPrimary.value === 'program') {
+    if (!programChooseMode.value) return 'How would you like to choose?';
+    if (programChooseMode.value === 'nearest') {
+      return programNearestLocationSelected.value ? 'Pick a session for this site' : 'Find the closest site to home';
+    }
+    return programSessionRow.value ? 'Pick a location for this session' : 'Pick a session to get started';
+  }
+  return '';
+});
+
+const subFlowHint = computed(() => {
+  if (journeyPrimary.value === 'school') {
+    return navigatorLocationName.value
+      ? 'All available sessions at this site are shown below. Tap one to register.'
+      : 'Tap a site to see the sessions open for registration there.';
+  }
+  if (journeyPrimary.value === 'program') {
+    if (!programChooseMode.value) {
+      return 'Choose how you’d like to browse. You can switch back anytime.';
+    }
+    if (programChooseMode.value === 'nearest') {
+      return programNearestLocationSelected.value
+        ? 'All available sessions for this site are shown below. Tap one to register.'
+        : 'Enter your address to rank sites by the shortest drive — then pick a site to see its sessions.';
+    }
+    return programSessionRow.value
+      ? 'Register at the site that works for you — or use your address to see which is closest.'
+      : 'Session dates are shown on each card.';
+  }
+  return '';
+});
+
+const subFlowBackLabel = computed(() => {
+  if (journeyPrimary.value === 'school' && navigatorLocationName.value) return 'Back to sites';
+  if (journeyPrimary.value === 'program') {
+    if (programChooseMode.value === 'nearest' && programNearestLocationSelected.value) return 'Back to locations';
+    if (programChooseMode.value === 'session' && programSessionRow.value) return 'Back to sessions';
+    if (programChooseMode.value) return 'Back to choices';
+  }
+  return 'Back';
+});
+
+function locCardStyle(loc, row) {
+  const info = bannerForLocation(loc, row);
+  const style = {};
+  if (info.url) {
+    style['--pmh-loc-bg'] = `url(${JSON.stringify(info.url)})`;
+    style['--pmh-loc-bg-size'] = info.kind === 'logo' ? 'contain' : 'cover';
+    style['--pmh-loc-bg-position'] = info.kind === 'logo' ? 'center' : 'center';
+    style['--pmh-loc-bg-repeat'] = info.kind === 'logo' ? 'no-repeat' : 'no-repeat';
+  }
+  if (info.accent) {
+    style['--pmh-loc-accent'] = info.accent;
+  }
+  return style;
 }
 
 function isNavigatorLocationActive(loc) {
@@ -1613,6 +2392,7 @@ watch(
   () => {
     if (!eventNavigatorEnabled.value) return;
     if (journeyPrimary.value !== 'school') return;
+    if (Date.now() < Number(suppressNavigatorAutoPickUntilMs.value || 0)) return;
     if (String(navigatorLocationName.value || '').trim()) return;
     const locs = allNavigatorLocations.value || [];
     if (locs.length !== 1) return;
@@ -1633,6 +2413,7 @@ watch(
   () => {
     if (!eventNavigatorEnabled.value) return;
     if (journeyPrimary.value !== 'school') return;
+    if (Date.now() < Number(suppressNavigatorAutoPickUntilMs.value || 0)) return;
     const loc = String(navigatorLocationName.value || '').trim();
     if (!loc) return;
     if (
@@ -1966,6 +2747,18 @@ const ctaEmbedInOfferExpanded = computed(() => {
   return true;
 });
 
+/** Pulse the "Show more info" CTA on the first-time path until the user opens it. */
+const showOfferTogglePulse = computed(() => {
+  if (offerExpanded.value) return false;
+  if (!eventNavigatorEnabled.value) return false;
+  return journeyPrimary.value === 'learn';
+});
+
+const showSplashPathPulse = computed(() => {
+  if (!showNavigatorSplash.value) return false;
+  return !String(journeyPrimary.value || '').trim();
+});
+
 /** Separate CTA band on the page (default off when “What we offer” exists, to avoid duplicate). */
 const ctaShowStandaloneBand = computed(() => {
   if (!ctaSectionResolved.value) return false;
@@ -2049,17 +2842,26 @@ function isExternalNavHref(href) {
 
 function choosePrimary(mode) {
   journeyPrimary.value = mode;
+  programChooseMode.value = '';
+  programSessionRow.value = null;
+  programUseAddress.value = false;
+  programAddressRankedEvents.value = null;
+  programAddressOrigin.value = '';
+  programAddressError.value = '';
+  programNearestLocation.value = '';
   if (mode === 'school') {
     journeyProgramMode.value = '';
     navigatorLocationName.value = '';
     navigatorSessionLabel.value = '';
     navigatorSessionDateRange.value = '';
     selectedSchoolName.value = '';
+    showNavigatorSplash.value = false;
   } else if (mode === 'program') {
     selectedSchoolName.value = '';
     navigatorLocationName.value = '';
     navigatorSessionLabel.value = '';
     navigatorSessionDateRange.value = '';
+    showNavigatorSplash.value = false;
   } else {
     journeyProgramMode.value = '';
     selectedSchoolName.value = '';
@@ -2067,6 +2869,13 @@ function choosePrimary(mode) {
     navigatorSessionLabel.value = '';
     navigatorSessionDateRange.value = '';
   }
+  nextTick(() => {
+    try {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch {
+      /* ignore */
+    }
+  });
 }
 
 async function goLearnMore() {
@@ -2203,6 +3012,15 @@ async function loadAll() {
 }
 
 onMounted(loadAll);
+let themeChangeHandler = null;
+onMounted(() => {
+  themePreference.value = readThemePreference();
+  themeChangeHandler = initSystemThemeListener();
+});
+onUnmounted(() => {
+  teardownSystemThemeListener(themeChangeHandler);
+  themeChangeHandler = null;
+});
 watch(eventNavigatorEnabled, (enabled) => {
   showNavigatorSplash.value = !!enabled;
   if (!enabled) return;
@@ -2213,6 +3031,19 @@ watch(eventNavigatorEnabled, (enabled) => {
   navigatorSessionLabel.value = '';
   navigatorSessionDateRange.value = '';
 }, { immediate: true });
+
+watch(
+  () => programUseAddress.value,
+  async (open) => {
+    if (!open) return;
+    await nextTick();
+    try {
+      programAddressInputEl.value?.focus?.();
+    } catch {
+      /* ignore */
+    }
+  }
+);
 
 watch(
   () => showNavigatorSplash.value || skillbuildersAudienceGateVisible.value,
@@ -2285,6 +3116,66 @@ watch(hubSlug, () => {
     radial-gradient(110% 55% at 50% -8%, rgba(163, 38, 35, 0.06) 0%, transparent 52%),
     radial-gradient(70% 45% at 95% 12%, rgba(120, 113, 108, 0.05) 0%, transparent 48%),
     linear-gradient(180deg, #f6f4f2 0%, #f3f1ef 45%, #eeebe8 100%);
+}
+
+.pmh-page--dark {
+  --hub-text: #e5e7eb;
+  --hub-text-muted: rgba(226, 232, 240, 0.92);
+  --hub-text-soft: rgba(148, 163, 184, 0.92);
+  --hub-eyebrow: rgba(148, 163, 184, 0.85);
+  --hub-surface: rgba(15, 23, 42, 0.96);
+  --hub-border: rgba(148, 163, 184, 0.14);
+  --hub-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+  --hub-shadow-brand: 0 18px 46px rgba(163, 38, 35, 0.22);
+  background:
+    radial-gradient(110% 55% at 50% -8%, rgba(163, 38, 35, 0.18) 0%, transparent 55%),
+    radial-gradient(70% 45% at 95% 12%, rgba(148, 163, 184, 0.08) 0%, transparent 48%),
+    linear-gradient(180deg, #0b1220 0%, #0a0f1c 52%, #070b14 100%);
+}
+
+.pmh-page--dark .pmh-page::after {
+  opacity: 0.22;
+}
+
+.pmh-theme-toggle {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top, 12px));
+  left: max(12px, env(safe-area-inset-left, 12px));
+  z-index: 55;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--hub-border);
+  background: color-mix(in srgb, var(--hub-surface) 92%, transparent);
+  color: var(--hub-text);
+  font-family: var(--hub-font-display);
+  font-weight: 800;
+  font-size: 0.82rem;
+  letter-spacing: 0.01em;
+  box-shadow: var(--hub-shadow);
+  cursor: pointer;
+}
+
+.pmh-theme-toggle:active {
+  transform: scale(0.98);
+}
+
+.pmh-theme-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--hub-brand) 50%, #ffffff);
+  outline-offset: 3px;
+}
+
+.pmh-theme-toggle-ico {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+@media (max-width: 520px) {
+  .pmh-theme-toggle-text {
+    display: none;
+  }
 }
 
 .pmh-page--hub-skillbuilders {
@@ -2388,6 +3279,25 @@ watch(hubSlug, () => {
   max-width: 42rem;
   margin: 0 auto;
   padding-bottom: 8px;
+}
+
+/* Keep narrative prose readable while letting card grids and sub-flows use the wider shell. */
+.pmh-shell > .pmh-offer,
+.pmh-shell > .pmh-cta-band,
+.pmh-shell > .pmh-process,
+.pmh-shell > .pmh-metrics {
+  max-width: 44rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Keep header copy readable, but allow the hero media to span wide screens. */
+.pmh-brand-row,
+.pmh-partner,
+.pmh-intro-card {
+  max-width: 44rem;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .pmh-header {
@@ -2906,6 +3816,48 @@ watch(hubSlug, () => {
   gap: 8px 14px;
 }
 
+/* Footer partners: compact grid on desktop */
+@media (min-width: 720px) {
+  .pmh-footer-heading {
+    text-align: left;
+  }
+
+  .pmh-footer-partner-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+  }
+
+  .pmh-footer-partner-card {
+    align-items: center;
+    padding: 12px 14px;
+    background: color-mix(in srgb, var(--hub-surface) 92%, #f8fafc);
+  }
+
+  .pmh-footer-partner-logo-wrap {
+    width: 48px;
+    height: 48px;
+  }
+
+  .pmh-footer-partner-name {
+    font-size: 0.9rem;
+  }
+
+  .pmh-footer-link {
+    font-size: 0.78rem;
+  }
+}
+
+.pmh-page--dark .pmh-footer-partner-card {
+  background: rgba(2, 6, 23, 0.35);
+  border-color: rgba(148, 163, 184, 0.16);
+}
+
+.pmh-page--dark .pmh-footer-partner-logo-wrap {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
 .pmh-footer-link {
   font-size: 0.8125rem;
   font-weight: 700;
@@ -3102,6 +4054,38 @@ watch(hubSlug, () => {
   outline-offset: 2px;
 }
 
+.pmh-offer-toggle--pulsing {
+  background: var(--hub-brand);
+  color: #fff;
+  border-color: var(--hub-brand);
+  box-shadow: 0 10px 24px rgba(163, 38, 35, 0.28);
+  animation: pmh-offer-toggle-pulse 1.6s ease-in-out infinite;
+}
+
+.pmh-offer-toggle--pulsing:hover {
+  background: var(--hub-link-dark);
+  color: #fff;
+  border-color: var(--hub-link-dark);
+}
+
+@keyframes pmh-offer-toggle-pulse {
+  0%,
+  100% {
+    box-shadow: 0 10px 24px rgba(163, 38, 35, 0.28), 0 0 0 0 rgba(163, 38, 35, 0);
+    transform: translateY(0);
+  }
+  50% {
+    box-shadow: 0 14px 32px rgba(163, 38, 35, 0.35), 0 0 0 6px rgba(163, 38, 35, 0.18);
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pmh-offer-toggle--pulsing {
+    animation: none;
+  }
+}
+
 .pmh-offer-details {
   margin-top: 20px;
   padding-top: 4px;
@@ -3269,29 +4253,85 @@ watch(hubSlug, () => {
   overflow: auto;
   padding: 26px 22px;
   border-radius: 20px;
-  background: #fff;
+  background: var(--hub-surface, #fff);
   border: 1px solid var(--hub-border);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
 }
 
-.pmh-splash-logos {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
+.pmh-splash-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  margin-bottom: 18px;
+}
+
+@media (min-width: 860px) {
+  .pmh-splash-top {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: 22px;
+    align-items: center;
+  }
+}
+
+.pmh-splash-brand {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+.pmh-splash-kicker {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--hub-eyebrow);
+  font-family: var(--hub-font-display);
+}
+
+.pmh-splash-sub {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--hub-text-muted);
+}
+
+.pmh-splash-agency {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+}
+
+.pmh-splash-tenant-logos {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  width: 100%;
+  max-width: 420px;
 }
 
 .pmh-splash-agency-hint {
-  margin: 0 0 14px;
+  margin: 0;
   padding: 12px 14px;
-  font-size: 0.9rem;
-  line-height: 1.45;
-  color: #475569;
-  background: #f8fafc;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--hub-text-muted);
+  background: color-mix(in srgb, var(--hub-surface) 86%, transparent);
   border: 1px solid var(--hub-border);
-  border-radius: 14px;
+  border-radius: 16px;
+  max-width: 420px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.pmh-page--dark .pmh-splash-program-logo-wrap,
+.pmh-page--dark .pmh-splash-tenant-logo-wrap {
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.pmh-page--dark .pmh-splash-tenant-name {
+  color: var(--hub-text-muted);
 }
 
 .pmh-splash-program-logo-wrap {
@@ -3319,12 +4359,7 @@ watch(hubSlug, () => {
 }
 
 .pmh-splash-tenant-logos {
-  display: flex;
-  align-items: flex-end;
-  justify-content: flex-end;
-  gap: 18px;
-  flex-wrap: wrap;
-  margin-left: auto;
+  align-items: stretch;
 }
 
 .pmh-splash-tenant-tile {
@@ -3391,73 +4426,124 @@ watch(hubSlug, () => {
   font-size: clamp(1.5rem, 4.2vw, 2rem);
   font-family: var(--hub-font-display);
   letter-spacing: -0.02em;
-  color: #0f172a;
+  color: var(--hub-text);
 }
 
-.pmh-splash-actions {
-  margin-top: 18px;
-  display: flex;
-  justify-content: flex-start;
+.pmh-splash-choices {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
 }
 
-.pmh-splash-card .pmh-pathfinder-eyebrow,
-.pmh-splash-card .pmh-pathfinder-title,
-.pmh-splash-card .pmh-pathfinder-sub,
-.pmh-splash-card .pmh-pathfinder-detail-title {
-  text-align: left;
+@media (min-width: 860px) {
+  .pmh-splash-choices {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
 }
 
-.pmh-splash-card .pmh-pathfinder-sub {
-  color: #475569;
+.pmh-choice-btn {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--hub-brand, #a32623) 38%, #ffffff);
+  border-radius: 18px;
+  padding: 16px 16px 14px;
+  text-align: center;
+  cursor: pointer;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.98) 0%,
+    color-mix(in srgb, var(--hub-brand, #a32623) 10%, #ffffff) 55%,
+    rgba(255, 255, 255, 0.96) 100%
+  );
+  color: #0b1220;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  font-family: var(--hub-font-display);
 }
 
-.pmh-splash-card .pmh-pathfinder-actions,
-.pmh-splash-card .pmh-chip-row {
-  justify-content: flex-start;
+.pmh-choice-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 54px rgba(15, 23, 42, 0.16);
+  border-color: color-mix(in srgb, var(--hub-brand, #a32623) 65%, #ffffff);
 }
 
-.pmh-splash-card .pmh-path-btn {
-  background: #fff;
-  border: 1px solid #d9a5a3;
-  color: #7a1f1d;
+.pmh-choice-btn:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--hub-brand, #a32623) 55%, transparent);
+  outline-offset: 3px;
 }
 
-.pmh-splash-card .pmh-path-btn.active {
-  background: #fff7f6;
-  border-color: #a32623;
-  color: #a32623;
+.pmh-choice-title {
+  display: block;
+  font-size: 1.02rem;
+  font-weight: 900;
+  letter-spacing: -0.01em;
 }
 
-.pmh-splash-card .pmh-cta-primary {
-  min-width: 180px;
+.pmh-choice-sub {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.92rem;
+  font-weight: 650;
+  line-height: 1.4;
+  color: rgba(11, 18, 32, 0.74);
+}
+
+.pmh-choice-btn.active {
+  border-color: color-mix(in srgb, var(--hub-brand, #a32623) 78%, #ffffff);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--hub-brand, #a32623) 16%, #ffffff),
+    color-mix(in srgb, var(--hub-brand, #a32623) 9%, #ffffff)
+  );
+}
+
+.pmh-choice-btn--pulse {
+  animation: pmh-choice-pulse 3.9s ease-in-out infinite;
+}
+
+.pmh-splash-choices .pmh-choice-btn--pulse:nth-child(1) { animation-delay: 0s; }
+.pmh-splash-choices .pmh-choice-btn--pulse:nth-child(2) { animation-delay: 1.3s; }
+.pmh-splash-choices .pmh-choice-btn--pulse:nth-child(3) { animation-delay: 2.6s; }
+
+@keyframes pmh-choice-pulse {
+  0%,
+  100% {
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12), 0 0 0 0 rgba(163, 38, 35, 0);
+    transform: translateY(0);
+  }
+  45% {
+    box-shadow: 0 22px 54px rgba(15, 23, 42, 0.16), 0 0 0 9px rgba(163, 38, 35, 0.18);
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pmh-choice-btn--pulse {
+    animation: none;
+  }
 }
 
 @media (max-width: 760px) {
-  .pmh-splash-logos {
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-  }
   .pmh-splash-program-logo-wrap {
     width: 92px;
     height: 92px;
     min-width: 92px;
     max-width: 92px;
     padding: 8px;
-    margin: 0 auto;
   }
+
   .pmh-splash-tenant-logos {
-    width: 100%;
-    margin-left: 0;
-    justify-content: center;
-    flex-wrap: nowrap;
+    max-width: 420px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
   }
+
   .pmh-splash-tenant-logo-wrap {
     width: 92px;
     height: 92px;
     padding: 8px;
   }
+
   .pmh-splash-card {
     padding: 18px 14px;
   }
@@ -4034,6 +5120,12 @@ watch(hubSlug, () => {
   }
 }
 
+@media (min-width: 960px) {
+  .pmh-shell {
+    max-width: min(1120px, calc(100vw - 32px));
+  }
+}
+
 /* Full-width footer bar on large screens: main row + centered tail; phone stays stacked. */
 @media (min-width: 960px) {
   .pmh-footer {
@@ -4346,6 +5438,478 @@ watch(hubSlug, () => {
   }
   .sb-skillbuilders-session-chip {
     transition: none;
+  }
+}
+
+/* ===== d11summer2026 sub-flow (replaces main body) ========================= */
+.pmh-header--compact .pmh-brand-row {
+  margin-bottom: 8px;
+}
+
+.pmh-subflow {
+  margin: 12px 14px 28px;
+}
+
+.pmh-subflow-inner {
+  background: var(--hub-surface);
+  border: 1px solid var(--hub-border);
+  border-radius: var(--hub-radius-lg);
+  box-shadow: var(--hub-shadow);
+  padding: 20px 18px 22px;
+}
+
+.pmh-subflow-header {
+  margin-bottom: 18px;
+  text-align: center;
+}
+
+.pmh-subflow-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--hub-link-dark);
+  background: transparent;
+  border: 1px solid rgba(163, 38, 35, 0.25);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.pmh-subflow-back:hover {
+  background: rgba(163, 38, 35, 0.06);
+  border-color: rgba(163, 38, 35, 0.5);
+}
+
+.pmh-subflow-eyebrow {
+  margin: 0 0 4px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--hub-eyebrow);
+}
+
+.pmh-subflow-title {
+  margin: 0 0 6px;
+  font-size: clamp(1.3rem, 3.6vw, 1.8rem);
+  font-weight: 800;
+  font-family: var(--hub-font-display);
+  color: var(--hub-text);
+  letter-spacing: -0.02em;
+}
+
+.pmh-subflow-hint {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--hub-text-muted);
+}
+
+.pmh-subflow-subtitle {
+  margin: 22px 0 12px;
+  font-size: 1rem;
+  font-weight: 800;
+  font-family: var(--hub-font-display);
+  color: var(--hub-text);
+  letter-spacing: -0.01em;
+}
+
+.pmh-subflow-empty {
+  margin: 12px 0 0;
+  padding: 14px;
+  text-align: center;
+  background: #f8fafc;
+  border: 1px dashed var(--hub-border);
+  border-radius: var(--hub-radius-md);
+  color: var(--hub-text-muted);
+  font-size: 0.9rem;
+}
+
+.pmh-page--dark .pmh-subflow-empty {
+  background: rgba(2, 6, 23, 0.35);
+  border-color: rgba(148, 163, 184, 0.18);
+  color: var(--hub-text-muted);
+}
+
+.pmh-subflow-cards {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 560px) {
+  .pmh-subflow-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 960px) {
+  .pmh-subflow-cards--loc {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .pmh-subflow-cards--session {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Location card with faded banner + name overlay */
+.pmh-loc-card {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: 180px;
+  padding: 0;
+  text-align: left;
+  border: none;
+  border-radius: var(--hub-radius-lg);
+  overflow: hidden;
+  cursor: pointer;
+  background-color: var(--pmh-loc-accent, color-mix(in srgb, var(--hub-brand) 22%, #ffffff));
+  background-image: var(--pmh-loc-bg, none);
+  background-size: var(--pmh-loc-bg-size, cover);
+  background-position: var(--pmh-loc-bg-position, center);
+  background-repeat: var(--pmh-loc-bg-repeat, no-repeat);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
+  border: 1px solid var(--hub-border);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  isolation: isolate;
+}
+
+.pmh-loc-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.22);
+}
+
+.pmh-loc-card:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--hub-brand, #a32623) 60%, transparent);
+  outline-offset: 2px;
+}
+
+.pmh-loc-card-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(15, 23, 42, 0.12) 0%,
+    rgba(15, 23, 42, 0.45) 45%,
+    rgba(15, 23, 42, 0.82) 100%
+  );
+  z-index: 1;
+}
+
+.pmh-loc-card-body {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 16px 14px;
+  min-height: 180px;
+  color: #fff;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.45);
+  justify-content: flex-end;
+}
+
+.pmh-loc-card-eyebrow {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.pmh-loc-card-name {
+  font-size: 1.2rem;
+  font-weight: 800;
+  font-family: var(--hub-font-display);
+  line-height: 1.2;
+}
+
+.pmh-loc-card-distance {
+  margin-top: 4px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #fde68a;
+}
+
+.pmh-loc-card-distance--na {
+  color: rgba(226, 232, 240, 0.85);
+}
+
+.pmh-loc-card-cta {
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--hub-link-dark);
+  background: #fff;
+  border-radius: 999px;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.25);
+}
+
+.pmh-loc-card-cta--register {
+  background: var(--hub-brand);
+  color: #fff;
+}
+
+.pmh-loc-card--picked {
+  cursor: default;
+}
+
+.pmh-loc-card--picked:hover {
+  transform: none;
+}
+
+/* Session card */
+.pmh-sess-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px;
+  text-align: left;
+  border-radius: var(--hub-radius-lg);
+  border: 2px solid color-mix(in srgb, var(--hub-brand) 35%, #ffffff);
+  background: linear-gradient(160deg, #ffffff 0%, color-mix(in srgb, var(--hub-brand) 6%, #ffffff) 100%);
+  color: var(--hub-text);
+  font-family: var(--hub-font-display);
+  cursor: pointer;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.pmh-page--dark .pmh-sess-card {
+  border-color: rgba(163, 38, 35, 0.35);
+  background: linear-gradient(160deg, rgba(2, 6, 23, 0.38) 0%, rgba(15, 23, 42, 0.92) 100%);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.28);
+}
+
+.pmh-sess-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--hub-brand) 65%, #ffffff);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.14);
+}
+
+.pmh-page--dark .pmh-sess-card:hover {
+  border-color: rgba(163, 38, 35, 0.75);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.34);
+}
+
+.pmh-sess-card:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--hub-brand) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.pmh-sess-card-eyebrow {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--hub-eyebrow);
+}
+
+.pmh-sess-card-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--hub-text);
+  letter-spacing: -0.01em;
+}
+
+.pmh-sess-card-sub {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--hub-text-muted);
+}
+
+.pmh-sess-card-cta {
+  align-self: flex-start;
+  margin-top: 8px;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--hub-link-dark);
+  background: #fff;
+  border: 1px solid rgba(163, 38, 35, 0.3);
+  border-radius: 999px;
+}
+
+.pmh-page--dark .pmh-sess-card-cta {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: rgba(226, 232, 240, 0.95);
+}
+
+.pmh-sess-card-cta--register {
+  background: var(--hub-brand);
+  border-color: var(--hub-brand);
+  color: #fff;
+}
+
+.pmh-sess-card--picked {
+  cursor: default;
+  background: color-mix(in srgb, var(--hub-brand) 10%, #ffffff);
+  border-color: color-mix(in srgb, var(--hub-brand) 60%, #ffffff);
+}
+
+.pmh-page--dark .pmh-sess-card--picked {
+  background: rgba(163, 38, 35, 0.14);
+  border-color: rgba(163, 38, 35, 0.75);
+}
+
+.pmh-sess-card--picked:hover {
+  transform: none;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
+}
+
+/* Address toggle + input (program flow) */
+.pmh-subflow-addr-toggle {
+  margin-top: 18px;
+  display: flex;
+  justify-content: center;
+}
+
+.pmh-subflow-addr-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  font-size: 0.95rem;
+  font-weight: 800;
+  font-family: var(--hub-font-display);
+  color: #fff;
+  background: var(--hub-brand);
+  border: 2px solid var(--hub-brand);
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 10px 26px rgba(163, 38, 35, 0.2);
+  transition: filter 0.15s ease, transform 0.15s ease;
+}
+
+.pmh-subflow-addr-toggle-btn:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+.pmh-subflow-addr-toggle-btn--active {
+  background: #fff;
+  color: var(--hub-link-dark);
+}
+
+.pmh-page--dark .pmh-subflow-addr-toggle-btn--active {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(226, 232, 240, 0.95);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.pmh-subflow-addr {
+  margin: 14px 0 4px;
+  padding: 16px;
+  background: #f8fafc;
+  border: 1px solid var(--hub-border);
+  border-radius: var(--hub-radius-md);
+}
+
+.pmh-page--dark .pmh-subflow-addr {
+  background: rgba(2, 6, 23, 0.35);
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
+.pmh-subflow-addr-label {
+  display: block;
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--hub-eyebrow);
+}
+
+.pmh-subflow-addr-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pmh-subflow-addr-input {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 12px 14px;
+  font-size: 1rem;
+  border: 2px solid rgba(163, 38, 35, 0.3);
+  border-radius: var(--hub-radius-md);
+  background: #fff;
+  color: var(--hub-text);
+}
+
+.pmh-page--dark .pmh-subflow-addr-input {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: rgba(226, 232, 240, 0.95);
+}
+
+.pmh-page--dark .pmh-subflow-addr-input::placeholder {
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.pmh-subflow-addr-input:focus {
+  outline: none;
+  border-color: var(--hub-brand);
+  box-shadow: 0 0 0 3px rgba(163, 38, 35, 0.15);
+}
+
+.pmh-subflow-addr-btn {
+  padding: 0 22px;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #fff;
+  background: var(--hub-brand);
+  border: none;
+  border-radius: var(--hub-radius-md);
+  cursor: pointer;
+}
+
+.pmh-subflow-addr-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.pmh-subflow-addr-err {
+  margin: 8px 0 0;
+  color: #b91c1c;
+  font-size: 0.875rem;
+}
+
+.pmh-subflow-addr-note {
+  margin: 10px 0 0;
+  font-size: 0.85rem;
+  color: var(--hub-text-muted);
+}
+
+.pmh-subflow-linkish {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--hub-link);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pmh-loc-card,
+  .pmh-sess-card,
+  .pmh-subflow-addr-toggle-btn {
+    transition: none;
+  }
+  .pmh-loc-card:hover,
+  .pmh-sess-card:hover,
+  .pmh-subflow-addr-toggle-btn:hover {
+    transform: none;
   }
 }
 </style>

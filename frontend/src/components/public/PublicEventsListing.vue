@@ -56,6 +56,43 @@
               <button type="button" class="pel-linkish" @click="clearNearest">Use date order</button>
             </p>
             <p v-if="nearestError" class="pel-finder-err">{{ nearestError }}</p>
+
+            <div v-if="originSummary && addressSortChipGroups.length" class="pel-sort-chips">
+              <p class="pel-sort-chips-label">Sort by</p>
+              <div class="pel-sort-chips-row">
+                <button
+                  type="button"
+                  class="pel-sort-chip"
+                  :class="{ 'pel-sort-chip--active': !addressSortMode }"
+                  @click="clearAddressSort"
+                >
+                  Closest drive
+                </button>
+                <button
+                  v-for="g in addressSortChipGroups"
+                  :key="`asc-${g.mode}`"
+                  type="button"
+                  class="pel-sort-chip"
+                  :class="{ 'pel-sort-chip--active': addressSortMode === g.mode }"
+                  @click="toggleAddressSortMode(g.mode)"
+                >
+                  {{ g.label }}
+                </button>
+              </div>
+              <div v-if="addressSortMode && addressSortValueOptions.length" class="pel-sort-chips-row pel-sort-chips-row--values">
+                <button
+                  v-for="opt in addressSortValueOptions"
+                  :key="`asv-${addressSortMode}-${opt.key}`"
+                  type="button"
+                  class="pel-sort-chip pel-sort-chip--value"
+                  :class="{ 'pel-sort-chip--active': addressSortValue === opt.key }"
+                  @click="selectAddressSortValue(opt.key)"
+                >
+                  {{ opt.label }}
+                  <span v-if="opt.count" class="pel-sort-chip-count">{{ opt.count }}</span>
+                </button>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -371,6 +408,9 @@ const hubAgencyFilterId = ref(null);
 const sessionLabelFilter = ref('');
 /** Filter events sharing the same public_session_date_range (optional with label). */
 const sessionDateRangeFilter = ref('');
+/** After an address lookup, user can group/filter the ranked list by agency, session, or location. */
+const addressSortMode = ref('');
+const addressSortValue = ref('');
 
 const allowedEventIdSet = computed(() => {
   const raw = props.allowedEventIds;
@@ -430,8 +470,89 @@ const displayEvents = computed(() => {
       return fields.some((v) => String(v || '').toLowerCase().includes(locQuery));
     });
   }
+  if (rankedEvents.value && addressSortMode.value && addressSortValue.value) {
+    list = list.filter((ev) => eventMatchesSortValue(ev, addressSortMode.value, addressSortValue.value));
+  }
   return list;
 });
+
+function eventSortGroupKeys(ev, mode) {
+  if (mode === 'agency') {
+    const partners = Array.isArray(ev?.hubSourcePartners) ? ev.hubSourcePartners : [];
+    const names = partners
+      .map((p) => String(p?.sourceAgencyName || '').trim())
+      .filter(Boolean);
+    return names.length ? [...new Set(names)] : [];
+  }
+  if (mode === 'session') {
+    const label = String(ev?.publicSessionLabel || '').trim();
+    const range = String(ev?.publicSessionDateRange || '').trim();
+    const key = [label, range].filter(Boolean).join(' · ');
+    return key ? [key] : [];
+  }
+  if (mode === 'location') {
+    const slocs = Array.isArray(ev?.sessionLocations) ? ev.sessionLocations : [];
+    const labels = slocs.map((s) => String(s?.label || '').trim()).filter(Boolean);
+    if (labels.length) return [...new Set(labels)];
+    const title = String(ev?.title || '').trim();
+    return title ? [title] : [];
+  }
+  return [];
+}
+
+function eventMatchesSortValue(ev, mode, value) {
+  const keys = eventSortGroupKeys(ev, mode);
+  return keys.includes(value);
+}
+
+const addressSortChipGroups = computed(() => {
+  if (!rankedEvents.value) return [];
+  return [
+    { mode: 'agency', label: 'By agency' },
+    { mode: 'session', label: 'By session' },
+    { mode: 'location', label: 'By location' }
+  ];
+});
+
+const addressSortValueOptions = computed(() => {
+  if (!rankedEvents.value || !addressSortMode.value) return [];
+  const mode = addressSortMode.value;
+  const counts = new Map();
+  const seenOrder = [];
+  for (const ev of baseEventList.value || []) {
+    for (const key of eventSortGroupKeys(ev, mode)) {
+      if (!counts.has(key)) {
+        counts.set(key, 0);
+        seenOrder.push(key);
+      }
+      counts.set(key, counts.get(key) + 1);
+    }
+  }
+  return seenOrder.map((k) => ({ key: k, label: k, count: counts.get(k) }));
+});
+
+function toggleAddressSortMode(mode) {
+  if (addressSortMode.value === mode) {
+    addressSortMode.value = '';
+    addressSortValue.value = '';
+    return;
+  }
+  addressSortMode.value = mode;
+  addressSortValue.value = '';
+}
+
+function selectAddressSortValue(value) {
+  if (addressSortValue.value === value) {
+    addressSortValue.value = '';
+    return;
+  }
+  addressSortValue.value = value;
+}
+
+function clearAddressSort() {
+  addressSortMode.value = '';
+  addressSortValue.value = '';
+}
 
 const nearestAgencySlug = computed(() => String(props.nearestAgencySlug || '').trim().toLowerCase());
 const hubSlugNorm = computed(() => String(props.hubSlug || '').trim().toLowerCase());
@@ -511,6 +632,8 @@ watch(
     rankedEvents.value = null;
     nearestError.value = '';
     originSummary.value = '';
+    addressSortMode.value = '';
+    addressSortValue.value = '';
   }
 );
 
@@ -904,6 +1027,8 @@ function clearNearest() {
   rankedEvents.value = null;
   originSummary.value = '';
   nearestError.value = '';
+  addressSortMode.value = '';
+  addressSortValue.value = '';
 }
 
 async function focusNearestInput() {
@@ -1950,6 +2075,17 @@ defineExpose({ focusNearestInput });
   margin-bottom: clamp(8px, 2vw, 16px);
 }
 
+/* On wide screens, the marketing hub should not feel centered/narrow. */
+@media (min-width: 960px) {
+  .pel-root--hub .pel-events {
+    max-width: min(1120px, 100%);
+  }
+
+  .pel-root--hub .pel-nearest-inline {
+    max-width: min(1120px, 100%);
+  }
+}
+
 .pel-nearest-inner {
   text-align: center;
   padding: clamp(20px, 4vw, 28px) clamp(18px, 3vw, 24px);
@@ -2328,5 +2464,100 @@ defineExpose({ focusNearestInput });
 
 .pel-root--hub .pel-agency-fallback {
   color: var(--hub-text-muted, #64748b);
+}
+
+/* Sort chips (after address search) */
+.pel-sort-chips {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--hub-border, rgba(15, 23, 42, 0.08));
+  text-align: left;
+}
+
+.pel-sort-chips-label {
+  margin: 0 0 8px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--hub-eyebrow, #64748b);
+}
+
+.pel-sort-chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.pel-sort-chips-row--values {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--hub-border, rgba(15, 23, 42, 0.08));
+}
+
+.pel-sort-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-family: inherit;
+  color: var(--hub-link-dark, #1e293b);
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+}
+
+.pel-sort-chip:hover {
+  background: #fff;
+  border-color: color-mix(in srgb, var(--hub-brand, #a32623) 35%, rgba(15, 23, 42, 0.12));
+  transform: translateY(-1px);
+}
+
+.pel-sort-chip--active {
+  color: #fff;
+  background: var(--hub-brand, #a32623);
+  border-color: var(--hub-brand, #a32623);
+  box-shadow: 0 6px 16px rgba(163, 38, 35, 0.2);
+}
+
+.pel-sort-chip--active:hover {
+  background: var(--hub-link-dark, #7a1f1d);
+  border-color: var(--hub-link-dark, #7a1f1d);
+}
+
+.pel-sort-chip-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.12);
+}
+
+.pel-sort-chip--active .pel-sort-chip-count {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
+.pel-sort-chip--value {
+  background: #fff;
+  border-color: rgba(15, 23, 42, 0.14);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pel-sort-chip,
+  .pel-sort-chip:hover {
+    transition: none;
+    transform: none;
+  }
 }
 </style>

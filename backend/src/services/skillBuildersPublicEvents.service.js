@@ -92,8 +92,13 @@ async function fetchSessionLocationsByEventIds(conn, eventIds) {
     for (const r of sessionRows || []) {
       const eid = Number(r.company_event_id);
       if (!map.has(eid)) map.set(eid, []);
-      const mod = String(r.modality || '').trim().toLowerCase();
-      if (mod && mod !== 'in_person' && mod !== 'hybrid' && mod !== '') continue;
+      // Modality values in the wild vary ("in_person", "in-person", "In Person", etc).
+      // For public location/distance ranking we only need a destination address; exclude only explicitly virtual modalities.
+      const modKey = String(r.modality || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, '_');
+      if (['virtual', 'telehealth', 'remote', 'online'].includes(modKey)) continue;
       map.get(eid).push({
         label: r.location_label ? String(r.location_label).trim() : null,
         address: String(r.location_address || '').trim(),
