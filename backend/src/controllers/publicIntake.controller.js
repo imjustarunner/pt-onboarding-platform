@@ -1426,9 +1426,9 @@ const resolvePacketCompletionEmailContent = async ({
         '',
         '— Guardian portal access —',
         regPasswordless && needsSetup
-          ? `Set up your guardian account using this secure link:\n${regPasswordless}`
+          ? `Set up your guardian account using this secure link:\n[Sign in to set your password](${regPasswordless})`
           : regPasswordless
-            ? `One-time sign-in link:\n${regPasswordless}`
+            ? `One-time sign-in link:\n[Sign in to set your password](${regPasswordless})`
           : '',
         regLogin ? `Username (email): ${regLogin}` : '',
         regPw ? `Temporary password (valid 72 hours; you will set a new password after signing in): ${regPw}` : '',
