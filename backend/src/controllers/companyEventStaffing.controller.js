@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import { userHasAgencyOrAffiliatedOrgAccessForRequest } from '../utils/userAgencyAffiliationAccess.js';
 
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw ?? ''), 10);
@@ -9,8 +10,7 @@ const parsePositiveInt = (raw) => {
 async function userHasAgencyAccess(req, agencyId) {
   if (!agencyId) return false;
   if (String(req.user?.role || '').toLowerCase() === 'super_admin') return true;
-  const agencies = await User.getAgencies(req.user?.id);
-  return (agencies || []).some((a) => Number(a?.id) === Number(agencyId));
+  return userHasAgencyOrAffiliatedOrgAccessForRequest(req, agencyId);
 }
 
 async function getProgramCoordinatorAccess(userId) {

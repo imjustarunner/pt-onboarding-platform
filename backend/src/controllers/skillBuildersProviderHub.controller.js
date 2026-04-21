@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
+import { userHasAgencyOrAffiliatedOrgAccessForRequest } from '../utils/userAgencyAffiliationAccess.js';
 import {
   listAffiliatedProgramOrganizations,
   resolveSkillBuildersProgramOrganizationId,
@@ -245,8 +246,7 @@ async function mergeCanonicalSkillsGroupWindowForEditFetch(agencyId, eventId, bu
 async function userHasAgencyAccess(req, agencyId) {
   if (!agencyId) return false;
   if (String(req.user?.role || '').toLowerCase() === 'super_admin') return true;
-  const agencies = await User.getAgencies(req.user?.id);
-  return (agencies || []).some((a) => Number(a?.id) === Number(agencyId));
+  return userHasAgencyOrAffiliatedOrgAccessForRequest(req, agencyId);
 }
 
 /** Admin / staff / support with membership in this agency (plus super_admin). */

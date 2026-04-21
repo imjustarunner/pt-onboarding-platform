@@ -1,11 +1,7 @@
 import { assertSkillBuildersSchoolProgramForRequest } from '../utils/skillBuildersSchoolProgramFeature.js';
+import { resolveTenantRootAgencyId } from '../utils/meDashboardTenantScope.js';
 
 function parseAgencyIdFromRequest(req) {
-  const h = req.get('x-agency-id');
-  if (h != null && String(h).trim()) {
-    const n = parseInt(String(h).trim(), 10);
-    if (Number.isFinite(n) && n > 0) return n;
-  }
   const q = req.query?.agencyId;
   if (q != null && String(q).trim()) {
     const n = parseInt(String(q).trim(), 10);
@@ -14,6 +10,11 @@ function parseAgencyIdFromRequest(req) {
   const b = req.body?.agencyId;
   if (b != null && String(b).trim()) {
     const n = parseInt(String(b).trim(), 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  const h = req.get('x-agency-id');
+  if (h != null && String(h).trim()) {
+    const n = parseInt(String(h).trim(), 10);
     if (Number.isFinite(n) && n > 0) return n;
   }
   return null;
@@ -34,7 +35,8 @@ export async function requireSkillBuildersSchoolProgramForAgencyContext(req, res
         error: { message: 'Agency context is required (X-Agency-Id or agencyId) for Skill Builders requests' }
       });
     }
-    const gate = await assertSkillBuildersSchoolProgramForRequest(req, agencyId);
+    const parentAgencyId = (await resolveTenantRootAgencyId(agencyId)) || agencyId;
+    const gate = await assertSkillBuildersSchoolProgramForRequest(req, parentAgencyId);
     if (!gate.ok) {
       return res.status(gate.status).json({ error: { message: gate.message } });
     }

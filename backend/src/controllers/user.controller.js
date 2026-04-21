@@ -4940,6 +4940,39 @@ export const getUserAgencies = async (req, res, next) => {
     
     const agencies = await User.getAgencies(userId);
     await attachAffiliationMeta(agencies);
+
+    // If the user is attached to an affiliated child org (program/school/learning/etc),
+    // include the parent agency row as well so tenant-scoped UIs (like Programs & events)
+    // can be navigated without requiring a second explicit membership.
+    try {
+      const existingIds = new Set((agencies || []).map((a) => Number(a?.id)).filter((n) => n > 0));
+      const parentIds = [...new Set((agencies || [])
+        .map((a) => Number(a?.affiliated_agency_id || 0))
+        .filter((n) => n > 0 && !existingIds.has(n))
+      )];
+      if (parentIds.length) {
+        const ph = parentIds.map(() => '?').join(',');
+        const [parentRows] = await pool.execute(
+          `SELECT id, slug, name, portal_url, organization_type, color_palette, theme_settings, feature_flags
+           FROM agencies
+           WHERE id IN (${ph})
+             AND (is_archived = FALSE OR is_archived IS NULL)
+             AND (is_active = TRUE OR is_active IS NULL)`,
+          parentIds
+        );
+        for (const row of parentRows || []) {
+          const id = Number(row?.id || 0);
+          if (!id || existingIds.has(id)) continue;
+          agencies.push(row);
+          existingIds.add(id);
+        }
+        await attachAffiliationMeta(agencies);
+      }
+    } catch {
+      // best-effort
+    }
+
+    agencies.sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { sensitivity: 'base' }));
     res.json(agencies);
   } catch (error) {
     next(error);

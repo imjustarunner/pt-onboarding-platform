@@ -32,6 +32,7 @@ import {
 } from '../utils/bookClub.js';
 import { resolveScopedAgencyIdsForMyDashboard } from '../utils/meDashboardTenantScope.js';
 import { assertSkillBuildersSchoolProgramForRequest } from '../utils/skillBuildersSchoolProgramFeature.js';
+import { userHasAgencyOrAffiliatedOrgAccessForRequest } from '../utils/userAgencyAffiliationAccess.js';
 
 const DEFAULT_RSVP_OPTIONS = [
   { key: '1', label: 'Yes' },
@@ -93,8 +94,7 @@ const normalizeIds = (list) => [...new Set((Array.isArray(list) ? list : [])
 const userHasAgencyAccess = async (req, agencyId) => {
   if (!agencyId) return false;
   if (String(req.user?.role || '').toLowerCase() === 'super_admin') return true;
-  const agencies = await User.getAgencies(req.user?.id);
-  return (agencies || []).some((agency) => Number(agency?.id) === Number(agencyId));
+  return userHasAgencyOrAffiliatedOrgAccessForRequest(req, agencyId);
 };
 
 async function getSkillBuilderCoordinatorAccess(userId) {
@@ -1469,8 +1469,10 @@ export const listProgramCompanyEventsForCoordinator = async (req, res, next) => 
     if (!(await userHasAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
-    if (!(await getSkillBuilderCoordinatorAccess(req.user?.id))) {
-      return res.status(403).json({ error: { message: 'Program coordinator access required' } });
+    const staffLike = await userCanManageCompanyEventsAsync(req, agencyId);
+    const coord = await getSkillBuilderCoordinatorAccess(req.user?.id);
+    if (!staffLike && !coord) {
+      return res.status(403).json({ error: { message: 'Program coordinator or agency staff access required' } });
     }
     const sbGate = await assertSkillBuildersSchoolProgramForRequest(req, agencyId);
     if (!sbGate.ok) return res.status(sbGate.status).json({ error: { message: sbGate.message } });
