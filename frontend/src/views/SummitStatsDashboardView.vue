@@ -256,11 +256,11 @@
               />
               <template v-if="canManageThisClub(season.clubId)">
                 <router-link
-                  :to="appendPreviewQueryToRoute(`/${navSlug}/club/seasons?manageSeason=${season.classId}`)"
+                  :to="appendPreviewQueryToRoute(`/${navSlug}/club/seasons?manageSeason=${season.classId}&club=${season.clubId}`)"
                   class="btn btn-secondary btn-sm"
                 >Manage</router-link>
                 <router-link
-                  :to="appendPreviewQueryToRoute(`/${navSlug}/club/seasons?editSeason=${season.classId}`)"
+                  :to="appendPreviewQueryToRoute(`/${navSlug}/club/seasons?editSeason=${season.classId}&club=${season.clubId}`)"
                   class="btn btn-secondary btn-sm"
                 >Edit</router-link>
                 <button
@@ -1477,7 +1477,7 @@ const switchToClubContext = async (clubId, target = 'dashboard') => {
     return;
   }
   if (target === 'seasons') {
-    await router.push(appendPreviewQueryToRoute(`/${navSlug.value}/club/seasons`));
+    await router.push(appendPreviewQueryToRoute(`/${navSlug.value}/club/seasons?club=${clubId}`));
     return;
   }
   if (target === 'club_manager_dashboard') {

@@ -1201,6 +1201,7 @@ const REORDERABLE_LABEL_BY_ID = Object.fromEntries(REORDERABLE_SECTIONS.map((s) 
 
 const route = useRoute();
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
 const { isSuperadminPreview, appendPreviewQueryToRoute } = useSuperadminPlatformPreview({ route, authStore });
 
@@ -1729,6 +1730,17 @@ const loadChallenge = async () => {
       brandingStore.setActiveRouteSlug(clubSlug);
       // Fetch-and-apply the club's theme (cached after first load so re-renders are instant).
       brandingStore.fetchAgencyTheme(clubSlug, { pageContext: 'season' }).catch(() => {});
+    }
+    // Sync currentAgency to this season's club so navigating to club management
+    // from within this season view lands on the correct club (multi-club users).
+    const classOrgId = Number(challenge.value?.organization_id || 0);
+    if (classOrgId) {
+      const curId = Number(agencyStore.currentAgency?.id || 0);
+      if (curId !== classOrgId) {
+        const userAgencies = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+        const match = userAgencies.find((a) => Number(a?.id) === classOrgId);
+        if (match) agencyStore.setCurrentAgency(match);
+      }
     }
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load challenge';

@@ -1882,7 +1882,35 @@ const syncSeasonClubContext = async () => {
     return;
   }
 
-  if (['affiliation', 'program', 'learning'].includes(curType) && candidates.some((c) => Number(c.id) === curId)) {
+  // If navigating to a specific season (manageSeason/editSeason) without an explicit ?club=,
+  // resolve the owning club from the class API so we don't silently stay on the wrong club.
+  const targetSeasonId = Number(route.query.manageSeason || route.query.editSeason || 0);
+  if (targetSeasonId && candidates.length > 1) {
+    try {
+      const r = await api.get(`/learning-program-classes/${targetSeasonId}`, { skipGlobalLoading: true });
+      const classOrgId = Number(
+        r.data?.class?.organization_id || r.data?.organization_id || 0
+      );
+      if (classOrgId) {
+        const classTarget = candidates.find((c) => Number(c.id) === classOrgId);
+        if (classTarget) {
+          if (Number(classTarget.id) !== curId) await applyClubAgency(classTarget);
+          return;
+        }
+      }
+    } catch {
+      // best-effort; fall through to slug/default resolution below
+    }
+  }
+
+  // Don't keep a stale different club just because it "looks like an affiliation" — only
+  // short-circuit when we're sure the current club matches and no season overrides it.
+  const noSeasonOverride = !targetSeasonId;
+  if (
+    noSeasonOverride &&
+    ['affiliation', 'program', 'learning'].includes(curType) &&
+    candidates.some((c) => Number(c.id) === curId)
+  ) {
     return;
   }
 
