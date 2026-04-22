@@ -284,10 +284,15 @@
         <TransitionGroup v-else name="pel-card" tag="ul" class="pel-list">
           <li v-for="(ev, idx) in displayEvents" :key="ev.id" class="pel-item" :style="{ '--stagger': idx }">
             <article class="pel-card" :style="eventHubCardThemeStyle(ev)">
+              <!-- Status banner — same structure as hub cards, with optional logo -->
               <div class="pel-status-banner" :class="`pel-status-banner--${registrationStatusKey(ev)}`">
-                {{ registrationBannerText(ev) }}
+                <span class="pel-status-text">{{ registrationBannerText(ev) }}</span>
+                <span v-if="hubBannerLogoUrl(ev)" class="pel-status-logo-wrap" aria-hidden="true">
+                  <img class="pel-status-logo" :src="hubBannerLogoUrl(ev)" :alt="hubBannerLogoAlt(ev)" loading="lazy" />
+                </span>
               </div>
-              <div v-if="showHubSourceChips && hubPartnerEntries(ev).length" class="pel-card-agency-logos">
+
+              <div v-if="showHubSourceChips && hubPartnerEntries(ev).length > 1" class="pel-card-agency-logos">
                 <button
                   v-for="(p, pi) in hubPartnerEntries(ev)"
                   :key="`pl-${ev.id}-${pi}`"
@@ -325,62 +330,56 @@
                 <div class="pel-card-hero-main">
                   <div class="pel-card-hero-head">
                     <h2 class="pel-card-title">{{ eventPrimaryTitle(ev) }}</h2>
-                    <span v-if="drivingDistanceDisplay(ev) != null" class="pel-drive-pill">
-                      ~{{ formatDistanceMi(drivingDistanceDisplay(ev)) }} mi
-                      <span v-if="ev.drivingDurationText"> · {{ ev.drivingDurationText }}</span>
+                    <span
+                      v-if="hasNearestResults"
+                      class="pel-drive-pill"
+                      :class="{ 'pel-drive-pill--missing': drivingDistanceDisplay(ev) == null }"
+                    >
+                      <template v-if="drivingDistanceDisplay(ev) != null">
+                        ~{{ formatDistanceMi(drivingDistanceDisplay(ev)) }} mi
+                        <span v-if="ev.drivingDurationText"> · {{ ev.drivingDurationText }}</span>
+                      </template>
+                      <template v-else>Distance unavailable</template>
                     </span>
                   </div>
-                  <p v-if="eventLocationMetaLine(ev)" class="pel-card-meta-loc muted">{{ eventLocationMetaLine(ev) }}</p>
-                  <p v-if="publicEventScheduleLine(ev)" class="pel-card-schedule">{{ publicEventScheduleLine(ev) }}</p>
-                  <p v-if="ev.publicSessionLabel" class="pel-card-sess-filter">
-                    <button
-                      type="button"
-                      class="pel-sess-filter-btn"
-                      @click="setSessionFilter(ev.publicSessionLabel, ev.publicSessionDateRange)"
+                  <!-- Inline schedule + register row (matches hub card layout) -->
+                  <div class="pel-card-hero-row">
+                    <p v-if="publicEventScheduleLine(ev)" class="pel-card-schedule pel-card-schedule--row">
+                      {{ publicEventScheduleLine(ev) }}
+                    </p>
+                    <a
+                      v-if="!registrationCtaDisabled(ev)"
+                      class="pel-btn pel-btn-primary pel-btn-register pel-btn-register--row"
+                      :href="registrationUrl(ev.registrationPublicKey)"
                     >
-                      All {{ ev.publicSessionLabel }} locations
-                    </button>
-                  </p>
-                  <a
-                    v-if="!registrationCtaDisabled(ev)"
-                    class="pel-btn pel-btn-primary pel-btn-register"
-                    :href="registrationUrl(ev.registrationPublicKey)"
-                  >
-                    Register now
-                  </a>
-                  <span
-                    v-else
-                    class="pel-btn pel-btn-primary pel-btn-register pel-btn-register--disabled"
-                  >
-                    Registration unavailable
-                  </span>
+                      Register now
+                    </a>
+                    <span
+                      v-else
+                      class="pel-btn pel-btn-primary pel-btn-register pel-btn-register--row pel-btn-register--disabled"
+                    >
+                      Registration unavailable
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              <div class="pel-card-body">
-                <p v-if="showPartnerTextChips(ev)" class="pel-hub-partners">
-                  <span v-for="(label, hi) in hubPartnerLabels(ev)" :key="`hp-${ev.id}-${hi}`" class="pel-chip">{{
-                    label
-                  }}</span>
-                </p>
-                <p v-if="ageRangeLabel(ev)" class="pel-meta-kicker">{{ ageRangeLabel(ev) }}</p>
-                <p v-if="ev.description" class="pel-desc">{{ ev.description }}</p>
-                <p v-if="ev.publicListingDetails" class="pel-extra">{{ ev.publicListingDetails }}</p>
-                <div v-if="primaryVenueShouldShow(ev)" class="pel-venue">
-                  <strong>Location</strong>
+              <!-- Compact body — same style as hub cards -->
+              <div class="pel-card-body pel-card-body--compact">
+                <div
+                  v-if="ageRangeLabel(ev) || locationDisplayName(ev) || (primaryVenueShouldShow(ev) && ev.publicLocationAddress)"
+                  class="pel-meta-row"
+                >
+                  <span v-if="ageRangeLabel(ev)" class="pel-meta-pill">{{ ageRangeLabel(ev) }}</span>
+                  <span v-if="locationDisplayName(ev)" class="pel-meta-loc-name">{{ locationDisplayName(ev) }}</span>
                   <a
-                    class="pel-address pel-address-link"
-                    :href="googleMapsSearchUrl(ev.publicLocationAddress)"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >{{ ev.publicLocationAddress }}</a>
-                  <a
-                    class="pel-maps-link"
+                    v-if="primaryVenueShouldShow(ev) && ev.publicLocationAddress"
+                    class="pel-meta-addr muted"
                     :href="googleMapsSearchUrl(ev.publicLocationAddress)"
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    Open in Maps
+                    {{ ev.publicLocationAddress }}
                   </a>
                 </div>
                 <ul v-if="extraSessionLocations(ev).length" class="pel-session-locs">
@@ -392,22 +391,20 @@
                       target="_blank"
                       rel="noopener noreferrer"
                     >{{ row.address }}</a>
-                    <a
-                      class="pel-maps-link"
-                      :href="googleMapsSearchUrl(row.address)"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Maps
-                    </a>
                   </li>
                 </ul>
-                <p v-if="showDrivingDistanceFooter(ev)" class="pel-distance">
-                  ~{{ formatDistanceMi(drivingDistanceDisplay(ev)) }} mi drive
-                  <span v-if="ev.drivingDurationText" class="muted"> · {{ ev.drivingDurationText }}</span>
-                  <span v-if="ev.nearestVenueLabel" class="muted"> · {{ ev.nearestVenueLabel }}</span>
+                <p v-if="ev.description" class="pel-desc pel-desc--clamp">{{ ev.description }}</p>
+                <p v-if="ev.publicListingDetails" class="pel-extra pel-desc--clamp">{{ ev.publicListingDetails }}</p>
+                <p v-if="ev.publicSessionLabel" class="pel-card-sess-filter">
+                  <button
+                    type="button"
+                    class="pel-sess-filter-btn"
+                    @click="setSessionFilter(ev.publicSessionLabel, ev.publicSessionDateRange)"
+                  >
+                    All {{ ev.publicSessionLabel }} locations
+                  </button>
                 </p>
-                <div v-if="sanitizedSplash(ev)" class="pel-splash" v-html="sanitizedSplash(ev)" />
+                <div v-if="sanitizedSplash(ev)" class="pel-splash pel-splash--clamp" v-html="sanitizedSplash(ev)" />
               </div>
             </article>
           </li>
