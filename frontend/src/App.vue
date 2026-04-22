@@ -389,6 +389,24 @@
                           v-if="canSeeSkillBuildersMyAvailabilityNav"
                           :to="orgTo('/admin/skill-builders-my-availability')"
                         >Availability</router-link>
+                        <template v-if="canSeeProgramWorkspacesTopNav && programWorkspaceOrgs.length">
+                          <div class="nav-dropdown-group-label">Program workspaces</div>
+                          <router-link
+                            v-for="org in programWorkspaceOrgs"
+                            :key="`pws-dir-${org.id}`"
+                            :to="programWorkspaceHref(org)"
+                            @click="closeAllNavMenus"
+                          >{{ org.name }}</router-link>
+                        </template>
+                        <template v-if="canSeeEventPortalsTopNav && eventPortalsForNav.length">
+                          <div class="nav-dropdown-group-label">Event portals</div>
+                          <router-link
+                            v-for="ev in eventPortalsForNav"
+                            :key="`ep-dir-${ev.id}`"
+                            :to="eventPortalHref(ev)"
+                            @click="closeAllNavMenus"
+                          >{{ ev.title || `Event ${ev.id}` }}</router-link>
+                        </template>
                       </div>
                     </div>
                     <div v-if="!isSscSstcTenant" class="nav-dropdown-group nav-dropdown-group-collapsible">
@@ -1070,6 +1088,26 @@
                     @click="closeMobileMenu"
                     class="mobile-nav-link mobile-nav-sublink"
                   >Availability</router-link>
+                  <template v-if="canSeeProgramWorkspacesTopNav && programWorkspaceOrgs.length">
+                    <div class="nav-dropdown-group-label mobile-nav-sublabel">Program workspaces</div>
+                    <router-link
+                      v-for="org in programWorkspaceOrgs"
+                      :key="`pws-mob-${org.id}`"
+                      :to="programWorkspaceHref(org)"
+                      @click="closeMobileMenu"
+                      class="mobile-nav-link mobile-nav-sublink"
+                    >{{ org.name }}</router-link>
+                  </template>
+                  <template v-if="canSeeEventPortalsTopNav && eventPortalsForNav.length">
+                    <div class="nav-dropdown-group-label mobile-nav-sublabel">Event portals</div>
+                    <router-link
+                      v-for="ev in eventPortalsForNav"
+                      :key="`ep-mob-${ev.id}`"
+                      :to="eventPortalHref(ev)"
+                      @click="closeMobileMenu"
+                      class="mobile-nav-link mobile-nav-sublink"
+                    >{{ ev.title || `Event ${ev.id}` }}</router-link>
+                  </template>
                 </template>
               </div>
 
@@ -1913,6 +1951,7 @@ const togglePeopleOpsMenu = () => {
   closeAllNavMenus();
   peopleOpsMenuOpen.value = next;
 };
+
 function applyDirectorySubgroupStateFromRoute() {
   const p = route.path || '';
   const inSchedules = /\/schedule(\/|$)/.test(p) || /\/buildings/.test(p);
@@ -2727,6 +2766,153 @@ const hasProgramCoordinatorAccess = computed(() => {
     user.value?.has_skill_builder_coordinator_access === '1'
   );
 });
+
+// ---- Top-nav quick access: Program workspaces + Event portals ----
+const canSeeProgramWorkspacesTopNav = computed(() => {
+  if (isSscSstcTenant.value) return false;
+  if (isAffiliationContext.value) return false;
+  // Requires coordinator-style tooling access (admin/staff/support also qualify).
+  return hasProgramCoordinatorAccess.value === true;
+});
+
+const canSeeEventPortalsTopNav = computed(() => {
+  if (isSscSstcTenant.value) return false;
+  if (isAffiliationContext.value) return false;
+  const r = String(user.value?.role || '').toLowerCase();
+  // Providers + coordinators should be able to open event portals directly.
+  const providerLike = ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'].includes(r);
+  return providerLike || hasProgramCoordinatorAccess.value === true;
+});
+
+/** Program orgs user can open in Program Hub modal (coordinator tooling). */
+const programWorkspaceOrgs = ref([]);
+async function loadProgramWorkspaceOrgs() {
+  programWorkspaceOrgs.value = [];
+  if (!isAuthenticated.value) return;
+  if (!canSeeProgramWorkspacesTopNav.value) return;
+  const aid = Number(agencyStore.currentAgency?.id || 0);
+  if (!aid) return;
+  try {
+    const res = await api.get('/availability/admin/skill-builders/options', {
+      params: { agencyId: aid },
+      skipGlobalLoading: true
+    });
+    const orgs = Array.isArray(res.data?.organizations) ? res.data.organizations : [];
+    programWorkspaceOrgs.value = orgs.filter((o) => String(o.organizationType || '').toLowerCase() !== 'school');
+  } catch {
+    programWorkspaceOrgs.value = [];
+  }
+}
+
+watch(
+  () => [canSeeProgramWorkspacesTopNav.value, agencyStore.currentAgency?.id, user.value?.id],
+  () => { void loadProgramWorkspaceOrgs(); },
+  { immediate: true }
+);
+
+const programWorkspaceHref = (org) => {
+  const id = Number(org?.id || 0);
+  if (!id) return orgTo('/dashboard');
+  const name = String(org?.name || '').trim();
+  const slug = String(org?.slug || '').trim().toLowerCase();
+  const qs = new URLSearchParams();
+  qs.set('programHub', '1');
+  qs.set('programHubOrgId', String(id));
+  if (name) qs.set('programHubOrgName', name);
+  if (slug) qs.set('programHubOrgSlug', slug);
+  qs.set('programHubSection', 'portal');
+  return `${orgTo('/dashboard')}?${qs.toString()}`;
+};
+
+/** Event portals for providers (assigned) and coordinators (directory/active). */
+const assignedEventPortals = ref([]);
+const directoryEventPortals = ref([]);
+
+async function loadAssignedEventPortals() {
+  assignedEventPortals.value = [];
+  if (!isAuthenticated.value) return;
+  if (!canSeeEventPortalsTopNav.value) return;
+  const aid = Number(agencyStore.currentAgency?.id || 0);
+  if (!aid) return;
+  try {
+    const res = await api.get('/skill-builders/me/assigned-events', {
+      params: { agencyId: aid },
+      skipGlobalLoading: true
+    });
+    const rows = Array.isArray(res.data?.events) ? res.data.events : [];
+    assignedEventPortals.value = rows;
+  } catch {
+    assignedEventPortals.value = [];
+  }
+}
+
+async function loadDirectoryEventPortals() {
+  directoryEventPortals.value = [];
+  if (!isAuthenticated.value) return;
+  if (!canSeeEventPortalsTopNav.value) return;
+  // Only coordinators/admins need the directory-derived list.
+  if (!hasProgramCoordinatorAccess.value) return;
+  const aid = Number(agencyStore.currentAgency?.id || 0);
+  if (!aid) return;
+  // Fetch events for each program org individually (program-company-events
+  // includes events without skills groups, which the directory endpoint misses).
+  const orgs = programWorkspaceOrgs.value || [];
+  if (!orgs.length) return;
+  const all = [];
+  for (const org of orgs) {
+    try {
+      const res = await api.get('/availability/admin/program-company-events', {
+        params: { agencyId: aid, organizationId: org.id },
+        skipGlobalLoading: true
+      });
+      const rows = Array.isArray(res.data?.events) ? res.data.events : [];
+      for (const ev of rows) {
+        all.push({ ...ev, programOrgSlug: org.slug || null });
+      }
+    } catch {
+      // best-effort; skip this org
+    }
+  }
+  directoryEventPortals.value = all;
+}
+
+watch(
+  () => [
+    canSeeEventPortalsTopNav.value,
+    hasProgramCoordinatorAccess.value,
+    agencyStore.currentAgency?.id,
+    user.value?.id
+  ],
+  () => {
+    void loadAssignedEventPortals();
+    void loadDirectoryEventPortals();
+  },
+  { immediate: true }
+);
+
+// Re-run event portal load once program orgs are available (they load asynchronously).
+watch(
+  () => programWorkspaceOrgs.value.length,
+  (len) => {
+    if (len > 0) void loadDirectoryEventPortals();
+  }
+);
+
+const eventPortalsForNav = computed(() => {
+  const assigned = Array.isArray(assignedEventPortals.value) ? assignedEventPortals.value : [];
+  if (assigned.length) return assigned.slice(0, 25);
+  const dir = Array.isArray(directoryEventPortals.value) ? directoryEventPortals.value : [];
+  return dir.slice(0, 25);
+});
+
+/** Build the href for an event portal link, using the program org slug when available. */
+const eventPortalHref = (ev) => {
+  const id = Number(ev?.id || ev || 0);
+  if (!id) return orgTo('/dashboard');
+  const progSlug = String(ev?.programOrgSlug || ev?.program_portal_slug || '').trim().toLowerCase();
+  if (progSlug) return `/${progSlug}/skill-builders/event/${id}`;
+  return orgTo(`/skill-builders/event/${id}`);
+};
 
 /** School Skill Builders program admin links (availability grid + SB client management). */
 const canSeeSchoolSkillBuildersProgramCoordinatorNav = computed(

@@ -916,7 +916,10 @@ async function assertEventAccess({ req, agencyId, eventId }) {
     return { error: { status: 403, message: 'Not authorized for this agency' } };
   }
 
-  if (ev.skills_group_id && (await isAgencyStaffLikeForSkillBuilders(req, billingAgencyId))) {
+  // Agency staff-like users (admin/staff/support) should be allowed to access
+  // any company event within the agency, including program-scoped events that
+  // do NOT have a skills_group row (ev.skills_group_id is null).
+  if (await isAgencyStaffLikeForSkillBuilders(req, billingAgencyId)) {
     return { ok: true, row: ev };
   }
   const coord = await getSkillBuilderCoordinatorAccess(userId);

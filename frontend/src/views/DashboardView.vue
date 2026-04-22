@@ -1611,7 +1611,8 @@ const isSkillBuilderCoordinator = computed(() => {
 });
 const hasSkillBuilderCoordinatorToolsAccess = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
-  return role === 'super_admin' || isSkillBuilderCoordinator.value;
+  if (['super_admin', 'admin', 'staff', 'support'].includes(role)) return true;
+  return isSkillBuilderCoordinator.value;
 });
 
 const isProviderLikeForSkillBuildersSchedule = computed(() => {
@@ -4362,6 +4363,7 @@ function applyProgramHubQuery() {
   if (!Number.isFinite(oid) || oid <= 0) return;
   const section = String(route.query?.programHubSection || '').trim();
   const name = String(route.query?.programHubOrgName || '').trim();
+  const slugFromQuery = String(route.query?.programHubOrgSlug || '').trim().toLowerCase();
   const allowed = new Set([
     'documents',
     'availability',
@@ -4376,11 +4378,11 @@ function applyProgramHubQuery() {
     ? {
         id: oid,
         name: String(fromList.name || name || '').trim() || `Program ${oid}`,
-        slug: fromList.slug,
+        slug: fromList.slug || slugFromQuery || null,
         portal_url: fromList.portal_url,
         portalUrl: fromList.portalUrl
       }
-    : { id: oid, name: name || `Program ${oid}` };
+    : { id: oid, name: name || `Program ${oid}`, slug: slugFromQuery || null };
   openInlineProgramHub({
     mode: 'coordinator',
     cardId: `sub_coord_program_${oid}`,
@@ -4400,7 +4402,8 @@ watch(
     String(route.query?.programHub || ''),
     String(route.query?.programHubOrgId || ''),
     String(route.query?.programHubSection || ''),
-    String(route.query?.programHubOrgName || '')
+    String(route.query?.programHubOrgName || ''),
+    String(route.query?.programHubOrgSlug || '')
   ],
   () => {
     applyProgramHubQuery();
