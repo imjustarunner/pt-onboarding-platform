@@ -4989,6 +4989,12 @@ const buildPayloadFromSteps = () => {
     if (step.type === 'questions' || step.type === 'clinical_questions' || step.type === 'demographics') {
       (step.fields || []).forEach((f) => {
         if (f.type === 'info') return;
+        // Drop ghost rows — a field with neither a Label nor a Key is the
+        // "Add field" default state that was never filled in. Previously these
+        // shipped to the public form and rendered as an unlabeled text input.
+        const labelRaw = String(f?.label ?? '').trim();
+        const keyRaw = String(f?.key ?? '').trim();
+        if (!labelRaw && !keyRaw) return;
         intakeFields.push({
           key: f.key || f.id,
           label: f.label || f.key,

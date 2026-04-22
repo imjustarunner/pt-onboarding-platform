@@ -3486,12 +3486,29 @@ const normalizeIntakeFieldLabel = (raw) => {
   }
   return s;
 };
+// A field row is "usable" when it has enough data to render meaningfully.
+// This drops ghost rows that got saved with a blank label AND blank key (a known
+// side effect of the intake-link builder's "Add field" default state), which
+// were rendering as an unlabeled typeable text input in sections like
+// "One-time Questions" / "Guardian Questions" on the public form.
+const isUsableIntakeField = (f) => {
+  if (!f || typeof f !== 'object') return false;
+  if (f.type === 'info') return true; // info blocks can legitimately be label-light
+  const label = String(f.label ?? '').trim();
+  const key = String(f.key ?? '').trim();
+  return !!(label || key);
+};
 const intakeFields = computed(() => {
   const raw = Array.isArray(link.value?.intake_fields) ? link.value.intake_fields : [];
-  return raw.map((f) => {
-    const label = normalizeIntakeFieldLabel(f?.label);
-    return label === f?.label ? f : { ...f, label };
-  });
+  return raw
+    .filter(isUsableIntakeField)
+    .map((f) => {
+      const label = normalizeIntakeFieldLabel(f?.label);
+      return label === f?.label ? f : { ...f, label };
+    })
+    // Require a non-empty label for anything other than info blocks — otherwise
+    // we'd still render an unlabeled input even though the field has a key.
+    .filter((f) => f.type === 'info' || String(f.label ?? '').trim().length > 0);
 });
 const guardianFields = computed(() => intakeFields.value.filter((f) => (f.scope || 'client') === 'guardian'));
 const submissionFields = computed(() => intakeFields.value.filter((f) => (f.scope || 'client') === 'submission'));
