@@ -1,5 +1,6 @@
 import LearningGoal from '../models/LearningGoal.model.js';
 import LearningProgress from '../models/LearningProgress.model.js';
+import pool from '../config/database.js';
 import { assertLearningClientAccess } from '../utils/learningAccess.js';
 
 const asInt = (value) => {
@@ -44,6 +45,57 @@ export const getStudentEvidenceTimeline = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Returns recent virtual tutoring sessions for the given client. A tutoring
+ * session is one on learning_class_sessions with session_subtype='tutoring' OR
+ * (legacy) mode='individual'. The AI summary, standards context, and primary
+ * assignment are returned so the guardian portal can render recap cards and
+ * branded homework links.
+ */
+export const getStudentTutoringSessions = async (req, res, next) => {
+  try {
+    const clientId = asInt(req.params.studentId);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid studentId' } });
+    await assertLearningClientAccess(req, clientId);
+    const limit = Math.min(Math.max(asInt(req.query.limit) || 10, 1), 50);
+
+    const [rows] = await pool.query(
+      `SELECT s.id, s.learning_class_id, s.title, s.status, s.mode, s.session_subtype,
+              s.starts_at, s.ends_at, s.primary_assignment_id,
+              s.ai_summary_json, s.standards_context_json
+         FROM learning_class_sessions s
+         JOIN learning_class_client_memberships m
+           ON m.learning_class_id = s.learning_class_id
+          AND m.client_id = ?
+          AND m.membership_status IN ('active','completed')
+        WHERE (s.session_subtype = 'tutoring' OR s.mode = 'individual')
+        ORDER BY COALESCE(s.ends_at, s.starts_at) DESC
+        LIMIT ?`,
+      [clientId, limit]
+    );
+
+    const sessions = rows.map((r) => ({
+      ...r,
+      ai_summary_json: safeJson(r.ai_summary_json),
+      standards_context_json: safeJson(r.standards_context_json)
+    }));
+
+    res.json({ sessions });
+  } catch (error) {
+    next(error);
+  }
+};
+
+function safeJson(value) {
+  if (value == null) return null;
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    return null;
+  }
+}
 
 export const createLearningEvidence = async (req, res, next) => {
   try {

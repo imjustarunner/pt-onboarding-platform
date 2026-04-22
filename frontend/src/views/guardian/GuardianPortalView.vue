@@ -581,6 +581,61 @@
                       </ul>
                       <p v-else class="hint" style="margin: 0;">No recommendations yet.</p>
                     </div>
+
+                    <div class="learning-progress-card" style="margin-top: 10px;">
+                      <div class="learning-progress-card-title">Recent virtual tutoring sessions</div>
+                      <p class="hint" style="margin: 0 0 10px;">
+                        AI-generated summaries, standards mastered (CAS + CCSS / US DoE), and branded homework.
+                      </p>
+                      <ul v-if="tutoringSummaries.length" class="learning-progress-list">
+                        <li
+                          v-for="summary in tutoringSummaries"
+                          :key="`ts-${summary.sessionId}`"
+                          style="display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.06);"
+                        >
+                          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                            <strong>{{ summary.title }}</strong>
+                            <span class="muted small">{{ formatLearningDate(summary.date) }}</span>
+                          </div>
+                          <div class="muted small">{{ summary.summary }}</div>
+                          <div
+                            v-if="summary.standardsMastered.length || summary.standardsNeedingReview.length"
+                            style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;"
+                          >
+                            <span
+                              v-for="(s, i) in summary.standardsMastered.slice(0, 3)"
+                              :key="`m-${summary.sessionId}-${i}`"
+                              class="tutoring-chip tutoring-chip-success"
+                            >
+                              Mastered: {{ formatStandardChip(s) }}
+                            </span>
+                            <span
+                              v-for="(s, i) in summary.standardsNeedingReview.slice(0, 3)"
+                              :key="`r-${summary.sessionId}-${i}`"
+                              class="tutoring-chip tutoring-chip-warn"
+                            >
+                              Review: {{ formatStandardChip(s) }}
+                            </span>
+                          </div>
+                          <div style="display: flex; gap: 8px; margin-top: 6px;">
+                            <button type="button" class="btn btn-secondary btn-sm" @click="openTutoringSession(summary)">
+                              Open session
+                            </button>
+                            <button
+                              type="button"
+                              class="btn btn-secondary btn-sm"
+                              :disabled="!summary.homeworkUrl"
+                              @click="downloadBrandedHomework(summary)"
+                            >
+                              {{ summary.homeworkUrl ? 'Download homework' : 'Homework pending' }}
+                            </button>
+                          </div>
+                        </li>
+                      </ul>
+                      <p v-else class="hint" style="margin: 0;">
+                        No tutoring sessions yet. Once a session ends, AI summaries and branded homework will appear here.
+                      </p>
+                    </div>
                   </template>
                 </div>
 
@@ -1593,6 +1648,10 @@ const learningDomainRows = ref([]);
 const learningGoalRows = ref([]);
 const learningRecommendationRows = ref([]);
 
+// New for virtual tutoring dashboard integration
+const tutoringSessions = ref([]);
+const tutoringSummaries = ref([]);
+
 const formatLearningScore = (value) => {
   const n = Number(value);
   if (!Number.isFinite(n)) return '—';
@@ -1616,6 +1675,7 @@ const loadSelectedChildLearningProgress = async () => {
     learningDomainRows.value = [];
     learningGoalRows.value = [];
     learningRecommendationRows.value = [];
+    tutoringSessions.value = [];
     return;
   }
   learningProgressLoading.value = true;
@@ -1639,6 +1699,58 @@ const loadSelectedChildLearningProgress = async () => {
   } finally {
     learningProgressLoading.value = false;
   }
+
+  // Tutoring sessions load independently so a 404 here cannot wipe the learning panel.
+  try {
+    const tutoringRes = await api.get(
+      `/learning-progress/students/${clientId}/tutoring-sessions`,
+      { skipGlobalLoading: true }
+    );
+    tutoringSessions.value = Array.isArray(tutoringRes.data?.sessions) ? tutoringRes.data.sessions : [];
+  } catch {
+    tutoringSessions.value = [];
+  }
+  tutoringSummaries.value = tutoringSessions.value.map((s) => {
+    const ai = s.ai_summary_json || {};
+    return {
+      sessionId: s.id,
+      title: s.title || 'Virtual Tutoring Session',
+      date: s.ends_at || s.starts_at,
+      summary: ai.summary || `AI analysis: ${ai.keyConceptsCovered?.join(', ') || 'concepts covered'}. Standards-aligned homework generated.`,
+      strengths: Array.isArray(ai.strengths) ? ai.strengths : [],
+      needsWork: Array.isArray(ai.needsWork) ? ai.needsWork : [],
+      progress: Number.isFinite(Number(ai.overallProgress)) ? Number(ai.overallProgress) : null,
+      standardsMastered: Array.isArray(ai.standardsMastered) ? ai.standardsMastered : [],
+      standardsNeedingReview: Array.isArray(ai.standardsNeedingReview) ? ai.standardsNeedingReview : [],
+      homeworkUrl: s.primary_assignment_id
+        ? `/api/learning-assignments/${s.primary_assignment_id}/download?branded=true`
+        : null,
+      sessionUrl: `/tutoring-session/${s.id}`
+    };
+  });
+};
+
+const openTutoringSession = (summary) => {
+  if (!summary?.sessionUrl) return;
+  router.push(summary.sessionUrl);
+};
+
+const downloadBrandedHomework = (summary) => {
+  if (!summary?.homeworkUrl) {
+    alert('Homework is still being generated by the AI tutor. It will appear here as soon as the session analysis completes.');
+    return;
+  }
+  window.open(summary.homeworkUrl, '_blank');
+};
+
+const formatStandardChip = (s) => {
+  if (!s) return '';
+  if (typeof s === 'string') return s;
+  const parts = [];
+  if (s.cas) parts.push(`CAS ${s.cas}`);
+  if (s.ccss) parts.push(s.ccss);
+  if (s.usdoe && !parts.length) parts.push(s.usdoe);
+  return parts.join(' · ');
 };
 
 const loadGuardianDailyNotes = async () => {
@@ -2272,6 +2384,28 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.tutoring-chip {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.tutoring-chip-success {
+  background: rgba(16, 185, 129, 0.12);
+  color: #065f46;
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+.tutoring-chip-warn {
+  background: rgba(245, 158, 11, 0.12);
+  color: #92400e;
+  border-color: rgba(245, 158, 11, 0.35);
 }
 
 .top-cards {

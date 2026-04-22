@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import LearningProgramClass from './LearningProgramClass.model.js';
+import { createOrGetRoom, createAccessTokenAsync } from '../services/video.service.js';
 
 const asInt = (v) => {
   const n = Number.parseInt(v, 10);
@@ -20,17 +21,19 @@ const normalize = (row) => {
   if (!row) return null;
   return {
     ...row,
-    metadata_json: parseJsonMaybe(row.metadata_json)
+    metadata_json: parseJsonMaybe(row.metadata_json),
+    ai_summary_json: parseJsonMaybe(row.ai_summary_json),
+    standards_context_json: parseJsonMaybe(row.standards_context_json)
   };
 };
 
 class LearningClassSession {
-  static async create({ classId, title, description = null, mode = 'group', startsAt = null, createdByUserId = null }) {
+  static async create({ classId, title, description = null, mode = 'group', sessionSubtype = null, startsAt = null, createdByUserId = null, vonageSessionId = null, primaryAssignmentId = null, standardsContextJson = null }) {
     const [result] = await pool.execute(
       `INSERT INTO learning_class_sessions
-       (learning_class_id, title, description, mode, starts_at, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [classId, title, description, mode, startsAt, createdByUserId]
+       (learning_class_id, title, description, mode, session_subtype, starts_at, created_by_user_id, vonage_session_id, primary_assignment_id, standards_context_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [classId, title, description, mode, sessionSubtype, startsAt, createdByUserId, vonageSessionId, primaryAssignmentId, standardsContextJson ? JSON.stringify(standardsContextJson) : null]
     );
     return this.findById(result.insertId);
   }
@@ -74,11 +77,17 @@ class LearningClassSession {
       title: 'title',
       description: 'description',
       mode: 'mode',
+      sessionSubtype: 'session_subtype',
       status: 'status',
       startsAt: 'starts_at',
       endsAt: 'ends_at',
       twilioRoomSid: 'twilio_room_sid',
       twilioRoomUniqueName: 'twilio_room_unique_name',
+      vonageSessionId: 'vonage_session_id',
+      transcriptText: 'transcript_text',
+      aiSummaryJson: 'ai_summary_json',
+      primaryAssignmentId: 'primary_assignment_id',
+      standardsContextJson: 'standards_context_json',
       startedByUserId: 'started_by_user_id',
       endedByUserId: 'ended_by_user_id'
     };
@@ -92,6 +101,31 @@ class LearningClassSession {
     if (!set.length) return this.findById(id);
     values.push(id);
     await pool.execute(`UPDATE learning_class_sessions SET ${set.join(', ')} WHERE id = ?`, values);
+    return this.findById(id);
+  }
+
+  // Helper for JSON fields in updates (called from update if needed, or directly)
+  static async updateWithJson(sessionId, patch = {}) {
+    const id = asInt(sessionId);
+    if (!id) return null;
+    const updates = [];
+    const values = [];
+    if (patch.aiSummaryJson !== undefined) {
+      updates.push('ai_summary_json = ?');
+      values.push(patch.aiSummaryJson ? JSON.stringify(patch.aiSummaryJson) : null);
+    }
+    if (patch.standardsContextJson !== undefined) {
+      updates.push('standards_context_json = ?');
+      values.push(patch.standardsContextJson ? JSON.stringify(patch.standardsContextJson) : null);
+    }
+    if (patch.transcriptText !== undefined) {
+      updates.push('transcript_text = ?');
+      values.push(patch.transcriptText);
+    }
+    if (updates.length > 0) {
+      values.push(id);
+      await pool.execute(`UPDATE learning_class_sessions SET ${updates.join(', ')} WHERE id = ?`, values);
+    }
     return this.findById(id);
   }
 
@@ -366,6 +400,38 @@ class LearningClassSession {
         canManagePolls: role !== 'participant'
       });
     }
+  }
+
+  /**
+   * Get or create Vonage video token for tutoring session.
+   * Uses the new vonage_session_id column and video.service.js for full integration.
+   * Supports the VirtualTutoringSessionView dual video feeds.
+   */
+  static async getVideoToken(sessionId, identity = 'participant', isTutor = false) {
+    const session = await this.findById(sessionId);
+    if (!session) throw new Error('Session not found');
+
+    let vonageSessionId = session.vonage_session_id;
+    if (!vonageSessionId) {
+      const room = await createOrGetRoom(`tutoring-${sessionId}`);
+      vonageSessionId = room.sid;
+      await this.updateWithJson(sessionId, { 
+        vonageSessionId: vonageSessionId,
+        sessionSubtype: 'tutoring'
+      });
+    }
+
+    const token = await createAccessTokenAsync({ 
+      roomSid: vonageSessionId, 
+      identity,
+      metadata: { 
+        isTutor,
+        sessionType: 'virtual_tutoring',
+        standardsContext: session.standards_context_json
+      } 
+    });
+
+    return { token, sessionId: vonageSessionId, role: isTutor ? 'publisher' : 'subscriber' };
   }
 }
 

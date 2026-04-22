@@ -162,6 +162,22 @@ const PAYROLL_SUMMARY_TOOL_ROLES = [
 
 const HIRING_AGENT_TOOL_ROLES = ['admin', 'super_admin', 'support'];
 
+// Roles that may use the tutoring standards crosswalk tool. Tutors/providers need
+// real-time standards lookups during a virtual tutoring session; admins/support
+// may inspect mappings while reviewing session recaps or building homework.
+const LEARNING_STANDARDS_TOOL_ROLES = [
+  'admin',
+  'super_admin',
+  'support',
+  'staff',
+  'provider',
+  'provider_plus',
+  'intern',
+  'intern_plus',
+  'clinical_practice_assistant',
+  'supervisor'
+];
+
 // Only admin-tier roles can search across other users' activity in the
 // agency audit log. Individual users can always see their own recent
 // activity via listMyRecentActivity (no role gate).
@@ -419,6 +435,8 @@ export function getToolSchemasForUser(reqUser, agentConfig = null) {
       case 'getProviderProfileFields':
       case 'getProviderIntakeAvailability':
         return roleAllowed(reqUser, PROVIDER_DIRECTORY_TOOL_ROLES);
+      case 'lookupStandardCrosswalk':
+        return roleAllowed(reqUser, LEARNING_STANDARDS_TOOL_ROLES);
       default:
         return false;
     }
@@ -550,6 +568,27 @@ export function getToolSchemas() {
           limit: { type: 'integer', description: 'Max rows to return (default 20, max 40)' }
         },
         required: ['query']
+      }
+    },
+    {
+      name: 'lookupStandardCrosswalk',
+      description:
+        'Look up learning standard crosswalks across frameworks: Colorado Academic Standards (CAS), Common Core (CCSS), Next Generation Science Standards (NGSS), and US Department of Education (NAEP) domains. Use during a virtual tutoring session to ground hints, strengths, and homework in codes a family or school recognizes. Returns mapped codes with mapping quality (exact/close/partial/related).',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          code: {
+            type: 'string',
+            description: 'A CAS code (e.g. "MATH.A.1"), CCSS code (e.g. "CCSS.MATH.CONTENT.6.EE.B.7"), or free text to match against standard titles.'
+          },
+          subject: {
+            type: 'string',
+            description: 'Optional subject hint to narrow matches (e.g. "Math", "ELA", "Science").'
+          },
+          limit: { type: 'integer', description: 'Max source standards to return (default 5, max 15).' }
+        },
+        required: ['code']
       }
     },
     {
@@ -815,6 +854,89 @@ export async function executeToolCall({ req, toolCall }) {
     const limit = Math.min(Math.max(1, intOrNull(args.limit) || 20), 40);
     const entries = await searchReferralDirectoryEntriesForTool(agencyId, query, limit);
     return { ok: true, tool: name, result: { entries } };
+  }
+
+  if (name === 'lookupStandardCrosswalk') {
+    requireAuthed(req);
+    if (!roleAllowed(req.user, LEARNING_STANDARDS_TOOL_ROLES)) {
+      const err = new Error('Standards crosswalk lookup is not available for your role');
+      err.status = 403;
+      throw err;
+    }
+    const code = str(args.code, 128);
+    if (!code) {
+      const err = new Error('code is required');
+      err.status = 400;
+      throw err;
+    }
+    const subject = str(args.subject, 64);
+    const limit = Math.min(Math.max(1, intOrNull(args.limit) || 5), 15);
+
+    // Match either a source standard (learning_standards.code / title) OR a
+    // target code already in the crosswalk (CCSS / NGSS / USDoE code / title).
+    const like = `%${code}%`;
+    const subjectLike = subject ? `%${subject}%` : null;
+    const [rows] = await pool.query(
+      `SELECT ls.id AS standard_id,
+              ls.code AS source_code,
+              ls.title AS source_title,
+              ls.source_framework AS source_framework,
+              ls.grade_band AS grade_band,
+              ls.description AS source_description
+         FROM learning_standards ls
+         LEFT JOIN learning_standard_crosswalks sc ON sc.from_standard_id = ls.id AND sc.is_active = 1
+        WHERE ls.is_active = 1
+          AND (
+            ls.code LIKE ? OR ls.title LIKE ?
+            OR sc.to_code LIKE ? OR sc.to_title LIKE ?
+          )
+          ${subjectLike ? 'AND (ls.code LIKE ? OR ls.title LIKE ?)' : ''}
+        GROUP BY ls.id
+        ORDER BY CASE WHEN ls.code = ? THEN 0 ELSE 1 END, ls.code
+        LIMIT ?`,
+      subjectLike
+        ? [like, like, like, like, subjectLike, subjectLike, code, limit]
+        : [like, like, like, like, code, limit]
+    );
+
+    const results = [];
+    for (const r of rows) {
+      const [cw] = await pool.query(
+        `SELECT to_framework, to_code, to_title, mapping_quality, notes
+           FROM learning_standard_crosswalks
+          WHERE from_standard_id = ? AND is_active = 1
+          ORDER BY FIELD(mapping_quality,'exact','close','partial','related'), to_framework`,
+        [r.standard_id]
+      );
+      results.push({
+        standardId: r.standard_id,
+        cas: {
+          code: r.source_code,
+          title: r.source_title,
+          framework: r.source_framework,
+          gradeBand: r.grade_band,
+          description: clipForAssistant(r.source_description, 400)
+        },
+        equivalents: cw.map((c) => ({
+          framework: c.to_framework,
+          code: c.to_code,
+          title: c.to_title,
+          quality: c.mapping_quality,
+          notes: clipForAssistant(c.notes, 240)
+        }))
+      });
+    }
+
+    return {
+      ok: true,
+      tool: name,
+      result: {
+        query: code,
+        subject: subject || null,
+        totalMatches: results.length,
+        standards: results
+      }
+    };
   }
 
   if (name === 'listMyRecentActivity') {

@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import LearningClassSession from '../models/LearningClassSession.model.js';
+import tutoringTranscriptSummary from '../services/tutoringTranscriptSummary.service.js';
 import LearningProgress from '../models/LearningProgress.model.js';
 import { createOrGetRoomByUniqueName, createAccessTokenAsync, isVideoConfigured } from '../services/video.service.js';
 import {
@@ -192,13 +193,35 @@ export const endClassSession = async (req, res, next) => {
     const sessionId = asInt(req.params.sessionId);
     const { canModerate } = await assertLearningSessionAccess(req, sessionId);
     if (!canModerate) return res.status(403).json({ error: { message: 'Moderator access required' } });
+
+    // Support optional transcript submission from frontend or Vonage webhook
+    const transcriptText = req.body?.transcript || req.body?.transcript_text || null;
+    if (transcriptText) {
+      await LearningClassSession.updateWithJson(sessionId, { transcriptText });
+    }
+
     const updated = await LearningClassSession.update(sessionId, {
       status: 'ended',
       endsAt: new Date(),
       endedByUserId: req.user.id
     });
+
+    // If this is a tutoring session, trigger AI transcript analysis for strengths/needs, standards mapping,
+    // progress update, and guardian homework generation (non-blocking)
+    const session = await LearningClassSession.findById(sessionId);
+    if (session?.session_subtype === 'tutoring' || String(session?.mode || '').toLowerCase() === 'individual') {
+      // Fire and forget the AI analysis (full integration with agents for real-time hints during session)
+      setImmediate(() => {
+        tutoringTranscriptSummary.triggerTutoringSessionSummary(sessionId)
+          .catch(err => console.error('Background tutoring transcript analysis failed:', err));
+      });
+    }
+
     await logClassSessionTelemetry({ sessionId, eventType: 'session_ended', actorUserId: req.user.id });
-    res.json({ session: updated });
+    res.json({ 
+      session: updated, 
+      message: session?.session_subtype === 'tutoring' ? 'Tutoring session ended. AI analyzing transcript for progress summary, strengths, needs work, and standards alignment. Guardian portal updated with homework.' : 'Session ended successfully.' 
+    });
   } catch (e) {
     next(e);
   }
@@ -211,33 +234,56 @@ export const getClassSessionVideoToken = async (req, res, next) => {
     if (!isVideoConfigured()) {
       return res.status(503).json({ error: { message: 'Video is not configured' } });
     }
-    const roomName = session.twilio_room_unique_name || `learning-class-${session.learning_class_id}-session-${session.id}`;
-    const room = await createOrGetRoomByUniqueName(roomName);
-    if (!room) return res.status(500).json({ error: { message: 'Failed to provision room' } });
-    if (!session.twilio_room_sid || !session.twilio_room_unique_name || String(session.status || '').toLowerCase() === 'scheduled') {
-      await LearningClassSession.update(sessionId, {
-        status: String(session.status || '').toLowerCase() === 'scheduled' ? 'live' : session.status,
-        twilioRoomSid: room.roomSid,
-        twilioRoomUniqueName: room.uniqueName
+
+    // Support new virtual tutoring sessions using dedicated getVideoToken from model (uses vonage_session_id, creates if needed)
+    const isTutoring = session.session_subtype === 'tutoring' || String(session.mode || '').toLowerCase() === 'individual';
+    let videoResponse;
+    
+    if (isTutoring) {
+      const isTutor = String(actorRole || '').includes('presenter') || String(actorRole || '').includes('tutor');
+      videoResponse = await LearningClassSession.getVideoToken(sessionId, `user-${req.user.id}`, isTutor);
+      // Update status if scheduled
+      if (String(session.status || '').toLowerCase() === 'scheduled') {
+        await LearningClassSession.update(sessionId, { status: 'live' });
+      }
+    } else {
+      // Legacy group class path (Twilio/Vonage hybrid)
+      const roomName = session.twilio_room_unique_name || `learning-class-${session.learning_class_id}-session-${session.id}`;
+      const room = await createOrGetRoomByUniqueName(roomName);
+      if (!room) return res.status(500).json({ error: { message: 'Failed to provision room' } });
+      if (!session.twilio_room_sid || !session.twilio_room_unique_name || String(session.status || '').toLowerCase() === 'scheduled') {
+        await LearningClassSession.update(sessionId, {
+          status: String(session.status || '').toLowerCase() === 'scheduled' ? 'live' : session.status,
+          twilioRoomSid: room.roomSid,
+          twilioRoomUniqueName: room.uniqueName
+        });
+      }
+      const token = await createAccessTokenAsync({
+        identity: `user-${req.user.id}`,
+        roomName: room.uniqueName
       });
+      if (!token) return res.status(500).json({ error: { message: 'Failed to generate access token' } });
+      videoResponse = {
+        token,
+        roomName: room.uniqueName,
+        roomSid: room.roomSid,
+        actorRole: String(actorRole || 'participant')
+      };
     }
-    const token = await createAccessTokenAsync({
-      identity: `user-${req.user.id}`,
-      roomName: room.uniqueName
-    });
-    if (!token) return res.status(500).json({ error: { message: 'Failed to generate access token' } });
 
     const roleNorm = String(actorRole || 'participant');
-    const participantDefaults = roleNorm === 'participant'
+    const participantDefaults = roleNorm === 'participant' || roleNorm === 'subscriber'
       ? { cameraOn: false, micOn: false }
       : { cameraOn: true, micOn: true };
+
     await LearningClassSession.markParticipantJoined(sessionId, req.user.id);
+    
     res.json({
-      token,
-      roomName: room.uniqueName,
-      roomSid: room.roomSid,
+      ...videoResponse,
       actorRole: roleNorm,
-      participantDefaults
+      participantDefaults,
+      isTutoringSession: isTutoring,
+      message: isTutoring ? 'Vonage video session ready for virtual tutoring' : 'Video session ready'
     });
   } catch (e) {
     next(e);

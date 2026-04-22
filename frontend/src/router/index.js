@@ -727,6 +727,12 @@ const routes = [
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/tutoring-session/:sessionId',
+    name: 'OrganizationVirtualTutoringSession',
+    component: () => import('../views/tutoring/VirtualTutoringSessionView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/guardian',
     name: 'OrganizationGuardianPortal',
     component: () => import('../views/guardian/GuardianPortalView.vue'),
@@ -1480,6 +1486,12 @@ const routes = [
     path: '/learning/classes/:classId',
     name: 'LearningClassWorkspace',
     component: () => import('../views/learning/LearningClassWorkspaceView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/tutoring-session/:sessionId',
+    name: 'VirtualTutoringSession',
+    component: () => import('../views/tutoring/VirtualTutoringSessionView.vue'),
     meta: { requiresAuth: true }
   },
   {

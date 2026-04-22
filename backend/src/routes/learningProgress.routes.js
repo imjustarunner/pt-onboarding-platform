@@ -4,6 +4,7 @@ import {
   getStudentDomainProgress,
   getStudentGoalsProgress,
   getStudentEvidenceTimeline,
+  getStudentTutoringSessions,
   createLearningEvidence
 } from '../controllers/learningProgress.controller.js';
 
@@ -13,6 +14,7 @@ router.use(authenticate);
 router.get('/students/:studentId/domains', getStudentDomainProgress);
 router.get('/students/:studentId/goals', getStudentGoalsProgress);
 router.get('/students/:studentId/evidence-timeline', getStudentEvidenceTimeline);
+router.get('/students/:studentId/tutoring-sessions', getStudentTutoringSessions);
 router.post('/evidence', createLearningEvidence);
 
 export default router;
