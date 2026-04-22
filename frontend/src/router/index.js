@@ -2285,6 +2285,19 @@ const hasSubCoordinatorAccess = (userLike) => {
   );
 };
 
+/**
+ * Backoffice roles (and sub-coordinators) should be able to reach Skill Builders
+ * tooling routes even when the tenant-level SB feature flag is off. Backend
+ * authorization already allows these roles/flags as a bypass; the router guard
+ * should not hard-redirect them away from pages like `/admin/program-events`.
+ */
+const hasSkillBuildersToolingBypass = (userLike) => {
+  const u = userLike || {};
+  const r = String(u?.role || '').toLowerCase();
+  if (['super_admin', 'admin', 'staff', 'support', 'clinical_practice_assistant', 'provider_plus'].includes(r)) return true;
+  return hasSubCoordinatorAccess(u);
+};
+
 router.beforeEach(async (to, from, next) => {
   if (officeMandatoryBlocking.value) {
     const path = String(to.path || '');
@@ -2885,7 +2898,7 @@ router.beforeEach(async (to, from, next) => {
       tenantAvailableAgencyFeaturesOverrideJson:
         agency.tenant_available_agency_features_json ?? agency.tenantAvailableAgencyFeaturesJson
     });
-    if (!sbAllowed) {
+    if (!sbAllowed && !hasSkillBuildersToolingBypass(authStore.user)) {
       next(getSlugAwarePath('/dashboard', to, authStore));
       return;
     }
@@ -3029,7 +3042,7 @@ router.beforeEach(async (to, from, next) => {
         tenantAvailableAgencyFeaturesOverrideJson:
           agencySb.tenant_available_agency_features_json ?? agencySb.tenantAvailableAgencyFeaturesJson
       });
-      if (!sbAllowed) {
+      if (!sbAllowed && !hasSkillBuildersToolingBypass(authStore.user)) {
         next(getSlugAwarePath('/dashboard', to, authStore));
         return;
       }

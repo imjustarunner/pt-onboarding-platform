@@ -40,8 +40,9 @@ api.interceptors.request.use(
     try {
       const raw = localStorage.getItem('currentAgency');
       const currentAgency = raw ? JSON.parse(raw) : null;
-      if (currentAgency?.id) {
-        config.headers['X-Agency-Id'] = String(currentAgency.id);
+      const id = Number.parseInt(String(currentAgency?.id ?? ''), 10);
+      if (Number.isFinite(id) && id > 0) {
+        config.headers['X-Agency-Id'] = String(id);
       }
     } catch {
       // Ignore — missing header is a safe no-op on the backend

@@ -1474,8 +1474,13 @@ export const listProgramCompanyEventsForCoordinator = async (req, res, next) => 
     if (!staffLike && !coord) {
       return res.status(403).json({ error: { message: 'Program coordinator or agency staff access required' } });
     }
-    const sbGate = await assertSkillBuildersSchoolProgramForRequest(req, agencyId);
-    if (!sbGate.ok) return res.status(sbGate.status).json({ error: { message: sbGate.message } });
+    // Admin/staff/support tooling should be able to view program events even if the
+    // tenant-level Skill Builders flag is off (setup/troubleshooting use case).
+    // Coordinators still require the feature to be enabled.
+    if (!staffLike) {
+      const sbGate = await assertSkillBuildersSchoolProgramForRequest(req, agencyId);
+      if (!sbGate.ok) return res.status(sbGate.status).json({ error: { message: sbGate.message } });
+    }
     const aff = await validateAffiliatedOrganizationForEvent(agencyId, organizationId);
     if (aff.error) return res.status(400).json({ error: { message: aff.error } });
 
@@ -1858,8 +1863,14 @@ export const postProgramCompanyEventForCoordinator = async (req, res, next) => {
         error: { message: 'Program coordinator or admin/staff access required' }
       });
     }
-    const sbGate = await assertSkillBuildersSchoolProgramForRequest(req, agencyId);
-    if (!sbGate.ok) return res.status(sbGate.status).json({ error: { message: sbGate.message } });
+    // canManageAgencyCompanyEvent already enforces the Skill Builders feature gate
+    // for coordinators. For staff-like roles, allow creating program-scoped events
+    // even when SB is disabled (setup/troubleshooting).
+    const staffLike = await userCanManageCompanyEventsAsync(req, agencyId);
+    if (!staffLike) {
+      const sbGate = await assertSkillBuildersSchoolProgramForRequest(req, agencyId);
+      if (!sbGate.ok) return res.status(sbGate.status).json({ error: { message: sbGate.message } });
+    }
 
     const aff = await validateAffiliatedOrganizationForEvent(agencyId, organizationId);
     if (aff.error) return res.status(400).json({ error: { message: aff.error } });

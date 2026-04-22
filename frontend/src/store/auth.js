@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import api from '../services/api';
-import { storeUserAgencies } from '../utils/loginRedirect';
+import { storeUserAgencies, clearStoredAgencies } from '../utils/loginRedirect';
 import { saveBiometricToken, clearBiometricToken } from '../utils/biometricAuth';
 
 export const useAuthStore = defineStore('auth', () => {
@@ -56,6 +56,9 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       localStorage.removeItem('authToken');
       localStorage.removeItem('pt.pendingScheduleWeekReset');
+      // Prevent stale org context bleeding across users (affects tenant switcher + X-Agency-Id header).
+      localStorage.removeItem('currentAgency');
+      clearStoredAgencies();
     } catch {
       /* ignore */
     }
@@ -133,6 +136,10 @@ export const useAuthStore = defineStore('auth', () => {
         };
       }
       
+      // Keep localStorage.userAgencies aligned to THIS user so slug-resolution and
+      // tenant switchers don't accidentally show a previous user's org list.
+      storeUserAgencies(Array.isArray(response.data.agencies) ? response.data.agencies : []);
+
       // Store agencies if provided (for approved employees with multiple agencies)
       if (response.data.agencies && response.data.agencies.length > 0) {
         response.data.user.agencyIds = response.data.agencies;
