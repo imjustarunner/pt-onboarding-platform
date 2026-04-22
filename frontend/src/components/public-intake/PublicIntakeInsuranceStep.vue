@@ -17,31 +17,30 @@
       <label class="pi-ins-selfpay-row" :class="{ 'pi-ins-selfpay-row--active': isSelfPay }">
         <input type="checkbox" :checked="isSelfPay" @change="toggleSelfPay($event.target.checked)" />
         <span>
-          <strong>I am self-pay</strong>
-          <span class="pi-ins-selfpay-sub">— I don't have insurance to bill, or I prefer to pay out of pocket.</span>
+          <strong>{{ tx('I am self-pay') }}</strong>
+          <span class="pi-ins-selfpay-sub">{{ tx('— I don\'t have insurance to bill, or I prefer to pay out of pocket.') }}</span>
         </span>
       </label>
       <p v-if="isSelfPay" class="pi-ins-selfpay-note">
-        Thanks! We'll record this as self-pay. You can skip the insurance carrier / member ID fields below
-        and proceed to sign the authorization at the bottom of this page.
+        {{ tx('Thanks! We\'ll record this as self-pay. You can skip the insurance carrier / member ID fields below and proceed to sign the authorization at the bottom of this page.') }}
       </p>
     </div>
 
     <!-- PRIMARY INSURANCE -->
     <div v-if="!isSelfPay" class="pi-ins-card">
-      <h4 class="pi-ins-card-title">Primary Insurance</h4>
+      <h4 class="pi-ins-card-title">{{ tx('Primary Insurance') }}</h4>
       <p class="pi-ins-card-tip">
-        Start by uploading your insurance card images. We will auto-fill what we can, and you can edit anything below.
+        {{ tx('Start by uploading your insurance card images. We will auto-fill what we can, and you can edit anything below.') }}
       </p>
 
       <div class="form-group">
-        <label class="pi-ins-lbl">Insurance Carrier Name <span class="req">*</span></label>
+        <label class="pi-ins-lbl">{{ tx('Insurance Carrier Name') }} <span class="req">*</span></label>
         <div class="pi-ins-typeahead" ref="primarySearchRef">
           <input
             v-model="primaryQuery"
             type="text"
             class="pi-ins-input"
-            placeholder="Start typing to search (e.g. Health First Colorado, Aetna…)"
+            :placeholder="tx('Start typing to search (e.g. Health First Colorado, Aetna…)')"
             autocomplete="off"
             @input="onPrimaryInput"
             @focus="primaryOpen = true"
@@ -61,10 +60,10 @@
           </div>
         </div>
         <div v-if="primaryIsMedicaid" class="pi-ins-medicaid-notice">
-          ✓ Medicaid detected — no self-pay cost applies for this program.
+          {{ tx('✓ Medicaid detected — no self-pay cost applies for this program.') }}
         </div>
         <div v-if="primaryIsMedicaid" class="pi-ins-field-note">
-          If the child has other primary insurance, list that other plan as Primary and add Medicaid under Secondary.
+          {{ tx('If the child has other primary insurance, list that other plan as Primary and add Medicaid under Secondary.') }}
         </div>
       </div>
       <div class="pi-ins-quickfill">
@@ -74,7 +73,7 @@
           class="btn btn-secondary btn-sm"
           @click="fillPrimarySubscriberFromGuardian"
         >
-          {{ props.intakeForSelf ? 'Use My Name' : 'Use Guardian Name' }}
+          {{ props.intakeForSelf ? tx('Use My Name') : tx('Use Guardian Name') }}
         </button>
         <button
           v-if="firstClientDisplayName && !props.intakeForSelf"
@@ -82,7 +81,7 @@
           class="btn btn-secondary btn-sm"
           @click="fillPrimarySubscriberFromFirstClient"
         >
-          Use Client 1 Name
+          {{ tx('Use Client 1 Name') }}
         </button>
       </div>
 
@@ -93,12 +92,12 @@
         :class="{ 'pi-ins-photos--err': !!validationErrorFor('card') }"
       >
         <div class="pi-ins-photo-slot">
-          <label class="pi-ins-lbl">Insurance card – front</label>
+          <label class="pi-ins-lbl">{{ tx('Insurance card – front') }}</label>
           <div class="pi-ins-photo-area" @click="triggerUpload('primary_front')">
             <img v-if="primaryFrontPreview" :src="primaryFrontPreview" alt="Front of card" class="pi-ins-photo-img" />
             <div v-else class="pi-ins-photo-placeholder">
               <span>📷</span>
-              <span>Tap to take photo or upload</span>
+              <span>{{ tx('Tap to take photo or upload') }}</span>
             </div>
           </div>
           <input
@@ -110,16 +109,16 @@
             @change="(e) => onPhotoSelected(e, 'primary_front')"
           />
           <button v-if="primaryFrontPreview" type="button" class="pi-ins-remove-btn" @click.stop="clearPhoto('primary_front')">
-            Remove
+            {{ tx('Remove') }}
           </button>
         </div>
         <div class="pi-ins-photo-slot">
-          <label class="pi-ins-lbl">Insurance card – back</label>
+          <label class="pi-ins-lbl">{{ tx('Insurance card – back') }}</label>
           <div class="pi-ins-photo-area" @click="triggerUpload('primary_back')">
             <img v-if="primaryBackPreview" :src="primaryBackPreview" alt="Back of card" class="pi-ins-photo-img" />
             <div v-else class="pi-ins-photo-placeholder">
               <span>📷</span>
-              <span>Tap to take photo or upload</span>
+              <span>{{ tx('Tap to take photo or upload') }}</span>
             </div>
           </div>
           <input
@@ -131,14 +130,14 @@
             @change="(e) => onPhotoSelected(e, 'primary_back')"
           />
           <button v-if="primaryBackPreview" type="button" class="pi-ins-remove-btn" @click.stop="clearPhoto('primary_back')">
-            Remove
+            {{ tx('Remove') }}
           </button>
         </div>
       </div>
       <div class="pi-ins-no-card">
         <label class="checkbox-row">
           <input v-model="noPrimaryCardAvailable" type="checkbox" @change="onNoPrimaryCardToggle" />
-          <span>I do not have my primary insurance card right now</span>
+          <span>{{ tx('I do not have my primary insurance card right now') }}</span>
         </label>
       </div>
       <div v-if="validationErrorFor('card')" class="pi-ins-inline-error">
@@ -147,21 +146,21 @@
 
       <div class="pi-ins-grid">
         <div class="form-group">
-          <label class="pi-ins-lbl">Subscriber Name</label>
+          <label class="pi-ins-lbl">{{ tx('Subscriber Name') }}</label>
           <input
             v-model="local.primary.subscriberName"
             class="pi-ins-input"
             type="text"
-            :placeholder="primaryIsMedicaid ? 'Child name' : 'Parent / Guardian name'"
+            :placeholder="primaryIsMedicaid ? tx('Child name') : tx('Parent / Guardian name')"
           />
           <div class="pi-ins-field-note">
             {{ primaryIsMedicaid
-              ? 'For Medicaid-only coverage, this is usually the child.'
-              : 'For private/commercial plans, this is usually the parent/guardian policy holder.' }}
+              ? tx('For Medicaid-only coverage, this is usually the child.')
+              : tx('For private/commercial plans, this is usually the parent/guardian policy holder.') }}
           </div>
         </div>
         <div class="form-group" data-pi-ins-anchor="memberId">
-          <label class="pi-ins-lbl">Subscriber ID / Member ID</label>
+          <label class="pi-ins-lbl">{{ tx('Subscriber ID / Member ID') }}</label>
           <input
             v-model="local.primary.memberId"
             class="pi-ins-input"
@@ -173,36 +172,36 @@
             {{ validationErrorFor('memberId') }}
           </div>
           <div v-if="primaryIsMedicaid" class="pi-ins-field-note">
-            For Medicaid plans, Member ID is recommended but not required.
+            {{ tx('For Medicaid plans, Member ID is recommended but not required.') }}
           </div>
         </div>
         <div v-if="!primaryIsMedicaid" class="form-group">
-          <label class="pi-ins-lbl">Group number (if applicable)</label>
-          <input v-model="local.primary.groupNumber" class="pi-ins-input" type="text" placeholder="Optional" />
+          <label class="pi-ins-lbl">{{ tx('Group number (if applicable)') }}</label>
+          <input v-model="local.primary.groupNumber" class="pi-ins-input" type="text" :placeholder="tx('Optional')" />
         </div>
         <div v-if="!primaryIsMedicaid" class="form-group">
-          <label class="pi-ins-lbl">Patient suffix</label>
+          <label class="pi-ins-lbl">{{ tx('Patient suffix') }}</label>
           <input v-model="local.primary.patientSuffix" class="pi-ins-input" type="text" placeholder="e.g. -01, -02" />
           <div class="pi-ins-field-note">
-            Common on private/commercial plans.
+            {{ tx('Common on private/commercial plans.') }}
           </div>
         </div>
       </div>
 
       <div v-if="showMultiClientMedicaidSection" class="pi-ins-multi-client">
-        <h5>Per-Client Medicaid Member IDs</h5>
+        <h5>{{ tx('Per-Client Medicaid Member IDs') }}</h5>
         <p class="pi-ins-field-note" style="margin-top: 0;">
-          Since this intake includes multiple clients, capture each child’s Medicaid Member ID so billing is stored correctly per client.
+          {{ tx("Since this intake includes multiple clients, capture each child's Medicaid Member ID so billing is stored correctly per client.") }}
         </p>
         <div v-for="(row, idx) in medicaidByClient" :key="`medicaid-client-${idx}`" class="form-group">
           <label class="pi-ins-lbl">
-            {{ clientDisplayNames[idx] || `Client ${idx + 1}` }} — Medicaid Member ID
+            {{ clientDisplayNames[idx] || `Client ${idx + 1}` }} — {{ tx('Medicaid Member ID') }}
           </label>
           <input
             v-model="row.memberId"
             class="pi-ins-input"
             type="text"
-            placeholder="Enter this client's Medicaid ID"
+            :placeholder="tx('Enter this client\'s Medicaid ID')"
           />
         </div>
       </div>
@@ -216,21 +215,21 @@
     <div v-if="!isSelfPay" class="pi-ins-secondary-toggle">
       <label class="checkbox-row">
         <input v-model="hasSecondary" type="checkbox" />
-        <span>I have secondary insurance to add</span>
+        <span>{{ tx('I have secondary insurance to add') }}</span>
       </label>
     </div>
 
     <div v-if="!isSelfPay && hasSecondary" class="pi-ins-card">
-      <h4 class="pi-ins-card-title">Secondary Insurance</h4>
+      <h4 class="pi-ins-card-title">{{ tx('Secondary Insurance') }}</h4>
 
       <div class="form-group">
-        <label class="pi-ins-lbl">Insurance Carrier Name</label>
+        <label class="pi-ins-lbl">{{ tx('Insurance Carrier Name') }}</label>
         <div class="pi-ins-typeahead">
           <input
             v-model="secondaryQuery"
             type="text"
             class="pi-ins-input"
-            placeholder="Start typing to search…"
+            :placeholder="tx('Start typing to search…')"
             autocomplete="off"
             @input="onSecondaryInput"
             @focus="secondaryOpen = true"
@@ -250,68 +249,63 @@
           </div>
         </div>
         <div class="pi-ins-field-note">
-          This is often where Medicaid is listed when the child also has other primary coverage.
-          TRICARE is generally primary over Medicaid when both are present.
+          {{ tx('This is often where Medicaid is listed when the child also has other primary coverage. TRICARE is generally primary over Medicaid when both are present.') }}
         </div>
       </div>
 
       <div class="pi-ins-grid">
         <div class="form-group">
-          <label class="pi-ins-lbl">Member ID</label>
+          <label class="pi-ins-lbl">{{ tx('Member ID') }}</label>
           <input v-model="local.secondary.memberId" class="pi-ins-input" type="text" placeholder="Optional" />
         </div>
         <div v-if="!secondaryIsMedicaid" class="form-group">
-          <label class="pi-ins-lbl">Group number</label>
+          <label class="pi-ins-lbl">{{ tx('Group number') }}</label>
           <input v-model="local.secondary.groupNumber" class="pi-ins-input" type="text" placeholder="Optional" />
         </div>
         <div v-if="!secondaryIsMedicaid" class="form-group">
-          <label class="pi-ins-lbl">Subscriber name</label>
+          <label class="pi-ins-lbl">{{ tx('Subscriber name') }}</label>
           <input v-model="local.secondary.subscriberName" class="pi-ins-input" type="text" placeholder="Optional" />
         </div>
       </div>
 
       <div class="pi-ins-photos">
         <div class="pi-ins-photo-slot">
-          <label class="pi-ins-lbl">Secondary card – front</label>
+          <label class="pi-ins-lbl">{{ tx('Secondary card – front') }}</label>
           <div class="pi-ins-photo-area" @click="triggerUpload('secondary_front')">
             <img v-if="secondaryFrontPreview" :src="secondaryFrontPreview" alt="Front of secondary card" class="pi-ins-photo-img" />
-            <div v-else class="pi-ins-photo-placeholder"><span>📷</span><span>Tap to upload</span></div>
+            <div v-else class="pi-ins-photo-placeholder"><span>📷</span><span>{{ tx('Tap to upload') }}</span></div>
           </div>
           <input ref="secondaryFrontInput" type="file" accept="image/*" capture="environment" style="display:none"
             @change="(e) => onPhotoSelected(e, 'secondary_front')" />
           <button v-if="secondaryFrontPreview" type="button" class="pi-ins-remove-btn" @click.stop="clearPhoto('secondary_front')">Remove</button>
         </div>
         <div class="pi-ins-photo-slot">
-          <label class="pi-ins-lbl">Secondary card – back</label>
+          <label class="pi-ins-lbl">{{ tx('Secondary card – back') }}</label>
           <div class="pi-ins-photo-area" @click="triggerUpload('secondary_back')">
             <img v-if="secondaryBackPreview" :src="secondaryBackPreview" alt="Back of secondary card" class="pi-ins-photo-img" />
             <div v-else class="pi-ins-photo-placeholder"><span>📷</span><span>Tap to upload</span></div>
           </div>
           <input ref="secondaryBackInput" type="file" accept="image/*" capture="environment" style="display:none"
             @change="(e) => onPhotoSelected(e, 'secondary_back')" />
-          <button v-if="secondaryBackPreview" type="button" class="pi-ins-remove-btn" @click.stop="clearPhoto('secondary_back')">Remove</button>
+          <button v-if="secondaryBackPreview" type="button" class="pi-ins-remove-btn" @click.stop="clearPhoto('secondary_back')">{{ tx('Remove') }}</button>
         </div>
       </div>
     </div>
 
     <div v-if="!isSelfPay" class="pi-ins-card pi-ins-guarantor-card">
-      <h4 class="pi-ins-card-title">Responsible Party (Guarantor)</h4>
+      <h4 class="pi-ins-card-title">{{ tx('Responsible Party (Guarantor)') }}</h4>
       <p class="pi-ins-field-note" style="margin-top: 0;">
-        Name: Parent/Guardian
+        {{ tx('Name: Parent/Guardian') }}
       </p>
       <p class="pi-ins-field-note">
-        Contact info: captured earlier in intake and used for billing/consent communications.
+        {{ tx('Contact info: captured earlier in intake and used for billing/consent communications.') }}
       </p>
     </div>
 
     <!-- Insurance disclaimer -->
     <div v-if="!isSelfPay" class="pi-ins-footer-notice">
       <p>
-        <strong>Please note:</strong> Not all insurances are accepted by all providers.
-        If this program or class is not covered by your insurance, we may still submit a claim to your
-        insurer in the event coverage has changed. All payments collected via our web application will
-        be listed as collected outside of our EHR platform and applied to billing claims as necessary.
-        Medicaid (Health First Colorado) clients are enrolled at no cost to the family for eligible programs.
+        {{ tx('Please note: Not all insurances are accepted by all providers. If this program or class is not covered by your insurance, we may still submit a claim to your insurer in the event coverage has changed. All payments collected via our web application will be listed as collected outside of our EHR platform and applied to billing claims as necessary. Medicaid (Health First Colorado) clients are enrolled at no cost to the family for eligible programs.') }}
       </p>
     </div>
 
@@ -322,25 +316,22 @@
       ref="authBlockRef"
       data-pi-ins-anchor="authorization"
     >
-      <h4 class="pi-ins-auth-title">Insurance Authorization &amp; Assignment of Benefits</h4>
+      <h4 class="pi-ins-auth-title">{{ tx('Insurance Authorization & Assignment of Benefits') }}</h4>
       <div class="pi-ins-auth-text">
         <p>
-          I authorize <strong>{{ props.agencyName || 'the provider' }}</strong> to release information to the insurance companies provided on this form in order to submit insurance claims on my behalf.
+          {{ tx('I authorize') }} <strong>{{ props.agencyName || 'the provider' }}</strong> {{ tx('to release information to the insurance companies provided on this form in order to submit insurance claims on my behalf.') }}
         </p>
         <p>
-          This authorization extends to the extent necessary to obtain payment for the services provided to me, and includes authorization to release information about mental health, substance use, or HIV diagnoses as required.
+          {{ tx('This authorization extends to the extent necessary to obtain payment for the services provided to me, and includes authorization to release information about mental health, substance use, or HIV diagnoses as required.') }}
         </p>
         <p>
-          In consideration of the services provided to me, I assign all benefits to <strong>{{ props.agencyName || 'the provider' }}</strong> if accepted, and authorize my insurance companies, Medicare, or other third-party payers to make payments directly to <strong>{{ props.agencyName || 'the provider' }}</strong> and its affiliates.
+          {{ tx('In consideration of the services provided to me, I assign all benefits to') }} <strong>{{ props.agencyName || 'the provider' }}</strong> if accepted, and authorize my insurance companies, Medicare, or other third-party payers to make payments directly to <strong>{{ props.agencyName || 'the provider' }}</strong> and its affiliates.
         </p>
         <p>
-          I understand that I remain responsible for all amounts due by me, including (but not limited to) copays, coinsurance, deductible amounts, and all services not covered by my insurance plan (including those for which I fail to obtain prior authorization), and mutually agreed-upon services or fees that are deemed not medically necessary.
+          {{ tx('I understand that I remain responsible for all amounts due by me, including (but not limited to) copays, coinsurance, deductible amounts, and all services not covered by my insurance plan (including those for which I fail to obtain prior authorization), and mutually agreed-upon services or fees that are deemed not medically necessary.') }}
         </p>
         <p class="pi-ins-auth-esign-notice">
-          This is a binding electronic signature. By signing below, you acknowledge that your
-          electronic signature has the same legal effect as a hand-written one. We record your
-          name, the date and time you signed, your IP address, and your browser at finalize time
-          and embed that information in the signed PDF kept on file.
+          {{ tx('This is a binding electronic signature. By signing below, you acknowledge that your electronic signature has the same legal effect as a hand-written one. We record your name, the date and time you signed, your IP address, and your browser at finalize time and embed that information in the signed PDF kept on file.') }}
         </p>
       </div>
 
@@ -350,18 +341,17 @@
 
       <!-- PRIMARY PATH: re-use the signature drawn earlier in this session -->
       <div v-if="savedSignatureData" class="pi-ins-auth-sign">
-        <label class="pi-ins-lbl">Sign this authorization</label>
+        <label class="pi-ins-lbl">{{ tx('Sign this authorization') }}</label>
         <div v-if="!authorizationSignatureData" class="pi-ins-auth-apply-wrap">
           <button
             type="button"
             class="btn btn-primary btn-sm pi-ins-auth-apply pi-ins-auth-apply--pulse"
             @click="applySavedAuthSignature"
           >
-            Apply my signature to this authorization
+            {{ tx('Apply my signature to this authorization') }}
           </button>
           <span class="pi-ins-field-note">
-            We'll re-use the signature you drew earlier in this session — same legal weight as
-            signing here in pen, and you'll see it on the signed PDF.
+            {{ tx("We'll re-use the signature you drew earlier in this session — same legal weight as signing here in pen, and you'll see it on the signed PDF.") }}
           </span>
         </div>
         <div v-else class="pi-ins-auth-applied-wrap">
@@ -369,12 +359,11 @@
             <span class="pi-ins-auth-check">&#10003;</span>
             <div>
               <div>
-                <strong>Signed</strong>
+                <strong>{{ tx('Signed') }}</strong>
                 <span v-if="props.guardianName"> by {{ props.guardianName }}</span>
               </div>
               <div class="pi-ins-auth-stamp">
-                e-Signature applied {{ formatSignedAt(authorizationSignedAt) }} ·
-                source: reused signature from earlier in this session
+                {{ tx('e-Signature applied') }} {{ formatSignedAt(authorizationSignedAt) }} · {{ tx('source: reused signature from earlier in this session') }}
               </div>
             </div>
           </div>
@@ -383,7 +372,7 @@
             class="btn btn-secondary btn-sm pi-ins-auth-resign"
             @click="resignAuth"
           >
-            Sign again
+            {{ tx('Sign again') }}
           </button>
         </div>
       </div>
@@ -393,7 +382,7 @@
            metadata so the PDF can show the same "signed by + when + how" block. -->
       <div v-else class="pi-ins-auth-sign">
         <label class="pi-ins-lbl" for="ins-auth-sig">
-          Type your name to sign this authorization <span class="req">*</span>
+          {{ tx('Type your name to sign this authorization') }} <span class="req">*</span>
         </label>
         <input
           id="ins-auth-sig"
@@ -401,17 +390,16 @@
           type="text"
           class="pi-ins-input"
           :class="{ 'pi-ins-input--err': !!validationErrorFor('authorization') && !authorizationSignature.trim() }"
-          placeholder="Your name"
+          :placeholder="tx('Your name')"
           autocomplete="name"
           @input="onTypedAuthInput($event.target.value)"
         />
         <div v-if="authorizationSignature.trim().length >= 2" class="pi-ins-auth-confirmed">
-          ✓ Signed by {{ authorizationSignature.trim() }}
+          {{ tx('✓ Signed by') }} {{ authorizationSignature.trim() }}
           <span v-if="authorizationSignedAt" class="pi-ins-auth-stamp"> ({{ formatSignedAt(authorizationSignedAt) }})</span>
         </div>
         <div class="pi-ins-field-note">
-          You can use whatever name you go by — it does not have to be your legal name. We'll
-          capture the date, time, IP, and browser as part of the audit trail.
+          {{ tx("You can use whatever name you go by — it does not have to be your legal name. We'll capture the date, time, IP, and browser as part of the audit trail.") }}
         </div>
       </div>
     </div>
@@ -419,8 +407,15 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch } from 'vue';
+import { ref, reactive, computed, watch, inject } from 'vue';
 import { filterInsurances, isMedicaidInsurer } from '../../utils/coloradoInsurances.js';
+
+const intakeStringTranslations = inject('intakeStringTranslations', ref({}));
+/** Translate a string using the content-addressed cache provided by the parent view. */
+const tx = (text) => {
+  const s = String(text || '');
+  return intakeStringTranslations.value?.[s] || s;
+};
 
 const DEFAULT_SECONDARY_INSURANCE_NOTICE =
   'If your household carries secondary (supplemental) insurance in addition to the primary plan above, please add it using the option below or contact us promptly with complete policy information. Failure to provide complete and accurate coverage details—including applicable secondary insurance when it exists—may delay authorizations or benefit verification and could result in interruptions or delays in services.';

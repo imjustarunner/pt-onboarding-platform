@@ -1603,7 +1603,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import SignaturePad from '../components/SignaturePad.vue';
@@ -1919,6 +1919,10 @@ const inPageLocale = ref('en');
 const stringTranslations = ref({});
 const stringTranslationsLoading = ref(false);
 
+// Provide the translation map to all child components (insurance, waiver, etc.)
+// so they can translate their own hardcoded strings without prop-drilling.
+provide('intakeStringTranslations', stringTranslations);
+
 /** Look up a translated string; returns original if no translation found. */
 const tx = (text) => {
   const s = String(text || '');
@@ -1971,6 +1975,55 @@ async function fetchStringTranslations() {
     // ESIGN disclosure.
     strings.add('ESIGN Act Disclosure');
     strings.add('By continuing, you consent to electronically sign these documents and receive electronic records. You may request paper copies from the organization.');
+
+    // Insurance step strings.
+    const insuranceStrings = [
+      'I am self-pay',
+      '— I don\'t have insurance to bill, or I prefer to pay out of pocket.',
+      'Thanks! We\'ll record this as self-pay. You can skip the insurance carrier / member ID fields below and proceed to sign the authorization at the bottom of this page.',
+      'Primary Insurance', 'Secondary Insurance',
+      'Start by uploading your insurance card images. We will auto-fill what we can, and you can edit anything below.',
+      'Insurance Carrier Name',
+      'Start typing to search (e.g. Health First Colorado, Aetna…)',
+      'Start typing to search…',
+      '✓ Medicaid detected — no self-pay cost applies for this program.',
+      'If the child has other primary insurance, list that other plan as Primary and add Medicaid under Secondary.',
+      'Use My Name', 'Use Guardian Name', 'Use Client 1 Name',
+      'Insurance card – front', 'Insurance card – back',
+      'Tap to take photo or upload', 'Tap to upload', 'Remove',
+      'I do not have my primary insurance card right now',
+      'Subscriber Name', 'Child name', 'Parent / Guardian name',
+      'For Medicaid-only coverage, this is usually the child.',
+      'For private/commercial plans, this is usually the parent/guardian policy holder.',
+      'Subscriber ID / Member ID',
+      'For Medicaid plans, Member ID is recommended but not required.',
+      'Group number (if applicable)', 'Group number',
+      'Patient suffix', 'Optional', 'Common on private/commercial plans.',
+      'Per-Client Medicaid Member IDs', 'Medicaid Member ID',
+      'Enter this client\'s Medicaid ID',
+      "Since this intake includes multiple clients, capture each child's Medicaid Member ID so billing is stored correctly per client.",
+      'I have secondary insurance to add',
+      'This is often where Medicaid is listed when the child also has other primary coverage. TRICARE is generally primary over Medicaid when both are present.',
+      'Member ID', 'Subscriber name',
+      'Secondary card – front', 'Secondary card – back',
+      'Responsible Party (Guarantor)', 'Name: Parent/Guardian',
+      'Contact info: captured earlier in intake and used for billing/consent communications.',
+      'Please note: Not all insurances are accepted by all providers. If this program or class is not covered by your insurance, we may still submit a claim to your insurer in the event coverage has changed. All payments collected via our web application will be listed as collected outside of our EHR platform and applied to billing claims as necessary. Medicaid (Health First Colorado) clients are enrolled at no cost to the family for eligible programs.',
+      'Insurance Authorization & Assignment of Benefits',
+      'I authorize', 'to release information to the insurance companies provided on this form in order to submit insurance claims on my behalf.',
+      'This authorization extends to the extent necessary to obtain payment for the services provided to me, and includes authorization to release information about mental health, substance use, or HIV diagnoses as required.',
+      'In consideration of the services provided to me, I assign all benefits to',
+      'I understand that I remain responsible for all amounts due by me, including (but not limited to) copays, coinsurance, deductible amounts, and all services not covered by my insurance plan (including those for which I fail to obtain prior authorization), and mutually agreed-upon services or fees that are deemed not medically necessary.',
+      'This is a binding electronic signature. By signing below, you acknowledge that your electronic signature has the same legal effect as a hand-written one. We record your name, the date and time you signed, your IP address, and your browser at finalize time and embed that information in the signed PDF kept on file.',
+      'Sign this authorization', 'Apply my signature to this authorization',
+      'We\'ll re-use the signature you drew earlier in this session — same legal weight as signing here in pen, and you\'ll see it on the signed PDF.',
+      'Signed', 'e-Signature applied', 'source: reused signature from earlier in this session',
+      'Sign again',
+      'Type your name to sign this authorization', 'Your name',
+      '✓ Signed by',
+      'You can use whatever name you go by — it does not have to be your legal name. We\'ll capture the date, time, IP, and browser as part of the audit trail.',
+    ];
+    for (const s of insuranceStrings) strings.add(s);
 
     const arr = [...strings].filter(Boolean).slice(0, 300);
     if (!arr.length) return;
