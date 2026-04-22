@@ -233,7 +233,7 @@
                             ~{{ formatDistanceMi(drivingDistanceDisplay(ev)) }} mi
                             <span v-if="ev.drivingDurationText"> · {{ ev.drivingDurationText }}</span>
                           </template>
-                          <template v-else>Distance unavailable</template>
+                          <template v-else>{{ t('public.distanceUnavailable') }}</template>
                         </span>
                       </div>
                       <div class="pel-card-hero-row">
@@ -245,13 +245,13 @@
                           class="pel-btn pel-btn-primary pel-btn-register pel-btn-register--row"
                           :href="registrationUrl(ev.registrationPublicKey)"
                         >
-                          Register now
+                          {{ t('public.registerNowBtn') }}
                         </a>
                         <span
                           v-else
                           class="pel-btn pel-btn-primary pel-btn-register pel-btn-register--row pel-btn-register--disabled"
                         >
-                          Registration unavailable
+                          {{ t('public.registrationUnavailable') }}
                         </span>
                       </div>
                     </div>
@@ -339,7 +339,7 @@
                         ~{{ formatDistanceMi(drivingDistanceDisplay(ev)) }} mi
                         <span v-if="ev.drivingDurationText"> · {{ ev.drivingDurationText }}</span>
                       </template>
-                      <template v-else>Distance unavailable</template>
+                      <template v-else>{{ t('public.distanceUnavailable') }}</template>
                     </span>
                   </div>
                   <!-- Inline schedule + register row (matches hub card layout) -->
@@ -352,13 +352,13 @@
                       class="pel-btn pel-btn-primary pel-btn-register pel-btn-register--row"
                       :href="registrationUrl(ev.registrationPublicKey)"
                     >
-                      Register now
+                      {{ t('public.registerNowBtn') }}
                     </a>
                     <span
                       v-else
                       class="pel-btn pel-btn-primary pel-btn-register pel-btn-register--row pel-btn-register--disabled"
                     >
-                      Registration unavailable
+                      {{ t('public.registrationUnavailable') }}
                     </span>
                   </div>
                 </div>
@@ -401,7 +401,7 @@
                     class="pel-sess-filter-btn"
                     @click="setSessionFilter(ev.publicSessionLabel, ev.publicSessionDateRange)"
                   >
-                    All {{ ev.publicSessionLabel }} locations
+                    {{ t('public.allSessionLocations', { session: ev.publicSessionLabel }) }}
                   </button>
                 </p>
                 <div v-if="sanitizedSplash(ev)" class="pel-splash pel-splash--clamp" v-html="sanitizedSplash(ev)" />
@@ -412,29 +412,19 @@
         <div v-if="!displayEvents.length" class="pel-empty-card" :class="{ 'pel-empty-card--hub': !!hubSlugNorm }" role="status">
           <template v-if="hubSlugNorm">
             <div class="pel-empty-visual pel-empty-visual--hub" aria-hidden="true" />
-            <p class="pel-empty-eyebrow">Coming up</p>
-            <h2 class="pel-empty-title">Programs will appear here</h2>
-            <p class="pel-empty-copy">
-              When sessions open for each site, you&rsquo;ll see them listed below — with dates, locations, and
-              registration. Use the <strong>address search</strong> above to sort by driving distance from your home once events
-              are posted.
-            </p>
-            <p class="pel-empty-hint muted">
-              Bookmark this page and check back. Questions? Use the links your district or provider shared.
-            </p>
+            <p class="pel-empty-eyebrow">{{ t('public.comingUp') }}</p>
+            <h2 class="pel-empty-title">{{ t('public.programsWillAppear') }}</h2>
+            <p class="pel-empty-copy">{{ t('public.sessionsOpenSoon') }}</p>
+            <p class="pel-empty-hint muted">{{ t('public.bookmarkHint') }}</p>
           </template>
           <template v-else>
             <div class="pel-empty-icon" aria-hidden="true">📅</div>
-            <h2 class="pel-empty-title">No open programs right now</h2>
-            <p class="pel-empty-copy">
-              We are not accepting new sign-ups on this page at the moment. New sessions are added here as soon as they open.
-            </p>
-            <p class="pel-empty-hint muted">
-              Check back soon, or return to the main site for other ways to reach us.
-            </p>
+            <h2 class="pel-empty-title">{{ t('public.noOpenPrograms') }}</h2>
+            <p class="pel-empty-copy">{{ t('public.noSignups') }}</p>
+            <p class="pel-empty-hint muted">{{ t('public.checkBackSoon') }}</p>
           </template>
           <RouterLink v-if="footerHomeSlug" class="pel-btn pel-btn-primary pel-empty-cta" :to="homePath">
-            Back to portal home
+            {{ t('public.backToPortalHome') }}
           </RouterLink>
         </div>
       </div>
@@ -442,9 +432,9 @@
 
     <footer v-if="showMasthead" class="pel-footer">
       <div class="pel-footer-inner">
-        <RouterLink v-if="footerHomeSlug" class="pel-footer-link" :to="homePath">Portal home</RouterLink>
+        <RouterLink v-if="footerHomeSlug" class="pel-footer-link" :to="homePath">{{ t('public.portalHome') }}</RouterLink>
         <span v-if="footerHomeSlug" class="pel-footer-dot" aria-hidden="true">·</span>
-        <span class="pel-footer-note">Secure registration powered by your provider</span>
+        <span class="pel-footer-note">{{ t('public.secureRegistration') }}</span>
       </div>
       <PoweredByFooter
         variant="embedded"
@@ -528,7 +518,7 @@ const emit = defineEmits(['hubAgencyFilterChange']);
 
 const brandingStore = useBrandingStore();
 
-const { locale: publicLocale, isSpanish: localeIsSpanish, fetchTranslations, translatedFor } = useLocale();
+const { t, locale: publicLocale, isSpanish: localeIsSpanish, fetchTranslations, translatedFor } = useLocale();
 const eventTranslations = ref({});
 
 async function refreshEventTranslations() {
@@ -1231,10 +1221,10 @@ function ageRangeLabel(ev) {
   const max = ev?.publicAgeMax != null ? Number(ev.publicAgeMax) : null;
   const minOk = Number.isFinite(min) && min >= 0;
   const maxOk = Number.isFinite(max) && max >= 0;
-  if (!minOk && !maxOk) return 'Ages: any';
-  if (minOk && maxOk) return `Ages: ${min}–${max}`;
-  if (minOk) return `Ages: ${min}+`;
-  return `Ages: up to ${max}`;
+  if (!minOk && !maxOk) return t('public.agesAny');
+  if (minOk && maxOk) return t('public.agesRange', { min, max });
+  if (minOk) return t('public.agesMin', { min });
+  return t('public.agesMax', { max });
 }
 
 function drivingDistanceDisplay(ev) {
@@ -1254,11 +1244,11 @@ function registrationBannerText(ev) {
   const custom = String(ev?.publicRegistrationStatusLabel || '').trim();
   if (custom) return custom;
   const s = registrationStatusKey(ev);
-  if (s === 'limited') return 'Limited spots remaining';
-  if (s === 'full') return 'Full';
-  if (s === 'waitlist') return 'Waitlist — registration not available online';
-  if (s === 'closed') return 'Registration closed';
-  return 'Open for registration';
+  if (s === 'limited') return t('public.limitedSpots');
+  if (s === 'full') return t('public.registrationFull');
+  if (s === 'waitlist') return t('public.waitlistOnly');
+  if (s === 'closed') return t('public.registrationClosed');
+  return t('public.openForRegistration');
 }
 
 function registrationCtaDisabled(ev) {
