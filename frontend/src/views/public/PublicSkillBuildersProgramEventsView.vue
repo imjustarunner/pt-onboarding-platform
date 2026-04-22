@@ -1,7 +1,7 @@
 <template>
   <PublicEventsListing
-    :page-title="pageTitle"
-    :page-subtitle="pageSubtitle"
+    :page-title="pageCompanyTitle"
+    :page-title-sub="pageProgramTitle"
     :events="events"
     :loading="loading"
     :error="error"
@@ -10,8 +10,8 @@
     :portal-program-portal-slug="portalSlug"
     :portal-program-program-slug="programSlug"
     :footer-home-slug="portalSlug"
-    :enroll-cross-link-href="programEnrollHubPath"
-    enroll-cross-link-label="Need individual program enrollment? Open the full enroll page (enrollments + events)"
+    :enroll-cross-link-href="hasEnrollments ? programEnrollHubPath : ''"
+    :enroll-cross-link-label="hasEnrollments ? 'Need individual program enrollment? Open the full enroll page (enrollments + events)' : ''"
     :footer-legal-title="programLegalTitle"
     :footer-extra-legal-links="programLegalLinks"
     show-public-shell
@@ -44,23 +44,22 @@ const loading = ref(false);
 const error = ref('');
 const events = ref([]);
 const agencyName = ref('');
+const programName = ref('');
+/** Whether the program has individual enrollments (learning classes) available. */
+const hasEnrollments = ref(false);
 /** Slug of the parent agency (for nearest-event API), from list response. */
 const nearestAgencySlug = ref('');
 const programLegalTitle = ref('');
 const programLegalLinks = ref([]);
 
-const pageTitle = computed(() => {
-  if (agencyName.value && programSlug.value) {
-    return `${agencyName.value} — ${humanizeSlug(programSlug.value)}`;
-  }
-  if (programSlug.value) return humanizeSlug(programSlug.value);
-  return 'Program events';
-});
+/** Line 1 of the hero heading — the company/agency name. */
+const pageCompanyTitle = computed(() => agencyName.value || humanizeSlug(programSlug.value) || 'Program events');
 
-const pageSubtitle = computed(
-  () =>
-    'Open Skill Builders registrations for this program. When venues have addresses, you can calculate driving distance from your home.'
-);
+/** Line 2 of the hero heading — the program name (shown below the company name). */
+const pageProgramTitle = computed(() => {
+  if (!agencyName.value) return '';
+  return programName.value || humanizeSlug(programSlug.value) || '';
+});
 
 function humanizeSlug(s) {
   return String(s || '')
@@ -81,6 +80,8 @@ async function load() {
     const res = await api.get(path, { skipGlobalLoading: true });
     events.value = Array.isArray(res.data?.events) ? res.data.events : [];
     agencyName.value = String(res.data?.agencyName || '').trim();
+    programName.value = String(res.data?.programName || '').trim();
+    hasEnrollments.value = res.data?.hasEnrollments === true;
     nearestAgencySlug.value = String(res.data?.agencySlug || '').trim().toLowerCase();
     programLegalTitle.value = String(res.data?.programLegalLinks?.title || '').trim();
     programLegalLinks.value = Array.isArray(res.data?.programLegalLinks?.links)
@@ -95,6 +96,8 @@ async function load() {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load';
     events.value = [];
     agencyName.value = '';
+    programName.value = '';
+    hasEnrollments.value = false;
     nearestAgencySlug.value = '';
     programLegalTitle.value = '';
     programLegalLinks.value = [];

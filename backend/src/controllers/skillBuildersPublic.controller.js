@@ -62,6 +62,35 @@ async function loadProgramLegalLinks(conn, programOrgId) {
  * Shared resolver for GET/POST `/portal/:portalSlug/programs/:programSlug/...`.
  * When the portal slug is a program organization, events are merged across all affiliated parent agencies.
  */
+async function checkProgramHasEnrollments(conn, programOrgId) {
+  const oid = Number(programOrgId);
+  if (!Number.isFinite(oid) || oid <= 0) return false;
+  try {
+    const [rows] = await conn.execute(
+      `SELECT 1 FROM learning_program_classes WHERE organization_id = ? LIMIT 1`,
+      [oid]
+    );
+    return (rows || []).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveProgramOrgName(conn, programOrgId) {
+  const oid = Number(programOrgId);
+  if (!Number.isFinite(oid) || oid <= 0) return null;
+  try {
+    const [rows] = await conn.execute(
+      `SELECT name FROM agencies WHERE id = ? LIMIT 1`,
+      [oid]
+    );
+    const n = rows?.[0]?.name;
+    return n ? String(n).trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 async function resolvePortalProgramPublicListing(conn, portalSlug, programSlug) {
   const ps = String(portalSlug || '').trim().toLowerCase();
   const prSlug = String(programSlug || '').trim().toLowerCase();
@@ -101,6 +130,10 @@ async function resolvePortalProgramPublicListing(conn, portalSlug, programSlug) 
     }
     const events = await loadPublicProgramEventRows(conn, agencyId, programOrgId);
     const programLegalLinks = await loadProgramLegalLinks(conn, programOrgId);
+    const [hasEnrollments, programName] = await Promise.all([
+      checkProgramHasEnrollments(conn, programOrgId),
+      resolveProgramOrgName(conn, programOrgId)
+    ]);
     return {
       ok: true,
       payload: {
@@ -110,6 +143,8 @@ async function resolvePortalProgramPublicListing(conn, portalSlug, programSlug) 
         agencySlug: agencySlugOut,
         organizationId: programOrgId,
         programSlug: prSlug,
+        programName,
+        hasEnrollments,
         programLegalLinks,
         events
       }
@@ -173,6 +208,10 @@ async function resolvePortalProgramPublicListing(conn, portalSlug, programSlug) 
 
   const events = await loadPublicProgramEventRowsMerged(conn, programOrgId);
   const programLegalLinks = await loadProgramLegalLinks(conn, programOrgId);
+  const [hasEnrollments, programName] = await Promise.all([
+    checkProgramHasEnrollments(conn, programOrgId),
+    resolveProgramOrgName(conn, programOrgId)
+  ]);
   const payload = {
     ok: true,
     agencyId: parentAgencyId,
@@ -180,6 +219,8 @@ async function resolvePortalProgramPublicListing(conn, portalSlug, programSlug) 
     agencySlug: agencySlugOut,
     organizationId: programOrgId,
     programSlug: prSlug,
+    programName,
+    hasEnrollments,
     programLegalLinks,
     events
   };

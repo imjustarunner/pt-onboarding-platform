@@ -13,7 +13,10 @@
         <div v-if="headerLogoUrl" class="pel-logo-wrap">
           <img class="pel-logo" :src="headerLogoUrl" :alt="headerLogoAlt" loading="eager" />
         </div>
-        <h1 v-if="showHubTitle" class="pel-title">{{ pageTitle }}</h1>
+        <template v-if="showHubTitle">
+          <p v-if="pageTitleSub" class="pel-title-company">{{ pageTitle }}</p>
+          <h1 class="pel-title">{{ pageTitleSub || pageTitle }}</h1>
+        </template>
         <p v-if="pageSubtitle" class="pel-subtitle">{{ pageSubtitle }}</p>
         <div v-if="showMasthead" class="pel-hero-rule" aria-hidden="true" />
       </div>
@@ -468,6 +471,8 @@ import PoweredByFooter from '../PoweredByFooter.vue';
 
 const props = defineProps({
   pageTitle: { type: String, default: 'Upcoming events' },
+  /** Optional second heading line rendered below pageTitle in a smaller style. */
+  pageTitleSub: { type: String, default: '' },
   pageSubtitle: { type: String, default: '' },
   events: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
@@ -1501,6 +1506,16 @@ defineExpose({ focusNearestInput });
   position: relative;
   max-width: 40rem;
   margin: 0 auto;
+}
+
+.pel-title-company {
+  margin: 0 0 4px;
+  font-size: clamp(0.9rem, 3vw, 1.05rem);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.82);
+  text-transform: uppercase;
+  line-height: 1.3;
 }
 
 .pel-title {

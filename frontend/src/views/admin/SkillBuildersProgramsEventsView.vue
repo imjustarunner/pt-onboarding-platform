@@ -232,6 +232,13 @@ function readAgencyIdFromRouteQuery() {
   return /^\d+$/.test(s) ? s : '';
 }
 
+function readProgramOrgIdFromRouteQuery() {
+  const raw = route.query?.programOrgId;
+  if (raw == null || raw === '') return null;
+  const n = Number(String(Array.isArray(raw) ? raw[0] : raw).trim());
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 /** After a full reload, `?agencyId=` wins over store context so the page matches the URL. */
 function applyAgencyFromRouteQuery() {
   const id = readAgencyIdFromRouteQuery();
@@ -386,9 +393,12 @@ async function loadProgramOrganizations(preferredOrgId = null) {
       }))
       .filter((o) => Number.isFinite(o.id) && o.id > 0);
     if (programOrganizations.value.length > 0) {
-      const pref = preferredOrgId != null ? Number(preferredOrgId) : NaN;
+      const queryOrgId = readProgramOrgIdFromRouteQuery();
+      const pref = preferredOrgId != null ? Number(preferredOrgId) : (queryOrgId ?? NaN);
       if (Number.isFinite(pref) && pref > 0 && programOrganizations.value.some((o) => Number(o.id) === pref)) {
         selectedProgramOrgId.value = String(pref);
+        // Auto-open the workspace when navigating from the nav shortcut.
+        if (queryOrgId != null) showProgramWorkspace.value = true;
       } else {
         selectedProgramOrgId.value = String(programOrganizations.value[0].id);
       }

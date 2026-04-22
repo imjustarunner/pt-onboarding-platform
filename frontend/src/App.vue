@@ -2812,16 +2812,10 @@ watch(
 
 const programWorkspaceHref = (org) => {
   const id = Number(org?.id || 0);
-  if (!id) return orgTo('/dashboard');
-  const name = String(org?.name || '').trim();
-  const slug = String(org?.slug || '').trim().toLowerCase();
+  if (!id) return orgTo('/admin/program-events');
   const qs = new URLSearchParams();
-  qs.set('programHub', '1');
-  qs.set('programHubOrgId', String(id));
-  if (name) qs.set('programHubOrgName', name);
-  if (slug) qs.set('programHubOrgSlug', slug);
-  qs.set('programHubSection', 'portal');
-  return `${orgTo('/dashboard')}?${qs.toString()}`;
+  qs.set('programOrgId', String(id));
+  return `${orgTo('/admin/program-events')}?${qs.toString()}`;
 };
 
 /** Event portals for providers (assigned) and coordinators (directory/active). */
