@@ -11,6 +11,7 @@ class DocumentTemplate {
     const {
       name,
       description,
+      languageCode,
       templateType,
       filePath,
       htmlContent,
@@ -187,6 +188,12 @@ class DocumentTemplate {
       const serialized = fieldDefinitions ? JSON.stringify(fieldDefinitions) : null;
       insertParams.push(serialized);
     }
+
+    // language_code — store only 'es'; treat null/'en' identically as English.
+    insertFields += ', language_code';
+    insertValues += ', ?';
+    const langNorm = String(languageCode || '').trim().toLowerCase();
+    insertParams.push(langNorm === 'es' ? 'es' : null);
 
     const [result] = await pool.execute(
       `INSERT INTO document_templates (${insertFields}) VALUES (${insertValues})`,
@@ -547,6 +554,7 @@ class DocumentTemplate {
     // Only normalize fields that are actually in templateData
     if ('name' in templateData) normalizedData.name = getValue('name');
     if ('description' in templateData) normalizedData.description = getValue('description');
+    if ('languageCode' in templateData) normalizedData.languageCode = getValue('languageCode');
     if ('templateType' in templateData) normalizedData.templateType = getValue('templateType');
     if ('filePath' in templateData) normalizedData.filePath = getValue('filePath');
     if ('htmlContent' in templateData) normalizedData.htmlContent = getValue('htmlContent');
@@ -784,6 +792,11 @@ class DocumentTemplate {
         ? String(templateData.documentActionType).trim()
         : (existing.document_action_type || 'signature');
       safePush(val, 'documentActionType');
+    }
+    if ('languageCode' in templateData) {
+      updates.push('language_code = ?');
+      const raw = String(normalizedData.languageCode || '').trim().toLowerCase();
+      safePush(raw === 'es' ? 'es' : null, 'languageCode');
     }
 
     if (hasOrganizationColumn && 'organizationId' in templateData) {

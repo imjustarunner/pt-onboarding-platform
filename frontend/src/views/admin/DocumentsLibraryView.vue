@@ -266,6 +266,14 @@
             <textarea v-model="editForm.description" rows="3"></textarea>
           </div>
           <div class="form-group">
+            <label>Document Language</label>
+            <select v-model="editForm.languageCode" class="form-control">
+              <option value="">English (default)</option>
+              <option value="es">Spanish / Español</option>
+            </select>
+            <small>Mark as Spanish so it can be linked as the translated version of an English intake form.</small>
+          </div>
+          <div class="form-group">
             <label>Document Type *</label>
             <select v-model="editForm.documentType" required class="form-control">
               <option value="acknowledgment">Acknowledgment</option>
@@ -709,6 +717,7 @@ const loadingEditLetterheads = ref(false);
 const editForm = ref({
   name: '',
   description: '',
+  languageCode: '',
   documentType: 'administrative',
   documentActionType: 'signature',
   htmlContent: '',
@@ -805,6 +814,7 @@ const handleEdit = (template) => {
   editForm.value = {
     name: template.name || '',
     description: template.description !== undefined && template.description !== null ? template.description : '',
+    languageCode: template.language_code || '',
     documentType: template.document_type || 'administrative',
     documentActionType: template.document_action_type || 'signature',
     htmlContent: template.html_content !== undefined && template.html_content !== null ? template.html_content : '',
@@ -919,6 +929,7 @@ const saveEdit = async () => {
     // Always include documentType and documentActionType
     updateData.documentType = editForm.value.documentType || 'administrative';
     updateData.documentActionType = editForm.value.documentActionType || 'signature';
+    updateData.languageCode = editForm.value.languageCode || null;
     
     // Always include isActive (boolean)
     updateData.isActive = editForm.value.isActive !== undefined ? (editForm.value.isActive === true || editForm.value.isActive === 1) : true;

@@ -66,6 +66,14 @@
               <label>Description</label>
               <textarea v-model="form.description" rows="3"></textarea>
             </div>
+            <div class="form-group">
+              <label>Document Language</label>
+              <select v-model="form.languageCode">
+                <option value="">English (default)</option>
+                <option value="es">Spanish / Español</option>
+              </select>
+              <small>Mark this document as Spanish so it can be linked as the translated version of an English intake form.</small>
+            </div>
           </div>
         </div>
 
@@ -266,6 +274,7 @@ const letterheadsPath = computed(() =>
 const form = ref({
   name: '',
   description: '',
+  languageCode: '',
   htmlContent: '',
   documentType: 'administrative',
   documentActionType: 'signature',
@@ -430,6 +439,7 @@ const loadTemplate = async () => {
     form.value = {
       name: template.name || '',
       description: template.description !== undefined && template.description !== null ? template.description : '',
+      languageCode: template.language_code || '',
       htmlContent: template.html_content !== undefined && template.html_content !== null ? template.html_content : '',
       documentType: template.document_type || 'administrative',
       documentActionType: template.document_action_type || 'signature',
@@ -471,6 +481,7 @@ const saveTemplate = async () => {
       await documentsStore.createTemplate({
         name: form.value.name,
         description: form.value.description,
+        languageCode: form.value.languageCode || null,
         htmlContent: form.value.htmlContent,
         iconId: form.value.iconId || null,
         documentType: form.value.documentType,
@@ -515,6 +526,7 @@ const saveTemplate = async () => {
             : null);
     updateData.documentType = form.value.documentType;
     updateData.documentActionType = form.value.documentActionType;
+    updateData.languageCode = form.value.languageCode || null;
     if (form.value.saveAsNewVersion) {
       updateData.createNewVersion = true;
     }

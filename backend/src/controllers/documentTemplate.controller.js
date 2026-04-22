@@ -50,6 +50,7 @@ export const uploadTemplate = async (req, res, next) => {
     const {
       name,
       description,
+      languageCode,
       agencyId,
       organizationId,
       documentType,
@@ -162,6 +163,7 @@ export const uploadTemplate = async (req, res, next) => {
     const template = await DocumentTemplate.create({
       name,
       description: description ?? null,
+      languageCode: languageCode || null,
       templateType: 'pdf',
       filePath,
       htmlContent: null,
@@ -206,6 +208,7 @@ export const createTemplate = async (req, res, next) => {
     const {
       name,
       description,
+      languageCode,
       htmlContent,
       agencyId,
       organizationId,
@@ -335,6 +338,7 @@ export const createTemplate = async (req, res, next) => {
     const template = await DocumentTemplate.create({
       name,
       description: description ?? null,
+      languageCode: languageCode || null,
       templateType: 'html',
       filePath: null,
       htmlContent: htmlContent ?? null,
@@ -576,6 +580,7 @@ export const updateTemplate = async (req, res, next) => {
     const {
       name,
       description,
+      languageCode,
       documentType,
       documentActionType,
       htmlContent,
@@ -617,6 +622,10 @@ export const updateTemplate = async (req, res, next) => {
 
     if (name !== undefined) updateData.name = name !== null && name !== '' ? name : null;
     if (description !== undefined) updateData.description = description !== null && description !== '' ? description : null;
+    if (languageCode !== undefined) {
+      const lc = String(languageCode || '').trim().toLowerCase();
+      updateData.languageCode = lc === 'es' ? 'es' : null;
+    }
     if (documentType !== undefined) {
       const validTypes = ['acknowledgment', 'authorization', 'agreement', 'compliance', 'disclosure', 'consent', 'audio_recording_consent', 'hipaa_security', 'school', 'school_roi', 'administrative'];
       const dt = documentType ? String(documentType).trim().toLowerCase() : null;
