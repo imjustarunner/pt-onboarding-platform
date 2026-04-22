@@ -218,6 +218,9 @@
                 {{ formatSeasonRange(inviteData.season) }}
               </span>
             </div>
+            <div v-if="inviteData?.invite_team_name" class="hero-team-badge">
+              🏃 You'll be placed on <strong>{{ inviteData.invite_team_name }}</strong>
+            </div>
             <div v-if="inviteData?.label" class="hero-tag">{{ inviteData.label }}</div>
             <div v-if="referralInfo" class="hero-referral">
               Referred by <strong>{{ referralInfo }}</strong>
@@ -1435,6 +1438,19 @@ const handleSubmit = async () => {
 .hero-season-dates {
   font-size: 11.5px;
   color: rgba(255,255,255,0.85);
+}
+.hero-team-badge {
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.35);
+  border-radius: 999px;
+  padding: 4px 12px;
 }
 .hero-referral {
   margin-top: 4px;

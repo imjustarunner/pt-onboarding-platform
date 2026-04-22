@@ -1059,6 +1059,25 @@ if (!isBootstrap) {
     } catch (err) {
       console.warn('[startup] Migration 733 check skipped:', err.message);
     }
+
+    // Migration 740 – team_id on challenge_member_invites (team-specific invite links)
+    try {
+      const [[col]] = await pool.execute(
+        `SELECT 1 FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME   = 'challenge_member_invites'
+           AND COLUMN_NAME  = 'team_id'`
+      );
+      if (!col) {
+        await pool.execute(
+          `ALTER TABLE challenge_member_invites
+             ADD COLUMN team_id INT NULL DEFAULT NULL COMMENT 'FK to challenge_teams — pre-assigns joiners to a specific team'`
+        );
+        console.log('[startup] Migration 740 applied: team_id added to challenge_member_invites');
+      }
+    } catch (err) {
+      console.warn('[startup] Migration 740 check skipped:', err.message);
+    }
   })();
 
   // Set up periodic processing of terminated and completed users

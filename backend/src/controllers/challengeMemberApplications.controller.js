@@ -1055,10 +1055,12 @@ export const resolveInviteToken = async (req, res, next) => {
                 c.id AS season_id, c.class_name AS season_name, c.starts_at AS season_starts_at,
                 c.ends_at AS season_ends_at, c.status AS season_status,
                 c.enrollment_opens_at AS season_enrollment_opens_at,
-                c.enrollment_closes_at AS season_enrollment_closes_at
+                c.enrollment_closes_at AS season_enrollment_closes_at,
+                t.team_name AS invite_team_name
          FROM challenge_member_invites i
          JOIN agencies a ON a.id = i.agency_id
          LEFT JOIN learning_program_classes c ON c.id = i.learning_class_id
+         LEFT JOIN challenge_teams t ON t.id = i.team_id
          WHERE i.token = ? AND i.is_active = 1 LIMIT 1`,
         [token]
       );
@@ -1625,7 +1627,20 @@ export const submitApplication = async (req, res, next) => {
           } catch (enrollErr) {
             console.warn('[invite] season auto-enroll failed', enrollErr?.message || enrollErr);
           }
+          // Team fast-track
+          if (inviteForApply.team_id) {
+            try {
+              await pool.execute(
+                `INSERT IGNORE INTO challenge_team_members (team_id, provider_user_id, joined_at)
+                 VALUES (?, ?, NOW())`,
+                [Number(inviteForApply.team_id), userId]
+              );
+            } catch (teamErr) {
+              console.warn('[invite] team auto-assign failed', teamErr?.message || teamErr);
+            }
+          }
         }
+        const teamName = inviteForApply.invite_team_name || null;
         return res.status(201).json({
           ok: true,
           applicationId: appId,
@@ -1633,11 +1648,15 @@ export const submitApplication = async (req, res, next) => {
           verificationSent: !!verification.verificationSent,
           verifyUrl: verification.verifyUrl || null,
           seasonId: inviteForApply.learning_class_id ? Number(inviteForApply.learning_class_id) : null,
+          teamId: inviteForApply.team_id ? Number(inviteForApply.team_id) : null,
+          teamName,
           message: verification.required
             ? 'Application submitted and club access is ready once you verify your email.'
-            : (inviteForApply.learning_class_id
-                ? 'Welcome! You have been added to the club and season automatically.'
-                : 'Welcome! You have been added to the club automatically.')
+            : (teamName
+                ? `Welcome! You have been added to the club, season, and ${teamName} automatically.`
+                : (inviteForApply.learning_class_id
+                    ? 'Welcome! You have been added to the club and season automatically.'
+                    : 'Welcome! You have been added to the club automatically.'))
         });
       }
     }
@@ -1790,18 +1809,35 @@ export const submitInviteApplication = async (req, res, next) => {
         } catch (enrollErr) {
           console.warn('[invite] season auto-enroll failed', enrollErr?.message || enrollErr);
         }
+        // Team fast-track: if the invite is also scoped to a team, assign them
+        if (invite.team_id) {
+          try {
+            await pool.execute(
+              `INSERT IGNORE INTO challenge_team_members (team_id, provider_user_id, joined_at)
+               VALUES (?, ?, NOW())`,
+              [Number(invite.team_id), userId]
+            );
+          } catch (teamErr) {
+            console.warn('[invite] team auto-assign failed', teamErr?.message || teamErr);
+          }
+        }
       }
+      const teamName = invite.invite_team_name || null;
       return res.status(201).json({
         ok: true, applicationId: appId,
         verificationRequired: !!verification.required,
         verificationSent: !!verification.verificationSent,
         verifyUrl: verification.verifyUrl || null,
         seasonId: invite.learning_class_id ? Number(invite.learning_class_id) : null,
+        teamId: invite.team_id ? Number(invite.team_id) : null,
+        teamName,
         message: verification.required
           ? 'Application submitted and club access is ready once you verify your email.'
-          : (invite.learning_class_id
-              ? 'Welcome! You have been added to the club and season automatically.'
-              : 'Welcome! You have been added to the club automatically.')
+          : (teamName
+              ? `Welcome! You have been added to the club, season, and ${teamName} automatically.`
+              : (invite.learning_class_id
+                  ? 'Welcome! You have been added to the club and season automatically.'
+                  : 'Welcome! You have been added to the club automatically.'))
       });
     }
 
@@ -2192,7 +2228,7 @@ export const createInvite = async (req, res, next) => {
     const club   = await assertManagerAccess(req, res, clubId);
     if (!club) return;
 
-    const { email, label, autoApprove, expiresAt, learningClassId, maxUses } = req.body;
+    const { email, label, autoApprove, expiresAt, learningClassId, maxUses, teamId } = req.body;
     const token = genToken(32);
 
     // Validate optional season scope: must belong to this club.
@@ -2211,6 +2247,24 @@ export const createInvite = async (req, res, next) => {
       learningClassIdValue = lcId;
     }
 
+    // Validate optional team scope: must belong to the same season.
+    let teamIdValue = null;
+    if (teamId !== undefined && teamId !== null && teamId !== '') {
+      const tid = toInt(teamId);
+      if (!tid) return res.status(400).json({ error: { message: 'Invalid team id' } });
+      if (!learningClassIdValue) {
+        return res.status(400).json({ error: { message: 'A season must be selected when specifying a team' } });
+      }
+      const [teamRows] = await pool.execute(
+        `SELECT id FROM challenge_teams WHERE id = ? AND learning_class_id = ? LIMIT 1`,
+        [tid, learningClassIdValue]
+      );
+      if (!teamRows?.[0]) {
+        return res.status(400).json({ error: { message: 'That team does not belong to the selected season' } });
+      }
+      teamIdValue = tid;
+    }
+
     // Optional max_uses cap. Anything <=0 or unparseable becomes unlimited (NULL).
     let maxUsesValue = null;
     if (maxUses !== undefined && maxUses !== null && maxUses !== '') {
@@ -2222,11 +2276,12 @@ export const createInvite = async (req, res, next) => {
     try {
       [insertResult] = await pool.execute(
         `INSERT INTO challenge_member_invites
-           (agency_id, learning_class_id, created_by, token, email, label, auto_approve, max_uses, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (agency_id, learning_class_id, team_id, created_by, token, email, label, auto_approve, max_uses, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           clubId,
           learningClassIdValue,
+          teamIdValue,
           req.user.id,
           token,
           email ? String(email).trim().toLowerCase() : null,
@@ -2237,9 +2292,7 @@ export const createInvite = async (req, res, next) => {
         ]
       );
     } catch (e) {
-      // Fallback for environments where migration 715 has not run yet:
-      // store the invite without the new columns so club managers can still
-      // create classic single-use, club-only invite links.
+      // Fallback for environments where earlier migrations have not run yet
       const msg = String(e?.message || '');
       const tolerable = e?.code === 'ER_BAD_FIELD_ERROR' || msg.includes('Unknown column');
       if (!tolerable) throw e;
@@ -2259,6 +2312,7 @@ export const createInvite = async (req, res, next) => {
       );
       learningClassIdValue = null;
       maxUsesValue = null;
+      teamIdValue = null;
     }
 
     const baseUrl = process.env.FRONTEND_URL || process.env.VITE_APP_URL || '';
@@ -2270,6 +2324,7 @@ export const createInvite = async (req, res, next) => {
       token,
       joinUrl,
       learningClassId: learningClassIdValue,
+      teamId: teamIdValue,
       maxUses: maxUsesValue
     });
   } catch (e) { next(e); }
@@ -2289,10 +2344,12 @@ export const listInvites = async (req, res, next) => {
     try {
       const [r] = await pool.execute(
         `SELECT i.*, CONCAT(u.first_name, ' ', u.last_name) AS created_by_name,
-                c.class_name AS season_name
+                c.class_name AS season_name,
+                t.team_name AS invite_team_name
          FROM challenge_member_invites i
          LEFT JOIN users u ON u.id = i.created_by
          LEFT JOIN learning_program_classes c ON c.id = i.learning_class_id
+         LEFT JOIN challenge_teams t ON t.id = i.team_id
          WHERE i.agency_id = ? AND i.is_active = 1
          ORDER BY i.created_at DESC`,
         [clubId]
@@ -2310,7 +2367,7 @@ export const listInvites = async (req, res, next) => {
          ORDER BY i.created_at DESC`,
         [clubId]
       );
-      rows = (r || []).map((row) => ({ ...row, season_name: null }));
+      rows = (r || []).map((row) => ({ ...row, season_name: null, invite_team_name: null }));
     }
 
     const baseUrl = process.env.FRONTEND_URL || process.env.VITE_APP_URL || '';

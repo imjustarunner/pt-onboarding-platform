@@ -1036,6 +1036,36 @@
             </li>
           </ul>
 
+          <!-- ── Team Invite Links (shown to designated admin during initial setup) ── -->
+          <div v-if="canSeeTeamInviteLinks && teams.length && managingChallenge" class="team-invite-links-section">
+            <div class="team-invite-links-header">
+              <h4 class="team-invite-links-title">Team Invite Links</h4>
+              <span class="team-invite-links-badge">Setup only</span>
+            </div>
+            <p class="team-invite-links-hint">
+              Each link creates an account, joins the club + season, and places the member directly on that team.
+              Share each link with the captain so they can distribute it to their team members.
+              Links can be reused unlimited times.
+            </p>
+            <ul class="team-invite-links-list">
+              <li v-for="t in teams" :key="`tinv-${t.id}`" class="team-invite-link-row">
+                <span class="team-invite-link-name">{{ t.team_name }}</span>
+                <div class="team-invite-link-actions">
+                  <span v-if="teamInviteLinks[t.id]" class="team-invite-link-url">{{ teamInviteLinks[t.id] }}</span>
+                  <button
+                    class="btn btn-primary btn-sm"
+                    :disabled="generatingTeamInviteFor === t.id"
+                    @click="generateTeamInviteLink(t)"
+                  >
+                    {{ generatingTeamInviteFor === t.id ? 'Generating…' : (teamInviteLinks[t.id] ? '⧉ Copy Link' : 'Generate Link') }}
+                  </button>
+                  <span v-if="copiedTeamInviteId === t.id" class="team-invite-copied">✓ Copied!</span>
+                </div>
+              </li>
+            </ul>
+            <p v-if="teamInviteError" class="team-invite-error">{{ teamInviteError }}</p>
+          </div>
+
           <!-- Captain Applications management -->
           <div class="captain-mgmt-section">
             <div class="captain-mgmt-header">
@@ -2177,6 +2207,64 @@ const copySeasonInviteLink = (c) => generateAndCopyInvite({
   learningClassId: c?.id,
   autoApprove: true
 });
+
+// ── Team invite links ─────────────────────────────────────────────────────
+// Visible only to the designated admin account for initial-season setup.
+// Captains receive the link from the manager and forward it to their team.
+const TEAM_INVITE_ADMIN_USERNAMES = new Set([
+  'pfldtrackrunna24@gmail.com',
+  'pfldtrackrunna24' // in case username differs from email
+]);
+
+const canSeeTeamInviteLinks = computed(() => {
+  const u = authStore.user;
+  if (!u) return false;
+  const uname = String(u.username || u.email || '').toLowerCase().trim();
+  return TEAM_INVITE_ADMIN_USERNAMES.has(uname);
+});
+
+const teamInviteLinks = ref({});      // teamId → joinUrl
+const generatingTeamInviteFor = ref(null);
+const copiedTeamInviteId = ref(null);
+const teamInviteError = ref('');
+
+const generateTeamInviteLink = async (team) => {
+  if (!team?.id || !managingChallenge.value?.id) return;
+  // If we already have a URL and it's a copy action, just copy it
+  if (teamInviteLinks.value[team.id]) {
+    await writeToClipboardSafe(teamInviteLinks.value[team.id]);
+    copiedTeamInviteId.value = team.id;
+    setTimeout(() => { if (copiedTeamInviteId.value === team.id) copiedTeamInviteId.value = null; }, 2500);
+    return;
+  }
+  const clubId = Number(organizationId.value || 0);
+  if (!clubId) { teamInviteError.value = 'No club selected.'; return; }
+  generatingTeamInviteFor.value = team.id;
+  teamInviteError.value = '';
+  try {
+    const { data } = await api.post(
+      `/summit-stats/clubs/${clubId}/invites`,
+      {
+        label: `Team invite – ${team.team_name}`,
+        learningClassId: managingChallenge.value.id,
+        teamId: team.id,
+        autoApprove: true,
+        maxUses: null  // unlimited
+      },
+      { skipGlobalLoading: true }
+    );
+    const url = String(data?.joinUrl || '').trim();
+    if (!url) throw new Error('No invite URL returned');
+    teamInviteLinks.value = { ...teamInviteLinks.value, [team.id]: url };
+    await writeToClipboardSafe(url);
+    copiedTeamInviteId.value = team.id;
+    setTimeout(() => { if (copiedTeamInviteId.value === team.id) copiedTeamInviteId.value = null; }, 2500);
+  } catch (e) {
+    teamInviteError.value = String(e?.response?.data?.error?.message || e?.message || 'Failed to generate team invite');
+  } finally {
+    generatingTeamInviteFor.value = null;
+  }
+};
 const agreementTemplateOptions = computed(() => collectUniqueParticipationAgreementSnapshots(challenges.value));
 const defaultAgreementFields = () => {
   const agreement = defaultParticipationAgreement();
@@ -4300,6 +4388,8 @@ const closeManageModal = () => {
   weeklyTargetEditingWeekStart.value = null;
   weeklyTargetEditDraft.value = '';
   weeklyTargetMsg.value = '';
+  teamInviteLinks.value = {};
+  teamInviteError.value = '';
 };
 
 const loadTeams = async (classId) => {
@@ -6180,5 +6270,97 @@ onMounted(async () => {
   font-size: 0.82rem;
   color: #16a34a;
   margin: 4px 0 0;
+}
+
+/* ── Team invite links section ────────────────────────────────────── */
+.team-invite-links-section {
+  margin-top: 24px;
+  padding: 16px;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e8f4fd 100%);
+  border: 2px dashed #60a5fa;
+  border-radius: 12px;
+}
+.team-invite-links-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.team-invite-links-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1e40af;
+}
+.team-invite-links-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-radius: 999px;
+  padding: 2px 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.team-invite-links-hint {
+  font-size: 0.82rem;
+  color: #374151;
+  margin: 0 0 14px;
+  line-height: 1.5;
+}
+.team-invite-links-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.team-invite-link-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: #fff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.team-invite-link-name {
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: #1e3a5f;
+  flex: 0 0 auto;
+  min-width: 120px;
+}
+.team-invite-link-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+.team-invite-link-url {
+  font-size: 0.75rem;
+  color: #1d4ed8;
+  font-family: monospace;
+  background: #eff6ff;
+  border-radius: 5px;
+  padding: 3px 8px;
+  word-break: break-all;
+  flex: 1;
+  min-width: 0;
+}
+.team-invite-copied {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #16a34a;
+  white-space: nowrap;
+}
+.team-invite-error {
+  color: #dc2626;
+  font-size: 0.82rem;
+  margin-top: 8px;
 }
 </style>
