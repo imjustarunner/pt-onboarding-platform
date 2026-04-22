@@ -43,7 +43,12 @@
     "openRegistration": "Abrir inscripción",
     "viewDetails": "Ver detalles",
     "noEventsFound": "No se encontraron eventos. Intente ajustar los filtros.",
-    "poweredByAi": "Traducción al español generada por IA"
+    "poweredByAi": "Traducción al español generada por IA",
+    "helpMeChooseSub": "Elija por sesión o según la ubicación más cercana a su casa.",
+    "chooseBySessionSub": "Primero elija una sesión, luego seleccione el lugar.",
+    "closestToHomeTitle": "Prefiero elegir la sesión más cercana a mi casa",
+    "closestToHomeSub": "Ingrese su dirección, elija el lugar y luego seleccione una sesión.",
+    "chooseSessionHint": "Elija una sesión a continuación para ver los lugares disponibles y la inscripción para esas fechas."
   },
   "intake": {
     "welcome": "Bienvenido",

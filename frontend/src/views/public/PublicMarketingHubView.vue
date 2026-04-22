@@ -102,7 +102,7 @@
               :class="{ 'pmh-choice-btn--pulse': showSplashPathPulse, active: journeyPrimary === 'learn' }"
               @click="goLearnMore"
             >
-              <span class="pmh-choice-title">This is my first time</span>
+              <span class="pmh-choice-title">{{ t('public.thisIsMyFirstTime') }}</span>
               <span class="pmh-choice-sub">See what the program is, then pick your best fit.</span>
             </button>
             <button
@@ -111,7 +111,7 @@
               :class="{ 'pmh-choice-btn--pulse': showSplashPathPulse, active: journeyPrimary === 'school' }"
               @click="choosePrimary('school')"
             >
-              <span class="pmh-choice-title">I know my location / school</span>
+              <span class="pmh-choice-title">{{ t('public.iKnowMyLocation') }}</span>
               <span class="pmh-choice-sub">Choose your site first, then pick a session.</span>
             </button>
             <button
@@ -121,7 +121,7 @@
               @click="choosePrimary('program')"
             >
               <span class="pmh-choice-title">Help me choose</span>
-              <span class="pmh-choice-sub">Pick by session or choose closest to home.</span>
+              <span class="pmh-choice-sub">{{ t('public.helpMeChooseSub') }}</span>
             </button>
           </div>
 
@@ -403,14 +403,14 @@
               <button type="button" class="pmh-sess-card" @click="selectProgramChooseMode('session')">
                 <span class="pmh-sess-card-eyebrow">Option</span>
                 <span class="pmh-sess-card-title">I know which session I want</span>
-                <span class="pmh-sess-card-sub">Pick a session first, then choose a site.</span>
-                <span class="pmh-sess-card-cta">Choose by session &rsaquo;</span>
+                <span class="pmh-sess-card-sub">{{ t('public.chooseBySessionSub') }}</span>
+                <span class="pmh-sess-card-cta">{{ t('public.chooseBySession') }} &rsaquo;</span>
               </button>
               <button type="button" class="pmh-sess-card" @click="selectProgramChooseMode('nearest')">
                 <span class="pmh-sess-card-eyebrow">Option</span>
-                <span class="pmh-sess-card-title">I prefer to choose my session that&rsquo;s closest to home</span>
-                <span class="pmh-sess-card-sub">Enter your address, pick a site, then choose a session.</span>
-                <span class="pmh-sess-card-cta">Choose closest to home &rsaquo;</span>
+                <span class="pmh-sess-card-title">{{ t('public.closestToHomeTitle') }}</span>
+                <span class="pmh-sess-card-sub">{{ t('public.closestToHomeSub') }}</span>
+                <span class="pmh-sess-card-cta">{{ t('public.closestToHome') }} &rsaquo;</span>
               </button>
             </div>
 
@@ -639,7 +639,7 @@
               :class="{ active: journeyPrimary === 'learn' }"
               @click="goLearnMore"
             >
-              This is my first time
+              {{ t('public.thisIsMyFirstTime') }}
             </button>
             <button
               type="button"
@@ -647,7 +647,7 @@
               :class="{ active: journeyPrimary === 'school' }"
               @click="choosePrimary('school')"
             >
-              I know my location / school
+              {{ t('public.iKnowMyLocation') }}
             </button>
             <button
               type="button"
@@ -655,7 +655,7 @@
               :class="{ active: journeyPrimary === 'program' }"
               @click="choosePrimary('program')"
             >
-              Help me choose
+              {{ t('public.helpMeChoose') }}
             </button>
           </div>
 
@@ -972,9 +972,9 @@
           role="region"
           aria-label="Choose a program session"
         >
-          <p class="sb-skillbuilders-sessions-title">Choose a session</p>
+          <p class="sb-skillbuilders-sessions-title">{{ t('public.chooseSession') }}</p>
           <p class="sb-skillbuilders-sessions-hint">
-            Pick a session below to reveal the available sites and registration for those dates.
+            {{ t('public.chooseSessionHint') }}
           </p>
           <div class="sb-skillbuilders-sessions-row">
             <button
@@ -1138,11 +1138,31 @@ import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import PoweredByFooter from '../../components/PoweredByFooter.vue';
 import PublicEventsListing from '../../components/public/PublicEventsListing.vue';
 import { hubGalleryPoolUrls, hubGalleryStripUrls } from '../../utils/publicMarketingHubGallery';
+import { useLocale } from '../../composables/useLocale.js';
 
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 const route = useRoute();
 const hubSlug = computed(() => String(route.params.hubSlug || '').trim().toLowerCase());
+
+// ── AI translation (Gemini-backed) ───────────────────────────────────────
+const { t, locale: hubLocale, isSpanish: hubIsSpanish, fetchTranslations, translatedFor } = useLocale();
+const hubPageTranslations = ref({});
+
+const fetchHubPageTranslations = async (pageId) => {
+  if (!pageId) return;
+  hubPageTranslations.value = await fetchTranslations(
+    'marketing_page',
+    [pageId],
+    ['title', 'heroTitle', 'heroSubtitle']
+  ) || {};
+};
+
+// Helper: return AI-translated text for this page's metadata.
+const hubTx = (pageId, field, original) => {
+  if (!hubIsSpanish.value || !original) return original || '';
+  return translatedFor(hubPageTranslations.value, pageId, field) || original;
+};
 
 const THEME_PREF_KEY = 'pmh_theme_preference_v1';
 const themePreference = ref('system'); // 'system' | 'dark' | 'light'
@@ -1319,6 +1339,11 @@ const heroTitle = computed(() => pageMeta.value?.heroTitle || '');
 const heroImageUrl = computed(() => pageMeta.value?.heroImageUrl || '');
 const pageTitle = computed(() => pageMeta.value?.title || 'Events');
 
+// AI-translated versions of the page metadata fields.
+const heroTitleDisplay = computed(() => hubTx(pageMeta.value?.id, 'heroTitle', heroTitle.value));
+const heroSubtitleDisplay = computed(() => hubTx(pageMeta.value?.id, 'heroSubtitle', pageMeta.value?.heroSubtitle || ''));
+const pageTitleDisplay = computed(() => hubTx(pageMeta.value?.id, 'title', pageTitle.value));
+
 /** Turn slug-like titles (d11summer2025) into readable headlines when admin left title = slug. */
 function prettifySlugLike(s) {
   let x = String(s || '').replace(/[-_]+/g, ' ').trim();
@@ -1340,18 +1365,20 @@ function prettifySlugLike(s) {
 const displayHeadline = computed(() => {
   const slug = String(hubSlug.value || '').trim().toLowerCase();
   if (slug === 'd11summer2026') {
-    return '2026 D11 Summer Mental Health Skills Program';
+    // Try AI-translated hero title first; fall back to the hardcoded English label.
+    const aiHero = heroTitleDisplay.value;
+    return aiHero || '2026 D11 Summer Mental Health Skills Program';
   }
-  const hero = String(heroTitle.value || '').trim();
+  const hero = String(heroTitleDisplay.value || '').trim();
   if (hero) return hero;
-  const raw = String(pageTitle.value || '').trim();
+  const raw = String(pageTitleDisplay.value || '').trim();
   const slugNorm = slug.replace(/[^a-z0-9]/gi, '');
   const rawNorm = raw.replace(/[^a-z0-9]/gi, '');
   if (!raw || rawNorm === slugNorm) return prettifySlugLike(slug);
   return raw;
 });
 
-const listingSubtitle = computed(() => pageMeta.value?.heroSubtitle || '');
+const listingSubtitle = computed(() => heroSubtitleDisplay.value || pageMeta.value?.heroSubtitle || '');
 const eventNavigatorEnabled = computed(
   () => hubSlug.value === 'd11summer2026' || hubBranding.value.enableSummerNavigator === true
 );
@@ -2992,6 +3019,10 @@ async function loadAll() {
     pageMeta.value = pageRes.data?.page || null;
     events.value = Array.isArray(evRes.data?.events) ? evRes.data.events : [];
     footerPartners.value = Array.isArray(bookRes.data?.footerPartners) ? bookRes.data.footerPartners : [];
+    // Fetch AI translations for hero title/subtitle when locale is already Spanish.
+    if (pageMeta.value?.id && hubIsSpanish.value) {
+      fetchHubPageTranslations(pageMeta.value.id).catch(() => {});
+    }
 
     if (pageMeta.value?.metricsEnabled) {
       try {
@@ -3022,6 +3053,13 @@ async function loadAll() {
     }
   }
 }
+
+// Re-fetch hero translations whenever the visitor switches to Spanish.
+watch(hubIsSpanish, (isEs) => {
+  if (isEs && pageMeta.value?.id) {
+    fetchHubPageTranslations(pageMeta.value.id).catch(() => {});
+  }
+});
 
 onMounted(loadAll);
 let themeChangeHandler = null;

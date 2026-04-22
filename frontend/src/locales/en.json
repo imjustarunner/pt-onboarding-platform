@@ -43,7 +43,12 @@
     "openRegistration": "Open registration",
     "viewDetails": "View details",
     "noEventsFound": "No events found. Try adjusting your filters.",
-    "poweredByAi": "Spanish translation powered by AI"
+    "poweredByAi": "Spanish translation powered by AI",
+    "helpMeChooseSub": "Pick by session or choose closest to home.",
+    "chooseBySessionSub": "Pick a session first, then choose a site.",
+    "closestToHomeTitle": "I prefer to choose my session that's closest to home",
+    "closestToHomeSub": "Enter your address, pick a site, then choose a session.",
+    "chooseSessionHint": "Pick a session below to reveal the available sites and registration for those dates."
   },
   "intake": {
     "welcome": "Welcome",

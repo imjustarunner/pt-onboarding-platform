@@ -44,6 +44,15 @@ const ALLOWED_SOURCES = Object.freeze({
       title: 'title',
       description: 'description'
     }
+  },
+  marketing_page: {
+    table: 'public_marketing_pages',
+    idColumn: 'id',
+    fields: {
+      title: 'title',
+      heroTitle: 'hero_title',
+      heroSubtitle: 'hero_subtitle'
+    }
   }
 });
 
