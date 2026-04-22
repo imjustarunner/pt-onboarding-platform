@@ -1233,6 +1233,18 @@ export const resolvePortalByHost = async (req, res, next) => {
       : reqHost;
     if (!host) return res.json({ host: null, portalUrl: null });
 
+    // Never resolve localhost / loopback hosts to a portal.
+    // In local dev, org rows may accidentally have `custom_domain = localhost` (or equivalent),
+    // which would cause the entire app on localhost to brand/route as that org (e.g. a school portal).
+    // Production custom domains are always real domains and should continue to resolve normally.
+    const hostNoPort = String(host).replace(/:\d+$/, '').trim().toLowerCase();
+    const isLoopback =
+      hostNoPort === 'localhost' ||
+      hostNoPort === '127.0.0.1' ||
+      hostNoPort === '0.0.0.0' ||
+      hostNoPort === '::1';
+    if (isLoopback) return res.json({ host: hostNoPort, portalUrl: null });
+
     const agency = await Agency.findByCustomDomain(host);
     if (!agency) return res.json({ host, portalUrl: null });
 

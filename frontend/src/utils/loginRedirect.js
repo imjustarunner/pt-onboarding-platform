@@ -169,6 +169,8 @@ export function getCurrentPortalSlugFromHostCache() {
   try {
     const host = String(window.location?.hostname || '').trim();
     if (!host) return null;
+    const hostNorm = host.toLowerCase();
+    if (hostNorm === 'localhost' || hostNorm === '127.0.0.1' || hostNorm === '0.0.0.0' || hostNorm === '::1') return null;
     const cacheKey = `__pt_portal_host__:${host}`;
     let cachedRaw = sessionStorage.getItem(cacheKey);
     if (!cachedRaw) {

@@ -621,6 +621,27 @@ export const useBrandingStore = defineStore('branding', () => {
 
     portalThemeInitPromise = (async () => {
       try {
+        // Local dev hosts must never be treated as a BYOD/custom-domain portal.
+        // If `__pt_portal_host__:localhost` (or similar) was previously cached, it can cause the app
+        // to "stick" to an unrelated org (often a school portal) and show the wrong icon/theme.
+        const rawHost = String(window.location.hostname || '').trim().toLowerCase();
+        const isLoopback =
+          rawHost === 'localhost' ||
+          rawHost === '127.0.0.1' ||
+          rawHost === '0.0.0.0' ||
+          rawHost === '::1';
+        if (isLoopback) {
+          portalHostPortalUrl.value = null;
+          try {
+            const cacheKey = `__pt_portal_host__:${rawHost}`;
+            sessionStorage.removeItem(cacheKey);
+            localStorage.removeItem(cacheKey);
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+
         // 1) Subdomain pattern: <portal>.app.<base-domain>
         const subdomainPortal = getPortalUrl();
         if (subdomainPortal) {
