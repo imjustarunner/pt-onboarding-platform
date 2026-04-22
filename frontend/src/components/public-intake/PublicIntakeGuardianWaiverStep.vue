@@ -3,8 +3,8 @@
     <div v-for="(label, cIdx) in clientLabels" :key="cIdx" class="pi-gw-client-block">
       <h4 class="pi-gw-client-title">{{ label }}</h4>
       <div v-if="showPackLunchNotice" class="pi-gw-card pi-gw-card--notice">
-        <div class="pi-gw-card-head"><h5>Meals</h5></div>
-        <p class="muted small">This program does not provide meals. Please plan to bring your own lunch or snacks as needed.</p>
+        <div class="pi-gw-card-head"><h5>{{ tx('Meals') }}</h5></div>
+        <p class="muted small">{{ tx('This program does not provide meals. Please plan to bring your own lunch or snacks as needed.') }}</p>
       </div>
       <div
         v-for="def in activeSectionDefs"
@@ -15,9 +15,9 @@
         :data-gw-section="`${cIdx}:${def.key}`"
       >
         <div class="pi-gw-card-head">
-          <h5>{{ def.title }}</h5>
+          <h5>{{ tx(def.title) }}</h5>
         </div>
-        <p v-if="def.blurb" class="muted small">{{ def.blurb }}</p>
+        <p v-if="def.blurb" class="muted small">{{ tx(def.blurb) }}</p>
         <div v-if="sectionError(cIdx, def.key) && typeof sectionError(cIdx, def.key) === 'string'" class="pi-gw-section-error">
           {{ sectionError(cIdx, def.key) }}
         </div>
@@ -127,13 +127,21 @@ const props = defineProps({
   /**
    * Structured per-section validation errors from the parent step, shaped as:
    *   { [clientIndex]: { [sectionKey]: 'Error text' | { allergies: '...' } } }
-   * Used both to decorate the offending card with a red border + message
-   * banner, and to pass through `validationError` into the sub-field
-   * components so the guardian sees the exact field they missed without
-   * scrolling back to the top of the page.
    */
-  validationErrors: { type: Object, default: () => ({}) }
+  validationErrors: { type: Object, default: () => ({}) },
+  /**
+   * Content-addressed translation map from the parent (original → translated).
+   * Passed when the user has switched to Spanish so section titles, blurbs, and
+   * static labels inside this component get translated in-place.
+   */
+  translations: { type: Object, default: () => ({}) }
 });
+
+/** Look up a translated string; returns original text if not found. */
+const tx = (text) => {
+  const s = String(text || '');
+  return props.translations?.[s] || s;
+};
 
 defineExpose({
   scrollToSection

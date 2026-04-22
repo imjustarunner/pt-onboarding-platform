@@ -233,43 +233,44 @@
           <div class="form-grid">
             <div v-for="field in visibleGuardianFields" :key="field.key" class="form-group">
               <div v-if="field.type === 'info'" class="info-block">
-                <div class="info-title">{{ field.label || t('notice') }}</div>
-                <div v-if="field.helperText" class="info-text">{{ field.helperText }}</div>
+                <div class="info-title">{{ tx(field.label) || t('notice') }}</div>
+                <div v-if="field.helperText" class="info-text">{{ tx(field.helperText) }}</div>
               </div>
               <template v-else>
               <label>
-                {{ field.label }}
+                {{ tx(field.label) }}
                 <span v-if="field.required" class="required-indicator">*</span>
               </label>
-              <div v-if="field.helperText" class="helper-text">{{ field.helperText }}</div>
+              <div v-if="field.helperText" class="helper-text">{{ tx(field.helperText) }}</div>
+              <div v-if="field.description" class="helper-text muted">{{ tx(field.description) }}</div>
               <input
                 v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
                 :type="field.type || 'text'"
                 v-model="intakeResponses.guardian[field.key]"
                 :required="!!field.required"
-                :placeholder="field.placeholder || ''"
+                :placeholder="tx(field.placeholder) || ''"
                 @blur="maybeAutofillGuardianLocation(field)"
               />
               <textarea
                 v-else-if="field.type === 'textarea'"
                 v-model="intakeResponses.guardian[field.key]"
-                :placeholder="field.placeholder || ''"
+                :placeholder="tx(field.placeholder) || ''"
                 rows="3"
               />
               <label v-else-if="field.type === 'checkbox'" class="checkbox-row">
                 <input v-model="intakeResponses.guardian[field.key]" type="checkbox" />
-                <span>{{ field.label }}</span>
+                <span>{{ tx(field.label) }}</span>
               </label>
               <select v-else-if="field.type === 'select'" v-model="intakeResponses.guardian[field.key]" @blur="maybeAutofillGuardianLocation(field)">
                 <option value="">{{ t('selectOption') }}</option>
                 <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
-                  {{ opt.label || opt.value }}
+                  {{ tx(opt.label || opt.value) }}
                 </option>
               </select>
               <div v-else-if="field.type === 'radio'" class="radio-group">
                 <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="radio-row">
                   <input type="radio" :name="`guardian_${field.key}`" :value="opt.value || opt.label" v-model="intakeResponses.guardian[field.key]" />
-                  <span>{{ opt.label || opt.value }}</span>
+                  <span>{{ tx(opt.label || opt.value) }}</span>
                 </label>
               </div>
               <input v-else v-model="intakeResponses.guardian[field.key]" type="date" @blur="maybeAutofillGuardianLocation(field)" />
@@ -286,42 +287,43 @@
           <div class="form-grid">
             <div v-for="field in visibleSubmissionFields" :key="field.key" class="form-group">
               <div v-if="field.type === 'info'" class="info-block">
-                <div class="info-title">{{ field.label || t('notice') }}</div>
-                <div v-if="field.helperText" class="info-text">{{ field.helperText }}</div>
+                <div class="info-title">{{ tx(field.label) || t('notice') }}</div>
+                <div v-if="field.helperText" class="info-text">{{ tx(field.helperText) }}</div>
               </div>
               <template v-else>
               <label>
-                {{ field.label }}
+                {{ tx(field.label) }}
                 <span v-if="field.required" class="required-indicator">*</span>
               </label>
-              <div v-if="field.helperText" class="helper-text">{{ field.helperText }}</div>
+              <div v-if="field.helperText" class="helper-text">{{ tx(field.helperText) }}</div>
+              <div v-if="field.description" class="helper-text muted">{{ tx(field.description) }}</div>
               <input
                 v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
                 :type="field.type || 'text'"
                 v-model="intakeResponses.submission[field.key]"
                 :required="!!field.required"
-                :placeholder="field.placeholder || ''"
+                :placeholder="tx(field.placeholder) || ''"
               />
               <textarea
                 v-else-if="field.type === 'textarea'"
                 v-model="intakeResponses.submission[field.key]"
-                :placeholder="field.placeholder || ''"
+                :placeholder="tx(field.placeholder) || ''"
                 rows="3"
               />
               <label v-else-if="field.type === 'checkbox'" class="checkbox-row">
                 <input v-model="intakeResponses.submission[field.key]" type="checkbox" />
-                <span>{{ field.label }}</span>
+                <span>{{ tx(field.label) }}</span>
               </label>
               <select v-else-if="field.type === 'select'" v-model="intakeResponses.submission[field.key]">
                 <option value="">{{ t('selectOption') }}</option>
                 <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
-                  {{ opt.label || opt.value }}
+                  {{ tx(opt.label || opt.value) }}
                 </option>
               </select>
               <div v-else-if="field.type === 'radio'" class="radio-group">
                 <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="radio-row">
                   <input type="radio" :name="`submission_${field.key}`" :value="opt.value || opt.label" v-model="intakeResponses.submission[field.key]" />
-                  <span>{{ opt.label || opt.value }}</span>
+                  <span>{{ tx(opt.label || opt.value) }}</span>
                 </label>
               </div>
               <input v-else v-model="intakeResponses.submission[field.key]" type="date" />
@@ -463,43 +465,44 @@
               <div class="form-grid">
               <div v-for="field in visibleClientFields(idx)" :key="`${idx}-${field.key}`" class="form-group">
                 <div v-if="field.type === 'info'" class="info-block">
-                  <div class="info-title">{{ field.label || t('notice') }}</div>
-                  <div v-if="field.helperText" class="info-text">{{ field.helperText }}</div>
+                  <div class="info-title">{{ tx(field.label) || t('notice') }}</div>
+                  <div v-if="field.helperText" class="info-text">{{ tx(field.helperText) }}</div>
                 </div>
                 <template v-else>
                 <label>
-                  {{ field.label }}
+                  {{ tx(field.label) }}
                   <span v-if="field.required" class="required-indicator">*</span>
                 </label>
-                <div v-if="field.helperText" class="helper-text">{{ field.helperText }}</div>
+                <div v-if="field.helperText" class="helper-text">{{ tx(field.helperText) }}</div>
+                <div v-if="field.description" class="helper-text muted">{{ tx(field.description) }}</div>
                 <input
                   v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
                   :type="field.type || 'text'"
                   v-model="intakeResponses.clients[idx][field.key]"
                   :required="!!field.required"
-                  :placeholder="field.placeholder || ''"
+                  :placeholder="tx(field.placeholder) || ''"
                   @blur="maybeAutofillLocation(idx, field)"
                 />
                 <textarea
                   v-else-if="field.type === 'textarea'"
                   v-model="intakeResponses.clients[idx][field.key]"
-                  :placeholder="field.placeholder || ''"
+                  :placeholder="tx(field.placeholder) || ''"
                   rows="3"
                 />
                 <label v-else-if="field.type === 'checkbox'" class="checkbox-row">
                   <input v-model="intakeResponses.clients[idx][field.key]" type="checkbox" />
-                  <span>{{ field.label }}</span>
+                  <span>{{ tx(field.label) }}</span>
                 </label>
                 <select v-else-if="field.type === 'select'" v-model="intakeResponses.clients[idx][field.key]">
                   <option value="">{{ t('selectOption') }}</option>
                   <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
-                    {{ opt.label || opt.value }}
+                    {{ tx(opt.label || opt.value) }}
                   </option>
                 </select>
                 <div v-else-if="field.type === 'radio'" class="radio-group">
                   <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="radio-row">
                     <input type="radio" :name="`client_${idx}_${field.key}`" :value="opt.value || opt.label" v-model="intakeResponses.clients[idx][field.key]" />
-                    <span>{{ opt.label || opt.value }}</span>
+                    <span>{{ tx(opt.label || opt.value) }}</span>
                   </label>
                 </div>
                 <input v-else v-model="intakeResponses.clients[idx][field.key]" type="date" />
@@ -587,10 +590,9 @@
         </div>
 
         <div class="consent-box">
-          <strong>ESIGN Act Disclosure</strong>
+          <strong>{{ tx('ESIGN Act Disclosure') || 'ESIGN Act Disclosure' }}</strong>
           <p>
-            By continuing, you consent to electronically sign these documents and receive electronic records.
-            You may request paper copies from the organization.
+            {{ tx('By continuing, you consent to electronically sign these documents and receive electronic records. You may request paper copies from the organization.') || 'By continuing, you consent to electronically sign these documents and receive electronic records. You may request paper copies from the organization.' }}
           </p>
         </div>
         <div class="muted" style="margin-top: 8px;">
@@ -834,6 +836,7 @@
             :event-waiver-context="eventWaiverContext"
             :pulse-emergency="emergencyPulse"
             :validation-errors="guardianWaiverErrors"
+            :translations="stringTranslations"
           />
         </div>
 
@@ -1906,6 +1909,80 @@ const linkedLanguageEnglishPublicKey = ref('');
  * Starts as the form's own language_code; user can flip to 'es' in-page.
  */
 const inPageLocale = ref('en');
+
+/**
+ * Content-addressed translation cache for all inline strings (field labels,
+ * descriptions, option text, waiver headings, etc.) that live as JSON inside
+ * intake_fields and cannot be addressed via the row-based translations API.
+ * keyed by original English text → translated text.
+ */
+const stringTranslations = ref({});
+const stringTranslationsLoading = ref(false);
+
+/** Look up a translated string; returns original if no translation found. */
+const tx = (text) => {
+  const s = String(text || '');
+  if (intakeLocale.value !== 'es') return s;
+  return stringTranslations.value[s] || s;
+};
+
+/**
+ * Collect every string that needs translating from the form's intake fields
+ * plus static waiver labels and ESIGN text, then batch-translate them all.
+ */
+async function fetchStringTranslations() {
+  if (intakeLocale.value !== 'es') {
+    stringTranslations.value = {};
+    return;
+  }
+  if (stringTranslationsLoading.value) return;
+  try {
+    stringTranslationsLoading.value = true;
+    const strings = new Set();
+
+    // Intake fields (guardian, client, submission scopes).
+    const fields = Array.isArray(link.value?.intake_fields) ? link.value.intake_fields : [];
+    for (const f of fields) {
+      if (f?.label) strings.add(String(f.label).trim());
+      if (f?.description) strings.add(String(f.description).trim());
+      if (f?.placeholder) strings.add(String(f.placeholder).trim());
+      if (Array.isArray(f?.options)) {
+        for (const opt of f.options) {
+          if (opt?.label) strings.add(String(opt.label).trim());
+          if (opt?.value && typeof opt.value === 'string') strings.add(String(opt.value).trim());
+        }
+      }
+    }
+
+    // Guardian waiver section headings and blurbs.
+    const waiverStrings = [
+      'Pickup authorization',
+      'Walk-home authorization',
+      'Emergency contacts',
+      'Medical information & allergies',
+      'Meals',
+      'Use this section ONLY if you authorize your child to walk home alone after this program.',
+      'People we may contact if we cannot reach you.',
+      'This program does not provide meals. Please plan to bring your own lunch or snacks as needed.',
+      'ESIGN Act Disclosure',
+    ];
+    for (const l of waiverStrings) strings.add(l);
+
+    // ESIGN disclosure.
+    strings.add('ESIGN Act Disclosure');
+    strings.add('By continuing, you consent to electronically sign these documents and receive electronic records. You may request paper copies from the organization.');
+
+    const arr = [...strings].filter(Boolean).slice(0, 300);
+    if (!arr.length) return;
+
+    const resp = await api.post('/public/translate-strings', { strings: arr, lang: 'es' });
+    stringTranslations.value = resp?.data?.translations || {};
+  } catch {
+    // Fail silently — form still works, just untranslated.
+  } finally {
+    stringTranslationsLoading.value = false;
+  }
+}
 
 /** True if this form uses the per-document map approach (no whole-form link). */
 const hasDocumentTranslationMap = computed(() => {
@@ -3972,7 +4049,11 @@ const loadLink = async () => {
       const hasMap = map != null && typeof map === 'object' && Object.keys(map).length > 0;
       if (hasMap) {
         const stored = localStorage.getItem('preferredFormLanguage');
-        if (stored === 'es') inPageLocale.value = 'es';
+        if (stored === 'es') {
+          inPageLocale.value = 'es';
+          // Kick off translation fetch since locale is already Spanish.
+          fetchStringTranslations();
+        }
       }
     } catch { /* ignore */ }
     boundClient.value = resp.data?.boundClient || null;
@@ -4037,6 +4118,7 @@ const switchLinkedLanguage = async (target) => {
   if (hasDocumentTranslationMap.value) {
     inPageLocale.value = targetLang;
     try { localStorage.setItem('preferredFormLanguage', targetLang); } catch { /* ignore */ }
+    fetchStringTranslations();
     return;
   }
 

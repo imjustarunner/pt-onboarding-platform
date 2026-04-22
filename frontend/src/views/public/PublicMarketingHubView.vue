@@ -60,9 +60,9 @@
         <div class="pmh-splash-card">
           <div class="pmh-splash-top">
             <div class="pmh-splash-brand">
-              <div v-if="logoUrl" class="pmh-splash-program-logo-wrap" title="Program logo">
-                <img class="pmh-splash-program-logo" :src="logoUrl" :alt="`${displayHeadline} logo`" />
-              </div>
+            <div v-if="logoUrl" class="pmh-splash-program-logo-wrap" title="Program logo">
+              <img class="pmh-splash-program-logo" :src="logoUrl" :alt="`${displayHeadline} logo`" />
+            </div>
               <p class="pmh-splash-kicker">Welcome to the</p>
               <h1 class="pmh-splash-title">{{ displayHeadline }}</h1>
               <p class="pmh-splash-sub">Choose how you want to find the best option for your family.</p>
@@ -70,24 +70,24 @@
 
             <div v-if="splashTenantLogos.length" class="pmh-splash-agency">
               <div class="pmh-splash-tenant-logos" aria-label="Agency filters">
-                <button
-                  v-for="p in splashTenantLogos"
-                  :key="`splash-tenant-${p.agencyId}`"
-                  type="button"
-                  class="pmh-splash-tenant-tile"
-                  :class="{ active: navigatorAgencyFilterId === p.agencyId }"
-                  :title="`${p.agencyName} — tap to show only this agency’s programs`"
-                  :aria-pressed="navigatorAgencyFilterId === p.agencyId ? 'true' : 'false'"
-                  :aria-label="`Filter to ${p.agencyName} only`"
-                  @click="toggleNavigatorAgency(p.agencyId, { openSchoolPath: true })"
-                >
-                  <span class="pmh-splash-tenant-logo-wrap">
-                    <img v-if="p.logoUrl" class="pmh-splash-tenant-logo" :src="p.logoUrl" :alt="`${p.agencyName} logo`" />
-                    <span v-else class="pmh-splash-tenant-fallback">{{ agencyFooterInitials(p.agencyName) }}</span>
-                  </span>
-                  <span class="pmh-splash-tenant-name">{{ p.agencyName }}</span>
-                </button>
-              </div>
+              <button
+                v-for="p in splashTenantLogos"
+                :key="`splash-tenant-${p.agencyId}`"
+                type="button"
+                class="pmh-splash-tenant-tile"
+                :class="{ active: navigatorAgencyFilterId === p.agencyId }"
+                :title="`${p.agencyName} — tap to show only this agency’s programs`"
+                :aria-pressed="navigatorAgencyFilterId === p.agencyId ? 'true' : 'false'"
+                :aria-label="`Filter to ${p.agencyName} only`"
+                @click="toggleNavigatorAgency(p.agencyId, { openSchoolPath: true })"
+              >
+                <span class="pmh-splash-tenant-logo-wrap">
+                  <img v-if="p.logoUrl" class="pmh-splash-tenant-logo" :src="p.logoUrl" :alt="`${p.agencyName} logo`" />
+                  <span v-else class="pmh-splash-tenant-fallback">{{ agencyFooterInitials(p.agencyName) }}</span>
+                </span>
+                <span class="pmh-splash-tenant-name">{{ p.agencyName }}</span>
+              </button>
+            </div>
               <p v-if="splashTenantLogos.length > 1" class="pmh-splash-agency-hint">
                 Select an agency logo to see only that agency’s open sessions and registration sites. The list below updates as soon
                 as you tap one.

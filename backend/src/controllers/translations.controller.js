@@ -1,9 +1,12 @@
+import crypto from 'crypto';
 import {
   getOrCreateTranslation,
   batchTranslate,
   isTranslationConfigured
 } from '../services/aiTranslation.service.js';
 import pool from '../config/database.js';
+
+const hashText = (text) => crypto.createHash('md5').update(String(text || ''), 'utf8').digest('hex');
 
 /**
  * Public surface-area-only translation fetcher.
@@ -171,6 +174,52 @@ export const precomputeTranslations = async (req, res, next) => {
       });
     }
     res.json({ translations: out, configured: isTranslationConfigured() });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/public/translate-strings
+ * Body: { strings: string[], lang?: string }
+ *
+ * Translates an arbitrary array of text strings using the AI translation cache.
+ * Each string is keyed by its MD5 hash so the same sentence is only sent to the
+ * AI provider once. Returns { original: translated } map.
+ *
+ * Used by the public intake form to translate inline question labels, descriptions,
+ * and option text that live as JSON in intake_fields and can't use ALLOWED_SOURCES.
+ */
+export const translateStrings = async (req, res, next) => {
+  try {
+    const strings = Array.isArray(req.body?.strings) ? req.body.strings : [];
+    const lang = String(req.body?.lang || 'es').toLowerCase();
+
+    if (lang === 'en') return res.json({ translations: {}, configured: isTranslationConfigured() });
+
+    const unique = [...new Set(strings.map((s) => String(s || '').trim()).filter(Boolean))];
+    if (!unique.length) return res.json({ translations: {}, configured: isTranslationConfigured() });
+
+    const MAX_STRINGS = 200;
+    const batch = unique.slice(0, MAX_STRINGS);
+
+    const items = batch.map((text) => ({
+      sourceType: 'inline_string',
+      sourceId: 0,
+      field: hashText(text),
+      originalText: text
+    }));
+
+    const raw = await batchTranslate(items, lang);
+
+    // Re-map from internal batchTranslate key (`${sourceId}:${field}`) back to original → translated.
+    const translations = {};
+    for (const text of batch) {
+      const key = `0:${hashText(text)}`;
+      if (raw[key]) translations[text] = raw[key];
+    }
+
+    res.json({ translations, configured: isTranslationConfigured() });
   } catch (error) {
     next(error);
   }
