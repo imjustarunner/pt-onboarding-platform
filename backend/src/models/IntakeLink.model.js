@@ -23,19 +23,23 @@ class IntakeLink {
       intakeSteps = null,
       retentionPolicy = null,
       customMessages = null,
+      linkedEsFormId = null,
+      documentTranslationMap = null,
       createdByUserId = null
     } = data;
 
     const [result] = await pool.execute(
       `INSERT INTO intake_links
-       (public_key, title, description, language_code, scope_type, form_type, organization_id, program_id, learning_class_id, company_event_id, job_description_id, is_active,
+       (public_key, title, description, language_code, linked_es_form_id, document_translation_map, scope_type, form_type, organization_id, program_id, learning_class_id, company_event_id, job_description_id, is_active,
         create_client, create_guardian, requires_assignment, allowed_document_template_ids, intake_fields, intake_steps, retention_policy_json, custom_messages, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         publicKey,
         title,
         description,
         languageCode,
+        linkedEsFormId ?? null,
+        documentTranslationMap ? JSON.stringify(documentTranslationMap) : null,
         scopeType,
         formType,
         organizationId,
@@ -139,10 +143,22 @@ class IntakeLink {
         customMessages = null;
       }
     }
+    let documentTranslationMap = null;
+    if (row.document_translation_map) {
+      try {
+        documentTranslationMap = typeof row.document_translation_map === 'string'
+          ? JSON.parse(row.document_translation_map)
+          : row.document_translation_map;
+      } catch {
+        documentTranslationMap = null;
+      }
+    }
     return {
       ...row,
       language_code: row.language_code || 'en',
       form_type: row.form_type || 'intake',
+      linked_es_form_id: row.linked_es_form_id ?? null,
+      document_translation_map: documentTranslationMap,
       allowed_document_template_ids: allowed,
       intake_fields: intakeFields,
       intake_steps: intakeSteps,

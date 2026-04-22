@@ -281,6 +281,13 @@ export const createIntakeLink = async (req, res, next) => {
       intakeSteps: parseJsonField(req.body.intakeSteps),
       retentionPolicy: parseJsonField(req.body.retentionPolicy),
       customMessages: parseJsonField(req.body.customMessages),
+      linkedEsFormId: (() => {
+        const raw = req.body.linkedEsFormId;
+        if (raw === undefined || raw === null || raw === '') return null;
+        const n = Number(raw);
+        return Number.isFinite(n) && n > 0 ? n : null;
+      })(),
+      documentTranslationMap: parseJsonField(req.body.documentTranslationMap),
       createdByUserId: req.user?.id || null
     });
 
@@ -473,6 +480,18 @@ export const updateIntakeLink = async (req, res, next) => {
         if (req.body.customMessages === undefined) return undefined;
         const parsed = parseJsonField(req.body.customMessages);
         return parsed ? JSON.stringify(parsed) : null;
+      })(),
+      linked_es_form_id: (() => {
+        if (req.body.linkedEsFormId === undefined) return undefined;
+        const raw = req.body.linkedEsFormId;
+        if (raw === null || raw === '') return null;
+        const n = Number(raw);
+        return Number.isFinite(n) && n > 0 ? n : null;
+      })(),
+      document_translation_map: (() => {
+        if (req.body.documentTranslationMap === undefined) return undefined;
+        const parsed = parseJsonField(req.body.documentTranslationMap);
+        return parsed ? JSON.stringify(parsed) : null;
       })()
     };
 
@@ -594,6 +613,35 @@ export const deleteIntakeLink = async (req, res, next) => {
     await pool.execute('UPDATE intake_links SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
     const link = await IntakeLink.findById(id);
     res.json({ link, deleted: true });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Returns the full Spanish-linked form data for an intake link (admin-authenticated).
+ * Public-facing swap happens via /public-intake/:publicKey/linked-translation.
+ */
+export const getLinkedTranslationAdmin = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'id is required' } });
+    const existing = await IntakeLink.findById(id);
+    if (!existing) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    if (!isSuperAdmin(req.user?.role)) {
+      const userOrgIds = await getUserOrganizationIds(req.user?.id);
+      if (!canAccessLink({ link: existing, userOrgIds, userId: req.user?.id })) {
+        return res.status(403).json({ error: { message: 'Access denied for this intake link.' } });
+      }
+    }
+    const linkedId = existing.linked_es_form_id ? Number(existing.linked_es_form_id) : null;
+    if (!linkedId) {
+      return res.json({ link: null });
+    }
+    const linked = await IntakeLink.findById(linkedId);
+    res.json({ link: linked || null });
   } catch (error) {
     next(error);
   }

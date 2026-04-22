@@ -1,6 +1,9 @@
 /**
- * Where to show the Google Translate–powered EN ⇄ ES toggle (public-facing flows only).
- * Uses route meta, name, and path heuristics so we do not offer it on login/admin/staff tools.
+ * Where to show the public-facing EN ⇄ ES toggle (powered by vue-i18n +
+ * AI-backed translations cache, not Google Translate). Uses route meta,
+ * name, and path heuristics so we do not offer it on login/admin/staff
+ * tools. Admin/staff surfaces are intentionally English-only per product
+ * scope.
  */
 
 const LOGIN_PATH_SNIPPETS = [
@@ -71,20 +74,19 @@ export function shouldShowPublicTranslate(route) {
   return false;
 }
 
-export function clearGoogleTranslateCookie() {
-  const expires = 'Thu, 01 Jan 1970 00:00:00 GMT';
-  document.cookie = `googtrans=;path=/;expires=${expires};SameSite=Lax`;
-  const host = window.location.hostname;
-  if (host && host !== 'localhost') {
-    document.cookie = `googtrans=;path=/;domain=.${host};expires=${expires};SameSite=Lax`;
-  }
-}
-
-export function setGoogleTranslateCookieEnToEs() {
-  const maxAge = 60 * 60 * 24 * 180;
-  document.cookie = `googtrans=${encodeURIComponent('/en/es')};path=/;max-age=${maxAge};SameSite=Lax`;
-}
-
-export function isGoogleTranslateSpanishActive() {
-  return document.cookie.split(';').some((c) => c.trim().startsWith('googtrans=') && c.includes('/en/es'));
+/**
+ * Best-effort cleanup of any legacy Google Translate cookie left over from
+ * the previous widget implementation. Safe to call on every public page
+ * load so users with stale cookies aren't stuck on a page-level GT layer
+ * that conflicts with the new i18n system.
+ */
+export function clearLegacyGoogleTranslateCookie() {
+  try {
+    const expires = 'Thu, 01 Jan 1970 00:00:00 GMT';
+    document.cookie = `googtrans=;path=/;expires=${expires};SameSite=Lax`;
+    const host = window.location.hostname;
+    if (host && host !== 'localhost') {
+      document.cookie = `googtrans=;path=/;domain=.${host};expires=${expires};SameSite=Lax`;
+    }
+  } catch { /* ignore */ }
 }

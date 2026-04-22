@@ -4284,6 +4284,22 @@ export const getPublicIntakeLink = async (req, res, next) => {
           issuedConfig: issuedRoiLink?.roi_context_json?.issuedConfig || issuedRoiLink?.roi_context_json || null
         })
       : null;
+    let linkedEsInfo = null;
+    const linkedEsFormId = Number(link.linked_es_form_id || 0);
+    if (linkedEsFormId > 0) {
+      try {
+        const linkedEs = await IntakeLink.findById(linkedEsFormId);
+        if (linkedEs && linkedEs.is_active) {
+          linkedEsInfo = {
+            id: linkedEs.id,
+            public_key: linkedEs.public_key,
+            language_code: linkedEs.language_code || 'es'
+          };
+        }
+      } catch {
+        linkedEsInfo = null;
+      }
+    }
     res.json({
       link: {
         id: link.id,
@@ -4301,7 +4317,9 @@ export const getPublicIntakeLink = async (req, res, next) => {
         create_guardian: link.create_guardian,
         intake_fields: link.intake_fields,
         intake_steps: link.intake_steps,
-        custom_messages: link.custom_messages || null
+        custom_messages: link.custom_messages || null,
+        linked_es_form: linkedEsInfo,
+        document_translation_map: link.document_translation_map || null
       },
       recaptcha: needsCaptcha
         ? {
@@ -4355,6 +4373,43 @@ export const getPublicIntakeLink = async (req, res, next) => {
       message: error?.message,
       stack: error?.stack
     });
+    next(error);
+  }
+};
+
+/**
+ * Public linked-translation lookup. Given the English form's public key,
+ * returns the Spanish form's public key (plus a small metadata envelope)
+ * so the in-page language toggle can swap to the Spanish version without
+ * the admin having to re-issue a separate QR code.
+ */
+export const getPublicLinkedTranslation = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    if (!publicKey) {
+      return res.status(400).json({ error: { message: 'publicKey is required' } });
+    }
+    const base = await IntakeLink.findByPublicKey(publicKey);
+    if (!base || !base.is_active) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    const linkedId = Number(base.linked_es_form_id || 0);
+    if (!linkedId) {
+      return res.json({ link: null });
+    }
+    const linked = await IntakeLink.findById(linkedId);
+    if (!linked || !linked.is_active) {
+      return res.json({ link: null });
+    }
+    res.json({
+      link: {
+        id: linked.id,
+        public_key: linked.public_key,
+        language_code: linked.language_code || 'es',
+        title: linked.title || null
+      }
+    });
+  } catch (error) {
     next(error);
   }
 };

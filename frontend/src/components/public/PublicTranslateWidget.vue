@@ -4,105 +4,46 @@
     role="region"
     aria-label="Page language"
   >
-    <span class="public-translate-label notranslate" translate="no">Language</span>
+    <span class="public-translate-label notranslate" translate="no">{{ t('common.language') }}</span>
     <div class="public-translate-buttons notranslate" translate="no">
       <button
         type="button"
         class="public-translate-btn"
-        :class="{ active: !spanishActive }"
-        :aria-pressed="!spanishActive ? 'true' : 'false'"
-        @click="setEnglish"
+        :class="{ active: locale === 'en' }"
+        :aria-pressed="locale === 'en' ? 'true' : 'false'"
+        @click="choose('en')"
       >
         English
       </button>
       <button
         type="button"
         class="public-translate-btn"
-        :class="{ active: spanishActive }"
-        :aria-pressed="spanishActive ? 'true' : 'false'"
-        @click="setSpanish"
+        :class="{ active: locale === 'es' }"
+        :aria-pressed="locale === 'es' ? 'true' : 'false'"
+        @click="choose('es')"
       >
         Español
       </button>
     </div>
-    <!-- Hidden hook for Google Translate (required for cookie-based language to apply) -->
-    <div id="google_translate_element" ref="translateHost" class="public-translate-gt-host" aria-hidden="true" />
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
-import {
-  clearGoogleTranslateCookie,
-  setGoogleTranslateCookieEnToEs,
-  isGoogleTranslateSpanishActive
-} from '../../utils/publicTranslateWidget.js';
+import { useLocale } from '../../composables/useLocale.js';
 
-const translateHost = ref(null);
-const spanishActive = ref(false);
+const { t, locale, setLocale } = useLocale();
 
-let scriptPromise = null;
-/** Google only supports one TranslateElement per full page load. */
-let translateElementInitialized = false;
-
-function loadGoogleTranslateScript() {
-  if (typeof window === 'undefined') return Promise.resolve();
-  if (window.google?.translate?.TranslateElement) return Promise.resolve();
-  if (scriptPromise) return scriptPromise;
-  const cb = '__publicGoogleTranslateElementInit';
-  scriptPromise = new Promise((resolve, reject) => {
-    window[cb] = () => resolve();
-    const s = document.createElement('script');
-    s.src = `https://translate.google.com/translate_a/element.js?cb=${encodeURIComponent(cb)}`;
-    s.async = true;
-    s.onerror = () => reject(new Error('Google Translate script failed to load'));
-    document.head.appendChild(s);
-  });
-  return scriptPromise;
+/**
+ * On public pages we now use a proper i18n layer (static strings) plus an
+ * AI-backed translation cache (dynamic DB strings) instead of Google
+ * Translate. Changing the locale here updates vue-i18n and persists to
+ * localStorage so subsequent page loads stay in the chosen language.
+ */
+function choose(next) {
+  const target = next === 'es' ? 'es' : 'en';
+  if (locale.value === target) return;
+  setLocale(target);
 }
-
-function initTranslateElement() {
-  const el = translateHost.value;
-  if (!el || !window.google?.translate?.TranslateElement) return;
-  if (translateElementInitialized) return;
-  translateElementInitialized = true;
-  // eslint-disable-next-line no-new
-  new window.google.translate.TranslateElement(
-    {
-      pageLanguage: 'en',
-      includedLanguages: 'en,es',
-      layout: window.google.translate.TranslateElement.InlineLayout.HORIZONTAL,
-      autoDisplay: false
-    },
-    'google_translate_element'
-  );
-}
-
-function syncSpanishFromCookie() {
-  spanishActive.value = isGoogleTranslateSpanishActive();
-}
-
-function setEnglish() {
-  if (!isGoogleTranslateSpanishActive()) return;
-  clearGoogleTranslateCookie();
-  window.location.reload();
-}
-
-function setSpanish() {
-  if (isGoogleTranslateSpanishActive()) return;
-  setGoogleTranslateCookieEnToEs();
-  window.location.reload();
-}
-
-onMounted(async () => {
-  syncSpanishFromCookie();
-  try {
-    await loadGoogleTranslateScript();
-    initTranslateElement();
-  } catch {
-    /* script blocked or offline — buttons still toggle cookie + reload */
-  }
-});
 </script>
 
 <style scoped>
@@ -163,15 +104,6 @@ onMounted(async () => {
   color: #fff;
 }
 
-.public-translate-gt-host {
-  position: absolute;
-  width: 0;
-  height: 0;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  pointer-events: none;
-}
-
 @media (max-width: 480px) {
   .public-translate-widget {
     right: 8px;
@@ -183,20 +115,5 @@ onMounted(async () => {
     padding: 6px 10px;
     font-size: 12px;
   }
-}
-</style>
-
-<style>
-/* Hide Google Translate top iframe bar; we use EN / Español buttons instead */
-body {
-  top: 0 !important;
-}
-
-.goog-te-banner-frame,
-iframe.goog-te-banner-frame {
-  display: none !important;
-  visibility: hidden !important;
-  height: 0 !important;
-  width: 0 !important;
 }
 </style>

@@ -1561,8 +1561,7 @@ import TimeCapsuleRevealSplashModal from './components/hiring/TimeCapsuleRevealS
 import PublicTranslateWidget from './components/public/PublicTranslateWidget.vue';
 import {
   shouldShowPublicTranslate,
-  clearGoogleTranslateCookie,
-  isGoogleTranslateSpanishActive
+  clearLegacyGoogleTranslateCookie
 } from './utils/publicTranslateWidget.js';
 import { toUploadsUrl } from './utils/uploadsUrl';
 import { buildSuperadminAgencyBrandUrl } from './utils/brandSwitchUrl';
@@ -1615,12 +1614,10 @@ const router = useRouter();
 const route = useRoute();
 const showPublicTranslateWidget = computed(() => shouldShowPublicTranslate(route));
 
-watch(showPublicTranslateWidget, (show) => {
-  if (show) return;
-  if (!isGoogleTranslateSpanishActive()) return;
-  clearGoogleTranslateCookie();
-  window.location.reload();
-});
+// One-time sweep: legacy googtrans cookies from the old Google Translate
+// widget can cause the page to show stale translated markup. Clear it on
+// app boot so the new i18n-based toggle has a clean slate.
+clearLegacyGoogleTranslateCookie();
 
 const mobileMenuOpen = ref(false);
 

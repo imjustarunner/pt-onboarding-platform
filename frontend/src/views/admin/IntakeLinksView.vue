@@ -303,6 +303,58 @@
                 <option value="es">Spanish</option>
               </select>
             </div>
+            <div v-if="form.languageCode === 'en' && form.scopeType !== 'school'" class="form-group" style="grid-column: 1 / -1;">
+              <label class="checkbox-row" style="margin-bottom: 6px;">
+                <input type="checkbox" :checked="spanishVersionEnabled" @change="onToggleSpanishVersion($event.target.checked)" />
+                <strong>Spanish version available for this form</strong>
+              </label>
+              <div class="muted" style="margin-bottom: 8px;">
+                Turn this on when a Spanish version of this form exists. Parents scan the same QR / link; a Spanish toggle
+                appears on the public page and swaps to the linked Spanish form + documents. School portals are unaffected
+                (they keep separate EN / ES links).
+              </div>
+              <div v-if="spanishVersionEnabled" class="spanish-linking-block" style="border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 12px; background: var(--surface-subtle, #f8fafc);">
+                <label style="display:block; margin-bottom:6px;"><strong>Linked Spanish form</strong></label>
+                <div class="muted" style="margin-bottom: 6px;">
+                  Create the Spanish-language form separately (Language = Spanish), then select it here.
+                </div>
+                <select v-model="linkedEsFormIdModel">
+                  <option :value="null">— Select a Spanish form —</option>
+                  <option
+                    v-for="opt in linkedEsFormOptions"
+                    :key="opt.id"
+                    :value="opt.id"
+                  >{{ opt.title || `Form #${opt.id}` }} ({{ opt.scope_type || 'agency' }})</option>
+                </select>
+                <div v-if="!linkedEsFormOptions.length" class="muted" style="margin-top: 8px;">
+                  No Spanish forms found for this scope yet. Save this form, then create a matching Spanish form and come back here to link it.
+                </div>
+                <div v-if="linkedEsFormDocs.length" class="muted" style="margin-top: 12px;">
+                  <label style="display:block; margin-bottom:6px; color: inherit;"><strong>Spanish document versions</strong></label>
+                  <div class="muted" style="margin-bottom: 8px;">
+                    For each English document below, pick its Spanish counterpart from the linked form. Any left as "Use English document" will stay in English when the user toggles to Spanish.
+                  </div>
+                  <div style="display:flex; flex-direction: column; gap: 8px;">
+                    <div
+                      v-for="enDoc in availableDocumentTemplatesForLinking"
+                      :key="`trmap-${enDoc.id}`"
+                      style="display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center;"
+                    >
+                      <div>{{ enDoc.name }}<span v-if="enDoc.document_action_type" class="muted"> ({{ enDoc.document_action_type }})</span></div>
+                      <div aria-hidden="true" style="opacity: 0.6;">→</div>
+                      <select :value="form.documentTranslationMap?.[String(enDoc.id)] || ''" @change="onDocumentTranslationMapChange(enDoc.id, $event.target.value)">
+                        <option value="">— Use English document —</option>
+                        <option
+                          v-for="esDoc in linkedEsFormDocs"
+                          :key="`es-${esDoc.id}`"
+                          :value="esDoc.id"
+                        >{{ esDoc.name }}</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
             <div class="form-group">
               <label>Description</label>
               <input v-model="form.description" type="text" />
@@ -2194,6 +2246,8 @@ const form = reactive({
   },
   allowAllDocuments: false,
   allowedDocumentTemplateIds: [],
+  linkedEsFormId: null,
+  documentTranslationMap: {},
   intakeFieldsText: '',
   intakeSteps: []
 });
@@ -2203,6 +2257,95 @@ const formHasRegistrationStep = computed(() =>
     (s) => String(s?.type || '').trim().toLowerCase() === 'registration'
   )
 );
+
+const linkedEsFormIdModel = computed({
+  get: () => form.linkedEsFormId ?? null,
+  set: (val) => {
+    const n = val == null || val === '' ? null : Number(val);
+    form.linkedEsFormId = Number.isFinite(n) && n > 0 ? n : null;
+    if (!form.linkedEsFormId) {
+      form.documentTranslationMap = {};
+    }
+  }
+});
+
+// Explicit on/off toggle shown in the admin UI. Enabled automatically when
+// an English form already has a Spanish form linked (so editing an existing
+// link doesn't hide the mapping UI). Turning it OFF clears any linked
+// Spanish form + document map so we don't silently continue serving ES
+// after the admin intentionally disabled the feature for this form.
+const spanishVersionEnabled = ref(false);
+
+const onToggleSpanishVersion = (enabled) => {
+  spanishVersionEnabled.value = !!enabled;
+  if (!enabled) {
+    form.linkedEsFormId = null;
+    form.documentTranslationMap = {};
+  }
+};
+
+watch(
+  () => [form.linkedEsFormId, form.languageCode, form.scopeType],
+  ([linkedId, lang, scope]) => {
+    if (linkedId && String(lang) === 'en' && String(scope) !== 'school') {
+      spanishVersionEnabled.value = true;
+    }
+  },
+  { immediate: true }
+);
+
+const linkedEsFormOptions = computed(() => {
+  const all = Array.isArray(links.value) ? links.value : [];
+  return all.filter((l) => {
+    if (!l) return false;
+    if (editingId.value && Number(l.id) === Number(editingId.value)) return false;
+    const lang = String(l.language_code || 'en').toLowerCase();
+    if (lang !== 'es') return false;
+    const formMatches = String(l.form_type || 'intake') === String(form.formType || 'intake');
+    const scopeMatches = String(l.scope_type || 'agency') === String(form.scopeType || 'agency');
+    if (!formMatches || !scopeMatches) return false;
+    const thisOrg = form.organizationId != null ? Number(form.organizationId) : null;
+    const thatOrg = l.organization_id != null ? Number(l.organization_id) : null;
+    if (form.scopeType !== 'agency' && thisOrg && thatOrg && thisOrg !== thatOrg) return false;
+    return true;
+  });
+});
+
+const linkedEsFormDocs = computed(() => {
+  if (!form.linkedEsFormId) return [];
+  const linked = (Array.isArray(links.value) ? links.value : []).find(
+    (l) => Number(l?.id) === Number(form.linkedEsFormId)
+  );
+  const ids = Array.isArray(linked?.allowed_document_template_ids) ? linked.allowed_document_template_ids : [];
+  const tpls = Array.isArray(templates.value) ? templates.value : [];
+  return ids
+    .map((id) => tpls.find((t) => Number(t.id) === Number(id)))
+    .filter(Boolean);
+});
+
+const availableDocumentTemplatesForLinking = computed(() => {
+  const ids = Array.isArray(form.allowedDocumentTemplateIds) ? form.allowedDocumentTemplateIds : [];
+  const tpls = Array.isArray(templates.value) ? templates.value : [];
+  // Also include documents referenced by any 'document' step currently in the flow.
+  const stepTemplateIds = (Array.isArray(form.intakeSteps) ? form.intakeSteps : [])
+    .filter((s) => String(s?.type || '').toLowerCase() === 'document' && s?.templateId)
+    .map((s) => Number(s.templateId));
+  const uniq = new Set([...ids.map(Number), ...stepTemplateIds]);
+  return [...uniq]
+    .map((id) => tpls.find((t) => Number(t.id) === Number(id)))
+    .filter(Boolean);
+});
+
+const onDocumentTranslationMapChange = (enDocId, esDocId) => {
+  const map = { ...(form.documentTranslationMap || {}) };
+  const enKey = String(Number(enDocId));
+  if (!esDocId) {
+    delete map[enKey];
+  } else {
+    map[enKey] = Number(esDocId);
+  }
+  form.documentTranslationMap = map;
+};
 /** Smart Registration, or Intake that includes a Registration step (full paperwork + event enrollment). */
 const registrationFlowAdmin = computed(
   () => form.formType === 'smart_registration' || (form.formType === 'intake' && formHasRegistrationStep.value)
@@ -2934,6 +3077,9 @@ const resetForm = () => {
   };
   form.allowAllDocuments = false;
   form.allowedDocumentTemplateIds = [];
+  form.linkedEsFormId = null;
+  form.documentTranslationMap = {};
+  spanishVersionEnabled.value = false;
   form.intakeFieldsText = '';
   form.intakeSteps = [];
   formError.value = '';
@@ -2977,6 +3123,8 @@ const serializeDraft = () => ({
     allowedDocumentTemplateIds: Array.isArray(form.allowedDocumentTemplateIds)
       ? [...form.allowedDocumentTemplateIds]
       : [],
+    linkedEsFormId: form.linkedEsFormId ?? null,
+    documentTranslationMap: form.documentTranslationMap ? { ...form.documentTranslationMap } : {},
     intakeFieldsText: form.intakeFieldsText,
     intakeSteps: Array.isArray(form.intakeSteps) ? JSON.parse(JSON.stringify(form.intakeSteps)) : []
   }
@@ -3035,6 +3183,10 @@ const applyDraft = (draft) => {
   form.allowedDocumentTemplateIds = Array.isArray(data.allowedDocumentTemplateIds)
     ? data.allowedDocumentTemplateIds
     : [];
+  form.linkedEsFormId = data.linkedEsFormId != null ? Number(data.linkedEsFormId) || null : null;
+  form.documentTranslationMap = data.documentTranslationMap && typeof data.documentTranslationMap === 'object'
+    ? { ...data.documentTranslationMap }
+    : {};
   form.intakeFieldsText = data.intakeFieldsText || '';
   form.intakeSteps = sanitizeSteps(Array.isArray(data.intakeSteps) ? data.intakeSteps : [], {
     formType: data.formType ?? form.formType
@@ -3282,6 +3434,10 @@ const editLink = (link) => {
   })();
   form.allowAllDocuments = false;
   form.allowedDocumentTemplateIds = link.allowed_document_template_ids || [];
+  form.linkedEsFormId = link.linked_es_form_id != null ? Number(link.linked_es_form_id) || null : null;
+  form.documentTranslationMap = link.document_translation_map && typeof link.document_translation_map === 'object'
+    ? { ...link.document_translation_map }
+    : {};
   form.customMessages = link.custom_messages
     ? {
         beginSubtitle: link.custom_messages.beginSubtitle ?? '',
@@ -3580,7 +3736,21 @@ const save = async () => {
       customMessages: customMessagesPayload,
       allowedDocumentTemplateIds,
       intakeFields,
-      intakeSteps
+      intakeSteps,
+      linkedEsFormId: form.languageCode === 'en' && form.linkedEsFormId ? Number(form.linkedEsFormId) : null,
+      documentTranslationMap: (() => {
+        if (form.languageCode !== 'en') return null;
+        const map = form.documentTranslationMap || {};
+        const cleaned = {};
+        Object.entries(map).forEach(([k, v]) => {
+          const enId = Number(k);
+          const esId = Number(v);
+          if (Number.isFinite(enId) && enId > 0 && Number.isFinite(esId) && esId > 0) {
+            cleaned[String(enId)] = esId;
+          }
+        });
+        return Object.keys(cleaned).length ? cleaned : null;
+      })()
     };
     if (form.formType === 'job_application' && form.jobDescriptionId) {
       payload.jobDescriptionId = form.jobDescriptionId;

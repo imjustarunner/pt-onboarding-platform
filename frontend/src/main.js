@@ -10,6 +10,7 @@ import { useAuthStore } from './store/auth';
 import { useBrandingStore } from './store/branding';
 import { applyStoredDarkMode } from './utils/darkMode';
 import { isStandalonePwa } from './utils/pwa';
+import { i18n } from './i18n';
 
 const CHUNK_RELOAD_KEY = '__pt_chunk_reload__';
 
@@ -100,6 +101,7 @@ async function bootstrap() {
 
   app.use(pinia);
   app.use(router);
+  app.use(i18n);
 
   // Capture intended destination so chunk-reload can navigate there instead of staying on current page.
   router.beforeEach((to, from, next) => {

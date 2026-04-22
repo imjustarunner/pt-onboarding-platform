@@ -19,6 +19,25 @@
       </button>
       <h2>{{ link?.title || defaultTitle }}</h2>
       <p v-if="link?.description" class="muted">{{ link.description }}</p>
+      <div v-if="hasLinkedLanguageToggle" class="intake-language-toggle" role="group" aria-label="Form language">
+        <button
+          type="button"
+          class="intake-language-btn"
+          :class="{ 'intake-language-btn--active': currentFormLanguage === 'en' }"
+          :aria-pressed="currentFormLanguage === 'en'"
+          :disabled="linkedLanguageSwitching || currentFormLanguage === 'en'"
+          @click="switchLinkedLanguage('en')"
+        >English</button>
+        <button
+          type="button"
+          class="intake-language-btn"
+          :class="{ 'intake-language-btn--active': currentFormLanguage === 'es' }"
+          :aria-pressed="currentFormLanguage === 'es'"
+          :disabled="linkedLanguageSwitching || currentFormLanguage === 'es'"
+          @click="switchLinkedLanguage('es')"
+        >Español</button>
+        <span v-if="linkedLanguageSwitching" class="intake-language-status muted" aria-live="polite">…</span>
+      </div>
       <div v-if="draftRestoredMessage" class="draft-restored-banner">{{ draftRestoredMessage }}</div>
 
       <div v-if="step === -1" class="step cover-step">
@@ -1872,6 +1891,27 @@ const link = ref(null);
 
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 
+const linkedLanguageSwitching = ref(false);
+
+const currentFormLanguage = computed(() => {
+  const code = String(link.value?.language_code || 'en').toLowerCase();
+  return code.startsWith('es') ? 'es' : 'en';
+});
+
+/**
+ * Shows the in-page EN/ES toggle whenever this link either already has a
+ * linked Spanish counterpart (English form) or is itself the Spanish form
+ * that was reached via the toggle (its public_key is cached so we can flip
+ * back). School portals don't set `linked_es_form`, so their UI is unchanged.
+ */
+const hasLinkedLanguageToggle = computed(() => {
+  if (link.value?.linked_es_form?.public_key) return true;
+  if (currentFormLanguage.value === 'es' && linkedLanguageEnglishPublicKey.value) return true;
+  return false;
+});
+
+const linkedLanguageEnglishPublicKey = ref('');
+
 const intakeLocale = computed(() => {
   const code = String(link.value?.language_code || 'en').toLowerCase();
   return code.startsWith('es') ? 'es' : 'en';
@@ -3074,7 +3114,31 @@ const buildDraftSnapshot = () => ({
     consentAccepted: !!multiClientConsentAccepted.value,
     consentAcceptedAt: multiClientConsentAcceptedAt.value || '',
     upfront: !!multiClientUpfrontPlan.value
-  }
+  },
+  // Document template field values keyed by template id — without these,
+  // hitting Back or refreshing wiped every answer a parent typed into PDF
+  // field overlays even though the rest of the snapshot was intact.
+  fieldValuesByTemplate: (() => {
+    const snap = {};
+    try {
+      Object.keys(fieldValuesByTemplate || {}).forEach((tid) => {
+        const vals = fieldValuesByTemplate[tid];
+        if (vals && typeof vals === 'object') {
+          snap[tid] = { ...vals };
+        }
+      });
+    } catch { /* ignore */ }
+    return snap;
+  })(),
+  docStatus: (() => {
+    const snap = {};
+    try {
+      Object.keys(docStatus || {}).forEach((k) => {
+        snap[k] = !!docStatus[k];
+      });
+    } catch { /* ignore */ }
+    return snap;
+  })()
 });
 
 const persistDraftSnapshot = () => {
@@ -3244,6 +3308,28 @@ const restoreDraftSnapshot = () => {
     }
     embeddedSmartSchoolRoi.value = parsed.embeddedSmartSchoolRoi || null;
     submissionId.value = parsed.submissionId || submissionId.value || null;
+    // Rehydrate document-template field values + per-doc completion status
+    // so a parent who hits Back (or refreshes) still sees every PDF field
+    // answer they typed on previous steps within the 1-hour TTL window.
+    if (parsed.fieldValuesByTemplate && typeof parsed.fieldValuesByTemplate === 'object') {
+      try {
+        Object.keys(fieldValuesByTemplate || {}).forEach((k) => delete fieldValuesByTemplate[k]);
+        Object.keys(parsed.fieldValuesByTemplate).forEach((tid) => {
+          const vals = parsed.fieldValuesByTemplate[tid];
+          if (vals && typeof vals === 'object') {
+            fieldValuesByTemplate[tid] = { ...vals };
+          }
+        });
+      } catch { /* ignore */ }
+    }
+    if (parsed.docStatus && typeof parsed.docStatus === 'object') {
+      try {
+        Object.keys(docStatus || {}).forEach((k) => delete docStatus[k]);
+        Object.keys(parsed.docStatus).forEach((k) => {
+          docStatus[k] = !!parsed.docStatus[k];
+        });
+      } catch { /* ignore */ }
+    }
     if (Number.isFinite(Number(parsed.introIndex))) introIndex.value = Math.max(0, Number(parsed.introIndex));
     if (Number.isFinite(Number(parsed.currentFlowIndex))) currentFlowIndex.value = Math.max(0, Number(parsed.currentFlowIndex));
     if (Number.isFinite(Number(parsed.step))) step.value = Number(parsed.step);
@@ -3846,6 +3932,19 @@ const loadLink = async () => {
     loading.value = true;
     const resp = await api.get(`/public-intake/${publicKey}`);
     link.value = resp.data?.link || null;
+    try {
+      const lang = String(link.value?.language_code || 'en').toLowerCase();
+      if (lang === 'es') {
+        const cached = localStorage.getItem(`intakeEnglishKey:${publicKey}`);
+        if (cached) linkedLanguageEnglishPublicKey.value = cached;
+      } else if (link.value?.linked_es_form?.public_key) {
+        // Proactively remember the mapping so the user can return to English later.
+        localStorage.setItem(
+          `intakeEnglishKey:${link.value.linked_es_form.public_key}`,
+          publicKey
+        );
+      }
+    } catch { /* ignore */ }
     boundClient.value = resp.data?.boundClient || null;
     roiContext.value = resp.data?.roiContext || null;
     templates.value = resp.data?.templates || [];
@@ -3891,6 +3990,62 @@ const loadLink = async () => {
     fatalError.value = e.response?.data?.error?.message || 'Failed to load intake link';
   } finally {
     loading.value = false;
+  }
+};
+
+/**
+ * Swap the current form to its linked English/Spanish counterpart.
+ * We navigate to the other form's public URL (via router.replace so the
+ * browser back button still works as users expect) and persist the user's
+ * language choice for future visits via localStorage.
+ */
+const switchLinkedLanguage = async (target) => {
+  const targetLang = String(target || '').toLowerCase().startsWith('es') ? 'es' : 'en';
+  if (targetLang === currentFormLanguage.value) return;
+  if (linkedLanguageSwitching.value) return;
+  try {
+    linkedLanguageSwitching.value = true;
+    let destinationKey = null;
+    if (targetLang === 'es') {
+      destinationKey = link.value?.linked_es_form?.public_key || null;
+      if (!destinationKey) {
+        const resp = await api.get(`/public-intake/${publicKey}/linked-translation`);
+        destinationKey = resp?.data?.link?.public_key || null;
+      }
+    } else {
+      // returning to English: use the cached English public key
+      destinationKey = linkedLanguageEnglishPublicKey.value || null;
+    }
+    if (!destinationKey) {
+      error.value = targetLang === 'es'
+        ? 'A Spanish version of this form is not yet configured.'
+        : 'Unable to switch back to English.';
+      return;
+    }
+    try {
+      localStorage.setItem('preferredFormLanguage', targetLang);
+    } catch { /* ignore */ }
+    try {
+      if (targetLang === 'es' && publicKey) {
+        localStorage.setItem(`intakeEnglishKey:${destinationKey}`, publicKey);
+      }
+    } catch { /* ignore */ }
+    const currentPath = route.path || '';
+    const base = currentPath.startsWith('/intake/')
+      ? '/intake/'
+      : currentPath.startsWith('/preferences-form/')
+        ? '/preferences-form/'
+        : currentPath.startsWith('/i/')
+          ? '/i/'
+          : '/intake/';
+    await router.replace({ path: `${base}${destinationKey}`, query: { ...route.query, lang: targetLang } });
+    // Force a reload so all internal API calls that close over `publicKey`
+    // pick up the new key without a large refactor.
+    window.location.reload();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Unable to switch language.';
+  } finally {
+    linkedLanguageSwitching.value = false;
   }
 };
 
@@ -4273,6 +4428,36 @@ const submitConsent = async () => {
     }
     return;
   }
+  // Auto-handle the upfront multi-client plan so parents don't get stuck on
+  // "how many children are you submitting today?" with no visible error when
+  // they tapped "Two or more children" but never clicked Yes/No on the
+  // consent panel. Default behaviour: auto-accept the shared-signature
+  // consent (they chose "multiple"), which matches the rest of the flow's
+  // "keep the user moving" pattern. If the consent panel is somehow still
+  // open (race condition), at least scroll it into view instead of silently
+  // continuing with an inconsistent state.
+  if (
+    !intakeForSelf.value
+    && !isClientBound.value
+    && multiClientPlanChoice.value === 'multiple'
+    && !multiClientConsentAccepted.value
+    && !multiClientConsentDeclined.value
+  ) {
+    if (multiClientConsentDialogOpen.value) {
+      acceptMultiClientConsent();
+    } else {
+      multiClientConsentDialogOpen.value = true;
+      await nextTick();
+      try {
+        const el = document.querySelector('.multi-client-plan-block');
+        if (el && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      } catch { /* best-effort */ }
+      return;
+    }
+  }
+
   try {
     consentLoading.value = true;
     error.value = '';
@@ -4480,6 +4665,18 @@ const completeRegistrationStep = async () => {
   if (!stepMeta || stepMeta.type !== 'registration') return;
   const rules = getCurrentRegistrationRules();
   const selectedIds = getRegistrationSelectionIds(stepMeta.id);
+  // If the admin hasn't configured any options for this registration step
+  // (or the catalog returned nothing relevant for this guardian), treat
+  // Continue as "there's nothing to pick here, move on" rather than
+  // dead-ending the parent on "Please select at least one option."
+  const availableOptions = Array.isArray(currentRegistrationOptions.value)
+    ? currentRegistrationOptions.value.length
+    : 0;
+  if (availableOptions === 0 && selectedIds.length === 0) {
+    stepError.value = '';
+    await nextFlowStep();
+    return;
+  }
   if (selectedIds.length < rules.minSelections) {
     stepError.value = rules.minSelections > 1
       ? `Please select at least ${rules.minSelections} options.`
@@ -6085,6 +6282,20 @@ watch(currentFlowStep, async (step) => {
       await nextTick();
       preselectLinkedCompanyEvent(step);
     }
+
+    // If, after loading, the registration step still has zero options AND
+    // nothing is preselected, auto-advance past it instead of leaving the
+    // parent stranded with "Please select at least one option" on a step
+    // that has nothing to pick from. This is the behaviour parents reported
+    // on multi-child packets where a sibling-bound registration step had
+    // no remaining options.
+    await nextTick();
+    const hasOptions = Array.isArray(currentRegistrationOptions.value)
+      && currentRegistrationOptions.value.length > 0;
+    const hasSelection = getRegistrationSelectionIds(stepId).length > 0;
+    if (!hasOptions && !hasSelection) {
+      await nextFlowStep();
+    }
   }
 });
 
@@ -6140,7 +6351,20 @@ watch(
     guardianRelationship: guardianRelationship.value,
     clients: clients.value,
     intakeResponses,
-    embeddedSmartSchoolRoi: embeddedSmartSchoolRoi.value
+    embeddedSmartSchoolRoi: embeddedSmartSchoolRoi.value,
+    // Include PDF-template field values + per-doc completion so typing in
+    // document field overlays triggers a draft save (previously these were
+    // reactive but never watched, so Back/refresh silently lost answers).
+    fieldValuesByTemplate,
+    docStatus,
+    // Multi-client plan selection + consent state — without these, the
+    // upfront "how many children" answer wasn't bookmarked between steps,
+    // so hitting Back and returning could bounce the parent back to the
+    // initial prompt with an empty state.
+    multiClientPlanChoice: multiClientPlanChoice.value,
+    multiClientConsentAccepted: multiClientConsentAccepted.value,
+    multiClientConsentAcceptedAt: multiClientConsentAcceptedAt.value,
+    multiClientUpfrontPlan: multiClientUpfrontPlan.value
   }),
   () => {
     queueDraftPersist();
@@ -6451,6 +6675,37 @@ onBeforeUnmount(() => {
   padding: 0 2px;
   flex-shrink: 0;
   line-height: 1;
+}
+.intake-language-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 12px;
+  padding: 4px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 999px;
+}
+.intake-language-btn {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-weight: 500;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.intake-language-btn:disabled {
+  cursor: default;
+}
+.intake-language-btn--active {
+  background: #1f2937;
+  color: #fff;
+}
+.intake-language-status {
+  font-size: 0.75rem;
+  padding: 0 6px;
 }
 .draft-restored-banner {
   margin: 8px 0 12px;

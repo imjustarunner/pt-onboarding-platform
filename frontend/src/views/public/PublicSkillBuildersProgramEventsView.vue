@@ -23,6 +23,7 @@ import { ref, watch, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import PublicEventsListing from '../../components/public/PublicEventsListing.vue';
+import { useLocale } from '../../composables/useLocale.js';
 
 const route = useRoute();
 /** First path segment: agency slug on `/open-events/...` or org/program portal slug on `/:organizationSlug/...`. */
@@ -45,6 +46,10 @@ const error = ref('');
 const events = ref([]);
 const agencyName = ref('');
 const programName = ref('');
+const agencyId = ref(null);
+const programOrgId = ref(null);
+const orgTranslations = ref({});
+const { locale: publicLocale, isSpanish: localeIsSpanish, fetchTranslations, translatedFor } = useLocale();
 /** Whether the program has individual enrollments (learning classes) available. */
 const hasEnrollments = ref(false);
 /** Slug of the parent agency (for nearest-event API), from list response. */
@@ -52,13 +57,23 @@ const nearestAgencySlug = ref('');
 const programLegalTitle = ref('');
 const programLegalLinks = ref([]);
 
+function translatedOrgName(id, fallback) {
+  if (!localeIsSpanish.value) return fallback;
+  const translated = translatedFor(orgTranslations.value, id, 'name');
+  return translated || fallback;
+}
+
 /** Line 1 of the hero heading — the company/agency name. */
-const pageCompanyTitle = computed(() => agencyName.value || humanizeSlug(programSlug.value) || 'Program events');
+const pageCompanyTitle = computed(() => {
+  const fallback = agencyName.value || humanizeSlug(programSlug.value) || 'Program events';
+  return translatedOrgName(agencyId.value, fallback);
+});
 
 /** Line 2 of the hero heading — the program name (shown below the company name). */
 const pageProgramTitle = computed(() => {
   if (!agencyName.value) return '';
-  return programName.value || humanizeSlug(programSlug.value) || '';
+  const fallback = programName.value || humanizeSlug(programSlug.value) || '';
+  return translatedOrgName(programOrgId.value, fallback);
 });
 
 function humanizeSlug(s) {
@@ -81,7 +96,10 @@ async function load() {
     events.value = Array.isArray(res.data?.events) ? res.data.events : [];
     agencyName.value = String(res.data?.agencyName || '').trim();
     programName.value = String(res.data?.programName || '').trim();
+    agencyId.value = Number(res.data?.agencyId) || null;
+    programOrgId.value = Number(res.data?.organizationId) || null;
     hasEnrollments.value = res.data?.hasEnrollments === true;
+    refreshOrgTranslations();
     nearestAgencySlug.value = String(res.data?.agencySlug || '').trim().toLowerCase();
     programLegalTitle.value = String(res.data?.programLegalLinks?.title || '').trim();
     programLegalLinks.value = Array.isArray(res.data?.programLegalLinks?.links)
@@ -106,5 +124,19 @@ async function load() {
   }
 }
 
+async function refreshOrgTranslations() {
+  if (!localeIsSpanish.value) {
+    orgTranslations.value = {};
+    return;
+  }
+  const ids = [agencyId.value, programOrgId.value].filter((n) => Number.isFinite(Number(n)) && Number(n) > 0);
+  if (!ids.length) {
+    orgTranslations.value = {};
+    return;
+  }
+  orgTranslations.value = (await fetchTranslations('organization', ids, ['name'])) || {};
+}
+
 watch([portalSlug, programSlug, useAgencyApiPath], () => load(), { immediate: true });
+watch(publicLocale, () => { refreshOrgTranslations(); });
 </script>

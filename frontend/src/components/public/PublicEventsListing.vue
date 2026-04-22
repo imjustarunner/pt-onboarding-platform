@@ -271,7 +271,7 @@
                         {{ ev.publicLocationAddress }}
                       </a>
                     </div>
-                    <p v-if="ev.description" class="pel-desc pel-desc--clamp">{{ ev.description }}</p>
+                    <p v-if="eventPrimaryDescription(ev)" class="pel-desc pel-desc--clamp">{{ eventPrimaryDescription(ev) }}</p>
                     <p v-if="ev.publicListingDetails" class="pel-extra pel-desc--clamp">{{ ev.publicListingDetails }}</p>
                     <p v-if="sanitizedSplash(ev)" class="pel-splash pel-splash--clamp" v-html="sanitizedSplash(ev)" />
                   </div>
@@ -393,7 +393,7 @@
                     >{{ row.address }}</a>
                   </li>
                 </ul>
-                <p v-if="ev.description" class="pel-desc pel-desc--clamp">{{ ev.description }}</p>
+                <p v-if="eventPrimaryDescription(ev)" class="pel-desc pel-desc--clamp">{{ eventPrimaryDescription(ev) }}</p>
                 <p v-if="ev.publicListingDetails" class="pel-extra pel-desc--clamp">{{ ev.publicListingDetails }}</p>
                 <p v-if="ev.publicSessionLabel" class="pel-card-sess-filter">
                   <button
@@ -465,6 +465,7 @@ import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import api from '../../services/api';
 import { useBrandingStore } from '../../store/branding';
 import PoweredByFooter from '../PoweredByFooter.vue';
+import { useLocale } from '../../composables/useLocale.js';
 
 const props = defineProps({
   pageTitle: { type: String, default: 'Upcoming events' },
@@ -526,6 +527,43 @@ const props = defineProps({
 const emit = defineEmits(['hubAgencyFilterChange']);
 
 const brandingStore = useBrandingStore();
+
+const { locale: publicLocale, isSpanish: localeIsSpanish, fetchTranslations, translatedFor } = useLocale();
+const eventTranslations = ref({});
+
+async function refreshEventTranslations() {
+  if (!localeIsSpanish.value) {
+    eventTranslations.value = {};
+    return;
+  }
+  const list = Array.isArray(props.events) ? props.events : [];
+  const ids = list
+    .map((ev) => Number(ev?.id))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (!ids.length) {
+    eventTranslations.value = {};
+    return;
+  }
+  const translated = await fetchTranslations('company_event', ids, [
+    'title',
+    'description',
+    'public_description',
+    'description_splash'
+  ]);
+  eventTranslations.value = translated || {};
+}
+
+watch(
+  () => [publicLocale.value, Array.isArray(props.events) ? props.events.map((e) => e?.id).join(',') : ''],
+  () => { refreshEventTranslations(); },
+  { immediate: true }
+);
+
+function translatedField(ev, field, fallback) {
+  if (!localeIsSpanish.value) return fallback;
+  const v = translatedFor(eventTranslations.value, ev?.id, field);
+  return v || fallback;
+}
 
 const showMasthead = computed(() => props.showPublicShell === true);
 
@@ -1234,7 +1272,8 @@ function googleMapsSearchUrl(address) {
 }
 
 function sanitizedSplash(ev) {
-  const raw = ev?.splashContent;
+  const original = ev?.splashContent;
+  const raw = translatedField(ev, 'description_splash', original);
   if (!raw || !String(raw).trim()) return '';
   return DOMPurify.sanitize(String(raw), {
     USE_PROFILES: { html: true }
@@ -1263,9 +1302,15 @@ function extraSessionLocations(ev) {
 }
 
 function eventPrimaryTitle(ev) {
-  const t = String(ev?.title || '').trim();
+  const original = String(ev?.title || '').trim();
+  const t = translatedField(ev, 'title', original);
   if (t) return t;
   return String(locationDisplayName(ev) || 'Program').trim() || 'Program';
+}
+
+function eventPrimaryDescription(ev) {
+  const original = String(ev?.description || '').trim();
+  return translatedField(ev, 'description', original);
 }
 
 function firstAddressLineLower(addr) {

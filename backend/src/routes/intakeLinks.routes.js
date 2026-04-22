@@ -1,7 +1,7 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
-import { createIntakeLink, createIntakeLinkFromJob, deleteIntakeLink, duplicateIntakeLink, listIntakeLinks, updateIntakeLink } from '../controllers/intakeLinks.controller.js';
+import { createIntakeLink, createIntakeLinkFromJob, deleteIntakeLink, duplicateIntakeLink, listIntakeLinks, updateIntakeLink, getLinkedTranslationAdmin } from '../controllers/intakeLinks.controller.js';
 
 const router = express.Router();
 
@@ -25,7 +25,9 @@ router.post(
     body('createGuardian').optional().isBoolean(),
     body('jobDescriptionId').optional().isInt(),
     body('requiresAssignment').optional().isBoolean(),
-    body('retentionPolicy').optional().custom((val) => typeof val === 'object' || typeof val === 'string')
+    body('retentionPolicy').optional().custom((val) => typeof val === 'object' || typeof val === 'string'),
+    body('linkedEsFormId').optional({ nullable: true }).custom((val) => val === null || /^\d+$/.test(String(val))),
+    body('documentTranslationMap').optional({ nullable: true })
   ],
   createIntakeLink
 );
@@ -48,12 +50,16 @@ router.put(
     body('isActive').optional().isBoolean(),
     body('createClient').optional().isBoolean(),
     body('createGuardian').optional().isBoolean(),
-    body('retentionPolicy').optional().custom((val) => typeof val === 'object' || typeof val === 'string')
+    body('retentionPolicy').optional().custom((val) => typeof val === 'object' || typeof val === 'string'),
+    body('linkedEsFormId').optional({ nullable: true }).custom((val) => val === null || /^\d+$/.test(String(val))),
+    body('documentTranslationMap').optional({ nullable: true })
   ],
   updateIntakeLink
 );
 
 router.post('/:id/duplicate', duplicateIntakeLink);
+
+router.get('/:id/linked-translation', getLinkedTranslationAdmin);
 
 router.delete('/:id', deleteIntakeLink);
 
