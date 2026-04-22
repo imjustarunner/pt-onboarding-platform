@@ -304,55 +304,25 @@
               </select>
             </div>
             <div v-if="form.languageCode === 'en' && form.scopeType !== 'school'" class="form-group" style="grid-column: 1 / -1;">
-              <label class="checkbox-row" style="margin-bottom: 6px;">
-                <input type="checkbox" :checked="spanishVersionEnabled" @change="onToggleSpanishVersion($event.target.checked)" />
-                <strong>Spanish version available for this form</strong>
-              </label>
-              <div class="muted" style="margin-bottom: 8px;">
-                Turn this on when a Spanish version of this form exists. Parents scan the same QR / link; a Spanish toggle
-                appears on the public page and swaps to the linked Spanish form + documents. School portals are unaffected
-                (they keep separate EN / ES links).
+              <div class="spanish-toggle-row">
+                <button
+                  type="button"
+                  class="spanish-toggle-btn"
+                  :class="{ active: spanishVersionEnabled }"
+                  :aria-pressed="spanishVersionEnabled ? 'true' : 'false'"
+                  @click="onToggleSpanishVersion(!spanishVersionEnabled)"
+                >
+                  <span class="spanish-toggle-track">
+                    <span class="spanish-toggle-thumb" />
+                  </span>
+                  <span class="spanish-toggle-label">
+                    <strong>Spanish version available for this form</strong>
+                  </span>
+                </button>
               </div>
-              <div v-if="spanishVersionEnabled" class="spanish-linking-block" style="border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 12px; background: var(--surface-subtle, #f8fafc);">
-                <label style="display:block; margin-bottom:6px;"><strong>Linked Spanish form</strong></label>
-                <div class="muted" style="margin-bottom: 6px;">
-                  Create the Spanish-language form separately (Language = Spanish), then select it here.
-                </div>
-                <select v-model="linkedEsFormIdModel">
-                  <option :value="null">— Select a Spanish form —</option>
-                  <option
-                    v-for="opt in linkedEsFormOptions"
-                    :key="opt.id"
-                    :value="opt.id"
-                  >{{ opt.title || `Form #${opt.id}` }} ({{ opt.scope_type || 'agency' }})</option>
-                </select>
-                <div v-if="!linkedEsFormOptions.length" class="muted" style="margin-top: 8px;">
-                  No Spanish forms found for this scope yet. Save this form, then create a matching Spanish form and come back here to link it.
-                </div>
-                <div v-if="linkedEsFormDocs.length" class="muted" style="margin-top: 12px;">
-                  <label style="display:block; margin-bottom:6px; color: inherit;"><strong>Spanish document versions</strong></label>
-                  <div class="muted" style="margin-bottom: 8px;">
-                    For each English document below, pick its Spanish counterpart from the linked form. Any left as "Use English document" will stay in English when the user toggles to Spanish.
-                  </div>
-                  <div style="display:flex; flex-direction: column; gap: 8px;">
-                    <div
-                      v-for="enDoc in availableDocumentTemplatesForLinking"
-                      :key="`trmap-${enDoc.id}`"
-                      style="display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center;"
-                    >
-                      <div>{{ enDoc.name }}<span v-if="enDoc.document_action_type" class="muted"> ({{ enDoc.document_action_type }})</span></div>
-                      <div aria-hidden="true" style="opacity: 0.6;">→</div>
-                      <select :value="form.documentTranslationMap?.[String(enDoc.id)] || ''" @change="onDocumentTranslationMapChange(enDoc.id, $event.target.value)">
-                        <option value="">— Use English document —</option>
-                        <option
-                          v-for="esDoc in linkedEsFormDocs"
-                          :key="`es-${esDoc.id}`"
-                          :value="esDoc.id"
-                        >{{ esDoc.name }}</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
+              <div class="muted" style="margin-top: 6px;">
+                When enabled, a language toggle appears on the public intake page. All form text is translated automatically by AI.
+                For each <strong>PDF document</strong> in this form, you can optionally select a Spanish-language PDF version below — upload it first via Documents Library with Language set to <em>Spanish</em>.
               </div>
             </div>
             <div class="form-group">
@@ -870,6 +840,23 @@
                       rows="2"
                       placeholder="e.g., Check each box if you agree with the statement on that line. You may uncheck any you do not agree with."
                     ></textarea>
+                  </div>
+                  <div v-if="spanishVersionEnabled && form.languageCode === 'en' && form.scopeType !== 'school'" class="form-group" style="grid-column: 1 / -1;">
+                    <label>Spanish PDF version <span class="muted" style="font-weight:400;">(optional)</span></label>
+                    <select
+                      :value="form.documentTranslationMap?.[String(step.templateId)] || ''"
+                      @change="onDocumentTranslationMapChange(step.templateId, $event.target.value)"
+                    >
+                      <option value="">— Use English PDF (no Spanish version) —</option>
+                      <option
+                        v-for="esDoc in spanishDocumentTemplates"
+                        :key="`es-step-${esDoc.id}`"
+                        :value="esDoc.id"
+                      >{{ esDoc.name }}</option>
+                    </select>
+                    <small v-if="!spanishDocumentTemplates.length" class="muted">
+                      No Spanish documents found. Upload a PDF in Documents Library and set its Language to <em>Spanish</em>.
+                    </small>
                   </div>
                   <div v-if="registrationFlowAdmin" class="form-group" style="grid-column: 1 / -1;">
                     <label>Show this document step</label>
@@ -2284,14 +2271,22 @@ const onToggleSpanishVersion = (enabled) => {
   }
 };
 
+// Auto-enable toggle when loading an existing form that already has a Spanish map or linked form.
 watch(
-  () => [form.linkedEsFormId, form.languageCode, form.scopeType],
-  ([linkedId, lang, scope]) => {
-    if (linkedId && String(lang) === 'en' && String(scope) !== 'school') {
-      spanishVersionEnabled.value = true;
-    }
+  () => [form.linkedEsFormId, form.documentTranslationMap, form.languageCode, form.scopeType],
+  ([linkedId, map, lang, scope]) => {
+    if (String(lang) !== 'en' || String(scope) === 'school') return;
+    const hasMap = map && Object.keys(map).length > 0;
+    if (linkedId || hasMap) spanishVersionEnabled.value = true;
   },
   { immediate: true }
+);
+
+/** All document templates with language_code = 'es' — used for per-step Spanish PDF selection. */
+const spanishDocumentTemplates = computed(() =>
+  (Array.isArray(templates.value) ? templates.value : []).filter(
+    (t) => String(t?.language_code || '').toLowerCase() === 'es'
+  )
 );
 
 const linkedEsFormOptions = computed(() => {
@@ -5913,5 +5908,52 @@ watch(
   display: block;
   margin-bottom: 2px;
   color: #7c2d12;
+}
+
+/* Spanish availability toggle */
+.spanish-toggle-row {
+  display: flex;
+  align-items: center;
+}
+.spanish-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: inherit;
+  color: inherit;
+}
+.spanish-toggle-track {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  background: #cbd5e1;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.spanish-toggle-btn.active .spanish-toggle-track {
+  background: #16a34a;
+}
+.spanish-toggle-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+  transition: left 0.2s;
+}
+.spanish-toggle-btn.active .spanish-toggle-thumb {
+  left: 23px;
+}
+.spanish-toggle-label {
+  font-size: 14px;
 }
 </style>
