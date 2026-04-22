@@ -1,5 +1,28 @@
 import { assertSkillBuildersSchoolProgramForRequest } from '../utils/skillBuildersSchoolProgramFeature.js';
 import { resolveTenantRootAgencyId } from '../utils/meDashboardTenantScope.js';
+import pool from '../config/database.js';
+
+function parsePositiveInt(raw) {
+  const n = Number.parseInt(String(raw ?? ''), 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+async function getSkillBuilderCoordinatorAccess(userId) {
+  const uid = parsePositiveInt(userId);
+  if (!uid) return false;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT has_skill_builder_coordinator_access FROM users WHERE id = ? LIMIT 1`,
+      [uid]
+    );
+    const v = rows?.[0]?.has_skill_builder_coordinator_access;
+    return v === true || v === 1 || v === '1';
+  } catch (e) {
+    // Migration may not be applied yet.
+    if (e?.code === 'ER_BAD_FIELD_ERROR' || e?.code === 'ER_NO_SUCH_TABLE') return false;
+    throw e;
+  }
+}
 
 function parseAgencyIdFromRequest(req) {
   const q = req.query?.agencyId;
@@ -32,6 +55,11 @@ export async function requireSkillBuildersSchoolProgramForAgencyContext(req, res
     // Skill Builders school-program feature flag is not enabled.
     // (Feature flag primarily gates the end-user SB experience.)
     if (role === 'admin' || role === 'staff' || role === 'support' || role === 'clinical_practice_assistant' || role === 'provider_plus') {
+      return next();
+    }
+    // Program coordinators (flag-based) should also be able to access the tooling,
+    // even if their role is not one of the backoffice roles above.
+    if (await getSkillBuilderCoordinatorAccess(req.user?.id)) {
       return next();
     }
 
