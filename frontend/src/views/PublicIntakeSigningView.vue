@@ -1898,21 +1898,37 @@ const currentFormLanguage = computed(() => {
   return code.startsWith('es') ? 'es' : 'en';
 });
 
+const linkedLanguageEnglishPublicKey = ref('');
+
 /**
- * Shows the in-page EN/ES toggle whenever this link either already has a
- * linked Spanish counterpart (English form) or is itself the Spanish form
- * that was reached via the toggle (its public_key is cached so we can flip
- * back). School portals don't set `linked_es_form`, so their UI is unchanged.
+ * In-page locale override for forms that use per-document Spanish PDFs +
+ * AI text translation (no separate linked Spanish form required).
+ * Starts as the form's own language_code; user can flip to 'es' in-page.
+ */
+const inPageLocale = ref('en');
+
+/** True if this form uses the per-document map approach (no whole-form link). */
+const hasDocumentTranslationMap = computed(() => {
+  const map = link.value?.document_translation_map;
+  return map != null && typeof map === 'object' && Object.keys(map).length > 0;
+});
+
+/**
+ * Shows the in-page EN/ES toggle when:
+ * - Form has a linked Spanish form (old whole-form approach), OR
+ * - Form has a document_translation_map (new per-document approach), OR
+ * - We are on the Spanish side and know the English key to return to.
  */
 const hasLinkedLanguageToggle = computed(() => {
   if (link.value?.linked_es_form?.public_key) return true;
+  if (hasDocumentTranslationMap.value) return true;
   if (currentFormLanguage.value === 'es' && linkedLanguageEnglishPublicKey.value) return true;
   return false;
 });
 
-const linkedLanguageEnglishPublicKey = ref('');
-
 const intakeLocale = computed(() => {
+  // In-page locale takes priority for map-based (non-linked-form) Spanish.
+  if (hasDocumentTranslationMap.value) return inPageLocale.value;
   const code = String(link.value?.language_code || 'en').toLowerCase();
   return code.startsWith('es') ? 'es' : 'en';
 });
@@ -2273,8 +2289,16 @@ const flowSteps = computed(() => {
         if (s.type === 'references') return { ...s };
         if (s.type === 'demographics') return { ...s };
         if (s.type === 'clinical_questions') return { ...s };
-        const template = templates.value.find((t) => Number(t.id) === Number(s.templateId));
-        return { ...s, template };
+        // Swap to the Spanish document template when the user has toggled Spanish
+        // and an en→es mapping exists for this step's document.
+        let resolvedTemplateId = s.templateId;
+        if (intakeLocale.value === 'es' && hasDocumentTranslationMap.value) {
+          const map = link.value?.document_translation_map || {};
+          const esId = map[String(Number(s.templateId))];
+          if (esId) resolvedTemplateId = Number(esId);
+        }
+        const template = templates.value.find((t) => Number(t.id) === Number(resolvedTemplateId));
+        return { ...s, template, resolvedTemplateId };
       });
   }
   return templates.value.map((t) => ({ id: `doc_${t.id}`, type: 'document', template: t }));
@@ -3938,11 +3962,17 @@ const loadLink = async () => {
         const cached = localStorage.getItem(`intakeEnglishKey:${publicKey}`);
         if (cached) linkedLanguageEnglishPublicKey.value = cached;
       } else if (link.value?.linked_es_form?.public_key) {
-        // Proactively remember the mapping so the user can return to English later.
         localStorage.setItem(
           `intakeEnglishKey:${link.value.linked_es_form.public_key}`,
           publicKey
         );
+      }
+      // Restore in-page locale for map-based Spanish (persists across refreshes).
+      const map = link.value?.document_translation_map;
+      const hasMap = map != null && typeof map === 'object' && Object.keys(map).length > 0;
+      if (hasMap) {
+        const stored = localStorage.getItem('preferredFormLanguage');
+        if (stored === 'es') inPageLocale.value = 'es';
       }
     } catch { /* ignore */ }
     boundClient.value = resp.data?.boundClient || null;
@@ -4001,8 +4031,17 @@ const loadLink = async () => {
  */
 const switchLinkedLanguage = async (target) => {
   const targetLang = String(target || '').toLowerCase().startsWith('es') ? 'es' : 'en';
-  if (targetLang === currentFormLanguage.value) return;
   if (linkedLanguageSwitching.value) return;
+
+  // In-page locale switch (per-document map approach — no separate form navigation).
+  if (hasDocumentTranslationMap.value) {
+    inPageLocale.value = targetLang;
+    try { localStorage.setItem('preferredFormLanguage', targetLang); } catch { /* ignore */ }
+    return;
+  }
+
+  // Legacy whole-form linked approach: navigate to the Spanish form URL.
+  if (targetLang === currentFormLanguage.value) return;
   try {
     linkedLanguageSwitching.value = true;
     let destinationKey = null;
@@ -4013,7 +4052,6 @@ const switchLinkedLanguage = async (target) => {
         destinationKey = resp?.data?.link?.public_key || null;
       }
     } else {
-      // returning to English: use the cached English public key
       destinationKey = linkedLanguageEnglishPublicKey.value || null;
     }
     if (!destinationKey) {
@@ -4022,9 +4060,7 @@ const switchLinkedLanguage = async (target) => {
         : 'Unable to switch back to English.';
       return;
     }
-    try {
-      localStorage.setItem('preferredFormLanguage', targetLang);
-    } catch { /* ignore */ }
+    try { localStorage.setItem('preferredFormLanguage', targetLang); } catch { /* ignore */ }
     try {
       if (targetLang === 'es' && publicKey) {
         localStorage.setItem(`intakeEnglishKey:${destinationKey}`, publicKey);
@@ -4039,8 +4075,6 @@ const switchLinkedLanguage = async (target) => {
           ? '/i/'
           : '/intake/';
     await router.replace({ path: `${base}${destinationKey}`, query: { ...route.query, lang: targetLang } });
-    // Force a reload so all internal API calls that close over `publicKey`
-    // pick up the new key without a large refactor.
     window.location.reload();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Unable to switch language.';
