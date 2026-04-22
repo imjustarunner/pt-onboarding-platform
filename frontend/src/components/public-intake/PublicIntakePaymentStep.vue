@@ -7,30 +7,26 @@
 
     <!-- Cost summary from event config -->
     <div v-if="costSummary" class="pi-pay-cost-summary">
-      <strong>Program cost</strong>
+      <strong>{{ tx('Program cost') }}</strong>
       <span class="pi-pay-amount">{{ costSummary }}</span>
     </div>
 
     <!-- Payment method notice -->
     <div class="pi-pay-notice">
       <p v-if="stripeEnabled">
-        Your payment information is collected securely by <strong>Stripe</strong> — a PCI-compliant
-        payment processor trusted by millions of businesses. Your card details are encrypted and
-        processed directly by this organization's payment account. They are never stored unmasked
-        on any server.
+        {{ tx('Your payment information is collected securely by') }} <strong>Stripe</strong> — {{ tx('a PCI-compliant payment processor trusted by millions of businesses.') }}
       </p>
       <p v-else>
-        Your payment information is stored securely via QuickBooks Payments (Intuit). Card details are
-        encrypted and never stored unmasked on our servers.
+        {{ tx('Your payment information is stored securely via QuickBooks Payments (Intuit). Card details are encrypted and never stored unmasked on our servers.') }}
       </p>
       <p style="margin-top: 8px;">
-        You may update or remove your payment method at any time through your guardian portal.
+        {{ tx('You may update or remove your payment method at any time through your guardian portal.') }}
       </p>
     </div>
 
     <!-- Card form -->
     <div v-if="!paymentSaved" class="pi-pay-card">
-      <h4 class="pi-pay-card-title">Payment method</h4>
+      <h4 class="pi-pay-card-title">{{ tx('Payment method') }}</h4>
 
       <!-- Loading Stripe -->
       <div v-if="stripeLoading" class="pi-pay-loading">
@@ -41,12 +37,12 @@
       <template v-else-if="stripeEnabled">
         <div class="pi-pay-row">
           <div class="form-group" style="grid-column: 1 / -1;">
-            <label class="pi-pay-lbl">Cardholder name <span class="req">*</span></label>
+            <label class="pi-pay-lbl">{{ tx('Cardholder name') }} <span class="req">*</span></label>
             <input
               v-model="cardholderName"
               class="pi-pay-input"
               type="text"
-              placeholder="Name as it appears on card"
+              :placeholder="tx('Name as it appears on card')"
               autocomplete="cc-name"
             />
           </div>
@@ -54,7 +50,7 @@
 
         <!-- Stripe Card Element mounts here -->
         <div class="form-group" style="margin-bottom: 12px;">
-          <label class="pi-pay-lbl">Card details <span class="req">*</span></label>
+          <label class="pi-pay-lbl">{{ tx('Card details') }} <span class="req">*</span></label>
           <div id="stripe-card-element" class="pi-pay-stripe-element" />
           <div v-if="stripeElementError" class="pi-pay-error" style="margin-top: 6px;">
             {{ stripeElementError }}
@@ -66,10 +62,10 @@
         <div class="pi-pay-billing-pref">
           <label class="checkbox-row">
             <input v-model="autoCharge" type="checkbox" />
-            <span>Automatically charge this card at the start of each session (recommended)</span>
+            <span>{{ tx('Automatically charge this card at the start of each session (recommended)') }}</span>
           </label>
           <p class="pi-pay-pref-hint">
-            If not checked, a <strong>Pay &amp; Join</strong> step will appear each time before entering a session.
+            {{ tx('If not checked, a Pay & Join step will appear each time before entering a session.') }}
           </p>
         </div>
 
@@ -81,7 +77,7 @@
             @click="saveStripeCard"
           >
             <span v-if="saving" class="pi-pay-spinner pi-pay-spinner--btn" />
-            {{ saving ? 'Saving securely…' : 'Save payment method' }}
+            {{ saving ? tx('Saving securely…') : tx('Save payment method') }}
           </button>
         </div>
       </template>
@@ -97,7 +93,7 @@
 
         <div class="pi-pay-row">
           <div class="form-group" style="grid-column: 1 / -1;">
-            <label class="pi-pay-lbl">Card number <span class="req">*</span></label>
+            <label class="pi-pay-lbl">{{ tx('Card number') }} <span class="req">*</span></label>
             <input
               v-model="card.number"
               class="pi-pay-input pi-pay-input--card"
@@ -113,28 +109,28 @@
 
         <div class="pi-pay-row pi-pay-row--3col">
           <div class="form-group">
-            <label class="pi-pay-lbl">Expiry month <span class="req">*</span></label>
+            <label class="pi-pay-lbl">{{ tx('Expiry month') }} <span class="req">*</span></label>
             <select v-model="card.expMonth" class="pi-pay-input" autocomplete="cc-exp-month">
               <option value="">MM</option>
               <option v-for="m in 12" :key="m" :value="String(m).padStart(2,'0')">{{ String(m).padStart(2,'0') }}</option>
             </select>
           </div>
           <div class="form-group">
-            <label class="pi-pay-lbl">Expiry year <span class="req">*</span></label>
+            <label class="pi-pay-lbl">{{ tx('Expiry year') }} <span class="req">*</span></label>
             <select v-model="card.expYear" class="pi-pay-input" autocomplete="cc-exp-year">
               <option value="">YYYY</option>
               <option v-for="yr in expiryYears" :key="yr" :value="String(yr)">{{ yr }}</option>
             </select>
           </div>
           <div class="form-group">
-            <label class="pi-pay-lbl">CVV <span class="req">*</span></label>
+            <label class="pi-pay-lbl">{{ tx('CVV') }} <span class="req">*</span></label>
             <input v-model="card.cvc" class="pi-pay-input" type="text" inputmode="numeric" maxlength="4" placeholder="•••" autocomplete="cc-csc" />
           </div>
         </div>
 
         <div class="pi-pay-row">
           <div class="form-group">
-            <label class="pi-pay-lbl">Billing ZIP code</label>
+            <label class="pi-pay-lbl">{{ tx('Billing ZIP code') }}</label>
             <input v-model="card.billingZip" class="pi-pay-input" type="text" inputmode="numeric" maxlength="5" placeholder="80202" autocomplete="postal-code" />
           </div>
         </div>
@@ -195,7 +191,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, inject } from 'vue';
+
+const intakeStringTranslations = inject('intakeStringTranslations', ref({}));
+const tx = (text) => { const s = String(text || ''); return intakeStringTranslations.value?.[s] || s; };
 import { loadStripe } from '@stripe/stripe-js';
 import api from '../../services/api';
 

@@ -22,20 +22,20 @@
       <div v-if="hasLinkedLanguageToggle" class="intake-language-toggle" role="group" aria-label="Form language">
         <button
           type="button"
-          class="intake-language-btn"
+          class="intake-language-btn intake-language-btn--en"
           :class="{ 'intake-language-btn--active': currentFormLanguage === 'en' }"
           :aria-pressed="currentFormLanguage === 'en'"
           :disabled="linkedLanguageSwitching || currentFormLanguage === 'en'"
           @click="switchLinkedLanguage('en')"
-        >English</button>
+        >🇺🇸 English</button>
         <button
           type="button"
-          class="intake-language-btn"
+          class="intake-language-btn intake-language-btn--es"
           :class="{ 'intake-language-btn--active': currentFormLanguage === 'es' }"
           :aria-pressed="currentFormLanguage === 'es'"
           :disabled="linkedLanguageSwitching || currentFormLanguage === 'es'"
           @click="switchLinkedLanguage('es')"
-        >Español</button>
+        >🇲🇽 Español</button>
         <span v-if="linkedLanguageSwitching" class="intake-language-status muted" aria-live="polite">…</span>
       </div>
       <div v-if="draftRestoredMessage" class="draft-restored-banner">{{ draftRestoredMessage }}</div>
@@ -660,15 +660,15 @@
           />
         </div>
         <div v-if="currentFlowStep?.type === 'upload'" class="upload-step">
-          <p class="muted">{{ currentFlowStep?.label || 'Upload' }} ({{ currentFlowStep?.required ? 'required' : 'optional' }})</p>
+          <p class="muted">{{ currentFlowStep?.label || t('upload') }} ({{ currentFlowStep?.required ? t('required') : t('optional') }})</p>
           <div v-if="isUploadPasteEnabled" class="radio-group" style="margin-bottom: 8px;">
             <label class="radio-row">
               <input v-model="coverLetterInputMode" type="radio" value="upload" />
-              <span>Upload file</span>
+              <span>{{ tx('Upload file') }}</span>
             </label>
             <label class="radio-row">
               <input v-model="coverLetterInputMode" type="radio" value="paste" />
-              <span>Paste text</span>
+              <span>{{ tx('Paste text') }}</span>
             </label>
           </div>
           <input
@@ -689,7 +689,7 @@
           <div v-if="uploadStepFiles.length" class="uploaded-files">
             <div v-for="(f, i) in uploadStepFiles" :key="i" class="uploaded-file-row">
               <span>{{ f.name }}</span>
-              <button type="button" class="btn btn-secondary btn-xs" @click="removeUploadStepFile(i)">Remove</button>
+              <button type="button" class="btn btn-secondary btn-xs" @click="removeUploadStepFile(i)">{{ tx('Remove') }}</button>
             </div>
           </div>
         </div>
@@ -911,13 +911,13 @@
               </label>
               <label class="radio-row">
                 <input type="radio" name="communications_sms_preference" value="no" v-model="communications.smsPreference" />
-                <span>No - Do not text me</span>
+                <span>{{ tx('No - Do not text me') }}</span>
               </label>
             </div>
           </section>
 
           <section v-if="currentFlowStep?.campaigns?.providerTexting" class="communications-campaign-card">
-            <h4>SMS With Your Provider/Care Team <span class="required-indicator">*</span></h4>
+            <h4>{{ tx('SMS With Your Provider/Care Team') }} <span class="required-indicator">*</span></h4>
             <p class="communications-disclosure">
               If you choose Yes, you consent to receive service-related text messages through PlotTwistHQ from
               {{ communicationsTenantName }} and, when applicable, your provider/care team (for example,
@@ -944,65 +944,55 @@
             <div class="radio-group">
               <label class="radio-row">
                 <input type="radio" name="communications_provider_sms" value="yes" v-model="communications.providerTextingOptIn" />
-                <span>Yes - I opt in to provider/care-team texting and agree to the terms above</span>
+                <span>{{ tx('Yes - I opt in to provider/care-team texting and agree to the terms above') }}</span>
               </label>
               <label class="radio-row">
                 <input type="radio" name="communications_provider_sms" value="no" v-model="communications.providerTextingOptIn" />
-                <span>No - Keep provider texting off</span>
+                <span>{{ tx('No - Keep provider texting off') }}</span>
               </label>
             </div>
             <p class="communications-disclosure communications-opt-out-note" style="margin-top: 10px;">
-              <strong>Please note:</strong> Your provider/care team sends these messages through PlotTwistHQ, and you receive/reply to them as standard SMS messages on your phone.
-              If you choose to respond to or initiate a text message with your provider or care team via SMS, you acknowledge and agree that the same terms and conditions outlined above apply to that exchange.
-              Additional terms are always available at
-              <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a> and
+              <strong>{{ tx('Please note:') }}</strong> {{ tx('Your provider/care team sends these messages through PlotTwistHQ, and you receive/reply to them as standard SMS messages on your phone. If you choose to respond to or initiate a text message with your provider or care team via SMS, you acknowledge and agree that the same terms and conditions outlined above apply to that exchange. Additional terms are always available at') }}
+              <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a> {{ tx('and') }}
               <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
             </p>
           </section>
 
+
           <section v-if="currentFlowStep?.campaigns?.programUpdates" class="communications-campaign-card">
-            <h4>Optional Program &amp; Service Updates <span class="required-indicator">*</span></h4>
+            <h4>{{ tx('Optional Program & Service Updates') }} <span class="required-indicator">*</span></h4>
             <p class="communications-disclosure">
-              If you choose Yes, {{ communicationsTenantName }} may send optional SMS updates through PlotTwistHQ
-              about this agency's programs and services (for example, openings, enrollment options, and availability).
-              You may also receive limited updates about relevant affiliate services. Affiliates never receive access
-              to your personal or clinical information through this update channel, and any affiliate program requires
-              its own separate opt-in for communication and registration. Message frequency is no greater than twice
-              per month. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
-              Terms: <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
-              Privacy: <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
+              {{ tx('If you choose Yes,') }} {{ communicationsTenantName }} {{ tx('may send optional SMS updates through PlotTwistHQ about this agency\'s programs and services (for example, openings, enrollment options, and availability). You may also receive limited updates about relevant affiliate services. Affiliates never receive access to your personal or clinical information through this update channel, and any affiliate program requires its own separate opt-in for communication and registration. Message frequency is no greater than twice per month. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.') }}
+              {{ tx('Terms:') }} <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
+              {{ tx('Privacy:') }} <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
             </p>
             <div class="radio-group">
               <label class="radio-row">
                 <input type="radio" name="communications_program_sms" value="yes" v-model="communications.programUpdatesOptIn" />
-                <span>Yes - I want optional updates</span>
+                <span>{{ tx('Yes - I want optional updates') }}</span>
               </label>
               <label class="radio-row">
                 <input type="radio" name="communications_program_sms" value="no" v-model="communications.programUpdatesOptIn" />
-                <span>No - Keep optional updates off</span>
+                <span>{{ tx('No - Keep optional updates off') }}</span>
               </label>
             </div>
           </section>
 
           <section v-if="currentFlowStep?.campaigns?.internalWorkforce" class="communications-campaign-card">
-            <h4>Internal Workforce + School Staff Notifications (Opt-In) <span class="required-indicator">*</span></h4>
+            <h4>{{ tx('Internal Workforce + School Staff Notifications (Opt-In)') }} <span class="required-indicator">*</span></h4>
             <p class="communications-disclosure">
-              By opting in, you agree to receive SMS/text messages from {{ communicationsTenantName }} through PlotTwistHQ for
-              operational notifications and reminders, internal announcements, and optional polls/voting related to your participation
-              on the platform. Message frequency varies.
-              Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
-              Support: 833-756-8894 ext. 701 | hq@plottwistco.com.
-              Terms: <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
-              Privacy: <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
+              {{ tx('By opting in, you agree to receive SMS/text messages from') }} {{ communicationsTenantName }} {{ tx('through PlotTwistHQ for operational notifications and reminders, internal announcements, and optional polls/voting related to your participation on the platform. Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help. Support: 833-756-8894 ext. 701 | hq@plottwistco.com.') }}
+              {{ tx('Terms:') }} <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
+              {{ tx('Privacy:') }} <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
             </p>
             <div class="radio-group">
               <label class="radio-row">
                 <input type="radio" name="communications_workforce_sms" value="yes" v-model="communications.internalWorkforceOptIn" />
-                <span>Yes - I opt in to internal workforce / school staff SMS notifications</span>
+                <span>{{ tx('Yes - I opt in to internal workforce / school staff SMS notifications') }}</span>
               </label>
               <label class="radio-row">
                 <input type="radio" name="communications_workforce_sms" value="no" v-model="communications.internalWorkforceOptIn" />
-                <span>No - Keep internal notifications off</span>
+                <span>{{ tx('No - Keep internal notifications off') }}</span>
               </label>
             </div>
           </section>
@@ -1011,65 +1001,65 @@
         <!-- Demographics step -->
         <div v-if="currentFlowStep?.type === 'demographics'" class="demographics-step">
           <p class="muted" style="margin-bottom: 16px;">
-            Please fill in the following information so we can keep your records up to date.
+            {{ tx('Please fill in the following information so we can keep your records up to date.') }}
           </p>
           <div class="demographics-grid">
             <div v-if="currentFlowStep.showDob" class="form-group">
-              <label>Date of Birth <span class="required-indicator">*</span></label>
+              <label>{{ tx('Date of Birth') }} <span class="required-indicator">*</span></label>
               <input
                 type="date"
                 v-model="demographicsData.dob"
                 :class="{ 'input-error': demographicsErrors.dob }"
               />
-              <span v-if="demographicsErrors.dob" class="field-error">Required</span>
+              <span v-if="demographicsErrors.dob" class="field-error">{{ tx('Required') }}</span>
             </div>
             <div v-if="currentFlowStep.showGender" class="form-group">
-              <label>Gender</label>
+              <label>{{ tx('Gender') }}</label>
               <select v-model="demographicsData.gender">
-                <option value="">Prefer not to say</option>
-                <option value="male">Male</option>
-                <option value="female">Female</option>
-                <option value="nonbinary">Non-binary</option>
-                <option value="other">Other / self-describe</option>
+                <option value="">{{ tx('Prefer not to say') }}</option>
+                <option value="male">{{ tx('Male') }}</option>
+                <option value="female">{{ tx('Female') }}</option>
+                <option value="nonbinary">{{ tx('Non-binary') }}</option>
+                <option value="other">{{ tx('Other / self-describe') }}</option>
               </select>
             </div>
             <div v-if="currentFlowStep.showEthnicity" class="form-group">
-              <label>Race / Ethnicity</label>
+              <label>{{ tx('Race / Ethnicity') }}</label>
               <select v-model="demographicsData.ethnicity">
                 <option value="">Prefer not to say</option>
-                <option value="american_indian">American Indian or Alaska Native</option>
-                <option value="asian">Asian</option>
-                <option value="black">Black or African American</option>
-                <option value="hispanic">Hispanic or Latino</option>
-                <option value="nhpi">Native Hawaiian or Other Pacific Islander</option>
-                <option value="white">White</option>
-                <option value="two_or_more">Two or more races</option>
+                <option value="american_indian">{{ tx('American Indian or Alaska Native') }}</option>
+                <option value="asian">{{ tx('Asian') }}</option>
+                <option value="black">{{ tx('Black or African American') }}</option>
+                <option value="hispanic">{{ tx('Hispanic or Latino') }}</option>
+                <option value="nhpi">{{ tx('Native Hawaiian or Other Pacific Islander') }}</option>
+                <option value="white">{{ tx('White') }}</option>
+                <option value="two_or_more">{{ tx('Two or more races') }}</option>
                 <option value="other">Other / self-describe</option>
               </select>
             </div>
             <div v-if="currentFlowStep.showPreferredLanguage" class="form-group">
-              <label>Preferred Language</label>
+              <label>{{ tx('Preferred Language') }}</label>
               <select v-model="demographicsData.preferredLanguage">
-                <option value="">Select…</option>
-                <option value="english">English</option>
-                <option value="spanish">Spanish</option>
-                <option value="french">French</option>
-                <option value="mandarin">Mandarin</option>
-                <option value="arabic">Arabic</option>
-                <option value="other">Other</option>
+                <option value="">{{ tx('Select…') }}</option>
+                <option value="english">{{ tx('English') }}</option>
+                <option value="spanish">{{ tx('Spanish') }}</option>
+                <option value="french">{{ tx('French') }}</option>
+                <option value="mandarin">{{ tx('Mandarin') }}</option>
+                <option value="arabic">{{ tx('Arabic') }}</option>
+                <option value="other">{{ tx('Other') }}</option>
               </select>
             </div>
             <template v-if="currentFlowStep.showAddress">
               <div class="form-group" style="grid-column: 1 / -1;">
-                <label>Street Address</label>
+                <label>{{ tx('Street Address') }}</label>
                 <input type="text" v-model="demographicsData.addressStreet" placeholder="123 Main St" />
               </div>
               <div class="form-group">
-                <label>Apt / Unit (optional)</label>
+                <label>{{ tx('Apt / Unit (optional)') }}</label>
                 <input type="text" v-model="demographicsData.addressApt" placeholder="Apt 4B" />
               </div>
               <div class="form-group">
-                <label>Zip Code</label>
+                <label>{{ tx('Zip Code') }}</label>
                 <input
                   type="text"
                   v-model="demographicsData.addressZip"
@@ -2024,6 +2014,67 @@ async function fetchStringTranslations() {
       'You can use whatever name you go by — it does not have to be your legal name. We\'ll capture the date, time, IP, and browser as part of the audit trail.',
     ];
     for (const s of insuranceStrings) strings.add(s);
+
+    // Payment step strings.
+    const paymentStrings = [
+      'Program cost', 'Payment method',
+      'Your payment information is collected securely by',
+      'a PCI-compliant payment processor trusted by millions of businesses. Your card details are encrypted and processed directly by this organization\'s payment account. They are never stored unmasked on any server.',
+      'Your payment information is stored securely via QuickBooks Payments (Intuit). Card details are encrypted and never stored unmasked on our servers.',
+      'You may update or remove your payment method at any time through your guardian portal.',
+      'Cardholder name', 'Name as it appears on card', 'Card details',
+      'Automatically charge this card at the start of each session (recommended)',
+      'If not checked, a Pay & Join step will appear each time before entering a session.',
+      'Saving securely…', 'Save payment method',
+      'Card number', 'Expiry month', 'Expiry year', 'CVV', 'Billing ZIP code',
+    ];
+    for (const s of paymentStrings) strings.add(s);
+
+    // Communications step strings.
+    const commStrings = [
+      'No', 'No - Do not text me',
+      'SMS With Your Provider/Care Team',
+      'If you choose Yes, you consent to receive service-related text messages through PlotTwistHQ from',
+      'and, when applicable, your provider/care team (for example, follow-up, coordination, and service-related responses). These messages are HIPAA-protected and associated with your care relationship at',
+      'By selecting', 'Yes', 'and opting in, you understand and agree to the following:',
+      'These messages may be viewed by the care team associated with your provider.',
+      'Your provider and our care team are', 'not',
+      'available for emergencies, and these messages are not monitored in real time. In case of emergency, call 911.',
+      'Your provider will not receive messages outside of their working hours. All messages are confidentially stored within the platform.',
+      'PlotTwistHQ is not responsible for, nor independently aware of, the content of direct communications between you and your provider.',
+      'You agree not to share confidential third-party information in these messages, and understand that this communication channel does',
+      'replace nor constitute clinical care or a therapeutic relationship.',
+      'Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help. Appointment reminders/confirmations are not sent from individual provider numbers. Additional terms apply —',
+      'Terms:', 'Privacy:',
+      'Yes - I opt in to provider/care-team texting and agree to the terms above',
+      'No - Keep provider texting off',
+      'Please note:',
+      'Your provider/care team sends these messages through PlotTwistHQ, and you receive/reply to them as standard SMS messages on your phone. If you choose to respond to or initiate a text message with your provider or care team via SMS, you acknowledge and agree that the same terms and conditions outlined above apply to that exchange. Additional terms are always available at',
+      'and',
+      'Optional Program & Service Updates',
+      'If you choose Yes,',
+      'may send optional SMS updates through PlotTwistHQ about this agency\'s programs and services (for example, openings, enrollment options, and availability). You may also receive limited updates about relevant affiliate services. Affiliates never receive access to your personal or clinical information through this update channel, and any affiliate program requires its own separate opt-in for communication and registration. Message frequency is no greater than twice per month. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.',
+      'Yes - I want optional updates', 'No - Keep optional updates off',
+      'Internal Workforce + School Staff Notifications (Opt-In)',
+      'By opting in, you agree to receive SMS/text messages from',
+      'through PlotTwistHQ for operational notifications and reminders, internal announcements, and optional polls/voting related to your participation on the platform. Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help. Support: 833-756-8894 ext. 701 | hq@plottwistco.com.',
+      'Yes - I opt in to internal workforce / school staff SMS notifications',
+      'No - Keep internal notifications off',
+    ];
+    for (const s of commStrings) strings.add(s);
+
+    // Demographics step strings.
+    const demoStrings = [
+      'Please fill in the following information so we can keep your records up to date.',
+      'Date of Birth', 'Gender', 'Race / Ethnicity', 'Preferred Language',
+      'Prefer not to say', 'Male', 'Female', 'Non-binary', 'Other / self-describe',
+      'American Indian or Alaska Native', 'Asian', 'Black or African American',
+      'Hispanic or Latino', 'Native Hawaiian or Other Pacific Islander', 'White',
+      'Two or more races', 'Select…', 'English', 'Spanish', 'French', 'Mandarin', 'Arabic', 'Other',
+      'Street Address', 'Apt / Unit (optional)', 'Zip Code', 'Required',
+      'Upload file', 'Paste text',
+    ];
+    for (const s of demoStrings) strings.add(s);
 
     const arr = [...strings].filter(Boolean).slice(0, 300);
     if (!arr.length) return;
@@ -6859,18 +6910,34 @@ onBeforeUnmount(() => {
   border: none;
   color: inherit;
   cursor: pointer;
-  font-size: 0.85rem;
-  padding: 6px 14px;
+  font-size: 0.88rem;
+  padding: 6px 16px;
   border-radius: 999px;
-  font-weight: 500;
-  transition: background 0.15s ease, color 0.15s ease;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 .intake-language-btn:disabled {
   cursor: default;
 }
-.intake-language-btn--active {
-  background: #1f2937;
+/* English button — active = navy blue */
+.intake-language-btn--en.intake-language-btn--active {
+  background: #1e3a5f;
   color: #fff;
+  box-shadow: 0 1px 4px rgba(30, 58, 95, 0.35);
+}
+/* Spanish button — active = deep green (flag color) */
+.intake-language-btn--es.intake-language-btn--active {
+  background: #c60b1e;
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(198, 11, 30, 0.35);
+}
+/* Inactive hover effects */
+.intake-language-btn--en:not(:disabled):hover {
+  background: rgba(30, 58, 95, 0.1);
+}
+.intake-language-btn--es:not(:disabled):hover {
+  background: rgba(198, 11, 30, 0.1);
 }
 .intake-language-status {
   font-size: 0.75rem;
