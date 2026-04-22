@@ -16,12 +16,17 @@ const LOGIN_PATH_SNIPPETS = [
   '/signup/club-manager'
 ];
 
-/** Route names that are clearly public marketing / intake / events (not staff login). */
+/**
+ * Route names that show the bottom-right EN ⇄ ES toggle.
+ *
+ * Digital intake forms (PublicIntakeSigning / PublicIntakeSigningShort) are
+ * intentionally excluded: they have their own in-page language toggle that
+ * swaps to the admin-linked Spanish form. The bottom-right widget is
+ * redundant there and confuses users when no Spanish form is linked.
+ */
 const PUBLIC_TRANSLATION_ROUTE_NAMES = new Set([
   'PublicMarketingHub',
   'PublicMarketingHubSubPage',
-  'PublicIntakeSigning',
-  'PublicIntakeSigningShort',
   'PublicProviderFinder',
   'PublicAgencyEventsOpen',
   'PublicAgencyEnrollOpen',
@@ -64,7 +69,9 @@ export function shouldShowPublicTranslate(route) {
   if (name && PUBLIC_TRANSLATION_ROUTE_NAMES.has(name)) return true;
 
   if (p.startsWith('/p/')) return true;
-  if (p.startsWith('/intake/') || p.startsWith('/i/')) return true;
+  // /intake/ and /i/ paths are digital intake forms — they handle language
+  // switching themselves via the in-page linked-Spanish-form toggle, so we
+  // suppress the bottom-right widget there.
   if (p.startsWith('/find-provider/')) return true;
   if (p.startsWith('/open-events/')) return true;
   if (/\/enroll(\/|$)/.test(p)) return true;
