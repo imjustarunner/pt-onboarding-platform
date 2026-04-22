@@ -547,8 +547,8 @@ async function refreshEventTranslations() {
   const translated = await fetchTranslations('company_event', ids, [
     'title',
     'description',
-    'public_description',
-    'description_splash'
+    'splash_content',
+    'public_listing_details'
   ]);
   eventTranslations.value = translated || {};
 }
@@ -1273,7 +1273,7 @@ function googleMapsSearchUrl(address) {
 
 function sanitizedSplash(ev) {
   const original = ev?.splashContent;
-  const raw = translatedField(ev, 'description_splash', original);
+  const raw = translatedField(ev, 'splash_content', original);
   if (!raw || !String(raw).trim()) return '';
   return DOMPurify.sanitize(String(raw), {
     USE_PROFILES: { html: true }

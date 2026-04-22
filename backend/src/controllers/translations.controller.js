@@ -26,12 +26,15 @@ const ALLOWED_SOURCES = Object.freeze({
     fields: {
       title: 'title',
       description: 'description',
-      public_description: 'public_description',
-      description_splash: 'description_splash'
+      // Note: public_description and description_splash don't exist in this schema.
+      // splash_content and public_listing_details are the real columns.
+      splash_content: 'splash_content',
+      public_listing_details: 'public_listing_details'
     }
   },
   organization: {
-    table: 'organizations',
+    // Orgs are stored in the agencies table in this deployment.
+    table: 'agencies',
     idColumn: 'id',
     fields: {
       name: 'name'
