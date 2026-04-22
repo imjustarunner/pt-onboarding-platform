@@ -3039,7 +3039,11 @@ watch(
     // an existing link wipes `companyEventId` before options arrive (user sees selection "lost" after save).
     if (companyEventsPickerLoading.value) return;
     if (!companyEventsPickerOptions.value.length) return;
-    const exists = companyEventsPickerFilteredOptions.value.some((ev) => Number(ev.id) === currentEventId);
+    // Check against ALL loaded options (not just the org-filtered subset) so that
+    // agency-wide events (organization_id = null) are not incorrectly cleared when
+    // the form is program-scoped. The org filter is a UI display aid only; it should
+    // not wipe a validly-saved company_event_id on load.
+    const exists = companyEventsPickerOptions.value.some((ev) => Number(ev.id) === currentEventId);
     if (!exists) {
       form.companyEventId = null;
     }

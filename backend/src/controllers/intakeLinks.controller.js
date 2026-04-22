@@ -59,7 +59,9 @@ async function assertSmartRegistrationCompanyEvent({ companyEventId, scopeType, 
     const scope = String(scopeType || '').trim().toLowerCase();
     const orgId = organizationId ? Number(organizationId) : null;
     const eventOrgId = eventRow.organization_id != null ? Number(eventRow.organization_id) : null;
-    if (scope !== 'agency' && orgId && eventOrgId !== Number(orgId)) {
+    // Agency-wide events (organization_id = null) are valid for any scope — they appear on
+    // the general agency calendar and are not restricted to a specific program or school.
+    if (scope !== 'agency' && orgId && eventOrgId !== null && eventOrgId !== Number(orgId)) {
       return {
         ok: false,
         message: 'That company event is not associated with the selected organization. Choose an event for that organization.'
