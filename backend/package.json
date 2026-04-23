@@ -28,7 +28,8 @@
     "backfill:skills-groups-company-events": "node src/scripts/backfillSkillsGroupsCompanyEvents.js",
     "backfill:skill-builder-program-affiliations": "node src/scripts/backfillSkillBuilderProgramAffiliations.js",
     "smoke:intake": "node src/scripts/verifyMultiChildIntake.js --latest --count 3",
-    "smoke:intake:submission": "node src/scripts/verifyMultiChildIntake.js --submissionId"
+    "smoke:intake:submission": "node src/scripts/verifyMultiChildIntake.js --submissionId",
+    "test:assistant-deterministic": "node --test src/services/agents/__tests__/assistantCapabilityCatalog.service.test.js"
   },
   "keywords": [],
   "author": "",

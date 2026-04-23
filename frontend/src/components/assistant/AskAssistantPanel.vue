@@ -49,7 +49,24 @@
             <div class="aap-empty-core" />
           </div>
           <h3 class="aap-empty-title">What can I help with?</h3>
-          <p class="aap-empty-desc">Ask in plain language, or try one of these.</p>
+          <p class="aap-empty-desc">Use plain language. These are actions this assistant can handle right now:</p>
+          <div class="aap-capabilities">
+            <div v-for="(group, i) in capabilityGroups" :key="i" class="aap-capability">
+              <div class="aap-capability-title">{{ group.title }}</div>
+              <div class="aap-capability-prompts">
+                <button
+                  v-for="(s, j) in group.prompts"
+                  :key="`${i}-${j}`"
+                  type="button"
+                  class="aap-capability-chip"
+                  @click="applySuggestion(s)"
+                >
+                  {{ s }}
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="aap-suggestions-label">More examples</div>
           <div class="aap-suggestions">
             <button
               v-for="(s, i) in suggestions"
@@ -199,6 +216,14 @@
       </div>
 
       <footer class="aap-foot">
+        <button
+          type="button"
+          class="aap-help-action"
+          :disabled="busy"
+          @click="applySuggestion(capabilityActionPrompt)"
+        >
+          What can you do?
+        </button>
         <div class="aap-composer">
           <textarea
             v-model="prompt"
@@ -270,13 +295,76 @@ const isProviderLike = computed(() =>
   ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'supervisor'].includes(roleNorm.value)
 );
 
+const capabilityPayload = ref(null);
+const capabilityLoading = ref(false);
+
 const subtitle = computed(() => {
-  if (isAdminLike.value) return 'Navigate · schools & events · referrals · audit activity';
-  if (isProviderLike.value) return 'Navigate · schedule · referrals · recent activity';
-  return 'Navigate · referrals · recent activity';
+  if (capabilityPayload.value?.subtitle) return String(capabilityPayload.value.subtitle);
+  if (isAdminLike.value) return 'I can navigate, search schools/events/users, run referrals, and review activity.';
+  if (isProviderLike.value) return 'I can help with schedule/workspace, meetings, referrals, and recent activity.';
+  return 'I can navigate, run referrals, and check recent activity.';
+});
+
+const capabilityGroups = computed(() => {
+  if (Array.isArray(capabilityPayload.value?.groups) && capabilityPayload.value.groups.length) {
+    return capabilityPayload.value.groups;
+  }
+  const groups = [];
+  if (isProviderLike.value) {
+    groups.push(
+      {
+        title: 'Schedule and meetings',
+        prompts: [
+          'Open my workspace for today',
+          'Start a meeting with Sarah',
+          'Move my 3pm to 4pm'
+        ]
+      },
+      {
+        title: 'Coverage and referrals',
+        prompts: [
+          'Who has an intake opening today?',
+          'Who uses CBT?',
+          'Find pediatric psychiatry referrals'
+        ]
+      }
+    );
+  } else if (isAdminLike.value) {
+    groups.push(
+      {
+        title: 'Navigation and lookup',
+        prompts: [
+          'Open Twain school portal',
+          'Open upcoming events',
+          'Open payroll summary'
+        ]
+      },
+      {
+        title: 'Operations',
+        prompts: [
+          'What offices are open today?',
+          'Who RSVP for this Friday event?',
+          'What activity happened in my agency this week?'
+        ]
+      }
+    );
+  } else {
+    groups.push({
+      title: 'Common actions',
+      prompts: [
+        'Open my schedule',
+        'Find pediatric psychiatry referrals',
+        'Show me what I did today'
+      ]
+    });
+  }
+  return groups;
 });
 
 const suggestions = computed(() => {
+  if (Array.isArray(capabilityPayload.value?.suggestions) && capabilityPayload.value.suggestions.length) {
+    return capabilityPayload.value.suggestions.slice(0, 6);
+  }
   const s = [];
   const rn = String(route?.name || '').toLowerCase();
 
@@ -311,6 +399,12 @@ const suggestions = computed(() => {
 
   // Keep it short + stable
   return Array.from(new Set(s)).slice(0, 6);
+});
+
+const capabilityActionPrompt = computed(() => {
+  const p = capabilityPayload.value?.inChatAction;
+  if (p && String(p).trim()) return String(p);
+  return 'What can you do for me right now?';
 });
 
 const prompt = ref('');
@@ -553,6 +647,20 @@ async function runNextAction(a) {
   }
 }
 
+async function loadCapabilities() {
+  if (capabilityLoading.value) return;
+  capabilityLoading.value = true;
+  try {
+    const resp = await api.get('/agents/capabilities', { skipGlobalLoading: true });
+    const data = resp?.data || null;
+    if (data && typeof data === 'object') capabilityPayload.value = data;
+  } catch {
+    // Keep local fallback prompts if capabilities endpoint is unavailable.
+  } finally {
+    capabilityLoading.value = false;
+  }
+}
+
 function formatIso(iso, timezone) {
   const s = String(iso || '').trim();
   if (!s) return '';
@@ -583,6 +691,7 @@ watch(
       clearChat();
       return;
     }
+    loadCapabilities();
     nextTick(() => {
       textareaRef.value?.focus?.();
       autoGrow();
@@ -837,7 +946,66 @@ onUnmounted(() => {
   font-size: 13px;
   color: var(--aap-muted);
   line-height: 1.5;
-  max-width: 280px;
+  max-width: 420px;
+}
+
+.aap-capabilities {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+.aap-capability {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.aap-capability-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 7px;
+  text-align: left;
+}
+
+.aap-capability-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.aap-capability-chip {
+  text-align: left;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  color: #334155;
+  font-size: 12px;
+  line-height: 1.2;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.aap-capability-chip:hover {
+  border-color: rgba(13, 148, 136, 0.45);
+  background: #f0fdfa;
+}
+
+.aap-suggestions-label {
+  width: 100%;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin: 2px 0 8px;
 }
 
 .aap-suggestions {
@@ -1238,6 +1406,25 @@ onUnmounted(() => {
   border-top: 1px solid var(--aap-line);
   background: rgba(255, 255, 255, 0.65);
   backdrop-filter: blur(10px);
+}
+
+.aap-help-action {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  margin-bottom: 8px;
+}
+
+.aap-help-action:hover:not(:disabled) {
+  border-color: rgba(13, 148, 136, 0.45);
+  background: #f0fdfa;
 }
 
 .aap-composer {

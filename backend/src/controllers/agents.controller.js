@@ -1,6 +1,11 @@
 import ActivityLogService from '../services/activityLog.service.js';
 import { runAgentAssist, safeParseAgentJson } from '../services/agents/agentRuntime.service.js';
 import { executeToolCall, getToolSchemasForUser } from '../services/agents/toolRegistry.service.js';
+import {
+  buildCapabilityUiPayload,
+  matchCatalogBackedPageNavigationIntent,
+  matchDeterministicCapabilityIntent
+} from '../services/agents/assistantCapabilityCatalog.service.js';
 
 function normalizeUiCommands(raw) {
   const arr = Array.isArray(raw) ? raw : [];
@@ -124,32 +129,6 @@ function assistantTextLooksLikeToolDump(t) {
   return false;
 }
 
-function resolveNavigateRouteNameFromPrompt(promptLower) {
-  const s = String(promptLower || '').toLowerCase();
-  if (!s) return null;
-
-  // Prefer more specific intents first.
-  if (/\b(note ?aid|note generator|clinical note|generate note)\b/.test(s)) return 'NoteAid';
-  if (/\b(compliance corner|compliance|hipaa)\b/.test(s)) return 'ComplianceCorner';
-  if (/\b(presence|team board|who is in|who's in)\b/.test(s)) return 'PresenceTeamBoard';
-  if (/\b(audit center|audit log|audit activity)\b/.test(s)) return 'AuditCenter';
-  if (/\b(referral|referrals|referral directory)\b/.test(s)) return 'ReferralDirectory';
-  if (/\b(client|clients|client management)\b/.test(s)) return 'ClientManagement';
-  if (/\b(school portal|school portals|portals hub|school-portals)\b/.test(s)) return 'SchoolPortalsHub';
-  if (/\b(program events|program event|skill builders|events)\b/.test(s)) return 'SkillBuildersProgramsEvents';
-  if (/\b(provider directory|provider list)\b/.test(s)) return 'ProviderDirectory';
-  if (/\b(hiring|candidates|hire)\b/.test(s)) return 'HiringCandidates';
-  if (/\b(notification|notifications)\b/.test(s)) return 'Notifications';
-  if (/\b(user manager|users)\b/.test(s)) return 'UserManager';
-  if (/\b(credentials)\b/.test(s)) return 'Credentials';
-  if (/\b(preferences)\b/.test(s)) return 'Preferences';
-  if (/\b(account|profile|my account|account info)\b/.test(s)) return 'AccountInfo';
-  if (/\b(schedule|calendar)\b/.test(s)) return 'Schedule';
-  if (/\b(dashboard|home)\b/.test(s)) return 'Dashboard';
-
-  return null;
-}
-
 function guessSchoolQueryFromPrompt(promptLower) {
   const raw = String(promptLower || '').toLowerCase();
   if (!raw) return '';
@@ -164,84 +143,6 @@ function guessSchoolQueryFromPrompt(promptLower) {
 }
 
 /**
- * Parse natural-language date references in a prompt → YYYY-MM-DD.
- * Returns null if no date hint is present.
- */
-function parseDateHintFromPrompt(promptLower) {
-  const s = String(promptLower || '').toLowerCase();
-  const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-  if (/\btoday\b/.test(s)) return startOfDay.toISOString().slice(0, 10);
-  if (/\btomorrow\b/.test(s)) {
-    const t = new Date(startOfDay);
-    t.setDate(t.getDate() + 1);
-    return t.toISOString().slice(0, 10);
-  }
-  if (/\byesterday\b/.test(s)) {
-    const t = new Date(startOfDay);
-    t.setDate(t.getDate() - 1);
-    return t.toISOString().slice(0, 10);
-  }
-
-  const days = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
-  const m = s.match(/\b(this|next|on)\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b|\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/);
-  if (m) {
-    const dayName = (m[2] || m[3] || '').toLowerCase();
-    const target = days[dayName];
-    if (target != null) {
-      const cur = startOfDay.getDay();
-      let delta = (target - cur + 7) % 7;
-      if (m[1] === 'next') delta = delta === 0 ? 7 : delta + 7;
-      // "this monday" when today is wednesday → 5 days forward (next monday).
-      // Spec: "this <day>" = nearest upcoming occurrence (or today if it matches).
-      if (m[1] === 'this' && delta === 0) delta = 0;
-      const t = new Date(startOfDay);
-      t.setDate(t.getDate() + delta);
-      return t.toISOString().slice(0, 10);
-    }
-  }
-
-  // ISO date directly in prompt
-  const iso = s.match(/\b(\d{4}-\d{2}-\d{2})\b/);
-  if (iso) return iso[1];
-
-  return null;
-}
-
-/**
- * Parse a casual time-of-day expression ("3pm", "9:30 am", "noon", "midnight",
- * "15:00") into "HH:MM" 24h. Returns null if it can't.
- */
-function parseTimeOfDay(text) {
-  const s = String(text || '').toLowerCase().trim();
-  if (!s) return null;
-  if (/^noon$/.test(s)) return '12:00';
-  if (/^midnight$/.test(s)) return '00:00';
-  // 24h "15:00" or "9:30"
-  const m24 = s.match(/^(\d{1,2}):(\d{2})$/);
-  if (m24) {
-    const hh = Math.min(23, Math.max(0, parseInt(m24[1], 10)));
-    const mm = Math.min(59, Math.max(0, parseInt(m24[2], 10)));
-    if (!s.match(/(am|pm|a\.m|p\.m)/)) {
-      return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-    }
-  }
-  // 12h "3pm", "3:30pm", "9 am", "9:30 a.m."
-  const m12 = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)$/);
-  if (m12) {
-    let hh = parseInt(m12[1], 10);
-    const mm = m12[2] ? parseInt(m12[2], 10) : 0;
-    const isPm = /^p/.test(m12[3]);
-    if (hh < 1 || hh > 12) return null;
-    if (hh === 12) hh = isPm ? 12 : 0;
-    else if (isPm) hh += 12;
-    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-  }
-  return null;
-}
-
-/**
  * Convert "HH:MM" 24h to a Date object set to today (server local time).
  */
 function todayWithLocalTime(hm) {
@@ -252,23 +153,6 @@ function todayWithLocalTime(hm) {
   const d = new Date();
   d.setHours(hh, mm, 0, 0);
   return d;
-}
-
-function guessEntityQueryFromPrompt(promptLower, extraStopwords = []) {
-  const raw = String(promptLower || '').toLowerCase();
-  if (!raw) return '';
-  const extras = extraStopwords.length
-    ? new RegExp(`\\b(${extraStopwords.join('|')})\\b`, 'g')
-    : null;
-  let s = raw
-    .replace(/\b(take me to|go to|navigate to|navigate|open|visit|show me|find|search|look up|look for)\b/g, ' ')
-    .replace(/\b(the|a|an|please|could you|can you|for me|some|any)\b/g, ' ');
-  if (extras) s = s.replace(extras, ' ');
-  return s
-    .replace(/[^a-z0-9\s-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120);
 }
 
 /**
@@ -375,266 +259,14 @@ function detectExplicitIntent({ prompt, allowedToolNames }) {
   const lower = String(prompt || '').toLowerCase().trim();
   if (!lower) return null;
 
-  const hasAction = /\b(open|show|find|go to|take me to|navigate to|visit|search( for)?|look (up|for))\b/.test(lower);
-  const dateHint = parseDateHintFromPrompt(lower);
-  const today = new Date().toISOString().slice(0, 10);
+  // Capability-catalog fast path: high-frequency deterministic asks are
+  // matched from a single shared registry used by both backend and frontend.
+  const capabilityIntent = matchDeterministicCapabilityIntent({ prompt: lower, allowedToolNames });
+  if (capabilityIntent) return capabilityIntent;
 
-  // ---- "Who uses CBT" / "who does EMDR" / "anyone who does play therapy" ----
-  // Routes to findProvidersByApproach. The "approach" can be a known modality
-  // (CBT, DBT, EMDR, ACT, IFS, etc.), a free-text specialty (trauma, ADHD), or
-  // a longer phrase (cognitive behavioral therapy).
-  if (allowedToolNames.has('findProvidersByApproach')) {
-    const approachMatch =
-      lower.match(/\b(?:who|anyone|any\s+providers?|any\s+staff|which\s+providers?|find\s+(?:a\s+|me\s+)?(?:provider|providers|therapist|therapists))\s+(?:that\s+|who\s+|do(?:es)?\s+|use[sd]?\s+|specializ(?:es|ing)\s+(?:in\s+)?|trained\s+in\s+|practice[sd]?\s+|offer[s]?\s+|with\s+(?:experience\s+(?:in|with)\s+)?)([a-zA-Z][\w\s&\-/().'+]{1,60}?)\??$/) ||
-      lower.match(/\b(?:find|show|list|search\s+for)\s+(?:a\s+|me\s+a?\s*|all\s+|the\s+)?([a-zA-Z][\w\s&\-/().'+]{1,40})\s+(?:provider|providers|therapist|therapists|specialist|specialists)\b/);
-    if (approachMatch) {
-      let approach = approachMatch[1].trim()
-        .replace(/^(the\s+|some\s+|any\s+)/, '')
-        .replace(/\s+(?:therapy|approach|techniques?|methods?|modality|specialist|provider|therapist)$/i, '')
-        .replace(/[.?!]+$/, '')
-        .trim();
-      if (approach.length >= 2 && approach.length <= 60) {
-        return {
-          intent: 'find_providers_by_approach',
-          toolCalls: [{ name: 'findProvidersByApproach', args: { approach, limit: 25 } }]
-        };
-      }
-    }
-  }
-
-  // ---- "Move my 3pm to 4pm" / "reschedule my 9:30am meeting to 10am" ----
-  // More specific than the bulk push below — runs first.
-  // Resolves the meeting via findMyMeetings({ atTimeHm }), then reschedules.
-  if (allowedToolNames.has('rescheduleMeeting')) {
-    const moveMatch =
-      lower.match(/\b(?:move|reschedule|push|shift|change)\s+(?:my\s+|the\s+)?(?:meeting\s+at\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)?)\s*(?:meeting|huddle|video chat|1\s*[-:on]\s*1)?\s+(?:to|→|->)\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)?)/);
-    if (moveMatch) {
-      const fromHm = parseTimeOfDay(moveMatch[1]);
-      const toHm = parseTimeOfDay(moveMatch[2]);
-      if (fromHm && toHm) {
-        return {
-          intent: 'reschedule_meeting_by_time',
-          followUpRescheduleByTime: true,
-          fromTimeHm: fromHm,
-          toTimeHm: toHm,
-          toolCalls: [{ name: 'findMyMeetings', args: { atTimeHm: fromHm } }]
-        };
-      }
-    }
-  }
-
-  // ---- "Push everything 30 minutes" / "delay all my meetings 15 min" ----
-  // Bulk shift everything remaining today. Requires an explicit time unit
-  // (min/hour) so single-meeting moves like "move my 3pm to 4pm" don't match.
-  // Positive = later, negative = earlier.
-  if (allowedToolNames.has('pushTodaysRemainingMeetings')) {
-    const pushMatch =
-      lower.match(/\b(?:push|move|shift|delay|bump)\s+(?:all|every|everything|the\s+rest(?:\s+of\s+(?:the|my)\s+day)?|my\s+(?:remaining\s+)?meetings?|today'?s?\s+meetings?)\b[^0-9-]*?(-?\d{1,3})\s*(min(?:ute)?s?|m\b|hours?|hrs?|h\b)/) ||
-      lower.match(/\bpush\s+everyone\s+(?:back|forward|out|up)\s+(\d{1,3})\s*(min(?:ute)?s?|m\b|hours?|hrs?|h\b)/);
-    if (pushMatch) {
-      let n = parseInt(pushMatch[1], 10);
-      const unit = (pushMatch[2] || '').toLowerCase();
-      if (/hour|hrs?|^h$/.test(unit)) n *= 60;
-      if (/\b(earlier|sooner|forward|up)\b/.test(lower) && n > 0) n = -n;
-      if (Number.isFinite(n) && n !== 0 && Math.abs(n) <= 600) {
-        return {
-          intent: 'push_todays_remaining',
-          followUpPushTodaysRemaining: true,
-          shiftMinutes: n,
-          toolCalls: []
-        };
-      }
-    }
-  }
-
-  // ---- "Cancel the meeting with Sarah" / "cancel my meeting w/ John" ----
-  // Resolves the meeting via findMyMeetings({ withName }), then cancels via
-  // the WRITE_ACTION confirmation card.
-  if (
-    allowedToolNames.has('cancelMeeting') &&
-    allowedToolNames.has('findMyMeetings') &&
-    /\b(cancel|kill|skip)\b/.test(lower)
-  ) {
-    const cancelWithMatch =
-      lower.match(/\bcancel\s+(?:my\s+|the\s+)?(?:meeting|huddle|1\s*[-:on]\s*1|video chat|chat|call)?\s*(?:with|w\/)\s+(.+?)(?:\s+(?:please|today|now))?[.?!]?$/);
-    if (cancelWithMatch) {
-      const target = cancelWithMatch[1].trim().replace(/^(the\s+|a\s+)/, '');
-      if (target && target.length >= 2 && target.length <= 80) {
-        let reason = null;
-        const reasonMatch = lower.match(/\b(?:because|reason[:\s]|since|due to)\s+(.{3,160})$/);
-        if (reasonMatch) reason = reasonMatch[1].replace(/[.?!]+$/, '').trim();
-        return {
-          intent: 'cancel_meeting_with_person',
-          followUpCancelMeetingWithPerson: true,
-          withName: target,
-          cancelReason: reason,
-          toolCalls: [{ name: 'findMyMeetings', args: { withName: target } }]
-        };
-      }
-    }
-  }
-
-  // ---- "Cancel the rest of my day" / "cancel all my remaining meetings" ----
-  if (
-    allowedToolNames.has('cancelTodaysRemainingMeetings') &&
-    /\b(cancel|clear|wipe|kill)\b/.test(lower) &&
-    (
-      /\b(rest of (?:the |my )?day|remaining meetings?|all (?:my )?(?:meetings?|remaining meetings?)|everything (?:today|for today)|the day|my day)\b/.test(lower) ||
-      /\b(?:i'?m sick|i am sick|going home|leaving early)\b/.test(lower)
-    )
-  ) {
-    let reason = null;
-    const reasonMatch = lower.match(/\b(?:because|reason[:\s]|since|due to)\s+(.{3,160})$/);
-    if (reasonMatch) {
-      reason = reasonMatch[1].replace(/[.?!]+$/, '').trim();
-    } else if (/\b(?:i'?m sick|i am sick)\b/.test(lower)) {
-      reason = 'Out sick';
-    }
-    return {
-      intent: 'cancel_rest_of_day',
-      followUpCancelRestOfDay: true,
-      cancelReason: reason,
-      toolCalls: []
-    };
-  }
-
-  // ---- "Cancel my next meeting" / "cancel my meeting" ----
-  if (
-    allowedToolNames.has('cancelMeeting') &&
-    allowedToolNames.has('findNextMeeting') &&
-    /\b(cancel|kill)\b/.test(lower) &&
-    /\b(meeting|huddle|1\s*[-:on]\s*1|video chat)\b/.test(lower) &&
-    !/\b(rest of (?:the |my )?day|remaining|all (?:my )?meetings?)\b/.test(lower)
-  ) {
-    return {
-      intent: 'cancel_next_meeting',
-      followUpCancelNextMeeting: true,
-      toolCalls: [{ name: 'findNextMeeting', args: {} }]
-    };
-  }
-
-  // ---- "Start a meeting with X" / "let's meet with X" / "1:1 with X" ----
-  // Resolves the target user via searchUsers; if exactly one match the
-  // controller will hand the result to startMeeting (which becomes a
-  // confirmation card via the WRITE_ACTION interception path).
-  const startMeetingMatch = lower.match(
-    /\b(?:start (?:a |an )?(?:meeting|video chat|video call|call|chat|1\s*[-:on]\s*1)|meet|chat|video chat|let'?s meet)\s+(?:with|w\/)\s+(.+?)(?:\s+(?:now|today|please|pls|asap|right now))?[.?!]?$/
-  );
-  if (startMeetingMatch && allowedToolNames.has('startMeeting') && allowedToolNames.has('searchUsers')) {
-    const target = startMeetingMatch[1].trim().replace(/^(the\s+|a\s+)/, '');
-    if (target && target.length >= 2 && target.length <= 80) {
-      return {
-        intent: 'start_meeting',
-        followUpStartMeeting: true,
-        toolCalls: [{ name: 'searchUsers', args: { query: target, limit: 5 } }]
-      };
-    }
-  }
-
-  // ---- "Open my workspace" / "today's workspace" / "what's active right now" ----
-  if (
-    allowedToolNames.has('openTodaysWorkspace') &&
-    (
-      /\b(workspace|active events?|what.*(?:active|going on|happening) (?:now|today|right now))\b/.test(lower) ||
-      /\bopen.*today/.test(lower) && /\b(events?|sessions?|meetings?)\b/.test(lower)
-    )
-  ) {
-    const activeOnly = /\b(now|right now|currently|active)\b/.test(lower);
-    return {
-      intent: 'todays_workspace',
-      toolCalls: [{ name: 'openTodaysWorkspace', args: { dateYmd: dateHint || today, activeOnly } }]
-    };
-  }
-
-  // ---- Question-shaped intents (ALWAYS use date "today" if no other hint) ----
-
-  // "who has an opening for an intake today" / "anyone available for an intake friday"
-  if (
-    allowedToolNames.has('findIntakeOpenings') &&
-    /\bintake\b/.test(lower) &&
-    /\b(open|opening|openings|availab(le|ility)|free|slot|spot)\b/.test(lower)
-  ) {
-    let modality = 'ALL';
-    if (/\bvirtual\b|\bonline\b|\btelehealth\b/.test(lower)) modality = 'VIRTUAL';
-    else if (/\bin[- ]?person\b|\boffice\b/.test(lower)) modality = 'IN_PERSON';
-    return {
-      intent: 'find_intake_openings',
-      toolCalls: [{ name: 'findIntakeOpenings', args: { dateYmd: dateHint || today, modality } }]
-    };
-  }
-
-  // "what offices are open today" / "any sessions at the boca office today"
-  if (
-    allowedToolNames.has('getOfficeSchedule') &&
-    /\boffice(s)?\b/.test(lower) &&
-    /\b(open|sessions?|booked|using|scheduled|today|tomorrow|this|next|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(lower)
-  ) {
-    // Pull a possible location query: words after "at the X office" or "at X"
-    let locationQuery = '';
-    const locMatch = lower.match(/\bat\s+(?:the\s+)?([a-z][a-z0-9\s-]{1,40}?)\s+(?:office|location|today|tomorrow|on|next|this|$)/);
-    if (locMatch && locMatch[1]) locationQuery = locMatch[1].trim();
-    return {
-      intent: 'office_schedule',
-      toolCalls: [{ name: 'getOfficeSchedule', args: { dateYmd: dateHint || today, locationQuery } }]
-    };
-  }
-
-  // "who rsvp'd for friday's event" / "who said yes to the staff meeting"
-  if (
-    allowedToolNames.has('getEventResponses') &&
-    /\b(rsvp|rsvp'?d|responded|said yes|saying yes|attending|attendance)\b/.test(lower)
-  ) {
-    // Try to extract an event name fragment after "for" or "to"
-    const eventQueryMatch = lower.match(/\b(?:for|to)\s+(?:the\s+)?(?:this\s+|next\s+|last\s+)?(?:[a-z]+\s+)?([a-z][a-z0-9\s-]{2,60}?)(?:\s+event|\s+meeting|\s*\?|$)/);
-    const eventQuery = (eventQueryMatch?.[1] || '').trim();
-    return {
-      intent: 'event_responses',
-      toolCalls: [{ name: 'getEventResponses', args: { eventQuery, dateYmd: dateHint || undefined } }]
-    };
-  }
-
-  // School portal / school org
-  const schoolish =
-    /\bportal\b/.test(lower) ||
-    /\b(elementary|middle|high|academy|charter|institute)\b/.test(lower) ||
-    /\bschool\b/.test(lower);
-
-  // Event / program
-  const eventish =
-    /\b(event|events|program|programs|session|sessions|workshop|workshops)\b/.test(lower) &&
-    !schoolish;
-
-  if (schoolish && allowedToolNames.has('searchSchools')) {
-    const q = guessSchoolQueryFromPrompt(lower);
-    if (q) {
-      return {
-        intent: 'school_search',
-        toolCalls: [{ name: 'searchSchools', args: { query: q, limit: 10 } }]
-      };
-    }
-  }
-
-  if (eventish && allowedToolNames.has('searchEvents')) {
-    const q = guessEntityQueryFromPrompt(lower, ['event', 'events', 'program', 'programs', 'session', 'sessions', 'workshop', 'workshops']);
-    if (q) {
-      return {
-        intent: 'event_search',
-        toolCalls: [{ name: 'searchEvents', args: { query: q, limit: 10 } }]
-      };
-    }
-  }
-
-  // Generic page navigation: only if there's an action verb (don't hijack
-  // questions like "what is the dashboard").
-  if (hasAction && allowedToolNames.has('navigateTo')) {
-    const routeName = resolveNavigateRouteNameFromPrompt(lower);
-    if (routeName) {
-      return {
-        intent: 'page_navigate',
-        toolCalls: [{ name: 'navigateTo', args: { routeName } }]
-      };
-    }
-  }
+  // Remaining fallback: generic page navigation, also owned by catalog service.
+  const navIntent = matchCatalogBackedPageNavigationIntent({ prompt: lower, allowedToolNames });
+  if (navIntent) return navIntent;
 
   return null;
 }
@@ -1541,6 +1173,34 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
   return out || 'Done.';
 }
 
+function buildCapabilityPayloadForReq(req, agentConfig = null) {
+  const allowedToolNames = new Set(getToolSchemasForUser(req.user, agentConfig).map((t) => t.name));
+  const role = String(req.user?.role || '').toLowerCase().trim();
+  const payload = buildCapabilityUiPayload({ role, allowedToolNames });
+  return { payload, allowedToolNames };
+}
+
+function promptAsksForCapabilities(prompt) {
+  const lower = String(prompt || '').toLowerCase().trim();
+  if (!lower) return false;
+  return (
+    /\bwhat can you do\b/.test(lower) ||
+    /\bwhat are you able to do\b/.test(lower) ||
+    /\bwhat can i ask\b/.test(lower) ||
+    /\bhelp me understand what you can do\b/.test(lower)
+  );
+}
+
+export const getCapabilities = async (req, res, next) => {
+  try {
+    const agentConfig = req.body?.agentConfig && typeof req.body.agentConfig === 'object' ? req.body.agentConfig : null;
+    const { payload } = buildCapabilityPayloadForReq(req, agentConfig);
+    return res.json(payload);
+  } catch (e) {
+    return next(e);
+  }
+};
+
 export const assist = async (req, res, next) => {
   try {
     const context = req.body?.context && typeof req.body.context === 'object' ? req.body.context : {};
@@ -1560,7 +1220,26 @@ export const assist = async (req, res, next) => {
     }
 
     const started = Date.now();
-    const allowedToolNames = new Set(getToolSchemasForUser(req.user, agentConfig).map((t) => t.name));
+    const { payload: capabilityPayload, allowedToolNames } = buildCapabilityPayloadForReq(req, agentConfig);
+
+    if (promptAsksForCapabilities(prompt)) {
+      const lines = [];
+      for (const g of capabilityPayload.groups || []) {
+        const prompts = (g.prompts || []).slice(0, 3).map((p) => `• ${p}`).join('\n');
+        lines.push(`${g.title}:\n${prompts}`);
+      }
+      return res.json({
+        assistantText: lines.length
+          ? `Here’s what I can do for your role right now:\n\n${lines.join('\n\n')}`
+          : 'I can help with navigation and common workflows.',
+        uiCommands: [],
+        toolCalls: [],
+        toolResults: [],
+        nextActions: [{ type: 'prefill', label: 'Try one now', prefillText: capabilityPayload.inChatAction || 'Open my workspace for today' }],
+        nextCards: [],
+        runtime: 'capability_help'
+      });
+    }
 
     // Fast path: UI-clickable "next action" buttons execute a single, explicit tool call.
     // No LLM call; still fully role-gated and scoped.
@@ -1904,6 +1583,7 @@ export const assist = async (req, res, next) => {
             metadata: {
               runtime: 'deterministic',
               intent: explicit.intent,
+              capabilityId: explicit.capabilityId || null,
               toolCalls: explicit.toolCalls.length,
               uiCommands: uiCommands.length,
               latencyMs: Date.now() - started
@@ -2064,7 +1744,8 @@ export const assist = async (req, res, next) => {
         (r) => r?.ok && ['searchSchools', 'searchEvents', 'searchUsers'].includes(r.tool)
       );
       if (!uiCommands.length && !hasSearchHits && allowedToolNames.has('navigateTo')) {
-        const routeName = resolveNavigateRouteNameFromPrompt(promptLower);
+        const navIntent = matchCatalogBackedPageNavigationIntent({ prompt: promptLower, allowedToolNames });
+        const routeName = navIntent?.toolCalls?.[0]?.args?.routeName || null;
         if (routeName) {
           try {
             const nr = await executeToolCall({ req, toolCall: { name: 'navigateTo', args: { routeName } } });
@@ -2138,10 +1819,12 @@ export const assist = async (req, res, next) => {
     // Hallucination guard: if the LLM produced "Found N…" / "I see N…" / etc.
     // but no successful tool actually ran this turn, the answer is fabricated.
     // Replace with an honest fallback so the UI never displays invented results.
+    let fallbackReason = '';
     const ranAnyTool = toolResults.some((r) => r?.ok);
     const looksFabricated = /\b(found|i (?:see|see that there are)|there are)\s+(\d+|two|three|four|five|six|seven|eight|nine|ten|several)\b/i.test(assistantText) ||
       /\bsearching\b|\blooking\b/i.test(assistantText);
     if (looksFabricated && !ranAnyTool && !nextCards.length) {
+      fallbackReason = 'fabricated_no_tools';
       assistantText =
         "I couldn't run that lookup — could you rephrase? Tip: try things like \"open Twain Elementary portal\", \"who has an intake opening today\", or \"what offices are open today\".";
     }
@@ -2159,6 +1842,7 @@ export const assist = async (req, res, next) => {
           // Nudge the assistant text toward "here they are, click one" rather
           // than leaving the model's repeated "which one did you mean?" loop.
           if (!assistantText || /which one did you mean/i.test(assistantText)) {
+            fallbackReason = fallbackReason || 'cards_from_history';
             assistantText = `Here are the options I found — click one to open it:`;
           }
           break;
@@ -2178,7 +1862,8 @@ export const assist = async (req, res, next) => {
             toolCalls: toolCalls.length,
             uiCommands: uiCommands.length,
             latencyMs: Date.now() - started,
-            grounded: wantsSearch
+            grounded: wantsSearch,
+            fallbackReason: fallbackReason || null
           }
         },
         req
