@@ -301,7 +301,7 @@
               <!-- Portal navigation (admins must see this even if ACTIVE_EMPLOYEE) -->
               <template v-if="canSeePortalNav && canSeeFullPortalNav">
 
-                <div v-if="!isAffiliationContext" class="nav-dropdown" @click.stop>
+                <div v-if="!isAffiliationContext && (hasPeopleOpsFeature || hasHiringFeature)" class="nav-dropdown" @click.stop>
                   <button
                     type="button"
                     class="nav-dropdown-trigger"
@@ -312,18 +312,14 @@
                     <span class="nav-dropdown-label">People Ops</span> <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="peopleOpsMenuOpen" class="nav-dropdown-menu">
-                    <router-link v-if="hasCapability('canManageHiring')" :to="orgTo('/admin/hiring')" >Applicants</router-link>
-                    <router-link v-if="hasCapability('canManageHiring')" :to="orgTo('/admin/careers')" >Careers</router-link>
-                    <router-link v-if="showOnDemandLink && !isSscSstcTenant" :to="orgTo('/on-demand-training')" >On-Demand Training</router-link>
+                    <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring')" >Applicants</router-link>
+                    <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/careers')" >Careers</router-link>
+                    <router-link v-if="hasPeopleOpsFeature && showOnDemandLink && !isSscSstcTenant" :to="orgTo('/on-demand-training')" >On-Demand Training</router-link>
                     <router-link
                       :to="orgTo('/admin/modules')"
-                      v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canViewTraining')"
+                      v-if="hasPeopleOpsFeature && isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canViewTraining')"
                     >Training Modules</router-link>
-                    <router-link
-                      :to="orgTo('/admin/documents')"
-                      v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canSignDocuments')"
-                    >Documents</router-link>
-                    <router-link :to="orgTo('/admin/agency-progress')" v-if="hasCapability('canViewTraining')" >Progress</router-link>
+                    <router-link :to="orgTo('/admin/agency-progress')" v-if="hasPeopleOpsFeature && hasCapability('canViewTraining')" >Progress</router-link>
                   </div>
                 </div>
 
@@ -542,6 +538,10 @@
                     <router-link :to="orgTo('/admin/psychotherapy-compliance')" v-if="canSeePayrollManagement" >Psychotherapy Compliance</router-link>
                     <router-link :to="orgTo('/admin/compliance-corner')" v-if="isTrueAdmin && !isAffiliationContext" >Compliance Corner</router-link>
                     <router-link :to="orgTo('/admin/audit-center')" v-if="isTrueAdmin && !isAffiliationContext" >Audit Center</router-link>
+                    <router-link
+                      :to="orgTo('/admin/documents')"
+                      v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canSignDocuments')"
+                    >Documents</router-link>
                     <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" >Expense/Reimbursements</router-link>
                     <router-link :to="orgTo('/admin/budget-management')" v-if="canSeeBudgetManagement" >Budget Management</router-link>
                     <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" >Revenue</router-link>
@@ -2404,6 +2404,16 @@ const currentAgencyFeatureFlags = computed(() => {
   const a = agencyStore.currentAgency;
   return parseFeatureFlags(a?.feature_flags);
 });
+
+/** True when the current tenant has the People Operations add-on enabled. */
+const hasPeopleOpsFeature = computed(() =>
+  isTruthyFlag(currentAgencyFeatureFlags.value?.peopleOpsEnabled)
+);
+
+/** True when the current tenant has the Hiring Process add-on enabled. */
+const hasHiringFeature = computed(() =>
+  isTruthyFlag(currentAgencyFeatureFlags.value?.hiringEnabled)
+);
 
 /** Super admins always see Games. Other users need per-user games entitlement. */
 const canSeeGamesNav = computed(() => {

@@ -9,6 +9,12 @@ export const AVAILABLE_AGENCY_FEATURE_KEYS = [
   },
   { key: 'payrollEnabled', label: 'Payroll' },
   { key: 'hiringEnabled', label: 'Hiring Process' },
+  {
+    key: 'peopleOpsEnabled',
+    label: 'People Operations',
+    /** Opt-in: gates the full People Ops nav suite (Training, On-Demand, Progress). Hiring is a separate add-on. */
+    defaultAvailable: false
+  },
   { key: 'noteAidEnabled', label: 'Note Aid' },
   { key: 'clinicalNoteGeneratorEnabled', label: 'Clinical Note Generator' },
   { key: 'publicProviderFinderEnabled', label: 'Public Provider Finder' },

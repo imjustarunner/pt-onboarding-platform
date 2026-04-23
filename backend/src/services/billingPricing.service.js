@@ -121,6 +121,12 @@ const DEFAULT_FEATURE_CATALOG = {
     'Applicant tracking, candidate pipelines, and hiring workflow management.',
     { featureFlagKey: 'hiringEnabled' }
   ),
+  peopleOpsEnabled: createFeatureCatalogEntry(
+    'peopleOpsEnabled',
+    'People Operations',
+    'Full HR and People Ops suite: On-Demand Training, Training Modules, and Progress tracking.',
+    { featureFlagKey: 'peopleOpsEnabled', defaultAvailable: false }
+  ),
   clinicalNoteGeneratorEnabled: createFeatureCatalogEntry(
     'clinicalNoteGeneratorEnabled',
     'Clinical Note Generator',
