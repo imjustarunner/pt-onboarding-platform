@@ -464,8 +464,20 @@ function buildContextPayload() {
 }
 
 function buildHistoryPayload() {
-  // Send last 8 turns (4 back-and-forth exchanges) for context.
-  return turns.value.slice(-8).map((t) => ({ role: t.role, text: String(t.text || '').slice(0, 600) }));
+  // Send last 8 turns for context. Include cards so the backend can carry
+  // disambiguation results forward if the LLM hallucinates without re-searching.
+  return turns.value.slice(-8).map((t) => {
+    const entry = { role: t.role, text: String(t.text || '').slice(0, 600) };
+    if (Array.isArray(t.cards) && t.cards.length) {
+      entry.cards = t.cards.map((c) => ({
+        kind: c.kind,
+        title: c.title,
+        subtitle: c.subtitle || '',
+        actions: Array.isArray(c.actions) ? c.actions : []
+      }));
+    }
+    return entry;
+  });
 }
 
 function prefillActionText(a) {

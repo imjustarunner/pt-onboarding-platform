@@ -818,7 +818,27 @@ export const assist = async (req, res, next) => {
 
     assistantText = buildAssistantReplyFromTools(assistantText, toolResults);
     const nextActions = buildNextActionsFromToolResults({ toolResults, allowedToolNames });
-    const nextCards = buildNextCardsFromToolResults({ toolResults, allowedToolNames });
+    let nextCards = buildNextCardsFromToolResults({ toolResults, allowedToolNames });
+
+    // If the LLM responded without running any tools (e.g. it hallucinated
+    // "Found 2 schools" from conversation history without re-searching), carry
+    // forward the disambiguation cards from the most recent assistant turn in
+    // history so the user always has something clickable.
+    if (!nextCards.length && toolCalls.length === 0) {
+      const historyArr = Array.isArray(req.body?.history) ? req.body.history : [];
+      for (let i = historyArr.length - 1; i >= 0; i--) {
+        const h = historyArr[i];
+        if (h?.role === 'assistant' && Array.isArray(h.cards) && h.cards.length) {
+          nextCards = h.cards;
+          // Nudge the assistant text toward "here they are, click one" rather
+          // than leaving the model's repeated "which one did you mean?" loop.
+          if (!assistantText || /which one did you mean/i.test(assistantText)) {
+            assistantText = `Here are the options I found — click one to open it:`;
+          }
+          break;
+        }
+      }
+    }
 
     // Non-blocking audit logging for the request itself.
     try {
