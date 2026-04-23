@@ -1276,6 +1276,17 @@ export const assist = async (req, res, next) => {
     const nextActions = buildNextActionsFromToolResults({ toolResults, allowedToolNames });
     let nextCards = buildNextCardsFromToolResults({ toolResults, allowedToolNames });
 
+    // Hallucination guard: if the LLM produced "Found N…" / "I see N…" / etc.
+    // but no successful tool actually ran this turn, the answer is fabricated.
+    // Replace with an honest fallback so the UI never displays invented results.
+    const ranAnyTool = toolResults.some((r) => r?.ok);
+    const looksFabricated = /\b(found|i (?:see|see that there are)|there are)\s+(\d+|two|three|four|five|six|seven|eight|nine|ten|several)\b/i.test(assistantText) ||
+      /\bsearching\b|\blooking\b/i.test(assistantText);
+    if (looksFabricated && !ranAnyTool && !nextCards.length) {
+      assistantText =
+        "I couldn't run that lookup — could you rephrase? Tip: try things like \"open Twain Elementary portal\", \"who has an intake opening today\", or \"what offices are open today\".";
+    }
+
     // If the LLM responded without running any tools (e.g. it hallucinated
     // "Found 2 schools" from conversation history without re-searching), carry
     // forward the disambiguation cards from the most recent assistant turn in
