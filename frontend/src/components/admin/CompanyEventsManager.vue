@@ -360,6 +360,15 @@
             </td>
             <td class="row-actions">
               <button type="button" class="btn btn-secondary btn-sm" @click="editEvent(event)">Edit</button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm push-as-splash-btn"
+                title="Drop this event into a slide-out splash on every staff dashboard so they can share it with families."
+                :disabled="saving || pushingSplashEventId === event.id"
+                @click="pushEventAsSplash(event)"
+              >
+                {{ pushingSplashEventId === event.id ? 'Pushing…' : 'Push as splash →' }}
+              </button>
               <button type="button" class="btn btn-secondary btn-sm" @click="sendDirectMessage(event)" :disabled="saving">Send message</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="sendSmsVote(event)" :disabled="saving || !event.votingConfig?.enabled || !event.votingConfig?.viaSms || !!event.votingClosedAt">Send SMS</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="viewDeliveryLogs(event)" :disabled="saving">Delivery</button>
@@ -379,9 +388,12 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import api from '../../services/api';
 
+const router = useRouter();
 const affiliateProgramOrgs = ref([]);
+const pushingSplashEventId = ref(null);
 
 const props = defineProps({
   agencyId: {
@@ -889,6 +901,73 @@ const removeEvent = async (event) => {
   }
 };
 
+/**
+ * Quick action: turn this event into an agency-wide marketing splash so every
+ * staff member sees a slide-out promo on their dashboard with a QR + link they
+ * can share with families. The splash is created as INACTIVE; the admin then
+ * lands on the marketing-campaigns admin page to fine-tune copy/audience and
+ * flip it on. Audience defaults to every signed-in role + school staff so it
+ * shows on staff dashboards AND school portals.
+ */
+const SPLASH_DEFAULT_AUDIENCES = [
+  'school_staff',
+  'admin',
+  'support',
+  'staff',
+  'provider',
+  'provider_plus',
+  'intern',
+  'clinical_practice_assistant',
+  'supervisor',
+  'schedule_manager'
+];
+
+const pushEventAsSplash = async (event) => {
+  if (!props.agencyId || !event?.id) return;
+  if (pushingSplashEventId.value) return;
+  const ok = window.confirm(
+    `Create a marketing splash for "${event.title}" that pushes to every staff dashboard and school portal in this agency?\n\n`
+    + `It will be created OFF so you can review the copy, then flip it on from the campaigns page.`
+  );
+  if (!ok) return;
+  pushingSplashEventId.value = event.id;
+  error.value = '';
+  try {
+    const payload = {
+      title: String(event.title || '').slice(0, 180) || 'Upcoming event',
+      subtitle: 'Share with your families',
+      body: event.splashContent || event.publicListingDetails || event.description || null,
+      ctaLabel: 'Open registration',
+      destinationKind: 'event',
+      destinationId: Number(event.id),
+      audienceKinds: SPLASH_DEFAULT_AUDIENCES,
+      // Created OFF — admin reviews on the campaigns page and flips it on.
+      isActive: false,
+      initialState: 'peek',
+      position: 'right',
+      showQr: true,
+      showFlier: false,
+      // Window mirrors the event when known so the splash auto-retires.
+      startsAt: event.startsAt || null,
+      endsAt: event.endsAt || null
+    };
+    const { data } = await api.post(
+      `/agency-marketing-splashes/agencies/${props.agencyId}`,
+      payload
+    );
+    const newId = Number(data?.id || 0);
+    // Hand off to the campaigns admin so they can tweak/activate.
+    router.push({
+      path: '/admin/marketing-campaigns',
+      hash: newId ? `#splash-${newId}` : ''
+    });
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to create splash';
+  } finally {
+    pushingSplashEventId.value = null;
+  }
+};
+
 const sendDirectMessage = async (event) => {
   if (!props.agencyId || !event?.id) return;
   const defaultMessage = String(event.splashContent || event.description || '').trim();
@@ -1164,6 +1243,16 @@ watch(() => props.agencyId, async () => {
 .row-actions {
   display: flex;
   gap: 6px;
+  flex-wrap: wrap;
+}
+.push-as-splash-btn {
+  background: rgba(79, 70, 229, 0.10);
+  border-color: rgba(79, 70, 229, 0.45);
+  color: #4338ca;
+  font-weight: 700;
+}
+.push-as-splash-btn:hover:not(:disabled) {
+  background: rgba(79, 70, 229, 0.18);
 }
 @media (max-width: 900px) {
   .template-bar,

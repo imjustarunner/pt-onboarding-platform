@@ -45,71 +45,14 @@
       </div>
     </div>
 
-    <div
-      v-if="!previewMode && isOnboardingComplete && generalCompanyEvents.length > 0"
-      class="company-events-strip ce-strip-modern"
-      :class="{ 'ce-strip-collapsed': companyEventsCollapsed }"
-    >
-      <div
-        class="company-events-head ce-strip-head"
-        :class="{ 'dash-attn-pulse': companyEventsAttentionPulse }"
-      >
-        <div class="ce-strip-head-text">
-          <strong>Upcoming company events</strong>
-          <small class="hint">Agency events targeted to you (not Skill Builders series — those are under My Schedule)</small>
-        </div>
-        <div class="ce-strip-head-actions">
-          <span class="ce-count-pill" aria-hidden="true">{{ generalCompanyEvents.length }}</span>
-          <button type="button" class="btn btn-secondary btn-sm top-snapshot-toggle" @click="toggleCompanyEventsCollapsed">
-            {{ companyEventsCollapsed ? 'Expand' : 'Collapse' }}
-          </button>
-        </div>
-      </div>
-      <div v-if="!companyEventsCollapsed" class="company-events-list ce-modern-grid">
-        <article
-          v-for="event in generalCompanyEvents"
-          :key="`event-${event.id}`"
-          class="ce-modern-card"
-          :class="{ 'ce-modern-direct': event.eventType === 'direct_notice' }"
-        >
-          <div class="ce-modern-card-inner">
-            <div class="ce-modern-meta">
-              <span class="ce-type-pill">{{ companyEventTypeLabel(event) }}</span>
-              <span v-if="companyEventRecurrenceChip(event)" class="ce-recurrence-pill">{{ companyEventRecurrenceChip(event) }}</span>
-            </div>
-            <h3 class="ce-modern-title">
-              {{ event.title }}
-              <span v-if="event.eventType === 'direct_notice'" class="hint"> · Direct message</span>
-            </h3>
-            <div class="ce-modern-when">{{ formatCompanyEventWhen(event) }}</div>
-            <p v-if="event.splashContent" class="ce-modern-desc">{{ event.splashContent }}</p>
-            <div v-if="event.votingConfig?.enabled" class="company-event-rsvp">
-              <div class="hint">
-                {{ event.votingConfig?.question || 'RSVP' }}
-                <span v-if="event.myResponse"> — Your response: {{ event.myResponse.responseLabel }}</span>
-                <span v-if="event.votingClosedAt"> (closed)</span>
-              </div>
-              <div v-if="!event.votingClosedAt" class="company-event-rsvp-actions">
-                <button
-                  v-for="opt in (event.votingConfig?.options || [])"
-                  :key="`${event.id}-${opt.key}`"
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  @click="respondToCompanyEvent(event, opt.key)"
-                >
-                  {{ opt.label }}
-                </button>
-              </div>
-            </div>
-            <div v-if="event.eventType !== 'direct_notice'" class="ce-modern-links">
-              <a v-if="event.googleCalendarUrl" :href="event.googleCalendarUrl" target="_blank" rel="noopener">Google Calendar</a>
-              <span v-if="event.googleCalendarUrl && event.icsUrl"> · </span>
-              <a v-if="event.icsUrl" :href="event.icsUrl">ICS file</a>
-            </div>
-          </div>
-        </article>
-      </div>
-    </div>
+    <!--
+      The legacy "Upcoming company events" strip was removed (felt noisy at the
+      top of My Dashboard). Agency-wide pushes now happen exclusively through
+      the marketing splash system (SchoolMarketingSplash mode="dashboard"),
+      which already mounts further down for every signed-in user. Admins can
+      compose a per-event push from /admin/marketing-campaigns or the new
+      "Push as splash →" quick action on each row in Company Events.
+    -->
 
     <div
       v-if="!previewMode && isOnboardingComplete && !isClubContext && optionalSupervisionPrompts.length > 0"
@@ -1867,39 +1810,18 @@ const snapshotCollapseStorageKeyForUser = () => {
   return uid ? `${SNAPSHOT_COLLAPSE_LEGACY_KEY}:${uid}` : '';
 };
 
-const COMPANY_EVENTS_COLLAPSE_KEY = 'dashboard.companyEventsCollapsed.v1';
 const SKILL_BUILDERS_SERIES_COLLAPSE_KEY = 'dashboard.skillBuildersSeriesCollapsed.v1';
 
-const companyEventsCollapsed = ref(false);
 const skillBuildersSeriesCollapsed = ref(false);
 const snapshotAttentionPulse = ref(false);
-const companyEventsAttentionPulse = ref(false);
 const socialFeedsAttentionPulse = ref(false);
 const skillBuildersSeriesAttentionPulse = ref(false);
 
 const isSeriesCompanyEvent = (e) => String(e?.eventType || '').toLowerCase() === 'skills_group';
 
-const generalCompanyEvents = computed(() =>
-  (companyEvents.value || []).filter((e) => !isSeriesCompanyEvent(e)).slice(0, 8)
-);
 const seriesCompanyEvents = computed(() =>
   (companyEvents.value || []).filter((e) => isSeriesCompanyEvent(e)).slice(0, 8)
 );
-
-const companyEventTypeLabel = (event) => {
-  const t = String(event?.eventType || '').toLowerCase();
-  if (t === 'direct_notice') return 'Direct';
-  if (t === 'skills_group') return 'Series';
-  return 'Event';
-};
-
-const companyEventRecurrenceChip = (event) => {
-  const r = String(event?.recurrence?.frequency || event?.recurrence_json?.frequency || 'none').toLowerCase();
-  if (r === 'weekly') return 'Weekly';
-  if (r === 'monthly') return 'Monthly';
-  if (r === 'none' || !r) return isSeriesCompanyEvent(event) ? 'Term window' : 'One-time';
-  return r;
-};
 
 const loadSnapshotCollapsed = () => {
   if (!persistMySnapshotCollapsed.value) {
@@ -1925,28 +1847,11 @@ const loadSnapshotCollapsed = () => {
   }
 };
 
-const loadCompanyEventsCollapsed = () => {
-  try {
-    companyEventsCollapsed.value = window?.localStorage?.getItem?.(COMPANY_EVENTS_COLLAPSE_KEY) === '1';
-  } catch {
-    companyEventsCollapsed.value = false;
-  }
-};
-
 const loadSkillBuildersSeriesCollapsed = () => {
   try {
     skillBuildersSeriesCollapsed.value = window?.localStorage?.getItem?.(SKILL_BUILDERS_SERIES_COLLAPSE_KEY) === '1';
   } catch {
     skillBuildersSeriesCollapsed.value = false;
-  }
-};
-
-const toggleCompanyEventsCollapsed = () => {
-  companyEventsCollapsed.value = !companyEventsCollapsed.value;
-  try {
-    window?.localStorage?.setItem?.(COMPANY_EVENTS_COLLAPSE_KEY, companyEventsCollapsed.value ? '1' : '0');
-  } catch {
-    /* ignore */
   }
 };
 
@@ -4596,7 +4501,6 @@ onMounted(async () => {
   }
 
   loadSnapshotCollapsed();
-  loadCompanyEventsCollapsed();
   loadSkillBuildersSeriesCollapsed();
   loadSocialFeedsCollapsed();
 
@@ -4605,12 +4509,6 @@ onMounted(async () => {
       snapshotAttentionPulse.value = true;
       window.setTimeout(() => {
         snapshotAttentionPulse.value = false;
-      }, 3200);
-    }
-    if (companyEventsCollapsed.value && generalCompanyEvents.value.length > 0) {
-      companyEventsAttentionPulse.value = true;
-      window.setTimeout(() => {
-        companyEventsAttentionPulse.value = false;
       }, 3200);
     }
     if (socialFeedsCollapsed.value && dashboardSocialFeeds.value.length > 0) {
