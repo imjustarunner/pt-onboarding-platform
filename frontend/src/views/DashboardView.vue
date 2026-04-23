@@ -98,6 +98,7 @@
       </div>
     </div>
 
+    <FacilitatorAvailabilityPromptCard v-if="!previewMode && isOnboardingComplete && !isClubContext" />
     <SurveyPromptCard v-if="!previewMode && isOnboardingComplete && !isClubContext" />
     <ClubEmployerSharePromptCard v-if="showEmployerClubSharePromptsShell" />
     <BookClubPromptCard v-if="!previewMode && isOnboardingComplete && !isClubContext" />
@@ -1342,6 +1343,7 @@ import SocialFeedsPanel from '../components/dashboard/SocialFeedsPanel.vue';
 import PresenceStatusWidget from '../components/dashboard/PresenceStatusWidget.vue';
 import StaffCard from '../components/dashboard/StaffCard.vue';
 import SurveyPromptCard from '../components/dashboard/SurveyPromptCard.vue';
+import FacilitatorAvailabilityPromptCard from '../components/dashboard/FacilitatorAvailabilityPromptCard.vue';
 import BookClubPromptCard from '../components/bookClub/BookClubPromptCard.vue';
 import ClubEmployerSharePromptCard from '../components/club/ClubEmployerSharePromptCard.vue';
 import { isNativePlatform } from '../utils/biometricAuth.js';

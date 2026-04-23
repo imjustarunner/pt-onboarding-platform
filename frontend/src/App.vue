@@ -542,6 +542,10 @@
                       :to="orgTo('/admin/documents')"
                       v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canSignDocuments')"
                     >Documents</router-link>
+                    <router-link
+                      :to="orgTo('/admin/facilitator-availability')"
+                      v-if="isAdmin && !isAffiliationContext"
+                    >Facilitator Availability</router-link>
                     <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" >Expense/Reimbursements</router-link>
                     <router-link :to="orgTo('/admin/budget-management')" v-if="canSeeBudgetManagement" >Budget Management</router-link>
                     <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" >Revenue</router-link>

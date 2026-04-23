@@ -171,6 +171,7 @@ import companyEventClientsRoutes from './routes/companyEventClients.routes.js';
 import companyEventStaffingRoutes from './routes/companyEventStaffing.routes.js';
 import companyEventsPublicRoutes from './routes/companyEventsPublic.routes.js';
 import surveyRoutes from './routes/survey.routes.js';
+import { employeeRouter as facilitatorAvailabilityEmployeeRoutes, adminRouter as facilitatorAvailabilityAdminRoutes } from './routes/facilitatorAvailability.routes.js';
 import stripeWebhookRoutes from './routes/stripeWebhook.routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -736,6 +737,8 @@ app.use('/api/company-car', companyCarRoutes);
 app.use('/api/company-events', companyEventClientsRoutes);
 app.use('/api/company-events', companyEventStaffingRoutes);
 app.use('/api/surveys', surveyRoutes);
+app.use('/api/facilitator-availability', facilitatorAvailabilityEmployeeRoutes);
+app.use('/api/agencies/:agencyId/facilitator-availability', facilitatorAvailabilityAdminRoutes);
 app.use('/api/budget', (req, res, next) => {
   import('./routes/budget.routes.js')
     .then((m) => m.default(req, res, next))

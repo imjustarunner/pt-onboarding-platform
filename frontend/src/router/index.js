@@ -1017,6 +1017,18 @@ const routes = [
     }
   },
   {
+    path: '/:organizationSlug/admin/facilitator-availability',
+    name: 'OrganizationFacilitatorAvailability',
+    component: () => import('../views/admin/FacilitatorAvailabilityView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'], organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/facilitator-availability/:requestId',
+    name: 'OrganizationFacilitatorAvailabilityForm',
+    component: () => import('../views/FacilitatorAvailabilityFormView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/surveys/:id/results',
     name: 'OrganizationSurveyResults',
     component: () => import('../views/admin/SurveyResultsView.vue'),
@@ -1720,6 +1732,18 @@ const routes = [
     name: 'SurveyResults',
     component: () => import('../views/admin/SurveyResultsView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus'] }
+  },
+  {
+    path: '/admin/facilitator-availability',
+    name: 'FacilitatorAvailability',
+    component: () => import('../views/admin/FacilitatorAvailabilityView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
+  },
+  {
+    path: '/facilitator-availability/:requestId',
+    name: 'FacilitatorAvailabilityForm',
+    component: () => import('../views/FacilitatorAvailabilityFormView.vue'),
+    meta: { requiresAuth: true }
   },
   {
     path: '/admin/intake-links',

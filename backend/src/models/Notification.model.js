@@ -117,6 +117,8 @@ class Notification {
     'school_primary_staff_removed',
     // Public form submission (no client) - document landed in Unassigned Documents
     'unassigned_document_submitted',
+    // Facilitator availability
+    'facilitator_availability_push',
     // Hiring
     'new_job_application_submitted',
     'hiring_task_assigned',
