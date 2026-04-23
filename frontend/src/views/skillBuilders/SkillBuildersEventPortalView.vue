@@ -1218,6 +1218,172 @@
                   </table>
                 </div>
 
+                <div v-else-if="participantStatusFilter === 'participants'" class="sbep-roster-table-wrap sbep-participants-wrap">
+                  <table class="sbep-roster-table sbep-roster-table--participants sbep-roster-table--graduated">
+                    <thead>
+                      <tr>
+                        <th>Participant</th>
+                        <th>Age</th>
+                        <th>Grade</th>
+                        <th class="sbep-flag-th" title="Eloping risk reported on intake">
+                          <span aria-hidden="true">🚸</span> Eloping
+                        </th>
+                        <th class="sbep-flag-th" title="Extra support requested on intake">
+                          <span aria-hidden="true">🤝</span> Support
+                        </th>
+                        <th>Comments</th>
+                        <th>Confirmed</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr
+                        v-for="c in genericParticipants"
+                        :key="`part-${c.clientId}`"
+                        :class="{ 'sbep-row-mine': isMyParticipant(c) }"
+                      >
+                        <td>
+                          <router-link
+                            v-if="rosterClientLinkTo({ id: c.clientId })"
+                            :to="rosterClientLinkTo({ id: c.clientId })"
+                            class="sbep-roster-client-link"
+                          >
+                            {{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}
+                          </router-link>
+                          <template v-else>{{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}</template>
+                        </td>
+                        <td>{{ c.ageYears != null ? c.ageYears : '—' }}</td>
+                        <td>{{ c.grade || '—' }}</td>
+                        <td class="sbep-flag-cell">
+                          <button
+                            v-if="c.elopingFlag"
+                            type="button"
+                            class="sbep-safety-chip sbep-safety-chip--eloping"
+                            :class="{ 'is-readonly': !isAdminViewer }"
+                            :disabled="!isAdminViewer || participantWorkflowSavingClientId === c.clientId"
+                            :title="isAdminViewer
+                              ? `Click to remove (admin override)${c.elopingNotes ? ' — Notes: ' + c.elopingNotes : ''}`
+                              : `Eloping risk from intake${c.elopingNotes ? ' — Notes: ' + c.elopingNotes : ''}. Only an admin can de-select.`"
+                            @click="setParticipantSafetyFlag(c, 'elopingFlag', null)"
+                          >
+                            <span aria-hidden="true">✓</span> Yes
+                          </button>
+                          <span v-else class="sbep-flag-empty" aria-label="Not flagged">—</span>
+                        </td>
+                        <td class="sbep-flag-cell">
+                          <button
+                            v-if="c.extraAssistanceFlag"
+                            type="button"
+                            class="sbep-safety-chip sbep-safety-chip--support"
+                            :class="{ 'is-readonly': !isAdminViewer }"
+                            :disabled="!isAdminViewer || participantWorkflowSavingClientId === c.clientId"
+                            :title="isAdminViewer
+                              ? `Click to remove (admin override)${c.extraAssistanceNotes ? ' — Notes: ' + c.extraAssistanceNotes : ''}`
+                              : `Extra support requested on intake${c.extraAssistanceNotes ? ' — Notes: ' + c.extraAssistanceNotes : ''}. Only an admin can de-select.`"
+                            @click="setParticipantSafetyFlag(c, 'extraAssistanceFlag', null)"
+                          >
+                            <span aria-hidden="true">✓</span> Yes
+                          </button>
+                          <span v-else class="sbep-flag-empty" aria-label="Not flagged">—</span>
+                        </td>
+                        <td style="min-width: 200px;">
+                          <input
+                            v-model.trim="c.notes"
+                            class="input"
+                            type="text"
+                            placeholder="Optional…"
+                            :disabled="participantNotesSavingClientId === c.clientId"
+                            @blur="saveParticipantNotes(c)"
+                          />
+                        </td>
+                        <td class="sbep-confirm-cell">
+                          <div class="sbep-attend-pills" role="radiogroup" aria-label="Family attendance confirmation">
+                            <button
+                              type="button"
+                              role="radio"
+                              :aria-checked="(c.confirmationStatus || 'pending') === 'yes'"
+                              class="sbep-attend-pill sbep-attend-pill--yes"
+                              :class="{ 'is-active': c.confirmationStatus === 'yes' }"
+                              :disabled="participantWorkflowSavingClientId === c.clientId"
+                              :title="formatWorkflowTooltip(
+                                c.confirmationSetMethod === 'admin_override' ? 'Admin override — Yes' : 'Confirmed Yes',
+                                c.confirmationSetAt,
+                                c.confirmationSetByName
+                              )"
+                              @click="setParticipantConfirmation(c, 'yes')"
+                            >
+                              Yes
+                            </button>
+                            <button
+                              type="button"
+                              role="radio"
+                              :aria-checked="(c.confirmationStatus || 'pending') === 'no'"
+                              class="sbep-attend-pill sbep-attend-pill--no"
+                              :class="{ 'is-active': c.confirmationStatus === 'no' }"
+                              :disabled="participantWorkflowSavingClientId === c.clientId"
+                              :title="formatWorkflowTooltip(
+                                c.confirmationSetMethod === 'admin_override' ? 'Admin override — No' : 'Declined',
+                                c.confirmationSetAt,
+                                c.confirmationSetByName
+                              )"
+                              @click="setParticipantConfirmation(c, 'no')"
+                            >
+                              No
+                            </button>
+                            <button
+                              type="button"
+                              role="radio"
+                              :aria-checked="(c.confirmationStatus || 'pending') === 'pending'"
+                              class="sbep-attend-pill sbep-attend-pill--pending"
+                              :class="{ 'is-active': (c.confirmationStatus || 'pending') === 'pending' }"
+                              :disabled="participantWorkflowSavingClientId === c.clientId"
+                              title="No reply yet — reset to pending"
+                              @click="setParticipantConfirmation(c, 'pending')"
+                            >
+                              Pending
+                            </button>
+                          </div>
+                          <p
+                            v-if="c.confirmationSetByName && c.confirmationStatus !== 'pending'"
+                            class="muted small sbep-confirm-meta"
+                          >
+                            <span v-if="c.confirmationSetMethod === 'admin_override'">Override · {{ c.confirmationSetByName }}</span>
+                            <span v-else>{{ c.confirmationSetByName }}</span>
+                          </p>
+                        </td>
+                        <td class="sbep-roster-actions">
+                          <div class="sbep-row-action-stack">
+                            <button
+                              type="button"
+                              class="btn btn-primary btn-sm sbep-row-save-btn"
+                              :disabled="participantWorkflowSavingClientId === c.clientId || participantNotesSavingClientId === c.clientId"
+                              @click="saveParticipantRow(c)"
+                            >
+                              Save
+                            </button>
+                            <span
+                              v-if="participantRowSaveStatus[c.clientId]"
+                              class="sbep-row-save-status"
+                              :class="`is-${participantRowSaveStatus[c.clientId].state}`"
+                              :title="participantRowSaveStatus[c.clientId].message || ''"
+                            >
+                              <template v-if="participantRowSaveStatus[c.clientId].state === 'saving'">Saving…</template>
+                              <template v-else-if="participantRowSaveStatus[c.clientId].state === 'saved'">Saved ✓</template>
+                              <template v-else-if="participantRowSaveStatus[c.clientId].state === 'error'">Error</template>
+                            </span>
+                            <button type="button" class="btn btn-link btn-sm sbep-row-remove-btn" @click="removeGenericParticipant(c)">Remove</button>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <p class="muted small sbep-participants-footnote">
+                    Confirmed pills are coordinator-managed today. When the
+                    "We can't wait to see you — will you be attending?" SMS/email automation lands, replies
+                    will set Yes/No automatically; admin overrides will continue to win and are tagged as such on hover.
+                  </p>
+                </div>
+
                 <div v-else class="sbep-roster-table-wrap">
                   <table class="sbep-roster-table sbep-roster-table--participants">
                     <thead>
@@ -3492,6 +3658,41 @@ async function toggleParticipantIntake(row) {
   await patchParticipantWorkflow(row, { intakeComplete: next });
 }
 
+/**
+ * Family attendance confirmation: 'pending' | 'yes' | 'no'.
+ * Currently every change is a coordinator/admin-driven override (the SMS/email
+ * automation that will set this automatically isn't built yet).
+ */
+async function setParticipantConfirmation(row, status) {
+  const norm = status === 'yes' || status === 'no' || status === 'pending' ? status : 'pending';
+  if ((row?.confirmationStatus || 'pending') === norm) return;
+  await patchParticipantWorkflow(row, { confirmationStatus: norm });
+}
+
+/**
+ * De-select an intake safety flag (eloping or extra-support). Admin-only on the
+ * server side too — non-admins see the checkbox as read-only and the API will
+ * reject the PATCH if they try to bypass it.
+ */
+async function setParticipantSafetyFlag(row, field, next) {
+  const isAdmin = roleLower.value === 'admin' || roleLower.value === 'super_admin';
+  if (!isAdmin) {
+    window.alert('Only an admin can change this flag.');
+    return;
+  }
+  if (field !== 'elopingFlag' && field !== 'extraAssistanceFlag') return;
+  // Toggle: if already set true and admin clicks → null (remove). If currently
+  // null/false, the admin would normally not be re-flagging; only "de-select"
+  // is in scope per the user's spec, so we cap to true → null.
+  const cur = row?.[field];
+  const nextVal = next === undefined ? (cur ? null : null) : next;
+  await patchParticipantWorkflow(row, { [field]: nextVal });
+}
+
+const isAdminViewer = computed(
+  () => roleLower.value === 'admin' || roleLower.value === 'super_admin'
+);
+
 /** Tri-state intake outcome: 'accepted' | 'denied' | null (Needed) */
 async function setParticipantIntakeOutcome(row, outcome) {
   const norm = outcome === 'accepted' || outcome === 'denied' ? outcome : null;
@@ -3529,12 +3730,21 @@ async function saveParticipantRow(row) {
   participantWorkflowSavingClientId.value = clientId;
   setParticipantRowSaveStatus(clientId, 'saving');
   try {
-    await api.patch(`/company-events/${eid}/clients/${clientId}/workflow`, {
+    const payload = {
       agencyId: aid,
       assignedProviderUserId: row?.assignedProviderUserId ?? null,
       intakeComplete: !!row?.intakeComplete,
-      treatmentPlanComplete: !!row?.treatmentPlanComplete
-    });
+      treatmentPlanComplete: !!row?.treatmentPlanComplete,
+      intakeOutcome: row?.intakeOutcome ?? null,
+      confirmationStatus: row?.confirmationStatus || 'pending'
+    };
+    // Only admins can change safety flags; skip them for everyone else so the
+    // explicit Save button doesn't trip the 403.
+    if (isAdminViewer.value) {
+      if (row?.elopingFlag !== undefined) payload.elopingFlag = row.elopingFlag;
+      if (row?.extraAssistanceFlag !== undefined) payload.extraAssistanceFlag = row.extraAssistanceFlag;
+    }
+    await api.patch(`/company-events/${eid}/clients/${clientId}/workflow`, payload);
     await api.patch(`/company-events/${eid}/clients/${clientId}`, {
       agencyId: aid,
       notes: row?.notes ?? null
@@ -5690,6 +5900,120 @@ watch(
   line-height: 1.3;
   color: var(--text-secondary, #94a3b8);
   max-width: 140px;
+}
+
+/* ===== Compact participants table (graduated workflow) ===== */
+.sbep-participants-wrap {
+  border: 1px solid rgba(15, 118, 110, 0.18);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(204, 251, 241, 0.18);
+}
+.sbep-participants-footnote {
+  margin: 8px 4px 0;
+  font-style: italic;
+  opacity: 0.85;
+}
+.sbep-flag-th {
+  white-space: nowrap;
+}
+.sbep-flag-cell {
+  white-space: nowrap;
+}
+.sbep-flag-empty {
+  color: var(--text-secondary, #cbd5e1);
+  font-weight: 700;
+}
+.sbep-safety-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: transform 80ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+.sbep-safety-chip:disabled {
+  cursor: not-allowed;
+}
+.sbep-safety-chip.is-readonly {
+  cursor: help;
+  opacity: 0.95;
+}
+.sbep-safety-chip--eloping {
+  background: rgba(220, 38, 38, 0.14);
+  color: #b91c1c;
+  border-color: rgba(220, 38, 38, 0.35);
+}
+.sbep-safety-chip--eloping:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.22);
+}
+.sbep-safety-chip--support {
+  background: rgba(245, 158, 11, 0.16);
+  color: #b45309;
+  border-color: rgba(245, 158, 11, 0.4);
+}
+.sbep-safety-chip--support:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.24);
+}
+
+/* Family-attendance pill triplet (Yes / No / Pending) — distinct from the
+   single-button .sbep-confirm-pill used elsewhere on the staffing tables. */
+.sbep-confirm-cell {
+  min-width: 200px;
+}
+.sbep-attend-pills {
+  display: inline-flex;
+  background: var(--surface-2, #f1f5f9);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 2px;
+}
+.sbep-attend-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary, #64748b);
+  transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+.sbep-attend-pill:hover:not(:disabled):not(.is-active) {
+  color: var(--text, #0f172a);
+}
+.sbep-attend-pill:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+.sbep-attend-pill--yes.is-active {
+  background: rgba(16, 185, 129, 0.22);
+  color: #047857;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+.sbep-attend-pill--no.is-active {
+  background: rgba(239, 68, 68, 0.20);
+  color: #b91c1c;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+.sbep-attend-pill--pending.is-active {
+  background: var(--surface, #ffffff);
+  color: var(--text, #0f172a);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+.sbep-confirm-meta {
+  margin: 4px 0 0;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 700;
 }
 .sbep-row-mine {
   background: rgba(15, 118, 110, 0.06);

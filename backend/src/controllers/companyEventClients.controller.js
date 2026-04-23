@@ -47,6 +47,16 @@ async function canManageProgramEvent(req, agencyId) {
   return getProgramCoordinatorAccess(parsePositiveInt(req.user?.id));
 }
 
+/**
+ * Eloping / extra-support flags come from the family's intake. Coordinators can
+ * see and act on them, but **only admins / super-admins can de-select** them
+ * (they're a safety signal — clearing them by accident would be bad).
+ */
+function isAgencyAdmin(req) {
+  const role = String(req.user?.role || '').toLowerCase();
+  return role === 'super_admin' || role === 'admin';
+}
+
 async function loadEventForAgency(eventId, agencyId) {
   const [rows] = await pool.execute(
     `SELECT id, agency_id, organization_id, event_type
@@ -165,6 +175,10 @@ export const listCompanyEventClients = async (req, res, next) => {
              c.date_of_birth,
              c.status,
              c.document_status AS documentStatus,
+             c.eloping_flag,
+             c.extra_assistance_flag,
+             c.eloping_notes,
+             c.extra_assistance_notes,
              cec.is_active AS isActive,
              cec.enrolled_at AS enrolledAt,
              cec.notes,
@@ -179,12 +193,18 @@ export const listCompanyEventClients = async (req, res, next) => {
              cec.treatment_plan_complete,
              cec.treatment_plan_completed_at,
              tpu.first_name AS tp_by_first_name,
-             tpu.last_name AS tp_by_last_name
+             tpu.last_name AS tp_by_last_name,
+             cec.confirmation_status,
+             cec.confirmation_set_at,
+             cec.confirmation_set_method,
+             cfu.first_name AS confirmation_by_first_name,
+             cfu.last_name AS confirmation_by_last_name
            FROM company_event_clients cec
            INNER JOIN clients c ON c.id = cec.client_id AND c.agency_id = cec.agency_id
            LEFT JOIN users pu ON pu.id = cec.assigned_provider_user_id
            LEFT JOIN users icu ON icu.id = cec.intake_completed_by_user_id
            LEFT JOIN users tpu ON tpu.id = cec.treatment_plan_completed_by_user_id
+           LEFT JOIN users cfu ON cfu.id = cec.confirmation_set_by_user_id
            WHERE cec.company_event_id = ? AND cec.agency_id = ?
              ${statusWhere}
            ORDER BY COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code, CONCAT('Client ', c.id)) ASC`,
@@ -193,6 +213,9 @@ export const listCompanyEventClients = async (req, res, next) => {
         rows = r || [];
       } catch (e) {
         const msg = String(e?.message || '');
+        if (msg.includes('Unknown column') && msg.includes('confirmation_status')) {
+          return res.status(503).json({ error: { message: 'Run database migration 803_company_event_clients_confirmation.sql' } });
+        }
         if (msg.includes('Unknown column') && msg.includes('intake_outcome')) {
           return res.status(503).json({ error: { message: 'Run database migration 802_company_event_clients_intake_outcome.sql' } });
         }
@@ -227,6 +250,9 @@ export const listCompanyEventClients = async (req, res, next) => {
       ok: true,
       counts,
       statusFilter,
+      // The viewer-capability flag lets the participants UI know whether to render
+      // editable eloping/extra-support checkboxes (admin-only).
+      viewerIsAdmin: includeWorkflow ? isAgencyAdmin(req) : undefined,
       clients: (rows || []).map((r) => ({
         clientId: Number(r.clientId),
         initials: r.initials || null,
@@ -239,6 +265,10 @@ export const listCompanyEventClients = async (req, res, next) => {
         isActive: r.isActive === true || r.isActive === 1,
         enrolledAt: r.enrolledAt || null,
         notes: r.notes || null,
+        elopingFlag: r.eloping_flag == null ? null : (r.eloping_flag === 1 || r.eloping_flag === true),
+        extraAssistanceFlag: r.extra_assistance_flag == null ? null : (r.extra_assistance_flag === 1 || r.extra_assistance_flag === true),
+        elopingNotes: r.eloping_notes || null,
+        extraAssistanceNotes: r.extra_assistance_notes || null,
         assignedProviderUserId: r.assigned_provider_user_id ? Number(r.assigned_provider_user_id) : null,
         assignedProviderName:
           r.provider_first_name || r.provider_last_name
@@ -256,6 +286,13 @@ export const listCompanyEventClients = async (req, res, next) => {
         treatmentPlanCompletedByName:
           r.tp_by_first_name || r.tp_by_last_name
             ? `${r.tp_by_first_name || ''} ${r.tp_by_last_name || ''}`.trim()
+            : null,
+        confirmationStatus: r.confirmation_status ? String(r.confirmation_status).toLowerCase() : 'pending',
+        confirmationSetAt: r.confirmation_set_at || null,
+        confirmationSetMethod: r.confirmation_set_method ? String(r.confirmation_set_method).toLowerCase() : null,
+        confirmationSetByName:
+          r.confirmation_by_first_name || r.confirmation_by_last_name
+            ? `${r.confirmation_by_first_name || ''} ${r.confirmation_by_last_name || ''}`.trim()
             : null
       }))
     });
@@ -512,12 +549,51 @@ export const patchCompanyEventClientWorkflow = async (req, res, next) => {
     const tpComplete =
       req.body?.treatmentPlanComplete === undefined ? undefined : !!req.body.treatmentPlanComplete;
 
+    // Family attendance confirmation — pending | yes | no. Anyone with manage rights
+    // can record the answer (it's a routine coordinator task); the set_method records
+    // whether it came from an admin override vs an automated reply.
+    let confirmationStatus;
+    if (req.body?.confirmationStatus === undefined) {
+      confirmationStatus = undefined;
+    } else if (req.body.confirmationStatus === null || req.body.confirmationStatus === '') {
+      confirmationStatus = 'pending';
+    } else {
+      const v = String(req.body.confirmationStatus).toLowerCase();
+      if (v !== 'pending' && v !== 'yes' && v !== 'no') {
+        return res.status(400).json({ error: { message: 'confirmationStatus must be "pending", "yes", or "no"' } });
+      }
+      confirmationStatus = v;
+    }
+
+    // Eloping / extra-support flags came from the family on intake. Admins can
+    // de-select them after a phone call/clarification — coordinators cannot.
+    const isAdmin = isAgencyAdmin(req);
+    let elopingFlag;
+    if (req.body?.elopingFlag === undefined) {
+      elopingFlag = undefined;
+    } else if (!isAdmin) {
+      return res.status(403).json({ error: { message: 'Only admins can change the eloping flag' } });
+    } else {
+      elopingFlag = req.body.elopingFlag === null ? null : !!req.body.elopingFlag;
+    }
+    let extraAssistanceFlag;
+    if (req.body?.extraAssistanceFlag === undefined) {
+      extraAssistanceFlag = undefined;
+    } else if (!isAdmin) {
+      return res.status(403).json({ error: { message: 'Only admins can change the extra-support flag' } });
+    } else {
+      extraAssistanceFlag = req.body.extraAssistanceFlag === null ? null : !!req.body.extraAssistanceFlag;
+    }
+
     if (
       providerUserId === null
       && req.body?.assignedProviderUserId === undefined
       && intakeComplete === undefined
       && intakeOutcome === undefined
       && tpComplete === undefined
+      && confirmationStatus === undefined
+      && elopingFlag === undefined
+      && extraAssistanceFlag === undefined
     ) {
       return res.status(400).json({ error: { message: 'No updates provided' } });
     }
@@ -613,24 +689,60 @@ export const patchCompanyEventClientWorkflow = async (req, res, next) => {
         }
       }
 
-      if (!sets.length) {
+      if (confirmationStatus !== undefined) {
+        sets.push('confirmation_status = ?');
+        vals.push(confirmationStatus);
+        sets.push('confirmation_set_at = NOW()');
+        sets.push('confirmation_set_by_user_id = ?');
+        vals.push(uid);
+        // Until automated text/email replies are wired up, every change comes
+        // from a human staff member in the UI — record it as an admin_override.
+        sets.push('confirmation_set_method = ?');
+        vals.push('admin_override');
+      }
+
+      if (sets.length) {
+        vals.push(eventId, agencyId, clientId);
+        await conn.execute(
+          `UPDATE company_event_clients
+           SET ${sets.join(', ')}
+           WHERE company_event_id = ? AND agency_id = ? AND client_id = ?`,
+          vals
+        );
+      }
+
+      // Eloping / extra-support flags live on `clients` (intake-level data, not per-event).
+      const clientSets = [];
+      const clientVals = [];
+      if (elopingFlag !== undefined) {
+        clientSets.push('eloping_flag = ?');
+        clientVals.push(elopingFlag === null ? null : (elopingFlag ? 1 : 0));
+      }
+      if (extraAssistanceFlag !== undefined) {
+        clientSets.push('extra_assistance_flag = ?');
+        clientVals.push(extraAssistanceFlag === null ? null : (extraAssistanceFlag ? 1 : 0));
+      }
+      if (clientSets.length) {
+        clientVals.push(clientId, agencyId);
+        await conn.execute(
+          `UPDATE clients SET ${clientSets.join(', ')} WHERE id = ? AND agency_id = ?`,
+          clientVals
+        );
+      }
+
+      if (!sets.length && !clientSets.length) {
         await conn.rollback();
         return res.json({ ok: true });
       }
-
-      vals.push(eventId, agencyId, clientId);
-      await conn.execute(
-        `UPDATE company_event_clients
-         SET ${sets.join(', ')}
-         WHERE company_event_id = ? AND agency_id = ? AND client_id = ?`,
-        vals
-      );
 
       await conn.commit();
       res.json({ ok: true });
     } catch (err) {
       await conn.rollback();
       const msg = String(err?.message || '');
+      if (msg.includes('Unknown column') && msg.includes('confirmation_status')) {
+        return res.status(503).json({ error: { message: 'Run database migration 803_company_event_clients_confirmation.sql' } });
+      }
       if (msg.includes('Unknown column') && msg.includes('intake_outcome')) {
         return res.status(503).json({ error: { message: 'Run database migration 802_company_event_clients_intake_outcome.sql' } });
       }
