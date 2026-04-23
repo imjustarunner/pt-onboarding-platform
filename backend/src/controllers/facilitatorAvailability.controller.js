@@ -592,6 +592,344 @@ export const submitResponse = async (req, res, next) => {
   }
 };
 
+// ─── Slot computation helper ──────────────────────────────────────────────────
+
+function computeAutoSlots({ groupCount, participantCount }) {
+  // Default 2; expands to 4 when 2+ groups are added OR more than 9 participants enrolled.
+  if (groupCount >= 2 || participantCount > 9) return 4;
+  return 2;
+}
+
+function slotReason({ groupCount, participantCount }) {
+  if (groupCount >= 2) return `auto (${groupCount} groups)`;
+  if (participantCount > 9) return `auto (${participantCount} participants)`;
+  return 'auto';
+}
+
+// ─── Admin: get full scheduling data for a request ────────────────────────────
+
+export const getSchedulingData = async (req, res, next) => {
+  try {
+    const agencyId = parseId(req.params?.agencyId);
+    const requestId = parseId(req.params?.requestId);
+    if (!agencyId || !requestId) return res.status(400).json({ error: { message: 'Invalid id' } });
+    if (!(await canManage(req, agencyId))) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const [[request]] = await pool.execute(
+      `SELECT id, title, status FROM facilitator_availability_requests WHERE id = ? AND agency_id = ? LIMIT 1`,
+      [requestId, agencyId]
+    );
+    if (!request) return res.status(404).json({ error: { message: 'Not found' } });
+
+    const [reqEvents] = await pool.execute(
+      `SELECT fare.id AS request_event_id, fare.company_event_id, fare.display_order,
+              ce.title AS event_title, ce.event_date, ce.end_date
+       FROM facilitator_availability_request_events fare
+       JOIN company_events ce ON ce.id = fare.company_event_id
+       WHERE fare.request_id = ?
+       ORDER BY fare.display_order`,
+      [requestId]
+    );
+
+    const result = [];
+
+    for (const ev of reqEvents) {
+      const [sessionDates] = await pool.execute(
+        `SELECT id, session_date, starts_at, ends_at, timezone
+         FROM company_event_session_dates
+         WHERE company_event_id = ?
+         ORDER BY session_date, starts_at`,
+        [ev.company_event_id]
+      );
+
+      const dates = [];
+
+      for (const sd of sessionDates) {
+        const dateStr = sd.session_date instanceof Date
+          ? sd.session_date.toISOString().slice(0, 10)
+          : String(sd.session_date || '').slice(0, 10);
+
+        // Group count and participant count (for auto slot rule)
+        const [[groupRow]] = await pool.execute(
+          `SELECT COUNT(*) AS cnt FROM company_event_session_groups WHERE session_date_id = ?`,
+          [sd.id]
+        );
+        const [[participantRow]] = await pool.execute(
+          `SELECT COUNT(*) AS cnt FROM company_event_client_group_assignments WHERE session_date_id = ?`,
+          [sd.id]
+        );
+        const groupCount = Number(groupRow?.cnt ?? 0);
+        const participantCount = Number(participantRow?.cnt ?? 0);
+        const autoSlots = computeAutoSlots({ groupCount, participantCount });
+
+        // Slot override
+        const [[overrideRow]] = await pool.execute(
+          `SELECT slot_count FROM facilitator_availability_slot_overrides
+           WHERE request_id = ? AND company_event_id = ? AND entry_date = ?
+           LIMIT 1`,
+          [requestId, ev.company_event_id, dateStr]
+        );
+        const override = overrideRow ? Number(overrideRow.slot_count) : null;
+        const effectiveSlots = override !== null ? override : autoSlots;
+
+        // Assigned employees
+        const [assigned] = await pool.execute(
+          `SELECT csp.provider_user_id AS user_id, u.first_name, u.last_name, u.email
+           FROM company_event_session_providers csp
+           JOIN users u ON u.id = csp.provider_user_id
+           WHERE csp.company_event_id = ? AND csp.session_date_id = ?
+           ORDER BY u.last_name, u.first_name`,
+          [ev.company_event_id, sd.id]
+        );
+
+        // Available pool: responded available/waitlist AND not already assigned to this session date
+        const [available] = await pool.execute(
+          `SELECT fade.user_id, fade.availability, u.first_name, u.last_name, u.email
+           FROM facilitator_availability_date_entries fade
+           JOIN users u ON u.id = fade.user_id
+           LEFT JOIN company_event_session_providers csp
+             ON csp.session_date_id = ? AND csp.provider_user_id = fade.user_id
+           WHERE fade.request_id = ?
+             AND fade.company_event_id = ?
+             AND fade.entry_date = ?
+             AND fade.availability IN ('available', 'waitlist')
+             AND csp.id IS NULL
+           ORDER BY FIELD(fade.availability, 'available', 'waitlist'), u.last_name, u.first_name`,
+          [sd.id, requestId, ev.company_event_id, dateStr]
+        );
+
+        dates.push({
+          sessionDateId: sd.id,
+          date: dateStr,
+          startsAt: sd.starts_at,
+          endsAt: sd.ends_at,
+          timezone: sd.timezone,
+          groupCount,
+          participantCount,
+          autoSlots,
+          slotReason: slotReason({ groupCount, participantCount }),
+          override,
+          effectiveSlots,
+          filled: assigned.length,
+          assigned: assigned.map((r) => ({
+            userId: r.user_id,
+            name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email,
+            email: r.email
+          })),
+          available: available.map((r) => ({
+            userId: r.user_id,
+            name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email,
+            email: r.email,
+            availability: r.availability
+          }))
+        });
+      }
+
+      result.push({
+        requestEventId: ev.request_event_id,
+        companyEventId: ev.company_event_id,
+        eventTitle: ev.event_title,
+        eventDate: ev.event_date,
+        endDate: ev.end_date,
+        dates
+      });
+    }
+
+    res.json({ requestId, title: request.title, events: result });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ─── Admin: set (or clear) a slot count override for a specific date ──────────
+
+export const setSlotOverride = async (req, res, next) => {
+  try {
+    const agencyId = parseId(req.params?.agencyId);
+    const requestId = parseId(req.params?.requestId);
+    if (!agencyId || !requestId) return res.status(400).json({ error: { message: 'Invalid id' } });
+    if (!(await canManage(req, agencyId))) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const [[request]] = await pool.execute(
+      `SELECT id FROM facilitator_availability_requests WHERE id = ? AND agency_id = ? LIMIT 1`,
+      [requestId, agencyId]
+    );
+    if (!request) return res.status(404).json({ error: { message: 'Not found' } });
+
+    const { companyEventId, entryDate, slotCount } = req.body;
+    const eventId = parseId(companyEventId);
+    if (!eventId || !entryDate) return res.status(400).json({ error: { message: 'companyEventId and entryDate are required' } });
+
+    if (slotCount === null || slotCount === undefined) {
+      // Clear override
+      await pool.execute(
+        `DELETE FROM facilitator_availability_slot_overrides
+         WHERE request_id = ? AND company_event_id = ? AND entry_date = ?`,
+        [requestId, eventId, entryDate]
+      );
+      return res.json({ ok: true, cleared: true });
+    }
+
+    const count = Math.max(0, Number(slotCount));
+    await pool.execute(
+      `INSERT INTO facilitator_availability_slot_overrides
+        (request_id, company_event_id, entry_date, slot_count, overridden_by)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE slot_count = VALUES(slot_count), overridden_by = VALUES(overridden_by), updated_at = NOW()`,
+      [requestId, eventId, entryDate, count, req.user.id]
+    );
+    res.json({ ok: true, slotCount: count });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ─── Admin: directly assign a facilitator to a session date ───────────────────
+
+export const assignFacilitator = async (req, res, next) => {
+  try {
+    const agencyId = parseId(req.params?.agencyId);
+    const requestId = parseId(req.params?.requestId);
+    if (!agencyId || !requestId) return res.status(400).json({ error: { message: 'Invalid id' } });
+    if (!(await canManage(req, agencyId))) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const [[request]] = await pool.execute(
+      `SELECT id FROM facilitator_availability_requests WHERE id = ? AND agency_id = ? LIMIT 1`,
+      [requestId, agencyId]
+    );
+    if (!request) return res.status(404).json({ error: { message: 'Not found' } });
+
+    const { companyEventId, sessionDateId, userId: targetUserId } = req.body;
+    const eventId = parseId(companyEventId);
+    const sdId = parseId(sessionDateId);
+    const providerUserId = parseId(targetUserId);
+    if (!eventId || !sdId || !providerUserId) {
+      return res.status(400).json({ error: { message: 'companyEventId, sessionDateId, and userId are required' } });
+    }
+
+    // Get the session date to determine entry_date for slot check
+    const [[sdRow]] = await pool.execute(
+      `SELECT session_date FROM company_event_session_dates WHERE id = ? AND company_event_id = ? LIMIT 1`,
+      [sdId, eventId]
+    );
+    if (!sdRow) return res.status(404).json({ error: { message: 'Session date not found' } });
+
+    const dateStr = sdRow.session_date instanceof Date
+      ? sdRow.session_date.toISOString().slice(0, 10)
+      : String(sdRow.session_date || '').slice(0, 10);
+
+    // Check slot capacity
+    const [[gcRow]] = await pool.execute(
+      `SELECT COUNT(*) AS cnt FROM company_event_session_groups WHERE session_date_id = ?`, [sdId]
+    );
+    const [[pcRow]] = await pool.execute(
+      `SELECT COUNT(*) AS cnt FROM company_event_client_group_assignments WHERE session_date_id = ?`, [sdId]
+    );
+    const [[overRow]] = await pool.execute(
+      `SELECT slot_count FROM facilitator_availability_slot_overrides
+       WHERE request_id = ? AND company_event_id = ? AND entry_date = ? LIMIT 1`,
+      [requestId, eventId, dateStr]
+    );
+    const [[filledRow]] = await pool.execute(
+      `SELECT COUNT(*) AS cnt FROM company_event_session_providers WHERE session_date_id = ?`, [sdId]
+    );
+
+    const autoSlots = computeAutoSlots({ groupCount: Number(gcRow?.cnt ?? 0), participantCount: Number(pcRow?.cnt ?? 0) });
+    const effectiveSlots = overRow ? Number(overRow.slot_count) : autoSlots;
+    const filled = Number(filledRow?.cnt ?? 0);
+
+    // Allow assignment even if "full" — admin may need flexibility; just warn in response
+    const overCapacity = filled >= effectiveSlots;
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      await conn.execute(
+        `INSERT INTO company_event_session_providers
+          (company_event_id, agency_id, session_date_id, provider_user_id, assigned_by_user_id, assigned_at)
+         VALUES (?, ?, ?, ?, ?, NOW())
+         ON DUPLICATE KEY UPDATE assigned_by_user_id = VALUES(assigned_by_user_id), assigned_at = NOW()`,
+        [eventId, agencyId, sdId, providerUserId, req.user.id]
+      );
+
+      // If there's a pending/waitlist request for this provider+session, mark it approved
+      await conn.execute(
+        `UPDATE company_event_session_provider_requests
+         SET status = 'approved', decided_by_user_id = ?, decided_at = NOW()
+         WHERE company_event_id = ? AND session_date_id = ? AND provider_user_id = ?
+           AND status IN ('pending', 'waitlist')`,
+        [req.user.id, eventId, sdId, providerUserId]
+      );
+
+      await conn.commit();
+      res.json({ ok: true, overCapacity });
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    } finally {
+      conn.release();
+    }
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ─── Admin: unassign a facilitator from a session date ────────────────────────
+
+export const unassignFacilitator = async (req, res, next) => {
+  try {
+    const agencyId = parseId(req.params?.agencyId);
+    const requestId = parseId(req.params?.requestId);
+    if (!agencyId || !requestId) return res.status(400).json({ error: { message: 'Invalid id' } });
+    if (!(await canManage(req, agencyId))) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const [[request]] = await pool.execute(
+      `SELECT id FROM facilitator_availability_requests WHERE id = ? AND agency_id = ? LIMIT 1`,
+      [requestId, agencyId]
+    );
+    if (!request) return res.status(404).json({ error: { message: 'Not found' } });
+
+    const { companyEventId, sessionDateId, userId: targetUserId } = req.body;
+    const eventId = parseId(companyEventId);
+    const sdId = parseId(sessionDateId);
+    const providerUserId = parseId(targetUserId);
+    if (!eventId || !sdId || !providerUserId) {
+      return res.status(400).json({ error: { message: 'companyEventId, sessionDateId, and userId are required' } });
+    }
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      await conn.execute(
+        `DELETE FROM company_event_session_providers
+         WHERE company_event_id = ? AND agency_id = ? AND session_date_id = ? AND provider_user_id = ?`,
+        [eventId, agencyId, sdId, providerUserId]
+      );
+
+      // Revert any approved request back to pending so the employee can be re-considered
+      await conn.execute(
+        `UPDATE company_event_session_provider_requests
+         SET status = 'pending', decided_by_user_id = NULL, decided_at = NULL
+         WHERE company_event_id = ? AND session_date_id = ? AND provider_user_id = ?
+           AND status = 'approved'`,
+        [eventId, sdId, providerUserId]
+      );
+
+      await conn.commit();
+      res.json({ ok: true });
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    } finally {
+      conn.release();
+    }
+  } catch (err) {
+    next(err);
+  }
+};
+
 // ─── Admin: list agency company_events for event picker ───────────────────────
 
 export const listAgencyEvents = async (req, res, next) => {

@@ -10,7 +10,11 @@ import {
   listMyPending,
   getRequestForEmployee,
   submitResponse,
-  listAgencyEvents
+  listAgencyEvents,
+  getSchedulingData,
+  setSlotOverride,
+  assignFacilitator,
+  unassignFacilitator
 } from '../controllers/facilitatorAvailability.controller.js';
 
 // ── Employee routes — mounted at /api/facilitator-availability ────────────────
@@ -30,3 +34,7 @@ adminRouter.get('/:requestId', getRequest);
 adminRouter.put('/:requestId', updateRequest);
 adminRouter.post('/:requestId/push', requireAdmin, pushRequest);
 adminRouter.get('/:requestId/responses', getResponses);
+adminRouter.get('/:requestId/schedule', getSchedulingData);
+adminRouter.put('/:requestId/slot-override', setSlotOverride);
+adminRouter.post('/:requestId/assign', assignFacilitator);
+adminRouter.post('/:requestId/unassign', unassignFacilitator);

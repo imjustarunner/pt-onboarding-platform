@@ -138,26 +138,41 @@
       </div>
     </div>
 
-    <!-- ── Responses modal ───────────────────────────────────── -->
+    <!-- ── Responses + Schedule modal ──────────────────────────── -->
     <div v-if="showResponses" class="fav-overlay" @click.self="showResponses = false">
       <div class="fav-modal">
         <div class="fav-drawer-header">
-          <h2>Responses — {{ responsesRequest?.title }}</h2>
+          <div>
+            <h2>{{ responsesRequest?.title }}</h2>
+            <div class="fav-modal-tabs">
+              <button
+                type="button"
+                class="fav-tab"
+                :class="{ 'fav-tab--active': modalTab === 'responses' }"
+                @click="switchTab('responses')"
+              >Responses</button>
+              <button
+                type="button"
+                class="fav-tab"
+                :class="{ 'fav-tab--active': modalTab === 'schedule' }"
+                @click="switchTab('schedule')"
+              >Schedule</button>
+            </div>
+          </div>
           <button type="button" class="fav-close" @click="showResponses = false">✕</button>
         </div>
 
-        <div class="fav-modal-body">
+        <!-- ── Responses tab ─────────────────────────────────── -->
+        <div v-if="modalTab === 'responses'" class="fav-modal-body">
           <div v-if="responsesLoading" class="fav-hint">Loading responses…</div>
           <div v-else-if="!responses.length" class="fav-hint">No responses yet.</div>
           <div v-else>
-            <!-- Summary bar -->
             <div class="fav-resp-summary">
               <span>{{ responses.filter(r => r.submitted_at).length }} submitted</span>
               <span>{{ responses.filter(r => !r.submitted_at).length }} draft</span>
               <span>{{ responses.filter(r => r.is_on_call).length }} on-call</span>
             </div>
 
-            <!-- Per-employee accordion -->
             <div v-for="sub in responses" :key="sub.id" class="fav-resp-row">
               <div class="fav-resp-employee" @click="toggleExpand(sub.id)">
                 <div>
@@ -173,22 +188,15 @@
               </div>
 
               <div v-if="expanded.has(sub.id)" class="fav-resp-detail">
-                <!-- Date entries -->
                 <table class="fav-resp-table" v-if="sub.dateEntries.length">
                   <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Availability</th>
-                      <th>Comment</th>
-                    </tr>
+                    <tr><th>Date</th><th>Availability</th><th>Comment</th></tr>
                   </thead>
                   <tbody>
                     <tr v-for="de in sub.dateEntries" :key="de.id" :class="`fav-row--${de.availability}`">
                       <td>{{ fmtDate(de.entry_date) }}</td>
                       <td class="fav-avail-cell">
-                        <span class="fav-avail-pill" :class="`fav-avail--${de.availability}`">
-                          {{ de.availability }}
-                        </span>
+                        <span class="fav-avail-pill" :class="`fav-avail--${de.availability}`">{{ de.availability }}</span>
                       </td>
                       <td class="fav-comment-cell">{{ de.comment || '—' }}</td>
                     </tr>
@@ -196,7 +204,6 @@
                 </table>
                 <div v-else class="fav-hint">No date entries recorded.</div>
 
-                <!-- Location rankings -->
                 <div v-if="sub.locationRanks.length" class="fav-loc-ranks">
                   <div class="fav-loc-ranks-head">Location Preferences</div>
                   <div v-for="lr in sub.locationRanks.slice().sort((a,b) => a.rank_order - b.rank_order)" :key="lr.id" class="fav-loc-rank-row">
@@ -207,6 +214,112 @@
 
                 <div v-if="sub.general_notes" class="fav-general-notes">
                   <strong>General notes:</strong> {{ sub.general_notes }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Schedule tab ──────────────────────────────────── -->
+        <div v-if="modalTab === 'schedule'" class="fav-modal-body">
+          <div v-if="scheduleLoading" class="fav-hint">Loading schedule data…</div>
+          <div v-else-if="!scheduleData" class="fav-hint">No scheduling data available.</div>
+          <div v-else>
+            <div
+              v-for="ev in scheduleData.events"
+              :key="ev.companyEventId"
+              class="fav-sched-event"
+            >
+              <div class="fav-sched-event-head">{{ ev.eventTitle }}</div>
+
+              <div v-if="!ev.dates.length" class="fav-hint" style="padding:8px 0;">No session dates configured.</div>
+
+              <div
+                v-for="d in ev.dates"
+                :key="d.sessionDateId"
+                class="fav-sched-date"
+              >
+                <!-- Date header row -->
+                <div class="fav-sched-date-head">
+                  <div class="fav-sched-date-label">
+                    <span class="fav-sched-dow">{{ fmtDow(d.date) }}</span>
+                    <span>{{ fmtDate(d.date) }}</span>
+                    <span v-if="d.startsAt" class="fav-sched-time">{{ fmtTime(d.startsAt) }}</span>
+                  </div>
+
+                  <!-- Slot counter -->
+                  <div class="fav-sched-slots">
+                    <template v-if="!slotEditMode[slotKey(ev.companyEventId, d.date)]">
+                      <span class="fav-slot-count" :class="d.filled >= d.effectiveSlots ? 'fav-slot-full' : 'fav-slot-open'">
+                        {{ d.filled }} / {{ d.effectiveSlots }} slots filled
+                      </span>
+                      <span class="fav-slot-reason">{{ d.override !== null ? 'override' : d.slotReason }}</span>
+                      <button type="button" class="fav-slot-edit-btn" @click="startSlotEdit(ev.companyEventId, d)" title="Override slot count">✏️</button>
+                    </template>
+                    <template v-else>
+                      <input
+                        type="number"
+                        min="0"
+                        max="99"
+                        class="fav-slot-input"
+                        :value="slotEditValues[slotKey(ev.companyEventId, d.date)]"
+                        @input="slotEditValues[slotKey(ev.companyEventId, d.date)] = $event.target.value"
+                      />
+                      <button type="button" class="btn btn-sm btn-primary" @click="saveSlotOverride(ev.companyEventId, d)" :disabled="scheduleActionLoading">Save</button>
+                      <button type="button" class="btn btn-sm btn-secondary" @click="clearSlotOverride(ev.companyEventId, d)" :disabled="scheduleActionLoading">Reset to auto</button>
+                      <button type="button" class="fav-close fav-slot-cancel" @click="cancelSlotEdit(ev.companyEventId, d.date)">✕</button>
+                    </template>
+                  </div>
+                </div>
+
+                <!-- Assigned employees -->
+                <div v-if="d.assigned.length" class="fav-sched-assigned">
+                  <div class="fav-sched-section-label">Assigned</div>
+                  <div class="fav-assigned-pills">
+                    <span
+                      v-for="emp in d.assigned"
+                      :key="emp.userId"
+                      class="fav-assigned-pill"
+                    >
+                      {{ emp.name }}
+                      <button
+                        type="button"
+                        class="fav-chip-remove"
+                        :disabled="scheduleActionLoading"
+                        @click="unassign(ev.companyEventId, d, emp)"
+                        title="Remove assignment"
+                      >✕</button>
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Available pool -->
+                <div v-if="d.available.length" class="fav-sched-available">
+                  <div class="fav-sched-section-label">Available to assign</div>
+                  <div class="fav-avail-rows">
+                    <div
+                      v-for="emp in d.available"
+                      :key="emp.userId"
+                      class="fav-avail-row"
+                    >
+                      <span class="fav-avail-name">{{ emp.name }}</span>
+                      <span class="fav-avail-pill fav-avail-pill--sm" :class="`fav-avail--${emp.availability}`">
+                        {{ emp.availability }}
+                      </span>
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-primary"
+                        :disabled="scheduleActionLoading"
+                        @click="assign(ev.companyEventId, d, emp)"
+                      >
+                        {{ d.filled >= d.effectiveSlots ? 'Assign (over)' : 'Assign' }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div v-if="!d.assigned.length && !d.available.length" class="fav-hint" style="padding:6px 0 0;">
+                  No one has indicated availability for this date yet.
                 </div>
               </div>
             </div>
@@ -244,6 +357,16 @@ const responses = ref([]);
 const responsesLoading = ref(false);
 const expanded = ref(new Set());
 
+// ── Schedule tab state ───────────────────────────────────────────────────────
+const modalTab = ref('responses'); // 'responses' | 'schedule'
+const scheduleData = ref(null);
+const scheduleLoading = ref(false);
+const scheduleActionLoading = ref(false);
+const slotEditMode = ref({});   // key → true when editing
+const slotEditValues = ref({}); // key → string value during edit
+
+const slotKey = (eventId, date) => `${eventId}__${date}`;
+
 const locationInputs = ref({});
 
 const emptyForm = () => ({
@@ -261,9 +384,23 @@ const form = ref(emptyForm());
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmtDate = (d) => {
   if (!d) return '';
-  const dt = new Date(d);
+  const dt = new Date(typeof d === 'string' && d.length === 10 ? d + 'T00:00:00' : d);
   if (isNaN(dt)) return d;
   return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const fmtDow = (d) => {
+  if (!d) return '';
+  const dt = new Date(typeof d === 'string' && d.length === 10 ? d + 'T00:00:00' : d);
+  if (isNaN(dt)) return '';
+  return dt.toLocaleDateString(undefined, { weekday: 'short' });
+};
+
+const fmtTime = (d) => {
+  if (!d) return '';
+  const dt = new Date(d);
+  if (isNaN(dt)) return '';
+  return dt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 };
 
 const isEventSelected = (id) => form.value.selectedEventIds.includes(id);
@@ -342,6 +479,109 @@ const loadResponses = async (request) => {
   }
 };
 
+const loadSchedule = async (request) => {
+  if (!agencyId.value || !request?.id) return;
+  scheduleLoading.value = true;
+  scheduleData.value = null;
+  try {
+    const r = await api.get(`${agencyBase.value}/${request.id}/schedule`);
+    scheduleData.value = r.data;
+  } catch {
+    scheduleData.value = null;
+  } finally {
+    scheduleLoading.value = false;
+  }
+};
+
+const switchTab = (tab) => {
+  modalTab.value = tab;
+  if (tab === 'schedule' && !scheduleData.value && responsesRequest.value) {
+    loadSchedule(responsesRequest.value);
+  }
+};
+
+// Slot override helpers
+const startSlotEdit = (eventId, d) => {
+  const k = slotKey(eventId, d.date);
+  slotEditValues.value[k] = String(d.override !== null ? d.override : d.effectiveSlots);
+  slotEditMode.value[k] = true;
+};
+
+const cancelSlotEdit = (eventId, date) => {
+  const k = slotKey(eventId, date);
+  slotEditMode.value[k] = false;
+};
+
+const saveSlotOverride = async (eventId, d) => {
+  if (!responsesRequest.value) return;
+  const k = slotKey(eventId, d.date);
+  const count = parseInt(slotEditValues.value[k], 10);
+  if (!Number.isFinite(count) || count < 0) return;
+  scheduleActionLoading.value = true;
+  try {
+    await api.put(`${agencyBase.value}/${responsesRequest.value.id}/slot-override`, {
+      companyEventId: eventId,
+      entryDate: d.date,
+      slotCount: count
+    });
+    slotEditMode.value[k] = false;
+    await loadSchedule(responsesRequest.value);
+  } finally {
+    scheduleActionLoading.value = false;
+  }
+};
+
+const clearSlotOverride = async (eventId, d) => {
+  if (!responsesRequest.value) return;
+  const k = slotKey(eventId, d.date);
+  scheduleActionLoading.value = true;
+  try {
+    await api.put(`${agencyBase.value}/${responsesRequest.value.id}/slot-override`, {
+      companyEventId: eventId,
+      entryDate: d.date,
+      slotCount: null
+    });
+    slotEditMode.value[k] = false;
+    await loadSchedule(responsesRequest.value);
+  } finally {
+    scheduleActionLoading.value = false;
+  }
+};
+
+// Assignment helpers
+const assign = async (eventId, d, emp) => {
+  if (!responsesRequest.value) return;
+  scheduleActionLoading.value = true;
+  try {
+    const r = await api.post(`${agencyBase.value}/${responsesRequest.value.id}/assign`, {
+      companyEventId: eventId,
+      sessionDateId: d.sessionDateId,
+      userId: emp.userId
+    });
+    if (r.data?.overCapacity) {
+      // Allowed but warn
+    }
+    await loadSchedule(responsesRequest.value);
+  } finally {
+    scheduleActionLoading.value = false;
+  }
+};
+
+const unassign = async (eventId, d, emp) => {
+  if (!responsesRequest.value) return;
+  scheduleActionLoading.value = true;
+  try {
+    await api.post(`${agencyBase.value}/${responsesRequest.value.id}/unassign`, {
+      companyEventId: eventId,
+      sessionDateId: d.sessionDateId,
+      userId: emp.userId
+    });
+    await loadSchedule(responsesRequest.value);
+  } finally {
+    scheduleActionLoading.value = false;
+  }
+};
+
 // ── CRUD ──────────────────────────────────────────────────────────────────────
 const openCreate = () => {
   editingRequest.value = null;
@@ -380,6 +620,10 @@ const loadRequestEvents = async (requestId) => {
 
 const openResponses = async (r) => {
   responsesRequest.value = r;
+  modalTab.value = 'responses';
+  scheduleData.value = null;
+  slotEditMode.value = {};
+  slotEditValues.value = {};
   showResponses.value = true;
   await loadResponses(r);
 };
@@ -537,4 +781,42 @@ onMounted(loadRequests);
 .btn-push { background: #059669; color: #fff; }
 .btn-push:hover:not(:disabled) { background: #047857; }
 .btn-sm { padding: 5px 12px; font-size: .82rem; }
+
+/* Modal tabs */
+.fav-modal-tabs { display: flex; gap: 4px; margin-top: 8px; }
+.fav-tab { background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 14px; font-size: .9rem; font-weight: 600; color: #64748b; cursor: pointer; border-radius: 4px 4px 0 0; }
+.fav-tab--active { color: #2563eb; border-bottom-color: #2563eb; }
+.fav-tab:hover:not(.fav-tab--active) { background: #f8fafc; color: #374151; }
+
+/* Schedule tab */
+.fav-sched-event { margin-bottom: 24px; }
+.fav-sched-event-head { font-size: 1rem; font-weight: 700; color: #1e3a8a; background: #eff6ff; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
+.fav-sched-date { border: 1px solid #e2e8f0; border-radius: 10px; margin-bottom: 10px; overflow: hidden; }
+.fav-sched-date-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid #f1f5f9; }
+.fav-sched-date-label { display: flex; gap: 8px; align-items: baseline; }
+.fav-sched-dow { font-weight: 700; font-size: .88rem; color: #374151; }
+.fav-sched-time { font-size: .78rem; color: #94a3b8; }
+.fav-sched-slots { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.fav-slot-count { font-size: .88rem; font-weight: 700; }
+.fav-slot-full { color: #dc2626; }
+.fav-slot-open { color: #166534; }
+.fav-slot-reason { font-size: .75rem; color: #94a3b8; background: #f1f5f9; border-radius: 999px; padding: 2px 8px; }
+.fav-slot-edit-btn { background: none; border: none; cursor: pointer; font-size: .85rem; padding: 2px 4px; }
+.fav-slot-input { width: 64px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 8px; font-size: .9rem; }
+.fav-slot-cancel { align-self: center; }
+
+.fav-sched-assigned, .fav-sched-available { padding: 10px 14px; }
+.fav-sched-section-label { font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; margin-bottom: 6px; }
+
+.fav-assigned-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.fav-assigned-pill { display: flex; align-items: center; gap: 5px; background: #dcfce7; color: #166534; border: 1px solid #86efac; border-radius: 999px; padding: 3px 10px; font-size: .82rem; font-weight: 500; }
+
+.fav-avail-rows { display: grid; gap: 6px; }
+.fav-avail-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+.fav-avail-name { font-size: .88rem; color: #0f172a; flex: 1; min-width: 0; }
+.fav-avail-pill { border-radius: 999px; padding: 2px 10px; font-size: .75rem; font-weight: 600; }
+.fav-avail-pill--sm { font-size: .72rem; padding: 2px 8px; }
+.fav-avail--available { background: #dcfce7; color: #166534; }
+.fav-avail--waitlist { background: #fef9c3; color: #854d0e; }
+.fav-avail--unavailable { background: #f1f5f9; color: #64748b; }
 </style>
