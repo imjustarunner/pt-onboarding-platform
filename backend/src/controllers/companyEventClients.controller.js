@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import { userHasAgencyOrAffiliatedOrgAccessForRequest } from '../utils/userAgencyAffiliationAccess.js';
+import { syncClientStatusForEvent } from '../services/eventClientStatusSync.service.js';
 
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw || ''), 10);
@@ -795,6 +796,31 @@ export const patchCompanyEventClientWorkflow = async (req, res, next) => {
       }
 
       await conn.commit();
+
+      // Auto-advance the client's overall status (the "Intake Packet" / paperwork
+      // chip the rosters surface) so it reflects the actual workflow stage.
+      // Runs only when intake outcome or TP-complete actually moved — otherwise
+      // it would be a wasted lookup. Failures here are non-fatal: the workflow
+      // patch already committed and the sync is best-effort.
+      const outcomeChanged = intakeOutcome !== undefined && intakeOutcome !== curOutcome;
+      const tpChanged = tpComplete !== undefined && tpComplete !== curTp;
+      if (outcomeChanged || tpChanged) {
+        try {
+          await syncClientStatusForEvent({
+            clientId,
+            agencyId,
+            intakeOutcome: nextOutcome,
+            treatmentPlanComplete: nextTp,
+            actorUserId: uid
+          });
+        } catch (syncErr) {
+          // Don't fail the API response over a status-sync hiccup — log only.
+          console.warn('[companyEventClients] client status sync failed', {
+            eventId, clientId, agencyId, message: String(syncErr?.message || syncErr)
+          });
+        }
+      }
+
       res.json({ ok: true });
     } catch (err) {
       await conn.rollback();

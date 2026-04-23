@@ -1862,6 +1862,64 @@ const resolveFallbackSignatureIdentity = async ({ organizationId, scopeType, age
  * use the returned `error`/`errorMessage` to populate `emailDelivery` for
  * the API response.
  */
+/**
+ * Compute a friendly default "From" name for the registration confirmation email
+ * when no `EmailSenderIdentity` is configured. Historically this fell back to the
+ * generic "People Operations" string, which families found confusing for program
+ * registration ("why is People Ops emailing me about summer camp?").
+ *
+ * Resolution order:
+ *   1. The bound company event title          → "<event title> Registration Team"
+ *   2. The intake link title                  → "<link title> Registration Team"
+ *   3. The owning agency / school name        → "<name> Registration Team"
+ *   4. Hard fallback                          → "Registration Team"
+ *
+ * Names are clamped to a sensible length so the SMTP `From` header doesn't
+ * explode on long program titles.
+ */
+const FROM_NAME_MAX = 64;
+const sanitizeFromNameFragment = (raw) => {
+  const s = String(raw || '').replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+  return s.length > FROM_NAME_MAX ? `${s.slice(0, FROM_NAME_MAX - 1).trim()}…` : s;
+};
+const resolveRegistrationFromName = async ({ link, agencyId, organizationId, scopeType }) => {
+  // Caller already resolved an explicit env override → respect it.
+  const explicit = sanitizeFromNameFragment(process.env.GOOGLE_WORKSPACE_FROM_NAME);
+  if (explicit) return explicit;
+
+  const eventId = Number(link?.company_event_id || 0) || null;
+  if (eventId) {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT title FROM company_events WHERE id = ? LIMIT 1`,
+        [eventId]
+      );
+      const t = sanitizeFromNameFragment(rows?.[0]?.title);
+      if (t) return `${t} Registration Team`;
+    } catch (_e) { /* fall through */ }
+  }
+
+  const linkTitle = sanitizeFromNameFragment(link?.title);
+  if (linkTitle) return `${linkTitle} Registration Team`;
+
+  const orgId = Number(organizationId || 0) || null;
+  const aId = Number(agencyId || 0) || null;
+  const lookupId = String(scopeType || '').toLowerCase() === 'school' ? (orgId || aId) : (aId || orgId);
+  if (lookupId) {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT name FROM agencies WHERE id = ? LIMIT 1`,
+        [lookupId]
+      );
+      const n = sanitizeFromNameFragment(rows?.[0]?.name);
+      if (n) return `${n} Registration Team`;
+    } catch (_e) { /* fall through */ }
+  }
+
+  return 'Registration Team';
+};
+
 const deliverPacketCompletionEmail = async ({
   to,
   subject,
@@ -1914,12 +1972,13 @@ const deliverPacketCompletionEmail = async ({
         text,
         html
       });
+      const fromName = await resolveRegistrationFromName({ link, agencyId, organizationId, scopeType });
       sendResult = await EmailService.sendEmail({
         to,
         subject,
         text: signed.text,
         html: signed.html,
-        fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
+        fromName,
         fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
         replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
         attachments: packetAttachments,
@@ -5964,13 +6023,19 @@ export const finalizePublicIntake = async (req, res, next) => {
               text,
               html
             });
+            const signerFromName = await resolveRegistrationFromName({
+              link,
+              agencyId: boundClient?.agency_id || agency?.id || null,
+              organizationId: link?.organization_id || null,
+              scopeType: link?.scope_type || null
+            });
             await Promise.race([
               EmailService.sendEmail({
                 to: updatedSubmission.signer_email,
                 subject,
                 text: signedContent.text,
                 html: signedContent.html,
-                fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
+                fromName: signerFromName,
                 fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
                 replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
                 attachments: null,
