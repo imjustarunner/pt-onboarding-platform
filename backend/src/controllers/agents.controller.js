@@ -749,8 +749,13 @@ export const assist = async (req, res, next) => {
         }
       }
 
-      // Generic page navigation ("take me to referrals") → navigateTo route whitelist
-      if (!uiCommands.length && allowedToolNames.has('navigateTo')) {
+      // Generic page navigation ("take me to referrals") → navigateTo route whitelist.
+      // Only run if no entity search returned any rows; otherwise we already have
+      // disambiguation cards and navigating to a hub page would close the drawer.
+      const hasSearchHits = toolResults.some(
+        (r) => r?.ok && ['searchSchools', 'searchEvents', 'searchUsers'].includes(r.tool)
+      );
+      if (!uiCommands.length && !hasSearchHits && allowedToolNames.has('navigateTo')) {
         const routeName = resolveNavigateRouteNameFromPrompt(promptLower);
         if (routeName) {
           try {

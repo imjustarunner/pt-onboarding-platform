@@ -1175,20 +1175,49 @@ export async function executeToolCall({ req, toolCall }) {
     const query = str(args.query, 200);
     const limit = Math.min(Math.max(1, intOrNull(args.limit) || 10), 25);
     if (!query) return { ok: true, tool: name, result: { results: [] } };
-    const like = `%${query}%`;
-    const [rows] = await pool.execute(
-      `SELECT a.id, a.name, a.slug
-       FROM agency_schools asx
-       JOIN agencies a ON a.id = asx.school_organization_id
-       WHERE asx.agency_id = ?
-         AND asx.is_active = TRUE
-         AND a.is_active = TRUE
-         AND a.name LIKE ?
-       ORDER BY a.name ASC
-       LIMIT ${limit}`,
-      [agencyId, like]
-    );
-    const results = (rows || []).map((r) => ({
+
+    const runQuery = async (likeArg) => {
+      const [rs] = await pool.execute(
+        `SELECT a.id, a.name, a.slug
+         FROM agency_schools asx
+         JOIN agencies a ON a.id = asx.school_organization_id
+         WHERE asx.agency_id = ?
+           AND asx.is_active = TRUE
+           AND a.is_active = TRUE
+           AND a.name LIKE ?
+         ORDER BY a.name ASC
+         LIMIT ${limit}`,
+        [agencyId, likeArg]
+      );
+      return rs || [];
+    };
+
+    // Try the full phrase first.
+    let rows = await runQuery(`%${query}%`);
+
+    // If nothing found and the query is multi-word, retry with just the most
+    // distinctive token (skipping generic education words) so that e.g.
+    // "Twain Elementary School" still matches "Twain Elementary".
+    if (!rows.length && query.includes(' ')) {
+      const GENERIC = new Set([
+        'school', 'schools', 'elementary', 'middle', 'high', 'upper', 'lower',
+        'academy', 'charter', 'institute', 'the', 'and', 'or', 'of', 'portal',
+        'portals', 'hub'
+      ]);
+      const tokens = query
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((t) => t.length >= 3 && !GENERIC.has(t));
+      if (tokens.length) {
+        rows = await runQuery(`%${tokens.join(' ')}%`);
+        // If the joined tokens still return nothing, try just the first token.
+        if (!rows.length && tokens.length > 1) {
+          rows = await runQuery(`%${tokens[0]}%`);
+        }
+      }
+    }
+
+    const results = rows.map((r) => ({
       id: r.id,
       name: r.name,
       slug: r.slug,
