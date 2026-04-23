@@ -8,44 +8,58 @@ export const requireAgencyAccess = async (req, res, next) => {
       return res.status(401).json({ error: { message: 'Authentication required' } });
     }
 
-    const agencyIdParam = req.params.agencyId || req.body.agencyId || req.query.agencyId;
-    if (!agencyIdParam) {
-      return next(); // No agency specified, allow for now (or enforce elsewhere)
-    }
-
-    const agencyId = parseInt(agencyIdParam, 10);
-    if (!agencyId || isNaN(agencyId)) {
-      return res.status(400).json({ error: { message: 'Invalid agency ID' } });
-    }
-
     const role = String(req.user.role || '').toLowerCase();
 
-    // Backoffice and super admins get full tenant context (scoped to selected tenant for new dashboard)
-    if (role === 'super_admin' || role === 'admin' || role === 'support') {
-      const rootId = await resolveTenantRootAgencyId(agencyId);
-      req.agencyId = agencyId;
-      req.tenantRootId = rootId || agencyId;
-      req.tenantAgencyIds = await listAgencyIdsInTenantTree(req.tenantRootId);
+    // Super admins see everything — no scoping needed
+    if (role === 'super_admin') {
       return next();
     }
 
-    // For other roles (including new tenant users), enforce strict tenant tree membership
-    const rootId = await resolveTenantRootAgencyId(agencyId);
-    if (!rootId) {
-      return res.status(403).json({ error: { message: 'Invalid tenant' } });
+    const agencyIdParam = req.params.agencyId || req.body.agencyId || req.query.agencyId;
+
+    if (agencyIdParam) {
+      // Explicit agencyId provided — scope to that tenant's tree
+      const agencyId = parseInt(agencyIdParam, 10);
+      if (!agencyId || isNaN(agencyId)) {
+        return res.status(400).json({ error: { message: 'Invalid agency ID' } });
+      }
+
+      const rootId = await resolveTenantRootAgencyId(agencyId);
+      const tenantIds = await listAgencyIdsInTenantTree(rootId || agencyId);
+
+      // For non-admin roles, verify the user actually belongs to this tenant tree
+      if (role !== 'admin' && role !== 'support') {
+        const userAgencies = await User.getAgencies(req.user.id);
+        const userAgencyIds = new Set((userAgencies || []).map(a => Number(a.id)).filter(n => n > 0));
+        if (!tenantIds.some(id => userAgencyIds.has(id))) {
+          return res.status(403).json({ error: { message: 'Access denied to this tenant' } });
+        }
+      }
+
+      req.agencyId = agencyId;
+      req.tenantRootId = rootId || agencyId;
+      req.tenantAgencyIds = tenantIds;
+      return next();
     }
 
-    const tenantIds = await listAgencyIdsInTenantTree(rootId);
+    // No agencyId in request — resolve from the user's own agency memberships.
+    // This ensures that even without an explicit agencyId, admins/support only see
+    // their own tenant's data and never leak cross-tenant records.
     const userAgencies = await User.getAgencies(req.user.id);
-    const userAgencyIds = new Set((userAgencies || []).map(a => Number(a.id)).filter(n => n > 0));
+    const userAgencyIds = (userAgencies || []).map(a => Number(a.id)).filter(n => n > 0);
 
-    const hasTenantAccess = tenantIds.some(id => userAgencyIds.has(id));
-    if (!hasTenantAccess) {
-      return res.status(403).json({ error: { message: 'Access denied to this tenant' } });
+    if (userAgencyIds.length === 0) {
+      req.tenantAgencyIds = [];
+      return next();
     }
 
-    req.agencyId = agencyId;
-    req.tenantRootId = rootId;
+    // Resolve the tenant tree for the user's primary agency
+    const primaryAgencyId = userAgencyIds[0];
+    const rootId = await resolveTenantRootAgencyId(primaryAgencyId);
+    const tenantIds = await listAgencyIdsInTenantTree(rootId || primaryAgencyId);
+
+    req.agencyId = primaryAgencyId;
+    req.tenantRootId = rootId || primaryAgencyId;
     req.tenantAgencyIds = tenantIds;
     next();
   } catch (error) {

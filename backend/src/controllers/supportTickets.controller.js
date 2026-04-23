@@ -563,16 +563,20 @@ export const listMySupportTickets = async (req, res, next) => {
 };
 
 async function getAccessibleTicketScopeForUser(userId, role, req) {
-  // Prefer the strict tenant tree from our updated middleware (fixes Burning Sage seeing other tenants' tickets)
+  const r = String(role || '').toLowerCase();
+
+  // Super admin: no filter, sees all tickets platform-wide
+  if (r === 'super_admin') return { agencyIds: null, schoolOrgIds: null };
+
+  // Middleware sets tenantAgencyIds when it resolves the tenant tree.
+  // This is the primary scoping mechanism — always prefer it over any fallback.
   if (req && req.tenantAgencyIds && Array.isArray(req.tenantAgencyIds) && req.tenantAgencyIds.length > 0) {
     return { agencyIds: req.tenantAgencyIds, schoolOrgIds: [] };
   }
-  // Anyone who can view the queue (admin/support/staff/CPA/provider_plus) sees same as super_admin
-  if (req && isAgencyAdminUser(req)) {
-    return { agencyIds: null, schoolOrgIds: null };
-  }
-  const r = String(role || '').toLowerCase();
-  if (r === 'super_admin') return { agencyIds: null, schoolOrgIds: null };
+
+  // tenantAgencyIds was not set — resolve from the user's own agency memberships.
+  // NOTE: we intentionally do NOT return null here for admin/support — that was the
+  // original bug causing cross-tenant ticket leakage.
   const agencies = await User.getAgencies(userId);
   const ids = (agencies || []).map((a) => parseInt(a?.id, 10)).filter((n) => Number.isFinite(n));
   if (ids.length === 0) return { agencyIds: [], schoolOrgIds: [] };
