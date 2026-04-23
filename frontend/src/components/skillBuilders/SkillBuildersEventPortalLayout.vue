@@ -27,7 +27,7 @@
 defineProps({
   title: { type: String, default: '' },
   subtitle: { type: String, default: '' },
-  kicker: { type: String, default: 'Skill Builders' }
+  kicker: { type: String, default: 'Program event' }
 });
 </script>
 

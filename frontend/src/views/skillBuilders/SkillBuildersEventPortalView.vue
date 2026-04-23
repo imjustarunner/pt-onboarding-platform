@@ -5,7 +5,7 @@
       <div v-else-if="error" class="sbep-state error-box">{{ error }}</div>
       <template v-else-if="detail">
         <SkillBuildersEventPortalLayout
-          :title="detail.event?.title || 'Skill Builders event'"
+          :title="detail.event?.title || eventNounFallback"
           :subtitle="headerSubtitle"
           :kicker="portalKicker"
         >
@@ -2213,6 +2213,7 @@ import { useRoute, useRouter, isNavigationFailure } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
+import { eventCategorySingularLabel, isSkillBuildersEventType } from '../../utils/eventTypeLabels';
 import SkillBuildersEventPortalLayout from '../../components/skillBuilders/SkillBuildersEventPortalLayout.vue';
 import SkillBuildersEventDashboardSection from '../../components/skillBuilders/SkillBuildersEventDashboardSection.vue';
 import SkillBuildersWorkSchedulePanel from '../../components/availability/SkillBuildersWorkSchedulePanel.vue';
@@ -2327,9 +2328,24 @@ const eventBillingAgencyId = computed(() => {
 });
 
 const portalKicker = computed(() => {
-  const name = String(detail.value?.programPortal?.name || '').trim();
-  if (name) return `Program event · ${name}`;
-  return 'Program event · Skill Builders';
+  // Pull the event's *actual* type rather than blanket-saying "Skill Builders".
+  // Most program events aren't Skill Builders (e.g. summer programs, workshops)
+  // — only label as Skill Builders when the event truly is.
+  const ev = detail.value?.event || {};
+  const typeLabel = eventCategorySingularLabel(ev.eventType ?? ev.event_type);
+  const programName = String(detail.value?.programPortal?.name || '').trim();
+  if (programName) return `${typeLabel} · ${programName}`;
+  if (isSkillBuildersEventType(ev.eventType ?? ev.event_type)) return `${typeLabel} · Skill Builders`;
+  return typeLabel;
+});
+
+/**
+ * Generic fallback for places that need a noun for the event when
+ * `event.title` is missing — e.g. CSV exports, copy-share blurbs.
+ */
+const eventNounFallback = computed(() => {
+  const ev = detail.value?.event || {};
+  return eventCategorySingularLabel(ev.eventType ?? ev.event_type);
 });
 
 const programEventsHref = computed(() => {
@@ -4048,7 +4064,7 @@ function sessionDateLabelForPunch(sessionId) {
 }
 
 function exportEventClockCsv() {
-  const title = detail.value?.event?.title || 'Skill Builders event';
+  const title = detail.value?.event?.title || eventNounFallback.value;
   const rows = [
     ['Event', 'UserId', 'Provider', 'PunchType', 'PunchedAt', 'SessionId', 'SessionDate', 'PayrollClaimId']
   ];
@@ -4096,7 +4112,7 @@ async function copyGoogleCalendarLink() {
 }
 
 async function copyShareBlurb() {
-  const title = detail.value?.event?.title || 'Skill Builders event';
+  const title = detail.value?.event?.title || eventNounFallback.value;
   const when = formatWhen(detail.value?.event?.startsAt, detail.value?.event?.endsAt);
   const g = detail.value?.calendar?.googleCalendarUrl || '';
   const ics = detail.value?.calendar?.icsUrl ? absoluteUrl(detail.value.calendar.icsUrl) : '';

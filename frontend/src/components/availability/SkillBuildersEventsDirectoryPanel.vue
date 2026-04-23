@@ -2,7 +2,7 @@
   <div class="sbes-directory" :class="{ 'sbes-directory--page': variant === 'page' }">
     <div v-if="variant === 'modal'" class="sbes-header">
       <div>
-        <h2 id="sbes-title" class="sbes-title">Skill Builders events</h2>
+        <h2 id="sbes-title" class="sbes-title">Program events</h2>
         <p class="sbes-sub">Open an event portal by school or browse all program events.</p>
       </div>
       <button v-if="showClose" type="button" class="sbes-close" aria-label="Close" @click="$emit('close')">

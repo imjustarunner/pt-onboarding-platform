@@ -444,7 +444,7 @@
                 <option :value="null">Select agency</option>
                 <option v-for="a in agencyList" :key="a.id" :value="a.id">{{ a.name }}</option>
               </select>
-              <small class="form-help">Used only to list events when locking this link to one Skill Builders / company event.</small>
+              <small class="form-help">Used only to list events when locking this link to one program / company event.</small>
             </div>
             <div
               v-if="registrationFlowAdmin"
@@ -463,7 +463,7 @@
                 :disabled="companyEventsPickerLoading"
               >
                 <option :value="null">
-                  None yet — save as a draft, then pick the Skill Builders / company event this URL enrolls into
+                  None yet — save as a draft, then pick the program / company event this URL enrolls into
                 </option>
                 <option v-for="e in companyEventsPickerFilteredOptions" :key="e.id" :value="e.id">
                   {{ e.title || `Event ${e.id}` }} (starts {{ formatCompanyEventPickerLabel(e) }}){{
@@ -1048,7 +1048,7 @@
                     class="form-group"
                     style="grid-column: 1 / -1; padding: 10px 12px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;"
                   >
-                    <strong style="display: block; margin-bottom: 6px;">Choosing a real company / Skill Builders event</strong>
+                    <strong style="display: block; margin-bottom: 6px;">Choosing a real company / program event</strong>
                     <span class="muted" style="font-size: 13px; line-height: 1.45;">
                       There is no Agency → Program → Event cascade here. Use one of these:
                       <br />

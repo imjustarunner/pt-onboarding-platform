@@ -76,7 +76,7 @@
         >
           <p class="muted sbpe-program-empty-copy">
             No programs are linked to this agency yet. Add a <strong>program</strong> organization first, then you can create
-            Skill Builders events for it.
+            program events for it.
           </p>
           <button type="button" class="btn btn-primary btn-sm" @click="showCreateProgramModal = true">Add a program</button>
         </div>
