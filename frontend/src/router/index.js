@@ -727,6 +727,24 @@ const routes = [
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/class-presentation-builder',
+    name: 'OrganizationClassPresentationTemplateStudio',
+    component: () => import('../views/classroom/ClassPresentationBuilderView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/class-presentation-builder/:eventId',
+    name: 'OrganizationClassPresentationBuilder',
+    component: () => import('../views/classroom/ClassPresentationBuilderView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/class-presentation-dashboard/:eventId',
+    name: 'OrganizationClassPresentationDashboard',
+    component: () => import('../views/classroom/ClassPresentationDashboardView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/tutoring-session/:sessionId',
     name: 'OrganizationVirtualTutoringSession',
     component: () => import('../views/tutoring/VirtualTutoringSessionView.vue'),
@@ -931,7 +949,26 @@ const routes = [
     path: '/:organizationSlug/admin',
     name: 'OrganizationAdminDashboard',
     component: () => import('../views/admin/AdminDashboard.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'club_manager', 'provider_plus', 'clinical_practice_assistant'], organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin-dashboard',
+    name: 'OrganizationTenantAdminDashboard',
+    component: () => import('../views/admin/TenantAdminDashboard.vue'),
+    meta: { 
+      requiresAuth: true, 
+      requiresRole: ['admin', 'support', 'super_admin', 'club_manager', 'provider_plus', 'clinical_practice_assistant'], 
+      organizationSlug: true 
+    }
+  },
+  {
+    path: '/admin-dashboard',
+    name: 'TenantAdminDashboard',
+    component: () => import('../views/admin/TenantAdminDashboard.vue'),
+    meta: { 
+      requiresAuth: true, 
+      requiresRole: ['admin', 'support', 'super_admin', 'club_manager', 'provider_plus', 'clinical_practice_assistant'] 
+    }
   },
   {
     path: '/:organizationSlug/admin/modules',
@@ -1486,6 +1523,24 @@ const routes = [
     path: '/learning/classes/:classId',
     name: 'LearningClassWorkspace',
     component: () => import('../views/learning/LearningClassWorkspaceView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/class-presentation-builder',
+    name: 'ClassPresentationTemplateStudio',
+    component: () => import('../views/classroom/ClassPresentationBuilderView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/class-presentation-builder/:eventId',
+    name: 'ClassPresentationBuilder',
+    component: () => import('../views/classroom/ClassPresentationBuilderView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/class-presentation-dashboard/:eventId',
+    name: 'ClassPresentationDashboard',
+    component: () => import('../views/classroom/ClassPresentationDashboardView.vue'),
     meta: { requiresAuth: true }
   },
   {

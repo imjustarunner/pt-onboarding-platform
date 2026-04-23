@@ -124,6 +124,14 @@
               :default-open="false"
             >
               <p class="muted small gsbe-card-lead">Join opens 10 minutes before start through the scheduled end.</p>
+              <div class="gsbe-classroom-launch">
+                <router-link
+                  class="btn btn-secondary btn-sm"
+                  :to="classPresentationHref"
+                >
+                  Join class dashboard
+                </router-link>
+              </div>
               <ul class="gsbe-join-list">
                 <li v-for="s in sessions" :key="`vj-${s.id}`" class="gsbe-join-li">
                   <span>{{ formatSessionDateDisplay(s.sessionDate) }} · {{ wallHmToDisplay(formatHm(s.startTime)) }}–{{ wallHmToDisplay(formatHm(s.endTime)) }}</span>
@@ -288,6 +296,20 @@ const orgSlug = computed(() => String(route.params.organizationSlug || '').trim(
 const backTo = computed(() => {
   if (props.inline) return '';
   return orgSlug.value ? `/${orgSlug.value}/guardian` : '/guardian';
+});
+
+const classPresentationHref = computed(() => {
+  const base = orgSlug.value
+    ? `/${orgSlug.value}/class-presentation-dashboard/${eventId.value}`
+    : `/class-presentation-dashboard/${eventId.value}`;
+  return {
+    path: base,
+    query: {
+      role: 'participant',
+      title: String(detail.value?.event?.title || (isProgramEventMode.value ? 'Program Event Class' : 'Skill Builders Class')).trim(),
+      agencyId: String(detail.value?.event?.agencyId || '')
+    }
+  };
 });
 
 const loading = ref(false);

@@ -1080,6 +1080,126 @@ if (!isBootstrap) {
     }
   })();
 
+  // Migration 741 – field definitions on Skill Builders program documents +
+  // per-user class document responses for the Class Presentation Dashboard.
+  (async () => {
+    try {
+      const { default: pool } = await import('./config/database.js');
+
+      const [[programDocsTable]] = await pool.execute(
+        `SELECT 1 AS ok
+           FROM information_schema.TABLES
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = 'skill_builders_event_program_documents'`
+      );
+      if (programDocsTable) {
+        const [fieldCols] = await pool.execute(
+          `SELECT COLUMN_NAME
+             FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'skill_builders_event_program_documents'
+              AND COLUMN_NAME = 'field_definitions'`
+        );
+        if (!fieldCols.length) {
+          await pool.execute(
+            `ALTER TABLE skill_builders_event_program_documents
+               ADD COLUMN field_definitions LONGTEXT NULL AFTER file_size_bytes`
+          );
+          console.log('[startup] Migration 741 applied: field_definitions added to skill_builders_event_program_documents');
+        }
+      }
+
+      await pool.execute(
+        `CREATE TABLE IF NOT EXISTS skill_builders_class_document_responses (
+           id INT NOT NULL AUTO_INCREMENT,
+           company_event_id INT NOT NULL,
+           program_document_id INT NOT NULL,
+           participant_user_id INT NOT NULL,
+           response_values LONGTEXT NULL,
+           status VARCHAR(32) NOT NULL DEFAULT 'draft',
+           started_at DATETIME NULL DEFAULT NULL,
+           completed_at DATETIME NULL DEFAULT NULL,
+           last_saved_at DATETIME NULL DEFAULT NULL,
+           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+           PRIMARY KEY (id),
+           UNIQUE KEY uq_sb_class_doc_response (company_event_id, program_document_id, participant_user_id),
+           KEY idx_sb_class_doc_response_event (company_event_id),
+           KEY idx_sb_class_doc_response_document (program_document_id),
+           KEY idx_sb_class_doc_response_user (participant_user_id)
+         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+      );
+    } catch (err) {
+      console.warn('[startup] Migration 741 check skipped:', err.message);
+    }
+  })();
+
+  // Migration 742 – database-backed class presentation series/session library.
+  (async () => {
+    try {
+      const { default: pool } = await import('./config/database.js');
+
+      await pool.execute(
+        `CREATE TABLE IF NOT EXISTS skill_builders_class_presentation_series (
+           id INT NOT NULL AUTO_INCREMENT,
+           agency_id INT NOT NULL,
+           program_organization_id INT NOT NULL,
+           title VARCHAR(255) NOT NULL,
+           summary TEXT NULL,
+           created_by_user_id INT NULL DEFAULT NULL,
+           updated_by_user_id INT NULL DEFAULT NULL,
+           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+           PRIMARY KEY (id),
+           KEY idx_sb_class_presentation_series_scope (agency_id, program_organization_id),
+           KEY idx_sb_class_presentation_series_program (program_organization_id)
+         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+      );
+
+      await pool.execute(
+        `CREATE TABLE IF NOT EXISTS skill_builders_class_presentation_sessions (
+           id INT NOT NULL AUTO_INCREMENT,
+           series_id INT NOT NULL,
+           agency_id INT NOT NULL,
+           program_organization_id INT NOT NULL,
+           title VARCHAR(255) NOT NULL,
+           summary TEXT NULL,
+           event_label VARCHAR(255) NULL DEFAULT NULL,
+           position_index INT NOT NULL DEFAULT 0,
+           plan_json LONGTEXT NULL,
+           created_by_user_id INT NULL DEFAULT NULL,
+           updated_by_user_id INT NULL DEFAULT NULL,
+           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+           PRIMARY KEY (id),
+           KEY idx_sb_class_presentation_sessions_series (series_id, position_index),
+           KEY idx_sb_class_presentation_sessions_scope (agency_id, program_organization_id)
+         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+      );
+
+      await pool.execute(
+        `CREATE TABLE IF NOT EXISTS skill_builders_class_presentation_event_sessions (
+           id INT NOT NULL AUTO_INCREMENT,
+           agency_id INT NOT NULL,
+           program_organization_id INT NOT NULL,
+           company_event_id INT NOT NULL,
+           presentation_series_id INT NOT NULL,
+           presentation_session_id INT NOT NULL,
+           attached_by_user_id INT NULL DEFAULT NULL,
+           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+           PRIMARY KEY (id),
+           UNIQUE KEY uq_sb_class_presentation_event (company_event_id),
+           KEY idx_sb_class_presentation_event_scope (agency_id, program_organization_id),
+           KEY idx_sb_class_presentation_event_series (presentation_series_id),
+           KEY idx_sb_class_presentation_event_session (presentation_session_id)
+         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+      );
+    } catch (err) {
+      console.warn('[startup] Migration 742 check skipped:', err.message);
+    }
+  })();
+
   // Set up periodic processing of terminated and completed users
   // Run every hour to check for users that need to be marked inactive or archived
   setInterval(async () => {

@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import { userHasAgencyOrAffiliatedOrgAccessForRequest } from '../utils/userAgencyAffiliationAccess.js';
+import { hasTenantAccess } from '../utils/meDashboardTenantScope.js';
 import {
   listAffiliatedProgramOrganizations,
   resolveSkillBuildersProgramOrganizationId,
@@ -54,6 +55,30 @@ import {
   upsertClinicalNote,
   upsertCurriculumRecord
 } from '../services/skillBuildersSessionClinical.service.js';
+import {
+  buildFilledClassDocumentPdf,
+  loadClassDocumentResponseRow,
+  mapProgramDocumentRowToApi,
+  mapResponseRowToApi,
+  normalizeFieldDefinitionsInput,
+  normalizeResponseValuesInput,
+  parseJsonArray,
+  upsertClassDocumentResponse
+} from '../services/classPresentationDocuments.service.js';
+import {
+  attachClassPresentationSessionToEvent,
+  createClassPresentationSeriesRecord,
+  createClassPresentationSessionRecord,
+  deleteClassPresentationSeriesRecord,
+  deleteClassPresentationSessionRecord,
+  duplicateClassPresentationSeriesRecord,
+  duplicateClassPresentationSessionRecord,
+  getClassPresentationForEvent,
+  getClassPresentationSessionRecord,
+  listClassPresentationSeriesLibrary,
+  updateClassPresentationSeriesRecord,
+  updateClassPresentationSessionRecord
+} from '../services/classPresentationLibrary.service.js';
 import {
   listActivityOptionsForSkillsGroup,
   listActivityOptionsForProgramDocument,
@@ -245,8 +270,9 @@ async function mergeCanonicalSkillsGroupWindowForEditFetch(agencyId, eventId, bu
 
 async function userHasAgencyAccess(req, agencyId) {
   if (!agencyId) return false;
-  if (String(req.user?.role || '').toLowerCase() === 'super_admin') return true;
-  return userHasAgencyOrAffiliatedOrgAccessForRequest(req, agencyId);
+  // Use the strict tenant-scoped check from meDashboardTenantScope for consistency across new tenants
+  // (prevents over-access; super_admin/admin/support get full tenant tree, others limited to membership)
+  return await hasTenantAccess(req, agencyId);
 }
 
 /** Admin / staff / support with membership in this agency (plus super_admin). */
@@ -1002,20 +1028,32 @@ async function fetchProgramOrganizationIdForCompanyEvent(agencyId, eventId) {
 }
 
 function mapProgramDocumentRowsToApi(rows) {
-  return (rows || []).map((r) => {
-    const fn = String(r.original_filename || '').trim() || 'document.pdf';
-    const title =
-      r.display_title != null && String(r.display_title).trim() ? String(r.display_title).trim().slice(0, 255) : null;
-    return {
-      id: Number(r.id),
-      originalFilename: fn,
-      displayTitle: title,
-      displayLabel: title || fn,
-      fileSizeBytes: r.file_size_bytes != null ? Number(r.file_size_bytes) : null,
-      createdAt: r.created_at,
-      mimeType: r.mime_type
-    };
-  });
+  return (rows || []).map((row) => mapProgramDocumentRowToApi(row));
+}
+
+function mapClassPresentationSessionToApi(series, session) {
+  if (!series || !session) return null;
+  return {
+    series: {
+      id: Number(series.id),
+      title: String(series.title || '').trim(),
+      summary: String(series.summary || '').trim(),
+      createdAt: series.createdAt || null,
+      updatedAt: series.updatedAt || null
+    },
+    session: {
+      id: Number(session.id),
+      seriesId: Number(session.seriesId || series.id),
+      title: String(session.title || '').trim(),
+      summary: String(session.summary || '').trim(),
+      eventLabel: String(session.eventLabel || '').trim(),
+      positionIndex: Number(session.positionIndex || 0),
+      plan: session.plan && typeof session.plan === 'object' ? session.plan : {},
+      attachedEvents: Array.isArray(session.attachedEvents) ? session.attachedEvents : [],
+      createdAt: session.createdAt || null,
+      updatedAt: session.updatedAt || null
+    }
+  };
 }
 
 async function clientOnEventRoster(clientId, eventId, agencyId) {
@@ -3284,7 +3322,7 @@ export const listSkillBuilderEventProgramDocuments = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Event is not linked to a program organization' } });
     }
     const [rows] = await pool.execute(
-      `SELECT id, original_filename, display_title, file_size_bytes, created_at, mime_type
+      `SELECT id, original_filename, display_title, file_size_bytes, created_at, mime_type, field_definitions
        FROM skill_builders_event_program_documents
        WHERE agency_id = ? AND program_organization_id = ?
        ORDER BY created_at DESC`,
@@ -3310,7 +3348,7 @@ export const listSkillBuilderProgramOrganizationDocuments = async (req, res, nex
     const gate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
     if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
     const [rows] = await pool.execute(
-      `SELECT id, original_filename, display_title, file_size_bytes, created_at, mime_type
+      `SELECT id, original_filename, display_title, file_size_bytes, created_at, mime_type, field_definitions
        FROM skill_builders_event_program_documents
        WHERE agency_id = ? AND program_organization_id = ?
        ORDER BY created_at DESC`,
@@ -3322,6 +3360,523 @@ export const listSkillBuilderProgramOrganizationDocuments = async (req, res, nex
       return res.status(503).json({ error: { message: 'Run migrations 591–593 for program documents' } });
     }
     next(e);
+  }
+};
+
+/** GET /api/skill-builders/program-organizations/:programOrganizationId/program-documents/:documentId/file */
+export const getSkillBuilderProgramOrganizationDocumentFile = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const programOrganizationId = parsePositiveInt(req.params.programOrganizationId);
+    const documentId = parsePositiveInt(req.params.documentId);
+    if (!agencyId || !programOrganizationId || !documentId) {
+      return res.status(400).json({ error: { message: 'agencyId, program organization id, and document id required' } });
+    }
+    const gate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
+    if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+
+    const row = await loadProgramDocumentRow(documentId);
+    if (!row || Number(row.agency_id) !== agencyId || Number(row.program_organization_id) !== programOrganizationId) {
+      return res.status(404).json({ error: { message: 'Document not found' } });
+    }
+
+    const buffer = await StorageService.readObject(row.storage_path);
+    const filename = String(row.original_filename || 'document.pdf').replace(/"/g, '');
+    res.setHeader('Content-Type', row.mime_type || 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** GET /api/skill-builders/class-presentations/library?agencyId=&eventId= */
+export const getClassPresentationLibrary = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.query.eventId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    let programOrganizationId = null;
+    if (eventId) {
+      const access = await assertEventAccess({ req, agencyId, eventId });
+      if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+      programOrganizationId = await fetchProgramOrganizationIdForCompanyEvent(agencyId, eventId);
+    } else {
+      if (!(await userHasAgencyAccess(req, agencyId))) {
+        return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
+      }
+      const conn = await pool.getConnection();
+      try {
+        const program = await resolveProgramOrg(conn, agencyId);
+        programOrganizationId = program?.id || null;
+      } finally {
+        conn.release();
+      }
+    }
+
+    if (!programOrganizationId) {
+      return res.json({ ok: true, programOrganizationId: null, series: [], attachment: null });
+    }
+
+    const programGate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
+    if (programGate.error) return res.status(programGate.error.status).json({ error: { message: programGate.error.message } });
+
+    const series = await listClassPresentationSeriesLibrary({ agencyId, programOrganizationId });
+    let attachment = null;
+    if (eventId) {
+      const attached = await getClassPresentationForEvent({ agencyId, programOrganizationId, eventId });
+      if (attached?.series && attached?.session) {
+        attachment = {
+          eventId,
+          ...mapClassPresentationSessionToApi(attached.series, attached.session)
+        };
+      }
+    }
+
+    res.json({ ok: true, programOrganizationId, series, attachment });
+  } catch (error) {
+    if (error?.code === 'ER_NO_SUCH_TABLE' || error?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Run migration 742 for class presentation library' } });
+    }
+    next(error);
+  }
+};
+
+/** GET /api/skill-builders/class-presentations/sessions/:sessionId?agencyId= */
+export const getClassPresentationSession = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    if (!agencyId || !sessionId) {
+      return res.status(400).json({ error: { message: 'agencyId and sessionId are required' } });
+    }
+
+    const conn = await pool.getConnection();
+    let programOrganizationId = null;
+    try {
+      const program = await resolveProgramOrg(conn, agencyId);
+      programOrganizationId = program?.id || null;
+    } finally {
+      conn.release();
+    }
+    if (!programOrganizationId) {
+      return res.status(404).json({ error: { message: 'Program organization not found for this agency' } });
+    }
+
+    const gate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
+    if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+
+    const payload = await getClassPresentationSessionRecord({ agencyId, programOrganizationId, sessionId });
+    if (!payload) return res.status(404).json({ error: { message: 'Class presentation session not found' } });
+
+    res.json({ ok: true, ...mapClassPresentationSessionToApi(payload.series, payload.session), programOrganizationId });
+  } catch (error) {
+    if (error?.code === 'ER_NO_SUCH_TABLE' || error?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Run migration 742 for class presentation library' } });
+    }
+    next(error);
+  }
+};
+
+/** POST /api/skill-builders/class-presentations/series */
+export const postClassPresentationSeries = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    const conn = await pool.getConnection();
+    let programOrganizationId = null;
+    try {
+      const program = await resolveProgramOrg(conn, agencyId);
+      programOrganizationId = program?.id || null;
+    } finally {
+      conn.release();
+    }
+    if (!programOrganizationId) {
+      return res.status(404).json({ error: { message: 'Program organization not found for this agency' } });
+    }
+
+    const gate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
+    if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+
+    const seriesId = await createClassPresentationSeriesRecord({
+      agencyId,
+      programOrganizationId,
+      createdByUserId: req.user?.id,
+      series: req.body?.series || req.body || {}
+    });
+    const library = await listClassPresentationSeriesLibrary({ agencyId, programOrganizationId });
+    const created = library.find((series) => Number(series.id) === Number(seriesId)) || null;
+    res.json({ ok: true, programOrganizationId, series: created, library });
+  } catch (error) {
+    if (error?.code === 'ER_NO_SUCH_TABLE' || error?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Run migration 742 for class presentation library' } });
+    }
+    next(error);
+  }
+};
+
+/** PATCH /api/skill-builders/class-presentations/series/:seriesId */
+export const patchClassPresentationSeries = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId ?? req.query.agencyId);
+    const seriesId = parsePositiveInt(req.params.seriesId);
+    if (!agencyId || !seriesId) return res.status(400).json({ error: { message: 'agencyId and seriesId are required' } });
+
+    const conn = await pool.getConnection();
+    let programOrganizationId = null;
+    try {
+      const program = await resolveProgramOrg(conn, agencyId);
+      programOrganizationId = program?.id || null;
+    } finally {
+      conn.release();
+    }
+    if (!programOrganizationId) {
+      return res.status(404).json({ error: { message: 'Program organization not found for this agency' } });
+    }
+
+    const gate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
+    if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+
+    const ok = await updateClassPresentationSeriesRecord({
+      agencyId,
+      programOrganizationId,
+      seriesId,
+      updatedByUserId: req.user?.id,
+      updates: req.body || {}
+    });
+    if (!ok) return res.status(404).json({ error: { message: 'Class presentation series not found' } });
+
+    const library = await listClassPresentationSeriesLibrary({ agencyId, programOrganizationId });
+    const updated = library.find((series) => Number(series.id) === Number(seriesId)) || null;
+    res.json({ ok: true, programOrganizationId, series: updated, library });
+  } catch (error) {
+    if (error?.code === 'ER_NO_SUCH_TABLE' || error?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Run migration 742 for class presentation library' } });
+    }
+    next(error);
+  }
+};
+
+/** DELETE /api/skill-builders/class-presentations/series/:seriesId */
+export const deleteClassPresentationSeries = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId ?? req.query.agencyId);
+    const seriesId = parsePositiveInt(req.params.seriesId);
+    if (!agencyId || !seriesId) return res.status(400).json({ error: { message: 'agencyId and seriesId are required' } });
+
+    const conn = await pool.getConnection();
+    let programOrganizationId = null;
+    try {
+      const program = await resolveProgramOrg(conn, agencyId);
+      programOrganizationId = program?.id || null;
+    } finally {
+      conn.release();
+    }
+    if (!programOrganizationId) {
+      return res.status(404).json({ error: { message: 'Program organization not found for this agency' } });
+    }
+
+    const gate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
+    if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+
+    const deleted = await deleteClassPresentationSeriesRecord({ agencyId, programOrganizationId, seriesId });
+    if (!deleted) return res.status(404).json({ error: { message: 'Class presentation series not found' } });
+
+    const library = await listClassPresentationSeriesLibrary({ agencyId, programOrganizationId });
+    res.json({ ok: true, programOrganizationId, library });
+  } catch (error) {
+    if (error?.code === 'ER_NO_SUCH_TABLE' || error?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Run migration 742 for class presentation library' } });
+    }
+    next(error);
+  }
+};
+
+/** POST /api/skill-builders/class-presentations/series/:seriesId/duplicate */
+export const postDuplicateClassPresentationSeries = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId ?? req.query.agencyId);
+    const seriesId = parsePositiveInt(req.params.seriesId);
+    if (!agencyId || !seriesId) return res.status(400).json({ error: { message: 'agencyId and seriesId are required' } });
+
+    const conn = await pool.getConnection();
+    let programOrganizationId = null;
+    try {
+      const program = await resolveProgramOrg(conn, agencyId);
+      programOrganizationId = program?.id || null;
+    } finally {
+      conn.release();
+    }
+    if (!programOrganizationId) {
+      return res.status(404).json({ error: { message: 'Program organization not found for this agency' } });
+    }
+
+    const gate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
+    if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+
+    const duplicatedId = await duplicateClassPresentationSeriesRecord({
+      agencyId,
+      programOrganizationId,
+      seriesId,
+      userId: req.user?.id
+    });
+    if (!duplicatedId) return res.status(404).json({ error: { message: 'Class presentation series not found' } });
+
+    const library = await listClassPresentationSeriesLibrary({ agencyId, programOrganizationId });
+    const duplicated = library.find((series) => Number(series.id) === Number(duplicatedId)) || null;
+    res.json({ ok: true, programOrganizationId, series: duplicated, library });
+  } catch (error) {
+    if (error?.code === 'ER_NO_SUCH_TABLE' || error?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Run migration 742 for class presentation library' } });
+    }
+    next(error);
+  }
+};
+
+/** POST /api/skill-builders/class-presentations/series/:seriesId/sessions */
+export const postClassPresentationSession = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const seriesId = parsePositiveInt(req.params.seriesId);
+    if (!agencyId || !seriesId) return res.status(400).json({ error: { message: 'agencyId and seriesId are required' } });
+
+    const conn = await pool.getConnection();
+    let programOrganizationId = null;
+    try {
+      const program = await resolveProgramOrg(conn, agencyId);
+      programOrganizationId = program?.id || null;
+    } finally {
+      conn.release();
+    }
+    if (!programOrganizationId) {
+      return res.status(404).json({ error: { message: 'Program organization not found for this agency' } });
+    }
+
+    const gate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
+    if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+
+    const sessionId = await createClassPresentationSessionRecord({
+      agencyId,
+      programOrganizationId,
+      seriesId,
+      createdByUserId: req.user?.id,
+      session: req.body?.session || req.body || {}
+    });
+    if (!sessionId) return res.status(404).json({ error: { message: 'Class presentation series not found' } });
+
+    const payload = await getClassPresentationSessionRecord({ agencyId, programOrganizationId, sessionId });
+    const library = await listClassPresentationSeriesLibrary({ agencyId, programOrganizationId });
+    res.json({
+      ok: true,
+      programOrganizationId,
+      ...(payload ? mapClassPresentationSessionToApi(payload.series, payload.session) : {}),
+      library
+    });
+  } catch (error) {
+    if (error?.code === 'ER_NO_SUCH_TABLE' || error?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Run migration 742 for class presentation library' } });
+    }
+    next(error);
+  }
+};
+
+/** PATCH /api/skill-builders/class-presentations/sessions/:sessionId */
+export const patchClassPresentationSession = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId ?? req.query.agencyId);
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    if (!agencyId || !sessionId) return res.status(400).json({ error: { message: 'agencyId and sessionId are required' } });
+
+    const conn = await pool.getConnection();
+    let programOrganizationId = null;
+    try {
+      const program = await resolveProgramOrg(conn, agencyId);
+      programOrganizationId = program?.id || null;
+    } finally {
+      conn.release();
+    }
+    if (!programOrganizationId) {
+      return res.status(404).json({ error: { message: 'Program organization not found for this agency' } });
+    }
+
+    const gate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
+    if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+
+    const ok = await updateClassPresentationSessionRecord({
+      agencyId,
+      programOrganizationId,
+      sessionId,
+      updatedByUserId: req.user?.id,
+      updates: req.body || {}
+    });
+    if (!ok) return res.status(404).json({ error: { message: 'Class presentation session not found' } });
+
+    const payload = await getClassPresentationSessionRecord({ agencyId, programOrganizationId, sessionId });
+    const library = await listClassPresentationSeriesLibrary({ agencyId, programOrganizationId });
+    res.json({
+      ok: true,
+      programOrganizationId,
+      ...(payload ? mapClassPresentationSessionToApi(payload.series, payload.session) : {}),
+      library
+    });
+  } catch (error) {
+    if (error?.code === 'ER_NO_SUCH_TABLE' || error?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Run migration 742 for class presentation library' } });
+    }
+    next(error);
+  }
+};
+
+/** DELETE /api/skill-builders/class-presentations/sessions/:sessionId */
+export const deleteClassPresentationSession = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId ?? req.query.agencyId);
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    if (!agencyId || !sessionId) return res.status(400).json({ error: { message: 'agencyId and sessionId are required' } });
+
+    const conn = await pool.getConnection();
+    let programOrganizationId = null;
+    try {
+      const program = await resolveProgramOrg(conn, agencyId);
+      programOrganizationId = program?.id || null;
+    } finally {
+      conn.release();
+    }
+    if (!programOrganizationId) {
+      return res.status(404).json({ error: { message: 'Program organization not found for this agency' } });
+    }
+
+    const gate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
+    if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+
+    const deleted = await deleteClassPresentationSessionRecord({ agencyId, programOrganizationId, sessionId });
+    if (!deleted) return res.status(404).json({ error: { message: 'Class presentation session not found' } });
+
+    const library = await listClassPresentationSeriesLibrary({ agencyId, programOrganizationId });
+    res.json({ ok: true, programOrganizationId, library });
+  } catch (error) {
+    if (error?.code === 'ER_NO_SUCH_TABLE' || error?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Run migration 742 for class presentation library' } });
+    }
+    next(error);
+  }
+};
+
+/** POST /api/skill-builders/class-presentations/sessions/:sessionId/duplicate */
+export const postDuplicateClassPresentationSession = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId ?? req.query.agencyId);
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    if (!agencyId || !sessionId) return res.status(400).json({ error: { message: 'agencyId and sessionId are required' } });
+
+    const conn = await pool.getConnection();
+    let programOrganizationId = null;
+    try {
+      const program = await resolveProgramOrg(conn, agencyId);
+      programOrganizationId = program?.id || null;
+    } finally {
+      conn.release();
+    }
+    if (!programOrganizationId) {
+      return res.status(404).json({ error: { message: 'Program organization not found for this agency' } });
+    }
+
+    const gate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
+    if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+
+    const duplicatedId = await duplicateClassPresentationSessionRecord({
+      agencyId,
+      programOrganizationId,
+      sessionId,
+      userId: req.user?.id
+    });
+    if (!duplicatedId) return res.status(404).json({ error: { message: 'Class presentation session not found' } });
+
+    const payload = await getClassPresentationSessionRecord({ agencyId, programOrganizationId, duplicatedId });
+    const library = await listClassPresentationSeriesLibrary({ agencyId, programOrganizationId });
+    res.json({
+      ok: true,
+      programOrganizationId,
+      ...(payload ? mapClassPresentationSessionToApi(payload.series, payload.session) : {}),
+      library
+    });
+  } catch (error) {
+    if (error?.code === 'ER_NO_SUCH_TABLE' || error?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Run migration 742 for class presentation library' } });
+    }
+    next(error);
+  }
+};
+
+/** GET /api/skill-builders/events/:eventId/class-presentation */
+export const getClassPresentationEventAssignment = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'agencyId and eventId are required' } });
+
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+
+    const programOrganizationId = await fetchProgramOrganizationIdForCompanyEvent(agencyId, eventId);
+    if (!programOrganizationId) {
+      return res.json({ ok: true, programOrganizationId: null, assignment: null });
+    }
+
+    const payload = await getClassPresentationForEvent({ agencyId, programOrganizationId, eventId });
+    res.json({
+      ok: true,
+      programOrganizationId,
+      assignment: payload ? mapClassPresentationSessionToApi(payload.series, payload.session) : null
+    });
+  } catch (error) {
+    if (error?.code === 'ER_NO_SUCH_TABLE' || error?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Run migration 742 for class presentation library' } });
+    }
+    next(error);
+  }
+};
+
+/** PUT /api/skill-builders/events/:eventId/class-presentation */
+export const putClassPresentationEventAssignment = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId ?? req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const sessionId = parsePositiveInt(req.body?.sessionId);
+    if (!agencyId || !eventId || !sessionId) {
+      return res.status(400).json({ error: { message: 'agencyId, eventId, and sessionId are required' } });
+    }
+
+    const gate = await canManageSessionCurriculum(req, agencyId, eventId);
+    if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+
+    const programOrganizationId = await fetchProgramOrganizationIdForCompanyEvent(agencyId, eventId);
+    if (!programOrganizationId) {
+      return res.status(400).json({ error: { message: 'Event is not linked to a program organization' } });
+    }
+
+    const attached = await attachClassPresentationSessionToEvent({
+      agencyId,
+      programOrganizationId,
+      eventId,
+      sessionId,
+      userId: req.user?.id
+    });
+    if (!attached) return res.status(404).json({ error: { message: 'Class presentation session not found' } });
+
+    const payload = await getClassPresentationForEvent({ agencyId, programOrganizationId, eventId });
+    res.json({
+      ok: true,
+      programOrganizationId,
+      assignment: payload ? mapClassPresentationSessionToApi(payload.series, payload.session) : null
+    });
+  } catch (error) {
+    if (error?.code === 'ER_NO_SUCH_TABLE' || error?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Run migration 742 for class presentation library' } });
+    }
+    next(error);
   }
 };
 
@@ -3346,6 +3901,7 @@ export const postSkillBuilderEventProgramDocument = [
 
       const rawTitle = String(req.body?.title ?? req.body?.displayTitle ?? '').trim().slice(0, 255);
       const displayTitle = rawTitle || null;
+      const fieldDefinitions = normalizeFieldDefinitionsInput(req.body?.fieldDefinitions);
 
       const key = programLibraryStorageKey(agencyId, progOrgId, req.file.originalname);
       await StorageService.writeObject(key, req.file.buffer, 'application/pdf', {
@@ -3356,19 +3912,31 @@ export const postSkillBuilderEventProgramDocument = [
       const origFn = String(req.file.originalname || 'document.pdf').slice(0, 255);
       const [ins] = await pool.execute(
         `INSERT INTO skill_builders_event_program_documents
-         (agency_id, program_organization_id, company_event_id, skills_group_id, storage_path, original_filename, display_title, mime_type, file_size_bytes, uploaded_by_user_id)
-         VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)`,
-        [agencyId, progOrgId, key, origFn, displayTitle, 'application/pdf', req.file.size, req.user.id]
+         (agency_id, program_organization_id, company_event_id, skills_group_id, storage_path, original_filename, display_title, mime_type, file_size_bytes, uploaded_by_user_id, field_definitions)
+         VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          agencyId,
+          progOrgId,
+          key,
+          origFn,
+          displayTitle,
+          'application/pdf',
+          req.file.size,
+          req.user.id,
+          fieldDefinitions !== undefined ? JSON.stringify(fieldDefinitions) : null
+        ]
       );
       res.json({
         ok: true,
-        document: {
+        document: mapProgramDocumentRowToApi({
           id: Number(ins.insertId),
-          originalFilename: origFn,
-          displayTitle,
-          displayLabel: displayTitle || origFn,
-          fileSizeBytes: req.file.size
-        }
+          original_filename: origFn,
+          display_title: displayTitle,
+          file_size_bytes: req.file.size,
+          created_at: new Date(),
+          mime_type: 'application/pdf',
+          field_definitions: fieldDefinitions !== undefined ? JSON.stringify(fieldDefinitions) : null
+        })
       });
     } catch (e) {
       if (e?.message === 'Only PDF files are allowed') {
@@ -3398,6 +3966,7 @@ export const postSkillBuilderProgramOrganizationProgramDocument = [
 
       const rawTitle = String(req.body?.title ?? req.body?.displayTitle ?? '').trim().slice(0, 255);
       const displayTitle = rawTitle || null;
+      const fieldDefinitions = normalizeFieldDefinitionsInput(req.body?.fieldDefinitions);
 
       const key = programLibraryStorageKey(agencyId, programOrganizationId, req.file.originalname);
       await StorageService.writeObject(key, req.file.buffer, 'application/pdf', {
@@ -3408,19 +3977,31 @@ export const postSkillBuilderProgramOrganizationProgramDocument = [
       const origFn = String(req.file.originalname || 'document.pdf').slice(0, 255);
       const [ins] = await pool.execute(
         `INSERT INTO skill_builders_event_program_documents
-         (agency_id, program_organization_id, company_event_id, skills_group_id, storage_path, original_filename, display_title, mime_type, file_size_bytes, uploaded_by_user_id)
-         VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)`,
-        [agencyId, programOrganizationId, key, origFn, displayTitle, 'application/pdf', req.file.size, req.user.id]
+         (agency_id, program_organization_id, company_event_id, skills_group_id, storage_path, original_filename, display_title, mime_type, file_size_bytes, uploaded_by_user_id, field_definitions)
+         VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          agencyId,
+          programOrganizationId,
+          key,
+          origFn,
+          displayTitle,
+          'application/pdf',
+          req.file.size,
+          req.user.id,
+          fieldDefinitions !== undefined ? JSON.stringify(fieldDefinitions) : null
+        ]
       );
       res.json({
         ok: true,
-        document: {
+        document: mapProgramDocumentRowToApi({
           id: Number(ins.insertId),
-          originalFilename: origFn,
-          displayTitle,
-          displayLabel: displayTitle || origFn,
-          fileSizeBytes: req.file.size
-        }
+          original_filename: origFn,
+          display_title: displayTitle,
+          file_size_bytes: req.file.size,
+          created_at: new Date(),
+          mime_type: 'application/pdf',
+          field_definitions: fieldDefinitions !== undefined ? JSON.stringify(fieldDefinitions) : null
+        })
       });
     } catch (e) {
       if (e?.message === 'Only PDF files are allowed') {
@@ -3520,11 +4101,14 @@ export const patchSkillBuilderEventProgramDocument = async (req, res, next) => {
     if (!agencyId || !eventId || !documentId) {
       return res.status(400).json({ error: { message: 'agencyId, event id, and document id required' } });
     }
-    if (req.body?.title === undefined && req.body?.displayTitle === undefined) {
-      return res.status(400).json({ error: { message: 'title or displayTitle is required' } });
+    const hasTitlePatch = req.body?.title !== undefined || req.body?.displayTitle !== undefined;
+    const hasFieldDefinitionsPatch = req.body?.fieldDefinitions !== undefined;
+    if (!hasTitlePatch && !hasFieldDefinitionsPatch) {
+      return res.status(400).json({ error: { message: 'title, displayTitle, or fieldDefinitions is required' } });
     }
     const raw = String(req.body?.title ?? req.body?.displayTitle ?? '').trim().slice(0, 255);
-    const displayTitle = raw || null;
+    const displayTitle = hasTitlePatch ? raw || null : undefined;
+    const fieldDefinitions = normalizeFieldDefinitionsInput(req.body?.fieldDefinitions);
 
     const cm = await canManageSessionCurriculum(req, agencyId, eventId);
     if (cm.error) return res.status(cm.error.status).json({ error: { message: cm.error.message } });
@@ -3538,19 +4122,28 @@ export const patchSkillBuilderEventProgramDocument = async (req, res, next) => {
     if (!row || Number(row.agency_id) !== agencyId || Number(row.program_organization_id) !== progOrgId) {
       return res.status(404).json({ error: { message: 'Document not found' } });
     }
+    const updateParts = [];
+    const updateValues = [];
+    if (displayTitle !== undefined) {
+      updateParts.push('display_title = ?');
+      updateValues.push(displayTitle);
+    }
+    if (fieldDefinitions !== undefined) {
+      updateParts.push('field_definitions = ?');
+      updateValues.push(JSON.stringify(fieldDefinitions));
+    }
     await pool.execute(
-      `UPDATE skill_builders_event_program_documents SET display_title = ? WHERE id = ? AND agency_id = ? AND program_organization_id = ?`,
-      [displayTitle, documentId, agencyId, progOrgId]
+      `UPDATE skill_builders_event_program_documents SET ${updateParts.join(', ')} WHERE id = ? AND agency_id = ? AND program_organization_id = ?`,
+      [...updateValues, documentId, agencyId, progOrgId]
     );
-    const fn = String(row.original_filename || '').trim() || 'document.pdf';
+    const nextRow = {
+      ...row,
+      display_title: displayTitle !== undefined ? displayTitle : row.display_title,
+      field_definitions: fieldDefinitions !== undefined ? JSON.stringify(fieldDefinitions) : row.field_definitions
+    };
     res.json({
       ok: true,
-      document: {
-        id: documentId,
-        originalFilename: fn,
-        displayTitle,
-        displayLabel: displayTitle || fn
-      }
+      document: mapProgramDocumentRowToApi(nextRow)
     });
   } catch (e) {
     if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
@@ -3569,11 +4162,14 @@ export const patchSkillBuilderProgramOrganizationProgramDocument = async (req, r
     if (!agencyId || !programOrganizationId || !documentId) {
       return res.status(400).json({ error: { message: 'agencyId, program organization id, and document id required' } });
     }
-    if (req.body?.title === undefined && req.body?.displayTitle === undefined) {
-      return res.status(400).json({ error: { message: 'title or displayTitle is required' } });
+    const hasTitlePatch = req.body?.title !== undefined || req.body?.displayTitle !== undefined;
+    const hasFieldDefinitionsPatch = req.body?.fieldDefinitions !== undefined;
+    if (!hasTitlePatch && !hasFieldDefinitionsPatch) {
+      return res.status(400).json({ error: { message: 'title, displayTitle, or fieldDefinitions is required' } });
     }
     const raw = String(req.body?.title ?? req.body?.displayTitle ?? '').trim().slice(0, 255);
-    const displayTitle = raw || null;
+    const displayTitle = hasTitlePatch ? raw || null : undefined;
+    const fieldDefinitions = normalizeFieldDefinitionsInput(req.body?.fieldDefinitions);
 
     const gate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
     if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
@@ -3582,24 +4178,155 @@ export const patchSkillBuilderProgramOrganizationProgramDocument = async (req, r
     if (!row || Number(row.agency_id) !== agencyId || Number(row.program_organization_id) !== programOrganizationId) {
       return res.status(404).json({ error: { message: 'Document not found' } });
     }
+    const updateParts = [];
+    const updateValues = [];
+    if (displayTitle !== undefined) {
+      updateParts.push('display_title = ?');
+      updateValues.push(displayTitle);
+    }
+    if (fieldDefinitions !== undefined) {
+      updateParts.push('field_definitions = ?');
+      updateValues.push(JSON.stringify(fieldDefinitions));
+    }
     await pool.execute(
-      `UPDATE skill_builders_event_program_documents SET display_title = ? WHERE id = ? AND agency_id = ? AND program_organization_id = ?`,
-      [displayTitle, documentId, agencyId, programOrganizationId]
+      `UPDATE skill_builders_event_program_documents SET ${updateParts.join(', ')} WHERE id = ? AND agency_id = ? AND program_organization_id = ?`,
+      [...updateValues, documentId, agencyId, programOrganizationId]
     );
-    const fn = String(row.original_filename || '').trim() || 'document.pdf';
+    const nextRow = {
+      ...row,
+      display_title: displayTitle !== undefined ? displayTitle : row.display_title,
+      field_definitions: fieldDefinitions !== undefined ? JSON.stringify(fieldDefinitions) : row.field_definitions
+    };
     res.json({
       ok: true,
-      document: {
-        id: documentId,
-        originalFilename: fn,
-        displayTitle,
-        displayLabel: displayTitle || fn
-      }
+      document: mapProgramDocumentRowToApi(nextRow)
     });
   } catch (e) {
     if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
       return res.status(503).json({ error: { message: 'Run migrations 591–593 for program documents' } });
     }
+    next(e);
+  }
+};
+
+/** GET /api/skill-builders/events/:eventId/program-documents/:documentId/file */
+export const getSkillBuilderEventProgramDocumentFile = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const documentId = parsePositiveInt(req.params.documentId);
+    if (!agencyId || !eventId || !documentId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, and document id required' } });
+    }
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+
+    const progOrgId = await fetchProgramOrganizationIdForCompanyEvent(agencyId, eventId);
+    if (!progOrgId) {
+      return res.status(400).json({ error: { message: 'Event is not linked to a program organization' } });
+    }
+    const row = await loadProgramDocumentRow(documentId);
+    if (!row || Number(row.agency_id) !== agencyId || Number(row.program_organization_id) !== progOrgId) {
+      return res.status(404).json({ error: { message: 'Document not found' } });
+    }
+    const buf = await StorageService.readObject(row.storage_path);
+    const filename = String(row.original_filename || 'document.pdf').replace(/"/g, '');
+    res.setHeader('Content-Type', row.mime_type || 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.send(buf);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** GET /api/skill-builders/events/:eventId/program-documents/:documentId/response */
+export const getSkillBuilderEventProgramDocumentResponse = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const documentId = parsePositiveInt(req.params.documentId);
+    const participantUserId = parsePositiveInt(req.user?.id);
+    if (!agencyId || !eventId || !documentId || !participantUserId) {
+      return res.status(400).json({ error: { message: 'Invalid request' } });
+    }
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    const progOrgId = await fetchProgramOrganizationIdForCompanyEvent(agencyId, eventId);
+    const row = await loadProgramDocumentRow(documentId);
+    if (!progOrgId || !row || Number(row.agency_id) !== agencyId || Number(row.program_organization_id) !== progOrgId) {
+      return res.status(404).json({ error: { message: 'Document not found' } });
+    }
+    const responseRow = await loadClassDocumentResponseRow({ eventId, documentId, participantUserId });
+    res.json({ ok: true, response: mapResponseRowToApi(responseRow) });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** PUT /api/skill-builders/events/:eventId/program-documents/:documentId/response */
+export const putSkillBuilderEventProgramDocumentResponse = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId ?? req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const documentId = parsePositiveInt(req.params.documentId);
+    const participantUserId = parsePositiveInt(req.user?.id);
+    if (!agencyId || !eventId || !documentId || !participantUserId) {
+      return res.status(400).json({ error: { message: 'Invalid request' } });
+    }
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    const progOrgId = await fetchProgramOrganizationIdForCompanyEvent(agencyId, eventId);
+    const row = await loadProgramDocumentRow(documentId);
+    if (!progOrgId || !row || Number(row.agency_id) !== agencyId || Number(row.program_organization_id) !== progOrgId) {
+      return res.status(404).json({ error: { message: 'Document not found' } });
+    }
+
+    const responseValues = normalizeResponseValuesInput(req.body?.responseValues ?? req.body?.fieldValues ?? {});
+    const status = String(req.body?.status || (req.body?.completed ? 'completed' : 'draft')).trim().toLowerCase();
+    const saved = await upsertClassDocumentResponse({
+      eventId,
+      documentId,
+      participantUserId,
+      responseValues,
+      status
+    });
+    res.json({ ok: true, response: mapResponseRowToApi(saved) });
+  } catch (e) {
+    if (e?.status === 400) {
+      return res.status(400).json({ error: { message: e.message } });
+    }
+    next(e);
+  }
+};
+
+/** GET /api/skill-builders/events/:eventId/program-documents/:documentId/download */
+export const downloadSkillBuilderEventProgramDocumentResponsePdf = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const documentId = parsePositiveInt(req.params.documentId);
+    const participantUserId = parsePositiveInt(req.user?.id);
+    if (!agencyId || !eventId || !documentId || !participantUserId) {
+      return res.status(400).json({ error: { message: 'Invalid request' } });
+    }
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    const progOrgId = await fetchProgramOrganizationIdForCompanyEvent(agencyId, eventId);
+    const row = await loadProgramDocumentRow(documentId);
+    if (!progOrgId || !row || Number(row.agency_id) !== agencyId || Number(row.program_organization_id) !== progOrgId) {
+      return res.status(404).json({ error: { message: 'Document not found' } });
+    }
+    const responseRow = await loadClassDocumentResponseRow({ eventId, documentId, participantUserId });
+    const pdfBytes = await buildFilledClassDocumentPdf({
+      storagePath: row.storage_path,
+      fieldDefinitions: parseJsonArray(row.field_definitions, []),
+      responseValues: mapResponseRowToApi(responseRow).fieldValues
+    });
+    const baseName = String(row.display_title || row.original_filename || 'class-document').replace(/\.pdf$/i, '');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${baseName}-responses.pdf"`);
+    res.send(Buffer.from(pdfBytes));
+  } catch (e) {
     next(e);
   }
 };

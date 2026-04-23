@@ -42,12 +42,29 @@ import {
   deleteSkillBuilderSessionCurriculum,
   listSkillBuilderEventProgramDocuments,
   listSkillBuilderProgramOrganizationDocuments,
+  getSkillBuilderProgramOrganizationDocumentFile,
+  getClassPresentationLibrary,
+  getClassPresentationSession,
+  postClassPresentationSeries,
+  patchClassPresentationSeries,
+  deleteClassPresentationSeries,
+  postDuplicateClassPresentationSeries,
+  postClassPresentationSession,
+  patchClassPresentationSession,
+  deleteClassPresentationSession,
+  postDuplicateClassPresentationSession,
+  getClassPresentationEventAssignment,
+  putClassPresentationEventAssignment,
   postSkillBuilderEventProgramDocument,
   postSkillBuilderProgramOrganizationProgramDocument,
   deleteSkillBuilderEventProgramDocument,
   deleteSkillBuilderProgramOrganizationProgramDocument,
   patchSkillBuilderEventProgramDocument,
   patchSkillBuilderProgramOrganizationProgramDocument,
+  getSkillBuilderEventProgramDocumentFile,
+  getSkillBuilderEventProgramDocumentResponse,
+  putSkillBuilderEventProgramDocumentResponse,
+  downloadSkillBuilderEventProgramDocumentResponsePdf,
   postSkillBuilderSessionCurriculumFromLibrary,
   listSkillBuilderSessionClinicalNotes,
   getSkillBuilderSessionClinicalNotesBoard,
@@ -92,9 +109,20 @@ router.post('/me/applications', applyToSkillBuilderEvent);
 router.get('/me/clients', listMySkillBuilderEventClients);
 router.get('/me/work-schedule', getMySkillBuilderWorkSchedule);
 router.get('/me/clinical-notes', listMySkillBuilderClinicalNotesIndex);
+router.get('/class-presentations/library', getClassPresentationLibrary);
+router.post('/class-presentations/series', postClassPresentationSeries);
+router.patch('/class-presentations/series/:seriesId', patchClassPresentationSeries);
+router.delete('/class-presentations/series/:seriesId', deleteClassPresentationSeries);
+router.post('/class-presentations/series/:seriesId/duplicate', postDuplicateClassPresentationSeries);
+router.post('/class-presentations/series/:seriesId/sessions', postClassPresentationSession);
+router.get('/class-presentations/sessions/:sessionId', getClassPresentationSession);
+router.patch('/class-presentations/sessions/:sessionId', patchClassPresentationSession);
+router.delete('/class-presentations/sessions/:sessionId', deleteClassPresentationSession);
+router.post('/class-presentations/sessions/:sessionId/duplicate', postDuplicateClassPresentationSession);
 
 router.get('/program-organizations/:programOrganizationId/program-documents', listSkillBuilderProgramOrganizationDocuments);
 router.post('/program-organizations/:programOrganizationId/program-documents', ...postSkillBuilderProgramOrganizationProgramDocument);
+router.get('/program-organizations/:programOrganizationId/program-documents/:documentId/file', getSkillBuilderProgramOrganizationDocumentFile);
 router.delete(
   '/program-organizations/:programOrganizationId/program-documents/:documentId',
   deleteSkillBuilderProgramOrganizationProgramDocument
@@ -146,10 +174,16 @@ router.get('/events/:eventId/sessions', listSkillBuilderEventSessions);
 router.get('/events/:eventId/program-sessions', listSkillBuilderProgramSessions);
 router.patch('/events/:eventId/sessions/:sessionId', patchSkillBuilderEventSession);
 router.patch('/events/:eventId/program-sessions/:sessionId', patchSkillBuilderProgramSession);
+router.get('/events/:eventId/class-presentation', getClassPresentationEventAssignment);
+router.put('/events/:eventId/class-presentation', putClassPresentationEventAssignment);
 router.post('/events/:eventId/generate-virtual-rooms', generateVirtualRoomsForProgramSessions);
 router.post('/cron/pre-session-reminders', runProgramSessionReminderCron);
 router.get('/events/:eventId/program-documents', listSkillBuilderEventProgramDocuments);
 router.post('/events/:eventId/program-documents', ...postSkillBuilderEventProgramDocument);
+router.get('/events/:eventId/program-documents/:documentId/file', getSkillBuilderEventProgramDocumentFile);
+router.get('/events/:eventId/program-documents/:documentId/response', getSkillBuilderEventProgramDocumentResponse);
+router.put('/events/:eventId/program-documents/:documentId/response', putSkillBuilderEventProgramDocumentResponse);
+router.get('/events/:eventId/program-documents/:documentId/download', downloadSkillBuilderEventProgramDocumentResponsePdf);
 router.delete('/events/:eventId/program-documents/:documentId', deleteSkillBuilderEventProgramDocument);
 router.patch('/events/:eventId/program-documents/:documentId', patchSkillBuilderEventProgramDocument);
 router.post('/events/:eventId/sessions/:sessionId/curriculum-from-library', postSkillBuilderSessionCurriculumFromLibrary);

@@ -326,8 +326,22 @@
               <div v-if="sessions.length && detail.event?.virtualSessionsEnabled !== false" class="sbep-sched-block">
                 <p class="sbep-subh">Join links (virtual / hybrid)</p>
                 <p class="muted small sbep-card-lead">Join opens 10 minutes before start and stays available through the scheduled end.</p>
-                <div v-if="viewerCaps.canManageCompanyEvent" class="sbep-inline-actions" style="margin-bottom:8px;">
+                <div class="sbep-inline-actions" style="margin-bottom:8px;">
+                  <router-link
+                    v-if="viewerCaps.canManageCompanyEvent"
+                    class="btn btn-secondary btn-sm"
+                    :to="classBuilderHref"
+                  >
+                    Open class builder
+                  </router-link>
+                  <router-link
+                    class="btn btn-primary btn-sm"
+                    :to="classPresentationHref"
+                  >
+                    Open class dashboard
+                  </router-link>
                   <button
+                    v-if="viewerCaps.canManageCompanyEvent"
                     type="button"
                     class="btn btn-secondary btn-sm"
                     :disabled="virtualRoomsGenerating"
@@ -2396,6 +2410,30 @@ const dashboardHref = computed(() => {
   const s = organizationSlug.value;
   if (!s) return null;
   return `/${s}/dashboard`;
+});
+
+const classPresentationHref = computed(() => {
+  const s = organizationSlug.value;
+  if (!s || !eventId.value) return null;
+  return {
+    path: `/${s}/class-presentation-dashboard/${eventId.value}`,
+    query: {
+      role: viewerCaps.value?.canManageCompanyEvent ? 'host' : 'participant',
+      title: String(detail.value?.event?.title || 'Class Presentation Dashboard').trim(),
+      agencyId: String(eventBillingAgencyId.value || '')
+    }
+  };
+});
+
+const classBuilderHref = computed(() => {
+  const s = organizationSlug.value;
+  if (!s || !eventId.value) return null;
+  return {
+    path: `/${s}/class-presentation-builder/${eventId.value}`,
+    query: {
+      agencyId: String(eventBillingAgencyId.value || '')
+    }
+  };
 });
 
 /** Link to guardian home (registration catalog lives there). */

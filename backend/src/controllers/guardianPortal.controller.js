@@ -11,15 +11,47 @@ import {
 } from '../services/skillBuildersIntakeEnrollment.service.js';
 import StorageService from '../services/storage.service.js';
 import { loadSessionCurriculumRow } from '../services/skillBuildersSessionClinical.service.js';
+import {
+  buildFilledClassDocumentPdf,
+  loadClassDocumentResponseRow,
+  mapProgramDocumentRowToApi,
+  mapResponseRowToApi,
+  normalizeResponseValuesInput,
+  parseJsonArray,
+  upsertClassDocumentResponse
+} from '../services/classPresentationDocuments.service.js';
+import { getClassPresentationForEvent } from '../services/classPresentationLibrary.service.js';
 import IntakeSubmissionDocument from '../models/IntakeSubmissionDocument.model.js';
 import { isDobAdultLocked } from '../utils/guardianWaivers.utils.js';
 import { isClientAdultLockedForGuardian } from '../services/guardianWaivers.service.js';
 import { notifyCompanyEventRegistrationSubmitted } from '../services/clientNotifications.service.js';
+import { hasTenantAccess } from '../utils/meDashboardTenantScope.js';
 
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw || ''), 10);
   return Number.isFinite(value) && value > 0 ? value : null;
 };
+
+function mapClassPresentationAssignment(series, session) {
+  if (!series || !session) return null;
+  return {
+    series: {
+      id: Number(series.id),
+      title: String(series.title || '').trim(),
+      summary: String(series.summary || '').trim()
+    },
+    session: {
+      id: Number(session.id),
+      seriesId: Number(session.seriesId || series.id),
+      title: String(session.title || '').trim(),
+      summary: String(session.summary || '').trim(),
+      eventLabel: String(session.eventLabel || '').trim(),
+      positionIndex: Number(session.positionIndex || 0),
+      plan: session.plan && typeof session.plan === 'object' ? session.plan : {},
+      attachedEvents: Array.isArray(session.attachedEvents) ? session.attachedEvents : []
+    }
+  };
+}
 
 function normOrgType(t) {
   const k = String(t || '').trim().toLowerCase();
@@ -362,6 +394,17 @@ async function assertGuardianSkillBuilderEventAccess(guardianUserId, eventId) {
   return { ok: true, base, myChildren };
 }
 
+async function fetchGuardianProgramOrganizationIdForEvent(eventId) {
+  const eid = Number(eventId || 0);
+  if (!eid) return null;
+  const [rows] = await pool.execute(
+    `SELECT organization_id FROM company_events WHERE id = ? LIMIT 1`,
+    [eid]
+  );
+  const orgId = rows?.[0]?.organization_id != null ? Number(rows[0].organization_id) : null;
+  return Number.isFinite(orgId) && orgId > 0 ? orgId : null;
+}
+
 async function loadMeetingsAndProviders(skillsGroupId) {
   const sgid = Number(skillsGroupId);
   const [mrows] = await pool.execute(
@@ -669,6 +712,197 @@ export const getGuardianSkillBuilderSessionCurriculum = async (req, res, next) =
       return res.status(503).json({ error: { message: 'Curriculum feature not migrated' } });
     }
     next(e);
+  }
+};
+
+/** GET /api/guardian-portal/skill-builders/events/:eventId/program-documents */
+export const listGuardianSkillBuilderProgramDocuments = async (req, res, next) => {
+  try {
+    const uid = req.user?.id;
+    const eventId = parsePositiveInt(req.params.eventId);
+    if (!uid || !eventId) return res.status(400).json({ error: { message: 'Invalid event' } });
+    const access = await assertGuardianSkillBuilderEventAccess(uid, eventId);
+    if (!access.ok) return res.status(403).json({ error: { message: 'Event not available for this account' } });
+    const programOrganizationId = await fetchGuardianProgramOrganizationIdForEvent(eventId);
+    if (!programOrganizationId) return res.json({ ok: true, documents: [] });
+
+    const [rows] = await pool.execute(
+      `SELECT id, original_filename, display_title, file_size_bytes, created_at, mime_type, field_definitions
+         FROM skill_builders_event_program_documents
+        WHERE agency_id = ? AND program_organization_id = ?
+        ORDER BY created_at DESC`,
+      [Number(access.base.agency_id), programOrganizationId]
+    );
+    res.json({ ok: true, documents: (rows || []).map((row) => mapProgramDocumentRowToApi(row)) });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Program documents are not available yet' } });
+    }
+    next(e);
+  }
+};
+
+/** GET /api/guardian-portal/skill-builders/events/:eventId/program-documents/:documentId/file */
+export const getGuardianSkillBuilderProgramDocumentFile = async (req, res, next) => {
+  try {
+    const uid = req.user?.id;
+    const eventId = parsePositiveInt(req.params.eventId);
+    const documentId = parsePositiveInt(req.params.documentId);
+    if (!uid || !eventId || !documentId) return res.status(400).json({ error: { message: 'Invalid request' } });
+    const access = await assertGuardianSkillBuilderEventAccess(uid, eventId);
+    if (!access.ok) return res.status(403).json({ error: { message: 'Event not available for this account' } });
+    const programOrganizationId = await fetchGuardianProgramOrganizationIdForEvent(eventId);
+    const [rows] = await pool.execute(
+      `SELECT * FROM skill_builders_event_program_documents
+        WHERE id = ? AND agency_id = ? AND program_organization_id = ?
+        LIMIT 1`,
+      [documentId, Number(access.base.agency_id), programOrganizationId]
+    );
+    const row = rows?.[0];
+    if (!row) return res.status(404).json({ error: { message: 'Document not found' } });
+
+    const buf = await StorageService.readObject(row.storage_path);
+    const filename = String(row.original_filename || 'document.pdf').replace(/"/g, '');
+    res.setHeader('Content-Type', row.mime_type || 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.send(buf);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** GET /api/guardian-portal/skill-builders/events/:eventId/program-documents/:documentId/response */
+export const getGuardianSkillBuilderProgramDocumentResponse = async (req, res, next) => {
+  try {
+    const uid = parsePositiveInt(req.user?.id);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const documentId = parsePositiveInt(req.params.documentId);
+    if (!uid || !eventId || !documentId) return res.status(400).json({ error: { message: 'Invalid request' } });
+    const access = await assertGuardianSkillBuilderEventAccess(uid, eventId);
+    if (!access.ok) return res.status(403).json({ error: { message: 'Event not available for this account' } });
+
+    const programOrganizationId = await fetchGuardianProgramOrganizationIdForEvent(eventId);
+    const [docs] = await pool.execute(
+      `SELECT id FROM skill_builders_event_program_documents
+        WHERE id = ? AND agency_id = ? AND program_organization_id = ?
+        LIMIT 1`,
+      [documentId, Number(access.base.agency_id), programOrganizationId]
+    );
+    if (!docs?.[0]) return res.status(404).json({ error: { message: 'Document not found' } });
+
+    const responseRow = await loadClassDocumentResponseRow({
+      eventId,
+      documentId,
+      participantUserId: uid
+    });
+    res.json({ ok: true, response: mapResponseRowToApi(responseRow) });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** PUT /api/guardian-portal/skill-builders/events/:eventId/program-documents/:documentId/response */
+export const putGuardianSkillBuilderProgramDocumentResponse = async (req, res, next) => {
+  try {
+    const uid = parsePositiveInt(req.user?.id);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const documentId = parsePositiveInt(req.params.documentId);
+    if (!uid || !eventId || !documentId) return res.status(400).json({ error: { message: 'Invalid request' } });
+    const access = await assertGuardianSkillBuilderEventAccess(uid, eventId);
+    if (!access.ok) return res.status(403).json({ error: { message: 'Event not available for this account' } });
+
+    const programOrganizationId = await fetchGuardianProgramOrganizationIdForEvent(eventId);
+    const [docs] = await pool.execute(
+      `SELECT id FROM skill_builders_event_program_documents
+        WHERE id = ? AND agency_id = ? AND program_organization_id = ?
+        LIMIT 1`,
+      [documentId, Number(access.base.agency_id), programOrganizationId]
+    );
+    if (!docs?.[0]) return res.status(404).json({ error: { message: 'Document not found' } });
+
+    const responseValues = normalizeResponseValuesInput(req.body?.responseValues ?? req.body?.fieldValues ?? {});
+    const status = String(req.body?.status || (req.body?.completed ? 'completed' : 'draft')).trim().toLowerCase();
+    const saved = await upsertClassDocumentResponse({
+      eventId,
+      documentId,
+      participantUserId: uid,
+      responseValues,
+      status
+    });
+    res.json({ ok: true, response: mapResponseRowToApi(saved) });
+  } catch (e) {
+    if (e?.status === 400) {
+      return res.status(400).json({ error: { message: e.message } });
+    }
+    next(e);
+  }
+};
+
+/** GET /api/guardian-portal/skill-builders/events/:eventId/program-documents/:documentId/download */
+export const downloadGuardianSkillBuilderProgramDocumentResponsePdf = async (req, res, next) => {
+  try {
+    const uid = parsePositiveInt(req.user?.id);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const documentId = parsePositiveInt(req.params.documentId);
+    if (!uid || !eventId || !documentId) return res.status(400).json({ error: { message: 'Invalid request' } });
+    const access = await assertGuardianSkillBuilderEventAccess(uid, eventId);
+    if (!access.ok) return res.status(403).json({ error: { message: 'Event not available for this account' } });
+
+    const programOrganizationId = await fetchGuardianProgramOrganizationIdForEvent(eventId);
+    const [rows] = await pool.execute(
+      `SELECT * FROM skill_builders_event_program_documents
+        WHERE id = ? AND agency_id = ? AND program_organization_id = ?
+        LIMIT 1`,
+      [documentId, Number(access.base.agency_id), programOrganizationId]
+    );
+    const row = rows?.[0];
+    if (!row) return res.status(404).json({ error: { message: 'Document not found' } });
+
+    const responseRow = await loadClassDocumentResponseRow({
+      eventId,
+      documentId,
+      participantUserId: uid
+    });
+    const pdfBytes = await buildFilledClassDocumentPdf({
+      storagePath: row.storage_path,
+      fieldDefinitions: parseJsonArray(row.field_definitions, []),
+      responseValues: mapResponseRowToApi(responseRow).fieldValues
+    });
+    const baseName = String(row.display_title || row.original_filename || 'class-document').replace(/\.pdf$/i, '');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${baseName}-responses.pdf"`);
+    res.send(Buffer.from(pdfBytes));
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** GET /api/guardian-portal/skill-builders/events/:eventId/class-presentation */
+export const getGuardianSkillBuilderClassPresentation = async (req, res, next) => {
+  try {
+    const uid = req.user?.id;
+    const eventId = parsePositiveInt(req.params.eventId);
+    if (!uid || !eventId) return res.status(400).json({ error: { message: 'Invalid event' } });
+    const access = await assertGuardianSkillBuilderEventAccess(uid, eventId);
+    if (!access.ok) return res.status(403).json({ error: { message: 'Event not available for this account' } });
+
+    const agencyId = Number(access.base.agency_id);
+    const programOrganizationId = await fetchGuardianProgramOrganizationIdForEvent(eventId);
+    if (!programOrganizationId) {
+      return res.json({ ok: true, programOrganizationId: null, assignment: null });
+    }
+
+    const payload = await getClassPresentationForEvent({ agencyId, programOrganizationId, eventId });
+    res.json({
+      ok: true,
+      programOrganizationId,
+      assignment: payload ? mapClassPresentationAssignment(payload.series, payload.session) : null
+    });
+  } catch (error) {
+    if (error?.code === 'ER_NO_SUCH_TABLE' || error?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Class presentation library is not available yet' } });
+    }
+    next(error);
   }
 };
 

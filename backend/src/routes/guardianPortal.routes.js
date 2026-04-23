@@ -6,6 +6,12 @@ import {
   listGuardianSkillBuilderEvents,
   getGuardianSkillBuilderEventDetail,
   getGuardianSkillBuilderSessionCurriculum,
+  listGuardianSkillBuilderProgramDocuments,
+  getGuardianSkillBuilderProgramDocumentFile,
+  getGuardianSkillBuilderProgramDocumentResponse,
+  putGuardianSkillBuilderProgramDocumentResponse,
+  downloadGuardianSkillBuilderProgramDocumentResponsePdf,
+  getGuardianSkillBuilderClassPresentation,
   listGuardianSkillBuilderEventPosts,
   ensureGuardianSkillBuilderEventChatThread,
   listGuardianDependentsForAgency,
@@ -47,6 +53,12 @@ router.get('/overview', getGuardianPortalOverview);
 router.get('/skill-builders/events', listGuardianSkillBuilderEvents);
 router.get('/skill-builders/events/:eventId/detail', getGuardianSkillBuilderEventDetail);
 router.get('/skill-builders/events/:eventId/sessions/:sessionId/curriculum', getGuardianSkillBuilderSessionCurriculum);
+router.get('/skill-builders/events/:eventId/program-documents', listGuardianSkillBuilderProgramDocuments);
+router.get('/skill-builders/events/:eventId/program-documents/:documentId/file', getGuardianSkillBuilderProgramDocumentFile);
+router.get('/skill-builders/events/:eventId/program-documents/:documentId/response', getGuardianSkillBuilderProgramDocumentResponse);
+router.put('/skill-builders/events/:eventId/program-documents/:documentId/response', putGuardianSkillBuilderProgramDocumentResponse);
+router.get('/skill-builders/events/:eventId/program-documents/:documentId/download', downloadGuardianSkillBuilderProgramDocumentResponsePdf);
+router.get('/skill-builders/events/:eventId/class-presentation', getGuardianSkillBuilderClassPresentation);
 router.get('/skill-builders/events/:eventId/posts', listGuardianSkillBuilderEventPosts);
 router.get('/skill-builders/events/:eventId/chat-thread', ensureGuardianSkillBuilderEventChatThread);
 
