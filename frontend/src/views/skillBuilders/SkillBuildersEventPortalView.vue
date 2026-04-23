@@ -584,10 +584,81 @@
               section-id="participants"
               title="Participants"
               icon-url=""
-              :badge="`${genericParticipants.length}`"
+              :badge="`${participantCounts.all || genericParticipants.length}`"
             >
               <p class="muted small sbep-card-lead">
                 Participants enrolled in this program event. Add/remove enrollments directly here.
+              </p>
+
+              <!-- Applicants pulse card + view filter pills -->
+              <div class="sbep-participant-toolbar">
+                <button
+                  type="button"
+                  class="sbep-applicants-card"
+                  :class="{ 'is-pulsing': participantCounts.registrants > 0, 'is-active': participantStatusFilter === 'registrants' }"
+                  :disabled="participantStatusFilter === 'registrants'"
+                  :aria-pressed="participantStatusFilter === 'registrants'"
+                  @click="setParticipantStatusFilter('registrants')"
+                >
+                  <span class="sbep-applicants-count">{{ participantCounts.registrants }}</span>
+                  <span class="sbep-applicants-label">
+                    {{ participantCounts.registrants === 1 ? 'New applicant' : 'New applicants' }}
+                  </span>
+                  <span class="sbep-applicants-help">Not yet contacted — view registrants →</span>
+                </button>
+
+                <div class="sbep-status-filter" role="tablist" aria-label="Filter by workflow status">
+                  <button
+                    type="button"
+                    role="tab"
+                    class="sbep-status-pill"
+                    :class="{ 'is-active': participantStatusFilter === 'registrants' }"
+                    :aria-selected="participantStatusFilter === 'registrants'"
+                    @click="setParticipantStatusFilter('registrants')"
+                  >
+                    Registrants
+                    <span
+                      class="sbep-status-pill-count"
+                      :class="{ 'is-pulsing': participantCounts.registrants > 0 && participantStatusFilter !== 'registrants' }"
+                    >{{ participantCounts.registrants }}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    class="sbep-status-pill"
+                    :class="{ 'is-active': participantStatusFilter === 'participants' }"
+                    :aria-selected="participantStatusFilter === 'participants'"
+                    @click="setParticipantStatusFilter('participants')"
+                  >
+                    Participants
+                    <span class="sbep-status-pill-count">{{ participantCounts.participants }}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    class="sbep-status-pill"
+                    :class="{ 'is-active': participantStatusFilter === 'all' }"
+                    :aria-selected="participantStatusFilter === 'all'"
+                    @click="setParticipantStatusFilter('all')"
+                  >
+                    All
+                    <span class="sbep-status-pill-count">{{ participantCounts.all }}</span>
+                  </button>
+                </div>
+              </div>
+
+              <p
+                v-if="participantStatusFilter === 'registrants'"
+                class="muted small sbep-status-hint"
+              >
+                Showing <strong>registrants</strong> — newly enrolled and not yet contacted. Assign a provider or mark intake
+                complete to move them into <strong>participants</strong>. Only program coordinators and admins see this list.
+              </p>
+              <p
+                v-else-if="participantStatusFilter === 'participants'"
+                class="muted small sbep-status-hint"
+              >
+                Showing <strong>participants</strong> — clients with an assigned provider or completed intake.
               </p>
               <div v-if="eventBillingAgencyId" class="sbep-add-client-block">
                 <p class="sbep-subh">Add participant</p>
@@ -680,7 +751,7 @@
                           <p class="sbep-subh">Unassigned</p>
                           <p class="muted small sbep-card-lead">Participants not yet assigned to a session group.</p>
                           <div class="sbep-roster-table-wrap" v-if="staffingParticipantGroups.unassigned.length">
-                            <table class="sbep-roster-table">
+                            <table class="sbep-roster-table sbep-roster-table--participants">
                               <thead>
                                 <tr>
                                   <th>Participant</th>
@@ -778,7 +849,27 @@
                                     />
                                   </td>
                                   <td class="sbep-roster-actions">
-                                    <button type="button" class="btn btn-link btn-sm" @click="removeGenericParticipant(c)">Remove</button>
+                                    <div class="sbep-row-action-stack">
+                                      <button
+                                        type="button"
+                                        class="btn btn-primary btn-sm sbep-row-save-btn"
+                                        :disabled="participantWorkflowSavingClientId === c.clientId || participantNotesSavingClientId === c.clientId"
+                                        @click="saveParticipantRow(c)"
+                                      >
+                                        Save
+                                      </button>
+                                      <span
+                                        v-if="participantRowSaveStatus[c.clientId]"
+                                        class="sbep-row-save-status"
+                                        :class="`is-${participantRowSaveStatus[c.clientId].state}`"
+                                        :title="participantRowSaveStatus[c.clientId].message || ''"
+                                      >
+                                        <template v-if="participantRowSaveStatus[c.clientId].state === 'saving'">Saving…</template>
+                                        <template v-else-if="participantRowSaveStatus[c.clientId].state === 'saved'">Saved ✓</template>
+                                        <template v-else-if="participantRowSaveStatus[c.clientId].state === 'error'">Error</template>
+                                      </span>
+                                      <button type="button" class="btn btn-link btn-sm sbep-row-remove-btn" @click="removeGenericParticipant(c)">Remove</button>
+                                    </div>
                                   </td>
                                 </tr>
                               </tbody>
@@ -790,7 +881,7 @@
                         <div v-for="g in staffingParticipantGroups.byGroup" :key="`grp-${g.id}`" class="sbep-group-block">
                           <p class="sbep-subh">{{ groupDisplayLabel(g) }}</p>
                           <div class="sbep-roster-table-wrap" v-if="g.participants.length">
-                            <table class="sbep-roster-table">
+                            <table class="sbep-roster-table sbep-roster-table--participants">
                               <thead>
                                 <tr>
                                   <th>Participant</th>
@@ -888,7 +979,27 @@
                                     />
                                   </td>
                                   <td class="sbep-roster-actions">
-                                    <button type="button" class="btn btn-link btn-sm" @click="removeGenericParticipant(c)">Remove</button>
+                                    <div class="sbep-row-action-stack">
+                                      <button
+                                        type="button"
+                                        class="btn btn-primary btn-sm sbep-row-save-btn"
+                                        :disabled="participantWorkflowSavingClientId === c.clientId || participantNotesSavingClientId === c.clientId"
+                                        @click="saveParticipantRow(c)"
+                                      >
+                                        Save
+                                      </button>
+                                      <span
+                                        v-if="participantRowSaveStatus[c.clientId]"
+                                        class="sbep-row-save-status"
+                                        :class="`is-${participantRowSaveStatus[c.clientId].state}`"
+                                        :title="participantRowSaveStatus[c.clientId].message || ''"
+                                      >
+                                        <template v-if="participantRowSaveStatus[c.clientId].state === 'saving'">Saving…</template>
+                                        <template v-else-if="participantRowSaveStatus[c.clientId].state === 'saved'">Saved ✓</template>
+                                        <template v-else-if="participantRowSaveStatus[c.clientId].state === 'error'">Error</template>
+                                      </span>
+                                      <button type="button" class="btn btn-link btn-sm sbep-row-remove-btn" @click="removeGenericParticipant(c)">Remove</button>
+                                    </div>
                                   </td>
                                 </tr>
                               </tbody>
@@ -954,7 +1065,7 @@
                 </div>
 
                 <div v-else class="sbep-roster-table-wrap">
-                  <table class="sbep-roster-table">
+                  <table class="sbep-roster-table sbep-roster-table--participants">
                     <thead>
                       <tr>
                         <th>Participant</th>
@@ -1039,14 +1150,45 @@
                           />
                         </td>
                         <td class="sbep-roster-actions">
-                          <button type="button" class="btn btn-link btn-sm" @click="removeGenericParticipant(c)">Remove</button>
+                          <div class="sbep-row-action-stack">
+                            <button
+                              type="button"
+                              class="btn btn-primary btn-sm sbep-row-save-btn"
+                              :disabled="participantWorkflowSavingClientId === c.clientId || participantNotesSavingClientId === c.clientId"
+                              @click="saveParticipantRow(c)"
+                            >
+                              Save
+                            </button>
+                            <span
+                              v-if="participantRowSaveStatus[c.clientId]"
+                              class="sbep-row-save-status"
+                              :class="`is-${participantRowSaveStatus[c.clientId].state}`"
+                              :title="participantRowSaveStatus[c.clientId].message || ''"
+                            >
+                              <template v-if="participantRowSaveStatus[c.clientId].state === 'saving'">Saving…</template>
+                              <template v-else-if="participantRowSaveStatus[c.clientId].state === 'saved'">Saved ✓</template>
+                              <template v-else-if="participantRowSaveStatus[c.clientId].state === 'error'">Error</template>
+                            </span>
+                            <button type="button" class="btn btn-link btn-sm sbep-row-remove-btn" @click="removeGenericParticipant(c)">Remove</button>
+                          </div>
                         </td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
               </div>
-              <p v-else class="muted small">No participants enrolled yet.</p>
+              <p v-else class="muted small">
+                <template v-if="participantStatusFilter === 'registrants' && participantCounts.all > 0">
+                  No new registrants right now — everyone has been contacted.
+                </template>
+                <template v-else-if="participantStatusFilter === 'participants' && participantCounts.all > 0">
+                  No clients have been moved to participants yet. Assign a provider or mark intake complete from
+                  <button type="button" class="btn btn-link btn-sm sbep-reg-jump-btn" @click="setParticipantStatusFilter('registrants')">
+                    Registrants ({{ participantCounts.registrants }})
+                  </button>.
+                </template>
+                <template v-else>No participants enrolled yet.</template>
+              </p>
             </SkillBuildersEventDashboardSection>
 
             <SkillBuildersEventDashboardSection
@@ -1744,6 +1886,36 @@ const participantProvidersLoading = ref(false);
 const participantProvidersError = ref('');
 const participantWorkflowSavingClientId = ref(0);
 const participantNotesSavingClientId = ref(0);
+/** Workflow-status filter for the participants section: 'registrants' | 'participants' | 'all' */
+const participantStatusFilter = ref('all');
+/** Backend-derived counts so registrant pulse + applicants card reflect reality without a 2nd request */
+const participantCounts = ref({ all: 0, registrants: 0, participants: 0 });
+/**
+ * Per-row save-status feedback so coordinators see autosave finish.
+ * Map: clientId -> { state: 'saving'|'saved'|'error', message?: string, ts: number }
+ */
+const participantRowSaveStatus = ref({});
+const participantRowSaveTimers = new Map();
+function setParticipantRowSaveStatus(clientId, state, message) {
+  const id = Number(clientId || 0);
+  if (!id) return;
+  const next = { ...participantRowSaveStatus.value };
+  next[id] = { state, message: message || '', ts: Date.now() };
+  participantRowSaveStatus.value = next;
+  if (participantRowSaveTimers.has(id)) {
+    clearTimeout(participantRowSaveTimers.get(id));
+    participantRowSaveTimers.delete(id);
+  }
+  if (state === 'saved' || state === 'error') {
+    const timer = setTimeout(() => {
+      const cur = { ...participantRowSaveStatus.value };
+      delete cur[id];
+      participantRowSaveStatus.value = cur;
+      participantRowSaveTimers.delete(id);
+    }, state === 'saved' ? 2200 : 4000);
+    participantRowSaveTimers.set(id, timer);
+  }
+}
 
 // Staffing blocks (non–Skill Builders program events)
 const staffingSummaryLoading = ref(false);
@@ -2813,10 +2985,17 @@ async function loadGenericParticipants() {
   genericParticipantsError.value = '';
   try {
     const res = await api.get(`/company-events/${eid}/clients`, {
-      params: { agencyId: aid, includeWorkflow: 1 },
+      params: { agencyId: aid, includeWorkflow: 1, status: participantStatusFilter.value },
       skipGlobalLoading: true
     });
     genericParticipants.value = Array.isArray(res.data?.clients) ? res.data.clients : [];
+    if (res.data?.counts && typeof res.data.counts === 'object') {
+      participantCounts.value = {
+        all: Number(res.data.counts.all || 0),
+        registrants: Number(res.data.counts.registrants || 0),
+        participants: Number(res.data.counts.participants || 0)
+      };
+    }
     // Provider dropdown options for the Participants panel
     loadParticipantProviders();
   } catch (e) {
@@ -2825,6 +3004,18 @@ async function loadGenericParticipants() {
   } finally {
     genericParticipantsLoading.value = false;
   }
+}
+
+function setParticipantStatusFilter(next) {
+  const v = String(next || 'all').toLowerCase();
+  const norm = v === 'registrants' || v === 'registrant'
+    ? 'registrants'
+    : v === 'participants' || v === 'participant'
+      ? 'participants'
+      : 'all';
+  if (participantStatusFilter.value === norm) return;
+  participantStatusFilter.value = norm;
+  loadGenericParticipants();
 }
 
 async function loadParticipantProviders() {
@@ -3105,14 +3296,18 @@ async function patchParticipantWorkflow(row, patch) {
   const clientId = Number(row?.clientId || 0);
   if (!aid || !eid || !clientId) return;
   participantWorkflowSavingClientId.value = clientId;
+  setParticipantRowSaveStatus(clientId, 'saving');
   try {
     await api.patch(`/company-events/${eid}/clients/${clientId}/workflow`, {
       agencyId: aid,
       ...patch
     });
+    setParticipantRowSaveStatus(clientId, 'saved', 'Saved');
     await loadGenericParticipants();
   } catch (e) {
-    window.alert(e.response?.data?.error?.message || e.message || 'Could not update participant');
+    const msg = e.response?.data?.error?.message || e.message || 'Could not update participant';
+    setParticipantRowSaveStatus(clientId, 'error', msg);
+    window.alert(msg);
   } finally {
     participantWorkflowSavingClientId.value = 0;
   }
@@ -3133,19 +3328,57 @@ async function changeParticipantProvider(row, rawId) {
   await patchParticipantWorkflow(row, { assignedProviderUserId: Number.isFinite(id) ? id : null });
 }
 
+/**
+ * Explicit "Save" — re-sends the row's current state to both endpoints. Mostly a confirmation
+ * affordance for users who don't trust the per-field autosave (and a graceful retry path
+ * after an error). Notes go through the notes endpoint; workflow fields through workflow.
+ */
+async function saveParticipantRow(row) {
+  const aid = eventBillingAgencyId.value;
+  const eid = eventId.value;
+  const clientId = Number(row?.clientId || 0);
+  if (!aid || !eid || !clientId) return;
+  participantWorkflowSavingClientId.value = clientId;
+  setParticipantRowSaveStatus(clientId, 'saving');
+  try {
+    await api.patch(`/company-events/${eid}/clients/${clientId}/workflow`, {
+      agencyId: aid,
+      assignedProviderUserId: row?.assignedProviderUserId ?? null,
+      intakeComplete: !!row?.intakeComplete,
+      treatmentPlanComplete: !!row?.treatmentPlanComplete
+    });
+    await api.patch(`/company-events/${eid}/clients/${clientId}`, {
+      agencyId: aid,
+      notes: row?.notes ?? null
+    });
+    setParticipantRowSaveStatus(clientId, 'saved', 'Saved');
+    await loadGenericParticipants();
+  } catch (e) {
+    const msg = e.response?.data?.error?.message || e.message || 'Could not save row';
+    setParticipantRowSaveStatus(clientId, 'error', msg);
+    window.alert(msg);
+  } finally {
+    participantWorkflowSavingClientId.value = 0;
+  }
+}
+
 async function saveParticipantNotes(row) {
   const aid = eventBillingAgencyId.value;
   const eid = eventId.value;
   const clientId = Number(row?.clientId || 0);
   if (!aid || !eid || !clientId) return;
   participantNotesSavingClientId.value = clientId;
+  setParticipantRowSaveStatus(clientId, 'saving');
   try {
     await api.patch(`/company-events/${eid}/clients/${clientId}`, {
       agencyId: aid,
       notes: row?.notes ?? null
     });
+    setParticipantRowSaveStatus(clientId, 'saved', 'Saved');
   } catch (e) {
-    window.alert(e.response?.data?.error?.message || e.message || 'Could not save notes');
+    const msg = e.response?.data?.error?.message || e.message || 'Could not save notes';
+    setParticipantRowSaveStatus(clientId, 'error', msg);
+    window.alert(msg);
   } finally {
     participantNotesSavingClientId.value = 0;
   }
@@ -4992,6 +5225,176 @@ watch(
 .sbep-roster-actions {
   text-align: right;
   white-space: nowrap;
+}
+.sbep-row-action-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.sbep-row-save-btn {
+  min-width: 64px;
+}
+.sbep-row-save-status {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+}
+.sbep-row-save-status.is-saving {
+  background: rgba(245, 158, 11, 0.15);
+  color: #b45309;
+}
+.sbep-row-save-status.is-saved {
+  background: rgba(16, 185, 129, 0.18);
+  color: #047857;
+}
+.sbep-row-save-status.is-error {
+  background: rgba(239, 68, 68, 0.18);
+  color: #b91c1c;
+}
+.sbep-row-remove-btn {
+  font-size: 12px;
+}
+
+/* Constrain Participant name column on the participants tables so other columns fit */
+.sbep-roster-table--participants th:first-child,
+.sbep-roster-table--participants td:first-child {
+  max-width: 200px;
+  min-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sbep-roster-table--participants .sbep-roster-client-link {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/* Applicants card + workflow-status filter pills (registrants vs participants) */
+.sbep-participant-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: stretch;
+  margin: 12px 0 8px;
+}
+.sbep-applicants-card {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 12px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(220, 38, 38, 0.35);
+  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+  color: #991b1b;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+  min-width: 180px;
+}
+.sbep-applicants-card:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(220, 38, 38, 0.18);
+}
+.sbep-applicants-card:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+.sbep-applicants-card.is-active {
+  border-color: rgba(220, 38, 38, 0.65);
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.18);
+}
+.sbep-applicants-count {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1;
+}
+.sbep-applicants-label {
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+}
+.sbep-applicants-help {
+  font-size: 11px;
+  font-weight: 600;
+  color: #b91c1c;
+  opacity: 0.85;
+}
+.sbep-applicants-card.is-pulsing {
+  animation: sbep-applicants-pulse 1.6s ease-in-out infinite;
+}
+@keyframes sbep-applicants-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.45); }
+  50% { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
+}
+
+.sbep-status-filter {
+  display: inline-flex;
+  align-items: stretch;
+  background: var(--surface-2, #f1f5f9);
+  border-radius: 999px;
+  padding: 4px;
+  gap: 2px;
+}
+.sbep-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text-secondary, #475569);
+  transition: background 120ms ease, color 120ms ease;
+}
+.sbep-status-pill:hover {
+  color: var(--text, #0f172a);
+}
+.sbep-status-pill.is-active {
+  background: var(--surface, #ffffff);
+  color: var(--text, #0f172a);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+.sbep-status-pill-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-secondary, #475569);
+}
+.sbep-status-pill.is-active .sbep-status-pill-count {
+  background: rgba(15, 118, 110, 0.18);
+  color: #115e59;
+}
+.sbep-status-pill-count.is-pulsing {
+  background: rgba(220, 38, 38, 0.18);
+  color: #991b1b;
+  animation: sbep-pill-pulse 1.6s ease-in-out infinite;
+}
+@keyframes sbep-pill-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
+}
+
+.sbep-status-hint {
+  margin: 4px 0 12px;
 }
 .sbep-row-mine {
   background: rgba(15, 118, 110, 0.06);

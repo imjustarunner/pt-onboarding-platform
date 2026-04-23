@@ -81,11 +81,31 @@ async function ensureClientAgencyProgramAffiliation(clientId, agencyId, organiza
   }
 }
 
+/**
+ * Registrant vs participant rule (workflow-based, derived in SQL — single source of truth).
+ *
+ * - **Registrant** = newly enrolled, not yet "in" the program: no provider assigned AND
+ *   no intake completed. Coordinator/admin work area; these clients are not surfaced to
+ *   line-level providers since nobody is responsible for them yet.
+ * - **Participant** = anyone who has been touched by intake workflow — either a provider
+ *   has been assigned OR intake_complete = 1.
+ */
+const REGISTRANT_PREDICATE = `(cec.assigned_provider_user_id IS NULL AND COALESCE(cec.intake_complete, 0) = 0)`;
+const PARTICIPANT_PREDICATE = `NOT ${REGISTRANT_PREDICATE}`;
+
+const normalizeStatusFilter = (raw) => {
+  const v = String(raw || '').trim().toLowerCase();
+  if (v === 'registrant' || v === 'registrants') return 'registrant';
+  if (v === 'participant' || v === 'participants') return 'participant';
+  return 'all';
+};
+
 export const listCompanyEventClients = async (req, res, next) => {
   try {
     const eventId = parsePositiveInt(req.params.eventId);
     const agencyId = parsePositiveInt(req.query.agencyId);
     const includeWorkflow = String(req.query.includeWorkflow || '') === '1' || String(req.query.includeWorkflow || '').toLowerCase() === 'true';
+    const statusFilter = normalizeStatusFilter(req.query.status);
     if (!eventId || !agencyId) {
       return res.status(400).json({ error: { message: 'eventId and agencyId are required' } });
     }
@@ -95,6 +115,40 @@ export const listCompanyEventClients = async (req, res, next) => {
 
     const event = await loadEventForAgency(eventId, agencyId);
     if (!event) return res.status(404).json({ error: { message: 'Event not found' } });
+
+    // Workflow-derived counts so the UI can pulse the registrants chip and show totals
+    // without a second round-trip. Both numbers are computed even when the caller filters.
+    let counts = { all: 0, registrants: 0, participants: 0 };
+    try {
+      const [countRows] = await pool.execute(
+        `SELECT
+           COUNT(*) AS all_count,
+           SUM(CASE WHEN ${REGISTRANT_PREDICATE} THEN 1 ELSE 0 END) AS registrants_count,
+           SUM(CASE WHEN ${PARTICIPANT_PREDICATE} THEN 1 ELSE 0 END) AS participants_count
+         FROM company_event_clients cec
+         WHERE cec.company_event_id = ? AND cec.agency_id = ?`,
+        [eventId, agencyId]
+      );
+      const row = countRows?.[0] || {};
+      counts = {
+        all: Number(row.all_count || 0),
+        registrants: Number(row.registrants_count || 0),
+        participants: Number(row.participants_count || 0)
+      };
+    } catch (e) {
+      const msg = String(e?.message || '');
+      if (msg.includes('Unknown column') && msg.includes('intake_complete')) {
+        return res.status(503).json({ error: { message: 'Run database migration 739_company_event_clients_provider_and_workflow.sql' } });
+      }
+      throw e;
+    }
+
+    const statusWhere =
+      statusFilter === 'registrant'
+        ? ` AND ${REGISTRANT_PREDICATE}`
+        : statusFilter === 'participant'
+          ? ` AND ${PARTICIPANT_PREDICATE}`
+          : '';
 
     let rows = [];
     if (includeWorkflow) {
@@ -129,6 +183,7 @@ export const listCompanyEventClients = async (req, res, next) => {
            LEFT JOIN users icu ON icu.id = cec.intake_completed_by_user_id
            LEFT JOIN users tpu ON tpu.id = cec.treatment_plan_completed_by_user_id
            WHERE cec.company_event_id = ? AND cec.agency_id = ?
+             ${statusWhere}
            ORDER BY COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code, CONCAT('Client ', c.id)) ASC`,
           [eventId, agencyId]
         );
@@ -155,6 +210,7 @@ export const listCompanyEventClients = async (req, res, next) => {
          FROM company_event_clients cec
          INNER JOIN clients c ON c.id = cec.client_id AND c.agency_id = cec.agency_id
          WHERE cec.company_event_id = ? AND cec.agency_id = ?
+           ${statusWhere}
          ORDER BY COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code, CONCAT('Client ', c.id)) ASC`,
         [eventId, agencyId]
       );
@@ -163,6 +219,8 @@ export const listCompanyEventClients = async (req, res, next) => {
 
     res.json({
       ok: true,
+      counts,
+      statusFilter,
       clients: (rows || []).map((r) => ({
         clientId: Number(r.clientId),
         initials: r.initials || null,
