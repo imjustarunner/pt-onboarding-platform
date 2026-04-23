@@ -602,9 +602,9 @@
                 >
                   <span class="sbep-applicants-count">{{ participantCounts.registrants }}</span>
                   <span class="sbep-applicants-label">
-                    {{ participantCounts.registrants === 1 ? 'New applicant' : 'New applicants' }}
+                    {{ participantCounts.registrants === 1 ? 'Active applicant' : 'Active applicants' }}
                   </span>
-                  <span class="sbep-applicants-help">Not yet contacted — view registrants →</span>
+                  <span class="sbep-applicants-help">Working through intake/TP — view registrants →</span>
                 </button>
 
                 <div class="sbep-status-filter" role="tablist" aria-label="Filter by workflow status">
@@ -651,14 +651,16 @@
                 v-if="participantStatusFilter === 'registrants'"
                 class="muted small sbep-status-hint"
               >
-                Showing <strong>registrants</strong> — newly enrolled and not yet contacted. Assign a provider or mark intake
-                complete to move them into <strong>participants</strong>. Only program coordinators and admins see this list.
+                Showing <strong>registrants</strong> — clients still moving through the workflow.
+                Assign a provider, mark intake <strong>Accepted</strong> or <strong>Denied</strong>, then complete the treatment plan to graduate them to
+                <strong>Participants</strong>. Only program coordinators, admins, and the assigned provider for each row should
+                act on this list.
               </p>
               <p
                 v-else-if="participantStatusFilter === 'participants'"
                 class="muted small sbep-status-hint"
               >
-                Showing <strong>participants</strong> — clients with an assigned provider or completed intake.
+                Showing <strong>participants</strong> — clients whose intake was accepted and treatment plan is complete.
               </p>
               <div v-if="eventBillingAgencyId" class="sbep-add-client-block">
                 <p class="sbep-subh">Add participant</p>
@@ -1064,6 +1066,158 @@
                   </div>
                 </div>
 
+                <div v-else-if="participantStatusFilter === 'registrants'" class="sbep-roster-table-wrap sbep-registrants-wrap">
+                  <table class="sbep-roster-table sbep-roster-table--participants sbep-roster-table--registrants">
+                    <thead>
+                      <tr>
+                        <th>Participant</th>
+                        <th>Registered</th>
+                        <th>Grade</th>
+                        <th>Age</th>
+                        <th>Provider</th>
+                        <th>Intake</th>
+                        <th>Treatment plan</th>
+                        <th>Notes</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr
+                        v-for="c in genericParticipants"
+                        :key="`reg-${c.clientId}`"
+                        :class="{ 'sbep-row-mine': isMyParticipant(c), 'sbep-row-denied': c.intakeOutcome === 'denied' }"
+                      >
+                        <td>
+                          <router-link
+                            v-if="rosterClientLinkTo({ id: c.clientId })"
+                            :to="rosterClientLinkTo({ id: c.clientId })"
+                            class="sbep-roster-client-link"
+                          >
+                            {{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}
+                          </router-link>
+                          <template v-else>{{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}</template>
+                        </td>
+                        <td class="sbep-registrants-date" :title="formatRegisteredTooltip(c.enrolledAt)">
+                          {{ formatRegisteredDate(c.enrolledAt) }}
+                        </td>
+                        <td>{{ c.grade || '—' }}</td>
+                        <td>{{ c.ageYears != null ? c.ageYears : '—' }}</td>
+                        <td style="min-width: 200px;">
+                          <select
+                            class="input sbep-provider-select"
+                            :disabled="participantWorkflowSavingClientId === c.clientId || participantProvidersLoading"
+                            :value="c.assignedProviderUserId ? String(c.assignedProviderUserId) : ''"
+                            @change="changeParticipantProvider(c, $event.target.value)"
+                          >
+                            <option value="">Unassigned</option>
+                            <option v-for="p in participantProviders" :key="`reg-prov-${c.clientId}-${p.id}`" :value="String(p.id)">
+                              {{ p.name }}
+                            </option>
+                          </select>
+                        </td>
+                        <td class="sbep-registrants-intake-cell">
+                          <template v-if="!c.intakeOutcome">
+                            <div class="sbep-registrants-intake-actions">
+                              <button
+                                type="button"
+                                class="sbep-outcome-btn sbep-outcome-btn--accept"
+                                :disabled="participantWorkflowSavingClientId === c.clientId"
+                                title="Mark intake Accepted — client moves into the treatment-plan stage"
+                                @click="setParticipantIntakeOutcome(c, 'accepted')"
+                              >
+                                Accept
+                              </button>
+                              <button
+                                type="button"
+                                class="sbep-outcome-btn sbep-outcome-btn--deny"
+                                :disabled="participantWorkflowSavingClientId === c.clientId"
+                                title="Mark intake Denied — no treatment plan will be created"
+                                @click="setParticipantIntakeOutcome(c, 'denied')"
+                              >
+                                Deny
+                              </button>
+                            </div>
+                            <span class="sbep-outcome-needed">Needed</span>
+                          </template>
+                          <template v-else>
+                            <span
+                              class="sbep-outcome-pill"
+                              :class="`is-${c.intakeOutcome}`"
+                              :title="formatWorkflowTooltip(intakeOutcomeLabel(c.intakeOutcome), c.intakeCompletedAt, c.intakeCompletedByName)"
+                            >
+                              {{ intakeOutcomeLabel(c.intakeOutcome) }}
+                            </span>
+                            <button
+                              type="button"
+                              class="btn btn-link btn-sm sbep-outcome-reset"
+                              :disabled="participantWorkflowSavingClientId === c.clientId"
+                              title="Reset intake to Needed"
+                              @click="setParticipantIntakeOutcome(c, null)"
+                            >
+                              Reset
+                            </button>
+                          </template>
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            class="sbep-workflow-btn"
+                            :class="{ 'is-complete': c.treatmentPlanComplete }"
+                            :disabled="participantWorkflowSavingClientId === c.clientId || c.intakeOutcome !== 'accepted'"
+                            :title="c.intakeOutcome === 'denied'
+                              ? 'Treatment plan not applicable — intake was Denied'
+                              : c.intakeOutcome !== 'accepted'
+                                ? 'Accept intake first to enable treatment plan'
+                                : formatWorkflowTooltip(c.treatmentPlanComplete ? 'Treatment plan complete' : 'Treatment plan needed', c.treatmentPlanCompletedAt, c.treatmentPlanCompletedByName)"
+                            @click="toggleParticipantTreatmentPlan(c)"
+                          >
+                            <template v-if="c.intakeOutcome === 'denied'">N/A</template>
+                            <template v-else-if="c.intakeOutcome !== 'accepted'">Locked</template>
+                            <template v-else-if="c.treatmentPlanComplete">Complete</template>
+                            <template v-else>Needed</template>
+                          </button>
+                          <p v-if="c.intakeOutcome === 'accepted' && !c.treatmentPlanComplete" class="muted small sbep-tp-hint">
+                            Click when ready — moves them to Participants.
+                          </p>
+                        </td>
+                        <td style="min-width: 220px;">
+                          <input
+                            v-model.trim="c.notes"
+                            class="input"
+                            type="text"
+                            placeholder="Optional…"
+                            :disabled="participantNotesSavingClientId === c.clientId"
+                            @blur="saveParticipantNotes(c)"
+                          />
+                        </td>
+                        <td class="sbep-roster-actions">
+                          <div class="sbep-row-action-stack">
+                            <button
+                              type="button"
+                              class="btn btn-primary btn-sm sbep-row-save-btn"
+                              :disabled="participantWorkflowSavingClientId === c.clientId || participantNotesSavingClientId === c.clientId"
+                              @click="saveParticipantRow(c)"
+                            >
+                              Save
+                            </button>
+                            <span
+                              v-if="participantRowSaveStatus[c.clientId]"
+                              class="sbep-row-save-status"
+                              :class="`is-${participantRowSaveStatus[c.clientId].state}`"
+                              :title="participantRowSaveStatus[c.clientId].message || ''"
+                            >
+                              <template v-if="participantRowSaveStatus[c.clientId].state === 'saving'">Saving…</template>
+                              <template v-else-if="participantRowSaveStatus[c.clientId].state === 'saved'">Saved ✓</template>
+                              <template v-else-if="participantRowSaveStatus[c.clientId].state === 'error'">Error</template>
+                            </span>
+                            <button type="button" class="btn btn-link btn-sm sbep-row-remove-btn" @click="removeGenericParticipant(c)">Remove</button>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
                 <div v-else class="sbep-roster-table-wrap">
                   <table class="sbep-roster-table sbep-roster-table--participants">
                     <thead>
@@ -1179,13 +1333,14 @@
               </div>
               <p v-else class="muted small">
                 <template v-if="participantStatusFilter === 'registrants' && participantCounts.all > 0">
-                  No new registrants right now — everyone has been contacted.
+                  No active registrants — all enrolled clients have completed treatment plans.
                 </template>
                 <template v-else-if="participantStatusFilter === 'participants' && participantCounts.all > 0">
-                  No clients have been moved to participants yet. Assign a provider or mark intake complete from
+                  No clients have graduated to participants yet. Walk a client through the
                   <button type="button" class="btn btn-link btn-sm sbep-reg-jump-btn" @click="setParticipantStatusFilter('registrants')">
                     Registrants ({{ participantCounts.registrants }})
-                  </button>.
+                  </button>
+                  workflow (provider → Accept intake → complete treatment plan) to graduate them here.
                 </template>
                 <template v-else>No participants enrolled yet.</template>
               </p>
@@ -3290,6 +3445,25 @@ const formatWorkflowTooltip = (label, at, by) => {
   return `${label}${dateStr ? ` · ${dateStr}` : ''}${by ? ` · ${by}` : ''}`;
 };
 
+/** Short "Mar 14, 2026" style for the Registered column on the registrants table. */
+function formatRegisteredDate(raw) {
+  if (!raw) return '—';
+  const d = new Date(raw);
+  if (!Number.isFinite(d.getTime())) return '—';
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+function formatRegisteredTooltip(raw) {
+  if (!raw) return '';
+  const d = new Date(raw);
+  if (!Number.isFinite(d.getTime())) return '';
+  return `Registered ${d.toLocaleString()}`;
+}
+const intakeOutcomeLabel = (outcome) => {
+  if (outcome === 'accepted') return 'Accepted';
+  if (outcome === 'denied') return 'Denied';
+  return 'Needed';
+};
+
 async function patchParticipantWorkflow(row, patch) {
   const aid = eventBillingAgencyId.value;
   const eid = eventId.value;
@@ -3316,6 +3490,20 @@ async function patchParticipantWorkflow(row, patch) {
 async function toggleParticipantIntake(row) {
   const next = !row?.intakeComplete;
   await patchParticipantWorkflow(row, { intakeComplete: next });
+}
+
+/** Tri-state intake outcome: 'accepted' | 'denied' | null (Needed) */
+async function setParticipantIntakeOutcome(row, outcome) {
+  const norm = outcome === 'accepted' || outcome === 'denied' ? outcome : null;
+  // No-op when picking the same state again
+  const cur = row?.intakeOutcome || null;
+  if (cur === norm) return;
+  // Resetting to "Needed" while TP is already complete is rejected by the backend;
+  // surface a friendlier confirmation so the coordinator knows what's about to happen.
+  if (norm === null && row?.treatmentPlanComplete) {
+    if (!window.confirm('This client already has a completed treatment plan. Reset intake anyway?')) return;
+  }
+  await patchParticipantWorkflow(row, { intakeOutcome: norm });
 }
 
 async function toggleParticipantTreatmentPlan(row) {
@@ -5395,6 +5583,113 @@ watch(
 
 .sbep-status-hint {
   margin: 4px 0 12px;
+}
+
+/* ===== Expanded registrants table ===== */
+.sbep-registrants-wrap {
+  border: 1px solid rgba(220, 38, 38, 0.18);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(254, 242, 242, 0.35);
+}
+.sbep-roster-table--registrants .sbep-registrants-date {
+  white-space: nowrap;
+  color: var(--text-secondary, #475569);
+  font-variant-numeric: tabular-nums;
+}
+.sbep-row-denied {
+  background: rgba(148, 163, 184, 0.10);
+  color: var(--text-secondary, #64748b);
+}
+.sbep-row-denied .sbep-roster-client-link {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  opacity: 0.85;
+}
+
+/* Accept / Deny buttons (intake outcome picker on the registrants row) */
+.sbep-registrants-intake-cell {
+  min-width: 160px;
+}
+.sbep-registrants-intake-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+.sbep-outcome-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  transition: transform 80ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+.sbep-outcome-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+.sbep-outcome-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.sbep-outcome-btn--accept {
+  background: rgba(16, 185, 129, 0.14);
+  color: #047857;
+  border-color: rgba(16, 185, 129, 0.4);
+}
+.sbep-outcome-btn--accept:hover:not(:disabled) {
+  background: rgba(16, 185, 129, 0.22);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+}
+.sbep-outcome-btn--deny {
+  background: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
+  border-color: rgba(239, 68, 68, 0.35);
+}
+.sbep-outcome-btn--deny:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.18);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.22);
+}
+.sbep-outcome-needed {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--text-secondary, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+}
+.sbep-outcome-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.sbep-outcome-pill.is-accepted {
+  background: rgba(16, 185, 129, 0.18);
+  color: #047857;
+}
+.sbep-outcome-pill.is-denied {
+  background: rgba(148, 163, 184, 0.22);
+  color: #475569;
+}
+.sbep-outcome-reset {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  vertical-align: middle;
+}
+.sbep-tp-hint {
+  margin: 4px 0 0;
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--text-secondary, #94a3b8);
+  max-width: 140px;
 }
 .sbep-row-mine {
   background: rgba(15, 118, 110, 0.06);

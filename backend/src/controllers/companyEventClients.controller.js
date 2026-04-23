@@ -84,14 +84,16 @@ async function ensureClientAgencyProgramAffiliation(clientId, agencyId, organiza
 /**
  * Registrant vs participant rule (workflow-based, derived in SQL — single source of truth).
  *
- * - **Registrant** = newly enrolled, not yet "in" the program: no provider assigned AND
- *   no intake completed. Coordinator/admin work area; these clients are not surfaced to
- *   line-level providers since nobody is responsible for them yet.
- * - **Participant** = anyone who has been touched by intake workflow — either a provider
- *   has been assigned OR intake_complete = 1.
+ * Workflow stages on a registration:
+ *   1. Registered → Provider assigned → Intake (Accept | Deny) → Treatment plan complete
+ *   2. Once **TP is complete** the row is fully worked and graduates to **Participants**.
+ *   3. Until then it remains a **Registrant** (the coordinator queue).
+ *
+ * A "Denied" intake stays in the registrant view (TP isn't eligible) so coordinators can
+ * track who didn't make it; they can be removed manually if desired.
  */
-const REGISTRANT_PREDICATE = `(cec.assigned_provider_user_id IS NULL AND COALESCE(cec.intake_complete, 0) = 0)`;
-const PARTICIPANT_PREDICATE = `NOT ${REGISTRANT_PREDICATE}`;
+const REGISTRANT_PREDICATE = `(COALESCE(cec.treatment_plan_complete, 0) = 0)`;
+const PARTICIPANT_PREDICATE = `(COALESCE(cec.treatment_plan_complete, 0) = 1)`;
 
 const normalizeStatusFilter = (raw) => {
   const v = String(raw || '').trim().toLowerCase();
@@ -170,6 +172,7 @@ export const listCompanyEventClients = async (req, res, next) => {
              pu.first_name AS provider_first_name,
              pu.last_name AS provider_last_name,
              cec.intake_complete,
+             cec.intake_outcome,
              cec.intake_completed_at,
              icu.first_name AS intake_by_first_name,
              icu.last_name AS intake_by_last_name,
@@ -190,6 +193,9 @@ export const listCompanyEventClients = async (req, res, next) => {
         rows = r || [];
       } catch (e) {
         const msg = String(e?.message || '');
+        if (msg.includes('Unknown column') && msg.includes('intake_outcome')) {
+          return res.status(503).json({ error: { message: 'Run database migration 802_company_event_clients_intake_outcome.sql' } });
+        }
         if (msg.includes('Unknown column') && (msg.includes('assigned_provider_user_id') || msg.includes('intake_complete'))) {
           return res.status(503).json({ error: { message: 'Run database migration 739_company_event_clients_provider_and_workflow.sql' } });
         }
@@ -239,6 +245,7 @@ export const listCompanyEventClients = async (req, res, next) => {
             ? `${r.provider_first_name || ''} ${r.provider_last_name || ''}`.trim()
             : null,
         intakeComplete: r.intake_complete === 1 || r.intake_complete === true,
+        intakeOutcome: r.intake_outcome ? String(r.intake_outcome).toLowerCase() : null,
         intakeCompletedAt: r.intake_completed_at || null,
         intakeCompletedByName:
           r.intake_by_first_name || r.intake_by_last_name
@@ -472,12 +479,46 @@ export const patchCompanyEventClientWorkflow = async (req, res, next) => {
         ? null
         : parsePositiveInt(req.body?.assignedProviderUserId);
 
-    const intakeComplete =
-      req.body?.intakeComplete === undefined ? undefined : !!req.body.intakeComplete;
+    // intakeOutcome is the primary control. When supplied:
+    //   'accepted' or 'denied' => intake_complete = 1, outcome stored
+    //   null/empty             => intake_complete = 0, outcome cleared
+    // intakeComplete is still accepted for backward compatibility but only when
+    // intakeOutcome is NOT supplied; setting it true without an outcome implies 'accepted'.
+    let intakeOutcome;
+    if (req.body?.intakeOutcome === undefined) {
+      intakeOutcome = undefined;
+    } else if (req.body.intakeOutcome === null || req.body.intakeOutcome === '') {
+      intakeOutcome = null;
+    } else {
+      const v = String(req.body.intakeOutcome).toLowerCase();
+      if (v !== 'accepted' && v !== 'denied') {
+        return res.status(400).json({ error: { message: 'intakeOutcome must be "accepted", "denied", or null' } });
+      }
+      intakeOutcome = v;
+    }
+
+    let intakeComplete;
+    if (intakeOutcome !== undefined) {
+      intakeComplete = intakeOutcome !== null;
+    } else if (req.body?.intakeComplete !== undefined) {
+      intakeComplete = !!req.body.intakeComplete;
+      // legacy callers: completing without outcome means accepted
+      if (intakeComplete && intakeOutcome === undefined) intakeOutcome = 'accepted';
+      if (!intakeComplete && intakeOutcome === undefined) intakeOutcome = null;
+    } else {
+      intakeComplete = undefined;
+    }
+
     const tpComplete =
       req.body?.treatmentPlanComplete === undefined ? undefined : !!req.body.treatmentPlanComplete;
 
-    if (providerUserId === null && req.body?.assignedProviderUserId === undefined && intakeComplete === undefined && tpComplete === undefined) {
+    if (
+      providerUserId === null
+      && req.body?.assignedProviderUserId === undefined
+      && intakeComplete === undefined
+      && intakeOutcome === undefined
+      && tpComplete === undefined
+    ) {
       return res.status(400).json({ error: { message: 'No updates provided' } });
     }
 
@@ -498,7 +539,7 @@ export const patchCompanyEventClientWorkflow = async (req, res, next) => {
     try {
       await conn.beginTransaction();
       const [curRows] = await conn.execute(
-        `SELECT assigned_provider_user_id, intake_complete, treatment_plan_complete
+        `SELECT assigned_provider_user_id, intake_complete, intake_outcome, treatment_plan_complete
          FROM company_event_clients
          WHERE company_event_id = ? AND agency_id = ? AND client_id = ?
          LIMIT 1
@@ -512,17 +553,25 @@ export const patchCompanyEventClientWorkflow = async (req, res, next) => {
       }
 
       const curIntake = cur.intake_complete === 1 || cur.intake_complete === true;
+      const curOutcome = cur.intake_outcome ? String(cur.intake_outcome).toLowerCase() : null;
       const curTp = cur.treatment_plan_complete === 1 || cur.treatment_plan_complete === true;
       const nextIntake = intakeComplete !== undefined ? intakeComplete : curIntake;
+      const nextOutcome = intakeOutcome !== undefined ? intakeOutcome : curOutcome;
       const nextTp = tpComplete !== undefined ? tpComplete : curTp;
 
+      // TP can only be marked complete if intake outcome is "accepted" — denied
+      // intakes never get a treatment plan.
+      if (nextTp && nextOutcome !== 'accepted') {
+        await conn.rollback();
+        return res.status(400).json({ error: { message: 'Intake must be Accepted before treatment plan can be marked complete' } });
+      }
       if (nextTp && !nextIntake) {
         await conn.rollback();
         return res.status(400).json({ error: { message: 'Intake must be complete before treatment plan can be marked complete' } });
       }
-      if (intakeComplete === false && curTp) {
+      if ((intakeComplete === false || intakeOutcome === null) && curTp) {
         await conn.rollback();
-        return res.status(400).json({ error: { message: 'Mark treatment plan as not complete before marking intake incomplete' } });
+        return res.status(400).json({ error: { message: 'Mark treatment plan as not complete before resetting intake' } });
       }
 
       const sets = [];
@@ -545,6 +594,10 @@ export const patchCompanyEventClientWorkflow = async (req, res, next) => {
           sets.push('intake_completed_at = NULL');
           sets.push('intake_completed_by_user_id = NULL');
         }
+      }
+      if (intakeOutcome !== undefined) {
+        sets.push('intake_outcome = ?');
+        vals.push(intakeOutcome);
       }
 
       if (tpComplete !== undefined) {
@@ -578,6 +631,9 @@ export const patchCompanyEventClientWorkflow = async (req, res, next) => {
     } catch (err) {
       await conn.rollback();
       const msg = String(err?.message || '');
+      if (msg.includes('Unknown column') && msg.includes('intake_outcome')) {
+        return res.status(503).json({ error: { message: 'Run database migration 802_company_event_clients_intake_outcome.sql' } });
+      }
       if (msg.includes('Unknown column') && msg.includes('assigned_provider_user_id')) {
         return res.status(503).json({ error: { message: 'Run database migration 739_company_event_clients_provider_and_workflow.sql' } });
       }
