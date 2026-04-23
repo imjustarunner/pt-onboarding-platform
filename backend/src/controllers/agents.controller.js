@@ -427,6 +427,68 @@ function detectExplicitIntent({ prompt, allowedToolNames }) {
   return null;
 }
 
+/**
+ * Set of tool names that mutate data. We never auto-execute these in response
+ * to a user's natural-language prompt — instead we build a confirmation card
+ * and let the user click "Confirm" (which posts a clientAction.toolCall and
+ * runs the tool through the explicit fast-path).
+ */
+const WRITE_ACTION_TOOLS = new Set([
+  'createTask',
+  'createHiringCandidate',
+  'addHiringNote',
+  'setHiringStage'
+]);
+
+function isWriteActionTool(name) {
+  return WRITE_ACTION_TOOLS.has(String(name || ''));
+}
+
+const WRITE_ACTION_LABELS = {
+  createTask: 'Create task',
+  createHiringCandidate: 'Add hiring candidate',
+  addHiringNote: 'Add hiring note',
+  setHiringStage: 'Update hiring stage'
+};
+
+const WRITE_ACTION_FIELD_LABELS = {
+  taskType: 'Type',
+  title: 'Title',
+  description: 'Description',
+  assignedToUserId: 'Assigned user id',
+  assignedToRole: 'Assigned role',
+  assignedToAgencyId: 'Agency id',
+  dueDate: 'Due',
+  referenceId: 'Reference id',
+  documentActionType: 'Document action',
+  candidateUserId: 'Candidate user id',
+  stage: 'Stage',
+  body: 'Note',
+  source: 'Source'
+};
+
+function buildConfirmationCardForWriteAction(toolCall) {
+  const name = String(toolCall?.name || '');
+  const args = toolCall?.args && typeof toolCall.args === 'object' ? toolCall.args : {};
+  const label = WRITE_ACTION_LABELS[name] || `Run ${name}`;
+  const details = {};
+  for (const [k, v] of Object.entries(args)) {
+    if (v == null || v === '') continue;
+    const labelK = WRITE_ACTION_FIELD_LABELS[k] || k;
+    details[labelK] = typeof v === 'object' ? JSON.stringify(v) : String(v).slice(0, 240);
+  }
+  return {
+    kind: 'confirm',
+    title: label,
+    subtitle: 'Review and confirm — nothing has been changed yet',
+    details,
+    actions: [
+      { type: 'tool', label: 'Confirm', toolCall: { name, args } },
+      { type: 'prefill', label: 'Cancel', prefillText: '' }
+    ]
+  };
+}
+
 function lastOkToolResult(toolResults, toolName) {
   for (let i = (toolResults || []).length - 1; i >= 0; i--) {
     const r = toolResults[i];
@@ -802,6 +864,20 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
         const items = actions.slice(0, 20).map((a) => `• ${a.actionLabel || a.actionType}: ${a.count}`);
         lines.push(`${header}\n${items.join('\n')}`);
       }
+    } else if (r.tool === 'createTask') {
+      const t = r.result?.task || r.result;
+      const id = t?.id ? `#${t.id}` : '';
+      const title = t?.title ? ` "${t.title}"` : '';
+      lines.push(`Created task ${id}${title}.`);
+    } else if (r.tool === 'createHiringCandidate') {
+      const c = r.result?.candidate || r.result;
+      const name = c?.name || c?.firstName || '';
+      lines.push(`Added hiring candidate${name ? ` ${name}` : ''}.`);
+    } else if (r.tool === 'addHiringNote') {
+      lines.push('Note added to candidate.');
+    } else if (r.tool === 'setHiringStage') {
+      const stage = r.result?.stage || r.result?.candidate?.stage;
+      lines.push(stage ? `Updated hiring stage to "${stage}".` : 'Updated hiring stage.');
     } else if (r.tool === 'findIntakeOpenings') {
       const out = r.result || {};
       const list = out.results || [];
@@ -1105,10 +1181,19 @@ export const assist = async (req, res, next) => {
     // Tracks entity kinds where a search returned >1 result — block auto-open for those kinds
     // so the user always chooses via disambiguation cards rather than landing on the wrong page.
     const skipOpenEntityKinds = new Set();
+    // Write-action tool calls intercepted from the LLM — surfaced as confirmation cards.
+    const pendingWriteCards = [];
 
     for (const tc of toolCalls) {
       if (!allowedToolNames.has(tc.name)) {
         toolResults.push({ ok: false, tool: tc.name, error: { message: 'Tool not allowed for your role' } });
+        continue;
+      }
+
+      // Never auto-execute write actions inferred from a natural-language prompt.
+      // Convert them to a confirmation card the user must click "Confirm" on.
+      if (isWriteActionTool(tc.name)) {
+        pendingWriteCards.push(buildConfirmationCardForWriteAction(tc));
         continue;
       }
 
@@ -1275,6 +1360,13 @@ export const assist = async (req, res, next) => {
     assistantText = buildAssistantReplyFromTools(assistantText, toolResults);
     const nextActions = buildNextActionsFromToolResults({ toolResults, allowedToolNames });
     let nextCards = buildNextCardsFromToolResults({ toolResults, allowedToolNames });
+
+    // Surface any intercepted write-action confirmations as cards.
+    if (pendingWriteCards.length) {
+      nextCards = [...pendingWriteCards, ...nextCards];
+      const labels = pendingWriteCards.map((c) => c.title).join(', ');
+      assistantText = `I drafted this for you — review and click Confirm to proceed: ${labels}`;
+    }
 
     // Hallucination guard: if the LLM produced "Found N…" / "I see N…" / etc.
     // but no successful tool actually ran this turn, the answer is fabricated.

@@ -101,38 +101,46 @@
                       <div v-if="c.subtitle" class="aap-card-sub">{{ c.subtitle }}</div>
                     </div>
                     <div v-if="c.details" class="aap-card-details">
-                      <div v-if="c.details.portalPath" class="aap-card-detail">
-                        <span class="aap-card-k">Portal</span>
-                        <span class="aap-card-v mono">{{ c.details.portalPath }}</span>
-                      </div>
-                      <div v-if="c.details.slug" class="aap-card-detail">
-                        <span class="aap-card-k">Slug</span>
-                        <span class="aap-card-v mono">{{ c.details.slug }}</span>
-                      </div>
-                      <div v-if="c.details.email" class="aap-card-detail">
-                        <span class="aap-card-k">Email</span>
-                        <span class="aap-card-v">{{ c.details.email }}</span>
-                      </div>
-                      <div v-if="c.details.role" class="aap-card-detail">
-                        <span class="aap-card-k">Role</span>
-                        <span class="aap-card-v mono">{{ c.details.role }}</span>
-                      </div>
-                      <div v-if="c.details.phone" class="aap-card-detail">
-                        <span class="aap-card-k">Phone</span>
-                        <span class="aap-card-v">{{ c.details.phone }}</span>
-                      </div>
-                      <div v-if="c.details.website" class="aap-card-detail">
-                        <span class="aap-card-k">Website</span>
-                        <span class="aap-card-v mono">{{ c.details.website }}</span>
-                      </div>
-                      <div v-if="c.details.startsAtIso" class="aap-card-detail">
-                        <span class="aap-card-k">Starts</span>
-                        <span class="aap-card-v">{{ formatIso(c.details.startsAtIso, c.details.timezone) }}</span>
-                      </div>
-                      <div v-if="c.details.endsAtIso" class="aap-card-detail">
-                        <span class="aap-card-k">Ends</span>
-                        <span class="aap-card-v">{{ formatIso(c.details.endsAtIso, c.details.timezone) }}</span>
-                      </div>
+                      <template v-if="c.kind === 'confirm'">
+                        <div v-for="(val, key) in c.details" :key="key" class="aap-card-detail">
+                          <span class="aap-card-k">{{ key }}</span>
+                          <span class="aap-card-v">{{ val }}</span>
+                        </div>
+                      </template>
+                      <template v-else>
+                        <div v-if="c.details.portalPath" class="aap-card-detail">
+                          <span class="aap-card-k">Portal</span>
+                          <span class="aap-card-v mono">{{ c.details.portalPath }}</span>
+                        </div>
+                        <div v-if="c.details.slug" class="aap-card-detail">
+                          <span class="aap-card-k">Slug</span>
+                          <span class="aap-card-v mono">{{ c.details.slug }}</span>
+                        </div>
+                        <div v-if="c.details.email" class="aap-card-detail">
+                          <span class="aap-card-k">Email</span>
+                          <span class="aap-card-v">{{ c.details.email }}</span>
+                        </div>
+                        <div v-if="c.details.role" class="aap-card-detail">
+                          <span class="aap-card-k">Role</span>
+                          <span class="aap-card-v mono">{{ c.details.role }}</span>
+                        </div>
+                        <div v-if="c.details.phone" class="aap-card-detail">
+                          <span class="aap-card-k">Phone</span>
+                          <span class="aap-card-v">{{ c.details.phone }}</span>
+                        </div>
+                        <div v-if="c.details.website" class="aap-card-detail">
+                          <span class="aap-card-k">Website</span>
+                          <span class="aap-card-v mono">{{ c.details.website }}</span>
+                        </div>
+                        <div v-if="c.details.startsAtIso" class="aap-card-detail">
+                          <span class="aap-card-k">Starts</span>
+                          <span class="aap-card-v">{{ formatIso(c.details.startsAtIso, c.details.timezone) }}</span>
+                        </div>
+                        <div v-if="c.details.endsAtIso" class="aap-card-detail">
+                          <span class="aap-card-k">Ends</span>
+                          <span class="aap-card-v">{{ formatIso(c.details.endsAtIso, c.details.timezone) }}</span>
+                        </div>
+                      </template>
                     </div>
                     <div v-if="c.actions && c.actions.length" class="aap-card-actions">
                       <button
@@ -1089,6 +1097,14 @@ onUnmounted(() => {
 .aap-card.is-event  { border-left-color: #6366f1; }
 .aap-card.is-user   { border-left-color: #f59e0b; }
 .aap-card.is-referral { border-left-color: #10b981; }
+.aap-card.is-confirm {
+  border-left-color: #ea580c;
+  background: linear-gradient(180deg, #fff7ed 0%, #ffffff 100%);
+}
+.aap-card.is-confirm .aap-card-title::before {
+  content: '⚠ ';
+  color: #ea580c;
+}
 
 .aap-card-title {
   font-weight: 850;
