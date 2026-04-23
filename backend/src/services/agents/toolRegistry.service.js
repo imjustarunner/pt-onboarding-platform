@@ -6,6 +6,8 @@ import HiringProfile from '../../models/HiringProfile.model.js';
 import HiringNote from '../../models/HiringNote.model.js';
 import ProviderSearchIndex from '../../models/ProviderSearchIndex.model.js';
 import ProviderAvailabilityService from '../providerAvailability.service.js';
+import ProviderScheduleEvent from '../../models/ProviderScheduleEvent.model.js';
+import ProviderScheduleEventAttendee from '../../models/ProviderScheduleEventAttendee.model.js';
 import UserActivityLog from '../../models/UserActivityLog.model.js';
 import auditActionRegistry from '../../config/auditActionRegistry.js';
 import { getUserCapabilities } from '../../utils/capabilities.js';
@@ -449,6 +451,12 @@ export function getToolSchemasForUser(reqUser, agentConfig = null) {
         return roleAllowed(reqUser, PROGRAM_EVENTS_SEARCH_ROLES);
       case 'getOfficeSchedule':
         return roleAllowed(reqUser, ['admin', 'super_admin', 'support', 'staff', 'provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant']);
+      case 'startMeeting':
+        return roleAllowed(reqUser, ['admin', 'super_admin', 'support', 'staff', 'provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant']);
+      case 'openTodaysWorkspace':
+      case 'openWorkspaceEvent':
+        // Anyone signed in: returns whatever events the actor is part of today.
+        return true;
       case 'lookupStandardCrosswalk':
         return roleAllowed(reqUser, LEARNING_STANDARDS_TOOL_ROLES);
       default:
@@ -843,6 +851,62 @@ export function getToolSchemas() {
             description: 'Optional filter: yes, no, maybe, attended, etc.'
           },
           limit: { type: 'integer' }
+        }
+      }
+    },
+    {
+      name: 'startMeeting',
+      description:
+        'Start an ad-hoc 1:1 video meeting between the signed-in user and one other person, similar to starting a Google Meet. Creates a TEAM_MEETING schedule event with the actor as host and the other person as attendee, provisions a Twilio room, and returns a join URL. WRITE action — always confirmed before it runs.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          withUserId: {
+            type: 'integer',
+            description: 'User id of the person to meet with. Required at execution time.'
+          },
+          title: {
+            type: 'string',
+            description: 'Meeting title. Defaults to "Quick meeting with <name>".'
+          },
+          durationMinutes: {
+            type: 'integer',
+            description: 'Length of the meeting in minutes. Default 30.'
+          }
+        },
+        required: ['withUserId']
+      }
+    },
+    {
+      name: 'openWorkspaceEvent',
+      description:
+        'Open a single workspace event (TEAM_MEETING / HUDDLE / SCHEDULE_HOLD / etc.) by id. Used as the click target on workspace cards. Returns the appropriate UI command (join URL for meetings, schedule view for holds).',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          eventId: { type: 'integer' }
+        },
+        required: ['eventId']
+      }
+    },
+    {
+      name: 'openTodaysWorkspace',
+      description:
+        'List the signed-in user\'s active events for today (meetings, holds, sessions). Use for "open my workspace for today", "what\'s active right now", "what am I in today". Returns one row per event so the user can pick when there are several; the assistant auto-opens when there is exactly one.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          dateYmd: {
+            type: 'string',
+            description: 'YYYY-MM-DD. Defaults to today.'
+          },
+          activeOnly: {
+            type: 'boolean',
+            description: 'If true, only events currently happening or starting within the next 30 minutes. Default false (return all of today).'
+          }
         }
       }
     },
@@ -2088,6 +2152,223 @@ export async function executeToolCall({ req, toolCall }) {
       ok: true,
       tool: name,
       result: { dateYmd, totalOffices: offices.length, openOffices: offices.filter((o) => o.isOpen).length, offices }
+    };
+  }
+
+  // ---------------------------------------------------------------------
+  // startMeeting — create an ad-hoc 1:1 TEAM_MEETING for the actor + target,
+  // return a join URL that the assistant will open via uiCommands.
+  // ---------------------------------------------------------------------
+  if (name === 'startMeeting') {
+    requireAuthed(req);
+    if (!roleAllowed(req.user, ['admin', 'super_admin', 'support', 'staff', 'provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant'])) {
+      const err = new Error('Meetings are not available for your role');
+      err.status = 403;
+      throw err;
+    }
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) {
+      const err = new Error('Your session has no agency context');
+      err.status = 400;
+      throw err;
+    }
+    const actorId = Number(req.user?.id || 0);
+    const withUserId = intOrNull(args.withUserId);
+    if (!withUserId) {
+      const err = new Error('withUserId is required');
+      err.status = 400;
+      throw err;
+    }
+    if (withUserId === actorId) {
+      const err = new Error('You cannot start a meeting with yourself');
+      err.status = 400;
+      throw err;
+    }
+    // Verify the target user is in the same agency.
+    const inAgency = await ensureCandidateInAgency(withUserId, agencyId);
+    if (!inAgency) {
+      const err = new Error('That person is not in your agency');
+      err.status = 404;
+      throw err;
+    }
+    const target = await User.findById(withUserId);
+    if (!target) {
+      const err = new Error('Person not found');
+      err.status = 404;
+      throw err;
+    }
+
+    const targetName = [target.first_name, target.last_name].filter(Boolean).join(' ').trim() || target.email;
+    const title = (args.title && String(args.title).trim().slice(0, 200)) || `Quick meeting with ${targetName}`;
+    const durationMinutes = Math.min(Math.max(5, intOrNull(args.durationMinutes) || 30), 240);
+
+    // Round start time up to next 5-minute boundary so the slot looks tidy.
+    const now = new Date();
+    const ms = now.getTime();
+    const roundedMs = Math.ceil(ms / (5 * 60 * 1000)) * (5 * 60 * 1000);
+    const startAt = new Date(roundedMs);
+    const endAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000);
+    const toMysqlLocal = (d) => {
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    };
+
+    const created = await ProviderScheduleEvent.create({
+      agencyId,
+      providerId: actorId,
+      kind: 'TEAM_MEETING',
+      title,
+      description: `Ad-hoc meeting started from the assistant.`,
+      isPrivate: false,
+      allDay: false,
+      startAt: toMysqlLocal(startAt),
+      endAt: toMysqlLocal(endAt),
+      createdByUserId: actorId
+    });
+
+    if (!created?.id) {
+      const err = new Error('Failed to create meeting');
+      err.status = 500;
+      throw err;
+    }
+
+    await ProviderScheduleEventAttendee.upsertForEvent(created.id, [withUserId]);
+
+    const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    const joinPath = `/join/team-meeting/${created.id}`;
+    const joinUrl = frontendUrl ? `${frontendUrl}${joinPath}` : joinPath;
+
+    return {
+      ok: true,
+      tool: name,
+      result: {
+        eventId: created.id,
+        title,
+        startAt: toMysqlLocal(startAt),
+        endAt: toMysqlLocal(endAt),
+        durationMinutes,
+        withUser: {
+          id: withUserId,
+          name: targetName,
+          email: target.email
+        },
+        joinUrl,
+        joinPath
+      }
+      // Note: no auto-navigate. The controller renders a "Meeting ready" card
+      // with the join URL so the host can copy/share it before joining.
+    };
+  }
+
+  // ---------------------------------------------------------------------
+  // openWorkspaceEvent — return the right UI command for one event id.
+  // ---------------------------------------------------------------------
+  if (name === 'openWorkspaceEvent') {
+    requireAuthed(req);
+    const actorId = Number(req.user?.id || 0);
+    const eventId = intOrNull(args.eventId);
+    if (!eventId) {
+      const err = new Error('eventId is required');
+      err.status = 400;
+      throw err;
+    }
+    const row = await ProviderScheduleEvent.findById(eventId);
+    if (!row) {
+      const err = new Error('Event not found');
+      err.status = 404;
+      throw err;
+    }
+    // Access check: actor is host, attendee, or admin-tier in same agency.
+    const isHost = Number(row.provider_id) === actorId;
+    let canAccess = isHost;
+    if (!canAccess) {
+      const attendees = await ProviderScheduleEventAttendee.listUserIdsByEventId(eventId);
+      canAccess = attendees.includes(actorId);
+    }
+    if (!canAccess) {
+      const role = String(req.user?.role || '').toLowerCase();
+      const isAdminTier = ['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role);
+      const agencies = await User.getAgencies(actorId);
+      const inAgency = (agencies || []).some((a) => Number(a?.id) === Number(row.agency_id));
+      if (!(isAdminTier && inAgency)) {
+        const err = new Error('You do not have access to this event');
+        err.status = 403;
+        throw err;
+      }
+    }
+
+    const kind = String(row.kind || '').toUpperCase();
+    const isMeeting = kind === 'TEAM_MEETING' || kind === 'HUDDLE';
+    const path = isMeeting ? `/join/team-meeting/${eventId}` : '/schedule';
+
+    return {
+      ok: true,
+      tool: name,
+      result: { eventId, kind, title: row.title, path },
+      uiCommands: [{ type: 'navigate', to: path }]
+    };
+  }
+
+  // ---------------------------------------------------------------------
+  // openTodaysWorkspace — list today's events for the actor.
+  // ---------------------------------------------------------------------
+  if (name === 'openTodaysWorkspace') {
+    requireAuthed(req);
+    const actorId = Number(req.user?.id || 0);
+    const agencyId = currentAgencyId(req); // may be null for super_admin without ctx
+    const dateYmd = str(args.dateYmd || new Date().toISOString().slice(0, 10), 10);
+    const activeOnly = args.activeOnly === true;
+
+    const dayStart = `${dateYmd} 00:00:00`;
+    const dayEnd = `${dateYmd} 23:59:59`;
+
+    let rows = [];
+    try {
+      rows = await ProviderScheduleEvent.listForUserInWindow({
+        agencyId: agencyId || 0,
+        providerId: actorId,
+        windowStart: dayStart,
+        windowEnd: dayEnd
+      });
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    const now = new Date();
+    const inHalfHour = new Date(now.getTime() + 30 * 60 * 1000);
+
+    const isActive = (r) => {
+      if (Number(r.all_day) === 1) return true;
+      const startMs = r.start_at ? new Date(r.start_at).getTime() : 0;
+      const endMs = r.end_at ? new Date(r.end_at).getTime() : 0;
+      // currently happening OR starting within the next 30 min
+      return (endMs > now.getTime() && startMs < inHalfHour.getTime());
+    };
+
+    const filtered = activeOnly ? rows.filter(isActive) : rows;
+
+    const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    const events = filtered.map((r) => {
+      const kind = String(r.kind || '').toUpperCase();
+      const isMeeting = kind === 'TEAM_MEETING' || kind === 'HUDDLE';
+      const joinPath = isMeeting ? `/join/team-meeting/${Number(r.id)}` : '/schedule';
+      return {
+        id: Number(r.id),
+        kind,
+        title: r.title,
+        startAt: r.start_at,
+        endAt: r.end_at,
+        allDay: Number(r.all_day) === 1,
+        active: isActive(r),
+        joinPath,
+        joinUrl: frontendUrl ? `${frontendUrl}${joinPath}` : joinPath
+      };
+    });
+
+    return {
+      ok: true,
+      tool: name,
+      result: { dateYmd, totalEvents: events.length, events }
     };
   }
 

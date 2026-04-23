@@ -334,6 +334,39 @@ function detectExplicitIntent({ prompt, allowedToolNames }) {
   const dateHint = parseDateHintFromPrompt(lower);
   const today = new Date().toISOString().slice(0, 10);
 
+  // ---- "Start a meeting with X" / "let's meet with X" / "1:1 with X" ----
+  // Resolves the target user via searchUsers; if exactly one match the
+  // controller will hand the result to startMeeting (which becomes a
+  // confirmation card via the WRITE_ACTION interception path).
+  const startMeetingMatch = lower.match(
+    /\b(?:start (?:a |an )?(?:meeting|video chat|video call|call|chat|1\s*[-:on]\s*1)|meet|chat|video chat|let'?s meet)\s+(?:with|w\/)\s+(.+?)(?:\s+(?:now|today|please|pls|asap|right now))?[.?!]?$/
+  );
+  if (startMeetingMatch && allowedToolNames.has('startMeeting') && allowedToolNames.has('searchUsers')) {
+    const target = startMeetingMatch[1].trim().replace(/^(the\s+|a\s+)/, '');
+    if (target && target.length >= 2 && target.length <= 80) {
+      return {
+        intent: 'start_meeting',
+        followUpStartMeeting: true,
+        toolCalls: [{ name: 'searchUsers', args: { query: target, limit: 5 } }]
+      };
+    }
+  }
+
+  // ---- "Open my workspace" / "today's workspace" / "what's active right now" ----
+  if (
+    allowedToolNames.has('openTodaysWorkspace') &&
+    (
+      /\b(workspace|active events?|what.*(?:active|going on|happening) (?:now|today|right now))\b/.test(lower) ||
+      /\bopen.*today/.test(lower) && /\b(events?|sessions?|meetings?)\b/.test(lower)
+    )
+  ) {
+    const activeOnly = /\b(now|right now|currently|active)\b/.test(lower);
+    return {
+      intent: 'todays_workspace',
+      toolCalls: [{ name: 'openTodaysWorkspace', args: { dateYmd: dateHint || today, activeOnly } }]
+    };
+  }
+
   // ---- Question-shaped intents (ALWAYS use date "today" if no other hint) ----
 
   // "who has an opening for an intake today" / "anyone available for an intake friday"
@@ -437,7 +470,8 @@ const WRITE_ACTION_TOOLS = new Set([
   'createTask',
   'createHiringCandidate',
   'addHiringNote',
-  'setHiringStage'
+  'setHiringStage',
+  'startMeeting'
 ]);
 
 function isWriteActionTool(name) {
@@ -448,7 +482,8 @@ const WRITE_ACTION_LABELS = {
   createTask: 'Create task',
   createHiringCandidate: 'Add hiring candidate',
   addHiringNote: 'Add hiring note',
-  setHiringStage: 'Update hiring stage'
+  setHiringStage: 'Update hiring stage',
+  startMeeting: 'Start meeting'
 };
 
 const WRITE_ACTION_FIELD_LABELS = {
@@ -464,19 +499,49 @@ const WRITE_ACTION_FIELD_LABELS = {
   candidateUserId: 'Candidate user id',
   stage: 'Stage',
   body: 'Note',
-  source: 'Source'
+  source: 'Source',
+  withUserId: 'With',
+  durationMinutes: 'Duration (min)'
 };
 
-function buildConfirmationCardForWriteAction(toolCall) {
+/**
+ * Build the confirmation card for a write-action tool call. Async so we can
+ * pre-resolve human-readable display values (e.g. user name for startMeeting).
+ */
+async function buildConfirmationCardForWriteAction(req, toolCall) {
   const name = String(toolCall?.name || '');
   const args = toolCall?.args && typeof toolCall.args === 'object' ? toolCall.args : {};
   const label = WRITE_ACTION_LABELS[name] || `Run ${name}`;
+
   const details = {};
+
+  // Custom resolution per tool — runs before the generic loop so we can
+  // overwrite raw ids with friendly labels.
+  if (name === 'startMeeting' && args.withUserId) {
+    try {
+      const User = (await import('../models/User.model.js')).default;
+      const u = await User.findById(Number(args.withUserId));
+      if (u) {
+        const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ').trim() || u.email;
+        details['With'] = `${fullName} (#${u.id})`;
+      }
+    } catch {
+      // best-effort
+    }
+  }
+
   for (const [k, v] of Object.entries(args)) {
     if (v == null || v === '') continue;
     const labelK = WRITE_ACTION_FIELD_LABELS[k] || k;
+    if (details[labelK]) continue; // already resolved nicely
     details[labelK] = typeof v === 'object' ? JSON.stringify(v) : String(v).slice(0, 240);
   }
+
+  // Sensible default for startMeeting if duration wasn't passed.
+  if (name === 'startMeeting' && !details['Duration (min)']) {
+    details['Duration (min)'] = '30';
+  }
+
   return {
     kind: 'confirm',
     title: label,
@@ -705,6 +770,7 @@ function buildNextCardsFromToolResults({ toolResults, allowedToolNames }) {
   const userRes = lastOkToolResult(toolResults, 'searchUsers');
   const users = userRes?.result?.results;
   if (Array.isArray(users) && users.length && canOpen) {
+    const canStartMeeting = allowedToolNames.has('startMeeting');
     for (const u of users.slice(0, 6)) {
       const id = u?.id == null ? null : Number(u.id);
       if (!id) continue;
@@ -719,7 +785,61 @@ function buildNextCardsFromToolResults({ toolResults, allowedToolNames }) {
         },
         actions: [
           { type: 'tool', label: 'Open profile', toolCall: { name: 'openEntity', args: { kind: 'user', id } } },
+          ...(canStartMeeting ? [{
+            type: 'tool',
+            label: 'Start meeting',
+            confirmRequest: true,
+            toolCall: { name: 'startMeeting', args: { withUserId: id } }
+          }] : []),
           ...(canNav ? [{ type: 'tool', label: 'User Manager', toolCall: { name: 'navigateTo', args: { routeName: 'UserManager' } } }] : [])
+        ]
+      });
+    }
+  }
+
+  const smRes = lastOkToolResult(toolResults, 'startMeeting');
+  if (smRes?.result?.eventId) {
+    const m = smRes.result;
+    const time = String(m.startAt || '').slice(11, 16);
+    pushCard({
+      kind: 'event',
+      title: m.title,
+      subtitle: `Meeting with ${m.withUser?.name || 'them'} · ${time}`,
+      details: {
+        'Join URL': m.joinUrl,
+        'Duration': `${m.durationMinutes} min`
+      },
+      actions: [
+        {
+          type: 'tool',
+          label: 'Join now',
+          toolCall: { name: 'openWorkspaceEvent', args: { eventId: Number(m.eventId) } }
+        }
+      ]
+    });
+  }
+
+  const wsRes = lastOkToolResult(toolResults, 'openTodaysWorkspace');
+  const wsEvents = wsRes?.result?.events;
+  if (Array.isArray(wsEvents) && wsEvents.length) {
+    for (const e of wsEvents.slice(0, 8)) {
+      const id = e?.id == null ? null : Number(e.id);
+      if (!id) continue;
+      const time = e.allDay
+        ? '(all day)'
+        : `${String(e.startAt || '').slice(11, 16)}–${String(e.endAt || '').slice(11, 16)}`;
+      const subtitle = `${e.kind || 'EVENT'} · ${time}${e.active ? ' · active now' : ''}`;
+      const isMeeting = e.kind === 'TEAM_MEETING' || e.kind === 'HUDDLE';
+      pushCard({
+        kind: 'event',
+        title: safeTitle(e.title, e.kind || 'Event'),
+        subtitle,
+        actions: [
+          {
+            type: 'tool',
+            label: isMeeting ? 'Join meeting' : 'Open',
+            toolCall: { name: 'openWorkspaceEvent', args: { eventId: id } }
+          }
         ]
       });
     }
@@ -864,6 +984,24 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
         const items = actions.slice(0, 20).map((a) => `• ${a.actionLabel || a.actionType}: ${a.count}`);
         lines.push(`${header}\n${items.join('\n')}`);
       }
+    } else if (r.tool === 'startMeeting') {
+      const out = r.result || {};
+      const who = out.withUser?.name || 'them';
+      const when = String(out.startAt || '').slice(11, 16);
+      lines.push(`Meeting with ${who} created (${when}). Share the link below or click "Join now" to enter the room.`);
+    } else if (r.tool === 'openTodaysWorkspace') {
+      const out = r.result || {};
+      const events = out.events || [];
+      const dateLabel = out.dateYmd || 'today';
+      if (!events.length) {
+        lines.push(`Nothing on your schedule for ${dateLabel}.`);
+      } else if (events.length === 1) {
+        const e = events[0];
+        const time = e.allDay ? '(all day)' : `${String(e.startAt || '').slice(11, 16)}–${String(e.endAt || '').slice(11, 16)}`;
+        lines.push(`One event for ${dateLabel}: "${e.title}" ${time} — opening it.`);
+      } else {
+        lines.push(`You have ${events.length} events on ${dateLabel} — pick one:`);
+      }
     } else if (r.tool === 'createTask') {
       const t = r.result?.task || r.result;
       const id = t?.id ? `#${t.id}` : '';
@@ -997,6 +1135,22 @@ export const assist = async (req, res, next) => {
       if (!tc?.name) return res.status(400).json({ error: { message: 'Invalid clientAction.toolCall' } });
       if (!allowedToolNames.has(tc.name)) return res.status(403).json({ error: { message: 'Tool not allowed for your role' } });
 
+      // Caller may request a confirmation card instead of immediate execution
+      // for write actions (e.g. "Start meeting" button on a user search card).
+      const wantsConfirm = req.body?.clientAction?.confirmRequest === true;
+      if (wantsConfirm && isWriteActionTool(tc.name)) {
+        const card = await buildConfirmationCardForWriteAction(req, tc);
+        return res.json({
+          assistantText: `I drafted this for you — review and click Confirm to proceed: ${card.title}`,
+          uiCommands: [],
+          toolCalls: [],
+          toolResults: [],
+          nextActions: [],
+          nextCards: [card],
+          runtime: 'client_action_confirm'
+        });
+      }
+
       try {
         const result = await executeToolCall({ req, toolCall: tc });
         const uiCommands = Array.isArray(result?.uiCommands) ? normalizeUiCommands(result.uiCommands) : [];
@@ -1123,11 +1277,53 @@ export const assist = async (req, res, next) => {
       };
       await trySingleOpen('searchSchools', 'school');
       await trySingleOpen('searchEvents', 'event');
-      await trySingleOpen('searchUsers', 'user');
+      // For "start meeting with X" we DON'T auto-open a user profile;
+      // instead the controller below converts a single match into a
+      // startMeeting confirmation card.
+      if (!explicit.followUpStartMeeting) {
+        await trySingleOpen('searchUsers', 'user');
+      }
 
-      const assistantText = buildAssistantReplyFromTools('', toolResults);
+      // openTodaysWorkspace: auto-open the single event if there's exactly one.
+      const wsRes = toolResults.find((r) => r?.ok && r.tool === 'openTodaysWorkspace');
+      const wsEvents = wsRes?.result?.events;
+      if (Array.isArray(wsEvents) && wsEvents.length === 1 && allowedToolNames.has('openWorkspaceEvent')) {
+        try {
+          const or = await executeToolCall({
+            req,
+            toolCall: { name: 'openWorkspaceEvent', args: { eventId: Number(wsEvents[0].id) } }
+          });
+          toolResults.push(or);
+          if (Array.isArray(or?.uiCommands) && or.uiCommands.length) {
+            for (const cmd of normalizeUiCommands(or.uiCommands)) uiCommands.push(cmd);
+          }
+        } catch {
+          /* noop */
+        }
+      }
+
+      let assistantText = buildAssistantReplyFromTools('', toolResults);
       const nextActions = buildNextActionsFromToolResults({ toolResults, allowedToolNames });
-      const nextCards = buildNextCardsFromToolResults({ toolResults, allowedToolNames });
+      let nextCards = buildNextCardsFromToolResults({ toolResults, allowedToolNames });
+
+      // "Start meeting with X" follow-up: if searchUsers returned exactly one
+      // person, build the startMeeting confirmation card directly.
+      if (explicit.followUpStartMeeting) {
+        const sr = toolResults.find((r) => r?.ok && r.tool === 'searchUsers');
+        const list = sr?.result?.results || [];
+        if (!list.length) {
+          assistantText = `I couldn't find anyone matching that name in your agency. Try a fuller name or check the spelling.`;
+        } else if (list.length === 1 && allowedToolNames.has('startMeeting')) {
+          const card = await buildConfirmationCardForWriteAction(req, {
+            name: 'startMeeting',
+            args: { withUserId: Number(list[0].id) }
+          });
+          nextCards = [card];
+          assistantText = `Ready to start a meeting with ${list[0].name || list[0].email} — click Confirm to launch the room.`;
+        } else {
+          assistantText = `Multiple people match — pick who you want to meet with:`;
+        }
+      }
 
       try {
         ActivityLogService.logActivity(
@@ -1193,7 +1389,8 @@ export const assist = async (req, res, next) => {
       // Never auto-execute write actions inferred from a natural-language prompt.
       // Convert them to a confirmation card the user must click "Confirm" on.
       if (isWriteActionTool(tc.name)) {
-        pendingWriteCards.push(buildConfirmationCardForWriteAction(tc));
+        const card = await buildConfirmationCardForWriteAction(req, tc);
+        pendingWriteCards.push(card);
         continue;
       }
 

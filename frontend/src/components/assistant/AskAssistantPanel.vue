@@ -524,7 +524,7 @@ async function runNextAction(a) {
       '/agents/assist',
       {
         prompt: '',
-        clientAction: { toolCall },
+        clientAction: { toolCall, confirmRequest: a?.confirmRequest === true },
         context: buildContextPayload(),
         history: buildHistoryPayload()
       },
