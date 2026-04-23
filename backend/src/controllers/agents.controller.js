@@ -357,6 +357,45 @@ function detectExplicitIntent({ prompt, allowedToolNames }) {
     }
   }
 
+  // ---- "Cancel the rest of my day" / "cancel all my remaining meetings" ----
+  if (
+    allowedToolNames.has('cancelTodaysRemainingMeetings') &&
+    /\b(cancel|clear|wipe|kill)\b/.test(lower) &&
+    (
+      /\b(rest of (?:the |my )?day|remaining meetings?|all (?:my )?(?:meetings?|remaining meetings?)|everything (?:today|for today)|the day|my day)\b/.test(lower) ||
+      /\b(?:i'?m sick|i am sick|going home|leaving early)\b/.test(lower)
+    )
+  ) {
+    let reason = null;
+    const reasonMatch = lower.match(/\b(?:because|reason[:\s]|since|due to)\s+(.{3,160})$/);
+    if (reasonMatch) {
+      reason = reasonMatch[1].replace(/[.?!]+$/, '').trim();
+    } else if (/\b(?:i'?m sick|i am sick)\b/.test(lower)) {
+      reason = 'Out sick';
+    }
+    return {
+      intent: 'cancel_rest_of_day',
+      followUpCancelRestOfDay: true,
+      cancelReason: reason,
+      toolCalls: []
+    };
+  }
+
+  // ---- "Cancel my next meeting" / "cancel my meeting" ----
+  if (
+    allowedToolNames.has('cancelMeeting') &&
+    allowedToolNames.has('findNextMeeting') &&
+    /\b(cancel|kill)\b/.test(lower) &&
+    /\b(meeting|huddle|1\s*[-:on]\s*1|video chat)\b/.test(lower) &&
+    !/\b(rest of (?:the |my )?day|remaining|all (?:my )?meetings?)\b/.test(lower)
+  ) {
+    return {
+      intent: 'cancel_next_meeting',
+      followUpCancelNextMeeting: true,
+      toolCalls: [{ name: 'findNextMeeting', args: {} }]
+    };
+  }
+
   // ---- "Start a meeting with X" / "let's meet with X" / "1:1 with X" ----
   // Resolves the target user via searchUsers; if exactly one match the
   // controller will hand the result to startMeeting (which becomes a
@@ -494,7 +533,9 @@ const WRITE_ACTION_TOOLS = new Set([
   'createHiringCandidate',
   'addHiringNote',
   'setHiringStage',
-  'startMeeting'
+  'startMeeting',
+  'cancelMeeting',
+  'cancelTodaysRemainingMeetings'
 ]);
 
 function isWriteActionTool(name) {
@@ -506,7 +547,9 @@ const WRITE_ACTION_LABELS = {
   createHiringCandidate: 'Add hiring candidate',
   addHiringNote: 'Add hiring note',
   setHiringStage: 'Update hiring stage',
-  startMeeting: 'Start meeting'
+  startMeeting: 'Start meeting',
+  cancelMeeting: 'Cancel meeting',
+  cancelTodaysRemainingMeetings: 'Cancel rest of today'
 };
 
 const WRITE_ACTION_FIELD_LABELS = {
@@ -524,7 +567,9 @@ const WRITE_ACTION_FIELD_LABELS = {
   body: 'Note',
   source: 'Source',
   withUserId: 'With',
-  durationMinutes: 'Duration (min)'
+  durationMinutes: 'Duration (min)',
+  reason: 'Reason',
+  eventId: 'Meeting'
 };
 
 /**
@@ -538,6 +583,8 @@ async function buildConfirmationCardForWriteAction(req, toolCall) {
 
   const details = {};
 
+  let subtitle = 'Review and confirm — nothing has been changed yet';
+
   // Custom resolution per tool — runs before the generic loop so we can
   // overwrite raw ids with friendly labels.
   if (name === 'startMeeting' && args.withUserId) {
@@ -547,6 +594,66 @@ async function buildConfirmationCardForWriteAction(req, toolCall) {
       if (u) {
         const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ').trim() || u.email;
         details['With'] = `${fullName} (#${u.id})`;
+      }
+    } catch {
+      // best-effort
+    }
+  }
+
+  // cancelMeeting: replace the raw eventId with a friendly title + time + attendee count.
+  if (name === 'cancelMeeting' && args.eventId) {
+    try {
+      const ProviderScheduleEvent = (await import('../models/ProviderScheduleEvent.model.js')).default;
+      const ProviderScheduleEventAttendee = (await import('../models/ProviderScheduleEventAttendee.model.js')).default;
+      const ev = await ProviderScheduleEvent.findById(Number(args.eventId));
+      if (ev) {
+        const start = ev.start_at ? new Date(ev.start_at) : null;
+        const when = start && !isNaN(start.getTime())
+          ? start.toLocaleString('en-US', {
+              weekday: 'short', month: 'short', day: 'numeric',
+              hour: 'numeric', minute: '2-digit'
+            })
+          : '(no start time)';
+        details['Meeting'] = `${ev.title} — ${when}`;
+        try {
+          const attendees = await ProviderScheduleEventAttendee.listByEventId(ev.id);
+          const names = attendees
+            .map((a) => [a.first_name, a.last_name].filter(Boolean).join(' ').trim() || a.email)
+            .filter(Boolean);
+          if (names.length) {
+            details['Will email'] = `${names.length} attendee${names.length === 1 ? '' : 's'} — ${names.slice(0, 4).join(', ')}${names.length > 4 ? '…' : ''}`;
+          } else {
+            details['Will email'] = 'No attendees on this meeting';
+          }
+        } catch {
+          /* noop */
+        }
+        subtitle = 'This will cancel the meeting and email everyone.';
+      }
+    } catch {
+      // best-effort
+    }
+  }
+
+  // cancelTodaysRemainingMeetings: pre-resolve the list so the user knows
+  // exactly what they're about to nuke.
+  if (name === 'cancelTodaysRemainingMeetings') {
+    try {
+      const { listRemainingMeetingsForToday } = await import('../services/meetingCancellation.service.js');
+      const meetings = await listRemainingMeetingsForToday({
+        actorUserId: Number(req.user?.id || 0),
+        agencyId: Number(req.body?.context?.agencyId || req.user?.agencyId || 0) || null
+      });
+      if (!meetings.length) {
+        details['Meetings'] = 'You have no remaining meetings today — nothing will be cancelled.';
+      } else {
+        const lines = meetings.slice(0, 8).map((m) => {
+          const t = m.start_at ? new Date(m.start_at) : null;
+          const tt = t && !isNaN(t.getTime()) ? t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
+          return `${tt} — ${m.title}`;
+        });
+        details['Meetings'] = `${meetings.length} meeting${meetings.length === 1 ? '' : 's'}: ${lines.join(' · ')}`;
+        subtitle = 'This will cancel ALL of your remaining meetings today and email everyone.';
       }
     } catch {
       // best-effort
@@ -568,7 +675,7 @@ async function buildConfirmationCardForWriteAction(req, toolCall) {
   return {
     kind: 'confirm',
     title: label,
-    subtitle: 'Review and confirm — nothing has been changed yet',
+    subtitle,
     details,
     actions: [
       { type: 'tool', label: 'Confirm', toolCall: { name, args } },
@@ -873,6 +980,7 @@ function buildNextCardsFromToolResults({ toolResults, allowedToolNames }) {
   const wsRes = lastOkToolResult(toolResults, 'openTodaysWorkspace');
   const wsEvents = wsRes?.result?.events;
   if (Array.isArray(wsEvents) && wsEvents.length) {
+    const canCancel = allowedToolNames.has('cancelMeeting');
     for (const e of wsEvents.slice(0, 8)) {
       const id = e?.id == null ? null : Number(e.id);
       if (!id) continue;
@@ -890,7 +998,13 @@ function buildNextCardsFromToolResults({ toolResults, allowedToolNames }) {
             type: 'tool',
             label: isMeeting ? 'Join meeting' : 'Open',
             toolCall: { name: 'openWorkspaceEvent', args: { eventId: id } }
-          }
+          },
+          ...(isMeeting && canCancel ? [{
+            type: 'tool',
+            label: 'Cancel',
+            confirmRequest: true,
+            toolCall: { name: 'cancelMeeting', args: { eventId: id } }
+          }] : [])
         ]
       });
     }
@@ -1052,6 +1166,35 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
       const who = out.withUser?.name || 'them';
       const when = String(out.startAt || '').slice(11, 16);
       lines.push(`Meeting with ${who} created (${when}). Share the link below or click "Join now" to enter the room.`);
+    } else if (r.tool === 'cancelMeeting') {
+      const out = r.result || {};
+      if (out.alreadyCancelled) {
+        lines.push(`That meeting was already cancelled. No emails sent.`);
+      } else {
+        const parts = [];
+        parts.push(`Cancelled "${out.title || 'meeting'}".`);
+        if (out.attendeesNotified || out.hostNotified) {
+          const ct = (out.attendeesNotified || 0) + (out.hostNotified ? 1 : 0);
+          parts.push(`Emailed ${ct} ${ct === 1 ? 'person' : 'people'}.`);
+        } else {
+          parts.push(`No cancellation emails went out (no attendees, or email is disabled for this agency).`);
+        }
+        lines.push(parts.join(' '));
+      }
+    } else if (r.tool === 'cancelTodaysRemainingMeetings') {
+      const out = r.result || {};
+      const cancelled = out.cancelledCount || 0;
+      const totalEmails = (out.results || []).reduce(
+        (acc, x) => acc + Number(x.attendeesNotified || 0) + (x.hostNotified ? 1 : 0),
+        0
+      );
+      if (!cancelled) {
+        lines.push(`You had no remaining meetings to cancel today.`);
+      } else {
+        lines.push(`Cancelled ${cancelled} ${cancelled === 1 ? 'meeting' : 'meetings'} for the rest of today and emailed ${totalEmails} ${totalEmails === 1 ? 'person' : 'people'}.`);
+      }
+    } else if (r.tool === 'findNextMeeting') {
+      // Intentionally silent — used only as a resolver step.
     } else if (r.tool === 'openTodaysWorkspace') {
       const out = r.result || {};
       const events = out.events || [];
@@ -1385,6 +1528,48 @@ export const assist = async (req, res, next) => {
           assistantText = `Ready to start a meeting with ${list[0].name || list[0].email} — click Confirm to launch the room.`;
         } else {
           assistantText = `Multiple people match — pick who you want to meet with:`;
+        }
+      }
+
+      // "Cancel my next meeting" follow-up: turn the findNextMeeting result
+      // into a cancelMeeting confirmation card.
+      if (explicit.followUpCancelNextMeeting) {
+        const fr = toolResults.find((r) => r?.ok && r.tool === 'findNextMeeting');
+        const next = fr?.result?.meeting;
+        if (!next?.id) {
+          assistantText = `You don't have any upcoming meetings scheduled today, so there's nothing to cancel.`;
+          nextCards = [];
+        } else {
+          const card = await buildConfirmationCardForWriteAction(req, {
+            name: 'cancelMeeting',
+            args: { eventId: Number(next.id) }
+          });
+          nextCards = [card];
+          assistantText = `Click Confirm to cancel your next meeting and email everyone.`;
+        }
+      }
+
+      // "Cancel rest of day" follow-up: build the bulk cancellation card
+      // (the builder pre-resolves the list of affected meetings).
+      if (explicit.followUpCancelRestOfDay) {
+        if (!allowedToolNames.has('cancelTodaysRemainingMeetings')) {
+          assistantText = `Cancelling meetings isn't available for your role.`;
+        } else {
+          const cancelArgs = explicit.cancelReason ? { reason: explicit.cancelReason } : {};
+          const card = await buildConfirmationCardForWriteAction(req, {
+            name: 'cancelTodaysRemainingMeetings',
+            args: cancelArgs
+          });
+          // If there are zero meetings, the card subtitle still says
+          // "Review and confirm" but we should be honest about it instead.
+          const meetingsLine = card.details?.['Meetings'] || '';
+          if (/no remaining meetings/i.test(meetingsLine)) {
+            nextCards = [];
+            assistantText = `You don't have any meetings left on your schedule today — nothing to cancel.`;
+          } else {
+            nextCards = [card];
+            assistantText = `Click Confirm to cancel everything left on your schedule today and email all attendees.`;
+          }
         }
       }
 

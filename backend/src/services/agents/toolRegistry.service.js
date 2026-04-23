@@ -8,6 +8,11 @@ import ProviderSearchIndex from '../../models/ProviderSearchIndex.model.js';
 import ProviderAvailabilityService from '../providerAvailability.service.js';
 import ProviderScheduleEvent from '../../models/ProviderScheduleEvent.model.js';
 import ProviderScheduleEventAttendee from '../../models/ProviderScheduleEventAttendee.model.js';
+import {
+  cancelOneMeeting,
+  cancelTodaysRemaining,
+  listRemainingMeetingsForToday
+} from '../meetingCancellation.service.js';
 import UserActivityLog from '../../models/UserActivityLog.model.js';
 import auditActionRegistry from '../../config/auditActionRegistry.js';
 import { getUserCapabilities } from '../../utils/capabilities.js';
@@ -459,6 +464,9 @@ export function getToolSchemasForUser(reqUser, agentConfig = null) {
           'supervisor'
         ]);
       case 'startMeeting':
+      case 'cancelMeeting':
+      case 'cancelTodaysRemainingMeetings':
+      case 'findNextMeeting':
         return roleAllowed(reqUser, ['admin', 'super_admin', 'support', 'staff', 'provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant']);
       case 'openTodaysWorkspace':
       case 'openWorkspaceEvent':
@@ -880,6 +888,41 @@ export function getToolSchemas() {
         },
         required: ['approach']
       }
+    },
+    {
+      name: 'cancelMeeting',
+      description:
+        'Cancel a single TEAM_MEETING / HUDDLE by event id. Sets status=CANCELLED, best-effort removes the Google Calendar event, and emails the host + attendees via the meeting_cancelled trigger. WRITE action — always confirmed before it runs. Use when the user clicks "Cancel" on a meeting card or asks "cancel my next meeting" / "cancel the meeting with X".',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          eventId: { type: 'integer' },
+          reason: {
+            type: 'string',
+            description: 'Optional short reason included in the cancellation email (e.g. "running over with a client").'
+          }
+        },
+        required: ['eventId']
+      }
+    },
+    {
+      name: 'cancelTodaysRemainingMeetings',
+      description:
+        'Cancel ALL of the signed-in user\'s remaining TEAM_MEETING / HUDDLE events for the rest of today (only those they host). Each cancellation emails the attendees + host. WRITE action — always confirmed before it runs. Use for "cancel the rest of my day", "cancel all my remaining meetings", "I\'m sick — cancel everything today".',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          reason: { type: 'string', description: 'Optional short reason included in the cancellation emails.' }
+        }
+      }
+    },
+    {
+      name: 'findNextMeeting',
+      description:
+        'Find the signed-in user\'s next TEAM_MEETING / HUDDLE that is still scheduled (status != CANCELLED) and starts at or after now. Read-only. Used by the "cancel my next meeting" flow to resolve which event id to cancel.',
+      parameters: { type: 'object', additionalProperties: false, properties: {} }
     },
     {
       name: 'startMeeting',
@@ -2292,6 +2335,102 @@ export async function executeToolCall({ req, toolCall }) {
       tool: name,
       result: { approach, total: providers.length, providers }
     };
+  }
+
+  // ---------------------------------------------------------------------
+  // findNextMeeting — read-only: returns the signed-in user's next active
+  // meeting (host) so the cancel-meeting flow can resolve an event id.
+  // ---------------------------------------------------------------------
+  if (name === 'findNextMeeting') {
+    requireAuthed(req);
+    const actorId = Number(req.user?.id || 0);
+    const agencyId = currentAgencyId(req);
+    const meetings = await listRemainingMeetingsForToday({ actorUserId: actorId, agencyId });
+    const next = meetings[0] || null;
+    if (!next) return { ok: true, tool: name, result: { meeting: null } };
+
+    const attendees = await ProviderScheduleEventAttendee.listByEventId(next.id);
+    return {
+      ok: true,
+      tool: name,
+      result: {
+        meeting: {
+          id: Number(next.id),
+          title: next.title,
+          kind: next.kind,
+          startAt: next.start_at,
+          endAt: next.end_at,
+          attendees: attendees.map((a) => ({
+            id: Number(a.user_id),
+            name: [a.first_name, a.last_name].filter(Boolean).join(' ').trim() || a.email,
+            email: a.email
+          }))
+        }
+      }
+    };
+  }
+
+  // ---------------------------------------------------------------------
+  // cancelMeeting — single TEAM_MEETING / HUDDLE.
+  // ---------------------------------------------------------------------
+  if (name === 'cancelMeeting') {
+    requireAuthed(req);
+    const actorId = Number(req.user?.id || 0);
+    const eventId = intOrNull(args.eventId);
+    if (!eventId) {
+      const err = new Error('eventId is required');
+      err.status = 400;
+      throw err;
+    }
+    const reason = args.reason ? str(args.reason, 240).trim() : null;
+
+    const event = await ProviderScheduleEvent.findById(eventId);
+    if (!event) {
+      const err = new Error('Meeting not found');
+      err.status = 404;
+      throw err;
+    }
+    const kind = String(event.kind || '').toUpperCase();
+    if (kind !== 'TEAM_MEETING' && kind !== 'HUDDLE') {
+      const err = new Error('Only meetings and huddles can be cancelled here');
+      err.status = 400;
+      throw err;
+    }
+
+    // Access: host, attendee, or admin-tier in same agency.
+    const isHost = Number(event.provider_id) === actorId;
+    let canCancel = isHost;
+    if (!canCancel) {
+      const attendees = await ProviderScheduleEventAttendee.listUserIdsByEventId(eventId);
+      canCancel = attendees.includes(actorId);
+    }
+    if (!canCancel) {
+      const role = String(req.user?.role || '').toLowerCase();
+      const isAdminTier = ['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role);
+      const agencies = await User.getAgencies(actorId);
+      const inAgency = (agencies || []).some((a) => Number(a?.id) === Number(event.agency_id));
+      if (!(isAdminTier && inAgency)) {
+        const err = new Error('You do not have permission to cancel this meeting');
+        err.status = 403;
+        throw err;
+      }
+    }
+
+    const out = await cancelOneMeeting({ eventId, actorUserId: actorId, reason });
+    return { ok: true, tool: name, result: out };
+  }
+
+  // ---------------------------------------------------------------------
+  // cancelTodaysRemainingMeetings — bulk cancel everything left today.
+  // ---------------------------------------------------------------------
+  if (name === 'cancelTodaysRemainingMeetings') {
+    requireAuthed(req);
+    const actorId = Number(req.user?.id || 0);
+    const agencyId = currentAgencyId(req);
+    const reason = args.reason ? str(args.reason, 240).trim() : null;
+
+    const out = await cancelTodaysRemaining({ actorUserId: actorId, agencyId, reason });
+    return { ok: true, tool: name, result: out };
   }
 
   // ---------------------------------------------------------------------
