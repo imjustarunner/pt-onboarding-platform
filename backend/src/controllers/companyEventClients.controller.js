@@ -102,8 +102,14 @@ async function ensureClientAgencyProgramAffiliation(clientId, agencyId, organiza
  * A "Denied" intake stays in the registrant view (TP isn't eligible) so coordinators can
  * track who didn't make it; they can be removed manually if desired.
  */
-const REGISTRANT_PREDICATE = `(COALESCE(cec.treatment_plan_complete, 0) = 0)`;
-const PARTICIPANT_PREDICATE = `(COALESCE(cec.treatment_plan_complete, 0) = 1)`;
+// "Denied" intakes are still rendered in the registrants table (greyed/strikethrough)
+// so coordinators can see who didn't make it, but they're excluded from EVERY count
+// per product spec: "Denied should be marked as grey across the way and not counted
+// anywhere anymore."
+const DENIED_PREDICATE = `(cec.intake_outcome = 'denied')`;
+const ACTIVE_PREDICATE = `(cec.intake_outcome IS NULL OR cec.intake_outcome <> 'denied')`;
+const REGISTRANT_PREDICATE = `(COALESCE(cec.treatment_plan_complete, 0) = 0 AND ${ACTIVE_PREDICATE})`;
+const PARTICIPANT_PREDICATE = `(COALESCE(cec.treatment_plan_complete, 0) = 1 AND ${ACTIVE_PREDICATE})`;
 
 const normalizeStatusFilter = (raw) => {
   const v = String(raw || '').trim().toLowerCase();
@@ -129,14 +135,16 @@ export const listCompanyEventClients = async (req, res, next) => {
     if (!event) return res.status(404).json({ error: { message: 'Event not found' } });
 
     // Workflow-derived counts so the UI can pulse the registrants chip and show totals
-    // without a second round-trip. Both numbers are computed even when the caller filters.
-    let counts = { all: 0, registrants: 0, participants: 0 };
+    // without a second round-trip. The `all` count intentionally excludes denied intakes
+    // (denied is its own bucket and "not counted anywhere" per product spec).
+    let counts = { all: 0, registrants: 0, participants: 0, denied: 0 };
     try {
       const [countRows] = await pool.execute(
         `SELECT
-           COUNT(*) AS all_count,
+           SUM(CASE WHEN ${ACTIVE_PREDICATE} THEN 1 ELSE 0 END) AS all_count,
            SUM(CASE WHEN ${REGISTRANT_PREDICATE} THEN 1 ELSE 0 END) AS registrants_count,
-           SUM(CASE WHEN ${PARTICIPANT_PREDICATE} THEN 1 ELSE 0 END) AS participants_count
+           SUM(CASE WHEN ${PARTICIPANT_PREDICATE} THEN 1 ELSE 0 END) AS participants_count,
+           SUM(CASE WHEN ${DENIED_PREDICATE} THEN 1 ELSE 0 END) AS denied_count
          FROM company_event_clients cec
          WHERE cec.company_event_id = ? AND cec.agency_id = ?`,
         [eventId, agencyId]
@@ -145,14 +153,64 @@ export const listCompanyEventClients = async (req, res, next) => {
       counts = {
         all: Number(row.all_count || 0),
         registrants: Number(row.registrants_count || 0),
-        participants: Number(row.participants_count || 0)
+        participants: Number(row.participants_count || 0),
+        denied: Number(row.denied_count || 0)
       };
     } catch (e) {
       const msg = String(e?.message || '');
       if (msg.includes('Unknown column') && msg.includes('intake_complete')) {
         return res.status(503).json({ error: { message: 'Run database migration 739_company_event_clients_provider_and_workflow.sql' } });
       }
+      if (msg.includes('Unknown column') && msg.includes('intake_outcome')) {
+        return res.status(503).json({ error: { message: 'Run database migration 802_company_event_clients_intake_outcome.sql' } });
+      }
       throw e;
+    }
+
+    // Per-session-group breakdown for graduated participants only (registrants
+    // typically aren't placed in a group yet). Returns one row per
+    // (group_id × session_date) so the UI can show "Morning · Mon = 4, Afternoon
+    // · Mon = 6" etc. Quietly returns an empty array when staffing isn't set up.
+    let participantGroupCounts = [];
+    try {
+      const [grpRows] = await pool.execute(
+        `SELECT
+           ceg.id          AS group_id,
+           ceg.label       AS group_label,
+           ceg.session_date_id,
+           cesd.session_date AS session_date,
+           cesd.label      AS session_label,
+           COUNT(DISTINCT cega.client_id) AS participant_count
+         FROM company_event_client_group_assignments cega
+         INNER JOIN company_event_clients cec
+           ON cec.company_event_id = cega.company_event_id
+          AND cec.agency_id = cega.agency_id
+          AND cec.client_id = cega.client_id
+         INNER JOIN company_event_session_groups ceg ON ceg.id = cega.group_id
+         LEFT JOIN company_event_session_dates cesd ON cesd.id = cega.session_date_id
+         WHERE cega.company_event_id = ?
+           AND cega.agency_id = ?
+           AND ${PARTICIPANT_PREDICATE.replace(/cec\./g, 'cec.')}
+         GROUP BY ceg.id, ceg.label, ceg.session_date_id, cesd.session_date, cesd.label
+         ORDER BY cesd.session_date ASC, ceg.label ASC`,
+        [eventId, agencyId]
+      );
+      participantGroupCounts = (grpRows || []).map((r) => ({
+        groupId: Number(r.group_id),
+        label: String(r.group_label || '').trim() || `Group ${r.group_id}`,
+        sessionDateId: r.session_date_id ? Number(r.session_date_id) : null,
+        sessionDate: r.session_date || null,
+        sessionLabel: r.session_label ? String(r.session_label).trim() : null,
+        count: Number(r.participant_count || 0)
+      }));
+    } catch (e) {
+      // Staffing tables are optional — silently degrade if they aren't present.
+      const msg = String(e?.message || '');
+      if (!msg.includes('company_event_session_groups') && !msg.includes('company_event_client_group_assignments')) {
+        // Unknown error — surface it so we don't hide real bugs behind the optional path.
+        // (Keep counts response shape stable; just leave the array empty.)
+      }
+      participantGroupCounts = [];
     }
 
     const statusWhere =
@@ -249,6 +307,7 @@ export const listCompanyEventClients = async (req, res, next) => {
     res.json({
       ok: true,
       counts,
+      participantGroupCounts,
       statusFilter,
       // The viewer-capability flag lets the participants UI know whether to render
       // editable eloping/extra-support checkboxes (admin-only).

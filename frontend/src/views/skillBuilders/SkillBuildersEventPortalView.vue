@@ -584,11 +584,32 @@
               section-id="participants"
               title="Participants"
               icon-url=""
-              :badge="`${participantCounts.all || genericParticipants.length}`"
+              :badge="`${participantCounts.participants}`"
             >
               <p class="muted small sbep-card-lead">
                 Participants enrolled in this program event. Add/remove enrollments directly here.
               </p>
+
+              <!-- Per-group participant breakdown — only renders when there is more
+                   than one staffing group with participants in it. Lets coordinators
+                   see at a glance "Morning · 4, Afternoon · 6" without scrolling. -->
+              <div
+                v-if="participantStatusFilter === 'participants' && participantGroupBreakdown.length > 1"
+                class="sbep-group-breakdown"
+                aria-label="Participants per group"
+              >
+                <span class="sbep-group-breakdown-label">Per group:</span>
+                <span
+                  v-for="g in participantGroupBreakdown"
+                  :key="`pg-${g.groupId}-${g.sessionDateId || 'na'}`"
+                  class="sbep-group-chip"
+                  :title="g.sessionLabel ? `${g.label} · ${g.sessionLabel}` : g.label"
+                >
+                  <strong>{{ g.label }}</strong>
+                  <span v-if="g.sessionLabel" class="sbep-group-chip-session">· {{ g.sessionLabel }}</span>
+                  <span class="sbep-group-chip-count">{{ g.count }}</span>
+                </span>
+              </div>
 
               <!-- Applicants pulse card + view filter pills -->
               <div class="sbep-participant-toolbar">
@@ -639,11 +660,21 @@
                     class="sbep-status-pill"
                     :class="{ 'is-active': participantStatusFilter === 'all' }"
                     :aria-selected="participantStatusFilter === 'all'"
+                    :title="`Active total — does not include ${participantCounts.denied} denied`"
                     @click="setParticipantStatusFilter('all')"
                   >
                     All
                     <span class="sbep-status-pill-count">{{ participantCounts.all }}</span>
                   </button>
+                  <span
+                    v-if="participantCounts.denied > 0"
+                    class="sbep-status-pill sbep-status-pill--denied"
+                    role="note"
+                    title="Denied intakes appear in the registrants list (greyed out) but are excluded from every count."
+                  >
+                    Denied
+                    <span class="sbep-status-pill-count">{{ participantCounts.denied }}</span>
+                  </span>
                 </div>
               </div>
 
@@ -2210,7 +2241,9 @@ const participantNotesSavingClientId = ref(0);
 /** Workflow-status filter for the participants section: 'registrants' | 'participants' | 'all' */
 const participantStatusFilter = ref('all');
 /** Backend-derived counts so registrant pulse + applicants card reflect reality without a 2nd request */
-const participantCounts = ref({ all: 0, registrants: 0, participants: 0 });
+const participantCounts = ref({ all: 0, registrants: 0, participants: 0, denied: 0 });
+/** Per-session-group breakdown for participants only (empty unless staffing groups exist) */
+const participantGroupCounts = ref([]);
 /**
  * Per-row save-status feedback so coordinators see autosave finish.
  * Map: clientId -> { state: 'saving'|'saved'|'error', message?: string, ts: number }
@@ -3314,9 +3347,13 @@ async function loadGenericParticipants() {
       participantCounts.value = {
         all: Number(res.data.counts.all || 0),
         registrants: Number(res.data.counts.registrants || 0),
-        participants: Number(res.data.counts.participants || 0)
+        participants: Number(res.data.counts.participants || 0),
+        denied: Number(res.data.counts.denied || 0)
       };
     }
+    participantGroupCounts.value = Array.isArray(res.data?.participantGroupCounts)
+      ? res.data.participantGroupCounts
+      : [];
     // Provider dropdown options for the Participants panel
     loadParticipantProviders();
   } catch (e) {
@@ -3338,6 +3375,19 @@ function setParticipantStatusFilter(next) {
   participantStatusFilter.value = norm;
   loadGenericParticipants();
 }
+
+/**
+ * Per-group breakdown for the Participants card.
+ * Backend already filters to participant rows (TP complete, not denied) and joins
+ * staffing-group assignments. We pass the array through unchanged so the chip row
+ * can render `<label> · <session> = <count>`. When fewer than two groups are
+ * populated we hide the breakdown entirely (handled in the template).
+ */
+const participantGroupBreakdown = computed(() => {
+  const arr = Array.isArray(participantGroupCounts.value) ? participantGroupCounts.value : [];
+  return arr.filter((g) => Number(g?.count || 0) > 0);
+});
+
 
 async function loadParticipantProviders() {
   const aid = eventBillingAgencyId.value;
@@ -5791,6 +5841,74 @@ watch(
   50% { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
 }
 
+/* Read-only "Denied" chip — visually distinct from the clickable pills so
+   coordinators understand it's just a tally, not a filter. */
+.sbep-status-pill--denied {
+  background: rgba(148, 163, 184, 0.18);
+  color: var(--text-secondary, #475569);
+  cursor: default;
+  border: 1px dashed rgba(148, 163, 184, 0.5);
+}
+.sbep-status-pill--denied:hover {
+  background: rgba(148, 163, 184, 0.18);
+}
+.sbep-status-pill--denied .sbep-status-pill-count {
+  background: rgba(100, 116, 139, 0.18);
+  color: var(--text-secondary, #475569);
+}
+
+/* Per-group breakdown row shown above the participants list when more than
+   one staffing group has people in it. */
+.sbep-group-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 14px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(20, 184, 166, 0.08);
+  border: 1px solid rgba(20, 184, 166, 0.18);
+}
+.sbep-group-breakdown-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #475569);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.sbep-group-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(20, 184, 166, 0.25);
+  font-size: 13px;
+  color: var(--text-primary, #0f172a);
+}
+.sbep-group-chip strong {
+  font-weight: 600;
+}
+.sbep-group-chip-session {
+  color: var(--text-secondary, #64748b);
+  font-size: 12px;
+}
+.sbep-group-chip-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 11px;
+  background: rgba(20, 184, 166, 0.20);
+  color: #0f766e;
+  font-weight: 700;
+  font-size: 12px;
+}
+
 .sbep-status-hint {
   margin: 4px 0 12px;
 }
@@ -5807,14 +5925,23 @@ watch(
   color: var(--text-secondary, #475569);
   font-variant-numeric: tabular-nums;
 }
-.sbep-row-denied {
-  background: rgba(148, 163, 184, 0.10);
-  color: var(--text-secondary, #64748b);
+/* Denied registrants: visually muted across the whole row so coordinators can
+   tell at a glance that the row is excluded from every count. The strikethrough
+   on the name makes the "denied" status unambiguous. */
+.sbep-row-denied,
+.sbep-row-denied td {
+  background: rgba(148, 163, 184, 0.12) !important;
+  color: var(--text-secondary, #64748b) !important;
 }
-.sbep-row-denied .sbep-roster-client-link {
+.sbep-row-denied td {
+  filter: grayscale(0.6);
+  opacity: 0.78;
+}
+.sbep-row-denied .sbep-roster-client-link,
+.sbep-row-denied .sbep-roster-client-name {
   text-decoration: line-through;
   text-decoration-thickness: 1px;
-  opacity: 0.85;
+  color: var(--text-secondary, #64748b);
 }
 
 /* Accept / Deny buttons (intake outcome picker on the registrants row) */
