@@ -2082,6 +2082,9 @@ const selectAgencyBrand = async (a) => {
         window.location.assign(jump);
         return;
       }
+      // Superadmin selecting a tenant navigates directly to that tenant's admin dashboard.
+      router.push(`/${slug}/admin`);
+      return;
     }
     pushWithSlug(slug);
   } catch {
@@ -2092,10 +2095,6 @@ const selectAgencyBrand = async (a) => {
 const selectPlatformBrand = async () => {
   closeBrandMenu();
   agencyStore.setPlatformMode();
-  // Stay on the current authenticated host when switching to Platform.
-  // Cross-host redirects can drop auth cookies and send users to generic login.
-
-  stripSlug();
 
   // Ensure super admins still have agency options after returning to Platform.
   if (brandingStore.isSuperAdmin) {
@@ -2104,7 +2103,13 @@ const selectPlatformBrand = async () => {
     } catch {
       // ignore
     }
+    // Superadmin returning to Platform always goes to the platform admin dashboard.
+    router.push('/admin');
+    return;
   }
+
+  // Non-superadmin: strip the slug from the current path.
+  stripSlug();
 };
 
 const switchDemoView = async (nextRole) => {

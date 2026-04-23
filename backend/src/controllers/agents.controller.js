@@ -6,6 +6,7 @@ import {
   matchCatalogBackedPageNavigationIntent,
   matchDeterministicCapabilityIntent
 } from '../services/agents/assistantCapabilityCatalog.service.js';
+import { hasTenantAccess } from '../utils/meDashboardTenantScope.js';
 
 function normalizeUiCommands(raw) {
   const arr = Array.isArray(raw) ? raw : [];
@@ -1211,6 +1212,12 @@ export const assist = async (req, res, next) => {
         ? req.body.clientAction.toolCall
         : null;
     if (!prompt && !clientToolCall) return res.status(400).json({ error: { message: 'prompt is required' } });
+
+    // Enforce strict tenant scoping for agents/assist (critical for new tenants like Burning Sage)
+    const agencyContextId = parseInt(context.agencyId || req.headers['x-agency-id'] || req.user?.agencyId || 0, 10);
+    if (agencyContextId > 0 && !(await hasTenantAccess(req, agencyContextId))) {
+      return res.status(403).json({ error: { message: 'Access denied to this tenant' } });
+    }
 
     const grounding = String(req.body?.grounding || '').trim().toLowerCase(); // 'google_search' | ''
     const wantsSearch = grounding === 'google_search';

@@ -347,6 +347,20 @@ export const useAgencyStore = defineStore('agency', () => {
     return tracks.value.filter(t => t.agency_id === currentAgency.value.id);
   });
 
+  const userAgencyCount = computed(() => {
+    return Array.isArray(userAgencies.value) ? userAgencies.value.length : 0;
+  });
+
+  /** True if user is associated with exactly one tenant (no dropdown/switcher should be shown). */
+  const hasSingleTenantAssociation = computed(() => {
+    return userAgencyCount.value === 1 && !platformMode.value;
+  });
+
+  /** Whether to show tenant/branding dropdown or agency switcher in header (hide for single-tenant users). */
+  const shouldShowTenantDropdown = computed(() => {
+    return userAgencyCount.value > 1 || platformMode.value || (userAgencies.value || []).some(a => a?.isMultiTenant || false);
+  });
+
   const superviseePortalSlugs = ref([]);
   let superviseePortalSlugsFetched = false;
   let superviseePortalSlugsUserId = null;
@@ -391,6 +405,9 @@ export const useAgencyStore = defineStore('agency', () => {
     fetchUserAgencies,
     fetchTracks,
     superviseePortalSlugs,
-    fetchSuperviseePortalSlugs
+    fetchSuperviseePortalSlugs,
+    userAgencyCount,
+    hasSingleTenantAssociation,
+    shouldShowTenantDropdown
   };
 });

@@ -5,7 +5,7 @@
       <p class="subtitle">Review provider availability submissions and search by office/school/skills.</p>
     </div>
 
-    <div v-if="agencies.length > 1" class="agency-selector">
+    <div v-if="shouldShowAgencySelector" class="agency-selector">
       <label>Agency</label>
       <select v-model="selectedAgencyId" @change="onAgencyChange">
         <option :value="null">Select an agency…</option>
@@ -36,6 +36,10 @@ const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
 const agencies = computed(() => {
   const list = isSuperAdmin.value ? (agencyStore.agencies || []) : (agencyStore.userAgencies || []);
   return (list || []).filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
+});
+
+const shouldShowAgencySelector = computed(() => {
+  return agencies.value.length > 1 && !agencyStore.hasSingleTenantAssociation.value;
 });
 
 const onAgencyChange = () => {

@@ -14,6 +14,56 @@
     <div v-else-if="error" class="error">{{ error }}</div>
     
     <div v-else class="dashboard-content">
+      <!-- Prominent Tenant Filter for Superadmin Platform View - easy/quick filtering of sub-tenants -->
+      <div class="tenant-filter-panel">
+        <div class="tenant-filter-header">
+          <h2>Tenants ({{ filteredTenants.length }})</h2>
+          <input 
+            v-model="tenantSearchQuery" 
+            type="text" 
+            placeholder="Search tenants..." 
+            class="tenant-search-input"
+          >
+        </div>
+        <div class="tenant-cards-grid">
+          <div 
+            v-for="tenant in filteredTenants" 
+            :key="tenant.id" 
+            class="tenant-card"
+            @click="viewTenantDashboard(tenant)"
+          >
+            <div class="tenant-header">
+              <div class="tenant-name">{{ tenant.name }}</div>
+              <div class="tenant-slug">{{ tenant.slug || tenant.portal_url }}</div>
+            </div>
+            <div class="tenant-metrics">
+              <div class="metric">
+                <div class="metric-label">Patients</div>
+                <div class="metric-value">{{ tenant.activePatients || '—' }}</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">Employees</div>
+                <div class="metric-value">{{ tenant.activeEmployees ?? '—' }}</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">Open Tasks</div>
+                <div class="metric-value">{{ tenant.openTasks ?? '—' }}</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">Notifications</div>
+                <div class="metric-value">{{ tenant.unreadNotifications ?? '—' }}</div>
+              </div>
+            </div>
+            <button class="view-dashboard-btn" @click.stop="viewTenantDashboard(tenant)">
+              View Dashboard →
+            </button>
+          </div>
+        </div>
+        <div v-if="filteredTenants.length === 0" class="no-results">
+          No tenants match your search.
+        </div>
+      </div>
+
       <div class="dashboard-grid">
         <div class="stat-card">
           <router-link to="/admin/settings?tab=agencies" class="stat-card-link">
@@ -194,6 +244,7 @@
 
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import { useAgencyStore } from '../../store/agency';
@@ -209,6 +260,7 @@ import SupervisionModal from '../../components/supervision/SupervisionModal.vue'
 import PresenceStatusWidget from '../../components/dashboard/PresenceStatusWidget.vue';
 import PresenceTeamPreview from '../../components/dashboard/PresenceTeamPreview.vue';
 
+const router = useRouter();
 const authStore = useAuthStore();
 const user = computed(() => authStore.user);
 const showSupervisionModal = ref(false);
@@ -228,9 +280,21 @@ const stats = ref({
 const orgTypeCounts = ref({ total: 0, agency: 0, school: 0, program: 0, learning: 0, other: 0 });
 const showOrgBreakdown = ref(false);
 const agencies = ref([]);
+
+// Tenant filter for easy switching from platform view
+const filteredTenants = computed(() => {
+  const query = tenantSearchQuery.value.toLowerCase().trim();
+  const list = agencies.value || [];
+  if (!query) return list;
+  return list.filter(a => 
+    String(a.name || '').toLowerCase().includes(query) ||
+    String(a.slug || '').toLowerCase().includes(query)
+  );
+});
 const selectedOrgId = ref(null);
 const orgOverviewSummary = ref({ counts: { school: 0, program: 0, learning: 0, other: 0 } });
 const betaFeedbackPendingCount = ref(0);
+const tenantSearchQuery = ref('');
 
 const betaFeedbackBadgeCounts = computed(() => ({
   beta_feedback: betaFeedbackPendingCount.value > 0 ? betaFeedbackPendingCount.value : 0
@@ -295,6 +359,28 @@ const fetchStats = async () => {
     
     // Agency Specs should focus on agencies; other org types are secondary.
     agencies.value = primaryAgencies;
+
+    // Load real per-tenant metrics for the tenant filter cards
+    try {
+      const summaryRes = await api.get('/dashboard/platform-tenant-summary');
+      const summaryTenants = Array.isArray(summaryRes.data?.tenants) ? summaryRes.data.tenants : [];
+      if (summaryTenants.length > 0) {
+        // Merge real metrics into agencies list by id
+        const metricsById = Object.fromEntries(summaryTenants.map(t => [t.id, t]));
+        agencies.value = primaryAgencies.map(a => {
+          const m = metricsById[Number(a.id)] || {};
+          return {
+            ...a,
+            activePatients: m.activePatients ?? 0,
+            activeEmployees: m.activeEmployees ?? 0,
+            openTasks: m.openTasks ?? 0,
+            unreadNotifications: m.unreadNotifications ?? 0,
+          };
+        });
+      }
+    } catch {
+      // Non-fatal: keep agencies list without metrics
+    }
 
     // Default to the first org (prefer active)
     if (!selectedOrgId.value && Array.isArray(agencies.value) && agencies.value.length > 0) {
@@ -807,6 +893,15 @@ const resolveQuickActionIcon = (action) => {
   return getActionIcon(action.iconKey);
 };
 
+const viewTenantDashboard = (tenant) => {
+  if (!tenant) return;
+  agencyStore.setCurrentAgency(tenant);
+  const slug = String(tenant.slug || tenant.portal_url || tenant.organization_slug || '').toLowerCase().trim();
+  if (slug) {
+    router.push(`/${slug}/admin-dashboard`);
+  }
+};
+
 // Watch for branding changes and refetch if needed
 watch(() => brandingStore.platformBranding, (newBranding) => {
   if (newBranding) {
@@ -1163,6 +1258,136 @@ onMounted(loadMyOpenTickets);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-secondary);
+}
+
+/* Tenant filter panel */
+.tenant-filter-panel {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 20px 24px;
+}
+
+.tenant-filter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  gap: 16px;
+}
+
+.tenant-filter-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.tenant-search-input {
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  width: 260px;
+  outline: none;
+}
+
+.tenant-search-input:focus {
+  border-color: var(--primary);
+}
+
+.tenant-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.tenant-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: var(--bg-alt, #f8fafc);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tenant-card:hover {
+  border-color: var(--primary);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  transform: translateY(-1px);
+}
+
+.tenant-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tenant-name {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.tenant-slug {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.tenant-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.metric {
+  background: white;
+  border-radius: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+}
+
+.metric-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.metric-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.view-dashboard-btn {
+  width: 100%;
+  padding: 8px;
+  background: var(--primary, #4f46e5);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  transition: opacity 0.15s;
+}
+
+.view-dashboard-btn:hover {
+  opacity: 0.9;
+}
+
+.no-results {
+  text-align: center;
+  color: var(--text-secondary);
+  padding: 32px;
+  font-size: 14px;
 }
 </style>
 

@@ -563,6 +563,10 @@ export const listMySupportTickets = async (req, res, next) => {
 };
 
 async function getAccessibleTicketScopeForUser(userId, role, req) {
+  // Prefer the strict tenant tree from our updated middleware (fixes Burning Sage seeing other tenants' tickets)
+  if (req && req.tenantAgencyIds && Array.isArray(req.tenantAgencyIds) && req.tenantAgencyIds.length > 0) {
+    return { agencyIds: req.tenantAgencyIds, schoolOrgIds: [] };
+  }
   // Anyone who can view the queue (admin/support/staff/CPA/provider_plus) sees same as super_admin
   if (req && isAgencyAdminUser(req)) {
     return { agencyIds: null, schoolOrgIds: null };

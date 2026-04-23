@@ -95,3 +95,32 @@ export async function resolveScopedAgencyIdsForMyDashboard(req) {
   if (!inTenant) return [];
   return [...treeSet];
 }
+
+/**
+ * Checks if the current user has access to the given agency/tenant (using full tenant tree for non-superadmins).
+ * Returns true for super_admin/admin/support; otherwise checks membership in tenant tree.
+ * Useful for controllers to enforce strict scoping for new tenants like Burning Sage.
+ */
+export async function hasTenantAccess(req, targetAgencyId) {
+  const userId = parsePositiveInt(req?.user?.id);
+  if (!userId) return false;
+
+  const role = String(req.user?.role || '').toLowerCase();
+  const agencyId = parsePositiveInt(targetAgencyId);
+  if (!agencyId) return false;
+
+  if (role === 'super_admin' || role === 'admin' || role === 'support') {
+    return true;
+  }
+
+  const root = await resolveTenantRootAgencyId(agencyId);
+  if (!root) return false;
+
+  const tree = await listAgencyIdsInTenantTree(root);
+  const treeSet = new Set(tree);
+
+  const userAgencies = await User.getAgencies(userId);
+  const userSet = new Set((userAgencies || []).map((a) => Number(a.id)).filter((n) => n > 0));
+
+  return [...treeSet].some((id) => userSet.has(id));
+}

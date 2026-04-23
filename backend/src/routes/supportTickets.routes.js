@@ -1,5 +1,6 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
+import { requireAgencyAccess } from '../middleware/agencyAccess.middleware.js';
 import {
   listMySupportTickets,
   listSupportTicketsQueue,
@@ -37,10 +38,10 @@ router.post('/client-thread/read', markClientSupportTicketThreadRead);
 // School Portal: list client ticket history (school staff + agency staff/admin)
 router.get('/client-tickets', listClientSupportTickets);
 
-// Admin/support: queue (optionally filter by schoolOrganizationId/status)
-router.get('/count', getSupportTicketsCount);
-router.get('/', listSupportTicketsQueue);
-router.get('/assignees', listSupportTicketAssignees);
+// Admin/support: queue (optionally filter by schoolOrganizationId/status) - now strictly tenant-scoped
+router.get('/count', requireAgencyAccess, getSupportTicketsCount);
+router.get('/', requireAgencyAccess, listSupportTicketsQueue);
+router.get('/assignees', requireAgencyAccess, listSupportTicketAssignees);
 
 // School staff: create ticket
 router.post('/', createSupportTicket);
