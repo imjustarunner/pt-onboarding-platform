@@ -438,20 +438,26 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
     }
     if (r.tool === 'searchSchools') {
       const list = r.result?.results || [];
-      if (!list.length) lines.push('No schools in your agency matched that search.');
+      if (!list.length) lines.push('No schools in your agency matched that search. Try a different name or open the School Portals Hub to browse.');
       else if (list.length === 1 && openedSchool) {
         /* openEntity row already explains the navigation */
       } else if (list.length === 1) {
         lines.push(`Found: ${list[0].name}. Want to open it?`);
-      } else lines.push(`Found ${list.length} schools: ${list.map((x) => x.name).join(', ')}. Say which one to open.`);
+      } else {
+        const names = list.map((x) => x.name).join(', ');
+        lines.push(`Found ${list.length} schools matching that search — ${names}. Which one did you mean?`);
+      }
     } else if (r.tool === 'searchEvents') {
       const list = r.result?.results || [];
-      if (!list.length) lines.push('No program events matched that search.');
+      if (!list.length) lines.push('No program events matched that search. Try different keywords or open Program Events to browse.');
       else if (list.length === 1 && openedEvent) {
         /* openEntity covers it */
       } else if (list.length === 1) {
         lines.push(`Found event: ${list[0].title}. Want to open it?`);
-      } else lines.push(`Found ${list.length} events: ${list.map((x) => x.title).join('; ')}. Say which one to open.`);
+      } else {
+        const titles = list.map((x) => x.title).join(', ');
+        lines.push(`Found ${list.length} events — ${titles}. Which one did you mean?`);
+      }
     } else if (r.tool === 'searchUsers') {
       const list = r.result?.results || [];
       if (!list.length) lines.push('No users matched that search in your agency.');
@@ -459,7 +465,10 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
         /* openEntity covers it */
       } else if (list.length === 1) {
         lines.push(`Found: ${list[0].name || list[0].email || 'user'}. Want to open their profile?`);
-      } else lines.push(`Found ${list.length} people: ${list.map((x) => x.name || x.email).join(', ')}. Say which one to open.`);
+      } else {
+        const names = list.map((x) => x.name || x.email).join(', ');
+        lines.push(`Found ${list.length} people — ${names}. Which profile did you want?`);
+      }
     } else if (r.tool === 'openEntity') {
       const nm = r.result?.name || r.result?.title || '';
       const path = r.result?.path || '';
@@ -637,17 +646,35 @@ export const assist = async (req, res, next) => {
     let toolCalls = merged.toolCalls;
 
     const toolResults = [];
+    // Tracks entity kinds where a search returned >1 result — block auto-open for those kinds
+    // so the user always chooses via disambiguation cards rather than landing on the wrong page.
+    const skipOpenEntityKinds = new Set();
+
     for (const tc of toolCalls) {
       if (!allowedToolNames.has(tc.name)) {
         toolResults.push({ ok: false, tool: tc.name, error: { message: 'Tool not allowed for your role' } });
         continue;
       }
+
+      // If the model tried to openEntity for a kind where search returned multiple results, skip it.
+      if (tc.name === 'openEntity' && skipOpenEntityKinds.has(String(tc.args?.kind || ''))) {
+        continue;
+      }
+
       try {
         const result = await executeToolCall({ req, toolCall: tc });
         toolResults.push(result);
+
+        // After a search, check if it returned multiple results — if so, guard that kind.
+        if (tc.name === 'searchSchools' && (result?.result?.results?.length ?? 0) > 1) {
+          skipOpenEntityKinds.add('school');
+        } else if (tc.name === 'searchEvents' && (result?.result?.results?.length ?? 0) > 1) {
+          skipOpenEntityKinds.add('event');
+        } else if (tc.name === 'searchUsers' && (result?.result?.results?.length ?? 0) > 1) {
+          skipOpenEntityKinds.add('user');
+        }
+
         // Tools may emit uiCommands (e.g. openEntity returns a navigate command).
-        // Merge them into the top-level uiCommands so the frontend executes them
-        // alongside any commands the LLM included directly.
         if (Array.isArray(result?.uiCommands) && result.uiCommands.length) {
           for (const cmd of normalizeUiCommands(result.uiCommands)) {
             uiCommands.push(cmd);
