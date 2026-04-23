@@ -625,7 +625,8 @@ export const assist = async (req, res, next) => {
       prompt,
       context,
       agentConfig,
-      allowSearch: wantsSearch
+      allowSearch: wantsSearch,
+      history: Array.isArray(req.body?.history) ? req.body.history : []
     });
 
     const parsed = safeParseAgentJson(rawText);
@@ -683,41 +684,45 @@ export const assist = async (req, res, next) => {
     // Deterministic fallback: if the model returned no tools at all but the prompt
     // clearly implies navigation, try safe, role-gated tools to avoid dead-ends.
     if (impliesNavigate && toolCalls.length === 0) {
-      // 1) School portal by name ("Twain school portal") → searchSchools (+ open if unambiguous)
-      const looksLikeSchoolPortal = /\bschool\b/.test(promptLower) && /\bportal\b/.test(promptLower);
-      if (looksLikeSchoolPortal && allowedToolNames.has('searchSchools')) {
-        const q = guessSchoolQueryFromPrompt(promptLower);
-        if (q) {
-          try {
-            const sr = await executeToolCall({ req, toolCall: { name: 'searchSchools', args: { query: q, limit: 10 } } });
-            toolResults.push(sr);
-            if (Array.isArray(sr?.uiCommands) && sr.uiCommands.length) {
-              for (const cmd of normalizeUiCommands(sr.uiCommands)) uiCommands.push(cmd);
-            }
-            const schools = sr?.result?.results;
-            if (
-              Array.isArray(schools) &&
-              schools.length === 1 &&
-              allowedToolNames.has('openEntity') &&
-              schools[0]?.id != null
-            ) {
-              const or = await executeToolCall({
-                req,
-                toolCall: { name: 'openEntity', args: { kind: 'school', id: Number(schools[0].id) } }
-              });
-              toolResults.push(or);
-              if (Array.isArray(or?.uiCommands) && or.uiCommands.length) {
-                for (const cmd of normalizeUiCommands(or.uiCommands)) uiCommands.push(cmd);
-              }
-            }
-            assistantText = '';
-          } catch (e) {
-            toolResults.push({ ok: false, tool: 'searchSchools', error: { message: e?.message || 'Search failed' } });
+      // Extract any name-like query from the prompt to use as a search term.
+      const schoolQuery = guessSchoolQueryFromPrompt(promptLower);
+
+      // School portal detection: "portal" alone is enough — not requiring "school" keyword
+      // since users say "Twain Elementary portal", "Lincoln portal", etc.
+      const looksLikeEntityPortal =
+        /\bportal\b/.test(promptLower) ||
+        (/\b(school|elementary|middle|high|academy|charter|institute)\b/.test(promptLower));
+
+      if (looksLikeEntityPortal && schoolQuery && allowedToolNames.has('searchSchools')) {
+        try {
+          const sr = await executeToolCall({ req, toolCall: { name: 'searchSchools', args: { query: schoolQuery, limit: 10 } } });
+          toolResults.push(sr);
+          if (Array.isArray(sr?.uiCommands) && sr.uiCommands.length) {
+            for (const cmd of normalizeUiCommands(sr.uiCommands)) uiCommands.push(cmd);
           }
+          const schools = sr?.result?.results;
+          if (
+            Array.isArray(schools) &&
+            schools.length === 1 &&
+            allowedToolNames.has('openEntity') &&
+            schools[0]?.id != null
+          ) {
+            const or = await executeToolCall({
+              req,
+              toolCall: { name: 'openEntity', args: { kind: 'school', id: Number(schools[0].id) } }
+            });
+            toolResults.push(or);
+            if (Array.isArray(or?.uiCommands) && or.uiCommands.length) {
+              for (const cmd of normalizeUiCommands(or.uiCommands)) uiCommands.push(cmd);
+            }
+          }
+          assistantText = '';
+        } catch (e) {
+          toolResults.push({ ok: false, tool: 'searchSchools', error: { message: e?.message || 'Search failed' } });
         }
       }
 
-      // 2) Generic page navigation ("take me to referrals") → navigateTo route whitelist
+      // Generic page navigation ("take me to referrals") → navigateTo route whitelist
       if (!uiCommands.length && allowedToolNames.has('navigateTo')) {
         const routeName = resolveNavigateRouteNameFromPrompt(promptLower);
         if (routeName) {

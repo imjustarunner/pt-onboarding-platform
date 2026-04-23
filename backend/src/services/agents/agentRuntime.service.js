@@ -37,35 +37,36 @@ function buildSystemPrompt({ includeSearch, agentConfig, user }) {
   const tools = getToolSchemasForUser(user, cfg);
   const agentSystemPrompt = cfg?.systemPrompt == null ? null : String(cfg.systemPrompt).slice(0, 6000);
   return [
-    'You are the in-app assistant for a business web application.',
+    'You are the in-app assistant for a business web application. Your job is to take action, not ask permission.',
     '',
     agentSystemPrompt ? `Additional instructions:\n${agentSystemPrompt}` : '',
     '',
     'Return ONLY valid JSON with this schema:',
     '{',
     '  "assistantText": string,',
-    '  "uiCommands": [ { "type": "navigate", "to": string } | { "type": "highlight", "selector": string } | { "type": "openHelper" } | { "type": "closeHelper" } ] ,',
+    '  "uiCommands": [],',
     '  "toolCalls": [ { "name": string, "args": object } ]',
     '}',
     '',
-    'Rules:',
+    'Strict rules:',
     '- Do not include markdown or explanations outside JSON (no ``` fences, no tool_code blocks).',
-    '- Put tools ONLY in the top-level JSON property "toolCalls" (camelCase). Do not use "tool_calls" or put tool JSON inside assistantText.',
-    '- If you are unsure, do not call tools; ask a clarifying question in assistantText.',
-    '- uiCommands from the model are ignored for navigation; only use toolCalls (navigateTo, openEntity, etc.). Leave uiCommands empty or omit it.',
-    '- uiCommands must be minimal and safe.',
+    '- Put tools ONLY in the top-level JSON property "toolCalls" (camelCase).',
+    '- uiCommands must always be an empty array — the server handles navigation from tool results.',
+    '- NEVER ask the user whether to search. If they mention any name that could be a school, event, or person — call the search tool immediately with that name as the query.',
+    '- NEVER respond with "searching…" or "looking…" in assistantText without also including toolCalls. Text + zero toolCalls = a failed turn.',
+    '- Only ask a clarifying question if the user\'s intent is completely ambiguous (e.g., a single word with no context and no prior conversation).',
     '',
-    'Navigation rubric (Ask Assistant v1):',
-    '- For phrases like "open X", "go to X", "find X", "show me the X page" — prefer toolCalls over guessing a path.',
-    '- To open a specific school portal: call searchSchools({ query }) first, then openEntity({ kind: "school", id }) with the best match.',
-    '- To open a specific program event: call searchEvents({ query, startsAfter?, startsBefore? }) first, then openEntity({ kind: "event", id }).',
-    '- To open a specific user profile (admins only): call searchUsers({ query }) first, then openEntity({ kind: "user", id }).',
-    '- For generic pages ("my schedule", "the dashboard", "clients page", "referral directory"), call navigateTo({ routeName }) using one of the whitelisted routeNames in the tool schema — never fabricate a path.',
-    '- For the signed-in user\'s own payroll questions (last paycheck / pay amount, how many NO_NOTE or unpaid draft documentation rows, delinquency), call getMyPayrollSummary({}) and explain the returned JSON in plain language — do not guess pay figures.',
-    '- When the user needs referral options for a client (e.g. pediatrics, psychiatry, speech therapy) or asks "who should I refer to", call searchReferralDirectory({ query }) with the specialties or service types they mentioned, then list the returned entries clearly (name, organization, phone, specialties). If nothing matches, say so and suggest refining the query or opening the Referral Directory page.',
-    '- If a search returns no results or ambiguous matches, ask the user a clarifying question in assistantText instead of guessing.',
-    '- If no tools are listed below, answer from general product guidance only; do not invent tenant-specific data.',
-    '- toolCalls must match these allowed tools exactly (this list is scoped to the signed-in user\'s role):',
+    'Action-first navigation rubric:',
+    '- Any phrase with a name + "portal" / "school" / "elementary" / "middle" / "high": immediately call searchSchools({ query: "<name>" }).',
+    '- Any phrase with a name + "event" / "program" / "session": immediately call searchEvents({ query: "<name>" }).',
+    '- Any phrase mentioning a person\'s name + "profile" / "user": immediately call searchUsers({ query: "<name>" }) if allowed.',
+    '- For generic pages ("my schedule", "dashboard", "clients", "referral directory", "notifications"): call navigateTo({ routeName }) — never fabricate a path.',
+    '- For payroll / pay questions: call getMyPayrollSummary({}).',
+    '- For referral questions ("find pediatrics for my client", "who should I refer to for psychiatry"): call searchReferralDirectory({ query }).',
+    '- Read the conversation history below. If an earlier turn mentions a school or event name and the current turn says "that one" / "open it" / "go there" — infer the entity from context and call the correct tool.',
+    '- If a search returns multiple matches, list them clearly in assistantText and return toolCalls to open each option.',
+    '- If no tools are listed, answer from general product guidance only.',
+    '- toolCalls must match these allowed tools exactly (scoped to the signed-in user\'s role):',
     JSON.stringify(tools, null, 2),
     '',
     includeSearch
@@ -246,22 +247,34 @@ async function callAdkService({ url, prompt, context, userId, allowSearch, timeo
   }
 }
 
-export async function runAgentAssist({ userId, prompt, context, agentConfig, allowSearch, user }) {
+export async function runAgentAssist({ userId, prompt, context, agentConfig, allowSearch, user, history }) {
   const cleanedPrompt = sanitizeText(prompt, { maxLen: 8000 });
   const ctx = context && typeof context === 'object' ? context : {};
 
   const systemPrompt = buildSystemPrompt({ includeSearch: !!allowSearch, agentConfig, user });
+
+  // Build a compact conversation history block so the model has turn context.
+  const historyBlock = (() => {
+    const turns = Array.isArray(history) ? history : [];
+    if (!turns.length) return '';
+    const lines = turns.slice(-8).map((t) => {
+      const role = String(t?.role || 'user').trim() === 'assistant' ? 'ASSISTANT' : 'USER';
+      const text = sanitizeText(t?.text || '', { maxLen: 400 });
+      return `${role}: ${text}`;
+    });
+    return `Conversation so far:\n${lines.join('\n')}\n`;
+  })();
+
   const userPrompt = [
     `UserId: ${String(userId || '')}`,
     `UserRole: ${String(user?.role || '')}`,
     `RouteName: ${String(ctx.routeName || '')}`,
-    `PlacementKey: ${String(ctx.placementKey || '')}`,
     `AgencyId: ${String(ctx.agencyId || '')}`,
-    `OrganizationId: ${String(ctx.organizationId || '')}`,
     '',
-    'User prompt:',
+    historyBlock,
+    'Current user message:',
     cleanedPrompt
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 
   const projectId = process.env.GCP_PROJECT_ID || process.env.GCS_PROJECT_ID || '';
   const location = String(process.env.VERTEX_AI_LOCATION || 'us-central1').trim() || 'us-central1';

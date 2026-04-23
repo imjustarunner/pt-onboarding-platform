@@ -425,7 +425,7 @@ async function submit() {
     scrollTurnsToBottom();
   });
   try {
-    const resp = await api.post('/agents/assist', { prompt: q, context: buildContextPayload() }, { skipGlobalLoading: true });
+    const resp = await api.post('/agents/assist', { prompt: q, context: buildContextPayload(), history: buildHistoryPayload() }, { skipGlobalLoading: true });
     const data = resp?.data || {};
     const navs = await executeUiCommands(data.uiCommands);
     turns.value.push({
@@ -455,6 +455,11 @@ function buildContextPayload() {
     placementKey: 'ask_assistant',
     agencyId: agencyStore.currentAgency?.id || authStore.user?.agencyId || null
   };
+}
+
+function buildHistoryPayload() {
+  // Send last 8 turns (4 back-and-forth exchanges) for context.
+  return turns.value.slice(-8).map((t) => ({ role: t.role, text: String(t.text || '').slice(0, 600) }));
 }
 
 function prefillActionText(a) {
@@ -494,7 +499,8 @@ async function runNextAction(a) {
       {
         prompt: '',
         clientAction: { toolCall },
-        context: buildContextPayload()
+        context: buildContextPayload(),
+        history: buildHistoryPayload()
       },
       { skipGlobalLoading: true }
     );
