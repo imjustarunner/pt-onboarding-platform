@@ -451,6 +451,13 @@ export function getToolSchemasForUser(reqUser, agentConfig = null) {
         return roleAllowed(reqUser, PROGRAM_EVENTS_SEARCH_ROLES);
       case 'getOfficeSchedule':
         return roleAllowed(reqUser, ['admin', 'super_admin', 'support', 'staff', 'provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant']);
+      case 'findProvidersByApproach':
+        // Anyone provider+ can ask "who uses CBT" for internal-referral purposes.
+        return roleAllowed(reqUser, [
+          ...PROVIDER_DIRECTORY_TOOL_ROLES,
+          'provider',
+          'supervisor'
+        ]);
       case 'startMeeting':
         return roleAllowed(reqUser, ['admin', 'super_admin', 'support', 'staff', 'provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant']);
       case 'openTodaysWorkspace':
@@ -852,6 +859,26 @@ export function getToolSchemas() {
           },
           limit: { type: 'integer' }
         }
+      }
+    },
+    {
+      name: 'findProvidersByApproach',
+      description:
+        'Find providers in the agency who use a particular treatment approach, modality, or specialty. Use for questions like "who uses CBT", "who does EMDR", "anyone who does play therapy", "who specializes in trauma". Searches across modality, treatment preferences, specialties, and age-specialty fields. Returns one row per provider with the matching field/option.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          approach: {
+            type: 'string',
+            description: 'The approach / modality / specialty term to search for (e.g. "CBT", "DBT", "EMDR", "trauma", "play therapy"). Required.'
+          },
+          limit: {
+            type: 'integer',
+            description: 'Max providers to return. Default 25.'
+          }
+        },
+        required: ['approach']
       }
     },
     {
@@ -2152,6 +2179,118 @@ export async function executeToolCall({ req, toolCall }) {
       ok: true,
       tool: name,
       result: { dateYmd, totalOffices: offices.length, openOffices: offices.filter((o) => o.isOpen).length, offices }
+    };
+  }
+
+  // ---------------------------------------------------------------------
+  // findProvidersByApproach — "who uses CBT?" / "who does EMDR?"
+  // Searches multi_select option values across modality, treatment prefs,
+  // specialties, and age-specialty fields.
+  // ---------------------------------------------------------------------
+  if (name === 'findProvidersByApproach') {
+    requireAuthed(req);
+    if (!roleAllowed(req.user, [...PROVIDER_DIRECTORY_TOOL_ROLES, 'provider', 'supervisor'])) {
+      const err = new Error('Provider directory tools are not available for your role');
+      err.status = 403;
+      throw err;
+    }
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) {
+      const err = new Error('Your session has no agency context');
+      err.status = 400;
+      throw err;
+    }
+    const approach = str(args.approach, 80).trim();
+    if (!approach) {
+      const err = new Error('approach is required');
+      err.status = 400;
+      throw err;
+    }
+    const limit = Math.min(Math.max(1, intOrNull(args.limit) || 25), 100);
+
+    const FIELD_KEYS = [
+      'modality',
+      'treatment_prefs_max15',
+      'pt_specialties_max25',
+      'specialties_general',
+      'age_specialty'
+    ];
+    const fieldKeyLabel = {
+      modality: 'Treatment modality',
+      treatment_prefs_max15: 'Treatment preference',
+      pt_specialties_max25: 'Specialty',
+      specialties_general: 'General specialty',
+      age_specialty: 'Age specialty'
+    };
+
+    const placeholders = FIELD_KEYS.map(() => '?').join(',');
+    const likeArg = `%${approach}%`;
+    let rows = [];
+    try {
+      const [r] = await pool.execute(
+        `SELECT
+           psi.user_id,
+           psi.field_key,
+           psi.value_option,
+           u.first_name,
+           u.last_name,
+           u.email,
+           u.role
+         FROM provider_search_index psi
+         JOIN users u ON u.id = psi.user_id
+         WHERE psi.agency_id = ?
+           AND psi.field_type = 'multi_select'
+           AND psi.field_key IN (${placeholders})
+           AND (
+             LOWER(psi.value_option) = LOWER(?)
+             OR LOWER(psi.value_option) LIKE LOWER(?)
+           )
+         ORDER BY
+           -- exact matches first
+           CASE WHEN LOWER(psi.value_option) = LOWER(?) THEN 0 ELSE 1 END,
+           -- prefer modality field
+           CASE psi.field_key
+             WHEN 'modality' THEN 0
+             WHEN 'treatment_prefs_max15' THEN 1
+             WHEN 'pt_specialties_max25' THEN 2
+             WHEN 'specialties_general' THEN 3
+             WHEN 'age_specialty' THEN 4
+             ELSE 9
+           END,
+           u.last_name, u.first_name
+         LIMIT 200`,
+        [agencyId, ...FIELD_KEYS, approach, likeArg, approach]
+      );
+      rows = r || [];
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE') return { ok: true, tool: name, result: { approach, providers: [], total: 0 } };
+      throw e;
+    }
+
+    // Group by user, keeping the strongest match (first row per user wins
+    // because of the ORDER BY).
+    const byUser = new Map();
+    for (const r of rows) {
+      const uid = Number(r.user_id);
+      if (!uid) continue;
+      if (byUser.has(uid)) continue;
+      const fullName = [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || r.email;
+      byUser.set(uid, {
+        id: uid,
+        name: fullName,
+        email: r.email,
+        role: r.role,
+        matchedField: r.field_key,
+        matchedFieldLabel: fieldKeyLabel[r.field_key] || r.field_key,
+        matchedOption: r.value_option
+      });
+    }
+
+    const providers = Array.from(byUser.values()).slice(0, limit);
+    return {
+      ok: true,
+      tool: name,
+      result: { approach, total: providers.length, providers }
     };
   }
 

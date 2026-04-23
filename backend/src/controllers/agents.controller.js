@@ -334,6 +334,29 @@ function detectExplicitIntent({ prompt, allowedToolNames }) {
   const dateHint = parseDateHintFromPrompt(lower);
   const today = new Date().toISOString().slice(0, 10);
 
+  // ---- "Who uses CBT" / "who does EMDR" / "anyone who does play therapy" ----
+  // Routes to findProvidersByApproach. The "approach" can be a known modality
+  // (CBT, DBT, EMDR, ACT, IFS, etc.), a free-text specialty (trauma, ADHD), or
+  // a longer phrase (cognitive behavioral therapy).
+  if (allowedToolNames.has('findProvidersByApproach')) {
+    const approachMatch =
+      lower.match(/\b(?:who|anyone|any\s+providers?|any\s+staff|which\s+providers?|find\s+(?:a\s+|me\s+)?(?:provider|providers|therapist|therapists))\s+(?:that\s+|who\s+|do(?:es)?\s+|use[sd]?\s+|specializ(?:es|ing)\s+(?:in\s+)?|trained\s+in\s+|practice[sd]?\s+|offer[s]?\s+|with\s+(?:experience\s+(?:in|with)\s+)?)([a-zA-Z][\w\s&\-/().'+]{1,60}?)\??$/) ||
+      lower.match(/\b(?:find|show|list|search\s+for)\s+(?:a\s+|me\s+a?\s*|all\s+|the\s+)?([a-zA-Z][\w\s&\-/().'+]{1,40})\s+(?:provider|providers|therapist|therapists|specialist|specialists)\b/);
+    if (approachMatch) {
+      let approach = approachMatch[1].trim()
+        .replace(/^(the\s+|some\s+|any\s+)/, '')
+        .replace(/\s+(?:therapy|approach|techniques?|methods?|modality|specialist|provider|therapist)$/i, '')
+        .replace(/[.?!]+$/, '')
+        .trim();
+      if (approach.length >= 2 && approach.length <= 60) {
+        return {
+          intent: 'find_providers_by_approach',
+          toolCalls: [{ name: 'findProvidersByApproach', args: { approach, limit: 25 } }]
+        };
+      }
+    }
+  }
+
   // ---- "Start a meeting with X" / "let's meet with X" / "1:1 with X" ----
   // Resolves the target user via searchUsers; if exactly one match the
   // controller will hand the result to startMeeting (which becomes a
@@ -797,6 +820,34 @@ function buildNextCardsFromToolResults({ toolResults, allowedToolNames }) {
     }
   }
 
+  const fpaRes = lastOkToolResult(toolResults, 'findProvidersByApproach');
+  const fpaProviders = fpaRes?.result?.providers;
+  if (Array.isArray(fpaProviders) && fpaProviders.length && canOpen) {
+    const canStartMeeting = allowedToolNames.has('startMeeting');
+    for (const p of fpaProviders.slice(0, 8)) {
+      const id = p?.id == null ? null : Number(p.id);
+      if (!id) continue;
+      pushCard({
+        kind: 'user',
+        title: safeTitle(p.name || p.email, 'Provider'),
+        subtitle: `${p.matchedFieldLabel || 'Match'}: ${p.matchedOption || ''}`,
+        details: {
+          email: p.email || null,
+          role: p.role || null
+        },
+        actions: [
+          { type: 'tool', label: 'Open profile', toolCall: { name: 'openEntity', args: { kind: 'user', id } } },
+          ...(canStartMeeting ? [{
+            type: 'tool',
+            label: 'Start meeting',
+            confirmRequest: true,
+            toolCall: { name: 'startMeeting', args: { withUserId: id } }
+          }] : [])
+        ]
+      });
+    }
+  }
+
   const smRes = lastOkToolResult(toolResults, 'startMeeting');
   if (smRes?.result?.eventId) {
     const m = smRes.result;
@@ -983,6 +1034,18 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
         const header = `Top ${actions.length} activity type(s) ${range ? `(${range})` : ''} — ${total} total:`;
         const items = actions.slice(0, 20).map((a) => `• ${a.actionLabel || a.actionType}: ${a.count}`);
         lines.push(`${header}\n${items.join('\n')}`);
+      }
+    } else if (r.tool === 'findProvidersByApproach') {
+      const out = r.result || {};
+      const providers = out.providers || [];
+      const approach = out.approach || 'that approach';
+      if (!providers.length) {
+        lines.push(`No providers in your agency are tagged with "${approach}".`);
+      } else if (providers.length === 1) {
+        const p = providers[0];
+        lines.push(`1 provider matches "${approach}": ${p.name} (${p.matchedFieldLabel}: ${p.matchedOption}).`);
+      } else {
+        lines.push(`${providers.length} providers match "${approach}". Pick one to open their profile or start a meeting.`);
       }
     } else if (r.tool === 'startMeeting') {
       const out = r.result || {};

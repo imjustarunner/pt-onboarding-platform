@@ -96,6 +96,7 @@ function buildSystemPrompt({ includeSearch, agentConfig, user }) {
     '  - "start a meeting with X" / "video chat with X" / "1:1 with X" → searchUsers({ query: "X" })',
     '    (the server resolves the user, then surfaces a startMeeting confirmation card)',
     '  - "open my workspace" / "what\'s active right now" → openTodaysWorkspace({ activeOnly?: true })',
+    '  - "who uses CBT" / "who does EMDR" / "find a trauma therapist" → findProvidersByApproach({ approach: "CBT" })',
     '',
     'WRITE actions (createTask, createHiringCandidate, addHiringNote, setHiringStage, startMeeting)',
     'are ALWAYS safe to return as toolCalls — the server intercepts them and asks the user to',
