@@ -570,10 +570,13 @@ app.use(
   })
 );
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Server is running' });
-});
+// Lightweight health checks for Cloud Run and external probes.
+const healthHandler = (_req, res) => {
+  res.json({ status: 'ok', phase: 'app', message: 'Server is running' });
+};
+app.get('/health', healthHandler);
+app.get('/healthz', healthHandler);
+app.get('/readyz', healthHandler);
 
 // Health check routes (must be before authentication middleware)
 app.use('/api/health-check', healthCheckRoutes);
@@ -1060,8 +1063,12 @@ if (!isBootstrap) {
       console.warn('[startup] Migration 733 check skipped:', err.message);
     }
 
-    // Migration 740 – team_id on challenge_member_invites (team-specific invite links)
+  })();
+
+  // Migration 740 – team_id on challenge_member_invites (team-specific invite links)
+  (async () => {
     try {
+      const { default: pool } = await import('./config/database.js');
       const [[col]] = await pool.execute(
         `SELECT 1 FROM information_schema.COLUMNS
          WHERE TABLE_SCHEMA = DATABASE()

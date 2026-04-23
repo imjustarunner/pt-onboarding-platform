@@ -10,9 +10,9 @@ const HOST = '0.0.0.0';
 
 const placeholder = (req, res) => {
   const path = (req.url || '/').split('?')[0];
-  if (path === '/health' || path === '/') {
+  if (path === '/' || path === '/health' || path === '/healthz' || path === '/readyz') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', message: 'Server is loading...' }));
+    res.end(JSON.stringify({ status: 'ok', phase: 'bootstrap', message: 'Server is loading...' }));
   } else {
     res.writeHead(503, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'starting', message: 'Server is loading...' }));
