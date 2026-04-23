@@ -224,6 +224,18 @@
                 >
                   Pending {{ Number(client.compliance_days_since_assigned || 0) }}d
                 </span>
+                <span
+                  v-for="(ea, idx) in (client.event_assignments || [])"
+                  :key="`ea-${client.id}-${ea.companyEventId}-${idx}`"
+                  class="event-assignment-badge"
+                  :class="{
+                    'event-assignment-badge--ready': ea.intakeComplete && ea.treatmentPlanComplete,
+                    'event-assignment-badge--pending': !(ea.intakeComplete && ea.treatmentPlanComplete)
+                  }"
+                  :title="eventAssignmentTitle(ea)"
+                >
+                  Event: {{ eventAssignmentLabel(ea) }}
+                </span>
                 <button
                   v-if="Number(client.open_ticket_count || 0) > 0"
                   class="ticket-status-badge ticket-status-open ticket-status-btn"
@@ -1171,6 +1183,22 @@ const pendingComplianceTitle = (client) => {
   return lines.join('\n');
 };
 
+const eventAssignmentLabel = (ea) => {
+  const raw = String(ea?.skillsGroupName || ea?.eventTitle || '').trim();
+  if (!raw) return 'Program event';
+  return raw.length > 28 ? `${raw.slice(0, 26)}…` : raw;
+};
+
+const eventAssignmentTitle = (ea) => {
+  const lines = [
+    `Assigned to you for: ${ea?.eventTitle || ea?.skillsGroupName || 'Program event'}`,
+    ea?.eventStartsAt ? `Starts: ${formatDate(ea.eventStartsAt)}` : '',
+    `Intake: ${ea?.intakeComplete ? 'complete' : 'pending'}`,
+    `Treatment plan: ${ea?.treatmentPlanComplete ? 'complete' : 'pending'}`
+  ].filter(Boolean);
+  return lines.join('\n');
+};
+
 const commentBadgeCount = (client) => {
   const unread = Number(client?.unread_notes_count || 0);
   if (unread > 0) return unread;
@@ -1977,6 +2005,29 @@ onMounted(() => {
 .newly-assigned-badge-legend {
   animation: none;
   cursor: default;
+}
+
+.event-assignment-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: help;
+}
+.event-assignment-badge--ready {
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.45);
+  color: #1e40af;
+}
+.event-assignment-badge--pending {
+  background: rgba(234, 88, 12, 0.14);
+  border: 1px solid rgba(234, 88, 12, 0.45);
+  color: #9a3412;
 }
 
 .client-row-clickable {

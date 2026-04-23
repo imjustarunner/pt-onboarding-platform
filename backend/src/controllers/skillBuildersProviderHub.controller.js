@@ -1310,6 +1310,49 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
          LIMIT 200`;
     const [clientRows] = await pool.execute(clientSql, [sg?.id || 0]);
 
+    // Per-event provider assignments for clients in this event (skills group + program-event
+    // backed). Lets the portal highlight "assigned to me" for the viewing provider, so a
+    // provider on a group sees the full roster but knows which clients are their responsibility.
+    const eventClientAssignmentsByClientId = new Map();
+    if ((clientRows || []).length) {
+      const cids = clientRows.map((r) => Number(r.id)).filter(Boolean);
+      if (cids.length) {
+        const placeholders = cids.map(() => '?').join(',');
+        try {
+          const [cecRows] = await pool.execute(
+            `SELECT
+               cec.client_id,
+               cec.assigned_provider_user_id,
+               cec.intake_complete,
+               cec.treatment_plan_complete,
+               u.first_name AS provider_first_name,
+               u.last_name AS provider_last_name
+             FROM company_event_clients cec
+             LEFT JOIN users u ON u.id = cec.assigned_provider_user_id
+             WHERE cec.company_event_id = ?
+               AND cec.client_id IN (${placeholders})`,
+            [eventId, ...cids]
+          );
+          for (const r of cecRows || []) {
+            eventClientAssignmentsByClientId.set(Number(r.client_id), {
+              assignedProviderUserId: r.assigned_provider_user_id ? Number(r.assigned_provider_user_id) : null,
+              assignedProviderName:
+                r.provider_first_name || r.provider_last_name
+                  ? `${r.provider_first_name || ''} ${r.provider_last_name || ''}`.trim()
+                  : null,
+              intakeComplete: r.intake_complete === 1 || r.intake_complete === true,
+              treatmentPlanComplete: r.treatment_plan_complete === 1 || r.treatment_plan_complete === true
+            });
+          }
+        } catch (e) {
+          const code = e?.code || '';
+          if (code !== 'ER_NO_SUCH_TABLE' && code !== 'ER_BAD_FIELD_ERROR') {
+            console.warn('event detail per-client assignment lookup failed:', e?.message || e);
+          }
+        }
+      }
+    }
+
     const evRow = access.row;
 
     let agencyPortalSlug = null;
@@ -1442,13 +1485,22 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
           }
         : null,
       providers,
-      clients: (clientRows || []).map((c) => ({
-        id: Number(c.id),
-        initials: c.initials,
-        identifierCode: c.identifier_code,
-        documentStatus: c.document_status != null ? String(c.document_status) : null,
-        paperworkStatusLabel: c.paperwork_status_label != null ? String(c.paperwork_status_label).trim() || null : null
-      }))
+      clients: (clientRows || []).map((c) => {
+        const assignment = eventClientAssignmentsByClientId.get(Number(c.id)) || null;
+        const assignedProviderUserId = assignment?.assignedProviderUserId || null;
+        return {
+          id: Number(c.id),
+          initials: c.initials,
+          identifierCode: c.identifier_code,
+          documentStatus: c.document_status != null ? String(c.document_status) : null,
+          paperworkStatusLabel: c.paperwork_status_label != null ? String(c.paperwork_status_label).trim() || null : null,
+          assignedProviderUserId,
+          assignedProviderName: assignment?.assignedProviderName || null,
+          intakeComplete: assignment?.intakeComplete === true,
+          treatmentPlanComplete: assignment?.treatmentPlanComplete === true,
+          isAssignedToViewer: !!(userId && assignedProviderUserId && Number(assignedProviderUserId) === Number(userId))
+        };
+      })
     });
   } catch (e) {
     next(e);

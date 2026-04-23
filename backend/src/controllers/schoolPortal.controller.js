@@ -1394,6 +1394,56 @@ export const getProviderMyRoster = async (req, res, next) => {
       // ignore
     }
 
+    // Event assignments: for each client, list company events where this provider is the
+    // `assigned_provider_user_id` on `company_event_clients`. Surfaces an "Event:" chip
+    // on the provider's caseload so they can immediately see which event sourced the work.
+    const eventAssignmentsByClientId = new Map();
+    try {
+      const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
+      if (clientIds.length > 0 && providerUserId) {
+        const placeholders = clientIds.map(() => '?').join(',');
+        const [eaRows] = await pool.execute(
+          `SELECT
+             cec.client_id,
+             cec.company_event_id,
+             ce.title AS event_title,
+             ce.starts_at AS event_starts_at,
+             ce.ends_at AS event_ends_at,
+             cec.intake_complete,
+             cec.treatment_plan_complete,
+             sg.id AS skills_group_id,
+             sg.name AS skills_group_name
+           FROM company_event_clients cec
+           INNER JOIN company_events ce ON ce.id = cec.company_event_id
+           LEFT JOIN skills_groups sg ON sg.company_event_id = ce.id
+           WHERE cec.assigned_provider_user_id = ?
+             AND cec.client_id IN (${placeholders})
+             AND (cec.is_active IS NULL OR cec.is_active = 1 OR cec.is_active = TRUE)
+           ORDER BY ce.starts_at DESC, ce.id DESC`,
+          [providerUserId, ...clientIds]
+        );
+        for (const r of eaRows || []) {
+          const cid = Number(r.client_id);
+          if (!eventAssignmentsByClientId.has(cid)) eventAssignmentsByClientId.set(cid, []);
+          eventAssignmentsByClientId.get(cid).push({
+            companyEventId: Number(r.company_event_id),
+            eventTitle: r.event_title || null,
+            eventStartsAt: r.event_starts_at || null,
+            eventEndsAt: r.event_ends_at || null,
+            skillsGroupId: r.skills_group_id != null ? Number(r.skills_group_id) : null,
+            skillsGroupName: r.skills_group_name || null,
+            intakeComplete: r.intake_complete === 1 || r.intake_complete === true,
+            treatmentPlanComplete: r.treatment_plan_complete === 1 || r.treatment_plan_complete === true
+          });
+        }
+      }
+    } catch (e) {
+      const code = e?.code || '';
+      if (code !== 'ER_NO_SUCH_TABLE' && code !== 'ER_BAD_FIELD_ERROR') {
+        console.warn('my-roster event assignments lookup failed:', e?.message || e);
+      }
+    }
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const restrictedClients = clients.map((client) => {
@@ -1452,7 +1502,8 @@ export const getProviderMyRoster = async (req, res, next) => {
         compliance_pending: compliancePending,
         compliance_days_since_assigned: daysSinceAssigned,
         compliance_missing: missingChecklist,
-        provider_assigned_at: client.provider_assigned_at || null
+        provider_assigned_at: client.provider_assigned_at || null,
+        event_assignments: eventAssignmentsByClientId.get(Number(client.id)) || []
       };
     });
 

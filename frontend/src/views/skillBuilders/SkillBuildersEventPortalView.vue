@@ -448,9 +448,19 @@
                     </div>
                   </div>
                   <div class="sbep-client-att-checkboxes" role="group" aria-label="Clients to mark attended">
-                    <label v-for="c in detail.clients || []" :key="`ca-c-${c.id}`" class="sbep-client-att-row">
+                    <label
+                      v-for="c in detail.clients || []"
+                      :key="`ca-c-${c.id}`"
+                      class="sbep-client-att-row"
+                      :class="{ 'sbep-client-att-row--mine': isMyRosterClient(c) }"
+                    >
                       <input v-model="clientAttSelectedClientIds" type="checkbox" :value="Number(c.id)" />
                       <span>{{ clientLabelForRow(c) }}</span>
+                      <span
+                        v-if="isMyRosterClient(c)"
+                        class="sbep-mine-badge"
+                        title="Assigned to you for intake / treatment plan"
+                      >Mine</span>
                     </label>
                   </div>
                   <p v-if="!(detail.clients || []).length" class="muted small">No clients on this roster.</p>
@@ -486,17 +496,26 @@
 
               <div v-if="(detail.clients || []).length" class="sbep-roster-summary-block">
                 <p class="sbep-subh sbep-roster-summary-heading">Roster &amp; attendance</p>
+                <p class="muted small sbep-roster-mine-legend">
+                  Clients highlighted below are assigned to you for intake &amp; treatment plan readiness.
+                </p>
                 <div class="sbep-roster-table-wrap">
                   <table class="sbep-roster-table">
                     <thead>
                       <tr>
                         <th>Client</th>
+                        <th>Assigned to</th>
+                        <th>Workflow</th>
                         <th>Docs</th>
                         <th>Attendance</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr v-for="c in detail.clients || []" :key="`rs-${c.id}`">
+                      <tr
+                        v-for="c in detail.clients || []"
+                        :key="`rs-${c.id}`"
+                        :class="{ 'sbep-row-mine': isMyRosterClient(c) }"
+                      >
                         <td>
                           <router-link
                             v-if="rosterClientLinkTo(c)"
@@ -506,6 +525,32 @@
                             {{ clientLabelForRow(c) }}
                           </router-link>
                           <template v-else>{{ clientLabelForRow(c) }}</template>
+                          <span
+                            v-if="isMyRosterClient(c)"
+                            class="sbep-mine-badge"
+                            title="Assigned to you for intake / treatment plan"
+                          >Mine</span>
+                        </td>
+                        <td class="muted small">
+                          <span v-if="isMyRosterClient(c)" class="sbep-roster-assigned-mine">You</span>
+                          <span v-else-if="c.assignedProviderName">{{ c.assignedProviderName }}</span>
+                          <span v-else class="sbep-roster-missing">Unassigned</span>
+                        </td>
+                        <td class="muted small">
+                          <span
+                            class="sbep-workflow-chip"
+                            :class="c.intakeComplete ? 'sbep-workflow-chip--ok' : 'sbep-workflow-chip--pending'"
+                            :title="c.intakeComplete ? 'Intake complete' : 'Intake pending'"
+                          >
+                            Intake {{ c.intakeComplete ? '✓' : '•' }}
+                          </span>
+                          <span
+                            class="sbep-workflow-chip"
+                            :class="c.treatmentPlanComplete ? 'sbep-workflow-chip--ok' : 'sbep-workflow-chip--pending'"
+                            :title="c.treatmentPlanComplete ? 'Treatment plan complete' : 'Treatment plan pending'"
+                          >
+                            TP {{ c.treatmentPlanComplete ? '✓' : '•' }}
+                          </span>
                         </td>
                         <td class="sbep-roster-docs">
                           {{ c.paperworkStatusLabel || c.documentStatus || '—' }}
@@ -3039,6 +3084,14 @@ const isMyParticipant = (row) => {
   return mine > 0 && Number(row?.assignedProviderUserId || 0) === mine;
 };
 
+/** Skills-group roster client: trust backend `isAssignedToViewer` first, fall back to id compare. */
+const isMyRosterClient = (c) => {
+  if (!c) return false;
+  if (c.isAssignedToViewer === true) return true;
+  const mine = Number(authStore.user?.id || 0);
+  return mine > 0 && Number(c?.assignedProviderUserId || 0) === mine;
+};
+
 const formatWorkflowTooltip = (label, at, by) => {
   if (!at && !by) return label;
   const d = at ? new Date(at) : null;
@@ -4942,6 +4995,55 @@ watch(
 }
 .sbep-row-mine {
   background: rgba(15, 118, 110, 0.06);
+  box-shadow: inset 3px 0 0 0 rgba(15, 118, 110, 0.6);
+}
+.sbep-mine-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.15);
+  color: #115e59;
+  border: 1px solid rgba(15, 118, 110, 0.45);
+  text-transform: uppercase;
+}
+.sbep-client-att-row--mine {
+  background: rgba(15, 118, 110, 0.08);
+  border-radius: 6px;
+  padding: 4px 6px;
+  margin-left: -6px;
+}
+.sbep-roster-mine-legend {
+  margin-top: 6px;
+  margin-bottom: 8px;
+}
+.sbep-roster-assigned-mine {
+  font-weight: 800;
+  color: #115e59;
+}
+.sbep-workflow-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+}
+.sbep-workflow-chip--ok {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.45);
+  color: #065f46;
+}
+.sbep-workflow-chip--pending {
+  background: rgba(234, 88, 12, 0.10);
+  border-color: rgba(234, 88, 12, 0.40);
+  color: #9a3412;
 }
 .sbep-workflow-btn {
   border: 1px solid rgba(148, 163, 184, 0.55);
