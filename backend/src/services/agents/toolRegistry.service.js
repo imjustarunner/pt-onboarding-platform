@@ -120,7 +120,10 @@ const NAVIGATION_ROUTE_WHITELIST = {
   SkillBuildersProgramsEvents: { path: '/admin/program-events', roles: ['admin', 'staff', 'support', 'super_admin', 'provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'] },
   ProviderDirectory: { path: '/admin/provider-directory', roles: ['admin', 'support', 'staff', 'super_admin'] },
   HiringCandidates: { path: '/admin/hiring-candidates', roles: ['admin', 'super_admin'] },
-  AuditCenter: { path: '/admin/audit-center', roles: ['admin', 'support', 'super_admin'] }
+  AuditCenter: { path: '/admin/audit-center', roles: ['admin', 'support', 'super_admin'] },
+  NoteAid: { path: '/admin/note-aid', roles: ['admin', 'support', 'staff', 'provider', 'super_admin'] },
+  ComplianceCorner: { path: '/admin/compliance-corner', roles: ['admin', 'super_admin'] },
+  PresenceTeamBoard: { path: '/admin/presence', roles: ['admin', 'super_admin'] }
 };
 
 const ENTITY_KINDS = new Set(['school', 'event', 'user']);
@@ -440,7 +443,12 @@ export function getToolSchemasForUser(reqUser, agentConfig = null) {
       case 'searchProviders':
       case 'getProviderProfileFields':
       case 'getProviderIntakeAvailability':
+      case 'findIntakeOpenings':
         return roleAllowed(reqUser, PROVIDER_DIRECTORY_TOOL_ROLES);
+      case 'getEventResponses':
+        return roleAllowed(reqUser, PROGRAM_EVENTS_SEARCH_ROLES);
+      case 'getOfficeSchedule':
+        return roleAllowed(reqUser, ['admin', 'super_admin', 'support', 'staff', 'provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant']);
       case 'lookupStandardCrosswalk':
         return roleAllowed(reqUser, LEARNING_STANDARDS_TOOL_ROLES);
       default:
@@ -794,6 +802,67 @@ export function getToolSchemas() {
           modality: { type: 'string', enum: ['VIRTUAL', 'IN_PERSON', 'ALL'] }
         },
         required: ['agencyId', 'providerId']
+      }
+    },
+    {
+      name: 'findIntakeOpenings',
+      description:
+        'Find ALL providers in the agency who have at least one open intake slot on a given date. Use for questions like "who has an opening for an intake today" or "anyone available for an intake on Friday". Returns one row per provider with the count and earliest start of their open slots that day.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          dateYmd: {
+            type: 'string',
+            description: 'YYYY-MM-DD. Defaults to today in the agency timezone.'
+          },
+          modality: {
+            type: 'string',
+            enum: ['VIRTUAL', 'IN_PERSON', 'ALL'],
+            description: 'Filter slots by modality. Default ALL.'
+          }
+        }
+      }
+    },
+    {
+      name: 'getEventResponses',
+      description:
+        'List who RSVP\'d / responded to a company (program) event. Use for questions like "who rsvp\'d for Friday\'s event" or "who said yes to the staff meeting". Provide either eventId, or a date hint (e.g. "this Friday") and we will resolve it to the closest event.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          eventId: { type: 'integer', description: 'Specific company_events.id when known.' },
+          eventQuery: { type: 'string', description: 'Free-text title fragment to find the event.' },
+          dateYmd: {
+            type: 'string',
+            description: 'YYYY-MM-DD. If provided, picks the nearest event within ±3 days.'
+          },
+          responseKey: {
+            type: 'string',
+            description: 'Optional filter: yes, no, maybe, attended, etc.'
+          },
+          limit: { type: 'integer' }
+        }
+      }
+    },
+    {
+      name: 'getOfficeSchedule',
+      description:
+        'List which physical office locations have any sessions scheduled on a given date, and the count of booked vs released slots per office. Use for questions like "what offices are open today", "any sessions at the Boca office tomorrow", or "is anyone using the office on Saturday".',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          dateYmd: {
+            type: 'string',
+            description: 'YYYY-MM-DD. Defaults to today.'
+          },
+          locationQuery: {
+            type: 'string',
+            description: 'Optional name fragment to filter offices.'
+          }
+        }
       }
     }
   ];
@@ -1682,6 +1751,344 @@ export async function executeToolCall({ req, toolCall }) {
     if (modality === 'IN_PERSON') result.virtualSlots = [];
 
     return { ok: true, tool: name, result };
+  }
+
+  // ---------------------------------------------------------------------
+  // findIntakeOpenings — fan-out across providers in the agency, return
+  // those with at least one open intake slot on the given date.
+  // ---------------------------------------------------------------------
+  if (name === 'findIntakeOpenings') {
+    requireAuthed(req);
+    if (!roleAllowed(req.user, PROVIDER_DIRECTORY_TOOL_ROLES)) {
+      const err = new Error('Provider directory tools are not available for your role');
+      err.status = 403;
+      throw err;
+    }
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) {
+      const err = new Error('Your session has no agency context');
+      err.status = 400;
+      throw err;
+    }
+    const dateYmd = str(args.dateYmd || new Date().toISOString().slice(0, 10), 10);
+    const modality = String(args.modality || 'ALL').trim().toUpperCase();
+
+    // Use Monday of the requested week so we can lean on existing service.
+    const d = new Date(`${dateYmd}T12:00:00`);
+    if (Number.isNaN(d.getTime())) {
+      const err = new Error('Invalid dateYmd');
+      err.status = 400;
+      throw err;
+    }
+    const dayOfWeek = d.getDay(); // 0 Sun .. 6 Sat
+    const daysToMonday = ((dayOfWeek + 6) % 7); // Mon=0
+    d.setDate(d.getDate() - daysToMonday);
+    const weekStartYmd = d.toISOString().slice(0, 10);
+
+    const [providerRows] = await pool.execute(
+      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id
+       WHERE ua.agency_id = ?
+         AND (u.is_active IS NULL OR u.is_active = TRUE)
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+         AND (
+           u.role IN ('provider', 'supervisor', 'clinical_practice_assistant', 'provider_plus')
+           OR u.has_provider_access = TRUE
+         )
+       ORDER BY u.last_name ASC, u.first_name ASC
+       LIMIT 60`,
+      [agencyId]
+    );
+
+    const providers = (providerRows || []).map((r) => ({
+      id: Number(r.id),
+      firstName: String(r.first_name || '').trim(),
+      lastName: String(r.last_name || '').trim()
+    }));
+
+    const queue = [...providers];
+    const results = [];
+    const concurrency = 6;
+    const slotMatchesDay = (slot) => {
+      const startStr = String(slot?.startAt || '');
+      return startStr.startsWith(dateYmd);
+    };
+
+    const workers = Array.from({ length: concurrency }).map(async () => {
+      while (queue.length) {
+        const p = queue.shift();
+        if (!p) break;
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const avail = await ProviderAvailabilityService.computeWeekAvailability({
+            agencyId,
+            providerId: p.id,
+            weekStartYmd,
+            includeGoogleBusy: false,
+            includeExternalBusy: false,
+            externalCalendarIds: [],
+            slotMinutes: 60,
+            intakeOnly: true,
+            materializeOfficeEvents: false
+          });
+          let inPerson = (avail?.inPersonSlots || []).filter(slotMatchesDay);
+          let virtual = (avail?.virtualSlots || []).filter(slotMatchesDay);
+          if (modality === 'VIRTUAL') inPerson = [];
+          if (modality === 'IN_PERSON') virtual = [];
+          if (!inPerson.length && !virtual.length) continue;
+
+          const earliestVirtual = virtual[0]?.startAt || null;
+          const earliestInPerson = inPerson[0]?.startAt || null;
+          const earliest = [earliestVirtual, earliestInPerson]
+            .filter(Boolean)
+            .sort()[0] || null;
+
+          results.push({
+            providerId: p.id,
+            name: [p.firstName, p.lastName].filter(Boolean).join(' ').trim(),
+            virtualSlotCount: virtual.length,
+            inPersonSlotCount: inPerson.length,
+            earliestStartIso: earliest,
+            sampleSlots: [...virtual.slice(0, 3), ...inPerson.slice(0, 3)].map((s) => ({
+              startAt: s.startAt,
+              endAt: s.endAt,
+              modality: s.buildingId == null && s.roomId == null ? 'VIRTUAL' : 'IN_PERSON'
+            }))
+          });
+        } catch {
+          // skip provider-level failures
+        }
+      }
+    });
+    await Promise.all(workers);
+
+    results.sort((a, b) => String(a.earliestStartIso || '').localeCompare(String(b.earliestStartIso || '')));
+
+    return {
+      ok: true,
+      tool: name,
+      result: {
+        dateYmd,
+        modality,
+        totalCandidates: providers.length,
+        providersWithOpenings: results.length,
+        results
+      }
+    };
+  }
+
+  // ---------------------------------------------------------------------
+  // getEventResponses — RSVPs for a company event.
+  // ---------------------------------------------------------------------
+  if (name === 'getEventResponses') {
+    requireAuthed(req);
+    if (!roleAllowed(req.user, PROGRAM_EVENTS_SEARCH_ROLES)) {
+      const err = new Error('Program events are not available for your role');
+      err.status = 403;
+      throw err;
+    }
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) {
+      const err = new Error('Your session has no agency context');
+      err.status = 400;
+      throw err;
+    }
+    let eventId = intOrNull(args.eventId);
+    const eventQuery = str(args.eventQuery, 200);
+    const dateYmd = args.dateYmd ? String(args.dateYmd).slice(0, 10) : null;
+    const responseKey = args.responseKey ? String(args.responseKey).toLowerCase().slice(0, 32) : null;
+    const limit = Math.min(Math.max(1, intOrNull(args.limit) || 50), 200);
+
+    // Resolve event if not passed by id.
+    if (!eventId) {
+      const where = ['agency_id = ?', 'is_active = TRUE'];
+      const params = [agencyId];
+      if (eventQuery) {
+        where.push('title LIKE ?');
+        params.push(`%${eventQuery}%`);
+      }
+      if (dateYmd) {
+        where.push('starts_at >= ? AND starts_at < ?');
+        params.push(`${dateYmd} 00:00:00`, `${dateYmd} 23:59:59`);
+      }
+      const [eventRows] = await pool.execute(
+        `SELECT id, title, starts_at FROM company_events WHERE ${where.join(' AND ')} ORDER BY ABS(TIMESTAMPDIFF(HOUR, starts_at, NOW())) ASC LIMIT 5`,
+        params
+      );
+      if (!eventRows || !eventRows.length) {
+        return { ok: true, tool: name, result: { event: null, responses: [], note: 'No matching event found.' } };
+      }
+      if (eventRows.length > 1) {
+        return {
+          ok: true,
+          tool: name,
+          result: {
+            event: null,
+            ambiguousEvents: eventRows.map((r) => ({ id: Number(r.id), title: r.title, startsAt: r.starts_at })),
+            responses: [],
+            note: 'Multiple events match; pass an eventId to disambiguate.'
+          }
+        };
+      }
+      eventId = Number(eventRows[0].id);
+    }
+
+    // Fetch event details (also enforces agency scoping).
+    const [evRows] = await pool.execute(
+      `SELECT id, title, starts_at, ends_at FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1`,
+      [eventId, agencyId]
+    );
+    if (!evRows || !evRows.length) {
+      const err = new Error('Event not found in your agency');
+      err.status = 404;
+      throw err;
+    }
+    const event = {
+      id: Number(evRows[0].id),
+      title: evRows[0].title,
+      startsAt: evRows[0].starts_at,
+      endsAt: evRows[0].ends_at
+    };
+
+    const respWhere = ['r.company_event_id = ?'];
+    const respParams = [eventId];
+    if (responseKey) {
+      respWhere.push('LOWER(r.response_key) = ?');
+      respParams.push(responseKey);
+    }
+    const [respRows] = await pool.execute(
+      `SELECT r.id,
+              r.response_key,
+              r.response_label,
+              r.received_at,
+              r.source,
+              u.id   AS user_id,
+              u.first_name,
+              u.last_name,
+              u.email,
+              u.role
+       FROM company_event_responses r
+       JOIN users u ON u.id = r.user_id
+       WHERE ${respWhere.join(' AND ')}
+       ORDER BY r.received_at DESC
+       LIMIT ${limit}`,
+      respParams
+    );
+
+    const counts = {};
+    const responses = (respRows || []).map((r) => {
+      const key = String(r.response_key || '').toLowerCase();
+      counts[key] = (counts[key] || 0) + 1;
+      return {
+        userId: Number(r.user_id),
+        name: [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || r.email,
+        email: r.email,
+        role: r.role,
+        responseKey: r.response_key,
+        responseLabel: r.response_label,
+        receivedAt: r.received_at,
+        source: r.source
+      };
+    });
+
+    return { ok: true, tool: name, result: { event, counts, totalResponses: responses.length, responses } };
+  }
+
+  // ---------------------------------------------------------------------
+  // getOfficeSchedule — what offices have sessions on a given date.
+  // ---------------------------------------------------------------------
+  if (name === 'getOfficeSchedule') {
+    requireAuthed(req);
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) {
+      const err = new Error('Your session has no agency context');
+      err.status = 400;
+      throw err;
+    }
+    const dateYmd = str(args.dateYmd || new Date().toISOString().slice(0, 10), 10);
+    const locationQuery = args.locationQuery ? String(args.locationQuery).slice(0, 100) : '';
+
+    const dayStart = `${dateYmd} 00:00:00`;
+    const dayEnd = `${dateYmd} 23:59:59`;
+
+    // Pull office locations available to this agency.
+    const locWhere = ['ola.agency_id = ?', 'ol.is_active = TRUE'];
+    const locParams = [agencyId];
+    if (locationQuery) {
+      locWhere.push('ol.name LIKE ?');
+      locParams.push(`%${locationQuery}%`);
+    }
+    const [locRows] = await pool.execute(
+      `SELECT DISTINCT ol.id, ol.name, ol.timezone
+       FROM office_locations ol
+       JOIN office_location_agencies ola ON ola.office_location_id = ol.id
+       WHERE ${locWhere.join(' AND ')}
+       ORDER BY ol.name ASC
+       LIMIT 25`,
+      locParams
+    );
+
+    if (!locRows.length) {
+      return { ok: true, tool: name, result: { dateYmd, offices: [], note: 'No office locations found for your agency.' } };
+    }
+
+    const officeIds = locRows.map((r) => Number(r.id));
+
+    // Aggregate event counts per office for the day.
+    const placeholders = officeIds.map(() => '?').join(',');
+    const [evRows] = await pool.execute(
+      `SELECT office_location_id,
+              status,
+              COUNT(*) AS cnt,
+              MIN(start_at) AS first_start,
+              MAX(end_at)   AS last_end
+       FROM office_events
+       WHERE office_location_id IN (${placeholders})
+         AND start_at >= ?
+         AND start_at <= ?
+       GROUP BY office_location_id, status`,
+      [...officeIds, dayStart, dayEnd]
+    );
+
+    const byOffice = new Map();
+    for (const row of evRows || []) {
+      const oid = Number(row.office_location_id);
+      if (!byOffice.has(oid)) byOffice.set(oid, { booked: 0, released: 0, cancelled: 0, firstStart: null, lastEnd: null });
+      const rec = byOffice.get(oid);
+      const status = String(row.status || '').toUpperCase();
+      const cnt = Number(row.cnt || 0);
+      if (status === 'BOOKED') rec.booked += cnt;
+      else if (status === 'RELEASED') rec.released += cnt;
+      else if (status === 'CANCELLED') rec.cancelled += cnt;
+      if (row.first_start && (!rec.firstStart || row.first_start < rec.firstStart)) rec.firstStart = row.first_start;
+      if (row.last_end && (!rec.lastEnd || row.last_end > rec.lastEnd)) rec.lastEnd = row.last_end;
+    }
+
+    const offices = locRows.map((r) => {
+      const stats = byOffice.get(Number(r.id)) || { booked: 0, released: 0, cancelled: 0, firstStart: null, lastEnd: null };
+      const totalActive = stats.booked + stats.released;
+      return {
+        id: Number(r.id),
+        name: r.name,
+        timezone: r.timezone || null,
+        isOpen: totalActive > 0,
+        bookedSlots: stats.booked,
+        availableSlots: stats.released,
+        cancelledSlots: stats.cancelled,
+        firstStart: stats.firstStart,
+        lastEnd: stats.lastEnd
+      };
+    });
+
+    offices.sort((a, b) => Number(b.isOpen) - Number(a.isOpen) || a.name.localeCompare(b.name));
+
+    return {
+      ok: true,
+      tool: name,
+      result: { dateYmd, totalOffices: offices.length, openOffices: offices.filter((o) => o.isOpen).length, offices }
+    };
   }
 
   const err = new Error(`Unknown tool: ${name}`);

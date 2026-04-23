@@ -129,10 +129,16 @@ function resolveNavigateRouteNameFromPrompt(promptLower) {
   if (!s) return null;
 
   // Prefer more specific intents first.
+  if (/\b(note ?aid|note generator|clinical note|generate note)\b/.test(s)) return 'NoteAid';
+  if (/\b(compliance corner|compliance|hipaa)\b/.test(s)) return 'ComplianceCorner';
+  if (/\b(presence|team board|who is in|who's in)\b/.test(s)) return 'PresenceTeamBoard';
+  if (/\b(audit center|audit log|audit activity)\b/.test(s)) return 'AuditCenter';
   if (/\b(referral|referrals|referral directory)\b/.test(s)) return 'ReferralDirectory';
   if (/\b(client|clients|client management)\b/.test(s)) return 'ClientManagement';
   if (/\b(school portal|school portals|portals hub|school-portals)\b/.test(s)) return 'SchoolPortalsHub';
   if (/\b(program events|program event|skill builders|events)\b/.test(s)) return 'SkillBuildersProgramsEvents';
+  if (/\b(provider directory|provider list)\b/.test(s)) return 'ProviderDirectory';
+  if (/\b(hiring|candidates|hire)\b/.test(s)) return 'HiringCandidates';
   if (/\b(notification|notifications)\b/.test(s)) return 'Notifications';
   if (/\b(user manager|users)\b/.test(s)) return 'UserManager';
   if (/\b(credentials)\b/.test(s)) return 'Credentials';
@@ -155,6 +161,52 @@ function guessSchoolQueryFromPrompt(promptLower) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 120);
+}
+
+/**
+ * Parse natural-language date references in a prompt → YYYY-MM-DD.
+ * Returns null if no date hint is present.
+ */
+function parseDateHintFromPrompt(promptLower) {
+  const s = String(promptLower || '').toLowerCase();
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  if (/\btoday\b/.test(s)) return startOfDay.toISOString().slice(0, 10);
+  if (/\btomorrow\b/.test(s)) {
+    const t = new Date(startOfDay);
+    t.setDate(t.getDate() + 1);
+    return t.toISOString().slice(0, 10);
+  }
+  if (/\byesterday\b/.test(s)) {
+    const t = new Date(startOfDay);
+    t.setDate(t.getDate() - 1);
+    return t.toISOString().slice(0, 10);
+  }
+
+  const days = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+  const m = s.match(/\b(this|next|on)\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b|\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/);
+  if (m) {
+    const dayName = (m[2] || m[3] || '').toLowerCase();
+    const target = days[dayName];
+    if (target != null) {
+      const cur = startOfDay.getDay();
+      let delta = (target - cur + 7) % 7;
+      if (m[1] === 'next') delta = delta === 0 ? 7 : delta + 7;
+      // "this monday" when today is wednesday → 5 days forward (next monday).
+      // Spec: "this <day>" = nearest upcoming occurrence (or today if it matches).
+      if (m[1] === 'this' && delta === 0) delta = 0;
+      const t = new Date(startOfDay);
+      t.setDate(t.getDate() + delta);
+      return t.toISOString().slice(0, 10);
+    }
+  }
+
+  // ISO date directly in prompt
+  const iso = s.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+  if (iso) return iso[1];
+
+  return null;
 }
 
 function guessEntityQueryFromPrompt(promptLower, extraStopwords = []) {
@@ -279,6 +331,55 @@ function detectExplicitIntent({ prompt, allowedToolNames }) {
   if (!lower) return null;
 
   const hasAction = /\b(open|show|find|go to|take me to|navigate to|visit|search( for)?|look (up|for))\b/.test(lower);
+  const dateHint = parseDateHintFromPrompt(lower);
+  const today = new Date().toISOString().slice(0, 10);
+
+  // ---- Question-shaped intents (ALWAYS use date "today" if no other hint) ----
+
+  // "who has an opening for an intake today" / "anyone available for an intake friday"
+  if (
+    allowedToolNames.has('findIntakeOpenings') &&
+    /\bintake\b/.test(lower) &&
+    /\b(open|opening|openings|availab(le|ility)|free|slot|spot)\b/.test(lower)
+  ) {
+    let modality = 'ALL';
+    if (/\bvirtual\b|\bonline\b|\btelehealth\b/.test(lower)) modality = 'VIRTUAL';
+    else if (/\bin[- ]?person\b|\boffice\b/.test(lower)) modality = 'IN_PERSON';
+    return {
+      intent: 'find_intake_openings',
+      toolCalls: [{ name: 'findIntakeOpenings', args: { dateYmd: dateHint || today, modality } }]
+    };
+  }
+
+  // "what offices are open today" / "any sessions at the boca office today"
+  if (
+    allowedToolNames.has('getOfficeSchedule') &&
+    /\boffice(s)?\b/.test(lower) &&
+    /\b(open|sessions?|booked|using|scheduled|today|tomorrow|this|next|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(lower)
+  ) {
+    // Pull a possible location query: words after "at the X office" or "at X"
+    let locationQuery = '';
+    const locMatch = lower.match(/\bat\s+(?:the\s+)?([a-z][a-z0-9\s-]{1,40}?)\s+(?:office|location|today|tomorrow|on|next|this|$)/);
+    if (locMatch && locMatch[1]) locationQuery = locMatch[1].trim();
+    return {
+      intent: 'office_schedule',
+      toolCalls: [{ name: 'getOfficeSchedule', args: { dateYmd: dateHint || today, locationQuery } }]
+    };
+  }
+
+  // "who rsvp'd for friday's event" / "who said yes to the staff meeting"
+  if (
+    allowedToolNames.has('getEventResponses') &&
+    /\b(rsvp|rsvp'?d|responded|said yes|saying yes|attending|attendance)\b/.test(lower)
+  ) {
+    // Try to extract an event name fragment after "for" or "to"
+    const eventQueryMatch = lower.match(/\b(?:for|to)\s+(?:the\s+)?(?:this\s+|next\s+|last\s+)?(?:[a-z]+\s+)?([a-z][a-z0-9\s-]{2,60}?)(?:\s+event|\s+meeting|\s*\?|$)/);
+    const eventQuery = (eventQueryMatch?.[1] || '').trim();
+    return {
+      intent: 'event_responses',
+      toolCalls: [{ name: 'getEventResponses', args: { eventQuery, dateYmd: dateHint || undefined } }]
+    };
+  }
 
   // School portal / school org
   const schoolish =
@@ -700,6 +801,63 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
         const header = `Top ${actions.length} activity type(s) ${range ? `(${range})` : ''} — ${total} total:`;
         const items = actions.slice(0, 20).map((a) => `• ${a.actionLabel || a.actionType}: ${a.count}`);
         lines.push(`${header}\n${items.join('\n')}`);
+      }
+    } else if (r.tool === 'findIntakeOpenings') {
+      const out = r.result || {};
+      const list = out.results || [];
+      const dateLabel = out.dateYmd || 'today';
+      if (!list.length) {
+        const modLabel = out.modality && out.modality !== 'ALL' ? ` ${out.modality.toLowerCase().replace('_', '-')}` : '';
+        lines.push(`No providers have${modLabel} intake openings on ${dateLabel}.`);
+      } else {
+        const items = list.slice(0, 12).map((p) => {
+          const mods = [];
+          if (p.virtualSlotCount) mods.push(`${p.virtualSlotCount} virtual`);
+          if (p.inPersonSlotCount) mods.push(`${p.inPersonSlotCount} in-person`);
+          const earliest = p.earliestStartIso ? ` — earliest ${String(p.earliestStartIso).slice(11, 16)}` : '';
+          return `• ${p.name}: ${mods.join(' + ')}${earliest}`;
+        });
+        lines.push(`${list.length} provider(s) with intake openings on ${dateLabel}:\n${items.join('\n')}`);
+      }
+    } else if (r.tool === 'getEventResponses') {
+      const out = r.result || {};
+      if (out.ambiguousEvents) {
+        const opts = out.ambiguousEvents.map((e) => `• ${e.title} (${String(e.startsAt).slice(0, 16).replace('T', ' ')})`).join('\n');
+        lines.push(`Multiple events match. Which one?\n${opts}`);
+      } else if (!out.event) {
+        lines.push(out.note || 'No matching event found.');
+      } else {
+        const ev = out.event;
+        const when = String(ev.startsAt || '').slice(0, 16).replace('T', ' ');
+        const responses = out.responses || [];
+        const counts = out.counts || {};
+        const countStr = Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ');
+        if (!responses.length) {
+          lines.push(`No responses yet for "${ev.title}" (${when}).`);
+        } else {
+          const items = responses.slice(0, 25).map((p) => `• ${p.name} — ${p.responseLabel || p.responseKey}`);
+          lines.push(`${responses.length} response(s) for "${ev.title}" (${when})${countStr ? ` — ${countStr}` : ''}:\n${items.join('\n')}`);
+        }
+      }
+    } else if (r.tool === 'getOfficeSchedule') {
+      const out = r.result || {};
+      const offices = out.offices || [];
+      const dateLabel = out.dateYmd || 'today';
+      if (!offices.length) {
+        lines.push(out.note || `No office locations to report on ${dateLabel}.`);
+      } else {
+        const open = offices.filter((o) => o.isOpen);
+        if (!open.length) {
+          lines.push(`No offices have any sessions scheduled on ${dateLabel}.`);
+        } else {
+          const items = open.slice(0, 12).map((o) => {
+            const hours = o.firstStart && o.lastEnd
+              ? ` (${String(o.firstStart).slice(11, 16)}–${String(o.lastEnd).slice(11, 16)})`
+              : '';
+            return `• ${o.name}: ${o.bookedSlots} booked, ${o.availableSlots} open${hours}`;
+          });
+          lines.push(`${open.length} office(s) active on ${dateLabel}:\n${items.join('\n')}`);
+        }
       }
     } else if (r.tool === 'getMyPayrollSummary') {
       const pay = r.result;
