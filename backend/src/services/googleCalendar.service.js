@@ -273,6 +273,46 @@ export class GoogleCalendarService {
     }
   }
 
+  /**
+   * Update only the start/end times of an existing Google Calendar event.
+   * Used by the meeting reschedule flow.
+   */
+  static async patchEventTimes({
+    subjectEmail,
+    calendarId = 'primary',
+    eventId,
+    startAtIso,
+    endAtIso,
+    timeZone = null
+  } = {}) {
+    const subject = String(subjectEmail || '').trim().toLowerCase();
+    const eid = String(eventId || '').trim();
+    if (!subject) return { ok: false, reason: 'missing_subject_email' };
+    if (!eid) return { ok: false, reason: 'missing_event_id' };
+    if (!startAtIso || !endAtIso) return { ok: false, reason: 'missing_time' };
+    if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
+
+    try {
+      const cal = this.buildCalendarClientForSubject(subject);
+      const tz = timeZone || process.env.GOOGLE_CALENDAR_DEFAULT_TZ || 'America/New_York';
+      await cal.events.patch({
+        calendarId,
+        eventId: eid,
+        sendUpdates: 'all',
+        requestBody: {
+          start: { dateTime: startAtIso, timeZone: tz },
+          end: { dateTime: endAtIso, timeZone: tz }
+        }
+      });
+      return { ok: true };
+    } catch (e) {
+      const code = Number(e?.code || e?.response?.status || 0);
+      if (code === 404) return { ok: true, skipped: true, reason: 'event_not_found' };
+      logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.patchEventTimes' });
+      return { ok: false, reason: 'google_api_error', error: String(e?.message || e) };
+    }
+  }
+
   static async createProviderScheduleEvent({
     subjectEmail,
     startAt = null,

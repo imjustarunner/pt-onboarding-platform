@@ -11,7 +11,11 @@ import ProviderScheduleEventAttendee from '../../models/ProviderScheduleEventAtt
 import {
   cancelOneMeeting,
   cancelTodaysRemaining,
-  listRemainingMeetingsForToday
+  listRemainingMeetingsForToday,
+  rescheduleOneMeeting,
+  pushTodaysRemaining,
+  findMyMeetings,
+  sendMeetingInviteEmail
 } from '../meetingCancellation.service.js';
 import UserActivityLog from '../../models/UserActivityLog.model.js';
 import auditActionRegistry from '../../config/auditActionRegistry.js';
@@ -467,6 +471,9 @@ export function getToolSchemasForUser(reqUser, agentConfig = null) {
       case 'cancelMeeting':
       case 'cancelTodaysRemainingMeetings':
       case 'findNextMeeting':
+      case 'findMyMeetings':
+      case 'rescheduleMeeting':
+      case 'pushTodaysRemainingMeetings':
         return roleAllowed(reqUser, ['admin', 'super_admin', 'support', 'staff', 'provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant']);
       case 'openTodaysWorkspace':
       case 'openWorkspaceEvent':
@@ -923,6 +930,49 @@ export function getToolSchemas() {
       description:
         'Find the signed-in user\'s next TEAM_MEETING / HUDDLE that is still scheduled (status != CANCELLED) and starts at or after now. Read-only. Used by the "cancel my next meeting" flow to resolve which event id to cancel.',
       parameters: { type: 'object', additionalProperties: false, properties: {} }
+    },
+    {
+      name: 'findMyMeetings',
+      description:
+        'Find the signed-in user\'s active TEAM_MEETING / HUDDLE rows for the rest of today, optionally narrowed by attendee name and/or start time (HH:MM 24h). Includes meetings where the user is host OR attendee. Read-only. Used by "cancel the meeting with X" / "move my 3pm to 4pm".',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          withName: { type: 'string', description: 'Substring of attendee/host name or email to match.' },
+          atTimeHm: { type: 'string', description: 'Start time HH:MM (24h) to filter by, today.' }
+        }
+      }
+    },
+    {
+      name: 'rescheduleMeeting',
+      description:
+        'Reschedule one TEAM_MEETING / HUDDLE to a new wall-clock start time. Duration is preserved unless newEndAt is supplied. Best-effort updates the host\'s Google Calendar event time and emails the host + every attendee via the meeting_rescheduled trigger. WRITE action — always confirmed before it runs.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          eventId: { type: 'integer' },
+          newStartAt: { type: 'string', description: 'ISO 8601 or "YYYY-MM-DD HH:MM[:SS]" wall-clock string.' },
+          newEndAt: { type: 'string', description: 'Optional. Defaults to newStartAt + original duration.' },
+          reason: { type: 'string', description: 'Optional short reason included in the email.' }
+        },
+        required: ['eventId', 'newStartAt']
+      }
+    },
+    {
+      name: 'pushTodaysRemainingMeetings',
+      description:
+        'Shift ALL of the signed-in user\'s remaining TEAM_MEETING / HUDDLE rows today by N minutes (positive = later, negative = earlier). Uses rescheduleMeeting under the hood, so each one emails attendees + host. WRITE action — always confirmed.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          shiftMinutes: { type: 'integer', description: 'Non-zero. Positive = push later, negative = pull earlier.' },
+          reason: { type: 'string' }
+        },
+        required: ['shiftMinutes']
+      }
     },
     {
       name: 'startMeeting',
@@ -2434,6 +2484,97 @@ export async function executeToolCall({ req, toolCall }) {
   }
 
   // ---------------------------------------------------------------------
+  // findMyMeetings — search the actor's active meetings (today, forward only)
+  // by attendee name and/or start time HH:MM. Read-only.
+  // ---------------------------------------------------------------------
+  if (name === 'findMyMeetings') {
+    requireAuthed(req);
+    const actorId = Number(req.user?.id || 0);
+    const agencyId = currentAgencyId(req);
+    const withName = args.withName ? str(args.withName, 120).trim() : null;
+    const atTimeHm = args.atTimeHm ? str(args.atTimeHm, 8).trim() : null;
+    const rows = await findMyMeetings({ actorUserId: actorId, agencyId, withName, atTimeHm });
+
+    const meetings = rows.map((m) => ({
+      id: m.id,
+      title: m.title,
+      kind: m.kind,
+      startAt: m.start_at,
+      endAt: m.end_at,
+      isHost: Number(m.provider_id) === actorId
+    }));
+    return { ok: true, tool: name, result: { meetings, totalFound: meetings.length } };
+  }
+
+  // ---------------------------------------------------------------------
+  // rescheduleMeeting — move one meeting to a new start time (preserves
+  // duration unless newEndAt is provided). Emails attendees + host.
+  // ---------------------------------------------------------------------
+  if (name === 'rescheduleMeeting') {
+    requireAuthed(req);
+    const actorId = Number(req.user?.id || 0);
+    const eventId = intOrNull(args.eventId);
+    if (!eventId) {
+      const err = new Error('eventId is required');
+      err.status = 400;
+      throw err;
+    }
+    const event = await ProviderScheduleEvent.findById(eventId);
+    if (!event) {
+      const err = new Error('Meeting not found');
+      err.status = 404;
+      throw err;
+    }
+    const isHost = Number(event.provider_id) === actorId;
+    const isAdminTier = roleAllowed(req.user, ['admin', 'super_admin', 'support', 'staff']);
+    if (!isHost && !isAdminTier) {
+      const attendees = await ProviderScheduleEventAttendee.listByEventId(eventId);
+      const isAttendee = attendees.some((a) => Number(a.user_id) === actorId);
+      if (!isAttendee) {
+        const err = new Error('You can only reschedule meetings you host or attend.');
+        err.status = 403;
+        throw err;
+      }
+    }
+
+    const newStartAt = args.newStartAt ? new Date(String(args.newStartAt)) : null;
+    if (!newStartAt || isNaN(newStartAt.getTime())) {
+      const err = new Error('newStartAt is required and must be a valid date');
+      err.status = 400;
+      throw err;
+    }
+    const newEndAt = args.newEndAt ? new Date(String(args.newEndAt)) : null;
+    const reason = args.reason ? str(args.reason, 240).trim() : null;
+
+    const out = await rescheduleOneMeeting({
+      eventId,
+      newStartAt,
+      newEndAt: newEndAt && !isNaN(newEndAt.getTime()) ? newEndAt : null,
+      reason,
+      actorUserId: actorId
+    });
+    return { ok: true, tool: name, result: out };
+  }
+
+  // ---------------------------------------------------------------------
+  // pushTodaysRemainingMeetings — bulk shift everything today by N minutes.
+  // ---------------------------------------------------------------------
+  if (name === 'pushTodaysRemainingMeetings') {
+    requireAuthed(req);
+    const actorId = Number(req.user?.id || 0);
+    const agencyId = currentAgencyId(req);
+    const shiftMinutes = Math.trunc(Number(args.shiftMinutes));
+    if (!Number.isFinite(shiftMinutes) || shiftMinutes === 0) {
+      const err = new Error('shiftMinutes must be a non-zero integer');
+      err.status = 400;
+      throw err;
+    }
+    const reason = args.reason ? str(args.reason, 240).trim() : null;
+    const out = await pushTodaysRemaining({ actorUserId: actorId, agencyId, shiftMinutes, reason });
+    return { ok: true, tool: name, result: out };
+  }
+
+  // ---------------------------------------------------------------------
   // startMeeting — create an ad-hoc 1:1 TEAM_MEETING for the actor + target,
   // return a join URL that the assistant will open via uiCommands.
   // ---------------------------------------------------------------------
@@ -2516,6 +2657,23 @@ export async function executeToolCall({ req, toolCall }) {
     const joinPath = `/join/team-meeting/${created.id}`;
     const joinUrl = frontendUrl ? `${frontendUrl}${joinPath}` : joinPath;
 
+    // Best-effort: email the attendee that they've been invited.
+    let inviteEmailed = false;
+    try {
+      const host = await User.findById(actorId);
+      inviteEmailed = await sendMeetingInviteEmail({
+        agencyId,
+        attendeeUser: { id: withUserId, email: target.email },
+        hostUser: host,
+        meetingTitle: title,
+        meetingStartAt: startAt,
+        meetingEndAt: endAt,
+        joinUrl
+      });
+    } catch {
+      /* noop — invite email is best-effort, never blocks meeting creation */
+    }
+
     return {
       ok: true,
       tool: name,
@@ -2531,7 +2689,8 @@ export async function executeToolCall({ req, toolCall }) {
           email: target.email
         },
         joinUrl,
-        joinPath
+        joinPath,
+        inviteEmailed
       }
       // Note: no auto-navigate. The controller renders a "Meeting ready" card
       // with the join URL so the host can copy/share it before joining.

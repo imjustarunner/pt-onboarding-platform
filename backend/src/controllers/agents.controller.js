@@ -209,6 +209,51 @@ function parseDateHintFromPrompt(promptLower) {
   return null;
 }
 
+/**
+ * Parse a casual time-of-day expression ("3pm", "9:30 am", "noon", "midnight",
+ * "15:00") into "HH:MM" 24h. Returns null if it can't.
+ */
+function parseTimeOfDay(text) {
+  const s = String(text || '').toLowerCase().trim();
+  if (!s) return null;
+  if (/^noon$/.test(s)) return '12:00';
+  if (/^midnight$/.test(s)) return '00:00';
+  // 24h "15:00" or "9:30"
+  const m24 = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (m24) {
+    const hh = Math.min(23, Math.max(0, parseInt(m24[1], 10)));
+    const mm = Math.min(59, Math.max(0, parseInt(m24[2], 10)));
+    if (!s.match(/(am|pm|a\.m|p\.m)/)) {
+      return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+    }
+  }
+  // 12h "3pm", "3:30pm", "9 am", "9:30 a.m."
+  const m12 = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)$/);
+  if (m12) {
+    let hh = parseInt(m12[1], 10);
+    const mm = m12[2] ? parseInt(m12[2], 10) : 0;
+    const isPm = /^p/.test(m12[3]);
+    if (hh < 1 || hh > 12) return null;
+    if (hh === 12) hh = isPm ? 12 : 0;
+    else if (isPm) hh += 12;
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+  }
+  return null;
+}
+
+/**
+ * Convert "HH:MM" 24h to a Date object set to today (server local time).
+ */
+function todayWithLocalTime(hm) {
+  const m = String(hm || '').match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const hh = Math.min(23, Math.max(0, parseInt(m[1], 10)));
+  const mm = Math.min(59, Math.max(0, parseInt(m[2], 10)));
+  const d = new Date();
+  d.setHours(hh, mm, 0, 0);
+  return d;
+}
+
 function guessEntityQueryFromPrompt(promptLower, extraStopwords = []) {
   const raw = String(promptLower || '').toLowerCase();
   if (!raw) return '';
@@ -352,6 +397,78 @@ function detectExplicitIntent({ prompt, allowedToolNames }) {
         return {
           intent: 'find_providers_by_approach',
           toolCalls: [{ name: 'findProvidersByApproach', args: { approach, limit: 25 } }]
+        };
+      }
+    }
+  }
+
+  // ---- "Move my 3pm to 4pm" / "reschedule my 9:30am meeting to 10am" ----
+  // More specific than the bulk push below — runs first.
+  // Resolves the meeting via findMyMeetings({ atTimeHm }), then reschedules.
+  if (allowedToolNames.has('rescheduleMeeting')) {
+    const moveMatch =
+      lower.match(/\b(?:move|reschedule|push|shift|change)\s+(?:my\s+|the\s+)?(?:meeting\s+at\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)?)\s*(?:meeting|huddle|video chat|1\s*[-:on]\s*1)?\s+(?:to|→|->)\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)?)/);
+    if (moveMatch) {
+      const fromHm = parseTimeOfDay(moveMatch[1]);
+      const toHm = parseTimeOfDay(moveMatch[2]);
+      if (fromHm && toHm) {
+        return {
+          intent: 'reschedule_meeting_by_time',
+          followUpRescheduleByTime: true,
+          fromTimeHm: fromHm,
+          toTimeHm: toHm,
+          toolCalls: [{ name: 'findMyMeetings', args: { atTimeHm: fromHm } }]
+        };
+      }
+    }
+  }
+
+  // ---- "Push everything 30 minutes" / "delay all my meetings 15 min" ----
+  // Bulk shift everything remaining today. Requires an explicit time unit
+  // (min/hour) so single-meeting moves like "move my 3pm to 4pm" don't match.
+  // Positive = later, negative = earlier.
+  if (allowedToolNames.has('pushTodaysRemainingMeetings')) {
+    const pushMatch =
+      lower.match(/\b(?:push|move|shift|delay|bump)\s+(?:all|every|everything|the\s+rest(?:\s+of\s+(?:the|my)\s+day)?|my\s+(?:remaining\s+)?meetings?|today'?s?\s+meetings?)\b[^0-9-]*?(-?\d{1,3})\s*(min(?:ute)?s?|m\b|hours?|hrs?|h\b)/) ||
+      lower.match(/\bpush\s+everyone\s+(?:back|forward|out|up)\s+(\d{1,3})\s*(min(?:ute)?s?|m\b|hours?|hrs?|h\b)/);
+    if (pushMatch) {
+      let n = parseInt(pushMatch[1], 10);
+      const unit = (pushMatch[2] || '').toLowerCase();
+      if (/hour|hrs?|^h$/.test(unit)) n *= 60;
+      if (/\b(earlier|sooner|forward|up)\b/.test(lower) && n > 0) n = -n;
+      if (Number.isFinite(n) && n !== 0 && Math.abs(n) <= 600) {
+        return {
+          intent: 'push_todays_remaining',
+          followUpPushTodaysRemaining: true,
+          shiftMinutes: n,
+          toolCalls: []
+        };
+      }
+    }
+  }
+
+  // ---- "Cancel the meeting with Sarah" / "cancel my meeting w/ John" ----
+  // Resolves the meeting via findMyMeetings({ withName }), then cancels via
+  // the WRITE_ACTION confirmation card.
+  if (
+    allowedToolNames.has('cancelMeeting') &&
+    allowedToolNames.has('findMyMeetings') &&
+    /\b(cancel|kill|skip)\b/.test(lower)
+  ) {
+    const cancelWithMatch =
+      lower.match(/\bcancel\s+(?:my\s+|the\s+)?(?:meeting|huddle|1\s*[-:on]\s*1|video chat|chat|call)?\s*(?:with|w\/)\s+(.+?)(?:\s+(?:please|today|now))?[.?!]?$/);
+    if (cancelWithMatch) {
+      const target = cancelWithMatch[1].trim().replace(/^(the\s+|a\s+)/, '');
+      if (target && target.length >= 2 && target.length <= 80) {
+        let reason = null;
+        const reasonMatch = lower.match(/\b(?:because|reason[:\s]|since|due to)\s+(.{3,160})$/);
+        if (reasonMatch) reason = reasonMatch[1].replace(/[.?!]+$/, '').trim();
+        return {
+          intent: 'cancel_meeting_with_person',
+          followUpCancelMeetingWithPerson: true,
+          withName: target,
+          cancelReason: reason,
+          toolCalls: [{ name: 'findMyMeetings', args: { withName: target } }]
         };
       }
     }
@@ -535,7 +652,9 @@ const WRITE_ACTION_TOOLS = new Set([
   'setHiringStage',
   'startMeeting',
   'cancelMeeting',
-  'cancelTodaysRemainingMeetings'
+  'cancelTodaysRemainingMeetings',
+  'rescheduleMeeting',
+  'pushTodaysRemainingMeetings'
 ]);
 
 function isWriteActionTool(name) {
@@ -549,7 +668,9 @@ const WRITE_ACTION_LABELS = {
   setHiringStage: 'Update hiring stage',
   startMeeting: 'Start meeting',
   cancelMeeting: 'Cancel meeting',
-  cancelTodaysRemainingMeetings: 'Cancel rest of today'
+  cancelTodaysRemainingMeetings: 'Cancel rest of today',
+  rescheduleMeeting: 'Reschedule meeting',
+  pushTodaysRemainingMeetings: 'Push today\'s meetings'
 };
 
 const WRITE_ACTION_FIELD_LABELS = {
@@ -569,7 +690,10 @@ const WRITE_ACTION_FIELD_LABELS = {
   withUserId: 'With',
   durationMinutes: 'Duration (min)',
   reason: 'Reason',
-  eventId: 'Meeting'
+  eventId: 'Meeting',
+  newStartAt: 'New start',
+  newEndAt: 'New end',
+  shiftMinutes: 'Shift (min)'
 };
 
 /**
@@ -654,6 +778,72 @@ async function buildConfirmationCardForWriteAction(req, toolCall) {
         });
         details['Meetings'] = `${meetings.length} meeting${meetings.length === 1 ? '' : 's'}: ${lines.join(' · ')}`;
         subtitle = 'This will cancel ALL of your remaining meetings today and email everyone.';
+      }
+    } catch {
+      // best-effort
+    }
+  }
+
+  // rescheduleMeeting: resolve eventId → friendly title + old time, format
+  // newStartAt as a human-readable wall clock string.
+  if (name === 'rescheduleMeeting' && args.eventId) {
+    try {
+      const ProviderScheduleEvent = (await import('../models/ProviderScheduleEvent.model.js')).default;
+      const ProviderScheduleEventAttendee = (await import('../models/ProviderScheduleEventAttendee.model.js')).default;
+      const ev = await ProviderScheduleEvent.findById(Number(args.eventId));
+      if (ev) {
+        const start = ev.start_at ? new Date(ev.start_at) : null;
+        const oldWhen = start && !isNaN(start.getTime())
+          ? start.toLocaleString('en-US', {
+              weekday: 'short', month: 'short', day: 'numeric',
+              hour: 'numeric', minute: '2-digit'
+            })
+          : '(no start time)';
+        details['Meeting'] = `${ev.title} — was ${oldWhen}`;
+        try {
+          const attendees = await ProviderScheduleEventAttendee.listByEventId(ev.id);
+          if (attendees.length) {
+            const names = attendees.map((a) => [a.first_name, a.last_name].filter(Boolean).join(' ').trim() || a.email).filter(Boolean);
+            details['Will email'] = `${names.length} attendee${names.length === 1 ? '' : 's'} — ${names.slice(0, 4).join(', ')}${names.length > 4 ? '…' : ''}`;
+          }
+        } catch { /* noop */ }
+        subtitle = 'This will move the meeting and email everyone.';
+      }
+    } catch {
+      // best-effort
+    }
+  }
+  if (name === 'rescheduleMeeting' && args.newStartAt) {
+    try {
+      const d = new Date(String(args.newStartAt));
+      if (!isNaN(d.getTime())) {
+        details['New start'] = d.toLocaleString('en-US', {
+          weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+        });
+      }
+    } catch { /* noop */ }
+  }
+
+  // pushTodaysRemainingMeetings: pre-list affected meetings.
+  if (name === 'pushTodaysRemainingMeetings') {
+    try {
+      const { listRemainingMeetingsForToday } = await import('../services/meetingCancellation.service.js');
+      const meetings = await listRemainingMeetingsForToday({
+        actorUserId: Number(req.user?.id || 0),
+        agencyId: Number(req.body?.context?.agencyId || req.user?.agencyId || 0) || null
+      });
+      const minutes = Math.trunc(Number(args.shiftMinutes || 0));
+      const dir = minutes > 0 ? `later by ${minutes} min` : `earlier by ${Math.abs(minutes)} min`;
+      if (!meetings.length) {
+        details['Meetings'] = 'You have no remaining meetings today — nothing will be moved.';
+      } else {
+        const lines = meetings.slice(0, 8).map((m) => {
+          const t = m.start_at ? new Date(m.start_at) : null;
+          const tt = t && !isNaN(t.getTime()) ? t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
+          return `${tt} — ${m.title}`;
+        });
+        details['Meetings'] = `${meetings.length} meeting${meetings.length === 1 ? '' : 's'}: ${lines.join(' · ')}`;
+        subtitle = `This will shift ALL ${meetings.length} remaining meeting${meetings.length === 1 ? '' : 's'} ${dir} and email everyone.`;
       }
     } catch {
       // best-effort
@@ -981,6 +1171,7 @@ function buildNextCardsFromToolResults({ toolResults, allowedToolNames }) {
   const wsEvents = wsRes?.result?.events;
   if (Array.isArray(wsEvents) && wsEvents.length) {
     const canCancel = allowedToolNames.has('cancelMeeting');
+    const canReschedule = allowedToolNames.has('rescheduleMeeting');
     for (const e of wsEvents.slice(0, 8)) {
       const id = e?.id == null ? null : Number(e.id);
       if (!id) continue;
@@ -989,6 +1180,7 @@ function buildNextCardsFromToolResults({ toolResults, allowedToolNames }) {
         : `${String(e.startAt || '').slice(11, 16)}–${String(e.endAt || '').slice(11, 16)}`;
       const subtitle = `${e.kind || 'EVENT'} · ${time}${e.active ? ' · active now' : ''}`;
       const isMeeting = e.kind === 'TEAM_MEETING' || e.kind === 'HUDDLE';
+      const startHm = String(e.startAt || '').slice(11, 16);
       pushCard({
         kind: 'event',
         title: safeTitle(e.title, e.kind || 'Event'),
@@ -999,6 +1191,11 @@ function buildNextCardsFromToolResults({ toolResults, allowedToolNames }) {
             label: isMeeting ? 'Join meeting' : 'Open',
             toolCall: { name: 'openWorkspaceEvent', args: { eventId: id } }
           },
+          ...(isMeeting && canReschedule && startHm ? [{
+            type: 'prefill',
+            label: 'Reschedule',
+            prefillText: `Move my ${startHm} to `
+          }] : []),
           ...(isMeeting && canCancel ? [{
             type: 'tool',
             label: 'Cancel',
@@ -1195,6 +1392,37 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
       }
     } else if (r.tool === 'findNextMeeting') {
       // Intentionally silent — used only as a resolver step.
+    } else if (r.tool === 'findMyMeetings') {
+      // Intentionally silent — used only as a resolver step.
+    } else if (r.tool === 'rescheduleMeeting') {
+      const out = r.result || {};
+      const fmt = (iso) => {
+        const d = iso ? new Date(iso) : null;
+        return d && !isNaN(d.getTime())
+          ? d.toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })
+          : '';
+      };
+      const ct = (out.attendeesNotified || 0) + (out.hostNotified ? 1 : 0);
+      const oldS = fmt(out.oldStartAt);
+      const newS = fmt(out.newStartAt);
+      const parts = [`Moved "${out.title || 'meeting'}"${oldS && newS ? ` from ${oldS} to ${newS}` : ''}.`];
+      if (ct) parts.push(`Emailed ${ct} ${ct === 1 ? 'person' : 'people'}.`);
+      else parts.push(`No reschedule emails went out (no other attendees, or email is disabled for this agency).`);
+      lines.push(parts.join(' '));
+    } else if (r.tool === 'pushTodaysRemainingMeetings') {
+      const out = r.result || {};
+      const shifted = out.shiftedCount || 0;
+      const minutes = Math.trunc(Number(out.shiftMinutes || 0));
+      const dir = minutes > 0 ? `${minutes} min later` : `${Math.abs(minutes)} min earlier`;
+      const totalEmails = (out.results || []).reduce(
+        (acc, x) => acc + Number(x.attendeesNotified || 0) + (x.hostNotified ? 1 : 0),
+        0
+      );
+      if (!shifted) {
+        lines.push(`You had no remaining meetings to move today.`);
+      } else {
+        lines.push(`Shifted ${shifted} ${shifted === 1 ? 'meeting' : 'meetings'} ${dir} and emailed ${totalEmails} ${totalEmails === 1 ? 'person' : 'people'}.`);
+      }
     } else if (r.tool === 'openTodaysWorkspace') {
       const out = r.result || {};
       const events = out.events || [];
@@ -1546,6 +1774,100 @@ export const assist = async (req, res, next) => {
           });
           nextCards = [card];
           assistantText = `Click Confirm to cancel your next meeting and email everyone.`;
+        }
+      }
+
+      // "Cancel the meeting with X" follow-up: findMyMeetings({withName})
+      // resolves the candidate; if exactly one, we build a cancelMeeting
+      // confirmation card. Multiple matches → disambiguation cards.
+      if (explicit.followUpCancelMeetingWithPerson) {
+        const fr = toolResults.find((r) => r?.ok && r.tool === 'findMyMeetings');
+        const list = fr?.result?.meetings || [];
+        const who = explicit.withName || 'that person';
+        if (!list.length) {
+          assistantText = `I couldn't find an upcoming meeting today with ${who}. (Only TEAM_MEETING / HUDDLE rows where you're the host or an attendee count.)`;
+          nextCards = [];
+        } else if (list.length === 1) {
+          const args = explicit.cancelReason
+            ? { eventId: Number(list[0].id), reason: explicit.cancelReason }
+            : { eventId: Number(list[0].id) };
+          const card = await buildConfirmationCardForWriteAction(req, {
+            name: 'cancelMeeting',
+            args
+          });
+          nextCards = [card];
+          assistantText = `Click Confirm to cancel your meeting with ${who} and email everyone.`;
+        } else {
+          // Multiple matches today — show one card per meeting so the user picks.
+          nextCards = await Promise.all(list.slice(0, 5).map((m) =>
+            buildConfirmationCardForWriteAction(req, {
+              name: 'cancelMeeting',
+              args: explicit.cancelReason
+                ? { eventId: Number(m.id), reason: explicit.cancelReason }
+                : { eventId: Number(m.id) }
+            })
+          ));
+          assistantText = `You have ${list.length} meetings today involving ${who} — pick which one to cancel:`;
+        }
+      }
+
+      // "Move my 3pm to 4pm" follow-up: findMyMeetings({atTimeHm}) resolves
+      // the meeting; if exactly one, build a rescheduleMeeting confirmation
+      // card targeting today + the new time.
+      if (explicit.followUpRescheduleByTime) {
+        const fr = toolResults.find((r) => r?.ok && r.tool === 'findMyMeetings');
+        const list = fr?.result?.meetings || [];
+        const fromLabel = explicit.fromTimeHm || '?';
+        const toLabel = explicit.toTimeHm || '?';
+        const newStart = todayWithLocalTime(explicit.toTimeHm);
+        if (!list.length) {
+          assistantText = `I couldn't find a meeting on your schedule today that starts at ${fromLabel}.`;
+          nextCards = [];
+        } else if (!newStart) {
+          assistantText = `I understood the meeting at ${fromLabel} but couldn't parse the new time "${toLabel}".`;
+          nextCards = [];
+        } else if (list.length === 1) {
+          const card = await buildConfirmationCardForWriteAction(req, {
+            name: 'rescheduleMeeting',
+            args: {
+              eventId: Number(list[0].id),
+              newStartAt: newStart.toISOString()
+            }
+          });
+          nextCards = [card];
+          assistantText = `Click Confirm to move "${list[0].title}" to ${newStart.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} and email everyone.`;
+        } else {
+          nextCards = await Promise.all(list.slice(0, 5).map((m) =>
+            buildConfirmationCardForWriteAction(req, {
+              name: 'rescheduleMeeting',
+              args: { eventId: Number(m.id), newStartAt: newStart.toISOString() }
+            })
+          ));
+          assistantText = `You have ${list.length} meetings starting at ${fromLabel} — pick which one to move:`;
+        }
+      }
+
+      // "Push everything 30 minutes" follow-up: build the bulk shift card.
+      if (explicit.followUpPushTodaysRemaining) {
+        if (!allowedToolNames.has('pushTodaysRemainingMeetings')) {
+          assistantText = `Rescheduling meetings isn't available for your role.`;
+        } else {
+          const args = { shiftMinutes: Number(explicit.shiftMinutes) };
+          if (explicit.cancelReason) args.reason = explicit.cancelReason;
+          const card = await buildConfirmationCardForWriteAction(req, {
+            name: 'pushTodaysRemainingMeetings',
+            args
+          });
+          const meetingsLine = card.details?.['Meetings'] || '';
+          if (/no remaining meetings/i.test(meetingsLine)) {
+            nextCards = [];
+            assistantText = `You don't have any meetings left on your schedule today — nothing to move.`;
+          } else {
+            nextCards = [card];
+            const minutes = Math.trunc(Number(explicit.shiftMinutes));
+            const dir = minutes > 0 ? `${minutes} minutes later` : `${Math.abs(minutes)} minutes earlier`;
+            assistantText = `Click Confirm to push everything left today ${dir} and email all attendees.`;
+          }
         }
       }
 
