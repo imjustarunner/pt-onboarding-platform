@@ -91,7 +91,11 @@
                   </li>
                 </ul>
                 <div v-if="t.cards && t.cards.length" class="aap-cards">
-                  <div v-for="(c, i) in t.cards" :key="i" class="aap-card">
+                  <div v-if="t.cards.length > 1" class="aap-cards-header">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+                    Choose one:
+                  </div>
+                  <div v-for="(c, i) in t.cards" :key="i" :class="['aap-card', `is-${c.kind}`]">
                     <div class="aap-card-head">
                       <div class="aap-card-title">{{ c.title }}</div>
                       <div v-if="c.subtitle" class="aap-card-sub">{{ c.subtitle }}</div>
@@ -318,10 +322,12 @@ const { isListening, isSupported: sttSupported, startListening, stopListening } 
 });
 
 function scrollTurnsToBottom() {
-  nextTick(() => {
+  // Double nextTick: first tick lets Vue patch the DOM, second lets it finish rendering
+  // card lists (which can be tall) before we measure scrollHeight.
+  nextTick(() => nextTick(() => {
     const el = turnsRef.value;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-  });
+  }));
 }
 
 watch(
@@ -1038,15 +1044,39 @@ onUnmounted(() => {
   margin-top: 10px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+}
+
+.aap-cards-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--aap-teal-d);
+  margin-bottom: 2px;
 }
 
 .aap-card {
   border: 1px solid rgba(148, 163, 184, 0.35);
-  border-radius: 14px;
-  background: linear-gradient(180deg, rgba(248, 250, 252, 0.9), rgba(255, 255, 255, 1));
+  border-left-width: 3px;
+  border-left-color: rgba(148, 163, 184, 0.45);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.95), rgba(255, 255, 255, 1));
   padding: 10px 12px;
+  transition: box-shadow 0.15s ease, border-left-color 0.15s ease;
 }
+
+.aap-card:hover {
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.07);
+}
+
+.aap-card.is-school { border-left-color: #0d9488; }
+.aap-card.is-event  { border-left-color: #6366f1; }
+.aap-card.is-user   { border-left-color: #f59e0b; }
+.aap-card.is-referral { border-left-color: #10b981; }
 
 .aap-card-title {
   font-weight: 850;

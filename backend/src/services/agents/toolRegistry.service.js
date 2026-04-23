@@ -338,8 +338,14 @@ function roleAllowed(reqUser, allowedRoles) {
 function currentAgencyId(req, fallbackArg) {
   const fromUser = intOrNull(req?.user?.agencyId);
   if (fromUser) return fromUser;
-  const fromArg = intOrNull(fallbackArg);
-  if (fromArg && req?.user?.role === 'super_admin') return fromArg;
+  // super_admin users have no fixed agencyId in their JWT.
+  // Accept it from the request context (always sent by the frontend) or an explicit fallback arg.
+  if (req?.user?.role === 'super_admin') {
+    const fromContext = intOrNull(req.body?.context?.agencyId);
+    if (fromContext) return fromContext;
+    const fromArg = intOrNull(fallbackArg);
+    if (fromArg) return fromArg;
+  }
   return null;
 }
 
