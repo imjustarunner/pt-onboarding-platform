@@ -1244,24 +1244,45 @@ export async function executeToolCall({ req, toolCall }) {
     const startsAfter = args.startsAfter ? String(args.startsAfter).slice(0, 40) : null;
     const startsBefore = args.startsBefore ? String(args.startsBefore).slice(0, 40) : null;
 
-    const where = ['agency_id = ?', 'is_active = TRUE'];
-    const params = [agencyId];
-    if (query) {
-      where.push('title LIKE ?');
-      params.push(`%${query}%`);
-    }
-    if (startsAfter) { where.push('starts_at >= ?'); params.push(startsAfter); }
-    if (startsBefore) { where.push('starts_at <= ?'); params.push(startsBefore); }
+    const baseWhere = ['agency_id = ?', 'is_active = TRUE'];
+    const baseParams = [agencyId];
+    if (startsAfter) { baseWhere.push('starts_at >= ?'); baseParams.push(startsAfter); }
+    if (startsBefore) { baseWhere.push('starts_at <= ?'); baseParams.push(startsBefore); }
 
-    const [rows] = await pool.execute(
-      `SELECT id, title, starts_at, ends_at, timezone
-       FROM company_events
-       WHERE ${where.join(' AND ')}
-       ORDER BY starts_at DESC
-       LIMIT ${limit}`,
-      params
-    );
-    const results = (rows || []).map((r) => ({
+    const runQuery = async (likeArg) => {
+      const where = [...baseWhere];
+      const params = [...baseParams];
+      if (likeArg != null) {
+        where.push('title LIKE ?');
+        params.push(likeArg);
+      }
+      const [rs] = await pool.execute(
+        `SELECT id, title, starts_at, ends_at, timezone
+         FROM company_events
+         WHERE ${where.join(' AND ')}
+         ORDER BY starts_at DESC
+         LIMIT ${limit}`,
+        params
+      );
+      return rs || [];
+    };
+
+    let rows = await runQuery(query ? `%${query}%` : null);
+
+    // Tokenized fallback for multi-word event names that don't match verbatim.
+    if (!rows.length && query && query.includes(' ')) {
+      const GENERIC = new Set([
+        'event', 'events', 'program', 'programs', 'session', 'sessions',
+        'workshop', 'workshops', 'the', 'and', 'or', 'of', 'a', 'an'
+      ]);
+      const tokens = query.toLowerCase().split(/\s+/).filter((t) => t.length >= 3 && !GENERIC.has(t));
+      if (tokens.length) {
+        rows = await runQuery(`%${tokens.join(' ')}%`);
+        if (!rows.length && tokens.length > 1) rows = await runQuery(`%${tokens[0]}%`);
+      }
+    }
+
+    const results = rows.map((r) => ({
       id: r.id,
       title: r.title,
       startsAtIso: r.starts_at ? new Date(r.starts_at).toISOString() : null,
@@ -1284,24 +1305,40 @@ export async function executeToolCall({ req, toolCall }) {
     const query = str(args.query, 200);
     const limit = Math.min(Math.max(1, intOrNull(args.limit) || 10), 25);
     if (!query) return { ok: true, tool: name, result: { results: [] } };
-    const like = `%${query}%`;
-    const [rows] = await pool.execute(
-      `SELECT u.id,
-              u.first_name AS firstName,
-              u.last_name  AS lastName,
-              u.email,
-              u.role,
-              u.profile_photo_path AS profilePhotoPath
-       FROM users u
-       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
-       WHERE (u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?
-              OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?)
-         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-       ORDER BY u.last_name, u.first_name
-       LIMIT ${limit}`,
-      [agencyId, like, like, like, like]
-    );
-    const results = (rows || []).map((r) => ({
+
+    const runQuery = async (likeArg) => {
+      const [rs] = await pool.execute(
+        `SELECT u.id,
+                u.first_name AS firstName,
+                u.last_name  AS lastName,
+                u.email,
+                u.role,
+                u.profile_photo_path AS profilePhotoPath
+         FROM users u
+         JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+         WHERE (u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?
+                OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?)
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+         ORDER BY u.last_name, u.first_name
+         LIMIT ${limit}`,
+        [agencyId, likeArg, likeArg, likeArg, likeArg]
+      );
+      return rs || [];
+    };
+
+    let rows = await runQuery(`%${query}%`);
+
+    // Multi-word fallback: try just the most distinctive token (e.g. last name).
+    if (!rows.length && query.includes(' ')) {
+      const tokens = query.toLowerCase().split(/\s+/).filter((t) => t.length >= 2);
+      if (tokens.length > 1) {
+        // Try the last token first (typically a surname).
+        rows = await runQuery(`%${tokens[tokens.length - 1]}%`);
+        if (!rows.length) rows = await runQuery(`%${tokens[0]}%`);
+      }
+    }
+
+    const results = rows.map((r) => ({
       id: r.id,
       name: [r.firstName, r.lastName].filter(Boolean).join(' ').trim() || r.email,
       role: r.role,

@@ -157,6 +157,175 @@ function guessSchoolQueryFromPrompt(promptLower) {
     .slice(0, 120);
 }
 
+function guessEntityQueryFromPrompt(promptLower, extraStopwords = []) {
+  const raw = String(promptLower || '').toLowerCase();
+  if (!raw) return '';
+  const extras = extraStopwords.length
+    ? new RegExp(`\\b(${extraStopwords.join('|')})\\b`, 'g')
+    : null;
+  let s = raw
+    .replace(/\b(take me to|go to|navigate to|navigate|open|visit|show me|find|search|look up|look for)\b/g, ' ')
+    .replace(/\b(the|a|an|please|could you|can you|for me|some|any)\b/g, ' ');
+  if (extras) s = s.replace(extras, ' ');
+  return s
+    .replace(/[^a-z0-9\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+}
+
+/**
+ * Find the most recent assistant turn in history that has cards attached.
+ * Used to detect "we're in disambiguation mode and the user is selecting".
+ */
+function findLastAssistantCardsInHistory(history) {
+  if (!Array.isArray(history)) return null;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const h = history[i];
+    if (h?.role === 'assistant' && Array.isArray(h.cards) && h.cards.length) {
+      return h.cards;
+    }
+  }
+  return null;
+}
+
+/**
+ * If the previous assistant turn showed a list of cards, try to interpret
+ * the current prompt as a selection or a "show them again" request.
+ *
+ * Returns:
+ *   - { kind: 'select', toolCall }        → run openEntity for the chosen card
+ *   - { kind: 'reshow', cards }           → re-display the same cards (no tool call)
+ *   - null                                → not a disambiguation follow-up
+ */
+function tryDisambiguationFollowUp(prompt, history) {
+  const cards = findLastAssistantCardsInHistory(history);
+  if (!cards || !cards.length) return null;
+
+  const lower = String(prompt || '').toLowerCase().trim();
+  if (!lower) return null;
+
+  // Generic "show me/which/list them" follow-ups → re-show the same cards.
+  if (/^(show( me|them| the (two|three|four|five|list|options?))?|list( them| the options?)?|which( are (they|the (two|three|four|five|options?))| ones?)?|what( are (they|the options?))?|options\??|\?+|huh\??|the (two|three|four|five|options?))$/i.test(lower)) {
+    return { kind: 'reshow', cards };
+  }
+
+  // Numeric / ordinal selection: "1", "#2", "the first one", "second", "third"
+  const ordMap = { first: 1, '1st': 1, one: 1, second: 2, '2nd': 2, two: 2, third: 3, '3rd': 3, three: 3, fourth: 4, '4th': 4, four: 4, fifth: 5, '5th': 5, five: 5 };
+  const numMatch = lower.match(/^#?(\d+)$/) || lower.match(/^(?:the\s+)?(first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th|one|two|three|four|five)(?:\s+one)?$/);
+  if (numMatch) {
+    const idx = (numMatch[1] && /^\d+$/.test(numMatch[1])) ? parseInt(numMatch[1], 10) : ordMap[numMatch[1]];
+    if (idx && idx >= 1 && idx <= cards.length) {
+      const card = cards[idx - 1];
+      const openAction = (card.actions || []).find((a) => a?.toolCall?.name === 'openEntity');
+      if (openAction?.toolCall) return { kind: 'select', toolCall: openAction.toolCall };
+    }
+  }
+
+  // Token-overlap fuzzy match against card titles. Strip generic words first
+  // so "twain elementary school" still uniquely picks "Twain Elementary".
+  const GENERIC = new Set([
+    'open', 'go', 'to', 'show', 'me', 'the', 'a', 'an', 'please', 'now',
+    'school', 'schools', 'portal', 'portals', 'hub', 'elementary', 'middle',
+    'high', 'upper', 'lower', 'academy', 'charter', 'institute', 'event',
+    'events', 'program', 'programs', 'session', 'sessions', 'workshop',
+    'workshops', 'profile', 'user', 'page', 'one'
+  ]);
+  const promptTokens = lower
+    .replace(/[^a-z0-9\s-]/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length >= 2 && !GENERIC.has(t));
+
+  if (!promptTokens.length) return null;
+
+  const scored = cards.map((c, i) => {
+    const title = String(c.title || '').toLowerCase();
+    const titleTokens = new Set(
+      title.replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/).filter(Boolean)
+    );
+    let hits = 0;
+    for (const t of promptTokens) {
+      if (titleTokens.has(t) || title.includes(t)) hits++;
+    }
+    return { idx: i, card: c, hits };
+  });
+
+  scored.sort((a, b) => b.hits - a.hits);
+  const best = scored[0];
+  const second = scored[1];
+
+  // Require a clear winner: at least one matching distinctive token, and
+  // strictly more matches than any other card.
+  if (best.hits > 0 && (!second || best.hits > second.hits)) {
+    const openAction = (best.card.actions || []).find((a) => a?.toolCall?.name === 'openEntity');
+    if (openAction?.toolCall) return { kind: 'select', toolCall: openAction.toolCall };
+  }
+
+  return null;
+}
+
+/**
+ * Pure deterministic intent router. Runs BEFORE the LLM. If it returns a list
+ * of toolCalls, we skip the LLM entirely and execute them.
+ *
+ * Handles:
+ *   - Explicit entity searches ("open X portal", "find Y event")
+ *   - Generic page navigation ("take me to schedule")
+ *
+ * Returns null when the prompt is genuinely conversational and needs an LLM.
+ */
+function detectExplicitIntent({ prompt, allowedToolNames }) {
+  const lower = String(prompt || '').toLowerCase().trim();
+  if (!lower) return null;
+
+  const hasAction = /\b(open|show|find|go to|take me to|navigate to|visit|search( for)?|look (up|for))\b/.test(lower);
+
+  // School portal / school org
+  const schoolish =
+    /\bportal\b/.test(lower) ||
+    /\b(elementary|middle|high|academy|charter|institute)\b/.test(lower) ||
+    /\bschool\b/.test(lower);
+
+  // Event / program
+  const eventish =
+    /\b(event|events|program|programs|session|sessions|workshop|workshops)\b/.test(lower) &&
+    !schoolish;
+
+  if (schoolish && allowedToolNames.has('searchSchools')) {
+    const q = guessSchoolQueryFromPrompt(lower);
+    if (q) {
+      return {
+        intent: 'school_search',
+        toolCalls: [{ name: 'searchSchools', args: { query: q, limit: 10 } }]
+      };
+    }
+  }
+
+  if (eventish && allowedToolNames.has('searchEvents')) {
+    const q = guessEntityQueryFromPrompt(lower, ['event', 'events', 'program', 'programs', 'session', 'sessions', 'workshop', 'workshops']);
+    if (q) {
+      return {
+        intent: 'event_search',
+        toolCalls: [{ name: 'searchEvents', args: { query: q, limit: 10 } }]
+      };
+    }
+  }
+
+  // Generic page navigation: only if there's an action verb (don't hijack
+  // questions like "what is the dashboard").
+  if (hasAction && allowedToolNames.has('navigateTo')) {
+    const routeName = resolveNavigateRouteNameFromPrompt(lower);
+    if (routeName) {
+      return {
+        intent: 'page_navigate',
+        toolCalls: [{ name: 'navigateTo', args: { routeName } }]
+      };
+    }
+  }
+
+  return null;
+}
+
 function lastOkToolResult(toolResults, toolName) {
   for (let i = (toolResults || []).length - 1; i >= 0; i--) {
     const r = toolResults[i];
@@ -628,6 +797,135 @@ export const assist = async (req, res, next) => {
       }
     }
 
+    const historyArr = Array.isArray(req.body?.history) ? req.body.history : [];
+
+    // ---- Deterministic intent router (runs BEFORE the LLM) ----
+    // The LLM is unreliable for entity-search routing — it hallucinates results
+    // from prompt examples without ever calling tools. For any prompt whose
+    // intent is unambiguous (entity search, navigation, disambiguation
+    // selection), we resolve it directly against the DB and skip the LLM.
+
+    // 1. Disambiguation follow-up: previous turn showed cards. Did the user
+    //    select one (by name/number/ordinal) or ask to see them again?
+    const followUp = tryDisambiguationFollowUp(prompt, historyArr);
+    if (followUp) {
+      const uiCommands = [];
+      const toolResults = [];
+
+      if (followUp.kind === 'select' && allowedToolNames.has(followUp.toolCall.name)) {
+        try {
+          const r = await executeToolCall({ req, toolCall: followUp.toolCall });
+          toolResults.push(r);
+          if (Array.isArray(r?.uiCommands) && r.uiCommands.length) {
+            for (const cmd of normalizeUiCommands(r.uiCommands)) uiCommands.push(cmd);
+          }
+        } catch (e) {
+          toolResults.push({ ok: false, tool: followUp.toolCall.name, error: { message: e?.message || 'Open failed' } });
+        }
+      }
+
+      let assistantText = buildAssistantReplyFromTools('', toolResults);
+      let nextCards = buildNextCardsFromToolResults({ toolResults, allowedToolNames });
+      const nextActions = buildNextActionsFromToolResults({ toolResults, allowedToolNames });
+
+      // Re-show case (or select that produced no openEntity result): use the
+      // previously-shown cards from history.
+      if ((!nextCards.length && followUp.kind === 'reshow') || (!toolResults.length && followUp.kind === 'reshow')) {
+        nextCards = followUp.cards;
+        assistantText = 'Here are the options — click one to open it:';
+      }
+
+      return res.json({
+        assistantText: String(assistantText || '').trim() || 'Done.',
+        uiCommands,
+        toolCalls: followUp.kind === 'select' ? [followUp.toolCall] : [],
+        toolResults,
+        nextActions,
+        nextCards,
+        runtime: 'deterministic_followup'
+      });
+    }
+
+    // 2. Explicit entity search / navigation intent.
+    const explicit = detectExplicitIntent({ prompt, allowedToolNames });
+    if (explicit) {
+      const uiCommands = [];
+      const toolResults = [];
+      const skipOpenEntityKinds = new Set();
+
+      for (const tc of explicit.toolCalls) {
+        if (!allowedToolNames.has(tc.name)) continue;
+        try {
+          const r = await executeToolCall({ req, toolCall: tc });
+          toolResults.push(r);
+          if (tc.name === 'searchSchools' && (r?.result?.results?.length ?? 0) > 1) skipOpenEntityKinds.add('school');
+          else if (tc.name === 'searchEvents' && (r?.result?.results?.length ?? 0) > 1) skipOpenEntityKinds.add('event');
+          else if (tc.name === 'searchUsers' && (r?.result?.results?.length ?? 0) > 1) skipOpenEntityKinds.add('user');
+
+          if (Array.isArray(r?.uiCommands) && r.uiCommands.length) {
+            for (const cmd of normalizeUiCommands(r.uiCommands)) uiCommands.push(cmd);
+          }
+        } catch (e) {
+          toolResults.push({ ok: false, tool: tc.name, error: { message: e?.message || 'Tool failed' } });
+        }
+      }
+
+      // If a search returned exactly one result, auto-open it.
+      const trySingleOpen = async (toolName, kind) => {
+        if (skipOpenEntityKinds.has(kind)) return;
+        const sr = toolResults.find((r) => r?.ok && r.tool === toolName);
+        const list = sr?.result?.results;
+        if (Array.isArray(list) && list.length === 1 && list[0]?.id != null && allowedToolNames.has('openEntity')) {
+          try {
+            const or = await executeToolCall({ req, toolCall: { name: 'openEntity', args: { kind, id: Number(list[0].id) } } });
+            toolResults.push(or);
+            if (Array.isArray(or?.uiCommands) && or.uiCommands.length) {
+              for (const cmd of normalizeUiCommands(or.uiCommands)) uiCommands.push(cmd);
+            }
+          } catch {
+            /* noop */
+          }
+        }
+      };
+      await trySingleOpen('searchSchools', 'school');
+      await trySingleOpen('searchEvents', 'event');
+      await trySingleOpen('searchUsers', 'user');
+
+      const assistantText = buildAssistantReplyFromTools('', toolResults);
+      const nextActions = buildNextActionsFromToolResults({ toolResults, allowedToolNames });
+      const nextCards = buildNextCardsFromToolResults({ toolResults, allowedToolNames });
+
+      try {
+        ActivityLogService.logActivity(
+          {
+            actionType: 'agent_assist',
+            userId: req.user?.id ?? null,
+            agencyId: context?.agencyId ?? null,
+            metadata: {
+              runtime: 'deterministic',
+              intent: explicit.intent,
+              toolCalls: explicit.toolCalls.length,
+              uiCommands: uiCommands.length,
+              latencyMs: Date.now() - started
+            }
+          },
+          req
+        );
+      } catch {
+        // ignore
+      }
+
+      return res.json({
+        assistantText: String(assistantText || '').trim() || 'Done.',
+        uiCommands,
+        toolCalls: explicit.toolCalls,
+        toolResults,
+        nextActions,
+        nextCards,
+        runtime: 'deterministic'
+      });
+    }
+
     const { rawText, runtime } = await runAgentAssist({
       userId: req.user?.id || null,
       user: req.user,
@@ -635,7 +933,7 @@ export const assist = async (req, res, next) => {
       context,
       agentConfig,
       allowSearch: wantsSearch,
-      history: Array.isArray(req.body?.history) ? req.body.history : []
+      history: historyArr
     });
 
     const parsed = safeParseAgentJson(rawText);
