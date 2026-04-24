@@ -1,7 +1,7 @@
 <template>
   <div>
     <!-- Dashboard switcher bar — always visible, no opt-in required -->
-    <div v-if="user" class="beta-banner">
+    <div v-if="user && !isSstcContext" class="beta-banner">
       <span class="beta-banner-text">
         ✨ New admin dashboard available.
       </span>
@@ -43,6 +43,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useSuperadminPlatformPreview } from '../../composables/useSuperadminPlatformPreview';
+import { useSummitStatsChallengeChrome } from '../../composables/useSummitStatsChallengeChrome';
 import { isSupervisor } from '../../utils/helpers.js';
 import api from '../../services/api';
 import SuperAdminDashboard from './SuperAdminDashboard.vue';
@@ -54,6 +55,7 @@ const route = useRoute();
 const router = useRouter();
 const user = computed(() => authStore.user);
 const { isSuperadminPreview } = useSuperadminPlatformPreview({ route, authStore, agencyStore });
+const isSstcContext = useSummitStatsChallengeChrome();
 
 const isSuperAdmin = computed(() => {
   const role = String(user.value?.role || '').toLowerCase();
