@@ -1016,12 +1016,12 @@
                         <input v-model="step.campaigns.scheduling" type="checkbox" />
                         Include Campaign 1 — Appointment scheduling + reminders (required for A2P proof)
                       </label>
-                      <button type="button" class="btn btn-xs" style="white-space: nowrap; flex-shrink: 0;" @click="toggleCampaignExpanded(step.id, 'scheduling')">
-                        {{ isCampaignExpanded(step.id, 'scheduling') ? '▲ Collapse' : '✎ Customize' }}
+                      <button type="button" class="btn btn-xs" style="white-space: nowrap; flex-shrink: 0;" @click="toggleCampaignExpanded(step.id, 'scheduling', step)">
+                        {{ isCampaignExpanded(step.id, 'scheduling') ? '▲ Collapse' : '✎ Edit text' }}
                       </button>
                     </div>
                     <div v-if="isCampaignExpanded(step.id, 'scheduling')" style="margin-top: 10px; padding: 12px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; display: grid; gap: 10px;">
-                      <div class="muted" style="font-size: 12px; margin-bottom: 2px;">Leave any field blank to use the default text. The agency/org name is inserted automatically.</div>
+                      <div class="muted" style="font-size: 12px; margin-bottom: 2px;">Fields are pre-filled with the exact text participants will see. Edit directly — what you see here is what goes out. The form autosaves.</div>
                       <div><label style="font-size: 12px; font-weight: 600;">Email section title</label><input v-model="step.campaigns.content.scheduling.emailTitle" type="text" placeholder="Email Communication Preference" /></div>
                       <div><label style="font-size: 12px; font-weight: 600;">Email disclosure text</label><textarea v-model="step.campaigns.content.scheduling.emailDisclosure" rows="3" placeholder="Please choose what you would like to receive emails from us..."></textarea></div>
                       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
@@ -1041,12 +1041,12 @@
                         <input v-model="step.campaigns.providerTexting" type="checkbox" />
                         Include Campaign 2 — Provider ↔ client 1:1 conversational texting
                       </label>
-                      <button type="button" class="btn btn-xs" style="white-space: nowrap; flex-shrink: 0;" @click="toggleCampaignExpanded(step.id, 'providerTexting')">
-                        {{ isCampaignExpanded(step.id, 'providerTexting') ? '▲ Collapse' : '✎ Customize' }}
+                      <button type="button" class="btn btn-xs" style="white-space: nowrap; flex-shrink: 0;" @click="toggleCampaignExpanded(step.id, 'providerTexting', step)">
+                        {{ isCampaignExpanded(step.id, 'providerTexting') ? '▲ Collapse' : '✎ Edit text' }}
                       </button>
                     </div>
                     <div v-if="isCampaignExpanded(step.id, 'providerTexting')" style="margin-top: 10px; padding: 12px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; display: grid; gap: 10px;">
-                      <div class="muted" style="font-size: 12px; margin-bottom: 2px;">Leave any field blank to use the default text. The structured terms list always appears unless you provide an intro override that replaces it.</div>
+                      <div class="muted" style="font-size: 12px; margin-bottom: 2px;">Fields are pre-filled with the exact text participants will see. Edit directly — what you see here is what goes out. The standard terms list (bullet points) is always shown after the intro paragraph.</div>
                       <div><label style="font-size: 12px; font-weight: 600;">Section title</label><input v-model="step.campaigns.content.providerTexting.title" type="text" placeholder="SMS With Your Provider/Care Team" /></div>
                       <div><label style="font-size: 12px; font-weight: 600;">Intro paragraph override</label><textarea v-model="step.campaigns.content.providerTexting.disclosure" rows="4" placeholder="If you choose Yes, you consent to receive service-related text messages through PlotTwistHQ from [Agency] and your provider/care team..."></textarea><div class="muted" style="font-size:11px; margin-top:3px;">Replaces the default intro paragraph. The standard terms list and closing language are still shown unless you override them below.</div></div>
                       <div><label style="font-size: 12px; font-weight: 600;">Closing paragraph override (before Terms/Privacy links)</label><textarea v-model="step.campaigns.content.providerTexting.closingDisclosure" rows="3" placeholder="Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help..."></textarea></div>
@@ -1064,12 +1064,12 @@
                         <input v-model="step.campaigns.programUpdates" type="checkbox" />
                         Include Campaign 3 — Program/service opportunities
                       </label>
-                      <button type="button" class="btn btn-xs" style="white-space: nowrap; flex-shrink: 0;" @click="toggleCampaignExpanded(step.id, 'programUpdates')">
-                        {{ isCampaignExpanded(step.id, 'programUpdates') ? '▲ Collapse' : '✎ Customize' }}
+                      <button type="button" class="btn btn-xs" style="white-space: nowrap; flex-shrink: 0;" @click="toggleCampaignExpanded(step.id, 'programUpdates', step)">
+                        {{ isCampaignExpanded(step.id, 'programUpdates') ? '▲ Collapse' : '✎ Edit text' }}
                       </button>
                     </div>
                     <div v-if="isCampaignExpanded(step.id, 'programUpdates')" style="margin-top: 10px; padding: 12px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; display: grid; gap: 10px;">
-                      <div class="muted" style="font-size: 12px; margin-bottom: 2px;">Leave any field blank to use the default text.</div>
+                      <div class="muted" style="font-size: 12px; margin-bottom: 2px;">Fields are pre-filled with the exact text participants will see. Edit directly — what you see here is what goes out.</div>
                       <div><label style="font-size: 12px; font-weight: 600;">Section title</label><input v-model="step.campaigns.content.programUpdates.title" type="text" placeholder="Optional Program &amp; Service Updates" /></div>
                       <div><label style="font-size: 12px; font-weight: 600;">Disclosure text</label><textarea v-model="step.campaigns.content.programUpdates.disclosure" rows="5" placeholder="If you choose Yes, [Agency] may send optional SMS updates through PlotTwistHQ about this agency's programs and services..."></textarea></div>
                       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
@@ -1086,12 +1086,12 @@
                         <input v-model="step.campaigns.internalWorkforce" type="checkbox" />
                         Include Campaign 4 — Internal workforce + school staff notifications
                       </label>
-                      <button type="button" class="btn btn-xs" style="white-space: nowrap; flex-shrink: 0;" @click="toggleCampaignExpanded(step.id, 'internalWorkforce')">
-                        {{ isCampaignExpanded(step.id, 'internalWorkforce') ? '▲ Collapse' : '✎ Customize' }}
+                      <button type="button" class="btn btn-xs" style="white-space: nowrap; flex-shrink: 0;" @click="toggleCampaignExpanded(step.id, 'internalWorkforce', step)">
+                        {{ isCampaignExpanded(step.id, 'internalWorkforce') ? '▲ Collapse' : '✎ Edit text' }}
                       </button>
                     </div>
                     <div v-if="isCampaignExpanded(step.id, 'internalWorkforce')" style="margin-top: 10px; padding: 12px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; display: grid; gap: 10px;">
-                      <div class="muted" style="font-size: 12px; margin-bottom: 2px;">Leave any field blank to use the default text.</div>
+                      <div class="muted" style="font-size: 12px; margin-bottom: 2px;">Fields are pre-filled with the exact text participants will see. Edit directly — what you see here is what goes out.</div>
                       <div><label style="font-size: 12px; font-weight: 600;">Section title</label><input v-model="step.campaigns.content.internalWorkforce.title" type="text" placeholder="Internal Workforce + School Staff Notifications (Opt-In)" /></div>
                       <div><label style="font-size: 12px; font-weight: 600;">Disclosure text</label><textarea v-model="step.campaigns.content.internalWorkforce.disclosure" rows="4" placeholder="By opting in, you agree to receive SMS/text messages from [Agency] through PlotTwistHQ for operational notifications..."></textarea></div>
                       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
@@ -2291,9 +2291,103 @@ const campaignExpanded = ref({});
 /** True while hydrateCompanyEventPickerForEdit is running so the clearing watcher does not
  * race-wipe form.companyEventId before the correct agency's options have loaded. */
 const isHydratingEdit = ref(false);
-const toggleCampaignExpanded = (stepId, key) => {
+
+/**
+ * Resolves the tenant name for this form using the agency selected in the company-event
+ * picker (most specific to this form) and the form's organization, matching the same
+ * logic used in PublicIntakeSigningView.
+ */
+const resolveFormTenantName = () => {
+  const agencyId = Number(companyEventsPickerAgencyId.value || 0);
+  const agency = agencyId
+    ? organizations.value.find((o) => Number(o.id) === agencyId)
+    : agencyList.value[0];
+  const agencyName = agency ? String(agency.official_name || agency.name || '').trim() : '';
+  const org = organizations.value.find((o) => Number(o.id) === Number(form.organizationId || 0));
+  const orgName = String(org?.official_name || org?.name || '').trim();
+  if (agencyName && orgName && agencyName !== orgName) return `${agencyName} and ${orgName}`;
+  return agencyName || orgName || 'Your Agency';
+};
+
+/**
+ * Returns the default (auto-generated) text for each campaign field so the admin
+ * can see the real output and edit from there.
+ */
+const getCampaignDefaults = (step) => {
+  const n = resolveFormTenantName();
+  const audience = String(step?.audience || 'auto').toLowerCase();
+  const isWorkforce = audience === 'workforce' || audience === 'school_staff';
+  const termsUrl = step?.termsUrlOverride?.trim() || '/terms';
+  const privacyUrl = step?.privacyUrlOverride?.trim() || '/privacypolicy';
+  return {
+    scheduling: {
+      emailTitle: isWorkforce ? 'Email Notifications Preference' : 'Email Communication Preference',
+      emailDisclosure: isWorkforce
+        ? 'Please choose what you would like to receive by email from us. If you opt in, we may email you about operational scheduling, internal announcements, and optional platform participation updates. Your email will never be shared or sold to third parties, and you may unsubscribe at any time.'
+        : 'Please choose what you would like to receive emails from us. If you opt in, we may email you about scheduling, appointment reminders, and—if selected—updates about mental health programs and services. Your email will never be shared or sold to third parties, and you may unsubscribe at any time.',
+      emailAllLabel: isWorkforce ? 'Yes - Operational scheduling + internal announcements' : 'Yes - Scheduling + all program communications',
+      emailSchedulingOnlyLabel: 'Yes - Scheduling only',
+      smsTitle: 'Text Message (SMS) Communication Preference',
+      smsDisclosure:
+        `${n} utilizes PlotTwistHQ, a platform by PlotTwistCo (PTCo), to facilitate appointment scheduling, reminders, and related communication. ` +
+        `All messages you receive are scheduled, coordinated, and established directly by ${n} — you will never receive any communications from PlotTwistCo (PTCo) directly. ` +
+        'Please select your preference for receiving text messages. If you opt in, you may receive messages related to scheduling and appointment reminders. ' +
+        'Message frequency varies; typically 7 days before and 24 hours before your appointment. You may be asked to reply with Yes or No regarding your attendance. ' +
+        `Message and data rates may apply. Reply STOP to unsubscribe. Reply HELP for help. Terms: ${termsUrl}. Privacy: ${privacyUrl}.`,
+      smsYesLabel: 'Yes - Scheduling and appointment reminders'
+    },
+    providerTexting: {
+      title: 'SMS With Your Provider/Care Team',
+      disclosure:
+        `If you choose Yes, you consent to receive service-related text messages through PlotTwistHQ from ${n} and, when applicable, your provider/care team (for example, follow-up, coordination, and service-related responses). ` +
+        `These messages are HIPAA-protected and associated with your care relationship at ${n}.`,
+      closingDisclosure:
+        'Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help. ' +
+        `Appointment reminders/confirmations are not sent from individual provider numbers. Additional terms apply — Terms: ${termsUrl}. Privacy: ${privacyUrl}.`,
+      yesLabel: 'Yes - I opt in to provider/care-team texting and agree to the terms above',
+      noLabel: 'No - Keep provider texting off'
+    },
+    programUpdates: {
+      title: 'Optional Program & Service Updates',
+      disclosure:
+        `If you choose Yes, ${n} may send optional SMS updates through PlotTwistHQ about this agency's programs and services ` +
+        '(for example, openings, enrollment options, and availability). You may also receive limited updates about relevant affiliate services. ' +
+        'Affiliates never receive access to your personal or clinical information through this update channel, and any affiliate program requires its own separate opt-in for communication and registration. ' +
+        `Message frequency varies (no more than twice per month). Message and data rates may apply. Reply STOP to unsubscribe. Reply HELP for help. Terms: ${termsUrl}. Privacy: ${privacyUrl}.`,
+      yesLabel: 'Yes - I want optional updates',
+      noLabel: 'No - Keep optional updates off'
+    },
+    internalWorkforce: {
+      title: 'Internal Workforce + School Staff Notifications (Opt-In)',
+      disclosure:
+        `By opting in, you agree to receive SMS/text messages from ${n} through PlotTwistHQ for operational notifications and reminders, ` +
+        'internal announcements, and optional polls/voting related to your participation on the platform. ' +
+        `Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help. Terms: ${termsUrl}. Privacy: ${privacyUrl}.`,
+      yesLabel: 'Yes - I opt in to internal workforce / school staff SMS notifications',
+      noLabel: 'No - Keep internal notifications off'
+    }
+  };
+};
+
+/**
+ * Pre-populates any empty campaign content fields with the resolved default text so the
+ * admin sees the actual output text ready to edit — not blank template placeholders.
+ */
+const initCampaignContent = (step, key) => {
+  if (!step?.campaigns?.content?.[key]) return;
+  const defaults = getCampaignDefaults(step);
+  const d = defaults[key] || {};
+  const c = step.campaigns.content[key];
+  Object.keys(d).forEach((field) => {
+    if (!String(c[field] || '').trim()) c[field] = d[field];
+  });
+};
+
+const toggleCampaignExpanded = (stepId, key, step) => {
   const k = `${stepId}_${key}`;
-  campaignExpanded.value[k] = !campaignExpanded.value[k];
+  const expanding = !campaignExpanded.value[k];
+  campaignExpanded.value[k] = expanding;
+  if (expanding && step) initCampaignContent(step, key);
 };
 const isCampaignExpanded = (stepId, key) => !!campaignExpanded.value[`${stepId}_${key}`];
 
@@ -2475,15 +2569,8 @@ const openStepPreview = (step) => {
   showAddOnPreviewModal.value = true;
 };
 
-/** Resolves the tenant name shown in the communications preview using the current form's org/agency. */
-const previewStepTenantName = computed(() => {
-  const org = organizations.value.find((o) => Number(o.id) === Number(form.organizationId || 0));
-  const orgName = String(org?.official_name || org?.name || '').trim();
-  const agency = agencyList.value[0];
-  const agencyName = agency ? String(agency.official_name || agency.name || '').trim() : '';
-  if (agencyName && orgName && agencyName !== orgName) return `${agencyName} and ${orgName}`;
-  return agencyName || orgName || 'Your Agency';
-});
+/** Resolves the tenant name shown in the preview using the form's actual agency + org. */
+const previewStepTenantName = computed(() => resolveFormTenantName());
 const previewStepTermsUrl = computed(() => previewingStep.value?.termsUrlOverride?.trim() || '/terms');
 const previewStepPrivacyUrl = computed(() => previewingStep.value?.privacyUrlOverride?.trim() || '/privacypolicy');
 
