@@ -715,6 +715,13 @@
                   <div class="step-controls">
                     <button class="btn btn-xs btn-secondary" type="button" @click="moveStep(idx, -1)" :disabled="idx === 0">↑</button>
                     <button class="btn btn-xs btn-secondary" type="button" @click="moveStep(idx, 1)" :disabled="idx === form.intakeSteps.length - 1">↓</button>
+                    <button
+                      v-if="['guardian_waiver','insurance_info','payment_collection','communications','demographics','clinical_questions'].includes(step.type)"
+                      class="btn btn-xs btn-secondary"
+                      type="button"
+                      title="Preview exactly how this step looks to participants"
+                      @click="openStepPreview(step)"
+                    >👁 Preview</button>
                     <button class="btn btn-xs btn-danger" type="button" @click="removeStep(idx)">Remove</button>
                   </div>
                 </div>
@@ -1762,7 +1769,7 @@
     <div v-if="showAddOnPreviewModal" class="modal-backdrop addon-preview-backdrop" @click.self="closeAddOnPreviewModal">
       <div class="modal-box addon-preview-modal-box" style="max-width: 860px;">
         <div class="modal-header">
-          <h3 style="margin:0;">Preview Add-Ons</h3>
+          <h3 style="margin:0;">{{ previewingStep ? 'Step Preview' : 'Preview Add-Ons' }}</h3>
           <button class="btn btn-xs btn-secondary" type="button" @click="closeAddOnPreviewModal">✕</button>
         </div>
         <div class="modal-body" style="padding: 16px;">
@@ -1785,10 +1792,16 @@
           </template>
           <template v-else>
             <div class="addon-preview-header-row">
-              <button class="btn btn-secondary btn-sm" type="button" @click="backToAddOnList">← Back</button>
+              <button
+                class="btn btn-secondary btn-sm"
+                type="button"
+                @click="previewingStep ? closeAddOnPreviewModal() : backToAddOnList()"
+              >{{ previewingStep ? '✕ Close preview' : '← Back' }}</button>
               <div>
-                <h4 style="margin: 0;">{{ selectedAddOnPreview?.label || 'Preview' }}</h4>
-                <div class="muted">Participant-facing preview</div>
+                <h4 style="margin: 0;">
+                  {{ previewingStep ? (previewingStep.label || selectedAddOnPreview?.label || 'Preview') : (selectedAddOnPreview?.label || 'Preview') }}
+                </h4>
+                <div class="muted">{{ previewingStep ? 'Live preview — reflects your current customizations' : 'Participant-facing preview' }}</div>
               </div>
             </div>
 
@@ -1835,18 +1848,16 @@
 
               <!-- Campaign 1: Email -->
               <section class="communications-campaign-card">
-                <h4>Email Communication Preference <span class="required-indicator">*</span></h4>
-                <p class="communications-disclosure">
-                  Please choose what you would like to receive emails from us. If you opt in, we may email you about scheduling, appointment reminders, and—if selected—updates about mental health programs and services. Your email will never be shared or sold to third parties, and you may unsubscribe at any time.
-                </p>
+                <h4>{{ previewEmailTitle }} <span class="required-indicator">*</span></h4>
+                <p class="communications-disclosure">{{ previewEmailDisclosure }}</p>
                 <div class="radio-group">
                   <label class="radio-row">
                     <input v-model="previewCommunications.emailPreference" type="radio" value="all" name="preview_email_pref" />
-                    <span>Yes - Scheduling + all program communications</span>
+                    <span>{{ previewEmailAllLabel }}</span>
                   </label>
                   <label class="radio-row">
                     <input v-model="previewCommunications.emailPreference" type="radio" value="scheduling_only" name="preview_email_pref" />
-                    <span>Yes - Scheduling only</span>
+                    <span>{{ previewEmailSchedulingOnlyLabel }}</span>
                   </label>
                   <label class="radio-row">
                     <input v-model="previewCommunications.emailPreference" type="radio" value="no" name="preview_email_pref" />
@@ -1855,22 +1866,18 @@
                 </div>
               </section>
 
-              <!-- Campaign 2: SMS -->
+              <!-- Campaign 1: SMS -->
               <section class="communications-campaign-card">
-                <h4>Text Message (SMS) Communication Preference <span class="required-indicator">*</span></h4>
+                <h4>{{ previewSmsTitle }} <span class="required-indicator">*</span></h4>
                 <p class="communications-disclosure">
-                  [Top Level Agency] utilizes PlotTwistHQ, a platform by PlotTwistCo (PTCo), to facilitate appointment scheduling, reminders, and related communication.
-                  All messages you receive are scheduled, coordinated, and established directly by [Top Level Agency] — you will never receive any communications from PlotTwistCo (PTCo) directly.
-                  Please select your preference for receiving text messages. If you opt in, you may receive messages related to scheduling and appointment reminders.
-                  The default frequency is 7 days before and 24 hours before your appointment. You may be asked to reply with Yes or No regarding your attendance.
-                  Message and data rates may apply. Reply STOP to opt out at any time and HELP for assistance.
-                  Terms: <a href="/terms" target="_blank">/terms</a>.
-                  Privacy: <a href="/privacypolicy" target="_blank">/privacypolicy</a>.
+                  {{ previewSmsDisclosure }}
+                  Terms: <a :href="previewStepTermsUrl" target="_blank">{{ previewStepTermsUrl }}</a>.
+                  Privacy: <a :href="previewStepPrivacyUrl" target="_blank">{{ previewStepPrivacyUrl }}</a>.
                 </p>
                 <div class="radio-group">
                   <label class="radio-row">
                     <input v-model="previewCommunications.smsPreference" type="radio" value="scheduling_only" name="preview_sms_pref" />
-                    <span>Yes - Scheduling and appointment reminders</span>
+                    <span>{{ previewSmsYesLabel }}</span>
                   </label>
                   <label class="radio-row">
                     <input v-model="previewCommunications.smsPreference" type="radio" value="no" name="preview_sms_pref" />
@@ -1879,96 +1886,88 @@
                 </div>
               </section>
 
-              <!-- Campaign 3: Provider/care-team texting -->
-              <section class="communications-campaign-card">
-                <h4>SMS With Your Provider/Care Team <span class="required-indicator">*</span></h4>
-                <p class="communications-disclosure">
-                  If you choose Yes, you consent to receive service-related text messages through PlotTwistHQ from
-                  [Top Level Agency] and, when applicable, your provider/care team (for example, follow-up, coordination,
-                  and service-related responses). These messages are HIPAA-protected and associated with your care
-                  relationship at [Top Level Agency].
-                </p>
+              <!-- Campaign 2: Provider/care-team texting -->
+              <section v-if="previewShowProviderTexting" class="communications-campaign-card">
+                <h4>{{ previewProviderTextingTitle }} <span class="required-indicator">*</span></h4>
+                <p v-if="previewProviderTextingIntro" class="communications-disclosure">{{ previewProviderTextingIntro }}</p>
+                <template v-else>
+                  <p class="communications-disclosure">
+                    If you choose Yes, you consent to receive service-related text messages through PlotTwistHQ from
+                    {{ previewStepTenantName }} and, when applicable, your provider/care team (for example, follow-up, coordination,
+                    and service-related responses). These messages are HIPAA-protected and associated with your care
+                    relationship at {{ previewStepTenantName }}.
+                  </p>
+                  <p class="communications-disclosure" style="margin-top: 8px;">
+                    By selecting <strong>Yes</strong> and opting in, you understand and agree to the following:
+                  </p>
+                  <ol class="communications-provider-terms">
+                    <li>These messages may be viewed by the care team associated with your provider.</li>
+                    <li>Your provider and our care team are <strong>not</strong> available for emergencies, and these messages are not monitored in real time. In case of emergency, call 911.</li>
+                    <li>Your provider will not receive messages outside of their working hours. All messages are confidentially stored within the platform.</li>
+                    <li>PlotTwistHQ is not responsible for, nor independently aware of, the content of direct communications between you and your provider.</li>
+                    <li>You agree not to share confidential third-party information in these messages, and understand that this communication channel does <strong>not</strong> replace nor constitute clinical care or a therapeutic relationship.</li>
+                  </ol>
+                </template>
                 <p class="communications-disclosure" style="margin-top: 8px;">
-                  By selecting <strong>Yes</strong> and opting in, you understand and agree to the following:
-                </p>
-                <ol class="communications-provider-terms">
-                  <li>These messages may be viewed by the care team associated with your provider.</li>
-                  <li>Your provider and our care team are <strong>not</strong> available for emergencies, and these messages are not monitored in real time. In case of emergency, call 911.</li>
-                  <li>Your provider will not receive messages outside of their working hours. All messages are confidentially stored within the platform.</li>
-                  <li>PlotTwistHQ is not responsible for, nor independently aware of, the content of direct communications between you and your provider.</li>
-                  <li>You agree not to share confidential third-party information in these messages, and understand that this communication channel does <strong>not</strong> replace nor constitute clinical care or a therapeutic relationship.</li>
-                </ol>
-                <p class="communications-disclosure" style="margin-top: 8px;">
-                  Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
-                  Appointment reminders/confirmations are not sent from individual provider numbers.
-                  Additional terms apply —
-                  Terms: <a href="/terms" target="_blank">/terms</a>.
-                  Privacy: <a href="/privacypolicy" target="_blank">/privacypolicy</a>.
+                  {{ previewProviderTextingClosing || 'Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help. Appointment reminders/confirmations are not sent from individual provider numbers. Additional terms apply —' }}
+                  Terms: <a :href="previewStepTermsUrl" target="_blank">{{ previewStepTermsUrl }}</a>.
+                  Privacy: <a :href="previewStepPrivacyUrl" target="_blank">{{ previewStepPrivacyUrl }}</a>.
                 </p>
                 <div class="radio-group">
                   <label class="radio-row">
                     <input v-model="previewCommunications.providerTextingOptIn" type="radio" value="yes" name="preview_provider_sms" />
-                    <span>Yes - I opt in to provider/care-team texting and agree to the terms above</span>
+                    <span>{{ previewProviderTextingYesLabel }}</span>
                   </label>
                   <label class="radio-row">
                     <input v-model="previewCommunications.providerTextingOptIn" type="radio" value="no" name="preview_provider_sms" />
-                    <span>No - Keep provider texting off</span>
+                    <span>{{ previewProviderTextingNoLabel }}</span>
                   </label>
                 </div>
                 <p class="communications-disclosure" style="margin-top: 10px;">
                   <strong>Please note:</strong> Your provider/care team sends these messages through PlotTwistHQ, and you receive/reply to them as standard SMS messages on your phone.
                   If you choose to respond to or initiate a text message with your provider or care team via SMS, you acknowledge and agree that the same terms and conditions outlined above apply to that exchange.
                   Additional terms are always available at
-                  <a href="/terms" target="_blank">/terms</a> and
-                  <a href="/privacypolicy" target="_blank">/privacypolicy</a>.
+                  <a :href="previewStepTermsUrl" target="_blank">{{ previewStepTermsUrl }}</a> and
+                  <a :href="previewStepPrivacyUrl" target="_blank">{{ previewStepPrivacyUrl }}</a>.
                 </p>
               </section>
 
-              <!-- Campaign 4: Program/service updates -->
-              <section class="communications-campaign-card">
-                <h4>Optional Program &amp; Service Updates <span class="required-indicator">*</span></h4>
+              <!-- Campaign 3: Program/service updates -->
+              <section v-if="previewShowProgramUpdates" class="communications-campaign-card">
+                <h4>{{ previewProgramUpdatesTitle }} <span class="required-indicator">*</span></h4>
                 <p class="communications-disclosure">
-                  If you choose Yes, [Top Level Agency] may send optional SMS updates through PlotTwistHQ about this agency's
-                  programs and services (for example, openings, enrollment options, and availability). You may also
-                  receive limited updates about relevant affiliate services. Affiliates never receive access to your
-                  personal or clinical information through this update channel, and any affiliate program requires its
-                  own separate opt-in for communication and registration. Message frequency is no greater than twice
-                  per month. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
-                  Terms: <a href="/terms" target="_blank">/terms</a>.
-                  Privacy: <a href="/privacypolicy" target="_blank">/privacypolicy</a>.
+                  {{ previewProgramUpdatesDisclosure }}
+                  Terms: <a :href="previewStepTermsUrl" target="_blank">{{ previewStepTermsUrl }}</a>.
+                  Privacy: <a :href="previewStepPrivacyUrl" target="_blank">{{ previewStepPrivacyUrl }}</a>.
                 </p>
                 <div class="radio-group">
                   <label class="radio-row">
                     <input v-model="previewCommunications.programUpdatesOptIn" type="radio" value="yes" name="preview_program_sms" />
-                    <span>Yes - I want optional updates</span>
+                    <span>{{ previewProgramUpdatesYesLabel }}</span>
                   </label>
                   <label class="radio-row">
                     <input v-model="previewCommunications.programUpdatesOptIn" type="radio" value="no" name="preview_program_sms" />
-                    <span>No - Keep optional updates off</span>
+                    <span>{{ previewProgramUpdatesNoLabel }}</span>
                   </label>
                 </div>
               </section>
 
-              <!-- Campaign 4 (alt): Internal workforce / school staff -->
-              <section class="communications-campaign-card">
-                <h4>Internal Workforce + School Staff Notifications (Opt-In) <span class="required-indicator">*</span></h4>
+              <!-- Campaign 4: Internal workforce / school staff -->
+              <section v-if="previewShowInternalWorkforce" class="communications-campaign-card">
+                <h4>{{ previewWorkforceTitle }} <span class="required-indicator">*</span></h4>
                 <p class="communications-disclosure">
-                  By opting in, you agree to receive SMS/text messages from [Top Level Agency] through PlotTwistHQ for operational
-                  notifications and reminders, internal announcements, and optional polls/voting related to your participation on the
-                  platform. Message frequency varies.
-                  Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
-                  Support: 833-756-8894 ext. 701 | hq@plottwistco.com.
-                  Terms: <a href="/terms" target="_blank">/terms</a>.
-                  Privacy: <a href="/privacypolicy" target="_blank">/privacypolicy</a>.
+                  {{ previewWorkforceDisclosure }}
+                  Terms: <a :href="previewStepTermsUrl" target="_blank">{{ previewStepTermsUrl }}</a>.
+                  Privacy: <a :href="previewStepPrivacyUrl" target="_blank">{{ previewStepPrivacyUrl }}</a>.
                 </p>
                 <div class="radio-group">
                   <label class="radio-row">
                     <input v-model="previewCommunications.internalWorkforceOptIn" type="radio" value="yes" name="preview_internal_sms" />
-                    <span>Yes - I opt in to internal workforce / school staff SMS notifications</span>
+                    <span>{{ previewWorkforceYesLabel }}</span>
                   </label>
                   <label class="radio-row">
                     <input v-model="previewCommunications.internalWorkforceOptIn" type="radio" value="no" name="preview_internal_sms" />
-                    <span>No - Keep internal notifications off</span>
+                    <span>{{ previewWorkforceNoLabel }}</span>
                   </label>
                 </div>
               </section>
@@ -2465,6 +2464,138 @@ const previewCommunications = reactive({
   programUpdatesOptIn: 'yes',
   internalWorkforceOptIn: 'yes'
 });
+
+/** The step object being previewed via the per-step Preview button (null when using generic modal). */
+const previewingStep = ref(null);
+
+/** Opens the preview modal locked to a specific step, with its actual configuration. */
+const openStepPreview = (step) => {
+  previewingStep.value = step;
+  selectedAddOnPreviewId.value = step.type;
+  showAddOnPreviewModal.value = true;
+};
+
+/** Resolves the tenant name shown in the communications preview using the current form's org/agency. */
+const previewStepTenantName = computed(() => {
+  const org = organizations.value.find((o) => Number(o.id) === Number(form.organizationId || 0));
+  const orgName = String(org?.official_name || org?.name || '').trim();
+  const agency = agencyList.value[0];
+  const agencyName = agency ? String(agency.official_name || agency.name || '').trim() : '';
+  if (agencyName && orgName && agencyName !== orgName) return `${agencyName} and ${orgName}`;
+  return agencyName || orgName || 'Your Agency';
+});
+const previewStepTermsUrl = computed(() => previewingStep.value?.termsUrlOverride?.trim() || '/terms');
+const previewStepPrivacyUrl = computed(() => previewingStep.value?.privacyUrlOverride?.trim() || '/privacypolicy');
+
+// Campaign 1 — Scheduling (email + SMS)
+const previewEmailTitle = computed(() =>
+  previewingStep.value?.campaigns?.content?.scheduling?.emailTitle?.trim() || 'Email Communication Preference'
+);
+const previewEmailDisclosure = computed(() =>
+  previewingStep.value?.campaigns?.content?.scheduling?.emailDisclosure?.trim() ||
+  'Please choose what you would like to receive emails from us. If you opt in, we may email you about scheduling, appointment reminders, and—if selected—updates about mental health programs and services. Your email will never be shared or sold to third parties, and you may unsubscribe at any time.'
+);
+const previewEmailAllLabel = computed(() =>
+  previewingStep.value?.campaigns?.content?.scheduling?.emailAllLabel?.trim() ||
+  'Yes - Scheduling + all program communications'
+);
+const previewEmailSchedulingOnlyLabel = computed(() =>
+  previewingStep.value?.campaigns?.content?.scheduling?.emailSchedulingOnlyLabel?.trim() || 'Yes - Scheduling only'
+);
+const previewSmsTitle = computed(() =>
+  previewingStep.value?.campaigns?.content?.scheduling?.smsTitle?.trim() ||
+  'Text Message (SMS) Communication Preference'
+);
+const previewSmsDisclosure = computed(() => {
+  const override = previewingStep.value?.campaigns?.content?.scheduling?.smsDisclosure?.trim();
+  if (override) return override;
+  const n = previewStepTenantName.value;
+  return (
+    `${n} utilizes PlotTwistHQ, a platform by PlotTwistCo (PTCo), to facilitate appointment scheduling, reminders, and related communication. ` +
+    `All messages you receive are scheduled, coordinated, and established directly by ${n} — you will never receive any communications from PlotTwistCo (PTCo) directly. ` +
+    'Please select your preference for receiving text messages. If you opt in, you may receive messages related to scheduling and appointment reminders. ' +
+    'Message frequency varies; typically 7 days before and 24 hours before your appointment. You may be asked to reply with Yes or No regarding your attendance. ' +
+    'Message and data rates may apply. Reply STOP to unsubscribe. Reply HELP for help.'
+  );
+});
+const previewSmsYesLabel = computed(() =>
+  previewingStep.value?.campaigns?.content?.scheduling?.smsYesLabel?.trim() ||
+  'Yes - Scheduling and appointment reminders'
+);
+
+// Campaign 2 — Provider texting
+const previewProviderTextingTitle = computed(() =>
+  previewingStep.value?.campaigns?.content?.providerTexting?.title?.trim() || 'SMS With Your Provider/Care Team'
+);
+const previewProviderTextingIntro = computed(() =>
+  previewingStep.value?.campaigns?.content?.providerTexting?.disclosure?.trim() || null
+);
+const previewProviderTextingClosing = computed(() =>
+  previewingStep.value?.campaigns?.content?.providerTexting?.closingDisclosure?.trim() || null
+);
+const previewProviderTextingYesLabel = computed(() =>
+  previewingStep.value?.campaigns?.content?.providerTexting?.yesLabel?.trim() ||
+  'Yes - I opt in to provider/care-team texting and agree to the terms above'
+);
+const previewProviderTextingNoLabel = computed(() =>
+  previewingStep.value?.campaigns?.content?.providerTexting?.noLabel?.trim() || 'No - Keep provider texting off'
+);
+const previewShowProviderTexting = computed(() =>
+  !previewingStep.value || !!previewingStep.value.campaigns?.providerTexting
+);
+
+// Campaign 3 — Program updates
+const previewProgramUpdatesTitle = computed(() =>
+  previewingStep.value?.campaigns?.content?.programUpdates?.title?.trim() || 'Optional Program & Service Updates'
+);
+const previewProgramUpdatesDisclosure = computed(() => {
+  const override = previewingStep.value?.campaigns?.content?.programUpdates?.disclosure?.trim();
+  if (override) return override;
+  const n = previewStepTenantName.value;
+  return (
+    `If you choose Yes, ${n} may send optional SMS updates through PlotTwistHQ about this agency's programs and services ` +
+    '(for example, openings, enrollment options, and availability). You may also receive limited updates about relevant affiliate services. ' +
+    'Affiliates never receive access to your personal or clinical information through this update channel, and any affiliate program requires its own separate opt-in for communication and registration. ' +
+    'Message frequency varies (no more than twice per month). Message and data rates may apply. Reply STOP to unsubscribe. Reply HELP for help.'
+  );
+});
+const previewProgramUpdatesYesLabel = computed(() =>
+  previewingStep.value?.campaigns?.content?.programUpdates?.yesLabel?.trim() || 'Yes - I want optional updates'
+);
+const previewProgramUpdatesNoLabel = computed(() =>
+  previewingStep.value?.campaigns?.content?.programUpdates?.noLabel?.trim() || 'No - Keep optional updates off'
+);
+const previewShowProgramUpdates = computed(() =>
+  !previewingStep.value || !!previewingStep.value.campaigns?.programUpdates
+);
+
+// Campaign 4 — Internal workforce
+const previewWorkforceTitle = computed(() =>
+  previewingStep.value?.campaigns?.content?.internalWorkforce?.title?.trim() ||
+  'Internal Workforce + School Staff Notifications (Opt-In)'
+);
+const previewWorkforceDisclosure = computed(() => {
+  const override = previewingStep.value?.campaigns?.content?.internalWorkforce?.disclosure?.trim();
+  if (override) return override;
+  const n = previewStepTenantName.value;
+  return (
+    `By opting in, you agree to receive SMS/text messages from ${n} through PlotTwistHQ for operational notifications and reminders, ` +
+    'internal announcements, and optional polls/voting related to your participation on the platform. ' +
+    'Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help. ' +
+    'Support: 833-756-8894 ext. 701 | hq@plottwistco.com.'
+  );
+});
+const previewWorkforceYesLabel = computed(() =>
+  previewingStep.value?.campaigns?.content?.internalWorkforce?.yesLabel?.trim() ||
+  'Yes - I opt in to internal workforce / school staff SMS notifications'
+);
+const previewWorkforceNoLabel = computed(() =>
+  previewingStep.value?.campaigns?.content?.internalWorkforce?.noLabel?.trim() ||
+  'No - Keep internal notifications off'
+);
+const previewShowInternalWorkforce = computed(() =>
+  !previewingStep.value || !!previewingStep.value.campaigns?.internalWorkforce
+);
 const previewInsurance = ref({});
 const previewPayment = ref({});
 const previewGuardianWaivers = reactive({
@@ -2821,6 +2952,7 @@ const saveSelectionAsQuestionSet = async (step) => {
 };
 
 const openAddOnPreviewModal = () => {
+  previewingStep.value = null;
   selectedAddOnPreviewId.value = '';
   showAddOnPreviewModal.value = true;
 };
@@ -2828,6 +2960,7 @@ const openAddOnPreviewModal = () => {
 const closeAddOnPreviewModal = () => {
   showAddOnPreviewModal.value = false;
   selectedAddOnPreviewId.value = '';
+  previewingStep.value = null;
 };
 
 const openAddOnPreview = (id) => {
