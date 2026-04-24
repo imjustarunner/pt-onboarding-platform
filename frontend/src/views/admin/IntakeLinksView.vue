@@ -1002,34 +1002,119 @@
                       Auto uses the intake context. Job/onboarding-style links default to workforce wording.
                     </div>
                   </div>
+                  <!-- Campaign 1 — Scheduling -->
                   <div class="form-group" style="grid-column: 1 / -1;">
-                    <label class="checkbox">
-                      <input v-model="step.campaigns.scheduling" type="checkbox" />
-                      Include Campaign 1 — Appointment scheduling + reminders (required for A2P proof)
-                    </label>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <label class="checkbox" style="flex: 1; margin: 0;">
+                        <input v-model="step.campaigns.scheduling" type="checkbox" />
+                        Include Campaign 1 — Appointment scheduling + reminders (required for A2P proof)
+                      </label>
+                      <button type="button" class="btn btn-xs" style="white-space: nowrap; flex-shrink: 0;" @click="toggleCampaignExpanded(step.id, 'scheduling')">
+                        {{ isCampaignExpanded(step.id, 'scheduling') ? '▲ Collapse' : '✎ Customize' }}
+                      </button>
+                    </div>
+                    <div v-if="isCampaignExpanded(step.id, 'scheduling')" style="margin-top: 10px; padding: 12px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; display: grid; gap: 10px;">
+                      <div class="muted" style="font-size: 12px; margin-bottom: 2px;">Leave any field blank to use the default text. The agency/org name is inserted automatically.</div>
+                      <div><label style="font-size: 12px; font-weight: 600;">Email section title</label><input v-model="step.campaigns.content.scheduling.emailTitle" type="text" placeholder="Email Communication Preference" /></div>
+                      <div><label style="font-size: 12px; font-weight: 600;">Email disclosure text</label><textarea v-model="step.campaigns.content.scheduling.emailDisclosure" rows="3" placeholder="Please choose what you would like to receive emails from us..."></textarea></div>
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <div><label style="font-size: 12px; font-weight: 600;">"All" option label</label><input v-model="step.campaigns.content.scheduling.emailAllLabel" type="text" placeholder="Yes - Scheduling + all program communications" /></div>
+                        <div><label style="font-size: 12px; font-weight: 600;">"Scheduling only" option label</label><input v-model="step.campaigns.content.scheduling.emailSchedulingOnlyLabel" type="text" placeholder="Yes - Scheduling only" /></div>
+                      </div>
+                      <div><label style="font-size: 12px; font-weight: 600;">SMS section title</label><input v-model="step.campaigns.content.scheduling.smsTitle" type="text" placeholder="Text Message (SMS) Communication Preference" /></div>
+                      <div><label style="font-size: 12px; font-weight: 600;">SMS disclosure text</label><textarea v-model="step.campaigns.content.scheduling.smsDisclosure" rows="4" placeholder="[Agency name] utilizes PlotTwistHQ to facilitate appointment scheduling..."></textarea></div>
+                      <div><label style="font-size: 12px; font-weight: 600;">SMS "Yes" option label</label><input v-model="step.campaigns.content.scheduling.smsYesLabel" type="text" placeholder="Yes - Scheduling and appointment reminders" /></div>
+                    </div>
                   </div>
+
+                  <!-- Campaign 2 — Provider texting -->
                   <div class="form-group" style="grid-column: 1 / -1;">
-                    <label class="checkbox">
-                      <input v-model="step.campaigns.providerTexting" type="checkbox" />
-                      Include Campaign 2 — Provider ↔ client 1:1 conversational texting
-                    </label>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <label class="checkbox" style="flex: 1; margin: 0;">
+                        <input v-model="step.campaigns.providerTexting" type="checkbox" />
+                        Include Campaign 2 — Provider ↔ client 1:1 conversational texting
+                      </label>
+                      <button type="button" class="btn btn-xs" style="white-space: nowrap; flex-shrink: 0;" @click="toggleCampaignExpanded(step.id, 'providerTexting')">
+                        {{ isCampaignExpanded(step.id, 'providerTexting') ? '▲ Collapse' : '✎ Customize' }}
+                      </button>
+                    </div>
+                    <div v-if="isCampaignExpanded(step.id, 'providerTexting')" style="margin-top: 10px; padding: 12px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; display: grid; gap: 10px;">
+                      <div class="muted" style="font-size: 12px; margin-bottom: 2px;">Leave any field blank to use the default text. The structured terms list always appears unless you provide an intro override that replaces it.</div>
+                      <div><label style="font-size: 12px; font-weight: 600;">Section title</label><input v-model="step.campaigns.content.providerTexting.title" type="text" placeholder="SMS With Your Provider/Care Team" /></div>
+                      <div><label style="font-size: 12px; font-weight: 600;">Intro paragraph override</label><textarea v-model="step.campaigns.content.providerTexting.disclosure" rows="4" placeholder="If you choose Yes, you consent to receive service-related text messages through PlotTwistHQ from [Agency] and your provider/care team..."></textarea><div class="muted" style="font-size:11px; margin-top:3px;">Replaces the default intro paragraph. The standard terms list and closing language are still shown unless you override them below.</div></div>
+                      <div><label style="font-size: 12px; font-weight: 600;">Closing paragraph override (before Terms/Privacy links)</label><textarea v-model="step.campaigns.content.providerTexting.closingDisclosure" rows="3" placeholder="Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help..."></textarea></div>
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <div><label style="font-size: 12px; font-weight: 600;">"Yes" option label</label><input v-model="step.campaigns.content.providerTexting.yesLabel" type="text" placeholder="Yes - I opt in to provider/care-team texting and agree to the terms above" /></div>
+                        <div><label style="font-size: 12px; font-weight: 600;">"No" option label</label><input v-model="step.campaigns.content.providerTexting.noLabel" type="text" placeholder="No - Keep provider texting off" /></div>
+                      </div>
+                    </div>
                   </div>
+
+                  <!-- Campaign 3 — Program updates -->
                   <div class="form-group" style="grid-column: 1 / -1;">
-                    <label class="checkbox">
-                      <input v-model="step.campaigns.programUpdates" type="checkbox" />
-                      Include Campaign 3 — Program/service opportunities
-                    </label>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <label class="checkbox" style="flex: 1; margin: 0;">
+                        <input v-model="step.campaigns.programUpdates" type="checkbox" />
+                        Include Campaign 3 — Program/service opportunities
+                      </label>
+                      <button type="button" class="btn btn-xs" style="white-space: nowrap; flex-shrink: 0;" @click="toggleCampaignExpanded(step.id, 'programUpdates')">
+                        {{ isCampaignExpanded(step.id, 'programUpdates') ? '▲ Collapse' : '✎ Customize' }}
+                      </button>
+                    </div>
+                    <div v-if="isCampaignExpanded(step.id, 'programUpdates')" style="margin-top: 10px; padding: 12px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; display: grid; gap: 10px;">
+                      <div class="muted" style="font-size: 12px; margin-bottom: 2px;">Leave any field blank to use the default text.</div>
+                      <div><label style="font-size: 12px; font-weight: 600;">Section title</label><input v-model="step.campaigns.content.programUpdates.title" type="text" placeholder="Optional Program &amp; Service Updates" /></div>
+                      <div><label style="font-size: 12px; font-weight: 600;">Disclosure text</label><textarea v-model="step.campaigns.content.programUpdates.disclosure" rows="5" placeholder="If you choose Yes, [Agency] may send optional SMS updates through PlotTwistHQ about this agency's programs and services..."></textarea></div>
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <div><label style="font-size: 12px; font-weight: 600;">"Yes" option label</label><input v-model="step.campaigns.content.programUpdates.yesLabel" type="text" placeholder="Yes - I want optional updates" /></div>
+                        <div><label style="font-size: 12px; font-weight: 600;">"No" option label</label><input v-model="step.campaigns.content.programUpdates.noLabel" type="text" placeholder="No - Keep optional updates off" /></div>
+                      </div>
+                    </div>
                   </div>
+
+                  <!-- Campaign 4 — Internal workforce -->
                   <div class="form-group" style="grid-column: 1 / -1;">
-                    <label class="checkbox">
-                      <input v-model="step.campaigns.internalWorkforce" type="checkbox" />
-                      Include Campaign 4 — Internal workforce + school staff notifications
-                    </label>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <label class="checkbox" style="flex: 1; margin: 0;">
+                        <input v-model="step.campaigns.internalWorkforce" type="checkbox" />
+                        Include Campaign 4 — Internal workforce + school staff notifications
+                      </label>
+                      <button type="button" class="btn btn-xs" style="white-space: nowrap; flex-shrink: 0;" @click="toggleCampaignExpanded(step.id, 'internalWorkforce')">
+                        {{ isCampaignExpanded(step.id, 'internalWorkforce') ? '▲ Collapse' : '✎ Customize' }}
+                      </button>
+                    </div>
+                    <div v-if="isCampaignExpanded(step.id, 'internalWorkforce')" style="margin-top: 10px; padding: 12px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; display: grid; gap: 10px;">
+                      <div class="muted" style="font-size: 12px; margin-bottom: 2px;">Leave any field blank to use the default text.</div>
+                      <div><label style="font-size: 12px; font-weight: 600;">Section title</label><input v-model="step.campaigns.content.internalWorkforce.title" type="text" placeholder="Internal Workforce + School Staff Notifications (Opt-In)" /></div>
+                      <div><label style="font-size: 12px; font-weight: 600;">Disclosure text</label><textarea v-model="step.campaigns.content.internalWorkforce.disclosure" rows="4" placeholder="By opting in, you agree to receive SMS/text messages from [Agency] through PlotTwistHQ for operational notifications..."></textarea></div>
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <div><label style="font-size: 12px; font-weight: 600;">"Yes" option label</label><input v-model="step.campaigns.content.internalWorkforce.yesLabel" type="text" placeholder="Yes - I opt in to internal workforce / school staff SMS notifications" /></div>
+                        <div><label style="font-size: 12px; font-weight: 600;">"No" option label</label><input v-model="step.campaigns.content.internalWorkforce.noLabel" type="text" placeholder="No - Keep internal notifications off" /></div>
+                      </div>
+                    </div>
                   </div>
+
+                  <!-- Terms & Privacy link override -->
+                  <div class="form-group" style="grid-column: 1 / -1; padding: 12px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                    <strong style="display: block; margin-bottom: 6px; font-size: 13px;">Terms &amp; Privacy link override (this form only)</strong>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px;">
+                      <div>
+                        <label style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">Terms URL</label>
+                        <input v-model="step.termsUrlOverride" type="url" placeholder="/terms  (leave blank for platform default)" />
+                      </div>
+                      <div>
+                        <label style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">Privacy Policy URL</label>
+                        <input v-model="step.privacyUrlOverride" type="url" placeholder="/privacypolicy  (leave blank for platform default)" />
+                      </div>
+                    </div>
+                    <div class="muted" style="font-size: 12px; line-height: 1.45;">
+                      Override the Terms and Privacy Policy links shown in the consent language for this form only. Accepts full URLs (https://…) or relative paths (/terms). Leave blank to use the platform default.
+                    </div>
+                  </div>
+
                   <div class="form-group" style="grid-column: 1 / -1;">
                     <div class="muted" style="font-size: 13px; line-height: 1.45;">
-                      This step renders platform-standard consent language for SMS/email, including frequency, rates,
-                      STOP/HELP, and Terms/Privacy references.
+                      This step renders consent language for SMS/email, including frequency, rates, STOP/HELP, and Terms/Privacy references. Use the "Customize" buttons above to override any campaign's default text for this form.
                     </div>
                   </div>
                   <div v-if="registrationFlowAdmin" class="form-group" style="grid-column: 1 / -1;">
@@ -2203,6 +2288,15 @@ const autosaveTimer = ref(null);
 const lastAutosaveAt = ref(null);
 const showAddOnPreviewModal = ref(false);
 const selectedAddOnPreviewId = ref('');
+const campaignExpanded = ref({});
+/** True while hydrateCompanyEventPickerForEdit is running so the clearing watcher does not
+ * race-wipe form.companyEventId before the correct agency's options have loaded. */
+const isHydratingEdit = ref(false);
+const toggleCampaignExpanded = (stepId, key) => {
+  const k = `${stepId}_${key}`;
+  campaignExpanded.value[k] = !campaignExpanded.value[k];
+};
+const isCampaignExpanded = (stepId, key) => !!campaignExpanded.value[`${stepId}_${key}`];
 
 const form = reactive({
   title: '',
@@ -3023,7 +3117,9 @@ const hydrateCompanyEventPickerForEdit = async (companyEventId) => {
 };
 
 watch(registrationFlowAdmin, (on) => {
-  if (!on) return;
+  // Skip early fetch when editLink is in the middle of hydrating — hydrateCompanyEventPickerForEdit
+  // will load the correct agency's events after the flag clears.
+  if (!on || isHydratingEdit.value) return;
   if (!companyEventsPickerAgencyId.value && agencyList.value[0]?.id) {
     companyEventsPickerAgencyId.value = agencyList.value[0].id;
     void fetchCompanyEventsForPicker();
@@ -3035,9 +3131,10 @@ watch(
   () => {
     const currentEventId = Number(form.companyEventId || 0) || null;
     if (!currentEventId) return;
-    // While the picker is loading or has not fetched yet, do not clear — otherwise opening
-    // an existing link wipes `companyEventId` before options arrive (user sees selection "lost" after save).
-    if (companyEventsPickerLoading.value) return;
+    // Never clear during edit hydration — the correct agency's options may not have arrived yet.
+    // Vue watchers are async (next-tick flush), so companyEventsPickerLoading is already false
+    // by the time this callback runs; isHydratingEdit is the reliable guard instead.
+    if (isHydratingEdit.value) return;
     if (!companyEventsPickerOptions.value.length) return;
     // Check against ALL loaded options (not just the org-filtered subset) so that
     // agency-wide events (organization_id = null) are not incorrectly cleared when
@@ -3407,6 +3504,12 @@ const deleteLink = async (link) => {
 };
 
 const editLink = (link) => {
+  // Guard the clearing watcher from the moment we start mutating form fields.
+  // registrationFlowAdmin can become true mid-assignment (e.g. when intakeSteps are set),
+  // which would fire the registrationFlowAdmin watcher and kick off an early agency-events
+  // fetch before hydrateCompanyEventPickerForEdit picks the correct agency — that premature
+  // fetch resolves after the async flush and the clearing watcher wipes form.companyEventId.
+  isHydratingEdit.value = true;
   resetForm();
   editingId.value = link.id;
   form.title = link.title || '';
@@ -3490,9 +3593,14 @@ const editLink = (link) => {
   if (form.formType === 'job_application' && form.organizationId) {
     fetchJobDescriptions();
   }
-  void nextTick(() => {
-    if (registrationFlowAdmin.value) {
-      void hydrateCompanyEventPickerForEdit(link.company_event_id || null);
+  void nextTick(async () => {
+    try {
+      if (registrationFlowAdmin.value) {
+        await hydrateCompanyEventPickerForEdit(link.company_event_id || null);
+      }
+    } finally {
+      // Always clear — isHydratingEdit was set synchronously at the start of editLink.
+      isHydratingEdit.value = false;
     }
   });
 };
@@ -4291,12 +4399,25 @@ const sanitizeSteps = (steps, { formType } = {}) => {
         next.audience = ['auto', 'guardian_client', 'workforce', 'school_staff'].includes(String(next.audience || '').trim())
           ? String(next.audience).trim()
           : 'auto';
+        next.termsUrlOverride = String(next.termsUrlOverride || '').trim();
+        next.privacyUrlOverride = String(next.privacyUrlOverride || '').trim();
         const campaigns = next.campaigns && typeof next.campaigns === 'object' ? { ...next.campaigns } : {};
+        const prevContent = campaigns.content && typeof campaigns.content === 'object' ? campaigns.content : {};
+        const normCampaignContent = (key, fields) => {
+          const src = prevContent[key] && typeof prevContent[key] === 'object' ? prevContent[key] : {};
+          return Object.fromEntries(fields.map((f) => [f, String(src[f] || '').trim()]));
+        };
         next.campaigns = {
           scheduling: campaigns.scheduling !== false,
           providerTexting: !!campaigns.providerTexting,
           programUpdates: !!campaigns.programUpdates,
-          internalWorkforce: !!campaigns.internalWorkforce
+          internalWorkforce: !!campaigns.internalWorkforce,
+          content: {
+            scheduling: normCampaignContent('scheduling', ['emailTitle', 'emailDisclosure', 'emailAllLabel', 'emailSchedulingOnlyLabel', 'smsTitle', 'smsDisclosure', 'smsYesLabel']),
+            providerTexting: normCampaignContent('providerTexting', ['title', 'disclosure', 'closingDisclosure', 'yesLabel', 'noLabel']),
+            programUpdates: normCampaignContent('programUpdates', ['title', 'disclosure', 'yesLabel', 'noLabel']),
+            internalWorkforce: normCampaignContent('internalWorkforce', ['title', 'disclosure', 'yesLabel', 'noLabel'])
+          }
         };
       } else if (next.type === 'insurance_info') {
         next.label = String(next.label || '').trim() || 'Insurance information';
@@ -4432,11 +4553,19 @@ const addStep = (type, options = {}) => {
     step.label = 'Communication preferences';
     step.visibility = 'always';
     step.audience = 'auto';
+    step.termsUrlOverride = '';
+    step.privacyUrlOverride = '';
     step.campaigns = {
       scheduling: true,
       providerTexting: false,
       programUpdates: false,
-      internalWorkforce: false
+      internalWorkforce: false,
+      content: {
+        scheduling: { emailTitle: '', emailDisclosure: '', emailAllLabel: '', emailSchedulingOnlyLabel: '', smsTitle: '', smsDisclosure: '', smsYesLabel: '' },
+        providerTexting: { title: '', disclosure: '', closingDisclosure: '', yesLabel: '', noLabel: '' },
+        programUpdates: { title: '', disclosure: '', yesLabel: '', noLabel: '' },
+        internalWorkforce: { title: '', disclosure: '', yesLabel: '', noLabel: '' }
+      }
     };
   } else if (type === 'demographics') {
     step.label = 'Demographics';

@@ -917,38 +917,42 @@
           </section>
 
           <section v-if="currentFlowStep?.campaigns?.providerTexting" class="communications-campaign-card">
-            <h4>{{ tx('SMS With Your Provider/Care Team') }} <span class="required-indicator">*</span></h4>
-            <p class="communications-disclosure">
-              If you choose Yes, you consent to receive service-related text messages through PlotTwistHQ from
-              {{ communicationsTenantName }} and, when applicable, your provider/care team (for example,
-              follow-up, coordination, and service-related responses). These messages are HIPAA-protected and
-              associated with your care relationship at {{ communicationsTenantName }}.
+            <h4>{{ communicationsProviderTextingTitle }} <span class="required-indicator">*</span></h4>
+            <!-- Custom intro override replaces the default intro paragraph -->
+            <p v-if="communicationsProviderTextingIntro" class="communications-disclosure">
+              {{ communicationsProviderTextingIntro }}
             </p>
+            <template v-else>
+              <p class="communications-disclosure">
+                If you choose Yes, you consent to receive service-related text messages through PlotTwistHQ from
+                {{ communicationsTenantName }} and, when applicable, your provider/care team (for example,
+                follow-up, coordination, and service-related responses). These messages are HIPAA-protected and
+                associated with your care relationship at {{ communicationsTenantName }}.
+              </p>
+              <p class="communications-disclosure" style="margin-top: 8px;">
+                By selecting <strong>Yes</strong> and opting in, you understand and agree to the following:
+              </p>
+              <ol class="communications-provider-terms">
+                <li>These messages may be viewed by the care team associated with your provider.</li>
+                <li>Your provider and our care team are <strong>not</strong> available for emergencies, and these messages are not monitored in real time. In case of emergency, call 911.</li>
+                <li>Your provider will not receive messages outside of their working hours. All messages are confidentially stored within the platform.</li>
+                <li>PlotTwistHQ is not responsible for, nor independently aware of, the content of direct communications between you and your provider.</li>
+                <li>You agree not to share confidential third-party information in these messages, and understand that this communication channel does <strong>not</strong> replace nor constitute clinical care or a therapeutic relationship.</li>
+              </ol>
+            </template>
             <p class="communications-disclosure" style="margin-top: 8px;">
-              By selecting <strong>Yes</strong> and opting in, you understand and agree to the following:
-            </p>
-            <ol class="communications-provider-terms">
-              <li>These messages may be viewed by the care team associated with your provider.</li>
-              <li>Your provider and our care team are <strong>not</strong> available for emergencies, and these messages are not monitored in real time. In case of emergency, call 911.</li>
-              <li>Your provider will not receive messages outside of their working hours. All messages are confidentially stored within the platform.</li>
-              <li>PlotTwistHQ is not responsible for, nor independently aware of, the content of direct communications between you and your provider.</li>
-              <li>You agree not to share confidential third-party information in these messages, and understand that this communication channel does <strong>not</strong> replace nor constitute clinical care or a therapeutic relationship.</li>
-            </ol>
-            <p class="communications-disclosure" style="margin-top: 8px;">
-              Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
-              Appointment reminders/confirmations are not sent from individual provider numbers.
-              Additional terms apply —
-              Terms: <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
-              Privacy: <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
+              {{ communicationsProviderTextingClosing || (tx('Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help. Appointment reminders/confirmations are not sent from individual provider numbers. Additional terms apply —')) }}
+              {{ tx('Terms:') }} <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
+              {{ tx('Privacy:') }} <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
             </p>
             <div class="radio-group">
               <label class="radio-row">
                 <input type="radio" name="communications_provider_sms" value="yes" v-model="communications.providerTextingOptIn" />
-                <span>{{ tx('Yes - I opt in to provider/care-team texting and agree to the terms above') }}</span>
+                <span>{{ communicationsProviderTextingYesLabel }}</span>
               </label>
               <label class="radio-row">
                 <input type="radio" name="communications_provider_sms" value="no" v-model="communications.providerTextingOptIn" />
-                <span>{{ tx('No - Keep provider texting off') }}</span>
+                <span>{{ communicationsProviderTextingNoLabel }}</span>
               </label>
             </div>
             <p class="communications-disclosure communications-opt-out-note" style="margin-top: 10px;">
@@ -960,39 +964,41 @@
 
 
           <section v-if="currentFlowStep?.campaigns?.programUpdates" class="communications-campaign-card">
-            <h4>{{ tx('Optional Program & Service Updates') }} <span class="required-indicator">*</span></h4>
+            <h4>{{ communicationsProgramUpdatesTitle }} <span class="required-indicator">*</span></h4>
             <p class="communications-disclosure">
-              {{ tx('If you choose Yes,') }} {{ communicationsTenantName }} {{ tx('may send optional SMS updates through PlotTwistHQ about this agency\'s programs and services (for example, openings, enrollment options, and availability). You may also receive limited updates about relevant affiliate services. Affiliates never receive access to your personal or clinical information through this update channel, and any affiliate program requires its own separate opt-in for communication and registration. Message frequency is no greater than twice per month. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.') }}
+              <template v-if="communicationsProgramUpdatesDisclosure">{{ communicationsProgramUpdatesDisclosure }}</template>
+              <template v-else>{{ tx('If you choose Yes,') }} {{ communicationsTenantName }} {{ tx('may send optional SMS updates through PlotTwistHQ about this agency\'s programs and services (for example, openings, enrollment options, and availability). You may also receive limited updates about relevant affiliate services. Affiliates never receive access to your personal or clinical information through this update channel, and any affiliate program requires its own separate opt-in for communication and registration. Message frequency is no greater than twice per month. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.') }}</template>
               {{ tx('Terms:') }} <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
               {{ tx('Privacy:') }} <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
             </p>
             <div class="radio-group">
               <label class="radio-row">
                 <input type="radio" name="communications_program_sms" value="yes" v-model="communications.programUpdatesOptIn" />
-                <span>{{ tx('Yes - I want optional updates') }}</span>
+                <span>{{ communicationsProgramUpdatesYesLabel }}</span>
               </label>
               <label class="radio-row">
                 <input type="radio" name="communications_program_sms" value="no" v-model="communications.programUpdatesOptIn" />
-                <span>{{ tx('No - Keep optional updates off') }}</span>
+                <span>{{ communicationsProgramUpdatesNoLabel }}</span>
               </label>
             </div>
           </section>
 
           <section v-if="currentFlowStep?.campaigns?.internalWorkforce" class="communications-campaign-card">
-            <h4>{{ tx('Internal Workforce + School Staff Notifications (Opt-In)') }} <span class="required-indicator">*</span></h4>
+            <h4>{{ communicationsWorkforceTitle }} <span class="required-indicator">*</span></h4>
             <p class="communications-disclosure">
-              {{ tx('By opting in, you agree to receive SMS/text messages from') }} {{ communicationsTenantName }} {{ tx('through PlotTwistHQ for operational notifications and reminders, internal announcements, and optional polls/voting related to your participation on the platform. Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help. Support: 833-756-8894 ext. 701 | hq@plottwistco.com.') }}
+              <template v-if="communicationsWorkforceDisclosure">{{ communicationsWorkforceDisclosure }}</template>
+              <template v-else>{{ tx('By opting in, you agree to receive SMS/text messages from') }} {{ communicationsTenantName }} {{ tx('through PlotTwistHQ for operational notifications and reminders, internal announcements, and optional polls/voting related to your participation on the platform. Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help. Support: 833-756-8894 ext. 701 | hq@plottwistco.com.') }}</template>
               {{ tx('Terms:') }} <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
               {{ tx('Privacy:') }} <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
             </p>
             <div class="radio-group">
               <label class="radio-row">
                 <input type="radio" name="communications_workforce_sms" value="yes" v-model="communications.internalWorkforceOptIn" />
-                <span>{{ tx('Yes - I opt in to internal workforce / school staff SMS notifications') }}</span>
+                <span>{{ communicationsWorkforceYesLabel }}</span>
               </label>
               <label class="radio-row">
                 <input type="radio" name="communications_workforce_sms" value="no" v-model="communications.internalWorkforceOptIn" />
-                <span>{{ tx('No - Keep internal notifications off') }}</span>
+                <span>{{ communicationsWorkforceNoLabel }}</span>
               </label>
             </div>
           </section>
@@ -2284,8 +2290,8 @@ const clinicalFieldGroups = computed(() => {
     fields: g.fields
   }));
 });
-const platformTermsUrl = '/terms';
-const platformPrivacyUrl = '/privacypolicy';
+const platformTermsUrl = computed(() => currentFlowStep.value?.termsUrlOverride?.trim() || '/terms');
+const platformPrivacyUrl = computed(() => currentFlowStep.value?.privacyUrlOverride?.trim() || '/privacypolicy');
 const communicationsAudience = computed(() => {
   const explicit = String(currentFlowStep.value?.audience || '').trim().toLowerCase();
   if (['guardian_client', 'workforce', 'school_staff'].includes(explicit)) return explicit;
@@ -2300,41 +2306,100 @@ const communicationsIntroText = computed(() =>
     ? 'Choose how you would like to receive operational communications. You can update these preferences at any time.'
     : 'Choose how you would like to receive platform communications. You can update these preferences at any time.'
 );
-const communicationsEmailTitle = computed(() =>
-  isWorkforceAudience.value ? 'Email Notifications Preference' : 'Email Communication Preference'
-);
-const communicationsSmsTitle = computed(() => 'Text Message (SMS) Communication Preference');
-const communicationsEmailDisclosure = computed(() =>
-  isWorkforceAudience.value
+const communicationsEmailTitle = computed(() => {
+  const override = currentFlowStep.value?.campaigns?.content?.scheduling?.emailTitle?.trim();
+  if (override) return override;
+  return isWorkforceAudience.value ? 'Email Notifications Preference' : 'Email Communication Preference';
+});
+const communicationsSmsTitle = computed(() => {
+  const override = currentFlowStep.value?.campaigns?.content?.scheduling?.smsTitle?.trim();
+  return override || 'Text Message (SMS) Communication Preference';
+});
+const communicationsEmailDisclosure = computed(() => {
+  const override = currentFlowStep.value?.campaigns?.content?.scheduling?.emailDisclosure?.trim();
+  if (override) return override;
+  return isWorkforceAudience.value
     ? 'Please choose what you would like to receive by email from us. If you opt in, we may email you about operational scheduling, internal announcements, and optional platform participation updates. Your email will never be shared or sold to third parties, and you may unsubscribe at any time.'
-    : 'Please choose what you would like to receive emails from us. If you opt in, we may email you about scheduling, appointment reminders, and-if selected-updates about mental health programs and services. Your email will never be shared or sold to third parties, and you may unsubscribe at any time.'
-);
-const communicationsTenantName = computed(() =>
-  String(
-    agencyInfo.value?.official_name ||
-      agencyInfo.value?.name ||
-      organizationInfo.value?.official_name ||
-      organizationInfo.value?.name ||
-      'This agency'
-  ).trim() || 'This agency'
-);
-const communicationsSmsDisclosure = computed(
-  () =>
+    : 'Please choose what you would like to receive emails from us. If you opt in, we may email you about scheduling, appointment reminders, and-if selected-updates about mental health programs and services. Your email will never be shared or sold to third parties, and you may unsubscribe at any time.';
+});
+const communicationsTenantName = computed(() => {
+  const agencyName = (agencyInfo.value?.official_name || agencyInfo.value?.name || '').trim();
+  const orgName = (organizationInfo.value?.official_name || organizationInfo.value?.name || '').trim();
+  if (agencyName && orgName && agencyName !== orgName) return `${agencyName} and ${orgName}`;
+  return agencyName || orgName || 'This agency';
+});
+const communicationsSmsDisclosure = computed(() => {
+  const override = currentFlowStep.value?.campaigns?.content?.scheduling?.smsDisclosure?.trim();
+  if (override) return override;
+  return (
     `${communicationsTenantName.value} utilizes PlotTwistHQ, a platform by PlotTwistCo (PTCo), to facilitate appointment scheduling, reminders, and related communication. ` +
     `All messages you receive are scheduled, coordinated, and established directly by ${communicationsTenantName.value} — you will never receive any communications from PlotTwistCo (PTCo) directly. ` +
     'Please select your preference for receiving text messages. If you opt in, you may receive messages related to scheduling and appointment reminders. ' +
     'The default frequency is 7 days before and 24 hours before your appointment. You may be asked to reply with Yes or No regarding your attendance. ' +
     'Message and data rates may apply. Reply STOP to opt out at any time and HELP for assistance.'
-);
-const communicationsEmailAllLabel = computed(() =>
-  isWorkforceAudience.value
+  );
+});
+const communicationsEmailAllLabel = computed(() => {
+  const override = currentFlowStep.value?.campaigns?.content?.scheduling?.emailAllLabel?.trim();
+  if (override) return override;
+  return isWorkforceAudience.value
     ? 'Yes - Operational scheduling + internal announcements'
-    : 'Yes - Scheduling + all program communications'
+    : 'Yes - Scheduling + all program communications';
+});
+const communicationsEmailSchedulingOnlyLabel = computed(() => {
+  const override = currentFlowStep.value?.campaigns?.content?.scheduling?.emailSchedulingOnlyLabel?.trim();
+  return override || 'Yes - Scheduling only';
+});
+const communicationsSmsYesLabel = computed(() => {
+  const override = currentFlowStep.value?.campaigns?.content?.scheduling?.smsYesLabel?.trim();
+  return override || 'Yes - Scheduling and appointment reminders';
+});
+// Campaign 2 — Provider/care-team texting
+const communicationsProviderTextingTitle = computed(() =>
+  currentFlowStep.value?.campaigns?.content?.providerTexting?.title?.trim() || tx('SMS With Your Provider/Care Team')
 );
-const communicationsEmailSchedulingOnlyLabel = computed(() =>
-  isWorkforceAudience.value ? 'Yes - Scheduling only' : 'Yes - Scheduling only'
+const communicationsProviderTextingIntro = computed(() =>
+  currentFlowStep.value?.campaigns?.content?.providerTexting?.disclosure?.trim() || null
 );
-const communicationsSmsYesLabel = computed(() => 'Yes - Scheduling and appointment reminders');
+const communicationsProviderTextingClosing = computed(() =>
+  currentFlowStep.value?.campaigns?.content?.providerTexting?.closingDisclosure?.trim() || null
+);
+const communicationsProviderTextingYesLabel = computed(() =>
+  currentFlowStep.value?.campaigns?.content?.providerTexting?.yesLabel?.trim() ||
+  tx('Yes - I opt in to provider/care-team texting and agree to the terms above')
+);
+const communicationsProviderTextingNoLabel = computed(() =>
+  currentFlowStep.value?.campaigns?.content?.providerTexting?.noLabel?.trim() || tx('No - Keep provider texting off')
+);
+// Campaign 3 — Program updates
+const communicationsProgramUpdatesTitle = computed(() =>
+  currentFlowStep.value?.campaigns?.content?.programUpdates?.title?.trim() || tx('Optional Program & Service Updates')
+);
+const communicationsProgramUpdatesDisclosure = computed(() =>
+  currentFlowStep.value?.campaigns?.content?.programUpdates?.disclosure?.trim() || null
+);
+const communicationsProgramUpdatesYesLabel = computed(() =>
+  currentFlowStep.value?.campaigns?.content?.programUpdates?.yesLabel?.trim() || tx('Yes - I want optional updates')
+);
+const communicationsProgramUpdatesNoLabel = computed(() =>
+  currentFlowStep.value?.campaigns?.content?.programUpdates?.noLabel?.trim() || tx('No - Keep optional updates off')
+);
+// Campaign 4 — Internal workforce
+const communicationsWorkforceTitle = computed(() =>
+  currentFlowStep.value?.campaigns?.content?.internalWorkforce?.title?.trim() ||
+  tx('Internal Workforce + School Staff Notifications (Opt-In)')
+);
+const communicationsWorkforceDisclosure = computed(() =>
+  currentFlowStep.value?.campaigns?.content?.internalWorkforce?.disclosure?.trim() || null
+);
+const communicationsWorkforceYesLabel = computed(() =>
+  currentFlowStep.value?.campaigns?.content?.internalWorkforce?.yesLabel?.trim() ||
+  tx('Yes - I opt in to internal workforce / school staff SMS notifications')
+);
+const communicationsWorkforceNoLabel = computed(() =>
+  currentFlowStep.value?.campaigns?.content?.internalWorkforce?.noLabel?.trim() ||
+  tx('No - Keep internal notifications off')
+);
 const templates = ref([]);
 const agencyInfo = ref(null);
 const organizationInfo = ref(null);
@@ -5403,8 +5468,8 @@ const completeCommunicationsStep = () => {
     providerTextingOptIn: step?.campaigns?.providerTexting ? communications.providerTextingOptIn : null,
     programUpdatesOptIn: step?.campaigns?.programUpdates ? communications.programUpdatesOptIn : null,
     internalWorkforceOptIn: step?.campaigns?.internalWorkforce ? communications.internalWorkforceOptIn : null,
-    termsUrl: platformTermsUrl,
-    privacyUrl: platformPrivacyUrl
+    termsUrl: platformTermsUrl.value,
+    privacyUrl: platformPrivacyUrl.value
   };
   stepError.value = '';
   void nextFlowStep();
