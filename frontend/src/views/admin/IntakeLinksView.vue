@@ -829,9 +829,10 @@
                             type="button"
                             class="document-step-option"
                             :class="{ selected: step.templateId === t.id }"
+                            :title="getDocumentStepTooltip(t)"
                             @click="selectDocumentTemplate(step, t.id)"
                           >
-                            {{ t.name }} ({{ t.document_action_type }})
+                            {{ t.name }} <span class="doc-step-meta">({{ t.document_action_type }} · v{{ t.version ?? '?' }} · {{ t.document_type || t.template_type }})</span>
                           </button>
                         </div>
                       </div>
@@ -4343,9 +4344,19 @@ const scopeFilteredTemplates = computed(() => {
 
 const documentStepTemplates = computed(() => {
   const list = scopeFilteredTemplates.value;
-  const sorted = list.filter((t) => t && t.id);
-  sorted.sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { sensitivity: 'base' }));
-  return sorted;
+  // Keep only the latest version per logical document (name + agency + org)
+  const latestMap = new Map();
+  for (const t of list) {
+    if (!t || !t.id) continue;
+    const key = `${t.name}||${t.agency_id ?? 'null'}||${t.organization_id ?? 'null'}`;
+    const existing = latestMap.get(key);
+    if (!existing || (t.version ?? 0) > (existing.version ?? 0)) {
+      latestMap.set(key, t);
+    }
+  }
+  const deduped = Array.from(latestMap.values());
+  deduped.sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { sensitivity: 'base' }));
+  return deduped;
 });
 
 const filteredDocumentStepTemplates = computed(() => {
@@ -4354,6 +4365,22 @@ const filteredDocumentStepTemplates = computed(() => {
   if (!q) return list;
   return list.filter((t) => String(t?.name || '').toLowerCase().includes(q));
 });
+
+const getDocumentStepTooltip = (t) => {
+  if (!t) return '';
+  const agency = organizations.value.find((o) => Number(o.id) === Number(t.agency_id));
+  const agencyName = agency ? String(agency.official_name || agency.name || '') : (t.agency_id ? `Agency #${t.agency_id}` : 'Platform');
+  const lines = [
+    `Agency: ${agencyName}`,
+    `Type: ${t.document_type || '—'}`,
+    `Format: ${t.template_type || '—'}`,
+    `Action: ${t.document_action_type || '—'}`,
+    `Version: ${t.version ?? '—'}`,
+  ];
+  if (t.description) lines.push(`Description: ${t.description}`);
+  return lines.join('\n');
+};
+
 const schoolRoiStepTemplates = computed(() =>
   documentStepTemplates.value.filter((t) => String(t?.document_type || '').trim().toLowerCase() === 'school_roi')
 );
@@ -6068,6 +6095,11 @@ watch(
 .document-step-option.selected {
   background: rgba(37, 99, 235, 0.1);
   color: var(--primary, #2563eb);
+}
+.doc-step-meta {
+  font-size: 11px;
+  opacity: 0.55;
+  margin-left: 4px;
 }
 
 /* Question Sets panel */

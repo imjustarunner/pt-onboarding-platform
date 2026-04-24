@@ -673,7 +673,44 @@ class DocumentTemplate {
         console.error('Error deactivating old version:', err);
         // Don't fail the operation if deactivation fails
       }
-      
+
+      // Re-point all onboarding packages that reference the old template ID to the new one
+      try {
+        await pool.execute(
+          'UPDATE onboarding_package_documents SET document_template_id = ? WHERE document_template_id = ?',
+          [newVersion.id, id]
+        );
+        console.log('Updated onboarding_package_documents to new version:', newVersion.id);
+      } catch (err) {
+        console.error('Error updating onboarding_package_documents:', err);
+      }
+
+      // Re-point intake links whose allowed_document_template_ids JSON contains the old template ID
+      try {
+        const [intakeRows] = await pool.execute(
+          'SELECT id, allowed_document_template_ids FROM intake_links WHERE allowed_document_template_ids IS NOT NULL'
+        );
+        for (const row of intakeRows) {
+          let ids;
+          try {
+            ids = typeof row.allowed_document_template_ids === 'string'
+              ? JSON.parse(row.allowed_document_template_ids)
+              : row.allowed_document_template_ids;
+          } catch {
+            continue;
+          }
+          if (!Array.isArray(ids) || !ids.includes(id)) continue;
+          const updated = ids.map(tid => (tid === id ? newVersion.id : tid));
+          await pool.execute(
+            'UPDATE intake_links SET allowed_document_template_ids = ? WHERE id = ?',
+            [JSON.stringify(updated), row.id]
+          );
+          console.log(`Updated intake_link ${row.id} to reference new template ${newVersion.id}`);
+        }
+      } catch (err) {
+        console.error('Error updating intake_links:', err);
+      }
+
       return newVersion;
     }
 

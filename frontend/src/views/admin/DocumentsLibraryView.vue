@@ -702,6 +702,18 @@ const getFilteredTemplates = () => {
   // Status filter is handled by backend, so we don't need to filter client-side
   // The backend will return the correct filtered results based on statusFilter
 
+  // Deduplicate: keep only the latest version (highest `version` number) per logical document
+  // grouped by name + agency_id + organization_id so old versions don't clutter the library.
+  const latestMap = new Map();
+  for (const t of filtered) {
+    const key = `${t.name}||${t.agency_id ?? 'null'}||${t.organization_id ?? 'null'}`;
+    const existing = latestMap.get(key);
+    if (!existing || (t.version ?? 0) > (existing.version ?? 0)) {
+      latestMap.set(key, t);
+    }
+  }
+  filtered = Array.from(latestMap.values());
+
   return filtered;
 };
 
