@@ -6,7 +6,17 @@
         <h1 class="fav-title">Facilitator Availability</h1>
         <p class="fav-subtitle">Create availability requests, push them to your team, and review responses.</p>
       </div>
-      <button class="btn btn-primary" type="button" @click="openCreate">+ New Request</button>
+      <div class="fav-header-right">
+        <!-- Agency selector for super admins or multi-agency users -->
+        <div v-if="showAgencySelector" class="fav-agency-selector">
+          <label class="fav-agency-label">Agency</label>
+          <select v-model="selectedAgencyId" class="fav-agency-select">
+            <option v-if="!selectedAgencyId" value="" disabled>— select an agency —</option>
+            <option v-for="a in agencyList" :key="a.id" :value="a.id">{{ a.name }}</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" type="button" :disabled="!agencyId" @click="openCreate">+ New Request</button>
+      </div>
     </div>
 
     <!-- ── List of requests ──────────────────────────────────── -->
@@ -331,12 +341,36 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import { useAuthStore } from '../../store/auth';
 
 const agencyStore = useAgencyStore();
-const agencyId = computed(() => agencyStore.currentAgency?.id);
+const authStore = useAuthStore();
+
+const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
+
+// Agency list for the selector: super admins see all agencies; others see their own.
+const agencyList = computed(() => {
+  const all = isSuperAdmin.value ? agencyStore.agencies : agencyStore.userAgencies;
+  return (Array.isArray(all) ? all : []).filter((a) => a?.id && a?.name);
+});
+
+// Local selected agency — defaults to currentAgency, falls back to first available.
+const selectedAgencyId = ref(agencyStore.currentAgency?.id ?? null);
+
+// Keep in sync when the store's currentAgency changes externally (tenant switcher).
+watch(() => agencyStore.currentAgency?.id, (newId) => {
+  if (newId && newId !== selectedAgencyId.value) selectedAgencyId.value = newId;
+});
+
+// Show the selector whenever there's more than one agency to choose from.
+const showAgencySelector = computed(() => agencyList.value.length > 1 || isSuperAdmin.value);
+
+const selectedAgency = computed(() => agencyList.value.find((a) => Number(a.id) === Number(selectedAgencyId.value)) || null);
+
+const agencyId = computed(() => selectedAgencyId.value || null);
 const agencyBase = computed(() => `/agencies/${agencyId.value}/facilitator-availability`);
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -687,7 +721,29 @@ const pushRequest = async () => {
   }
 };
 
-onMounted(loadRequests);
+// When the admin selects a different agency, reload everything.
+watch(selectedAgencyId, (newId, oldId) => {
+  if (newId && newId !== oldId) {
+    requests.value = [];
+    agencyEvents.value = [];
+    loadRequests();
+  }
+});
+
+onMounted(async () => {
+  // Ensure agency list is populated for the selector.
+  if (isSuperAdmin.value && !agencyStore.agencies.length) {
+    await agencyStore.fetchAgencies();
+  } else if (!agencyStore.userAgencies.length) {
+    await agencyStore.fetchUserAgencies();
+  }
+  // If nothing is selected yet but a list is now available, pick the first.
+  if (!selectedAgencyId.value) {
+    const list = isSuperAdmin.value ? agencyStore.agencies : agencyStore.userAgencies;
+    if (list.length) selectedAgencyId.value = list[0].id;
+  }
+  loadRequests();
+});
 </script>
 
 <style scoped>
@@ -819,4 +875,20 @@ onMounted(loadRequests);
 .fav-avail--available { background: #dcfce7; color: #166534; }
 .fav-avail--waitlist { background: #fef9c3; color: #854d0e; }
 .fav-avail--unavailable { background: #f1f5f9; color: #64748b; }
+
+/* Agency selector */
+.fav-header-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.fav-agency-selector { display: flex; align-items: center; gap: 8px; }
+.fav-agency-label { font-size: .82rem; font-weight: 600; color: #475569; white-space: nowrap; }
+.fav-agency-select {
+  font-size: .88rem;
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #0f172a;
+  cursor: pointer;
+  min-width: 180px;
+}
+.fav-agency-select:focus { outline: 2px solid #6366f1; outline-offset: 1px; }
 </style>
