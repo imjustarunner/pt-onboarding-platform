@@ -102,8 +102,10 @@
                 <input type="checkbox" :checked="isEventSelected(ev.id)" @change="toggleEvent(ev)" />
                 <span>
                   <strong>{{ ev.title }}</strong>
+                  <span v-if="ev.agency_name" class="fav-event-agency">{{ ev.agency_name }}</span>
                   <span class="fav-meta-item">{{ fmtDate(ev.event_date) }}<template v-if="ev.end_date"> – {{ fmtDate(ev.end_date) }}</template></span>
                   <span class="fav-meta-item">{{ ev.session_date_count }} session date(s)</span>
+                  <span v-if="ev.event_type" class="fav-meta-item fav-event-type">{{ ev.event_type.replace(/_/g, ' ') }}</span>
                 </span>
               </label>
 
@@ -133,7 +135,7 @@
             </div>
 
             <div v-if="!agencyEvents.length" class="fav-hint">
-              No program events found for this agency. Create company events first.
+              No program events found for this agency or its sub-organizations.
             </div>
           </div>
         </div>
@@ -849,6 +851,8 @@ onMounted(async () => {
 
 .fav-section-head { font-weight: 700; font-size: .95rem; color: #0f172a; border-bottom: 1px solid #f1f5f9; padding-bottom: 6px; margin-top: 4px; }
 
+.fav-event-agency { display: inline-block; font-size: .72rem; font-weight: 600; background: #ede9fe; color: #5b21b6; border-radius: 999px; padding: 1px 8px; margin-left: 6px; vertical-align: middle; }
+.fav-event-type { font-style: italic; }
 .fav-event-row { border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; margin-bottom: 8px; transition: border-color .15s; }
 .fav-event-row--selected { border-color: #3b82f6; background: #f0f7ff; }
 .fav-event-check { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }

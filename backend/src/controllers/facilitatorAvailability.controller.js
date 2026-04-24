@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import Notification from '../models/Notification.model.js';
+import { listAgencyIdsInTenantTree } from '../utils/meDashboardTenantScope.js';
 
 const parseId = (raw) => {
   const n = Number.parseInt(String(raw ?? ''), 10);
@@ -1005,15 +1006,23 @@ export const listAgencyEvents = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agency id' } });
     if (!(await canManage(req, agencyId))) return res.status(403).json({ error: { message: 'Access denied' } });
 
+    // Include events from the full tenant tree (parent + all child agencies) so that
+    // program events stored under a sub-agency are visible when selecting the parent.
+    const tenantIds = await listAgencyIdsInTenantTree(agencyId);
+    const ids = tenantIds.length ? tenantIds : [agencyId];
+    const ph = ids.map(() => '?').join(',');
+
     const [rows] = await pool.execute(
       `SELECT ce.id, ce.title, ce.event_date, ce.end_date, ce.event_type,
+              a.name AS agency_name,
               COUNT(csd.id) AS session_date_count
        FROM company_events ce
+       JOIN agencies a ON a.id = ce.agency_id
        LEFT JOIN company_event_session_dates csd ON csd.company_event_id = ce.id
-       WHERE ce.agency_id = ?
+       WHERE ce.agency_id IN (${ph})
        GROUP BY ce.id
        ORDER BY ce.event_date DESC`,
-      [agencyId]
+      ids
     );
     res.json(rows);
   } catch (err) {
