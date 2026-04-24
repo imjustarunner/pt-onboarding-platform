@@ -421,6 +421,59 @@ export const getRequestForEmployee = async (req, res, next) => {
       [requestId]
     );
 
+    // Pre-fetch slot data so each date can show open/filled counts to the employee.
+    const allEventIds = reqEvents.map((re) => re.company_event_id);
+    const slotMap = {}; // session_date_id → { effectiveSlots, filledSlots, openSlots }
+
+    if (allEventIds.length) {
+      const ph = allEventIds.map(() => '?').join(',');
+
+      const [groupCounts] = await pool.execute(
+        `SELECT cesd.id AS session_date_id,
+                COUNT(DISTINCT cesg.id) AS group_count,
+                COUNT(DISTINCT cecga.client_id) AS participant_count
+         FROM company_event_session_dates cesd
+         LEFT JOIN company_event_session_groups cesg ON cesg.session_date_id = cesd.id
+         LEFT JOIN company_event_client_group_assignments cecga ON cecga.session_group_id = cesg.id
+         WHERE cesd.company_event_id IN (${ph})
+         GROUP BY cesd.id`,
+        allEventIds
+      );
+
+      const [overrides] = await pool.execute(
+        `SELECT faso.session_date_id, faso.slot_count
+         FROM facilitator_availability_slot_overrides faso
+         JOIN facilitator_availability_request_events fare
+           ON fare.company_event_id = faso.company_event_id
+         WHERE fare.request_id = ?`,
+        [requestId]
+      );
+      const overrideMap = {};
+      for (const o of overrides) overrideMap[o.session_date_id] = o.slot_count;
+
+      const [filledRows] = await pool.execute(
+        `SELECT cesd.id AS session_date_id, COUNT(cesp.id) AS filled
+         FROM company_event_session_dates cesd
+         LEFT JOIN company_event_session_providers cesp ON cesp.session_date_id = cesd.id
+         WHERE cesd.company_event_id IN (${ph})
+         GROUP BY cesd.id`,
+        allEventIds
+      );
+      const filledMap = {};
+      for (const f of filledRows) filledMap[f.session_date_id] = Number(f.filled);
+
+      for (const gc of groupCounts) {
+        const autoSlots = (Number(gc.group_count) >= 2 || Number(gc.participant_count) > 9) ? 4 : 2;
+        const effectiveSlots = overrideMap[gc.session_date_id] ?? autoSlots;
+        const filledSlots = filledMap[gc.session_date_id] ?? 0;
+        slotMap[gc.session_date_id] = {
+          effectiveSlots,
+          filledSlots,
+          openSlots: Math.max(0, effectiveSlots - filledSlots)
+        };
+      }
+    }
+
     for (const re of reqEvents) {
       re.locations_json = parseJson(re.locations_json) || [];
       const [dates] = await pool.execute(
@@ -430,7 +483,10 @@ export const getRequestForEmployee = async (req, res, next) => {
          ORDER BY session_date, starts_at`,
         [re.company_event_id]
       );
-      re.session_dates = dates;
+      re.session_dates = dates.map((d) => ({
+        ...d,
+        ...(slotMap[d.id] || { effectiveSlots: 2, filledSlots: 0, openSlots: 2 })
+      }));
     }
 
     // Existing submission (draft or submitted)
@@ -538,13 +594,16 @@ export const submitResponse = async (req, res, next) => {
         `DELETE FROM facilitator_availability_date_entries WHERE submission_id = ?`,
         [submissionId]
       );
+      const VALID_AVAIL = new Set(['slot', 'waitlist', 'oncall', 'unavailable', 'available']);
       for (const de of dateEntries) {
         const eventId = parseId(de?.companyEventId ?? de?.company_event_id);
         if (!eventId || !de?.entryDate) continue;
+        const avail = VALID_AVAIL.has(de?.availability) ? de.availability : 'unavailable';
         await conn.execute(
           `INSERT INTO facilitator_availability_date_entries
-            (submission_id, request_id, user_id, company_event_id, session_date_id, entry_date, availability, comment)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            (submission_id, request_id, user_id, company_event_id, session_date_id, entry_date,
+             availability, waitlist_willing, oncall_willing, comment)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             submissionId,
             requestId,
@@ -552,7 +611,9 @@ export const submitResponse = async (req, res, next) => {
             eventId,
             parseId(de?.sessionDateId ?? de?.session_date_id) || null,
             de.entryDate,
-            ['available', 'waitlist', 'unavailable'].includes(de?.availability) ? de.availability : 'unavailable',
+            avail,
+            de?.waitlistWilling ? 1 : 0,
+            de?.oncallWilling ? 1 : 0,
             de?.comment?.trim() || null
           ]
         );

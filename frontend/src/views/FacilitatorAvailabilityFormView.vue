@@ -4,13 +4,13 @@
     <div v-if="loading" class="faf-loading">Loading availability form…</div>
     <div v-else-if="loadError" class="faf-error-screen">
       <p>{{ loadError }}</p>
-      <button class="btn btn-secondary" type="button" @click="$router.back()">Go Back</button>
+      <router-link class="btn btn-secondary" to="/">Go to Dashboard</router-link>
     </div>
 
     <template v-else-if="form">
       <!-- Submitted confirmation banner -->
       <div v-if="alreadySubmitted" class="faf-submitted-banner">
-        You have already submitted this availability form. You may update and re-submit below.
+        ✓ You've already submitted this form. You can update your responses and re-submit any time before the deadline.
       </div>
 
       <!-- ── Header ─────────────────────────────────────────────── -->
@@ -19,25 +19,36 @@
         <p v-if="form.subtitle" class="faf-subtitle">{{ form.subtitle }}</p>
         <p v-if="form.description" class="faf-desc">{{ form.description }}</p>
         <div v-if="form.deadline" class="faf-deadline">
-          Please respond by <strong>{{ fmtDate(form.deadline) }}</strong>
+          ⏰ Please respond by <strong>{{ fmtDate(form.deadline) }}</strong>
         </div>
       </div>
 
-      <!-- ── On-Call ────────────────────────────────────────────── -->
-      <div v-if="form.on_call_enabled" class="faf-section faf-oncall-section">
-        <div class="faf-section-head">On-Call Availability</div>
-        <label class="faf-oncall-label">
-          <input type="checkbox" v-model="myOnCall" />
-          <span>
-            I am willing to be <strong>on-call</strong>
-            <span class="faf-oncall-hint"> — step in for a last-minute absence up to 1.5 hours before the report time.</span>
-          </span>
-        </label>
+      <!-- ── How it works ───────────────────────────────────────── -->
+      <div class="faf-howto">
+        <div class="faf-howto-title">How to respond</div>
+        <div class="faf-howto-items">
+          <div class="faf-howto-item">
+            <span class="faf-howto-icon faf-howto-slot">●</span>
+            <span><strong>Want a Slot</strong> — you want to be assigned to this date. Slots are limited; you may also mark yourself as willing to waitlist or be on-call as a backup.</span>
+          </div>
+          <div class="faf-howto-item">
+            <span class="faf-howto-icon faf-howto-waitlist">●</span>
+            <span><strong>Waitlist Only</strong> — you can make this date work but only want to fill in if someone drops.</span>
+          </div>
+          <div class="faf-howto-item">
+            <span class="faf-howto-icon faf-howto-oncall">●</span>
+            <span><strong>On-Call Only</strong> — you're available to step in up to 1.5 hours before report time if needed.</span>
+          </div>
+          <div class="faf-howto-item">
+            <span class="faf-howto-icon faf-howto-unavail">●</span>
+            <span><strong>Not Available</strong> — you cannot make this date.</span>
+          </div>
+        </div>
       </div>
 
       <!-- ── Sessions ──────────────────────────────────────────── -->
       <div
-        v-for="(ev, evIdx) in form.events"
+        v-for="ev in form.events"
         :key="ev.id"
         class="faf-section"
       >
@@ -77,42 +88,79 @@
         <div v-if="!ev.session_dates || !ev.session_dates.length" class="faf-no-dates">
           No session dates configured for this session.
         </div>
-        <div v-else>
-          <div class="faf-dates-head">
-            <span>Date</span>
-            <span class="faf-dates-avail-head">Availability</span>
-            <span>Comment / Notes</span>
-          </div>
+        <div v-else class="faf-dates-list">
           <div
             v-for="sd in ev.session_dates"
             :key="sd.id"
-            class="faf-date-row"
-            :class="`faf-date-row--${getAvailability(ev.id, sd.session_date)}`"
+            class="faf-date-card"
+            :class="`faf-date-card--${getPref(ev.id, sd.session_date)}`"
           >
-            <div class="faf-date-label">
-              <div class="faf-date-day">{{ fmtDayOfWeek(sd.session_date) }}</div>
-              <div class="faf-date-full">{{ fmtDate(sd.session_date) }}</div>
-              <div v-if="sd.starts_at" class="faf-date-time">{{ fmtTime(sd.starts_at) }}</div>
+            <!-- Date info row -->
+            <div class="faf-date-top">
+              <div class="faf-date-label">
+                <span class="faf-date-dow">{{ fmtDayOfWeek(sd.session_date) }}</span>
+                <span class="faf-date-full">{{ fmtDate(sd.session_date) }}</span>
+                <span v-if="sd.starts_at" class="faf-date-time">{{ fmtTime(sd.starts_at) }}</span>
+              </div>
+              <!-- Slot availability badge -->
+              <div class="faf-slot-badge" :class="sd.openSlots === 0 ? 'faf-slot-badge--full' : 'faf-slot-badge--open'">
+                <template v-if="sd.openSlots === 0">
+                  Full — {{ sd.effectiveSlots }} slots filled
+                </template>
+                <template v-else>
+                  {{ sd.openSlots }} of {{ sd.effectiveSlots }} slots open
+                </template>
+              </div>
             </div>
 
-            <div class="faf-avail-toggle">
+            <!-- Primary preference selector -->
+            <div class="faf-pref-row">
               <button
-                v-for="opt in AVAIL_OPTIONS"
+                v-for="opt in PREF_OPTIONS"
                 :key="opt.value"
                 type="button"
-                class="faf-avail-btn"
-                :class="{ 'faf-avail-btn--active': getAvailability(ev.id, sd.session_date) === opt.value, [`faf-avail-btn--${opt.value}`]: true }"
-                @click="setAvailability(ev.id, sd.id, sd.session_date, opt.value)"
+                class="faf-pref-btn"
+                :class="[
+                  `faf-pref-btn--${opt.value}`,
+                  { 'faf-pref-btn--active': getPref(ev.id, sd.session_date) === opt.value },
+                  { 'faf-pref-btn--disabled-slot': opt.value === 'slot' && sd.openSlots === 0 && getPref(ev.id, sd.session_date) !== 'slot' }
+                ]"
+                @click="setPref(ev.id, sd.id, sd.session_date, opt.value)"
               >
                 {{ opt.label }}
+                <span v-if="opt.value === 'slot' && sd.openSlots === 0" class="faf-pref-full-note">(full)</span>
               </button>
             </div>
 
+            <!-- Secondary willingness checkboxes (when preference is 'slot' or 'waitlist') -->
+            <div
+              v-if="['slot', 'waitlist'].includes(getPref(ev.id, sd.session_date))"
+              class="faf-secondary-opts"
+            >
+              <label v-if="getPref(ev.id, sd.session_date) === 'slot'" class="faf-check-label">
+                <input
+                  type="checkbox"
+                  :checked="getWaitlistWilling(ev.id, sd.session_date)"
+                  @change="setWaitlistWilling(ev.id, sd.id, sd.session_date, $event.target.checked)"
+                />
+                <span>Also willing to waitlist if I'm not selected</span>
+              </label>
+              <label class="faf-check-label">
+                <input
+                  type="checkbox"
+                  :checked="getOncallWilling(ev.id, sd.session_date)"
+                  @change="setOncallWilling(ev.id, sd.id, sd.session_date, $event.target.checked)"
+                />
+                <span>Also willing to be on-call (step in up to 1.5 hrs before)</span>
+              </label>
+            </div>
+
+            <!-- Comment -->
             <div class="faf-comment-wrap">
               <textarea
                 class="faf-comment"
                 rows="2"
-                placeholder="Any notes for this day? (optional)"
+                placeholder="Notes for this day… (optional)"
                 :value="getComment(ev.id, sd.session_date)"
                 @input="setComment(ev.id, sd.session_date, $event.target.value)"
               />
@@ -123,7 +171,7 @@
 
       <!-- ── General notes ──────────────────────────────────────── -->
       <div class="faf-section">
-        <div class="faf-section-head">General Notes (optional)</div>
+        <div class="faf-section-head">General Notes <span class="faf-opt">(optional)</span></div>
         <textarea v-model="myGeneralNotes" class="faf-input" rows="3" placeholder="Anything else you'd like us to know?" />
       </div>
 
@@ -159,11 +207,10 @@ const loadError = ref('');
 const form = ref(null);
 const alreadySubmitted = ref(false);
 
-// Employee's current answers
-const myOnCall = ref(false);
 const myGeneralNotes = ref('');
 
-// dateEntries keyed by `${eventId}__${entryDate}` → { availability, comment, sessionDateId, companyEventId, entryDate }
+// dateEntries keyed by `${eventId}__${entryDate}`
+// → { preference, waitlistWilling, oncallWilling, comment, sessionDateId, companyEventId, entryDate }
 const dateEntries = ref({});
 // locationRanks keyed by `${eventId}__${location}` → rank (number)
 const locationRanks = ref({});
@@ -173,10 +220,11 @@ const submitting = ref(false);
 const saveMsg = ref('');
 const saveError = ref(false);
 
-const AVAIL_OPTIONS = [
-  { value: 'available', label: 'Available' },
-  { value: 'waitlist', label: 'Waitlist' },
-  { value: 'unavailable', label: 'Unavailable' }
+const PREF_OPTIONS = [
+  { value: 'slot',        label: 'Want a Slot' },
+  { value: 'waitlist',    label: 'Waitlist Only' },
+  { value: 'oncall',      label: 'On-Call Only' },
+  { value: 'unavailable', label: 'Not Available' }
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -191,7 +239,7 @@ const fmtDayOfWeek = (d) => {
   if (!d) return '';
   const dt = new Date(typeof d === 'string' && d.length === 10 ? d + 'T00:00:00' : d);
   if (isNaN(dt)) return '';
-  return dt.toLocaleDateString(undefined, { weekday: 'short' });
+  return dt.toLocaleDateString(undefined, { weekday: 'long' });
 };
 
 const fmtTime = (d) => {
@@ -204,60 +252,91 @@ const fmtTime = (d) => {
 const entryKey = (eventId, date) => `${eventId}__${date}`;
 const rankKey = (eventId, loc) => `${eventId}__${loc}`;
 
-const getAvailability = (eventId, date) => dateEntries.value[entryKey(eventId, date)]?.availability || 'unavailable';
-const getComment = (eventId, date) => dateEntries.value[entryKey(eventId, date)]?.comment || '';
+const getEntry = (eventId, date) => dateEntries.value[entryKey(eventId, date)];
+const getPref = (eventId, date) => getEntry(eventId, date)?.preference || 'unavailable';
+const getWaitlistWilling = (eventId, date) => !!getEntry(eventId, date)?.waitlistWilling;
+const getOncallWilling = (eventId, date) => !!getEntry(eventId, date)?.oncallWilling;
+const getComment = (eventId, date) => getEntry(eventId, date)?.comment || '';
 const getRank = (eventId, loc) => locationRanks.value[rankKey(eventId, loc)] || '';
 
-const setAvailability = (eventId, sessionDateId, date, value) => {
+const ensureEntry = (eventId, sessionDateId, date) => {
   const k = entryKey(eventId, date);
-  if (!dateEntries.value[k]) dateEntries.value[k] = { companyEventId: eventId, sessionDateId, entryDate: date, availability: 'unavailable', comment: '' };
-  dateEntries.value[k].availability = value;
+  if (!dateEntries.value[k]) {
+    dateEntries.value[k] = {
+      companyEventId: eventId,
+      sessionDateId,
+      entryDate: date,
+      preference: 'unavailable',
+      waitlistWilling: false,
+      oncallWilling: false,
+      comment: ''
+    };
+  }
+  return dateEntries.value[k];
+};
+
+const setPref = (eventId, sessionDateId, date, value) => {
+  const e = ensureEntry(eventId, sessionDateId, date);
+  e.preference = value;
+  // Clear secondary flags that don't apply to new preference
+  if (value === 'oncall' || value === 'unavailable') {
+    e.waitlistWilling = false;
+    e.oncallWilling = false;
+  }
+  if (value === 'waitlist') e.waitlistWilling = false;
+};
+
+const setWaitlistWilling = (eventId, sessionDateId, date, val) => {
+  ensureEntry(eventId, sessionDateId, date).waitlistWilling = val;
+};
+
+const setOncallWilling = (eventId, sessionDateId, date, val) => {
+  ensureEntry(eventId, sessionDateId, date).oncallWilling = val;
 };
 
 const setComment = (eventId, date, value) => {
   const k = entryKey(eventId, date);
-  if (!dateEntries.value[k]) dateEntries.value[k] = { companyEventId: eventId, sessionDateId: null, entryDate: date, availability: 'unavailable', comment: '' };
+  if (!dateEntries.value[k]) dateEntries.value[k] = { companyEventId: eventId, sessionDateId: null, entryDate: date, preference: 'unavailable', waitlistWilling: false, oncallWilling: false, comment: '' };
   dateEntries.value[k].comment = value;
 };
 
 const setRank = (eventId, loc, value) => {
-  const k = rankKey(eventId, loc);
-  locationRanks.value[k] = value ? Number(value) : null;
+  locationRanks.value[rankKey(eventId, loc)] = value ? Number(value) : null;
 };
 
 // ── Hydrate existing submission ───────────────────────────────────────────────
 const hydrateSubmission = (submission) => {
   if (!submission) return;
-  myOnCall.value = !!submission.is_on_call;
   myGeneralNotes.value = submission.general_notes || '';
   alreadySubmitted.value = !!submission.submitted_at;
 
   for (const de of (submission.dateEntries || [])) {
-    const k = entryKey(de.company_event_id, de.entry_date?.slice(0, 10) ?? de.entry_date);
+    const dateStr = de.entry_date?.slice(0, 10) ?? de.entry_date;
+    const k = entryKey(de.company_event_id, dateStr);
+    // Map legacy 'available' → 'slot'
+    const rawAvail = de.availability || 'unavailable';
+    const pref = rawAvail === 'available' ? 'slot' : rawAvail;
     dateEntries.value[k] = {
       companyEventId: de.company_event_id,
       sessionDateId: de.session_date_id,
-      entryDate: de.entry_date?.slice(0, 10) ?? de.entry_date,
-      availability: de.availability || 'unavailable',
+      entryDate: dateStr,
+      preference: pref,
+      waitlistWilling: !!de.waitlist_willing,
+      oncallWilling: !!de.oncall_willing,
       comment: de.comment || ''
     };
   }
 
   for (const lr of (submission.locationRanks || [])) {
-    // Need to match requestEventId → eventId; stored on lr.request_event_id
-    // We'll index by request_event_id for now and resolve during save
     const k = `__re__${lr.request_event_id}__${lr.location}`;
     locationRanks.value[k] = lr.rank_order;
   }
 };
 
-// ── Hydrate location ranks from loaded form ───────────────────────────────────
 const hydrateLocationRanks = () => {
-  // Convert __re__ keyed ranks (by request_event_id) to eventId keyed ranks
   if (!form.value?.events) return;
   const reMap = {};
   for (const ev of form.value.events) reMap[ev.id] = ev.company_event_id;
-
   const newRanks = {};
   for (const [k, v] of Object.entries(locationRanks.value)) {
     if (k.startsWith('__re__')) {
@@ -283,15 +362,19 @@ const load = async () => {
       hydrateLocationRanks();
     }
   } catch (e) {
-    loadError.value = e?.response?.status === 404
-      ? 'This availability form is not available.'
-      : 'Failed to load the form. Please try again.';
+    if (e?.response?.status === 401) {
+      loadError.value = 'You must be logged in to fill out this form. Please log in and try again.';
+    } else if (e?.response?.status === 404) {
+      loadError.value = 'This availability form is not available or has been closed.';
+    } else {
+      loadError.value = 'Failed to load the form. Please try again.';
+    }
   } finally {
     loading.value = false;
   }
 };
 
-// ── Build payload for save ────────────────────────────────────────────────────
+// ── Build payload ─────────────────────────────────────────────────────────────
 const buildPayload = (isSubmit) => {
   const entries = Object.values(dateEntries.value).filter((e) => e.entryDate && e.companyEventId);
 
@@ -300,22 +383,21 @@ const buildPayload = (isSubmit) => {
     for (const ev of form.value.events) {
       for (const loc of (ev.locations_json || [])) {
         const r = locationRanks.value[rankKey(ev.company_event_id, loc)];
-        if (r) {
-          ranks.push({ requestEventId: ev.id, location: loc, rankOrder: r });
-        }
+        if (r) ranks.push({ requestEventId: ev.id, location: loc, rankOrder: r });
       }
     }
   }
 
   return {
-    isOnCall: myOnCall.value,
     generalNotes: myGeneralNotes.value.trim() || null,
     submit: isSubmit,
     dateEntries: entries.map((e) => ({
       companyEventId: e.companyEventId,
       sessionDateId: e.sessionDateId || null,
       entryDate: e.entryDate,
-      availability: e.availability,
+      availability: e.preference,      // backend field name kept for compat
+      waitlistWilling: !!e.waitlistWilling,
+      oncallWilling: !!e.oncallWilling,
       comment: e.comment?.trim() || null
     })),
     locationRanks: ranks
@@ -331,11 +413,11 @@ const save = async (isSubmit) => {
   try {
     await api.post(`/facilitator-availability/${requestId}/submit`, buildPayload(isSubmit));
     saveMsg.value = isSubmit
-      ? 'Your availability has been submitted. Thank you!'
+      ? '✓ Your availability has been submitted. Thank you!'
       : 'Draft saved.';
     if (isSubmit) {
       alreadySubmitted.value = true;
-      setTimeout(() => router.push('/'), 2000);
+      setTimeout(() => router.push('/'), 3000);
     }
   } catch (e) {
     saveError.value = true;
@@ -350,25 +432,47 @@ onMounted(load);
 </script>
 
 <style scoped>
-.faf-root { max-width: 820px; margin: 0 auto; padding: 24px 16px 100px; }
+.faf-root { max-width: 860px; margin: 0 auto; padding: 28px 16px 110px; }
 
-.faf-loading, .faf-error-screen { text-align: center; padding: 60px 0; color: #64748b; }
+/* States */
+.faf-loading, .faf-error-screen { text-align: center; padding: 80px 0; color: #64748b; font-size: 1rem; }
+.faf-error-screen p { margin-bottom: 16px; }
 
-.faf-submitted-banner { background: #dcfce7; border: 1px solid #86efac; color: #166534; border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; font-size: .9rem; }
+/* Submitted banner */
+.faf-submitted-banner {
+  background: #dcfce7; border: 1px solid #86efac; color: #166534;
+  border-radius: 10px; padding: 12px 18px; margin-bottom: 20px; font-size: .9rem;
+}
 
-.faf-header { margin-bottom: 24px; }
-.faf-title { font-size: 1.6rem; font-weight: 700; color: #0f172a; margin: 0 0 6px; }
+/* Header */
+.faf-header { margin-bottom: 20px; }
+.faf-title { font-size: 1.7rem; font-weight: 800; color: #0f172a; margin: 0 0 6px; }
 .faf-subtitle { font-size: 1rem; color: #475569; margin: 0 0 8px; }
-.faf-desc { color: #64748b; font-size: .93rem; margin: 0 0 10px; white-space: pre-wrap; }
-.faf-deadline { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 8px 14px; font-size: .88rem; color: #92400e; display: inline-block; }
+.faf-desc { color: #64748b; font-size: .93rem; margin: 0 0 12px; white-space: pre-wrap; }
+.faf-deadline {
+  background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;
+  padding: 9px 16px; font-size: .88rem; color: #92400e; display: inline-flex;
+  align-items: center; gap: 6px;
+}
 
-.faf-section { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px; margin-bottom: 20px; }
+/* How it works */
+.faf-howto {
+  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;
+  padding: 16px 20px; margin-bottom: 24px;
+}
+.faf-howto-title { font-size: .85rem; font-weight: 700; color: #374151; margin-bottom: 10px; text-transform: uppercase; letter-spacing: .05em; }
+.faf-howto-items { display: grid; gap: 8px; }
+.faf-howto-item { display: flex; gap: 10px; align-items: flex-start; font-size: .88rem; color: #374151; }
+.faf-howto-icon { font-size: 10px; margin-top: 3px; flex-shrink: 0; }
+.faf-howto-slot    { color: #2563eb; }
+.faf-howto-waitlist { color: #d97706; }
+.faf-howto-oncall  { color: #7c3aed; }
+.faf-howto-unavail { color: #94a3b8; }
+
+/* Section */
+.faf-section { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 22px; margin-bottom: 20px; }
 .faf-section-head { font-size: 1rem; font-weight: 700; color: #0f172a; margin-bottom: 14px; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px; }
-
-/* On-call */
-.faf-oncall-section { background: #f0f7ff; border-color: #bfdbfe; }
-.faf-oncall-label { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; font-size: .95rem; color: #1e40af; }
-.faf-oncall-hint { color: #475569; font-weight: 400; }
+.faf-opt { font-size: .82rem; font-weight: 400; color: #94a3b8; }
 
 /* Session header */
 .faf-session-head { margin-bottom: 16px; }
@@ -384,31 +488,64 @@ onMounted(load);
 .faf-rank-select { width: 64px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 5px 8px; font-size: .9rem; }
 .faf-loc-name { color: #0f172a; font-size: .92rem; }
 .faf-loc-single { font-size: .88rem; color: #475569; margin-bottom: 12px; }
-
-/* Date rows header */
-.faf-dates-head { display: grid; grid-template-columns: 110px 1fr 1fr; gap: 8px; padding: 6px 10px; font-size: .78rem; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: .04em; }
-.faf-dates-avail-head { text-align: center; }
 .faf-no-dates { color: #94a3b8; font-size: .88rem; padding: 12px 0; }
 
-/* Date row */
-.faf-date-row { display: grid; grid-template-columns: 110px 1fr 1fr; gap: 8px; padding: 10px 10px; border-top: 1px solid #f1f5f9; align-items: start; }
-.faf-date-row--available { background: #f0fdf4; }
-.faf-date-row--waitlist { background: #fffbeb; }
-.faf-date-label { }
-.faf-date-day { font-size: .85rem; font-weight: 700; color: #374151; }
-.faf-date-full { font-size: .82rem; color: #64748b; }
-.faf-date-time { font-size: .78rem; color: #94a3b8; margin-top: 2px; }
+/* Date cards list */
+.faf-dates-list { display: grid; gap: 12px; }
 
-/* Availability toggle */
-.faf-avail-toggle { display: flex; gap: 5px; flex-wrap: wrap; align-items: flex-start; }
-.faf-avail-btn { border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 6px 10px; font-size: .8rem; font-weight: 600; cursor: pointer; background: #fff; color: #64748b; transition: all .12s; }
-.faf-avail-btn--available.faf-avail-btn--active { background: #dcfce7; border-color: #22c55e; color: #166534; }
-.faf-avail-btn--waitlist.faf-avail-btn--active { background: #fef9c3; border-color: #eab308; color: #854d0e; }
-.faf-avail-btn--unavailable.faf-avail-btn--active { background: #f1f5f9; border-color: #94a3b8; color: #475569; }
-.faf-avail-btn:hover:not(.faf-avail-btn--active) { background: #f8fafc; border-color: #94a3b8; }
+/* Individual date card */
+.faf-date-card {
+  border: 1.5px solid #e2e8f0; border-radius: 12px;
+  padding: 14px 16px; background: #fff;
+  transition: border-color .15s, background .15s;
+}
+.faf-date-card--slot        { border-color: #3b82f6; background: #eff6ff; }
+.faf-date-card--waitlist    { border-color: #f59e0b; background: #fffbeb; }
+.faf-date-card--oncall      { border-color: #8b5cf6; background: #f5f3ff; }
+.faf-date-card--unavailable { border-color: #e2e8f0; background: #f8fafc; }
+
+/* Date card top row: label + slot badge */
+.faf-date-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; gap: 8px; }
+.faf-date-label { display: flex; flex-direction: column; gap: 1px; }
+.faf-date-dow  { font-size: .9rem; font-weight: 700; color: #0f172a; }
+.faf-date-full { font-size: .82rem; color: #475569; }
+.faf-date-time { font-size: .78rem; color: #64748b; }
+
+/* Slot badge */
+.faf-slot-badge {
+  font-size: .75rem; font-weight: 700; border-radius: 999px;
+  padding: 4px 12px; white-space: nowrap;
+}
+.faf-slot-badge--open { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+.faf-slot-badge--full { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+
+/* Preference buttons */
+.faf-pref-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.faf-pref-btn {
+  border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 7px 14px;
+  font-size: .82rem; font-weight: 600; cursor: pointer; background: #fff;
+  color: #475569; transition: all .12s; display: flex; align-items: center; gap: 4px;
+}
+.faf-pref-btn:hover { border-color: #94a3b8; background: #f8fafc; }
+.faf-pref-btn--slot.faf-pref-btn--active        { background: #dbeafe; border-color: #3b82f6; color: #1e40af; }
+.faf-pref-btn--waitlist.faf-pref-btn--active    { background: #fef3c7; border-color: #f59e0b; color: #92400e; }
+.faf-pref-btn--oncall.faf-pref-btn--active      { background: #ede9fe; border-color: #8b5cf6; color: #5b21b6; }
+.faf-pref-btn--unavailable.faf-pref-btn--active { background: #f1f5f9; border-color: #94a3b8; color: #475569; }
+.faf-pref-full-note { font-size: .72rem; font-weight: 400; color: #ef4444; }
+.faf-pref-btn--disabled-slot { opacity: .65; }
+
+/* Secondary options */
+.faf-secondary-opts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; padding: 10px 14px; background: rgba(0,0,0,.03); border-radius: 8px; }
+.faf-check-label { display: flex; align-items: center; gap: 8px; font-size: .85rem; color: #374151; cursor: pointer; }
+.faf-check-label input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; }
 
 /* Comment */
-.faf-comment { width: 100%; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 8px; font-size: .85rem; resize: vertical; box-sizing: border-box; }
+.faf-comment-wrap { margin-top: 4px; }
+.faf-comment {
+  width: 100%; border: 1px solid #e2e8f0; border-radius: 8px;
+  padding: 7px 10px; font-size: .85rem; resize: vertical; box-sizing: border-box;
+  background: rgba(255,255,255,.8);
+}
 .faf-comment:focus { outline: 2px solid #3b82f6; border-color: transparent; }
 
 /* General notes */
@@ -416,21 +553,27 @@ onMounted(load);
 .faf-input:focus { outline: 2px solid #3b82f6; border-color: transparent; }
 
 /* Sticky footer */
-.faf-footer { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid #e2e8f0; padding: 12px 24px; display: flex; justify-content: flex-end; align-items: center; gap: 12px; z-index: 100; box-shadow: 0 -4px 16px rgba(15,23,42,.07); }
+.faf-footer {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: rgba(255,255,255,.97); backdrop-filter: blur(8px);
+  border-top: 1px solid #e2e8f0; padding: 12px 28px;
+  display: flex; justify-content: flex-end; align-items: center; gap: 12px;
+  z-index: 100; box-shadow: 0 -4px 20px rgba(15,23,42,.08);
+}
 .faf-footer-actions { display: flex; gap: 8px; }
 .faf-save-msg { font-size: .88rem; color: #166534; }
 .faf-save-msg--err { color: #dc2626; }
 
-.btn { border: none; border-radius: 8px; padding: 9px 20px; font-size: .9rem; font-weight: 600; cursor: pointer; transition: opacity .15s; }
+.btn { border: none; border-radius: 8px; padding: 10px 22px; font-size: .9rem; font-weight: 600; cursor: pointer; transition: opacity .15s; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 .btn-primary { background: #2563eb; color: #fff; }
 .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
-.btn-secondary { background: #f1f5f9; color: #374151; border: 1px solid #e2e8f0; }
+.btn-secondary { background: #f1f5f9; color: #374151; border: 1px solid #e2e8f0; text-decoration: none; display: inline-flex; align-items: center; }
 .btn-secondary:hover:not(:disabled) { background: #e2e8f0; }
 
 @media (max-width: 600px) {
-  .faf-dates-head, .faf-date-row { grid-template-columns: 90px 1fr; }
-  .faf-dates-avail-head, .faf-avail-toggle, .faf-comment-wrap { grid-column: 1 / -1; }
-  .faf-comment-wrap { grid-column: 1 / -1; }
+  .faf-date-top { flex-direction: column; }
+  .faf-pref-row { gap: 5px; }
+  .faf-pref-btn { font-size: .78rem; padding: 6px 10px; }
 }
 </style>

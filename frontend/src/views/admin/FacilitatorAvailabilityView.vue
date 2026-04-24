@@ -41,9 +41,20 @@
             <span class="fav-meta-item">{{ r.submitted_count }}/{{ r.submission_count }} submitted</span>
           </div>
         </div>
-        <button class="btn btn-sm btn-secondary" type="button" @click.stop="openResponses(r)">
-          View Responses
-        </button>
+        <div class="fav-card-actions">
+          <button
+            v-if="r.status === 'active'"
+            class="btn btn-sm btn-outline"
+            type="button"
+            :title="copiedId === r.id ? 'Copied!' : 'Copy shareable link for employees'"
+            @click.stop="copyFormLink(r)"
+          >
+            {{ copiedId === r.id ? '✓ Copied' : '🔗 Copy Link' }}
+          </button>
+          <button class="btn btn-sm btn-secondary" type="button" @click.stop="openResponses(r)">
+            View Responses
+          </button>
+        </div>
       </div>
     </div>
 
@@ -378,6 +389,7 @@ const requests = ref([]);
 const loading = ref(false);
 const saving = ref(false);
 const formError = ref('');
+const copiedId = ref(null);
 
 const showDrawer = ref(false);
 const editingRequest = ref(null);
@@ -416,6 +428,25 @@ const emptyForm = () => ({
 const form = ref(emptyForm());
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+const copyFormLink = async (r) => {
+  const agency = selectedAgency.value;
+  const slug = agency?.portal_url || agency?.slug || null;
+  const base = window.location.origin;
+  const path = slug
+    ? `/${slug}/facilitator-availability/${r.id}`
+    : `/facilitator-availability/${r.id}`;
+  const url = `${base}${path}`;
+  try {
+    await navigator.clipboard.writeText(url);
+    copiedId.value = r.id;
+    setTimeout(() => { if (copiedId.value === r.id) copiedId.value = null; }, 2500);
+  } catch {
+    // Fallback for browsers that block clipboard
+    window.prompt('Copy this link to share with your team:', url);
+  }
+};
+
 const fmtDate = (d) => {
   if (!d) return '';
   const dt = new Date(typeof d === 'string' && d.length === 10 ? d + 'T00:00:00' : d);
@@ -875,6 +906,11 @@ onMounted(async () => {
 .fav-avail--available { background: #dcfce7; color: #166534; }
 .fav-avail--waitlist { background: #fef9c3; color: #854d0e; }
 .fav-avail--unavailable { background: #f1f5f9; color: #64748b; }
+
+/* Card actions */
+.fav-card-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+.btn-outline { background: #fff; border: 1.5px solid #6366f1; color: #6366f1; }
+.btn-outline:hover { background: #eef2ff; }
 
 /* Agency selector */
 .fav-header-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
