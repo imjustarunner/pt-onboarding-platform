@@ -102,10 +102,12 @@
                 <input type="checkbox" :checked="isEventSelected(ev.id)" @change="toggleEvent(ev)" />
                 <span>
                   <strong>{{ ev.title }}</strong>
+                  <span v-if="ev._type === 'program'" class="fav-type-badge fav-type-badge--program">Program</span>
+                  <span v-else class="fav-type-badge fav-type-badge--event">Event</span>
                   <span v-if="ev.agency_name" class="fav-event-agency">{{ ev.agency_name }}</span>
-                  <span class="fav-meta-item">{{ fmtDate(ev.event_date) }}<template v-if="ev.end_date"> – {{ fmtDate(ev.end_date) }}</template></span>
-                  <span class="fav-meta-item">{{ ev.session_date_count }} session date(s)</span>
-                  <span v-if="ev.event_type" class="fav-meta-item fav-event-type">{{ ev.event_type.replace(/_/g, ' ') }}</span>
+                  <span v-if="ev.event_date" class="fav-meta-item">{{ fmtDate(ev.event_date) }}<template v-if="ev.end_date"> – {{ fmtDate(ev.end_date) }}</template></span>
+                  <span v-if="ev.session_date_count > 0" class="fav-meta-item">{{ ev.session_date_count }} date(s)</span>
+                  <span v-if="ev._type === 'program' && ev.site_names && ev.site_names.length" class="fav-meta-item">{{ ev.site_names.length }} site(s) → auto-filled as locations</span>
                 </span>
               </label>
 
@@ -499,14 +501,24 @@ const isEventSelected = (id) => form.value.selectedEventIds.includes(id);
 
 const getEventLocations = (id) => form.value.eventLocations[id] || [];
 
+// Map of event id → full event object so we can pass _type/programId on save
+const eventMeta = ref({}); // { [id]: { _type, programId } }
+
 const toggleEvent = (ev) => {
   const idx = form.value.selectedEventIds.indexOf(ev.id);
   if (idx >= 0) {
     form.value.selectedEventIds.splice(idx, 1);
     delete form.value.eventLocations[ev.id];
+    delete eventMeta.value[ev.id];
   } else {
     form.value.selectedEventIds.push(ev.id);
-    if (!form.value.eventLocations[ev.id]) form.value.eventLocations[ev.id] = [];
+    eventMeta.value[ev.id] = { _type: ev._type || 'company_event', programId: ev._type === 'program' ? ev.id : null };
+    // Auto-populate site names as locations for programs
+    if (ev._type === 'program' && Array.isArray(ev.site_names) && ev.site_names.length) {
+      form.value.eventLocations[ev.id] = [...ev.site_names];
+    } else if (!form.value.eventLocations[ev.id]) {
+      form.value.eventLocations[ev.id] = [];
+    }
   }
 };
 
@@ -731,11 +743,17 @@ const buildPayload = () => ({
   description: form.value.description.trim() || null,
   onCallEnabled: form.value.onCallEnabled,
   deadline: form.value.deadline || null,
-  events: form.value.selectedEventIds.map((id, i) => ({
-    companyEventId: id,
-    locations: form.value.eventLocations[id] || [],
-    displayOrder: i
-  }))
+  events: form.value.selectedEventIds.map((id, i) => {
+    const meta = eventMeta.value[id] || {};
+    const isProgram = meta._type === 'program';
+    return {
+      _type: meta._type || 'company_event',
+      ...(isProgram ? { programId: id } : { companyEventId: id }),
+      id,
+      locations: form.value.eventLocations[id] || [],
+      displayOrder: i
+    };
+  })
 });
 
 const saveRequest = async () => {
@@ -853,6 +871,9 @@ onMounted(async () => {
 
 .fav-event-agency { display: inline-block; font-size: .72rem; font-weight: 600; background: #ede9fe; color: #5b21b6; border-radius: 999px; padding: 1px 8px; margin-left: 6px; vertical-align: middle; }
 .fav-event-type { font-style: italic; }
+.fav-type-badge { display: inline-block; font-size: .68rem; font-weight: 700; border-radius: 999px; padding: 1px 7px; margin-left: 5px; vertical-align: middle; text-transform: uppercase; letter-spacing: .04em; }
+.fav-type-badge--program { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+.fav-type-badge--event   { background: #dbeafe; color: #1d4ed8; border: 1px solid #93c5fd; }
 .fav-event-row { border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; margin-bottom: 8px; transition: border-color .15s; }
 .fav-event-row--selected { border-color: #3b82f6; background: #f0f7ff; }
 .fav-event-check { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }

@@ -71,15 +71,17 @@ export const createRequest = async (req, res, next) => {
       if (Array.isArray(events) && events.length > 0) {
         for (let i = 0; i < events.length; i++) {
           const ev = events[i];
-          const eventId = parseId(ev?.companyEventId ?? ev?.company_event_id ?? ev?.id);
-          if (!eventId) continue;
+          const isProgram = ev?._type === 'program';
+          const eventId = parseId(ev?.companyEventId ?? ev?.company_event_id ?? (!isProgram ? ev?.id : null));
+          const programId = isProgram ? parseId(ev?.programId ?? ev?.program_id ?? ev?.id) : null;
+          if (!eventId && !programId) continue;
           const locs = Array.isArray(ev?.locations) ? ev.locations : [];
           await conn.execute(
             `INSERT INTO facilitator_availability_request_events
-              (request_id, company_event_id, locations_json, display_order)
-             VALUES (?, ?, ?, ?)
+              (request_id, company_event_id, program_id, locations_json, display_order)
+             VALUES (?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE locations_json = VALUES(locations_json), display_order = VALUES(display_order)`,
-            [requestId, eventId, JSON.stringify(locs), i]
+            [requestId, eventId || null, programId || null, JSON.stringify(locs), i]
           );
         }
       }
@@ -138,25 +140,42 @@ export const getRequest = async (req, res, next) => {
     if (!request) return res.status(404).json({ error: { message: 'Not found' } });
 
     const [reqEvents] = await pool.execute(
-      `SELECT fare.*, ce.title AS event_title, ce.event_date, ce.end_date
+      `SELECT fare.*,
+              COALESCE(ce.title, p.name) AS event_title,
+              ce.event_date, ce.end_date,
+              CASE WHEN fare.program_id IS NOT NULL THEN 'program' ELSE 'company_event' END AS _type
        FROM facilitator_availability_request_events fare
-       JOIN company_events ce ON ce.id = fare.company_event_id
+       LEFT JOIN company_events ce ON ce.id = fare.company_event_id
+       LEFT JOIN programs p ON p.id = fare.program_id
        WHERE fare.request_id = ?
        ORDER BY fare.display_order`,
       [requestId]
     );
 
-    // Hydrate session dates for each event
     for (const re of reqEvents) {
       re.locations_json = parseJson(re.locations_json) || [];
-      const [dates] = await pool.execute(
-        `SELECT id, session_date, starts_at, ends_at, timezone, location_label, location_address
-         FROM company_event_session_dates
-         WHERE company_event_id = ?
-         ORDER BY session_date, starts_at`,
-        [re.company_event_id]
-      );
-      re.session_dates = dates;
+      if (re.program_id) {
+        // Program: session dates from distinct shift signup dates
+        const [dates] = await pool.execute(
+          `SELECT DISTINCT pss.slot_date AS session_date, pss.start_time AS starts_at,
+                  ps.name AS location_label, pss.program_site_id AS id
+           FROM program_shift_signups pss
+           JOIN program_sites ps ON ps.id = pss.program_site_id
+           WHERE ps.program_id = ?
+           ORDER BY pss.slot_date, pss.start_time`,
+          [re.program_id]
+        );
+        re.session_dates = dates;
+      } else {
+        const [dates] = await pool.execute(
+          `SELECT id, session_date, starts_at, ends_at, timezone, location_label, location_address
+           FROM company_event_session_dates
+           WHERE company_event_id = ?
+           ORDER BY session_date, starts_at`,
+          [re.company_event_id]
+        );
+        re.session_dates = dates;
+      }
     }
 
     res.json({ ...request, events: reqEvents });
@@ -414,20 +433,24 @@ export const getRequestForEmployee = async (req, res, next) => {
     if (!request) return res.status(404).json({ error: { message: 'Not found or not active' } });
 
     const [reqEvents] = await pool.execute(
-      `SELECT fare.*, ce.title AS event_title, ce.event_date, ce.end_date
+      `SELECT fare.*,
+              COALESCE(ce.title, p.name) AS event_title,
+              ce.event_date, ce.end_date,
+              CASE WHEN fare.program_id IS NOT NULL THEN 'program' ELSE 'company_event' END AS _type
        FROM facilitator_availability_request_events fare
-       JOIN company_events ce ON ce.id = fare.company_event_id
+       LEFT JOIN company_events ce ON ce.id = fare.company_event_id
+       LEFT JOIN programs p ON p.id = fare.program_id
        WHERE fare.request_id = ?
        ORDER BY fare.display_order`,
       [requestId]
     );
 
-    // Pre-fetch slot data so each date can show open/filled counts to the employee.
-    const allEventIds = reqEvents.map((re) => re.company_event_id);
-    const slotMap = {}; // session_date_id → { effectiveSlots, filledSlots, openSlots }
+    // Slot data only applies to company_event-based entries (programs use signups differently).
+    const ceEventIds = reqEvents.filter((re) => re.company_event_id).map((re) => re.company_event_id);
+    const slotMap = {};
 
-    if (allEventIds.length) {
-      const ph = allEventIds.map(() => '?').join(',');
+    if (ceEventIds.length) {
+      const ph = ceEventIds.map(() => '?').join(',');
 
       const [groupCounts] = await pool.execute(
         `SELECT cesd.id AS session_date_id,
@@ -438,7 +461,7 @@ export const getRequestForEmployee = async (req, res, next) => {
          LEFT JOIN company_event_client_group_assignments cecga ON cecga.session_group_id = cesg.id
          WHERE cesd.company_event_id IN (${ph})
          GROUP BY cesd.id`,
-        allEventIds
+        ceEventIds
       );
 
       const [overrides] = await pool.execute(
@@ -458,7 +481,7 @@ export const getRequestForEmployee = async (req, res, next) => {
          LEFT JOIN company_event_session_providers cesp ON cesp.session_date_id = cesd.id
          WHERE cesd.company_event_id IN (${ph})
          GROUP BY cesd.id`,
-        allEventIds
+        ceEventIds
       );
       const filledMap = {};
       for (const f of filledRows) filledMap[f.session_date_id] = Number(f.filled);
@@ -477,17 +500,37 @@ export const getRequestForEmployee = async (req, res, next) => {
 
     for (const re of reqEvents) {
       re.locations_json = parseJson(re.locations_json) || [];
-      const [dates] = await pool.execute(
-        `SELECT id, session_date, starts_at, ends_at, timezone, location_label, location_address
-         FROM company_event_session_dates
-         WHERE company_event_id = ?
-         ORDER BY session_date, starts_at`,
-        [re.company_event_id]
-      );
-      re.session_dates = dates.map((d) => ({
-        ...d,
-        ...(slotMap[d.id] || { effectiveSlots: 2, filledSlots: 0, openSlots: 2 })
-      }));
+      if (re.program_id) {
+        // Program: derive session dates from distinct shift signup dates across all sites
+        const [dates] = await pool.execute(
+          `SELECT DISTINCT pss.slot_date AS session_date, pss.start_time AS starts_at,
+                  NULL AS ends_at, NULL AS timezone,
+                  ps.name AS location_label, NULL AS location_address,
+                  CONCAT('prog_', pss.program_site_id, '_', pss.slot_date) AS id,
+                  pss.program_site_id
+           FROM program_shift_signups pss
+           JOIN program_sites ps ON ps.id = pss.program_site_id
+           WHERE ps.program_id = ?
+           ORDER BY pss.slot_date, pss.start_time`,
+          [re.program_id]
+        );
+        re.session_dates = dates.map((d) => ({
+          ...d,
+          effectiveSlots: 2, filledSlots: 0, openSlots: 2  // programs use signup count not slot system
+        }));
+      } else {
+        const [dates] = await pool.execute(
+          `SELECT id, session_date, starts_at, ends_at, timezone, location_label, location_address
+           FROM company_event_session_dates
+           WHERE company_event_id = ?
+           ORDER BY session_date, starts_at`,
+          [re.company_event_id]
+        );
+        re.session_dates = dates.map((d) => ({
+          ...d,
+          ...(slotMap[d.id] || { effectiveSlots: 2, filledSlots: 0, openSlots: 2 })
+        }));
+      }
     }
 
     // Existing submission (draft or submitted)
@@ -597,19 +640,23 @@ export const submitResponse = async (req, res, next) => {
       );
       const VALID_AVAIL = new Set(['slot', 'waitlist', 'oncall', 'unavailable', 'available']);
       for (const de of dateEntries) {
-        const eventId = parseId(de?.companyEventId ?? de?.company_event_id);
-        if (!eventId || !de?.entryDate) continue;
+        const isProgram = !!de?.programId || !!de?.program_id;
+        const eventId = isProgram ? null : parseId(de?.companyEventId ?? de?.company_event_id);
+        const programId = isProgram ? parseId(de?.programId ?? de?.program_id) : null;
+        if (!eventId && !programId) continue;
+        if (!de?.entryDate) continue;
         const avail = VALID_AVAIL.has(de?.availability) ? de.availability : 'unavailable';
         await conn.execute(
           `INSERT INTO facilitator_availability_date_entries
-            (submission_id, request_id, user_id, company_event_id, session_date_id, entry_date,
+            (submission_id, request_id, user_id, company_event_id, program_id, session_date_id, entry_date,
              availability, waitlist_willing, oncall_willing, comment)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             submissionId,
             requestId,
             userId,
             eventId,
+            programId,
             parseId(de?.sessionDateId ?? de?.session_date_id) || null,
             de.entryDate,
             avail,
@@ -1006,16 +1053,17 @@ export const listAgencyEvents = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agency id' } });
     if (!(await canManage(req, agencyId))) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    // Include events from the full tenant tree (parent + all child agencies) so that
-    // program events stored under a sub-agency are visible when selecting the parent.
+    // Include the full tenant tree so child-agency events/programs are visible.
     const tenantIds = await listAgencyIdsInTenantTree(agencyId);
     const ids = tenantIds.length ? tenantIds : [agencyId];
     const ph = ids.map(() => '?').join(',');
 
-    const [rows] = await pool.execute(
+    // Company events
+    const [ceRows] = await pool.execute(
       `SELECT ce.id, ce.title, ce.event_date, ce.end_date, ce.event_type,
               a.name AS agency_name,
-              COUNT(csd.id) AS session_date_count
+              COUNT(csd.id) AS session_date_count,
+              'company_event' AS _type
        FROM company_events ce
        JOIN agencies a ON a.id = ce.agency_id
        LEFT JOIN company_event_session_dates csd ON csd.company_event_id = ce.id
@@ -1024,7 +1072,35 @@ export const listAgencyEvents = async (req, res, next) => {
        ORDER BY ce.event_date DESC`,
       ids
     );
-    res.json(rows);
+
+    // Programs (with site names as locations and distinct shift dates as session count)
+    const [progRows] = await pool.execute(
+      `SELECT p.id, p.name AS title,
+              NULL AS event_date, NULL AS end_date,
+              'program' AS event_type,
+              a.name AS agency_name,
+              COUNT(DISTINCT pss.slot_date) AS session_date_count,
+              'program' AS _type,
+              GROUP_CONCAT(DISTINCT ps.name ORDER BY ps.name SEPARATOR '||') AS site_names_raw
+       FROM programs p
+       JOIN agencies a ON a.id = p.agency_id
+       LEFT JOIN program_sites ps ON ps.program_id = p.id
+       LEFT JOIN program_shift_signups pss ON pss.program_site_id = ps.id
+       WHERE p.agency_id IN (${ph})
+         AND p.is_active = TRUE
+       GROUP BY p.id
+       ORDER BY p.name ASC`,
+      ids
+    );
+
+    // Parse site names into arrays so the frontend can use them as default locations
+    const programs = progRows.map((r) => ({
+      ...r,
+      site_names: r.site_names_raw ? r.site_names_raw.split('||') : [],
+      site_names_raw: undefined
+    }));
+
+    res.json([...ceRows, ...programs]);
   } catch (err) {
     next(err);
   }

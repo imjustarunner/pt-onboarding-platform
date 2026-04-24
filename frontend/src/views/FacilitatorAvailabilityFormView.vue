@@ -93,7 +93,7 @@
             v-for="sd in ev.session_dates"
             :key="sd.id"
             class="faf-date-card"
-            :class="`faf-date-card--${getPref(ev.id, sd.session_date)}`"
+            :class="`faf-date-card--${getPref(ev, sd.session_date)}`"
           >
             <!-- Date info row -->
             <div class="faf-date-top">
@@ -122,10 +122,10 @@
                 class="faf-pref-btn"
                 :class="[
                   `faf-pref-btn--${opt.value}`,
-                  { 'faf-pref-btn--active': getPref(ev.id, sd.session_date) === opt.value },
-                  { 'faf-pref-btn--disabled-slot': opt.value === 'slot' && sd.openSlots === 0 && getPref(ev.id, sd.session_date) !== 'slot' }
+                  { 'faf-pref-btn--active': getPref(ev, sd.session_date) === opt.value },
+                  { 'faf-pref-btn--disabled-slot': opt.value === 'slot' && sd.openSlots === 0 && getPref(ev, sd.session_date) !== 'slot' }
                 ]"
-                @click="setPref(ev.id, sd.id, sd.session_date, opt.value)"
+                @click="setPref(ev, sd.id, sd.session_date, opt.value)"
               >
                 {{ opt.label }}
                 <span v-if="opt.value === 'slot' && sd.openSlots === 0" class="faf-pref-full-note">(full)</span>
@@ -134,22 +134,22 @@
 
             <!-- Secondary willingness checkboxes (when preference is 'slot' or 'waitlist') -->
             <div
-              v-if="['slot', 'waitlist'].includes(getPref(ev.id, sd.session_date))"
+              v-if="['slot', 'waitlist'].includes(getPref(ev, sd.session_date))"
               class="faf-secondary-opts"
             >
-              <label v-if="getPref(ev.id, sd.session_date) === 'slot'" class="faf-check-label">
+              <label v-if="getPref(ev, sd.session_date) === 'slot'" class="faf-check-label">
                 <input
                   type="checkbox"
-                  :checked="getWaitlistWilling(ev.id, sd.session_date)"
-                  @change="setWaitlistWilling(ev.id, sd.id, sd.session_date, $event.target.checked)"
+                  :checked="getWaitlistWilling(ev, sd.session_date)"
+                  @change="setWaitlistWilling(ev, sd.id, sd.session_date, $event.target.checked)"
                 />
                 <span>Also willing to waitlist if I'm not selected</span>
               </label>
               <label class="faf-check-label">
                 <input
                   type="checkbox"
-                  :checked="getOncallWilling(ev.id, sd.session_date)"
-                  @change="setOncallWilling(ev.id, sd.id, sd.session_date, $event.target.checked)"
+                  :checked="getOncallWilling(ev, sd.session_date)"
+                  @change="setOncallWilling(ev, sd.id, sd.session_date, $event.target.checked)"
                 />
                 <span>Also willing to be on-call (step in up to 1.5 hrs before)</span>
               </label>
@@ -161,8 +161,8 @@
                 class="faf-comment"
                 rows="2"
                 placeholder="Notes for this day… (optional)"
-                :value="getComment(ev.id, sd.session_date)"
-                @input="setComment(ev.id, sd.session_date, $event.target.value)"
+                :value="getComment(ev, sd.session_date)"
+                @input="setComment(ev, sd.session_date, $event.target.value)"
               />
             </div>
           </div>
@@ -249,21 +249,27 @@ const fmtTime = (d) => {
   return dt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 };
 
-const entryKey = (eventId, date) => `${eventId}__${date}`;
+const entryKey = (id, date) => `${id}__${date}`;
 const rankKey = (eventId, loc) => `${eventId}__${loc}`;
 
-const getEntry = (eventId, date) => dateEntries.value[entryKey(eventId, date)];
-const getPref = (eventId, date) => getEntry(eventId, date)?.preference || 'unavailable';
-const getWaitlistWilling = (eventId, date) => !!getEntry(eventId, date)?.waitlistWilling;
-const getOncallWilling = (eventId, date) => !!getEntry(eventId, date)?.oncallWilling;
-const getComment = (eventId, date) => getEntry(eventId, date)?.comment || '';
+// Resolve the keying ID for an event object (program_id takes precedence over company_event_id)
+const srcId = (ev) => ev.program_id || ev.company_event_id || ev.id;
+
+const getEntry = (ev, date) => dateEntries.value[entryKey(srcId(ev), date)];
+const getPref = (ev, date) => getEntry(ev, date)?.preference || 'unavailable';
+const getWaitlistWilling = (ev, date) => !!getEntry(ev, date)?.waitlistWilling;
+const getOncallWilling = (ev, date) => !!getEntry(ev, date)?.oncallWilling;
+const getComment = (ev, date) => getEntry(ev, date)?.comment || '';
 const getRank = (eventId, loc) => locationRanks.value[rankKey(eventId, loc)] || '';
 
-const ensureEntry = (eventId, sessionDateId, date) => {
-  const k = entryKey(eventId, date);
+// evObj is the full event object from form.events so we can detect program vs company_event
+const ensureEntry = (evObj, sessionDateId, date) => {
+  const sourceId = evObj.program_id || evObj.company_event_id;
+  const k = entryKey(sourceId, date);
   if (!dateEntries.value[k]) {
     dateEntries.value[k] = {
-      companyEventId: eventId,
+      companyEventId: evObj.program_id ? null : (evObj.company_event_id || sourceId),
+      programId: evObj.program_id || null,
       sessionDateId,
       entryDate: date,
       preference: 'unavailable',
@@ -275,28 +281,24 @@ const ensureEntry = (eventId, sessionDateId, date) => {
   return dateEntries.value[k];
 };
 
-const setPref = (eventId, sessionDateId, date, value) => {
-  const e = ensureEntry(eventId, sessionDateId, date);
+const setPref = (evObj, sessionDateId, date, value) => {
+  const e = ensureEntry(evObj, sessionDateId, date);
   e.preference = value;
-  // Clear secondary flags that don't apply to new preference
-  if (value === 'oncall' || value === 'unavailable') {
-    e.waitlistWilling = false;
-    e.oncallWilling = false;
-  }
+  if (value === 'oncall' || value === 'unavailable') { e.waitlistWilling = false; e.oncallWilling = false; }
   if (value === 'waitlist') e.waitlistWilling = false;
 };
 
-const setWaitlistWilling = (eventId, sessionDateId, date, val) => {
-  ensureEntry(eventId, sessionDateId, date).waitlistWilling = val;
+const setWaitlistWilling = (evObj, sessionDateId, date, val) => {
+  ensureEntry(evObj, sessionDateId, date).waitlistWilling = val;
 };
 
-const setOncallWilling = (eventId, sessionDateId, date, val) => {
-  ensureEntry(eventId, sessionDateId, date).oncallWilling = val;
+const setOncallWilling = (evObj, sessionDateId, date, val) => {
+  ensureEntry(evObj, sessionDateId, date).oncallWilling = val;
 };
 
-const setComment = (eventId, date, value) => {
-  const k = entryKey(eventId, date);
-  if (!dateEntries.value[k]) dateEntries.value[k] = { companyEventId: eventId, sessionDateId: null, entryDate: date, preference: 'unavailable', waitlistWilling: false, oncallWilling: false, comment: '' };
+const setComment = (evObj, date, value) => {
+  const k = entryKey(srcId(evObj), date);
+  if (!dateEntries.value[k]) dateEntries.value[k] = { companyEventId: evObj.company_event_id || null, programId: evObj.program_id || null, sessionDateId: null, entryDate: date, preference: 'unavailable', waitlistWilling: false, oncallWilling: false, comment: '' };
   dateEntries.value[k].comment = value;
 };
 
@@ -312,12 +314,13 @@ const hydrateSubmission = (submission) => {
 
   for (const de of (submission.dateEntries || [])) {
     const dateStr = de.entry_date?.slice(0, 10) ?? de.entry_date;
-    const k = entryKey(de.company_event_id, dateStr);
-    // Map legacy 'available' → 'slot'
+    const sourceId = de.program_id || de.company_event_id;
+    const k = entryKey(sourceId, dateStr);
     const rawAvail = de.availability || 'unavailable';
     const pref = rawAvail === 'available' ? 'slot' : rawAvail;
     dateEntries.value[k] = {
-      companyEventId: de.company_event_id,
+      companyEventId: de.company_event_id || null,
+      programId: de.program_id || null,
       sessionDateId: de.session_date_id,
       entryDate: dateStr,
       preference: pref,
@@ -382,7 +385,7 @@ const buildPayload = (isSubmit) => {
   if (form.value?.events) {
     for (const ev of form.value.events) {
       for (const loc of (ev.locations_json || [])) {
-        const r = locationRanks.value[rankKey(ev.company_event_id, loc)];
+        const r = locationRanks.value[rankKey(srcId(ev), loc)];
         if (r) ranks.push({ requestEventId: ev.id, location: loc, rankOrder: r });
       }
     }
@@ -392,10 +395,10 @@ const buildPayload = (isSubmit) => {
     generalNotes: myGeneralNotes.value.trim() || null,
     submit: isSubmit,
     dateEntries: entries.map((e) => ({
-      companyEventId: e.companyEventId,
+      ...(e.programId ? { programId: e.programId } : { companyEventId: e.companyEventId }),
       sessionDateId: e.sessionDateId || null,
       entryDate: e.entryDate,
-      availability: e.preference,      // backend field name kept for compat
+      availability: e.preference,
       waitlistWilling: !!e.waitlistWilling,
       oncallWilling: !!e.oncallWilling,
       comment: e.comment?.trim() || null
