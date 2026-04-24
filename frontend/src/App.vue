@@ -1384,6 +1384,7 @@
         @unlock="onSessionUnlock"
         @logout="onSessionLockLogout"
       />
+      <InactivityWarningModal v-if="isAuthenticated" />
       <PoweredByFooter v-if="isAuthenticated" />
       <div
         v-if="showLoginNotificationsModal"
@@ -1578,6 +1579,7 @@ import { useReminderSnooze } from './composables/useReminderSnooze';
 import WeatherChip from './components/WeatherChip.vue';
 import AskAssistantLauncher from './components/assistant/AskAssistantLauncher.vue';
 import SessionLockScreen from './components/SessionLockScreen.vue';
+import InactivityWarningModal from './components/InactivityWarningModal.vue';
 import RegistrationPromoToastRail from './components/RegistrationPromoToastRail.vue';
 import OfficeMandatoryReviewSplash from './components/office/OfficeMandatoryReviewSplash.vue';
 import InterviewCapsuleSplashModal from './components/hiring/InterviewCapsuleSplashModal.vue';
@@ -3362,6 +3364,7 @@ const handleLogout = async () => {
 
 const onSessionUnlock = () => {
   sessionLockStore.unlock();
+  sessionLockStore.dismissWarning();
   resetActivityTimer();
 };
 
