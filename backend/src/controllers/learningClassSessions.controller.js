@@ -1,8 +1,23 @@
 import pool from '../config/database.js';
+import multer from 'multer';
 import LearningClassSession from '../models/LearningClassSession.model.js';
 import tutoringTranscriptSummary from '../services/tutoringTranscriptSummary.service.js';
 import LearningProgress from '../models/LearningProgress.model.js';
+import { runAgentAssist } from '../services/agents/agentRuntime.service.js';
 import { createOrGetRoomByUniqueName, createAccessTokenAsync, isVideoConfigured } from '../services/video.service.js';
+import {
+  buildInPersonMaterialDownload,
+  buildInPersonTranscriptSummaryText,
+  createInPersonMaterial,
+  deleteInPersonMaterial,
+  duplicateInPersonPlanFromSession,
+  getInPersonMaterialFile,
+  getInPersonMaterialResponse,
+  getInPersonPlanPayload,
+  upsertInPersonMaterialResponse,
+  updateInPersonMaterial,
+  upsertInPersonPlan
+} from '../services/inPersonTutoring.service.js';
 import {
   assertLearningClassAccess,
   assertLearningSessionAccess,
@@ -17,6 +32,18 @@ const asInt = (v) => {
 };
 
 const asBool = (v) => v === true || v === 1 || v === '1' || String(v || '').toLowerCase() === 'true';
+
+const inPersonMaterialStorage = multer.memoryStorage();
+
+export const inPersonMaterialUpload = multer({
+  storage: inPersonMaterialStorage,
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (!file) return cb(null, true);
+    if (String(file.mimetype || '').toLowerCase() === 'application/pdf') return cb(null, true);
+    cb(new Error('Only PDF uploads are supported for in-person tutoring materials'));
+  }
+});
 
 function defaultRoleCapabilities(role) {
   const r = String(role || 'participant').toLowerCase();
@@ -43,6 +70,57 @@ function pickPreferredSession(sessions = []) {
   const scheduled = rows.find((s) => String(s.status || '').toLowerCase() === 'scheduled');
   if (scheduled) return scheduled;
   return rows[0] || null;
+}
+
+function normalizeDeliveryContext(raw) {
+  return String(raw || '').trim().toLowerCase() === 'in_person' ? 'in_person' : null;
+}
+
+function parseObjectMaybe(raw, fallback = {}) {
+  if (!raw) return fallback;
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function enrichInPersonMaterial(sessionId, material) {
+  const hasFile = !!material?.storagePath;
+  const hasFillablePdf = hasFile && Array.isArray(material?.config?.fieldDefinitions);
+  return {
+    ...material,
+    hasFile,
+    hasFillablePdf,
+    fileUrl: hasFile ? `/api/learning-class-sessions/sessions/${sessionId}/in-person-materials/${material.id}/file` : null,
+    downloadUrl: hasFile ? `/api/learning-class-sessions/sessions/${sessionId}/in-person-materials/${material.id}/download` : null
+  };
+}
+
+function enrichInPersonPayload(payload) {
+  if (!payload) return null;
+  return {
+    ...payload,
+    materials: Array.isArray(payload.materials)
+      ? payload.materials.map((material) => enrichInPersonMaterial(payload.session?.id, material))
+      : []
+  };
+}
+
+function sanitizeInPersonPayloadForViewer(payload, { canModerate = false } = {}) {
+  if (!payload) return null;
+  const shareWhiteboard = !!payload?.plan?.shareWhiteboardWithGuardian;
+  if (canModerate || shareWhiteboard) return payload;
+  return {
+    ...payload,
+    plan: {
+      ...(payload.plan || {}),
+      whiteboardData: { strokes: [] },
+      shareWhiteboardWithGuardian: false
+    }
+  };
 }
 
 export const getPublicClassJoinInfo = async (req, res, next) => {
@@ -128,6 +206,8 @@ export const createClassSession = async (req, res, next) => {
       title,
       description: req.body?.description ? String(req.body.description) : null,
       mode,
+      sessionSubtype: req.body?.sessionSubtype ? String(req.body.sessionSubtype) : null,
+      deliveryContext: normalizeDeliveryContext(req.body?.deliveryContext),
       startsAt: req.body?.startsAt || null,
       createdByUserId: req.user.id
     });
@@ -165,6 +245,20 @@ export const startClassSession = async (req, res, next) => {
     const sessionId = asInt(req.params.sessionId);
     const { session, canModerate } = await assertLearningSessionAccess(req, sessionId);
     if (!canModerate) return res.status(403).json({ error: { message: 'Moderator access required' } });
+    if (String(session?.delivery_context || '').toLowerCase() === 'in_person') {
+      const updated = await LearningClassSession.update(sessionId, {
+        status: 'live',
+        startedByUserId: req.user.id,
+        deliveryContext: 'in_person'
+      });
+      await logClassSessionTelemetry({
+        sessionId,
+        eventType: 'session_started',
+        actorUserId: req.user.id,
+        payload: { deliveryContext: 'in_person' }
+      });
+      return res.json({ session: updated });
+    }
     if (!isVideoConfigured()) {
       return res.status(503).json({ error: { message: 'Video is not configured' } });
     }
@@ -191,11 +285,14 @@ export const startClassSession = async (req, res, next) => {
 export const endClassSession = async (req, res, next) => {
   try {
     const sessionId = asInt(req.params.sessionId);
-    const { canModerate } = await assertLearningSessionAccess(req, sessionId);
+    const { session, canModerate } = await assertLearningSessionAccess(req, sessionId);
     if (!canModerate) return res.status(403).json({ error: { message: 'Moderator access required' } });
 
     // Support optional transcript submission from frontend or Vonage webhook
-    const transcriptText = req.body?.transcript || req.body?.transcript_text || null;
+    let transcriptText = req.body?.transcript || req.body?.transcript_text || null;
+    if (!transcriptText && String(session?.delivery_context || '').toLowerCase() === 'in_person') {
+      transcriptText = await buildInPersonTranscriptSummaryText(sessionId);
+    }
     if (transcriptText) {
       await LearningClassSession.updateWithJson(sessionId, { transcriptText });
     }
@@ -208,8 +305,8 @@ export const endClassSession = async (req, res, next) => {
 
     // If this is a tutoring session, trigger AI transcript analysis for strengths/needs, standards mapping,
     // progress update, and guardian homework generation (non-blocking)
-    const session = await LearningClassSession.findById(sessionId);
-    if (session?.session_subtype === 'tutoring' || String(session?.mode || '').toLowerCase() === 'individual') {
+    const freshSession = await LearningClassSession.findById(sessionId);
+    if (freshSession?.session_subtype === 'tutoring' || String(freshSession?.mode || '').toLowerCase() === 'individual') {
       // Fire and forget the AI analysis (full integration with agents for real-time hints during session)
       setImmediate(() => {
         tutoringTranscriptSummary.triggerTutoringSessionSummary(sessionId)
@@ -220,7 +317,11 @@ export const endClassSession = async (req, res, next) => {
     await logClassSessionTelemetry({ sessionId, eventType: 'session_ended', actorUserId: req.user.id });
     res.json({ 
       session: updated, 
-      message: session?.session_subtype === 'tutoring' ? 'Tutoring session ended. AI analyzing transcript for progress summary, strengths, needs work, and standards alignment. Guardian portal updated with homework.' : 'Session ended successfully.' 
+      message: freshSession?.session_subtype === 'tutoring'
+        ? (String(freshSession?.delivery_context || '').toLowerCase() === 'in_person'
+            ? 'In-person tutoring session ended. AI is analyzing tutor notes and saved responses for the progress summary and homework.'
+            : 'Tutoring session ended. AI analyzing transcript for progress summary, strengths, needs work, and standards alignment. Guardian portal updated with homework.')
+        : 'Session ended successfully.' 
     });
   } catch (e) {
     next(e);
@@ -231,6 +332,9 @@ export const getClassSessionVideoToken = async (req, res, next) => {
   try {
     const sessionId = asInt(req.params.sessionId);
     const { session, actorRole } = await assertLearningSessionAccess(req, sessionId);
+    if (String(session?.delivery_context || '').toLowerCase() === 'in_person') {
+      return res.status(400).json({ error: { message: 'Video is not used for in-person tutoring sessions' } });
+    }
     if (!isVideoConfigured()) {
       return res.status(503).json({ error: { message: 'Video is not configured' } });
     }
@@ -561,6 +665,297 @@ export const scoreSessionEvidence = async (req, res, next) => {
       payload: { clientId, skillId, domainId }
     });
     res.status(201).json({ evidence });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getInPersonPlan = async (req, res, next) => {
+  try {
+    const sessionId = asInt(req.params.sessionId);
+    const { actorRole, canModerate } = await assertLearningSessionAccess(req, sessionId);
+    const payload = await getInPersonPlanPayload({ sessionId });
+    res.json({
+      ...sanitizeInPersonPayloadForViewer(enrichInPersonPayload(payload), { canModerate }),
+      actorRole,
+      canModerate
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const patchInPersonPlan = async (req, res, next) => {
+  try {
+    const sessionId = asInt(req.params.sessionId);
+    const { canModerate } = await assertLearningSessionAccess(req, sessionId);
+    if (!canModerate) return res.status(403).json({ error: { message: 'Moderator access required' } });
+    const payload = await upsertInPersonPlan({
+      sessionId,
+      userId: req.user.id,
+      updates: req.body || {}
+    });
+    await logClassSessionTelemetry({
+      sessionId,
+      eventType: 'in_person_plan_saved',
+      actorUserId: req.user.id
+    });
+    res.json({
+      ...enrichInPersonPayload(payload),
+      actorRole: 'presenter',
+      canModerate: true
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const duplicateInPersonPlan = async (req, res, next) => {
+  try {
+    const sessionId = asInt(req.params.sessionId);
+    const sourceSessionId = asInt(req.params.sourceSessionId);
+    const { canModerate } = await assertLearningSessionAccess(req, sessionId);
+    if (!canModerate) return res.status(403).json({ error: { message: 'Moderator access required' } });
+    const payload = await duplicateInPersonPlanFromSession({
+      sessionId,
+      sourceSessionId,
+      userId: req.user.id
+    });
+    await logClassSessionTelemetry({
+      sessionId,
+      eventType: 'in_person_plan_duplicated',
+      actorUserId: req.user.id,
+      payload: { sourceSessionId }
+    });
+    res.json({
+      ...enrichInPersonPayload(payload),
+      actorRole: 'presenter',
+      canModerate: true
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listInPersonMaterials = async (req, res, next) => {
+  try {
+    const sessionId = asInt(req.params.sessionId);
+    await assertLearningSessionAccess(req, sessionId);
+    const payload = await getInPersonPlanPayload({ sessionId });
+    res.json({
+      student: payload?.student || null,
+      materials: Array.isArray(payload?.materials)
+        ? payload.materials.map((material) => enrichInPersonMaterial(sessionId, material))
+        : []
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const postInPersonMaterial = async (req, res, next) => {
+  try {
+    const sessionId = asInt(req.params.sessionId);
+    const { canModerate } = await assertLearningSessionAccess(req, sessionId);
+    if (!canModerate) return res.status(403).json({ error: { message: 'Moderator access required' } });
+
+    const base = req.body?.material && typeof req.body.material === 'object' ? req.body.material : req.body || {};
+    const material = {
+      materialType: String(base.materialType || '').trim(),
+      sourceId: asInt(base.sourceId),
+      title: base.title,
+      description: base.description,
+      externalUrl: base.externalUrl,
+      positionIndex: base.positionIndex !== undefined ? Number(base.positionIndex) : undefined,
+      config: parseObjectMaybe(base.config, {})
+    };
+
+    if (base.fieldDefinitions !== undefined) {
+      material.config.fieldDefinitions = base.fieldDefinitions;
+    }
+
+    const created = await createInPersonMaterial({
+      sessionId,
+      userId: req.user.id,
+      material,
+      file: req.file || null
+    });
+
+    await logClassSessionTelemetry({
+      sessionId,
+      eventType: 'in_person_material_created',
+      actorUserId: req.user.id,
+      payload: { materialId: created?.id, materialType: created?.materialType }
+    });
+
+    res.status(201).json({ material: enrichInPersonMaterial(sessionId, created) });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const patchInPersonMaterial = async (req, res, next) => {
+  try {
+    const sessionId = asInt(req.params.sessionId);
+    const materialId = asInt(req.params.materialId);
+    const { canModerate } = await assertLearningSessionAccess(req, sessionId);
+    if (!canModerate) return res.status(403).json({ error: { message: 'Moderator access required' } });
+
+    const updated = await updateInPersonMaterial({
+      sessionId,
+      materialId,
+      userId: req.user.id,
+      updates: {
+        ...req.body,
+        config: req.body?.config !== undefined ? parseObjectMaybe(req.body.config, {}) : undefined
+      }
+    });
+    if (!updated) return res.status(404).json({ error: { message: 'Material not found' } });
+
+    await logClassSessionTelemetry({
+      sessionId,
+      eventType: 'in_person_material_updated',
+      actorUserId: req.user.id,
+      payload: { materialId }
+    });
+
+    res.json({ material: enrichInPersonMaterial(sessionId, updated) });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteInPersonMaterialController = async (req, res, next) => {
+  try {
+    const sessionId = asInt(req.params.sessionId);
+    const materialId = asInt(req.params.materialId);
+    const { canModerate } = await assertLearningSessionAccess(req, sessionId);
+    if (!canModerate) return res.status(403).json({ error: { message: 'Moderator access required' } });
+    const ok = await deleteInPersonMaterial({ sessionId, materialId });
+    if (!ok) return res.status(404).json({ error: { message: 'Material not found' } });
+
+    await logClassSessionTelemetry({
+      sessionId,
+      eventType: 'in_person_material_deleted',
+      actorUserId: req.user.id,
+      payload: { materialId }
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getInPersonMaterialFileController = async (req, res, next) => {
+  try {
+    const sessionId = asInt(req.params.sessionId);
+    const materialId = asInt(req.params.materialId);
+    await assertLearningSessionAccess(req, sessionId);
+    const file = await getInPersonMaterialFile({ sessionId, materialId });
+    if (!file) return res.status(404).json({ error: { message: 'Material file not found' } });
+    res.setHeader('Content-Type', file.contentType || 'application/pdf');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(file.buffer);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getInPersonMaterialResponseController = async (req, res, next) => {
+  try {
+    const sessionId = asInt(req.params.sessionId);
+    const materialId = asInt(req.params.materialId);
+    await assertLearningSessionAccess(req, sessionId);
+    const payload = await getInPersonPlanPayload({ sessionId });
+    const clientId = asInt(req.query?.clientId) || payload?.student?.clientId || payload?.plan?.studentClientId;
+    if (!clientId) return res.status(400).json({ error: { message: 'No active student is attached to this session' } });
+    const response = await getInPersonMaterialResponse({ sessionId, materialId, clientId });
+    res.json({ clientId, response });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const putInPersonMaterialResponseController = async (req, res, next) => {
+  try {
+    const sessionId = asInt(req.params.sessionId);
+    const materialId = asInt(req.params.materialId);
+    const { canModerate } = await assertLearningSessionAccess(req, sessionId);
+    if (!canModerate) return res.status(403).json({ error: { message: 'Moderator access required' } });
+    const payload = await getInPersonPlanPayload({ sessionId });
+    const clientId = asInt(req.body?.clientId) || payload?.student?.clientId || payload?.plan?.studentClientId;
+    if (!clientId) return res.status(400).json({ error: { message: 'No active student is attached to this session' } });
+    const response = await upsertInPersonMaterialResponse({
+      sessionId,
+      materialId,
+      clientId,
+      responseValues: req.body?.responseValues || {},
+      status: req.body?.status || 'draft'
+    });
+    res.json({ clientId, response });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const downloadInPersonMaterialResponseController = async (req, res, next) => {
+  try {
+    const sessionId = asInt(req.params.sessionId);
+    const materialId = asInt(req.params.materialId);
+    await assertLearningSessionAccess(req, sessionId);
+    const payload = await getInPersonPlanPayload({ sessionId });
+    const clientId = asInt(req.query?.clientId) || payload?.student?.clientId || payload?.plan?.studentClientId;
+    if (!clientId) return res.status(400).json({ error: { message: 'No active student is attached to this session' } });
+    const filled = await buildInPersonMaterialDownload({ sessionId, materialId, clientId });
+    if (!filled) return res.status(404).json({ error: { message: 'Material not found' } });
+    const filename = `${String(filled.material.title || 'tutoring-material').replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'tutoring-material'}-completed.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(Buffer.from(filled.pdfBytes));
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const inPersonAiAssist = async (req, res, next) => {
+  try {
+    const sessionId = asInt(req.params.sessionId);
+    await assertLearningSessionAccess(req, sessionId);
+    const prompt = String(req.body?.prompt || '').trim();
+    if (!prompt) return res.status(400).json({ error: { message: 'prompt is required' } });
+    const payload = await getInPersonPlanPayload({ sessionId });
+    const ai = await runAgentAssist({
+      userId: req.user.id,
+      prompt,
+      context: {
+        routeName: 'in_person_tutoring',
+        agencyId: payload?.session?.organization_id || null,
+        tutoringMode: 'in_person',
+        sessionId,
+        student: payload?.student || null,
+        plan: payload?.plan || null,
+        materials: Array.isArray(payload?.materials)
+          ? payload.materials.map((material) => ({
+              id: material.id,
+              title: material.title,
+              materialType: material.materialType,
+              description: material.description,
+              blocks: material.config?.blocks || []
+            }))
+          : []
+      },
+      agentConfig: req.body?.agentConfig && typeof req.body.agentConfig === 'object' ? req.body.agentConfig : null,
+      allowSearch: false,
+      user: req.user,
+      history: Array.isArray(req.body?.history) ? req.body.history : []
+    });
+
+    res.json({
+      assistantText: ai?.rawText || 'No response',
+      runtime: ai?.runtime || 'vertex'
+    });
   } catch (e) {
     next(e);
   }

@@ -28,12 +28,36 @@ const normalize = (row) => {
 };
 
 class LearningClassSession {
-  static async create({ classId, title, description = null, mode = 'group', sessionSubtype = null, startsAt = null, createdByUserId = null, vonageSessionId = null, primaryAssignmentId = null, standardsContextJson = null }) {
+  static async create({
+    classId,
+    title,
+    description = null,
+    mode = 'group',
+    sessionSubtype = null,
+    deliveryContext = null,
+    startsAt = null,
+    createdByUserId = null,
+    vonageSessionId = null,
+    primaryAssignmentId = null,
+    standardsContextJson = null
+  }) {
     const [result] = await pool.execute(
       `INSERT INTO learning_class_sessions
-       (learning_class_id, title, description, mode, session_subtype, starts_at, created_by_user_id, vonage_session_id, primary_assignment_id, standards_context_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [classId, title, description, mode, sessionSubtype, startsAt, createdByUserId, vonageSessionId, primaryAssignmentId, standardsContextJson ? JSON.stringify(standardsContextJson) : null]
+       (learning_class_id, title, description, mode, session_subtype, delivery_context, starts_at, created_by_user_id, vonage_session_id, primary_assignment_id, standards_context_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        classId,
+        title,
+        description,
+        mode,
+        sessionSubtype,
+        deliveryContext,
+        startsAt,
+        createdByUserId,
+        vonageSessionId,
+        primaryAssignmentId,
+        standardsContextJson ? JSON.stringify(standardsContextJson) : null
+      ]
     );
     return this.findById(result.insertId);
   }
@@ -78,6 +102,7 @@ class LearningClassSession {
       description: 'description',
       mode: 'mode',
       sessionSubtype: 'session_subtype',
+      deliveryContext: 'delivery_context',
       status: 'status',
       startsAt: 'starts_at',
       endsAt: 'ends_at',

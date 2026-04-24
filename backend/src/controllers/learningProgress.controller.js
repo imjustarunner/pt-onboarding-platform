@@ -61,7 +61,7 @@ export const getStudentTutoringSessions = async (req, res, next) => {
     const limit = Math.min(Math.max(asInt(req.query.limit) || 10, 1), 50);
 
     const [rows] = await pool.query(
-      `SELECT s.id, s.learning_class_id, s.title, s.status, s.mode, s.session_subtype,
+      `SELECT s.id, s.learning_class_id, s.title, s.status, s.mode, s.session_subtype, s.delivery_context,
               s.starts_at, s.ends_at, s.primary_assignment_id,
               s.ai_summary_json, s.standards_context_json
          FROM learning_class_sessions s

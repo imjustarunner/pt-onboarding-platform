@@ -583,9 +583,9 @@
                     </div>
 
                     <div class="learning-progress-card" style="margin-top: 10px;">
-                      <div class="learning-progress-card-title">Recent virtual tutoring sessions</div>
+                      <div class="learning-progress-card-title">Recent tutoring sessions</div>
                       <p class="hint" style="margin: 0 0 10px;">
-                        AI-generated summaries, standards mastered (CAS + CCSS / US DoE), and branded homework.
+                        AI-generated summaries, standards mastered (CAS + CCSS / US DoE), branded homework, completed in-person tutoring materials, and any shared tutoring whiteboards.
                       </p>
                       <ul v-if="tutoringSummaries.length" class="learning-progress-list">
                         <li
@@ -1725,7 +1725,9 @@ const loadSelectedChildLearningProgress = async () => {
       homeworkUrl: s.primary_assignment_id
         ? `/api/learning-assignments/${s.primary_assignment_id}/download?branded=true`
         : null,
-      sessionUrl: `/tutoring-session/${s.id}`
+      sessionUrl: String(s.delivery_context || '').toLowerCase() === 'in_person'
+        ? `/in-person-tutoring-session/${s.id}`
+        : `/tutoring-session/${s.id}`
     };
   });
 };

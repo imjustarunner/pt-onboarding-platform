@@ -745,6 +745,18 @@ const routes = [
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/in-person-tutoring-builder/:sessionId?',
+    name: 'OrganizationInPersonTutoringBuilder',
+    component: () => import('../views/tutoring/InPersonTutoringBuilderView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/in-person-tutoring-session/:sessionId',
+    name: 'OrganizationInPersonTutoringSession',
+    component: () => import('../views/tutoring/InPersonTutoringSessionView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/tutoring-session/:sessionId',
     name: 'OrganizationVirtualTutoringSession',
     component: () => import('../views/tutoring/VirtualTutoringSessionView.vue'),
@@ -1553,6 +1565,18 @@ const routes = [
     path: '/class-presentation-dashboard/:eventId',
     name: 'ClassPresentationDashboard',
     component: () => import('../views/classroom/ClassPresentationDashboardView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/in-person-tutoring-builder/:sessionId?',
+    name: 'InPersonTutoringBuilder',
+    component: () => import('../views/tutoring/InPersonTutoringBuilderView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/in-person-tutoring-session/:sessionId',
+    name: 'InPersonTutoringSession',
+    component: () => import('../views/tutoring/InPersonTutoringSessionView.vue'),
     meta: { requiresAuth: true }
   },
   {
