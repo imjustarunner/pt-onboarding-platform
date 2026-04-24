@@ -142,7 +142,7 @@ export const getRequest = async (req, res, next) => {
     const [reqEvents] = await pool.execute(
       `SELECT fare.*,
               COALESCE(ce.title, p.name) AS event_title,
-              ce.event_date, ce.end_date,
+              ce.starts_at AS event_date, ce.ends_at AS end_date,
               CASE WHEN fare.program_id IS NOT NULL THEN 'program' ELSE 'company_event' END AS _type
        FROM facilitator_availability_request_events fare
        LEFT JOIN company_events ce ON ce.id = fare.company_event_id
@@ -435,7 +435,7 @@ export const getRequestForEmployee = async (req, res, next) => {
     const [reqEvents] = await pool.execute(
       `SELECT fare.*,
               COALESCE(ce.title, p.name) AS event_title,
-              ce.event_date, ce.end_date,
+              ce.starts_at AS event_date, ce.ends_at AS end_date,
               CASE WHEN fare.program_id IS NOT NULL THEN 'program' ELSE 'company_event' END AS _type
        FROM facilitator_availability_request_events fare
        LEFT JOIN company_events ce ON ce.id = fare.company_event_id
@@ -732,7 +732,7 @@ export const getSchedulingData = async (req, res, next) => {
 
     const [reqEvents] = await pool.execute(
       `SELECT fare.id AS request_event_id, fare.company_event_id, fare.display_order,
-              ce.title AS event_title, ce.event_date, ce.end_date
+              ce.title AS event_title, ce.starts_at AS event_date, ce.ends_at AS end_date
        FROM facilitator_availability_request_events fare
        JOIN company_events ce ON ce.id = fare.company_event_id
        WHERE fare.request_id = ?
@@ -1060,7 +1060,7 @@ export const listAgencyEvents = async (req, res, next) => {
 
     // Company events
     const [ceRows] = await pool.execute(
-      `SELECT ce.id, ce.title, ce.event_date, ce.end_date, ce.event_type,
+      `SELECT ce.id, ce.title, ce.starts_at AS event_date, ce.ends_at AS end_date, ce.event_type,
               a.name AS agency_name,
               COUNT(csd.id) AS session_date_count,
               'company_event' AS _type
@@ -1069,7 +1069,7 @@ export const listAgencyEvents = async (req, res, next) => {
        LEFT JOIN company_event_session_dates csd ON csd.company_event_id = ce.id
        WHERE ce.agency_id IN (${ph})
        GROUP BY ce.id
-       ORDER BY ce.event_date DESC`,
+       ORDER BY ce.starts_at DESC`,
       ids
     );
 
