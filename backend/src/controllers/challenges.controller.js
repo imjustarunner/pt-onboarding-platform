@@ -193,6 +193,72 @@ export const deleteTeam = async (req, res, next) => {
   }
 };
 
+export const uploadTeamLogo = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const teamId = asInt(req.params.teamId);
+    if (!classId || !teamId) return res.status(400).json({ error: { message: 'Invalid classId/teamId' } });
+    const team = await ChallengeTeam.findById(teamId);
+    if (!team || Number(team.learning_class_id) !== Number(classId)) return res.status(404).json({ error: { message: 'Team not found' } });
+    if (!canManageTeam(req.user, team) && !(await canManageChallenge({ user: req.user, classId }))) {
+      return res.status(403).json({ error: { message: 'Only team captains or season managers can upload a team logo' } });
+    }
+    if (!req.file) return res.status(400).json({ error: { message: 'No file uploaded' } });
+    const { default: StorageService } = await import('../services/storage.service.js');
+    const result = await StorageService.saveTeamLogo({ teamId, fileBuffer: req.file.buffer, filename: req.file.originalname, contentType: req.file.mimetype });
+    await ChallengeTeam.update(teamId, { logoPath: result.relativePath });
+    return res.json({ logoPath: result.relativePath });
+  } catch (e) { next(e); }
+};
+
+export const uploadTeamBanner = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const teamId = asInt(req.params.teamId);
+    if (!classId || !teamId) return res.status(400).json({ error: { message: 'Invalid classId/teamId' } });
+    const team = await ChallengeTeam.findById(teamId);
+    if (!team || Number(team.learning_class_id) !== Number(classId)) return res.status(404).json({ error: { message: 'Team not found' } });
+    if (!canManageTeam(req.user, team) && !(await canManageChallenge({ user: req.user, classId }))) {
+      return res.status(403).json({ error: { message: 'Only team captains or season managers can upload a team banner' } });
+    }
+    if (!req.file) return res.status(400).json({ error: { message: 'No file uploaded' } });
+    const { default: StorageService } = await import('../services/storage.service.js');
+    const result = await StorageService.saveTeamBanner({ teamId, fileBuffer: req.file.buffer, filename: req.file.originalname, contentType: req.file.mimetype });
+    await ChallengeTeam.update(teamId, { bannerPath: result.relativePath });
+    return res.json({ bannerPath: result.relativePath });
+  } catch (e) { next(e); }
+};
+
+export const deleteTeamLogo = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const teamId = asInt(req.params.teamId);
+    if (!classId || !teamId) return res.status(400).json({ error: { message: 'Invalid classId/teamId' } });
+    const team = await ChallengeTeam.findById(teamId);
+    if (!team || Number(team.learning_class_id) !== Number(classId)) return res.status(404).json({ error: { message: 'Team not found' } });
+    if (!canManageTeam(req.user, team) && !(await canManageChallenge({ user: req.user, classId }))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    await ChallengeTeam.update(teamId, { logoPath: null });
+    return res.json({ ok: true });
+  } catch (e) { next(e); }
+};
+
+export const deleteTeamBanner = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const teamId = asInt(req.params.teamId);
+    if (!classId || !teamId) return res.status(400).json({ error: { message: 'Invalid classId/teamId' } });
+    const team = await ChallengeTeam.findById(teamId);
+    if (!team || Number(team.learning_class_id) !== Number(classId)) return res.status(404).json({ error: { message: 'Team not found' } });
+    if (!canManageTeam(req.user, team) && !(await canManageChallenge({ user: req.user, classId }))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    await ChallengeTeam.update(teamId, { bannerPath: null });
+    return res.json({ ok: true });
+  } catch (e) { next(e); }
+};
+
 export const listTeamMembers = async (req, res, next) => {
   try {
     const classId = asInt(req.params.classId);
@@ -550,7 +616,8 @@ export const getActivityFeed = async (req, res, next) => {
     if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
     const limit = Math.min(100, asInt(req.query.limit) || 50);
     const offset = asInt(req.query.offset) || 0;
-    const workouts = await ChallengeWorkout.listByChallenge(classId, { limit, offset });
+    const teamId = req.query.teamId ? asInt(req.query.teamId) : null;
+    const workouts = await ChallengeWorkout.listByChallenge(classId, { limit, offset, teamId });
     const workoutIds = (workouts || []).map((w) => Number(w.id)).filter(Boolean);
     const mediaRows = await ChallengeWorkoutMedia.listByWorkoutIds(workoutIds);
     const commentsByWorkout = new Map();

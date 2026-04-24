@@ -1340,6 +1340,21 @@ if (!isBootstrap) {
     } catch (err) {
       console.warn('[startup] Migration 744 check skipped:', err.message);
     }
+
+  // Migration 750 – team logo and banner image paths on challenge_teams
+    try {
+      const [cols750] = await pool.execute(`SHOW COLUMNS FROM challenge_teams LIKE 'logo_path'`);
+      if (!cols750.length) {
+        await pool.execute(
+          `ALTER TABLE challenge_teams
+             ADD COLUMN logo_path VARCHAR(500) NULL DEFAULT NULL COMMENT 'Relative path to team logo in uploads',
+             ADD COLUMN banner_path VARCHAR(500) NULL DEFAULT NULL COMMENT 'Relative path to team banner in uploads'`
+        );
+        console.log('[startup] Migration 750 applied: logo_path + banner_path added to challenge_teams');
+      }
+    } catch (err) {
+      console.warn('[startup] Migration 750 check skipped:', err.message);
+    }
   })();
 
   // Set up periodic processing of terminated and completed users

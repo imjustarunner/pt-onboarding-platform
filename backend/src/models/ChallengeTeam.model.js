@@ -56,7 +56,9 @@ class ChallengeTeam {
     if (!id) return null;
     const mapping = {
       teamName: 'team_name',
-      teamManagerUserId: 'team_manager_user_id'
+      teamManagerUserId: 'team_manager_user_id',
+      logoPath: 'logo_path',
+      bannerPath: 'banner_path'
     };
     const setParts = [];
     const values = [];

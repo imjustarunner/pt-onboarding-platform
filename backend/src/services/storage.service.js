@@ -1600,6 +1600,52 @@ class StorageService {
     return { path: relativePath, key, filename: sanitizedFilename, relativePath };
   }
 
+  static async saveTeamLogo({ teamId, fileBuffer, filename, contentType = 'image/png' }) {
+    const sanitizedFilename = this.sanitizeFilename(filename || `logo-${Date.now()}.png`);
+    const unique = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
+    const key = `uploads/team_logos/${teamId || 'unknown'}/${unique}-${sanitizedFilename}`;
+    if (!process.env.PTONBOARDFILES) {
+      const { default: fsSync } = await import('fs');
+      const { default: pathMod } = await import('path');
+      const { fileURLToPath } = await import('url');
+      const __dirname = pathMod.dirname(fileURLToPath(import.meta.url));
+      const localDir = pathMod.resolve(__dirname, `../../uploads/team_logos/${teamId || 'unknown'}`);
+      if (!fsSync.existsSync(localDir)) fsSync.mkdirSync(localDir, { recursive: true });
+      const localPath = pathMod.join(localDir, `${unique}-${sanitizedFilename}`);
+      fsSync.writeFileSync(localPath, fileBuffer);
+      const relativePath = `team_logos/${teamId || 'unknown'}/${unique}-${sanitizedFilename}`;
+      return { path: relativePath, key: `uploads/${relativePath}`, filename: sanitizedFilename, relativePath };
+    }
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    await file.save(fileBuffer, { contentType, metadata: { teamId: String(teamId || ''), uploadedAt: new Date().toISOString() } });
+    const relativePath = key.replace(/^uploads\//, '');
+    return { path: relativePath, key, filename: sanitizedFilename, relativePath };
+  }
+
+  static async saveTeamBanner({ teamId, fileBuffer, filename, contentType = 'image/jpeg' }) {
+    const sanitizedFilename = this.sanitizeFilename(filename || `banner-${Date.now()}.jpg`);
+    const unique = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
+    const key = `uploads/team_banners/${teamId || 'unknown'}/${unique}-${sanitizedFilename}`;
+    if (!process.env.PTONBOARDFILES) {
+      const { default: fsSync } = await import('fs');
+      const { default: pathMod } = await import('path');
+      const { fileURLToPath } = await import('url');
+      const __dirname = pathMod.dirname(fileURLToPath(import.meta.url));
+      const localDir = pathMod.resolve(__dirname, `../../uploads/team_banners/${teamId || 'unknown'}`);
+      if (!fsSync.existsSync(localDir)) fsSync.mkdirSync(localDir, { recursive: true });
+      const localPath = pathMod.join(localDir, `${unique}-${sanitizedFilename}`);
+      fsSync.writeFileSync(localPath, fileBuffer);
+      const relativePath = `team_banners/${teamId || 'unknown'}/${unique}-${sanitizedFilename}`;
+      return { path: relativePath, key: `uploads/${relativePath}`, filename: sanitizedFilename, relativePath };
+    }
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    await file.save(fileBuffer, { contentType, metadata: { teamId: String(teamId || ''), uploadedAt: new Date().toISOString() } });
+    const relativePath = key.replace(/^uploads\//, '');
+    return { path: relativePath, key, filename: sanitizedFilename, relativePath };
+  }
+
   static async getSignedUrl(key, expirationMinutes = 60) {
     const bucket = await this.getGCSBucket();
     const file = bucket.file(key);

@@ -705,6 +705,12 @@ const routes = [
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/season/:id/team/:teamId',
+    name: 'OrganizationTeamDashboard',
+    component: () => import('../views/ChallengeTeamDashboardView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/season/:classId/draft',
     name: 'ChallengeDraftRoom',
     component: () => import('../components/challenge/ChallengeLiveDraft.vue'),

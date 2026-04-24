@@ -114,12 +114,19 @@
                   </div>
                 </template>
                 <template v-if="sstcActiveSeasonNav">
-                  <router-link
-                    v-if="!sstcActiveSeasonNav.isDropdown"
-                    :to="sstcActiveSeasonNav.to"
-                    class="nav-active-season-link"
-                    @click="closeMobileMenu"
-                  >{{ sstcActiveSeasonNav.label }}</router-link>
+                  <div v-if="!sstcActiveSeasonNav.isDropdown" class="nav-season-group">
+                    <router-link
+                      :to="sstcActiveSeasonNav.to"
+                      class="nav-active-season-link"
+                      @click="closeMobileMenu"
+                    >{{ sstcActiveSeasonNav.label }}</router-link>
+                    <router-link
+                      v-if="sstcActiveSeasonList[0]?.teamTo"
+                      :to="sstcActiveSeasonList[0].teamTo"
+                      class="nav-team-sub-link"
+                      @click="closeMobileMenu"
+                    >↳ {{ sstcActiveSeasonList[0].myTeamName }}</router-link>
+                  </div>
                   <div v-else class="nav-dropdown nav-active-season-dropdown" @click.stop>
                     <button
                       type="button"
@@ -131,15 +138,18 @@
                       <span class="nav-dropdown-label">{{ sstcActiveSeasonNav.label }}</span> <span class="brand-caret">▾</span>
                     </button>
                     <div v-if="activeSeasonsMenuOpen" class="nav-dropdown-menu">
-                      <router-link
-                        v-for="s in sstcActiveSeasonList"
-                        :key="`as-mgr-${s.id}`"
-                        :to="s.to"
-                        @click.stop="closeActiveSeasonsMenu"
-                      >
-                        <span class="active-season-club">{{ s.clubName }}</span>
-                        <span class="active-season-name">{{ s.name }}</span>
-                      </router-link>
+                      <template v-for="s in sstcActiveSeasonList" :key="`as-mgr-${s.id}`">
+                        <router-link :to="s.to" @click.stop="closeActiveSeasonsMenu">
+                          <span class="active-season-club">{{ s.clubName }}</span>
+                          <span class="active-season-name">{{ s.name }}</span>
+                        </router-link>
+                        <router-link
+                          v-if="s.teamTo"
+                          :to="s.teamTo"
+                          class="nav-team-dropdown-sub"
+                          @click.stop="closeActiveSeasonsMenu"
+                        >↳ {{ s.myTeamName }}</router-link>
+                      </template>
                     </div>
                   </div>
                 </template>
@@ -198,12 +208,19 @@
                   </div>
                 </template>
                 <template v-if="sstcActiveSeasonNav">
-                  <router-link
-                    v-if="!sstcActiveSeasonNav.isDropdown"
-                    :to="sstcActiveSeasonNav.to"
-                    class="nav-active-season-link"
-                    @click="closeMobileMenu"
-                  >{{ sstcActiveSeasonNav.label }}</router-link>
+                  <div v-if="!sstcActiveSeasonNav.isDropdown" class="nav-season-group">
+                    <router-link
+                      :to="sstcActiveSeasonNav.to"
+                      class="nav-active-season-link"
+                      @click="closeMobileMenu"
+                    >{{ sstcActiveSeasonNav.label }}</router-link>
+                    <router-link
+                      v-if="sstcActiveSeasonList[0]?.teamTo"
+                      :to="sstcActiveSeasonList[0].teamTo"
+                      class="nav-team-sub-link"
+                      @click="closeMobileMenu"
+                    >↳ {{ sstcActiveSeasonList[0].myTeamName }}</router-link>
+                  </div>
                   <div v-else class="nav-dropdown nav-active-season-dropdown" @click.stop>
                     <button
                       type="button"
@@ -215,15 +232,18 @@
                       <span class="nav-dropdown-label">{{ sstcActiveSeasonNav.label }}</span> <span class="brand-caret">▾</span>
                     </button>
                     <div v-if="activeSeasonsMenuOpen" class="nav-dropdown-menu">
-                      <router-link
-                        v-for="s in sstcActiveSeasonList"
-                        :key="`as-mem-${s.id}`"
-                        :to="s.to"
-                        @click.stop="closeActiveSeasonsMenu"
-                      >
-                        <span class="active-season-club">{{ s.clubName }}</span>
-                        <span class="active-season-name">{{ s.name }}</span>
-                      </router-link>
+                      <template v-for="s in sstcActiveSeasonList" :key="`as-mem-${s.id}`">
+                        <router-link :to="s.to" @click.stop="closeActiveSeasonsMenu">
+                          <span class="active-season-club">{{ s.clubName }}</span>
+                          <span class="active-season-name">{{ s.name }}</span>
+                        </router-link>
+                        <router-link
+                          v-if="s.teamTo"
+                          :to="s.teamTo"
+                          class="nav-team-dropdown-sub"
+                          @click.stop="closeActiveSeasonsMenu"
+                        >↳ {{ s.myTeamName }}</router-link>
+                      </template>
                     </div>
                   </div>
                 </template>
@@ -1674,7 +1694,22 @@ const loadNavActiveSeason = async () => {
         }
       })
     );
-    activeNavSeasons.value = results.filter(Boolean);
+    const seasons = results.filter(Boolean);
+    // Enrich each season with the user's team membership (non-blocking, best-effort)
+    try {
+      const { data: mySummary } = await api.get('/learning-program-classes/my/summary', { skipGlobalLoading: true });
+      const myTeams = Array.isArray(mySummary?.teams) ? mySummary.teams : [];
+      for (const s of seasons) {
+        const teamEntry = myTeams.find((t) => Number(t.challenge_id) === Number(s.id));
+        if (teamEntry) {
+          s.myTeamId = Number(teamEntry.team_id);
+          s.myTeamName = teamEntry.team_name || null;
+        }
+      }
+    } catch {
+      // best-effort — team sub-links just won't show
+    }
+    activeNavSeasons.value = seasons;
     activeNavSeason.value = activeNavSeasons.value[0]
       ? {
           id: activeNavSeasons.value[0].id,
@@ -3220,7 +3255,10 @@ const sstcActiveSeasonList = computed(() => {
     id: s.id,
     name: s.name,
     clubName: s.clubName,
-    to: orgTo(`/season/${s.id}`)
+    to: orgTo(`/season/${s.id}`),
+    myTeamId: s.myTeamId || null,
+    myTeamName: s.myTeamName || null,
+    teamTo: s.myTeamId ? orgTo(`/season/${s.id}/team/${s.myTeamId}`) : null
   }));
 });
 
@@ -4764,6 +4802,45 @@ onUnmounted(() => {
 .nav-active-season-dropdown .active-season-name {
   font-size: 0.95rem;
   font-weight: 600;
+}
+
+/* Team sub-link under a single active season in the nav */
+.nav-season-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav-team-sub-link {
+  display: block;
+  padding: 3px 10px 3px 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #ff9560 !important;
+  text-decoration: none;
+  opacity: 0.9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-team-sub-link:hover {
+  opacity: 1;
+  background: rgba(255,107,53,0.1);
+  border-radius: 4px;
+}
+/* Team sub-link inside the multi-season dropdown */
+.nav-team-dropdown-sub {
+  display: block !important;
+  padding: 4px 16px 6px 28px !important;
+  font-size: 0.8rem !important;
+  font-weight: 600 !important;
+  color: #ff9560 !important;
+  text-decoration: none;
+  border-left: 2px solid rgba(255,107,53,0.3);
+  margin: -4px 0 4px 12px;
+}
+.nav-team-dropdown-sub:hover {
+  background: rgba(255,107,53,0.1) !important;
+  color: #ff6b35 !important;
 }
 
 .nav-badge {

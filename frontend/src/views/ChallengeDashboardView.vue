@@ -108,6 +108,14 @@
             </span>
           </div>
         </div>
+        <!-- My Team shortcut -->
+        <router-link
+          v-if="myTeamId && organizationSlug && challengeId"
+          :to="`/${organizationSlug}/season/${challengeId}/team/${myTeamId}`"
+          class="my-team-btn"
+        >
+          {{ myTeamName ? `🏃 ${myTeamName}` : '🏃 My Team' }}
+        </router-link>
         <router-link
           v-if="challenge.organization_id"
           :to="`/club-store/${challenge.organization_id}`"
@@ -1231,6 +1239,7 @@ const leaderboard = ref(null);
 const leaderboardLoading = ref(false);
 const teams = ref([]);
 const teamsLoading = ref(false);
+const myTeamFromApi = ref(null); // user's own team loaded from /my/summary
 const activity = ref([]);
 const activityLoading = ref(false);
 const participationAgreementStatus = ref(null);
@@ -1519,12 +1528,22 @@ const myOwnCaptainApp = computed(() => {
 });
 
 const myTeamId = computed(() => {
+  // Prefer the server-resolved team (reliable for non-captains too)
+  if (myTeamFromApi.value?.team_id) return Number(myTeamFromApi.value.team_id);
   const myId = Number(authStore.user?.id || 0);
   const myTeam = (teams.value || []).find((t) =>
     (t.members || []).some((m) => Number(m.provider_user_id || m.user_id) === myId)
     || Number(t.team_manager_user_id) === myId
   );
   return myTeam?.id || null;
+});
+
+const myTeamName = computed(() => {
+  if (myTeamFromApi.value?.team_name) return myTeamFromApi.value.team_name;
+  const tid = myTeamId.value;
+  if (!tid) return null;
+  const t = (teams.value || []).find((x) => Number(x.id) === Number(tid));
+  return t?.team_name || null;
 });
 
 const myTeamMateUserIds = computed(() => {
@@ -1791,6 +1810,15 @@ const loadTeams = async () => {
   try {
     const r = await api.get(`/learning-program-classes/${id}/teams`, { skipGlobalLoading: true });
     teams.value = Array.isArray(r.data?.teams) ? r.data.teams : [];
+    // Also resolve the user's own team via participation summary (reliable for non-captains)
+    try {
+      const s = await api.get('/learning-program-classes/my/summary', { skipGlobalLoading: true });
+      const myTeams = Array.isArray(s.data?.teams) ? s.data.teams : [];
+      const match = myTeams.find((t) => Number(t.challenge_id) === Number(id));
+      myTeamFromApi.value = match || null;
+    } catch {
+      myTeamFromApi.value = null;
+    }
   } catch {
     teams.value = [];
   } finally {
@@ -2576,6 +2604,26 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   opacity: .75;
   font-weight: 400;
   font-size: 13px;
+}
+.my-team-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  margin-bottom: 2px;
+  padding: 8px 18px;
+  background: linear-gradient(135deg, #ff6b35 0%, #ff8c5e 100%);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.9rem;
+  border-radius: 20px;
+  text-decoration: none;
+  box-shadow: 0 2px 8px rgba(255,107,53,0.25);
+  transition: opacity 0.15s, box-shadow 0.15s;
+}
+.my-team-btn:hover {
+  opacity: 0.9;
+  box-shadow: 0 4px 14px rgba(255,107,53,0.4);
 }
 .club-store-link {
   display: inline-block;

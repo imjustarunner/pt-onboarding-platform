@@ -45,19 +45,21 @@ class ChallengeWorkout {
     return rows?.[0] || null;
   }
 
-  static async listByChallenge(learningClassId, { limit = 50, offset = 0 } = {}) {
+  static async listByChallenge(learningClassId, { limit = 50, offset = 0, teamId = null } = {}) {
     const classId = toInt(learningClassId);
     if (!classId) return [];
     // Inline LIMIT/OFFSET: mysql2 prepared statements reject numeric ? for LIMIT/OFFSET (ER_WRONG_ARGUMENTS)
     const lim = Math.min(Math.max(toInt(limit) || 50, 1), 500);
     const off = Math.max(toInt(offset) || 0, 0);
+    const tId = teamId ? toInt(teamId) : null;
+    const teamClause = tId ? `AND w.team_id = ${tId}` : '';
     const [rows] = await pool.execute(
       `SELECT w.*, u.first_name, u.last_name, u.profile_photo_path, t.team_name, wt.name AS weekly_task_name
        FROM challenge_workouts w
        INNER JOIN users u ON u.id = w.user_id
        LEFT JOIN challenge_teams t ON t.id = w.team_id
        LEFT JOIN challenge_weekly_tasks wt ON wt.id = w.weekly_task_id
-       WHERE w.learning_class_id = ?
+       WHERE w.learning_class_id = ? ${teamClause}
        ORDER BY w.completed_at DESC, w.created_at DESC
        LIMIT ${lim} OFFSET ${off}`,
       [classId]
