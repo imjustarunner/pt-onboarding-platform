@@ -316,16 +316,26 @@
 
                 <!-- Available pool -->
                 <div v-if="d.available.length" class="fav-sched-available">
-                  <div class="fav-sched-section-label">Available to assign</div>
+                  <div class="fav-sched-section-label">
+                    Available to assign
+                    <span class="fav-sched-fcfs-note">sorted by sign-up time</span>
+                  </div>
                   <div class="fav-avail-rows">
                     <div
-                      v-for="emp in d.available"
+                      v-for="(emp, empIdx) in d.available"
                       :key="emp.userId"
                       class="fav-avail-row"
                     >
-                      <span class="fav-avail-name">{{ emp.name }}</span>
+                      <!-- Position / rank -->
+                      <span class="fav-avail-rank" :class="empIdx === 0 ? 'fav-avail-rank--first' : ''">
+                        #{{ empIdx + 1 }}
+                      </span>
+                      <div class="fav-avail-info">
+                        <span class="fav-avail-name">{{ emp.name }}</span>
+                        <span v-if="emp.signedUpAt" class="fav-avail-time">{{ fmtRelTime(emp.signedUpAt) }}</span>
+                      </div>
                       <span class="fav-avail-pill fav-avail-pill--sm" :class="`fav-avail--${emp.availability}`">
-                        {{ emp.availability }}
+                        {{ emp.availability === 'slot' ? 'wants slot' : emp.availability }}
                       </span>
                       <button
                         type="button"
@@ -445,6 +455,21 @@ const copyFormLink = async (r) => {
     // Fallback for browsers that block clipboard
     window.prompt('Copy this link to share with your team:', url);
   }
+};
+
+const fmtRelTime = (iso) => {
+  if (!iso) return '';
+  const dt = new Date(iso);
+  if (isNaN(dt)) return '';
+  const diff = Date.now() - dt.getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 2) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
 
 const fmtDate = (d) => {
@@ -898,9 +923,14 @@ onMounted(async () => {
 .fav-assigned-pills { display: flex; flex-wrap: wrap; gap: 6px; }
 .fav-assigned-pill { display: flex; align-items: center; gap: 5px; background: #dcfce7; color: #166534; border: 1px solid #86efac; border-radius: 999px; padding: 3px 10px; font-size: .82rem; font-weight: 500; }
 
+.fav-sched-fcfs-note { font-size: .72rem; font-weight: 400; color: #94a3b8; margin-left: 6px; }
 .fav-avail-rows { display: grid; gap: 6px; }
-.fav-avail-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
-.fav-avail-name { font-size: .88rem; color: #0f172a; flex: 1; min-width: 0; }
+.fav-avail-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: #f8fafc; }
+.fav-avail-rank { font-size: .78rem; font-weight: 800; color: #94a3b8; width: 26px; text-align: center; flex-shrink: 0; }
+.fav-avail-rank--first { color: #16a34a; }
+.fav-avail-info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.fav-avail-name { font-size: .88rem; color: #0f172a; font-weight: 500; }
+.fav-avail-time { font-size: .74rem; color: #94a3b8; }
 .fav-avail-pill { border-radius: 999px; padding: 2px 10px; font-size: .75rem; font-weight: 600; }
 .fav-avail-pill--sm { font-size: .72rem; padding: 2px 8px; }
 .fav-avail--available { background: #dcfce7; color: #166534; }

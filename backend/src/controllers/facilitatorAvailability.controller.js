@@ -745,17 +745,23 @@ export const getSchedulingData = async (req, res, next) => {
 
         // Available pool: responded available/waitlist AND not already assigned to this session date
         const [available] = await pool.execute(
-          `SELECT fade.user_id, fade.availability, u.first_name, u.last_name, u.email
+          `SELECT fade.user_id, fade.availability, fade.waitlist_willing, fade.oncall_willing,
+                  u.first_name, u.last_name, u.email,
+                  COALESCE(fas.submitted_at, fas.updated_at, fade.created_at) AS signed_up_at
            FROM facilitator_availability_date_entries fade
            JOIN users u ON u.id = fade.user_id
+           LEFT JOIN facilitator_availability_submissions fas
+             ON fas.id = fade.submission_id
            LEFT JOIN company_event_session_providers csp
              ON csp.session_date_id = ? AND csp.provider_user_id = fade.user_id
            WHERE fade.request_id = ?
              AND fade.company_event_id = ?
              AND fade.entry_date = ?
-             AND fade.availability IN ('available', 'waitlist')
+             AND fade.availability IN ('slot', 'waitlist', 'oncall', 'available')
              AND csp.id IS NULL
-           ORDER BY FIELD(fade.availability, 'available', 'waitlist'), u.last_name, u.first_name`,
+           ORDER BY
+             FIELD(fade.availability, 'slot', 'available', 'waitlist', 'oncall'),
+             COALESCE(fas.submitted_at, fas.updated_at, fade.created_at) ASC`,
           [sd.id, requestId, ev.company_event_id, dateStr]
         );
 
