@@ -1355,6 +1355,36 @@ if (!isBootstrap) {
     } catch (err) {
       console.warn('[startup] Migration 750 check skipped:', err.message);
     }
+
+  // Migration 751 – SSTC notification preferences JSON on user_preferences
+    try {
+      const [cols751] = await pool.execute(`SHOW COLUMNS FROM user_preferences LIKE 'sstc_notification_prefs_json'`);
+      if (!cols751.length) {
+        await pool.execute(
+          `ALTER TABLE user_preferences
+             ADD COLUMN sstc_notification_prefs_json JSON NULL DEFAULT NULL
+               COMMENT 'SSTC-specific notification prefs: loginSplash, dailySummary, weeklySummary'`
+        );
+        console.log('[startup] Migration 751 applied: sstc_notification_prefs_json added to user_preferences');
+      }
+    } catch (err) {
+      console.warn('[startup] Migration 751 check skipped:', err.message);
+    }
+
+  // Migration 752 – per-tenant notification sender email on agencies
+    try {
+      const [cols752] = await pool.execute(`SHOW COLUMNS FROM agencies LIKE 'notification_sender_email'`);
+      if (!cols752.length) {
+        await pool.execute(
+          `ALTER TABLE agencies
+             ADD COLUMN notification_sender_email VARCHAR(255) NULL DEFAULT NULL
+               COMMENT 'Default from-address for automated notifications sent on behalf of this tenant'`
+        );
+        console.log('[startup] Migration 752 applied: notification_sender_email added to agencies');
+      }
+    } catch (err) {
+      console.warn('[startup] Migration 752 check skipped:', err.message);
+    }
   })();
 
   // Set up periodic processing of terminated and completed users

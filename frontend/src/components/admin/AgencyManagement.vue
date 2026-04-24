@@ -2128,6 +2128,27 @@
           </div>
 
           <div
+            v-if="activeTab === 'notifications' && editingAgency"
+            class="form-section-divider"
+            style="margin-top: 18px; margin-bottom: 12px; padding-top: 18px; border-top: 2px solid var(--border);"
+          >
+            <h4 style="margin: 0 0 6px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Notification Sender Email</h4>
+            <small class="hint">The "From" email address used for automated emails (summaries, alerts) sent on behalf of this tenant. Leave blank to use the platform default.</small>
+            <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;align-items:center;">
+              <input
+                v-model="tenantSenderEmailDraft"
+                type="email"
+                placeholder="e.g. noreply@yourclub.com"
+                style="flex:1;min-width:220px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;"
+              />
+              <button type="button" class="btn btn-primary btn-sm" :disabled="savingTenantSenderEmail" @click="saveTenantSenderEmail">
+                {{ savingTenantSenderEmail ? 'Saving…' : 'Save Sender' }}
+              </button>
+            </div>
+            <div v-if="tenantSenderEmailSaved" style="color:#065f46;font-size:13px;margin-top:6px;">✓ Saved!</div>
+          </div>
+
+          <div
             v-if="activeTab === 'notifications' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
             class="form-section-divider"
             style="margin-top: 18px; margin-bottom: 16px; padding-top: 18px; border-top: 2px solid var(--border);"
@@ -5101,6 +5122,32 @@ const savingNotificationTriggerKey = ref(null);
 const agencyNotificationLoading = ref(false);
 const agencyNotificationSaving = ref(false);
 const agencyNotificationError = ref('');
+const tenantSenderEmailDraft = ref('');
+const savingTenantSenderEmail = ref(false);
+const tenantSenderEmailSaved = ref(false);
+
+const loadTenantSenderEmail = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    const r = await api.get(`/agencies/${editingAgency.value.id}/notification-sender`, { skipGlobalLoading: true });
+    tenantSenderEmailDraft.value = r.data?.notificationSenderEmail || '';
+  } catch { /* ignore */ }
+};
+
+const saveTenantSenderEmail = async () => {
+  if (!editingAgency.value?.id) return;
+  savingTenantSenderEmail.value = true;
+  tenantSenderEmailSaved.value = false;
+  try {
+    await api.put(`/agencies/${editingAgency.value.id}/notification-sender`, {
+      notificationSenderEmail: tenantSenderEmailDraft.value || null
+    });
+    tenantSenderEmailSaved.value = true;
+    setTimeout(() => { tenantSenderEmailSaved.value = false; }, 3000);
+  } catch { /* ignore */ } finally {
+    savingTenantSenderEmail.value = false;
+  }
+};
 const agencyNotificationDraft = ref({
   defaults: {
     messaging_new_inbound_client_text: false,
@@ -5240,6 +5287,7 @@ const loadNotificationTriggers = async () => {
     notificationTriggersLoading.value = false;
   }
   await loadAgencyNotificationPreferences();
+  await loadTenantSenderEmail();
   await loadProgramReminders();
 };
 

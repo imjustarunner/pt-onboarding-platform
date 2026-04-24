@@ -1618,3 +1618,38 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * GET /api/agencies/:id/notification-sender
+ * Returns the notification sender email configured for a tenant.
+ */
+export const getAgencyNotificationSender = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    const [rows] = await pool.execute(
+      `SELECT id, name, notification_sender_email FROM agencies WHERE id = ?`, [id]
+    );
+    const agency = rows[0];
+    if (!agency) return res.status(404).json({ error: { message: 'Agency not found' } });
+    return res.json({ agencyId: id, notificationSenderEmail: agency.notification_sender_email || null });
+  } catch (e) { next(e); }
+};
+
+/**
+ * PUT /api/agencies/:id/notification-sender
+ * Sets the notification sender email for a tenant (superadmin only).
+ * Body: { notificationSenderEmail }
+ */
+export const putAgencyNotificationSender = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    const email = req.body?.notificationSenderEmail || null;
+    await pool.execute(
+      `UPDATE agencies SET notification_sender_email = ? WHERE id = ?`,
+      [email || null, id]
+    );
+    return res.json({ ok: true, agencyId: id, notificationSenderEmail: email });
+  } catch (e) { next(e); }
+};

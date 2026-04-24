@@ -1385,6 +1385,12 @@
         @logout="onSessionLockLogout"
       />
       <InactivityWarningModal v-if="isAuthenticated" />
+      <LoginSplashModal
+        v-if="loginSplashVisible && loginSplashSeasons.length"
+        :seasons="loginSplashSeasons"
+        :last-logout-at="loginSplashLastLogout"
+        @dismiss="loginSplashVisible = false"
+      />
       <PoweredByFooter v-if="isAuthenticated" />
       <div
         v-if="showLoginNotificationsModal"
@@ -1580,6 +1586,7 @@ import WeatherChip from './components/WeatherChip.vue';
 import AskAssistantLauncher from './components/assistant/AskAssistantLauncher.vue';
 import SessionLockScreen from './components/SessionLockScreen.vue';
 import InactivityWarningModal from './components/InactivityWarningModal.vue';
+import LoginSplashModal from './components/LoginSplashModal.vue';
 import RegistrationPromoToastRail from './components/RegistrationPromoToastRail.vue';
 import OfficeMandatoryReviewSplash from './components/office/OfficeMandatoryReviewSplash.vue';
 import InterviewCapsuleSplashModal from './components/hiring/InterviewCapsuleSplashModal.vue';
@@ -3399,6 +3406,7 @@ const fetchBuildingsPendingCounts = async () => {
 
 function syncAuthenticatedSideEffects(authenticated) {
   if (authenticated) {
+    maybeShowLoginSplash();
     startActivityTracking({ force: true });
     fetchBuildingsPendingCounts();
     if (buildingsPendingInterval) clearInterval(buildingsPendingInterval);
@@ -3477,6 +3485,36 @@ const notificationsUnreadLabel = computed(() => (
 ));
 const showLoginNotificationsModal = ref(false);
 const notificationsNudgeVisible = ref(false);
+
+// ── Login splash (SSTC: team delta stats since last logout) ──────────────────
+const loginSplashVisible = ref(false);
+const loginSplashSeasons = ref([]);
+const loginSplashLastLogout = ref(null);
+
+const maybeShowLoginSplash = async () => {
+  if (!isAuthenticated.value) return;
+  if (!isSummitStatsChallengeChrome.value) return;
+  // Only show on the very first authenticated page load (i.e. right after login)
+  let justLoggedIn = false;
+  try { justLoggedIn = window.sessionStorage.getItem('justLoggedIn') === 'true'; } catch { /* ignore */ }
+  if (!justLoggedIn) return;
+
+  try {
+    // Check user preference first
+    const prefRes = await api.get('/summit-stats/me/notification-preferences', { skipGlobalLoading: true, skipAuthRedirect: true });
+    if (prefRes.data?.prefs?.loginSplash === false) return; // user disabled splash
+
+    const r = await api.get('/summit-stats/me/login-splash', { skipGlobalLoading: true, skipAuthRedirect: true });
+    const seasons = r.data?.seasons || [];
+    if (!seasons.length) return;
+    loginSplashSeasons.value = seasons;
+    loginSplashLastLogout.value = r.data?.lastLogoutAt || null;
+    // Small delay so the page settles before the modal appears
+    setTimeout(() => { loginSplashVisible.value = true; }, 1200);
+  } catch {
+    // best-effort — never block login flow on splash errors
+  }
+};
 const notificationsNudgeFlash = ref(false);
 const notificationsCountsLoadedOnce = ref(false);
 const showNotificationsNudge = computed(() => {

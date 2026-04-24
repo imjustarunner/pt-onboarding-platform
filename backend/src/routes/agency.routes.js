@@ -1,6 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { getAllAgencies, getAgencyById, getAgencyBySlug, createAgency, updateAgency, archiveAgency, restoreAgency, deleteAgencyHard, getArchivedAgencies, getAgencyByPortalUrl, getThemeByPortalUrl, getLoginThemeByPortalUrl, listAffiliatedOrganizations, resolvePortalByHost } from '../controllers/agency.controller.js';
+import { getAllAgencies, getAgencyById, getAgencyBySlug, createAgency, updateAgency, archiveAgency, restoreAgency, deleteAgencyHard, getArchivedAgencies, getAgencyByPortalUrl, getThemeByPortalUrl, getLoginThemeByPortalUrl, listAffiliatedOrganizations, resolvePortalByHost, getAgencyNotificationSender, putAgencyNotificationSender } from '../controllers/agency.controller.js';
 import { getTenantPeopleSnapshot } from '../controllers/agencyTenantPeopleSnapshot.controller.js';
 import {
   getAgencyAnnouncements,
@@ -525,6 +525,8 @@ router.get('/:id/notification-triggers', authenticate, requireBackofficeAdmin, l
 router.put('/:id/notification-triggers/:triggerKey', authenticate, requireBackofficeAdmin, updateAgencyNotificationTrigger);
 router.get('/:id/notification-preferences', authenticate, requireBackofficeAdmin, getAgencyNotificationPreferences);
 router.put('/:id/notification-preferences', authenticate, requireBackofficeAdmin, updateAgencyNotificationPreferences);
+router.get('/:id/notification-sender', authenticate, requireSuperAdmin, getAgencyNotificationSender);
+router.put('/:id/notification-sender', authenticate, requireSuperAdmin, putAgencyNotificationSender);
 
 // Program reminder schedules
 router.get('/:id/program-reminders', authenticate, requireBackofficeAdmin, listProgramReminderSchedules);

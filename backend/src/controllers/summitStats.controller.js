@@ -1931,3 +1931,215 @@ export const getUserSstcClubAffiliations = async (req, res, next) => {
     next(e);
   }
 };
+
+// ─── SSTC Login Splash & Notification Preferences ────────────────────────────
+
+/**
+ * Returns per-team stats since the user's last logout for every active SSTC season.
+ * Used to power the "here's what happened while you were away" login splash.
+ * GET /summit-stats/me/login-splash
+ */
+export const getLoginSplashData = async (req, res, next) => {
+  try {
+    const userId = Number(req.user?.id || 0);
+    if (!userId) return res.status(401).json({ error: { message: 'Unauthorized' } });
+
+    // 1. Find user's last logout/timeout event
+    const [logoutRows] = await pool.execute(
+      `SELECT created_at FROM user_activity_log
+       WHERE user_id = ? AND action_type IN ('logout', 'timeout')
+       ORDER BY created_at DESC LIMIT 1`,
+      [userId]
+    );
+    const lastLogoutAt = logoutRows[0]?.created_at || null;
+
+    // 2. Find active SSTC seasons this user participates in
+    const platformIds = await getPlatformAgencyIds(null);
+    const plat = sqlAffiliationUnderSummitPlatform('a', platformIds);
+    const [seasonRows] = await pool.execute(
+      `SELECT DISTINCT c.id AS class_id, c.class_name, c.banner_image_path, c.logo_image_path,
+              a.id AS agency_id, a.name AS club_name, a.logo_path AS agency_logo
+       FROM learning_program_classes c
+       INNER JOIN agencies a ON a.id = c.organization_id
+       INNER JOIN learning_class_provider_memberships m ON m.learning_class_id = c.id AND m.provider_user_id = ?
+       WHERE c.status = 'active'
+         AND m.membership_status IN ('active','completed')
+         AND LOWER(COALESCE(a.organization_type,'')) = 'affiliation'
+         ${plat ? plat.sql : ''}
+       LIMIT 5`,
+      [userId, ...(plat ? plat.params : [])]
+    );
+
+    if (!seasonRows.length) return res.json({ seasons: [], lastLogoutAt });
+
+    // 3. For each season, compute per-team stats since lastLogoutAt (and season totals)
+    const seasons = [];
+    for (const s of seasonRows) {
+      const classId = Number(s.class_id);
+
+      const sinceParams = lastLogoutAt ? [classId, lastLogoutAt] : [classId];
+      const sinceClause = lastLogoutAt ? 'AND w.created_at >= ?' : '';
+
+      const [teamRows] = await pool.execute(
+        `SELECT
+           t.id AS team_id,
+           t.team_name,
+           t.logo_path AS team_logo,
+           COALESCE(SUM(CASE WHEN (w.is_disqualified IS NULL OR w.is_disqualified=0)
+                             AND w.proof_status IN ('approved','not_required')
+                             ${sinceClause}
+                             THEN w.points END), 0) AS points_since,
+           COALESCE(SUM(CASE WHEN (w.is_disqualified IS NULL OR w.is_disqualified=0)
+                             AND w.proof_status IN ('approved','not_required')
+                             ${sinceClause}
+                             THEN w.distance_value END), 0) AS miles_since,
+           COALESCE(SUM(CASE WHEN (w.is_disqualified IS NULL OR w.is_disqualified=0)
+                             AND w.proof_status IN ('approved','not_required')
+                             THEN w.points END), 0) AS total_points,
+           COALESCE(SUM(CASE WHEN (w.is_disqualified IS NULL OR w.is_disqualified=0)
+                             AND w.proof_status IN ('approved','not_required')
+                             THEN w.distance_value END), 0) AS total_miles,
+           COALESCE(SUM(CASE WHEN (w.is_disqualified IS NULL OR w.is_disqualified=0)
+                             AND w.proof_status IN ('approved','not_required')
+                             THEN 1 END), 0) AS total_workouts
+         FROM challenge_teams t
+         LEFT JOIN challenge_workouts w ON w.team_id = t.id AND w.learning_class_id = t.learning_class_id
+         WHERE t.learning_class_id = ?
+         GROUP BY t.id, t.team_name, t.logo_path
+         ORDER BY total_points DESC`,
+        sinceParams
+      );
+
+      // 4. Which team is this user on?
+      const [myTeamRow] = await pool.execute(
+        `SELECT t.id AS team_id, t.team_name
+         FROM challenge_team_members m
+         INNER JOIN challenge_teams t ON t.id = m.team_id
+         WHERE m.provider_user_id = ? AND t.learning_class_id = ?
+         LIMIT 1`,
+        [userId, classId]
+      );
+      const myTeamId = myTeamRow[0]?.team_id || null;
+
+      seasons.push({
+        classId,
+        name: s.class_name,
+        bannerPath: s.banner_image_path || null,
+        logoPath: s.logo_image_path || null,
+        clubName: s.club_name,
+        myTeamId,
+        teams: (teamRows || []).map((t) => ({
+          teamId: Number(t.team_id),
+          teamName: t.team_name,
+          teamLogo: t.team_logo || null,
+          pointsSince: Number(t.points_since),
+          milesSince: parseFloat(Number(t.miles_since).toFixed(2)),
+          totalPoints: Number(t.total_points),
+          totalMiles: parseFloat(Number(t.total_miles).toFixed(2)),
+          totalWorkouts: Number(t.total_workouts)
+        }))
+      });
+    }
+
+    return res.json({ seasons, lastLogoutAt: lastLogoutAt ? lastLogoutAt.toISOString() : null });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /summit-stats/me/notification-preferences
+ * Returns SSTC-specific notification preferences for the authenticated user.
+ * If not set yet, returns defaults (with captain-aware defaults for daily summary).
+ */
+export const getSstcNotificationPrefs = async (req, res, next) => {
+  try {
+    const userId = Number(req.user?.id || 0);
+    if (!userId) return res.status(401).json({ error: { message: 'Unauthorized' } });
+
+    // Check if user is a captain on any active SSTC season
+    const [captainRows] = await pool.execute(
+      `SELECT t.id FROM challenge_teams t
+       INNER JOIN learning_program_classes c ON c.id = t.learning_class_id
+       WHERE t.team_manager_user_id = ? AND c.status = 'active'
+       LIMIT 1`,
+      [userId]
+    );
+    const isCaptain = captainRows.length > 0;
+
+    const [rows] = await pool.execute(
+      `SELECT sstc_notification_prefs_json FROM user_preferences WHERE user_id = ?`,
+      [userId]
+    );
+    const raw = rows[0]?.sstc_notification_prefs_json || null;
+    let prefs = typeof raw === 'string' ? JSON.parse(raw) : (raw || null);
+    if (!prefs) {
+      prefs = buildDefaultSstcPrefs(isCaptain);
+    }
+    return res.json({ prefs, isCaptain });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * PUT /summit-stats/me/notification-preferences
+ * Saves SSTC-specific notification preferences.
+ */
+export const putSstcNotificationPrefs = async (req, res, next) => {
+  try {
+    const userId = Number(req.user?.id || 0);
+    if (!userId) return res.status(401).json({ error: { message: 'Unauthorized' } });
+    const prefs = req.body?.prefs || req.body || {};
+    await pool.execute(
+      `INSERT INTO user_preferences (user_id, sstc_notification_prefs_json)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE sstc_notification_prefs_json = VALUES(sstc_notification_prefs_json)`,
+      [userId, JSON.stringify(prefs)]
+    );
+    return res.json({ ok: true, prefs });
+  } catch (e) {
+    next(e);
+  }
+};
+
+function buildDefaultSstcPrefs(isCaptain = false) {
+  return {
+    loginSplash: true,
+    dailySummary: {
+      enabled: isCaptain,
+      mode: 'splash',           // 'splash' | 'email' | 'both'
+      days: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
+      time: '08:00'
+    },
+    weeklySummary: {
+      splash: true,
+      email: false
+    },
+    captainExtras: {
+      teamActivityAlerts: isCaptain
+    }
+  };
+}
+
+/**
+ * POST /summit-stats/me/weekly-summary-email
+ * Triggers a one-off weekly summary email for the authenticated user (for testing
+ * and for the first-login-of-week splash "also send email" option).
+ * Body: { classId, weekStart }
+ */
+export const triggerWeeklySummaryEmail = async (req, res, next) => {
+  try {
+    const userId = Number(req.user?.id || 0);
+    if (!userId) return res.status(401).json({ error: { message: 'Unauthorized' } });
+    const classId = Number(req.body?.classId || 0);
+    const weekStart = String(req.body?.weekStart || '').slice(0, 10);
+    if (!classId || !weekStart) return res.status(400).json({ error: { message: 'classId and weekStart are required' } });
+
+    const { sendWeeklySummaryEmail } = await import('../services/sstcWeeklySummary.service.js');
+    const result = await sendWeeklySummaryEmail({ userId, classId, weekStart });
+    return res.json(result);
+  } catch (e) {
+    next(e);
+  }
+};

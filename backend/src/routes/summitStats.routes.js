@@ -22,7 +22,11 @@ import {
   removeClubMember,
   setClubMemberRole,
   getUserSstcClubAffiliations,
-  listSstcEligibleUsers
+  listSstcEligibleUsers,
+  getLoginSplashData,
+  getSstcNotificationPrefs,
+  putSstcNotificationPrefs,
+  triggerWeeklySummaryEmail
 } from '../controllers/summitStats.controller.js';
 import {
   getMySeasonParticipation,
@@ -329,5 +333,11 @@ router.post('/challenge-templates/global', createGlobalTemplate);
 
 // Billing status
 router.get('/clubs/:id/billing-status', authenticate, getClubBillingStatus);
+
+// SSTC login splash + notification preferences
+router.get('/me/login-splash', authenticate, getLoginSplashData);
+router.get('/me/notification-preferences', authenticate, getSstcNotificationPrefs);
+router.put('/me/notification-preferences', authenticate, putSstcNotificationPrefs);
+router.post('/me/weekly-summary-email', authenticate, triggerWeeklySummaryEmail);
 
 export default router;

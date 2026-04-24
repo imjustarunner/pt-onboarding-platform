@@ -935,6 +935,91 @@
         </div>
       </div>
       
+      <!-- ── SSTC: My Notification Preferences ────────────────────────── -->
+      <div v-if="isSsc" class="info-section">
+        <div class="section-header">
+          <h2 style="margin:0;">My Preferences</h2>
+          <button class="btn btn-primary btn-large" :disabled="savingPrefs" @click="saveSstcPrefs">
+            {{ savingPrefs ? 'Saving…' : 'Save Preferences' }}
+          </button>
+        </div>
+
+        <div class="pref-group">
+          <div class="pref-row">
+            <div>
+              <div class="pref-label">Login activity splash</div>
+              <div class="pref-hint">Show a summary of team stats since your last visit when you log in.</div>
+            </div>
+            <label class="pref-toggle">
+              <input type="checkbox" v-model="sstcPrefs.loginSplash" />
+              <span class="pref-toggle-track"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="pref-group">
+          <h3 class="pref-group-title">Daily Summary</h3>
+          <div class="pref-row">
+            <div>
+              <div class="pref-label">Enable daily summary</div>
+              <div class="pref-hint">Captains are enrolled by default.</div>
+            </div>
+            <label class="pref-toggle">
+              <input type="checkbox" v-model="sstcPrefs.dailySummary.enabled" />
+              <span class="pref-toggle-track"></span>
+            </label>
+          </div>
+          <template v-if="sstcPrefs.dailySummary.enabled">
+            <div class="pref-row">
+              <div class="pref-label">Delivery method</div>
+              <div class="pref-select-wrap">
+                <select v-model="sstcPrefs.dailySummary.mode" class="pref-select">
+                  <option value="splash">In-app splash only</option>
+                  <option value="email">Email only</option>
+                  <option value="both">Both splash & email</option>
+                </select>
+              </div>
+            </div>
+            <div class="pref-row pref-row--wrap">
+              <div class="pref-label" style="width:100%;margin-bottom:6px;">Days</div>
+              <label v-for="d in WEEK_DAYS" :key="d" class="pref-day-chip" :class="{ active: sstcPrefs.dailySummary.days.includes(d) }">
+                <input type="checkbox" :value="d" v-model="sstcPrefs.dailySummary.days" style="display:none;" />
+                {{ d }}
+              </label>
+            </div>
+            <div class="pref-row">
+              <div class="pref-label">Time</div>
+              <input type="time" v-model="sstcPrefs.dailySummary.time" class="pref-time" />
+            </div>
+          </template>
+        </div>
+
+        <div class="pref-group">
+          <h3 class="pref-group-title">Weekly Summary</h3>
+          <div class="pref-hint" style="margin-bottom:8px;">
+            Shown on your first login after each week ends.
+          </div>
+          <div class="pref-row">
+            <div class="pref-label">In-app splash</div>
+            <label class="pref-toggle">
+              <input type="checkbox" v-model="sstcPrefs.weeklySummary.splash" />
+              <span class="pref-toggle-track"></span>
+            </label>
+          </div>
+          <div class="pref-row">
+            <div>
+              <div class="pref-label">Weekly email digest</div>
+              <div class="pref-hint">Includes your stats, team standings, and full season rankings.</div>
+            </div>
+            <label class="pref-toggle">
+              <input type="checkbox" v-model="sstcPrefs.weeklySummary.email" />
+              <span class="pref-toggle-track"></span>
+            </label>
+          </div>
+        </div>
+        <div v-if="prefsSaved" class="pref-success">✓ Preferences saved!</div>
+      </div>
+
       <!-- Download Section – hidden for clubs -->
       <div v-if="!isClubContext" class="info-section">
         <h2>Download Completion Package</h2>
@@ -957,7 +1042,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, reactive } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import api from '../services/api';
 import { TIMEZONE_GROUPS, detectLocalTimezone } from '../utils/timezones.js';
@@ -996,6 +1081,48 @@ const summitMembershipMsg = ref('');
 const summitMembershipErr = ref('');
 const summitActionBusy = ref(false);
 const summitExportBusy = ref(false);
+
+// ── SSTC notification preferences ─────────────────────────────────────────
+const WEEK_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const sstcPrefs = reactive({
+  loginSplash: true,
+  dailySummary: { enabled: false, mode: 'splash', days: [...WEEK_DAYS], time: '08:00' },
+  weeklySummary: { splash: true, email: false }
+});
+const savingPrefs = ref(false);
+const prefsSaved = ref(false);
+
+const loadSstcPrefs = async () => {
+  if (!isSsc.value) return;
+  try {
+    const r = await api.get('/summit-stats/me/notification-preferences', { skipGlobalLoading: true });
+    const p = r.data?.prefs;
+    if (!p) return;
+    sstcPrefs.loginSplash = p.loginSplash !== false;
+    if (p.dailySummary) {
+      sstcPrefs.dailySummary.enabled = !!p.dailySummary.enabled;
+      sstcPrefs.dailySummary.mode = p.dailySummary.mode || 'splash';
+      sstcPrefs.dailySummary.days = Array.isArray(p.dailySummary.days) ? p.dailySummary.days : [...WEEK_DAYS];
+      sstcPrefs.dailySummary.time = p.dailySummary.time || '08:00';
+    }
+    if (p.weeklySummary) {
+      sstcPrefs.weeklySummary.splash = p.weeklySummary.splash !== false;
+      sstcPrefs.weeklySummary.email = !!p.weeklySummary.email;
+    }
+  } catch { /* ignore */ }
+};
+
+const saveSstcPrefs = async () => {
+  savingPrefs.value = true;
+  prefsSaved.value = false;
+  try {
+    await api.put('/summit-stats/me/notification-preferences', { prefs: { ...sstcPrefs } });
+    prefsSaved.value = true;
+    setTimeout(() => { prefsSaved.value = false; }, 3000);
+  } catch { /* ignore */ } finally {
+    savingPrefs.value = false;
+  }
+};
 
 const summitAffiliations = computed(() => {
   const raw = clubSummitContext.value?.clubs;
@@ -2074,6 +2201,7 @@ onMounted(() => {
     fetchAutoImportSettings();
     fetchAutoImportSeasonEnabled();
     loadClubSummitContext();
+    loadSstcPrefs();
   }
   loadBiometricStatus();
 });
@@ -2163,6 +2291,69 @@ onMounted(() => {
 
 .info-section:last-child {
   border-bottom: none;
+}
+
+/* ── SSTC Notification Preferences ──────────────────────────────── */
+.pref-group {
+  border: 1px solid #e9ecef;
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pref-group-title {
+  margin: 0 0 4px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--primary-color, #2563eb);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.pref-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.pref-row--wrap { flex-wrap: wrap; }
+.pref-label { font-size: 0.9rem; font-weight: 600; color: #212529; }
+.pref-hint { font-size: 0.78rem; color: #888; margin-top: 2px; }
+.pref-toggle { position: relative; display: inline-flex; align-items: center; cursor: pointer; }
+.pref-toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+.pref-toggle-track {
+  width: 44px; height: 24px; background: #dee2e6; border-radius: 12px;
+  transition: background 0.2s;
+}
+.pref-toggle input:checked + .pref-toggle-track { background: var(--primary-color, #2563eb); }
+.pref-toggle-track::after {
+  content: ''; position: absolute; left: 3px; top: 50%;
+  transform: translateY(-50%);
+  width: 18px; height: 18px; border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,.15); transition: left 0.2s;
+}
+.pref-toggle input:checked ~ .pref-toggle-track::after { left: calc(44px - 21px); }
+.pref-select-wrap select, .pref-select {
+  padding: 6px 10px; border: 1px solid #dee2e6; border-radius: 8px;
+  font-size: 0.88rem; background: #fff; color: #212529;
+}
+.pref-time { padding: 6px 10px; border: 1px solid #dee2e6; border-radius: 8px; font-size: 0.88rem; }
+.pref-day-chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 4px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 600;
+  border: 1.5px solid #dee2e6; color: #6c757d; cursor: pointer; margin: 2px;
+  transition: background 0.15s, color 0.15s;
+}
+.pref-day-chip.active {
+  background: var(--primary-color, #2563eb);
+  border-color: var(--primary-color, #2563eb);
+  color: #fff;
+}
+.pref-success {
+  margin-top: 10px; padding: 8px 14px; background: #d1fae5; color: #065f46;
+  border-radius: 8px; font-size: 0.88rem; font-weight: 600;
 }
 
 .info-section h2 {
