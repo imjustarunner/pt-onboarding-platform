@@ -4305,6 +4305,11 @@ onUnmounted(() => {
   left: 50%;
   transform: translateX(-50%);
   min-width: 220px;
+  /* Ensure the dropdown never goes off-screen horizontally on narrow viewports */
+  max-width: min(320px, calc(100vw - 24px));
+  /* Ensure all items are reachable on short screens */
+  max-height: 80vh;
+  overflow-y: auto;
   background: white;
   color: var(--text-primary);
   border: 1px solid var(--border);

@@ -175,6 +175,9 @@
         <button v-if="stravaImportAvailable" type="button" class="season-action-btn season-action-btn--strava" @click="openStravaImportModal">
           Import from Strava
         </button>
+        <span v-else-if="STRAVA_COMING_SOON" class="season-action-btn season-action-btn--coming-soon" title="Strava integration coming soon">
+          Strava <span class="coming-soon-tag">Coming Soon</span>
+        </span>
       </div>
 
       <!-- Section scroll nav -->
@@ -990,6 +993,7 @@
                 <button v-if="stravaImportAvailable" type="button" class="btn btn-secondary" @click="showLogWorkoutModal = false; openStravaImportModal()">
                   Import from Strava
                 </button>
+                <span v-else-if="STRAVA_COMING_SOON" class="btn btn-secondary btn--coming-soon" title="Strava integration coming soon">Strava <span class="coming-soon-tag">Soon</span></span>
                 <button type="button" class="btn btn-ghost" @click="showLogWorkoutModal = false">Cancel</button>
               </div>
             </form>
@@ -2225,8 +2229,11 @@ const stravaActivityUrl = (activityId) => {
   return `https://www.strava.com/activities/${id}`;
 };
 
+// Strava API approval is pending — hide import for all users until approved.
+const STRAVA_COMING_SOON = true;
+
 const stravaImportAvailable = computed(
-  () => !!(stravaStatus.value?.connected && stravaStatus.value?.stravaRolloutEnabled !== false)
+  () => !STRAVA_COMING_SOON && !!(stravaStatus.value?.connected && stravaStatus.value?.stravaRolloutEnabled !== false)
 );
 
 const loadStravaStatus = async () => {
@@ -2730,6 +2737,31 @@ watch(() => workoutForm.value.terrain, (terrain) => {
 .season-action-btn--strava {
   background: #fc4c02;
   color: #fff;
+}
+.season-action-btn--coming-soon {
+  background: #f1f5f9;
+  color: #94a3b8;
+  border: 1px solid #e2e8f0;
+  cursor: default;
+  opacity: 0.85;
+}
+.btn--coming-soon {
+  opacity: 0.75;
+  cursor: default;
+  pointer-events: none;
+}
+.coming-soon-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: 5px;
+  vertical-align: middle;
 }
 .season-action-icon {
   font-size: 1.2rem;

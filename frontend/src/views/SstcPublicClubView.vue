@@ -102,6 +102,14 @@
             @click="goQuickUpload"
           >⬆ Log Workout</button>
         </div>
+
+        <!-- ── Manager quick-links row ───────────────────────── -->
+        <div v-if="isSignedIn && viewer.isManager" class="pub-mgr-bar">
+          <span class="pub-mgr-bar-label">Manage:</span>
+          <router-link :to="`/${orgSlug}/club/seasons`" class="pub-mgr-link">Season Management</router-link>
+          <router-link :to="`/${orgSlug}/club/settings`" class="pub-mgr-link">Club Settings</router-link>
+          <router-link :to="`/${orgSlug}/admin/users`" class="pub-mgr-link">Members</router-link>
+        </div>
       </div>
 
       <!-- ── Stats strip ─────────────────────────────────────── -->
@@ -1094,6 +1102,40 @@ onBeforeUnmount(() => {
 .pub-act--dashboard {
   background: linear-gradient(135deg, #334155, #64748b);
   text-decoration: none;
+}
+
+/* ─── Manager quick-links row ────────────────────────────────── */
+.pub-mgr-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(30, 58, 138, 0.06);
+  border-top: 1px solid rgba(30, 58, 138, 0.12);
+}
+.pub-mgr-bar-label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(30, 58, 138, 0.65);
+  flex-shrink: 0;
+}
+.pub-mgr-link {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary, #1e3a8a);
+  text-decoration: none;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(30, 58, 138, 0.2);
+  background: rgba(255, 255, 255, 0.7);
+  transition: background 0.14s, border-color 0.14s;
+}
+.pub-mgr-link:hover {
+  background: #fff;
+  border-color: rgba(30, 58, 138, 0.4);
 }
 
 /* ─── Club feed card (public page) ───────────────────────────── */

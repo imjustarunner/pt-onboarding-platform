@@ -25,16 +25,16 @@
             height="36"
           />
           <span class="sstc-pill-badge">Club</span>
-          <span class="sstc-club-name" :title="clubDisplayName">{{ clubDisplayName }}</span>
 
-          <!-- Quick switcher for users with multiple SSTC clubs -->
+          <!-- If multiple clubs: the name itself is the switcher trigger -->
           <div v-if="otherClubs.length > 0" class="sstc-club-switcher" v-click-outside="closeSwitcher">
             <button
               type="button"
-              class="sstc-club-switch-btn"
-              :title="`Switch to another club (${otherClubs.length + 1} total)`"
+              class="sstc-club-name-btn"
+              :title="`Switch club (${otherClubs.length + 1} total)`"
               @click="switcherOpen = !switcherOpen"
             >
+              <span class="sstc-club-name" :title="clubDisplayName">{{ clubDisplayName }}</span>
               <span class="sstc-club-switch-caret" aria-hidden="true">▾</span>
             </button>
             <div v-if="switcherOpen" class="sstc-club-switch-menu">
@@ -51,6 +51,9 @@
               </button>
             </div>
           </div>
+
+          <!-- Single club: plain name -->
+          <span v-else class="sstc-club-name" :title="clubDisplayName">{{ clubDisplayName }}</span>
         </div>
 
         <!-- Season / challenge name — pushed to the right on wide screens -->
@@ -380,40 +383,51 @@ watch(
 /* ── Multi-club switcher ─────────────────────── */
 .sstc-club-switcher {
   position: relative;
-  display: inline-block;
-}
-.sstc-club-switch-btn {
-  margin-left: 4px;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
+  min-width: 0;
+}
+
+/* Clickable club name button (replaces the tiny caret-only button) */
+.sstc-club-name-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  padding: 2px 4px;
   border-radius: 6px;
-  border: 1px solid rgba(30, 58, 138, 0.25);
-  background: rgba(255, 255, 255, 0.6);
-  color: var(--primary, #1e3a8a);
   cursor: pointer;
-  font-size: 11px;
-  padding: 0;
+  color: inherit;
+  min-width: 0;
+  transition: background 0.12s ease;
 }
-.sstc-club-switch-btn:hover {
-  background: #fff;
-  border-color: rgba(30, 58, 138, 0.5);
+.sstc-club-name-btn:hover {
+  background: rgba(30, 58, 138, 0.07);
 }
+.sstc-club-name-btn .sstc-club-name {
+  /* Inherit the name styles; no extra override needed */
+  pointer-events: none;
+}
+
 .sstc-club-switch-caret {
+  font-size: 11px;
+  flex-shrink: 0;
   line-height: 1;
+  opacity: 0.7;
 }
 .sstc-club-switch-menu {
   position: absolute;
   top: calc(100% + 6px);
-  left: 0;
+  /* Align to RIGHT edge of the button so it never overflows off the right side of the screen */
+  right: 0;
+  left: auto;
   /* High z-index so the menu floats above season banners and dashboard
      content cards — previously the dropdown was being clipped behind
      the next section, making "switch club" unusable on iPad. */
   z-index: 1500;
-  min-width: 240px;
-  max-width: 320px;
+  min-width: 220px;
+  max-width: min(300px, calc(100vw - 16px));
   background: #fff;
   border: 1px solid rgba(15, 23, 42, 0.12);
   border-radius: 10px;
