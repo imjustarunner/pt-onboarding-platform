@@ -967,7 +967,7 @@
             <h4>{{ communicationsProgramUpdatesTitle }} <span class="required-indicator">*</span></h4>
             <p class="communications-disclosure">
               <template v-if="communicationsProgramUpdatesDisclosure">{{ communicationsProgramUpdatesDisclosure }}</template>
-              <template v-else>{{ tx('If you choose Yes,') }} {{ communicationsTenantName }} {{ tx('may send optional SMS updates through PlotTwistHQ about this agency\'s programs and services (for example, openings, enrollment options, and availability). You may also receive limited updates about relevant affiliate services. Affiliates never receive access to your personal or clinical information through this update channel, and any affiliate program requires its own separate opt-in for communication and registration. Message frequency is no greater than twice per month. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.') }}</template>
+              <template v-else>{{ tx('If you choose Yes,') }} {{ communicationsTenantName }} {{ tx('may send optional SMS updates through PlotTwistHQ about this agency\'s programs and services (for example, openings, enrollment options, and availability). You may also receive limited updates about relevant affiliate services. Affiliates never receive access to your personal or clinical information through this update channel, and any affiliate program requires its own separate opt-in for communication and registration. Message frequency varies (no more than twice per month). Message and data rates may apply. Reply STOP to unsubscribe. Reply HELP for help.') }}</template>
               {{ tx('Terms:') }} <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
               {{ tx('Privacy:') }} <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
             </p>
@@ -2335,8 +2335,8 @@ const communicationsSmsDisclosure = computed(() => {
     `${communicationsTenantName.value} utilizes PlotTwistHQ, a platform by PlotTwistCo (PTCo), to facilitate appointment scheduling, reminders, and related communication. ` +
     `All messages you receive are scheduled, coordinated, and established directly by ${communicationsTenantName.value} — you will never receive any communications from PlotTwistCo (PTCo) directly. ` +
     'Please select your preference for receiving text messages. If you opt in, you may receive messages related to scheduling and appointment reminders. ' +
-    'The default frequency is 7 days before and 24 hours before your appointment. You may be asked to reply with Yes or No regarding your attendance. ' +
-    'Message and data rates may apply. Reply STOP to opt out at any time and HELP for assistance.'
+    'Message frequency varies; typically 7 days before and 24 hours before your appointment. You may be asked to reply with Yes or No regarding your attendance. ' +
+    'Message and data rates may apply. Reply STOP to unsubscribe. Reply HELP for help.'
   );
 });
 const communicationsEmailAllLabel = computed(() => {
