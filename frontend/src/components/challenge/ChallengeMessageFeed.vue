@@ -2,7 +2,7 @@
   <section class="challenge-message-feed">
     <h2>Chat</h2>
     <div class="chat-tabs-row">
-      <div class="chat-tabs">
+      <div v-if="showScopeToggle" class="chat-tabs">
         <button type="button" class="tab-btn" :class="{ active: activeScope === 'season' }" @click="switchScope('season')">
           Season Chat
           <span v-if="unread.season > 0" class="badge">{{ unread.season }}</span>
@@ -11,6 +11,11 @@
           Team Chat
           <span v-if="unread.team > 0" class="badge">{{ unread.team }}</span>
         </button>
+      </div>
+      <div v-else class="chat-scope-label">
+        {{ activeScope === 'team' ? 'Team Chat' : 'Season Chat' }}
+        <span v-if="activeScope === 'team' && unread.team > 0" class="badge">{{ unread.team }}</span>
+        <span v-else-if="activeScope === 'season' && unread.season > 0" class="badge">{{ unread.season }}</span>
       </div>
       <button
         type="button"
@@ -210,13 +215,23 @@ const props = defineProps({
   /** Lowercase strings matched after @ for "mentioned you" styling. */
   mentionSlugs: { type: Array, default: () => [] },
   /** Left border for teammate messages (match Team Chat tab accent). */
-  teamAccentColor: { type: String, default: '#ea580c' }
+  teamAccentColor: { type: String, default: '#ea580c' },
+  /** Starting scope — 'season' or 'team'. Defaults to 'season'. */
+  defaultScope: { type: String, default: 'season' },
+  /** Whether to show the Season Chat / Team Chat tab switcher. */
+  showScopeToggle: { type: Boolean, default: true },
+  /** Override the resolved team ID (used by Team Dashboard so we don't need server round-trip). */
+  teamId: { type: [String, Number], default: null }
 });
 
 const messages      = ref([]);
 const blockedUserIds = ref(new Set());
 const loading       = ref(false);
 const posting       = ref(false);
+
+// Seed from props so callers can lock us into a scope and provide the team ID without a round-trip
+const activeScope   = ref(String(props.defaultScope || 'season') === 'team' ? 'team' : 'season');
+const currentTeamId = ref(props.teamId ? Number(props.teamId) : null);
 
 const loadBlockedUsers = async () => {
   try {
@@ -240,8 +255,6 @@ const visibleMessages = computed(() =>
   (messages.value || []).filter((m) => !blockedUserIds.value.has(Number(m?.user_id)))
 );
 const draft         = ref('');
-const activeScope   = ref('season');
-const currentTeamId = ref(null);
 const unread        = ref({ season: 0, team: 0 });
 const markAllReadBusy = ref(false);
 const emojiOpen     = ref(false);
@@ -304,12 +317,14 @@ const load = async () => {
   loading.value = true;
   try {
     await loadUnreadCounts();
+    // When a teamId is passed as prop, send it so the backend scopes to that team directly
+    const extraParams = props.teamId ? { teamId: Number(props.teamId) } : {};
     const rPeek = await api.get(`/learning-program-classes/${props.challengeId}/messages`, {
-      params: { scope: activeScope.value, peek: 1, limit: 50 },
+      params: { scope: activeScope.value, peek: 1, limit: 50, ...extraParams },
       skipGlobalLoading: true
     });
     messages.value = Array.isArray(rPeek.data?.messages) ? rPeek.data.messages : [];
-    currentTeamId.value = rPeek.data?.teamId ? Number(rPeek.data.teamId) : null;
+    currentTeamId.value = rPeek.data?.teamId ? Number(rPeek.data.teamId) : (props.teamId ? Number(props.teamId) : null);
     const wmPeek = activeScope.value === 'season' ? lastSeasonReadMsgId.value : lastTeamReadMsgId.value;
     const myId = Number(props.myUserId || 0);
     const firstUnreadPeek = (messages.value || []).find((m) => Number(m.user_id) !== myId && Number(m.id) > wmPeek);
@@ -317,11 +332,11 @@ const load = async () => {
     await nextTick();
     if (scrollAnchorId) scrollMessageIntoView(scrollAnchorId, 'auto');
     const rFinal = await api.get(`/learning-program-classes/${props.challengeId}/messages`, {
-      params: { scope: activeScope.value, limit: 50 },
+      params: { scope: activeScope.value, limit: 50, ...extraParams },
       skipGlobalLoading: true
     });
     messages.value = Array.isArray(rFinal.data?.messages) ? rFinal.data.messages : [];
-    currentTeamId.value = rFinal.data?.teamId ? Number(rFinal.data.teamId) : null;
+    currentTeamId.value = rFinal.data?.teamId ? Number(rFinal.data.teamId) : (props.teamId ? Number(props.teamId) : null);
     if (activeScope.value === 'season') unread.value = { ...unread.value, season: 0 };
     else unread.value = { ...unread.value, team: 0 };
     await loadUnreadCounts();
@@ -456,7 +471,8 @@ const removePendingAttachment = (idx) => {
 const postMessage = async () => {
   const text = String(draft.value || '').trim();
   if (!text && !pendingAttachments.value.length) return;
-  if (activeScope.value === 'team' && !currentTeamId.value) return;
+  const resolvedTeamId = currentTeamId.value || (props.teamId ? Number(props.teamId) : null);
+  if (activeScope.value === 'team' && !resolvedTeamId) return;
   posting.value = true;
   emojiOpen.value = false;
   try {
@@ -552,6 +568,14 @@ onBeforeUnmount(() => {
   margin-bottom: 10px;
 }
 .chat-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.chat-scope-label {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #3c2fd3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .mark-all-read-btn {
   border: 1px solid #c7d2fe;
   background: #f8fafc;

@@ -329,7 +329,9 @@ onMounted(async () => {
 .td-banner {
   position: relative;
   min-height: 220px;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 60%, #0f3460 100%);
+  /* Fallback gradient — inline :style will override background-image when a banner is uploaded */
+  background-color: #1a1a2e;
+  background-image: linear-gradient(135deg, #1a1a2e 0%, #16213e 60%, #0f3460 100%);
   background-size: cover;
   background-position: center;
   display: flex;

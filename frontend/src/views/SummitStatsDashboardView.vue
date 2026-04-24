@@ -1588,6 +1588,18 @@ onMounted(async () => {
   if (!currentUserAgencies.value.length) {
     await agencyStore.fetchUserAgencies();
   }
+  // In the SSTC context, the club hub page is the intended landing page for all members.
+  // Redirect there now so returning users (already-authenticated app opens) also land correctly.
+  if (isSummitPlatformRouteSlug(orgSlug.value)) {
+    const agency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? null;
+    const clubId = agency?.id ?? null;
+    const role = String(authStore?.user?.role || '').toLowerCase();
+    const isManager = role === 'club_manager' || role === 'assistant_manager';
+    if (clubId && !isManager) {
+      router.replace(`/${navSlug.value}/clubs/${clubId}`);
+      return;
+    }
+  }
   if (darkModeObserver) {
     darkModeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   }

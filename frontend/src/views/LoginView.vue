@@ -666,9 +666,18 @@ const isSSTCLogin = computed(() => {
 const summitPostLoginDestination = (slug, role) => {
   const normalizedSlug = String(slug || '').trim().toLowerCase();
   if (!normalizedSlug || !isSummitTenantSlug(normalizedSlug)) return null;
-  return String(role || '').trim().toLowerCase() === 'club_manager'
-    ? `/${normalizedSlug}/club_manager_dashboard`
-    : `/${normalizedSlug}/my_club_dashboard`;
+  const roleNorm = String(role || '').trim().toLowerCase();
+  // Managers keep their dedicated dashboard
+  if (roleNorm === 'club_manager' || roleNorm === 'assistant_manager') {
+    return `/${normalizedSlug}/club_manager_dashboard`;
+  }
+  // Everyone else: land on their club's hub page (public club view) if we know the club ID
+  const clubId = agencyStore?.currentAgency?.id ?? agencyStore?.currentAgency?.value?.id ?? null;
+  if (clubId) {
+    return `/${normalizedSlug}/clubs/${clubId}`;
+  }
+  // Fallback if club hasn't loaded yet
+  return `/${normalizedSlug}/my_club_dashboard`;
 };
 const isAppPreviewMode = computed(() => appPreviewMode.value !== 'off');
 const isIpadPreviewMode = computed(() => appPreviewMode.value === 'ipad');

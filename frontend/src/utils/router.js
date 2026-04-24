@@ -63,8 +63,13 @@ export function getDashboardRoute() {
       (dualHomedEligible && surfaceChoice === 'summit'));
 
   if (shouldUseSummitHome && !(dualHomedEligible && surfaceChoice === 'work')) {
-    if (userRole === 'club_manager') {
+    if (userRole === 'club_manager' || userRole === 'assistant_manager') {
       return `/${summitSlug}/club_manager_dashboard`;
+    }
+    // Land everyone on their club's hub page when the club ID is known
+    const clubId = currentAgency?.id ?? null;
+    if (clubId) {
+      return `/${summitSlug}/clubs/${clubId}`;
     }
     return `/${summitSlug}/my_club_dashboard`;
   }
@@ -200,7 +205,10 @@ export function getDashboardRoute() {
       const slug = orgs[0].slug || orgs[0].portal_url;
       const orgType = String(orgs[0]?.organization_type || orgs[0]?.organizationType || '').toLowerCase();
       if (slug && String(slug).trim()) {
-        if (orgType === 'affiliation') return `/${slug}/my_club_dashboard`;
+        if (orgType === 'affiliation') {
+          const affiliationClubId = orgs[0]?.id ?? null;
+          return affiliationClubId ? `/${slug}/clubs/${affiliationClubId}` : `/${slug}/my_club_dashboard`;
+        }
         return `/${slug}/dashboard`;
       }
     }
