@@ -955,7 +955,7 @@ const routes = [
     path: '/:organizationSlug/club_manager_dashboard',
     name: 'OrganizationClubManagerDashboard',
     component: () => import('../views/admin/AdminDashboard.vue'),
-    meta: { requiresAuth: true, requiresRole: 'club_manager', organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['club_manager', 'assistant_manager'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin',
@@ -2981,8 +2981,8 @@ router.beforeEach(async (to, from, next) => {
       // Club members fall back to their global role for general route access.
       return currentUserRoleNorm;
     }
-    // In a work-tenant context a global club_manager should navigate as a provider.
-    if (currentUserRoleNorm === 'club_manager') return 'provider';
+    // In a work-tenant context a global club_manager/assistant_manager should navigate as a provider.
+    if (currentUserRoleNorm === 'club_manager' || currentUserRoleNorm === 'assistant_manager') return 'provider';
     return currentUserRoleNorm;
   })();
 
@@ -3158,7 +3158,7 @@ router.beforeEach(async (to, from, next) => {
     const requiredRoles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
     const orgSlugForRoute = typeof to.params?.organizationSlug === 'string' ? to.params.organizationSlug : '';
     const clubManagerSscBypass =
-      currentUserRoleNorm === 'club_manager' &&
+      (currentUserRoleNorm === 'club_manager' || currentUserRoleNorm === 'assistant_manager') &&
       orgSlugForRoute &&
       isSscPortalSlug(String(orgSlugForRoute).toLowerCase()) &&
       (() => {

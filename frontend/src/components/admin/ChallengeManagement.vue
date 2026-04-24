@@ -1761,7 +1761,7 @@ const tenantWriteEnabled = ref(false);
 const showTenantIconLibrary = ref(false);
 const currentUserRole = computed(() => String(authStore.user?.role || '').toLowerCase());
 const canManageTenantLibraries = computed(() =>
-  ['super_admin', 'club_manager'].includes(currentUserRole.value)
+  ['super_admin', 'club_manager', 'assistant_manager'].includes(currentUserRole.value)
 );
 
 /** Club manager context (managed clubs list). */
@@ -1832,7 +1832,7 @@ const applyClubAgency = async (target) => {
 
 const syncSeasonClubContext = async () => {
   const role = String(authStore.user?.role || '').toLowerCase();
-  if (role === 'club_manager') {
+  if (role === 'club_manager' || role === 'assistant_manager') {
     try {
       const r = await api.get('/summit-stats/club-manager-context', { skipGlobalLoading: true });
       clubContext.value = r.data || null;
@@ -1928,7 +1928,7 @@ const syncSeasonClubContext = async () => {
 };
 
 watch(currentUserRole, (role) => {
-  if (role === 'club_manager') {
+  if (role === 'club_manager' || role === 'assistant_manager') {
     tenantWriteEnabled.value = true;
     return;
   }

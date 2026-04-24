@@ -2360,10 +2360,12 @@ const isSscSstcTenant = computed(() => {
   return isSummitPlatformRouteSlug(slug);
 });
 
-/** Summit club managers: dedicated dashboard + manager nav (surveys, members, etc.). */
-const isSscClubManager = computed(
-  () => isSscSstcTenant.value && String(user.value?.role || '').toLowerCase() === 'club_manager'
-);
+/** Summit club managers (including assistant managers): dedicated dashboard + manager nav. */
+const isSscClubManager = computed(() => {
+  if (!isSscSstcTenant.value) return false;
+  const role = String(user.value?.role || '').toLowerCase();
+  return role === 'club_manager' || role === 'assistant_manager';
+});
 
 /** Club name + team row below the navbar (SSTC / club portals only). */
 const showSummitStatsClubContextBar = computed(() => {
@@ -3071,9 +3073,10 @@ const canShowAdminDashboardIcon = computed(() => {
   return isTrueAdmin.value && !isSscSstcTenant.value;
 });
 
-/** Summit club managers use a dedicated route (not global /admin). */
+/** Summit club managers (and assistant managers) use a dedicated route (not global /admin). */
 const adminDashboardNavTo = computed(() => {
-  if (String(authStore.user?.role || '').toLowerCase() === 'club_manager' && isSscSstcTenant.value) {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  if ((role === 'club_manager' || role === 'assistant_manager') && isSscSstcTenant.value) {
     return orgTo('/club_manager_dashboard');
   }
   return orgTo('/admin');
@@ -3269,7 +3272,7 @@ const myDashboardTo = computed(() => {
     role === 'provider_plus' || role === 'clinical_practice_assistant';
 
   if (isSscSstcTenant.value) {
-    if (role === 'club_manager') return orgTo('/club_manager_dashboard');
+    if (role === 'club_manager' || role === 'assistant_manager') return orgTo('/club_manager_dashboard');
     return orgTo('/my_club_dashboard');
   }
 
