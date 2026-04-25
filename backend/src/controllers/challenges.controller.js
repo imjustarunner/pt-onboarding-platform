@@ -2456,6 +2456,17 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
 
     const teamsMap = new Map();
     const memberSeen = new Set();
+    for (const t of allTeamRows || []) {
+      const tid = Number(t.id);
+      if (!tid) continue;
+      teamsMap.set(tid, {
+        teamId: tid,
+        teamName: String(t.team_name || '').trim() || 'Team',
+        totalWeeklyPoints: 0,
+        totalWeeklyMiles: 0,
+        members: []
+      });
+    }
     const addMember = (r, opts = {}) => {
       const eliminated = !!opts.eliminated;
       const eliminationWeekStart = opts.eliminationWeekStart ? String(opts.eliminationWeekStart).slice(0, 10) : null;

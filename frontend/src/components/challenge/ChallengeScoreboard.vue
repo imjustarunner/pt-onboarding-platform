@@ -2,7 +2,7 @@
   <section class="challenge-scoreboard">
     <div class="sb-header">
       <span class="sb-icon">📊</span>
-      <h2>Team Challenge Rankings</h2>
+      <h2>Challenge Rankings</h2>
     </div>
     <div class="scoreboard-week-selector">
       <label class="week-label">Week</label>
