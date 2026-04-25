@@ -42,6 +42,20 @@ const asInt = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 
+// mysql2 returns DATE columns as JS Date objects (UTC midnight + local offset).
+// Using String(date).slice(0,10) gives the LOCAL day name (e.g. "Sat Apr 25").
+// Always use toISOString() to get the UTC-based YYYY-MM-DD string.
+const dateToYmd = (v) => {
+  if (!v) return null;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  const s = String(v);
+  // If already YYYY-MM-DD return as-is
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // If ISO string with time component, slice the date part
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.slice(0, 10);
+  return s.slice(0, 10);
+};
+
 const parseJsonObject = (raw, fallback = {}) => {
   if (!raw) return fallback;
   if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
@@ -516,16 +530,20 @@ export const getPreSeasonStats = async (req, res, next) => {
     if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
 
     const [klassRows] = await pool.execute(
-      `SELECT id, starts_at, ends_at, activated_at, status FROM learning_program_classes WHERE id = ? LIMIT 1`,
+      `SELECT id, starts_at, ends_at, activated_at, created_at, status FROM learning_program_classes WHERE id = ? LIMIT 1`,
       [classId]
     );
     const klass = klassRows?.[0];
     if (!klass) return res.status(404).json({ error: { message: 'Season not found' } });
 
-    const activatedAt = klass.activated_at ? new Date(klass.activated_at) : null;
+    // activated_at is set when a season is first launched; fall back to created_at for
+    // seasons that existed before the activated_at column was added.
+    const activatedAt = klass.activated_at
+      ? new Date(klass.activated_at)
+      : (klass.created_at ? new Date(klass.created_at) : null);
     const startsAt = klass.starts_at ? new Date(klass.starts_at) : null;
 
-    // No pre-season window if never activated, season has no start date, or was activated after/on start
+    // No pre-season window if we have no reference date, no start date, or the season already started
     if (!activatedAt || !startsAt || activatedAt >= startsAt) {
       return res.json({ available: false });
     }
@@ -1383,7 +1401,7 @@ export const submitWorkout = async (req, res, next) => {
       if (!weeklyTask || Number(weeklyTask.learning_class_id) !== Number(classId)) {
         return res.status(400).json({ error: { message: 'Invalid weekly challenge tag' } });
       }
-      if (String(weeklyTask.week_start_date || '').slice(0, 10) !== String(completedWeekStart || '').slice(0, 10)) {
+      if (dateToYmd(weeklyTask.week_start_date) !== dateToYmd(completedWeekStart) ) {
         return res.status(400).json({ error: { message: 'Weekly challenge tag must belong to the active workout week' } });
       }
       // Enforce assignment for volunteer/captain modes — only the assigned user may tag
@@ -1775,7 +1793,7 @@ export const submitBulkWorkoutsOnBehalf = async (req, res, next) => {
         if (weeklyTaskId) {
           weeklyTask = await ChallengeWeeklyTask.findById(weeklyTaskId);
           if (!weeklyTask || Number(weeklyTask.learning_class_id) !== Number(classId)) throw new Error('Invalid weekly challenge tag');
-          if (String(weeklyTask.week_start_date || '').slice(0, 10) !== String(completedWeekStart || '').slice(0, 10)) {
+          if (dateToYmd(weeklyTask.week_start_date) !== dateToYmd(completedWeekStart)) {
             throw new Error('Weekly challenge tag must belong to the workout week');
           }
           if (weeklyTask.mode !== 'full_team') {
@@ -2673,7 +2691,7 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
       const tid = Number(er.team_id);
       const uid = Number(er.provider_user_id);
       if (!tid || !uid) continue;
-      const elimWeek = String(er.week_start_date || '').slice(0, 10);
+      const elimWeek = dateToYmd(er.week_start_date);
       const eliminatedForThisWeekView = Boolean(elimWeek && viewWeekYmd >= elimWeek);
       const wr = elimWorkoutByUser.get(uid) || { weekly_points: 0, weekly_miles: 0 };
       addMember(
@@ -3615,6 +3633,518 @@ export const resetDraftSession = async (req, res, next) => {
     // Delete the session
     await pool.execute(`DELETE FROM challenge_draft_sessions WHERE learning_class_id = ?`, [classId]);
     return res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /:classId/season-report
+ * Returns daily and weekly workout totals, broken down by team and member.
+ * Manager-only endpoint.
+ */
+export const getSeasonReport = async (req, res, next) => {
+  try {
+    const classId = Number(req.params.classId);
+    if (!classId) return res.status(400).json({ error: 'Invalid classId' });
+
+    // Require manager access
+    const access = await resolveChallengeAccessOrManage({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(access.status || 403).json({ error: access.error || 'Forbidden' });
+    if (!await canManageChallenge({ user: req.user, classId })) return res.status(403).json({ error: 'Manager access required' });
+
+    const klass = access.class;
+    const settings = parseJsonObject(klass?.season_settings_json || {});
+    const schedule = settings?.schedule && typeof settings.schedule === 'object' ? settings.schedule : {};
+    const weekCutoffTime = String(schedule?.weekEndsSundayAt || '23:59');
+    const weekTimeZone   = String(schedule?.weekTimeZone   || 'UTC');
+
+    // Fetch all non-DQ workouts for this season
+    const [rows] = await pool.execute(
+      `SELECT
+         w.id,
+         w.user_id,
+         w.team_id,
+         w.completed_at,
+         COALESCE(w.distance_value, 0) AS miles,
+         COALESCE(w.points, 0)         AS points,
+         w.activity_type,
+         u.first_name,
+         u.last_name,
+         t.team_name
+       FROM challenge_workouts w
+       JOIN users u ON u.id = w.user_id
+       LEFT JOIN challenge_teams t ON t.id = w.team_id
+       WHERE w.learning_class_id = ?
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+       ORDER BY w.completed_at ASC`,
+      [classId]
+    );
+
+    // Helper: local YYYY-MM-DD in the season's configured timezone
+    const toDateStr = (val) => {
+      if (!val) return null;
+      const d = new Date(val);
+      if (isNaN(d.getTime())) return null;
+      try {
+        return d.toLocaleDateString('en-CA', { timeZone: weekTimeZone }); // YYYY-MM-DD
+      } catch {
+        return d.toISOString().slice(0, 10);
+      }
+    };
+
+    // Build flat day-level and week-level maps
+    // dayMap: { dateStr -> { teams: { teamId -> { teamName, miles, workouts, points, members: { userId -> {...} } } } } }
+    const dayMap = new Map();
+    const weekMap = new Map();
+
+    for (const row of rows) {
+      const dateStr = toDateStr(row.completed_at);
+      if (!dateStr) continue;
+
+      // Compute week start key
+      const completedAt = new Date(row.completed_at);
+      const weekStart = getWeekStartDate(completedAt, weekCutoffTime, weekTimeZone);
+      const weekKey = toDateStr(weekStart) || weekStart?.toISOString().slice(0, 10) || dateStr;
+
+      const teamId   = row.team_id   || 0;
+      const teamName = row.team_name || 'Unassigned';
+      const userId   = row.user_id;
+      const fullName = `${row.first_name || ''} ${row.last_name || ''}`.trim() || `User ${userId}`;
+      const miles    = Number(row.miles   || 0);
+      const points   = Number(row.points  || 0);
+
+      for (const [key, map] of [[dateStr, dayMap], [weekKey, weekMap]]) {
+        if (!map.has(key)) map.set(key, { teams: new Map() });
+        const entry = map.get(key);
+        if (!entry.teams.has(teamId)) {
+          entry.teams.set(teamId, { teamId, teamName, miles: 0, workouts: 0, points: 0, members: new Map() });
+        }
+        const teamEntry = entry.teams.get(teamId);
+        teamEntry.miles    += miles;
+        teamEntry.workouts += 1;
+        teamEntry.points   += points;
+        if (!teamEntry.members.has(userId)) {
+          teamEntry.members.set(userId, { userId, name: fullName, miles: 0, workouts: 0, points: 0 });
+        }
+        const memberEntry = teamEntry.members.get(userId);
+        memberEntry.miles    += miles;
+        memberEntry.workouts += 1;
+        memberEntry.points   += points;
+      }
+    }
+
+    // Serialize maps → plain arrays, sorted by date desc
+    const serializeMap = (map) =>
+      [...map.entries()]
+        .sort(([a], [b]) => (a < b ? 1 : a > b ? -1 : 0)) // desc by date
+        .map(([date, { teams }]) => ({
+          date,
+          teams: [...teams.values()].map((t) => ({
+            ...t,
+            miles: Math.round(t.miles * 100) / 100,
+            points: Math.round(t.points * 10) / 10,
+            members: [...t.members.values()].map((m) => ({
+              ...m,
+              miles: Math.round(m.miles * 100) / 100,
+              points: Math.round(m.points * 10) / 10,
+            })).sort((a, b) => b.miles - a.miles),
+          })).sort((a, b) => b.miles - a.miles),
+        }));
+
+    return res.json({
+      classId,
+      timezone: weekTimeZone,
+      daily:  serializeMap(dayMap),
+      weekly: serializeMap(weekMap),
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// ─── Weekly Matchups ───────────────────────────────────────────────────────
+
+/**
+ * Berger round-robin schedule generator.
+ * Returns an array of rounds; each round is an array of [teamA_idx, teamB_idx] pairs.
+ * For odd N a "bye" (-1) is inserted so every team gets one bye per full cycle.
+ */
+function buildRoundRobin(n) {
+  const teams = Array.from({ length: n }, (_, i) => i);
+  if (n % 2 !== 0) teams.push(-1); // bye slot
+  const total = teams.length;
+  const rounds = [];
+  for (let r = 0; r < total - 1; r++) {
+    const round = [];
+    for (let i = 0; i < total / 2; i++) {
+      const a = teams[i];
+      const b = teams[total - 1 - i];
+      if (a !== -1 && b !== -1) round.push([a, b]);
+    }
+    rounds.push(round);
+    // rotate all except teams[0]
+    const last = teams.pop();
+    teams.splice(1, 0, last);
+  }
+  // Reverse so Week 1 pairs the first two teams (team[0] vs team[1], etc.)
+  // rather than team[0] vs the last team.
+  rounds.reverse();
+  return rounds;
+}
+
+/**
+ * Compute the week_start_date for competition Week 1 from the season's starts_at.
+ * The first competition week is the week boundary that starts ON OR AFTER starts_at.
+ * We shift the timestamp forward slightly so that a season starting before the
+ * week cutoff time (e.g. 18:00 when cutoff is 23:59) correctly resolves to the
+ * week that begins that same day at cutoff time rather than the prior week.
+ */
+function firstCompetitionWeekDate(startsAt, weekCutoffTime, weekTimeZone) {
+  // Shift forward by 12 hours to push past any cutoff that occurs on the start day
+  const shiftedTs = startsAt.getTime() + 12 * 60 * 60 * 1000;
+  let candidate = getWeekStartDate(new Date(shiftedTs), weekCutoffTime, weekTimeZone);
+  // Paranoid guard: if still before the season start date, advance one more week
+  const startsAtDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: weekTimeZone || 'UTC' }).format(startsAt);
+  if (candidate < startsAtDateStr) {
+    const nextTs = shiftedTs + 7 * 24 * 60 * 60 * 1000;
+    candidate = getWeekStartDate(new Date(nextTs), weekCutoffTime, weekTimeZone);
+  }
+  return candidate; // YYYY-MM-DD string
+}
+
+/**
+ * POST /:classId/matchup-schedule/generate
+ * Generates (or regenerates) the round-robin matchup schedule for a season.
+ * Only unresolved future matchups are replaced; already-resolved weeks are kept.
+ */
+export const generateMatchupSchedule = async (req, res, next) => {
+  try {
+    const classId = Number(req.params.classId);
+    if (!classId) return res.status(400).json({ error: 'Invalid classId' });
+
+    const access = await resolveChallengeAccessOrManage({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(access.status || 403).json({ error: access.error || 'Forbidden' });
+    if (!await canManageChallenge({ user: req.user, classId })) return res.status(403).json({ error: 'Manager access required' });
+
+    const klass = access.class;
+    const settings = parseJsonObject(klass?.season_settings_json || {});
+    const schedule = settings?.schedule || {};
+    const weekCutoffTime = String(schedule?.weekEndsSundayAt || '23:59');
+    const weekTimeZone   = String(schedule?.weekTimeZone   || 'UTC');
+
+    if (!settings?.matchups?.enabled) {
+      return res.status(400).json({ error: 'Matchups are not enabled for this season.' });
+    }
+
+    // Fetch current teams
+    const [teamRows] = await pool.execute(
+      `SELECT id, team_name, logo_path FROM challenge_teams WHERE learning_class_id = ? ORDER BY id ASC`,
+      [classId]
+    );
+    if (teamRows.length < 2) {
+      return res.status(400).json({ error: 'At least 2 teams are required to generate a matchup schedule.' });
+    }
+
+    // Determine regular-season week dates
+    const postseason = settings?.postseason || {};
+    const playoffWeekNumber = Number.parseInt(postseason?.playoffWeekNumber, 10) || 0;
+    const rawRegWeeks = Number.parseInt(postseason?.regularSeasonWeeks, 10) || 0;
+    const regularSeasonWeeks = Math.max(1,
+      playoffWeekNumber > 1 ? playoffWeekNumber - 1 : (rawRegWeeks || 10)
+    );
+    const startsAt = klass.starts_at ? new Date(klass.starts_at) : null;
+    if (!startsAt) return res.status(400).json({ error: 'Season must have a start date before generating the schedule.' });
+
+    // Compute the first competition week boundary (on or after season start)
+    const firstWeekDate = firstCompetitionWeekDate(startsAt, weekCutoffTime, weekTimeZone);
+    const firstWeekDateObj = new Date(`${firstWeekDate}T12:00:00Z`); // noon UTC — avoids DST edge cases
+
+    const weekDates = [];
+    for (let w = 0; w < regularSeasonWeeks; w++) {
+      const d = new Date(firstWeekDateObj.getTime() + w * 7 * 24 * 60 * 60 * 1000);
+      weekDates.push(d.toISOString().slice(0, 10));
+    }
+
+    // Build round-robin rounds
+    const rounds = buildRoundRobin(teamRows.length);
+    const roundCount = rounds.length;
+
+    // Delete unresolved matchups only (preserve resolved weeks)
+    await pool.execute(
+      `DELETE FROM challenge_matchups WHERE learning_class_id = ? AND resolved_at IS NULL`,
+      [classId]
+    );
+
+    // Insert new matchup rows for each regular-season week
+    const insertValues = [];
+    for (let w = 0; w < weekDates.length; w++) {
+      const round = rounds[w % roundCount];
+      for (const [aIdx, bIdx] of round) {
+        const team1 = teamRows[aIdx];
+        const team2 = teamRows[bIdx];
+        if (!team1 || !team2) continue;
+        insertValues.push([classId, weekDates[w], team1.id, team2.id]);
+      }
+    }
+
+    if (insertValues.length > 0) {
+      await pool.query(
+        `INSERT IGNORE INTO challenge_matchups (learning_class_id, week_start_date, team1_id, team2_id) VALUES ?`,
+        [insertValues]
+      );
+    }
+
+    // Return the generated schedule
+    const [matchupRows] = await pool.execute(
+      `SELECT m.*, t1.team_name AS team1_name, t1.logo_path AS team1_logo,
+              t2.team_name AS team2_name, t2.logo_path AS team2_logo,
+              tw.team_name AS winner_name
+       FROM challenge_matchups m
+       JOIN challenge_teams t1 ON t1.id = m.team1_id
+       JOIN challenge_teams t2 ON t2.id = m.team2_id
+       LEFT JOIN challenge_teams tw ON tw.id = m.winner_team_id
+       WHERE m.learning_class_id = ?
+       ORDER BY m.week_start_date ASC, m.id ASC`,
+      [classId]
+    );
+    return res.json({ ok: true, matchups: matchupRows });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /:classId/matchup-schedule
+ * Returns all matchups for the season grouped by week, accessible to any season member.
+ */
+export const getMatchupSchedule = async (req, res, next) => {
+  try {
+    const classId = Number(req.params.classId);
+    if (!classId) return res.status(400).json({ error: 'Invalid classId' });
+
+    const access = await resolveChallengeAccessOrManage({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(access.status || 403).json({ error: access.error || 'Forbidden' });
+
+    const klass = access.class;
+    const settings = parseJsonObject(klass?.season_settings_json || {});
+    if (!settings?.matchups?.enabled) {
+      return res.json({ enabled: false, weeks: [] });
+    }
+
+    const schedule = settings?.schedule || {};
+    const weekCutoffTime = String(schedule?.weekEndsSundayAt || '23:59');
+    const weekTimeZone   = String(schedule?.weekTimeZone   || 'UTC');
+
+    // Compute the current week's start date so the frontend can highlight it
+    const currentWeekStart = getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
+
+    let [rows] = await pool.execute(
+      `SELECT m.id, m.week_start_date, m.team1_id, m.team2_id,
+              m.winner_team_id, m.team1_points, m.team2_points, m.is_tie, m.resolved_at,
+              t1.team_name AS team1_name, t1.logo_path AS team1_logo,
+              t2.team_name AS team2_name, t2.logo_path AS team2_logo,
+              tw.team_name AS winner_name
+       FROM challenge_matchups m
+       JOIN challenge_teams t1 ON t1.id = m.team1_id
+       JOIN challenge_teams t2 ON t2.id = m.team2_id
+       LEFT JOIN challenge_teams tw ON tw.id = m.winner_team_id
+       WHERE m.learning_class_id = ?
+       ORDER BY m.week_start_date ASC, m.id ASC`,
+      [classId]
+    );
+
+    // Auto-generate if no schedule exists yet and the season has a start date
+    if (rows.length === 0 && klass.starts_at) {
+      const [teamRows] = await pool.execute(
+        `SELECT id, team_name, logo_path FROM challenge_teams WHERE learning_class_id = ? ORDER BY id ASC`,
+        [classId]
+      );
+      if (teamRows.length >= 2) {
+        const postseason = settings?.postseason || {};
+        // If playoff week is defined, use playoffWeekNumber - 1 as the regular season length.
+        // This is more reliable than regularSeasonWeeks when weekPhases are set (weekPhases
+        // only lists playoff/break/championship weeks, not regular season weeks, so
+        // normalizeSeasonSettings ends up computing regularSeasonWeeks = 1).
+        const playoffWeekNumber = Number.parseInt(postseason?.playoffWeekNumber, 10) || 0;
+        const rawRegWeeks = Number.parseInt(postseason?.regularSeasonWeeks, 10) || 0;
+        const regularSeasonWeeks = Math.max(1,
+          playoffWeekNumber > 1 ? playoffWeekNumber - 1 : (rawRegWeeks || 10)
+        );
+        const startsAt = new Date(klass.starts_at);
+        const firstWeekDate = firstCompetitionWeekDate(startsAt, weekCutoffTime, weekTimeZone);
+        const firstWeekDateObj = new Date(`${firstWeekDate}T12:00:00Z`);
+        const weekDates = [];
+        for (let w = 0; w < regularSeasonWeeks; w++) {
+          const d = new Date(firstWeekDateObj.getTime() + w * 7 * 24 * 60 * 60 * 1000);
+          weekDates.push(d.toISOString().slice(0, 10));
+        }
+        const rounds = buildRoundRobin(teamRows.length);
+        const roundCount = rounds.length;
+        const insertValues = [];
+        for (let w = 0; w < weekDates.length; w++) {
+          const round = rounds[w % roundCount];
+          for (const [aIdx, bIdx] of round) {
+            const team1 = teamRows[aIdx];
+            const team2 = teamRows[bIdx];
+            if (team1 && team2) insertValues.push([classId, weekDates[w], team1.id, team2.id]);
+          }
+        }
+        if (insertValues.length > 0) {
+          await pool.query(
+            `INSERT IGNORE INTO challenge_matchups (learning_class_id, week_start_date, team1_id, team2_id) VALUES ?`,
+            [insertValues]
+          );
+        }
+        // Re-fetch after generation
+        [rows] = await pool.execute(
+          `SELECT m.id, m.week_start_date, m.team1_id, m.team2_id,
+                  m.winner_team_id, m.team1_points, m.team2_points, m.is_tie, m.resolved_at,
+                  t1.team_name AS team1_name, t1.logo_path AS team1_logo,
+                  t2.team_name AS team2_name, t2.logo_path AS team2_logo,
+                  tw.team_name AS winner_name
+           FROM challenge_matchups m
+           JOIN challenge_teams t1 ON t1.id = m.team1_id
+           JOIN challenge_teams t2 ON t2.id = m.team2_id
+           LEFT JOIN challenge_teams tw ON tw.id = m.winner_team_id
+           WHERE m.learning_class_id = ?
+           ORDER BY m.week_start_date ASC, m.id ASC`,
+          [classId]
+        );
+      }
+    }
+
+    // Fetch live week totals (from workouts) for every unresolved matchup week so
+    // the dashboard can show real-time scores even before a week closes.
+    const unresolvedWeeks = [...new Set(
+      rows.filter((r) => !r.resolved_at).map((r) => dateToYmd(r.week_start_date))
+    )];
+    const liveScoreMap = {}; // weekDate -> { teamId -> points }
+    for (const weekDate of unresolvedWeeks) {
+      const weekRange = getWeekDateTimeRange(weekDate, weekCutoffTime, weekTimeZone);
+      if (!weekRange) continue;
+      const [scoreRows] = await pool.execute(
+        `SELECT w.team_id, COALESCE(SUM(w.points), 0) AS live_points
+         FROM challenge_workouts w
+         WHERE w.learning_class_id = ?
+           AND w.completed_at >= ?
+           AND w.completed_at < ?
+           AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+           AND w.team_id IS NOT NULL
+         GROUP BY w.team_id`,
+        [classId, weekRange.start, weekRange.end]
+      );
+      liveScoreMap[weekDate] = {};
+      for (const sr of scoreRows) {
+        liveScoreMap[weekDate][sr.team_id] = Math.round(Number(sr.live_points) * 100) / 100;
+      }
+    }
+
+    // Group by week
+    const weekMap = new Map();
+    for (const row of rows) {
+      const d = dateToYmd(row.week_start_date);
+      if (!weekMap.has(d)) weekMap.set(d, []);
+      const live = liveScoreMap[d] || {};
+      weekMap.get(d).push({
+        id: row.id,
+        team1Id: row.team1_id,
+        team1Name: row.team1_name,
+        team1Logo: row.team1_logo || null,
+        team1Points: row.team1_points != null ? Number(row.team1_points) : null,
+        team1LivePoints: live[row.team1_id] ?? null,
+        team2Id: row.team2_id,
+        team2Name: row.team2_name,
+        team2Logo: row.team2_logo || null,
+        team2Points: row.team2_points != null ? Number(row.team2_points) : null,
+        team2LivePoints: live[row.team2_id] ?? null,
+        winnerTeamId: row.winner_team_id || null,
+        winnerName: row.winner_name || null,
+        isTie: !!row.is_tie,
+        resolvedAt: row.resolved_at || null,
+      });
+    }
+
+    const weeks = [...weekMap.entries()].map(([date, matchups]) => ({ date, matchups }));
+    return res.json({ enabled: true, weeks, currentWeekStart });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /:classId/matchup-standings
+ * Returns W/L/T records per team for playoff seeding, with logo and rank.
+ */
+export const getMatchupStandings = async (req, res, next) => {
+  try {
+    const classId = Number(req.params.classId);
+    if (!classId) return res.status(400).json({ error: 'Invalid classId' });
+
+    const access = await resolveChallengeAccessOrManage({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(access.status || 403).json({ error: access.error || 'Forbidden' });
+
+    const settings = parseJsonObject(access.class?.season_settings_json || {});
+    if (!settings?.matchups?.enabled) {
+      return res.json({ enabled: false, standings: [] });
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT
+         sub.team_id,
+         sub.team_name,
+         t.logo_path,
+         SUM(sub.wins)    AS wins,
+         SUM(sub.losses)  AS losses,
+         SUM(sub.ties)    AS ties,
+         SUM(sub.pts_for) AS pts_for,
+         SUM(sub.pts_against) AS pts_against
+       FROM (
+         SELECT
+           m.team1_id AS team_id,
+           t1.team_name,
+           SUM(m.winner_team_id = m.team1_id AND m.is_tie = 0) AS wins,
+           SUM(m.winner_team_id = m.team2_id AND m.is_tie = 0) AS losses,
+           SUM(m.is_tie = 1 AND m.resolved_at IS NOT NULL)     AS ties,
+           SUM(COALESCE(m.team1_points, 0)) AS pts_for,
+           SUM(COALESCE(m.team2_points, 0)) AS pts_against
+         FROM challenge_matchups m
+         JOIN challenge_teams t1 ON t1.id = m.team1_id
+         WHERE m.learning_class_id = ? AND m.resolved_at IS NOT NULL
+         GROUP BY m.team1_id, t1.team_name
+         UNION ALL
+         SELECT
+           m.team2_id,
+           t2.team_name,
+           SUM(m.winner_team_id = m.team2_id AND m.is_tie = 0) AS wins,
+           SUM(m.winner_team_id = m.team1_id AND m.is_tie = 0) AS losses,
+           SUM(m.is_tie = 1 AND m.resolved_at IS NOT NULL)     AS ties,
+           SUM(COALESCE(m.team2_points, 0)) AS pts_for,
+           SUM(COALESCE(m.team1_points, 0)) AS pts_against
+         FROM challenge_matchups m
+         JOIN challenge_teams t2 ON t2.id = m.team2_id
+         WHERE m.learning_class_id = ? AND m.resolved_at IS NOT NULL
+         GROUP BY m.team2_id, t2.team_name
+       ) sub
+       JOIN challenge_teams t ON t.id = sub.team_id
+       GROUP BY sub.team_id, sub.team_name, t.logo_path
+       ORDER BY wins DESC, pts_for DESC`,
+      [classId, classId]
+    );
+
+    const standings = rows.map((r, i) => ({
+      rank: i + 1,
+      teamId: r.team_id,
+      teamName: r.team_name,
+      logoPath: r.logo_path || null,
+      wins: Number(r.wins || 0),
+      losses: Number(r.losses || 0),
+      ties: Number(r.ties || 0),
+      ptsFor: Math.round(Number(r.pts_for || 0) * 10) / 10,
+      ptsAgainst: Math.round(Number(r.pts_against || 0) * 10) / 10,
+    }));
+
+    return res.json({ enabled: true, standings });
   } catch (e) {
     next(e);
   }

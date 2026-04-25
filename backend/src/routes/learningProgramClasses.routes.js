@@ -90,7 +90,11 @@ import {
   patchRaceInfo,
   listMessageReactions,
   toggleMessageReaction,
-  getPreSeasonStats
+  getPreSeasonStats,
+  getSeasonReport,
+  getMatchupSchedule,
+  generateMatchupSchedule,
+  getMatchupStandings
 } from '../controllers/challenges.controller.js';
 import {
   getScoreboard,
@@ -200,6 +204,10 @@ router.post('/:classId/teams/:teamId/members/:userId/send-password-reset', sendT
 router.get('/:classId/teams/:teamId/members', listTeamMembers);
 router.put('/:classId/teams/:teamId/members', upsertTeamMembers);
 router.get('/:classId/pre-season-stats', getPreSeasonStats);
+router.get('/:classId/season-report', getSeasonReport);
+router.get('/:classId/matchup-schedule', getMatchupSchedule);
+router.post('/:classId/matchup-schedule/generate', generateMatchupSchedule);
+router.get('/:classId/matchup-standings', getMatchupStandings);
 router.get('/:classId/leaderboard', getLeaderboard);
 router.get('/:classId/record-boards', getRecordBoards);
 router.get('/:classId/race-divisions', getRaceDivisions);

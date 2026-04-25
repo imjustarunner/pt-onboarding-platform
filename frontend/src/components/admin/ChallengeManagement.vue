@@ -130,17 +130,20 @@
               </small>
             </div>
             <div class="form-group">
-              <label>Start date</label>
-              <input v-model="challengeForm.startsAt" type="date" />
+              <label>Start date &amp; time</label>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input v-model="challengeForm.startsAt" type="date" style="flex:1;min-width:130px;" />
+                <input v-model="challengeForm.startsAtTime" type="time" style="width:110px;" />
+              </div>
               <small style="display:block;margin-top:4px;color:var(--text-secondary);">
-                Day the season opens. Daily/weekly cutoff times are set under "Schedule".
+                Day and time the season opens, interpreted in the season's timezone below. The countdown counts down to this exact moment.
               </small>
             </div>
             <div class="form-group">
               <label>End date</label>
               <input v-model="challengeForm.endsAt" type="date" />
               <small style="display:block;margin-top:4px;color:var(--text-secondary);">
-                Final day of the season (inclusive).
+                Final day of the season (inclusive). Workouts can still be logged until the manager closes the season.
               </small>
             </div>
           </div>
@@ -439,25 +442,18 @@
                 <input v-model="challengeForm.publishTime" type="time" />
               </div>
               <div class="form-group">
-                <label>Reveal timezone</label>
-                <select v-model="challengeForm.publishTimeZone">
-                  <optgroup v-for="grp in TIMEZONE_GROUPS" :key="grp.label" :label="grp.label">
-                    <option v-for="tz in grp.zones" :key="tz.value" :value="tz.value">{{ tz.label }}</option>
-                  </optgroup>
-                </select>
-              </div>
-              <div class="form-group">
                 <label>Week ends {{ weekEndDayName }} at {{ weekDeadlineTimeDisplay }} <span class="hint-inline">(one minute before next week starts)</span></label>
                 <input v-model="challengeForm.weekEndsSundayAt" type="time" />
                 <span class="field-hint">Set the time the new week begins each {{ weekEndDayName }}. The deadline to log workouts is one minute before.</span>
               </div>
-              <div class="form-group">
-                <label>Week timezone</label>
-                <select v-model="challengeForm.weekTimeZone">
+              <div class="form-group" style="flex:1 1 100%;margin-top:8px;padding-top:10px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:4px;">
+                <label style="font-weight:600;">Season timezone</label>
+                <select v-model="challengeForm.weekTimeZone" style="max-width:340px;">
                   <optgroup v-for="grp in TIMEZONE_GROUPS" :key="grp.label" :label="grp.label">
                     <option v-for="tz in grp.zones" :key="tz.value" :value="tz.value">{{ tz.label }}</option>
                   </optgroup>
                 </select>
+                <small style="color:var(--text-secondary);">All times in this season — season start, daily submission deadline, weekly cutoff, reveal time, and every workout — are interpreted in this timezone.</small>
               </div>
               <label class="checkbox-inline">
                 <input v-model="challengeForm.showWeeklyChallengeSplash" type="checkbox" />
@@ -587,6 +583,21 @@
             </div>
             <small>
               Supports regular season champion and post-season champion tracking. With 4 seeds, semifinal defaults are 1v4 and 2v3.
+            </small>
+          </div>
+
+          <div class="form-group">
+            <label>Weekly matchups (round-robin)</label>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+              <select v-model="challengeForm.matchupsEnabled">
+                <option :value="false">Disabled</option>
+                <option :value="true">Enabled</option>
+              </select>
+            </div>
+            <small>
+              When enabled, teams are paired each week in a rotating round-robin schedule.
+              The team with more points wins the week. Win/loss records are tracked and used
+              to seed the playoffs. Generate or regenerate the schedule from the Manage → Matchups tab.
             </small>
           </div>
 
@@ -840,6 +851,8 @@
           <button type="button" :class="['tab-btn', { active: manageTab === 'profiles' }]" @click="manageTab = 'profiles'; loadParticipantProfiles()">Profiles (Gender/DOB)</button>
           <button type="button" :class="['tab-btn', { active: manageTab === 'weekly' }]" @click="manageTab = 'weekly'; loadWeeklyTasks(); loadTemplateLibrary()">Weekly challenges</button>
           <button type="button" :class="['tab-btn', { active: manageTab === 'branding' }]" @click="manageTab = 'branding'; initManageBranding()">Branding</button>
+          <button type="button" :class="['tab-btn', { active: manageTab === 'reports' }]" @click="manageTab = 'reports'; loadSeasonReport()">Reports</button>
+          <button type="button" :class="['tab-btn', { active: manageTab === 'matchups' }]" @click="manageTab = 'matchups'; loadManageMatchups()">Matchups</button>
           <button type="button" class="tab-btn tab-btn--edit" @click="editFromManageModal">✏ Edit Season</button>
         </div>
 
@@ -1640,6 +1653,157 @@
           </div>
         </div>
 
+        <!-- Reports tab -->
+        <div v-show="manageTab === 'reports'" class="manage-panel">
+          <div class="report-toolbar">
+            <div class="report-view-toggle">
+              <button :class="['report-toggle-btn', { active: reportView === 'daily' }]" @click="reportView = 'daily'">Daily</button>
+              <button :class="['report-toggle-btn', { active: reportView === 'weekly' }]" @click="reportView = 'weekly'">Weekly</button>
+            </div>
+            <button class="btn btn-secondary btn-sm" @click="loadSeasonReport(true)">↻ Refresh</button>
+            <button class="btn btn-secondary btn-sm" @click="printReport">🖨 Print</button>
+          </div>
+
+          <div v-if="reportLoading" class="report-loading">Loading report…</div>
+          <div v-else-if="reportError" class="report-error">{{ reportError }}</div>
+          <div v-else-if="!reportData" class="report-empty">No data yet. Click the tab to load.</div>
+          <div v-else>
+            <p class="report-tz-hint">Times shown in season timezone: <strong>{{ reportData.timezone }}</strong></p>
+            <div
+              v-for="period in (reportView === 'daily' ? reportData.daily : reportData.weekly)"
+              :key="period.date"
+              class="report-period"
+            >
+              <!-- Period header row (collapsible) -->
+              <button
+                class="report-period-hd"
+                @click="toggleReportPeriod(period.date)"
+              >
+                <span class="report-period-label">{{ reportView === 'weekly' ? 'Week of ' : '' }}{{ period.date }}</span>
+                <span class="report-period-summary">
+                  {{ period.teams.reduce((s, t) => s + t.workouts, 0) }} workouts &bull;
+                  {{ period.teams.reduce((s, t) => s + t.miles, 0).toFixed(1) }} mi
+                </span>
+                <span class="report-chevron">{{ reportExpandedPeriods.has(period.date) ? '▲' : '▼' }}</span>
+              </button>
+
+              <div v-if="reportExpandedPeriods.has(period.date)" class="report-period-body">
+                <div
+                  v-for="team in period.teams"
+                  :key="team.teamId"
+                  class="report-team"
+                >
+                  <!-- Team row -->
+                  <button
+                    class="report-team-hd"
+                    @click="toggleReportTeam(period.date, team.teamId)"
+                  >
+                    <span class="report-team-name">{{ team.teamName }}</span>
+                    <span class="report-team-stats">
+                      {{ team.workouts }} wo &bull; {{ team.miles.toFixed(2) }} mi &bull; {{ team.points.toFixed(0) }} pts
+                    </span>
+                    <span class="report-chevron">{{ reportExpandedTeams.has(`${period.date}_${team.teamId}`) ? '▲' : '▼' }}</span>
+                  </button>
+                  <!-- Member rows -->
+                  <table v-if="reportExpandedTeams.has(`${period.date}_${team.teamId}`)" class="report-member-table">
+                    <thead>
+                      <tr>
+                        <th>Member</th>
+                        <th class="num">Workouts</th>
+                        <th class="num">Miles</th>
+                        <th class="num">Pts</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="m in team.members" :key="m.userId">
+                        <td>{{ m.name }}</td>
+                        <td class="num">{{ m.workouts }}</td>
+                        <td class="num">{{ m.miles.toFixed(2) }}</td>
+                        <td class="num">{{ m.points.toFixed(0) }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <p v-if="(reportView === 'daily' ? reportData.daily : reportData.weekly).length === 0" class="report-empty">No workout data for this period.</p>
+          </div>
+        </div>
+
+        <!-- Matchups tab -->
+        <div v-show="manageTab === 'matchups'" class="manage-panel">
+          <div v-if="!manageMatchupsEnabled" class="mu-not-enabled">
+            <p>Weekly matchups are not enabled for this season.</p>
+            <p><em>Go to <strong>✏ Edit Season</strong> and enable "Weekly matchups" to use this feature.</em></p>
+          </div>
+          <template v-else>
+            <!-- Generate / Regenerate -->
+            <div class="mu-generate-row">
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="manageMatchupsGenerating"
+                @click="generateManageMatchups"
+              >{{ manageMatchupsGenerating ? 'Generating…' : (manageMatchupSchedule.length ? '↺ Regenerate Schedule' : 'Generate Schedule') }}</button>
+              <span v-if="manageMatchupsMsg" class="mu-msg">{{ manageMatchupsMsg }}</span>
+              <small style="color:#64748b;">Unresolved (future) weeks will be re-paired. Resolved weeks are preserved.</small>
+            </div>
+
+            <!-- Standings -->
+            <div v-if="manageMatchupStandings.length" class="mu-section">
+              <h4 class="mu-section-title">Season Standings</h4>
+              <table class="mu-standings-table">
+                <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>T</th><th class="num">Pts For</th><th class="num">Pts Ag</th></tr></thead>
+                <tbody>
+                  <tr v-for="s in manageMatchupStandings" :key="s.teamId">
+                    <td>{{ s.rank }}</td>
+                    <td class="mu-team-cell">
+                      <img v-if="s.logoPath" :src="resolveUploadUrl(s.logoPath)" class="mu-logo" alt="" />
+                      {{ s.teamName }}
+                      <span class="mu-win-badge">{{ s.wins }}W</span>
+                    </td>
+                    <td>{{ s.wins }}</td><td>{{ s.losses }}</td><td>{{ s.ties }}</td>
+                    <td class="num">{{ s.ptsFor.toFixed(0) }}</td>
+                    <td class="num">{{ s.ptsAgainst.toFixed(0) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Schedule accordion -->
+            <div v-if="manageMatchupSchedule.length" class="mu-section">
+              <h4 class="mu-section-title">Full Schedule</h4>
+              <div v-for="week in manageMatchupSchedule" :key="week.date" class="mu-week">
+                <button class="mu-week-hd" @click="toggleManageMatchupWeek(week.date)">
+                  <span class="mu-week-label">Week of {{ fmtWeekDate(week.date) }}</span>
+                  <span class="mu-week-summary">
+                    {{ week.matchups.filter(m => m.resolvedAt).length }}/{{ week.matchups.length }} resolved
+                  </span>
+                  <span class="report-chevron">{{ manageMatchupExpandedWeeks.has(week.date) ? '▲' : '▼' }}</span>
+                </button>
+                <div v-if="manageMatchupExpandedWeeks.has(week.date)" class="mu-week-body">
+                  <div v-for="m in week.matchups" :key="m.id" class="mu-matchup-row">
+                    <span class="mu-team" :class="{ 'mu-winner': m.winnerTeamId === m.team1Id }">{{ m.team1Name }}</span>
+                    <span class="mu-score">
+                      {{ m.team1Points != null ? m.team1Points.toFixed(0) : '—' }}
+                      vs
+                      {{ m.team2Points != null ? m.team2Points.toFixed(0) : '—' }}
+                    </span>
+                    <span class="mu-team" :class="{ 'mu-winner': m.winnerTeamId === m.team2Id }">{{ m.team2Name }}</span>
+                    <span v-if="m.isTie" class="mu-badge mu-badge--tie">TIE</span>
+                    <span v-else-if="m.resolvedAt" class="mu-badge mu-badge--win">{{ m.winnerName }} wins</span>
+                    <span v-else class="mu-badge mu-badge--pending">Pending</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-else-if="!manageMatchupsGenerating && !manageMatchupStandings.length" class="mu-empty">
+              No matchup schedule yet. Click "Generate Schedule" to create the round-robin pairings.
+            </div>
+          </template>
+        </div>
+
         <div class="form-actions" style="margin-top: 16px;">
           <button type="button" class="btn btn-secondary" @click="closeManageModal">Done</button>
         </div>
@@ -2382,12 +2546,85 @@ const applyAgreementTemplate = () => {
   challengeForm.value.agreementItemsText = agreementItemsToTextarea(snapshot.agreement.items || []);
 };
 const formatAgreementTemplateOption = (option) => formatParticipationAgreementSeasonLabel(option);
+// Extract YYYY-MM-DD in the user's local timezone (not UTC) to avoid date drift
+// when the DB stores a near-midnight datetime that converts to a different UTC date.
+const fmtWeekDate = (ymd) => {
+  if (!ymd) return '';
+  const d = new Date(`${ymd}T12:00:00Z`);
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+};
+
+const toLocalDateStr = (val) => {
+  if (!val) return '';
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return '';
+  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+};
+// Extract HH:MM from a UTC datetime value displayed in a specific IANA timezone.
+const toTzTimeStr = (val, tz) => {
+  if (!val) return '00:00';
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return '00:00';
+  try {
+    const parts = Intl.DateTimeFormat('en-US', {
+      timeZone: tz || 'UTC',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }).formatToParts(d);
+    const h = parts.find((p) => p.type === 'hour')?.value   || '00';
+    const m = parts.find((p) => p.type === 'minute')?.value || '00';
+    // hour12:false can return '24' for midnight — normalise
+    return `${String(Number(h) % 24).padStart(2, '0')}:${m}`;
+  } catch {
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+};
+// Extract YYYY-MM-DD in a specific IANA timezone.
+const toTzDateStr = (val, tz) => {
+  if (!val) return '';
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return '';
+  try {
+    return d.toLocaleDateString('en-CA', { timeZone: tz || 'UTC' }); // returns YYYY-MM-DD
+  } catch {
+    return toLocalDateStr(val);
+  }
+};
+// Extract HH:MM from a datetime value in local time (used for fields without a stored tz).
+const toLocalTimeStr = (val) => toTzTimeStr(val, Intl.DateTimeFormat().resolvedOptions().timeZone);
+
+/**
+ * Convert a wall-clock date+time in a named IANA timezone to a UTC ISO string.
+ * Works by computing the UTC↔TZ offset at that moment iteratively (handles DST).
+ */
+const zonedToUtc = (dateStr, timeStr, tz) => {
+  if (!dateStr) return null;
+  const s = String(dateStr).slice(0, 10);
+  const t = String(timeStr || '00:00').slice(0, 5);
+  const [y, mo, d] = s.split('-').map(Number);
+  const [h, mi] = t.split(':').map(Number);
+  if (!tz || tz === 'UTC') return new Date(Date.UTC(y, mo - 1, d, h, mi, 0)).toISOString();
+  // Iterative offset correction (2 passes converges for all practical TZs)
+  let guess = Date.UTC(y, mo - 1, d, h, mi, 0);
+  for (let i = 0; i < 2; i++) {
+    const parts = Intl.DateTimeFormat('en-US', {
+      timeZone: tz, year: 'numeric', month: 'numeric', day: 'numeric',
+      hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: false,
+    }).formatToParts(new Date(guess));
+    const get = (type) => Number(parts.find((p) => p.type === type)?.value || 0);
+    const tzMs = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour') % 24, get('minute'), get('second'));
+    const wantMs = Date.UTC(y, mo - 1, d, h, mi, 0);
+    guess += wantMs - tzMs;
+  }
+  return new Date(guess).toISOString();
+};
+
 const challengeForm = ref({
   ...defaultAgreementFields(),
   className: '',
   description: '',
   status: 'draft',
   startsAt: '',
+  startsAtTime: '00:00',
   endsAt: '',
   activityTypesText: '',
   weeklyGoalMinimum: null,
@@ -2410,7 +2647,6 @@ const challengeForm = ref({
   publishLeadHours: 24,
   publishWeekday: 'monday',
   publishTime: '06:00',
-  publishTimeZone: 'UTC',
   showWeeklyChallengeSplash: true,
   weightRun: 1,
   weightRide: 1,
@@ -2430,6 +2666,7 @@ const challengeForm = ref({
   maxByeWeeksPerParticipant: 1,
   requireAdvanceByeDeclaration: true,
   postseasonEnabled: false,
+  matchupsEnabled: false,
   regularSeasonWeeks: 10,
   postseasonHasBreakWeek: false,
   postseasonBreakWeekNumber: 11,
@@ -3206,6 +3443,103 @@ function getThisWeekSunday() {
 const showManageModal = ref(false);
 const managingChallenge = ref(null);
 const manageTab = ref('teams');
+
+// ── Reports tab ─────────────────────────────────────────────────────────────
+const reportData = ref(null);
+const reportLoading = ref(false);
+const reportError = ref('');
+const reportView = ref('daily'); // 'daily' | 'weekly'
+const reportExpandedPeriods = ref(new Set());
+const reportExpandedTeams = ref(new Set());
+
+const loadSeasonReport = async (force = false) => {
+  if (!managingChallenge.value?.id) return;
+  if (reportData.value && !force) return; // already loaded
+  reportLoading.value = true;
+  reportError.value = '';
+  try {
+    const { data } = await api.get(`/learning-program-classes/${managingChallenge.value.id}/season-report`);
+    reportData.value = data;
+    // Auto-expand the first period for convenience
+    reportExpandedPeriods.value = new Set(data.daily.length ? [data.daily[0].date] : []);
+    reportExpandedTeams.value = new Set();
+  } catch (e) {
+    reportError.value = e?.response?.data?.error || 'Failed to load report.';
+  } finally {
+    reportLoading.value = false;
+  }
+};
+
+const toggleReportPeriod = (date) => {
+  const s = new Set(reportExpandedPeriods.value);
+  s.has(date) ? s.delete(date) : s.add(date);
+  reportExpandedPeriods.value = s;
+};
+const toggleReportTeam = (date, teamId) => {
+  const key = `${date}_${teamId}`;
+  const s = new Set(reportExpandedTeams.value);
+  s.has(key) ? s.delete(key) : s.add(key);
+  reportExpandedTeams.value = s;
+};
+const printReport = () => window.print();
+// ────────────────────────────────────────────────────────────────────────────
+
+// ── Matchups tab ─────────────────────────────────────────────────────────────
+const manageMatchupSchedule = ref([]);
+const manageMatchupStandings = ref([]);
+const manageMatchupsGenerating = ref(false);
+const manageMatchupsMsg = ref('');
+const manageMatchupExpandedWeeks = ref(new Set());
+
+const manageMatchupsEnabled = computed(() => {
+  const s = managingChallenge.value?.season_settings_json;
+  const settings = typeof s === 'string' ? (() => { try { return JSON.parse(s); } catch { return {}; } })() : (s || {});
+  return settings?.matchups?.enabled === true;
+});
+
+const loadManageMatchups = async () => {
+  if (!managingChallenge.value?.id) return;
+  if (!manageMatchupsEnabled.value) return;
+  try {
+    const [schedRes, standRes] = await Promise.all([
+      api.get(`/learning-program-classes/${managingChallenge.value.id}/matchup-schedule`),
+      api.get(`/learning-program-classes/${managingChallenge.value.id}/matchup-standings`),
+    ]);
+    manageMatchupSchedule.value = schedRes.data?.weeks || [];
+    manageMatchupStandings.value = standRes.data?.standings || [];
+    // Auto-expand the most recent week
+    if (manageMatchupSchedule.value.length) {
+      const last = manageMatchupSchedule.value[manageMatchupSchedule.value.length - 1].date;
+      manageMatchupExpandedWeeks.value = new Set([last]);
+    }
+  } catch (e) {
+    console.warn('Failed to load matchup data', e);
+  }
+};
+
+const generateManageMatchups = async () => {
+  if (!managingChallenge.value?.id) return;
+  manageMatchupsGenerating.value = true;
+  manageMatchupsMsg.value = '';
+  try {
+    await api.post(`/learning-program-classes/${managingChallenge.value.id}/matchup-schedule/generate`);
+    manageMatchupsMsg.value = 'Schedule generated!';
+    await loadManageMatchups();
+    setTimeout(() => { manageMatchupsMsg.value = ''; }, 3000);
+  } catch (e) {
+    manageMatchupsMsg.value = e?.response?.data?.error || 'Failed to generate schedule.';
+  } finally {
+    manageMatchupsGenerating.value = false;
+  }
+};
+
+const toggleManageMatchupWeek = (date) => {
+  const s = new Set(manageMatchupExpandedWeeks.value);
+  s.has(date) ? s.delete(date) : s.add(date);
+  manageMatchupExpandedWeeks.value = s;
+};
+// ────────────────────────────────────────────────────────────────────────────
+
 const teams = ref([]);
 const providerMembers = ref([]);
 const orgUsers = ref([]);
@@ -3514,6 +3848,7 @@ const openCreateModal = () => {
     description: '',
     status: 'draft',
     startsAt: '',
+    startsAtTime: '00:00',
     endsAt: '',
     activityTypesText: '',
     weeklyGoalMinimum: null,
@@ -3536,7 +3871,6 @@ const openCreateModal = () => {
     publishLeadHours: 24,
     publishWeekday: 'monday',
     publishTime: '06:00',
-    publishTimeZone: 'UTC',
     showWeeklyChallengeSplash: true,
     weightRun: 1,
     weightRide: 1,
@@ -3557,6 +3891,7 @@ const openCreateModal = () => {
     maxByeWeeksPerParticipant: 1,
     requireAdvanceByeDeclaration: true,
     postseasonEnabled: false,
+    matchupsEnabled: false,
     regularSeasonWeeks: 10,
     postseasonHasBreakWeek: false,
     postseasonBreakWeekNumber: 11,
@@ -3633,8 +3968,9 @@ const openEditModal = async (c) => {
     className: row.class_name || row.className || '',
     description: row.description || '',
     status: (row.status || 'draft').toLowerCase(),
-    startsAt: row.starts_at || row.startsAt ? new Date(row.starts_at || row.startsAt).toISOString().slice(0, 10) : '',
-    endsAt: row.ends_at || row.endsAt ? new Date(row.ends_at || row.endsAt).toISOString().slice(0, 10) : '',
+    startsAt: toTzDateStr(row.starts_at || row.startsAt, scheduleSettings.weekTimeZone || 'UTC'),
+    startsAtTime: toTzTimeStr(row.starts_at || row.startsAt, scheduleSettings.weekTimeZone || 'UTC'),
+    endsAt: toLocalDateStr(row.ends_at || row.endsAt),
     activityTypesText,
     weeklyGoalMinimum: row.weekly_goal_minimum ?? row.weeklyGoalMinimum ?? null,
     weeklyGoalMetric: seasonSettings?.participation?.weeklyGoalMetric || 'miles',
@@ -3656,7 +3992,6 @@ const openEditModal = async (c) => {
     publishLeadHours: publishSettings.publishLeadHours ?? 24,
     publishWeekday: publishSettings.publishWeekday || scheduleSettings.weekStartsOn || 'monday',
     publishTime: publishSettings.publishTime || '06:00',
-    publishTimeZone: publishSettings.publishTimeZone || scheduleSettings.weekTimeZone || 'UTC',
     showWeeklyChallengeSplash: publishSettings.showWeeklySplash !== false,
     weightRun: scoringSettings?.activityWeights?.run ?? 1,
     weightRide: scoringSettings?.activityWeights?.ride ?? 1,
@@ -3677,6 +4012,7 @@ const openEditModal = async (c) => {
     maxByeWeeksPerParticipant: byeSettings.maxByeWeeksPerParticipant ?? 1,
     requireAdvanceByeDeclaration: byeSettings.requireAdvanceDeclaration !== false,
     postseasonEnabled: postseasonSettings.enabled === true,
+    matchupsEnabled: row.season_settings_json?.matchups?.enabled === true || row.seasonSettingsJson?.matchups?.enabled === true,
     regularSeasonWeeks: postseasonSettings.regularSeasonWeeks ?? 10,
     postseasonHasBreakWeek: postseasonSettings.hasBreakWeek === true,
     postseasonBreakWeekNumber: postseasonSettings.breakWeekNumber ?? 11,
@@ -3746,19 +4082,21 @@ const saveChallenge = async () => {
       const arr = atText.split(',').map((s) => s.trim()).filter(Boolean);
       if (arr.length) activityTypesJson = arr;
     }
-    // Date inputs return YYYY-MM-DD. Anchor to local-time start-of-day for
-    // start and end-of-day for end, then send as ISO so the backend stores
-    // a UTC timestamp consistent with the manager's calendar pick.
-    const buildIsoFromDate = (raw, isEnd) => {
+    // Convert start date+time in the season timezone → UTC ISO.
+    // End date uses local midnight / end-of-day (no separate time picker).
+    const seasonTz = challengeForm.value.weekTimeZone || 'UTC';
+    const startsAt = challengeForm.value.startsAt
+      ? zonedToUtc(challengeForm.value.startsAt, challengeForm.value.startsAtTime || '00:00', seasonTz)
+      : null;
+
+    const buildEndIso = (raw) => {
       if (!raw) return null;
       const s = String(raw).slice(0, 10);
-      // Already a full ISO (e.g. legacy datetime-local value) — use as-is.
       if (raw.length > 10) return new Date(raw).toISOString();
-      const local = new Date(`${s}T${isEnd ? '23:59:00' : '00:00:00'}`);
+      const local = new Date(`${s}T23:59:00`);
       return Number.isNaN(local.getTime()) ? null : local.toISOString();
     };
-    const startsAt = buildIsoFromDate(challengeForm.value.startsAt, false);
-    const endsAt = buildIsoFromDate(challengeForm.value.endsAt, true);
+    const endsAt = buildEndIso(challengeForm.value.endsAt);
     const buildBillingPayload = (source = {}) => {
       const src = source && typeof source === 'object' ? source : {};
       const amountCents = Math.max(0, Math.round(Number(src.billingMemberAmountDollars || 0) * 100));
@@ -3824,7 +4162,8 @@ const saveChallenge = async () => {
         schedule: {
           weekStartsOn: challengeForm.value.weekStartsOn || 'monday',
           weekEndsSundayAt: challengeForm.value.weekEndsSundayAt || '23:59',
-          weekTimeZone: challengeForm.value.weekTimeZone || 'UTC'
+          weekTimeZone: challengeForm.value.weekTimeZone || 'UTC',
+          startsAtTimeZone: challengeForm.value.weekTimeZone || 'UTC',
         },
         scoring: {
           weeklyMinimumPointsPerAthlete: challengeForm.value.individualMinPointsPerWeek ?? 0,
@@ -3892,6 +4231,10 @@ const saveChallenge = async () => {
                 }))
             : []
         },
+        matchups: {
+          enabled: challengeForm.value.matchupsEnabled === true,
+          metric: 'points',
+        },
         billing: seasonSettingsBilling,
         treadmill: {
           photoProofRequired: challengeForm.value.treadmillPhotoRequired !== false
@@ -3919,7 +4262,7 @@ const saveChallenge = async () => {
           publishLeadHours: Number(challengeForm.value.publishLeadHours ?? 24),
           publishWeekday: challengeForm.value.publishWeekday || challengeForm.value.weekStartsOn || 'monday',
           publishTime: challengeForm.value.publishTime || '06:00',
-          publishTimeZone: challengeForm.value.publishTimeZone || challengeForm.value.weekTimeZone || 'UTC',
+          publishTimeZone: challengeForm.value.weekTimeZone || 'UTC',
           showWeeklySplash: challengeForm.value.showWeeklyChallengeSplash !== false,
           aiDraftEnabled: true,
           requiresManagerPublish: true
@@ -4546,6 +4889,13 @@ const closeManageModal = () => {
   managingChallenge.value = null;
   teams.value = [];
   providerMembers.value = [];
+  reportData.value = null;
+  reportError.value = '';
+  reportExpandedPeriods.value = new Set();
+  reportExpandedTeams.value = new Set();
+  manageMatchupSchedule.value = [];
+  manageMatchupStandings.value = [];
+  manageMatchupExpandedWeeks.value = new Set();
   weeklyTargetOverrides.value = {};
   weeklyTargetEditingWeekStart.value = null;
   weeklyTargetEditDraft.value = '';
@@ -5590,6 +5940,11 @@ onMounted(async () => {
   display: flex;
   gap: 8px;
   margin-bottom: 16px;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  padding-bottom: 4px;
 }
 .tab-btn {
   padding: 8px 16px;
@@ -5597,6 +5952,8 @@ onMounted(async () => {
   background: #fff;
   border-radius: 6px;
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .tab-btn.active {
   background: var(--primary, #0066cc);
@@ -5616,6 +5973,140 @@ onMounted(async () => {
 .manage-panel {
   padding: 12px 0;
 }
+
+/* ── Reports tab ─────────────────────────────────── */
+.report-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.report-view-toggle {
+  display: flex;
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.report-toggle-btn {
+  padding: 6px 16px;
+  border: none;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+.report-toggle-btn.active {
+  background: var(--primary, #0066cc);
+  color: #fff;
+}
+.report-tz-hint {
+  font-size: 0.8rem;
+  color: #64748b;
+  margin: 0 0 12px;
+}
+.report-loading, .report-error, .report-empty {
+  padding: 20px;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+.report-error { color: #b91c1c; }
+.report-period {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.report-period-hd {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  text-align: left;
+}
+.report-period-hd:hover { background: #f1f5f9; }
+.report-period-label { font-weight: 700; flex: 0 0 auto; }
+.report-period-summary { flex: 1; color: #475569; font-size: 0.84rem; }
+.report-chevron { font-size: 0.7rem; color: #94a3b8; }
+.report-period-body { padding: 6px 10px 10px; }
+.report-team {
+  margin-bottom: 6px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.report-team-hd {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #fff;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.87rem;
+}
+.report-team-hd:hover { background: #f8fafc; }
+.report-team-name { font-weight: 600; flex: 0 0 auto; min-width: 100px; }
+.report-team-stats { flex: 1; color: #64748b; font-size: 0.82rem; }
+.report-member-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+}
+.report-member-table th,
+.report-member-table td {
+  padding: 5px 12px;
+  border-top: 1px solid #f1f5f9;
+  text-align: left;
+}
+.report-member-table th {
+  background: #f8fafc;
+  font-size: 0.78rem;
+  color: #64748b;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.report-member-table .num { text-align: right; }
+/* ─────────────────────────────────────────────────── */
+
+/* ── Matchups tab ────────────────────────────────── */
+.mu-not-enabled { padding: 20px 0; color: #64748b; }
+.mu-generate-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
+.mu-msg { font-size:0.85rem; color:#0066cc; font-weight:600; }
+.mu-section { margin-bottom:20px; }
+.mu-section-title { font-size:0.95rem; font-weight:700; margin:0 0 10px; }
+.mu-standings-table { width:100%; border-collapse:collapse; font-size:0.85rem; }
+.mu-standings-table th, .mu-standings-table td { padding:6px 10px; border-bottom:1px solid #f1f5f9; text-align:left; }
+.mu-standings-table th { background:#f8fafc; font-size:0.78rem; color:#64748b; font-weight:600; text-transform:uppercase; }
+.mu-standings-table .num { text-align:right; }
+.mu-team-cell { display:flex; align-items:center; gap:6px; }
+.mu-logo { width:22px; height:22px; border-radius:4px; object-fit:cover; flex-shrink:0; }
+.mu-win-badge { background:#dcfce7; color:#15803d; font-size:0.72rem; font-weight:700; border-radius:999px; padding:1px 7px; }
+.mu-week { border:1px solid #e2e8f0; border-radius:8px; margin-bottom:8px; overflow:hidden; }
+.mu-week-hd { width:100%; display:flex; align-items:center; gap:8px; padding:9px 14px; background:#f8fafc; border:none; cursor:pointer; text-align:left; font-size:0.88rem; }
+.mu-week-hd:hover { background:#f1f5f9; }
+.mu-week-label { font-weight:700; flex:0 0 auto; }
+.mu-week-summary { flex:1; color:#64748b; font-size:0.82rem; }
+.mu-week-body { padding:8px 14px 12px; }
+.mu-matchup-row { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid #f1f5f9; flex-wrap:wrap; }
+.mu-matchup-row:last-child { border-bottom:none; }
+.mu-team { flex:1; font-size:0.87rem; min-width:80px; }
+.mu-winner { font-weight:700; color:#0066cc; }
+.mu-score { font-size:0.85rem; color:#475569; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.mu-badge { font-size:0.75rem; font-weight:700; border-radius:999px; padding:2px 9px; white-space:nowrap; }
+.mu-badge--win { background:#dbeafe; color:#1d4ed8; }
+.mu-badge--tie { background:#fef9c3; color:#92400e; }
+.mu-badge--pending { background:#f1f5f9; color:#64748b; }
+.mu-empty { padding:16px 0; color:#94a3b8; font-size:0.9rem; text-align:center; }
+/* ─────────────────────────────────────────────────── */
 .planned-roster-card {
   border: 1px solid #e2e8f0;
   border-radius: 10px;

@@ -43,6 +43,10 @@
       </template>
     </div>
 
+    <div v-if="seasonWeeks[selectedWeekIdx]?.isFuture" class="swtd-projected-banner">
+      📅 Projected — no workouts logged yet. Targets update if roster changes.
+    </div>
+
     <div v-if="teams.length > 1" class="swtd-sort-row">
       <label class="swtd-label" for="swtd-sort">Sort teams</label>
       <select id="swtd-sort" v-model="teamSortKey" class="swtd-select swtd-select--narrow">
@@ -196,9 +200,9 @@ const seasonWeeks = computed(() => {
 
   const todayWeek = getWeekStartDate(new Date(), cutoff, tz) || cur;
   const endWeek = rawEnd ? getWeekStartDate(new Date(rawEnd), cutoff, tz) : todayWeek;
-  const maxWeek = String(cur) > String(todayWeek)
-    ? cur
-    : (!endWeek || String(endWeek) > String(todayWeek) ? todayWeek : endWeek);
+  // Show ALL weeks through the season end (including future) so managers can see
+  // forward projections — how many miles are needed per person each week.
+  const maxWeek = endWeek || todayWeek;
 
   const weeks = [];
   let guard = 0;
@@ -207,8 +211,9 @@ const seasonWeeks = computed(() => {
     const range = getWeekDateTimeRange(cur, cutoff, tz);
     if (!range?.end) break;
     const endLabel = new Date(range.end.replace(' ', 'T') + 'Z');
-    const label = `${fmtDate(cur)} – ${fmtDate(endLabel)}`;
-    weeks.push({ date: cur, label });
+    const isFuture = String(cur) > String(todayWeek);
+    const label = `${fmtDate(cur)} – ${fmtDate(endLabel)}${isFuture ? ' · Projected' : ''}`;
+    weeks.push({ date: cur, label, isFuture });
     const nextStart = getWeekStartDate(new Date(range.end.replace(' ', 'T') + 'Z'), cutoff, tz);
     if (!nextStart || nextStart === cur) break;
     cur = nextStart;
@@ -303,7 +308,10 @@ const load = async () => {
     individualRequiredPerSegment.value = r.data?.individualRequiredPerSegment ?? null;
     teamRequiredPerSegment.value = r.data?.teamRequiredPerSegment ?? null;
     metricUnit.value = String(r.data?.metricUnit || 'pts');
-    const serverWeek = r.data?.weekStartDate ? String(r.data.weekStartDate).slice(0, 10) : weekStart.value;
+    const rawSW = r.data?.weekStartDate;
+    const serverWeek = rawSW
+      ? (rawSW instanceof Date ? rawSW.toISOString().slice(0, 10) : String(rawSW).slice(0, 10))
+      : weekStart.value;
     if (serverWeek) emit('week-boundary', serverWeek);
   } catch {
     teams.value = [];
@@ -461,6 +469,15 @@ const teamBarStyle = (miles, required) => {
 .swtd-loading {
   color: #94a3b8;
   padding: 12px 0;
+}
+.swtd-projected-banner {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  color: #1d4ed8;
+  font-size: 0.82rem;
+  padding: 6px 12px;
+  margin-bottom: 8px;
 }
 .swtd-teams {
   display: flex;

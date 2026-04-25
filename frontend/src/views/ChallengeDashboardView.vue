@@ -279,6 +279,131 @@
       </div>
       <!-- ──────────────────────────────────────────────────────────── -->
 
+      <!-- Matchup Standings & Schedule (additive — only when matchups enabled) -->
+      <div v-if="matchupsEnabled" class="matchup-dash-section">
+        <!-- Season Standings -->
+        <div class="matchup-standings-card">
+          <div class="matchup-card-header">
+            <h3 class="matchup-card-title">Season Matchup Standings</h3>
+          </div>
+          <div v-if="matchupStandingsLoading && !matchupStandings.length" class="matchup-loading">Loading standings…</div>
+          <table v-else-if="matchupStandings.length" class="matchup-standings-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Team</th>
+                <th>W</th><th>L</th><th>T</th>
+                <th class="num">Pts For</th>
+                <th class="num">Pts Ag</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="s in matchupStandings"
+                :key="s.teamId"
+                :class="{ 'matchup-my-team': s.teamId === myTeamId }"
+              >
+                <td class="matchup-rank">{{ s.rank }}</td>
+                <td class="matchup-team-cell">
+                  <img v-if="s.logoPath" :src="resolveUploadUrl(s.logoPath)" class="matchup-logo" alt="" />
+                  <span class="matchup-team-name">{{ s.teamName }}</span>
+                  <span class="matchup-win-badge">{{ s.wins }}W</span>
+                </td>
+                <td>{{ s.wins }}</td><td>{{ s.losses }}</td><td>{{ s.ties }}</td>
+                <td class="num">{{ s.ptsFor.toFixed(0) }}</td>
+                <td class="num">{{ s.ptsAgainst.toFixed(0) }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p v-else class="matchup-empty">No resolved matchups yet — standings will appear after the first week closes.</p>
+        </div>
+
+        <!-- Week-by-week accordion -->
+        <div id="section-matchups" class="matchup-schedule-card">
+          <div class="matchup-card-header">
+            <h3 class="matchup-card-title">Weekly Matchups</h3>
+          </div>
+          <div v-if="matchupScheduleLoading && !matchupWeeks.length" class="matchup-loading">Loading schedule…</div>
+          <div v-else-if="!matchupWeeks.length" class="matchup-empty">No matchup schedule available yet.</div>
+          <div v-else>
+            <!-- Current week highlight (live scores) -->
+            <div v-if="currentWeekMatchups.length" class="matchup-current-week-card">
+              <div class="matchup-current-title">
+                This Week's Matchup{{ currentWeekMatchups.length > 1 ? 's' : '' }}
+                <span class="matchup-live-badge">LIVE</span>
+              </div>
+              <div v-for="m in currentWeekMatchups" :key="m.id" class="matchup-vs-row">
+                <div class="matchup-vs-team" :class="{ 'matchup-vs-winner': m.resolvedAt && m.winnerTeamId === m.team1Id, 'matchup-vs-leading': !m.resolvedAt && (m.team1LivePoints ?? 0) > (m.team2LivePoints ?? 0) }">
+                  <img v-if="m.team1Logo" :src="resolveUploadUrl(m.team1Logo)" class="matchup-vs-logo" alt="" />
+                  <span>{{ m.team1Name }}</span>
+                </div>
+                <div class="matchup-vs-score">
+                  <span class="matchup-vs-pts" :class="{ 'matchup-pts-leading': !m.resolvedAt && (m.team1LivePoints ?? 0) > (m.team2LivePoints ?? 0) }">
+                    {{ m.resolvedAt ? (m.team1Points != null ? m.team1Points.toFixed(1) : '—') : (m.team1LivePoints != null ? m.team1LivePoints.toFixed(1) : '0.0') }}
+                  </span>
+                  <span class="matchup-vs-divider">{{ m.resolvedAt ? (m.isTie ? 'TIE' : 'FINAL') : 'VS' }}</span>
+                  <span class="matchup-vs-pts" :class="{ 'matchup-pts-leading': !m.resolvedAt && (m.team2LivePoints ?? 0) > (m.team1LivePoints ?? 0) }">
+                    {{ m.resolvedAt ? (m.team2Points != null ? m.team2Points.toFixed(1) : '—') : (m.team2LivePoints != null ? m.team2LivePoints.toFixed(1) : '0.0') }}
+                  </span>
+                </div>
+                <div class="matchup-vs-team matchup-vs-team--right" :class="{ 'matchup-vs-winner': m.resolvedAt && m.winnerTeamId === m.team2Id, 'matchup-vs-leading': !m.resolvedAt && (m.team2LivePoints ?? 0) > (m.team1LivePoints ?? 0) }">
+                  <img v-if="m.team2Logo" :src="resolveUploadUrl(m.team2Logo)" class="matchup-vs-logo" alt="" />
+                  <span>{{ m.team2Name }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- All-weeks accordion -->
+            <div
+              v-for="(week, wIdx) in matchupWeeks"
+              :key="week.date"
+              class="matchup-week"
+              :class="{ 'matchup-week--current': week.date === matchupCurrentWeekStart }"
+            >
+              <button class="matchup-week-hd" @click="toggleMatchupWeek(week.date)">
+                <span class="matchup-week-label">Week {{ wIdx + 1 }} <small class="matchup-week-date">{{ fmtWeekDate(week.date) }}</small></span>
+                <span class="matchup-week-summary" :class="{
+                  'matchup-summary--final': week.matchups.every(m => m.resolvedAt),
+                  'matchup-summary--live': week.date === matchupCurrentWeekStart && !week.matchups.every(m => m.resolvedAt),
+                  'matchup-summary--upcoming': week.date !== matchupCurrentWeekStart && !week.matchups.some(m => m.resolvedAt)
+                }">
+                  <template v-if="week.matchups.every(m => m.resolvedAt)">Final</template>
+                  <template v-else-if="week.date === matchupCurrentWeekStart">In Progress</template>
+                  <template v-else>Upcoming</template>
+                </span>
+                <span class="matchup-chevron">{{ matchupExpandedWeeks.has(week.date) ? '▲' : '▼' }}</span>
+              </button>
+              <div v-if="matchupExpandedWeeks.has(week.date)" class="matchup-week-body">
+                <div v-for="m in week.matchups" :key="m.id" class="matchup-row">
+                  <div class="matchup-row-team" :class="{ 'matchup-row-winner': m.winnerTeamId === m.team1Id }">
+                    <img v-if="m.team1Logo" :src="resolveUploadUrl(m.team1Logo)" class="matchup-row-logo" alt="" />
+                    {{ m.team1Name }}
+                  </div>
+                  <div class="matchup-row-scores">
+                    <span :class="{ 'matchup-pts-winner': m.winnerTeamId === m.team1Id }">
+                      {{ m.resolvedAt ? (m.team1Points != null ? m.team1Points.toFixed(1) : '—') : (m.team1LivePoints != null ? m.team1LivePoints.toFixed(1) : '—') }}
+                    </span>
+                    <span class="matchup-row-vs">vs</span>
+                    <span :class="{ 'matchup-pts-winner': m.winnerTeamId === m.team2Id }">
+                      {{ m.resolvedAt ? (m.team2Points != null ? m.team2Points.toFixed(1) : '—') : (m.team2LivePoints != null ? m.team2LivePoints.toFixed(1) : '—') }}
+                    </span>
+                  </div>
+                  <div class="matchup-row-team matchup-row-team--right" :class="{ 'matchup-row-winner': m.winnerTeamId === m.team2Id }">
+                    {{ m.team2Name }}
+                    <img v-if="m.team2Logo" :src="resolveUploadUrl(m.team2Logo)" class="matchup-row-logo" alt="" />
+                  </div>
+                  <span v-if="m.isTie" class="matchup-badge matchup-badge--tie">TIE</span>
+                  <span v-else-if="m.resolvedAt" class="matchup-badge matchup-badge--win">{{ m.winnerName }} wins</span>
+                  <span v-else-if="week.date === matchupCurrentWeekStart" class="matchup-badge matchup-badge--live">Live</span>
+                  <span v-else class="matchup-badge matchup-badge--pending">Upcoming</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- ──────────────────────────────────────────────────────────── -->
+
       <!-- Section scroll nav -->
       <nav class="dash-section-nav" aria-label="Jump to section">
         <button class="dash-nav-pill" type="button" @click="scrollToSection('section-activity')">Activity</button>
@@ -289,6 +414,7 @@
         <button class="dash-nav-pill" type="button" @click="scrollToSection('section-summary')">Summary</button>
         <button class="dash-nav-pill" type="button" @click="scrollToSection('section-weekly-challenges')">Weekly Challenges</button>
         <button class="dash-nav-pill" type="button" @click="scrollToSection('section-rules')">Season Rules</button>
+        <button v-if="matchupsEnabled" class="dash-nav-pill" type="button" @click="scrollToSection('section-matchups')">Matchups</button>
         <span class="dash-section-nav-spacer" aria-hidden="true"></span>
         <button
           class="dash-nav-pill dash-nav-pill--customize"
@@ -1745,6 +1871,69 @@ const loadPreSeasonStats = async () => {
 };
 // ─────────────────────────────────────────────────────────────────
 
+// ── Matchup schedule & standings ──────────────────────────────────────────
+const matchupsEnabled = computed(() => {
+  const s = challenge.value?.season_settings_json;
+  const settings = typeof s === 'string' ? (() => { try { return JSON.parse(s); } catch { return {}; } })() : (s || {});
+  return settings?.matchups?.enabled === true;
+});
+
+const matchupWeeks = ref([]);
+const matchupStandings = ref([]);
+const matchupScheduleLoading = ref(false);
+const matchupStandingsLoading = ref(false);
+const matchupExpandedWeeks = ref(new Set());
+// The current week's start date as returned by the backend (authoritative)
+const matchupCurrentWeekStart = ref(null);
+
+const resolveUploadUrl = (path) => {
+  if (!path) return '';
+  if (path.startsWith('http')) return path;
+  const base = toUploadsUrl(path) || '';
+  const v = encodeURIComponent(String(path));
+  return `${base}${base.includes('?') ? '&' : '?'}v=${v}`;
+};
+
+const currentWeekMatchups = computed(() => {
+  if (!matchupCurrentWeekStart.value) return [];
+  const week = matchupWeeks.value.find((w) => w.date === matchupCurrentWeekStart.value);
+  return week?.matchups || [];
+});
+
+const loadMatchupSchedule = async () => {
+  if (!challengeId.value || !matchupsEnabled.value) return;
+  matchupScheduleLoading.value = true;
+  try {
+    const r = await api.get(`/learning-program-classes/${challengeId.value}/matchup-schedule`);
+    const weeks = r.data?.weeks || [];
+    matchupWeeks.value = weeks;
+    if (r.data?.currentWeekStart) matchupCurrentWeekStart.value = r.data.currentWeekStart;
+    // Auto-expand: current week, or most recent resolved week
+    const toOpen = matchupCurrentWeekStart.value
+      || weeks.filter((w) => w.matchups.some((m) => m.resolvedAt)).at(-1)?.date
+      || weeks.at(-1)?.date;
+    if (toOpen) matchupExpandedWeeks.value = new Set([toOpen]);
+  } catch { /* best-effort */ }
+  finally { matchupScheduleLoading.value = false; }
+};
+
+const loadMatchupStandings = async () => {
+  if (!challengeId.value || !matchupsEnabled.value) return;
+  matchupStandingsLoading.value = true;
+  try {
+    const r = await api.get(`/learning-program-classes/${challengeId.value}/matchup-standings`);
+    matchupStandings.value = r.data?.standings || [];
+  } catch { /* best-effort */ }
+  finally { matchupStandingsLoading.value = false; }
+};
+
+const toggleMatchupWeek = (date) => {
+  const s = new Set(matchupExpandedWeeks.value);
+  s.has(date) ? s.delete(date) : s.add(date);
+  matchupExpandedWeeks.value = s;
+};
+// ─────────────────────────────────────────────────────────────────────────────
+
 const isChallengeManager = computed(() => {
   // Server-side authoritative flag — covers club_manager, assistant_manager, admin, staff
   if (challenge.value?.can_manage === true) return true;
@@ -2642,6 +2831,14 @@ const formatStravaDuration = (sec) => {
   return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
 };
 const formatStravaDate = (d) => (d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—');
+
+// Parse a YYYY-MM-DD date string as UTC noon to avoid timezone-offset day shifts,
+// then format it for display (e.g. "Sun Apr 26").
+const fmtWeekDate = (ymd) => {
+  if (!ymd) return '';
+  const d = new Date(`${ymd}T12:00:00Z`);
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+};
 const stravaActivityUrl = (activityId) => {
   const id = Number(activityId || 0);
   if (!id) return 'https://www.strava.com';
@@ -2773,6 +2970,11 @@ onMounted(async () => {
   if (isPreSeason.value) {
     await loadPreSeasonStats();
     _preSeasonStatsInterval = setInterval(loadPreSeasonStats, 60000);
+  }
+
+  // Matchups
+  if (matchupsEnabled.value) {
+    await Promise.all([loadMatchupSchedule(), loadMatchupStandings()]);
   }
   if (route.query?.strava === 'import' && stravaImportAvailable.value) {
     await openStravaImportModal();
@@ -3408,6 +3610,91 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   font-weight: 500;
   min-width: 38px;
 }
+
+/* ── Matchup dashboard section ────────────────────────────────────── */
+.matchup-dash-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 16px 0;
+}
+.matchup-standings-card,
+.matchup-schedule-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 18px 20px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+}
+.matchup-card-header { margin-bottom: 14px; }
+.matchup-card-title { font-size: 1.05rem; font-weight: 700; margin: 0; }
+.matchup-loading, .matchup-empty { color: #94a3b8; font-size: 0.9rem; padding: 12px 0; }
+
+/* Standings table */
+.matchup-standings-table { width: 100%; border-collapse: collapse; font-size: 0.87rem; }
+.matchup-standings-table th,
+.matchup-standings-table td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; text-align: left; }
+.matchup-standings-table th { background: #f8fafc; font-size: 0.75rem; color: #64748b; font-weight: 700; text-transform: uppercase; }
+.matchup-standings-table .num { text-align: right; }
+.matchup-standings-table .matchup-my-team { background: #eff6ff; }
+.matchup-rank { color: #94a3b8; font-weight: 700; font-size: 0.85rem; }
+.matchup-team-cell { display: flex; align-items: center; gap: 7px; }
+.matchup-logo { width: 24px; height: 24px; border-radius: 5px; object-fit: cover; flex-shrink: 0; }
+.matchup-team-name { flex: 1; }
+.matchup-win-badge { background: #dcfce7; color: #15803d; font-size: 0.7rem; font-weight: 700; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+
+/* Current week highlight */
+.matchup-current-week-card {
+  background: linear-gradient(135deg, #1e3a5f 0%, #0f2744 100%);
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  color: #fff;
+}
+.matchup-current-title { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.7); margin-bottom: 10px; }
+.matchup-live-badge { background: #ef4444; color: #fff; font-size: 0.65rem; font-weight: 800; border-radius: 999px; padding: 1px 7px; letter-spacing: 0.06em; animation: mu-pulse 1.6s ease-in-out infinite; }
+@keyframes mu-pulse { 0%,100%{opacity:1} 50%{opacity:0.55} }
+.matchup-vs-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.matchup-vs-team { display: flex; align-items: center; gap: 8px; flex: 1; font-weight: 700; font-size: 0.95rem; }
+.matchup-vs-team--right { justify-content: flex-end; text-align: right; }
+.matchup-vs-winner { color: #fbbf24; }
+.matchup-vs-leading { color: #86efac; }
+.matchup-vs-logo { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; flex-shrink: 0; }
+.matchup-vs-score { display: flex; align-items: center; gap: 8px; font-size: 1.1rem; font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
+.matchup-vs-pts { min-width: 42px; text-align: center; }
+.matchup-pts-leading { color: #86efac; }
+.matchup-vs-divider { font-size: 0.72rem; color: rgba(255,255,255,0.55); font-weight: 400; }
+
+/* Week accordion */
+.matchup-week { border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
+.matchup-week--current { border-color: #93c5fd; box-shadow: 0 0 0 1px #93c5fd30; }
+.matchup-week-hd { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #f8fafc; border: none; cursor: pointer; text-align: left; font-size: 0.88rem; }
+.matchup-week-hd:hover { background: #f1f5f9; }
+.matchup-week--current .matchup-week-hd { background: #eff6ff; }
+.matchup-week-label { font-weight: 700; flex: 0 0 auto; }
+.matchup-week-date { font-weight: 400; color: #94a3b8; font-size: 0.78rem; margin-left: 4px; }
+.matchup-week-summary { flex: 1; font-size: 0.78rem; font-weight: 600; border-radius: 999px; padding: 1px 9px; display: inline-flex; width: fit-content; }
+.matchup-summary--final { background: #dbeafe; color: #1e40af; }
+.matchup-summary--live { background: #dcfce7; color: #166534; }
+.matchup-summary--upcoming { background: #f1f5f9; color: #64748b; }
+.matchup-chevron { font-size: 0.7rem; color: #94a3b8; }
+.matchup-week-body { padding: 8px 14px 12px; }
+
+.matchup-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid #f1f5f9; flex-wrap: wrap; }
+.matchup-row:last-child { border-bottom: none; }
+.matchup-row-team { display: flex; align-items: center; gap: 6px; flex: 1; font-size: 0.87rem; }
+.matchup-row-team--right { justify-content: flex-end; }
+.matchup-row-winner { font-weight: 700; color: #0066cc; }
+.matchup-row-logo { width: 20px; height: 20px; border-radius: 4px; object-fit: cover; flex-shrink: 0; }
+.matchup-row-scores { font-size: 0.85rem; color: #475569; font-variant-numeric: tabular-nums; white-space: nowrap; display: flex; align-items: center; gap: 4px; }
+.matchup-pts-winner { font-weight: 700; color: #0066cc; }
+.matchup-row-vs { margin: 0 4px; color: #94a3b8; font-size: 0.75rem; }
+.matchup-badge { font-size: 0.72rem; font-weight: 700; border-radius: 999px; padding: 2px 9px; white-space: nowrap; }
+.matchup-badge--win { background: #dbeafe; color: #1d4ed8; }
+.matchup-badge--tie { background: #fef9c3; color: #92400e; }
+.matchup-badge--pending { background: #f1f5f9; color: #64748b; }
+.matchup-badge--live { background: #dcfce7; color: #166534; }
+/* ──────────────────────────────────────────────────────────────────── */
 
 .challenge-sections {
   display: flex;

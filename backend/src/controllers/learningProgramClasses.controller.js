@@ -183,6 +183,7 @@ const normalizeSeasonSettings = (input = {}) => {
   const workoutModeration = src.workoutModeration && typeof src.workoutModeration === 'object' ? src.workoutModeration : {};
   const records = src.records && typeof src.records === 'object' ? src.records : {};
   const postseason = src.postseason && typeof src.postseason === 'object' ? src.postseason : {};
+  const matchups = src.matchups && typeof src.matchups === 'object' ? src.matchups : {};
   const billing = src.billing && typeof src.billing === 'object' ? src.billing : {};
   const participationAgreement = src.participationAgreement && typeof src.participationAgreement === 'object'
     ? src.participationAgreement
@@ -373,6 +374,12 @@ const normalizeSeasonSettings = (input = {}) => {
       playoffSeedCount: Math.max(2, numOr(postseason.playoffSeedCount, 4)),
       playoffMatchupMode: toPostseasonMatchupMode(postseason.playoffMatchupMode),
       weekPhases
+    },
+    matchups: {
+      enabled: asBool(matchups.enabled, false),
+      metric: ['points', 'miles'].includes(String(matchups.metric || '').trim().toLowerCase())
+        ? String(matchups.metric).trim().toLowerCase()
+        : 'points',
     },
     billing: {
       enabled,

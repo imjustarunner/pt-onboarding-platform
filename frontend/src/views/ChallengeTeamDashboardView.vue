@@ -37,6 +37,12 @@
               🎨 Banner
               <input type="file" accept="image/*" class="td-file-input" @change="onBannerUpload" />
             </label>
+            <button
+              v-if="team.banner_path"
+              class="td-brand-btn td-brand-btn--reposition"
+              title="Drag to reposition the banner crop"
+              @click="openRepositionPanel"
+            >↔ Reposition</button>
             <button v-if="team.logo_path" class="td-brand-btn td-brand-btn--danger" @click="removeLogo">✕ Logo</button>
             <button v-if="team.banner_path" class="td-brand-btn td-brand-btn--danger" @click="removeBanner">✕ Banner</button>
             <span v-if="brandingStatus" class="td-brand-status">{{ brandingStatus }}</span>
@@ -75,7 +81,7 @@
             <p v-if="teamManagementStatus" class="td-manage-status">{{ teamManagementStatus }}</p>
           </section>
 
-          <section class="td-manage-card td-manage-card--wide">
+          <section ref="bannerSectionRef" class="td-manage-card td-manage-card--wide">
             <h3>Banner</h3>
             <BannerEditor
               :image-url="teamBannerPreviewUrl"
@@ -131,6 +137,52 @@
         <div class="td-stat-card">
           <div class="td-stat-val">{{ teamWorkoutCount }}</div>
           <div class="td-stat-label">Workouts</div>
+        </div>
+        <div v-if="teamMatchupRecord" class="td-stat-card td-stat-card--matchup">
+          <div class="td-stat-val td-matchup-record">{{ teamMatchupRecord }}</div>
+          <div class="td-stat-label">Rank #{{ teamMatchupRank }}</div>
+        </div>
+      </div>
+
+      <!-- Matchup History & Upcoming (additive) -->
+      <div v-if="teamMatchupsEnabled" class="td-matchup-section">
+        <div class="td-matchup-header">
+          <h3 class="td-matchup-title">Matchup Schedule</h3>
+          <span v-if="teamMatchupRank" class="td-matchup-rank-pill">Rank #{{ teamMatchupRank }} &bull; {{ teamMatchupRecord }}</span>
+        </div>
+        <div v-if="teamMatchupLoading && !teamMatchupRows.length" class="td-matchup-loading">Loading…</div>
+        <div v-else-if="!teamMatchupRows.length" class="td-matchup-empty">No matchups scheduled yet.</div>
+        <div v-else class="td-matchup-list">
+          <div
+            v-for="m in teamMatchupRows"
+            :key="m.id"
+            class="td-matchup-item"
+            :class="{
+              'td-matchup-item--win': m.outcome === 'W',
+              'td-matchup-item--loss': m.outcome === 'L',
+              'td-matchup-item--tie': m.outcome === 'T',
+              'td-matchup-item--current': m.isCurrent,
+              'td-matchup-item--upcoming': m.isUpcoming,
+            }"
+          >
+            <div class="td-matchup-date">{{ fmtWeekDate(m.weekDate) }}</div>
+            <div class="td-matchup-opponent">
+              <img v-if="m.opponentLogo" :src="resolveTeamAssetUrl(m.opponentLogo)" class="td-matchup-opp-logo" alt="" />
+              <span>{{ m.opponentName }}</span>
+            </div>
+            <div class="td-matchup-score">
+              <span class="td-matchup-our-pts" :class="{ 'td-pts-winner': m.outcome === 'W' }">
+                {{ m.outcome ? (m.ourPoints != null ? m.ourPoints.toFixed(1) : '—') : (m.ourLivePoints != null ? m.ourLivePoints.toFixed(1) : (m.isCurrent ? '0.0' : '—')) }}
+              </span>
+              <span class="td-matchup-vs">vs</span>
+              <span class="td-matchup-opp-pts" :class="{ 'td-pts-winner': m.outcome === 'L' }">
+                {{ m.outcome ? (m.oppPoints != null ? m.oppPoints.toFixed(1) : '—') : (m.oppLivePoints != null ? m.oppLivePoints.toFixed(1) : (m.isCurrent ? '0.0' : '—')) }}
+              </span>
+            </div>
+            <span v-if="m.outcome" class="td-matchup-badge" :class="`td-matchup-badge--${m.outcome.toLowerCase()}`">{{ m.outcome }}</span>
+            <span v-else-if="m.isCurrent" class="td-matchup-badge td-matchup-badge--live">Live</span>
+            <span v-else class="td-matchup-badge td-matchup-badge--upcoming">Upcoming</span>
+          </div>
         </div>
       </div>
 
@@ -199,7 +251,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth.js';
 import api from '../services/api.js';
@@ -228,6 +280,7 @@ const error = ref('');
 const activeTab = ref('feed');
 const brandingStatus = ref('');
 const teamManagementOpen = ref(false);
+const bannerSectionRef = ref(null);
 const teamManagementStatus = ref('');
 const savingTeamName = ref(false);
 const sendingResetFor = ref(null);
@@ -400,6 +453,12 @@ const onLogoUpload = async (e) => {
   e.target.value = '';
 };
 
+const openRepositionPanel = async () => {
+  teamManagementOpen.value = true;
+  await nextTick();
+  bannerSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
 const onBannerUploadFile = async (file) => {
   if (!file) return;
   teamBannerUploading.value = true;
@@ -493,6 +552,82 @@ const sendPasswordReset = async (member) => {
   }
 };
 
+// ── Team matchup data ────────────────────────────────────────────────────────
+const fmtWeekDate = (ymd) => {
+  if (!ymd) return '';
+  const d = new Date(`${ymd}T12:00:00Z`);
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+};
+
+const teamMatchupsEnabled = computed(() => {
+  const s = challenge.value?.season_settings_json;
+  const settings = typeof s === 'string' ? (() => { try { return JSON.parse(s); } catch { return {}; } })() : (s || {});
+  return settings?.matchups?.enabled === true;
+});
+
+const teamMatchupLoading = ref(false);
+const teamMatchupRows = ref([]);   // flat list of this team's matchups (past + current + upcoming)
+const teamMatchupRank = ref(null);
+const teamMatchupRecord = computed(() => {
+  const rows = teamMatchupRows.value;
+  const w = rows.filter((r) => r.outcome === 'W').length;
+  const l = rows.filter((r) => r.outcome === 'L').length;
+  const t = rows.filter((r) => r.outcome === 'T').length;
+  if (!w && !l && !t) return null;
+  return `${w}W-${l}L${t ? `-${t}T` : ''}`;
+});
+
+const resolveTeamAssetUrl = (path) => resolveAssetUrl(path);
+
+const loadTeamMatchups = async () => {
+  if (!challengeId.value || !teamMatchupsEnabled.value) return;
+  teamMatchupLoading.value = true;
+  try {
+    const [schedRes, standRes] = await Promise.all([
+      api.get(`/learning-program-classes/${challengeId.value}/matchup-schedule`),
+      api.get(`/learning-program-classes/${challengeId.value}/matchup-standings`),
+    ]);
+
+    const tid = teamIdNum.value;
+    // Use the authoritative current week start from the backend
+    const currentWeekStart = schedRes.data?.currentWeekStart || null;
+
+    // Build flat list of this team's matchups
+    const rows = [];
+    for (const week of (schedRes.data?.weeks || [])) {
+      for (const m of week.matchups) {
+        if (m.team1Id !== tid && m.team2Id !== tid) continue;
+        const isTeam1 = m.team1Id === tid;
+        const ourPoints     = isTeam1 ? m.team1Points     : m.team2Points;
+        const oppPoints     = isTeam1 ? m.team2Points     : m.team1Points;
+        const ourLivePoints = isTeam1 ? m.team1LivePoints : m.team2LivePoints;
+        const oppLivePoints = isTeam1 ? m.team2LivePoints : m.team1LivePoints;
+        const oppName       = isTeam1 ? m.team2Name       : m.team1Name;
+        const oppLogo       = isTeam1 ? m.team2Logo       : m.team1Logo;
+        const isCurrent     = !!currentWeekStart && week.date === currentWeekStart;
+        const isUpcoming    = !m.resolvedAt && !!currentWeekStart && week.date > currentWeekStart;
+        let outcome = null;
+        if (m.resolvedAt) {
+          if (m.isTie) outcome = 'T';
+          else if (m.winnerTeamId === tid) outcome = 'W';
+          else outcome = 'L';
+        }
+        rows.push({ id: m.id, weekDate: week.date, opponentName: oppName, opponentLogo: oppLogo,
+          ourPoints, oppPoints, ourLivePoints, oppLivePoints, outcome, isCurrent, isUpcoming, winnerName: m.winnerName });
+      }
+    }
+    teamMatchupRows.value = rows;
+
+    const myStanding = (standRes.data?.standings || []).find((s) => s.teamId === tid);
+    teamMatchupRank.value = myStanding?.rank || null;
+  } catch (e) {
+    console.warn('Failed to load team matchups', e);
+  } finally {
+    teamMatchupLoading.value = false;
+  }
+};
+// ─────────────────────────────────────────────────────────────────────────────
+
 onMounted(async () => {
   loading.value = true;
   await Promise.all([loadChallenge(), loadTeam()]);
@@ -500,6 +635,7 @@ onMounted(async () => {
   if (team.value) {
     loadMembers();
     loadActivity();
+    if (teamMatchupsEnabled.value) loadTeamMatchups();
   }
 });
 
@@ -599,6 +735,11 @@ onMounted(async () => {
   border-color: rgba(220,53,69,0.5);
 }
 .td-brand-btn--danger:hover { background: rgba(220,53,69,0.5); }
+.td-brand-btn--reposition {
+  background: rgba(37,99,235,0.25);
+  border-color: rgba(37,99,235,0.5);
+}
+.td-brand-btn--reposition:hover { background: rgba(37,99,235,0.45); }
 .td-file-input { display: none; }
 .td-brand-status {
   color: rgba(255,255,255,0.85);
@@ -778,6 +919,73 @@ onMounted(async () => {
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
+.td-stat-card--matchup { border-left: 3px solid #3b82f6; }
+.td-matchup-record { font-size: 1rem; letter-spacing: 0.02em; }
+
+/* ── Team Matchup Section ─────────────────────────────────────── */
+.td-matchup-section {
+  background: #fff;
+  border-top: 1px solid #e9ecef;
+  padding: 18px 20px;
+}
+.td-matchup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.td-matchup-title { font-size: 1rem; font-weight: 700; margin: 0; }
+.td-matchup-rank-pill {
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.8rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 3px 12px;
+  white-space: nowrap;
+}
+.td-matchup-loading, .td-matchup-empty { color: #94a3b8; font-size: 0.9rem; padding: 8px 0; }
+.td-matchup-list { display: flex; flex-direction: column; gap: 6px; }
+.td-matchup-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  font-size: 0.87rem;
+  flex-wrap: wrap;
+  background: #fafafa;
+}
+.td-matchup-item--win { border-left: 4px solid #22c55e; background: #f0fdf4; }
+.td-matchup-item--loss { border-left: 4px solid #ef4444; background: #fef2f2; }
+.td-matchup-item--tie { border-left: 4px solid #f59e0b; background: #fffbeb; }
+.td-matchup-item--current { border-left: 4px solid #3b82f6; background: #eff6ff; }
+.td-matchup-item--upcoming { opacity: 0.7; }
+.td-matchup-date { color: #64748b; font-size: 0.78rem; white-space: nowrap; flex: 0 0 auto; min-width: 80px; }
+.td-matchup-opponent { display: flex; align-items: center; gap: 6px; flex: 1; font-weight: 600; }
+.td-matchup-opp-logo { width: 20px; height: 20px; border-radius: 4px; object-fit: cover; flex-shrink: 0; }
+.td-matchup-score { display: flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.td-matchup-our-pts { font-weight: 700; }
+.td-matchup-opp-pts { font-weight: 700; }
+.td-pts-winner { color: #15803d; }
+.td-matchup-vs { color: #94a3b8; font-size: 0.75rem; }
+.td-matchup-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+.td-matchup-badge--w { background: #dcfce7; color: #15803d; }
+.td-matchup-badge--l { background: #fee2e2; color: #b91c1c; }
+.td-matchup-badge--t { background: #fef9c3; color: #92400e; }
+.td-matchup-badge--live { background: #dbeafe; color: #1d4ed8; animation: pulse 1.5s ease-in-out infinite; }
+.td-matchup-badge--upcoming { background: #f1f5f9; color: #64748b; }
+@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.55; } }
+/* ──────────────────────────────────────────────────────────────── */
 
 /* Tabs */
 .td-tabs {

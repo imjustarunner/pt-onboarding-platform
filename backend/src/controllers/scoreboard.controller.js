@@ -995,6 +995,36 @@ export const closeWeek = async (req, res, next) => {
       [classId, weekStart, JSON.stringify(snapshotData)]
     );
 
+    // Phase 4a-matchup: auto-resolve the weekly matchup if matchups are enabled.
+    try {
+      const matchupSettings = parseJsonObject(klass?.season_settings_json || {})?.matchups || {};
+      if (matchupSettings?.enabled) {
+        // Fetch all team points for this week (not just top 5)
+        const allTeams = await ChallengeWorkout.getWeeklyTeamLeaderboard(classId, weekStart, { limit: 200, weekCutoffTime, weekTimeZone });
+        const teamPointsMap = new Map(allTeams.map((r) => [Number(r.team_id), Number(r.total_points || 0)]));
+
+        const [matchupRows] = await pool.execute(
+          `SELECT id, team1_id, team2_id FROM challenge_matchups
+           WHERE learning_class_id = ? AND week_start_date = ? AND resolved_at IS NULL`,
+          [classId, weekStart]
+        );
+        for (const m of matchupRows) {
+          const pts1 = teamPointsMap.get(Number(m.team1_id)) ?? 0;
+          const pts2 = teamPointsMap.get(Number(m.team2_id)) ?? 0;
+          const isTie = pts1 === pts2 ? 1 : 0;
+          const winnerId = isTie ? null : (pts1 > pts2 ? m.team1_id : m.team2_id);
+          await pool.execute(
+            `UPDATE challenge_matchups
+             SET winner_team_id=?, team1_points=?, team2_points=?, is_tie=?, resolved_at=NOW()
+             WHERE id=?`,
+            [winnerId, pts1, pts2, isTie, m.id]
+          );
+        }
+      }
+    } catch (matchupErr) {
+      console.warn('[closeWeek] Matchup resolution skipped:', matchupErr.message);
+    }
+
     // Phase 4b: persist per-member award grants to the trophy-case ledger.
     // Each recognition entry may have a single `winner` or an array of `winners`
     // (milestone + perfect_season). We upsert on (class, user, category, week)
