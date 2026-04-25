@@ -217,6 +217,9 @@ const LOCALHOST_TEST_RECAPTCHA_SITE_KEY = '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZ
 
 /** Hash a plain-text password using bcrypt (reuse pattern from auth). */
 const hashPassword = async (plain) => {
+  if (!plain || typeof plain !== 'string' || plain.trim().length < 6) {
+    throw new Error('Password is required and must be at least 6 characters');
+  }
   const bcrypt = (await import('bcrypt')).default;
   return bcrypt.hash(plain, 12);
 };
@@ -1453,33 +1456,51 @@ const findRosterPlaceholderMatchForApplication = async ({ clubId, firstName, las
 const claimRosterPlaceholderForApplication = async ({ existingUser, firstName, lastName, email, phone, password, username, clubId = null, skipNameCheck = false }) => {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const normalizedPhone = User.normalizePhone(phone);
-  const allowNameOnlyClaim = skipNameCheck || (clubId ? await isBerlinClubId(clubId) : false);
+  const allowNameOnlyClaim = !skipNameCheck && (clubId ? await isBerlinClubId(clubId) : false);
   if (!existingUser?.id || !normalizedEmail || !password) return false;
-  const [rows] = await pool.execute(
-    `SELECT id, password_hash
-     FROM users
-     WHERE id = ?
-       AND is_roster_placeholder = 1
-       AND (
-         LOWER(TRIM(email)) = ?
-         OR LOWER(TRIM(roster_placeholder_claim_email)) = ?
-         OR (? <> '' AND REGEXP_REPLACE(COALESCE(phone_number, ''), '[^0-9]', '') = ?)
-         OR (? = 1)
-       )
-       AND LOWER(TRIM(last_name)) = ?
-       AND LOWER(LEFT(TRIM(first_name), 1)) = ?
-     LIMIT 1`,
-    [
-      existingUser.id,
-      normalizedEmail,
-      normalizedEmail,
-      normalizedPhone ? normalizedPhone.replace(/\D/g, '') : '',
-      normalizedPhone ? normalizedPhone.replace(/\D/g, '') : '',
-      allowNameOnlyClaim ? 1 : 0,
-      String(lastName || '').trim().toLowerCase(),
-      String(firstName || '').trim().slice(0, 1).toLowerCase()
-    ]
-  );
+
+  // When skipNameCheck is true (invite-specific flow), the invite link proves email
+  // ownership so we only need the id + placeholder status + email match.
+  const [rows] = skipNameCheck
+    ? await pool.execute(
+        `SELECT id, password_hash
+         FROM users
+         WHERE id = ?
+           AND is_roster_placeholder = 1
+           AND roster_placeholder_claimed_at IS NULL
+           AND (
+             LOWER(TRIM(email)) = ?
+             OR LOWER(TRIM(roster_placeholder_claim_email)) = ?
+           )
+         LIMIT 1`,
+        [existingUser.id, normalizedEmail, normalizedEmail]
+      )
+    : await pool.execute(
+        `SELECT id, password_hash
+         FROM users
+         WHERE id = ?
+           AND is_roster_placeholder = 1
+           AND (
+             LOWER(TRIM(email)) = ?
+             OR LOWER(TRIM(roster_placeholder_claim_email)) = ?
+             OR (? <> '' AND REGEXP_REPLACE(COALESCE(phone_number, ''), '[^0-9]', '') = ?)
+             OR (? = 1)
+           )
+           AND LOWER(TRIM(last_name)) = ?
+           AND LOWER(LEFT(TRIM(first_name), 1)) = ?
+         LIMIT 1`,
+        [
+          existingUser.id,
+          normalizedEmail,
+          normalizedEmail,
+          normalizedPhone ? normalizedPhone.replace(/\D/g, '') : '',
+          normalizedPhone ? normalizedPhone.replace(/\D/g, '') : '',
+          allowNameOnlyClaim ? 1 : 0,
+          String(lastName || '').trim().toLowerCase(),
+          String(firstName || '').trim().slice(0, 1).toLowerCase()
+        ]
+      );
+
   if (!rows?.length || rows[0].password_hash) return false;
   const hashedPw = await hashPassword(String(password));
   await pool.execute(
