@@ -81,6 +81,39 @@
             <p v-if="teamManagementStatus" class="td-manage-status">{{ teamManagementStatus }}</p>
           </section>
 
+          <section class="td-manage-card">
+            <h3>Team Color</h3>
+            <div class="td-color-row">
+              <input
+                v-model="teamColorDraft"
+                type="color"
+                class="td-color-swatch"
+                title="Pick team color"
+              />
+              <input
+                v-model.trim="teamColorDraft"
+                type="text"
+                class="td-manage-input td-color-hex"
+                placeholder="#6366f1"
+                maxlength="7"
+                spellcheck="false"
+              />
+              <button
+                class="td-manage-save"
+                type="button"
+                :disabled="savingTeamColor"
+                @click="saveTeamColor"
+              >{{ savingTeamColor ? 'Saving…' : 'Save Color' }}</button>
+              <button
+                v-if="teamColorDraft"
+                class="td-manage-save td-manage-save--muted"
+                type="button"
+                @click="teamColorDraft = ''; saveTeamColor()"
+              >Clear</button>
+            </div>
+            <p class="td-manage-panel__hint">This color will be used as the accent border on the scoreboard cards.</p>
+          </section>
+
           <section ref="bannerSectionRef" class="td-manage-card td-manage-card--wide">
             <h3>Banner</h3>
             <BannerEditor
@@ -285,6 +318,8 @@ const teamManagementStatus = ref('');
 const savingTeamName = ref(false);
 const sendingResetFor = ref(null);
 const teamNameDraft = ref('');
+const teamColorDraft = ref('');
+const savingTeamColor = ref(false);
 const teamBannerFocalX = ref(50);
 const teamBannerFocalY = ref(50);
 const teamBannerSaving = ref(false);
@@ -400,6 +435,7 @@ const loadTeam = async () => {
     team.value = teams.find((t) => Number(t.id) === teamIdNum.value) || null;
     if (!team.value) error.value = 'Team not found.';
     teamNameDraft.value = team.value?.team_name || '';
+    teamColorDraft.value = team.value?.team_color || '';
     syncTeamBannerFocalFromTeam();
   } catch {
     error.value = 'Failed to load team.';
@@ -532,6 +568,26 @@ const saveTeamName = async () => {
     teamManagementStatus.value = e?.response?.data?.error?.message || 'Failed to save team.';
   } finally {
     savingTeamName.value = false;
+  }
+};
+
+const saveTeamColor = async () => {
+  if (!challengeId.value || !teamIdNum.value) return;
+  savingTeamColor.value = true;
+  teamManagementStatus.value = '';
+  try {
+    const { data } = await api.put(`/learning-program-classes/${challengeId.value}/teams/${teamIdNum.value}`, {
+      teamColor: teamColorDraft.value || null
+    }, { skipGlobalLoading: true });
+    if (data?.team) {
+      team.value = { ...(team.value || {}), ...data.team };
+      teamColorDraft.value = data.team.team_color || '';
+    }
+    teamManagementStatus.value = 'Color saved.';
+  } catch (e) {
+    teamManagementStatus.value = e?.response?.data?.error?.message || 'Failed to save color.';
+  } finally {
+    savingTeamColor.value = false;
   }
 };
 
@@ -839,6 +895,31 @@ onMounted(async () => {
   background: #0f172a;
   color: #fff;
   padding: 10px 14px;
+}
+.td-manage-save--muted {
+  background: #64748b;
+}
+
+.td-color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.td-color-swatch {
+  width: 44px;
+  height: 44px;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 2px;
+  cursor: pointer;
+  background: none;
+  flex-shrink: 0;
+}
+.td-color-hex {
+  width: 100px;
+  flex-shrink: 0;
+  font-family: monospace;
 }
 
 .td-manage-status {

@@ -1404,6 +1404,21 @@ if (!isBootstrap) {
       console.warn('[startup] Migration 806 check skipped:', err.message);
     }
 
+  // Migration 809 – team_color hex value on challenge_teams
+    try {
+      const [cols809] = await pool.execute(`SHOW COLUMNS FROM challenge_teams LIKE 'team_color'`);
+      if (!cols809.length) {
+        await pool.execute(
+          `ALTER TABLE challenge_teams
+             ADD COLUMN team_color VARCHAR(20) NULL DEFAULT NULL
+               COMMENT 'Hex color for team accent (e.g. #6366f1); displayed as left-border on scoreboard cards'`
+        );
+        console.log('[startup] Migration 809 applied: team_color added to challenge_teams');
+      }
+    } catch (err) {
+      console.warn('[startup] Migration 809 check skipped:', err.message);
+    }
+
   // Migration 751 – SSTC notification preferences JSON on user_preferences
     try {
       const [cols751] = await pool.execute(`SHOW COLUMNS FROM user_preferences LIKE 'sstc_notification_prefs_json'`);

@@ -65,7 +65,8 @@ class ChallengeTeam {
       logoPath: 'logo_path',
       bannerPath: 'banner_path',
       bannerFocalX: 'banner_focal_x',
-      bannerFocalY: 'banner_focal_y'
+      bannerFocalY: 'banner_focal_y',
+      teamColor: 'team_color'
     };
     const setParts = [];
     const values = [];

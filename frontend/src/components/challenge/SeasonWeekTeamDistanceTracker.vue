@@ -62,7 +62,7 @@
         v-for="(team, tIdx) in sortedTeams"
         :key="`swtd-${team.teamId}`"
         class="swtd-team"
-        :style="teamBorderStyle(tIdx)"
+        :style="teamBorderStyle(tIdx, team)"
       >
         <div v-if="resolveLogoUrl(team.logoPath)" class="swtd-team-logo-col">
           <img
@@ -371,7 +371,10 @@ const statusLabel = (s) =>
   ({ ahead: '✓ Ahead', met: '✓ Met', tracking: '▶ On track', behind: '⚠ Behind' }[s] || s);
 
 const teamColors = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6', '#f97316', '#3b82f6'];
-const teamBorderStyle = (idx) => ({ borderLeftColor: teamColors[idx % teamColors.length] });
+const teamBorderStyle = (idx, team) => {
+  const color = team?.teamColor || teamColors[idx % teamColors.length];
+  return { borderLeftColor: color };
+};
 
 const activeMemberCount = (team) => {
   const n = team?.activeMemberCount;

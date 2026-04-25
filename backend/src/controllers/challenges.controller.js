@@ -391,6 +391,15 @@ export const updateTeam = async (req, res, next) => {
     const patch = {};
     if (req.body.teamName !== undefined) patch.teamName = String(req.body.teamName || '').trim();
     if (req.body.teamManagerUserId !== undefined) patch.teamManagerUserId = req.body.teamManagerUserId ? asInt(req.body.teamManagerUserId) : null;
+    if (req.body.teamColor !== undefined) {
+      // Accept a valid 3- or 6-char hex color (with or without #), or null to clear.
+      const raw = req.body.teamColor ? String(req.body.teamColor).trim() : null;
+      if (raw && /^#?[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(raw)) {
+        patch.teamColor = raw.startsWith('#') ? raw : `#${raw}`;
+      } else {
+        patch.teamColor = null;
+      }
+    }
     const updated = await ChallengeTeam.update(teamId, patch);
     return res.json({ team: updated });
   } catch (e) {
@@ -2604,7 +2613,7 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
     const viewWeekYmd = String(weekStart).slice(0, 10);
 
     const [allTeamRows] = await pool.execute(
-      `SELECT id, team_name, logo_path FROM challenge_teams WHERE learning_class_id = ?`,
+      `SELECT id, team_name, logo_path, team_color FROM challenge_teams WHERE learning_class_id = ?`,
       [classId]
     );
     const teamMeta = new Map((allTeamRows || []).map((t) => [Number(t.id), String(t.team_name || '')]));
@@ -2677,6 +2686,7 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
         teamId: tid,
         teamName: String(t.team_name || '').trim() || 'Team',
         logoPath: t.logo_path || null,
+        teamColor: t.team_color || null,
         totalWeeklyPoints: 0,
         totalWeeklyMiles: 0,
         members: []
