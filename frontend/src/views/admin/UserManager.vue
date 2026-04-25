@@ -1721,7 +1721,26 @@ const selectedClubId = computed(() => {
   // this survives the router guard overwriting currentAgency to the parent org.
   const fromQuery = Number(route.query.clubId || 0);
   if (Number.isFinite(fromQuery) && fromQuery > 0) return fromQuery;
-  const id = Number(agencyStore.currentAgency?.id || 0);
+
+  // Use currentAgency only if it is itself an affiliation-type sub-club.
+  // When navigating directly (no ?clubId=), the router guard resets currentAgency
+  // to the SSTC parent org, which is NOT a sub-club and returns 404 from
+  // listClubMembers. Fall back to the first affiliation-type club in userAgencies.
+  const cur = agencyStore.currentAgency;
+  const curOrgType = String(cur?.organization_type || cur?.organizationType || '').toLowerCase();
+  if (curOrgType === 'affiliation') {
+    const id = Number(cur?.id || 0);
+    if (Number.isFinite(id) && id > 0) return id;
+  }
+
+  // currentAgency is the parent/portal org — pick the first manageable sub-club
+  const subs = (agencyStore.userAgencies || []).filter(
+    (a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation'
+  );
+  if (subs.length > 0) return Number(subs[0].id) || null;
+
+  // Final fallback — use whatever ID is set (may still 404 but shows an error)
+  const id = Number(cur?.id || 0);
   return Number.isFinite(id) && id > 0 ? id : null;
 });
 const canArchiveDelete = computed(() => authStore.user?.role === 'super_admin');
