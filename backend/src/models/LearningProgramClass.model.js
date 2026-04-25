@@ -175,6 +175,7 @@ class LearningProgramClass {
       timezone: 'timezone',
       startsAt: 'starts_at',
       endsAt: 'ends_at',
+      activatedAt: 'activated_at',
       enrollmentOpensAt: 'enrollment_opens_at',
       enrollmentClosesAt: 'enrollment_closes_at',
       status: 'status',

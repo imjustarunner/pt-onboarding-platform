@@ -1388,6 +1388,22 @@ if (!isBootstrap) {
       console.warn('[startup] Migration 805 check skipped:', err.message);
     }
 
+  // Migration 806 – activated_at on learning_program_classes (records when a season is launched)
+    try {
+      const [cols806] = await pool.execute(`SHOW COLUMNS FROM learning_program_classes LIKE 'activated_at'`);
+      if (!cols806.length) {
+        await pool.execute(
+          `ALTER TABLE learning_program_classes
+             ADD COLUMN activated_at DATETIME NULL DEFAULT NULL
+               COMMENT 'Timestamp when the season was launched (status set to active); defines pre-season start'
+               AFTER ends_at`
+        );
+        console.log('[startup] Migration 806 applied: activated_at added to learning_program_classes');
+      }
+    } catch (err) {
+      console.warn('[startup] Migration 806 check skipped:', err.message);
+    }
+
   // Migration 751 – SSTC notification preferences JSON on user_preferences
     try {
       const [cols751] = await pool.execute(`SHOW COLUMNS FROM user_preferences LIKE 'sstc_notification_prefs_json'`);

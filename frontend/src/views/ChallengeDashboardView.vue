@@ -148,6 +148,39 @@
         </div>
       </div>
 
+      <!-- ── Pre-Season Countdown Banner ──────────────────────────── -->
+      <div v-if="isPreSeason && seasonStartCountdown" class="preseason-countdown-banner">
+        <div class="preseason-countdown-label">Season Starts In</div>
+        <div class="preseason-countdown-units">
+          <div class="preseason-countdown-unit">
+            <span class="preseason-countdown-num">{{ seasonStartCountdown.days }}</span>
+            <span class="preseason-countdown-sub">{{ seasonStartCountdown.days === 1 ? 'Day' : 'Days' }}</span>
+          </div>
+          <span class="preseason-countdown-sep">:</span>
+          <div class="preseason-countdown-unit">
+            <span class="preseason-countdown-num">{{ String(seasonStartCountdown.hours).padStart(2, '0') }}</span>
+            <span class="preseason-countdown-sub">Hours</span>
+          </div>
+          <span class="preseason-countdown-sep">:</span>
+          <div class="preseason-countdown-unit">
+            <span class="preseason-countdown-num">{{ String(seasonStartCountdown.minutes).padStart(2, '0') }}</span>
+            <span class="preseason-countdown-sub">Min</span>
+          </div>
+          <span class="preseason-countdown-sep">:</span>
+          <div class="preseason-countdown-unit">
+            <span class="preseason-countdown-num">{{ String(seasonStartCountdown.seconds).padStart(2, '0') }}</span>
+            <span class="preseason-countdown-sub">Sec</span>
+          </div>
+        </div>
+        <div class="preseason-countdown-meta">
+          Pre-Season · Week {{ preSeasonWeek }} ·
+          {{ challenge.starts_at || challenge.startsAt
+              ? new Date(challenge.starts_at || challenge.startsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+              : '' }}
+        </div>
+      </div>
+      <!-- ──────────────────────────────────────────────────────────── -->
+
       <!-- Not-enrolled call-to-action — shown at the top so visitors immediately see it -->
       <div v-if="!isSuperadminPreview && !canParticipateInSeason && !requiresParticipationAcceptance" class="join-season-top-bar">
         <div class="join-season-top-content">
@@ -190,6 +223,61 @@
           Bulk Upload On Behalf
         </button>
       </div>
+
+      <!-- ── Pre-Season Standings Card ─────────────────────────────── -->
+      <div v-if="isPreSeason" class="preseason-standings-card">
+        <div class="preseason-standings-header">
+          <span class="preseason-standings-title">Pre-Season Standings</span>
+          <span class="preseason-standings-week">Week {{ preSeasonWeek }}</span>
+        </div>
+        <p class="preseason-standings-note">
+          Pre-season workouts count toward club totals but not season records or team points.
+        </p>
+
+        <div v-if="preSeasonStatsLoading && !preSeasonStats" class="preseason-standings-loading">Loading…</div>
+        <div v-else-if="!preSeasonStats || (!preSeasonStats.teamStandings?.length && !preSeasonStats.individualStandings?.length)" class="preseason-standings-empty">
+          No pre-season workouts logged yet. Be the first!
+        </div>
+        <template v-else>
+          <!-- Team standings -->
+          <div v-if="preSeasonStats.teamStandings?.length" class="preseason-standings-section">
+            <div class="preseason-standings-section-title">Teams</div>
+            <ol class="preseason-standings-list">
+              <li
+                v-for="(team, idx) in preSeasonStats.teamStandings"
+                :key="team.teamId ?? idx"
+                class="preseason-standings-row"
+              >
+                <span class="preseason-standings-rank">{{ idx + 1 }}.</span>
+                <span class="preseason-standings-name">{{ team.teamName }}</span>
+                <span class="preseason-standings-stat">{{ team.miles.toFixed(1) }} mi</span>
+                <span class="preseason-standings-stat preseason-standings-stat--secondary">{{ team.workouts }} wb</span>
+              </li>
+            </ol>
+          </div>
+
+          <!-- Individual standings -->
+          <div v-if="preSeasonStats.individualStandings?.length" class="preseason-standings-section">
+            <div class="preseason-standings-section-title">Individuals</div>
+            <ol class="preseason-standings-list">
+              <li
+                v-for="(person, idx) in preSeasonStats.individualStandings.slice(0, 10)"
+                :key="person.userId"
+                class="preseason-standings-row"
+              >
+                <span class="preseason-standings-rank">{{ idx + 1 }}.</span>
+                <span class="preseason-standings-name">
+                  {{ person.firstName }} {{ person.lastName?.slice(0, 1) }}.
+                  <span v-if="person.teamName" class="preseason-standings-team">({{ person.teamName }})</span>
+                </span>
+                <span class="preseason-standings-stat">{{ person.miles.toFixed(1) }} mi</span>
+                <span class="preseason-standings-stat preseason-standings-stat--secondary">{{ person.workouts }} wb</span>
+              </li>
+            </ol>
+          </div>
+        </template>
+      </div>
+      <!-- ──────────────────────────────────────────────────────────── -->
 
       <!-- Section scroll nav -->
       <nav class="dash-section-nav" aria-label="Jump to section">
@@ -1607,6 +1695,56 @@ const tickCountdown = () => {
 };
 // ─────────────────────────────────────────────────────────────────
 
+// ── Pre-season state ─────────────────────────────────────────────
+const nowTick = ref(Date.now());
+let _nowTickInterval = null;
+
+const isPreSeason = computed(() => {
+  if (challenge.value?.status !== 'active') return false;
+  const startsAt = challenge.value?.starts_at || challenge.value?.startsAt;
+  if (!startsAt) return false;
+  return nowTick.value < new Date(startsAt).getTime();
+});
+
+const seasonStartCountdown = computed(() => {
+  const startsAt = challenge.value?.starts_at || challenge.value?.startsAt;
+  if (!startsAt || !isPreSeason.value) return null;
+  const diff = Math.max(0, new Date(startsAt).getTime() - nowTick.value);
+  const totalSeconds = Math.floor(diff / 1000);
+  return {
+    days:    Math.floor(totalSeconds / 86400),
+    hours:   Math.floor((totalSeconds % 86400) / 3600),
+    minutes: Math.floor((totalSeconds % 3600) / 60),
+    seconds: totalSeconds % 60
+  };
+});
+
+const preSeasonWeek = computed(() => {
+  const activatedAt = challenge.value?.activated_at;
+  if (!activatedAt || !isPreSeason.value) return 1;
+  const elapsed = Math.max(0, nowTick.value - new Date(activatedAt).getTime());
+  return Math.floor(elapsed / (7 * 24 * 60 * 60 * 1000)) + 1;
+});
+
+const preSeasonStats = ref(null);
+const preSeasonStatsLoading = ref(false);
+let _preSeasonStatsInterval = null;
+
+const loadPreSeasonStats = async () => {
+  const id = challengeId.value;
+  if (!id || !isPreSeason.value) return;
+  preSeasonStatsLoading.value = true;
+  try {
+    const r = await api.get(`/learning-program-classes/${id}/pre-season-stats`, { skipGlobalLoading: true });
+    preSeasonStats.value = r.data?.available ? r.data : null;
+  } catch {
+    // best-effort
+  } finally {
+    preSeasonStatsLoading.value = false;
+  }
+};
+// ─────────────────────────────────────────────────────────────────
+
 const isChallengeManager = computed(() => {
   // Server-side authoritative flag — covers club_manager, assistant_manager, admin, staff
   if (challenge.value?.can_manage === true) return true;
@@ -2629,6 +2767,13 @@ onMounted(async () => {
   }
   tickCountdown();
   countdownTimer = setInterval(tickCountdown, 30000); // refresh every 30 s
+
+  // Pre-season: start 1-second tick and load standings
+  _nowTickInterval = setInterval(() => { nowTick.value = Date.now(); }, 1000);
+  if (isPreSeason.value) {
+    await loadPreSeasonStats();
+    _preSeasonStatsInterval = setInterval(loadPreSeasonStats, 60000);
+  }
   if (route.query?.strava === 'import' && stravaImportAvailable.value) {
     await openStravaImportModal();
   } else if (route.query?.openUpload === '1') {
@@ -2645,6 +2790,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (countdownTimer) clearInterval(countdownTimer);
+  if (_nowTickInterval) clearInterval(_nowTickInterval);
+  if (_preSeasonStatsInterval) clearInterval(_preSeasonStatsInterval);
   // Restore the URL-based route slug so the branding reverts to the host org after leaving.
   const urlSlug = String(route.params.organizationSlug || '').trim().toLowerCase();
   if (urlSlug) brandingStore.setActiveRouteSlug(urlSlug);
@@ -3097,6 +3244,171 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   .season-action-bar { flex-direction: column; align-items: stretch; }
   .season-action-btn { justify-content: center; }
 }
+
+/* ── Pre-Season Countdown Banner ─────────────────────────────── */
+.preseason-countdown-banner {
+  background: linear-gradient(135deg, #1a2e1a 0%, #243824 100%);
+  color: #fff;
+  text-align: center;
+  padding: 28px 20px 20px;
+  border-radius: 10px;
+  margin: 0 0 16px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+}
+.preseason-countdown-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.65);
+  margin-bottom: 14px;
+}
+.preseason-countdown-units {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.preseason-countdown-unit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 64px;
+}
+.preseason-countdown-num {
+  font-size: 52px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -1px;
+}
+.preseason-countdown-sub {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.55);
+  margin-top: 4px;
+}
+.preseason-countdown-sep {
+  font-size: 42px;
+  font-weight: 300;
+  color: rgba(255,255,255,0.35);
+  line-height: 1.1;
+  padding-bottom: 18px;
+  user-select: none;
+}
+.preseason-countdown-meta {
+  margin-top: 14px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.5);
+  letter-spacing: 0.04em;
+}
+@media (max-width: 480px) {
+  .preseason-countdown-num { font-size: 36px; }
+  .preseason-countdown-unit { min-width: 48px; }
+  .preseason-countdown-sep { font-size: 30px; padding-bottom: 12px; }
+}
+
+/* ── Pre-Season Standings Card ──────────────────────────────── */
+.preseason-standings-card {
+  background: #f8faf8;
+  border: 1px solid #d1e8d1;
+  border-radius: 10px;
+  padding: 18px 20px;
+  margin: 0 0 16px;
+}
+.preseason-standings-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.preseason-standings-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1a2e1a;
+}
+.preseason-standings-week {
+  font-size: 12px;
+  font-weight: 600;
+  color: #4a7a4a;
+  background: #e0f0e0;
+  border-radius: 20px;
+  padding: 2px 8px;
+}
+.preseason-standings-note {
+  font-size: 12px;
+  color: #6b7280;
+  margin: 0 0 14px;
+}
+.preseason-standings-loading,
+.preseason-standings-empty {
+  font-size: 13px;
+  color: #6b7280;
+  text-align: center;
+  padding: 12px 0;
+}
+.preseason-standings-section {
+  margin-bottom: 14px;
+}
+.preseason-standings-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #4a7a4a;
+  margin-bottom: 6px;
+}
+.preseason-standings-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.preseason-standings-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: #fff;
+  border: 1px solid #e5f0e5;
+}
+.preseason-standings-rank {
+  font-weight: 700;
+  color: #4a7a4a;
+  min-width: 22px;
+}
+.preseason-standings-name {
+  flex: 1;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.preseason-standings-team {
+  font-weight: 400;
+  color: #6b7280;
+  font-size: 12px;
+}
+.preseason-standings-stat {
+  font-weight: 600;
+  white-space: nowrap;
+  min-width: 52px;
+  text-align: right;
+  color: #1a2e1a;
+}
+.preseason-standings-stat--secondary {
+  color: #6b7280;
+  font-weight: 500;
+  min-width: 38px;
+}
+
 .challenge-sections {
   display: flex;
   flex-direction: column;

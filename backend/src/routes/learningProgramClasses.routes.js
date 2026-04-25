@@ -89,7 +89,8 @@ import {
   editOwnWorkoutFields,
   patchRaceInfo,
   listMessageReactions,
-  toggleMessageReaction
+  toggleMessageReaction,
+  getPreSeasonStats
 } from '../controllers/challenges.controller.js';
 import {
   getScoreboard,
@@ -198,6 +199,7 @@ router.delete('/:classId/teams/:teamId/banner', deleteTeamBanner);
 router.post('/:classId/teams/:teamId/members/:userId/send-password-reset', sendTeamMemberPasswordReset);
 router.get('/:classId/teams/:teamId/members', listTeamMembers);
 router.put('/:classId/teams/:teamId/members', upsertTeamMembers);
+router.get('/:classId/pre-season-stats', getPreSeasonStats);
 router.get('/:classId/leaderboard', getLeaderboard);
 router.get('/:classId/record-boards', getRecordBoards);
 router.get('/:classId/race-divisions', getRaceDivisions);

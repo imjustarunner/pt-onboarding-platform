@@ -510,6 +510,86 @@ export const deleteTeamBanner = async (req, res, next) => {
   } catch (e) { next(e); }
 };
 
+export const getPreSeasonStats = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+
+    const [klassRows] = await pool.execute(
+      `SELECT id, starts_at, ends_at, activated_at, status FROM learning_program_classes WHERE id = ? LIMIT 1`,
+      [classId]
+    );
+    const klass = klassRows?.[0];
+    if (!klass) return res.status(404).json({ error: { message: 'Season not found' } });
+
+    const activatedAt = klass.activated_at ? new Date(klass.activated_at) : null;
+    const startsAt = klass.starts_at ? new Date(klass.starts_at) : null;
+
+    // No pre-season window if never activated, season has no start date, or was activated after/on start
+    if (!activatedAt || !startsAt || activatedAt >= startsAt) {
+      return res.json({ available: false });
+    }
+
+    // Individual workout totals during pre-season window
+    const [rows] = await pool.execute(
+      `SELECT
+         w.user_id,
+         w.team_id,
+         u.first_name,
+         u.last_name,
+         t.team_name,
+         t.logo_path AS team_logo_path,
+         COUNT(*)                              AS workouts,
+         COALESCE(SUM(w.distance_value), 0)   AS miles
+       FROM challenge_workouts w
+       JOIN users u ON u.id = w.user_id
+       LEFT JOIN challenge_teams t ON t.id = w.team_id
+       WHERE w.learning_class_id = ?
+         AND w.completed_at >= ?
+         AND w.completed_at < ?
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+       GROUP BY w.user_id, w.team_id, u.first_name, u.last_name, t.team_name, t.logo_path
+       ORDER BY miles DESC, workouts DESC`,
+      [classId, activatedAt, startsAt]
+    );
+
+    // Roll up per-team standings from the individual rows
+    const teamMap = {};
+    for (const row of rows) {
+      const tid = row.team_id ?? '__noteam__';
+      if (!teamMap[tid]) {
+        teamMap[tid] = {
+          teamId: row.team_id || null,
+          teamName: row.team_name || 'No Team',
+          teamLogoPath: row.team_logo_path || null,
+          workouts: 0,
+          miles: 0
+        };
+      }
+      teamMap[tid].workouts += Number(row.workouts || 0);
+      teamMap[tid].miles = Math.round((teamMap[tid].miles + Number(row.miles || 0)) * 100) / 100;
+    }
+    const teamStandings = Object.values(teamMap).sort((a, b) => b.miles - a.miles || b.workouts - a.workouts);
+
+    const individualStandings = rows.map(r => ({
+      userId: r.user_id,
+      firstName: r.first_name,
+      lastName: r.last_name,
+      teamId: r.team_id || null,
+      teamName: r.team_name || null,
+      workouts: Number(r.workouts || 0),
+      miles: Math.round(Number(r.miles || 0) * 100) / 100
+    })).slice(0, 25);
+
+    return res.json({
+      available: true,
+      window: { activatedAt: activatedAt.toISOString(), startsAt: startsAt.toISOString() },
+      teamStandings,
+      individualStandings
+    });
+  } catch (e) { next(e); }
+};
+
 export const listTeamMembers = async (req, res, next) => {
   try {
     const classId = asInt(req.params.classId);

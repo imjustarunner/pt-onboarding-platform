@@ -1160,7 +1160,11 @@ export const launchLearningProgramClass = async (req, res, next) => {
       ...(settings.participation || {}),
       baselineMemberCount
     };
-    await LearningProgramClass.update(classId, { status: 'active', seasonSettingsJson: settings });
+    await LearningProgramClass.update(classId, {
+      status: 'active',
+      seasonSettingsJson: settings,
+      activatedAt: klass.activated_at ? undefined : new Date()
+    });
     const updated = await LearningProgramClass.findById(classId);
     return res.json({ class: updated, launched: true });
   } catch (e) {
