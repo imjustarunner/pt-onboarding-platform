@@ -32,6 +32,10 @@ ALTER TABLE some_table
     COMMENT 'What this column stores';
 ```
 
+## MySQL version note
+
+`ADD COLUMN IF NOT EXISTS` is **not supported** — omit it. The migration runner tracks runs via a log table, so each file only executes once; the guard is unnecessary.
+
 ## ❌ Never do this
 
 ```js
