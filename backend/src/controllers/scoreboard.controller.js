@@ -282,11 +282,21 @@ export const getScoreboard = async (req, res, next) => {
     const top5Teams = teamRankings.slice(0, 5);
     const topPerTeam = (await ChallengeWorkout.getWeeklyTopPerTeam(classId, weekStart, { weekCutoffTime, weekTimeZone }))
       .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, profile_photo_path: r.profile_photo_path || null, team_id: r.team_id, team_name: r.team_name, total_points: Number(r.total_points) }));
-    const [klassRows] = await pool.execute(`SELECT masters_age_threshold, recognition_categories_json, starts_at, ends_at, week_cutoff_time, week_time_zone FROM learning_program_classes WHERE id = ?`, [classId]);
+    const [klassRows] = await pool.execute(
+      `SELECT masters_age_threshold, recognition_categories_json, starts_at, ends_at, week_start_time, season_settings_json
+       FROM learning_program_classes
+       WHERE id = ?`,
+      [classId]
+    );
     const klassRow = klassRows?.[0];
     const categories = normalizeRecognitionCategories(klassRow?.recognition_categories_json) || [];
     const recognitionOfTheWeek = [];
-    const classRowWithCats = { ...(klassRow || {}), _allCategories: categories };
+    const classRowWithCats = {
+      ...(klassRow || {}),
+      weekCutoffTime,
+      weekTimeZone,
+      _allCategories: categories
+    };
     for (const cat of categories.filter((c) => c.active)) {
       const entries = await ChallengeWorkout.computeRecognitionWinner(classId, cat, weekStart, classRowWithCats);
       recognitionOfTheWeek.push(...entries);

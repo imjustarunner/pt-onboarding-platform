@@ -862,12 +862,19 @@
                 </div>
               </template>
               <template v-if="sstcActiveSeasonNav">
-                <router-link
-                  v-if="!sstcActiveSeasonNav.isDropdown"
-                  :to="sstcActiveSeasonNav.to"
-                  class="mobile-nav-link mobile-nav-active-season-link"
-                  @click="closeMobileMenu"
-                >{{ sstcActiveSeasonNav.label }}</router-link>
+                <template v-if="!sstcActiveSeasonNav.isDropdown">
+                  <router-link
+                    :to="sstcActiveSeasonNav.to"
+                    class="mobile-nav-link mobile-nav-active-season-link"
+                    @click="closeMobileMenu"
+                  >{{ sstcActiveSeasonNav.label }}</router-link>
+                  <router-link
+                    v-if="sstcActiveSeasonList[0]?.teamTo"
+                    :to="sstcActiveSeasonList[0].teamTo"
+                    class="mobile-nav-link mobile-nav-sublink"
+                    @click="closeMobileMenu"
+                  >↳ {{ sstcActiveSeasonList[0].myTeamName }}</router-link>
+                </template>
                 <div v-else class="mobile-nav-group mobile-nav-group-collapsible">
                   <button
                     type="button"
@@ -879,13 +886,19 @@
                     <span class="mobile-nav-group-caret" :class="{ open: mobileActiveSeasonsExpanded }" aria-hidden="true">▸</span>
                   </button>
                   <template v-if="mobileActiveSeasonsExpanded">
-                    <router-link
-                      v-for="s in sstcActiveSeasonList"
-                      :key="`mob-as-mgr-${s.id}`"
-                      :to="s.to"
-                      @click="closeMobileMenu"
-                      class="mobile-nav-link mobile-nav-sublink"
-                    >{{ s.clubName }} — {{ s.name }}</router-link>
+                    <template v-for="s in sstcActiveSeasonList" :key="`mob-as-mgr-${s.id}`">
+                      <router-link
+                        :to="s.to"
+                        @click="closeMobileMenu"
+                        class="mobile-nav-link mobile-nav-sublink"
+                      >{{ s.clubName }} — {{ s.name }}</router-link>
+                      <router-link
+                        v-if="s.teamTo"
+                        :to="s.teamTo"
+                        @click="closeMobileMenu"
+                        class="mobile-nav-link mobile-nav-sublink mobile-nav-team-sublink"
+                      >↳ {{ s.myTeamName }}</router-link>
+                    </template>
                   </template>
                 </div>
               </template>
@@ -947,12 +960,19 @@
                 </div>
               </template>
               <template v-if="sstcActiveSeasonNav">
-                <router-link
-                  v-if="!sstcActiveSeasonNav.isDropdown"
-                  :to="sstcActiveSeasonNav.to"
-                  class="mobile-nav-link mobile-nav-active-season-link"
-                  @click="closeMobileMenu"
-                >{{ sstcActiveSeasonNav.label }}</router-link>
+                <template v-if="!sstcActiveSeasonNav.isDropdown">
+                  <router-link
+                    :to="sstcActiveSeasonNav.to"
+                    class="mobile-nav-link mobile-nav-active-season-link"
+                    @click="closeMobileMenu"
+                  >{{ sstcActiveSeasonNav.label }}</router-link>
+                  <router-link
+                    v-if="sstcActiveSeasonList[0]?.teamTo"
+                    :to="sstcActiveSeasonList[0].teamTo"
+                    class="mobile-nav-link mobile-nav-sublink"
+                    @click="closeMobileMenu"
+                  >↳ {{ sstcActiveSeasonList[0].myTeamName }}</router-link>
+                </template>
                 <div v-else class="mobile-nav-group mobile-nav-group-collapsible">
                   <button
                     type="button"
@@ -964,13 +984,19 @@
                     <span class="mobile-nav-group-caret" :class="{ open: mobileActiveSeasonsExpanded }" aria-hidden="true">▸</span>
                   </button>
                   <template v-if="mobileActiveSeasonsExpanded">
-                    <router-link
-                      v-for="s in sstcActiveSeasonList"
-                      :key="`mob-as-mem-${s.id}`"
-                      :to="s.to"
-                      @click="closeMobileMenu"
-                      class="mobile-nav-link mobile-nav-sublink"
-                    >{{ s.clubName }} — {{ s.name }}</router-link>
+                    <template v-for="s in sstcActiveSeasonList" :key="`mob-as-mem-${s.id}`">
+                      <router-link
+                        :to="s.to"
+                        @click="closeMobileMenu"
+                        class="mobile-nav-link mobile-nav-sublink"
+                      >{{ s.clubName }} — {{ s.name }}</router-link>
+                      <router-link
+                        v-if="s.teamTo"
+                        :to="s.teamTo"
+                        @click="closeMobileMenu"
+                        class="mobile-nav-link mobile-nav-sublink mobile-nav-team-sublink"
+                      >↳ {{ s.myTeamName }}</router-link>
+                    </template>
                   </template>
                 </div>
               </template>
@@ -1709,10 +1735,10 @@ const loadNavActiveSeason = async () => {
       const { data: mySummary } = await api.get('/learning-program-classes/my/summary', { skipGlobalLoading: true });
       const myTeams = Array.isArray(mySummary?.teams) ? mySummary.teams : [];
       for (const s of seasons) {
-        const teamEntry = myTeams.find((t) => Number(t.challenge_id) === Number(s.id));
+        const teamEntry = myTeams.find((t) => Number(t.challenge_id ?? t.challengeId) === Number(s.id));
         if (teamEntry) {
-          s.myTeamId = Number(teamEntry.team_id);
-          s.myTeamName = teamEntry.team_name || null;
+          s.myTeamId = Number(teamEntry.team_id ?? teamEntry.teamId);
+          s.myTeamName = teamEntry.team_name ?? teamEntry.teamName ?? null;
         }
       }
     } catch {
@@ -1910,7 +1936,10 @@ const navDropdownOpen = computed(() => {
     directoryMenuOpen.value ||
     managementMenuOpen.value ||
     engagementMenuOpen.value ||
-    gamesMenuOpen.value
+    gamesMenuOpen.value ||
+    clubManagementMenuOpen.value ||
+    myClubsMenuOpen.value ||
+    activeSeasonsMenuOpen.value
   );
 });
 
@@ -1921,6 +1950,12 @@ const closeAllNavMenus = () => {
   managementMenuOpen.value = false;
   engagementMenuOpen.value = false;
   gamesMenuOpen.value = false;
+  clubManagementMenuOpen.value = false;
+  myClubsMenuOpen.value = false;
+  activeSeasonsMenuOpen.value = false;
+  mobileMyClubsExpanded.value = false;
+  mobileActiveSeasonsExpanded.value = false;
+  mobileClubMgmtExpanded.value = false;
 };
 
 const onDocumentClick = () => closeAllNavMenus();
@@ -2196,6 +2231,8 @@ const switchDemoView = async (nextRole) => {
 const closeMobileMenu = () => {
   mobileMenuOpen.value = false;
   mobileClubMgmtExpanded.value = false;
+  mobileMyClubsExpanded.value = false;
+  mobileActiveSeasonsExpanded.value = false;
 };
 
 const closeClubManagementMenu = () => {
@@ -5741,6 +5778,10 @@ onUnmounted(() => {
   padding-bottom: 12px !important;
   padding-left: 28px !important;
   font-size: 15px;
+}
+.mobile-nav-team-sublink {
+  padding-left: 42px !important;
+  font-weight: 800;
 }
 
 .mobile-sidebar-footer {

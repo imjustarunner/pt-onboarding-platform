@@ -298,6 +298,8 @@ const normalizeSeasonSettings = (input = {}) => {
       presetTeamNames: parseList(teams.presetTeamNames),
       allowCaptainRenameTeam: asBool(teams.allowCaptainRenameTeam, true),
       allowCaptainNicknameSuffixWhenLocked: asBool(teams.allowCaptainNicknameSuffixWhenLocked, false),
+      teamsFinalized: asBool(teams.teamsFinalized, false),
+      teamsFinalizedAt: asNonEmptyString(teams.teamsFinalizedAt, null),
       /** Planned roster size for weekly team distance bar (Manage season → Teams). 0 = unset, use participation fallback. */
       membersPerTeam: Math.max(0, numOr(teams.membersPerTeam, 0)),
       weeklyTeamTargets: (() => {

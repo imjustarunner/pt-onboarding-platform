@@ -1633,7 +1633,8 @@ const myOwnCaptainApp = computed(() => {
 
 const myTeamId = computed(() => {
   // Prefer the server-resolved team (reliable for non-captains too)
-  if (myTeamFromApi.value?.team_id) return Number(myTeamFromApi.value.team_id);
+  const apiTeamId = myTeamFromApi.value?.team_id ?? myTeamFromApi.value?.teamId;
+  if (apiTeamId) return Number(apiTeamId);
   const myId = Number(authStore.user?.id || 0);
   const myTeam = (teams.value || []).find((t) =>
     (t.members || []).some((m) => Number(m.provider_user_id || m.user_id) === myId)
@@ -1643,7 +1644,8 @@ const myTeamId = computed(() => {
 });
 
 const myTeamName = computed(() => {
-  if (myTeamFromApi.value?.team_name) return myTeamFromApi.value.team_name;
+  const apiTeamName = myTeamFromApi.value?.team_name ?? myTeamFromApi.value?.teamName;
+  if (apiTeamName) return apiTeamName;
   const tid = myTeamId.value;
   if (!tid) return null;
   const t = (teams.value || []).find((x) => Number(x.id) === Number(tid));
@@ -1918,7 +1920,7 @@ const loadTeams = async () => {
     try {
       const s = await api.get('/learning-program-classes/my/summary', { skipGlobalLoading: true });
       const myTeams = Array.isArray(s.data?.teams) ? s.data.teams : [];
-      const match = myTeams.find((t) => Number(t.challenge_id) === Number(id));
+      const match = myTeams.find((t) => Number(t.challenge_id ?? t.challengeId) === Number(id));
       myTeamFromApi.value = match || null;
     } catch {
       myTeamFromApi.value = null;

@@ -2342,6 +2342,8 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
     if (!range) return res.status(400).json({ error: { message: 'Invalid weekStart' } });
     const startStr = range.start;
     const endStr = range.end;
+    const seasonStartStr = access.class?.starts_at || null;
+    const seasonEndStr = access.class?.ends_at || null;
 
     const seasonSettings = parseJsonObject(access.class?.season_settings_json || {});
     const eventCategory = String(seasonSettings?.event?.category || 'run_ruck').toLowerCase();
@@ -2409,12 +2411,14 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
          ON w.learning_class_id = t.learning_class_id
          AND w.user_id = tm.provider_user_id
          AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+         AND (? IS NULL OR w.completed_at >= ?)
+         AND (? IS NULL OR w.completed_at <= ?)
          AND w.completed_at >= ?
          AND w.completed_at < ?
        WHERE t.learning_class_id = ?
        GROUP BY t.id, t.team_name, u.id, u.first_name, u.last_name
        ORDER BY t.team_name ASC, ${metricField} DESC, u.last_name ASC, u.first_name ASC`,
-      [startStr, endStr, classId]
+      [seasonStartStr, seasonStartStr, seasonEndStr, seasonEndStr, startStr, endStr, classId]
     );
 
     // Also fetch captains with their workout data for this week
@@ -2433,12 +2437,14 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
          ON w.learning_class_id = t.learning_class_id
          AND w.user_id = t.team_manager_user_id
          AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+         AND (? IS NULL OR w.completed_at >= ?)
+         AND (? IS NULL OR w.completed_at <= ?)
          AND w.completed_at >= ?
          AND w.completed_at < ?
        WHERE t.learning_class_id = ?
          AND t.team_manager_user_id IS NOT NULL
        GROUP BY t.id, t.team_name, u.id, u.first_name, u.last_name`,
-      [startStr, endStr, classId]
+      [seasonStartStr, seasonStartStr, seasonEndStr, seasonEndStr, startStr, endStr, classId]
     );
 
     const pace = weekSeventhPaceState({
@@ -2508,10 +2514,12 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
          WHERE learning_class_id = ?
            AND user_id IN (${ph})
            AND (is_disqualified IS NULL OR is_disqualified = 0)
+           AND (? IS NULL OR completed_at >= ?)
+           AND (? IS NULL OR completed_at <= ?)
            AND completed_at >= ?
            AND completed_at < ?
          GROUP BY user_id`,
-        [classId, ...elimUids, startStr, endStr]
+        [classId, ...elimUids, seasonStartStr, seasonStartStr, seasonEndStr, seasonEndStr, startStr, endStr]
       );
       elimWorkoutByUser = new Map(
         (wElim || []).map((row) => [
