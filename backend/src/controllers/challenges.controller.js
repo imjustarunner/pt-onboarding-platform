@@ -2604,7 +2604,7 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
     const viewWeekYmd = String(weekStart).slice(0, 10);
 
     const [allTeamRows] = await pool.execute(
-      `SELECT id, team_name FROM challenge_teams WHERE learning_class_id = ?`,
+      `SELECT id, team_name, logo_path FROM challenge_teams WHERE learning_class_id = ?`,
       [classId]
     );
     const teamMeta = new Map((allTeamRows || []).map((t) => [Number(t.id), String(t.team_name || '')]));
@@ -2676,6 +2676,7 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
       teamsMap.set(tid, {
         teamId: tid,
         teamName: String(t.team_name || '').trim() || 'Team',
+        logoPath: t.logo_path || null,
         totalWeeklyPoints: 0,
         totalWeeklyMiles: 0,
         members: []

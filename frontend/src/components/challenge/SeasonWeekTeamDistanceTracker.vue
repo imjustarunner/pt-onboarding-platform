@@ -64,7 +64,15 @@
         class="swtd-team"
         :style="teamBorderStyle(tIdx)"
       >
-        <div class="swtd-team-card">
+        <div v-if="resolveLogoUrl(team.logoPath)" class="swtd-team-logo-col">
+          <img
+            :src="resolveLogoUrl(team.logoPath)"
+            :alt="`${team.teamName} logo`"
+            class="swtd-team-logo-img"
+          />
+        </div>
+        <div class="swtd-team-content">
+          <div class="swtd-team-card">
           <div class="swtd-team-card-head">
             <div class="swtd-team-card-head-left">
               <h3 class="swtd-team-title">{{ team.teamName }}</h3>
@@ -145,6 +153,7 @@
             </li>
           </ul>
         </div>
+        </div><!-- /.swtd-team-content -->
       </article>
       <p v-if="!teams.length" class="swtd-empty">No teams yet for this season.</p>
     </div>
@@ -155,6 +164,13 @@
 import { ref, computed, watch } from 'vue';
 import api from '../../services/api';
 import { getWeekStartDate, getWeekDateTimeRange, firstCompetitionWeekDate } from '../../utils/challengeWeekUtils.js';
+import { toUploadsUrl } from '../../utils/uploadsUrl.js';
+
+const resolveLogoUrl = (path) => {
+  if (!path) return null;
+  if (path.startsWith('http')) return path;
+  return toUploadsUrl(path) || null;
+};
 
 const props = defineProps({
   challengeId: { type: [String, Number], required: true },
@@ -497,6 +513,31 @@ const teamBarStyle = (miles, required) => {
   overflow: hidden;
   border-left: 4px solid #e2e8f0;
   background: #fff;
+  display: flex;
+  align-items: stretch;
+}
+
+.swtd-team-logo-col {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+}
+.swtd-team-logo-img {
+  display: block;
+  width: auto;
+  height: 100%;
+  max-width: 90px;
+  min-width: 48px;
+  object-fit: cover;
+  object-position: center;
+}
+
+.swtd-team-content {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .swtd-team-card {
