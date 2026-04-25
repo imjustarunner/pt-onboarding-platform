@@ -3730,7 +3730,13 @@ const getStatusBadgeClassWrapper = (status, isActive = true) => {
 };
 
 const sortedUsers = computed(() => {
-  let filtered = (users.value || []).filter((u) => String(u?.role || '').toLowerCase() !== 'client_guardian');
+  // In the SSTC member management context every club member should be visible —
+  // including client_guardian accounts that somehow ended up as club members.
+  // Hiding them was what prevented managers from finding and removing them.
+  // In non-SSTC contexts (PT onboarding) keep the original guardian filter.
+  let filtered = isSscSstcTenant.value
+    ? [...(users.value || [])]
+    : (users.value || []).filter((u) => String(u?.role || '').toLowerCase() !== 'client_guardian');
   const hasSearch = !!(userSearch.value && String(userSearch.value).trim());
 
   const parseOrgIds = (u) => {
