@@ -407,10 +407,14 @@
                 </div>
               </template>
               <template v-else>
-                <router-link :to="userProfilePath(user.id)" class="user-name-link">
+                <span v-if="user.isOrphaned" class="user-name-link" style="color: var(--text-muted); font-style: italic;">
+                  {{ user.first_name || '[Deleted account]' }} {{ user.last_name }}
+                </span>
+                <router-link v-else :to="userProfilePath(user.id)" class="user-name-link">
                   {{ user.first_name }} {{ user.last_name }}
                 </router-link>
                 <span v-if="isSscSstcTenant && user.isPlaceholder" class="badge badge-placeholder" title="Manually added — has not yet created an account">Unlinked</span>
+                <span v-if="user.isOrphaned" class="badge badge-orphaned" title="The underlying user account was deleted but the club membership record remains">Orphaned</span>
               </template>
             </td>
             <td class="col-email">
@@ -549,8 +553,8 @@
                     class="btn btn-secondary btn-sm"
                     @click="startInlineEdit(user)"
                   >Edit</button>
-                  <router-link :to="userProfilePath(user.id)" class="btn btn-primary btn-sm">View Profile</router-link>
-                  <router-link :to="userProfileTabPath(user.id, 'communications')" class="btn btn-secondary btn-sm">
+                  <router-link v-if="!user.isOrphaned" :to="userProfilePath(user.id)" class="btn btn-primary btn-sm">View Profile</router-link>
+                  <router-link v-if="!user.isOrphaned" :to="userProfileTabPath(user.id, 'communications')" class="btn btn-secondary btn-sm">
                     Announce / Splash
                   </router-link>
                 </template>
@@ -589,7 +593,7 @@
                   :disabled="memberStatusSavingId === Number(user.id)"
                   @click="removeMemberFromClub(user)"
                 >
-                  {{ memberStatusSavingId === Number(user.id) ? 'Removing…' : 'Remove from Club' }}
+                  {{ memberStatusSavingId === Number(user.id) ? 'Removing…' : (user.isOrphaned ? 'Clean Up' : 'Remove from Club') }}
                 </button>
               </div>
             </td>
@@ -2370,7 +2374,8 @@ const fetchUsers = async () => {
         club_member_active: m.isActiveInClub ? 1 : 0,
         seasons: Array.isArray(m.seasons) ? m.seasons : [],
         created_at: m.createdAt,
-        isPlaceholder: !!m.isPlaceholder
+        isPlaceholder: !!m.isPlaceholder,
+        isOrphaned: !!m.isOrphaned
       }));
     } else if (isSscSstcTenant.value) {
       // SSTC context but no club ID yet (agency store still hydrating).
@@ -4110,7 +4115,7 @@ const cancelCreation = () => {
 // Re-fetch club members when selectedClubId becomes available after an initially-null load.
 // This handles SPA navigation where the agency store hydrates after the component mounts.
 watch(selectedClubId, (newId, oldId) => {
-  if (isSscSstcTenant.value && newId && !oldId) {
+  if (isSscSstcTenant.value && newId && newId !== oldId) {
     void fetchUsers();
   }
 });
@@ -4977,6 +4982,14 @@ th {
   margin-left: 6px;
   vertical-align: middle;
   border: 1px solid #fde68a;
+}
+.badge-orphaned {
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 10px;
+  margin-left: 6px;
+  vertical-align: middle;
+  border: 1px solid #fca5a5;
 }
 
 .member-row--editing {

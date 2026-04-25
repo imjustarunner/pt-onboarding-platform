@@ -3414,6 +3414,7 @@ export const listClubMembers = async (req, res, next) => {
 
     const [rows] = await pool.execute(
       `SELECT
+         ua.user_id AS ua_user_id,
          u.id,
          u.email,
          u.first_name,
@@ -3424,31 +3425,43 @@ export const listClubMembers = async (req, res, next) => {
          COALESCE(u.phone_number, u.personal_phone) AS phone,
          u.is_roster_placeholder,
          u.roster_placeholder_claimed_at,
+         u.is_archived,
          ua.is_active AS club_is_active,
          ua.club_role AS club_role
        FROM user_agencies ua
-       INNER JOIN users u ON u.id = ua.user_id
+       LEFT JOIN users u ON u.id = ua.user_id
        WHERE ua.agency_id = ?
-         AND (u.is_archived IS NULL OR u.is_archived = 0)
-       ORDER BY u.created_at DESC`,
+       ORDER BY COALESCE(u.created_at, '1970-01-01') DESC`,
       [clubId]
     );
 
-    const members = Array.isArray(rows) ? rows.map((r) => ({
-      id: Number(r.id),
-      email: r.email || '',
-      firstName: r.first_name || '',
-      lastName: r.last_name || '',
-      phone: r.phone || '',
-      role: r.role || '',
-      status: r.status || '',
-      createdAt: r.created_at || null,
-      clubRole: r.club_role || null,
-      isActiveInClub: Number(r.club_is_active || 0) === 1,
-      applicationPending: false,
-      // True when the account was manually added and has never logged in / claimed
-      isPlaceholder: Number(r.is_roster_placeholder) === 1 && !r.roster_placeholder_claimed_at
-    })) : [];
+    const members = Array.isArray(rows) ? rows.map((r) => {
+      const userId = Number(r.id || r.ua_user_id);
+      const isOrphaned = !r.id;  // user row was hard-deleted
+      const isArchived = Number(r.is_archived || 0) === 1;
+      return {
+        id: userId,
+        email: r.email || '',
+        firstName: r.first_name || (isOrphaned ? '[Deleted account]' : ''),
+        lastName: r.last_name || '',
+        phone: r.phone || '',
+        role: r.role || '',
+        status: r.status || '',
+        createdAt: r.created_at || null,
+        clubRole: r.club_role || null,
+        isActiveInClub: Number(r.club_is_active || 0) === 1,
+        applicationPending: false,
+        isPlaceholder: !isOrphaned && Number(r.is_roster_placeholder) === 1 && !r.roster_placeholder_claimed_at,
+        // Managers need to be able to remove orphaned/archived records
+        isOrphaned,
+        isArchived
+      };
+    }).filter((m) => {
+      // Exclude active archived users from the visible list (they appear in the archive view)
+      // but KEEP orphaned records so managers can remove them
+      if (!m.isOrphaned && m.isArchived) return false;
+      return true;
+    }) : [];
 
     const seenIds = new Set(members.map((m) => m.id).filter((n) => Number.isFinite(n) && n > 0));
     const [pendingRows] = await pool.execute(
