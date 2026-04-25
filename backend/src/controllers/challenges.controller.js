@@ -19,6 +19,8 @@ import { sqlAffiliationUnderSummitPlatform } from '../utils/summitPlatformClubs.
 import { canManageTeam } from '../utils/challengePermissions.js';
 import { canAccessChallenge, resolveChallengeAccessOrManage } from '../utils/challengeAccess.js';
 import { ensureChallengeParticipationAgreementAccepted } from '../utils/challengeParticipationAgreement.js';
+import EmailService from '../services/email.service.js';
+import config from '../config/config.js';
 import {
   getWeekStartDate,
   getWeekDateTimeRange,
@@ -428,6 +430,37 @@ export const uploadTeamBanner = async (req, res, next) => {
     await ChallengeTeam.update(teamId, { bannerPath: result.relativePath });
     return res.json({ bannerPath: result.relativePath });
   } catch (e) { next(e); }
+};
+
+export const sendTeamMemberPasswordReset = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const teamId = asInt(req.params.teamId);
+    const targetUserId = asInt(req.params.userId);
+    if (!classId || !teamId || !targetUserId) return res.status(400).json({ error: { message: 'Invalid classId/teamId/userId' } });
+    const team = await ChallengeTeam.findById(teamId);
+    if (!team || Number(team.learning_class_id) !== Number(classId)) return res.status(404).json({ error: { message: 'Team not found' } });
+    if (!canManageTeam(req.user, team) && !(await canManageChallenge({ user: req.user, classId }))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const members = await ChallengeTeam.listMembers(teamId);
+    if (!members.some((m) => Number(m.provider_user_id) === targetUserId)) {
+      return res.status(404).json({ error: { message: 'Member not found on this team' } });
+    }
+    const targetUser = await User.findById(targetUserId);
+    if (!targetUser?.id || !targetUser.email) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+    const tokenResult = await User.generatePasswordlessToken(targetUser.id, 48, 'reset');
+    const frontendBase = String(config.frontendUrl || '').replace(/\/$/, '');
+    const resetLink = `${frontendBase}/reset-password/${tokenResult.token}`;
+    const subject = 'Reset your password';
+    const body = `Hello ${targetUser.first_name || targetUser.email},\n\nA team manager sent you a password reset link.\n\nReset your password using this link (expires in 48 hours):\n${resetLink}\n\nIf you did not expect this email, you can safely ignore it.`;
+    await EmailService.sendEmail({ to: targetUser.email, subject, body });
+    return res.json({ ok: true, message: `Password reset email sent to ${targetUser.email}` });
+  } catch (e) {
+    next(e);
+  }
 };
 
 export const deleteTeamLogo = async (req, res, next) => {

@@ -1343,14 +1343,18 @@ if (!isBootstrap) {
 
   // Migration 750 – team logo and banner image paths on challenge_teams
     try {
-      const [cols750] = await pool.execute(`SHOW COLUMNS FROM challenge_teams LIKE 'logo_path'`);
-      if (!cols750.length) {
-        await pool.execute(
-          `ALTER TABLE challenge_teams
-             ADD COLUMN logo_path VARCHAR(500) NULL DEFAULT NULL COMMENT 'Relative path to team logo in uploads',
-             ADD COLUMN banner_path VARCHAR(500) NULL DEFAULT NULL COMMENT 'Relative path to team banner in uploads'`
-        );
-        console.log('[startup] Migration 750 applied: logo_path + banner_path added to challenge_teams');
+      const [logoCols750] = await pool.execute(`SHOW COLUMNS FROM challenge_teams LIKE 'logo_path'`);
+      const [bannerCols750] = await pool.execute(`SHOW COLUMNS FROM challenge_teams LIKE 'banner_path'`);
+      const addParts = [];
+      if (!logoCols750.length) {
+        addParts.push(`ADD COLUMN logo_path VARCHAR(500) NULL DEFAULT NULL COMMENT 'Relative path to team logo in uploads'`);
+      }
+      if (!bannerCols750.length) {
+        addParts.push(`ADD COLUMN banner_path VARCHAR(500) NULL DEFAULT NULL COMMENT 'Relative path to team banner in uploads'`);
+      }
+      if (addParts.length) {
+        await pool.execute(`ALTER TABLE challenge_teams ${addParts.join(', ')}`);
+        console.log('[startup] Migration 750 applied: challenge_teams branding columns added', addParts);
       }
     } catch (err) {
       console.warn('[startup] Migration 750 check skipped:', err.message);

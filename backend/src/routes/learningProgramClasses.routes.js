@@ -42,6 +42,7 @@ import {
   uploadTeamBanner,
   deleteTeamLogo,
   deleteTeamBanner,
+  sendTeamMemberPasswordReset,
   listTeamMembers,
   upsertTeamMembers,
   getLeaderboard,
@@ -192,6 +193,7 @@ router.post('/:classId/teams/:teamId/logo', seasonImageUpload.single('logo'), up
 router.delete('/:classId/teams/:teamId/logo', deleteTeamLogo);
 router.post('/:classId/teams/:teamId/banner', seasonImageUpload.single('banner'), uploadTeamBanner);
 router.delete('/:classId/teams/:teamId/banner', deleteTeamBanner);
+router.post('/:classId/teams/:teamId/members/:userId/send-password-reset', sendTeamMemberPasswordReset);
 router.get('/:classId/teams/:teamId/members', listTeamMembers);
 router.put('/:classId/teams/:teamId/members', upsertTeamMembers);
 router.get('/:classId/leaderboard', getLeaderboard);

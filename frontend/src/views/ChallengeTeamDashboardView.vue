@@ -22,6 +22,11 @@
               </p>
             </div>
           </div>
+          <div v-if="isCaptainOrManager" class="td-banner-actions">
+            <button class="td-manage-btn" type="button" @click="teamManagementOpen = !teamManagementOpen">
+              {{ teamManagementOpen ? 'Close Team Management' : 'Manage Team' }}
+            </button>
+          </div>
           <!-- Captain branding controls -->
           <div v-if="isCaptainOrManager" class="td-branding-bar">
             <label class="td-brand-btn" title="Upload team logo">
@@ -36,6 +41,59 @@
             <button v-if="team.banner_path" class="td-brand-btn td-brand-btn--danger" @click="removeBanner">✕ Banner</button>
             <span v-if="brandingStatus" class="td-brand-status">{{ brandingStatus }}</span>
           </div>
+        </div>
+      </div>
+
+      <div v-if="teamManagementOpen" class="td-manage-panel">
+        <div class="td-manage-panel__head">
+          <div>
+            <h2>Team Management</h2>
+            <p class="td-manage-panel__hint">Manage branding, rename the team when allowed, and send password resets.</p>
+          </div>
+          <button class="td-manage-link-btn" type="button" @click="goToDraftReport">Open Draft Report</button>
+        </div>
+
+        <div class="td-manage-grid">
+          <section class="td-manage-card">
+            <h3>Team Name</h3>
+            <form class="td-manage-form" @submit.prevent="saveTeamName">
+              <input
+                v-model.trim="teamNameDraft"
+                class="td-manage-input"
+                type="text"
+                placeholder="Team name"
+                maxlength="120"
+                :disabled="!canEditTeamName"
+              />
+              <button class="td-manage-save" type="submit" :disabled="savingTeamName || !canEditTeamName || !teamNameDraft.trim()">
+                {{ savingTeamName ? 'Saving…' : 'Save Name' }}
+              </button>
+            </form>
+            <p class="td-manage-panel__hint">
+              If renaming is locked for the season, the backend will only allow the nickname suffix mode that is configured for captains.
+            </p>
+            <p v-if="teamManagementStatus" class="td-manage-status">{{ teamManagementStatus }}</p>
+          </section>
+
+          <section class="td-manage-card">
+            <h3>Members</h3>
+            <ul class="td-manage-members">
+              <li v-for="m in members" :key="m.provider_user_id" class="td-manage-member">
+                <div class="td-manage-member__info">
+                  <strong>{{ m.first_name }} {{ m.last_name }}</strong>
+                  <span v-if="m.is_team_captain" class="td-manage-pill">Captain</span>
+                </div>
+                <button
+                  class="td-manage-reset-btn"
+                  type="button"
+                  :disabled="sendingResetFor === m.provider_user_id"
+                  @click="sendPasswordReset(m)"
+                >
+                  {{ sendingResetFor === m.provider_user_id ? 'Sending…' : 'Send Reset Link' }}
+                </button>
+              </li>
+            </ul>
+          </section>
         </div>
       </div>
 
@@ -151,6 +209,11 @@ const membersLoading = ref(false);
 const error = ref('');
 const activeTab = ref('feed');
 const brandingStatus = ref('');
+const teamManagementOpen = ref(false);
+const teamManagementStatus = ref('');
+const savingTeamName = ref(false);
+const sendingResetFor = ref(null);
+const teamNameDraft = ref('');
 
 const isCaptainOrManager = computed(() => {
   const myId = Number(authStore.user?.id || 0);
@@ -177,6 +240,8 @@ const teamBannerStyle = computed(() => {
   return {};
 });
 
+const canEditTeamName = computed(() => isCaptainOrManager.value);
+
 const teamTotalPoints = computed(() => {
   return activity.value
     .filter((w) => String(w.proof_status || '') !== 'rejected' && String(w.proof_status || '') !== 'pending')
@@ -200,6 +265,10 @@ const goToSeason = () => {
   router.push(`/${orgSlug.value}/season/${challengeId.value}`);
 };
 
+const goToDraftReport = () => {
+  router.push(`/${orgSlug.value}/season/${challengeId.value}#draft-report`);
+};
+
 const loadChallenge = async () => {
   if (!challengeId.value) return;
   try {
@@ -217,6 +286,7 @@ const loadTeam = async () => {
     const teams = Array.isArray(r.data?.teams) ? r.data.teams : [];
     team.value = teams.find((t) => Number(t.id) === teamIdNum.value) || null;
     if (!team.value) error.value = 'Team not found.';
+    teamNameDraft.value = team.value?.team_name || '';
   } catch {
     error.value = 'Failed to load team.';
   }
@@ -304,6 +374,48 @@ const removeBanner = async () => {
   } catch {
     brandingStatus.value = 'Failed to remove banner.';
     setTimeout(() => { brandingStatus.value = ''; }, 3000);
+  }
+};
+
+const saveTeamName = async () => {
+  if (!challengeId.value || !teamIdNum.value || !canEditTeamName.value) return;
+  const nextName = String(teamNameDraft.value || '').trim();
+  if (!nextName) {
+    teamManagementStatus.value = 'Team name cannot be empty.';
+    return;
+  }
+  savingTeamName.value = true;
+  teamManagementStatus.value = '';
+  try {
+    const { data } = await api.put(`/learning-program-classes/${challengeId.value}/teams/${teamIdNum.value}`, {
+      teamName: nextName
+    }, { skipGlobalLoading: true });
+    if (data?.team) {
+      team.value = { ...(team.value || {}), ...data.team };
+      teamNameDraft.value = data.team.team_name || nextName;
+    }
+    teamManagementStatus.value = 'Team saved.';
+  } catch (e) {
+    teamManagementStatus.value = e?.response?.data?.error?.message || 'Failed to save team.';
+  } finally {
+    savingTeamName.value = false;
+  }
+};
+
+const sendPasswordReset = async (member) => {
+  if (!challengeId.value || !teamIdNum.value || !member?.provider_user_id || sendingResetFor.value) return;
+  sendingResetFor.value = member.provider_user_id;
+  try {
+    await api.post(
+      `/learning-program-classes/${challengeId.value}/teams/${teamIdNum.value}/members/${member.provider_user_id}/send-password-reset`,
+      {},
+      { skipGlobalLoading: true }
+    );
+    teamManagementStatus.value = `Reset link sent to ${member.first_name || member.last_name || 'member'}.`;
+  } catch (e) {
+    teamManagementStatus.value = e?.response?.data?.error?.message || 'Failed to send reset link.';
+  } finally {
+    sendingResetFor.value = null;
   }
 };
 
@@ -417,6 +529,144 @@ onMounted(async () => {
   color: rgba(255,255,255,0.85);
   font-size: 0.78rem;
   font-style: italic;
+}
+
+.td-banner-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.td-manage-btn,
+.td-manage-link-btn,
+.td-manage-save,
+.td-manage-reset-btn {
+  border: none;
+  border-radius: 999px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.td-manage-btn {
+  background: rgba(255,255,255,0.92);
+  color: #16213e;
+  padding: 8px 14px;
+}
+
+.td-manage-panel {
+  margin: 16px 20px 0;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+.td-manage-panel__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.td-manage-panel__head h2,
+.td-manage-card h3 {
+  margin: 0 0 6px;
+  color: #0f172a;
+}
+
+.td-manage-panel__hint {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.92rem;
+}
+
+.td-manage-link-btn {
+  background: #2563eb;
+  color: #fff;
+  padding: 9px 14px;
+}
+
+.td-manage-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.td-manage-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 14px;
+  background: #f8fafc;
+}
+
+.td-manage-form {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.td-manage-input {
+  flex: 1;
+  min-width: 220px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  background: #fff;
+}
+
+.td-manage-save {
+  background: #0f172a;
+  color: #fff;
+  padding: 10px 14px;
+}
+
+.td-manage-status {
+  margin: 10px 0 0;
+  color: #0f172a;
+  font-size: 0.92rem;
+}
+
+.td-manage-members {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.td-manage-member {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+}
+
+.td-manage-member__info {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.td-manage-pill {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.td-manage-reset-btn {
+  background: #e2e8f0;
+  color: #0f172a;
+  padding: 8px 12px;
 }
 
 /* Stats Row */
@@ -547,5 +797,14 @@ onMounted(async () => {
   .td-tab { font-size: 0.82rem; padding: 10px 4px; }
   .td-banner { min-height: 180px; }
   .td-banner-overlay { padding: 14px 16px 12px; }
+  .td-manage-grid {
+    grid-template-columns: 1fr;
+  }
+  .td-manage-panel {
+    margin: 12px 12px 0;
+  }
+  .td-manage-panel__head {
+    flex-direction: column;
+  }
 }
 </style>
