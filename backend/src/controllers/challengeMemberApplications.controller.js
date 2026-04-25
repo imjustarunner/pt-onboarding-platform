@@ -1735,8 +1735,17 @@ export const submitApplication = async (req, res, next) => {
       } catch { /* non-blocking */ }
     }
 
-    if (existingApplication?.status === 'approved' && !existingUserIsUnclaimedPlaceholder) {
-      return res.status(409).json({ error: { message: 'An account with this email is already a member of this club' } });
+    // Only block on an approved application if the user account AND club membership
+    // actually exist. If the account was deleted (or never created) after approval,
+    // the application record is stale and the person should be allowed to re-apply.
+    if (existingApplication?.status === 'approved' && !existingUserIsUnclaimedPlaceholder && existingUser?.id) {
+      const [memberCheck] = await pool.execute(
+        `SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
+        [existingUser.id, clubId]
+      );
+      if (memberCheck?.length) {
+        return res.status(409).json({ error: { message: 'An account with this email is already a member of this club' } });
+      }
     }
     if (existingApplication?.status === 'pending' && !existingUserIsUnclaimedPlaceholder) {
       return res.status(409).json({ error: { message: 'An application for this email is already pending review' } });
@@ -1991,8 +2000,16 @@ export const submitInviteApplication = async (req, res, next) => {
       } catch { /* non-blocking */ }
     }
 
-    if (existingApplication?.status === 'approved' && !existingUserIsUnclaimedPlaceholder) {
-      return res.status(409).json({ error: { message: 'An account with this email is already a member of this club' } });
+    // Only block if account AND membership actually exist — a stale approved application
+    // (e.g. after account deletion) must not permanently lock out re-application.
+    if (existingApplication?.status === 'approved' && !existingUserIsUnclaimedPlaceholder && existingUser?.id) {
+      const [memberCheck] = await pool.execute(
+        `SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
+        [existingUser.id, clubId]
+      );
+      if (memberCheck?.length) {
+        return res.status(409).json({ error: { message: 'An account with this email is already a member of this club' } });
+      }
     }
     if (existingApplication?.status === 'pending' && !existingUserIsUnclaimedPlaceholder) {
       return res.status(409).json({ error: { message: 'An application for this email is already pending review' } });
