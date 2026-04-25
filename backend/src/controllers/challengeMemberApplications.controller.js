@@ -3454,12 +3454,16 @@ export const listClubMembers = async (req, res, next) => {
         isPlaceholder: !isOrphaned && Number(r.is_roster_placeholder) === 1 && !r.roster_placeholder_claimed_at,
         // Managers need to be able to remove orphaned/archived records
         isOrphaned,
-        isArchived
+        isArchived,
+        isGuardian: !isOrphaned && String(r.role || '').toLowerCase() === 'client_guardian'
       };
     }).filter((m) => {
-      // Exclude active archived users from the visible list (they appear in the archive view)
-      // but KEEP orphaned records so managers can remove them
-      if (!m.isOrphaned && m.isArchived) return false;
+      if (m.isOrphaned) return true; // always show — user was hard-deleted
+      // Always show client_guardian accounts even if archived so their club
+      // membership can be found and removed by the manager.
+      if (String(m.role || '').toLowerCase() === 'client_guardian') return true;
+      // Exclude other archived users (they appear in the archive view, not here)
+      if (m.isArchived) return false;
       return true;
     }) : [];
 

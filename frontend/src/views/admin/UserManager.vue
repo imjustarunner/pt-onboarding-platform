@@ -415,6 +415,7 @@
                 </router-link>
                 <span v-if="isSscSstcTenant && user.isPlaceholder" class="badge badge-placeholder" title="Manually added — has not yet created an account">Unlinked</span>
                 <span v-if="user.isOrphaned" class="badge badge-orphaned" title="The underlying user account was deleted but the club membership record remains">Orphaned</span>
+                <span v-if="user.isGuardian" class="badge badge-guardian" title="This is a guardian/parent account — remove from club if it shouldn't be here">Guardian</span>
               </template>
             </td>
             <td class="col-email">
@@ -553,8 +554,8 @@
                     class="btn btn-secondary btn-sm"
                     @click="startInlineEdit(user)"
                   >Edit</button>
-                  <router-link v-if="!user.isOrphaned" :to="userProfilePath(user.id)" class="btn btn-primary btn-sm">View Profile</router-link>
-                  <router-link v-if="!user.isOrphaned" :to="userProfileTabPath(user.id, 'communications')" class="btn btn-secondary btn-sm">
+                  <router-link v-if="!user.isOrphaned && !user.isGuardian" :to="userProfilePath(user.id)" class="btn btn-primary btn-sm">View Profile</router-link>
+                  <router-link v-if="!user.isOrphaned && !user.isGuardian" :to="userProfileTabPath(user.id, 'communications')" class="btn btn-secondary btn-sm">
                     Announce / Splash
                   </router-link>
                 </template>
@@ -593,7 +594,7 @@
                   :disabled="memberStatusSavingId === Number(user.id)"
                   @click="removeMemberFromClub(user)"
                 >
-                  {{ memberStatusSavingId === Number(user.id) ? 'Removing…' : (user.isOrphaned ? 'Clean Up' : 'Remove from Club') }}
+                  {{ memberStatusSavingId === Number(user.id) ? 'Removing…' : (user.isOrphaned || user.isGuardian ? 'Clean Up' : 'Remove from Club') }}
                 </button>
               </div>
             </td>
@@ -1717,15 +1718,10 @@ const isSscSstcTenant = computed(() => {
   return slug === 'sstc' || slug === 'sstc';
 });
 const selectedClubId = computed(() => {
-  // Prefer the URL query param — links from club dashboards include ?clubId=N so
-  // this survives the router guard overwriting currentAgency to the parent org.
-  const fromQuery = Number(route.query.clubId || 0);
-  if (Number.isFinite(fromQuery) && fromQuery > 0) return fromQuery;
-
-  // Use currentAgency only if it is itself an affiliation-type sub-club.
-  // When navigating directly (no ?clubId=), the router guard resets currentAgency
-  // to the SSTC parent org, which is NOT a sub-club and returns 404 from
-  // listClubMembers. Fall back to the first affiliation-type club in userAgencies.
+  // Priority 1 — currentAgency is already an affiliation sub-club (set by the
+  // club switcher or by onMounted restoring from ?clubId=). This must win over
+  // the URL param so that switching clubs via the context bar refreshes the list
+  // even when a ?clubId= param is present in the URL.
   const cur = agencyStore.currentAgency;
   const curOrgType = String(cur?.organization_type || cur?.organizationType || '').toLowerCase();
   if (curOrgType === 'affiliation') {
@@ -1733,13 +1729,19 @@ const selectedClubId = computed(() => {
     if (Number.isFinite(id) && id > 0) return id;
   }
 
-  // currentAgency is the parent/portal org — pick the first manageable sub-club
+  // Priority 2 — URL query param (?clubId=N). Used on initial load when the
+  // router guard has reset currentAgency to the SSTC parent org before onMounted
+  // has had a chance to restore it to the correct sub-club.
+  const fromQuery = Number(route.query.clubId || 0);
+  if (Number.isFinite(fromQuery) && fromQuery > 0) return fromQuery;
+
+  // Priority 3 — currentAgency is the parent/portal org; pick the first sub-club.
   const subs = (agencyStore.userAgencies || []).filter(
     (a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation'
   );
   if (subs.length > 0) return Number(subs[0].id) || null;
 
-  // Final fallback — use whatever ID is set (may still 404 but shows an error)
+  // Final fallback
   const id = Number(cur?.id || 0);
   return Number.isFinite(id) && id > 0 ? id : null;
 });
@@ -2398,7 +2400,8 @@ const fetchUsers = async () => {
         seasons: Array.isArray(m.seasons) ? m.seasons : [],
         created_at: m.createdAt,
         isPlaceholder: !!m.isPlaceholder,
-        isOrphaned: !!m.isOrphaned
+        isOrphaned: !!m.isOrphaned,
+        isGuardian: !!m.isGuardian
       }));
     } else if (isSscSstcTenant.value) {
       // SSTC context but no club ID yet (agency store still hydrating).
@@ -5034,6 +5037,15 @@ th {
   margin-left: 6px;
   vertical-align: middle;
   border: 1px solid #fca5a5;
+}
+
+.badge-guardian {
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 10px;
+  margin-left: 6px;
+  vertical-align: middle;
+  border: 1px solid #fcd34d;
 }
 
 .member-row--editing {
