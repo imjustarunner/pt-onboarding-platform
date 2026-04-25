@@ -674,7 +674,11 @@
                   class="race-division-card"
                 >
                   <div class="race-division-header">
-                    <span class="race-badge">{{ div.emoji }} {{ div.shortLabel }}</span>
+                    <span class="race-badge">
+                      <img v-if="div.iconUrl" :src="div.iconUrl" class="race-division-icon-img" :alt="div.label" />
+                      <span v-else>{{ div.emoji }}</span>
+                      {{ div.shortLabel }}
+                    </span>
                     <div>
                       <h4>{{ div.label }}</h4>
                     </div>
@@ -3813,8 +3817,18 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   border-bottom: 1px solid #e2e8f0;
 }
 .race-badge {
-  font-size: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 1.3rem;
   line-height: 1;
+  font-weight: 600;
+}
+.race-division-icon-img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 4px;
 }
 .race-division-header h4 {
   margin: 0;

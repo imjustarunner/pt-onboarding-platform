@@ -1815,51 +1815,37 @@
           <div v-if="manageRDLoading" class="loading-inline">Loading…</div>
           <div v-else-if="manageRDError" class="error-banner">{{ manageRDError }}</div>
           <div v-else>
-            <table class="rd-config-table">
-              <thead>
-                <tr>
-                  <th>Icon</th>
-                  <th>Distance</th>
-                  <th>Range (miles)</th>
-                  <th>Enabled</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="dist in allRaceDistances"
-                  :key="dist.key"
-                  :class="{ 'rd-row--disabled': !manageRDEnabled.includes(dist.key) }"
-                >
-                  <td>
-                    <span class="rd-emoji-cell">
-                      <span class="rd-emoji">{{ manageRDEmojis[dist.key] || dist.defaultEmoji }}</span>
-                      <input
-                        v-if="!manageRDLocked"
-                        type="text"
-                        class="rd-emoji-input"
-                        :value="manageRDEmojis[dist.key] || ''"
-                        placeholder="emoji"
-                        maxlength="4"
-                        @change="setRDEmoji(dist.key, $event.target.value)"
-                      />
-                    </span>
-                  </td>
-                  <td class="rd-label">{{ dist.label }}</td>
-                  <td class="rd-range">{{ dist.minMiles }}–{{ dist.maxMiles }} mi</td>
-                  <td>
-                    <label class="rd-toggle">
-                      <input
-                        type="checkbox"
-                        :checked="manageRDEnabled.includes(dist.key)"
-                        :disabled="manageRDLocked"
-                        @change="toggleRDKey(dist.key, $event.target.checked)"
-                      />
-                      <span>{{ manageRDEnabled.includes(dist.key) ? 'On' : 'Off' }}</span>
-                    </label>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <div class="rd-distance-list">
+              <div
+                v-for="dist in allRaceDistances"
+                :key="dist.key"
+                class="rd-distance-row"
+                :class="{ 'rd-distance-row--off': !manageRDEnabled.includes(dist.key) }"
+              >
+                <label class="rd-toggle-label" style="flex:1;min-width:0;">
+                  <input
+                    type="checkbox"
+                    :checked="manageRDEnabled.includes(dist.key)"
+                    :disabled="manageRDLocked"
+                    @change="toggleRDKey(dist.key, $event.target.checked)"
+                  />
+                  <span class="rd-distance-name">
+                    <span class="rd-default-emoji">{{ dist.defaultEmoji }}</span>
+                    <strong>{{ dist.label }}</strong>
+                    <span style="font-size:0.78rem;color:#64748b;">{{ dist.minMiles }}–{{ dist.maxMiles }} mi</span>
+                  </span>
+                </label>
+                <div class="rd-icon-picker" v-if="!manageRDLocked">
+                  <IconSelector
+                    :modelValue="getManageRDIconId(dist.key)"
+                    :summitStatsClubId="managingChallenge?.organization_id"
+                    :context="`manage-race-div-${dist.key}-${managingChallenge?.id}`"
+                    @update:modelValue="(id) => setManageRDIcon(dist.key, id)"
+                  />
+                </div>
+                <div v-else class="hint" style="font-size:0.78rem;color:#94a3b8;white-space:nowrap;">🔒 locked</div>
+              </div>
+            </div>
 
             <div v-if="!manageRDLocked" class="form-actions" style="margin-top:12px; gap:8px;">
               <button type="button" class="btn btn-primary" :disabled="manageRDSaving" @click="saveManageRaceDivisions">
@@ -1867,7 +1853,7 @@
               </button>
               <span v-if="manageRDSaveMsg" class="mu-msg">{{ manageRDSaveMsg }}</span>
             </div>
-            <p v-else class="section-hint" style="margin-top:8px;">🔒 Race division config is locked at the club level. Unlock in Club Settings → Race Divisions to edit icons.</p>
+            <p v-else class="section-hint" style="margin-top:8px;">🔒 Icons are set at the club level. Unlock in Club Settings → Race Divisions to edit.</p>
           </div>
         </div>
 
@@ -3613,7 +3599,7 @@ const manageRDError    = ref('');
 const manageRDSaving   = ref(false);
 const manageRDSaveMsg  = ref('');
 const manageRDEnabled  = ref(RACE_DISTANCES.map((d) => d.key)); // default all on
-const manageRDEmojis   = ref({});  // { [key]: customEmoji }
+const manageRDIcons    = ref({});  // { [key]: 'icon:123' }
 const manageRDLocked   = ref(false);
 
 const loadManageRaceDivisions = async () => {
@@ -3643,7 +3629,7 @@ const loadManageRaceDivisions = async () => {
     manageRDEnabled.value = Array.isArray(seasonRD.enabledKeys) && seasonRD.enabledKeys.length
       ? seasonRD.enabledKeys
       : (clubEnabled || RACE_DISTANCES.map((d) => d.key));
-    manageRDEmojis.value  = { ...clubEmojis, ...(seasonRD.emojiOverrides || {}) };
+    manageRDIcons.value  = { ...clubEmojis, ...(seasonRD.emojiOverrides || {}) };
     manageRDLocked.value  = locked;
   } catch (e) {
     manageRDError.value = e?.response?.data?.error?.message || 'Failed to load race division config.';
@@ -3658,8 +3644,21 @@ const toggleRDKey = (key, checked) => {
   manageRDEnabled.value = RACE_DISTANCES.map((d) => d.key).filter((k) => cur.has(k));
 };
 
-const setRDEmoji = (key, val) => {
-  manageRDEmojis.value = { ...manageRDEmojis.value, [key]: val.trim() || undefined };
+const getManageRDIconId = (key) => {
+  const raw = manageRDIcons.value[key];
+  if (!raw) return null;
+  const m = String(raw).match(/^icon:(\d+)$/);
+  return m ? Number(m[1]) : null;
+};
+
+const setManageRDIcon = (key, iconId) => {
+  if (iconId == null || iconId === '' || Number.isNaN(Number(iconId))) {
+    const next = { ...manageRDIcons.value };
+    delete next[key];
+    manageRDIcons.value = next;
+  } else {
+    manageRDIcons.value = { ...manageRDIcons.value, [key]: `icon:${Number(iconId)}` };
+  }
 };
 
 const saveManageRaceDivisions = async () => {
@@ -3673,7 +3672,7 @@ const saveManageRaceDivisions = async () => {
     const settings = typeof s === 'string' ? (() => { try { return JSON.parse(s); } catch { return {}; } })() : (s || {});
     settings.raceDivisions = {
       enabledKeys: manageRDEnabled.value,
-      emojiOverrides: Object.fromEntries(Object.entries(manageRDEmojis.value).filter(([, v]) => v))
+      emojiOverrides: Object.fromEntries(Object.entries(manageRDIcons.value).filter(([, v]) => v))
     };
     await api.patch(`/learning-program-classes/${classId}`, { seasonSettingsJson: settings });
     // Refresh local copy
@@ -5050,7 +5049,7 @@ const closeManageModal = () => {
   manageRDError.value    = '';
   manageRDSaveMsg.value  = '';
   manageRDEnabled.value  = RACE_DISTANCES.map((d) => d.key);
-  manageRDEmojis.value   = {};
+  manageRDIcons.value    = {};
   manageRDLocked.value   = false;
   weeklyTargetOverrides.value = {};
   weeklyTargetEditingWeekStart.value = null;
@@ -7340,49 +7339,34 @@ onMounted(async () => {
 }
 
 /* ── Race Divisions config tab ───────────────────────── */
-.rd-config-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.88rem;
+.rd-distance-list {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
 }
-.rd-config-table th,
-.rd-config-table td {
-  padding: 7px 10px;
-  border-bottom: 1px solid #e2e8f0;
-  text-align: left;
-}
-.rd-config-table th {
-  font-size: 0.78rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: #64748b;
-}
-.rd-row--disabled td {
-  opacity: 0.45;
-}
-.rd-emoji-cell {
+.rd-distance-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 14px;
+  padding: 9px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  background: #fff;
+  transition: opacity 0.15s;
 }
-.rd-emoji {
-  font-size: 1.4rem;
-  line-height: 1;
-}
-.rd-emoji-input {
-  width: 56px;
-  font-size: 1rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 5px;
-  padding: 2px 5px;
-  text-align: center;
-}
-.rd-label { font-weight: 600; }
-.rd-range { color: #64748b; font-size: 0.82rem; }
-.rd-toggle {
+.rd-distance-row:last-child { border-bottom: none; }
+.rd-distance-row--off { opacity: 0.45; }
+.rd-toggle-label {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 10px;
   cursor: pointer;
 }
+.rd-distance-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.rd-default-emoji { font-size: 1.25rem; line-height: 1; }
+.rd-icon-picker { flex-shrink: 0; }
 </style>

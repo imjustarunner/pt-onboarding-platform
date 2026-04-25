@@ -6,6 +6,7 @@
 import pool from '../config/database.js';
 import crypto from 'crypto';
 import { RACE_DISTANCES, DEFAULT_ENABLED_KEYS } from '../utils/raceDistances.js';
+import Icon from '../models/Icon.model.js';
 import ChallengeTeam from '../models/ChallengeTeam.model.js';
 import ChallengeWorkout from '../models/ChallengeWorkout.model.js';
 import User from '../models/User.model.js';
@@ -908,6 +909,20 @@ export const buildRaceDivisions = async ({ classId, organizationId, enabledKeys,
   const keys = Array.isArray(enabledKeys) && enabledKeys.length ? enabledKeys : DEFAULT_ENABLED_KEYS;
   const distances = RACE_DISTANCES.filter((d) => keys.includes(d.key));
 
+  // Resolve any icon:ID references in emojiOverrides to image URLs
+  const resolvedIconUrls = {};
+  for (const [key, val] of Object.entries(emojiOverrides)) {
+    if (val && typeof val === 'string') {
+      const iconMatch = val.match(/^icon:(\d+)$/);
+      if (iconMatch) {
+        try {
+          const icon = await Icon.findById(Number(iconMatch[1]));
+          if (icon) resolvedIconUrls[key] = Icon.getIconUrl(icon);
+        } catch { /* non-blocking */ }
+      }
+    }
+  }
+
   const fetchDivision = async (scopeSql, scopeParams, minMiles, maxMiles) => {
     const [rows] = await pool.execute(
       `SELECT
@@ -951,12 +966,15 @@ export const buildRaceDivisions = async ({ classId, organizationId, enabledKeys,
       seasonScope  ? fetchDivision(seasonScope.sql,  seasonScope.params,  dist.minMiles, dist.maxMiles) : Promise.resolve([]),
       allTimeScope ? fetchDivision(allTimeScope.sql, allTimeScope.params, dist.minMiles, dist.maxMiles) : Promise.resolve([])
     ]);
+    const rawIcon = emojiOverrides[dist.key];
+    const isIconRef = rawIcon && /^icon:\d+$/.test(rawIcon);
     divisions.push({
       key: dist.key,
       label: dist.label,
       shortLabel: dist.shortLabel,
       miles: dist.miles,
-      emoji: emojiOverrides[dist.key] || dist.defaultEmoji,
+      emoji: isIconRef ? dist.defaultEmoji : (rawIcon || dist.defaultEmoji),
+      iconUrl: resolvedIconUrls[dist.key] || null,
       season: seasonEntries,
       allTime: allTimeEntries,
       hasEntries: seasonEntries.length > 0 || allTimeEntries.length > 0

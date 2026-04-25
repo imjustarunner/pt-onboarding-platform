@@ -745,68 +745,61 @@
       <section class="settings-card">
         <div class="settings-card-header">
           <h2>Race Divisions</h2>
-          <p>Set default icons and available race distances for all seasons. Seasons can override the enabled list but inherit these icons.</p>
+          <p>Assign system icons and enable/disable race distances for all seasons. Seasons inherit these icons as defaults.</p>
         </div>
         <div v-if="rdLoading" class="hint">Loading…</div>
         <div v-else-if="rdError" class="error">{{ rdError }}</div>
         <div v-else>
-          <table class="rd-config-table">
-            <thead>
-              <tr><th>Icon</th><th>Distance</th><th>Range (miles)</th><th>Available</th></tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="dist in allRaceDistances"
-                :key="dist.key"
-                :class="{ 'rd-row--disabled': !rdEnabled.includes(dist.key) }"
-              >
-                <td>
-                  <span class="rd-emoji-cell">
-                    <span class="rd-emoji">{{ rdEmojis[dist.key] || dist.defaultEmoji }}</span>
-                    <input
-                      v-if="!rdLocked"
-                      type="text"
-                      class="rd-emoji-input"
-                      :value="rdEmojis[dist.key] || ''"
-                      placeholder="emoji"
-                      maxlength="4"
-                      @change="setRdEmoji(dist.key, $event.target.value)"
-                    />
-                    <span v-else class="hint" style="font-size:0.75rem">(locked)</span>
+          <div class="rd-distance-list">
+            <div
+              v-for="dist in allRaceDistances"
+              :key="dist.key"
+              class="rd-distance-row"
+              :class="{ 'rd-distance-row--off': !rdEnabled.includes(dist.key) }"
+            >
+              <div class="rd-distance-toggle">
+                <label class="rd-toggle-label">
+                  <input
+                    type="checkbox"
+                    :checked="rdEnabled.includes(dist.key)"
+                    :disabled="rdLocked"
+                    @change="toggleRdKey(dist.key, $event.target.checked)"
+                  />
+                  <span class="rd-distance-name">
+                    <span class="rd-default-emoji">{{ dist.defaultEmoji }}</span>
+                    <strong>{{ dist.label }}</strong>
+                    <span class="hint" style="font-size:0.78rem;">{{ dist.minMiles }}–{{ dist.maxMiles }} mi</span>
                   </span>
-                </td>
-                <td><strong>{{ dist.label }}</strong></td>
-                <td class="hint" style="font-size:0.82rem">{{ dist.minMiles }}–{{ dist.maxMiles }} mi</td>
-                <td>
-                  <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-                    <input
-                      type="checkbox"
-                      :checked="rdEnabled.includes(dist.key)"
-                      :disabled="rdLocked"
-                      @change="toggleRdKey(dist.key, $event.target.checked)"
-                    />
-                    <span>{{ rdEnabled.includes(dist.key) ? 'On' : 'Off' }}</span>
-                  </label>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                </label>
+              </div>
+              <div class="rd-icon-picker" v-if="!rdLocked">
+                <IconSelector
+                  :modelValue="getRdIconId(dist.key)"
+                  :summitStatsClubId="currentAgencyId"
+                  :context="`race-div-${dist.key}-${currentAgencyId}`"
+                  @update:modelValue="(id) => setRdIcon(dist.key, id)"
+                />
+              </div>
+              <div v-else class="hint rd-locked-hint">🔒 locked</div>
+            </div>
+          </div>
 
-          <div class="form-actions" style="margin-top:12px; gap:8px; flex-wrap:wrap;">
+          <div class="form-actions" style="margin-top:16px; gap:8px; flex-wrap:wrap;">
             <template v-if="!rdLocked">
               <button type="button" class="btn btn-primary" :disabled="rdSaving" @click="saveRdConfig">
                 {{ rdSaving ? 'Saving…' : 'Save Race Division Settings' }}
               </button>
-              <button type="button" class="btn btn-danger" :disabled="rdSaving" @click="lockRdConfig">
+              <button type="button" class="btn btn-secondary" :disabled="rdSaving" @click="lockRdConfig">
                 🔒 Lock Config
               </button>
               <span v-if="rdSaveMsg" style="font-size:0.85rem;color:#16a34a;font-weight:600;">{{ rdSaveMsg }}</span>
             </template>
             <template v-else>
-              <p class="hint">🔒 Config is locked. Season-level emoji overrides are still allowed.</p>
+              <p class="hint">🔒 Config is locked. Unlock to edit icons or distances.</p>
               <button type="button" class="btn btn-secondary" :disabled="rdSaving" @click="unlockRdConfig">
                 🔓 Unlock Config
               </button>
+              <span v-if="rdSaveMsg" style="font-size:0.85rem;color:#16a34a;font-weight:600;">{{ rdSaveMsg }}</span>
             </template>
           </div>
         </div>
@@ -1796,7 +1789,8 @@ const rdError    = ref('');
 const rdSaving   = ref(false);
 const rdSaveMsg  = ref('');
 const rdEnabled  = ref(RACE_DISTANCES.map((d) => d.key));
-const rdEmojis   = ref({});
+// rdIcons: { [key]: 'icon:123' } — stored as icon:ID strings, same pattern as record boards
+const rdIcons    = ref({});
 const rdLocked   = ref(false);
 
 const loadRdConfig = async () => {
@@ -1808,7 +1802,7 @@ const loadRdConfig = async () => {
     const res = await api.get(`/summit-stats/clubs/${id}/race-division-config`);
     const cfg = res.data?.config || {};
     rdEnabled.value = Array.isArray(cfg.enabledKeys) && cfg.enabledKeys.length ? cfg.enabledKeys : RACE_DISTANCES.map((d) => d.key);
-    rdEmojis.value  = cfg.emojiOverrides || {};
+    rdIcons.value   = cfg.emojiOverrides || {};
     rdLocked.value  = !!cfg.locked;
   } catch (e) {
     rdError.value = e?.response?.data?.error?.message || 'Failed to load.';
@@ -1823,8 +1817,23 @@ const toggleRdKey = (key, checked) => {
   rdEnabled.value = RACE_DISTANCES.map((d) => d.key).filter((k) => cur.has(k));
 };
 
-const setRdEmoji = (key, val) => {
-  rdEmojis.value = { ...rdEmojis.value, [key]: val.trim() || undefined };
+/** Extract numeric icon ID from 'icon:123' string for IconSelector v-model */
+const getRdIconId = (key) => {
+  const raw = rdIcons.value[key];
+  if (!raw) return null;
+  const m = String(raw).match(/^icon:(\d+)$/);
+  return m ? Number(m[1]) : null;
+};
+
+/** Called by IconSelector emit — store as 'icon:123' or clear if null */
+const setRdIcon = (key, iconId) => {
+  if (iconId == null || iconId === '' || Number.isNaN(Number(iconId))) {
+    const next = { ...rdIcons.value };
+    delete next[key];
+    rdIcons.value = next;
+  } else {
+    rdIcons.value = { ...rdIcons.value, [key]: `icon:${Number(iconId)}` };
+  }
 };
 
 const saveRdConfig = async (lockVal = undefined) => {
@@ -1835,7 +1844,7 @@ const saveRdConfig = async (lockVal = undefined) => {
   try {
     const body = {
       enabledKeys: rdEnabled.value,
-      emojiOverrides: Object.fromEntries(Object.entries(rdEmojis.value).filter(([, v]) => v)),
+      emojiOverrides: Object.fromEntries(Object.entries(rdIcons.value).filter(([, v]) => v)),
       ...(lockVal !== undefined ? { locked: lockVal } : {})
     };
     const res = await api.put(`/summit-stats/clubs/${id}/race-division-config`, body);
@@ -1851,22 +1860,24 @@ const saveRdConfig = async (lockVal = undefined) => {
 };
 
 const lockRdConfig = () => saveRdConfig(true);
-const unlockRdConfig = () => {
-  // Must send locked: false to bypass the lock check
+const unlockRdConfig = async () => {
   const id = currentAgencyId.value;
   if (!id) return;
   rdSaving.value = true;
-  api.put(`/summit-stats/clubs/${id}/race-division-config`, {
-    enabledKeys: rdEnabled.value,
-    emojiOverrides: Object.fromEntries(Object.entries(rdEmojis.value).filter(([, v]) => v)),
-    locked: false
-  }).then((res) => {
+  try {
+    await api.put(`/summit-stats/clubs/${id}/race-division-config`, {
+      enabledKeys: rdEnabled.value,
+      emojiOverrides: Object.fromEntries(Object.entries(rdIcons.value).filter(([, v]) => v)),
+      locked: false
+    });
     rdLocked.value = false;
     rdSaveMsg.value = 'Unlocked!';
     setTimeout(() => { rdSaveMsg.value = ''; }, 2000);
-  }).catch((e) => {
+  } catch (e) {
     rdSaveMsg.value = e?.response?.data?.error?.message || 'Unlock failed.';
-  }).finally(() => { rdSaving.value = false; });
+  } finally {
+    rdSaving.value = false;
+  }
 };
 
 </script>
@@ -2507,32 +2518,42 @@ const unlockRdConfig = () => {
 }
 
 /* Race Divisions */
-.rd-config-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.88rem;
+.rd-distance-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
 }
-.rd-config-table th,
-.rd-config-table td {
-  padding: 7px 10px;
-  border-bottom: 1px solid #e2e8f0;
-  text-align: left;
+.rd-distance-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  background: #fff;
+  transition: opacity 0.15s;
 }
-.rd-config-table th {
-  font-size: 0.78rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: #64748b;
+.rd-distance-row:last-child { border-bottom: none; }
+.rd-distance-row--off { opacity: 0.45; }
+.rd-distance-toggle {
+  flex: 1;
+  min-width: 0;
 }
-.rd-row--disabled td { opacity: 0.45; }
-.rd-emoji-cell { display: flex; align-items: center; gap: 6px; }
-.rd-emoji { font-size: 1.4rem; line-height: 1; }
-.rd-emoji-input {
-  width: 56px;
-  font-size: 1rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 5px;
-  padding: 2px 5px;
-  text-align: center;
+.rd-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
 }
+.rd-distance-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.rd-default-emoji { font-size: 1.3rem; line-height: 1; }
+.rd-icon-picker { flex-shrink: 0; }
+.rd-locked-hint { font-size: 0.78rem; color: #94a3b8; white-space: nowrap; }
 </style>
