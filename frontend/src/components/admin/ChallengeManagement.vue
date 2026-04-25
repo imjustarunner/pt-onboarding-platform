@@ -4380,6 +4380,7 @@ const toggleCaptainApplications = async (open) => {
     );
     if (managingChallenge.value) {
       managingChallenge.value.captain_application_open = data?.class?.captain_application_open ?? open;
+      managingChallenge.value.captainApplicationOpen = data?.class?.captainApplicationOpen ?? open;
     }
   } catch (e) {
     alert(e?.response?.data?.error?.message || 'Failed to update captain applications');
@@ -4410,8 +4411,15 @@ const finalizeCaptainsAction = async () => {
     await api.post(`/learning-program-classes/${managingChallenge.value.id}/captains/finalize`, {}, { skipGlobalLoading: true });
     if (managingChallenge.value) {
       managingChallenge.value.captains_finalized = true;
+      managingChallenge.value.captainsFinalized = true;
       managingChallenge.value.captain_application_open = false;
+      managingChallenge.value.captainApplicationOpen = false;
     }
+    const { data } = await api.get(`/learning-program-classes/${managingChallenge.value.id}`, { skipGlobalLoading: true });
+    if (data?.class && managingChallenge.value) {
+      managingChallenge.value = { ...managingChallenge.value, ...data.class };
+    }
+    await loadCaptainApps(managingChallenge.value.id);
   } catch (e) {
     alert(e?.response?.data?.error?.message || 'Failed to finalize captains');
   } finally {
@@ -4430,7 +4438,15 @@ const unfinalizeCaptainsAction = async () => {
     );
     if (managingChallenge.value) {
       managingChallenge.value.captains_finalized = false;
+      managingChallenge.value.captainsFinalized = false;
+      managingChallenge.value.captain_application_open = false;
+      managingChallenge.value.captainApplicationOpen = false;
     }
+    const { data } = await api.get(`/learning-program-classes/${managingChallenge.value.id}`, { skipGlobalLoading: true });
+    if (data?.class && managingChallenge.value) {
+      managingChallenge.value = { ...managingChallenge.value, ...data.class };
+    }
+    await loadCaptainApps(managingChallenge.value.id);
   } catch (e) {
     alert(e?.response?.data?.error?.message || 'Failed to unfinalize captains');
   } finally {

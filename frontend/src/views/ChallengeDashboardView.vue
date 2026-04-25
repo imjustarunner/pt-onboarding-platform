@@ -1622,7 +1622,8 @@ const isTeamCaptain = computed(() => {
 });
 
 const captainApplicationOpen = computed(() =>
-  !!(challenge.value?.captain_application_open) && !(challenge.value?.captains_finalized)
+  !!(challenge.value?.captain_application_open ?? challenge.value?.captainApplicationOpen)
+  && !(challenge.value?.captains_finalized ?? challenge.value?.captainsFinalized)
 );
 
 // For non-managers the backend only returns their own record (or empty).
