@@ -271,16 +271,20 @@ const loadChallengeRosterMembers = async (classId) => {
        u.phone_number,
        u.is_roster_placeholder,
        u.roster_placeholder_claim_email,
-       t.id AS team_id,
-       t.team_name
+       tm.team_id,
+       tm.team_name
      FROM learning_class_provider_memberships pm
      INNER JOIN users u ON u.id = pm.provider_user_id
-     LEFT JOIN challenge_team_members ctm ON ctm.provider_user_id = pm.provider_user_id
-     LEFT JOIN challenge_teams t ON t.id = ctm.team_id AND t.learning_class_id = pm.learning_class_id
+     LEFT JOIN (
+       SELECT ctm.provider_user_id, t.id AS team_id, t.team_name
+       FROM challenge_team_members ctm
+       INNER JOIN challenge_teams t ON t.id = ctm.team_id
+       WHERE t.learning_class_id = ?
+     ) tm ON tm.provider_user_id = pm.provider_user_id
      WHERE pm.learning_class_id = ?
        AND pm.membership_status IN ('active','completed')
      ORDER BY u.last_name ASC, u.first_name ASC, pm.provider_user_id ASC`,
-    [classId]
+    [classId, classId]
   );
   return rows || [];
 };
