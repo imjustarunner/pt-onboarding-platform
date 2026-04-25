@@ -182,7 +182,7 @@
           <div
             v-if="season.bannerImagePath"
             class="season-card-banner"
-            :style="{ backgroundImage: `url(${resolveSeasonImgUrl(season.classId, 'banner')})` }"
+            :style="{ backgroundImage: `url(${resolveSeasonImgUrl(season.classId, 'banner')})`, backgroundPosition: `${season.bannerFocalX ?? 50}% ${season.bannerFocalY ?? 50}%` }"
           >
             <img
               v-if="season.logoImagePath"
@@ -295,7 +295,7 @@
             :class="{ 'season-card--has-banner': !!season.bannerImagePath }"
           >
             <div v-if="season.bannerImagePath" class="season-card-banner season-card-banner--sm"
-              :style="{ backgroundImage: `url(${resolveSeasonImgUrl(season.classId, 'banner')})` }"
+              :style="{ backgroundImage: `url(${resolveSeasonImgUrl(season.classId, 'banner')})`, backgroundPosition: `${season.bannerFocalX ?? 50}% ${season.bannerFocalY ?? 50}%` }"
             >
               <img v-if="season.logoImagePath" :src="resolveSeasonImgUrl(season.classId, 'logo')" class="season-card-logo" alt="" />
               <div class="season-card-banner-overlay">
@@ -1374,10 +1374,12 @@ const applicationBannerStyle = (application) => {
       background: 'linear-gradient(135deg, #0f3d7a 0%, #1d4ed8 48%, #f97316 100%)'
     };
   }
+  const fx = Number(application?.bannerFocalX ?? 50);
+  const fy = Number(application?.bannerFocalY ?? 50);
   return {
     backgroundImage: `linear-gradient(rgba(15, 23, 42, 0.58), rgba(15, 23, 42, 0.58)), url(${bannerUrl})`,
     backgroundSize: 'cover',
-    backgroundPosition: 'center'
+    backgroundPosition: `${fx}% ${fy}%`
   };
 };
 

@@ -513,6 +513,8 @@ const buildPublicPageConfig = (rawStoreConfig) => {
     bannerTitle: String(cfg.bannerTitle || '').trim().slice(0, 120),
     bannerSubtitle: String(cfg.bannerSubtitle || '').trim().slice(0, 220),
     bannerImageUrl: String(cfg.bannerImageUrl || '').trim().slice(0, 500),
+    bannerFocalX: Math.min(100, Math.max(0, Number.isFinite(Number(cfg.bannerFocalX)) ? Number(cfg.bannerFocalX) : 50)),
+    bannerFocalY: Math.min(100, Math.max(0, Number.isFinite(Number(cfg.bannerFocalY)) ? Number(cfg.bannerFocalY) : 50)),
     showCurrentSeason: cfg.showCurrentSeason !== false,
     showActiveParticipants: cfg.showActiveParticipants !== false,
     showFeaturedWorkout: cfg.showFeaturedWorkout !== false,
@@ -981,6 +983,8 @@ export const updatePublicPageConfig = async (req, res, next) => {
         bannerTitle: body.bannerTitle,
         bannerSubtitle: body.bannerSubtitle,
         bannerImageUrl: body.bannerImageUrl,
+        bannerFocalX: body.bannerFocalX,
+        bannerFocalY: body.bannerFocalY,
         showCurrentSeason: body.showCurrentSeason,
         showActiveParticipants: body.showActiveParticipants,
         showFeaturedWorkout: body.showFeaturedWorkout,
@@ -1130,7 +1134,9 @@ export const resolveInviteToken = async (req, res, next) => {
         season:        seasonInfo,
         genderOptions: publicPageConfig.genderOptions,
         allowCustomPronouns: publicPageConfig.allowCustomPronouns === true,
-        bannerImageUrl: publicPageConfig.bannerImageUrl || null
+        bannerImageUrl: publicPageConfig.bannerImageUrl || null,
+        bannerFocalX: publicPageConfig.bannerFocalX ?? 50,
+        bannerFocalY: publicPageConfig.bannerFocalY ?? 50
       },
       customFields: fieldRows || [],
       recaptcha: getSscRecaptchaConfig()
@@ -4299,6 +4305,8 @@ export const getMyDashboardSummary = async (req, res, next) => {
          c.ends_at,
          c.organization_id AS club_id,
          c.banner_image_path,
+         c.banner_focal_x,
+         c.banner_focal_y,
          c.logo_image_path,
          a.name AS club_name,
          a.slug AS club_slug,
@@ -4324,7 +4332,7 @@ export const getMyDashboardSummary = async (req, res, next) => {
          AND LOWER(COALESCE(c.program_kind, 'season')) <> 'monthly_book'${memberSeasonSqlSuffix}
        GROUP BY
          c.id, c.class_name, c.status, c.starts_at, c.ends_at, c.organization_id,
-         c.banner_image_path, c.logo_image_path, a.name, a.slug, m.membership_status
+         c.banner_image_path, c.banner_focal_x, c.banner_focal_y, c.logo_image_path, a.name, a.slug, m.membership_status
        ORDER BY COALESCE(c.starts_at, c.created_at) DESC, c.id DESC`,
       memberSeasonParams
     );
@@ -4401,6 +4409,8 @@ export const getMyDashboardSummary = async (req, res, next) => {
            c.ends_at,
            c.organization_id AS club_id,
            c.banner_image_path,
+           c.banner_focal_x,
+           c.banner_focal_y,
            c.logo_image_path,
            a.name AS club_name,
            a.slug AS club_slug,
@@ -4451,6 +4461,8 @@ export const getMyDashboardSummary = async (req, res, next) => {
         totalMiles: normalizeNum(row.total_miles, 1),
         totalPoints: Number(row.total_points || 0),
         bannerImagePath: row.banner_image_path || null,
+        bannerFocalX: Number(row.banner_focal_x ?? 50),
+        bannerFocalY: Number(row.banner_focal_y ?? 50),
         logoImagePath: row.logo_image_path || null,
         bucket
       };
@@ -5065,6 +5077,8 @@ export const getMyApplications = async (req, res, next) => {
         publicClubRef: publicPageConfig.publicSlug || String(r.club_id),
         logoUrl,
         bannerImageUrl: publicPageConfig.bannerImageUrl || null,
+        bannerFocalX: publicPageConfig.bannerFocalX ?? 50,
+        bannerFocalY: publicPageConfig.bannerFocalY ?? 50,
         managerName: formatClubManagerDisplayName(manager) || null,
         managerUserId: Number(manager?.userId || 0) || null,
         appliedAt: r.applied_at || null,

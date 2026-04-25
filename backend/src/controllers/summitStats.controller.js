@@ -1989,7 +1989,7 @@ export const getLoginSplashData = async (req, res, next) => {
     const platformIds = await getPlatformAgencyIds(null);
     const plat = sqlAffiliationUnderSummitPlatform('a', platformIds);
     const [seasonRows] = await pool.execute(
-      `SELECT DISTINCT c.id AS class_id, c.class_name, c.banner_image_path, c.logo_image_path,
+      `SELECT DISTINCT c.id AS class_id, c.class_name, c.banner_image_path, c.banner_focal_x, c.banner_focal_y, c.logo_image_path,
               a.id AS agency_id, a.name AS club_name, a.logo_path AS agency_logo
        FROM learning_program_classes c
        INNER JOIN agencies a ON a.id = c.organization_id
@@ -2057,6 +2057,8 @@ export const getLoginSplashData = async (req, res, next) => {
         classId,
         name: s.class_name,
         bannerPath: s.banner_image_path || null,
+        bannerFocalX: Number(s.banner_focal_x ?? 50),
+        bannerFocalY: Number(s.banner_focal_y ?? 50),
         logoPath: s.logo_image_path || null,
         clubName: s.club_name,
         myTeamId,

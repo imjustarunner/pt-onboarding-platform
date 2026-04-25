@@ -235,10 +235,12 @@ const bannerSubtitleLine = computed(() => String(publicPageConfig.value?.bannerS
 const heroStyle = computed(() => {
   const banner = String(publicPageConfig.value?.bannerImageUrl || '').trim();
   if (!banner) return {};
+  const fx = Number(publicPageConfig.value?.bannerFocalX ?? 50);
+  const fy = Number(publicPageConfig.value?.bannerFocalY ?? 50);
   return {
     backgroundImage: `linear-gradient(rgba(15,23,42,.65), rgba(15,23,42,.65)), url(${banner})`,
     backgroundSize: 'cover',
-    backgroundPosition: 'center'
+    backgroundPosition: `${fx}% ${fy}%`
   };
 });
 

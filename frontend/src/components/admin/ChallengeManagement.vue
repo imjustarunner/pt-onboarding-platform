@@ -785,38 +785,16 @@
               <!-- Banner -->
               <div class="branding-field branding-field--banner">
                 <label class="branding-label">Banner Image</label>
-                <p class="branding-hint">Recommended: 1200 × 400 px. After uploading, drag the crosshair to set the focal point.</p>
-                <div
-                  v-if="editBannerPreview || editingChallenge?.banner_image_path || editingChallenge?.bannerImagePath"
-                  class="banner-preview-wrap"
-                  @click="onBannerFocalClick"
-                  title="Click to set focal point"
-                >
-                  <img
-                    :src="editBannerPreview || resolveUploadUrl(editingChallenge?.banner_image_path || editingChallenge?.bannerImagePath, { classId: editingChallenge?.id, type: 'banner', version: editingChallenge?.updated_at })"
-                    class="banner-preview-img"
-                    :style="{ objectPosition: `${editBannerFocalX}% ${editBannerFocalY}%` }"
-                    draggable="false"
-                    ref="bannerPreviewImgRef"
-                  />
-                  <div
-                    class="banner-focal-dot"
-                    :style="{ left: editBannerFocalX + '%', top: editBannerFocalY + '%' }"
-                  />
-                  <span class="banner-focal-hint">Click to move focal point</span>
-                </div>
-                <div class="branding-upload-row">
-                  <label class="btn btn-secondary btn-sm branding-upload-btn">
-                    {{ editBannerPreview || editingChallenge?.banner_image_path || editingChallenge?.bannerImagePath ? 'Replace Banner' : 'Upload Banner' }}
-                    <input type="file" accept="image/png,image/jpeg,image/webp" style="display:none" @change="onEditBannerChange" />
-                  </label>
-                  <button
-                    v-if="editBannerPreview || editingChallenge?.banner_image_path || editingChallenge?.bannerImagePath"
-                    type="button"
-                    class="btn btn-danger btn-sm"
-                    @click="removeEditBanner"
-                  >Remove</button>
-                </div>
+                <p class="branding-hint">Recommended: 1200 × 400 px. Drag the preview to set the focal point.</p>
+                <BannerEditor
+                  :image-url="editBannerPreview || resolveUploadUrl(editingChallenge?.banner_image_path || editingChallenge?.bannerImagePath, { classId: editingChallenge?.id, type: 'banner', version: editingChallenge?.updated_at })"
+                  :focal-x="editBannerFocalX"
+                  :focal-y="editBannerFocalY"
+                  :show-remove="!!(editBannerPreview || editingChallenge?.banner_image_path || editingChallenge?.bannerImagePath)"
+                  @upload="onEditBannerFile"
+                  @save-focal="onEditBannerFocalSave"
+                  @remove="removeEditBanner"
+                />
               </div>
               <!-- Logo/Icon -->
               <div class="branding-field branding-field--logo">
@@ -1623,45 +1601,16 @@
             <div class="branding-manage-col">
               <h4>Season Banner</h4>
               <p class="hint">Displayed at the top of the season dashboard. Recommended: 1200 × 400 px.</p>
-              <div
-                v-if="manageBannerPreview || managingChallenge?.banner_image_path"
-                class="banner-preview-wrap"
-                @click="onManageBannerFocalClick"
-                title="Click to reposition focal point"
-              >
-                <img
-                  :src="manageBannerPreview || resolveUploadUrl(managingChallenge?.banner_image_path, { classId: managingChallenge?.id, type: 'banner', version: managingChallenge?.updated_at })"
-                  class="banner-preview-img"
-                  :style="{ objectPosition: `${manageBannerFocalX}% ${manageBannerFocalY}%` }"
-                  draggable="false"
-                  ref="manageBannerImgRef"
-                />
-                <div
-                  class="banner-focal-dot"
-                  :style="{ left: manageBannerFocalX + '%', top: manageBannerFocalY + '%' }"
-                />
-                <span class="banner-focal-hint">Click to move focal point</span>
-              </div>
-              <div v-else class="banner-empty-state">No banner uploaded</div>
-              <div class="branding-upload-row" style="margin-top:10px;">
-                <label class="btn btn-secondary btn-sm branding-upload-btn">
-                  {{ manageBannerPreview || managingChallenge?.banner_image_path ? 'Replace Banner' : 'Upload Banner' }}
-                  <input type="file" accept="image/png,image/jpeg,image/webp" style="display:none" @change="onManageBannerChange" />
-                </label>
-                <button
-                  v-if="manageBannerFocalChanged"
-                  type="button"
-                  class="btn btn-primary btn-sm"
-                  :disabled="manageBrandingSaving"
-                  @click="saveManageBannerFocal"
-                >{{ manageBrandingSaving ? 'Saving…' : 'Save focal point' }}</button>
-                <button
-                  v-if="managingChallenge?.banner_image_path || manageBannerPreview"
-                  type="button"
-                  class="btn btn-danger btn-sm"
-                  @click="removeManageBanner"
-                >Remove</button>
-              </div>
+              <BannerEditor
+                :image-url="manageBannerPreview || resolveUploadUrl(managingChallenge?.banner_image_path, { classId: managingChallenge?.id, type: 'banner', version: managingChallenge?.updated_at })"
+                :focal-x="manageBannerFocalX"
+                :focal-y="manageBannerFocalY"
+                :saving="manageBrandingSaving"
+                :show-remove="!!(managingChallenge?.banner_image_path || manageBannerPreview)"
+                @upload="onManageBannerFile"
+                @save-focal="onManageBannerFocalSave"
+                @remove="removeManageBanner"
+              />
               <p v-if="manageBrandingMsg" class="branding-save-msg">{{ manageBrandingMsg }}</p>
             </div>
             <!-- Logo -->
@@ -1855,6 +1804,7 @@ import { useAuthStore } from '../../store/auth';
 import { isSummitPlatformRouteSlug } from '../../utils/summitPlatformSlugs.js';
 import { CHALLENGE_PROOF_POLICY_OPTIONS } from '../../utils/challengeProofPolicies.js';
 import { toUploadsUrl } from '../../utils/uploadsUrl.js';
+import BannerEditor from '../ui/BannerEditor.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -3401,7 +3351,6 @@ const editBannerFocalX = ref(50);
 const editBannerFocalY = ref(50);
 const editLogoFile = ref(null);
 const editLogoPreview = ref(null);
-const bannerPreviewImgRef = ref(null);
 
 // Branding – manage modal state
 const manageBannerPreview = ref(null);
@@ -3413,7 +3362,6 @@ const manageLogoPreview = ref(null);
 const manageLogoFile = ref(null);
 const manageBrandingSaving = ref(false);
 const manageBrandingMsg = ref('');
-const manageBannerImgRef = ref(null);
 
 const showTeamModal = ref(false);
 const editingTeam = ref(null);
@@ -4047,12 +3995,6 @@ const resolveUploadUrl = (path, { classId, type, version } = {}) => {
 };
 
 // Edit-form branding
-const onEditBannerChange = (e) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
-  editBannerFile.value = file;
-  editBannerPreview.value = URL.createObjectURL(file);
-};
 const removeEditBanner = async () => {
   editBannerPreview.value = null;
   editBannerFile.value = null;
@@ -4083,11 +4025,15 @@ const removeEditLogo = async () => {
     }
   }
 };
-const onBannerFocalClick = (e) => {
-  const img = e.currentTarget;
-  const rect = img.getBoundingClientRect();
-  editBannerFocalX.value = Math.round(((e.clientX - rect.left) / rect.width) * 100);
-  editBannerFocalY.value = Math.round(((e.clientY - rect.top) / rect.height) * 100);
+
+const onEditBannerFile = (file) => {
+  editBannerFile.value = file;
+  editBannerPreview.value = URL.createObjectURL(file);
+};
+
+const onEditBannerFocalSave = ({ x, y }) => {
+  editBannerFocalX.value = x;
+  editBannerFocalY.value = y;
 };
 
 // Manage-modal branding
@@ -4103,9 +4049,8 @@ const initManageBranding = () => {
   manageLogoFile.value = null;
   manageBrandingMsg.value = '';
 };
-const onManageBannerChange = async (e) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
+
+const onManageBannerFile = async (file) => {
   manageBannerFile.value = file;
   manageBannerPreview.value = URL.createObjectURL(file);
   manageBrandingSaving.value = true;
@@ -4127,12 +4072,12 @@ const onManageBannerChange = async (e) => {
     manageBrandingSaving.value = false;
   }
 };
-const onManageBannerFocalClick = (e) => {
-  const img = e.currentTarget;
-  const rect = img.getBoundingClientRect();
-  manageBannerFocalX.value = Math.round(((e.clientX - rect.left) / rect.width) * 100);
-  manageBannerFocalY.value = Math.round(((e.clientY - rect.top) / rect.height) * 100);
+
+const onManageBannerFocalSave = async ({ x, y }) => {
+  manageBannerFocalX.value = x;
+  manageBannerFocalY.value = y;
   manageBannerFocalChanged.value = true;
+  await saveManageBannerFocal();
 };
 const saveManageBannerFocal = async () => {
   manageBrandingSaving.value = true;

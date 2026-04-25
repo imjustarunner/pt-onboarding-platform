@@ -112,10 +112,12 @@ const cardStyle = computed(() => ({ '--ls-accent': accent.value }));
 
 const headerBg = computed(() => {
   if (bannerUrl.value) {
+    const fx = Number(currentSeason.value?.bannerFocalX ?? 50);
+    const fy = Number(currentSeason.value?.bannerFocalY ?? 50);
     return {
       backgroundImage: `url(${bannerUrl.value})`,
       backgroundSize: 'cover',
-      backgroundPosition: 'center'
+      backgroundPosition: `${fx}% ${fy}%`
     };
   }
   return { background: `linear-gradient(135deg, #1a1a2e 0%, ${accent.value} 100%)` };

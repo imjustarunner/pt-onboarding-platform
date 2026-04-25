@@ -75,6 +75,23 @@
             <p v-if="teamManagementStatus" class="td-manage-status">{{ teamManagementStatus }}</p>
           </section>
 
+          <section class="td-manage-card td-manage-card--wide">
+            <h3>Banner</h3>
+            <BannerEditor
+              :image-url="teamBannerPreviewUrl"
+              :focal-x="teamBannerFocalX"
+              :focal-y="teamBannerFocalY"
+              :saving="teamBannerSaving"
+              :uploading="teamBannerUploading"
+              :show-remove="!!team.banner_path"
+              upload-label="Upload Banner"
+              upload-label-replace="Replace Banner"
+              @upload="onBannerUploadFile"
+              @save-focal="onTeamBannerSaveFocal"
+              @remove="removeBanner"
+            />
+          </section>
+
           <section class="td-manage-card">
             <h3>Members</h3>
             <ul class="td-manage-members">
@@ -189,6 +206,7 @@ import api from '../services/api.js';
 import { toUploadsUrl } from '../utils/uploadsUrl.js';
 import ChallengeActivityFeed from '../components/challenge/ChallengeActivityFeed.vue';
 import ChallengeMessageFeed from '../components/challenge/ChallengeMessageFeed.vue';
+import BannerEditor from '../components/ui/BannerEditor.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -214,6 +232,10 @@ const teamManagementStatus = ref('');
 const savingTeamName = ref(false);
 const sendingResetFor = ref(null);
 const teamNameDraft = ref('');
+const teamBannerFocalX = ref(50);
+const teamBannerFocalY = ref(50);
+const teamBannerSaving = ref(false);
+const teamBannerUploading = ref(false);
 
 const isCaptainOrManager = computed(() => {
   const myId = Number(authStore.user?.id || 0);
@@ -232,10 +254,22 @@ const resolveAssetUrl = (path) => {
 
 const teamLogoUrl = computed(() => resolveAssetUrl(team.value?.logo_path));
 const teamBannerUrl = computed(() => resolveAssetUrl(team.value?.banner_path || challenge.value?.banner_image_path));
+const teamBannerPreviewUrl = computed(() => resolveAssetUrl(team.value?.banner_path));
+const teamBannerDisplayFocalX = computed(() => {
+  if (team.value?.banner_path) return teamBannerFocalX.value;
+  return Number(challenge.value?.banner_focal_x ?? 50);
+});
+const teamBannerDisplayFocalY = computed(() => {
+  if (team.value?.banner_path) return teamBannerFocalY.value;
+  return Number(challenge.value?.banner_focal_y ?? 50);
+});
 
 const teamBannerStyle = computed(() => {
   if (teamBannerUrl.value) {
-    return { backgroundImage: `url(${teamBannerUrl.value})` };
+    return {
+      backgroundImage: `url(${teamBannerUrl.value})`,
+      backgroundPosition: `${teamBannerDisplayFocalX.value}% ${teamBannerDisplayFocalY.value}%`
+    };
   }
   return {};
 });
@@ -269,6 +303,32 @@ const goToDraftReport = () => {
   router.push(`/${orgSlug.value}/season/${challengeId.value}#draft-report`);
 };
 
+const clamp50 = (v) => Math.max(0, Math.min(100, Number.isFinite(Number(v)) ? Number(v) : 50));
+
+const syncTeamBannerFocalFromTeam = () => {
+  teamBannerFocalX.value = clamp50(team.value?.banner_focal_x ?? challenge.value?.banner_focal_x ?? 50);
+  teamBannerFocalY.value = clamp50(team.value?.banner_focal_y ?? challenge.value?.banner_focal_y ?? 50);
+};
+
+const onTeamBannerSaveFocal = async ({ x, y }) => {
+  teamBannerFocalX.value = x;
+  teamBannerFocalY.value = y;
+  if (!challengeId.value || !teamIdNum.value) return;
+  teamBannerSaving.value = true;
+  try {
+    await api.patch(
+      `/learning-program-classes/${challengeId.value}/teams/${teamIdNum.value}/banner/focal`,
+      { focalX: x, focalY: y },
+      { skipGlobalLoading: true }
+    );
+    teamManagementStatus.value = 'Banner position saved.';
+  } catch (e) {
+    teamManagementStatus.value = e?.response?.data?.error?.message || 'Failed to save banner position.';
+  } finally {
+    teamBannerSaving.value = false;
+  }
+};
+
 const loadChallenge = async () => {
   if (!challengeId.value) return;
   try {
@@ -287,6 +347,7 @@ const loadTeam = async () => {
     team.value = teams.find((t) => Number(t.id) === teamIdNum.value) || null;
     if (!team.value) error.value = 'Team not found.';
     teamNameDraft.value = team.value?.team_name || '';
+    syncTeamBannerFocalFromTeam();
   } catch {
     error.value = 'Failed to load team.';
   }
@@ -339,21 +400,32 @@ const onLogoUpload = async (e) => {
   e.target.value = '';
 };
 
-const onBannerUpload = async (e) => {
-  const file = e.target.files?.[0];
+const onBannerUploadFile = async (file) => {
   if (!file) return;
-  brandingStatus.value = 'Uploading banner…';
+  teamBannerUploading.value = true;
+  teamManagementOpen.value = true;
   try {
     const fd = new FormData();
     fd.append('banner', file);
     const r = await api.post(`/learning-program-classes/${challengeId.value}/teams/${teamIdNum.value}/banner`, fd);
     if (team.value) team.value.banner_path = r.data.bannerPath;
-    brandingStatus.value = 'Banner updated!';
+    teamBannerFocalX.value = clamp50(r.data?.bannerFocalX ?? 50);
+    teamBannerFocalY.value = clamp50(r.data?.bannerFocalY ?? 50);
+    teamManagementStatus.value = 'Banner uploaded. Drag the preview to reposition it.';
   } catch {
-    brandingStatus.value = 'Upload failed.';
+    teamManagementStatus.value = 'Banner upload failed.';
   } finally {
-    setTimeout(() => { brandingStatus.value = ''; }, 3000);
+    teamBannerUploading.value = false;
   }
+};
+
+const onBannerUpload = async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  brandingStatus.value = 'Uploading banner…';
+  await onBannerUploadFile(file);
+  brandingStatus.value = 'Banner updated!';
+  setTimeout(() => { brandingStatus.value = ''; }, 3000);
   e.target.value = '';
 };
 
@@ -371,9 +443,11 @@ const removeBanner = async () => {
   try {
     await api.delete(`/learning-program-classes/${challengeId.value}/teams/${teamIdNum.value}/banner`);
     if (team.value) team.value.banner_path = null;
+    teamBannerFocalX.value = 50;
+    teamBannerFocalY.value = 50;
+    teamManagementStatus.value = 'Banner removed.';
   } catch {
-    brandingStatus.value = 'Failed to remove banner.';
-    setTimeout(() => { brandingStatus.value = ''; }, 3000);
+    teamManagementStatus.value = 'Failed to remove banner.';
   }
 };
 
@@ -428,6 +502,7 @@ onMounted(async () => {
     loadActivity();
   }
 });
+
 </script>
 
 <style scoped>
@@ -593,6 +668,8 @@ onMounted(async () => {
   gap: 16px;
 }
 
+.td-manage-card--wide { grid-column: 1 / -1; }
+
 .td-manage-card {
   border: 1px solid #e2e8f0;
   border-radius: 14px;
@@ -605,6 +682,7 @@ onMounted(async () => {
   gap: 10px;
   flex-wrap: wrap;
 }
+
 
 .td-manage-input {
   flex: 1;

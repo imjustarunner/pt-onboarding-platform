@@ -427,8 +427,25 @@ export const uploadTeamBanner = async (req, res, next) => {
     if (!req.file) return res.status(400).json({ error: { message: 'No file uploaded' } });
     const { default: StorageService } = await import('../services/storage.service.js');
     const result = await StorageService.saveTeamBanner({ teamId, fileBuffer: req.file.buffer, filename: req.file.originalname, contentType: req.file.mimetype });
-    await ChallengeTeam.update(teamId, { bannerPath: result.relativePath });
-    return res.json({ bannerPath: result.relativePath });
+    await ChallengeTeam.update(teamId, { bannerPath: result.relativePath, bannerFocalX: 50, bannerFocalY: 50 });
+    return res.json({ bannerPath: result.relativePath, bannerFocalX: 50, bannerFocalY: 50 });
+  } catch (e) { next(e); }
+};
+
+export const updateTeamBannerFocal = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const teamId = asInt(req.params.teamId);
+    if (!classId || !teamId) return res.status(400).json({ error: { message: 'Invalid classId/teamId' } });
+    const team = await ChallengeTeam.findById(teamId);
+    if (!team || Number(team.learning_class_id) !== Number(classId)) return res.status(404).json({ error: { message: 'Team not found' } });
+    if (!canManageTeam(req.user, team) && !(await canManageChallenge({ user: req.user, classId }))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const focalX = Math.min(100, Math.max(0, parseFloat(req.body.focalX ?? 50)));
+    const focalY = Math.min(100, Math.max(0, parseFloat(req.body.focalY ?? 50)));
+    await ChallengeTeam.update(teamId, { bannerFocalX: focalX, bannerFocalY: focalY });
+    return res.json({ focalX, focalY });
   } catch (e) { next(e); }
 };
 
@@ -488,7 +505,7 @@ export const deleteTeamBanner = async (req, res, next) => {
     if (!canManageTeam(req.user, team) && !(await canManageChallenge({ user: req.user, classId }))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
-    await ChallengeTeam.update(teamId, { bannerPath: null });
+    await ChallengeTeam.update(teamId, { bannerPath: null, bannerFocalX: 50, bannerFocalY: 50 });
     return res.json({ ok: true });
   } catch (e) { next(e); }
 };

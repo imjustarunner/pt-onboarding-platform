@@ -741,10 +741,12 @@ const heroStyle = computed(() => {
   const rawBanner = String(publicPageConfig.value?.bannerImageUrl || '').trim();
   if (!rawBanner) return {};
   const banner = toUploadsUrl(rawBanner) || rawBanner;
+  const fx = Number(publicPageConfig.value?.bannerFocalX ?? 50);
+  const fy = Number(publicPageConfig.value?.bannerFocalY ?? 50);
   return {
     backgroundImage: `linear-gradient(rgba(15,23,42,.65), rgba(15,23,42,.65)), url(${banner})`,
     backgroundSize: 'cover',
-    backgroundPosition: 'center'
+    backgroundPosition: `${fx}% ${fy}%`
   };
 });
 const showCurrentSeasonBlock = computed(() => publicPageConfig.value?.showCurrentSeason !== false);

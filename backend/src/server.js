@@ -1360,6 +1360,25 @@ if (!isBootstrap) {
       console.warn('[startup] Migration 750 check skipped:', err.message);
     }
 
+  // Migration 805 – team banner focal columns on challenge_teams
+    try {
+      const [focalXCols805] = await pool.execute(`SHOW COLUMNS FROM challenge_teams LIKE 'banner_focal_x'`);
+      const [focalYCols805] = await pool.execute(`SHOW COLUMNS FROM challenge_teams LIKE 'banner_focal_y'`);
+      const addParts = [];
+      if (!focalXCols805.length) {
+        addParts.push(`ADD COLUMN banner_focal_x DECIMAL(5,2) NOT NULL DEFAULT 50.00`);
+      }
+      if (!focalYCols805.length) {
+        addParts.push(`ADD COLUMN banner_focal_y DECIMAL(5,2) NOT NULL DEFAULT 50.00`);
+      }
+      if (addParts.length) {
+        await pool.execute(`ALTER TABLE challenge_teams ${addParts.join(', ')}`);
+        console.log('[startup] Migration 805 applied: challenge_teams banner focal columns added', addParts);
+      }
+    } catch (err) {
+      console.warn('[startup] Migration 805 check skipped:', err.message);
+    }
+
   // Migration 751 – SSTC notification preferences JSON on user_preferences
     try {
       const [cols751] = await pool.execute(`SHOW COLUMNS FROM user_preferences LIKE 'sstc_notification_prefs_json'`);

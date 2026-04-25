@@ -688,9 +688,15 @@ const activeRecaptchaMode = computed(() =>
 );
 
 // ── Hero style ──────────────────────────────────────────────────────────────
+const bannerFocalX = ref(50);
+const bannerFocalY = ref(50);
 const heroStyle = computed(() => {
   if (bannerImageUrl.value) {
-    return { backgroundImage: `url(${bannerImageUrl.value})` };
+    return {
+      backgroundImage: `url(${bannerImageUrl.value})`,
+      backgroundSize: 'cover',
+      backgroundPosition: `${bannerFocalX.value}% ${bannerFocalY.value}%`
+    };
   }
   return {};
 });
@@ -791,6 +797,8 @@ onMounted(async () => {
       clubInfo.value     = { name: data.invite.clubName, id: data.invite.clubId };
       clubLogoUrl.value  = toUploadsUrl(data.invite.logoUrl || '') || '';
       bannerImageUrl.value = toUploadsUrl(data.invite.bannerImageUrl || '') || '';
+      bannerFocalX.value = Number(data.invite.bannerFocalX ?? 50);
+      bannerFocalY.value = Number(data.invite.bannerFocalY ?? 50);
       if (data.invite.email) form.email = data.invite.email;
       if (Array.isArray(data.invite.genderOptions) && data.invite.genderOptions.length) {
         rawGenderOptions.value = data.invite.genderOptions;
@@ -802,6 +810,8 @@ onMounted(async () => {
       recaptchaConfig.value = data.recaptcha || recaptchaConfig.value;
       clubLogoUrl.value = toUploadsUrl(data.club?.logoUrl || '') || '';
       bannerImageUrl.value = toUploadsUrl(data.club?.publicPageConfig?.bannerImageUrl || '') || '';
+      bannerFocalX.value = Number(data.club?.publicPageConfig?.bannerFocalX ?? 50);
+      bannerFocalY.value = Number(data.club?.publicPageConfig?.bannerFocalY ?? 50);
       if (Array.isArray(data.club?.publicPageConfig?.genderOptions) && data.club.publicPageConfig.genderOptions.length) {
         rawGenderOptions.value = data.club.publicPageConfig.genderOptions;
       }

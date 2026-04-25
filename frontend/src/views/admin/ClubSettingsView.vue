@@ -501,41 +501,26 @@
           </div>
           <div class="field">
             <label>Banner image <span class="cap-opt">(optional)</span></label>
-            <input
-              ref="bannerUploadInputRef"
-              type="file"
-              accept="image/png,image/jpeg,image/jpg,image/gif,image/svg+xml,image/webp"
-              class="visually-hidden-file"
-              @change="onBannerImageSelected"
+            <BannerEditor
+              :image-url="publicPageForm.bannerImageUrl"
+              :focal-x="publicPageForm.bannerFocalX"
+              :focal-y="publicPageForm.bannerFocalY"
+              :uploading="bannerImageUploading"
+              :saving="clubBannerSaving"
+              :show-remove="!!publicPageForm.bannerImageUrl"
+              upload-label="Upload Banner Image"
+              upload-label-replace="Change Banner Image"
+              @upload="onClubBannerFile"
+              @save-focal="onClubBannerSaveFocal"
+              @remove="onClubBannerRemove"
             />
-            <div class="image-upload-row">
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm"
-                :disabled="bannerImageUploading"
-                @click="bannerUploadInputRef?.click()"
-              >
-                {{ bannerImageUploading ? 'Uploading…' : (publicPageForm.bannerImageUrl ? 'Change Banner Image' : 'Upload Banner Image') }}
-              </button>
-              <button
-                v-if="publicPageForm.bannerImageUrl"
-                type="button"
-                class="btn btn-secondary btn-sm"
-                @click="publicPageForm.bannerImageUrl = ''"
-              >
-                Remove
-              </button>
-            </div>
             <input
               v-model="publicPageForm.bannerImageUrl"
               type="url"
               class="store-input"
-              placeholder="Or paste an image URL if you want"
+              placeholder="Or paste an image URL directly"
               maxlength="500"
             />
-            <div v-if="publicPageForm.bannerImageUrl" class="public-image-preview">
-              <img :src="publicPageForm.bannerImageUrl" alt="Banner preview" />
-            </div>
           </div>
 
           <div class="field">
@@ -769,6 +754,7 @@ import { TIMEZONE_GROUPS } from '../../utils/timezones.js';
 import { useSummitStatsChallengeChrome } from '../../composables/useSummitStatsChallengeChrome';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import IconSelector from '../../components/admin/IconSelector.vue';
+import BannerEditor from '../../components/ui/BannerEditor.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -1068,6 +1054,8 @@ const publicPageForm = ref({
   bannerTitle: '',
   bannerSubtitle: '',
   bannerImageUrl: '',
+  bannerFocalX: 50,
+  bannerFocalY: 50,
   showCurrentSeason: true,
   showActiveParticipants: true,
   showFeaturedWorkout: true,
@@ -1075,6 +1063,7 @@ const publicPageForm = ref({
   showClubFeed: true,
   publicFeedEnabled: false
 });
+const clubBannerSaving = ref(false);
 
 const BUILT_IN_GENDER_OPTIONS = [
   { value: 'male', label: 'Male' },
@@ -1140,21 +1129,52 @@ const uploadPublicPageImage = async (file) => {
 const onBannerImageSelected = async (event) => {
   const file = event?.target?.files?.[0] || null;
   if (!file) return;
+  await onClubBannerFile(file);
+};
+
+const onClubBannerFile = async (file) => {
+  if (!file) return;
   try {
     bannerImageUploading.value = true;
     publicPageConfigError.value = '';
     const uploadedUrl = await uploadPublicPageImage(file);
-    if (uploadedUrl) publicPageForm.value.bannerImageUrl = uploadedUrl;
+    if (uploadedUrl) {
+      publicPageForm.value.bannerImageUrl = uploadedUrl;
+      publicPageForm.value.bannerFocalX = 50;
+      publicPageForm.value.bannerFocalY = 50;
+    }
   } catch (e) {
     publicPageConfigError.value = e?.response?.data?.error?.message || e?.message || 'Failed to upload banner image';
   } finally {
     bannerImageUploading.value = false;
     try {
       if (bannerUploadInputRef.value) bannerUploadInputRef.value.value = '';
-    } catch {
-      // ignore
-    }
+    } catch { /* ignore */ }
   }
+};
+
+const onClubBannerSaveFocal = async ({ x, y }) => {
+  publicPageForm.value.bannerFocalX = x;
+  publicPageForm.value.bannerFocalY = y;
+  if (!currentAgencyId.value) return;
+  clubBannerSaving.value = true;
+  try {
+    await api.put(`/summit-stats/clubs/${currentAgencyId.value}/public-page-config`, {
+      ...publicPageForm.value,
+      bannerFocalX: x,
+      bannerFocalY: y
+    });
+  } catch (e) {
+    publicPageConfigError.value = e?.response?.data?.error?.message || 'Failed to save banner position';
+  } finally {
+    clubBannerSaving.value = false;
+  }
+};
+
+const onClubBannerRemove = () => {
+  publicPageForm.value.bannerImageUrl = '';
+  publicPageForm.value.bannerFocalX = 50;
+  publicPageForm.value.bannerFocalY = 50;
 };
 
 const onAlbumImagesSelected = async (event) => {
@@ -1229,6 +1249,8 @@ const loadPublicPageConfig = async () => {
       bannerTitle: cfg.bannerTitle || '',
       bannerSubtitle: cfg.bannerSubtitle || '',
       bannerImageUrl: cfg.bannerImageUrl || '',
+      bannerFocalX: Number.isFinite(Number(cfg.bannerFocalX)) ? Number(cfg.bannerFocalX) : 50,
+      bannerFocalY: Number.isFinite(Number(cfg.bannerFocalY)) ? Number(cfg.bannerFocalY) : 50,
       showCurrentSeason: cfg.showCurrentSeason !== false,
       showActiveParticipants: cfg.showActiveParticipants !== false,
       showFeaturedWorkout: cfg.showFeaturedWorkout !== false,

@@ -40,6 +40,7 @@ import {
   deleteTeam,
   uploadTeamLogo,
   uploadTeamBanner,
+  updateTeamBannerFocal,
   deleteTeamLogo,
   deleteTeamBanner,
   sendTeamMemberPasswordReset,
@@ -192,6 +193,7 @@ router.delete('/:classId/teams/:teamId', deleteTeam);
 router.post('/:classId/teams/:teamId/logo', seasonImageUpload.single('logo'), uploadTeamLogo);
 router.delete('/:classId/teams/:teamId/logo', deleteTeamLogo);
 router.post('/:classId/teams/:teamId/banner', seasonImageUpload.single('banner'), uploadTeamBanner);
+router.patch('/:classId/teams/:teamId/banner/focal', updateTeamBannerFocal);
 router.delete('/:classId/teams/:teamId/banner', deleteTeamBanner);
 router.post('/:classId/teams/:teamId/members/:userId/send-password-reset', sendTeamMemberPasswordReset);
 router.get('/:classId/teams/:teamId/members', listTeamMembers);

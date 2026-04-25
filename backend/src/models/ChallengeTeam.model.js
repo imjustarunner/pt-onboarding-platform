@@ -63,7 +63,9 @@ class ChallengeTeam {
       teamName: 'team_name',
       teamManagerUserId: 'team_manager_user_id',
       logoPath: 'logo_path',
-      bannerPath: 'banner_path'
+      bannerPath: 'banner_path',
+      bannerFocalX: 'banner_focal_x',
+      bannerFocalY: 'banner_focal_y'
     };
     const setParts = [];
     const values = [];
