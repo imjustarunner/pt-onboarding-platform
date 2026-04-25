@@ -1,6 +1,6 @@
 -- Migration 743: in-person tutoring copilot session plans/materials/responses
 ALTER TABLE learning_class_sessions
-  ADD COLUMN IF NOT EXISTS delivery_context VARCHAR(32) NULL DEFAULT NULL AFTER session_subtype;
+  ADD COLUMN delivery_context VARCHAR(32) NULL DEFAULT NULL AFTER session_subtype;
 
 CREATE TABLE IF NOT EXISTS learning_class_session_in_person_plans (
   id INT NOT NULL AUTO_INCREMENT,
