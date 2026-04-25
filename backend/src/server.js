@@ -282,6 +282,15 @@ const uploadsHandler = async (req, res, next) => {
     
     // Remove leading slash (GCS paths should not start with /)
     filePath = filePath.replace(/^\//, '');
+
+    // URL-decode the path: req.path retains percent-encoding (e.g. %20 for spaces,
+    // %2C for commas) but GCS object keys are stored with literal characters.
+    // Without decoding, filenames with spaces or commas will always miss in GCS.
+    try {
+      filePath = decodeURIComponent(filePath);
+    } catch {
+      // Keep raw path if it contains malformed percent-sequences
+    }
     
     if (!filePath || filePath === '/') {
       return res.status(404).json({ error: { message: 'File not found' } });

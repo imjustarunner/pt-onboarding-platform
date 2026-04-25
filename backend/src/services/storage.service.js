@@ -237,11 +237,12 @@ class StorageService {
    * Sanitize filename to prevent directory traversal and other security issues
    */
   static sanitizeFilename(filename) {
-    // Remove path separators and dangerous characters
-    let sanitized = filename.replace(/[\/\\\?\*\|"<>:]/g, '_');
+    // Remove path separators, dangerous characters, and whitespace/commas that
+    // would be URL-encoded when served (causing GCS key mismatches on lookup).
+    let sanitized = filename.replace(/[\/\\\?\*\|"<>:,\s]+/g, '_');
     
-    // Remove leading/trailing dots and spaces
-    sanitized = sanitized.replace(/^[\s\.]+|[\s\.]+$/g, '');
+    // Remove leading/trailing underscores and dots
+    sanitized = sanitized.replace(/^[_\.]+|[_\.]+$/g, '');
     
     // Limit length
     if (sanitized.length > 255) {
@@ -1566,6 +1567,7 @@ class StorageService {
     const file = bucket.file(key);
     await file.save(fileBuffer, {
       contentType,
+      resumable: false,
       metadata: { classId: String(classId || ''), uploadedAt: new Date().toISOString() }
     });
     const relativePath = key.replace(/^uploads\//, '');
@@ -1594,6 +1596,7 @@ class StorageService {
     const file = bucket.file(key);
     await file.save(fileBuffer, {
       contentType,
+      resumable: false,
       metadata: { classId: String(classId || ''), uploadedAt: new Date().toISOString() }
     });
     const relativePath = key.replace(/^uploads\//, '');
@@ -1618,7 +1621,17 @@ class StorageService {
     }
     const bucket = await this.getGCSBucket();
     const file = bucket.file(key);
-    await file.save(fileBuffer, { contentType, metadata: { teamId: String(teamId || ''), uploadedAt: new Date().toISOString() } });
+    // Force single-shot upload to prevent resumable uploads from appearing to succeed
+    // while the object is not actually written (same issue documented in saveIntakeBundle).
+    await file.save(fileBuffer, {
+      contentType,
+      resumable: false,
+      metadata: { teamId: String(teamId || ''), uploadedAt: new Date().toISOString() }
+    });
+    const [exists] = await file.exists();
+    if (!exists) {
+      throw new Error(`Team logo upload to GCS appeared to succeed but object not found: ${key}`);
+    }
     const relativePath = key.replace(/^uploads\//, '');
     return { path: relativePath, key, filename: sanitizedFilename, relativePath };
   }
@@ -1641,7 +1654,17 @@ class StorageService {
     }
     const bucket = await this.getGCSBucket();
     const file = bucket.file(key);
-    await file.save(fileBuffer, { contentType, metadata: { teamId: String(teamId || ''), uploadedAt: new Date().toISOString() } });
+    // Force single-shot upload to prevent resumable uploads from appearing to succeed
+    // while the object is not actually written (same issue documented in saveIntakeBundle).
+    await file.save(fileBuffer, {
+      contentType,
+      resumable: false,
+      metadata: { teamId: String(teamId || ''), uploadedAt: new Date().toISOString() }
+    });
+    const [exists] = await file.exists();
+    if (!exists) {
+      throw new Error(`Team banner upload to GCS appeared to succeed but object not found: ${key}`);
+    }
     const relativePath = key.replace(/^uploads\//, '');
     return { path: relativePath, key, filename: sanitizedFilename, relativePath };
   }
