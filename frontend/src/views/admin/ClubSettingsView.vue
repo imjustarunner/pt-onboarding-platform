@@ -1757,6 +1757,7 @@ onMounted(async () => {
       loadStatsConfig(),
       loadStoreConfig(),
       loadPublicPageConfig(),
+      loadRdConfig(),
       loadClubAnnouncementsList()
     ]);
     // Apply the club's palette immediately — syncDocumentThemeFromSelectedAgency bails when
@@ -1868,7 +1869,6 @@ const unlockRdConfig = () => {
   }).finally(() => { rdSaving.value = false; });
 };
 
-onMounted(() => { loadRdConfig(); });
 </script>
 
 <style scoped>
