@@ -1701,6 +1701,11 @@ export const reviewWorkoutProof = async (req, res, next) => {
     }
     const verifiedDistanceValue = req.body?.verifiedDistanceValue != null ? Number(req.body.verifiedDistanceValue) : null;
     const overridePoints = req.body?.overridePoints != null ? Number(req.body.overridePoints) : null;
+    // Duration override — only applied when manager explicitly provides values
+    const durationMinutesRaw = req.body?.durationMinutes != null ? asInt(req.body.durationMinutes) : null;
+    const durationSecondsRaw = req.body?.durationSeconds != null ? Math.min(59, Math.max(0, asInt(req.body.durationSeconds) || 0)) : null;
+    const hasDurationEdit = durationMinutesRaw != null;
+
     const nextDistance = status === 'approved' && verifiedDistanceValue != null
       ? verifiedDistanceValue
       : (workout.reported_distance_value != null ? Number(workout.reported_distance_value) : Number(workout.distance_value || 0));
@@ -1715,13 +1720,15 @@ export const reviewWorkoutProof = async (req, res, next) => {
     }
     const managerMadeEdit = status === 'approved' && (
       (verifiedDistanceValue != null && Number.isFinite(verifiedDistanceValue)) ||
-      (overridePoints != null && Number.isFinite(overridePoints))
+      (overridePoints != null && Number.isFinite(overridePoints)) ||
+      hasDurationEdit
     );
     const nextWorkout = await ChallengeWorkout.updateProofReview(workoutId, {
       proofStatus: status,
       verifiedDistanceValue: status === 'approved' ? verifiedDistanceValue : null,
       distanceValue: nextDistance,
       ...(nextPoints !== undefined ? { points: nextPoints } : {}),
+      ...(hasDurationEdit ? { durationMinutes: durationMinutesRaw, durationSeconds: durationSecondsRaw ?? 0 } : {}),
       managerEdited: managerMadeEdit ? 1 : 0,
       proofReviewNote: req.body?.proofReviewNote ? String(req.body.proofReviewNote) : null,
       proofReviewedByUserId: req.user.id,

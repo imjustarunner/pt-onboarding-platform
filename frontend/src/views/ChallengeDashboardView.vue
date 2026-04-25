@@ -1096,10 +1096,19 @@
                 </div>
                 <div class="form-row">
                   <label>Duration</label>
-                  <div style="display:flex;gap:4px;align-items:center;">
-                    <input v-model.number="workoutForm.durationMinutes" type="number" min="0" placeholder="min" style="width:64px;" />
-                    <span style="font-size:0.85em;color:#64748b;">:</span>
-                    <input v-model.number="workoutForm.durationSeconds" type="number" min="0" max="59" placeholder="sec" style="width:56px;" />
+                  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                    <div style="display:flex;align-items:center;gap:3px;">
+                      <input v-model.number="workoutForm.durationHours" type="number" min="0" max="99" placeholder="0" style="width:52px;" />
+                      <span style="font-size:0.82em;color:#64748b;">hr</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:3px;">
+                      <input v-model.number="workoutForm.durationMinutes" type="number" min="0" max="59" placeholder="0" style="width:52px;" />
+                      <span style="font-size:0.82em;color:#64748b;">min</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:3px;">
+                      <input v-model.number="workoutForm.durationSeconds" type="number" min="0" max="59" placeholder="0" style="width:52px;" />
+                      <span style="font-size:0.82em;color:#64748b;">sec</span>
+                    </div>
                   </div>
                 </div>
                 <div class="form-row">
@@ -1525,6 +1534,7 @@ const participationAcceptanceError = ref('');
 const defaultWorkoutForm = () => ({
   activityType: '',
   distanceValue: null,
+  durationHours: null,
   durationMinutes: null,
   durationSeconds: null,
   caloriesBurned: null,
@@ -2613,7 +2623,7 @@ const submitWorkout = async () => {
     await api.post(`/learning-program-classes/${id}/workouts`, {
       activityType: workoutForm.value.activityType,
       distanceValue: workoutForm.value.distanceValue || null,
-      durationMinutes: workoutForm.value.durationMinutes || null,
+      durationMinutes: ((Number(workoutForm.value.durationHours) || 0) * 60 + (Number(workoutForm.value.durationMinutes) || 0)) || null,
       durationSeconds: workoutForm.value.durationSeconds != null ? workoutForm.value.durationSeconds : null,
       caloriesBurned: workoutForm.value.caloriesBurned || null,
       averageHeartrate: workoutForm.value.averageHeartrate || null,

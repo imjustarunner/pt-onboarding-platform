@@ -109,7 +109,9 @@
         <div class="activity-meta">
           <span v-if="w.distance_value">{{ Number(w.distance_value).toFixed(2) }} mi</span>
           <span v-if="w.duration_minutes">{{ formatDuration(w) }}</span>
-          <span v-if="avgPace(w)" class="activity-pace">{{ avgPace(w) }} /mi</span>
+          <span v-if="avgPace(w)" class="activity-pace" :class="{ 'activity-pace--suspicious': isPaceSuspicious(w) }">
+            {{ avgPace(w) }} /mi<span v-if="isPaceSuspicious(w)" class="pace-flag" title="Pace seems impossible — duration may have been entered incorrectly (e.g. minutes entered instead of hours)">⚠️</span>
+          </span>
           <span class="activity-points" :class="{ 'activity-points--edited': Number(w.manager_edited) === 1 }">{{ formatPts(w.points) }} pts</span>
         </div>
         <!-- Challenge tag + proof/disqualified badges in a compact inline row -->
@@ -363,10 +365,31 @@
                 </span>
               </div>
               <div class="proof-review-body">
+                <div v-if="isPaceSuspicious(w)" class="proof-suspicious-banner">
+                  ⚠️ Pace of {{ avgPace(w) }}/mi is not physically possible. The duration was likely entered as minutes instead of hours. Please correct below.
+                </div>
                 <label class="proof-field">
                   <span>Verified miles (optional — only fill to override)</span>
                   <input v-model.number="proofReviewDraftByWorkout[w.id].verifiedDistanceValue" type="number" step="0.01" min="0" :placeholder="w.distance_value != null ? `Reported: ${Number(w.distance_value).toFixed(2)} mi` : 'Leave blank to keep reported distance'" />
                 </label>
+                <div class="proof-field">
+                  <span>Correct duration (optional — only fill to override)</span>
+                  <div class="proof-duration-row">
+                    <div class="proof-duration-input">
+                      <input v-model.number="proofReviewDraftByWorkout[w.id].durationHours" type="number" min="0" max="99" placeholder="0" />
+                      <span class="proof-duration-unit">hr</span>
+                    </div>
+                    <div class="proof-duration-input">
+                      <input v-model.number="proofReviewDraftByWorkout[w.id].durationMinutes" type="number" min="0" max="59" :placeholder="w.duration_minutes != null ? String(w.duration_minutes % 60) : '0'" />
+                      <span class="proof-duration-unit">min</span>
+                    </div>
+                    <div class="proof-duration-input">
+                      <input v-model.number="proofReviewDraftByWorkout[w.id].durationSeconds" type="number" min="0" max="59" :placeholder="w.duration_seconds != null ? String(w.duration_seconds) : '0'" />
+                      <span class="proof-duration-unit">sec</span>
+                    </div>
+                  </div>
+                  <span class="proof-field-hint">Reported: {{ formatDuration(w) || 'none' }}</span>
+                </div>
                 <label class="proof-field">
                   <span>Override points (optional – leave blank to auto-calculate)</span>
                   <input v-model.number="proofReviewDraftByWorkout[w.id].overridePoints" type="number" step="0.01" min="0" placeholder="e.g. 3.89" />
@@ -994,10 +1017,27 @@ const avgPace = (w) => {
   return `${mins}:${secs}`;
 };
 
+// Returns true when the pace is physically impossible (< 3:30/mi) — likely a data entry error
+const isPaceSuspicious = (w) => {
+  const dist = Number(w.distance_value);
+  const dur  = Number(w.duration_minutes);
+  if (!dist || !dur || dist < 0.1) return false;
+  const totalSec = dur * 60 + Number(w.duration_seconds || 0);
+  const secPerMile = totalSec / dist;
+  return secPerMile < 210; // faster than 3:30/mi — impossible for any human
+};
+
 const formatDuration = (w) => {
-  const mins = Number(w.duration_minutes);
-  if (!mins && mins !== 0) return null;
+  const totalMins = Number(w.duration_minutes);
+  if (!totalMins && totalMins !== 0) return null;
   const secs = Number(w.duration_seconds || 0);
+  const hours = Math.floor(totalMins / 60);
+  const mins = totalMins % 60;
+  if (hours > 0) {
+    const mStr = mins > 0 ? ` ${mins}m` : '';
+    const sStr = secs > 0 ? ` ${String(secs).padStart(2, '0')}s` : '';
+    return `${hours}h${mStr}${sStr}`;
+  }
   if (secs > 0) return `${mins}m ${String(secs).padStart(2, '0')}s`;
   return `${mins} min`;
 };
@@ -1309,9 +1349,10 @@ const ensureProofDraft = (workoutId, workout) => {
   proofReviewDraftByWorkout.value = {
     ...proofReviewDraftByWorkout.value,
     [workoutId]: {
-      // Start null — only becomes non-null if the manager explicitly edits it.
-      // This prevents "Approved with edits" from firing when nothing changed.
       verifiedDistanceValue: null,
+      durationHours: null,
+      durationMinutes: null,
+      durationSeconds: null,
       overridePoints: null,
       proofReviewNote: workout?.proof_review_note || ''
     }
@@ -1646,9 +1687,18 @@ const reviewProof = async (workoutId, status) => {
   const draft = proofReviewDraftByWorkout.value[workoutId] || {};
   proofSubmitting.value = { ...proofSubmitting.value, [workoutId]: true };
   try {
+    // Compute corrected total minutes if manager entered any duration override
+    const correctedHours = Number(draft.durationHours) || 0;
+    const correctedMins = Number(draft.durationMinutes) || 0;
+    const correctedSecs = Number(draft.durationSeconds) || null;
+    const hasDurationEdit = draft.durationHours != null || draft.durationMinutes != null || draft.durationSeconds != null;
+    const correctedTotalMinutes = hasDurationEdit ? (correctedHours * 60 + correctedMins) || null : null;
+
     await api.put(`/learning-program-classes/${props.challengeId}/workouts/${workoutId}/proof-review`, {
       proofStatus: status,
       verifiedDistanceValue: draft.verifiedDistanceValue != null ? Number(draft.verifiedDistanceValue) : null,
+      durationMinutes: correctedTotalMinutes,
+      durationSeconds: hasDurationEdit ? (correctedSecs ?? 0) : null,
       overridePoints: draft.overridePoints != null && String(draft.overridePoints) !== '' ? Number(draft.overridePoints) : null,
       proofReviewNote: draft.proofReviewNote ? String(draft.proofReviewNote).trim() : null
     });
@@ -1989,6 +2039,52 @@ const reviewProof = async (workoutId, status) => {
 .activity-pace {
   color: #0369a1;
   font-weight: 500;
+}
+.activity-pace--suspicious {
+  color: #b45309;
+}
+.pace-flag {
+  margin-left: 3px;
+  font-size: 0.9em;
+}
+.proof-suspicious-banner {
+  background: #fef3c7;
+  border: 1px solid #fbbf24;
+  border-radius: 6px;
+  color: #92400e;
+  font-size: 0.84rem;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+.proof-duration-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.proof-duration-input {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.proof-duration-input input {
+  width: 52px;
+  padding: 5px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+.proof-duration-unit {
+  font-size: 0.8rem;
+  color: #64748b;
+  font-weight: 600;
+}
+.proof-field-hint {
+  display: block;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  margin-top: 4px;
 }
 .activity-points {
   margin-left: auto;

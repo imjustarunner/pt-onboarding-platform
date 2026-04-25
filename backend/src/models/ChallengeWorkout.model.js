@@ -211,6 +211,8 @@ class ChallengeWorkout {
     if (patch.proofReviewNote !== undefined) { parts.push('proof_review_note = ?'); values.push(patch.proofReviewNote ? String(patch.proofReviewNote).slice(0, 255) : null); }
     if (patch.proofReviewedByUserId !== undefined) { parts.push('proof_reviewed_by_user_id = ?'); values.push(patch.proofReviewedByUserId ? toInt(patch.proofReviewedByUserId) : null); }
     if (patch.proofReviewedAt !== undefined) { parts.push('proof_reviewed_at = ?'); values.push(patch.proofReviewedAt || null); }
+    if (patch.durationMinutes !== undefined) { parts.push('duration_minutes = ?'); values.push(patch.durationMinutes != null ? toInt(patch.durationMinutes) : null); }
+    if (patch.durationSeconds !== undefined) { parts.push('duration_seconds = ?'); values.push(patch.durationSeconds != null ? Math.min(59, Math.max(0, toInt(patch.durationSeconds) || 0)) : null); }
     if (patch.managerEdited !== undefined) { parts.push('manager_edited = ?'); values.push(patch.managerEdited ? 1 : 0); }
     if (!parts.length) return this.findById(id);
     values.push(id);
