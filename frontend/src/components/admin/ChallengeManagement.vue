@@ -6484,7 +6484,8 @@ onMounted(async () => {
 }
 .input-unit-row input {
   flex: 1;
-  min-width: 0;
+  min-width: 60px;
+  width: auto; /* prevent .form-group input { width:100% } from collapsing flex child */
 }
 .unit-badge {
   white-space: nowrap;
