@@ -26,7 +26,8 @@ import {
   getWeekDateTimeRange,
   getSeasonWeekMileGoals,
   resolveWeeklyDistanceTargets,
-  weekSeventhPaceState
+  weekSeventhPaceState,
+  firstCompetitionWeekDate as firstCompetitionWeekDateUtil
 } from '../utils/challengeWeekUtils.js';
 import { enqueueWorkoutVision, scanWorkoutScreenshot as scanWorkoutScreenshotWithVision } from '../services/challengeWorkoutVision.service.js';
 import { challengeMessageBridge } from '../services/challengeMessageBridge.service.js';
@@ -3796,22 +3797,9 @@ function buildRoundRobin(n) {
 /**
  * Compute the week_start_date for competition Week 1 from the season's starts_at.
  * The first competition week is the week boundary that starts ON OR AFTER starts_at.
- * We shift the timestamp forward slightly so that a season starting before the
- * week cutoff time (e.g. 18:00 when cutoff is 23:59) correctly resolves to the
- * week that begins that same day at cutoff time rather than the prior week.
+ * Delegate to the shared utility (imported as firstCompetitionWeekDateUtil).
  */
-function firstCompetitionWeekDate(startsAt, weekCutoffTime, weekTimeZone) {
-  // Shift forward by 12 hours to push past any cutoff that occurs on the start day
-  const shiftedTs = startsAt.getTime() + 12 * 60 * 60 * 1000;
-  let candidate = getWeekStartDate(new Date(shiftedTs), weekCutoffTime, weekTimeZone);
-  // Paranoid guard: if still before the season start date, advance one more week
-  const startsAtDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: weekTimeZone || 'UTC' }).format(startsAt);
-  if (candidate < startsAtDateStr) {
-    const nextTs = shiftedTs + 7 * 24 * 60 * 60 * 1000;
-    candidate = getWeekStartDate(new Date(nextTs), weekCutoffTime, weekTimeZone);
-  }
-  return candidate; // YYYY-MM-DD string
-}
+const firstCompetitionWeekDate = firstCompetitionWeekDateUtil;
 
 /**
  * POST /:classId/matchup-schedule/generate

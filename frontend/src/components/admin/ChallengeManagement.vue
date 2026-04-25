@@ -1955,7 +1955,7 @@ import ClubCustomFields from '../club/ClubCustomFields.vue';
 import IconSelector from '../admin/IconSelector.vue';
 import IconLibraryView from '../../views/admin/IconLibraryView.vue';
 import { TIMEZONE_GROUPS } from '../../utils/timezones.js';
-import { getWeekStartDate, getWeekDateTimeRange, ymdUtcDiffDays } from '../../utils/challengeWeekUtils.js';
+import { getWeekStartDate, getWeekDateTimeRange, ymdUtcDiffDays, firstCompetitionWeekDate } from '../../utils/challengeWeekUtils.js';
 import {
   agreementItemsToTextarea,
   agreementTextareaToItems,
@@ -2252,7 +2252,7 @@ function resolvePerPersonMilesForManagedWeek(klass, weekStartYmd) {
   );
 
   const anchorWeek = klass.starts_at
-    ? getWeekStartDate(new Date(klass.starts_at), cutoff, tz)
+    ? firstCompetitionWeekDate(new Date(klass.starts_at), cutoff, tz)
     : String(weekStartYmd).slice(0, 10);
   const ws = String(weekStartYmd).slice(0, 10);
   const weekIndex = anchorWeek && ws ? Math.max(0, Math.floor(ymdUtcDiffDays(anchorWeek, ws) / 7)) : 0;
@@ -3620,13 +3620,15 @@ const manageTeamsWeekRows = computed(() => {
   const rawStart = klass.starts_at || klass.startsAt;
   const rawEnd = klass.ends_at || klass.endsAt;
 
-  let cur = getWeekStartDate(rawStart ? new Date(rawStart) : new Date(), cutoff, tz);
+  let cur = rawStart
+    ? firstCompetitionWeekDate(new Date(rawStart), cutoff, tz)
+    : getWeekStartDate(new Date(), cutoff, tz);
   if (!cur) cur = getWeekStartDate(new Date(), cutoff, tz);
   if (!cur) return [];
 
   const todayWeek = getWeekStartDate(new Date(), cutoff, tz) || cur;
   const endWeek = rawEnd ? getWeekStartDate(new Date(rawEnd), cutoff, tz) : todayWeek;
-  const maxWeek = !endWeek || String(endWeek) > String(todayWeek) ? todayWeek : endWeek;
+  const maxWeek = endWeek || todayWeek;
 
   const roster = Math.max(1, Math.floor(Number(manageTeamsMembersPerTeam.value) || 1));
   const overrides = weeklyTargetOverrides.value || {};

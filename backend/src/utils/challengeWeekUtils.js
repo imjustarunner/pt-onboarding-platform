@@ -214,7 +214,7 @@ export function getSeasonWeekPhase({
   }
   const postseason = settings?.postseason && typeof settings.postseason === 'object' ? settings.postseason : {};
   const anchor = klass?.starts_at
-    ? getWeekStartDate(new Date(klass.starts_at), cutoffTime, timeZone)
+    ? firstCompetitionWeekDate(new Date(klass.starts_at), cutoffTime, timeZone)
     : String(weekStartDate || '').slice(0, 10);
   const startAnchor = new Date(`${String(anchor).slice(0, 10)}T00:00:00`);
   const currentWeek = new Date(`${String(weekStartDate || '').slice(0, 10)}T00:00:00`);
@@ -289,6 +289,33 @@ const parseJsonLocal = (raw, fallback = {}) => {
   }
   return fallback;
 };
+
+/**
+ * Returns the YYYY-MM-DD week-start date for the first competition week that
+ * is on or after the season's starts_at date.
+ *
+ * getWeekStartDate(startsAt) snaps backward to the prior week boundary. A
+ * season starting Apr 26 at 18:00 ET (before the 23:59 Sunday cutoff) resolves
+ * to Apr 19 instead of Apr 26, causing week-index calculations to be off by 1.
+ *
+ * Fix: shift startsAt +12 h so it lands after the cutoff, compute the week
+ * start, then apply a paranoid guard: if that result is still before the
+ * season-start calendar date (in the season's timezone), advance one more week.
+ */
+export function firstCompetitionWeekDate(startsAt, cutoffTime, timeZone) {
+  const d = startsAt instanceof Date ? startsAt : new Date(String(startsAt));
+  if (!Number.isFinite(d.getTime())) return null;
+  const shifted = new Date(d.getTime() + 12 * 60 * 60 * 1000);
+  let candidate = getWeekStartDate(shifted, cutoffTime, timeZone);
+  if (!candidate) return null;
+  const tz = normalizeTimeZone(timeZone || 'UTC');
+  const startsAtDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(d);
+  if (candidate < startsAtDateStr) {
+    const nextTs = Date.parse(`${candidate}T12:00:00Z`) + 7 * 24 * 60 * 60 * 1000;
+    candidate = getWeekStartDate(new Date(nextTs), cutoffTime, timeZone);
+  }
+  return candidate;
+}
 
 /** Whole calendar days between two YYYY-MM-DD strings (UTC noon anchors, DST-safe). */
 export function ymdUtcDiffDays(ymdA, ymdB) {
@@ -398,7 +425,7 @@ export function resolveWeeklyDistanceTargets(klass, weekStartYmd) {
   );
 
   const anchorWeek = klass?.starts_at
-    ? getWeekStartDate(new Date(klass.starts_at), cutoff, tz)
+    ? firstCompetitionWeekDate(new Date(klass.starts_at), cutoff, tz)
     : String(weekStartYmd || '').slice(0, 10);
   const ws = String(weekStartYmd || '').slice(0, 10);
   const weekIndex = anchorWeek && ws ? Math.max(0, Math.floor(ymdUtcDiffDays(anchorWeek, ws) / 7)) : 0;
