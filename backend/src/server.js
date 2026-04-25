@@ -1155,45 +1155,6 @@ if (!isBootstrap) {
 
 
 
-  // Migration 750 – team logo and banner image paths on challenge_teams
-    try {
-      const [logoCols750] = await pool.execute(`SHOW COLUMNS FROM challenge_teams LIKE 'logo_path'`);
-      const [bannerCols750] = await pool.execute(`SHOW COLUMNS FROM challenge_teams LIKE 'banner_path'`);
-      const addParts = [];
-      if (!logoCols750.length) {
-        addParts.push(`ADD COLUMN logo_path VARCHAR(500) NULL DEFAULT NULL COMMENT 'Relative path to team logo in uploads'`);
-      }
-      if (!bannerCols750.length) {
-        addParts.push(`ADD COLUMN banner_path VARCHAR(500) NULL DEFAULT NULL COMMENT 'Relative path to team banner in uploads'`);
-      }
-      if (addParts.length) {
-        await pool.execute(`ALTER TABLE challenge_teams ${addParts.join(', ')}`);
-        console.log('[startup] Migration 750 applied: challenge_teams branding columns added', addParts);
-      }
-    } catch (err) {
-      console.warn('[startup] Migration 750 check skipped:', err.message);
-    }
-
-  // Migration 805 – team banner focal columns on challenge_teams
-    try {
-      const [focalXCols805] = await pool.execute(`SHOW COLUMNS FROM challenge_teams LIKE 'banner_focal_x'`);
-      const [focalYCols805] = await pool.execute(`SHOW COLUMNS FROM challenge_teams LIKE 'banner_focal_y'`);
-      const addParts = [];
-      if (!focalXCols805.length) {
-        addParts.push(`ADD COLUMN banner_focal_x DECIMAL(5,2) NOT NULL DEFAULT 50.00`);
-      }
-      if (!focalYCols805.length) {
-        addParts.push(`ADD COLUMN banner_focal_y DECIMAL(5,2) NOT NULL DEFAULT 50.00`);
-      }
-      if (addParts.length) {
-        await pool.execute(`ALTER TABLE challenge_teams ${addParts.join(', ')}`);
-        console.log('[startup] Migration 805 applied: challenge_teams banner focal columns added', addParts);
-      }
-    } catch (err) {
-      console.warn('[startup] Migration 805 check skipped:', err.message);
-    }
-
-  })();
 
   // Set up periodic processing of terminated and completed users
   // Run every hour to check for users that need to be marked inactive or archived
