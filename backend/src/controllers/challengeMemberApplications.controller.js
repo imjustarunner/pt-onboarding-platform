@@ -1450,10 +1450,10 @@ const findRosterPlaceholderMatchForApplication = async ({ clubId, firstName, las
   return nameRows?.length === 1 ? nameRows[0] : null;
 };
 
-const claimRosterPlaceholderForApplication = async ({ existingUser, firstName, lastName, email, phone, password, username, clubId = null }) => {
+const claimRosterPlaceholderForApplication = async ({ existingUser, firstName, lastName, email, phone, password, username, clubId = null, skipNameCheck = false }) => {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const normalizedPhone = User.normalizePhone(phone);
-  const allowNameOnlyClaim = clubId ? await isBerlinClubId(clubId) : false;
+  const allowNameOnlyClaim = skipNameCheck || (clubId ? await isBerlinClubId(clubId) : false);
   if (!existingUser?.id || !normalizedEmail || !password) return false;
   const [rows] = await pool.execute(
     `SELECT id, password_hash
@@ -1552,7 +1552,21 @@ const getApplicationEmailStatusSnapshot = async ({ clubId, email }) => {
   let inPlatformTenant = false;
   let accountLabel = null;
 
+  // Roster placeholder accounts (manually added, never logged in) should be treated
+  // like new users — they still need to set a password and claim their account.
+  let isUnclaimedPlaceholder = false;
   if (existingUser?.id) {
+    try {
+      const [phRows] = await pool.execute(
+        `SELECT is_roster_placeholder, roster_placeholder_claimed_at FROM users WHERE id = ? LIMIT 1`,
+        [existingUser.id]
+      );
+      const ph = phRows?.[0] || {};
+      isUnclaimedPlaceholder = Number(ph.is_roster_placeholder) === 1 && !ph.roster_placeholder_claimed_at;
+    } catch { /* non-blocking */ }
+  }
+
+  if (existingUser?.id && !isUnclaimedPlaceholder) {
     const agencies = await User.getAgencies(existingUser.id);
     alreadyMember = (agencies || []).some((a) => Number(a?.id) === Number(clubId));
     const platformAgencyId = await getClubPlatformTenantAgencyId(clubId);
@@ -1564,12 +1578,15 @@ const getApplicationEmailStatusSnapshot = async ({ clubId, email }) => {
   }
 
   return {
-    existingAccount: !!existingUser,
-    requiresPassword: !existingUser,
+    // Unclaimed placeholders look like new users to the join form
+    existingAccount: !!existingUser && !isUnclaimedPlaceholder,
+    requiresPassword: !existingUser || isUnclaimedPlaceholder,
     alreadyMember,
     inPlatformTenant,
     applicationStatus: existingApplication?.status || null,
-    signInMethod: accountLabel
+    signInMethod: accountLabel,
+    isUnclaimedPlaceholder: !!isUnclaimedPlaceholder,
+    placeholderUserId: isUnclaimedPlaceholder ? existingUser.id : null
   };
 };
 
@@ -1674,12 +1691,6 @@ export const submitApplication = async (req, res, next) => {
     }
 
     const existingApplication = await findLatestApplicationForClubEmail({ clubId, email: normalizedEmail });
-    if (existingApplication?.status === 'approved') {
-      return res.status(409).json({ error: { message: 'An account with this email is already a member of this club' } });
-    }
-    if (existingApplication?.status === 'pending') {
-      return res.status(409).json({ error: { message: 'An application for this email is already pending review' } });
-    }
     const [clubConfigRows] = await pool.execute(
       `SELECT store_config_json FROM agencies WHERE id = ? LIMIT 1`,
       [clubId]
@@ -1688,6 +1699,27 @@ export const submitApplication = async (req, res, next) => {
     const normalizedPronouns = clubPublicConfig.allowCustomPronouns === true ? normalizeShortText(pronouns, 64) : null;
     const isBerlinClub = await isBerlinClubId(clubId);
     let existingUser = await User.findByEmail(normalizedEmail);
+
+    // Check if this is an unclaimed roster placeholder — if so, allow them to claim
+    // their account even if an approved application already exists for this email.
+    let existingUserIsUnclaimedPlaceholder = false;
+    if (existingUser?.id) {
+      try {
+        const [phRows] = await pool.execute(
+          `SELECT is_roster_placeholder, roster_placeholder_claimed_at FROM users WHERE id = ? LIMIT 1`,
+          [existingUser.id]
+        );
+        const ph = phRows?.[0] || {};
+        existingUserIsUnclaimedPlaceholder = Number(ph.is_roster_placeholder) === 1 && !ph.roster_placeholder_claimed_at;
+      } catch { /* non-blocking */ }
+    }
+
+    if (existingApplication?.status === 'approved' && !existingUserIsUnclaimedPlaceholder) {
+      return res.status(409).json({ error: { message: 'An account with this email is already a member of this club' } });
+    }
+    if (existingApplication?.status === 'pending' && !existingUserIsUnclaimedPlaceholder) {
+      return res.status(409).json({ error: { message: 'An application for this email is already pending review' } });
+    }
     if (!existingUser) {
       const phoneMatch = User.normalizePhone(phone) ? await User.findByPhone(phone) : null;
       if (phoneMatch?.id) existingUser = phoneMatch;
@@ -1915,12 +1947,6 @@ export const submitInviteApplication = async (req, res, next) => {
     }
 
     const existingApplication = await findLatestApplicationForClubEmail({ clubId, email });
-    if (existingApplication?.status === 'approved') {
-      return res.status(409).json({ error: { message: 'An account with this email is already a member of this club' } });
-    }
-    if (existingApplication?.status === 'pending') {
-      return res.status(409).json({ error: { message: 'An application for this email is already pending review' } });
-    }
     const normalizedEmail = String(email).trim().toLowerCase();
     const [clubConfigRows] = await pool.execute(
       `SELECT store_config_json FROM agencies WHERE id = ? LIMIT 1`,
@@ -1930,6 +1956,27 @@ export const submitInviteApplication = async (req, res, next) => {
     const normalizedPronouns = clubPublicConfig.allowCustomPronouns === true ? normalizeShortText(pronouns, 64) : null;
     const isBerlinClub = await isBerlinClubId(clubId);
     let existingUser = await User.findByEmail(normalizedEmail);
+
+    // Allow unclaimed roster placeholders to proceed even if an application exists
+    let existingUserIsUnclaimedPlaceholder = false;
+    if (existingUser?.id) {
+      try {
+        const [phRows] = await pool.execute(
+          `SELECT is_roster_placeholder, roster_placeholder_claimed_at FROM users WHERE id = ? LIMIT 1`,
+          [existingUser.id]
+        );
+        const ph = phRows?.[0] || {};
+        existingUserIsUnclaimedPlaceholder = Number(ph.is_roster_placeholder) === 1 && !ph.roster_placeholder_claimed_at;
+      } catch { /* non-blocking */ }
+    }
+
+    if (existingApplication?.status === 'approved' && !existingUserIsUnclaimedPlaceholder) {
+      return res.status(409).json({ error: { message: 'An account with this email is already a member of this club' } });
+    }
+    if (existingApplication?.status === 'pending' && !existingUserIsUnclaimedPlaceholder) {
+      return res.status(409).json({ error: { message: 'An application for this email is already pending review' } });
+    }
+
     if (!existingUser) {
       const phoneMatch = User.normalizePhone(phone) ? await User.findByPhone(phone) : null;
       if (phoneMatch?.id) existingUser = phoneMatch;
@@ -1939,6 +1986,7 @@ export const submitInviteApplication = async (req, res, next) => {
     if (existingUser?.id) {
       existingUserAgencies = await User.getAgencies(existingUser.id);
       const alreadyMember = existingUserAgencies.some((a) => Number(a?.id) === Number(clubId));
+      // Invite proves email ownership — skip name check for unclaimed placeholders
       claimedRosterAccount = await claimRosterPlaceholderForApplication({
         existingUser,
         firstName,
@@ -1947,7 +1995,8 @@ export const submitInviteApplication = async (req, res, next) => {
         phone,
         password,
         username,
-        clubId
+        clubId,
+        skipNameCheck: existingUserIsUnclaimedPlaceholder
       });
       if (alreadyMember && !claimedRosterAccount) {
         return res.status(409).json({ error: { message: 'This account is already a member of this club' } });

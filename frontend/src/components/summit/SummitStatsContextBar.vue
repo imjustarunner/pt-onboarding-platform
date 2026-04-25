@@ -246,12 +246,11 @@ async function switchToClub(club) {
     agencyStore.setCurrentAgency(club);
   }
   const slug = String(club.parent_slug || club.parentSlug || 'sstc').trim() || 'sstc';
-  // Stay on the manager dashboard if the user is already there
-  const currentRouteName = String(route.name || '');
+  // Stay in the manager context if the user is currently on any admin/manager page
   const currentPath = String(route.path || '');
-  const isOnManagerDash = currentRouteName === 'OrganizationClubManagerDashboard'
-    || currentPath.includes('club_manager_dashboard');
-  const dest = isOnManagerDash ? 'club_manager_dashboard' : 'my_club_dashboard';
+  const isOnManagerPage = currentPath.includes('club_manager_dashboard')
+    || currentPath.includes('/admin');
+  const dest = isOnManagerPage ? 'club_manager_dashboard' : 'my_club_dashboard';
   await router.push({ path: `/${slug}/${dest}` });
 }
 

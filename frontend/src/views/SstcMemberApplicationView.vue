@@ -276,6 +276,10 @@
               <span v-if="existingAccountSignInMethod === 'sso'"> This looks like an SSO-only account, so they should keep using their current sign-in method.</span>
             </div>
 
+            <div v-else-if="isUnclaimedPlaceholder && emailLookupDone" class="field-hint field-hint-success">
+              Your spot has been reserved! Create a password below to activate your account and access the club.
+            </div>
+
             <div v-else-if="emailLookupDone && form.email.trim()" class="field-hint field-hint-success">
               This email is new to the platform, so we’ll create an SSTC account with the password below.
             </div>
@@ -598,6 +602,7 @@ const emailStatusLoading = ref(false);
 const emailLookupDone = ref(false);
 const existingAccountDetected = ref(false);
 const existingAccountSignInMethod = ref('');
+const isUnclaimedPlaceholder = ref(false);
 let emailLookupTimeout = null;
 
 const inviteData     = ref(null);
@@ -749,6 +754,7 @@ const form = reactive({
 const resetExistingAccountState = () => {
   existingAccountDetected.value = false;
   existingAccountSignInMethod.value = '';
+  isUnclaimedPlaceholder.value = false;
   emailLookupDone.value = false;
   applicationStatusFromEmail.value = '';
   alreadyMemberFromEmail.value = false;
@@ -1026,6 +1032,7 @@ const checkExistingAccount = async () => {
 
     existingAccountDetected.value = !!data?.existingAccount;
     existingAccountSignInMethod.value = data?.signInMethod || '';
+    isUnclaimedPlaceholder.value = !!data?.isUnclaimedPlaceholder;
     emailLookupDone.value = true;
 
     applicationStatusFromEmail.value = String(data?.applicationStatus || '').toLowerCase();
