@@ -245,27 +245,11 @@ async function switchToClub(club) {
   } catch (_) {
     agencyStore.setCurrentAgency(club);
   }
-
-  // The org slug for routing — all SSTC sub-clubs share the same parent portal slug
-  // (e.g. "sstc"), so the current route slug is still valid after the switch.
-  const currentRouteSlug = String(route.params?.organizationSlug || '').trim();
-  const newClubSlug = String(
-    club.parent_slug || club.parentSlug || club.slug || club.portal_url || club.portalUrl || ''
-  ).trim() || 'sstc';
-
-  // If the URL slug stays the same (same parent org), just update the agency and
-  // stay on the exact same page — the content is driven by agencyStore.currentAgency.
-  if (currentRouteSlug && currentRouteSlug === newClubSlug) {
-    return;
-  }
-
-  // Slug is different (cross-org switch) — navigate to an equivalent manager or
-  // member page under the new slug, preserving the type of page the user is on.
-  const currentPath = String(route.path || '');
-  const isOnManagerPage = currentPath.includes('club_manager_dashboard')
-    || currentPath.includes('/admin');
-  const dest = isOnManagerPage ? 'club_manager_dashboard' : 'my_club_dashboard';
-  await router.push({ path: `/${newClubSlug}/${dest}` });
+  // All clubs in the SSTC switcher are affiliation-type sub-clubs under the same
+  // portal slug. Updating currentAgency is sufficient — every page (Member Management,
+  // Club Dashboard, etc.) reactively re-fetches based on agencyStore.currentAgency.id.
+  // Navigation would cause the router guard to overwrite currentAgency back to the
+  // SSTC parent org, which breaks club-specific data loading.
 }
 
 async function loadSummary() {

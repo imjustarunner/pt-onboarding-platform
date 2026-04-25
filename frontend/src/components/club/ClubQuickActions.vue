@@ -448,9 +448,15 @@ const settingsTo = computed(() => {
 
 const membersTo = computed(() => {
   const slug = isSummitPlatformRouteSlug(props.orgSlug) ? props.orgSlug : NATIVE_APP_ORG_SLUG;
-  return `/${slug}/admin/users`;
+  // Include the specific club ID so Member Management knows which sub-club to load,
+  // even if the router guard later resets currentAgency to the parent org.
+  const clubId = props.agency?.id;
+  return clubId ? `/${slug}/admin/users?clubId=${clubId}` : `/${slug}/admin/users`;
 });
-const dormantMembersTo = computed(() => `${membersTo.value}?filter=dormant`);
+const dormantMembersTo = computed(() => {
+  const base = membersTo.value;
+  return base.includes('?') ? `${base}&filter=dormant` : `${base}?filter=dormant`;
+});
 
 const seasonManagementTo = computed(() => {
   const slug = isSummitPlatformRouteSlug(props.orgSlug) ? props.orgSlug : NATIVE_APP_ORG_SLUG;

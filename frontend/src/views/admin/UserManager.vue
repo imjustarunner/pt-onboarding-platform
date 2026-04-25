@@ -1717,6 +1717,10 @@ const isSscSstcTenant = computed(() => {
   return slug === 'sstc' || slug === 'sstc';
 });
 const selectedClubId = computed(() => {
+  // Prefer the URL query param — links from club dashboards include ?clubId=N so
+  // this survives the router guard overwriting currentAgency to the parent org.
+  const fromQuery = Number(route.query.clubId || 0);
+  if (Number.isFinite(fromQuery) && fromQuery > 0) return fromQuery;
   const id = Number(agencyStore.currentAgency?.id || 0);
   return Number.isFinite(id) && id > 0 ? id : null;
 });
@@ -4138,6 +4142,21 @@ onMounted(async () => {
     // For super admins, don't overwrite the brand/agency preview selection.
     if (role !== 'super_admin') {
       await agencyStore.fetchUserAgencies();
+    }
+    // If ?clubId= was specified (e.g. from a club dashboard's "Member Management" link),
+    // restore currentAgency to that specific sub-club. The router guard may have
+    // overwritten it to the SSTC parent org, which would cause the wrong data to load.
+    const clubIdFromQuery = Number(route.query.clubId || 0);
+    if (isSscSstcTenant.value && clubIdFromQuery > 0) {
+      const match = (agencyStore.userAgencies || []).find((a) => Number(a?.id) === clubIdFromQuery);
+      if (match && Number(agencyStore.currentAgency?.id) !== clubIdFromQuery) {
+        try {
+          const hydrated = await agencyStore.hydrateAgencyById(clubIdFromQuery);
+          agencyStore.setCurrentAgency(hydrated || match);
+        } catch {
+          agencyStore.setCurrentAgency(match);
+        }
+      }
     }
   } catch {
     // ignore (best effort)
