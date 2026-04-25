@@ -129,25 +129,16 @@
           </div>
 
           <div
-            v-if="raceHalf.length || raceFull.length"
+            v-if="raceDivisionsArr.length"
             class="pub-card pub-race-card"
           >
-            <div class="card-label">🏃 Race Divisions</div>
-            <p class="race-intro">Members who've completed race-distance efforts.</p>
+            <div class="card-label">🏁 Race Divisions</div>
+            <p class="race-intro">Members who've completed tagged race distances.</p>
             <div class="race-blocks">
-              <div v-if="raceHalf.length" class="race-block race-block--hm">
-                <div class="race-block-head">🏅 Half Marathon <small>13.1+ mi</small></div>
+              <div v-for="div in raceDivisionsArr" :key="div.key" class="race-block">
+                <div class="race-block-head">{{ div.emoji }} {{ div.label }}</div>
                 <ul class="race-list">
-                  <li v-for="m in raceHalf" :key="`hm-${m.userId}`">
-                    <span class="race-name">{{ m.name }}</span>
-                    <span class="race-time">{{ m.bestTimeText }}</span>
-                  </li>
-                </ul>
-              </div>
-              <div v-if="raceFull.length" class="race-block race-block--marathon">
-                <div class="race-block-head">🥇 Marathon <small>26.2+ mi</small></div>
-                <ul class="race-list">
-                  <li v-for="m in raceFull" :key="`m-${m.userId}`">
+                  <li v-for="m in div.allTime" :key="`${div.key}-${m.userId}`">
                     <span class="race-name">{{ m.name }}</span>
                     <span class="race-time">{{ m.bestTimeText }}</span>
                   </li>
@@ -210,16 +201,14 @@ const viewer = computed(() => {
   return { isAuthenticated: false, isMember: false, clubRole: null, isManager: false };
 });
 
-const raceHalf = computed(() => clubData.value?.raceDivisions?.halfMarathon || []);
-const raceFull = computed(() => clubData.value?.raceDivisions?.marathon || []);
+const raceDivisionsArr = computed(() => {
+  const rd = clubData.value?.raceDivisions;
+  return Array.isArray(rd) ? rd.filter(d => d.allTime?.length) : [];
+});
 
 const hasRecordsContent = computed(() => {
   const cr = clubData.value?.clubRecords || [];
-  return (
-    cr.length > 0 ||
-    raceHalf.value.length > 0 ||
-    raceFull.value.length > 0
-  );
+  return cr.length > 0 || raceDivisionsArr.value.length > 0;
 });
 
 const decimalStatKeys = new Set(['total_miles', 'run_miles', 'ruck_miles']);

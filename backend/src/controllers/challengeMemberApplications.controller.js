@@ -894,9 +894,18 @@ export const getPublicClubStats = async (req, res, next) => {
     }
 
     // Race divisions (all-time for this club)
-    let raceDivisions = { halfMarathon: { allTime: [] }, marathon: { allTime: [] } };
+    let raceDivisionsArr = [];
+    let clubRaceConfig = {};
     try {
-      raceDivisions = await buildRaceDivisions({ classId: 0, organizationId: clubId });
+      const [rdCfgRows] = await pool.execute(
+        `SELECT race_division_config_json FROM agencies WHERE id = ? LIMIT 1`, [clubId]
+      );
+      try { clubRaceConfig = JSON.parse(rdCfgRows?.[0]?.race_division_config_json || '{}'); } catch { clubRaceConfig = {}; }
+      raceDivisionsArr = await buildRaceDivisions({
+        classId: 0, organizationId: clubId,
+        enabledKeys: clubRaceConfig.enabledKeys || null,
+        emojiOverrides: clubRaceConfig.emojiOverrides || {}
+      });
     } catch { /* non-blocking */ }
 
     return res.json({
@@ -922,14 +931,10 @@ export const getPublicClubStats = async (req, res, next) => {
         totalMinutes:  Number(stats.total_minutes || 0),
         totalWorkouts: Number(stats.total_workouts || 0),
         seasonCount,
-        halfMarathonCount: raceDivisions.halfMarathon?.allTime?.length || 0,
-        marathonCount:     raceDivisions.marathon?.allTime?.length || 0
+        raceDivisionCount: raceDivisionsArr.filter(d => d.allTime?.length > 0).length
       },
       clubRecords: Array.isArray(clubRecords) ? clubRecords.filter(r => r?.label) : [],
-      raceDivisions: {
-        halfMarathon: raceDivisions.halfMarathon?.allTime || [],
-        marathon:     raceDivisions.marathon?.allTime || []
-      },
+      raceDivisions: raceDivisionsArr,
       currentSeason,
       upcomingSeason,
       activeParticipants,
@@ -5814,4 +5819,57 @@ export const postTeamAnnouncementForTeam = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+};
+
+/**
+ * GET /summit-stats/clubs/:id/race-division-config
+ * Returns the club-level race division configuration (enabled distances, emoji overrides, lock status).
+ */
+export const getClubRaceDivisionConfig = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+    const [rows] = await pool.execute(
+      `SELECT race_division_config_json FROM agencies WHERE id = ? LIMIT 1`, [clubId]
+    );
+    let cfg = {};
+    try { cfg = JSON.parse(rows?.[0]?.race_division_config_json || '{}'); } catch { cfg = {}; }
+    return res.json({ config: cfg });
+  } catch (e) { next(e); }
+};
+
+/**
+ * PUT /summit-stats/clubs/:id/race-division-config
+ * Saves the club-level race division configuration.
+ * Body: { enabledKeys: string[], emojiOverrides: {key: emoji}, locked: bool }
+ */
+export const putClubRaceDivisionConfig = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+
+    // Check existing config — refuse writes if locked (unless unlocking explicitly)
+    const [rows] = await pool.execute(
+      `SELECT race_division_config_json FROM agencies WHERE id = ? LIMIT 1`, [clubId]
+    );
+    let existing = {};
+    try { existing = JSON.parse(rows?.[0]?.race_division_config_json || '{}'); } catch { existing = {}; }
+    if (existing.locked && req.body?.locked !== false) {
+      return res.status(403).json({ error: { message: 'Race division config is locked. Set locked: false to unlock first.' } });
+    }
+
+    const body = req.body || {};
+    const newCfg = {
+      enabledKeys: Array.isArray(body.enabledKeys) ? body.enabledKeys : (existing.enabledKeys || null),
+      emojiOverrides: (body.emojiOverrides && typeof body.emojiOverrides === 'object') ? body.emojiOverrides : (existing.emojiOverrides || {}),
+      locked: typeof body.locked === 'boolean' ? body.locked : (existing.locked || false)
+    };
+    await pool.execute(
+      `UPDATE agencies SET race_division_config_json = ? WHERE id = ?`,
+      [JSON.stringify(newCfg), clubId]
+    );
+    return res.json({ config: newCfg });
+  } catch (e) { next(e); }
 };

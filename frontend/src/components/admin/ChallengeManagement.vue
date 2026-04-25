@@ -853,6 +853,7 @@
           <button type="button" :class="['tab-btn', { active: manageTab === 'branding' }]" @click="manageTab = 'branding'; initManageBranding()">Branding</button>
           <button type="button" :class="['tab-btn', { active: manageTab === 'reports' }]" @click="manageTab = 'reports'; loadSeasonReport()">Reports</button>
           <button type="button" :class="['tab-btn', { active: manageTab === 'matchups' }]" @click="manageTab = 'matchups'; loadManageMatchups()">Matchups</button>
+          <button type="button" :class="['tab-btn', { active: manageTab === 'racedivisions' }]" @click="manageTab = 'racedivisions'; loadManageRaceDivisions()">Race Divisions</button>
           <button type="button" class="tab-btn tab-btn--edit" @click="editFromManageModal">✏ Edit Season</button>
         </div>
 
@@ -1804,6 +1805,72 @@
           </template>
         </div>
 
+        <!-- Race Divisions tab -->
+        <div v-show="manageTab === 'racedivisions'" class="manage-panel">
+          <p class="section-hint" style="margin-bottom:12px;">
+            Configure which race distances are available for this season. Icons set at the club level appear here as defaults — you can override them per-season.
+            Athletes must tag a workout as a <strong>Race</strong> and the distance must match the range for each division.
+          </p>
+
+          <div v-if="manageRDLoading" class="loading-inline">Loading…</div>
+          <div v-else-if="manageRDError" class="error-banner">{{ manageRDError }}</div>
+          <div v-else>
+            <table class="rd-config-table">
+              <thead>
+                <tr>
+                  <th>Icon</th>
+                  <th>Distance</th>
+                  <th>Range (miles)</th>
+                  <th>Enabled</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="dist in allRaceDistances"
+                  :key="dist.key"
+                  :class="{ 'rd-row--disabled': !manageRDEnabled.includes(dist.key) }"
+                >
+                  <td>
+                    <span class="rd-emoji-cell">
+                      <span class="rd-emoji">{{ manageRDEmojis[dist.key] || dist.defaultEmoji }}</span>
+                      <input
+                        v-if="!manageRDLocked"
+                        type="text"
+                        class="rd-emoji-input"
+                        :value="manageRDEmojis[dist.key] || ''"
+                        placeholder="emoji"
+                        maxlength="4"
+                        @change="setRDEmoji(dist.key, $event.target.value)"
+                      />
+                    </span>
+                  </td>
+                  <td class="rd-label">{{ dist.label }}</td>
+                  <td class="rd-range">{{ dist.minMiles }}–{{ dist.maxMiles }} mi</td>
+                  <td>
+                    <label class="rd-toggle">
+                      <input
+                        type="checkbox"
+                        :checked="manageRDEnabled.includes(dist.key)"
+                        :disabled="manageRDLocked"
+                        @change="toggleRDKey(dist.key, $event.target.checked)"
+                      />
+                      <span>{{ manageRDEnabled.includes(dist.key) ? 'On' : 'Off' }}</span>
+                    </label>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div v-if="!manageRDLocked" class="form-actions" style="margin-top:12px; gap:8px;">
+              <button type="button" class="btn btn-primary" :disabled="manageRDSaving" @click="saveManageRaceDivisions">
+                {{ manageRDSaving ? 'Saving…' : 'Save Race Division Settings' }}
+              </button>
+              <span v-if="manageRDSaveMsg" class="mu-msg">{{ manageRDSaveMsg }}</span>
+            </div>
+            <p v-else class="section-hint" style="margin-top:8px;">🔒 Race division config is locked at the club level. Unlock in Club Settings → Race Divisions to edit icons.</p>
+          </div>
+        </div>
+
         <div class="form-actions" style="margin-top: 16px;">
           <button type="button" class="btn btn-secondary" @click="closeManageModal">Done</button>
         </div>
@@ -1945,6 +2012,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue';
+import { RACE_DISTANCES } from '../../utils/raceDistances.js';
 import { useRouter, useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
@@ -3538,6 +3606,86 @@ const toggleManageMatchupWeek = (date) => {
   s.has(date) ? s.delete(date) : s.add(date);
   manageMatchupExpandedWeeks.value = s;
 };
+// ── Race Divisions tab ────────────────────────────────────────────────────────
+const allRaceDistances = RACE_DISTANCES;
+const manageRDLoading  = ref(false);
+const manageRDError    = ref('');
+const manageRDSaving   = ref(false);
+const manageRDSaveMsg  = ref('');
+const manageRDEnabled  = ref(RACE_DISTANCES.map((d) => d.key)); // default all on
+const manageRDEmojis   = ref({});  // { [key]: customEmoji }
+const manageRDLocked   = ref(false);
+
+const loadManageRaceDivisions = async () => {
+  const club = agencyStore.currentAgency;
+  const classId = managingChallenge.value?.id;
+  if (!classId) return;
+  manageRDLoading.value = true;
+  manageRDError.value = '';
+  try {
+    // Load club-level config first
+    let clubEnabled = null;
+    let clubEmojis  = {};
+    let locked      = false;
+    if (club?.id) {
+      try {
+        const cfgRes = await api.get(`/summit-stats/clubs/${club.id}/race-division-config`);
+        const cfg = cfgRes.data?.config || {};
+        clubEnabled = Array.isArray(cfg.enabledKeys) && cfg.enabledKeys.length ? cfg.enabledKeys : null;
+        clubEmojis  = cfg.emojiOverrides || {};
+        locked      = !!cfg.locked;
+      } catch { /* non-blocking */ }
+    }
+    // Then load season-level overrides from season settings
+    const s = managingChallenge.value?.season_settings_json;
+    const settings = typeof s === 'string' ? (() => { try { return JSON.parse(s); } catch { return {}; } })() : (s || {});
+    const seasonRD = settings?.raceDivisions || {};
+    manageRDEnabled.value = Array.isArray(seasonRD.enabledKeys) && seasonRD.enabledKeys.length
+      ? seasonRD.enabledKeys
+      : (clubEnabled || RACE_DISTANCES.map((d) => d.key));
+    manageRDEmojis.value  = { ...clubEmojis, ...(seasonRD.emojiOverrides || {}) };
+    manageRDLocked.value  = locked;
+  } catch (e) {
+    manageRDError.value = e?.response?.data?.error?.message || 'Failed to load race division config.';
+  } finally {
+    manageRDLoading.value = false;
+  }
+};
+
+const toggleRDKey = (key, checked) => {
+  const cur = new Set(manageRDEnabled.value);
+  checked ? cur.add(key) : cur.delete(key);
+  manageRDEnabled.value = RACE_DISTANCES.map((d) => d.key).filter((k) => cur.has(k));
+};
+
+const setRDEmoji = (key, val) => {
+  manageRDEmojis.value = { ...manageRDEmojis.value, [key]: val.trim() || undefined };
+};
+
+const saveManageRaceDivisions = async () => {
+  const classId = managingChallenge.value?.id;
+  if (!classId) return;
+  manageRDSaving.value = true;
+  manageRDSaveMsg.value = '';
+  try {
+    // Save as season-level override inside season_settings_json
+    const s = managingChallenge.value?.season_settings_json;
+    const settings = typeof s === 'string' ? (() => { try { return JSON.parse(s); } catch { return {}; } })() : (s || {});
+    settings.raceDivisions = {
+      enabledKeys: manageRDEnabled.value,
+      emojiOverrides: Object.fromEntries(Object.entries(manageRDEmojis.value).filter(([, v]) => v))
+    };
+    await api.patch(`/learning-program-classes/${classId}`, { seasonSettingsJson: settings });
+    // Refresh local copy
+    if (managingChallenge.value) managingChallenge.value.season_settings_json = settings;
+    manageRDSaveMsg.value = 'Saved!';
+    setTimeout(() => { manageRDSaveMsg.value = ''; }, 3000);
+  } catch (e) {
+    manageRDSaveMsg.value = e?.response?.data?.error?.message || 'Save failed.';
+  } finally {
+    manageRDSaving.value = false;
+  }
+};
 // ────────────────────────────────────────────────────────────────────────────
 
 const teams = ref([]);
@@ -4898,6 +5046,12 @@ const closeManageModal = () => {
   manageMatchupSchedule.value = [];
   manageMatchupStandings.value = [];
   manageMatchupExpandedWeeks.value = new Set();
+  manageRDLoading.value  = false;
+  manageRDError.value    = '';
+  manageRDSaveMsg.value  = '';
+  manageRDEnabled.value  = RACE_DISTANCES.map((d) => d.key);
+  manageRDEmojis.value   = {};
+  manageRDLocked.value   = false;
   weeklyTargetOverrides.value = {};
   weeklyTargetEditingWeekStart.value = null;
   weeklyTargetEditDraft.value = '';
@@ -7183,5 +7337,52 @@ onMounted(async () => {
   color: #dc2626;
   font-size: 0.82rem;
   margin-top: 8px;
+}
+
+/* ── Race Divisions config tab ───────────────────────── */
+.rd-config-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+.rd-config-table th,
+.rd-config-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+}
+.rd-config-table th {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #64748b;
+}
+.rd-row--disabled td {
+  opacity: 0.45;
+}
+.rd-emoji-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rd-emoji {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+.rd-emoji-input {
+  width: 56px;
+  font-size: 1rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  padding: 2px 5px;
+  text-align: center;
+}
+.rd-label { font-weight: 600; }
+.rd-range { color: #64748b; font-size: 0.82rem; }
+.rd-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
 }
 </style>

@@ -5,6 +5,7 @@
  */
 import pool from '../config/database.js';
 import crypto from 'crypto';
+import { RACE_DISTANCES, DEFAULT_ENABLED_KEYS } from '../utils/raceDistances.js';
 import ChallengeTeam from '../models/ChallengeTeam.model.js';
 import ChallengeWorkout from '../models/ChallengeWorkout.model.js';
 import User from '../models/User.model.js';
@@ -890,17 +891,24 @@ const formatRaceTime = (totalMinutes) => {
     : `${m}m ${String(s).padStart(2, '0')}s`;
 };
 
-export const buildRaceDivisions = async ({ classId, organizationId }) => {
-  const scopeWhere = {
-    season: { sql: 'w.learning_class_id = ?', params: [classId] },
-    club_all_time: organizationId
-      ? { sql: 'c.organization_id = ?', params: [organizationId] }
-      : null
-  };
+/**
+ * Build race division leaderboards for a season and/or club all-time.
+ *
+ * Workouts must be explicitly tagged as a race (is_race = 1) and must fall
+ * within the distance range for a standard race distance (not just any run
+ * that surpasses a threshold).
+ *
+ * @param {object} opts
+ * @param {number}   opts.classId        - Season class ID (0 = skip season scope)
+ * @param {number}   opts.organizationId - Club org ID (0 = skip all-time scope)
+ * @param {string[]} opts.enabledKeys    - Which race distance keys to include
+ * @param {object}   opts.emojiOverrides - { [key]: emoji } club-level emoji overrides
+ */
+export const buildRaceDivisions = async ({ classId, organizationId, enabledKeys, emojiOverrides = {} }) => {
+  const keys = Array.isArray(enabledKeys) && enabledKeys.length ? enabledKeys : DEFAULT_ENABLED_KEYS;
+  const distances = RACE_DISTANCES.filter((d) => keys.includes(d.key));
 
-  const fetchDivision = async (scopeKey, distanceThreshold) => {
-    const scope = scopeWhere[scopeKey];
-    if (!scope) return [];
+  const fetchDivision = async (scopeSql, scopeParams, minMiles, maxMiles) => {
     const [rows] = await pool.execute(
       `SELECT
          u.id AS user_id,
@@ -913,13 +921,15 @@ export const buildRaceDivisions = async ({ classId, organizationId }) => {
        FROM challenge_workouts w
        INNER JOIN users u ON u.id = w.user_id
        INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
-       WHERE ${scope.sql}
+       WHERE ${scopeSql}
+         AND w.is_race = 1
          AND LOWER(w.activity_type) LIKE '%run%'
          AND COALESCE(w.distance_value, 0) >= ?
+         AND COALESCE(w.distance_value, 0) <= ?
          AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
        GROUP BY u.id, u.first_name, u.last_name
        ORDER BY MIN(w.duration_minutes) ASC`,
-      [...scope.params, distanceThreshold]
+      [...scopeParams, minMiles, maxMiles]
     );
     return (rows || []).map((r) => ({
       userId: Number(r.user_id),
@@ -932,18 +942,27 @@ export const buildRaceDivisions = async ({ classId, organizationId }) => {
     }));
   };
 
-  return {
-    halfMarathon: {
-      threshold: 13.1,
-      season: await fetchDivision('season', 13.1),
-      allTime: await fetchDivision('club_all_time', 13.1)
-    },
-    marathon: {
-      threshold: 26.2,
-      season: await fetchDivision('season', 26.2),
-      allTime: await fetchDivision('club_all_time', 26.2)
-    }
-  };
+  const seasonScope  = classId        ? { sql: 'w.learning_class_id = ?', params: [classId] }        : null;
+  const allTimeScope = organizationId ? { sql: 'c.organization_id = ?',   params: [organizationId] } : null;
+
+  const divisions = [];
+  for (const dist of distances) {
+    const [seasonEntries, allTimeEntries] = await Promise.all([
+      seasonScope  ? fetchDivision(seasonScope.sql,  seasonScope.params,  dist.minMiles, dist.maxMiles) : Promise.resolve([]),
+      allTimeScope ? fetchDivision(allTimeScope.sql, allTimeScope.params, dist.minMiles, dist.maxMiles) : Promise.resolve([])
+    ]);
+    divisions.push({
+      key: dist.key,
+      label: dist.label,
+      shortLabel: dist.shortLabel,
+      miles: dist.miles,
+      emoji: emojiOverrides[dist.key] || dist.defaultEmoji,
+      season: seasonEntries,
+      allTime: allTimeEntries,
+      hasEntries: seasonEntries.length > 0 || allTimeEntries.length > 0
+    });
+  }
+  return divisions;
 };
 
 export const getRaceDivisions = async (req, res, next) => {
@@ -952,9 +971,28 @@ export const getRaceDivisions = async (req, res, next) => {
     if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
     const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
     if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
+
     const organizationId = Number(access.class?.organization_id || 0) || null;
-    const divisions = await buildRaceDivisions({ classId, organizationId });
-    return res.json(divisions);
+
+    // Merge club-level config with season-level overrides
+    let clubConfig = {};
+    if (organizationId) {
+      const [clubRows] = await pool.execute(
+        `SELECT race_division_config_json FROM agencies WHERE id = ? LIMIT 1`, [organizationId]
+      );
+      try { clubConfig = JSON.parse(clubRows?.[0]?.race_division_config_json || '{}'); } catch { clubConfig = {}; }
+    }
+
+    const seasonSettings = parseJsonObject(access.class?.season_settings_json || {});
+    const seasonRD = seasonSettings?.raceDivisions || {};
+    // Season overrides take precedence over club config; fall back to club enabled list
+    const enabledKeys = Array.isArray(seasonRD.enabledKeys) && seasonRD.enabledKeys.length
+      ? seasonRD.enabledKeys
+      : (Array.isArray(clubConfig.enabledKeys) && clubConfig.enabledKeys.length ? clubConfig.enabledKeys : DEFAULT_ENABLED_KEYS);
+    const emojiOverrides = { ...(clubConfig.emojiOverrides || {}), ...(seasonRD.emojiOverrides || {}) };
+
+    const divisions = await buildRaceDivisions({ classId, organizationId, enabledKeys, emojiOverrides });
+    return res.json({ divisions, enabledKeys, emojiOverrides });
   } catch (e) {
     next(e);
   }

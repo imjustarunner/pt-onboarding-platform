@@ -350,7 +350,7 @@
         <div
           id="club-records"
           class="pub-row"
-          v-if="clubData.clubRecords?.length || clubData.raceDivisions?.halfMarathon?.length || clubData.raceDivisions?.marathon?.length"
+          v-if="clubData.clubRecords?.length || (Array.isArray(clubData.raceDivisions) ? clubData.raceDivisions.some(d => d.allTime?.length) : false)"
         >
           <div v-if="clubData.clubRecords?.length" class="pub-card pub-records-card">
             <div class="card-label">🏅 Club Records</div>
@@ -380,25 +380,20 @@
           </div>
 
           <div
-            v-if="clubData.raceDivisions?.halfMarathon?.length || clubData.raceDivisions?.marathon?.length"
+            v-if="Array.isArray(clubData.raceDivisions) && clubData.raceDivisions.some(d => d.allTime?.length)"
             class="pub-card pub-race-card"
           >
-            <div class="card-label">🏃 Race Divisions</div>
-            <p class="race-intro">Members who've completed race-distance efforts.</p>
+            <div class="card-label">🏁 Race Divisions</div>
+            <p class="race-intro">Members who've completed tagged race distances.</p>
             <div class="race-blocks">
-              <div v-if="clubData.raceDivisions?.halfMarathon?.length" class="race-block race-block--hm">
-                <div class="race-block-head">🏅 Half Marathon <small>13.1+ mi</small></div>
+              <div
+                v-for="div in clubData.raceDivisions.filter(d => d.allTime?.length)"
+                :key="div.key"
+                class="race-block"
+              >
+                <div class="race-block-head">{{ div.emoji }} {{ div.label }}</div>
                 <ul class="race-list">
-                  <li v-for="m in clubData.raceDivisions.halfMarathon" :key="`hm-${m.userId}`">
-                    <span class="race-name">{{ m.name }}</span>
-                    <span class="race-time">{{ m.bestTimeText }}</span>
-                  </li>
-                </ul>
-              </div>
-              <div v-if="clubData.raceDivisions?.marathon?.length" class="race-block race-block--marathon">
-                <div class="race-block-head">🥇 Marathon <small>26.2+ mi</small></div>
-                <ul class="race-list">
-                  <li v-for="m in clubData.raceDivisions.marathon" :key="`m-${m.userId}`">
+                  <li v-for="m in div.allTime" :key="`${div.key}-${m.userId}`">
                     <span class="race-name">{{ m.name }}</span>
                     <span class="race-time">{{ m.bestTimeText }}</span>
                   </li>

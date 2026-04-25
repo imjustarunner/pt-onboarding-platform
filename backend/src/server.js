@@ -1388,6 +1388,21 @@ if (!isBootstrap) {
       console.warn('[startup] Migration 805 check skipped:', err.message);
     }
 
+  // Migration 808 – race_division_config_json on agencies (SSTC-level race division settings)
+    try {
+      const [cols808] = await pool.execute(`SHOW COLUMNS FROM agencies LIKE 'race_division_config_json'`);
+      if (!cols808.length) {
+        await pool.execute(
+          `ALTER TABLE agencies
+             ADD COLUMN race_division_config_json MEDIUMTEXT NULL DEFAULT NULL
+               COMMENT 'JSON: { enabledKeys: string[], emojiOverrides: {key: emoji}, locked: bool }'`
+        );
+        console.log('[startup] Migration 808 applied: race_division_config_json added to agencies');
+      }
+    } catch (err) {
+      console.warn('[startup] Migration 808 check skipped:', err.message);
+    }
+
   // Migration 806 – activated_at on learning_program_classes (records when a season is launched)
     try {
       const [cols806] = await pool.execute(`SHOW COLUMNS FROM learning_program_classes LIKE 'activated_at'`);

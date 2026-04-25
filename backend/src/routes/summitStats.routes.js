@@ -125,6 +125,8 @@ import {
   updatePublicPageConfig,
   setClubMemberStatus,
   putClubMemberProfile,
+  getClubRaceDivisionConfig,
+  putClubRaceDivisionConfig,
   putClubMemberTeamCaptain,
   getMyApplications,
   getMyDashboardSummary,
@@ -263,6 +265,8 @@ router.post('/clubs/:id/members/add-existing', addExistingMembersToClub);
 router.post('/clubs/:id/members/merge', mergeClubMemberDuplicates);
 router.get('/clubs/:id/members/:userId/season-history', getClubMemberSeasonHistory);
 router.put('/clubs/:id/members/:userId/profile', putClubMemberProfile);
+router.get('/clubs/:id/race-division-config', getClubRaceDivisionConfig);
+router.put('/clubs/:id/race-division-config', putClubRaceDivisionConfig);
 router.put('/clubs/:id/members/:userId/team-captain', putClubMemberTeamCaptain);
 router.put('/clubs/:id/members/:userId/status', setClubMemberStatus);
 router.put('/clubs/:id/members/:userId/role', setClubMemberRole);

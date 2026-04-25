@@ -647,87 +647,66 @@
           @move-down="moveSectionDown('race-divisions')"
         >
             <div class="challenge-section">
-              <h2>Race Divisions</h2>
-              <p class="section-hint">Members are auto-enrolled when they log a qualifying run distance.</p>
-              <div v-if="raceDivisionsLoading" class="loading-inline">Loading race divisions…</div>
-              <div v-else class="race-divisions-grid">
-                <!-- Half Marathon Club -->
-                <div class="race-division-card">
-                  <div class="race-division-header hm-header">
-                    <span class="race-badge">🏃 13.1</span>
-                    <div>
-                      <h4>Half Marathon Club</h4>
-                      <p class="race-threshold">Runs of 13.1+ miles</p>
-                    </div>
-                  </div>
-                  <div class="race-tabs">
-                    <button
-                      class="race-tab-btn"
-                      :class="{ active: raceDivisionTab === 'season' }"
-                      @click="raceDivisionTab = 'season'"
-                    >This Season</button>
-                    <button
-                      class="race-tab-btn"
-                      :class="{ active: raceDivisionTab === 'alltime' }"
-                      @click="raceDivisionTab = 'alltime'"
-                    >All-Time</button>
-                  </div>
-                  <ul class="race-members-list" v-if="raceDivisionTab === 'season'">
-                    <li v-for="m in raceDivisions.halfMarathon?.season || []" :key="`hm-s-${m.userId}`">
-                      <span class="race-member-name">{{ m.name }}</span>
-                      <span class="race-member-time">{{ m.bestTimeText }}</span>
-                      <span v-if="m.completionCount > 1" class="race-member-count">×{{ m.completionCount }}</span>
-                    </li>
-                    <li v-if="!(raceDivisions.halfMarathon?.season || []).length" class="race-empty">No season entries yet.</li>
-                  </ul>
-                  <ul class="race-members-list" v-else>
-                    <li v-for="m in raceDivisions.halfMarathon?.allTime || []" :key="`hm-a-${m.userId}`">
-                      <span class="race-member-name">{{ m.name }}</span>
-                      <span class="race-member-time">{{ m.bestTimeText }}</span>
-                      <span v-if="m.completionCount > 1" class="race-member-count">×{{ m.completionCount }}</span>
-                    </li>
-                    <li v-if="!(raceDivisions.halfMarathon?.allTime || []).length" class="race-empty">No all-time entries yet.</li>
-                  </ul>
+              <div class="rd-section-header">
+                <div>
+                  <h2>Race Divisions</h2>
+                  <p class="section-hint">Races must be tagged as a Race when logging. Only actual race distances qualify.</p>
                 </div>
+                <div class="rd-header-controls">
+                  <div class="race-tabs race-tabs--global">
+                    <button class="race-tab-btn" :class="{ active: raceDivisionTab === 'season' }" @click="raceDivisionTab = 'season'">This Season</button>
+                    <button class="race-tab-btn" :class="{ active: raceDivisionTab === 'alltime' }" @click="raceDivisionTab = 'alltime'">All-Time</button>
+                  </div>
+                  <button
+                    v-if="raceDivisions.some(d => !d.hasEntries)"
+                    class="rd-expand-btn"
+                    @click="raceDivisionsShowAll = !raceDivisionsShowAll"
+                  >{{ raceDivisionsShowAll ? 'Hide Empty' : 'Show All' }}</button>
+                </div>
+              </div>
 
-                <!-- Marathon Club -->
-                <div class="race-division-card">
-                  <div class="race-division-header marathon-header">
-                    <span class="race-badge">🏅 26.2</span>
+              <div v-if="raceDivisionsLoading" class="loading-inline">Loading race divisions…</div>
+              <div v-else-if="!raceDivisions.length" class="race-empty" style="padding:16px 0">No race divisions configured.</div>
+              <div v-else class="race-divisions-grid">
+                <div
+                  v-for="div in raceDivisions.filter(d => raceDivisionsShowAll || d.hasEntries)"
+                  :key="div.key"
+                  class="race-division-card"
+                >
+                  <div class="race-division-header">
+                    <span class="race-badge">{{ div.emoji }} {{ div.shortLabel }}</span>
                     <div>
-                      <h4>Marathon Club</h4>
-                      <p class="race-threshold">Runs of 26.2+ miles</p>
+                      <h4>{{ div.label }}</h4>
                     </div>
                   </div>
-                  <div class="race-tabs">
-                    <button
-                      class="race-tab-btn"
-                      :class="{ active: raceDivisionTab === 'season' }"
-                      @click="raceDivisionTab = 'season'"
-                    >This Season</button>
-                    <button
-                      class="race-tab-btn"
-                      :class="{ active: raceDivisionTab === 'alltime' }"
-                      @click="raceDivisionTab = 'alltime'"
-                    >All-Time</button>
-                  </div>
-                  <ul class="race-members-list" v-if="raceDivisionTab === 'season'">
-                    <li v-for="m in raceDivisions.marathon?.season || []" :key="`m-s-${m.userId}`">
-                      <span class="race-member-name">{{ m.name }}</span>
-                      <span class="race-member-time">{{ m.bestTimeText }}</span>
-                      <span v-if="m.completionCount > 1" class="race-member-count">×{{ m.completionCount }}</span>
-                    </li>
-                    <li v-if="!(raceDivisions.marathon?.season || []).length" class="race-empty">No season entries yet.</li>
-                  </ul>
-                  <ul class="race-members-list" v-else>
-                    <li v-for="m in raceDivisions.marathon?.allTime || []" :key="`m-a-${m.userId}`">
-                      <span class="race-member-name">{{ m.name }}</span>
-                      <span class="race-member-time">{{ m.bestTimeText }}</span>
-                      <span v-if="m.completionCount > 1" class="race-member-count">×{{ m.completionCount }}</span>
-                    </li>
-                    <li v-if="!(raceDivisions.marathon?.allTime || []).length" class="race-empty">No all-time entries yet.</li>
+                  <ul class="race-members-list">
+                    <template v-if="raceDivisionTab === 'season'">
+                      <li v-for="(m, i) in div.season" :key="`${div.key}-s-${m.userId}`">
+                        <span class="race-rank">{{ i + 1 }}.</span>
+                        <span class="race-member-name">{{ m.name }}</span>
+                        <span class="race-member-time">{{ m.bestTimeText }}</span>
+                        <span v-if="m.completionCount > 1" class="race-member-count">×{{ m.completionCount }}</span>
+                      </li>
+                      <li v-if="!div.season.length" class="race-empty">No season races yet.</li>
+                    </template>
+                    <template v-else>
+                      <li v-for="(m, i) in div.allTime" :key="`${div.key}-a-${m.userId}`">
+                        <span class="race-rank">{{ i + 1 }}.</span>
+                        <span class="race-member-name">{{ m.name }}</span>
+                        <span class="race-member-time">{{ m.bestTimeText }}</span>
+                        <span v-if="m.completionCount > 1" class="race-member-count">×{{ m.completionCount }}</span>
+                      </li>
+                      <li v-if="!div.allTime.length" class="race-empty">No all-time races yet.</li>
+                    </template>
                   </ul>
                 </div>
+              </div>
+
+              <!-- When all have entries, offer the expand anyway -->
+              <div v-if="!raceDivisionsLoading && raceDivisions.length && raceDivisions.every(d => d.hasEntries)" style="margin-top:8px;">
+                <button class="rd-expand-btn" @click="raceDivisionsShowAll = !raceDivisionsShowAll">
+                  {{ raceDivisionsShowAll ? 'Collapse' : 'Expand All Divisions' }}
+                </button>
               </div>
             </div>
         </DashboardSectionWrapper>
@@ -1615,9 +1594,10 @@ const seasonSummaryLoading = ref(false);
 const seasonSummaryWeekStart = ref(null);
 const recordBoards = ref({ seasonRecords: [], clubAllTimeRecords: [] });
 const recordBoardsLoading = ref(false);
-const raceDivisions = ref({ halfMarathon: { season: [], allTime: [] }, marathon: { season: [], allTime: [] } });
+const raceDivisions = ref([]);          // array of { key, label, emoji, season[], allTime[], hasEntries }
 const raceDivisionsLoading = ref(false);
 const raceDivisionTab = ref('season');
+const raceDivisionsShowAll = ref(false);
 
 // Kudos stats
 const kudosStats = ref(null);
@@ -2392,18 +2372,10 @@ const loadRaceDivisions = async () => {
   raceDivisionsLoading.value = true;
   try {
     const r = await api.get(`/learning-program-classes/${id}/race-divisions`, { skipGlobalLoading: true });
-    raceDivisions.value = {
-      halfMarathon: {
-        season: Array.isArray(r.data?.halfMarathon?.season) ? r.data.halfMarathon.season : [],
-        allTime: Array.isArray(r.data?.halfMarathon?.allTime) ? r.data.halfMarathon.allTime : []
-      },
-      marathon: {
-        season: Array.isArray(r.data?.marathon?.season) ? r.data.marathon.season : [],
-        allTime: Array.isArray(r.data?.marathon?.allTime) ? r.data.marathon.allTime : []
-      }
-    };
+    raceDivisions.value = Array.isArray(r.data?.divisions) ? r.data.divisions : [];
+    raceDivisionsShowAll.value = false;
   } catch {
-    raceDivisions.value = { halfMarathon: { season: [], allTime: [] }, marathon: { season: [], allTime: [] } };
+    raceDivisions.value = [];
   } finally {
     raceDivisionsLoading.value = false;
   }
@@ -3796,13 +3768,38 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   font-size: 0.85em;
   color: #888;
 }
+.rd-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.rd-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.rd-expand-btn {
+  background: none;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  color: #475569;
+  white-space: nowrap;
+}
+.rd-expand-btn:hover { background: #f1f5f9; }
 .race-divisions-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
 }
 .race-division-card {
-  border: 1px solid #e0e0e0;
+  border: 1px solid #e2e8f0;
   border-radius: 10px;
   overflow: hidden;
   background: #fff;
@@ -3810,87 +3807,72 @@ watch(() => workoutForm.value.terrain, (terrain) => {
 .race-division-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-}
-.hm-header {
-  background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
-}
-.marathon-header {
-  background: linear-gradient(135deg, #fff8e1, #ffe082);
+  gap: 10px;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+  border-bottom: 1px solid #e2e8f0;
 }
 .race-badge {
-  font-size: 1.6rem;
+  font-size: 1.5rem;
   line-height: 1;
 }
 .race-division-header h4 {
-  margin: 0 0 2px;
-  font-size: 1rem;
+  margin: 0;
+  font-size: 0.92rem;
   font-weight: 700;
 }
-.race-threshold {
-  margin: 0;
-  font-size: 0.78em;
-  color: #666;
-}
-.race-tabs {
+.race-tabs--global {
   display: flex;
-  border-bottom: 1px solid #eee;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  overflow: hidden;
 }
-.race-tab-btn {
-  flex: 1;
-  padding: 6px 10px;
+.race-tabs--global .race-tab-btn {
+  padding: 5px 12px;
+  font-size: 0.8rem;
   border: none;
   background: transparent;
-  font-size: 0.82em;
   cursor: pointer;
-  color: #666;
-  transition: background 0.15s;
+  color: #64748b;
+  white-space: nowrap;
 }
-.race-tab-btn.active {
-  background: #f5f5f5;
+.race-tabs--global .race-tab-btn.active {
+  background: #3b82f6;
+  color: #fff;
   font-weight: 600;
-  color: #222;
-  border-bottom: 2px solid #3498db;
 }
 .race-members-list {
   list-style: none;
   margin: 0;
-  padding: 8px 0;
-  max-height: 220px;
+  padding: 6px 0;
+  max-height: 200px;
   overflow-y: auto;
 }
 .race-members-list li {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 14px;
-  border-bottom: 1px solid #f5f5f5;
-  font-size: 0.88em;
+  gap: 5px;
+  padding: 4px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 0.85em;
 }
-.race-members-list li:last-child {
-  border-bottom: none;
-}
-.race-member-name {
-  flex: 1;
-  font-weight: 500;
-}
-.race-member-time {
-  color: #555;
-  font-variant-numeric: tabular-nums;
-}
+.race-members-list li:last-child { border-bottom: none; }
+.race-rank { color: #94a3b8; font-size: 0.78em; width: 16px; flex-shrink: 0; }
+.race-member-name { flex: 1; font-weight: 500; }
+.race-member-time { color: #475569; font-variant-numeric: tabular-nums; font-size: 0.85em; }
 .race-member-count {
-  background: #eee;
+  background: #e2e8f0;
   border-radius: 10px;
-  padding: 1px 6px;
-  font-size: 0.78em;
-  color: #555;
+  padding: 1px 5px;
+  font-size: 0.75em;
+  color: #64748b;
 }
 .race-empty {
-  color: #aaa;
+  color: #94a3b8;
   font-style: italic;
-  font-size: 0.85em;
+  font-size: 0.83em;
   justify-content: center;
+  padding: 10px 12px !important;
 }
 .workout-form {
   display: flex;
