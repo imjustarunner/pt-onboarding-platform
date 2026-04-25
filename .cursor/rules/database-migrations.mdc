@@ -1,0 +1,41 @@
+---
+description: Database migration conventions for this project
+alwaysApply: true
+---
+
+# Database Migrations
+
+**ALWAYS** add new migrations as `.sql` files in `database/migrations/`. NEVER add inline migrations to `server.js` or any other JS file.
+
+## Convention
+
+```
+database/migrations/
+  807_challenge_matchups.sql
+  808_race_division_config.sql
+  809_team_color.sql        ← correct pattern
+```
+
+## File naming
+
+`{next_number}_{short_description}.sql`
+
+- Check the highest existing number in `database/migrations/` and increment by 1.
+- Use lowercase snake_case for the description.
+
+## File contents
+
+```sql
+-- Migration 809: short description of what this does
+ALTER TABLE some_table
+  ADD COLUMN new_col VARCHAR(255) NULL DEFAULT NULL
+    COMMENT 'What this column stores';
+```
+
+## ❌ Never do this
+
+```js
+// server.js — DO NOT add migrations here
+const [cols] = await pool.execute(`SHOW COLUMNS FROM ... LIKE '...'`);
+if (!cols.length) { await pool.execute(`ALTER TABLE ...`); }
+```
