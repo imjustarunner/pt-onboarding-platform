@@ -641,7 +641,12 @@
           @move-down="moveSectionDown('team-list')"
         >
           <div class="challenge-section">
-            <ChallengeTeamList :teams="teams" :loading="teamsLoading" />
+            <ChallengeTeamList
+              :teams="teams"
+              :loading="teamsLoading"
+              :challenge-id="challengeId"
+              :organization-slug="organizationSlug"
+            />
           </div>
         </DashboardSectionWrapper>
 
@@ -661,7 +666,7 @@
         </DashboardSectionWrapper>
 
         <DashboardSectionWrapper
-          v-if="isChallengeManager || isTeamCaptain"
+          v-if="(isChallengeManager || isTeamCaptain) && !teamsFinalized"
           :id="'draft-report'"
           :label="sectionLabel('draft-report')"
           :order="dashboardLayout.orderOf('draft-report')"
@@ -673,6 +678,12 @@
         >
           <div class="challenge-section">
             <ChallengeDraftReport :challenge-id="challengeId" :can-edit="isChallengeManager" />
+            <div v-if="isChallengeManager" class="finalize-teams-panel">
+              <button class="btn btn-primary btn-sm" type="button" :disabled="finalizingTeams" @click="finalizeTeamsForSeason">
+                {{ finalizingTeams ? 'Finalizing…' : 'Finalize Teams' }}
+              </button>
+              <span class="hint">Hides this draft report from the season dashboard for managers and captains.</span>
+            </div>
           </div>
         </DashboardSectionWrapper>
 
@@ -812,7 +823,13 @@
           @move-down="moveSectionDown('rules')"
         >
           <div id="section-rules" class="challenge-section">
-            <ChallengeRules :challenge="challenge" />
+            <div class="rules-collapse-head">
+              <button class="rules-collapse-toggle" type="button" @click="rulesCollapsed = !rulesCollapsed">
+                <span>{{ rulesCollapsed ? 'Show Season Rules' : 'Hide Season Rules' }}</span>
+                <span aria-hidden="true">{{ rulesCollapsed ? '+' : '−' }}</span>
+              </button>
+            </div>
+            <ChallengeRules v-if="!rulesCollapsed" :challenge="challenge" />
           </div>
         </DashboardSectionWrapper>
 
@@ -1300,6 +1317,8 @@ const leaderboard = ref(null);
 const leaderboardLoading = ref(false);
 const teams = ref([]);
 const teamsLoading = ref(false);
+const finalizingTeams = ref(false);
+const rulesCollapsed = ref(false);
 const myTeamFromApi = ref(null); // user's own team loaded from /my/summary
 const activity = ref([]);
 const activityLoading = ref(false);
@@ -1401,6 +1420,11 @@ const { weekStartDate: activeSeasonWeekStart } = useSeasonWeeks(
 const challengeId = computed(() => route.params.id || route.params.challengeId);
 const organizationSlug = computed(() => route.params.organizationSlug || null);
 const agencySlugForDraft = computed(() => challenge.value?.organization_slug || null);
+const teamsFinalized = computed(() => !!challenge.value?.season_settings_json?.teams?.teamsFinalized);
+const rulesCollapsedStorageKey = computed(() => {
+  const userPart = authStore.user?.id || 'anon';
+  return challengeId.value ? `challenge:${challengeId.value}:rulesCollapsed:${userPart}` : null;
+});
 const isBerlinChallenge = computed(() => {
   const slug = String(challenge.value?.organization_slug || organizationSlug.value || '').trim().toLowerCase();
   const name = String(challenge.value?.organization_name || '').trim().toLowerCase();
@@ -2101,6 +2125,31 @@ const finalizeCaptainsForSeason = async () => {
   }
 };
 
+const finalizeTeamsForSeason = async () => {
+  const id = challengeId.value;
+  if (!id || !challenge.value) return;
+  finalizingTeams.value = true;
+  try {
+    const currentSettings = challenge.value.season_settings_json && typeof challenge.value.season_settings_json === 'object'
+      ? challenge.value.season_settings_json
+      : {};
+    const nextSettings = {
+      ...currentSettings,
+      teams: {
+        ...(currentSettings.teams || {}),
+        teamsFinalized: true,
+        teamsFinalizedAt: new Date().toISOString()
+      }
+    };
+    await api.put(`/learning-program-classes/${id}`, { seasonSettingsJson: nextSettings }, { skipGlobalLoading: true });
+    await loadChallenge();
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to finalize teams');
+  } finally {
+    finalizingTeams.value = false;
+  }
+};
+
 const submitCaptainApplication = async () => {
   const id = challengeId.value;
   if (!id) return;
@@ -2550,6 +2599,9 @@ const importSelectedStrava = async () => {
 };
 
 onMounted(async () => {
+  if (rulesCollapsedStorageKey.value) {
+    rulesCollapsed.value = localStorage.getItem(rulesCollapsedStorageKey.value) === '1';
+  }
   await loadChallenge();
   if (challenge.value) {
     await Promise.all([
@@ -2592,11 +2644,19 @@ onUnmounted(() => {
 });
 
 watch(challengeId, () => {
+  if (rulesCollapsedStorageKey.value) {
+    rulesCollapsed.value = localStorage.getItem(rulesCollapsedStorageKey.value) === '1';
+  }
   loadChallenge().then(() => {
     if (challenge.value) {
       Promise.all([loadLeaderboard(), loadTeams(), loadActivity(), loadCaptainApplications(), loadWeeklyTaskOptions(), loadCurrentWeekAssignments(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions()]);
     }
   });
+});
+
+watch(rulesCollapsed, (collapsed) => {
+  if (!rulesCollapsedStorageKey.value) return;
+  localStorage.setItem(rulesCollapsedStorageKey.value, collapsed ? '1' : '0');
 });
 
 watch(activeSeasonWeekStart, (week) => {
@@ -3609,6 +3669,34 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+.finalize-teams-panel {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.rules-collapse-head {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+.rules-collapse-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #334155;
+  font-weight: 700;
+  cursor: pointer;
 }
 .captain-app-card--mine {
   border-color: #c8102e;

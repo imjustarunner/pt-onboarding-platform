@@ -525,7 +525,9 @@ export const getLeaderboard = async (req, res, next) => {
 export const buildRecordMetricMap = async ({ classId, organizationId, selectedMetricKeys = [] }) => {
   const scopeWhere = {
     season: {
-      sql: 'w.learning_class_id = ?',
+      sql: `w.learning_class_id = ?
+        AND (c.starts_at IS NULL OR w.completed_at >= c.starts_at)
+        AND (c.ends_at IS NULL OR w.completed_at <= c.ends_at)`,
       params: [classId]
     },
     club_all_time: organizationId
@@ -1402,7 +1404,7 @@ export const submitWorkout = async (req, res, next) => {
       proofStatus
     });
     if (workout?.id) {
-      if (weeklyTaskId && weeklyTask?.mode !== 'full_team') {
+      if (workout.weekly_task_id && weeklyTask?.mode !== 'full_team') {
         const assignment = await ChallengeWeeklyAssignment.findByTaskAndUser(weeklyTaskId, req.user.id);
         if (isApprovedWeeklyAssignment(assignment)) {
           await ChallengeWeeklyAssignment.markCompleted(assignment.id, {
@@ -1695,7 +1697,7 @@ export const submitBulkWorkoutsOnBehalf = async (req, res, next) => {
         });
 
         if (workout?.id) {
-          if (weeklyTaskId && weeklyTask?.mode !== 'full_team') {
+          if (workout.weekly_task_id && weeklyTask?.mode !== 'full_team') {
             const assignment = await ChallengeWeeklyAssignment.findByTaskAndUser(weeklyTaskId, targetUserId);
             if (assignment) {
               await ChallengeWeeklyAssignment.markCompleted(assignment.id, {

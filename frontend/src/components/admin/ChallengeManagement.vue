@@ -981,6 +981,13 @@
             <button class="btn btn-primary btn-sm" @click="openAddTeamModal" :disabled="!managingChallenge">Add Team</button>
             <button class="btn btn-secondary btn-sm" :disabled="!managingChallenge" @click="loadSnakeDraftBoard">Preview Draft Order</button>
             <button v-if="teams.length > 1" class="btn btn-secondary btn-sm" @click="randomizeSnakeDraftBoard">🔀 Randomize Order</button>
+            <button
+              v-if="teams.length > 0 && !manageTeamsFinalized"
+              class="btn btn-primary btn-sm"
+              :disabled="finalizingTeams"
+              @click="finalizeTeamsAction"
+            >{{ finalizingTeams ? 'Finalizing…' : 'Finalize Teams' }}</button>
+            <span v-else-if="manageTeamsFinalized" class="cap-badge cap-badge--finalized">Teams finalized</span>
           </div>
 
           <!-- Live Draft Room card -->
@@ -3292,6 +3299,7 @@ const captainAppsLoading = ref(false);
 const captainAppsError = ref('');
 const togglingCaptainApps = ref(false);
 const finalizingCaptains = ref(false);
+const finalizingTeams = ref(false);
 const creatingPresetTeams = ref(false);
 const manageTeamsMembersPerTeam = ref(10);
 const manageTeamsMembersPerTeamSaving = ref(false);
@@ -3314,6 +3322,7 @@ const manageTeamsIsMilesGoal = computed(() => {
   const metric = String(part.weeklyGoalMetric || '').toLowerCase();
   return cat === 'run_ruck' || metric === 'miles' || metric.includes('mile');
 });
+const manageTeamsFinalized = computed(() => !!managingChallenge.value?.season_settings_json?.teams?.teamsFinalized);
 
 const manageTeamsWeekRows = computed(() => {
   const klass = managingChallenge.value;
@@ -4426,6 +4435,40 @@ const unfinalizeCaptainsAction = async () => {
     alert(e?.response?.data?.error?.message || 'Failed to unfinalize captains');
   } finally {
     finalizingCaptains.value = false;
+  }
+};
+
+const finalizeTeamsAction = async () => {
+  if (!managingChallenge.value?.id) return;
+  if (!confirm('Finalize teams? This hides the draft report from the season dashboard for managers and captains.')) return;
+  finalizingTeams.value = true;
+  try {
+    const currentSettings = managingChallenge.value.season_settings_json && typeof managingChallenge.value.season_settings_json === 'object'
+      ? managingChallenge.value.season_settings_json
+      : {};
+    const nextSettings = {
+      ...currentSettings,
+      teams: {
+        ...(currentSettings.teams || {}),
+        teamsFinalized: true,
+        teamsFinalizedAt: new Date().toISOString()
+      }
+    };
+    const { data } = await api.put(
+      `/learning-program-classes/${managingChallenge.value.id}`,
+      { seasonSettingsJson: nextSettings },
+      { skipGlobalLoading: true }
+    );
+    if (managingChallenge.value) {
+      managingChallenge.value = data?.class || {
+        ...managingChallenge.value,
+        season_settings_json: nextSettings
+      };
+    }
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to finalize teams');
+  } finally {
+    finalizingTeams.value = false;
   }
 };
 

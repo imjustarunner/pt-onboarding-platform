@@ -31,6 +31,10 @@ class ChallengeWorkout {
     if (!week) return null;
     return getWeekDateTimeRange(week, weekCutoffTime || '00:00', weekTimeZone);
   }
+  static _seasonWindowClause(classAlias = 'c', workoutAlias = 'w') {
+    return ` AND (${classAlias}.starts_at IS NULL OR ${workoutAlias}.completed_at >= ${classAlias}.starts_at)`
+      + ` AND (${classAlias}.ends_at IS NULL OR ${workoutAlias}.completed_at <= ${classAlias}.ends_at)`;
+  }
   static async findById(id) {
     const workoutId = toInt(id);
     if (!workoutId) return null;
@@ -127,6 +131,27 @@ class ChallengeWorkout {
     const activity = String(activityType || '').trim();
     if (!classId || !uId || !activity) return null;
     const durSec = durationSeconds != null ? Math.min(59, Math.max(0, toInt(durationSeconds) || 0)) : null;
+    let seasonPoints = Math.round((Number(points) || 0) * 100) / 100;
+    let seasonWeeklyTaskId = weeklyTaskId;
+    if (completedAt) {
+      const completedTime = new Date(completedAt).getTime();
+      if (Number.isFinite(completedTime)) {
+        const [classRows] = await pool.execute(
+          `SELECT starts_at, ends_at FROM learning_program_classes WHERE id = ? LIMIT 1`,
+          [classId]
+        );
+        const row = classRows?.[0] || {};
+        const startsTime = row.starts_at ? new Date(row.starts_at).getTime() : null;
+        const endsTime = row.ends_at ? new Date(row.ends_at).getTime() : null;
+        const outsideSeason =
+          (Number.isFinite(startsTime) && completedTime < startsTime)
+          || (Number.isFinite(endsTime) && completedTime > endsTime);
+        if (outsideSeason) {
+          seasonPoints = 0;
+          seasonWeeklyTaskId = null;
+        }
+      }
+    }
     const [result] = await pool.execute(
       `INSERT INTO challenge_workouts
        (learning_class_id, team_id, user_id, submitted_by_user_id, submitted_on_behalf_of_user_id, submission_source, ocr_confidence, ocr_raw_text, ocr_extracted_json, activity_type, is_treadmill, is_race, race_distance_miles, race_chip_time_seconds, race_overall_place, terrain, distance_value, reported_distance_value, verified_distance_value, duration_minutes, duration_seconds, calories_burned, elevation_gain_meters, average_heartrate, max_heartrate, splits_json, points, workout_notes, screenshot_file_path, map_summary_polyline, completed_at, strava_activity_id, weekly_task_id, proof_status, proof_review_note, proof_reviewed_by_user_id, proof_reviewed_at)
@@ -158,13 +183,13 @@ class ChallengeWorkout {
         averageHeartrate != null ? Number(averageHeartrate) : null,
         maxHeartrate != null ? Math.round(Number(maxHeartrate)) : null,
         splitsJson ? JSON.stringify(splitsJson) : null,
-        Math.round((Number(points) || 0) * 100) / 100,
+        seasonPoints,
         workoutNotes ? String(workoutNotes).trim() : null,
         screenshotFilePath ? String(screenshotFilePath).trim() : null,
         mapSummaryPolyline ? String(mapSummaryPolyline) : null,
         completedAt || null,
         stravaActivityId ? toInt(stravaActivityId) : null,
-        weeklyTaskId ? toInt(weeklyTaskId) : null,
+        seasonWeeklyTaskId ? toInt(seasonWeeklyTaskId) : null,
         String(proofStatus || 'not_required'),
         proofReviewNote ? String(proofReviewNote).slice(0, 255) : null,
         proofReviewedByUserId ? toInt(proofReviewedByUserId) : null,
@@ -234,8 +259,10 @@ class ChallengeWorkout {
                                THEN w.points ELSE 0 END), 0) AS total_points,
               COALESCE(SUM(w.distance_value), 0) AS total_miles
        FROM challenge_workouts w
+       INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
        INNER JOIN users u ON u.id = w.user_id
        WHERE w.learning_class_id = ? AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+         ${this._seasonWindowClause('c', 'w')}
        GROUP BY w.user_id
        ORDER BY total_points DESC, total_miles DESC
        LIMIT ${lim}`,
@@ -251,8 +278,10 @@ class ChallengeWorkout {
     const [rows] = await pool.execute(
       `SELECT w.team_id, t.team_name, SUM(w.points) AS total_points
        FROM challenge_workouts w
+       INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
        INNER JOIN challenge_teams t ON t.id = w.team_id
        WHERE w.learning_class_id = ? AND w.team_id IS NOT NULL AND ${this._qualifiedClause('w')}
+         ${this._seasonWindowClause('c', 'w')}
        GROUP BY w.team_id, t.team_name
        ORDER BY total_points DESC
        LIMIT ${lim}`,
@@ -277,9 +306,11 @@ class ChallengeWorkout {
                    THEN NULL ELSE MAX(u.profile_photo_path) END AS profile_photo_path,
               w.team_id, t.team_name, SUM(w.points) AS total_points
        FROM challenge_workouts w
+       INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
        INNER JOIN users u ON u.id = w.user_id
        LEFT JOIN challenge_teams t ON t.id = w.team_id
        WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')}
+         ${this._seasonWindowClause('c', 'w')}
          AND w.completed_at >= ? AND w.completed_at < ?
        GROUP BY w.user_id, w.team_id, t.team_name
        ORDER BY total_points DESC
@@ -315,6 +346,7 @@ class ChallengeWorkout {
              capmap.team_id
            ) AS effective_team_id
          FROM challenge_workouts w
+         INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
          LEFT JOIN (
            SELECT tm.provider_user_id AS user_id, MIN(tm.team_id) AS team_id
            FROM challenge_team_members tm
@@ -329,6 +361,7 @@ class ChallengeWorkout {
            GROUP BY ct.team_manager_user_id
          ) capmap ON capmap.user_id = w.user_id
          WHERE w.learning_class_id = ? AND ${workoutClause}
+           ${this._seasonWindowClause('c', 'w')}
            AND w.completed_at >= ? AND w.completed_at < ?
        ) eff ON eff.effective_team_id = t.id
        WHERE t.learning_class_id = ?
@@ -348,9 +381,11 @@ class ChallengeWorkout {
     const [rows] = await pool.execute(
       `SELECT w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name, SUM(w.points) AS total_points
        FROM challenge_workouts w
+       INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
        INNER JOIN users u ON u.id = w.user_id
        INNER JOIN challenge_teams t ON t.id = w.team_id
        WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')}
+         ${this._seasonWindowClause('c', 'w')}
          AND w.completed_at >= ? AND w.completed_at < ?
        GROUP BY w.team_id, w.user_id, u.first_name, u.last_name, u.profile_photo_path, t.team_name
        ORDER BY w.team_id, total_points DESC`,
@@ -389,11 +424,13 @@ class ChallengeWorkout {
          COALESCE(w.duration_minutes, 0)  AS minutes,
          COALESCE(w.calories_burned, 0)   AS calories,
          COALESCE(w.average_heartrate, 0) AS avg_hr
-       FROM challenge_workouts w
+      FROM challenge_workouts w
+      INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
        INNER JOIN users u ON u.id = w.user_id
        INNER JOIN challenge_teams t ON t.id = w.team_id
        WHERE w.learning_class_id = ?
          AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+        ${this._seasonWindowClause('c', 'w')}
          AND w.completed_at >= ? AND w.completed_at < ?`,
       [classId, range.start, range.end]
     );
@@ -490,7 +527,9 @@ class ChallengeWorkout {
     if (!range) return 0;
     const [rows] = await pool.execute(
       `SELECT COALESCE(SUM(w.points), 0) AS total FROM challenge_workouts w
+       INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
        WHERE w.learning_class_id = ? AND w.user_id = ? AND ${this._qualifiedClause('w')}
+         ${this._seasonWindowClause('c', 'w')}
          AND w.completed_at >= ? AND w.completed_at < ?`,
       [classId, uId, range.start, range.end]
     );
@@ -506,10 +545,12 @@ class ChallengeWorkout {
     const [rows] = await pool.execute(
       `SELECT w.user_id, u.first_name, u.last_name, w.team_id, t.team_name, SUM(w.points) AS total_points, p.gender
        FROM challenge_workouts w
+       INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
        INNER JOIN users u ON u.id = w.user_id
        LEFT JOIN challenge_teams t ON t.id = w.team_id
        LEFT JOIN challenge_participant_profiles p ON p.learning_class_id = w.learning_class_id AND p.provider_user_id = w.user_id
        WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')} AND w.completed_at >= ? AND w.completed_at < ?
+         ${this._seasonWindowClause('c', 'w')}
          AND p.gender = ?
        GROUP BY w.user_id, u.first_name, u.last_name, w.team_id, t.team_name, p.gender
        ORDER BY total_points DESC
@@ -529,10 +570,12 @@ class ChallengeWorkout {
     const threshold = toInt(ageThreshold) ?? 53;
     let sql = `SELECT w.user_id, u.first_name, u.last_name, w.team_id, t.team_name, SUM(w.points) AS total_points, p.gender, p.date_of_birth
        FROM challenge_workouts w
+       INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
        INNER JOIN users u ON u.id = w.user_id
        LEFT JOIN challenge_teams t ON t.id = w.team_id
        INNER JOIN challenge_participant_profiles p ON p.learning_class_id = w.learning_class_id AND p.provider_user_id = w.user_id
        WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')} AND w.completed_at >= ? AND w.completed_at < ?
+         ${this._seasonWindowClause('c', 'w')}
          AND p.date_of_birth IS NOT NULL
          AND TIMESTAMPDIFF(YEAR, p.date_of_birth, ?) >= ?`;
     const params = [classId, range.start, range.end, refDate, threshold];
@@ -555,7 +598,9 @@ class ChallengeWorkout {
     if (!range) return 0;
     const [rows] = await pool.execute(
       `SELECT COALESCE(SUM(w.points), 0) AS total FROM challenge_workouts w
+       INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
        WHERE w.learning_class_id = ? AND w.team_id = ? AND ${this._qualifiedClause('w')}
+         ${this._seasonWindowClause('c', 'w')}
          AND w.completed_at >= ? AND w.completed_at < ?`,
       [classId, tId, range.start, range.end]
     );
