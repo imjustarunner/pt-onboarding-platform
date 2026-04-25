@@ -1817,7 +1817,7 @@
           <div v-else>
             <div class="rd-distance-list">
               <div
-                v-for="dist in allRaceDistances"
+                v-for="dist in manageAllDistances"
                 :key="dist.key"
                 class="rd-distance-row"
                 :class="{ 'rd-distance-row--off': !manageRDEnabled.includes(dist.key) }"
@@ -3593,14 +3593,23 @@ const toggleManageMatchupWeek = (date) => {
   manageMatchupExpandedWeeks.value = s;
 };
 // ── Race Divisions tab ────────────────────────────────────────────────────────
-const allRaceDistances = RACE_DISTANCES;
-const manageRDLoading  = ref(false);
-const manageRDError    = ref('');
-const manageRDSaving   = ref(false);
-const manageRDSaveMsg  = ref('');
-const manageRDEnabled  = ref(RACE_DISTANCES.map((d) => d.key)); // default all on
-const manageRDIcons    = ref({});  // { [key]: 'icon:123' }
-const manageRDLocked   = ref(false);
+const allRaceDistances       = RACE_DISTANCES;
+const manageRDLoading        = ref(false);
+const manageRDError          = ref('');
+const manageRDSaving         = ref(false);
+const manageRDSaveMsg        = ref('');
+const manageRDEnabled        = ref(RACE_DISTANCES.map((d) => d.key));
+const manageRDIcons          = ref({});
+const manageRDLocked         = ref(false);
+const manageRDCustomDistances = ref([]); // custom distances from club config
+
+// All distances shown in the manage tab = standard + custom from club
+const manageAllDistances = computed(() => {
+  const customs = manageRDCustomDistances.value.filter(
+    (c) => !RACE_DISTANCES.find((s) => s.key === c.key)
+  );
+  return [...RACE_DISTANCES, ...customs].sort((a, b) => a.miles - b.miles);
+});
 
 const loadManageRaceDivisions = async () => {
   const club = agencyStore.currentAgency;
@@ -3626,11 +3635,12 @@ const loadManageRaceDivisions = async () => {
     const s = managingChallenge.value?.season_settings_json;
     const settings = typeof s === 'string' ? (() => { try { return JSON.parse(s); } catch { return {}; } })() : (s || {});
     const seasonRD = settings?.raceDivisions || {};
-    manageRDEnabled.value = Array.isArray(seasonRD.enabledKeys) && seasonRD.enabledKeys.length
+    manageRDEnabled.value          = Array.isArray(seasonRD.enabledKeys) && seasonRD.enabledKeys.length
       ? seasonRD.enabledKeys
       : (clubEnabled || RACE_DISTANCES.map((d) => d.key));
-    manageRDIcons.value  = { ...clubEmojis, ...(seasonRD.emojiOverrides || {}) };
-    manageRDLocked.value  = locked;
+    manageRDIcons.value            = { ...clubEmojis, ...(seasonRD.emojiOverrides || {}) };
+    manageRDLocked.value           = locked;
+    manageRDCustomDistances.value  = clubConfig.customDistances || [];
   } catch (e) {
     manageRDError.value = e?.response?.data?.error?.message || 'Failed to load race division config.';
   } finally {
@@ -5048,8 +5058,9 @@ const closeManageModal = () => {
   manageRDLoading.value  = false;
   manageRDError.value    = '';
   manageRDSaveMsg.value  = '';
-  manageRDEnabled.value  = RACE_DISTANCES.map((d) => d.key);
-  manageRDIcons.value    = {};
+  manageRDEnabled.value         = RACE_DISTANCES.map((d) => d.key);
+  manageRDIcons.value           = {};
+  manageRDCustomDistances.value = [];
   manageRDLocked.value   = false;
   weeklyTargetOverrides.value = {};
   weeklyTargetEditingWeekStart.value = null;

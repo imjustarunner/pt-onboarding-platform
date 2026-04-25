@@ -784,6 +784,55 @@
             </div>
           </div>
 
+          <!-- Custom distances added at club level -->
+          <div v-if="rdCustomDistances.length" class="rd-custom-section">
+            <div class="rd-section-label">Custom Distances</div>
+            <div class="rd-distance-list" style="margin-top:6px;">
+              <div
+                v-for="(cd, idx) in rdCustomDistances"
+                :key="cd.key"
+                class="rd-distance-row"
+                :class="{ 'rd-distance-row--off': !rdEnabled.includes(cd.key) }"
+              >
+                <label class="rd-toggle-label" style="flex:1;min-width:0;">
+                  <input
+                    type="checkbox"
+                    :checked="rdEnabled.includes(cd.key)"
+                    :disabled="rdLocked"
+                    @change="toggleRdKey(cd.key, $event.target.checked)"
+                  />
+                  <span class="rd-distance-name">
+                    <span class="rd-default-emoji">{{ cd.defaultEmoji || '🏁' }}</span>
+                    <strong>{{ cd.label }}</strong>
+                    <span class="hint" style="font-size:0.78rem;">{{ cd.minMiles }}–{{ cd.maxMiles }} mi</span>
+                  </span>
+                </label>
+                <div class="rd-icon-picker" v-if="!rdLocked">
+                  <IconSelector
+                    :modelValue="getRdIconId(cd.key)"
+                    :summitStatsClubId="currentAgencyId"
+                    :context="`race-div-${cd.key}-${currentAgencyId}`"
+                    @update:modelValue="(id) => setRdIcon(cd.key, id)"
+                  />
+                </div>
+                <button v-if="!rdLocked" type="button" class="btn-remove-icon rd-remove-btn" @click="removeCustomDistance(idx)" title="Remove distance">×</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Add new custom distance -->
+          <div v-if="!rdLocked" class="rd-add-section">
+            <div class="rd-section-label">Add Custom Distance</div>
+            <div class="rd-add-form">
+              <input v-model="rdNewLabel" type="text" class="rd-add-input" placeholder="Label (e.g. 25K)" maxlength="40" />
+              <input v-model.number="rdNewMin" type="number" step="0.1" min="0" class="rd-add-input rd-add-input--sm" placeholder="Min mi" />
+              <input v-model.number="rdNewMax" type="number" step="0.1" min="0" class="rd-add-input rd-add-input--sm" placeholder="Max mi" />
+              <input v-model="rdNewEmoji" type="text" class="rd-add-input rd-add-input--emoji" placeholder="🏁" maxlength="4" />
+              <button type="button" class="btn btn-secondary" :disabled="!rdNewLabel || !rdNewMin || !rdNewMax" @click="addCustomDistance">+ Add</button>
+            </div>
+            <p class="hint" style="font-size:0.78rem;margin-top:4px;">Min/max miles define the range a tagged race must fall within to count for this division.</p>
+          </div>
+
           <div class="form-actions" style="margin-top:16px; gap:8px; flex-wrap:wrap;">
             <template v-if="!rdLocked">
               <button type="button" class="btn btn-primary" :disabled="rdSaving" @click="saveRdConfig">
@@ -1789,9 +1838,15 @@ const rdError    = ref('');
 const rdSaving   = ref(false);
 const rdSaveMsg  = ref('');
 const rdEnabled  = ref(RACE_DISTANCES.map((d) => d.key));
-// rdIcons: { [key]: 'icon:123' } — stored as icon:ID strings, same pattern as record boards
 const rdIcons    = ref({});
 const rdLocked   = ref(false);
+const rdCustomDistances = ref([]); // [{ key, label, shortLabel, miles, minMiles, maxMiles, defaultEmoji }]
+
+// Add-new-distance form state
+const rdNewLabel = ref('');
+const rdNewMin   = ref('');
+const rdNewMax   = ref('');
+const rdNewEmoji = ref('🏁');
 
 const loadRdConfig = async () => {
   const id = currentAgencyId.value;
@@ -1801,9 +1856,10 @@ const loadRdConfig = async () => {
   try {
     const res = await api.get(`/summit-stats/clubs/${id}/race-division-config`);
     const cfg = res.data?.config || {};
-    rdEnabled.value = Array.isArray(cfg.enabledKeys) && cfg.enabledKeys.length ? cfg.enabledKeys : RACE_DISTANCES.map((d) => d.key);
-    rdIcons.value   = cfg.emojiOverrides || {};
-    rdLocked.value  = !!cfg.locked;
+    rdEnabled.value          = Array.isArray(cfg.enabledKeys) && cfg.enabledKeys.length ? cfg.enabledKeys : RACE_DISTANCES.map((d) => d.key);
+    rdIcons.value            = cfg.emojiOverrides || {};
+    rdLocked.value           = !!cfg.locked;
+    rdCustomDistances.value  = Array.isArray(cfg.customDistances) ? cfg.customDistances : [];
   } catch (e) {
     rdError.value = e?.response?.data?.error?.message || 'Failed to load.';
   } finally {
@@ -1836,6 +1892,31 @@ const setRdIcon = (key, iconId) => {
   }
 };
 
+const addCustomDistance = () => {
+  const label = rdNewLabel.value.trim();
+  const minMi = Number(rdNewMin.value);
+  const maxMi = Number(rdNewMax.value);
+  if (!label || !minMi || !maxMi || minMi >= maxMi) return;
+  const key = `custom_${label.toLowerCase().replace(/[^a-z0-9]+/g, '_')}_${Date.now()}`;
+  const miles = (minMi + maxMi) / 2;
+  const newDist = { key, label, shortLabel: label, miles, minMiles: minMi, maxMiles: maxMi, defaultEmoji: rdNewEmoji.value || '🏁' };
+  rdCustomDistances.value = [...rdCustomDistances.value, newDist];
+  rdEnabled.value = [...rdEnabled.value, key]; // enable by default
+  rdNewLabel.value = '';
+  rdNewMin.value = '';
+  rdNewMax.value = '';
+  rdNewEmoji.value = '🏁';
+};
+
+const removeCustomDistance = (idx) => {
+  const removed = rdCustomDistances.value[idx];
+  rdCustomDistances.value = rdCustomDistances.value.filter((_, i) => i !== idx);
+  rdEnabled.value = rdEnabled.value.filter((k) => k !== removed.key);
+  const next = { ...rdIcons.value };
+  delete next[removed.key];
+  rdIcons.value = next;
+};
+
 const saveRdConfig = async (lockVal = undefined) => {
   const id = currentAgencyId.value;
   if (!id) return;
@@ -1845,6 +1926,7 @@ const saveRdConfig = async (lockVal = undefined) => {
     const body = {
       enabledKeys: rdEnabled.value,
       emojiOverrides: Object.fromEntries(Object.entries(rdIcons.value).filter(([, v]) => v)),
+      customDistances: rdCustomDistances.value,
       ...(lockVal !== undefined ? { locked: lockVal } : {})
     };
     const res = await api.put(`/summit-stats/clubs/${id}/race-division-config`, body);
@@ -1868,6 +1950,7 @@ const unlockRdConfig = async () => {
     await api.put(`/summit-stats/clubs/${id}/race-division-config`, {
       enabledKeys: rdEnabled.value,
       emojiOverrides: Object.fromEntries(Object.entries(rdIcons.value).filter(([, v]) => v)),
+      customDistances: rdCustomDistances.value,
       locked: false
     });
     rdLocked.value = false;
@@ -2556,4 +2639,42 @@ const unlockRdConfig = async () => {
 .rd-default-emoji { font-size: 1.3rem; line-height: 1; }
 .rd-icon-picker { flex-shrink: 0; }
 .rd-locked-hint { font-size: 0.78rem; color: #94a3b8; white-space: nowrap; }
+.rd-remove-btn {
+  background: none;
+  border: 1px solid #fca5a5;
+  color: #dc2626;
+  border-radius: 5px;
+  padding: 2px 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.rd-remove-btn:hover { background: #fee2e2; }
+.rd-section-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #64748b;
+  letter-spacing: 0.04em;
+  margin-top: 16px;
+  margin-bottom: 4px;
+}
+.rd-custom-section, .rd-add-section { margin-top: 12px; }
+.rd-add-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.rd-add-input {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 5px 9px;
+  font-size: 0.88rem;
+  flex: 1;
+  min-width: 100px;
+}
+.rd-add-input--sm { flex: 0 0 80px; min-width: 80px; }
+.rd-add-input--emoji { flex: 0 0 60px; min-width: 60px; text-align: center; font-size: 1.1rem; }
 </style>

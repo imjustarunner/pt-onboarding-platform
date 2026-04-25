@@ -899,15 +899,23 @@ const formatRaceTime = (totalMinutes) => {
  * within the distance range for a standard race distance (not just any run
  * that surpasses a threshold).
  *
- * @param {object} opts
- * @param {number}   opts.classId        - Season class ID (0 = skip season scope)
- * @param {number}   opts.organizationId - Club org ID (0 = skip all-time scope)
- * @param {string[]} opts.enabledKeys    - Which race distance keys to include
- * @param {object}   opts.emojiOverrides - { [key]: emoji } club-level emoji overrides
+ * @param {object}   opts
+ * @param {number}   opts.classId         - Season class ID (0 = skip season scope)
+ * @param {number}   opts.organizationId  - Club org ID (0 = skip all-time scope)
+ * @param {string[]} opts.enabledKeys     - Which race distance keys to include
+ * @param {object}   opts.emojiOverrides  - { [key]: 'icon:123' | emoji }
+ * @param {object[]} opts.customDistances - Extra distances defined at club level
  */
-export const buildRaceDivisions = async ({ classId, organizationId, enabledKeys, emojiOverrides = {} }) => {
+export const buildRaceDivisions = async ({ classId, organizationId, enabledKeys, emojiOverrides = {}, customDistances = [] }) => {
+  // Merge standard + custom distances (custom can override keys that match standard ones)
+  const allDistances = [
+    ...RACE_DISTANCES,
+    ...customDistances.filter((c) => c?.key && !RACE_DISTANCES.find((s) => s.key === c.key))
+  ];
+
   const keys = Array.isArray(enabledKeys) && enabledKeys.length ? enabledKeys : DEFAULT_ENABLED_KEYS;
-  const distances = RACE_DISTANCES.filter((d) => keys.includes(d.key));
+  const distances = allDistances.filter((d) => keys.includes(d.key))
+    .sort((a, b) => a.miles - b.miles);
 
   // Resolve any icon:ID references in emojiOverrides to image URLs
   const resolvedIconUrls = {};
@@ -1008,9 +1016,10 @@ export const getRaceDivisions = async (req, res, next) => {
       ? seasonRD.enabledKeys
       : (Array.isArray(clubConfig.enabledKeys) && clubConfig.enabledKeys.length ? clubConfig.enabledKeys : DEFAULT_ENABLED_KEYS);
     const emojiOverrides = { ...(clubConfig.emojiOverrides || {}), ...(seasonRD.emojiOverrides || {}) };
+    const customDistances = Array.isArray(clubConfig.customDistances) ? clubConfig.customDistances : [];
 
-    const divisions = await buildRaceDivisions({ classId, organizationId, enabledKeys, emojiOverrides });
-    return res.json({ divisions, enabledKeys, emojiOverrides });
+    const divisions = await buildRaceDivisions({ classId, organizationId, enabledKeys, emojiOverrides, customDistances });
+    return res.json({ divisions, enabledKeys, emojiOverrides, customDistances });
   } catch (e) {
     next(e);
   }

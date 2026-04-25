@@ -904,7 +904,8 @@ export const getPublicClubStats = async (req, res, next) => {
       raceDivisionsArr = await buildRaceDivisions({
         classId: 0, organizationId: clubId,
         enabledKeys: clubRaceConfig.enabledKeys || null,
-        emojiOverrides: clubRaceConfig.emojiOverrides || {}
+        emojiOverrides: clubRaceConfig.emojiOverrides || {},
+        customDistances: clubRaceConfig.customDistances || []
       });
     } catch { /* non-blocking */ }
 
@@ -5864,6 +5865,7 @@ export const putClubRaceDivisionConfig = async (req, res, next) => {
     const newCfg = {
       enabledKeys: Array.isArray(body.enabledKeys) ? body.enabledKeys : (existing.enabledKeys || null),
       emojiOverrides: (body.emojiOverrides && typeof body.emojiOverrides === 'object') ? body.emojiOverrides : (existing.emojiOverrides || {}),
+      customDistances: Array.isArray(body.customDistances) ? body.customDistances : (existing.customDistances || []),
       locked: typeof body.locked === 'boolean' ? body.locked : (existing.locked || false)
     };
     await pool.execute(
