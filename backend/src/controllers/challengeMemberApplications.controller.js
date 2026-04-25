@@ -3345,6 +3345,9 @@ export const listClubMembers = async (req, res, next) => {
          u.role,
          u.status,
          u.created_at,
+         COALESCE(u.phone_number, u.personal_phone) AS phone,
+         u.is_roster_placeholder,
+         u.roster_placeholder_claimed_at,
          ua.is_active AS club_is_active,
          ua.club_role AS club_role
        FROM user_agencies ua
@@ -3360,12 +3363,15 @@ export const listClubMembers = async (req, res, next) => {
       email: r.email || '',
       firstName: r.first_name || '',
       lastName: r.last_name || '',
+      phone: r.phone || '',
       role: r.role || '',
       status: r.status || '',
       createdAt: r.created_at || null,
       clubRole: r.club_role || null,
       isActiveInClub: Number(r.club_is_active || 0) === 1,
-      applicationPending: false
+      applicationPending: false,
+      // True when the account was manually added and has never logged in / claimed
+      isPlaceholder: Number(r.is_roster_placeholder) === 1 && !r.roster_placeholder_claimed_at
     })) : [];
 
     const seenIds = new Set(members.map((m) => m.id).filter((n) => Number.isFinite(n) && n > 0));
@@ -3987,6 +3993,15 @@ export const putClubMemberProfile = async (req, res, next) => {
     const target = await User.findById(targetUserId);
     if (!target) return res.status(404).json({ error: { message: 'User not found' } });
 
+    // Determine whether this account is still an unclaimed placeholder.
+    // Once claimed (logged in / password set / merged), identity fields are read-only for managers.
+    const [placeholderCheck] = await pool.execute(
+      `SELECT is_roster_placeholder, roster_placeholder_claimed_at FROM users WHERE id = ? LIMIT 1`,
+      [targetUserId]
+    );
+    const placeholderRow = placeholderCheck?.[0] || {};
+    const isUnclaimed = Number(placeholderRow.is_roster_placeholder) === 1 && !placeholderRow.roster_placeholder_claimed_at;
+
     const currentRole = String(target.role || '').toLowerCase();
     const currentClubRole = String(membershipRows?.[0]?.club_role || 'member').trim().toLowerCase();
     const editableCurrentRoles = new Set([
@@ -4011,6 +4026,17 @@ export const putClubMemberProfile = async (req, res, next) => {
 
     const body = req.body || {};
     const patch = {};
+    // Identity fields (name, email, phone) are only editable while the account is an
+    // unclaimed roster placeholder. Once a real user has logged in / claimed the account,
+    // these fields belong to the athlete and cannot be overwritten by a manager.
+    const identityEditAllowed = isUnclaimed;
+    if (!identityEditAllowed && (body.firstName !== undefined || body.lastName !== undefined || body.email !== undefined || body.personalPhone !== undefined)) {
+      return res.status(403).json({
+        error: {
+          message: 'This member has claimed their account. Name, email, and phone can no longer be edited by a manager — the athlete controls their own identity.'
+        }
+      });
+    }
     if (body.firstName !== undefined) patch.firstName = String(body.firstName || '').trim();
     if (body.lastName !== undefined) patch.lastName = String(body.lastName || '').trim();
     if (body.email !== undefined) {

@@ -398,14 +398,30 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="user in sortedUsers" :key="user.id">
+                <tr v-for="user in sortedUsers" :key="user.id" :class="{ 'member-row--editing': inlineEditingId === user.id }">
             <td>
-              <router-link :to="userProfilePath(user.id)" class="user-name-link">
-                {{ user.first_name }} {{ user.last_name }}
-              </router-link>
+              <template v-if="isSscSstcTenant && inlineEditingId === user.id">
+                <div class="inline-edit-fields">
+                  <input v-model="inlineDraft.firstName" type="text" placeholder="First name" class="inline-edit-input" />
+                  <input v-model="inlineDraft.lastName" type="text" placeholder="Last name" class="inline-edit-input" />
+                </div>
+              </template>
+              <template v-else>
+                <router-link :to="userProfilePath(user.id)" class="user-name-link">
+                  {{ user.first_name }} {{ user.last_name }}
+                </router-link>
+                <span v-if="isSscSstcTenant && user.isPlaceholder" class="badge badge-placeholder" title="Manually added — has not yet created an account">Unlinked</span>
+              </template>
             </td>
             <td class="col-email">
-              <span class="table-truncate" :title="String(user.email || '')">{{ user.email }}</span>
+              <template v-if="isSscSstcTenant && inlineEditingId === user.id">
+                <div class="inline-edit-fields">
+                  <input v-model="inlineDraft.email" type="email" placeholder="Email" class="inline-edit-input" />
+                  <input v-model="inlineDraft.phone" type="tel" placeholder="Phone" class="inline-edit-input" />
+                </div>
+                <div v-if="inlineError" class="inline-edit-error">{{ inlineError }}</div>
+              </template>
+              <span v-else class="table-truncate" :title="String(user.email || '')">{{ user.email }}</span>
             </td>
             <td v-if="!isSscSstcTenant" class="user-affiliations-cell">
               <div class="user-affiliations-inline">
@@ -520,10 +536,24 @@
             <td class="col-created">{{ formatDate(user.created_at) }}</td>
             <td class="actions-cell">
               <div class="action-buttons">
-                <router-link :to="userProfilePath(user.id)" class="btn btn-primary btn-sm">View Profile</router-link>
-                <router-link :to="userProfileTabPath(user.id, 'communications')" class="btn btn-secondary btn-sm">
-                  Announce / Splash
-                </router-link>
+                <!-- Inline edit controls for unclaimed placeholder members -->
+                <template v-if="isSscSstcTenant && user.isPlaceholder && inlineEditingId === user.id">
+                  <button class="btn btn-primary btn-sm" :disabled="inlineSaving" @click="saveInlineEdit(user)">
+                    {{ inlineSaving ? 'Saving…' : 'Save' }}
+                  </button>
+                  <button class="btn btn-secondary btn-sm" :disabled="inlineSaving" @click="cancelInlineEdit">Cancel</button>
+                </template>
+                <template v-else>
+                  <button
+                    v-if="isSscSstcTenant && user.isPlaceholder"
+                    class="btn btn-secondary btn-sm"
+                    @click="startInlineEdit(user)"
+                  >Edit</button>
+                  <router-link :to="userProfilePath(user.id)" class="btn btn-primary btn-sm">View Profile</router-link>
+                  <router-link :to="userProfileTabPath(user.id, 'communications')" class="btn btn-secondary btn-sm">
+                    Announce / Splash
+                  </router-link>
+                </template>
                 <button 
                   v-if="(user.status === 'PREHIRE_OPEN' || user.status === 'pending') && !user.pending_access_locked && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'))" 
                   @click="showPendingCompleteModal(user)" 
@@ -554,7 +584,7 @@
                   Archive
                 </button>
                 <button
-                  v-if="isSscSstcTenant && Number(user.id) !== Number(authStore.user?.id) && !user.applicationPending"
+                  v-if="isSscSstcTenant && Number(user.id) !== Number(authStore.user?.id) && !user.applicationPending && inlineEditingId !== user.id"
                   class="btn btn-danger btn-sm"
                   :disabled="memberStatusSavingId === Number(user.id)"
                   @click="removeMemberFromClub(user)"
@@ -2331,6 +2361,7 @@ const fetchUsers = async () => {
         email: m.email,
         first_name: m.firstName || '',
         last_name: m.lastName || '',
+        phone: m.phone || '',
         role: m.clubRole || m.role || 'provider',
         club_role: String(m.clubRole || '').toLowerCase() || null,
         applicationPending: !!m.applicationPending,
@@ -2338,7 +2369,8 @@ const fetchUsers = async () => {
         is_active: m.isActiveInClub ? 1 : 0,
         club_member_active: m.isActiveInClub ? 1 : 0,
         seasons: Array.isArray(m.seasons) ? m.seasons : [],
-        created_at: m.createdAt
+        created_at: m.createdAt,
+        isPlaceholder: !!m.isPlaceholder
       }));
     } else if (isSscSstcTenant.value) {
       // SSTC context but no club ID yet (agency store still hydrating).
@@ -2355,6 +2387,49 @@ const fetchUsers = async () => {
     loading.value = false;
   }
 };
+
+// ── Inline edit for unclaimed placeholder members ──────────────────────────
+const inlineEditingId = ref(null);
+const inlineDraft = ref({ firstName: '', lastName: '', email: '', phone: '' });
+const inlineSaving = ref(false);
+const inlineError = ref('');
+
+const startInlineEdit = (user) => {
+  inlineEditingId.value = Number(user.id);
+  inlineDraft.value = {
+    firstName: user.first_name || '',
+    lastName: user.last_name || '',
+    email: user.email || '',
+    phone: user.phone || ''
+  };
+  inlineError.value = '';
+};
+
+const cancelInlineEdit = () => {
+  inlineEditingId.value = null;
+  inlineError.value = '';
+};
+
+const saveInlineEdit = async (user) => {
+  if (!selectedClubId.value || !user?.id) return;
+  inlineSaving.value = true;
+  inlineError.value = '';
+  try {
+    await api.put(`/summit-stats/clubs/${selectedClubId.value}/members/${user.id}/profile`, {
+      firstName: inlineDraft.value.firstName.trim(),
+      lastName: inlineDraft.value.lastName.trim(),
+      email: inlineDraft.value.email.trim().toLowerCase(),
+      personalPhone: inlineDraft.value.phone.trim() || null
+    });
+    inlineEditingId.value = null;
+    await fetchUsers();
+  } catch (err) {
+    inlineError.value = err?.response?.data?.error?.message || 'Save failed.';
+  } finally {
+    inlineSaving.value = false;
+  }
+};
+// ───────────────────────────────────────────────────────────────────────────
 
 const removeMemberFromClub = async (member) => {
   if (!isSscSstcTenant.value || !selectedClubId.value || !member?.id) return;
@@ -4893,6 +4968,40 @@ th {
 .badge-secondary {
   background: #e5e7eb;
   color: #374151;
+}
+
+.badge-placeholder {
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 10px;
+  margin-left: 6px;
+  vertical-align: middle;
+  border: 1px solid #fde68a;
+}
+
+.member-row--editing {
+  background: #f0f9ff;
+}
+
+.inline-edit-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.inline-edit-input {
+  padding: 4px 8px;
+  border: 1px solid #93c5fd;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  min-width: 120px;
+  background: #fff;
+}
+
+.inline-edit-error {
+  color: #dc2626;
+  font-size: 0.78rem;
+  margin-top: 4px;
 }
 
 .inline-availability-toggle {
