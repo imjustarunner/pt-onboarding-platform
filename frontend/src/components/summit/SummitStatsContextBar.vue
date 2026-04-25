@@ -245,11 +245,25 @@ async function switchToClub(club) {
   } catch (_) {
     agencyStore.setCurrentAgency(club);
   }
-  // All clubs in the SSTC switcher are affiliation-type sub-clubs under the same
-  // portal slug. Updating currentAgency is sufficient — every page (Member Management,
-  // Club Dashboard, etc.) reactively re-fetches based on agencyStore.currentAgency.id.
-  // Navigation would cause the router guard to overwrite currentAgency back to the
-  // SSTC parent org, which breaks club-specific data loading.
+
+  // Decide whether to navigate.
+  // Pages like Member Management (/admin/users) reactively re-fetch based on
+  // currentAgency and must NOT be navigated away from.
+  // Pages tied to a specific season/team ID (/season/:id, /season/:id/team/:teamId)
+  // cannot reflect the new club by data alone — they must navigate to the new
+  // club's dashboard so the active season for that club is loaded.
+  const currentPath = String(route.path || '');
+  const slug = orgSlug.value;
+  const isOnSeasonSpecificPage =
+    /\/season\/\d/.test(currentPath) ||
+    /\/my_club_dashboard/.test(currentPath);
+  const isOnReactivePage =
+    currentPath.includes('/admin/') ||
+    currentPath.includes('/club_manager_dashboard');
+
+  if (isOnSeasonSpecificPage && !isOnReactivePage && slug) {
+    await router.push({ path: `/${slug}/my_club_dashboard` });
+  }
 }
 
 async function loadSummary() {
