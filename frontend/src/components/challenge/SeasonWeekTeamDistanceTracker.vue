@@ -154,7 +154,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import api from '../../services/api';
-import { getWeekStartDate, getWeekDateTimeRange } from '../../utils/challengeWeekUtils.js';
+import { getWeekStartDate, getWeekDateTimeRange, firstCompetitionWeekDate } from '../../utils/challengeWeekUtils.js';
 
 const props = defineProps({
   challengeId: { type: [String, Number], required: true },
@@ -194,7 +194,9 @@ const seasonWeeks = computed(() => {
   const rawStart = props.seasonStartsAt;
   const rawEnd = props.seasonEndsAt;
 
-  let cur = getWeekStartDate(rawStart ? new Date(rawStart) : new Date(), cutoff, tz);
+  let cur = rawStart
+    ? firstCompetitionWeekDate(new Date(rawStart), cutoff, tz)
+    : getWeekStartDate(new Date(), cutoff, tz);
   if (!cur) cur = getWeekStartDate(new Date(), cutoff, tz);
   if (!cur) return [];
 
@@ -234,7 +236,11 @@ watch(seasonWeeks, (weeks) => {
   const tz = String(props.weekTimeZone || 'UTC').trim() || 'UTC';
   const todayWeek = getWeekStartDate(new Date(), cutoff, tz);
   let idx = weeks.findIndex((w) => w.date === todayWeek);
-  if (idx < 0) idx = weeks.length - 1;
+  if (idx < 0) {
+    // Today is before the first competition week (pre-season) → show Week 1,
+    // or today is past the end → show the last week.
+    idx = todayWeek && todayWeek < weeks[0].date ? 0 : weeks.length - 1;
+  }
   selectedWeekIdx.value = idx;
 }, { immediate: true });
 

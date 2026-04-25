@@ -136,6 +136,39 @@ export function getWeekDateTimeRange(weekStartDate, cutoffTime = '00:00', timeZo
   return { start: toSql(start), end: toSql(end) };
 }
 
+/**
+ * Returns the YYYY-MM-DD week-start date for the first competition week that
+ * is on or after the season's starts_at date.
+ *
+ * Problem: getWeekStartDate(startsAt) snaps backward to the previous week
+ * boundary, so a season starting Apr 26 (Sunday) at 18:00 ET (before the
+ * 23:59 cutoff) resolves to Apr 19 instead of Apr 26.
+ *
+ * Fix: shift startsAt forward by 12 hours before calling getWeekStartDate so
+ * that the result lands in or after the correct week, then apply a paranoid
+ * guard: if the result is still before startsAt's calendar date, advance by
+ * one more week.
+ *
+ * Mirrors backend firstCompetitionWeekDate helper in challenges.controller.js.
+ */
+export function firstCompetitionWeekDate(startsAt, cutoffTime, timeZone) {
+  if (!startsAt) return null;
+  const d = startsAt instanceof Date ? startsAt : new Date(String(startsAt));
+  if (!Number.isFinite(d.getTime())) return null;
+  const shifted = new Date(d.getTime() + 12 * 60 * 60 * 1000);
+  let candidate = getWeekStartDate(shifted, cutoffTime, timeZone);
+  if (!candidate) return null;
+  // Paranoid guard: if candidate is before the actual season-start calendar date,
+  // advance one more week.
+  const tz = timeZone ? normalizeTimeZone(timeZone, 'UTC') : 'UTC';
+  const startsAtDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(d);
+  if (candidate < startsAtDateStr) {
+    const nextTs = new Date(`${candidate}T12:00:00Z`).getTime() + 7 * 24 * 60 * 60 * 1000;
+    candidate = getWeekStartDate(new Date(nextTs), cutoffTime, timeZone);
+  }
+  return candidate;
+}
+
 /** Whole calendar days between two YYYY-MM-DD strings (UTC noon anchors, DST-safe). Mirrors backend ymdUtcDiffDays. */
 export function ymdUtcDiffDays(ymdA, ymdB) {
   const a = String(ymdA || '').slice(0, 10);
