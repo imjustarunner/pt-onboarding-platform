@@ -27,7 +27,7 @@
         <div>
           <h2>Club Application Pending</h2>
           <p>Your join request is in review. You can message the club manager or open the club page while you wait.</p>
-        </div>
+    </div>
       </div>
       <div class="stack-list">
         <article v-for="application in pendingApplications" :key="application.id" class="application-card application-card--hero">
@@ -100,8 +100,8 @@
         </p>
         <div v-if="onlinePillClubId" class="dashboard-hero-online">
           <OnlineMembersPill :club-id="onlinePillClubId" />
-        </div>
       </div>
+          </div>
       <label class="sstc-dark-mode-toggle" :title="isDarkMode ? 'Turn off dark mode' : 'Turn on dark mode'">
         <span class="sstc-dark-mode-text">Dark mode</span>
         <span class="sstc-toggle-switch" :class="{ 'sstc-toggle-switch--on': isDarkMode }" aria-hidden="true">
@@ -241,7 +241,7 @@
             <div class="season-card-actions">
               <button type="button" class="btn btn-primary btn-sm" @click="openSeason(season)">
                 Open Season
-              </button>
+          </button>
               <button
                 v-if="season.bucket !== 'upcoming' && !isSuperadminPreview"
                 type="button"
@@ -270,7 +270,7 @@
                   title="Send a splash to all club members"
                 >📣 Announce</button>
               </template>
-            </div>
+      </div>
           </div>
         </div>
       </div>
@@ -280,13 +280,13 @@
           <router-link :to="`/${orgSlug}/clubs`" class="text-link">Browse clubs</router-link>
           or wait for the next season launch.
         </p>
-      </div>
+    </div>
 
       <!-- Seasons open to join -->
       <template v-if="availableSeasons.length">
         <div class="available-seasons-divider">
           <span>Open to join</span>
-        </div>
+      </div>
         <div class="season-list">
           <div
             v-for="season in availableSeasons"
@@ -301,16 +301,16 @@
               <div class="season-card-banner-overlay">
                 <div class="season-card-banner-title">{{ season.className }}</div>
                 <div class="season-card-banner-club">{{ season.clubName }}</div>
-              </div>
+      </div>
               <span class="pill season-card-pill pill--open">Active</span>
-            </div>
+      </div>
             <div v-else class="season-card-top">
               <div class="season-card-title-group">
                 <img v-if="season.logoImagePath" :src="resolveSeasonImgUrl(season.classId, 'logo')" class="season-card-logo-inline" alt="" />
                 <div>
                   <strong>{{ season.className }}</strong>
                   <div class="muted">{{ season.clubName }}</div>
-                </div>
+    </div>
               </div>
               <span class="pill pill--open">Active</span>
             </div>
@@ -344,7 +344,7 @@
       <div class="my-stats-compact-head">
         <h2>My stats</h2>
         <span class="muted">All-time (across seasons)</span>
-      </div>
+    </div>
       <div class="my-stats-rows">
         <div class="my-stats-row">
           <span class="my-stats-kpi"><strong>{{ formatWhole(summary?.stats?.totalPoints) }}</strong> pts</span>
@@ -379,8 +379,8 @@
         <div>
           <h2>Fitness integrations</h2>
           <p class="muted">Connect a fitness platform to import workouts into your season automatically or on demand.</p>
-        </div>
       </div>
+            </div>
 
       <!-- Strava row -->
       <div class="integ-row" :class="{ 'integ-row--disabled': !stravaRolloutActive }">
@@ -754,7 +754,7 @@
             >
               Change Password
             </button>
-          </div>
+      </div>
           <p class="snapshot-security-hint">
             You can change your password at any time.
           </p>
@@ -764,7 +764,7 @@
             <div class="biometric-toggle-info">
               <strong>{{ biometricLabel }}</strong>
               <span class="biometric-toggle-hint">Sign in with {{ biometricLabel }} instead of typing your password.</span>
-            </div>
+    </div>
             <label class="toggle-switch">
               <input type="checkbox" :checked="biometricEnabled" @change="toggleBiometric" />
               <span class="toggle-slider"></span>

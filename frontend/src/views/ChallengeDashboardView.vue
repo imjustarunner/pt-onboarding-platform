@@ -186,6 +186,9 @@
         <span v-else-if="STRAVA_COMING_SOON" class="season-action-btn season-action-btn--coming-soon" title="Strava integration coming soon">
           Strava <span class="coming-soon-tag">Coming Soon</span>
         </span>
+        <button v-if="isChallengeManager && isBerlinChallenge" type="button" class="season-action-btn season-action-btn--secondary" @click="openBulkUploadModal">
+          Bulk Upload On Behalf
+        </button>
       </div>
 
       <!-- Section scroll nav -->
@@ -1065,6 +1068,64 @@
             </div>
           </div>
         </div>
+
+        <div v-if="showBulkUploadModal && isBerlinChallenge" class="modal-overlay" @click.self="closeBulkUploadModal">
+          <div class="modal-content modal-wide bulk-upload-modal">
+            <h2>Bulk Upload On Behalf</h2>
+            <p class="hint">Upload up to 10 screenshots. Names detected from screenshots will auto-match; highlighted rows need a member selected before submit.</p>
+            <input type="file" multiple accept="image/*" :disabled="bulkScanning" @change="onBulkFilesSelected" />
+            <div v-if="bulkUploadError" class="error-inline">{{ bulkUploadError }}</div>
+            <div v-if="bulkScanning" class="loading-inline">Scanning screenshots...</div>
+            <div v-if="bulkItems.length" class="bulk-review-list">
+              <div v-for="item in bulkItems" :key="item.clientItemId" class="bulk-review-card" :class="{ 'needs-match': item.needsMemberSelection || !item.userId }">
+                <div class="bulk-review-head">
+                  <strong>{{ item.originalName }}</strong>
+                  <span>{{ item.confidence || 0 }}% OCR</span>
+                </div>
+                <div class="bulk-review-grid">
+                  <label>
+                    Member
+                    <select v-model.number="item.userId" required>
+                      <option :value="null">Select member...</option>
+                      <option v-for="m in bulkRosterMembers" :key="m.userId" :value="m.userId">{{ m.displayName }}{{ m.teamName ? ` - ${m.teamName}` : '' }}</option>
+                    </select>
+                  </label>
+                  <label>
+                    Activity
+                    <select v-model="item.activityType">
+                      <option value="">Select...</option>
+                      <option v-for="opt in activityTypeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                    </select>
+                  </label>
+                  <label>Distance <input v-model.number="item.distanceValue" type="number" step="0.01" min="0" /></label>
+                  <label>Minutes <input v-model.number="item.durationMinutes" type="number" min="0" /></label>
+                  <label>Seconds <input v-model.number="item.durationSeconds" type="number" min="0" max="59" /></label>
+                  <label>Calories <input v-model.number="item.caloriesBurned" type="number" min="0" /></label>
+                  <label>Terrain <input v-model="item.terrain" type="text" placeholder="Road, Trail, Treadmill" /></label>
+                  <label>Completed <input v-model="item.completedAt" type="datetime-local" /></label>
+                  <label>
+                    Challenge
+                    <select v-model="item.weeklyTaskId">
+                      <option :value="null">None</option>
+                      <option v-for="t in weeklyTaskOptions" :key="`bulk-task-${t.id}`" :value="t.id">{{ t.name }}</option>
+                    </select>
+                  </label>
+                  <label class="checkbox-label"><input v-model="item.isRace" type="checkbox" /> This was a race</label>
+                  <label v-if="item.isRace">Race Distance <input v-model.number="item.raceDistanceMiles" type="number" step="0.01" min="0" /></label>
+                  <label v-if="item.isRace">Chip Time Sec <input v-model.number="item.raceChipTimeSeconds" type="number" min="0" /></label>
+                  <label v-if="item.isRace">Overall Place <input v-model.number="item.raceOverallPlace" type="number" min="0" /></label>
+                </div>
+                <p v-if="item.needsMemberSelection || !item.userId" class="bulk-match-warning">Name was not detected confidently. Select the member before submitting.</p>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn btn-secondary" @click="closeBulkUploadModal">Cancel</button>
+              <button type="button" class="btn btn-primary" :disabled="bulkSubmitting || !bulkItems.length || bulkItems.some((i) => !i.userId || !i.activityType)" @click="submitBulkWorkouts">
+                {{ bulkSubmitting ? 'Submitting...' : `Submit ${bulkItems.length} Workout(s)` }}
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1297,6 +1358,12 @@ const stravaActivitiesError = ref(null);
 const selectedStravaIds = ref([]);
 const stravaImporting = ref(false);
 const stravaDuplicateMessage = ref('');
+const showBulkUploadModal = ref(false);
+const bulkScanning = ref(false);
+const bulkSubmitting = ref(false);
+const bulkUploadError = ref('');
+const bulkItems = ref([]);
+const bulkRosterMembers = ref([]);
 const captainApplications = ref([]);
 const captainAppsLoading = ref(false);
 const draftSessionStatus = ref(null);
@@ -1334,6 +1401,11 @@ const { weekStartDate: activeSeasonWeekStart } = useSeasonWeeks(
 const challengeId = computed(() => route.params.id || route.params.challengeId);
 const organizationSlug = computed(() => route.params.organizationSlug || null);
 const agencySlugForDraft = computed(() => challenge.value?.organization_slug || null);
+const isBerlinChallenge = computed(() => {
+  const slug = String(challenge.value?.organization_slug || organizationSlug.value || '').trim().toLowerCase();
+  const name = String(challenge.value?.organization_name || '').trim().toLowerCase();
+  return slug === 'berlin' || name.includes('berlin');
+});
 
 const SSC_HOME_SLUGS = new Set(
   ['sstc', 'sstc', 'summit-stats', String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'sstc').trim().toLowerCase()].filter(Boolean)
@@ -1408,6 +1480,14 @@ const activityTypeOptions = computed(() => {
   const toLabel = (t) => String(t).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   if (Array.isArray(raw) && raw.length) return raw.map((t) => ({ value: t, label: toLabel(t) }));
   if (typeof raw === 'object' && raw && Object.keys(raw).length) return Object.keys(raw).map((k) => ({ value: k, label: toLabel(k) }));
+  const settings = challenge.value?.season_settings_json;
+  const category = settings && typeof settings === 'object' ? settings?.event?.category : null;
+  if (String(category || 'run_ruck').toLowerCase() !== 'fitness') {
+    return [
+      { value: 'run', label: 'Run' },
+      { value: 'ruck', label: 'Ruck' }
+    ];
+  }
   return [
     { value: 'run', label: 'Run' },
     { value: 'ruck', label: 'Ruck' },
@@ -1508,7 +1588,7 @@ const isChallengeManager = computed(() => {
   if (challenge.value?.can_manage === true) return true;
   // Fallback for known privileged global roles (in case can_manage hasn't loaded yet)
   const role = String(authStore.user?.role || '').toLowerCase();
-  if (['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus', 'club_manager'].includes(role)) return true;
+  if (['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus', 'club_manager', 'assistant_manager'].includes(role)) return true;
   return false;
 });
 
@@ -2210,6 +2290,123 @@ const submitWorkout = async () => {
   }
 };
 
+const loadBulkRosterMembers = async () => {
+  const id = challengeId.value;
+  if (!id || !isChallengeManager.value) return;
+  try {
+    const { data } = await api.get(`/learning-program-classes/${id}/roster`, { skipGlobalLoading: true });
+    bulkRosterMembers.value = Array.isArray(data?.members) ? data.members : [];
+  } catch {
+    bulkRosterMembers.value = [];
+  }
+};
+
+const openBulkUploadModal = async () => {
+  showBulkUploadModal.value = true;
+  bulkUploadError.value = '';
+  if (!bulkRosterMembers.value.length) await loadBulkRosterMembers();
+};
+
+const closeBulkUploadModal = () => {
+  showBulkUploadModal.value = false;
+  bulkUploadError.value = '';
+};
+
+const currentDatetimeLocal = () => {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+};
+
+const onBulkFilesSelected = async (event) => {
+  const id = challengeId.value;
+  const files = Array.from(event.target?.files || []).slice(0, 10);
+  if (!id || !files.length) return;
+  bulkScanning.value = true;
+  bulkUploadError.value = '';
+  try {
+    const fd = new FormData();
+    files.forEach((file) => fd.append('files', file));
+    const { data } = await api.post(`/learning-program-classes/${id}/workouts/bulk-scan`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    bulkRosterMembers.value = Array.isArray(data?.members) ? data.members : bulkRosterMembers.value;
+    bulkItems.value = (Array.isArray(data?.items) ? data.items : []).map((item) => {
+      const ex = item.extracted || {};
+      const hint = String(ex.activityTypeHint || '').toLowerCase();
+      const activityType = ({ running: 'run', run: 'run', ruck: 'ruck', walking: 'walk', walk: 'walk', cycling: 'cycling', bike: 'cycling', steps: 'steps' }[hint]) || hint || '';
+      return {
+        ...item,
+        userId: item.matchedUserId || null,
+        activityType,
+        distanceValue: ex.distanceMiles ?? null,
+        durationMinutes: ex.durationMinutes ?? null,
+        durationSeconds: ex.durationSeconds ?? null,
+        caloriesBurned: ex.caloriesBurned ?? null,
+        averageHeartrate: ex.averageHeartrate ?? null,
+        terrain: ex.terrain || '',
+        completedAt: ex.completedAt ? String(ex.completedAt).slice(0, 16) : currentDatetimeLocal(),
+        weeklyTaskId: null,
+        isRace: false,
+        raceDistanceMiles: null,
+        raceChipTimeSeconds: null,
+        raceOverallPlace: null,
+        ocrConfidence: item.confidence || 0
+      };
+    });
+  } catch (e) {
+    bulkUploadError.value = e?.response?.data?.error?.message || 'Bulk scan failed';
+  } finally {
+    bulkScanning.value = false;
+    if (event.target) event.target.value = '';
+  }
+};
+
+const submitBulkWorkouts = async () => {
+  const id = challengeId.value;
+  if (!id || !bulkItems.value.length) return;
+  bulkSubmitting.value = true;
+  bulkUploadError.value = '';
+  try {
+    const payload = {
+      items: bulkItems.value.map((item) => ({
+        clientItemId: item.clientItemId,
+        userId: item.userId,
+        filePath: item.filePath,
+        extracted: item.extracted || null,
+        rawText: item.rawText || null,
+        ocrConfidence: item.ocrConfidence ?? item.confidence ?? null,
+        activityType: item.activityType,
+        distanceValue: item.distanceValue,
+        durationMinutes: item.durationMinutes,
+        durationSeconds: item.durationSeconds,
+        caloriesBurned: item.caloriesBurned,
+        averageHeartrate: item.averageHeartrate,
+        terrain: item.terrain,
+        completedAt: item.completedAt,
+        weeklyTaskId: item.weeklyTaskId || null,
+        isRace: item.isRace === true,
+        raceDistanceMiles: item.raceDistanceMiles || null,
+        raceChipTimeSeconds: item.raceChipTimeSeconds || null,
+        raceOverallPlace: item.raceOverallPlace || null
+      }))
+    };
+    const { data } = await api.post(`/learning-program-classes/${id}/workouts/bulk-on-behalf`, payload);
+    if (data?.errors?.length) {
+      bulkUploadError.value = `${data.created?.length || 0} created, ${data.errors.length} need fixes. ${data.errors[0]?.message || ''}`;
+      bulkItems.value = bulkItems.value.filter((item) => data.errors.some((err) => err.clientItemId === item.clientItemId));
+    } else {
+      bulkItems.value = [];
+      showBulkUploadModal.value = false;
+    }
+    await Promise.all([loadLeaderboard(), loadActivity(), loadCurrentWeekAssignments(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats()]);
+  } catch (e) {
+    bulkUploadError.value = e?.response?.data?.error?.message || 'Bulk submit failed';
+  } finally {
+    bulkSubmitting.value = false;
+  }
+};
+
 const scrollToSection = (id) => {
   const el = document.getElementById(id);
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -2367,7 +2564,8 @@ onMounted(async () => {
       loadRecordBoards(),
       loadRaceDivisions(),
       loadKudosStats(),
-      loadStravaStatus()
+      loadStravaStatus(),
+      loadBulkRosterMembers()
     ]);
   }
   tickCountdown();
@@ -3125,6 +3323,72 @@ watch(() => workoutForm.value.terrain, (terrain) => {
 }
 .modal-content.modal-wide {
   min-width: 480px;
+}
+.bulk-upload-modal {
+  width: min(980px, 96vw);
+}
+.bulk-textarea {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.success-inline {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+  margin: 10px 0;
+}
+.bulk-review-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+.bulk-review-card {
+  border: 1px solid #dbe4ef;
+  border-radius: 14px;
+  padding: 14px;
+  background: #f8fafc;
+}
+.bulk-review-card.needs-match {
+  border-color: #f97316;
+  background: #fff7ed;
+  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.15);
+}
+.bulk-review-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.bulk-review-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+.bulk-review-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: #334155;
+}
+.bulk-review-grid input,
+.bulk-review-grid select {
+  min-width: 0;
+}
+.bulk-review-grid .checkbox-label {
+  flex-direction: row;
+  align-items: center;
+  margin-top: 22px;
+}
+.bulk-match-warning {
+  margin: 10px 0 0;
+  color: #9a3412;
+  font-weight: 700;
 }
 .log-workout-modal {
   width: min(560px, 96vw);

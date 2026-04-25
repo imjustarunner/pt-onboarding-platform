@@ -4,15 +4,17 @@
  * Challenges are learning_program_classes; UI displays as "Challenges".
  */
 import pool from '../config/database.js';
+import crypto from 'crypto';
 import ChallengeTeam from '../models/ChallengeTeam.model.js';
 import ChallengeWorkout from '../models/ChallengeWorkout.model.js';
+import User from '../models/User.model.js';
 import ChallengeWeeklyTask from '../models/ChallengeWeeklyTask.model.js';
 import ChallengeWeeklyAssignment from '../models/ChallengeWeeklyAssignment.model.js';
 import ChallengeCaptainApplication from '../models/ChallengeCaptainApplication.model.js';
 import ChallengeMessage from '../models/ChallengeMessage.model.js';
 import ChallengeWorkoutComment from '../models/ChallengeWorkoutComment.model.js';
 import ChallengeWorkoutMedia from '../models/ChallengeWorkoutMedia.model.js';
-import { queueClubRecordBreakCandidates, getPlatformAgencyIds } from './summitStats.controller.js';
+import { queueClubRecordBreakCandidates, getPlatformAgencyId, getPlatformAgencyIds } from './summitStats.controller.js';
 import { sqlAffiliationUnderSummitPlatform } from '../utils/summitPlatformClubs.js';
 import { canManageTeam } from '../utils/challengePermissions.js';
 import { canAccessChallenge, resolveChallengeAccessOrManage } from '../utils/challengeAccess.js';
@@ -24,7 +26,7 @@ import {
   resolveWeeklyDistanceTargets,
   weekSeventhPaceState
 } from '../utils/challengeWeekUtils.js';
-import { enqueueWorkoutVision } from '../services/challengeWorkoutVision.service.js';
+import { enqueueWorkoutVision, scanWorkoutScreenshot as scanWorkoutScreenshotWithVision } from '../services/challengeWorkoutVision.service.js';
 import { challengeMessageBridge } from '../services/challengeMessageBridge.service.js';
 import { canUserManageChallengeClass } from '../utils/sscClubAccess.js';
 import { sanitizeCalories, estimateCalories } from '../utils/calorieUtils.js';
@@ -63,6 +65,205 @@ const canManageChallenge = async ({ user, classId }) => {
   if (!classId) return canManageChallengeRole(user?.role);
   if (await canUserManageChallengeClass({ user, learningClassId: classId })) return true;
   return canManageChallengeRole(user?.role);
+};
+
+const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+
+const normalizePhoneNumber = (value) => User.normalizePhone(value);
+
+const normalizePersonName = (value) => String(value || '')
+  .trim()
+  .toLowerCase()
+  .replace(/[^a-z0-9\s'-]/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const splitRosterName = (row = {}) => {
+  const display = String(row.displayName || row.name || '').trim();
+  const first = String(row.firstName || row.first_name || '').trim();
+  const last = String(row.lastName || row.last_name || '').trim();
+  if (first || last) return { firstName: first || null, lastName: last || 'Member', displayName: `${first} ${last}`.trim() };
+  const parts = display.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: null, lastName: 'Member', displayName: 'Roster Member' };
+  if (parts.length === 1) return { firstName: parts[0], lastName: 'Member', displayName: parts[0] };
+  return { firstName: parts.slice(0, -1).join(' '), lastName: parts[parts.length - 1], displayName: display };
+};
+
+const getChallengeClassRow = async (classId) => {
+  const [rows] = await pool.execute(
+    `SELECT c.id, c.organization_id, c.season_settings_json, c.week_start_time, c.status,
+            a.slug AS organization_slug, a.name AS organization_name
+     FROM learning_program_classes c
+     INNER JOIN agencies a ON a.id = c.organization_id
+     WHERE c.id = ?
+     LIMIT 1`,
+    [classId]
+  );
+  return rows?.[0] || null;
+};
+
+const isBerlinClassRow = (classRow) => {
+  const slug = String(classRow?.organization_slug || '').trim().toLowerCase();
+  const name = String(classRow?.organization_name || '').trim().toLowerCase();
+  return slug === 'berlin' || name.includes('berlin');
+};
+
+const ensureChallengeRosterMember = async ({ classId, classRow, row, createdByUserId }) => {
+  const { firstName, lastName, displayName } = splitRosterName(row);
+  const email = normalizeEmail(row.email);
+  const phoneNumber = normalizePhoneNumber(row.phoneNumber || row.phone_number || row.phone || row.mobile);
+  let user = email ? await User.findByEmail(email) : null;
+  if (!user?.id && phoneNumber) user = await User.findByPhone(phoneNumber);
+  let createdPlaceholder = false;
+  if (!user?.id) {
+    const syntheticEmail = email || `roster-${classId}-${crypto.randomUUID()}@placeholder.sstc.local`;
+    user = await User.create({
+      email: syntheticEmail,
+      personalEmail: email || syntheticEmail,
+      passwordHash: null,
+      firstName,
+      lastName,
+      phoneNumber,
+      role: 'provider',
+      status: 'ACTIVE_EMPLOYEE'
+    });
+    createdPlaceholder = true;
+    await pool.execute(
+      `UPDATE users
+       SET is_roster_placeholder = 1,
+           roster_placeholder_claim_email = ?,
+           roster_placeholder_claimed_at = NULL
+       WHERE id = ?`,
+      [email || null, user.id]
+    );
+  } else if (phoneNumber) {
+    await pool.execute(
+      `UPDATE users
+       SET phone_number = COALESCE(NULLIF(phone_number, ''), ?)
+       WHERE id = ?`,
+      [phoneNumber, user.id]
+    ).catch(() => {});
+  }
+
+  const clubId = Number(classRow?.organization_id || 0) || null;
+  if (clubId) await User.assignToAgency(user.id, clubId, { clubRole: 'member', isActive: true });
+  const platformAgencyId = await getPlatformAgencyId();
+  if (platformAgencyId) await User.assignToAgency(user.id, platformAgencyId, { isActive: true });
+
+  await pool.execute(
+    `INSERT INTO learning_class_provider_memberships
+       (learning_class_id, provider_user_id, membership_status, joined_at, role_label, notes, created_by_user_id)
+     VALUES (?, ?, 'active', NOW(), NULL, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       membership_status = IF(membership_status = 'removed', 'active', membership_status),
+       joined_at = COALESCE(joined_at, NOW()),
+       notes = COALESCE(VALUES(notes), notes),
+       updated_at = NOW()`,
+    [classId, user.id, 'Imported by manager roster upload', createdByUserId || null]
+  );
+
+  const teamName = String(row.teamName || row.team_name || row.team || '').trim();
+  let team = null;
+  if (teamName) {
+    const [teamRows] = await pool.execute(
+      `SELECT * FROM challenge_teams WHERE learning_class_id = ? AND LOWER(team_name) = LOWER(?) LIMIT 1`,
+      [classId, teamName]
+    );
+    team = teamRows?.[0] || await ChallengeTeam.create({ learningClassId: classId, teamName });
+    if (team?.id) await ChallengeTeam.addMember({ teamId: team.id, providerUserId: user.id });
+  }
+
+  return {
+    userId: user.id,
+    email: email || null,
+    phoneNumber,
+    displayName,
+    firstName,
+    lastName,
+    teamId: team?.id || null,
+    teamName: team?.team_name || teamName || null,
+    createdPlaceholder
+  };
+};
+
+const rosterDisplayName = (member) => `${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email || `User ${member.provider_user_id || member.id}`;
+
+const scoreRosterNameAgainstText = (member, rawText) => {
+  const text = normalizePersonName(rawText);
+  if (!text) return 0;
+  const full = normalizePersonName(rosterDisplayName(member));
+  const first = normalizePersonName(member.first_name);
+  const last = normalizePersonName(member.last_name);
+  const firstInitial = first ? first[0] : '';
+  let score = 0;
+  if (full && text.includes(full)) score += 100;
+  if (first && first.length > 1 && text.includes(first)) score += 35;
+  if (last && last.length > 1 && text.includes(last)) score += 55;
+  if (firstInitial && last && new RegExp(`\\b${escapeRegExp(firstInitial)}[a-z]*\\s+${escapeRegExp(last)}\\b`, 'i').test(text)) score += 95;
+  if (firstInitial && last && new RegExp(`\\b${escapeRegExp(firstInitial)}\\s+${escapeRegExp(last)}\\b`, 'i').test(text)) score += 95;
+  if (member.email && text.includes(normalizeEmail(member.email).split('@')[0].replace(/[._-]+/g, ' '))) score += 20;
+  return Math.min(100, score);
+};
+
+const matchRosterMemberFromText = (members, rawText) => {
+  let best = null;
+  for (const member of members || []) {
+    const score = scoreRosterNameAgainstText(member, rawText);
+    if (!best || score > best.score) best = { member, score };
+  }
+  if (!best || best.score < 70) return { matchedUserId: null, confidence: best?.score || 0, match: null, needsMemberSelection: true };
+  return {
+    matchedUserId: Number(best.member.provider_user_id || best.member.id),
+    confidence: best.score,
+    match: best.member,
+    needsMemberSelection: false
+  };
+};
+
+const calculateChallengeWorkoutPoints = ({ activityType, distanceValue, caloriesBurned, durationMinutes, settings }) => {
+  const eventCategory = String(settings?.event?.category || 'run_ruck').toLowerCase();
+  const scoring = parseJsonObject(settings?.scoring || {});
+  const runMilesPerPoint = Number(scoring.runMilesPerPoint || 1) || 1;
+  const ruckMilesPerPoint = Number(scoring.ruckMilesPerPoint || 1) || 1;
+  const caloriesPerPoint = Number(scoring.caloriesPerPoint || 100) || 100;
+  const activityLower = String(activityType || '').toLowerCase();
+  const isRunLike = activityLower.includes('run') || activityLower.includes('walk') || activityLower.includes('ruck') || activityLower.includes('step');
+  if (eventCategory === 'run_ruck' && isRunLike && distanceValue != null && Number.isFinite(Number(distanceValue))) {
+    const divisor = activityLower.includes('ruck') ? ruckMilesPerPoint : runMilesPerPoint;
+    return Math.max(0, Math.round((Number(distanceValue) / divisor) * 100) / 100);
+  }
+  if (eventCategory === 'run_ruck' && distanceValue != null && Number.isFinite(Number(distanceValue))) {
+    return Math.max(0, Math.round((Number(distanceValue) / runMilesPerPoint) * 100) / 100);
+  }
+  if (caloriesBurned != null && caloriesPerPoint > 0) return Math.max(0, Math.floor(Number(caloriesBurned) / caloriesPerPoint));
+  return 0;
+};
+
+const loadChallengeRosterMembers = async (classId) => {
+  const [rows] = await pool.execute(
+    `SELECT
+       pm.provider_user_id,
+       pm.membership_status,
+       u.first_name,
+       u.last_name,
+       u.email,
+       u.phone_number,
+       u.is_roster_placeholder,
+       u.roster_placeholder_claim_email,
+       t.id AS team_id,
+       t.team_name
+     FROM learning_class_provider_memberships pm
+     INNER JOIN users u ON u.id = pm.provider_user_id
+     LEFT JOIN challenge_team_members ctm ON ctm.provider_user_id = pm.provider_user_id
+     LEFT JOIN challenge_teams t ON t.id = ctm.team_id AND t.learning_class_id = pm.learning_class_id
+     WHERE pm.learning_class_id = ?
+       AND pm.membership_status IN ('active','completed')
+     ORDER BY u.last_name ASC, u.first_name ASC, pm.provider_user_id ASC`,
+    [classId]
+  );
+  return rows || [];
 };
 
 const isCaptainForClass = async ({ classId, userId }) => {
@@ -706,9 +907,9 @@ export const getMyParticipationSummary = async (req, res, next) => {
     const [teams] = await pool.execute(
       `SELECT challenge_id, class_name, team_id, team_name FROM (
          SELECT c.id AS challenge_id, c.class_name AS class_name, t.id AS team_id, t.team_name AS team_name, c.starts_at
-         FROM challenge_team_members m
-         INNER JOIN challenge_teams t ON t.id = m.team_id
-         INNER JOIN learning_program_classes c ON c.id = t.learning_class_id
+       FROM challenge_team_members m
+       INNER JOIN challenge_teams t ON t.id = m.team_id
+       INNER JOIN learning_program_classes c ON c.id = t.learning_class_id
          INNER JOIN agencies a ON a.id = c.organization_id
          WHERE m.provider_user_id = ?
            AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'${orgFilter}${platSql}
@@ -757,6 +958,153 @@ export const getMyParticipationSummary = async (req, res, next) => {
         teamName: r.team_name
       }))
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listChallengeRoster = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) {
+      return res.status(403).json({ error: { message: 'Manage access required' } });
+    }
+    const classRow = await getChallengeClassRow(classId);
+    if (!classRow) return res.status(404).json({ error: { message: 'Season not found' } });
+    if (!isBerlinClassRow(classRow)) {
+      return res.status(403).json({ error: { message: 'This roster fallback is currently enabled only for Berlin.' } });
+    }
+    const members = await loadChallengeRosterMembers(classId);
+    return res.json({
+      members: members.map((m) => ({
+        userId: Number(m.provider_user_id),
+        providerUserId: Number(m.provider_user_id),
+        firstName: m.first_name,
+        lastName: m.last_name,
+        displayName: rosterDisplayName(m),
+        email: String(m.email || '').includes('@placeholder.sstc.local') ? null : m.email,
+        phoneNumber: m.phone_number || null,
+        claimEmail: m.roster_placeholder_claim_email || null,
+        isRosterPlaceholder: Number(m.is_roster_placeholder || 0) === 1,
+        teamId: m.team_id || null,
+        teamName: m.team_name || null
+      }))
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const importChallengeRoster = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) {
+      return res.status(403).json({ error: { message: 'Manage access required' } });
+    }
+    const classRow = await getChallengeClassRow(classId);
+    if (!classRow) return res.status(404).json({ error: { message: 'Season not found' } });
+    if (!isBerlinClassRow(classRow)) {
+      return res.status(403).json({ error: { message: 'This roster fallback is currently enabled only for Berlin.' } });
+    }
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (!rows.length) return res.status(400).json({ error: { message: 'Roster rows are required' } });
+    if (rows.length > 500) return res.status(400).json({ error: { message: 'Import up to 500 roster rows at a time' } });
+
+    const imported = [];
+    const errors = [];
+    for (let i = 0; i < rows.length; i++) {
+      try {
+        const nameBits = splitRosterName(rows[i]);
+        const email = normalizeEmail(rows[i]?.email);
+        const phoneNumber = normalizePhoneNumber(rows[i]?.phoneNumber || rows[i]?.phone_number || rows[i]?.phone || rows[i]?.mobile);
+        if (!email && !normalizePersonName(nameBits.displayName)) {
+          errors.push({ row: i + 1, message: 'Name or email required' });
+          continue;
+        }
+        const result = await ensureChallengeRosterMember({
+          classId,
+          classRow,
+          row: rows[i],
+          createdByUserId: req.user.id
+        });
+        imported.push({ row: i + 1, ...result });
+      } catch (err) {
+        errors.push({ row: i + 1, message: err?.message || 'Import failed' });
+      }
+    }
+    return res.json({ imported, errors, members: await loadChallengeRosterMembers(classId) });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const mergeRosterPlaceholder = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const placeholderUserId = asInt(req.body?.placeholderUserId);
+    const targetUserId = asInt(req.body?.targetUserId);
+    if (!classId || !placeholderUserId || !targetUserId || placeholderUserId === targetUserId) {
+      return res.status(400).json({ error: { message: 'classId, placeholderUserId, and targetUserId are required' } });
+    }
+    if (!(await canManageChallenge({ user: req.user, classId }))) {
+      return res.status(403).json({ error: { message: 'Manage access required' } });
+    }
+    const classRow = await getChallengeClassRow(classId);
+    if (!classRow) return res.status(404).json({ error: { message: 'Season not found' } });
+    if (!isBerlinClassRow(classRow)) {
+      return res.status(403).json({ error: { message: 'This roster fallback is currently enabled only for Berlin.' } });
+    }
+    const [placeholderRows] = await pool.execute(
+      `SELECT u.id
+       FROM users u
+       INNER JOIN learning_class_provider_memberships pm ON pm.provider_user_id = u.id
+       WHERE u.id = ? AND pm.learning_class_id = ? AND u.is_roster_placeholder = 1
+       LIMIT 1`,
+      [placeholderUserId, classId]
+    );
+    if (!placeholderRows?.length) return res.status(404).json({ error: { message: 'Placeholder roster member not found' } });
+    const [targetRows] = await pool.execute(
+      `SELECT id FROM users WHERE id = ? LIMIT 1`,
+      [targetUserId]
+    );
+    if (!targetRows?.length) return res.status(404).json({ error: { message: 'Target user not found' } });
+
+    await pool.execute(
+      `INSERT INTO learning_class_provider_memberships
+         (learning_class_id, provider_user_id, membership_status, joined_at, role_label, notes, created_by_user_id)
+       SELECT learning_class_id, ?, 'active', COALESCE(joined_at, NOW()), role_label, 'Merged from placeholder roster member', ?
+       FROM learning_class_provider_memberships
+       WHERE learning_class_id = ? AND provider_user_id = ?
+       ON DUPLICATE KEY UPDATE membership_status = 'active', updated_at = NOW()`,
+      [targetUserId, req.user.id, classId, placeholderUserId]
+    );
+    await pool.execute(
+      `INSERT IGNORE INTO challenge_team_members (team_id, provider_user_id, joined_at)
+       SELECT team_id, ?, COALESCE(joined_at, NOW())
+       FROM challenge_team_members
+       WHERE provider_user_id = ?`,
+      [targetUserId, placeholderUserId]
+    );
+    await pool.execute(
+      `UPDATE challenge_workouts
+       SET user_id = ?,
+           submitted_on_behalf_of_user_id = CASE WHEN submitted_on_behalf_of_user_id = ? THEN ? ELSE submitted_on_behalf_of_user_id END
+       WHERE learning_class_id = ? AND user_id = ?`,
+      [targetUserId, placeholderUserId, targetUserId, classId, placeholderUserId]
+    );
+    await pool.execute(`UPDATE user_photos SET user_id = ? WHERE user_id = ?`, [targetUserId, placeholderUserId]).catch(() => {});
+    await pool.execute(`DELETE FROM challenge_team_members WHERE provider_user_id = ?`, [placeholderUserId]);
+    await pool.execute(`DELETE FROM learning_class_provider_memberships WHERE learning_class_id = ? AND provider_user_id = ?`, [classId, placeholderUserId]);
+    await pool.execute(
+      `UPDATE users
+       SET is_roster_placeholder = 0,
+           roster_placeholder_claimed_at = NOW()
+       WHERE id = ?`,
+      [placeholderUserId]
+    );
+    return res.json({ ok: true, placeholderUserId, targetUserId });
   } catch (e) {
     next(e);
   }
@@ -1058,8 +1406,8 @@ export const submitWorkout = async (req, res, next) => {
         const assignment = await ChallengeWeeklyAssignment.findByTaskAndUser(weeklyTaskId, req.user.id);
         if (isApprovedWeeklyAssignment(assignment)) {
           await ChallengeWeeklyAssignment.markCompleted(assignment.id, {
-            completedAt: completedAt.toISOString().slice(0, 19).replace('T', ' ')
-          });
+      completedAt: completedAt.toISOString().slice(0, 19).replace('T', ' ')
+    });
         }
       }
       // Save treadmill proof and map image as separate media records
@@ -1155,6 +1503,234 @@ export const reviewWorkoutProof = async (req, res, next) => {
       proofReviewedAt: new Date().toISOString().slice(0, 19).replace('T', ' ')
     });
     return res.json({ workout: nextWorkout });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const scanBulkWorkoutScreenshots = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) {
+      return res.status(403).json({ error: { message: 'Manage access required' } });
+    }
+    const classRow = await getChallengeClassRow(classId);
+    if (!classRow) return res.status(404).json({ error: { message: 'Season not found' } });
+    if (!isBerlinClassRow(classRow)) {
+      return res.status(403).json({ error: { message: 'This roster fallback is currently enabled only for Berlin.' } });
+    }
+    const files = Array.isArray(req.files) ? req.files.slice(0, 10) : [];
+    if (!files.length) return res.status(400).json({ error: { message: 'At least one image is required' } });
+    const roster = await loadChallengeRosterMembers(classId);
+    const baseUrl = String(process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL || '').replace(/\/$/, '');
+    const StorageService = (await import('../services/storage.service.js')).default;
+    const items = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const saved = await StorageService.saveWorkoutMedia({
+        userId: req.user.id,
+        fileBuffer: file.buffer,
+        filename: file.originalname || `bulk-workout-${Date.now()}-${i + 1}.jpg`,
+        contentType: file.mimetype
+      });
+      let extracted = {};
+      let rawText = '';
+      let confidence = 0;
+      let visionEnabled = false;
+      try {
+        const result = await scanWorkoutScreenshotWithVision({ fileBuffer: file.buffer, mimeType: file.mimetype });
+        extracted = result.extracted || {};
+        rawText = result.rawText || '';
+        confidence = result.confidence || 0;
+        visionEnabled = true;
+      } catch (visionErr) {
+        console.warn('[scanBulkWorkoutScreenshots] Vision scan failed:', visionErr?.message || visionErr);
+      }
+      const match = matchRosterMemberFromText(roster, rawText);
+      items.push({
+        clientItemId: crypto.randomUUID(),
+        originalName: file.originalname || `Image ${i + 1}`,
+        filePath: saved.relativePath,
+        fileUrl: `${baseUrl}/uploads/${saved.relativePath}`,
+        extracted,
+        rawText,
+        confidence,
+        visionEnabled,
+        matchedUserId: match.matchedUserId,
+        matchConfidence: match.confidence,
+        needsMemberSelection: match.needsMemberSelection,
+        matchedMember: match.match ? {
+          userId: Number(match.match.provider_user_id),
+          displayName: rosterDisplayName(match.match),
+          teamId: match.match.team_id || null,
+          teamName: match.match.team_name || null
+        } : null
+      });
+    }
+    return res.json({
+      items,
+      members: roster.map((m) => ({
+        userId: Number(m.provider_user_id),
+        displayName: rosterDisplayName(m),
+        firstName: m.first_name,
+        lastName: m.last_name,
+        teamId: m.team_id || null,
+        teamName: m.team_name || null,
+        isRosterPlaceholder: Number(m.is_roster_placeholder || 0) === 1
+      }))
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const submitBulkWorkoutsOnBehalf = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) {
+      return res.status(403).json({ error: { message: 'Manage access required' } });
+    }
+    const classRow = await getChallengeClassRow(classId);
+    if (!classRow) return res.status(404).json({ error: { message: 'Season not found' } });
+    if (!isBerlinClassRow(classRow)) {
+      return res.status(403).json({ error: { message: 'This roster fallback is currently enabled only for Berlin.' } });
+    }
+    const settings = parseJsonObject(classRow.season_settings_json || {});
+    const schedule = parseJsonObject(settings?.schedule || {});
+    const weekCutoffTime = String(schedule?.weekEndsSundayAt || classRow.week_start_time || '00:00');
+    const weekTimeZone = String(schedule?.weekTimeZone || 'UTC');
+    const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 10) : [];
+    if (!items.length) return res.status(400).json({ error: { message: 'At least one workout item is required' } });
+    const created = [];
+    const errors = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i] || {};
+      try {
+        const targetUserId = asInt(item.userId || item.providerUserId || item.matchedUserId);
+        const activityType = normalizeActivityType(String(item.activityType || item.extracted?.activityTypeHint || '').trim());
+        if (!targetUserId) throw new Error('Select a member for this workout');
+        if (!activityType) throw new Error('Activity type is required');
+        const [pm] = await pool.execute(
+          `SELECT 1 FROM learning_class_provider_memberships
+           WHERE learning_class_id = ? AND provider_user_id = ? AND membership_status IN ('active','completed')
+           LIMIT 1`,
+          [classId, targetUserId]
+        );
+        if (!pm?.length) throw new Error('Selected member is not active in this season');
+
+        const completedAt = item.completedAt ? new Date(item.completedAt) : new Date();
+        if (Number.isNaN(completedAt.getTime())) throw new Error('Invalid completed date');
+        const completedWeekStart = getWeekStartDate(completedAt, weekCutoffTime, weekTimeZone);
+        const distanceValue = item.distanceValue != null && item.distanceValue !== '' ? Number(item.distanceValue) : null;
+        const durationMinutes = item.durationMinutes != null && item.durationMinutes !== '' ? asInt(item.durationMinutes) : null;
+        const durationSeconds = item.durationSeconds != null && item.durationSeconds !== '' ? Math.min(59, Math.max(0, asInt(item.durationSeconds) || 0)) : null;
+        const caloriesBurned = item.caloriesBurned != null && item.caloriesBurned !== ''
+          ? sanitizeCalories({
+              calories: Number(item.caloriesBurned),
+              activityType,
+              distanceMiles: distanceValue ?? 0,
+              durationMinutes: durationMinutes ?? 0
+            }).calories
+          : estimateCalories({ activityType, distanceMiles: distanceValue ?? 0, durationMinutes: durationMinutes ?? 0 });
+        const points = item.points != null && item.points !== ''
+          ? Math.round(Number(item.points) * 100) / 100
+          : calculateChallengeWorkoutPoints({ activityType, distanceValue, caloriesBurned, durationMinutes, settings });
+
+        let weeklyTask = null;
+        const weeklyTaskId = item.weeklyTaskId ? asInt(item.weeklyTaskId) : null;
+        if (weeklyTaskId) {
+          weeklyTask = await ChallengeWeeklyTask.findById(weeklyTaskId);
+          if (!weeklyTask || Number(weeklyTask.learning_class_id) !== Number(classId)) throw new Error('Invalid weekly challenge tag');
+          if (String(weeklyTask.week_start_date || '').slice(0, 10) !== String(completedWeekStart || '').slice(0, 10)) {
+            throw new Error('Weekly challenge tag must belong to the workout week');
+          }
+          if (weeklyTask.mode !== 'full_team') {
+            const assignment = await ChallengeWeeklyAssignment.findByTaskAndUser(weeklyTask.id, targetUserId);
+            if (!assignment && item.allowManagerChallengeOverride !== true) {
+              throw new Error('Selected member is not assigned to that weekly challenge');
+            }
+          }
+        }
+
+        const team = await ChallengeTeam.getTeamForUser(classId, targetUserId);
+        const isRaceExplicit = item.isRace === true || item.isRace === 'true' || item.isRace === 1;
+        const isRaceAutoDetect = String(activityType).toLowerCase().includes('run') && distanceValue != null && Number(distanceValue) >= 13.1;
+        const isRace = isRaceExplicit || isRaceAutoDetect;
+        const proofReviewedAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        const workout = await ChallengeWorkout.create({
+          learningClassId: classId,
+          teamId: team?.id || null,
+          userId: targetUserId,
+          submittedByUserId: req.user.id,
+          submittedOnBehalfOfUserId: targetUserId,
+          submissionSource: 'manager_bulk_upload',
+          ocrConfidence: item.ocrConfidence ?? item.confidence ?? null,
+          ocrRawText: item.rawText || null,
+          ocrExtractedJson: item.extracted || null,
+          activityType,
+          isTreadmill: item.isTreadmill === true || /treadmill/i.test(String(item.terrain || item.extracted?.terrain || '')),
+          isRace,
+          raceDistanceMiles: isRace && item.raceDistanceMiles != null ? Number(item.raceDistanceMiles) : null,
+          raceChipTimeSeconds: isRace && item.raceChipTimeSeconds != null ? asInt(item.raceChipTimeSeconds) : null,
+          raceOverallPlace: isRace && item.raceOverallPlace != null ? asInt(item.raceOverallPlace) : null,
+          terrain: item.terrain || item.extracted?.terrain || null,
+          distanceValue,
+          reportedDistanceValue: distanceValue,
+          verifiedDistanceValue: distanceValue,
+          durationMinutes,
+          durationSeconds,
+          caloriesBurned,
+          averageHeartrate: item.averageHeartrate != null ? Number(item.averageHeartrate) : null,
+          points,
+          workoutNotes: item.workoutNotes || 'Manager bulk uploaded on behalf of athlete',
+          screenshotFilePath: item.filePath || item.screenshotFilePath || null,
+          completedAt: completedAt.toISOString().slice(0, 19).replace('T', ' '),
+          weeklyTaskId,
+          proofStatus: 'approved',
+          proofReviewNote: 'Auto-approved manager on-behalf upload',
+          proofReviewedByUserId: req.user.id,
+          proofReviewedAt
+        });
+
+        if (workout?.id) {
+          if (weeklyTaskId && weeklyTask?.mode !== 'full_team') {
+            const assignment = await ChallengeWeeklyAssignment.findByTaskAndUser(weeklyTaskId, targetUserId);
+            if (assignment) {
+              await ChallengeWeeklyAssignment.markCompleted(assignment.id, {
+                completedAt: completedAt.toISOString().slice(0, 19).replace('T', ' ')
+              });
+            }
+          }
+          if (workout.screenshot_file_path) {
+            await pool.execute(
+              `INSERT IGNORE INTO user_photos (user_id, file_path, source, source_ref_id, is_profile)
+               VALUES (?, ?, 'workout_screenshot', ?, 0)`,
+              [targetUserId, workout.screenshot_file_path, workout.id]
+            ).catch(() => {});
+          }
+          await enqueueWorkoutVision({
+            workoutId: workout.id,
+            learningClassId: classId,
+            userId: targetUserId,
+            screenshotFilePath: workout.screenshot_file_path || null,
+            workoutNotes: workout.workout_notes || null,
+            responseJson: {
+              extracted: item.extracted || null,
+              rawText: item.rawText || null,
+              confidence: item.ocrConfidence ?? item.confidence ?? null,
+              source: 'manager_bulk_upload'
+            }
+          }).catch(() => {});
+          await queueClubRecordBreakCandidates({ learningClassId: classId, workoutId: workout.id, userId: targetUserId }).catch(() => {});
+        }
+        created.push({ clientItemId: item.clientItemId || null, workout });
+      } catch (err) {
+        errors.push({ index: i, clientItemId: item.clientItemId || null, message: err?.message || 'Failed to create workout' });
+      }
+    }
+    return res.status(created.length ? 201 : 400).json({ created, errors });
   } catch (e) {
     next(e);
   }

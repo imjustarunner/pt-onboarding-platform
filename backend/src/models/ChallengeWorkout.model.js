@@ -87,6 +87,12 @@ class ChallengeWorkout {
     learningClassId,
     teamId = null,
     userId,
+    submittedByUserId = null,
+    submittedOnBehalfOfUserId = null,
+    submissionSource = 'self',
+    ocrConfidence = null,
+    ocrRawText = null,
+    ocrExtractedJson = null,
     activityType,
     isTreadmill = false,
     isRace = false,
@@ -123,12 +129,18 @@ class ChallengeWorkout {
     const durSec = durationSeconds != null ? Math.min(59, Math.max(0, toInt(durationSeconds) || 0)) : null;
     const [result] = await pool.execute(
       `INSERT INTO challenge_workouts
-       (learning_class_id, team_id, user_id, activity_type, is_treadmill, is_race, race_distance_miles, race_chip_time_seconds, race_overall_place, terrain, distance_value, reported_distance_value, verified_distance_value, duration_minutes, duration_seconds, calories_burned, elevation_gain_meters, average_heartrate, max_heartrate, splits_json, points, workout_notes, screenshot_file_path, map_summary_polyline, completed_at, strava_activity_id, weekly_task_id, proof_status, proof_review_note, proof_reviewed_by_user_id, proof_reviewed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (learning_class_id, team_id, user_id, submitted_by_user_id, submitted_on_behalf_of_user_id, submission_source, ocr_confidence, ocr_raw_text, ocr_extracted_json, activity_type, is_treadmill, is_race, race_distance_miles, race_chip_time_seconds, race_overall_place, terrain, distance_value, reported_distance_value, verified_distance_value, duration_minutes, duration_seconds, calories_burned, elevation_gain_meters, average_heartrate, max_heartrate, splits_json, points, workout_notes, screenshot_file_path, map_summary_polyline, completed_at, strava_activity_id, weekly_task_id, proof_status, proof_review_note, proof_reviewed_by_user_id, proof_reviewed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         classId,
         teamId ? toInt(teamId) : null,
         uId,
+        submittedByUserId ? toInt(submittedByUserId) : uId,
+        submittedOnBehalfOfUserId ? toInt(submittedOnBehalfOfUserId) : null,
+        String(submissionSource || 'self').slice(0, 64),
+        ocrConfidence != null ? Math.max(0, Math.min(100, toInt(ocrConfidence) || 0)) : null,
+        ocrRawText ? String(ocrRawText) : null,
+        ocrExtractedJson ? JSON.stringify(ocrExtractedJson) : null,
         activity,
         isTreadmill ? 1 : 0,
         isRace ? 1 : 0,

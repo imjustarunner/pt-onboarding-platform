@@ -980,14 +980,33 @@ export const upsertClassProviderMembers = async (req, res, next) => {
     for (const m of members) {
       const providerUserId = asInt(m?.providerUserId);
       if (!providerUserId) continue;
+      const membershipStatus = String(m?.membershipStatus || 'active').toLowerCase();
       await LearningProgramClass.addProviderMember({
         classId,
         providerUserId,
-        membershipStatus: String(m?.membershipStatus || 'active').toLowerCase(),
+        membershipStatus,
         roleLabel: m?.roleLabel ? String(m.roleLabel) : null,
         notes: m?.notes ? String(m.notes) : null,
-        actorUserId: req.user.id
+        actorUserId: req.user.id,
+        teamId: Object.prototype.hasOwnProperty.call(m || {}, 'teamId')
+          ? m.teamId
+          : (Object.prototype.hasOwnProperty.call(m || {}, 'team_id') ? m.team_id : undefined)
       });
+      if (membershipStatus === 'removed') {
+        await pool.execute(
+          `DELETE ctm
+           FROM challenge_team_members ctm
+           INNER JOIN challenge_teams t ON t.id = ctm.team_id
+           WHERE t.learning_class_id = ? AND ctm.provider_user_id = ?`,
+          [classId, providerUserId]
+        );
+        await pool.execute(
+          `UPDATE challenge_teams
+           SET team_manager_user_id = NULL
+           WHERE learning_class_id = ? AND team_manager_user_id = ?`,
+          [classId, providerUserId]
+        );
+      }
     }
     const providerMembers = await LearningProgramClass.listProviderMembers(classId);
     return res.json({ classId, providerMembers });

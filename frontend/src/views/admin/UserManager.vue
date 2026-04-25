@@ -9,6 +9,8 @@
       <div class="header-actions" data-tour="users-header-actions">
         <button v-if="!isSscSstcTenant && ((user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support' || user?.role === 'staff') || (!isSupervisor(user) && user?.role !== 'clinical_practice_assistant'))" @click="showBulkAssignModal = true" class="btn btn-primary">Assign Documents</button>
         <button v-if="(user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support' || user?.role === 'staff') || (!isSupervisor(user) && user?.role !== 'clinical_practice_assistant')" @click="showCreateModal = true" class="btn btn-primary">{{ isSscSstcTenant ? 'Create New Member' : 'Create New User' }}</button>
+        <button v-if="isSscSstcTenant" @click="openTempAddMembersModal" class="btn btn-secondary">Add Existing Members</button>
+        <button v-if="isSscSstcTenant" @click="openTempMergeModal" class="btn btn-secondary">Merge Members</button>
         <button v-if="isSscSstcTenant" @click="toggleAssistantManagersView" class="btn btn-secondary">{{ assistantManagersOnly ? 'All Members' : 'Assistant Managers' }}</button>
         <button v-else-if="user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support'" @click="showSupervisorsModal = true" class="btn btn-secondary">Supervisors</button>
       </div>
@@ -383,7 +385,7 @@
                   <th class="sortable" @click="toggleTableSort('role')">
                     Role <span class="sort-indicator">{{ sortIndicator('role') }}</span>
                   </th>
-                  <th class="sortable col-credential" @click="toggleTableSort('credential')">
+                  <th v-if="!isSscSstcTenant" class="sortable col-credential" @click="toggleTableSort('credential')">
                     Credential <span class="sort-indicator">{{ sortIndicator('credential') }}</span>
                   </th>
                   <th class="sortable col-status" @click="toggleTableSort('status')">
@@ -500,7 +502,7 @@
                 <span v-if="user.has_staff_access && user.role === 'provider'" class="badge badge-secondary" style="margin-left: 4px; font-size: 10px;">+Staff</span>
               </template>
             </td>
-            <td class="muted col-credential">
+            <td v-if="!isSscSstcTenant" class="muted col-credential">
               {{ user.provider_credential || '—' }}
             </td>
             <td class="col-status">
@@ -553,11 +555,11 @@
                 </button>
                 <button
                   v-if="isSscSstcTenant && Number(user.id) !== Number(authStore.user?.id) && !user.applicationPending"
-                  class="btn btn-secondary btn-sm"
+                  class="btn btn-danger btn-sm"
                   :disabled="memberStatusSavingId === Number(user.id)"
-                  @click="setMemberActive(user, !(user.club_member_active === 1 || user.club_member_active === true))"
+                  @click="removeMemberFromClub(user)"
                 >
-                  {{ memberStatusSavingId === Number(user.id) ? 'Saving…' : ((user.club_member_active === 1 || user.club_member_active === true) ? 'Set Inactive' : 'Set Active') }}
+                  {{ memberStatusSavingId === Number(user.id) ? 'Removing…' : 'Remove from Club' }}
                 </button>
               </div>
             </td>
@@ -1543,6 +1545,68 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showTempAddMembersModal" class="modal-overlay" @click.self="showTempAddMembersModal = false">
+      <div class="modal-content large" @click.stop>
+        <h2>Temporary: Add Existing Members</h2>
+        <p class="muted">Development helper: select people from other clubs, add them to this club, and optionally enroll them in this club's seasons.</p>
+        <div class="form-group">
+          <label>Search</label>
+          <input v-model="tempMemberSearch" type="text" placeholder="Name or email" @input="loadTempMemberCandidatesDebounced" />
+        </div>
+        <div class="form-group" v-if="tempMemberSeasons.length">
+          <label>Add to seasons too</label>
+          <div class="temp-check-list">
+            <label v-for="s in tempMemberSeasons" :key="s.id">
+              <input type="checkbox" :value="s.id" v-model="tempSelectedSeasonIds" />
+              {{ s.className }}
+            </label>
+          </div>
+        </div>
+        <div v-if="tempAddError" class="error">{{ tempAddError }}</div>
+        <div class="temp-member-list">
+          <label v-for="candidate in tempMemberCandidates" :key="candidate.id" class="temp-member-row">
+            <input type="checkbox" :value="candidate.id" v-model="tempSelectedUserIds" />
+            <span>{{ memberDisplayName(candidate) || candidate.email }}</span>
+            <small>{{ candidate.email }} · {{ candidate.clubNames }}</small>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" @click="showTempAddMembersModal = false">Cancel</button>
+          <button type="button" class="btn btn-primary" :disabled="tempAddSaving || !tempSelectedUserIds.length" @click="saveTempAddMembers">
+            {{ tempAddSaving ? 'Adding…' : `Add ${tempSelectedUserIds.length} Member(s)` }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showTempMergeModal" class="modal-overlay" @click.self="showTempMergeModal = false">
+      <div class="modal-content large" @click.stop>
+        <h2>Temporary: Merge Duplicate Members</h2>
+        <p class="muted">Pick the account to keep, then select duplicate rows to merge into it. The duplicate accounts will be archived.</p>
+        <div class="form-group">
+          <label>Keep this member</label>
+          <select v-model.number="tempMergeTargetUserId">
+            <option :value="null">Choose survivor…</option>
+            <option v-for="u in users" :key="`target-${u.id}`" :value="Number(u.id)">{{ memberDisplayName(u) || u.email }} · {{ u.email }}</option>
+          </select>
+        </div>
+        <div class="temp-member-list">
+          <label v-for="u in users.filter((x) => Number(x.id) !== Number(tempMergeTargetUserId))" :key="`merge-${u.id}`" class="temp-member-row">
+            <input type="checkbox" :value="Number(u.id)" v-model="tempMergeSourceUserIds" />
+            <span>{{ memberDisplayName(u) || u.email }}</span>
+            <small>{{ u.email }}</small>
+          </label>
+        </div>
+        <div v-if="tempMergeError" class="error">{{ tempMergeError }}</div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" @click="showTempMergeModal = false">Cancel</button>
+          <button type="button" class="btn btn-danger" :disabled="tempMergeSaving || !tempMergeTargetUserId || !tempMergeSourceUserIds.length" @click="saveTempMergeMembers">
+            {{ tempMergeSaving ? 'Merging…' : `Merge ${tempMergeSourceUserIds.length} Duplicate(s)` }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -1586,6 +1650,12 @@ const userProfileTabPath = (userId, tabId) => {
   const base = basePath.split('?')[0];
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
+};
+
+const memberDisplayName = (member) => {
+  const first = String(member?.first_name || member?.firstName || '').trim();
+  const last = String(member?.last_name || member?.lastName || '').trim();
+  return `${first} ${last}`.trim();
 };
 
 const formatSscClubRole = (u) => {
@@ -1663,6 +1733,20 @@ const tableSortKey = ref('name');
 const tableSortDir = ref('asc'); // 'asc' | 'desc'
 const userTableExpanded = ref(false);
 const memberStatusSavingId = ref(null);
+const showTempAddMembersModal = ref(false);
+const tempMemberSearch = ref('');
+const tempMemberCandidates = ref([]);
+const tempMemberSeasons = ref([]);
+const tempSelectedUserIds = ref([]);
+const tempSelectedSeasonIds = ref([]);
+const tempAddSaving = ref(false);
+const tempAddError = ref('');
+let tempMemberSearchTimer = null;
+const showTempMergeModal = ref(false);
+const tempMergeTargetUserId = ref(null);
+const tempMergeSourceUserIds = ref([]);
+const tempMergeSaving = ref(false);
+const tempMergeError = ref('');
 
 const assistantManagersOnly = computed(() =>
   isSscSstcTenant.value && String(roleSort.value || '') === 'assistant_manager'
@@ -2272,18 +2356,91 @@ const fetchUsers = async () => {
   }
 };
 
-const setMemberActive = async (member, nextActive) => {
+const removeMemberFromClub = async (member) => {
   if (!isSscSstcTenant.value || !selectedClubId.value || !member?.id) return;
+  const name = memberDisplayName(member) || member.email || 'this member';
+  if (!confirm(`Remove ${name} from this club and its seasons?`)) return;
   try {
     memberStatusSavingId.value = Number(member.id);
-    await api.put(`/summit-stats/clubs/${selectedClubId.value}/members/${member.id}/status`, {
-      isActive: !!nextActive
-    });
+    await api.delete(`/summit-stats/clubs/${selectedClubId.value}/members/${member.id}`);
     await fetchUsers();
   } catch (err) {
-    alert(err?.response?.data?.error?.message || 'Failed to update member status');
+    alert(err?.response?.data?.error?.message || 'Failed to remove member from club');
   } finally {
     memberStatusSavingId.value = null;
+  }
+};
+
+const loadTempMemberCandidates = async () => {
+  if (!isSscSstcTenant.value || !selectedClubId.value) return;
+  tempAddError.value = '';
+  try {
+    const { data } = await api.get(`/summit-stats/clubs/${selectedClubId.value}/member-add-candidates`, {
+      params: { q: tempMemberSearch.value || '' },
+      skipGlobalLoading: true
+    });
+    tempMemberCandidates.value = Array.isArray(data?.users) ? data.users : [];
+    tempMemberSeasons.value = Array.isArray(data?.seasons) ? data.seasons : [];
+  } catch (err) {
+    tempAddError.value = err?.response?.data?.error?.message || 'Failed to load member candidates';
+  }
+};
+
+const loadTempMemberCandidatesDebounced = () => {
+  if (tempMemberSearchTimer) clearTimeout(tempMemberSearchTimer);
+  tempMemberSearchTimer = setTimeout(loadTempMemberCandidates, 250);
+};
+
+const openTempAddMembersModal = async () => {
+  showTempAddMembersModal.value = true;
+  tempMemberSearch.value = '';
+  tempSelectedUserIds.value = [];
+  tempSelectedSeasonIds.value = [];
+  tempAddError.value = '';
+  await loadTempMemberCandidates();
+};
+
+const saveTempAddMembers = async () => {
+  if (!selectedClubId.value || !tempSelectedUserIds.value.length) return;
+  tempAddSaving.value = true;
+  tempAddError.value = '';
+  try {
+    await api.post(`/summit-stats/clubs/${selectedClubId.value}/members/add-existing`, {
+      userIds: tempSelectedUserIds.value,
+      seasonIds: tempSelectedSeasonIds.value
+    });
+    showTempAddMembersModal.value = false;
+    await fetchUsers();
+  } catch (err) {
+    tempAddError.value = err?.response?.data?.error?.message || 'Failed to add members';
+  } finally {
+    tempAddSaving.value = false;
+  }
+};
+
+const openTempMergeModal = () => {
+  showTempMergeModal.value = true;
+  tempMergeTargetUserId.value = null;
+  tempMergeSourceUserIds.value = [];
+  tempMergeError.value = '';
+};
+
+const saveTempMergeMembers = async () => {
+  if (!selectedClubId.value || !tempMergeTargetUserId.value || !tempMergeSourceUserIds.value.length) return;
+  if (!confirm('Merge selected duplicate member accounts into the survivor and archive duplicates?')) return;
+  tempMergeSaving.value = true;
+  tempMergeError.value = '';
+  try {
+    await api.post(`/summit-stats/clubs/${selectedClubId.value}/members/merge`, {
+      targetUserId: tempMergeTargetUserId.value,
+      sourceUserIds: tempMergeSourceUserIds.value
+    });
+    showTempMergeModal.value = false;
+    await fetchUsers();
+  } catch (err) {
+    tempMergeError.value = err?.response?.data?.error?.message || 'Failed to merge members';
+  } finally {
+    tempMergeSaving.value = false;
   }
 };
 
@@ -4540,6 +4697,39 @@ th {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 20px;
+}
+
+.temp-check-list,
+.temp-member-list {
+  display: grid;
+  gap: 8px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.temp-check-list label,
+.temp-member-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.temp-member-row {
+  padding: 8px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.temp-member-row span {
+  font-weight: 700;
+}
+
+.temp-member-row small {
+  color: #64748b;
 }
 
 .credentials-modal.large {

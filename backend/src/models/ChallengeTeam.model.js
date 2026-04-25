@@ -43,12 +43,17 @@ class ChallengeTeam {
     const classId = toInt(learningClassId);
     const name = String(teamName || '').trim();
     if (!classId || !name) return null;
+    const captainUserId = teamManagerUserId ? toInt(teamManagerUserId) : null;
     const [result] = await pool.execute(
       `INSERT INTO challenge_teams (learning_class_id, team_name, team_manager_user_id)
        VALUES (?, ?, ?)`,
-      [classId, name, teamManagerUserId ? toInt(teamManagerUserId) : null]
+      [classId, name, captainUserId]
     );
-    return this.findById(result.insertId);
+    const team = await this.findById(result.insertId);
+    if (team?.id && captainUserId) {
+      await this.addMember({ teamId: team.id, providerUserId: captainUserId });
+    }
+    return team;
   }
 
   static async update(teamId, patch = {}) {
@@ -75,6 +80,10 @@ class ChallengeTeam {
     if (!setParts.length) return this.findById(id);
     values.push(id);
     await pool.execute(`UPDATE challenge_teams SET ${setParts.join(', ')} WHERE id = ?`, values);
+    const resolvedCaptainId = patch.teamManagerUserId ? toInt(patch.teamManagerUserId) : null;
+    if (resolvedCaptainId) {
+      await this.addMember({ teamId: id, providerUserId: resolvedCaptainId });
+    }
     return this.findById(id);
   }
 

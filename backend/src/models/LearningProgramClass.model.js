@@ -263,7 +263,7 @@ class LearningProgramClass {
     );
   }
 
-  static async addProviderMember({ classId, providerUserId, membershipStatus = 'active', roleLabel = null, notes = null, actorUserId = null }) {
+  static async addProviderMember({ classId, providerUserId, membershipStatus = 'active', roleLabel = null, notes = null, actorUserId = null, teamId = undefined }) {
     await pool.execute(
       `INSERT INTO learning_class_provider_memberships
        (learning_class_id, provider_user_id, membership_status, joined_at, role_label, notes, created_by_user_id)
@@ -275,6 +275,35 @@ class LearningProgramClass {
          removed_at = CASE WHEN VALUES(membership_status) IN ('removed') THEN NOW() ELSE NULL END`,
       [classId, providerUserId, membershipStatus, membershipStatus, roleLabel, notes, actorUserId]
     );
+
+    if (teamId !== undefined) {
+      const resolvedTeamId = toInt(teamId);
+      await pool.execute(
+        `DELETE ctm
+         FROM challenge_team_members ctm
+         INNER JOIN challenge_teams t ON t.id = ctm.team_id
+         WHERE ctm.provider_user_id = ? AND t.learning_class_id = ?`,
+        [providerUserId, classId]
+      );
+      if (resolvedTeamId) {
+        const [teamRows] = await pool.execute(
+          `SELECT id
+           FROM challenge_teams
+           WHERE id = ? AND learning_class_id = ?
+           LIMIT 1`,
+          [resolvedTeamId, classId]
+        );
+        if (!teamRows?.length) {
+          throw new Error('Invalid team for this season');
+        }
+        await pool.execute(
+          `INSERT INTO challenge_team_members (team_id, provider_user_id, joined_at)
+           VALUES (?, ?, NOW())
+           ON DUPLICATE KEY UPDATE joined_at = COALESCE(joined_at, NOW())`,
+          [resolvedTeamId, providerUserId]
+        );
+      }
+    }
 
     // Best-effort: if this season is in a club that already has a club-wide
     // chat thread, attach the new provider so they see it in /messages.
@@ -315,9 +344,12 @@ class LearningProgramClass {
     const id = toInt(classId);
     if (!id) return [];
     const [rows] = await pool.execute(
-      `SELECT m.*, u.first_name, u.last_name, u.email
+      `SELECT m.*, u.first_name, u.last_name, u.email,
+              t.id AS team_id, t.team_name
        FROM learning_class_provider_memberships m
        INNER JOIN users u ON u.id = m.provider_user_id
+       LEFT JOIN challenge_team_members ctm ON ctm.provider_user_id = m.provider_user_id
+       LEFT JOIN challenge_teams t ON t.id = ctm.team_id AND t.learning_class_id = m.learning_class_id
        WHERE m.learning_class_id = ?
        ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
       [id]

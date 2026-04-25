@@ -3950,6 +3950,7 @@ const providerSchoolBlurbSaving = ref(false);
 const providerSchoolBlurbError = ref('');
 
 const showGlobalAvailabilityInHeader = computed(() => {
+  if (isSscMemberProfileMode.value) return false;
   const r = String(user.value?.role || accountForm.value?.role || '').trim().toLowerCase();
   const isProviderLike = r === 'provider' || r === 'intern' || r === 'facilitator' || r === 'supervisor';
   return !!user.value && isProviderLike;

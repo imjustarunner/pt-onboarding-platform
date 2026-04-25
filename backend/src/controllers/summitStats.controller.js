@@ -1605,10 +1605,10 @@ export const removeClubMember = async (req, res, next) => {
     }
 
     const [existing] = await pool.execute(
-      'SELECT id, club_role FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+      'SELECT club_role FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
       [userId, club.id]
     );
-    if (!existing?.[0]?.id) {
+    if (!existing?.length) {
       return res.status(404).json({ error: { message: 'Member not found in this club' } });
     }
 
@@ -1625,7 +1625,39 @@ export const removeClubMember = async (req, res, next) => {
       }
     }
 
-    await User.removeFromAgency(userId, club.id);
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.execute(
+        `DELETE ctm
+         FROM challenge_team_members ctm
+         INNER JOIN challenge_teams t ON t.id = ctm.team_id
+         INNER JOIN learning_program_classes c ON c.id = t.learning_class_id
+         WHERE c.organization_id = ? AND ctm.provider_user_id = ?`,
+        [club.id, userId]
+      );
+      await conn.execute(
+        `UPDATE challenge_teams t
+         INNER JOIN learning_program_classes c ON c.id = t.learning_class_id
+         SET t.team_manager_user_id = NULL
+         WHERE c.organization_id = ? AND t.team_manager_user_id = ?`,
+        [club.id, userId]
+      );
+      await conn.execute(
+        `DELETE pm
+         FROM learning_class_provider_memberships pm
+         INNER JOIN learning_program_classes c ON c.id = pm.learning_class_id
+         WHERE c.organization_id = ? AND pm.provider_user_id = ?`,
+        [club.id, userId]
+      );
+      await conn.execute('DELETE FROM user_agencies WHERE user_id = ? AND agency_id = ?', [userId, club.id]);
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
 
     try {
       await AdminAuditLog.logAction({

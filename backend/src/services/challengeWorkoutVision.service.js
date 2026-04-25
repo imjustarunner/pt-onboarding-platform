@@ -431,18 +431,63 @@ export const parseVisionText = (rawText) => {
 
   // ── Timestamp / completedAt ───────────────────────────────────────────────
   let completedAt = null;
+  const parseDateFromParts = ({ month, day, year, hour = 0, minute = 0, meridiem = null }) => {
+    let y = parseInt(year, 10);
+    if (y < 100) y += y >= 70 ? 1900 : 2000;
+    let h = parseInt(hour, 10);
+    const m = parseInt(minute, 10);
+    const ampm = String(meridiem || '').toLowerCase();
+    if (ampm === 'pm' && h < 12) h += 12;
+    if (ampm === 'am' && h === 12) h = 0;
+    const d = new Date(y, parseInt(month, 10) - 1, parseInt(day, 10), h, m, 0, 0);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+
+  // Relative app labels like "Today - 8:13 PM" need a calendar date. Prefer an
+  // absolute screenshot/header date in the OCR text, then fall back to scan day.
+  const absoluteDateOnly = rawText.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/);
+  const relativeTime = rawText.match(/\b(Today|Yesterday)\b\s*(?:-|at)?\s*(\d{1,2}):(\d{2})\s*([APap][Mm])\b/);
+  if (relativeTime) {
+    const base = absoluteDateOnly
+      ? parseDateFromParts({ month: absoluteDateOnly[1], day: absoluteDateOnly[2], year: absoluteDateOnly[3] })
+      : new Date();
+    if (base) {
+      if (/yesterday/i.test(relativeTime[1])) base.setDate(base.getDate() - 1);
+      let h = parseInt(relativeTime[2], 10);
+      const ampm = String(relativeTime[4] || '').toLowerCase();
+      if (ampm === 'pm' && h < 12) h += 12;
+      if (ampm === 'am' && h === 12) h = 0;
+      base.setHours(h, parseInt(relativeTime[3], 10), 0, 0);
+      completedAt = base.toISOString();
+    }
+  }
+
   const datePatterns = [
     /(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2})/,
     /([A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}[\s,]+\d{1,2}:\d{2}\s*[APap][Mm])/,
     /(\d{1,2}\/\d{1,2}\/\d{4}\s+\d{1,2}:\d{2}\s*[APap][Mm]?)/,
+    /(\d{1,2}\/\d{1,2}\/\d{2}\s*,?\s+\d{1,2}:\d{2}\s*[APap][Mm])/,
   ];
-  for (const pat of datePatterns) {
-    const m = rawText.match(pat);
-    if (m) {
-      try {
-        const parsed = new Date(m[1]);
-        if (!isNaN(parsed.getTime())) { completedAt = parsed.toISOString(); break; }
-      } catch { /* skip */ }
+  if (!completedAt) {
+    for (const pat of datePatterns) {
+      const m = rawText.match(pat);
+      if (m) {
+        try {
+          let parsed = new Date(m[1]);
+          const numeric = m[1].match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s*,?\s+(\d{1,2}):(\d{2})\s*([APap][Mm])$/);
+          if (numeric) {
+            parsed = parseDateFromParts({
+              month: numeric[1],
+              day: numeric[2],
+              year: numeric[3],
+              hour: numeric[4],
+              minute: numeric[5],
+              meridiem: numeric[6]
+            });
+          }
+          if (parsed && !isNaN(parsed.getTime())) { completedAt = parsed.toISOString(); break; }
+        } catch { /* skip */ }
+      }
     }
   }
 

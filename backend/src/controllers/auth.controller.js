@@ -3809,10 +3809,14 @@ export const registerParticipant = async (req, res, next) => {
       });
     }
 
-    const { email, password, firstName, lastName, portalSlug, weightLbs, heightInches, gender, dateOfBirth, timezone, clubId, challengeClassId } = req.body;
+    const { email, password, firstName, lastName, phone, phoneNumber, portalSlug, weightLbs, heightInches, gender, dateOfBirth, timezone, clubId, challengeClassId } = req.body;
     const resolvedEmail = String(email || '').trim().toLowerCase();
+    const resolvedPhone = User.normalizePhone(phone || phoneNumber);
     if (!resolvedEmail) {
       return res.status(400).json({ error: { message: 'Email is required' } });
+    }
+    if (!resolvedPhone) {
+      return res.status(400).json({ error: { message: 'Phone number is required' } });
     }
     if (!password || String(password).length < 6) {
       return res.status(400).json({ error: { message: 'Password must be at least 6 characters' } });
@@ -3821,9 +3825,78 @@ export const registerParticipant = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Last name is required' } });
     }
 
-    const existingUser = await User.findByEmail(resolvedEmail);
+    let existingUser = await User.findByEmail(resolvedEmail);
+    if (!existingUser && resolvedPhone) {
+      const phoneMatch = await User.findByPhone(resolvedPhone);
+      if (phoneMatch?.id) existingUser = phoneMatch;
+    }
     if (existingUser) {
-      return res.status(400).json({ error: { message: 'An account with this email already exists' } });
+      const [placeholderRows] = await pool.execute(
+        `SELECT id, is_roster_placeholder, password_hash
+         FROM users
+         WHERE id = ?
+           AND is_roster_placeholder = 1
+           AND (
+             LOWER(TRIM(email)) = ?
+             OR LOWER(TRIM(roster_placeholder_claim_email)) = ?
+             OR REGEXP_REPLACE(COALESCE(phone_number, ''), '[^0-9]', '') = ?
+           )
+           AND LOWER(TRIM(last_name)) = ?
+           AND LOWER(LEFT(TRIM(first_name), 1)) = ?
+         LIMIT 1`,
+        [
+          existingUser.id,
+          resolvedEmail,
+          resolvedEmail,
+          resolvedPhone.replace(/\D/g, ''),
+          String(lastName || '').trim().toLowerCase(),
+          String(firstName || '').trim().slice(0, 1).toLowerCase()
+        ]
+      );
+      if (!placeholderRows?.length || placeholderRows[0].password_hash) {
+        return res.status(400).json({ error: { message: 'An account with this email already exists' } });
+      }
+
+      const bcrypt = (await import('bcrypt')).default;
+      const passwordHash = await bcrypt.hash(password, 10);
+      await pool.execute(
+        `UPDATE users
+         SET email = ?,
+             personal_email = COALESCE(NULLIF(personal_email, ''), ?),
+             username = COALESCE(NULLIF(username, ''), ?),
+             phone_number = ?,
+             password_hash = ?,
+             first_name = COALESCE(NULLIF(first_name, ''), ?),
+             last_name = COALESCE(NULLIF(last_name, ''), ?),
+             is_roster_placeholder = 0,
+             roster_placeholder_claim_email = ?,
+             roster_placeholder_claimed_at = NOW(),
+             status = 'ACTIVE_EMPLOYEE'
+         WHERE id = ?`,
+        [
+          resolvedEmail,
+          resolvedEmail,
+          resolvedEmail,
+          resolvedPhone,
+          passwordHash,
+          (firstName || '').trim() || null,
+          String(lastName).trim(),
+          resolvedEmail,
+          existingUser.id
+        ]
+      );
+
+      return res.status(201).json({
+        message: 'Account claimed from your team roster. You can now log in.',
+        userId: existingUser.id,
+        email: resolvedEmail,
+        claimedRosterAccount: true,
+        redirectUrl: (() => {
+          const frontendUrl = (config.frontendUrl || '').replace(/\/\s*$/, '');
+          const slug = (portalSlug || '').toString().trim().replace(/[^a-z0-9-]/gi, '');
+          return slug ? `${frontendUrl}/${slug}/clubs` : `${frontendUrl}/login`;
+        })()
+      });
     }
 
     const bcrypt = (await import('bcrypt')).default;
@@ -3835,6 +3908,7 @@ export const registerParticipant = async (req, res, next) => {
       passwordHash,
       firstName: (firstName || '').trim() || null,
       lastName: String(lastName).trim(),
+      phoneNumber: resolvedPhone,
       role: 'provider',
       status: 'ACTIVE_EMPLOYEE'
     });

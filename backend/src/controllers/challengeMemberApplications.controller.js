@@ -1371,12 +1371,130 @@ const createUserForApplication = async ({ firstName, lastName, email, phone, use
   );
   const userId = insertResult.insertId;
   if (phone) {
-    try { await pool.execute(`UPDATE users SET phone = ? WHERE id = ?`, [String(phone).trim(), userId]); } catch { /* non-fatal */ }
+    try { await pool.execute(`UPDATE users SET phone_number = ? WHERE id = ?`, [User.normalizePhone(phone), userId]); } catch { /* non-fatal */ }
   }
   if (username) {
     try { await pool.execute(`UPDATE users SET username = ? WHERE id = ?`, [String(username).trim(), userId]); } catch { /* non-fatal: column may not exist or conflict */ }
   }
   return { userId, isNew: true };
+};
+
+const isBerlinClubId = async (clubId) => {
+  const [rows] = await pool.execute(
+    `SELECT LOWER(COALESCE(slug, '')) AS slug_key, LOWER(COALESCE(name, '')) AS name_key
+     FROM agencies
+     WHERE id = ?
+     LIMIT 1`,
+    [clubId]
+  );
+  const row = rows?.[0];
+  if (!row) return false;
+  return row.slug_key === 'berlin' || row.name_key.includes('berlin');
+};
+
+const findRosterPlaceholderMatchForApplication = async ({ clubId, firstName, lastName, email, phone }) => {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const normalizedPhone = User.normalizePhone(phone);
+  const firstInitial = String(firstName || '').trim().slice(0, 1).toLowerCase();
+  const normalizedLast = String(lastName || '').trim().toLowerCase();
+  if (normalizedEmail || normalizedPhone) {
+    const [rows] = await pool.execute(
+      `SELECT u.id
+       FROM users u
+       INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       WHERE u.is_roster_placeholder = 1
+         AND LOWER(TRIM(u.last_name)) = ?
+         AND LOWER(LEFT(TRIM(u.first_name), 1)) = ?
+         AND (
+           LOWER(TRIM(u.email)) = ?
+           OR LOWER(TRIM(u.roster_placeholder_claim_email)) = ?
+           OR REGEXP_REPLACE(COALESCE(u.phone_number, ''), '[^0-9]', '') = ?
+         )
+       ORDER BY u.id ASC
+       LIMIT 2`,
+      [
+        clubId,
+        normalizedLast,
+        firstInitial,
+        normalizedEmail,
+        normalizedEmail,
+        normalizedPhone ? normalizedPhone.replace(/\D/g, '') : ''
+      ]
+    );
+    if (rows?.length === 1) return rows[0];
+  }
+
+  const [nameRows] = await pool.execute(
+    `SELECT u.id
+     FROM users u
+     INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+     WHERE u.is_roster_placeholder = 1
+       AND LOWER(TRIM(u.last_name)) = ?
+       AND LOWER(LEFT(TRIM(u.first_name), 1)) = ?
+     ORDER BY u.id ASC
+     LIMIT 2`,
+    [clubId, normalizedLast, firstInitial]
+  );
+  return nameRows?.length === 1 ? nameRows[0] : null;
+};
+
+const claimRosterPlaceholderForApplication = async ({ existingUser, firstName, lastName, email, phone, password, username, clubId = null }) => {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const normalizedPhone = User.normalizePhone(phone);
+  const allowNameOnlyClaim = clubId ? await isBerlinClubId(clubId) : false;
+  if (!existingUser?.id || !normalizedEmail || !password) return false;
+  const [rows] = await pool.execute(
+    `SELECT id, password_hash
+     FROM users
+     WHERE id = ?
+       AND is_roster_placeholder = 1
+       AND (
+         LOWER(TRIM(email)) = ?
+         OR LOWER(TRIM(roster_placeholder_claim_email)) = ?
+         OR (? <> '' AND REGEXP_REPLACE(COALESCE(phone_number, ''), '[^0-9]', '') = ?)
+         OR (? = 1)
+       )
+       AND LOWER(TRIM(last_name)) = ?
+       AND LOWER(LEFT(TRIM(first_name), 1)) = ?
+     LIMIT 1`,
+    [
+      existingUser.id,
+      normalizedEmail,
+      normalizedEmail,
+      normalizedPhone ? normalizedPhone.replace(/\D/g, '') : '',
+      normalizedPhone ? normalizedPhone.replace(/\D/g, '') : '',
+      allowNameOnlyClaim ? 1 : 0,
+      String(lastName || '').trim().toLowerCase(),
+      String(firstName || '').trim().slice(0, 1).toLowerCase()
+    ]
+  );
+  if (!rows?.length || rows[0].password_hash) return false;
+  const hashedPw = await hashPassword(String(password));
+  await pool.execute(
+    `UPDATE users
+     SET email = ?,
+         password_hash = ?,
+         phone_number = ?,
+         first_name = COALESCE(NULLIF(first_name, ''), ?),
+         last_name = COALESCE(NULLIF(last_name, ''), ?),
+         is_roster_placeholder = 0,
+         roster_placeholder_claim_email = ?,
+         roster_placeholder_claimed_at = NOW()
+     WHERE id = ?`,
+    [
+      normalizedEmail,
+      hashedPw,
+      normalizedPhone,
+      String(firstName || '').trim() || null,
+      String(lastName || '').trim() || 'Member',
+      normalizedEmail,
+      existingUser.id
+    ]
+  );
+  if (username) {
+    try { await pool.execute(`UPDATE users SET username = ? WHERE id = ?`, [String(username).trim(), existingUser.id]); } catch { /* non-fatal */ }
+  }
+  return true;
 };
 
 const ensureUserInPlatformTenantForClub = async (userId, clubId, knownAgencies = null) => {
@@ -1556,14 +1674,32 @@ export const submitApplication = async (req, res, next) => {
     );
     const clubPublicConfig = buildPublicPageConfig(clubConfigRows?.[0]?.store_config_json);
     const normalizedPronouns = clubPublicConfig.allowCustomPronouns === true ? normalizeShortText(pronouns, 64) : null;
-    const existingUser = await User.findByEmail(normalizedEmail);
+    const isBerlinClub = await isBerlinClubId(clubId);
+    let existingUser = await User.findByEmail(normalizedEmail);
+    if (!existingUser) {
+      const phoneMatch = User.normalizePhone(phone) ? await User.findByPhone(phone) : null;
+      if (phoneMatch?.id) existingUser = phoneMatch;
+    }
     let existingUserAgencies = [];
+    let claimedRosterAccount = false;
     if (existingUser?.id) {
       existingUserAgencies = await User.getAgencies(existingUser.id);
       const alreadyMember = existingUserAgencies.some((a) => Number(a?.id) === Number(clubId));
-      if (alreadyMember) {
+      claimedRosterAccount = await claimRosterPlaceholderForApplication({
+        existingUser,
+        firstName,
+        lastName,
+        email: normalizedEmail,
+        phone,
+        password,
+        username,
+        clubId
+      });
+      if (alreadyMember && !claimedRosterAccount) {
         return res.status(409).json({ error: { message: 'This account is already a member of this club' } });
       }
+    } else if (!isBerlinClub && !User.normalizePhone(phone)) {
+      return res.status(400).json({ error: { message: 'Phone number is required' } });
     } else if (!password || String(password).length < 6) {
       return res.status(400).json({ error: { message: 'Password must be at least 6 characters' } });
     } else if (String(password).length > 128) {
@@ -1572,8 +1708,39 @@ export const submitApplication = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Password must contain at least one letter (a–z or A–Z)' } });
     }
 
+    if (isBerlinClub && !existingUser) {
+      const placeholderMatch = await findRosterPlaceholderMatchForApplication({
+        clubId,
+        firstName,
+        lastName,
+        email: normalizedEmail,
+        phone
+      });
+      if (placeholderMatch?.id) {
+        existingUser = await User.findById(placeholderMatch.id);
+      }
+    }
+
+    if (existingUser?.id && !claimedRosterAccount) {
+      existingUserAgencies = await User.getAgencies(existingUser.id);
+      const alreadyMember = existingUserAgencies.some((a) => Number(a?.id) === Number(clubId));
+      claimedRosterAccount = await claimRosterPlaceholderForApplication({
+        existingUser,
+        firstName,
+        lastName,
+        email: normalizedEmail,
+        phone,
+        password,
+        username,
+        clubId
+      });
+      if (alreadyMember && !claimedRosterAccount) {
+        return res.status(409).json({ error: { message: 'This account is already a member of this club' } });
+      }
+    }
+
     const { userId, isNew } = existingUser
-      ? { userId: Number(existingUser.id), isNew: false }
+      ? { userId: Number(existingUser.id), isNew: false, claimedRosterAccount }
       : await createUserForApplication({ firstName, lastName, email: normalizedEmail, phone, username, password });
 
     await ensureUserInPlatformTenantForClub(userId, clubId, existingUserAgencies);
@@ -1749,14 +1916,32 @@ export const submitInviteApplication = async (req, res, next) => {
     );
     const clubPublicConfig = buildPublicPageConfig(clubConfigRows?.[0]?.store_config_json);
     const normalizedPronouns = clubPublicConfig.allowCustomPronouns === true ? normalizeShortText(pronouns, 64) : null;
-    const existingUser = await User.findByEmail(normalizedEmail);
+    const isBerlinClub = await isBerlinClubId(clubId);
+    let existingUser = await User.findByEmail(normalizedEmail);
+    if (!existingUser) {
+      const phoneMatch = User.normalizePhone(phone) ? await User.findByPhone(phone) : null;
+      if (phoneMatch?.id) existingUser = phoneMatch;
+    }
     let existingUserAgencies = [];
+    let claimedRosterAccount = false;
     if (existingUser?.id) {
       existingUserAgencies = await User.getAgencies(existingUser.id);
       const alreadyMember = existingUserAgencies.some((a) => Number(a?.id) === Number(clubId));
-      if (alreadyMember) {
+      claimedRosterAccount = await claimRosterPlaceholderForApplication({
+        existingUser,
+        firstName,
+        lastName,
+        email: normalizedEmail,
+        phone,
+        password,
+        username,
+        clubId
+      });
+      if (alreadyMember && !claimedRosterAccount) {
         return res.status(409).json({ error: { message: 'This account is already a member of this club' } });
       }
+    } else if (!isBerlinClub && !User.normalizePhone(phone)) {
+      return res.status(400).json({ error: { message: 'Phone number is required' } });
     } else if (!password || String(password).length < 6) {
       return res.status(400).json({ error: { message: 'Password must be at least 6 characters' } });
     } else if (String(password).length > 128) {
@@ -1765,8 +1950,39 @@ export const submitInviteApplication = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Password must contain at least one letter (a–z or A–Z)' } });
     }
 
+    if (isBerlinClub && !existingUser) {
+      const placeholderMatch = await findRosterPlaceholderMatchForApplication({
+        clubId,
+        firstName,
+        lastName,
+        email: normalizedEmail,
+        phone
+      });
+      if (placeholderMatch?.id) {
+        existingUser = await User.findById(placeholderMatch.id);
+      }
+    }
+
+    if (existingUser?.id && !claimedRosterAccount) {
+      existingUserAgencies = await User.getAgencies(existingUser.id);
+      const alreadyMember = existingUserAgencies.some((a) => Number(a?.id) === Number(clubId));
+      claimedRosterAccount = await claimRosterPlaceholderForApplication({
+        existingUser,
+        firstName,
+        lastName,
+        email: normalizedEmail,
+        phone,
+        password,
+        username,
+        clubId
+      });
+      if (alreadyMember && !claimedRosterAccount) {
+        return res.status(409).json({ error: { message: 'This account is already a member of this club' } });
+      }
+    }
+
     const { userId, isNew } = existingUser
-      ? { userId: Number(existingUser.id), isNew: false }
+      ? { userId: Number(existingUser.id), isNew: false, claimedRosterAccount }
       : await createUserForApplication({ firstName, lastName, email: normalizedEmail, phone, username, password });
 
     await ensureUserInPlatformTenantForClub(userId, clubId, existingUserAgencies);
@@ -3220,6 +3436,167 @@ export const listClubMembers = async (req, res, next) => {
   } catch (e) { next(e); }
 };
 
+export const listClubMemberAddCandidates = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+    const q = String(req.query?.q || '').trim();
+    const qLike = `%${q.replace(/%/g, '\\%')}%`;
+    const [candidateRows] = await pool.execute(
+      `SELECT u.id, u.email, u.first_name, u.last_name,
+              GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ') AS club_names
+       FROM users u
+       INNER JOIN user_agencies ua ON ua.user_id = u.id
+       INNER JOIN agencies a ON a.id = ua.agency_id
+       WHERE LOWER(COALESCE(a.organization_type, '')) = 'affiliation'
+         AND (u.is_archived IS NULL OR u.is_archived = 0)
+         AND NOT EXISTS (
+           SELECT 1 FROM user_agencies cur
+           WHERE cur.user_id = u.id AND cur.agency_id = ?
+         )
+         AND (? = '' OR u.email LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?)
+       GROUP BY u.id, u.email, u.first_name, u.last_name
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC
+       LIMIT 500`,
+      [clubId, q, qLike, qLike, qLike, qLike]
+    );
+    const [seasonRows] = await pool.execute(
+      `SELECT id, class_name, status
+       FROM learning_program_classes
+       WHERE organization_id = ? AND COALESCE(status, '') <> 'archived'
+       ORDER BY COALESCE(starts_at, created_at) DESC, id DESC`,
+      [clubId]
+    );
+    return res.json({
+      users: (candidateRows || []).map((u) => ({
+        id: Number(u.id),
+        email: u.email || '',
+        firstName: u.first_name || '',
+        lastName: u.last_name || '',
+        clubNames: u.club_names || ''
+      })),
+      seasons: (seasonRows || []).map((s) => ({
+        id: Number(s.id),
+        className: s.class_name || 'Season',
+        status: s.status || ''
+      }))
+    });
+  } catch (e) { next(e); }
+};
+
+export const addExistingMembersToClub = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+    const userIds = Array.from(new Set((Array.isArray(req.body?.userIds) ? req.body.userIds : []).map(toInt).filter(Boolean)));
+    const seasonIds = Array.from(new Set((Array.isArray(req.body?.seasonIds) ? req.body.seasonIds : []).map(toInt).filter(Boolean)));
+    if (!userIds.length) return res.status(400).json({ error: { message: 'Select at least one member' } });
+    if (seasonIds.length) {
+      const ph = seasonIds.map(() => '?').join(',');
+      const [seasonRows] = await pool.execute(
+        `SELECT id FROM learning_program_classes WHERE id IN (${ph}) AND organization_id = ?`,
+        [...seasonIds, clubId]
+      );
+      if ((seasonRows || []).length !== seasonIds.length) {
+        return res.status(400).json({ error: { message: 'One or more seasons do not belong to this club' } });
+      }
+    }
+    for (const userId of userIds) {
+      await User.assignToAgency(userId, clubId, { clubRole: 'member', isActive: true });
+      for (const seasonId of seasonIds) {
+        await LearningProgramClass.addProviderMember({
+          classId: seasonId,
+          providerUserId: userId,
+          membershipStatus: 'active',
+          actorUserId: req.user.id,
+          teamId: undefined
+        });
+      }
+    }
+    return res.json({ ok: true, added: userIds.length, seasonIds });
+  } catch (e) { next(e); }
+};
+
+export const mergeClubMemberDuplicates = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+    const targetUserId = toInt(req.body?.targetUserId);
+    const sourceUserIds = Array.from(new Set((Array.isArray(req.body?.sourceUserIds) ? req.body.sourceUserIds : [])
+      .map(toInt)
+      .filter((id) => id && id !== targetUserId)));
+    if (!targetUserId || !sourceUserIds.length) {
+      return res.status(400).json({ error: { message: 'Choose one target member and at least one duplicate to merge' } });
+    }
+    const allIds = [targetUserId, ...sourceUserIds];
+    const ph = allIds.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT u.id
+       FROM users u
+       INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       WHERE u.id IN (${ph})`,
+      [clubId, ...allIds]
+    );
+    if ((rows || []).length !== allIds.length) {
+      return res.status(400).json({ error: { message: 'All selected users must belong to this club before merging' } });
+    }
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      for (const sourceUserId of sourceUserIds) {
+        await conn.execute(
+          `UPDATE challenge_workouts
+           SET user_id = CASE WHEN user_id = ? THEN ? ELSE user_id END,
+               submitted_on_behalf_of_user_id = CASE WHEN submitted_on_behalf_of_user_id = ? THEN ? ELSE submitted_on_behalf_of_user_id END
+           WHERE user_id = ? OR submitted_on_behalf_of_user_id = ?`,
+          [sourceUserId, targetUserId, sourceUserId, targetUserId, sourceUserId, sourceUserId]
+        );
+        await conn.execute(
+          `INSERT IGNORE INTO challenge_team_members (team_id, provider_user_id, joined_at)
+           SELECT team_id, ?, COALESCE(joined_at, NOW()) FROM challenge_team_members WHERE provider_user_id = ?`,
+          [targetUserId, sourceUserId]
+        );
+        await conn.execute(`DELETE FROM challenge_team_members WHERE provider_user_id = ?`, [sourceUserId]);
+        await conn.execute(
+          `INSERT IGNORE INTO learning_class_provider_memberships
+             (learning_class_id, provider_user_id, membership_status, joined_at, role_label, notes, created_by_user_id)
+           SELECT learning_class_id, ?, membership_status, joined_at, role_label, CONCAT(COALESCE(notes, ''), ' Merged duplicate user ', ?), created_by_user_id
+           FROM learning_class_provider_memberships WHERE provider_user_id = ?`,
+          [targetUserId, sourceUserId, sourceUserId]
+        );
+        await conn.execute(`DELETE FROM learning_class_provider_memberships WHERE provider_user_id = ?`, [sourceUserId]);
+        await conn.execute(
+          `INSERT IGNORE INTO user_agencies (user_id, agency_id, club_role, is_active)
+           SELECT ?, agency_id, club_role, is_active FROM user_agencies WHERE user_id = ?`,
+          [targetUserId, sourceUserId]
+        );
+        await conn.execute(`DELETE FROM user_agencies WHERE user_id = ?`, [sourceUserId]);
+        await conn.execute(`UPDATE challenge_member_applications SET user_id = ? WHERE user_id = ?`, [targetUserId, sourceUserId]).catch(() => {});
+        await conn.execute(`UPDATE user_photos SET user_id = ? WHERE user_id = ?`, [targetUserId, sourceUserId]).catch(() => {});
+        await conn.execute(
+          `UPDATE users
+           SET is_archived = 1,
+               status = 'ARCHIVED',
+               email = CONCAT('merged-', id, '-', email)
+           WHERE id = ?`,
+          [sourceUserId]
+        );
+      }
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+    return res.json({ ok: true, targetUserId, mergedUserIds: sourceUserIds });
+  } catch (e) { next(e); }
+};
+
 const normalizeNum = (v, digits = 1) => {
   const n = Number(v || 0);
   if (!Number.isFinite(n)) return 0;
@@ -3766,10 +4143,10 @@ export const setClubMemberStatus = async (req, res, next) => {
     const isActive = req.body?.isActive === true || req.body?.isActive === 1 || String(req.body?.isActive || '').toLowerCase() === 'true';
 
     const [existing] = await pool.execute(
-      `SELECT id FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
+      `SELECT 1 AS exists_row FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
       [userId, clubId]
     );
-    if (!existing?.[0]?.id) return res.status(404).json({ error: { message: 'Member not found in this club' } });
+    if (!existing?.length) return res.status(404).json({ error: { message: 'Member not found in this club' } });
 
     await pool.execute(
       `UPDATE user_agencies SET is_active = ? WHERE user_id = ? AND agency_id = ?`,

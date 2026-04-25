@@ -1036,6 +1036,63 @@
             </li>
           </ul>
 
+          <div v-if="canUseRosterFallback" class="roster-import-panel">
+            <div class="roster-import-head">
+              <div>
+                <h4>Roster Import</h4>
+                <p class="hint">Add one member per row. First name can be an initial, phone is optional, and the team dropdown places them into this season.</p>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" @click="addRosterImportRow">Add Row</button>
+            </div>
+            <div class="roster-import-table-wrap">
+              <table class="roster-import-table">
+                <thead>
+                  <tr>
+                    <th>First / Initial</th>
+                    <th>Last Name</th>
+                    <th>Phone</th>
+                    <th>Email</th>
+                    <th>Team</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(row, idx) in rosterImportRows" :key="row.clientId">
+                    <td><input v-model="row.firstName" type="text" placeholder="A or Alex" /></td>
+                    <td><input v-model="row.lastName" type="text" placeholder="Adam" /></td>
+                    <td><input v-model="row.phoneNumber" type="tel" placeholder="optional" /></td>
+                    <td><input v-model="row.email" type="email" placeholder="optional" /></td>
+                    <td>
+                      <select v-model="row.teamName">
+                        <option value="">No team yet</option>
+                        <option v-for="t in teams" :key="`roster-team-${t.id}`" :value="t.team_name">{{ t.team_name }}</option>
+                      </select>
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        class="btn btn-link btn-sm"
+                        :disabled="rosterImportRows.length <= 1"
+                        @click="removeRosterImportRow(idx)"
+                      >Remove</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="rosterImportError" class="error-inline">{{ rosterImportError }}</div>
+            <div v-if="rosterImportResult" class="success-inline">
+              Imported {{ rosterImportResult.imported?.length || 0 }} row(s)
+              <span v-if="rosterImportResult.errors?.length">with {{ rosterImportResult.errors.length }} issue(s).</span>
+            </div>
+            <div class="form-actions roster-import-actions">
+              <button type="button" class="btn btn-secondary btn-sm" :disabled="rosterImporting" @click="resetRosterImportRows">Clear Rows</button>
+              <button type="button" class="btn btn-primary btn-sm" :disabled="rosterImporting || !rosterImportHasRows" @click="importRosterRows">
+                {{ rosterImporting ? 'Importing…' : 'Import Roster Rows' }}
+              </button>
+            </div>
+          </div>
+
           <!-- ── Team Invite Links (shown to designated admin during initial setup) ── -->
           <div v-if="canSeeTeamInviteLinks && teams.length && managingChallenge" class="team-invite-links-section">
             <div class="team-invite-links-header">
@@ -1156,19 +1213,58 @@
             <button class="btn btn-primary btn-sm" @click="openAddMemberModal" :disabled="!managingChallenge">Add Participant</button>
           </div>
           <div v-if="providerMembers.length === 0" class="empty-hint">No participants yet. Add participants to allow them to log workouts.</div>
-          <ul v-else class="member-list">
-            <li v-for="m in providerMembers" :key="m.provider_user_id" class="member-item">
-              <span>{{ memberDisplayName(m) }}</span>
-              <span class="member-status">{{ m.membership_status }}</span>
-              <button
-                class="btn btn-outline btn-sm"
-                :disabled="sendingResetFor === m.provider_user_id"
-                :title="`Send password reset email to ${memberDisplayName(m)}`"
-                @click="sendPasswordReset(m)"
-              >{{ sendingResetFor === m.provider_user_id ? 'Sending…' : 'Send Reset Link' }}</button>
-              <button class="btn btn-secondary btn-sm" @click="removeMember(m)">Remove</button>
-            </li>
-          </ul>
+          <div v-else class="member-table-wrap">
+            <table class="member-table">
+              <thead>
+                <tr>
+                  <th>Participant</th>
+                  <th>Team</th>
+                  <th>Status</th>
+                  <th></th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="m in providerMembers" :key="m.provider_user_id">
+                  <td>{{ memberDisplayName(m) }}</td>
+                  <td>
+                    <template v-if="canManuallyAssignTeams && teams.length">
+                      <div class="member-team-assign">
+                        <select v-model="m.teamChoice">
+                          <option value="">No team</option>
+                          <option v-for="t in teams" :key="`member-team-${t.id}`" :value="String(t.id)">{{ t.team_name }}</option>
+                        </select>
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-sm"
+                          :disabled="String(m.teamChoice || '') === String(m.team_id || '') || assigningTeamFor === m.provider_user_id"
+                          @click="assignMemberTeam(m)"
+                        >
+                          {{ assigningTeamFor === m.provider_user_id ? 'Saving…' : 'Save Team' }}
+                        </button>
+                      </div>
+                    </template>
+                    <template v-else-if="m.team_name">
+                      <span class="member-team-pill">{{ m.team_name }}</span>
+                    </template>
+                    <span v-else class="member-team-muted">No team yet</span>
+                  </td>
+                  <td><span class="member-status">{{ m.membership_status }}</span></td>
+                  <td>
+                    <button
+                      class="btn btn-outline btn-sm"
+                      :disabled="sendingResetFor === m.provider_user_id"
+                      :title="`Send password reset email to ${memberDisplayName(m)}`"
+                      @click="sendPasswordReset(m)"
+                    >{{ sendingResetFor === m.provider_user_id ? 'Sending…' : 'Send Reset Link' }}</button>
+                  </td>
+                  <td>
+                    <button class="btn btn-secondary btn-sm" @click="removeMember(m)">Remove</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div v-show="manageTab === 'profiles'" class="manage-panel">
@@ -3156,6 +3252,39 @@ const manageTab = ref('teams');
 const teams = ref([]);
 const providerMembers = ref([]);
 const orgUsers = ref([]);
+const assigningTeamFor = ref(null);
+
+const createRosterImportRow = () => ({
+  clientId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  firstName: '',
+  lastName: '',
+  phoneNumber: '',
+  email: '',
+  teamName: ''
+});
+const rosterImportRows = ref([createRosterImportRow()]);
+const rosterImporting = ref(false);
+const rosterImportError = ref('');
+const rosterImportResult = ref(null);
+
+const canUseRosterFallback = computed(() => {
+  const slug = String(organizationSlug.value || managingChallenge.value?.organization_slug || '').trim().toLowerCase();
+  const name = String(agencyStore.currentAgency?.name || managingChallenge.value?.organization_name || '').trim().toLowerCase();
+  return slug === 'berlin' || name.includes('berlin');
+});
+
+const rosterImportHasRows = computed(() =>
+  rosterImportRows.value.some((row) =>
+    String(row.firstName || '').trim() ||
+    String(row.lastName || '').trim() ||
+    String(row.phoneNumber || '').trim() ||
+    String(row.email || '').trim()
+  )
+);
+const canManuallyAssignTeams = computed(() => {
+  const status = String(draftSessionStatus.value || '').trim().toLowerCase();
+  return !status || status === 'pending';
+});
 
 // Captain application management
 const captainApps = ref([]);
@@ -4200,6 +4329,7 @@ const saveManageTeamsMembersPerTeam = async () => {
 const openManageModal = async (c) => {
   manageTab.value = 'teams';
   showManageModal.value = true;
+  resetRosterImportRows();
   try {
     const { data } = await api.get(`/learning-program-classes/${c.id}`, { skipGlobalLoading: true });
     managingChallenge.value = data?.class ? { ...c, ...data.class } : c;
@@ -4434,9 +4564,85 @@ const loadProviderMembers = async (classId) => {
   if (!classId) return;
   try {
     const r = await api.get(`/learning-program-classes/${classId}`);
-    providerMembers.value = Array.isArray(r.data?.providerMembers) ? r.data.providerMembers : [];
+    providerMembers.value = Array.isArray(r.data?.providerMembers)
+      ? r.data.providerMembers.map((m) => ({
+          ...m,
+          teamChoice: m.team_id ? String(m.team_id) : ''
+        }))
+      : [];
   } catch {
     providerMembers.value = [];
+  }
+};
+
+const assignMemberTeam = async (m) => {
+  const classId = managingChallenge.value?.id;
+  const providerUserId = Number(m?.provider_user_id || 0);
+  const teamId = Number(m?.teamChoice || 0) || null;
+  if (!classId || !providerUserId) return;
+  assigningTeamFor.value = providerUserId;
+  try {
+    await api.put(`/learning-program-classes/${classId}/providers`, {
+      members: [{
+        providerUserId,
+        membershipStatus: String(m.membership_status || 'active'),
+        teamId
+      }]
+    });
+    await loadProviderMembers(classId);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Failed to assign team';
+  } finally {
+    assigningTeamFor.value = null;
+  }
+};
+
+const resetRosterImportRows = () => {
+  rosterImportRows.value = [createRosterImportRow()];
+  rosterImportError.value = '';
+  rosterImportResult.value = null;
+};
+
+const addRosterImportRow = () => {
+  const lastTeamName = rosterImportRows.value[rosterImportRows.value.length - 1]?.teamName || '';
+  rosterImportRows.value = [
+    ...rosterImportRows.value,
+    { ...createRosterImportRow(), teamName: lastTeamName }
+  ];
+};
+
+const removeRosterImportRow = (idx) => {
+  if (rosterImportRows.value.length <= 1) return;
+  rosterImportRows.value = rosterImportRows.value.filter((_, i) => i !== idx);
+};
+
+const importRosterRows = async () => {
+  const classId = managingChallenge.value?.id;
+  if (!classId) return;
+  rosterImporting.value = true;
+  rosterImportError.value = '';
+  rosterImportResult.value = null;
+  try {
+    const rows = rosterImportRows.value
+      .map((row) => ({
+        firstName: String(row.firstName || '').trim(),
+        lastName: String(row.lastName || '').trim(),
+        phoneNumber: String(row.phoneNumber || '').trim(),
+        email: String(row.email || '').trim(),
+        teamName: String(row.teamName || '').trim()
+      }))
+      .filter((row) => row.firstName || row.lastName || row.phoneNumber || row.email);
+    if (!rows.length) throw new Error('Add at least one roster row before importing.');
+    const missingName = rows.find((row) => !row.lastName || (!row.firstName && !row.email));
+    if (missingName) throw new Error('Each row needs a last name plus a first name/initial or email.');
+    const { data } = await api.post(`/learning-program-classes/${classId}/roster/import`, { rows });
+    rosterImportResult.value = data;
+    if (!data?.errors?.length) rosterImportRows.value = [createRosterImportRow()];
+    await Promise.all([loadTeams(classId), loadProviderMembers(classId)]);
+  } catch (e) {
+    rosterImportError.value = e?.response?.data?.error?.message || e?.message || 'Roster import failed';
+  } finally {
+    rosterImporting.value = false;
   }
 };
 
@@ -5286,6 +5492,95 @@ onMounted(async () => {
   border-radius: 999px;
   padding: 1px 8px;
   white-space: nowrap;
+}
+.member-table-wrap {
+  overflow-x: auto;
+}
+.member-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.member-table th,
+.member-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border-color, #eee);
+  vertical-align: middle;
+  text-align: left;
+}
+.member-table th {
+  font-size: 0.78rem;
+  color: var(--text-muted, #666);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.member-team-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #0f172a;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.member-team-muted {
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+.member-team-assign {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.member-team-assign select {
+  min-width: 180px;
+}
+.roster-import-panel {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.roster-import-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.roster-import-head h4 {
+  margin: 0 0 4px;
+}
+.roster-import-table-wrap {
+  overflow-x: auto;
+}
+.roster-import-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+}
+.roster-import-table th,
+.roster-import-table td {
+  padding: 6px;
+  text-align: left;
+  vertical-align: middle;
+}
+.roster-import-table th {
+  font-size: 0.78rem;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.roster-import-table input,
+.roster-import-table select {
+  width: 100%;
+  min-width: 110px;
+}
+.roster-import-actions {
+  justify-content: flex-end;
+  margin-top: 10px;
 }
 .manage-tabs {
   display: flex;

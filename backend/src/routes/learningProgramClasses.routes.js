@@ -50,6 +50,11 @@ import {
   scanWorkoutScreenshot,
   getActivityFeed,
   getMyParticipationSummary,
+  listChallengeRoster,
+  importChallengeRoster,
+  mergeRosterPlaceholder,
+  scanBulkWorkoutScreenshots,
+  submitBulkWorkoutsOnBehalf,
   submitWorkout,
   listCaptainApplications,
   applyForCaptain,
@@ -192,9 +197,14 @@ router.put('/:classId/teams/:teamId/members', upsertTeamMembers);
 router.get('/:classId/leaderboard', getLeaderboard);
 router.get('/:classId/record-boards', getRecordBoards);
 router.get('/:classId/race-divisions', getRaceDivisions);
+router.get('/:classId/roster', listChallengeRoster);
+router.post('/:classId/roster/import', importChallengeRoster);
+router.post('/:classId/roster/merge-placeholder', mergeRosterPlaceholder);
 router.post('/:classId/workouts/scan-screenshot', workoutMediaUpload.single('file'), scanWorkoutScreenshot);
+router.post('/:classId/workouts/bulk-scan', workoutMediaUpload.array('files', 10), scanBulkWorkoutScreenshots);
 router.get('/:classId/activity', getActivityFeed);
 router.post('/:classId/workouts', submitWorkout);
+router.post('/:classId/workouts/bulk-on-behalf', submitBulkWorkoutsOnBehalf);
 router.put('/:classId/workouts/:workoutId/proof-review', reviewWorkoutProof);
 router.put('/:classId/workouts/:workoutId/disqualify', disqualifyWorkout);
 router.put('/:classId/workouts/:workoutId/import-edit', editOwnImportedTreadmillWorkout);

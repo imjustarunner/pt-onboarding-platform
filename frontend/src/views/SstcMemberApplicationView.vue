@@ -281,8 +281,8 @@
             </div>
 
             <div class="field">
-              <label>Phone number <span class="opt">(optional)</span></label>
-              <input v-model="form.phone" type="tel" autocomplete="tel" placeholder="e.g. 555-867-5309" />
+              <label>Phone number <span :class="isBerlinClub ? 'opt' : 'required'">{{ isBerlinClub ? '(optional)' : '*' }}</span></label>
+              <input v-model="form.phone" type="tel" autocomplete="tel" placeholder="e.g. 555-867-5309" :required="!isBerlinClub" />
             </div>
 
             <!-- Username section -->
@@ -671,6 +671,11 @@ const clubIdParam  = computed(() => route.query.club || '');
 const clubDisplayName = computed(() =>
   inviteData.value?.clubName || clubInfo.value?.name || clubInfo.value?.clubName || 'this club'
 );
+const isBerlinClub = computed(() => {
+  const slug = String(orgSlug.value || '').trim().toLowerCase();
+  const name = String(clubDisplayName.value || '').trim().toLowerCase();
+  return slug === 'berlin' || name.includes('berlin');
+});
 const requiresCaptcha = computed(() => !!String(recaptchaConfig.value?.siteKey || '').trim());
 const isLocalhostRecaptcha = computed(() => ['localhost', '127.0.0.1'].includes(window.location.hostname));
 const activeRecaptchaSiteKey = computed(() =>
@@ -1116,6 +1121,9 @@ const handleSubmit = async () => {
   }
   if (!form.email.trim()) {
     submitError.value = 'Email address is required.'; return;
+  }
+  if (!isBerlinClub.value && !form.phone.trim()) {
+    submitError.value = 'Phone number is required so we can match your roster spot.'; return;
   }
   if (!existingAccountDetected.value) {
     if (!form.password || form.password.length < 8) {
