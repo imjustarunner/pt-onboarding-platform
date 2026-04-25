@@ -1475,18 +1475,43 @@ export const queueClubRecordBreakCandidates = async ({ learningClassId, workoutI
   );
   const records = normalizeClubRecords(parseClubRecords(recordRows?.[0]?.records_json));
   if (!records.length) return;
-  const [workoutRows] = await pool.execute(
-    `SELECT id, learning_class_id, user_id, points, distance_value, duration_minutes
-     FROM challenge_workouts
-     WHERE id = ? AND learning_class_id = ? AND user_id = ?
-     LIMIT 1`,
-    [wId, classId, uId]
-  );
+  let workoutRows;
+  try {
+    [workoutRows] = await pool.execute(
+      `SELECT id, learning_class_id, user_id, points, distance_value, duration_minutes, activity_type, terrain
+       FROM challenge_workouts
+       WHERE id = ? AND learning_class_id = ? AND user_id = ?
+       LIMIT 1`,
+      [wId, classId, uId]
+    );
+  } catch (e) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR') {
+      [workoutRows] = await pool.execute(
+        `SELECT id, learning_class_id, user_id, points, distance_value, duration_minutes
+         FROM challenge_workouts
+         WHERE id = ? AND learning_class_id = ? AND user_id = ?
+         LIMIT 1`,
+        [wId, classId, uId]
+      );
+    } else { throw e; }
+  }
   const workout = workoutRows?.[0];
   if (!workout) return;
+  const workoutActivityType = String(workout.activity_type || '').trim().toLowerCase();
+  const workoutTerrain = String(workout.terrain || '').trim().toLowerCase();
   for (const record of records) {
     const metricKey = record.metricKey || null;
     if (!metricKey) continue;
+    // Skip if this record is scoped to a specific activity type and it doesn't match
+    if (record.activityType) {
+      const required = String(record.activityType).trim().toLowerCase();
+      if (workoutActivityType !== required) continue;
+    }
+    // Skip if this record is scoped to a specific terrain and it doesn't match
+    if (record.terrain) {
+      const required = String(record.terrain).trim().toLowerCase();
+      if (workoutTerrain !== required) continue;
+    }
     const candidateValue = getMetricValueFromWorkout(metricKey, workout);
     const currentValue = Number(record.value);
     if (!Number.isFinite(candidateValue) || !Number.isFinite(currentValue)) continue;

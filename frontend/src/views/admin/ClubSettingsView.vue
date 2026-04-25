@@ -302,59 +302,125 @@
       <section class="settings-card">
         <div class="card-header">
           <h2>Club Records</h2>
-          <p>Seed starting records. New record-breakers must be verified by a manager from workout submissions.</p>
+          <p>Seed starting records. Records are broken automatically — when a submitted workout beats a tracked metric, a verification request appears below for a manager to approve.</p>
         </div>
         <div v-if="recordsError" class="error">{{ recordsError }}</div>
-        <div class="records-list">
-          <div v-if="clubRecords.length === 0" class="hint">No records yet. Add your first all-time record.</div>
-          <div v-for="(record, idx) in clubRecords" :key="record.id || `record-${idx}`" class="record-row">
-            <input v-model="record.label" type="text" placeholder="Label (e.g., Longest Trail Run)" class="record-field record-field--label" />
-            <input v-model.number="record.value" type="number" step="0.01" placeholder="Record value (e.g., 22)" class="record-field record-field--value" />
-            <select v-model="record.metricKey" class="record-field record-field--metric">
-              <option value="">Metric source</option>
-              <option v-for="opt in recordMetricOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-            </select>
-            <input
-              :value="recordUnitForMetric(record.metricKey)"
-              type="text"
-              class="record-field record-field--unit"
-              placeholder="Unit"
-              readonly
-            />
-            <input v-model="record.holderName" type="text" placeholder="Who holds it" class="record-field record-field--holder" />
-            <input v-model.number="record.holderYear" type="number" min="1900" max="2999" step="1" placeholder="Year" class="record-field record-field--year" />
-            <input v-model="record.holderTeam" type="text" placeholder="Team" class="record-field record-field--team" />
-            <div class="record-field record-field--icon">
-              <IconSelector
-                v-model="record.iconId"
-                :summit-stats-club-id="currentAgencyId"
-                :context="`club-record-${currentAgencyId || 'none'}-${idx}`"
-              />
+
+        <div v-if="clubRecords.length === 0" class="hint" style="margin-bottom: 12px;">No records yet. Add your first all-time club record below.</div>
+
+        <div class="cr-cards">
+          <div v-for="(record, idx) in clubRecords" :key="record.id || `record-${idx}`" class="cr-card">
+            <!-- Card header: icon + label + remove -->
+            <div class="cr-card-head">
+              <div class="cr-icon-slot">
+                <IconSelector
+                  v-model="record.iconId"
+                  :summit-stats-club-id="currentAgencyId"
+                  :context="`club-record-${currentAgencyId || 'none'}-${idx}`"
+                />
+              </div>
+              <input v-model="record.label" type="text" placeholder="Record name (e.g. Longest Road Run)" class="cr-label-input" />
+              <button type="button" class="cr-remove-btn" title="Remove record" @click="removeRecord(idx)">✕</button>
             </div>
-            <input v-model="record.notes" type="text" placeholder="Notes (optional)" class="record-field record-field--notes" />
-            <button type="button" class="btn btn-danger btn-sm" @click="removeRecord(idx)">Remove</button>
+
+            <!-- Metric + value -->
+            <div class="cr-row">
+              <div class="cr-field">
+                <label class="cr-field-label">Metric</label>
+                <select v-model="record.metricKey" class="cr-select">
+                  <option value="">— Select metric —</option>
+                  <option v-for="opt in recordMetricOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                </select>
+              </div>
+              <div class="cr-field cr-field--sm">
+                <label class="cr-field-label">Current value</label>
+                <div class="cr-value-wrap">
+                  <input v-model.number="record.value" type="number" step="0.01" placeholder="0" class="cr-input" />
+                  <span v-if="recordUnitForMetric(record.metricKey)" class="cr-unit-badge">{{ recordUnitForMetric(record.metricKey) }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Filters: activity type + terrain -->
+            <div class="cr-row">
+              <div class="cr-field">
+                <label class="cr-field-label">Activity type <span class="cr-optional">(filter)</span></label>
+                <select v-model="record.activityType" class="cr-select">
+                  <option value="">Any activity</option>
+                  <option value="Run">Run</option>
+                  <option value="Walk">Walk</option>
+                  <option value="Bike">Bike / Ride</option>
+                  <option value="Swim">Swim</option>
+                  <option value="Workout">Workout</option>
+                  <option value="Hike">Hike</option>
+                </select>
+              </div>
+              <div class="cr-field">
+                <label class="cr-field-label">Terrain <span class="cr-optional">(filter)</span></label>
+                <select v-model="record.terrain" class="cr-select">
+                  <option value="">Any terrain</option>
+                  <option value="Road">Road</option>
+                  <option value="Trail">Trail</option>
+                  <option value="Track">Track</option>
+                  <option value="Treadmill">Treadmill</option>
+                  <option value="Indoor">Indoor</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Filter summary pill -->
+            <div v-if="record.activityType || record.terrain" class="cr-filter-pill">
+              Matches: <strong>{{ record.activityType || 'Any activity' }}</strong>
+              <template v-if="record.terrain"> · <strong>{{ record.terrain }}</strong></template>
+              workouts only
+            </div>
+
+            <!-- Record holder -->
+            <div class="cr-row">
+              <div class="cr-field">
+                <label class="cr-field-label">Holder name</label>
+                <input v-model="record.holderName" type="text" placeholder="Who holds this record" class="cr-input" />
+              </div>
+              <div class="cr-field cr-field--xs">
+                <label class="cr-field-label">Year</label>
+                <input v-model.number="record.holderYear" type="number" min="1900" max="2999" step="1" placeholder="2024" class="cr-input" />
+              </div>
+              <div class="cr-field cr-field--sm">
+                <label class="cr-field-label">Team</label>
+                <input v-model="record.holderTeam" type="text" placeholder="Team name" class="cr-input" />
+              </div>
+            </div>
+
+            <!-- Notes -->
+            <div class="cr-row">
+              <div class="cr-field cr-field--full">
+                <label class="cr-field-label">Notes <span class="cr-optional">(optional)</span></label>
+                <input v-model="record.notes" type="text" placeholder="Any additional context" class="cr-input" />
+              </div>
+            </div>
           </div>
         </div>
-        <div class="actions-row">
-          <button type="button" class="btn btn-secondary" @click="addRecord">Add Record</button>
+
+        <div class="actions-row" style="margin-top: 16px;">
+          <button type="button" class="btn btn-secondary" @click="addRecord">+ Add Record</button>
           <button type="button" class="btn btn-primary" :disabled="savingRecords" @click="saveRecords">
             {{ savingRecords ? 'Saving...' : 'Save Club Records' }}
           </button>
         </div>
-        <div class="hint" style="margin-top: 10px;">
-          Record values are not manually broken. When a workout exceeds a tracked metric, a verification request appears below.
-        </div>
-        <div class="mini-list" style="margin-top: 12px;">
-          <h3>Pending Record Verifications</h3>
-          <div v-if="verificationsLoading" class="hint">Loading verification requests...</div>
-          <div v-else-if="recordVerifications.length === 0" class="hint">No pending verification requests.</div>
-          <div v-for="v in recordVerifications" :key="`verification-${v.id}`" class="mini-row">
-            <span>
-              <strong>{{ v.record_label }}</strong>:
-              {{ Number(v.current_value).toFixed(2) }} -> {{ Number(v.candidate_value).toFixed(2) }}
-              by {{ `${v.first_name || ''} ${v.last_name || ''}`.trim() || `User ${v.challenger_user_id}` }}
-            </span>
-            <div class="actions-row">
+
+        <!-- Pending verifications -->
+        <div v-if="recordVerifications.length > 0 || verificationsLoading" class="cr-verifications">
+          <h3 class="cr-verif-heading">Pending Record Verifications</h3>
+          <div v-if="verificationsLoading" class="hint">Loading…</div>
+          <div v-for="v in recordVerifications" :key="`verification-${v.id}`" class="cr-verif-row">
+            <div class="cr-verif-info">
+              <span class="cr-verif-label">{{ v.record_label }}</span>
+              <span class="cr-verif-values">
+                {{ Number(v.current_value).toFixed(2) }} → <strong>{{ Number(v.candidate_value).toFixed(2) }}</strong>
+              </span>
+              <span class="cr-verif-by">by {{ `${v.first_name || ''} ${v.last_name || ''}`.trim() || `User ${v.challenger_user_id}` }}</span>
+            </div>
+            <div class="cr-verif-actions">
               <button type="button" class="btn btn-primary btn-sm" @click="reviewVerification(v.id, 'approved')">Approve</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="reviewVerification(v.id, 'rejected')">Reject</button>
             </div>
@@ -1544,6 +1610,8 @@ const loadClubRecords = async () => {
         unit: r.unit || '',
         notes: r.notes || '',
         metricKey: r.metricKey || '',
+        activityType: r.activityType || '',
+        terrain: r.terrain || '',
         holderName: r.holderName || '',
         holderYear: r.holderYear ?? null,
         holderTeam: r.holderTeam || '',
@@ -1564,6 +1632,8 @@ const addRecord = () => {
     unit: '',
     notes: '',
     metricKey: '',
+    activityType: '',
+    terrain: '',
     holderName: '',
     holderYear: null,
     holderTeam: '',
@@ -1588,6 +1658,8 @@ const saveRecords = async () => {
         unit: recordUnitForMetric(r.metricKey),
         notes: String(r.notes || '').trim(),
         metricKey: String(r.metricKey || '').trim() || null,
+        activityType: String(r.activityType || '').trim() || null,
+        terrain: String(r.terrain || '').trim() || null,
         holderName: String(r.holderName || '').trim(),
         holderYear: Number.isFinite(Number(r.holderYear)) ? Math.trunc(Number(r.holderYear)) : null,
         holderTeam: String(r.holderTeam || '').trim(),
@@ -2134,37 +2206,195 @@ const unlockRdConfig = async () => {
   border-top: 1px solid var(--border);
 }
 
-.records-list {
+/* ── Club Records card layout ────────────────── */
+.cr-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
   margin-top: 12px;
-  display: grid;
-  gap: 8px;
 }
 
-.record-row {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: minmax(180px, 1.2fr) minmax(110px, 0.7fr) minmax(150px, 0.9fr) minmax(90px, 0.6fr) minmax(160px, 1fr) minmax(90px, 0.6fr) minmax(130px, 0.9fr) minmax(180px, 1fr) minmax(160px, 1fr) auto;
+.cr-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cr-card-head {
+  display: flex;
   align-items: center;
+  gap: 10px;
 }
 
-.record-field {
+.cr-icon-slot {
+  flex: 0 0 auto;
+}
+
+.cr-label-input {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 7px 10px;
+  background: #fff;
+}
+
+.cr-remove-btn {
+  flex: 0 0 auto;
+  background: none;
+  border: 1px solid #fca5a5;
+  color: #ef4444;
+  border-radius: 6px;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  cursor: pointer;
+  line-height: 1;
+}
+.cr-remove-btn:hover {
+  background: #fee2e2;
+}
+
+.cr-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.cr-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 160px;
   min-width: 0;
 }
 
-.record-field--icon {
+.cr-field--sm { flex: 0 1 130px; }
+.cr-field--xs { flex: 0 1 90px; }
+.cr-field--full { flex: 1 1 100%; }
+
+.cr-field-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+}
+
+.cr-optional {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.cr-input,
+.cr-select {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 14px;
+  background: #fff;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.cr-value-wrap {
   display: flex;
   align-items: center;
+  gap: 6px;
 }
 
-.record-field--unit {
-  background: #f8fafc;
-  color: #334155;
+.cr-value-wrap .cr-input {
+  flex: 1;
 }
 
-@media (max-width: 1200px) {
-  .record-row {
-    grid-template-columns: 1fr;
-  }
+.cr-unit-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  background: #e2e8f0;
+  border-radius: 4px;
+  padding: 3px 7px;
+  white-space: nowrap;
+}
+
+.cr-filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  padding: 3px 10px;
+  align-self: flex-start;
+}
+
+/* Pending verifications */
+.cr-verifications {
+  margin-top: 20px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 16px;
+}
+
+.cr-verif-heading {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0 0 10px;
+}
+
+.cr-verif-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.cr-verif-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cr-verif-label {
+  font-weight: 600;
+  font-size: 14px;
+  color: #1e293b;
+}
+
+.cr-verif-values {
+  font-size: 13px;
+  color: #475569;
+}
+
+.cr-verif-by {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.cr-verif-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .pill {
