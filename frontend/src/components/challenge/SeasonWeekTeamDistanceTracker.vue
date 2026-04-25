@@ -196,7 +196,9 @@ const seasonWeeks = computed(() => {
 
   const todayWeek = getWeekStartDate(new Date(), cutoff, tz) || cur;
   const endWeek = rawEnd ? getWeekStartDate(new Date(rawEnd), cutoff, tz) : todayWeek;
-  const maxWeek = !endWeek || String(endWeek) > String(todayWeek) ? todayWeek : endWeek;
+  const maxWeek = String(cur) > String(todayWeek)
+    ? cur
+    : (!endWeek || String(endWeek) > String(todayWeek) ? todayWeek : endWeek);
 
   const weeks = [];
   let guard = 0;

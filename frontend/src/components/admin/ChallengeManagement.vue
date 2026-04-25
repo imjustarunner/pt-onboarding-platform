@@ -4408,7 +4408,7 @@ const finalizeCaptainsAction = async () => {
   if (!confirm('Finalize captains? This closes applications and locks the selection.')) return;
   finalizingCaptains.value = true;
   try {
-    await api.post(`/learning-program-classes/${managingChallenge.value.id}/captains/finalize`, {}, { skipGlobalLoading: true });
+    const { data: finalizeData } = await api.post(`/learning-program-classes/${managingChallenge.value.id}/captains/finalize`, {}, { skipGlobalLoading: true });
     if (managingChallenge.value) {
       managingChallenge.value.captains_finalized = true;
       managingChallenge.value.captainsFinalized = true;

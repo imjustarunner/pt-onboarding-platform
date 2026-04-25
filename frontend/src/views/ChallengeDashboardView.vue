@@ -723,7 +723,7 @@
 
         <!-- Captain Applications — manager view + member apply UI -->
         <DashboardSectionWrapper
-          v-if="isChallengeManager || (canParticipateInSeason && captainApplicationOpen && !isTeamCaptain)"
+          v-if="(!captainApplicationsFinalized && isChallengeManager) || (canParticipateInSeason && captainApplicationOpen && !isTeamCaptain)"
           :id="'captain-applications'"
           :label="sectionLabel('captain-applications')"
           :order="dashboardLayout.orderOf('captain-applications')"
@@ -1624,6 +1624,10 @@ const isTeamCaptain = computed(() => {
 const captainApplicationOpen = computed(() =>
   !!(challenge.value?.captain_application_open ?? challenge.value?.captainApplicationOpen)
   && !(challenge.value?.captains_finalized ?? challenge.value?.captainsFinalized)
+);
+
+const captainApplicationsFinalized = computed(() =>
+  !!(challenge.value?.captains_finalized ?? challenge.value?.captainsFinalized)
 );
 
 // For non-managers the backend only returns their own record (or empty).
