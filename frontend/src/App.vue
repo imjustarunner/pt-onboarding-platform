@@ -5756,6 +5756,8 @@ onUnmounted(() => {
   letter-spacing: normal;
   /* Match `.mobile-nav-link` */
   color: white;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 .mobile-nav-group-trigger:hover {
   background-color: rgba(255, 255, 255, 0.1);
@@ -5808,8 +5810,8 @@ onUnmounted(() => {
 .mobile-overlay {
   position: fixed;
   top: 0;
-  left: 0;
-  width: 100%;
+  left: 280px; /* starts after the sidebar so it never covers sidebar tap targets */
+  right: 0;
   height: 100%;
   background-color: rgba(0, 0, 0, 0.5);
   z-index: 999;
