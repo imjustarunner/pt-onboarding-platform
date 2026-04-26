@@ -1036,6 +1036,8 @@ const recordMetricOptions = [
   { group: 'Individual',
     value: 'duration_minutes',              label: 'Longest Single Workout (minutes)',       unit: 'minutes', lowerIsBetter: false },
   { group: 'Individual',
+    value: 'season_distance_miles',         label: 'Most Miles by One Person (full season)', unit: 'miles',   lowerIsBetter: false },
+  { group: 'Individual',
     value: 'points',                        label: 'Most Points in One Workout',             unit: 'points',  lowerIsBetter: false },
   { group: 'Individual',
     value: 'race_chip_time_seconds',        label: 'Fastest Race Time (chip seconds)',       unit: 'seconds', lowerIsBetter: true  },

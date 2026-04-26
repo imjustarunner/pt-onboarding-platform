@@ -50,6 +50,7 @@ const unitForMetricKey = (metricKey) => {
   if (k === 'distance_miles' || k === 'distance') return 'miles';
   if (k === 'weekly_distance_miles') return 'miles';
   if (k === 'monthly_distance_miles') return 'miles';
+  if (k === 'season_distance_miles') return 'miles';
   if (k === 'team_weekly_distance_miles') return 'miles';
   if (k === 'team_monthly_distance_miles') return 'miles';
   if (k === 'team_season_distance_miles') return 'miles';
@@ -69,7 +70,7 @@ const normalizeClubRecords = (input) => {
   const out = [];
   const knownMetricKeys = new Set([
     'distance_miles', 'duration_minutes', 'points',
-    'weekly_distance_miles', 'monthly_distance_miles',
+    'weekly_distance_miles', 'monthly_distance_miles', 'season_distance_miles',
     'season_duration_minutes', 'race_chip_time_seconds',
     'team_weekly_distance_miles', 'team_monthly_distance_miles',
     'team_season_distance_miles', 'club_season_distance_miles'
@@ -1576,6 +1577,18 @@ export const queueClubRecordBreakCandidates = async ({ learningClassId, workoutI
       );
       return Number(rows?.[0]?.total || 0);
     }
+    if (metricKey === 'season_distance_miles') {
+      // Per-person total miles for the entire season
+      const [rows] = await pool.execute(
+        `SELECT COALESCE(SUM(distance_value), 0) AS total
+         FROM challenge_workouts
+         WHERE user_id = ? AND learning_class_id = ?
+           AND (proof_status IN ('approved','none') OR proof_status IS NULL)
+           AND (is_disqualified IS NULL OR is_disqualified = 0)`,
+        [uId, classId]
+      );
+      return Number(rows?.[0]?.total || 0);
+    }
     if (metricKey === 'season_duration_minutes') {
       // Club-wide total: sum of all members' duration for the entire season
       const [rows] = await pool.execute(
@@ -1680,7 +1693,7 @@ export const queueClubRecordBreakCandidates = async ({ learningClassId, workoutI
       }
       candidateValue = chipTime;
     } else if ([
-      'weekly_distance_miles', 'monthly_distance_miles', 'season_duration_minutes',
+      'weekly_distance_miles', 'monthly_distance_miles', 'season_distance_miles', 'season_duration_minutes',
       'club_season_distance_miles',
       'team_weekly_distance_miles', 'team_monthly_distance_miles', 'team_season_distance_miles'
     ].includes(metricKey)) {
