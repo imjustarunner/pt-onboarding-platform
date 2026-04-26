@@ -109,21 +109,19 @@
                 :key="record.id || record.label"
                 class="record-row"
               >
-                <div class="record-main">
+                <div class="record-icon-wrap">
                   <img v-if="record.iconUrl" :src="record.iconUrl" alt="" class="record-icon" />
-                  <span class="record-label">{{ record.label }}</span>
+                  <span v-else class="record-icon-placeholder"></span>
                 </div>
-                <div class="record-right">
-                  <span class="record-value">
-                    {{ record.value != null ? record.value : '—' }}
-                    <span v-if="record.unit" class="record-unit">{{ record.unit }}</span>
-                  </span>
-                  <span v-if="record.holderName || record.holderYear || record.holderTeam" class="record-meta">
-                    {{ record.holderName || '—' }}
-                    <span v-if="record.holderYear">• {{ record.holderYear }}</span>
-                    <span v-if="record.holderTeam">• {{ record.holderTeam }}</span>
-                  </span>
-                </div>
+                <span class="record-label">{{ record.label }}</span>
+                <span class="record-spacer"></span>
+                <span class="record-value">
+                  {{ record.value != null ? record.value : '—' }}
+                  <span v-if="record.unit" class="record-unit">{{ record.unit }}</span>
+                </span>
+                <span v-if="record.holderName || record.holderYear || record.holderTeam" class="record-meta">
+                  {{ record.holderName || '—' }}<template v-if="record.holderYear"> · {{ record.holderYear }}</template><template v-if="record.holderTeam"> · {{ record.holderTeam }}</template>
+                </span>
               </div>
             </div>
           </div>
@@ -638,38 +636,82 @@ onMounted(loadPage);
   margin-bottom: 14px;
 }
 
+.pub-records-card { padding: 16px 16px 12px; }
+.pub-records-card .card-label { margin-bottom: 8px; }
+
 .records-list {
   display: flex;
   flex-direction: column;
+  gap: 0;
 }
 .record-row {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  padding: 10px 0;
+  gap: 8px;
+  padding: 5px 0;
   border-bottom: 1px solid #f1f5f9;
-  font-size: 14px;
+  font-size: 13px;
+  min-width: 0;
 }
-.record-row:last-child {
-  border-bottom: none;
+.record-row:last-child { border-bottom: none; }
+
+.record-icon-wrap {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  position: relative;
 }
-.record-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.record-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; }
-.record-icon { width: 20px; height: 20px; object-fit: contain; flex-shrink: 0; }
-.record-label { color: #374151; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.record-icon-placeholder {
+  display: block;
+  width: 36px;
+  height: 36px;
+}
+.record-icon {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  border-radius: 4px;
+  display: block;
+  transition: transform 0.18s ease, z-index 0s;
+  cursor: zoom-in;
+  position: relative;
+  z-index: 0;
+}
+.record-icon:hover {
+  transform: scale(3);
+  z-index: 10;
+  border-radius: 6px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+}
+.record-label {
+  color: #374151;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.record-spacer { flex: 0 0 4px; }
 .record-value {
   font-weight: 800;
   color: #1d4ed8;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .record-unit {
   font-weight: 500;
   font-size: 11px;
   color: #94a3b8;
-  margin-left: 3px;
+  margin-left: 2px;
 }
-.record-meta { font-size: 11px; color: #64748b; }
+.record-meta {
+  font-size: 11px;
+  color: #64748b;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 
 .race-intro {
   margin: -6px 0 14px;
