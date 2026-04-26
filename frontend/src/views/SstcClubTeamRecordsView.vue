@@ -116,8 +116,8 @@
                 <span class="record-label">{{ record.label }}</span>
                 <span class="record-spacer"></span>
                 <span class="record-value">
-                  {{ record.value != null ? record.value : '—' }}
-                  <span v-if="record.unit" class="record-unit">{{ record.unit }}</span>
+                  {{ formatRecordValue(record) }}
+                  <span v-if="displayRecordUnit(record)" class="record-unit">{{ displayRecordUnit(record) }}</span>
                 </span>
                 <span v-if="record.holderName || record.holderYear || record.holderTeam" class="record-meta">
                   {{ record.holderName || '—' }}<template v-if="record.holderYear"> · {{ record.holderYear }}</template><template v-if="record.holderTeam"> · {{ record.holderTeam }}</template>
@@ -275,6 +275,27 @@ const fmtPubStat = (stat) => {
 const formatMiles = (n) => {
   if (!n && n !== 0) return '—';
   return Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
+};
+
+const formatSecondsAsTime = (totalSeconds) => {
+  const s = Math.round(Number(totalSeconds));
+  if (!Number.isFinite(s) || s < 0) return '—';
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  return `${m}:${String(sec).padStart(2, '0')}`;
+};
+
+const formatRecordValue = (record) => {
+  if (record.value == null) return '—';
+  if (String(record.unit || '').toLowerCase() === 'seconds') return formatSecondsAsTime(record.value);
+  return record.value;
+};
+
+const displayRecordUnit = (record) => {
+  if (String(record.unit || '').toLowerCase() === 'seconds') return '';
+  return record.unit || '';
 };
 
 const loadPage = async () => {

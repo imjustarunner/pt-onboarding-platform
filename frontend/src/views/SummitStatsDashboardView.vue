@@ -449,32 +449,25 @@
         </div>
 
         <div v-if="memberships.length" class="stack-list">
-          <div v-for="membership in memberships" :key="`${membership.clubId}-${membership.classId || 'club'}`" class="membership-card">
+          <div v-for="membership in memberships" :key="`club-${membership.id}`" class="membership-card">
             <div class="membership-top">
               <div>
-                <strong>{{ membership.clubName }}</strong>
+                <strong>{{ membership.name }}</strong>
                 <div class="muted">{{ membershipLocation(membership) }}</div>
               </div>
-              <span class="pill" :class="pillClass(membership.membershipStatus || membership.clubRole)">
+              <span class="pill" :class="pillClass(membership.clubRole)">
                 {{ membershipBadgeText(membership) }}
               </span>
             </div>
-            <div class="membership-body">
-              <div v-if="membership.teamName" class="meta-line">Team: {{ membership.teamName }}</div>
-              <div v-if="membership.className" class="meta-line">Season: {{ membership.className }}</div>
-              <div class="meta-line">
-                {{ formatWhole(membership.totalPoints) }} pts • {{ formatDecimal(membership.totalMiles) }} mi • {{ formatWhole(membership.workoutCount) }} workouts
-              </div>
-            </div>
             <div class="membership-actions">
-              <button type="button" class="btn btn-secondary btn-sm" @click="openClub(membership.clubId)">
+              <button type="button" class="btn btn-secondary btn-sm" @click="openClub(membership.id)">
                 Open Club
               </button>
               <button
-                v-if="canManageThisClub(membership.clubId)"
+                v-if="canManageThisClub(membership.id)"
                 type="button"
                 class="btn btn-secondary btn-sm"
-                @click="switchToClubContext(membership.clubId, 'settings')"
+                @click="switchToClubContext(membership.id, 'settings')"
               >
                 Club Settings
               </button>
@@ -819,7 +812,7 @@
               <span class="pill" :class="pillClass(club.club_role)">{{ clubRoleLabel(club.club_role) }}</span>
             </div>
             <div class="membership-actions">
-              <button type="button" class="btn btn-secondary btn-sm" @click="switchToClubContext(club.id, 'dashboard')">
+              <button type="button" class="btn btn-secondary btn-sm" @click="openClub(club.id)">
                 Open Club
               </button>
               <button type="button" class="btn btn-secondary btn-sm" @click="switchToClubContext(club.id, 'seasons')">

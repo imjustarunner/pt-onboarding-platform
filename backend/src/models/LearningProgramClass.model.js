@@ -344,16 +344,22 @@ class LearningProgramClass {
   static async listProviderMembers(classId) {
     const id = toInt(classId);
     if (!id) return [];
+    // Scope the team join to only teams that belong to THIS class so that a
+    // user who has been on teams in other seasons doesn't produce duplicate rows.
     const [rows] = await pool.execute(
       `SELECT m.*, u.first_name, u.last_name, u.email,
               t.id AS team_id, t.team_name
        FROM learning_class_provider_memberships m
        INNER JOIN users u ON u.id = m.provider_user_id
-       LEFT JOIN challenge_team_members ctm ON ctm.provider_user_id = m.provider_user_id
-       LEFT JOIN challenge_teams t ON t.id = ctm.team_id AND t.learning_class_id = m.learning_class_id
+       LEFT JOIN (
+         SELECT ctm.provider_user_id, t.id, t.team_name
+         FROM challenge_team_members ctm
+         INNER JOIN challenge_teams t ON t.id = ctm.team_id
+         WHERE t.learning_class_id = ?
+       ) t ON t.provider_user_id = m.provider_user_id
        WHERE m.learning_class_id = ?
        ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
-      [id]
+      [id, id]
     );
     return rows || [];
   }

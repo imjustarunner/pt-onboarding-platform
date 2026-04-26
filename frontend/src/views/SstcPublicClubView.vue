@@ -397,8 +397,8 @@
                 <span class="record-label">{{ record.label }}</span>
                 <span class="record-spacer"></span>
                 <span class="record-value">
-                  {{ record.value != null ? record.value : '—' }}
-                  <span v-if="record.unit" class="record-unit">{{ record.unit }}</span>
+                  {{ formatRecordValue(record) }}
+                  <span v-if="displayRecordUnit(record)" class="record-unit">{{ displayRecordUnit(record) }}</span>
                 </span>
                 <span v-if="record.holderName || record.holderYear || record.holderTeam" class="record-meta">
                   {{ record.holderName || '—' }}<template v-if="record.holderYear"> · {{ record.holderYear }}</template><template v-if="record.holderTeam"> · {{ record.holderTeam }}</template>
@@ -838,6 +838,27 @@ const currentAlbumSlide = computed(() => {
 const formatMiles = (n) => {
   if (!n && n !== 0) return '—';
   return Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
+};
+
+const formatSecondsAsTime = (totalSeconds) => {
+  const s = Math.round(Number(totalSeconds));
+  if (!Number.isFinite(s) || s < 0) return '—';
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  return `${m}:${String(sec).padStart(2, '0')}`;
+};
+
+const formatRecordValue = (record) => {
+  if (record.value == null) return '—';
+  if (String(record.unit || '').toLowerCase() === 'seconds') return formatSecondsAsTime(record.value);
+  return record.value;
+};
+
+const displayRecordUnit = (record) => {
+  if (String(record.unit || '').toLowerCase() === 'seconds') return '';
+  return record.unit || '';
 };
 
 const decimalStatKeys = new Set(['total_miles', 'run_miles', 'ruck_miles']);
@@ -1722,6 +1743,8 @@ onBeforeUnmount(() => {
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   overflow: hidden;
+  min-width: 0;
+  width: 100%;
 }
 
 .pub-rc-club-head {
@@ -1765,6 +1788,8 @@ onBeforeUnmount(() => {
   gap: 8px;
   padding: 6px 14px;
   border-bottom: 1px solid #f1f5f9;
+  min-width: 0;
+  overflow: hidden;
 }
 .pub-rc-member:last-child { border-bottom: none; }
 
@@ -1773,12 +1798,19 @@ onBeforeUnmount(() => {
   font-size: 13px;
   font-weight: 600;
   color: #334155;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pub-rc-member-badges {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   align-items: center;
+  flex-shrink: 0;
+  max-width: 50%;
 }
 
 .pub-rc-tier-icon {

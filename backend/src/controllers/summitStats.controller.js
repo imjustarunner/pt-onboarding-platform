@@ -1795,28 +1795,10 @@ export const createRaceClubPlaceholder = async (req, res, next) => {
       );
     }
 
-    // Assign to the club agency
+    // Assign to the club agency as an inactive member so they appear in club-level
+    // tools (race completion clubs, trophy case) without being enrolled in any season.
     const { default: User } = await import('../models/User.model.js');
-    await User.assignToAgency(userId, clubId, { clubRole: 'member', isActive: true });
-
-    // Enroll in all active/upcoming seasons for this club so they appear in the roster
-    const [seasonRows] = await pool.execute(
-      `SELECT id FROM learning_program_classes
-       WHERE organization_id = ? AND status IN ('active','upcoming')
-       ORDER BY id DESC LIMIT 5`,
-      [clubId]
-    );
-    for (const s of seasonRows || []) {
-      await pool.execute(
-        `INSERT INTO learning_class_provider_memberships
-           (learning_class_id, provider_user_id, membership_status, joined_at, created_by_user_id)
-         VALUES (?, ?, 'active', NOW(), ?)
-         ON DUPLICATE KEY UPDATE
-           membership_status = IF(membership_status = 'removed', 'active', membership_status),
-           updated_at = NOW()`,
-        [s.id, userId, req.user.id]
-      );
-    }
+    await User.assignToAgency(userId, clubId, { clubRole: 'member', isActive: false });
 
     const displayName = firstName.length === 1 && lastName
       ? `${firstName}. ${lastName}`
