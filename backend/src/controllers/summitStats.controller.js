@@ -2278,8 +2278,8 @@ export const reviewClubRecordVerification = async (req, res, next) => {
 /**
  * Full recompute of all auto-fill records for a club.
  * Runs the appropriate SQL for each autoFill record, finds the current best,
- * and writes holder/value directly without requiring manager approval.
- * Records with no qualifying workouts get value=null / holderName=''.
+ * and updates ONLY if the computed value beats the existing stored value.
+ * Records with no qualifying workouts are left untouched.
  */
 export const recomputeAutoFillRecords = async ({ clubId }) => {
   const cId = Number(clubId);
@@ -2465,20 +2465,89 @@ export const recomputeAutoFillRecords = async ({ clubId }) => {
           [cId, yyyy, mm, ...bp]
         );
         bestRow = rows?.[0] || null;
+
+      } else if (mk === 'team_weekly_distance_miles') {
+        // Best single-week total by any team across all seasons
+        const [rows] = await pool.execute(
+          `SELECT t.team_id, ct.team_name AS first_name, NULL AS last_name, t.val FROM (
+             SELECT w.team_id, YEARWEEK(w.completed_at, 1) AS yw, SUM(w.distance_value) AS val
+             FROM challenge_workouts w
+             INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+             WHERE c.organization_id = ? AND w.team_id IS NOT NULL AND ${wp}
+             GROUP BY w.team_id, YEARWEEK(w.completed_at, 1)
+           ) t INNER JOIN challenge_teams ct ON ct.id = t.team_id
+           ORDER BY t.val DESC LIMIT 1`,
+          [cId, ...bp]
+        );
+        bestRow = rows?.[0] ? { ...rows[0], user_id: null, is_team: true } : null;
+
+      } else if (mk === 'team_monthly_distance_miles') {
+        const [rows] = await pool.execute(
+          `SELECT t.team_id, ct.team_name AS first_name, NULL AS last_name, t.val FROM (
+             SELECT w.team_id, DATE_FORMAT(w.completed_at, '%Y-%m') AS ym, SUM(w.distance_value) AS val
+             FROM challenge_workouts w
+             INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+             WHERE c.organization_id = ? AND w.team_id IS NOT NULL AND ${wp}
+             GROUP BY w.team_id, DATE_FORMAT(w.completed_at, '%Y-%m')
+           ) t INNER JOIN challenge_teams ct ON ct.id = t.team_id
+           ORDER BY t.val DESC LIMIT 1`,
+          [cId, ...bp]
+        );
+        bestRow = rows?.[0] ? { ...rows[0], user_id: null, is_team: true } : null;
+
+      } else if (mk === 'team_season_distance_miles') {
+        const [rows] = await pool.execute(
+          `SELECT t.team_id, ct.team_name AS first_name, NULL AS last_name, t.val FROM (
+             SELECT w.team_id, w.learning_class_id, SUM(w.distance_value) AS val
+             FROM challenge_workouts w
+             INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+             WHERE c.organization_id = ? AND w.team_id IS NOT NULL AND ${wp}
+             GROUP BY w.team_id, w.learning_class_id
+           ) t INNER JOIN challenge_teams ct ON ct.id = t.team_id
+           ORDER BY t.val DESC LIMIT 1`,
+          [cId, ...bp]
+        );
+        bestRow = rows?.[0] ? { ...rows[0], user_id: null, is_team: true } : null;
+
+      } else if (mk === 'club_season_distance_miles' || mk === 'season_duration_minutes') {
+        // Club-wide totals — no individual holder, just the aggregate value
+        const col = mk === 'season_duration_minutes' ? 'duration_minutes' : 'distance_value';
+        const [rows] = await pool.execute(
+          `SELECT SUM(w.${col}) AS val
+           FROM challenge_workouts w
+           INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+           WHERE c.organization_id = ? AND ${wp}`,
+          [cId, ...bp]
+        );
+        const total = rows?.[0]?.val != null ? Number(rows[0].val) : null;
+        if (total != null && total > 0) {
+          bestRow = { val: total, first_name: '', last_name: '', user_id: null, is_club: true };
+        }
       }
     } catch { /* non-fatal */ }
 
-    // Update record with best holder, or clear if no data
+    // Only update the record if the computed value BEATS the existing stored value.
+    // If no workout data was found (bestRow == null), leave the record untouched.
     const idx = records.indexOf(record);
     if (idx === -1) continue;
-    const val = bestRow?.val != null ? Number(bestRow.val) : null;
-    const hasData = val != null && val > 0;
+    const newVal = bestRow?.val != null ? Number(bestRow.val) : null;
+    if (newVal == null || newVal <= 0) continue; // no qualifying data — leave as-is
+
+    const currentVal = record.value != null ? Number(record.value) : null;
+    const isBetter = currentVal == null || (record.lowerIsBetter ? newVal < currentVal : newVal > currentVal);
+    if (!isBetter) continue; // existing value is equal or better — don't overwrite
+
+    const holderName = bestRow.is_team || bestRow.is_club
+      ? String(bestRow.first_name || '').trim() // team name stored in first_name
+      : [bestRow.first_name, bestRow.last_name].filter(Boolean).join(' ');
+    const holderUserId = bestRow.user_id ? Number(bestRow.user_id) : null;
+
     records[idx] = {
       ...record,
-      value: hasData ? Math.round(val * 1000) / 1000 : null,
-      holderName: hasData ? [bestRow.first_name, bestRow.last_name].filter(Boolean).join(' ') : '',
-      holderUserId: hasData && bestRow.user_id ? Number(bestRow.user_id) : null,
-      holderYear: hasData ? new Date().getFullYear() : null,
+      value: Math.round(newVal * 1000) / 1000,
+      holderName,
+      holderUserId,
+      holderYear: bestRow.is_club ? null : new Date().getFullYear(),
       updatedAt: now
     };
     changed = true;
@@ -2820,15 +2889,29 @@ export const queueClubRecordBreakCandidates = async ({ learningClassId, workoutI
         ? candidateValue < currentValue
         : candidateValue > currentValue);
       if (!isBetter) continue;
-      // Look up user name
-      const [uRows] = await pool.execute(
-        `SELECT first_name, last_name FROM users WHERE id = ? LIMIT 1`, [uId]
-      );
-      const uRow = uRows?.[0];
-      const holderName = uRow ? [uRow.first_name, uRow.last_name].filter(Boolean).join(' ') : '';
+
+      const isTeamMetric = ['team_weekly_distance_miles', 'team_monthly_distance_miles', 'team_season_distance_miles'].includes(metricKey);
+      const isClubMetric = ['club_season_distance_miles', 'season_duration_minutes'].includes(metricKey);
+
+      let holderName = '';
+      let holderUserId = null;
+      if (isTeamMetric) {
+        // Holder is the team, not the individual member
+        const teamId = Number(workout.team_id);
+        if (teamId) {
+          const [tRows] = await pool.execute(`SELECT team_name FROM challenge_teams WHERE id = ? LIMIT 1`, [teamId]);
+          holderName = tRows?.[0]?.team_name || '';
+        }
+      } else if (!isClubMetric) {
+        const [uRows] = await pool.execute(`SELECT first_name, last_name FROM users WHERE id = ? LIMIT 1`, [uId]);
+        const uRow = uRows?.[0];
+        holderName = uRow ? [uRow.first_name, uRow.last_name].filter(Boolean).join(' ') : '';
+        holderUserId = uId;
+      }
+
       const updatedRecords = records.map((r) =>
         r.id === record.id
-          ? { ...r, value: Math.round(candidateValue * 1000) / 1000, holderName, holderUserId: uId, holderYear: new Date().getFullYear(), updatedAt: new Date().toISOString() }
+          ? { ...r, value: Math.round(candidateValue * 1000) / 1000, holderName, holderUserId, holderYear: isClubMetric ? null : new Date().getFullYear(), updatedAt: new Date().toISOString() }
           : r
       );
       await pool.execute(
