@@ -16,7 +16,7 @@ import ChallengeCaptainApplication from '../models/ChallengeCaptainApplication.m
 import ChallengeMessage from '../models/ChallengeMessage.model.js';
 import ChallengeWorkoutComment from '../models/ChallengeWorkoutComment.model.js';
 import ChallengeWorkoutMedia from '../models/ChallengeWorkoutMedia.model.js';
-import { queueClubRecordBreakCandidates, getPlatformAgencyId, getPlatformAgencyIds } from './summitStats.controller.js';
+import { queueClubRecordBreakCandidates, recomputeAutoFillRecords, getPlatformAgencyId, getPlatformAgencyIds } from './summitStats.controller.js';
 import { sqlAffiliationUnderSummitPlatform } from '../utils/summitPlatformClubs.js';
 import { canManageTeam } from '../utils/challengePermissions.js';
 import { canAccessChallenge, resolveChallengeAccessOrManage } from '../utils/challengeAccess.js';
@@ -1658,6 +1658,12 @@ export const submitWorkout = async (req, res, next) => {
           workoutId: workout.id,
           userId: req.user.id
         });
+        // Fire-and-forget recompute for auto-fill records
+        const [classRow] = await pool.execute(
+          `SELECT organization_id FROM learning_program_classes WHERE id = ? LIMIT 1`, [classId]
+        );
+        const clubId = classRow?.[0]?.organization_id;
+        if (clubId) recomputeAutoFillRecords({ clubId }).catch(() => {});
       } catch {
         // Non-blocking async hook.
       }

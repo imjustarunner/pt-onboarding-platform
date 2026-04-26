@@ -51,6 +51,10 @@ const unitForMetricKey = (metricKey) => {
   if (k === 'weekly_distance_miles') return 'miles';
   if (k === 'monthly_distance_miles') return 'miles';
   if (k === 'season_distance_miles') return 'miles';
+  if (k === 'season_month1_distance_miles') return 'miles';
+  if (k === 'season_month2_distance_miles') return 'miles';
+  if (k === 'rolling_4week_distance_miles') return 'miles';
+  if (k === 'calendar_month_distance_miles') return 'miles';
   if (k === 'team_weekly_distance_miles') return 'miles';
   if (k === 'team_monthly_distance_miles') return 'miles';
   if (k === 'team_season_distance_miles') return 'miles';
@@ -59,6 +63,7 @@ const unitForMetricKey = (metricKey) => {
   if (k === 'season_duration_minutes') return 'minutes';
   if (k === 'points') return 'points';
   if (k === 'race_chip_time_seconds') return 'seconds';
+  if (k === 'elevation_gain_meters') return 'meters';
   return '';
 };
 
@@ -71,7 +76,10 @@ const normalizeClubRecords = (input) => {
   const knownMetricKeys = new Set([
     'distance_miles', 'duration_minutes', 'points',
     'weekly_distance_miles', 'monthly_distance_miles', 'season_distance_miles',
+    'season_month1_distance_miles', 'season_month2_distance_miles',
+    'rolling_4week_distance_miles', 'calendar_month_distance_miles',
     'season_duration_minutes', 'race_chip_time_seconds',
+    'elevation_gain_meters',
     'team_weekly_distance_miles', 'team_monthly_distance_miles',
     'team_season_distance_miles', 'club_season_distance_miles'
   ]);
@@ -125,6 +133,10 @@ const normalizeClubRecords = (input) => {
       holderUserId: row?.holderUserId ? Math.trunc(Number(row.holderUserId)) : null,
       iconId: normalizeIconId(row?.iconId),
       iconUrl: null, // resolved on demand
+      autoFill: row?.autoFill === true,
+      calendarMonth: metricKey === 'calendar_month_distance_miles'
+        ? (String(row?.calendarMonth || '').match(/^\d{4}-(?:0[1-9]|1[0-2])$/) ? row.calendarMonth : null)
+        : null,
       verificationRequired: true,
       seededAt: row?.seededAt || null,
       updatedAt: row?.updatedAt || null,
@@ -168,6 +180,8 @@ const mergeSeedRecords = ({ existingRecords, incomingRecords }) => {
       holderYear: incoming.holderYear,
       holderTeam: incoming.holderTeam,
       holderUserId: incoming.holderUserId != null ? incoming.holderUserId : (prev.holderUserId || null),
+      autoFill: incoming.autoFill === true,
+      calendarMonth: incoming.calendarMonth || null,
       iconId: incoming.iconId,
       verificationRequired: true,
       seededAt: prev.seededAt || now,
@@ -1387,7 +1401,13 @@ export const upsertClubRecords = async (req, res, next) => {
          updated_at = CURRENT_TIMESTAMP`,
       [clubId, JSON.stringify(records), req.user.id, req.user.id]
     );
-    return res.json({ agencyId: clubId, records });
+    // Synchronously recompute auto-fill records so the response reflects live data
+    try { await recomputeAutoFillRecords({ clubId }); } catch { /* non-fatal */ }
+    const [freshRows] = await pool.execute(
+      `SELECT records_json FROM summit_stats_club_records WHERE agency_id = ? LIMIT 1`, [clubId]
+    );
+    const freshRecords = normalizeClubRecords(parseClubRecords(freshRows?.[0]?.records_json));
+    return res.json({ agencyId: clubId, records: freshRecords });
   } catch (error) {
     next(error);
   }
@@ -1903,6 +1923,9 @@ const getMemberTrophyCaseData = async ({ clubId, userId }) => {
   const personalMetricKeys = new Set([
     'distance_miles', 'duration_minutes', 'points',
     'weekly_distance_miles', 'monthly_distance_miles', 'season_distance_miles',
+    'season_month1_distance_miles', 'season_month2_distance_miles',
+    'rolling_4week_distance_miles', 'calendar_month_distance_miles',
+    'elevation_gain_meters',
     'season_duration_minutes', 'race_chip_time_seconds'
   ]);
 
@@ -2236,6 +2259,225 @@ export const reviewClubRecordVerification = async (req, res, next) => {
   }
 };
 
+/**
+ * Full recompute of all auto-fill records for a club.
+ * Runs the appropriate SQL for each autoFill record, finds the current best,
+ * and writes holder/value directly without requiring manager approval.
+ * Records with no qualifying workouts get value=null / holderName=''.
+ */
+export const recomputeAutoFillRecords = async ({ clubId }) => {
+  const cId = Number(clubId);
+  if (!Number.isFinite(cId) || cId < 1) return;
+  const [recordRows] = await pool.execute(
+    `SELECT records_json FROM summit_stats_club_records WHERE agency_id = ? LIMIT 1`,
+    [cId]
+  );
+  const records = normalizeClubRecords(parseClubRecords(recordRows?.[0]?.records_json));
+  const autoFillRecords = records.filter((r) => r.autoFill && r.metricKey);
+  if (!autoFillRecords.length) return;
+
+  const baseWhere = (r) => {
+    const parts = [
+      `(w.is_disqualified IS NULL OR w.is_disqualified = 0)`,
+      `(w.proof_status IN ('approved','none') OR w.proof_status IS NULL)`
+    ];
+    if (r.activityType) parts.push(`LOWER(COALESCE(w.activity_type,'')) LIKE ?`);
+    if (r.terrain) parts.push(`LOWER(COALESCE(w.terrain,'')) = ?`);
+    return parts.join(' AND ');
+  };
+  const baseParams = (r) => {
+    const p = [];
+    if (r.activityType) p.push(`%${r.activityType.toLowerCase()}%`);
+    if (r.terrain) p.push(r.terrain.toLowerCase());
+    return p;
+  };
+
+  const now = new Date().toISOString();
+  let changed = false;
+
+  for (const record of autoFillRecords) {
+    const mk = record.metricKey;
+    let bestRow = null;
+    try {
+      const wp = baseWhere(record);
+      const bp = baseParams(record);
+
+      if (mk === 'distance_miles') {
+        const [rows] = await pool.execute(
+          `SELECT w.user_id, u.first_name, u.last_name, MAX(w.distance_value) AS val
+           FROM challenge_workouts w
+           INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+           INNER JOIN users u ON u.id = w.user_id
+           WHERE c.organization_id = ? AND ${wp}
+           GROUP BY w.user_id, u.first_name, u.last_name
+           ORDER BY val DESC LIMIT 1`,
+          [cId, ...bp]
+        );
+        bestRow = rows?.[0] || null;
+
+      } else if (mk === 'elevation_gain_meters') {
+        const [rows] = await pool.execute(
+          `SELECT w.user_id, u.first_name, u.last_name, MAX(w.elevation_gain_meters) AS val
+           FROM challenge_workouts w
+           INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+           INNER JOIN users u ON u.id = w.user_id
+           WHERE c.organization_id = ? AND w.elevation_gain_meters IS NOT NULL AND w.elevation_gain_meters > 0 AND ${wp}
+           GROUP BY w.user_id, u.first_name, u.last_name
+           ORDER BY val DESC LIMIT 1`,
+          [cId, ...bp]
+        );
+        bestRow = rows?.[0] || null;
+
+      } else if (mk === 'weekly_distance_miles') {
+        const [rows] = await pool.execute(
+          `SELECT t.user_id, u.first_name, u.last_name, t.val FROM (
+             SELECT w.user_id,
+               YEARWEEK(w.completed_at, 1) AS yw,
+               SUM(w.distance_value) AS val
+             FROM challenge_workouts w
+             INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+             WHERE c.organization_id = ? AND ${wp}
+             GROUP BY w.user_id, YEARWEEK(w.completed_at, 1)
+           ) t INNER JOIN users u ON u.id = t.user_id
+           ORDER BY t.val DESC LIMIT 1`,
+          [cId, ...bp]
+        );
+        bestRow = rows?.[0] || null;
+
+      } else if (mk === 'monthly_distance_miles') {
+        const [rows] = await pool.execute(
+          `SELECT t.user_id, u.first_name, u.last_name, t.val FROM (
+             SELECT w.user_id,
+               DATE_FORMAT(w.completed_at, '%Y-%m') AS ym,
+               SUM(w.distance_value) AS val
+             FROM challenge_workouts w
+             INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+             WHERE c.organization_id = ? AND ${wp}
+             GROUP BY w.user_id, DATE_FORMAT(w.completed_at, '%Y-%m')
+           ) t INNER JOIN users u ON u.id = t.user_id
+           ORDER BY t.val DESC LIMIT 1`,
+          [cId, ...bp]
+        );
+        bestRow = rows?.[0] || null;
+
+      } else if (mk === 'season_distance_miles') {
+        const [rows] = await pool.execute(
+          `SELECT t.user_id, u.first_name, u.last_name, t.val FROM (
+             SELECT w.user_id, w.learning_class_id, SUM(w.distance_value) AS val
+             FROM challenge_workouts w
+             INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+             WHERE c.organization_id = ? AND ${wp}
+             GROUP BY w.user_id, w.learning_class_id
+           ) t INNER JOIN users u ON u.id = t.user_id
+           ORDER BY t.val DESC LIMIT 1`,
+          [cId, ...bp]
+        );
+        bestRow = rows?.[0] || null;
+
+      } else if (mk === 'season_month1_distance_miles') {
+        const [rows] = await pool.execute(
+          `SELECT t.user_id, u.first_name, u.last_name, t.val FROM (
+             SELECT w.user_id, w.learning_class_id, SUM(w.distance_value) AS val
+             FROM challenge_workouts w
+             INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+             WHERE c.organization_id = ?
+               AND c.starts_at IS NOT NULL
+               AND w.completed_at >= c.starts_at
+               AND w.completed_at < DATE_ADD(c.starts_at, INTERVAL 28 DAY)
+               AND ${wp}
+             GROUP BY w.user_id, w.learning_class_id
+           ) t INNER JOIN users u ON u.id = t.user_id
+           ORDER BY t.val DESC LIMIT 1`,
+          [cId, ...bp]
+        );
+        bestRow = rows?.[0] || null;
+
+      } else if (mk === 'season_month2_distance_miles') {
+        const [rows] = await pool.execute(
+          `SELECT t.user_id, u.first_name, u.last_name, t.val FROM (
+             SELECT w.user_id, w.learning_class_id, SUM(w.distance_value) AS val
+             FROM challenge_workouts w
+             INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+             WHERE c.organization_id = ?
+               AND c.starts_at IS NOT NULL
+               AND w.completed_at >= DATE_ADD(c.starts_at, INTERVAL 28 DAY)
+               AND w.completed_at < DATE_ADD(c.starts_at, INTERVAL 56 DAY)
+               AND ${wp}
+             GROUP BY w.user_id, w.learning_class_id
+           ) t INNER JOIN users u ON u.id = t.user_id
+           ORDER BY t.val DESC LIMIT 1`,
+          [cId, ...bp]
+        );
+        bestRow = rows?.[0] || null;
+
+      } else if (mk === 'rolling_4week_distance_miles') {
+        const [rows] = await pool.execute(
+          `SELECT t.user_id, u.first_name, u.last_name, MAX(t.val) AS val FROM (
+             SELECT w.user_id, w.completed_at,
+               (SELECT COALESCE(SUM(w2.distance_value),0)
+                FROM challenge_workouts w2
+                INNER JOIN learning_program_classes c2 ON c2.id = w2.learning_class_id
+                WHERE w2.user_id = w.user_id
+                  AND c2.organization_id = ?
+                  AND w2.completed_at >= DATE_SUB(w.completed_at, INTERVAL 27 DAY)
+                  AND w2.completed_at <= w.completed_at
+                  AND (w2.is_disqualified IS NULL OR w2.is_disqualified = 0)
+                  AND (w2.proof_status IN ('approved','none') OR w2.proof_status IS NULL)
+               ) AS val
+             FROM challenge_workouts w
+             INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+             WHERE c.organization_id = ? AND ${wp}
+           ) t INNER JOIN users u ON u.id = t.user_id
+           GROUP BY t.user_id, u.first_name, u.last_name
+           ORDER BY val DESC LIMIT 1`,
+          [cId, cId, ...bp]
+        );
+        bestRow = rows?.[0] || null;
+
+      } else if (mk === 'calendar_month_distance_miles' && record.calendarMonth) {
+        const [yyyy, mm] = record.calendarMonth.split('-').map(Number);
+        const [rows] = await pool.execute(
+          `SELECT w.user_id, u.first_name, u.last_name, SUM(w.distance_value) AS val
+           FROM challenge_workouts w
+           INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+           INNER JOIN users u ON u.id = w.user_id
+           WHERE c.organization_id = ?
+             AND YEAR(w.completed_at) = ? AND MONTH(w.completed_at) = ?
+             AND ${wp}
+           GROUP BY w.user_id, u.first_name, u.last_name
+           ORDER BY val DESC LIMIT 1`,
+          [cId, yyyy, mm, ...bp]
+        );
+        bestRow = rows?.[0] || null;
+      }
+    } catch { /* non-fatal */ }
+
+    // Update record with best holder, or clear if no data
+    const idx = records.indexOf(record);
+    if (idx === -1) continue;
+    const val = bestRow?.val != null ? Number(bestRow.val) : null;
+    const hasData = val != null && val > 0;
+    records[idx] = {
+      ...record,
+      value: hasData ? Math.round(val * 1000) / 1000 : null,
+      holderName: hasData ? [bestRow.first_name, bestRow.last_name].filter(Boolean).join(' ') : '',
+      holderUserId: hasData && bestRow.user_id ? Number(bestRow.user_id) : null,
+      holderYear: hasData ? new Date().getFullYear() : null,
+      updatedAt: now
+    };
+    changed = true;
+  }
+
+  if (changed) {
+    await pool.execute(
+      `INSERT INTO summit_stats_club_records (agency_id, records_json, updated_by_user_id)
+       VALUES (?, ?, NULL)
+       ON DUPLICATE KEY UPDATE records_json = VALUES(records_json), updated_at = CURRENT_TIMESTAMP`,
+      [cId, JSON.stringify(records)]
+    );
+  }
+};
+
 export const queueClubRecordBreakCandidates = async ({ learningClassId, workoutId, userId }) => {
   const classId = Number(learningClassId);
   const wId = Number(workoutId);
@@ -2261,7 +2503,7 @@ export const queueClubRecordBreakCandidates = async ({ learningClassId, workoutI
     const [rows] = await pool.execute(
       `SELECT id, learning_class_id, team_id, user_id, points, distance_value, duration_minutes,
               activity_type, terrain, is_race, race_distance_miles, race_chip_time_seconds,
-              completed_at
+              completed_at, elevation_gain_meters
        FROM challenge_workouts
        WHERE id = ? AND learning_class_id = ? AND user_id = ?
        LIMIT 1`,
@@ -2423,6 +2665,80 @@ export const queueClubRecordBreakCandidates = async ({ learningClassId, workoutI
       );
       return Number(rows?.[0]?.total || 0);
     }
+    // ── New metric keys ──────────────────────────────────────────────
+    if (metricKey === 'season_month1_distance_miles') {
+      // User's miles in the first 28 days of the current season
+      const [classInfoRows] = await pool.execute(
+        `SELECT starts_at FROM learning_program_classes WHERE id = ? LIMIT 1`, [classId]
+      );
+      const seasonStart = classInfoRows?.[0]?.starts_at;
+      if (!seasonStart) return null;
+      const month1End = new Date(seasonStart);
+      month1End.setDate(month1End.getDate() + 28);
+      const [rows] = await pool.execute(
+        `SELECT COALESCE(SUM(distance_value), 0) AS total
+         FROM challenge_workouts
+         WHERE user_id = ? AND learning_class_id = ?
+           AND completed_at >= ? AND completed_at < ?
+           AND (proof_status IN ('approved','none') OR proof_status IS NULL)
+           AND (is_disqualified IS NULL OR is_disqualified = 0)`,
+        [uId, classId, seasonStart, month1End]
+      );
+      return Number(rows?.[0]?.total || 0);
+    }
+    if (metricKey === 'season_month2_distance_miles') {
+      const [classInfoRows] = await pool.execute(
+        `SELECT starts_at FROM learning_program_classes WHERE id = ? LIMIT 1`, [classId]
+      );
+      const seasonStart = classInfoRows?.[0]?.starts_at;
+      if (!seasonStart) return null;
+      const month2Start = new Date(seasonStart);
+      month2Start.setDate(month2Start.getDate() + 28);
+      const month2End = new Date(seasonStart);
+      month2End.setDate(month2End.getDate() + 56);
+      const [rows] = await pool.execute(
+        `SELECT COALESCE(SUM(distance_value), 0) AS total
+         FROM challenge_workouts
+         WHERE user_id = ? AND learning_class_id = ?
+           AND completed_at >= ? AND completed_at < ?
+           AND (proof_status IN ('approved','none') OR proof_status IS NULL)
+           AND (is_disqualified IS NULL OR is_disqualified = 0)`,
+        [uId, classId, month2Start, month2End]
+      );
+      return Number(rows?.[0]?.total || 0);
+    }
+    if (metricKey === 'rolling_4week_distance_miles') {
+      // User's total miles in the 28-day window ending on this workout's date
+      const windowStart = new Date(completedAt);
+      windowStart.setDate(windowStart.getDate() - 27);
+      const [rows] = await pool.execute(
+        `SELECT COALESCE(SUM(distance_value), 0) AS total
+         FROM challenge_workouts
+         WHERE user_id = ? AND learning_class_id = ?
+           AND completed_at >= ? AND completed_at <= ?
+           AND (proof_status IN ('approved','none') OR proof_status IS NULL)
+           AND (is_disqualified IS NULL OR is_disqualified = 0)`,
+        [uId, classId, windowStart, completedAt]
+      );
+      return Number(rows?.[0]?.total || 0);
+    }
+    if (metricKey === 'calendar_month_distance_miles') {
+      // User's total for the specific calendar month set on the record (calendarMonth = "YYYY-MM")
+      if (!record.calendarMonth) return null;
+      const [yyyy, mm] = record.calendarMonth.split('-').map(Number);
+      const monthStart = new Date(yyyy, mm - 1, 1);
+      const monthEnd = new Date(yyyy, mm, 1);
+      const [rows] = await pool.execute(
+        `SELECT COALESCE(SUM(distance_value), 0) AS total
+         FROM challenge_workouts
+         WHERE user_id = ? AND learning_class_id = ?
+           AND completed_at >= ? AND completed_at < ?
+           AND (proof_status IN ('approved','none') OR proof_status IS NULL)
+           AND (is_disqualified IS NULL OR is_disqualified = 0)`,
+        [uId, classId, monthStart, monthEnd]
+      );
+      return Number(rows?.[0]?.total || 0);
+    }
     return null;
   };
 
@@ -2463,18 +2779,53 @@ export const queueClubRecordBreakCandidates = async ({ learningClassId, workoutI
         if (Math.abs(wDist - record.raceDistance) > tolerance) continue;
       }
       candidateValue = chipTime;
+    } else if (metricKey === 'elevation_gain_meters') {
+      const elev = Number(workout.elevation_gain_meters);
+      if (!Number.isFinite(elev) || elev <= 0) continue;
+      candidateValue = elev;
     } else if ([
       'weekly_distance_miles', 'monthly_distance_miles', 'season_distance_miles', 'season_duration_minutes',
       'club_season_distance_miles',
-      'team_weekly_distance_miles', 'team_monthly_distance_miles', 'team_season_distance_miles'
+      'team_weekly_distance_miles', 'team_monthly_distance_miles', 'team_season_distance_miles',
+      'season_month1_distance_miles', 'season_month2_distance_miles',
+      'rolling_4week_distance_miles', 'calendar_month_distance_miles'
     ].includes(metricKey)) {
       candidateValue = await getAggregatedValue(metricKey);
     } else {
       candidateValue = getMetricValueFromWorkout(metricKey, workout);
     }
 
+    if (!Number.isFinite(candidateValue) || candidateValue <= 0) continue;
+
+    // For auto-fill records: directly update the stored record without manager approval
+    if (record.autoFill) {
+      const currentValue = record.value != null ? Number(record.value) : null;
+      const isBetter = currentValue == null || (record.lowerIsBetter
+        ? candidateValue < currentValue
+        : candidateValue > currentValue);
+      if (!isBetter) continue;
+      // Look up user name
+      const [uRows] = await pool.execute(
+        `SELECT first_name, last_name FROM users WHERE id = ? LIMIT 1`, [uId]
+      );
+      const uRow = uRows?.[0];
+      const holderName = uRow ? [uRow.first_name, uRow.last_name].filter(Boolean).join(' ') : '';
+      const updatedRecords = records.map((r) =>
+        r.id === record.id
+          ? { ...r, value: Math.round(candidateValue * 1000) / 1000, holderName, holderUserId: uId, holderYear: new Date().getFullYear(), updatedAt: new Date().toISOString() }
+          : r
+      );
+      await pool.execute(
+        `INSERT INTO summit_stats_club_records (agency_id, records_json, updated_by_user_id)
+         VALUES (?, ?, NULL)
+         ON DUPLICATE KEY UPDATE records_json = VALUES(records_json), updated_at = CURRENT_TIMESTAMP`,
+        [agencyId, JSON.stringify(updatedRecords)]
+      );
+      continue;
+    }
+
     const currentValue = Number(record.value);
-    if (!Number.isFinite(candidateValue) || !Number.isFinite(currentValue)) continue;
+    if (!Number.isFinite(currentValue)) continue;
 
     // For lower-is-better records (e.g. fastest race), candidate must be strictly lower
     const isBetter = record.lowerIsBetter

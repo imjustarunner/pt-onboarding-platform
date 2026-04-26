@@ -101,11 +101,11 @@
           id="club-records"
           class="pub-row records-pub-row"
         >
-          <div v-if="(clubData.clubRecords || []).length" class="pub-card pub-records-card">
+          <div v-if="visibleClubRecords.length" class="pub-card pub-records-card">
             <div class="card-label">🏅 Club Records</div>
             <div class="records-list">
               <div
-                v-for="record in clubData.clubRecords"
+                v-for="record in visibleClubRecords"
                 :key="record.id || record.label"
                 class="record-row"
               >
@@ -251,8 +251,7 @@ const raceDivisionsArr = computed(() => {
 const raceClubs = ref([]);
 
 const hasRecordsContent = computed(() => {
-  const cr = clubData.value?.clubRecords || [];
-  return cr.length > 0 || raceDivisionsArr.value.length > 0 || raceClubs.value.some(rc => rc.members?.length);
+  return visibleClubRecords.value.length > 0 || raceDivisionsArr.value.length > 0 || raceClubs.value.some(rc => rc.members?.length);
 });
 
 const formatRaceChipTime = (seconds) => {
@@ -297,6 +296,12 @@ const displayRecordUnit = (record) => {
   if (String(record.unit || '').toLowerCase() === 'seconds') return '';
   return record.unit || '';
 };
+
+const visibleClubRecords = computed(() =>
+  (clubData.value?.clubRecords || []).filter(
+    (r) => r.value != null && (r.holderName || r.holderUserId)
+  )
+);
 
 const loadPage = async () => {
   brandingLoading.value = true;

@@ -380,13 +380,13 @@
         <div
           id="club-records"
           class="pub-row"
-          v-if="clubData.clubRecords?.length || (Array.isArray(clubData.raceDivisions) ? clubData.raceDivisions.some(d => d.allTime?.length) : false)"
+          v-if="visibleClubRecords.length || (Array.isArray(clubData.raceDivisions) ? clubData.raceDivisions.some(d => d.allTime?.length) : false)"
         >
-          <div v-if="clubData.clubRecords?.length" class="pub-card pub-records-card">
+          <div v-if="visibleClubRecords.length" class="pub-card pub-records-card">
             <div class="card-label">🏅 Club Records</div>
             <div class="records-list">
               <div
-                v-for="record in clubData.clubRecords"
+                v-for="record in visibleClubRecords"
                 :key="record.id || record.label"
                 class="record-row"
               >
@@ -862,6 +862,13 @@ const displayRecordUnit = (record) => {
   if (String(record.unit || '').toLowerCase() === 'seconds') return '';
   return record.unit || '';
 };
+
+// Only show records that have a value AND a holder (hides auto-fill records with no qualifying data yet)
+const visibleClubRecords = computed(() =>
+  (clubData.value?.clubRecords || []).filter(
+    (r) => r.value != null && (r.holderName || r.holderUserId)
+  )
+);
 
 const decimalStatKeys = new Set(['total_miles', 'run_miles', 'ruck_miles']);
 const fmtPubStat = (stat) => {

@@ -383,6 +383,33 @@
                 </div>
               </div>
 
+              <!-- Auto-fill toggle -->
+              <div v-if="record.metricKey" class="cr-row">
+                <div class="cr-field">
+                  <label class="cr-autofill-label">
+                    <input type="checkbox" v-model="record.autoFill" class="cr-autofill-check" />
+                    <span class="cr-autofill-text">
+                      <strong>Auto-fill from workouts</strong>
+                      <span class="cr-autofill-hint"> — system automatically finds and updates the holder; record hides until someone qualifies</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Calendar month picker (for calendar_month_distance_miles) -->
+              <div v-if="record.metricKey === 'calendar_month_distance_miles'" class="cr-row">
+                <div class="cr-field">
+                  <label class="cr-field-label">Calendar month <span class="cr-required">*</span></label>
+                  <input
+                    v-model="record.calendarMonth"
+                    type="month"
+                    class="cr-input"
+                    placeholder="YYYY-MM"
+                  />
+                  <p class="cr-field-hint">e.g. 2025-05 for May 2025. The record tracks the best total miles logged in that exact month.</p>
+                </div>
+              </div>
+
               <!-- Lower-is-better + race distance -->
               <div v-if="recordLowerIsBetter(record.metricKey)" class="cr-row">
                 <div class="cr-filter-pill cr-filter-pill--speed">⚡ Lower is better — fastest time wins</div>
@@ -458,8 +485,19 @@
                 workouts only
               </div>
 
-              <!-- Record holder -->
-              <div class="cr-row">
+              <!-- Record holder (auto-fill or manual) -->
+              <div v-if="record.autoFill" class="cr-row">
+                <div class="cr-field">
+                  <div class="cr-autofill-status">
+                    <span v-if="record.holderName">
+                      Current holder: <strong>{{ record.holderName }}</strong>
+                      <template v-if="record.value != null"> — {{ record.value }} {{ recordUnitForMetric(record.metricKey) }}</template>
+                    </span>
+                    <span v-else class="cr-autofill-empty">No qualifying workouts yet — record will be hidden until someone qualifies.</span>
+                  </div>
+                </div>
+              </div>
+              <div v-else class="cr-row">
                 <div class="cr-field">
                   <label class="cr-field-label">Holder — link to member <span class="cr-optional">(connects to trophy case)</span></label>
                   <select
@@ -1395,31 +1433,41 @@ const verificationsLoading = ref(false);
 const recordMetricOptions = [
   // ── Individual records ──────────────────────────────────────────────────
   { group: 'Individual',
-    value: 'distance_miles',                label: 'Longest Single Run/Workout (miles)',     unit: 'miles',   lowerIsBetter: false },
+    value: 'distance_miles',                  label: 'Longest Single Run/Workout (miles)',        unit: 'miles',   lowerIsBetter: false },
   { group: 'Individual',
-    value: 'weekly_distance_miles',         label: 'Most Miles by One Person in a Week',    unit: 'miles',   lowerIsBetter: false },
+    value: 'elevation_gain_meters',           label: 'Most Elevation Gain in a Single Run (m)',   unit: 'meters',  lowerIsBetter: false },
   { group: 'Individual',
-    value: 'monthly_distance_miles',        label: 'Most Miles by One Person in a Month',   unit: 'miles',   lowerIsBetter: false },
+    value: 'weekly_distance_miles',           label: 'Most Miles by One Person in a Week',        unit: 'miles',   lowerIsBetter: false },
   { group: 'Individual',
-    value: 'duration_minutes',              label: 'Longest Single Workout (minutes)',       unit: 'minutes', lowerIsBetter: false },
+    value: 'monthly_distance_miles',          label: 'Most Miles by One Person in a Month',       unit: 'miles',   lowerIsBetter: false },
   { group: 'Individual',
-    value: 'season_distance_miles',         label: 'Most Miles by One Person (full season)', unit: 'miles',   lowerIsBetter: false },
+    value: 'season_month1_distance_miles',    label: 'Most Miles — Month 1 (first 4 weeks)',      unit: 'miles',   lowerIsBetter: false },
   { group: 'Individual',
-    value: 'points',                        label: 'Most Points in One Workout',             unit: 'points',  lowerIsBetter: false },
+    value: 'season_month2_distance_miles',    label: 'Most Miles — Month 2 (weeks 5–8)',          unit: 'miles',   lowerIsBetter: false },
   { group: 'Individual',
-    value: 'race_chip_time_seconds',        label: 'Fastest Race Time (chip seconds)',       unit: 'seconds', lowerIsBetter: true  },
+    value: 'rolling_4week_distance_miles',    label: 'Most Miles in Any 4-Week Stretch',          unit: 'miles',   lowerIsBetter: false },
+  { group: 'Individual',
+    value: 'calendar_month_distance_miles',   label: 'Most Miles in a Calendar Month (e.g. May)', unit: 'miles',   lowerIsBetter: false },
+  { group: 'Individual',
+    value: 'duration_minutes',                label: 'Longest Single Workout (minutes)',           unit: 'minutes', lowerIsBetter: false },
+  { group: 'Individual',
+    value: 'season_distance_miles',           label: 'Most Miles by One Person (full season)',    unit: 'miles',   lowerIsBetter: false },
+  { group: 'Individual',
+    value: 'points',                          label: 'Most Points in One Workout',                unit: 'points',  lowerIsBetter: false },
+  { group: 'Individual',
+    value: 'race_chip_time_seconds',          label: 'Fastest Race Time (chip seconds)',          unit: 'seconds', lowerIsBetter: true  },
   // ── Team records ────────────────────────────────────────────────────────
   { group: 'Team',
-    value: 'team_weekly_distance_miles',    label: 'Most Team Miles in a Single Week',      unit: 'miles',   lowerIsBetter: false },
+    value: 'team_weekly_distance_miles',      label: 'Most Team Miles in a Single Week',         unit: 'miles',   lowerIsBetter: false },
   { group: 'Team',
-    value: 'team_monthly_distance_miles',   label: 'Most Team Miles in a Single Month',     unit: 'miles',   lowerIsBetter: false },
+    value: 'team_monthly_distance_miles',     label: 'Most Team Miles in a Single Month',        unit: 'miles',   lowerIsBetter: false },
   { group: 'Team',
-    value: 'team_season_distance_miles',    label: 'Most Team Miles in a Season',           unit: 'miles',   lowerIsBetter: false },
+    value: 'team_season_distance_miles',      label: 'Most Team Miles in a Season',              unit: 'miles',   lowerIsBetter: false },
   // ── Club-wide records ───────────────────────────────────────────────────
   { group: 'Club',
-    value: 'club_season_distance_miles',    label: 'Total Club Miles (all teams, season)',  unit: 'miles',   lowerIsBetter: false },
+    value: 'club_season_distance_miles',      label: 'Total Club Miles (all teams, season)',     unit: 'miles',   lowerIsBetter: false },
   { group: 'Club',
-    value: 'season_duration_minutes',       label: 'Total Club Duration — All Runs (min)',  unit: 'minutes', lowerIsBetter: false },
+    value: 'season_duration_minutes',         label: 'Total Club Duration — All Runs (min)',     unit: 'minutes', lowerIsBetter: false },
 ];
 
 const form = ref({
@@ -2070,6 +2118,8 @@ const loadClubRecords = async () => {
         holderYear: r.holderYear ?? null,
         holderTeam: r.holderTeam || '',
         holderUserId: r.holderUserId != null ? Number(r.holderUserId) : null,
+        autoFill: r.autoFill === true,
+        calendarMonth: r.calendarMonth || '',
         iconId: r.iconId != null ? Number(r.iconId) : null,
         _open: false
       }))
@@ -2112,6 +2162,8 @@ const addRecord = () => {
     holderYear: null,
     holderTeam: '',
     holderUserId: null,
+    autoFill: false,
+    calendarMonth: '',
     iconId: null,
     _open: true  // new records open immediately
   });
@@ -2142,6 +2194,8 @@ const saveRecords = async () => {
         holderYear: Number.isFinite(Number(r.holderYear)) ? Math.trunc(Number(r.holderYear)) : null,
         holderTeam: String(r.holderTeam || '').trim(),
         holderUserId: Number.isFinite(Number(r.holderUserId)) && r.holderUserId ? Math.trunc(Number(r.holderUserId)) : null,
+        autoFill: r.autoFill === true,
+        calendarMonth: r.metricKey === 'calendar_month_distance_miles' ? (String(r.calendarMonth || '').trim() || null) : null,
         iconId: Number.isFinite(Number(r.iconId)) ? Math.trunc(Number(r.iconId)) : null
       }))
     };
@@ -3470,6 +3524,49 @@ const unlockRdConfig = async () => {
   color: #b45309;
   background: #fffbeb;
   border-color: #fde68a;
+}
+
+/* Auto-fill toggle */
+.cr-autofill-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+.cr-autofill-check {
+  margin-top: 2px;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+.cr-autofill-text {
+  font-size: 13px;
+  line-height: 1.4;
+  color: #334155;
+}
+.cr-autofill-hint {
+  color: #64748b;
+}
+.cr-autofill-status {
+  font-size: 13px;
+  color: #334155;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+.cr-autofill-empty {
+  color: #64748b;
+}
+.cr-field-hint {
+  font-size: 11px;
+  color: #64748b;
+  margin: 4px 0 0;
+}
+.cr-required {
+  color: #dc2626;
+  font-weight: 700;
 }
 
 /* Pending verifications */
