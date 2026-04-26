@@ -133,7 +133,13 @@
             >
               <span class="swtd-member-name">
                 <span v-if="m.eliminated" class="swtd-skull" title="Eliminated">☠</span>
-                {{ m.firstName }} {{ m.lastName }}
+                <button
+                  v-if="clubId && m.userId"
+                  type="button"
+                  class="swtd-member-name-btn"
+                  @click="openMemberProfile(m)"
+                >{{ m.firstName }} {{ m.lastName }}</button>
+                <template v-else>{{ m.firstName }} {{ m.lastName }}</template>
               </span>
               <span class="swtd-member-bar-wrap">
                 <span class="swtd-member-bar" :style="progressStyle(m)" />
@@ -157,6 +163,13 @@
       </article>
       <p v-if="!teams.length" class="swtd-empty">No teams yet for this season.</p>
     </div>
+
+    <MemberProfileModal
+      :club-id="clubId"
+      :user-id="selectedUserId"
+      :member-name="selectedName"
+      @close="selectedUserId = null"
+    />
   </section>
 </template>
 
@@ -165,6 +178,7 @@ import { ref, computed, watch } from 'vue';
 import api from '../../services/api';
 import { getWeekStartDate, getWeekDateTimeRange, firstCompetitionWeekDate } from '../../utils/challengeWeekUtils.js';
 import { toUploadsUrl } from '../../utils/uploadsUrl.js';
+import MemberProfileModal from '../shared/MemberProfileModal.vue';
 
 const resolveLogoUrl = (path) => {
   if (!path) return null;
@@ -178,11 +192,19 @@ const props = defineProps({
   seasonEndsAt: { type: [String, Date], default: null },
   weekCutoffTime: { type: String, default: '00:00' },
   weekTimeZone: { type: String, default: 'UTC' },
-  /** When the parent reloads the class (e.g. after saving season settings), this changes and we refetch targets. */
-  challengeUpdatedAt: { type: [String, Number], default: null }
+  challengeUpdatedAt: { type: [String, Number], default: null },
+  clubId: { type: [Number, String], default: null }
 });
 
 const emit = defineEmits(['week-boundary']);
+
+const selectedUserId = ref(null);
+const selectedName = ref('');
+const openMemberProfile = (m) => {
+  if (!props.clubId || !m.userId) return;
+  selectedUserId.value = Number(m.userId);
+  selectedName.value = [m.firstName, m.lastName].filter(Boolean).join(' ') || 'Member';
+};
 
 const loading = ref(false);
 const teams = ref([]);
@@ -673,6 +695,23 @@ const teamBarStyle = (miles, required) => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.swtd-member-name-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: inherit;
+  font-weight: inherit;
+  color: #1d4ed8;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.swtd-member-name-btn:hover { color: #1e40af; text-decoration-style: solid; }
 .swtd-member-bar-wrap {
   flex: 1 1 0;
   height: 4px;

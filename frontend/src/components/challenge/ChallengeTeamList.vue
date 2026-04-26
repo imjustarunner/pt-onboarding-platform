@@ -25,7 +25,13 @@
           <div v-else-if="membersError[Number(t.id)]" class="empty-hint">{{ membersError[Number(t.id)] }}</div>
           <ul v-else-if="teamMembers[Number(t.id)]?.length" class="team-member-list">
             <li v-for="m in teamMembers[Number(t.id)]" :key="m.provider_user_id" class="team-member-row">
-              <span>{{ memberName(m) }}</span>
+              <button
+                v-if="clubId && m.provider_user_id"
+                type="button"
+                class="member-name-btn"
+                @click="openProfile(m)"
+              >{{ memberName(m) }}</button>
+              <span v-else>{{ memberName(m) }}</span>
               <span v-if="m.is_team_captain" class="captain-pill">Captain</span>
             </li>
           </ul>
@@ -34,26 +40,42 @@
       </div>
       <div v-if="!teams.length" class="empty-hint">No teams yet. Contact your Program Manager to add teams.</div>
     </div>
+
+    <MemberProfileModal
+      :club-id="clubId"
+      :user-id="selectedUserId"
+      :member-name="selectedName"
+      @close="selectedUserId = null"
+    />
   </section>
 </template>
 
 <script setup>
 import { ref } from 'vue';
 import api from '../../services/api';
+import MemberProfileModal from '../shared/MemberProfileModal.vue';
 
 const props = defineProps({
   teams: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
   challengeId: { type: [Number, String], default: null },
-  organizationSlug: { type: String, default: '' }
+  organizationSlug: { type: String, default: '' },
+  clubId: { type: [Number, String], default: null }
 });
 
 const expandedTeamIds = ref(new Set());
 const teamMembers = ref({});
 const membersLoading = ref({});
 const membersError = ref({});
+const selectedUserId = ref(null);
+const selectedName = ref('');
 
 const memberName = (member) => `${member?.first_name || ''} ${member?.last_name || ''}`.trim() || member?.email || 'Member';
+
+const openProfile = (m) => {
+  selectedUserId.value = Number(m.provider_user_id);
+  selectedName.value = memberName(m);
+};
 
 const loadMembers = async (teamId) => {
   const id = Number(teamId);
@@ -171,6 +193,20 @@ const toggleTeam = async (teamId) => {
   font-size: 0.75em;
   font-weight: 800;
 }
+.member-name-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: inherit;
+  color: #1d4ed8;
+  font-weight: 500;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+.member-name-btn:hover { color: #1e40af; text-decoration-style: solid; }
 .empty-hint,
 .loading-inline {
   padding: 12px;

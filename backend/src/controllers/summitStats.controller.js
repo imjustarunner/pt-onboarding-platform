@@ -1914,8 +1914,24 @@ const getMemberTrophyCaseData = async ({ clubId, userId }) => {
     } catch { /* non-fatal */ }
   }
 
+  // Fetch user's name for fallback matching when holderUserId isn't set
+  let userFullName = '';
+  try {
+    const [uRows] = await pool.execute(
+      `SELECT first_name, last_name FROM users WHERE id = ? LIMIT 1`, [userId]
+    );
+    userFullName = [uRows?.[0]?.first_name, uRows?.[0]?.last_name].filter(Boolean).join(' ').trim().toLowerCase();
+  } catch { /* non-fatal */ }
+
   const recordsHeld = allRecords
-    .filter((r) => r.holderUserId && Number(r.holderUserId) === Number(userId))
+    .filter((r) => {
+      if (r.holderUserId && Number(r.holderUserId) === Number(userId)) return true;
+      // Fallback: match by holderName when the record was not yet linked to a user
+      if (!r.holderUserId && r.holderName && userFullName) {
+        return String(r.holderName).trim().toLowerCase() === userFullName;
+      }
+      return false;
+    })
     .map((r) => ({ ...r, iconUrl: r.iconId ? (iconUrlById.get(r.iconId) || null) : null }));
 
   // 3. Personal Records — mirror the club record metrics, computed for this user

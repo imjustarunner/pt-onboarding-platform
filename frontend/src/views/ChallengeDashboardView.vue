@@ -539,6 +539,7 @@
               :week-cutoff-time="challengeWeekSchedule.cutoff"
               :week-time-zone="challengeWeekSchedule.tz"
               :challenge-updated-at="challenge?.updated_at || challenge?.updatedAt || null"
+              :club-id="challenge?.organization_id || null"
               @week-boundary="onTeamProgressWeekBoundary"
             />
           </div>
@@ -932,6 +933,7 @@
               :loading="teamsLoading"
               :challenge-id="challengeId"
               :organization-slug="organizationSlug"
+              :club-id="challenge?.organization_id || null"
             />
           </div>
         </DashboardSectionWrapper>
