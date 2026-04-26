@@ -2183,6 +2183,8 @@ const loadRaceClubs = async () => {
         }))
       : [];
   } catch { raceClubs.value = []; }
+  // Load member counts eagerly so the summary is immediately visible
+  await loadRaceClubsMembers();
 };
 
 const saveRaceClubs = async () => {
@@ -2238,6 +2240,7 @@ const loadRaceClubsMembers = async () => {
 const toggleMembersPanel = async (ci) => {
   const club = raceClubs.value[ci];
   club._membersOpen = !club._membersOpen;
+  // Reload on open if not yet loaded (eager load in loadRaceClubs handles the normal case)
   if (club._membersOpen && !allClubMembers.value.length) {
     await loadRaceClubsMembers();
   }

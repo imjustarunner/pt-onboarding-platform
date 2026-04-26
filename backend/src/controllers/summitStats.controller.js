@@ -1650,20 +1650,30 @@ export const getRaceClubsAdminMembers = async (req, res, next) => {
     );
     const configs = normalizeRaceClubsConfig(parseRaceClubsConfig(cfgRows?.[0]?.race_clubs_config_json));
 
-    // All active members across all seasons for this club (distinct users)
+    // All active members across all seasons for this club (distinct users),
+    // plus any users directly assigned to the club agency (catches recently-created placeholders
+    // who may not yet have a season enrollment).
     const [memberRows] = await pool.execute(
       `SELECT DISTINCT
          u.id AS userId,
          u.first_name, u.last_name, u.contributor_alias,
          COALESCE(u.is_roster_placeholder, 0) AS is_placeholder,
          u.roster_placeholder_claim_email AS claim_email
-       FROM learning_class_provider_memberships pm
-       INNER JOIN learning_program_classes c ON c.id = pm.learning_class_id
-       INNER JOIN users u ON u.id = pm.provider_user_id
-       WHERE c.organization_id = ?
-         AND pm.membership_status IN ('active','completed')
+       FROM users u
+       WHERE u.id IN (
+         SELECT pm.provider_user_id
+         FROM learning_class_provider_memberships pm
+         INNER JOIN learning_program_classes c ON c.id = pm.learning_class_id
+         WHERE c.organization_id = ?
+           AND pm.membership_status IN ('active','completed')
+         UNION
+         SELECT ua.user_id
+         FROM user_agencies ua
+         WHERE ua.agency_id = ?
+           AND ua.is_active = 1
+       )
        ORDER BY u.last_name ASC, u.first_name ASC`,
-      [clubId]
+      [clubId, clubId]
     );
     const members = (memberRows || []).map((u) => {
       const alias = String(u.contributor_alias || '').trim();
