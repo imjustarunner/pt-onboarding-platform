@@ -85,6 +85,14 @@ import {
   updateStoreConfig
 } from '../controllers/challengeRecognitionLibrary.controller.js';
 import {
+  getManagerPendingWeeks,
+  snoozeWeekTrophies,
+  postWeekTrophies,
+  getRecognitionStandings,
+  getPendingRecognitionSplash,
+  dismissRecognitionSplash
+} from '../controllers/seasonRecognitionStandings.controller.js';
+import {
   listTaskTemplates,
   createTaskTemplate,
   updateTaskTemplate,
@@ -173,6 +181,17 @@ router.get('/clubs/:id/my-trophy-case', getMyTrophyCase);
 
 router.get('/me/dashboard', getMyDashboardSummary);
 router.get('/me/awards', getMyAwards);
+
+// ─── Season Recognition standings + manager trophy-posting ─────────────────
+// Public standings (no auth required for standings view)
+router.get('/seasons/:id/recognition/standings', getRecognitionStandings);
+// Manager-only
+router.get('/seasons/:id/recognition/manager-pending', getManagerPendingWeeks);
+router.post('/seasons/:id/recognition/snooze-week', snoozeWeekTrophies);
+router.post('/seasons/:id/recognition/post-week', postWeekTrophies);
+// Member splash (auth already enforced by authenticate middleware above)
+router.get('/seasons/:id/recognition/splash', getPendingRecognitionSplash);
+router.post('/seasons/:id/recognition/splash/dismiss', dismissRecognitionSplash);
 router.put('/me/account-snapshot', putMyAccountSnapshot);
 router.post('/me/leave-club', leaveSummitClubMembership);
 router.get('/me/data-export', exportMySummitChallengeData);

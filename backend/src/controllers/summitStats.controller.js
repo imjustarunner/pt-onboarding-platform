@@ -2112,8 +2112,39 @@ const getMemberTrophyCaseData = async ({ clubId, userId }) => {
     } catch { /* skip this metric on error */ }
   }
 
-  // 4. Season awards placeholder — extendable in the future
-  const seasonAwards = [];
+  // 4. Season recognition awards from the grant ledger — grouped by award type
+  let seasonAwards = [];
+  try {
+    const { getMemberRecognitionSummary } = await import('./seasonRecognitionStandings.controller.js');
+    // Fetch all seasons this club has run
+    const [seasonRows] = await pool.execute(
+      `SELECT id FROM learning_program_classes WHERE organization_id = ? AND status != 'draft'`,
+      [clubId]
+    );
+    const seasonIds = (seasonRows || []).map(r => Number(r.id));
+    for (const sid of seasonIds) {
+      const awards = await getMemberRecognitionSummary({ classId: sid, userId });
+      seasonAwards.push(...awards);
+    }
+    // Collapse duplicate category_ids across seasons (same award won in multiple seasons)
+    const awardMap = new Map();
+    for (const a of seasonAwards) {
+      const key = a.categoryId;
+      if (!awardMap.has(key)) {
+        awardMap.set(key, { ...a });
+      } else {
+        const existing = awardMap.get(key);
+        existing.count += a.count;
+        existing.weekNumbers.push(...a.weekNumbers);
+        existing.grants.push(...a.grants);
+      }
+    }
+    seasonAwards = [...awardMap.values()];
+  } catch (e) {
+    // Non-fatal — trophy case still works without recognition awards
+    console.warn('[getMemberTrophyCaseData] failed to load season awards:', e?.message);
+    seasonAwards = [];
+  }
 
   return { raceClubs, recordsHeld, personalRecords, seasonAwards };
 };

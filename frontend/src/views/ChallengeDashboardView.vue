@@ -32,6 +32,19 @@
           </div>
         </div>
       </div>
+      <!-- Manager trophy-posting prompt (per-login, dismissible) -->
+      <RecognitionWeekPrompt
+        v-if="challenge?.id && isChallengeManager"
+        :season-id="challenge.id"
+        @posted="standingsKey++"
+      />
+
+      <!-- Member recognition splash (first time seeing each week's awards) -->
+      <SeasonRecognitionSplash
+        v-if="challenge?.id"
+        :season-id="challenge.id"
+      />
+
       <!-- Season announcement banner (collapsible, manager-editable) -->
       <div
         v-if="challenge.season_announcement_text && !seasonBannerDismissed"
@@ -544,6 +557,15 @@
             />
           </div>
         </DashboardSectionWrapper>
+
+        <!-- Season Recognition Standings -->
+        <div v-if="challenge?.id" class="challenge-section" style="padding: 0 0 4px;">
+          <SeasonRecognitionStandings
+            :key="standingsKey"
+            :season-id="challenge.id"
+            @open-profile="({ userId, name }) => { profileUserId = userId; profileUserName = name; }"
+          />
+        </div>
 
         <DashboardSectionWrapper
           :id="'summary'"
@@ -1564,6 +1586,9 @@ import ChallengeMessageFeed from '../components/challenge/ChallengeMessageFeed.v
 import ChallengeDraftReport from '../components/challenge/ChallengeDraftReport.vue';
 import ChallengeParticipationAgreementModal from '../components/challenge/ChallengeParticipationAgreementModal.vue';
 import DashboardSectionWrapper from '../components/dashboard/DashboardSectionWrapper.vue';
+import RecognitionWeekPrompt from '../components/sstc/RecognitionWeekPrompt.vue';
+import SeasonRecognitionStandings from '../components/sstc/SeasonRecognitionStandings.vue';
+import SeasonRecognitionSplash from '../components/sstc/SeasonRecognitionSplash.vue';
 import { useDashboardLayout } from '../composables/useDashboardLayout';
 
 const REORDERABLE_SECTIONS = [
@@ -1608,6 +1633,7 @@ const resetLayoutOrder = () => dashboardLayout.resetOrder();
 const challenge = ref(null);
 const providerMembers = ref([]);
 const seasonBannerDismissed = ref(false);
+const standingsKey = ref(0); // incremented after manager posts trophies to refresh standings
 const loading = ref(true);
 const error = ref(null);
 const leaderboard = ref(null);

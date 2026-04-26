@@ -271,6 +271,13 @@
                 {{ formatDate(clubData.currentSeason.endsAt) }}
               </span>
             </div>
+            <!-- Recognition standings below the season card -->
+            <div v-if="clubData.currentSeason.id" class="pub-season-recognition">
+              <SeasonRecognitionStandings
+                :season-id="clubData.currentSeason.id"
+                :compact="true"
+              />
+            </div>
           </div>
 
           <div
@@ -525,6 +532,7 @@ import { useAgencyStore } from '../store/agency';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import ClubFeedPanel from '../components/sstc/ClubFeedPanel.vue';
 import MemberProfileModal from '../components/shared/MemberProfileModal.vue';
+import SeasonRecognitionStandings from '../components/sstc/SeasonRecognitionStandings.vue';
 
 const route  = useRoute();
 const router = useRouter();
@@ -1481,6 +1489,7 @@ onBeforeUnmount(() => {
 
 /* ─── Season card ─────────────────────────────────────────────── */
 .pub-season-card {}
+.pub-season-recognition { margin-top: 14px; }
 .pub-season-card--upcoming {
   background: linear-gradient(180deg, #fff7ed 0%, #ffffff 100%);
   border-color: #fdba74;

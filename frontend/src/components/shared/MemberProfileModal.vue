@@ -67,6 +67,26 @@
           <div v-if="hasTrophies" class="mpm-section mpm-trophy-section">
             <h3 class="mpm-h">🏆 Trophy Case</h3>
 
+            <!-- Season Recognition Awards (weekly award badges) -->
+            <div v-if="trophy.seasonAwards?.length" class="mpm-awards-section">
+              <div class="mpm-records-label">Recognition Awards</div>
+              <div class="mpm-awards-grid">
+                <div
+                  v-for="a in trophy.seasonAwards"
+                  :key="a.categoryId"
+                  class="mpm-award-badge"
+                  :title="awardTooltip(a)"
+                >
+                  <div class="mpm-award-icon-wrap">
+                    <img v-if="a.iconUrl" :src="a.iconUrl" class="mpm-award-icon" alt="" />
+                    <span v-else class="mpm-award-emoji">{{ emojiFor(a.icon) }}</span>
+                    <span v-if="a.count > 1" class="mpm-award-count">{{ a.count }}</span>
+                  </div>
+                  <div class="mpm-award-label">{{ a.label }}</div>
+                </div>
+              </div>
+            </div>
+
             <!-- Race Club Badges -->
             <div v-if="trophy.raceClubs?.length" class="mpm-badges">
               <div
@@ -184,8 +204,20 @@ const fmtPr = (r) => {
 };
 
 const hasTrophies = computed(() =>
-  !!(trophy.value?.raceClubs?.length || trophy.value?.recordsHeld?.length || trophy.value?.personalRecords?.length)
+  !!(trophy.value?.raceClubs?.length || trophy.value?.recordsHeld?.length ||
+     trophy.value?.personalRecords?.length || trophy.value?.seasonAwards?.length)
 );
+
+const emojiFor = (icon) => {
+  if (!icon || String(icon).startsWith('icon:')) return '🏅';
+  return icon;
+};
+
+const awardTooltip = (a) => {
+  const weeks = (a.weekNumbers || []).filter(Boolean);
+  const weekStr = weeks.length ? `Won: Week ${weeks.join(', Week ')}` : '';
+  return [a.label, weekStr].filter(Boolean).join('\n');
+};
 
 const extraRecordsHeld = computed(() => {
   if (!trophy.value?.recordsHeld?.length) return [];
@@ -388,4 +420,66 @@ watch(() => props.userId, (uid) => { if (uid) load(); else { profile.value = nul
 }
 .mpm-cr-badge-icon { width: 38px; height: 38px; object-fit: contain; border-radius: 6px; }
 .mpm-cr-badge-trophy { font-size: 28px; line-height: 1; }
+
+/* Season Recognition Award badges */
+.mpm-awards-section { margin-bottom: 10px; }
+.mpm-awards-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+.mpm-award-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 64px;
+  cursor: default;
+}
+.mpm-award-icon-wrap {
+  position: relative;
+  width: 50px;
+  height: 50px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.mpm-award-badge:hover .mpm-award-icon-wrap {
+  border-color: #a5b4fc;
+  box-shadow: 0 2px 8px rgba(99,102,241,0.2);
+}
+.mpm-award-icon { width: 36px; height: 36px; object-fit: contain; border-radius: 6px; }
+.mpm-award-emoji { font-size: 26px; line-height: 1; }
+.mpm-award-count {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  background: #4338ca;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #fff;
+}
+.mpm-award-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #475569;
+  text-align: center;
+  line-height: 1.2;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
 </style>

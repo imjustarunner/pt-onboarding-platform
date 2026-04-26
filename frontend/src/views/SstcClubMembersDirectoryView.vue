@@ -196,6 +196,26 @@
             <div v-if="hasTrophies" class="member-modal-section member-trophy-section">
               <h3 class="member-modal-h">🏆 Trophy Case</h3>
 
+              <!-- Season Recognition Awards -->
+              <div v-if="trophyCase.seasonAwards?.length" class="dir-awards-section">
+                <div class="trophy-records-label">Recognition Awards</div>
+                <div class="dir-awards-grid">
+                  <div
+                    v-for="a in trophyCase.seasonAwards"
+                    :key="a.categoryId"
+                    class="dir-award-badge"
+                    :title="dirAwardTooltip(a)"
+                  >
+                    <div class="dir-award-icon-wrap">
+                      <img v-if="a.iconUrl" :src="a.iconUrl" class="dir-award-icon" alt="" />
+                      <span v-else class="dir-award-emoji">{{ dirEmojiFor(a.icon) }}</span>
+                      <span v-if="a.count > 1" class="dir-award-count">{{ a.count }}</span>
+                    </div>
+                    <div class="dir-award-label">{{ a.label }}</div>
+                  </div>
+                </div>
+              </div>
+
               <!-- Race Club Badges -->
               <div v-if="trophyCase.raceClubs?.length" class="trophy-badges">
                 <div
@@ -509,8 +529,20 @@ const hasTrophies = computed(() => {
   if (!trophyCase.value) return false;
   return (trophyCase.value.raceClubs?.length > 0)
     || (trophyCase.value.recordsHeld?.length > 0)
-    || (trophyCase.value.personalRecords?.length > 0);
+    || (trophyCase.value.personalRecords?.length > 0)
+    || (trophyCase.value.seasonAwards?.length > 0);
 });
+
+const dirEmojiFor = (icon) => {
+  if (!icon || String(icon).startsWith('icon:')) return '🏅';
+  return icon;
+};
+
+const dirAwardTooltip = (a) => {
+  const weeks = (a.weekNumbers || []).filter(Boolean);
+  const weekStr = weeks.length ? `Won: Week ${weeks.join(', Week ')}` : '';
+  return [a.label, weekStr].filter(Boolean).join('\n');
+};
 
 const formatPrValue = (r) => {
   if (r.metricKey === 'race_chip_time_seconds' && r.value != null) {
@@ -1208,6 +1240,32 @@ onMounted(async () => {
   color: #94a3b8;
   flex-shrink: 0;
 }
+
+/* Season Recognition Award badges */
+.dir-awards-section { margin-bottom: 10px; }
+.dir-awards-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+.dir-award-badge { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 64px; cursor: default; }
+.dir-award-icon-wrap {
+  position: relative;
+  width: 50px; height: 50px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  display: flex; align-items: center; justify-content: center;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.dir-award-badge:hover .dir-award-icon-wrap { border-color: #a5b4fc; box-shadow: 0 2px 8px rgba(99,102,241,0.2); }
+.dir-award-icon { width: 36px; height: 36px; object-fit: contain; border-radius: 6px; }
+.dir-award-emoji { font-size: 26px; line-height: 1; }
+.dir-award-count {
+  position: absolute; bottom: -4px; right: -4px;
+  background: #4338ca; color: #fff;
+  font-size: 10px; font-weight: 800;
+  width: 18px; height: 18px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid #fff;
+}
+.dir-award-label { font-size: 10px; font-weight: 600; color: #475569; text-align: center; line-height: 1.2; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 
 /* Club Records icon badge grid */
 .trophy-cr-section { margin-top: 10px; }
