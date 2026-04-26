@@ -280,7 +280,7 @@
           >
             <div class="card-label">Active Participants</div>
             <p class="pub-participants-hint">
-              Public preview — first name and last initial only. This page does not open the full member directory.
+              Public preview — {{ rosterNameFormat === 'initial_last' ? 'initial and last name' : 'first name and last initial' }} only. This page does not open the full member directory.
             </p>
             <div class="participant-chips">
               <span
@@ -289,7 +289,7 @@
                 class="participant-chip"
                 :title="p.teamName || ''"
               >
-                {{ p.displayName }}
+                {{ formatParticipantName(p) }}
               </span>
               <span v-if="clubData.activeParticipants.length > 36" class="participant-chip participant-chip--more">
                 +{{ clubData.activeParticipants.length - 36 }} more
@@ -325,25 +325,55 @@
         </div>
 
         <!-- Photo album -->
-        <div v-if="showPhotoAlbumBlock && clubData.albumSlides?.length" class="pub-card pub-album-card">
-          <div class="card-label">📸 Club Album</div>
-          <div class="album-shell">
-            <button class="album-nav" @click="prevSlide" aria-label="Previous">‹</button>
-            <div class="album-frame">
-              <img :src="toUploadsUrl(currentAlbumSlide.imageUrl) || currentAlbumSlide.imageUrl" class="album-image" alt="Club photo" />
-              <div v-if="currentAlbumSlide.caption" class="album-caption">{{ currentAlbumSlide.caption }}</div>
+        <div v-if="showPhotoAlbumBlock && (clubData.albumSlides?.length || isManagerOrCaptain)" class="pub-card pub-album-card">
+          <div class="album-card-head">
+            <div class="card-label">📸 Club Album</div>
+            <div v-if="isManagerOrCaptain" class="album-mgr-actions">
+              <input
+                ref="albumUploadRef"
+                type="file"
+                accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                multiple
+                class="visually-hidden-file"
+                @change="onAlbumUpload"
+              />
+              <button
+                type="button"
+                class="album-mgr-btn"
+                :disabled="albumUploading || albumSaving"
+                @click="albumUploadRef?.click()"
+              >{{ albumUploading ? 'Uploading…' : '+ Add Photos' }}</button>
+              <button
+                v-if="clubData.albumSlides?.length"
+                type="button"
+                class="album-mgr-btn album-mgr-btn--remove"
+                :disabled="albumSaving"
+                @click="removeAlbumSlide(albumSlideIndex)"
+              >✕ Remove</button>
             </div>
-            <button class="album-nav" @click="nextSlide" aria-label="Next">›</button>
           </div>
-          <div class="album-dots">
-            <button
-              v-for="(_, idx) in clubData.albumSlides"
-              :key="`dot-${idx}`"
-              class="album-dot"
-              :class="{ active: idx === albumSlideIndex }"
-              @click="albumSlideIndex = idx"
-            />
+          <div v-if="!clubData.albumSlides?.length" class="album-empty-hint">
+            No photos yet. Upload your first club photo using the button above.
           </div>
+          <template v-else>
+            <div class="album-shell">
+              <button class="album-nav" @click="prevSlide" aria-label="Previous">‹</button>
+              <div class="album-frame">
+                <img :src="toUploadsUrl(currentAlbumSlide.imageUrl) || currentAlbumSlide.imageUrl" class="album-image" alt="Club photo" />
+                <div v-if="currentAlbumSlide.caption" class="album-caption">{{ currentAlbumSlide.caption }}</div>
+              </div>
+              <button class="album-nav" @click="nextSlide" aria-label="Next">›</button>
+            </div>
+            <div class="album-dots">
+              <button
+                v-for="(_, idx) in clubData.albumSlides"
+                :key="`dot-${idx}`"
+                class="album-dot"
+                :class="{ active: idx === albumSlideIndex }"
+                @click="albumSlideIndex = idx"
+              />
+            </div>
+          </template>
         </div>
 
         <!-- Club Records + Race Divisions side by side -->
@@ -492,6 +522,9 @@ const clubData = ref(null);
 const configuredStats = ref([]);
 const raceClubs = ref([]);
 const albumSlideIndex = ref(0);
+const albumUploading = ref(false);
+const albumSaving = ref(false);
+const albumUploadRef = ref(null);
 const joinBusy = ref(false);
 const myApplications = ref([]);
 const contactingManager = ref(false);
@@ -776,6 +809,18 @@ const heroStyle = computed(() => {
 });
 const showCurrentSeasonBlock = computed(() => publicPageConfig.value?.showCurrentSeason !== false);
 const showActiveParticipantsBlock = computed(() => publicPageConfig.value?.showActiveParticipants !== false);
+const rosterNameFormat = computed(() => publicPageConfig.value?.rosterNameFormat || 'full');
+
+const formatParticipantName = (p) => {
+  const raw = String(p?.displayName || '').trim();
+  if (rosterNameFormat.value === 'initial_last') {
+    // raw is already "First L." format from backend; convert to "F. LastName" if we have parts
+    const fn = String(p?.firstName || '').trim();
+    const ln = String(p?.lastName || '').trim();
+    if (fn && ln) return `${fn.charAt(0).toUpperCase()}. ${ln}`;
+  }
+  return raw || 'Member';
+};
 
 const goMembersGuest = () => {
   router.push(membersDirectoryTo.value);
@@ -834,6 +879,64 @@ const startAlbumAutoplay = () => {
   const slides = Array.isArray(clubData.value?.albumSlides) ? clubData.value.albumSlides : [];
   if (slides.length < 2) return;
   albumAutoplayTimer = setInterval(() => nextSlide(), 4500);
+};
+
+const isManagerOrCaptain = computed(() => {
+  if (!viewer.value.isAuthenticated) return false;
+  if (viewer.value.isManager) return true;
+  const role = String(viewer.value.clubRole || '').toLowerCase();
+  return role === 'captain';
+});
+
+const saveAlbumSlides = async (slides) => {
+  const clubId = clubData.value?.club?.id;
+  if (!clubId) return;
+  albumSaving.value = true;
+  try {
+    const config = { ...(clubData.value?.club?.publicPageConfig || {}), albumSlides: slides };
+    await api.put(`/summit-stats/clubs/${clubId}/public-page-config`, config);
+    if (clubData.value) {
+      clubData.value = { ...clubData.value, albumSlides: slides };
+    }
+    albumSlideIndex.value = Math.min(albumSlideIndex.value, Math.max(0, slides.length - 1));
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to save album');
+  } finally {
+    albumSaving.value = false;
+  }
+};
+
+const removeAlbumSlide = async (idx) => {
+  const slides = [...(clubData.value?.albumSlides || [])];
+  slides.splice(idx, 1);
+  await saveAlbumSlides(slides);
+};
+
+const onAlbumUpload = async (event) => {
+  const files = Array.from(event?.target?.files || []);
+  if (!files.length) return;
+  albumUploading.value = true;
+  try {
+    const uploaded = [];
+    for (const file of files) {
+      const fd = new FormData();
+      fd.append('logo', file);
+      const { data } = await api.post('/logos/upload', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      if (data?.path) uploaded.push({ imageUrl: data.path, caption: '' });
+      else if (data?.url) uploaded.push({ imageUrl: data.url, caption: '' });
+    }
+    if (uploaded.length) {
+      const current = Array.isArray(clubData.value?.albumSlides) ? clubData.value.albumSlides : [];
+      await saveAlbumSlides([...current, ...uploaded].slice(0, 20));
+    }
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || e?.message || 'Upload failed');
+  } finally {
+    albumUploading.value = false;
+    if (albumUploadRef.value) albumUploadRef.value.value = '';
+  }
 };
 
 onMounted(async () => {
@@ -1454,6 +1557,50 @@ onBeforeUnmount(() => {
 
 /* ─── Album card ──────────────────────────────────────────────── */
 .pub-album-card {}
+.album-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.album-card-head .card-label { margin-bottom: 0; }
+.album-mgr-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.album-mgr-btn {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1.5px solid #bfdbfe;
+  background: #eff6ff;
+  color: #2563eb;
+  cursor: pointer;
+}
+.album-mgr-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.album-mgr-btn--remove {
+  border-color: #fecaca;
+  background: #fff;
+  color: #dc2626;
+}
+.album-mgr-btn--remove:hover { background: #fef2f2; }
+.album-empty-hint {
+  padding: 24px 0;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.88rem;
+}
+.visually-hidden-file {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
 .album-shell {
   display: grid;
   grid-template-columns: 40px 1fr 40px;

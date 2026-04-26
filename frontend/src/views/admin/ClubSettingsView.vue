@@ -959,6 +959,21 @@
             <label class="cap-toggle-label"><input v-model="publicPageForm.publicFeedEnabled" type="checkbox" class="cap-check" /> Allow posts to appear on the public club page (members can mark club-wide posts as Public)</label>
           </div>
 
+          <div class="field">
+            <label style="font-weight:700;font-size:13px;">Member name display (public roster &amp; directory)</label>
+            <div class="cap-radio-group">
+              <label class="cap-toggle-label">
+                <input type="radio" v-model="publicPageForm.rosterNameFormat" value="full" class="cap-check" />
+                Full name (e.g. Joshua Absher)
+              </label>
+              <label class="cap-toggle-label">
+                <input type="radio" v-model="publicPageForm.rosterNameFormat" value="initial_last" class="cap-check" />
+                First initial + last name (e.g. J. Absher)
+              </label>
+            </div>
+            <div class="hint">Applies to the public member directory and the active participants list on your club page.</div>
+          </div>
+
           <!-- Gender options for registration form -->
           <div class="field" style="margin-top: 8px;">
             <label style="font-weight: 700; font-size: 13px;">Registration form — gender options</label>
@@ -1050,7 +1065,7 @@
                 <button type="button" class="album-preview-remove" @click="removeAlbumSlide(idx)">✕</button>
               </div>
             </div>
-            <div class="hint">If empty, the page automatically uses recent workout screenshots from your club.</div>
+            <div class="hint">Only manager/captain-uploaded photos appear here. You can also add photos directly from the club's public page. If no photos are uploaded, the album section is hidden.</div>
           </div>
 
           <div class="actions-row">
@@ -1653,7 +1668,8 @@ const publicPageForm = ref({
   showFeaturedWorkout: true,
   showPhotoAlbum: true,
   showClubFeed: true,
-  publicFeedEnabled: false
+  publicFeedEnabled: false,
+  rosterNameFormat: 'full'
 });
 const clubBannerSaving = ref(false);
 
@@ -1848,7 +1864,8 @@ const loadPublicPageConfig = async () => {
       showFeaturedWorkout: cfg.showFeaturedWorkout !== false,
       showPhotoAlbum: cfg.showPhotoAlbum !== false,
       showClubFeed: cfg.showClubFeed !== false,
-      publicFeedEnabled: cfg.publicFeedEnabled === true
+      publicFeedEnabled: cfg.publicFeedEnabled === true,
+      rosterNameFormat: cfg.rosterNameFormat === 'initial_last' ? 'initial_last' : 'full'
     };
     genderOptionsSelected.value = Array.isArray(cfg.genderOptions) && cfg.genderOptions.length
       ? cfg.genderOptions

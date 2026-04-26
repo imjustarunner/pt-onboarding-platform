@@ -527,7 +527,8 @@ const buildPublicPageConfig = (rawStoreConfig) => {
     publicFeedEnabled: cfg.publicFeedEnabled === true,
     albumSlides: slides,
     genderOptions,
-    allowCustomPronouns
+    allowCustomPronouns,
+    rosterNameFormat: ['full', 'initial_last'].includes(cfg.rosterNameFormat) ? cfg.rosterNameFormat : 'full'
   };
 };
 
@@ -876,25 +877,8 @@ export const getPublicClubStats = async (req, res, next) => {
       };
     }
 
-    // Public album: manager-curated slides first, fallback to recent workout screenshots.
-    let albumSlides = [...publicPageConfig.albumSlides];
-    if (!albumSlides.length) {
-      const [photoRows] = await pool.execute(
-        `SELECT w.id, w.screenshot_file_path, w.activity_type, w.distance_value
-         FROM challenge_workouts w
-         INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
-         WHERE c.organization_id = ?
-           AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
-           AND COALESCE(TRIM(w.screenshot_file_path), '') <> ''
-         ORDER BY w.completed_at DESC, w.created_at DESC
-         LIMIT 12`,
-        [clubId]
-      );
-      albumSlides = (photoRows || []).map((r) => ({
-        imageUrl: toUploadsPublicUrl(r.screenshot_file_path),
-        caption: `${String(r.activity_type || 'Workout').trim()}${Number(r.distance_value || 0) > 0 ? ` · ${Number(r.distance_value).toFixed(1)} mi` : ''}`
-      })).filter((s) => s.imageUrl);
-    }
+    // Public album: manager/captain-curated uploads only (no automatic workout screenshot fallback).
+    const albumSlides = [...publicPageConfig.albumSlides];
 
     // Race divisions (all-time for this club)
     let raceDivisionsArr = [];
@@ -1002,7 +986,8 @@ export const updatePublicPageConfig = async (req, res, next) => {
         publicFeedEnabled: body.publicFeedEnabled,
         albumSlides: body.albumSlides,
         genderOptions: body.genderOptions,
-        allowCustomPronouns: body.allowCustomPronouns
+        allowCustomPronouns: body.allowCustomPronouns,
+        rosterNameFormat: body.rosterNameFormat
       }
     });
     const prevSlug = prevCfg.publicSlug || '';

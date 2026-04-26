@@ -82,7 +82,7 @@
                   <div v-else class="member-avatar-fallback">{{ initials(m) }}</div>
                 </div>
                 <div class="member-card-body">
-                  <div class="member-name">{{ m.displayName }}</div>
+                  <div class="member-name">{{ formatMemberName(m) }}</div>
                   <div class="member-stats">
                     {{ formatWhole(m.stats?.totalPoints) }} pts · {{ formatDecimal(m.stats?.totalMiles) }} mi ·
                     {{ formatWhole(m.stats?.workoutCount) }} workouts
@@ -372,10 +372,27 @@ const memberRowKey = (m, idx) => {
   return `pub-${idx}-${String(m?.firstName || m?.displayName || '').slice(0, 24)}`;
 };
 
-const publicDisplayName = (m) => {
+const rosterNameFormat = computed(() => publicPageConfig.value?.rosterNameFormat || 'full');
+
+const formatMemberName = (m) => {
   const fn = String(m?.firstName || '').trim();
-  if (fn) return fn;
+  const ln = String(m?.lastName || '').trim();
+  if (rosterNameFormat.value === 'initial_last') {
+    if (fn && ln) return `${fn.charAt(0).toUpperCase()}. ${ln}`;
+    if (fn) return `${fn.charAt(0).toUpperCase()}.`;
+    return String(m?.displayName || '').trim() || 'Member';
+  }
+  if (fn || ln) return [fn, ln].filter(Boolean).join(' ');
   return String(m?.displayName || '').trim() || 'Member';
+};
+
+const publicDisplayName = (m) => {
+  if (isPublicRoster.value) {
+    // public (unauthenticated) always shows first name only
+    const fn = String(m?.firstName || '').trim();
+    return fn || String(m?.displayName || '').trim() || 'Member';
+  }
+  return formatMemberName(m);
 };
 
 /** Section headings when roster is grouped by publicRole (manager → assistants → members). */
