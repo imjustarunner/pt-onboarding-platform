@@ -191,6 +191,52 @@
                 <p class="member-modal-p">{{ profileDetail.member.currentFitnessActivities }}</p>
               </template>
             </div>
+
+            <!-- Trophy Case -->
+            <div v-if="hasTrophies" class="member-modal-section member-trophy-section">
+              <h3 class="member-modal-h">🏆 Trophy Case</h3>
+
+              <!-- Race Club Badges -->
+              <div v-if="trophyCase.raceClubs?.length" class="trophy-badges">
+                <div
+                  v-for="rc in trophyCase.raceClubs"
+                  :key="rc.id"
+                  class="trophy-badge"
+                  :title="`${rc.label}: ${rc.count}× completed`"
+                >
+                  <img
+                    v-if="rc.earnedTier?.iconUrl"
+                    :src="rc.earnedTier.iconUrl"
+                    class="trophy-badge-icon"
+                    alt=""
+                  />
+                  <span v-else class="trophy-badge-emoji">🏅</span>
+                  <div class="trophy-badge-info">
+                    <span class="trophy-badge-name">{{ rc.label }}</span>
+                    <span class="trophy-badge-count">{{ rc.count }}×</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Club Records Held -->
+              <div v-if="trophyCase.recordsHeld?.length" class="trophy-records">
+                <div class="trophy-records-label">Club Records Held</div>
+                <div
+                  v-for="r in trophyCase.recordsHeld"
+                  :key="r.id"
+                  class="trophy-record-row"
+                >
+                  <img v-if="r.iconUrl" :src="r.iconUrl" class="trophy-record-icon" alt="" />
+                  <span v-else class="trophy-record-icon-ph">📋</span>
+                  <span class="trophy-record-label">{{ r.label }}</span>
+                  <span class="trophy-record-value">
+                    {{ r.value != null ? r.value : '—' }}
+                    <span v-if="r.unit" class="trophy-record-unit">{{ r.unit }}</span>
+                  </span>
+                  <span v-if="r.holderYear" class="trophy-record-year">{{ r.holderYear }}</span>
+                </div>
+              </div>
+            </div>
           </template>
         </div>
       </div>
@@ -398,15 +444,23 @@ const loadMembers = async () => {
   }
 };
 
+const trophyCase = ref(null);
+
 const openMember = async (m) => {
   if (isPublicRoster.value) return;
   profileDetail.value = null;
   profileError.value = '';
+  trophyCase.value = null;
   modalOpen.value = true;
   profileLoading.value = true;
   try {
-    const { data } = await api.get(`/summit-stats/clubs/${clubId.value}/members/${m.id}/profile`);
-    profileDetail.value = data;
+    const [profileRes, trophyRes] = await Promise.allSettled([
+      api.get(`/summit-stats/clubs/${clubId.value}/members/${m.id}/profile`),
+      api.get(`/summit-stats/clubs/${clubId.value}/members/${m.id}/trophy-case`)
+    ]);
+    if (profileRes.status === 'fulfilled') profileDetail.value = profileRes.value.data;
+    else profileError.value = profileRes.reason?.response?.data?.error?.message || 'Could not load profile.';
+    if (trophyRes.status === 'fulfilled') trophyCase.value = trophyRes.value.data;
   } catch (e) {
     profileError.value = e?.response?.data?.error?.message || 'Could not load profile.';
   } finally {
@@ -414,10 +468,16 @@ const openMember = async (m) => {
   }
 };
 
+const hasTrophies = computed(() => {
+  if (!trophyCase.value) return false;
+  return (trophyCase.value.raceClubs?.length > 0) || (trophyCase.value.recordsHeld?.length > 0);
+});
+
 const closeModal = () => {
   modalOpen.value = false;
   profileDetail.value = null;
   profileError.value = '';
+  trophyCase.value = null;
 };
 
 onMounted(async () => {
@@ -968,5 +1028,113 @@ onMounted(async () => {
   font-weight: 900;
   color: #1d4ed8;
   font-variant-numeric: tabular-nums;
+}
+
+/* ── Trophy Case in member modal ─────────────── */
+.member-trophy-section { border-top: 1px solid #f1f5f9; padding-top: 12px; }
+
+.trophy-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.trophy-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: default;
+}
+
+.trophy-badge-icon {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+.trophy-badge-emoji { font-size: 28px; line-height: 1; }
+
+.trophy-badge-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.trophy-badge-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e293b;
+  white-space: nowrap;
+}
+
+.trophy-badge-count {
+  font-size: 13px;
+  font-weight: 800;
+  color: #1d4ed8;
+  font-variant-numeric: tabular-nums;
+}
+
+.trophy-records-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  margin-bottom: 8px;
+}
+
+.trophy-record-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 13px;
+}
+.trophy-record-row:last-child { border-bottom: none; }
+
+.trophy-record-icon {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.trophy-record-icon-ph { font-size: 18px; flex-shrink: 0; width: 28px; text-align: center; }
+
+.trophy-record-label {
+  flex: 1;
+  font-weight: 500;
+  color: #374151;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trophy-record-value {
+  font-weight: 800;
+  color: #1d4ed8;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.trophy-record-unit {
+  font-size: 10px;
+  font-weight: 500;
+  color: #94a3b8;
+  margin-left: 2px;
+}
+
+.trophy-record-year {
+  font-size: 11px;
+  color: #94a3b8;
+  flex-shrink: 0;
 }
 </style>

@@ -22,6 +22,8 @@ import {
   putRaceClubsConfig,
   getPublicRaceClubs,
   getRaceClubsAdminMembers,
+  getClubMemberTrophyCase,
+  getMyTrophyCase,
   getClubMemberStats,
   removeClubMember,
   setClubMemberRole,
@@ -165,6 +167,8 @@ router.get('/clubs/:clubId/seasons/:classId/join-requests', listSeasonJoinReques
 router.put('/clubs/:clubId/seasons/:classId/join-requests/:requestId', reviewSeasonJoinRequest);
 router.get('/clubs/:id/members/directory', listClubMembersDirectory);
 router.get('/clubs/:id/members/:userId/profile', getClubMemberProfile);
+router.get('/clubs/:id/members/:userId/trophy-case', getClubMemberTrophyCase);
+router.get('/clubs/:id/my-trophy-case', getMyTrophyCase);
 
 router.get('/me/dashboard', getMyDashboardSummary);
 router.get('/me/awards', getMyAwards);

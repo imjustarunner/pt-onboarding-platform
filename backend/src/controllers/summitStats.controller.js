@@ -122,7 +122,9 @@ const normalizeClubRecords = (input) => {
       holderName: String(row?.holderName || '').trim(),
       holderYear: normalizeHolderYear(row?.holderYear),
       holderTeam: String(row?.holderTeam || '').trim(),
+      holderUserId: row?.holderUserId ? Math.trunc(Number(row.holderUserId)) : null,
       iconId: normalizeIconId(row?.iconId),
+      iconUrl: null, // resolved on demand
       verificationRequired: true,
       seededAt: row?.seededAt || null,
       updatedAt: row?.updatedAt || null,
@@ -1713,6 +1715,107 @@ export const getPublicRaceClubs = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+// ─── Member Trophy Case ───────────────────────────────────────────────────────
+
+/**
+ * Builds the trophy case data for a single member within a club.
+ * Returns { raceClubs, recordsHeld, seasonAwards }
+ */
+const getMemberTrophyCaseData = async ({ clubId, userId }) => {
+  // 1. Race club memberships for this user
+  const allClubs = await computeRaceClubMemberships({ clubId });
+  const raceClubs = allClubs
+    .map((rc) => {
+      const m = rc.members.find((m) => Number(m.userId) === Number(userId));
+      if (!m) return null;
+      return {
+        id: rc.id,
+        label: rc.label,
+        raceDistanceMiles: rc.raceDistanceMiles,
+        count: m.count,
+        autoCount: m.autoCount,
+        seedCount: m.seedCount,
+        linked: m.linked,
+        earnedTier: m.earnedTier,
+        nextTier: m.nextTier,
+        tiers: rc.tiers
+      };
+    })
+    .filter(Boolean);
+
+  // 2. Club records currently held by this user
+  const [recRows] = await pool.execute(
+    `SELECT records_json FROM summit_stats_club_records WHERE agency_id = ? LIMIT 1`,
+    [clubId]
+  );
+  const allRecords = normalizeClubRecords(parseClubRecords(recRows?.[0]?.records_json));
+
+  // Resolve icon URLs for records that have an iconId
+  const iconIds = [...new Set(allRecords.filter((r) => r.iconId).map((r) => r.iconId))];
+  const iconUrlById = new Map();
+  if (iconIds.length) {
+    try {
+      const { default: Icon } = await import('../models/Icon.model.js');
+      const ph = iconIds.map(() => '?').join(', ');
+      const [iconRows] = await pool.execute(`SELECT id, file_path FROM icons WHERE id IN (${ph})`, iconIds);
+      for (const icon of iconRows || []) iconUrlById.set(Number(icon.id), Icon.getIconUrl(icon));
+    } catch { /* non-fatal */ }
+  }
+
+  const recordsHeld = allRecords
+    .filter((r) => r.holderUserId && Number(r.holderUserId) === Number(userId))
+    .map((r) => ({ ...r, iconUrl: r.iconId ? (iconUrlById.get(r.iconId) || null) : null }));
+
+  // 3. Season awards placeholder — extendable in the future
+  const seasonAwards = [];
+
+  return { raceClubs, recordsHeld, seasonAwards };
+};
+
+/**
+ * GET /api/summit-stats/clubs/:id/members/:userId/trophy-case
+ * Returns the trophy case for any club member (requires club membership to view).
+ */
+export const getClubMemberTrophyCase = async (req, res, next) => {
+  try {
+    const clubId = parseInt(req.params.id, 10);
+    const targetUserId = parseInt(req.params.userId, 10);
+    if (!clubId || !targetUserId) return res.status(400).json({ error: { message: 'Invalid club or user' } });
+
+    // Viewer must be a club member
+    if (!req.user?.id) return res.status(401).json({ error: { message: 'Sign in required' } });
+    const { getUserClubMembership } = await import('../utils/sscClubAccess.js');
+    const membership = await getUserClubMembership(req.user.id, clubId);
+    if (!membership || membership.is_active === false) {
+      return res.status(403).json({ error: { message: 'Club membership required' } });
+    }
+
+    const data = await getMemberTrophyCaseData({ clubId, userId: targetUserId });
+    return res.json({ userId: targetUserId, agencyId: clubId, ...data });
+  } catch (error) { next(error); }
+};
+
+/**
+ * GET /api/summit-stats/clubs/:id/my-trophy-case
+ * Returns the authenticated member's own trophy case.
+ */
+export const getMyTrophyCase = async (req, res, next) => {
+  try {
+    const clubId = parseInt(req.params.id, 10);
+    if (!req.user?.id) return res.status(401).json({ error: { message: 'Sign in required' } });
+    if (!clubId) return res.status(400).json({ error: { message: 'clubId required' } });
+
+    const { getUserClubMembership } = await import('../utils/sscClubAccess.js');
+    const membership = await getUserClubMembership(req.user.id, clubId);
+    if (!membership || membership.is_active === false) {
+      return res.status(403).json({ error: { message: 'Club membership required' } });
+    }
+
+    const data = await getMemberTrophyCaseData({ clubId, userId: req.user.id });
+    return res.json({ userId: req.user.id, agencyId: clubId, ...data });
+  } catch (error) { next(error); }
+};
+
 export const listClubRecordVerifications = async (req, res, next) => {
   try {
     const clubId = parseInt(req.params.id, 10);
@@ -1783,6 +1886,7 @@ export const reviewClubRecordVerification = async (req, res, next) => {
       const [proofRows] = await pool.execute(
         `SELECT
            w.completed_at,
+           w.user_id,
            w.team_id,
            t.team_name,
            u.first_name,
@@ -1803,6 +1907,7 @@ export const reviewClubRecordVerification = async (req, res, next) => {
       const completedAt = approvedWorkout?.completed_at ? new Date(approvedWorkout.completed_at) : null;
       const holderYear = completedAt && Number.isFinite(completedAt.getTime()) ? completedAt.getFullYear() : null;
       const holderTeam = String(approvedWorkout?.team_name || '').trim();
+      const holderUserId = approvedWorkout?.user_id ? Number(approvedWorkout.user_id) : null;
       const [recRows] = await pool.execute(
         `SELECT records_json
          FROM summit_stats_club_records
@@ -1819,6 +1924,7 @@ export const reviewClubRecordVerification = async (req, res, next) => {
           holderName: holderName || r.holderName || '',
           holderYear: holderYear || r.holderYear || null,
           holderTeam: holderTeam || r.holderTeam || '',
+          holderUserId: holderUserId || r.holderUserId || null,
           updatedAt: new Date().toISOString(),
           lastVerifiedAt: new Date().toISOString(),
           lastVerifiedWorkoutId: Number(verification.workout_id),

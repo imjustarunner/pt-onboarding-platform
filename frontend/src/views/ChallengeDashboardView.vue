@@ -715,6 +715,68 @@
             </div>
         </DashboardSectionWrapper>
 
+        <!-- My Trophy Case -->
+        <DashboardSectionWrapper
+          v-if="myTrophyCase && (myTrophyCase.raceClubs?.length || myTrophyCase.recordsHeld?.length)"
+          :id="'my-trophy-case'"
+          :label="sectionLabel('my-trophy-case')"
+          :order="dashboardLayout.orderOf('my-trophy-case')"
+          :editing="dashboardLayout.editMode.value"
+          :disable-up="sectionIsFirst('my-trophy-case')"
+          :disable-down="sectionIsLast('my-trophy-case')"
+          @move-up="moveSectionUp('my-trophy-case')"
+          @move-down="moveSectionDown('my-trophy-case')"
+        >
+          <div class="challenge-section my-trophy-section">
+            <h2>🏆 My Trophy Case</h2>
+
+            <!-- Race Club Badges -->
+            <div v-if="myTrophyCase.raceClubs?.length" class="my-trophy-badges">
+              <div
+                v-for="rc in myTrophyCase.raceClubs"
+                :key="rc.id"
+                class="my-trophy-badge"
+              >
+                <img
+                  v-if="rc.earnedTier?.iconUrl"
+                  :src="rc.earnedTier.iconUrl"
+                  class="my-trophy-badge-icon"
+                  alt=""
+                />
+                <span v-else class="my-trophy-badge-emoji">🏅</span>
+                <div class="my-trophy-badge-body">
+                  <span class="my-trophy-badge-label">{{ rc.earnedTier?.label || rc.label }}</span>
+                  <span class="my-trophy-badge-count">{{ rc.count }}× completed</span>
+                  <span v-if="rc.nextTier" class="my-trophy-badge-next">
+                    {{ rc.nextTier.count - rc.count }} more for
+                    <img v-if="rc.nextTier.iconUrl" :src="rc.nextTier.iconUrl" class="my-trophy-next-icon" alt="" />
+                    {{ rc.nextTier.label || `${rc.nextTier.count}× tier` }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Club Records Held -->
+            <div v-if="myTrophyCase.recordsHeld?.length" class="my-trophy-records">
+              <div class="my-trophy-records-title">Club Records You Hold</div>
+              <div
+                v-for="r in myTrophyCase.recordsHeld"
+                :key="r.id"
+                class="my-trophy-record-row"
+              >
+                <img v-if="r.iconUrl" :src="r.iconUrl" class="my-trophy-record-icon" alt="" />
+                <span v-else class="my-trophy-record-icon-ph">📋</span>
+                <span class="my-trophy-record-label">{{ r.label }}</span>
+                <span class="my-trophy-record-value">
+                  {{ r.value != null ? r.value : '—' }}
+                  <span v-if="r.unit" class="my-trophy-record-unit">{{ r.unit }}</span>
+                </span>
+                <span v-if="r.holderYear" class="my-trophy-record-year">{{ r.holderYear }}</span>
+              </div>
+            </div>
+          </div>
+        </DashboardSectionWrapper>
+
         <!-- Kudos Stats Section -->
         <DashboardSectionWrapper
           v-if="kudosStats || kudosStatsLoading"
@@ -2380,6 +2442,20 @@ const loadKudosStats = async () => {
   }
 };
 
+// ── My Trophy Case ────────────────────────────────────────────────────────────
+const myTrophyCase = ref(null);
+
+const loadMyTrophyCase = async () => {
+  const clubId = Number(challenge.value?.organization_id || 0);
+  if (!clubId) return;
+  try {
+    const { data } = await api.get(`/summit-stats/clubs/${clubId}/my-trophy-case`, { skipGlobalLoading: true });
+    myTrophyCase.value = data || null;
+  } catch {
+    myTrophyCase.value = null;
+  }
+};
+
 const loadRaceDivisions = async () => {
   const id = challengeId.value;
   if (!id) return;
@@ -2648,7 +2724,7 @@ const submitWorkout = async () => {
     visionExtracted.value = false;
     visionError.value = null;
     showLogWorkoutModal.value = false;
-    await Promise.all([loadLeaderboard(), loadActivity(), loadCurrentWeekAssignments(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats()]);
+    await Promise.all([loadLeaderboard(), loadActivity(), loadCurrentWeekAssignments(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats(), loadMyTrophyCase()]);
   } catch (e) {
     if (Number(e?.response?.status || 0) === 428) {
       await loadChallenge();
@@ -2768,7 +2844,7 @@ const submitBulkWorkouts = async () => {
       bulkItems.value = [];
       showBulkUploadModal.value = false;
     }
-    await Promise.all([loadLeaderboard(), loadActivity(), loadCurrentWeekAssignments(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats()]);
+    await Promise.all([loadLeaderboard(), loadActivity(), loadCurrentWeekAssignments(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats(), loadMyTrophyCase()]);
   } catch (e) {
     bulkUploadError.value = e?.response?.data?.error?.message || 'Bulk submit failed';
   } finally {
@@ -2782,7 +2858,7 @@ const scrollToSection = (id) => {
 };
 
 const refreshAfterActivityAction = async () => {
-  await Promise.all([loadActivity(), loadLeaderboard(), loadCurrentWeekAssignments(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats()]);
+  await Promise.all([loadActivity(), loadLeaderboard(), loadCurrentWeekAssignments(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats(), loadMyTrophyCase()]);
 };
 
 const openWorkoutTagging = (task) => {
@@ -2915,7 +2991,7 @@ const importSelectedStrava = async () => {
       return;
     }
     closeStravaImportModal();
-    await Promise.all([loadLeaderboard(), loadActivity(), loadCurrentWeekAssignments(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats()]);
+    await Promise.all([loadLeaderboard(), loadActivity(), loadCurrentWeekAssignments(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats(), loadMyTrophyCase()]);
     if (skipped > 0) {
       stravaDuplicateMessage.value = `${skipped === 1 ? '1 activity was' : `${skipped} activities were`} already uploaded and not imported again.`;
     }
@@ -3898,6 +3974,129 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   justify-content: center;
   padding: 10px 12px !important;
 }
+
+/* ── My Trophy Case ──────────────────────────── */
+.my-trophy-section h2 { margin-bottom: 12px; }
+
+.my-trophy-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.my-trophy-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  border-radius: 12px;
+  padding: 10px 14px;
+  min-width: 180px;
+  max-width: 260px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.my-trophy-badge-icon {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.my-trophy-badge-emoji {
+  font-size: 36px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.my-trophy-badge-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.my-trophy-badge-label {
+  font-weight: 700;
+  font-size: 13px;
+  color: #f8fafc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.my-trophy-badge-count {
+  font-size: 12px;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+}
+
+.my-trophy-badge-next {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: #fbbf24;
+  flex-wrap: wrap;
+}
+
+.my-trophy-next-icon {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  border-radius: 3px;
+}
+
+.my-trophy-records { margin-top: 4px; }
+
+.my-trophy-records-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #94a3b8;
+  margin-bottom: 8px;
+}
+
+.my-trophy-record-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 13px;
+}
+.my-trophy-record-row:last-child { border-bottom: none; }
+
+.my-trophy-record-icon {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 5px;
+  flex-shrink: 0;
+}
+.my-trophy-record-icon-ph { font-size: 20px; width: 28px; text-align: center; flex-shrink: 0; }
+
+.my-trophy-record-label {
+  flex: 1;
+  font-weight: 500;
+  color: #374151;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.my-trophy-record-value {
+  font-weight: 800;
+  color: #1d4ed8;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.my-trophy-record-unit { font-size: 10px; font-weight: 400; color: #94a3b8; margin-left: 2px; }
+.my-trophy-record-year { font-size: 11px; color: #94a3b8; flex-shrink: 0; }
+
 .workout-form {
   display: flex;
   flex-direction: column;
