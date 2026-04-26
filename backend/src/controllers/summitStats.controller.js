@@ -167,6 +167,7 @@ const mergeSeedRecords = ({ existingRecords, incomingRecords }) => {
       holderName: incoming.holderName,
       holderYear: incoming.holderYear,
       holderTeam: incoming.holderTeam,
+      holderUserId: incoming.holderUserId != null ? incoming.holderUserId : (prev.holderUserId || null),
       iconId: incoming.iconId,
       verificationRequired: true,
       seededAt: prev.seededAt || now,
@@ -1471,7 +1472,7 @@ export const putRaceClubsConfig = async (req, res, next) => {
  * Merges auto-detected workout counts with admin-entered seed counts (manualOverrides).
  * Returns [{id, label, raceDistanceMiles, tiers, members:[{userId, name, autoCount, seedCount, count, linked, earnedTier, nextTier}]}]
  */
-export const computeRaceClubMemberships = async ({ clubId }) => {
+export const computeRaceClubMemberships = async ({ clubId, rosterNameFormat = 'full' }) => {
   const [cfgRows] = await pool.execute(
     `SELECT race_clubs_config_json FROM agencies WHERE id = ? LIMIT 1`,
     [clubId]
@@ -1514,9 +1515,16 @@ export const computeRaceClubMemberships = async ({ clubId }) => {
         [...allSeedUserIds]
       );
       for (const u of uRows || []) {
-        const full = [u.first_name, u.last_name].map(s => String(s || '').trim()).filter(Boolean).join(' ');
+        const fn = String(u.first_name || '').trim();
+        const ln = String(u.last_name || '').trim();
+        let name;
+        if (rosterNameFormat === 'initial_last') {
+          name = fn && ln ? `${fn.charAt(0).toUpperCase()}. ${ln}` : fn || ln || `Member ${u.id}`;
+        } else {
+          name = [fn, ln].filter(Boolean).join(' ') || `Member ${u.id}`;
+        }
         seedUserInfo.set(Number(u.id), {
-          name: full || `Member ${u.id}`,
+          name,
           isPlaceholder: !!Number(u.is_placeholder),
           claimEmail: u.roster_placeholder_claim_email || null
         });
@@ -1561,9 +1569,16 @@ export const computeRaceClubMemberships = async ({ clubId }) => {
       const uid = Number(w.user_id);
       autoCountByUser.set(uid, (autoCountByUser.get(uid) || 0) + 1);
       if (!userInfoByUser.has(uid)) {
-        const full = [w.first_name, w.last_name].map(s => String(s || '').trim()).filter(Boolean).join(' ');
+        const fn = String(w.first_name || '').trim();
+        const ln = String(w.last_name || '').trim();
+        let name;
+        if (rosterNameFormat === 'initial_last') {
+          name = fn && ln ? `${fn.charAt(0).toUpperCase()}. ${ln}` : fn || ln || `Member ${uid}`;
+        } else {
+          name = [fn, ln].filter(Boolean).join(' ') || `Member ${uid}`;
+        }
         userInfoByUser.set(uid, {
-          name: full || `Member ${uid}`,
+          name,
           isPlaceholder: !!Number(w.is_placeholder),
           claimEmail: w.roster_placeholder_claim_email || null
         });
@@ -1728,7 +1743,23 @@ export const getPublicRaceClubs = async (req, res, next) => {
   try {
     const clubId = parseInt(req.params.id, 10);
     if (!clubId) return res.status(400).json({ error: { message: 'clubId required' } });
-    const memberships = await computeRaceClubMemberships({ clubId });
+    // Fetch club's rosterNameFormat to apply correct name display on the public page
+    const [cfgRows] = await pool.execute(
+      `SELECT store_config_json FROM agencies WHERE id = ? LIMIT 1`,
+      [clubId]
+    );
+    let rosterNameFormat = 'full';
+    try {
+      const raw = cfgRows?.[0]?.store_config_json;
+      const storeObj = typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
+      const cfg = typeof storeObj?.publicPageConfig === 'string'
+        ? JSON.parse(storeObj.publicPageConfig)
+        : (storeObj?.publicPageConfig || {});
+      if (['full', 'initial_last'].includes(cfg.rosterNameFormat)) {
+        rosterNameFormat = cfg.rosterNameFormat;
+      }
+    } catch { /* use default */ }
+    const memberships = await computeRaceClubMemberships({ clubId, rosterNameFormat });
     return res.json({ agencyId: clubId, raceClubs: memberships });
   } catch (error) { next(error); }
 };

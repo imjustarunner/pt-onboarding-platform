@@ -461,9 +461,31 @@
               <!-- Record holder -->
               <div class="cr-row">
                 <div class="cr-field">
-                  <label class="cr-field-label">Holder name</label>
+                  <label class="cr-field-label">Holder — link to member <span class="cr-optional">(connects to trophy case)</span></label>
+                  <select
+                    class="cr-input"
+                    :value="record.holderUserId || ''"
+                    @change="(e) => {
+                      const uid = Number(e.target.value) || null;
+                      record.holderUserId = uid;
+                      if (uid) {
+                        const m = clubMembersForRecords.find(m => m.id === uid);
+                        if (m) record.holderName = `${m.firstName} ${m.lastName}`.trim();
+                      }
+                    }"
+                  >
+                    <option value="">— Not linked to a member —</option>
+                    <option v-for="m in clubMembersForRecords" :key="m.id" :value="m.id">
+                      {{ m.displayName }}
+                    </option>
+                  </select>
+                </div>
+                <div class="cr-field">
+                  <label class="cr-field-label">Holder name <span class="cr-optional">(override or fill manually)</span></label>
                   <input v-model="record.holderName" type="text" placeholder="Who holds this record" class="cr-input" />
                 </div>
+              </div>
+              <div class="cr-row">
                 <div class="cr-field cr-field--xs">
                   <label class="cr-field-label">Year <span class="cr-optional">(optional)</span></label>
                   <input v-model.number="record.holderYear" type="number" min="1900" max="2999" step="1" placeholder="2024" class="cr-input" />
@@ -1367,6 +1389,7 @@ const clubRecords = ref([]);
 const clubAvailableGenders = ref([]);  // ['male','female'] — loaded from club member profiles
 const recordsError = ref('');
 const savingRecords = ref(false);
+const clubMembersForRecords = ref([]); // { id, firstName, lastName, displayName } for holder dropdown
 const recordVerifications = ref([]);
 const verificationsLoading = ref(false);
 const recordMetricOptions = [
@@ -2046,6 +2069,7 @@ const loadClubRecords = async () => {
         holderName: r.holderName || '',
         holderYear: r.holderYear ?? null,
         holderTeam: r.holderTeam || '',
+        holderUserId: r.holderUserId != null ? Number(r.holderUserId) : null,
         iconId: r.iconId != null ? Number(r.iconId) : null,
         _open: false
       }))
@@ -2054,6 +2078,21 @@ const loadClubRecords = async () => {
   } catch (e) {
     clubRecords.value = [];
     recordsError.value = e?.response?.data?.error?.message || 'Failed to load club records';
+  }
+};
+
+const loadClubMembersForRecords = async () => {
+  if (!currentAgencyId.value) return;
+  try {
+    const { data } = await api.get(`/summit-stats/clubs/${currentAgencyId.value}/members/directory`);
+    clubMembersForRecords.value = (Array.isArray(data?.members) ? data.members : []).map((m) => ({
+      id: m.id,
+      firstName: m.firstName || '',
+      lastName: m.lastName || '',
+      displayName: m.displayName || `${m.firstName || ''} ${m.lastName || ''}`.trim() || `Member ${m.id}`
+    }));
+  } catch {
+    clubMembersForRecords.value = [];
   }
 };
 
@@ -2072,6 +2111,7 @@ const addRecord = () => {
     holderName: '',
     holderYear: null,
     holderTeam: '',
+    holderUserId: null,
     iconId: null,
     _open: true  // new records open immediately
   });
@@ -2101,6 +2141,7 @@ const saveRecords = async () => {
         holderName: String(r.holderName || '').trim(),
         holderYear: Number.isFinite(Number(r.holderYear)) ? Math.trunc(Number(r.holderYear)) : null,
         holderTeam: String(r.holderTeam || '').trim(),
+        holderUserId: Number.isFinite(Number(r.holderUserId)) && r.holderUserId ? Math.trunc(Number(r.holderUserId)) : null,
         iconId: Number.isFinite(Number(r.iconId)) ? Math.trunc(Number(r.iconId)) : null
       }))
     };
@@ -2531,6 +2572,7 @@ onMounted(async () => {
       loadBilling(),
       loadTimePrefs(),
       loadClubRecords(),
+      loadClubMembersForRecords(),
       loadRecordVerifications(),
       loadRaceClubs(),
       loadStatsConfig(),

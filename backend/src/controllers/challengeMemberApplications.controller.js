@@ -816,11 +816,25 @@ export const getPublicClubStats = async (req, res, next) => {
          LIMIT 80`,
         [clubId, currentSeason.id]
       );
-      // Public site: limited roster only (no user ids — names + optional team tooltip for display).
-      activeParticipants = (activeRows || []).map((r) => ({
-        displayName: `${String(r.first_name || '').trim()} ${String(r.last_name || '').trim().charAt(0)}.`.trim(),
-        teamName: r.team_name || null
-      }));
+      // Public site: limited roster — apply club's rosterNameFormat for privacy.
+      const fmt = publicPageConfig.rosterNameFormat || 'full';
+      activeParticipants = (activeRows || []).map((r) => {
+        const fn = String(r.first_name || '').trim();
+        const ln = String(r.last_name || '').trim();
+        let displayName;
+        if (fmt === 'initial_last') {
+          displayName = fn && ln ? `${fn.charAt(0).toUpperCase()}. ${ln}` : fn || ln || 'Member';
+        } else {
+          // 'full' — still protect the last name on the public page with last initial only
+          displayName = ln ? `${fn} ${ln.charAt(0)}.`.trim() : fn || 'Member';
+        }
+        return {
+          displayName,
+          firstName: fn,
+          lastName: ln,
+          teamName: r.team_name || null
+        };
+      });
     }
 
     // Featured workout by highest kudos in the current kudos week

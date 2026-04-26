@@ -406,12 +406,14 @@
               </div>
             </div>
           </div>
+        </div>
 
-          <!-- Race Completion Clubs -->
-          <div
-            v-if="raceClubs.length"
-            class="pub-card pub-race-clubs-card"
-          >
+        <!-- Race Completion Clubs (standalone row — not dependent on club records existing) -->
+        <div
+          v-if="raceClubs.length"
+          class="pub-row"
+        >
+          <div class="pub-card pub-race-clubs-card">
             <div class="card-label">Race Completion Clubs</div>
             <div class="pub-rc-clubs">
               <div
