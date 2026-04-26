@@ -839,26 +839,23 @@
                   @click="closeMobileMenu"
                   class="mobile-nav-link"
                 >{{ myClubPublicNav.label }}</router-link>
-                <div v-else class="mobile-nav-group mobile-nav-group-collapsible">
-                  <button
-                    type="button"
-                    class="mobile-nav-group-trigger"
-                    :aria-expanded="mobileMyClubsExpanded ? 'true' : 'false'"
-                    @click="mobileMyClubsExpanded = !mobileMyClubsExpanded"
-                  >
+                <details
+                  class="mobile-nav-group mobile-nav-group-collapsible"
+                  :open="mobileMyClubsExpanded"
+                  @toggle="mobileMyClubsExpanded = $event.target.open"
+                >
+                  <summary class="mobile-nav-group-trigger">
                     <span>{{ myClubPublicNav.label }}</span>
-                    <span class="mobile-nav-group-caret" :class="{ open: mobileMyClubsExpanded }" aria-hidden="true">▸</span>
-                  </button>
-                  <template v-if="mobileMyClubsExpanded">
-                    <router-link
-                      v-for="club in sstcMyClubsList"
-                      :key="`mob-mc-mgr-${club.id}`"
-                      :to="club.to"
-                      @click="closeMobileMenu"
-                      class="mobile-nav-link mobile-nav-sublink"
-                    >{{ club.name }}</router-link>
-                  </template>
-                </div>
+                    <span class="mobile-nav-group-caret" aria-hidden="true">▸</span>
+                  </summary>
+                  <router-link
+                    v-for="club in sstcMyClubsList"
+                    :key="`mob-mc-mgr-${club.id}`"
+                    :to="club.to"
+                    @click="closeMobileMenu"
+                    class="mobile-nav-link mobile-nav-sublink"
+                  >{{ club.name }}</router-link>
+                </details>
               </template>
               <template v-if="sstcActiveSeasonNav">
                 <template v-if="!sstcActiveSeasonNav.isDropdown">
@@ -874,51 +871,45 @@
                     @click="closeMobileMenu"
                   >↳ {{ sstcActiveSeasonList[0].myTeamName }}</router-link>
                 </template>
-                <div v-else class="mobile-nav-group mobile-nav-group-collapsible">
-                  <button
-                    type="button"
-                    class="mobile-nav-group-trigger mobile-nav-active-season-trigger"
-                    :aria-expanded="mobileActiveSeasonsExpanded ? 'true' : 'false'"
-                    @click="mobileActiveSeasonsExpanded = !mobileActiveSeasonsExpanded"
-                  >
-                    <span>{{ sstcActiveSeasonNav.label }}</span>
-                    <span class="mobile-nav-group-caret" :class="{ open: mobileActiveSeasonsExpanded }" aria-hidden="true">▸</span>
-                  </button>
-                  <template v-if="mobileActiveSeasonsExpanded">
-                    <template v-for="s in sstcActiveSeasonList" :key="`mob-as-mgr-${s.id}`">
-                      <router-link
-                        :to="s.to"
-                        @click="closeMobileMenu"
-                        class="mobile-nav-link mobile-nav-sublink"
-                      >{{ s.clubName }} — {{ s.name }}</router-link>
-                      <router-link
-                        v-if="s.teamTo"
-                        :to="s.teamTo"
-                        @click="closeMobileMenu"
-                        class="mobile-nav-link mobile-nav-sublink mobile-nav-team-sublink"
-                      >↳ {{ s.myTeamName }}</router-link>
-                    </template>
-                  </template>
-                </div>
-              </template>
-              <div class="mobile-nav-group mobile-nav-group-collapsible">
-                <button
-                  type="button"
-                  class="mobile-nav-group-trigger"
-                  :aria-expanded="mobileClubMgmtExpanded ? 'true' : 'false'"
-                  @click="mobileClubMgmtExpanded = !mobileClubMgmtExpanded"
+                <details
+                  class="mobile-nav-group mobile-nav-group-collapsible"
+                  :open="mobileActiveSeasonsExpanded"
+                  @toggle="mobileActiveSeasonsExpanded = $event.target.open"
                 >
+                  <summary class="mobile-nav-group-trigger mobile-nav-active-season-trigger">
+                    <span>{{ sstcActiveSeasonNav.label }}</span>
+                    <span class="mobile-nav-group-caret" aria-hidden="true">▸</span>
+                  </summary>
+                  <template v-for="s in sstcActiveSeasonList" :key="`mob-as-mgr-${s.id}`">
+                    <router-link
+                      :to="s.to"
+                      @click="closeMobileMenu"
+                      class="mobile-nav-link mobile-nav-sublink"
+                    >{{ s.clubName }} — {{ s.name }}</router-link>
+                    <router-link
+                      v-if="s.teamTo"
+                      :to="s.teamTo"
+                      @click="closeMobileMenu"
+                      class="mobile-nav-link mobile-nav-sublink mobile-nav-team-sublink"
+                    >↳ {{ s.myTeamName }}</router-link>
+                  </template>
+                </details>
+              </template>
+              <details
+                class="mobile-nav-group mobile-nav-group-collapsible"
+                :open="mobileClubMgmtExpanded"
+                @toggle="mobileClubMgmtExpanded = $event.target.open"
+              >
+                <summary class="mobile-nav-group-trigger">
                   <span>Club Management</span>
-                  <span class="mobile-nav-group-caret" :class="{ open: mobileClubMgmtExpanded }" aria-hidden="true">▸</span>
-                </button>
-                <template v-if="mobileClubMgmtExpanded">
-                  <router-link :to="orgTo('/club/seasons')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Season Management</router-link>
-                  <router-link :to="orgTo('/admin/users')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Members</router-link>
-                  <router-link :to="orgTo('/admin/surveys')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Surveys</router-link>
-                  <router-link :to="orgTo('/admin/company-events')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Club Events</router-link>
-                  <router-link :to="orgTo('/club/settings')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Club Settings</router-link>
-                </template>
-              </div>
+                  <span class="mobile-nav-group-caret" aria-hidden="true">▸</span>
+                </summary>
+                <router-link :to="orgTo('/club/seasons')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Season Management</router-link>
+                <router-link :to="orgTo('/admin/users')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Members</router-link>
+                <router-link :to="orgTo('/admin/surveys')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Surveys</router-link>
+                <router-link :to="orgTo('/admin/company-events')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Club Events</router-link>
+                <router-link :to="orgTo('/club/settings')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Club Settings</router-link>
+              </details>
               <router-link :to="orgTo('/notifications')" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
               <router-link
                 v-if="showSscMessagesLink"
@@ -937,26 +928,23 @@
                   @click="closeMobileMenu"
                   class="mobile-nav-link"
                 >{{ sstcMemberMyClubNav.label }}</router-link>
-                <div v-else class="mobile-nav-group mobile-nav-group-collapsible">
-                  <button
-                    type="button"
-                    class="mobile-nav-group-trigger"
-                    :aria-expanded="mobileMyClubsExpanded ? 'true' : 'false'"
-                    @click="mobileMyClubsExpanded = !mobileMyClubsExpanded"
-                  >
+                <details
+                  class="mobile-nav-group mobile-nav-group-collapsible"
+                  :open="mobileMyClubsExpanded"
+                  @toggle="mobileMyClubsExpanded = $event.target.open"
+                >
+                  <summary class="mobile-nav-group-trigger">
                     <span>{{ sstcMemberMyClubNav.label }}</span>
-                    <span class="mobile-nav-group-caret" :class="{ open: mobileMyClubsExpanded }" aria-hidden="true">▸</span>
-                  </button>
-                  <template v-if="mobileMyClubsExpanded">
-                    <router-link
-                      v-for="club in sstcMyClubsList"
-                      :key="`mob-mc-mem-${club.id}`"
-                      :to="club.to"
-                      @click="closeMobileMenu"
-                      class="mobile-nav-link mobile-nav-sublink"
-                    >{{ club.name }}</router-link>
-                  </template>
-                </div>
+                    <span class="mobile-nav-group-caret" aria-hidden="true">▸</span>
+                  </summary>
+                  <router-link
+                    v-for="club in sstcMyClubsList"
+                    :key="`mob-mc-mem-${club.id}`"
+                    :to="club.to"
+                    @click="closeMobileMenu"
+                    class="mobile-nav-link mobile-nav-sublink"
+                  >{{ club.name }}</router-link>
+                </details>
               </template>
               <template v-if="sstcActiveSeasonNav">
                 <template v-if="!sstcActiveSeasonNav.isDropdown">
@@ -972,32 +960,29 @@
                     @click="closeMobileMenu"
                   >↳ {{ sstcActiveSeasonList[0].myTeamName }}</router-link>
                 </template>
-                <div v-else class="mobile-nav-group mobile-nav-group-collapsible">
-                  <button
-                    type="button"
-                    class="mobile-nav-group-trigger mobile-nav-active-season-trigger"
-                    :aria-expanded="mobileActiveSeasonsExpanded ? 'true' : 'false'"
-                    @click="mobileActiveSeasonsExpanded = !mobileActiveSeasonsExpanded"
-                  >
+                <details
+                  class="mobile-nav-group mobile-nav-group-collapsible"
+                  :open="mobileActiveSeasonsExpanded"
+                  @toggle="mobileActiveSeasonsExpanded = $event.target.open"
+                >
+                  <summary class="mobile-nav-group-trigger mobile-nav-active-season-trigger">
                     <span>{{ sstcActiveSeasonNav.label }}</span>
-                    <span class="mobile-nav-group-caret" :class="{ open: mobileActiveSeasonsExpanded }" aria-hidden="true">▸</span>
-                  </button>
-                  <template v-if="mobileActiveSeasonsExpanded">
-                    <template v-for="s in sstcActiveSeasonList" :key="`mob-as-mem-${s.id}`">
-                      <router-link
-                        :to="s.to"
-                        @click="closeMobileMenu"
-                        class="mobile-nav-link mobile-nav-sublink"
-                      >{{ s.clubName }} — {{ s.name }}</router-link>
-                      <router-link
-                        v-if="s.teamTo"
-                        :to="s.teamTo"
-                        @click="closeMobileMenu"
-                        class="mobile-nav-link mobile-nav-sublink mobile-nav-team-sublink"
-                      >↳ {{ s.myTeamName }}</router-link>
-                    </template>
+                    <span class="mobile-nav-group-caret" aria-hidden="true">▸</span>
+                  </summary>
+                  <template v-for="s in sstcActiveSeasonList" :key="`mob-as-mem-${s.id}`">
+                    <router-link
+                      :to="s.to"
+                      @click="closeMobileMenu"
+                      class="mobile-nav-link mobile-nav-sublink"
+                    >{{ s.clubName }} — {{ s.name }}</router-link>
+                    <router-link
+                      v-if="s.teamTo"
+                      :to="s.teamTo"
+                      @click="closeMobileMenu"
+                      class="mobile-nav-link mobile-nav-sublink mobile-nav-team-sublink"
+                    >↳ {{ s.myTeamName }}</router-link>
                   </template>
-                </div>
+                </details>
               </template>
               <router-link
                 v-if="sstcMemberShowClubEvents"
@@ -5734,6 +5719,17 @@ onUnmounted(() => {
   color: rgba(255, 255, 255, 0.55);
   padding: 4px 20px 10px;
 }
+/* <details> reset — hide the native disclosure triangle */
+details.mobile-nav-group-collapsible {
+  display: block;
+}
+details.mobile-nav-group-collapsible > summary {
+  list-style: none;
+  display: flex;
+}
+details.mobile-nav-group-collapsible > summary::-webkit-details-marker {
+  display: none;
+}
 .mobile-nav-group-trigger {
   width: 100%;
   margin: 0;
@@ -5757,6 +5753,7 @@ onUnmounted(() => {
   color: white;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+  user-select: none;
 }
 .mobile-nav-group-trigger:hover {
   background-color: rgba(255, 255, 255, 0.1);
@@ -5771,7 +5768,12 @@ onUnmounted(() => {
   opacity: 0.75;
   transition: transform 0.15s ease;
 }
+/* Caret for JS-toggled groups (non-details, e.g. desktop directory nav) */
 .mobile-nav-group-caret.open {
+  transform: rotate(90deg);
+}
+/* Caret for native <details> groups */
+details[open].mobile-nav-group-collapsible .mobile-nav-group-caret {
   transform: rotate(90deg);
 }
 .mobile-nav-sublink {
