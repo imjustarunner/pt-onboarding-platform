@@ -927,6 +927,22 @@ export const completeWeeklyChallenge = async (req, res, next) => {
   }
 };
 
+export const clearWeeklyAssignment = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const { taskId, teamId } = req.body;
+    if (!classId || !taskId || !teamId) {
+      return res.status(400).json({ error: { message: 'taskId and teamId are required' } });
+    }
+    const canManage = await canManageChallenge({ user: req.user, classId });
+    if (!canManage) return res.status(403).json({ error: { message: 'Not authorized' } });
+    await ChallengeWeeklyAssignment.removeByTaskAndTeam(taskId, teamId);
+    return res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const setWeeklyAssignmentCompletionByManager = async (req, res, next) => {
   try {
     const classId = asInt(req.params.classId);

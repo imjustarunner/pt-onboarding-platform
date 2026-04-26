@@ -1608,17 +1608,23 @@
               <div v-for="team in teams" :key="team.id" class="assignment-row">
                 <span>{{ team.team_name }}</span>
                 <select :value="getAssignmentFor(t.id, team.id)?.provider_user_id" @change="(e) => updateAssignment(t.id, team.id, e.target.value)">
-                  <option value="">—</option>
+                  <option value="">— Unassigned —</option>
                   <option v-for="m in getTeamMembers(team.id)" :key="m.provider_user_id" :value="m.provider_user_id">{{ userDisplayName(m) }}</option>
                 </select>
-                <span v-if="getAssignmentFor(t.id, team.id)?.is_completed" class="badge-done">Done</span>
-                <button
-                  v-if="getAssignmentFor(t.id, team.id)"
-                  class="btn btn-secondary btn-sm"
-                  @click="setAssignmentCompletion(getAssignmentFor(t.id, team.id), !getAssignmentFor(t.id, team.id)?.is_completed)"
-                >
-                  {{ getAssignmentFor(t.id, team.id)?.is_completed ? 'Mark Incomplete' : 'Mark Complete' }}
-                </button>
+                <template v-if="getAssignmentFor(t.id, team.id)">
+                  <span v-if="getAssignmentFor(t.id, team.id)?.is_completed" class="badge-done">Done</span>
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    @click="setAssignmentCompletion(getAssignmentFor(t.id, team.id), !getAssignmentFor(t.id, team.id)?.is_completed)"
+                  >
+                    {{ getAssignmentFor(t.id, team.id)?.is_completed ? 'Mark Incomplete' : 'Mark Complete' }}
+                  </button>
+                  <button
+                    class="btn btn-sm clear-assignment-btn"
+                    title="Remove this assignment"
+                    @click="clearAssignment(t.id, team.id)"
+                  >✕ Clear</button>
+                </template>
               </div>
             </div>
           </div>
@@ -5351,17 +5357,36 @@ const getAssignmentFor = (taskId, teamId) =>
   weeklyAssignments.value.find((a) => Number(a.task_id) === Number(taskId) && Number(a.team_id) === Number(teamId));
 
 const updateAssignment = async (taskId, teamId, providerUserId) => {
-  if (!managingChallenge.value?.id || !providerUserId) return;
+  if (!managingChallenge.value?.id) return;
   try {
-    await api.post(`/learning-program-classes/${managingChallenge.value.id}/weekly-assignments`, {
-      taskId,
-      teamId,
-      providerUserId,
-      volunteered: false
-    });
+    if (!providerUserId) {
+      // "—" selected — clear the assignment
+      await api.delete(`/learning-program-classes/${managingChallenge.value.id}/weekly-assignments`, {
+        data: { taskId, teamId }
+      });
+    } else {
+      await api.post(`/learning-program-classes/${managingChallenge.value.id}/weekly-assignments`, {
+        taskId,
+        teamId,
+        providerUserId,
+        volunteered: false
+      });
+    }
     await loadWeeklyTasks();
   } catch (e) {
     alert(e?.response?.data?.error?.message || 'Failed to update assignment');
+  }
+};
+
+const clearAssignment = async (taskId, teamId) => {
+  if (!managingChallenge.value?.id) return;
+  try {
+    await api.delete(`/learning-program-classes/${managingChallenge.value.id}/weekly-assignments`, {
+      data: { taskId, teamId }
+    });
+    await loadWeeklyTasks();
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to clear assignment');
   }
 };
 
@@ -7412,6 +7437,13 @@ onMounted(async () => {
 }
 .rd-default-emoji { font-size: 1.25rem; line-height: 1; }
 .rd-icon-picker { flex-shrink: 0; }
+
+.clear-assignment-btn {
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  background: #fff;
+}
+.clear-assignment-btn:hover { background: #fef2f2; }
 
 .weekly-tasks-add-row {
   display: flex;

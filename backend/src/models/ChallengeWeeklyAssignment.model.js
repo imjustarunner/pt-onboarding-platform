@@ -127,6 +127,23 @@ class ChallengeWeeklyAssignment {
     await this.markCompleted(aId, { completedAt, notes, attachmentPath });
     return true;
   }
+
+  /** Remove the assignment for a given task + team (clears the person assigned). */
+  static async removeByTaskAndTeam(taskId, teamId) {
+    const tId = toInt(taskId);
+    const tmId = toInt(teamId);
+    if (!tId || !tmId) return false;
+    // Delete completions first (FK constraint), then the assignment
+    const [existing] = await pool.execute(
+      `SELECT id FROM challenge_weekly_assignments WHERE task_id = ? AND team_id = ? LIMIT 1`,
+      [tId, tmId]
+    );
+    const aId = existing?.[0]?.id;
+    if (!aId) return false;
+    await pool.execute(`DELETE FROM challenge_weekly_completions WHERE assignment_id = ?`, [aId]);
+    await pool.execute(`DELETE FROM challenge_weekly_assignments WHERE id = ?`, [aId]);
+    return true;
+  }
 }
 
 export default ChallengeWeeklyAssignment;

@@ -111,6 +111,7 @@ import {
   listMyByeWeeks,
   declareByeWeek,
   upsertWeeklyAssignment,
+  clearWeeklyAssignment,
   getWeeklyTaskDetail,
   completeWeeklyChallenge,
   setWeeklyAssignmentCompletionByManager,
@@ -268,6 +269,7 @@ router.get('/:classId/weekly-assignments', listWeeklyAssignments);
 router.get('/:classId/bye-weeks/my', listMyByeWeeks);
 router.post('/:classId/bye-weeks/declare', declareByeWeek);
 router.post('/:classId/weekly-assignments', upsertWeeklyAssignment);
+router.delete('/:classId/weekly-assignments', clearWeeklyAssignment);
 router.post('/:classId/weekly-assignments/:assignmentId/complete', completeWeeklyChallenge);
 router.put('/:classId/weekly-assignments/:assignmentId/completion', setWeeklyAssignmentCompletionByManager);
 router.post('/:classId/close-week', closeWeek);
