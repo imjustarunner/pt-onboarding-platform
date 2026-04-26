@@ -8,7 +8,7 @@
 
 ALTER TABLE challenge_member_award_grants
   ADD COLUMN week_number SMALLINT UNSIGNED NULL AFTER week_start_date,
-  ADD COLUMN workout_id  BIGINT UNSIGNED NULL AFTER week_number,
+  ADD COLUMN workout_id  INT NULL AFTER week_number,
   ADD INDEX idx_class_week (learning_class_id, week_number),
   ADD CONSTRAINT fk_grant_workout
     FOREIGN KEY (workout_id) REFERENCES challenge_workouts(id) ON DELETE SET NULL;
