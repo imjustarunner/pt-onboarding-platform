@@ -116,6 +116,18 @@
     <div v-if="iconPickOpen" class="feed-modal-backdrop" @click.self="iconPickOpen = false">
       <div class="feed-modal feed-modal--wide feed-modal--tall" role="dialog">
         <h4 class="feed-modal-title">Club icons</h4>
+        <div class="feed-icon-tabs">
+          <button
+            type="button"
+            :class="['feed-icon-tab', { active: iconPickerTab === 'comment' }]"
+            @click="switchIconTab('comment')"
+          >Comment</button>
+          <button
+            type="button"
+            :class="['feed-icon-tab', { active: iconPickerTab === 'reaction' }]"
+            @click="switchIconTab('reaction')"
+          >Reaction</button>
+        </div>
         <div v-if="iconsLoading" class="feed-icons-loading">Loading…</div>
         <div v-else class="feed-icon-grid">
           <button
@@ -129,7 +141,10 @@
             <img :src="ic.url" :alt="ic.name || ''" loading="lazy" />
           </button>
         </div>
-        <p v-if="!iconsLoading && !clubIconsList.length" class="feed-icons-empty">No icons uploaded for this club yet.</p>
+        <p v-if="!iconsLoading && !clubIconsList.length" class="feed-icons-empty">
+          No {{ iconPickerTab }} icons found for this club.
+          Ask your manager to tag icons in the Icon Library with the appropriate sub-category.
+        </p>
         <button type="button" class="feed-modal-cancel" @click="iconPickOpen = false">Close</button>
       </div>
     </div>
@@ -428,6 +443,7 @@ const emojiTarget = ref('club');
 const symbolPickOpen = ref(false);
 const symbolTarget = ref('club');
 const iconPickOpen = ref(false);
+const iconPickerTab = ref('comment'); // 'comment' | 'reaction'
 const clubIconsList = ref([]);
 const iconsLoading = ref(false);
 const clubTextareaRef = ref(null);
@@ -564,19 +580,37 @@ const insertSymbol = (ch) => {
   symbolPickOpen.value = false;
 };
 
-const openIconPicker = async () => {
-  if (props.usePublicFeedEndpoint || !props.clubId) return;
-  iconPickOpen.value = true;
+const ICON_TAB_SUBCATEGORY = { comment: 'commenticon', reaction: 'Reactions' };
+
+const fetchIconsForTab = async (tab) => {
+  if (!props.clubId) return;
   iconsLoading.value = true;
   clubIconsList.value = [];
   try {
-    const r = await api.get(`/summit-stats/clubs/${props.clubId}/icons`, { skipGlobalLoading: true });
+    const subCategory = ICON_TAB_SUBCATEGORY[tab] || 'commenticon';
+    const r = await api.get(`/summit-stats/clubs/${props.clubId}/icons`, {
+      params: { subCategory },
+      skipGlobalLoading: true
+    });
     clubIconsList.value = Array.isArray(r.data?.icons) ? r.data.icons : [];
   } catch {
     clubIconsList.value = [];
   } finally {
     iconsLoading.value = false;
   }
+};
+
+const openIconPicker = async () => {
+  if (props.usePublicFeedEndpoint || !props.clubId) return;
+  iconPickerTab.value = 'comment';
+  iconPickOpen.value = true;
+  await fetchIconsForTab('comment');
+};
+
+const switchIconTab = async (tab) => {
+  if (iconPickerTab.value === tab) return;
+  iconPickerTab.value = tab;
+  await fetchIconsForTab(tab);
 };
 
 const insertClubIcon = (ic) => {
@@ -1136,6 +1170,28 @@ onUnmounted(() => {
   background: #eff6ff;
 }
 
+.feed-icon-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.feed-icon-tab {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  color: #64748b;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.feed-icon-tab.active {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
 .feed-icon-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));

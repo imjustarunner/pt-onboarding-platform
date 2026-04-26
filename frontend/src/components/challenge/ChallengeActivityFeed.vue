@@ -621,11 +621,11 @@
             <!-- Inline icon picker -->
             <div v-if="commentIconPickerOpen[w.id]" class="comment-icon-picker" @click.stop>
               <div class="icon-picker-tabs">
-                <button type="button" :class="['icon-tab', { active: (commentIconTab[w.id] || 'tenant') === 'tenant' }]" @click="commentIconTab[w.id] = 'tenant'; loadCommentIcons(w.id)">Club Platform</button>
-                <button type="button" :class="['icon-tab', { active: commentIconTab[w.id] === 'club' }]" @click="commentIconTab[w.id] = 'club'; loadCommentIcons(w.id)">Club Only</button>
+                <button type="button" :class="['icon-tab', { active: (commentIconTab[w.id] || 'reaction') === 'reaction' }]" @click="commentIconTab[w.id] = 'reaction'; loadCommentIcons(w.id)">Reaction</button>
+                <button type="button" :class="['icon-tab', { active: commentIconTab[w.id] === 'comment' }]" @click="commentIconTab[w.id] = 'comment'; loadCommentIcons(w.id)">Comment</button>
               </div>
               <div v-if="commentIconsLoading[w.id]" class="icon-picker-loading">Loading…</div>
-              <div v-else-if="(commentIconsList[w.id] || []).length === 0" class="icon-picker-empty">No comment icons yet. Ask your manager to add some in Icon Library → Comment Icon.</div>
+              <div v-else-if="(commentIconsList[w.id] || []).length === 0" class="icon-picker-empty">No {{ commentIconTab[w.id] === 'comment' ? 'comment' : 'reaction' }} icons yet. Ask your manager to add icons in the Icon Library with the correct sub-category.</div>
               <div v-else class="icon-picker-grid">
                 <button
                   v-for="icon in (commentIconsList[w.id] || [])"
@@ -1284,24 +1284,33 @@ const onCommentAttachFile = async (e, workoutId) => {
 const toggleCommentIconPicker = (workoutId) => {
   const isOpen = commentIconPickerOpen.value[workoutId];
   commentIconPickerOpen.value = { ...commentIconPickerOpen.value, [workoutId]: !isOpen };
-  if (!isOpen) loadCommentIcons(workoutId);
+  if (!isOpen) {
+    // Default to 'reaction' tab when opening for a workout response
+    if (!commentIconTab.value[workoutId]) {
+      commentIconTab.value = { ...commentIconTab.value, [workoutId]: 'reaction' };
+    }
+    loadCommentIcons(workoutId);
+  }
 };
+
+const COMMENT_TAB_SUBCATEGORY = { reaction: 'Reactions', comment: 'commenticon' };
 
 const loadCommentIcons = async (workoutId) => {
   commentIconsLoading.value = { ...commentIconsLoading.value, [workoutId]: true };
   try {
-    const tab = commentIconTab.value[workoutId] || 'tenant';
+    const tab = commentIconTab.value[workoutId] || 'reaction';
+    const subCategory = COMMENT_TAB_SUBCATEGORY[tab] || 'Reactions';
     let icons = [];
-    if (tab === 'club' && props.challengeId) {
-      // Fetch club-specific icons via the club icons endpoint
+    if (props.challengeId) {
+      // Fetch via club icons endpoint which includes club + tenant + platform icons
       const r = await api.get(`/summit-stats/clubs/${props.challengeId}/icons`, {
-        params: { subCategory: 'commenticon', limit: 60 },
+        params: { subCategory, limit: 60 },
         skipGlobalLoading: true
       });
       icons = Array.isArray(r.data?.icons) ? r.data.icons : [];
     } else {
       const r = await api.get('/icons', {
-        params: { subCategory: 'commenticon', limit: 60 },
+        params: { subCategory, limit: 60 },
         skipGlobalLoading: true
       });
       icons = Array.isArray(r.data?.icons) ? r.data.icons : [];
