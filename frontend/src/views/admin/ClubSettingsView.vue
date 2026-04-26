@@ -342,7 +342,19 @@
               </div>
               <div class="cr-field cr-field--sm">
                 <label class="cr-field-label">Current record value</label>
-                <div class="cr-value-wrap">
+                <!-- Race chip time: display as H:MM:SS -->
+                <div v-if="record.metricKey === 'race_chip_time_seconds'" class="cr-value-wrap">
+                  <input
+                    :value="getRaceTimeDisplay(record)"
+                    type="text"
+                    placeholder="H:MM:SS or M:SS"
+                    class="cr-input"
+                    @change="e => setRaceTimeFromInput(record, e.target.value)"
+                  />
+                  <span class="cr-unit-badge">time</span>
+                </div>
+                <!-- All other metrics: numeric -->
+                <div v-else class="cr-value-wrap">
                   <input v-model.number="record.value" type="number" step="0.01" placeholder="0" class="cr-input" />
                   <span v-if="recordUnitForMetric(record.metricKey)" class="cr-unit-badge">{{ recordUnitForMetric(record.metricKey) }}</span>
                 </div>
@@ -401,10 +413,23 @@
               </div>
             </div>
 
+            <!-- Gender filter -->
+            <div class="cr-row">
+              <div class="cr-field cr-field--sm">
+                <label class="cr-field-label">Gender <span class="cr-optional">(filter)</span></label>
+                <select v-model="record.gender" class="cr-select">
+                  <option value="">Open (any gender)</option>
+                  <option value="male">Men</option>
+                  <option value="female">Women</option>
+                </select>
+              </div>
+            </div>
+
             <!-- Filter summary pill -->
-            <div v-if="record.activityType || record.terrain" class="cr-filter-pill">
+            <div v-if="record.activityType || record.terrain || record.gender" class="cr-filter-pill">
               Matches: <strong>{{ record.activityType || 'Any activity' }}</strong>
               <template v-if="record.terrain"> · <strong>{{ record.terrain }}</strong></template>
+              <template v-if="record.gender"> · <strong>{{ record.gender === 'male' ? 'Men' : 'Women' }}</strong></template>
               workouts only
             </div>
 
@@ -1107,6 +1132,30 @@ const recordLowerIsBetter = (metricKey) => {
   return opt?.lowerIsBetter || false;
 };
 
+// Race chip time helpers: convert between total seconds and H:MM:SS / M:SS display
+const secondsToTimeStr = (totalSeconds) => {
+  const s = Math.round(Number(totalSeconds) || 0);
+  if (s <= 0) return '';
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  return `${m}:${String(sec).padStart(2, '0')}`;
+};
+const timeStrToSeconds = (str) => {
+  const parts = String(str || '').trim().split(':').map(Number);
+  if (parts.some(isNaN)) return null;
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 1 && parts[0] > 0) return parts[0];
+  return null;
+};
+const getRaceTimeDisplay = (record) => secondsToTimeStr(record.value);
+const setRaceTimeFromInput = (record, val) => {
+  const secs = timeStrToSeconds(val);
+  record.value = secs != null ? secs : record.value;
+};
+
 const normalizedHex = (raw, fallback) => {
   const src = String(raw || '').trim();
   if (!src) return fallback;
@@ -1671,6 +1720,7 @@ const loadClubRecords = async () => {
         metricKey: r.metricKey || '',
         activityType: r.activityType || '',
         terrain: r.terrain || '',
+        gender: r.gender || '',
         raceDistance: r.raceDistance != null ? Number(r.raceDistance) : null,
         holderName: r.holderName || '',
         holderYear: r.holderYear ?? null,
@@ -1694,6 +1744,7 @@ const addRecord = () => {
     metricKey: '',
     activityType: '',
     terrain: '',
+    gender: '',
     raceDistance: null,
     holderName: '',
     holderYear: null,
@@ -1721,6 +1772,7 @@ const saveRecords = async () => {
         metricKey: String(r.metricKey || '').trim() || null,
         activityType: String(r.activityType || '').trim() || null,
         terrain: String(r.terrain || '').trim() || null,
+        gender: String(r.gender || '').trim() || null,
         raceDistance: r.raceDistance != null && Number.isFinite(Number(r.raceDistance)) ? Number(r.raceDistance) : null,
         holderName: String(r.holderName || '').trim(),
         holderYear: Number.isFinite(Number(r.holderYear)) ? Math.trunc(Number(r.holderYear)) : null,

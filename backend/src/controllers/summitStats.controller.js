@@ -116,6 +116,7 @@ const normalizeClubRecords = (input) => {
       metricKey,
       activityType: String(row?.activityType || '').trim() || null,
       terrain: String(row?.terrain || '').trim() || null,
+      gender: String(row?.gender || '').trim().toLowerCase() || null,
       raceDistance: normalizeRaceDistance(row?.raceDistance),
       lowerIsBetter: lowerIsBetterMetrics.has(metricKey),
       holderName: String(row?.holderName || '').trim(),
@@ -159,6 +160,7 @@ const mergeSeedRecords = ({ existingRecords, incomingRecords }) => {
       metricKey: incoming.metricKey || prev.metricKey || null,
       activityType: incoming.activityType != null ? incoming.activityType : (prev.activityType || null),
       terrain: incoming.terrain != null ? incoming.terrain : (prev.terrain || null),
+      gender: incoming.gender != null ? incoming.gender : (prev.gender || null),
       raceDistance: incoming.raceDistance != null ? incoming.raceDistance : (prev.raceDistance || null),
       holderName: incoming.holderName,
       holderYear: incoming.holderYear,
@@ -1540,6 +1542,23 @@ export const queueClubRecordBreakCandidates = async ({ learningClassId, workoutI
   const workoutTerrain = String(workout.terrain || '').trim().toLowerCase();
   const completedAt = workout.completed_at ? new Date(workout.completed_at) : new Date();
 
+  // Fetch the submitting user's gender (from application or participant profile for this season)
+  let userGender = null;
+  try {
+    const [gRows] = await pool.execute(
+      `SELECT COALESCE(
+         (SELECT gender FROM challenge_member_applications
+          WHERE learning_class_id = ? AND user_id = ? AND gender IS NOT NULL AND gender != ''
+          ORDER BY id DESC LIMIT 1),
+         (SELECT gender FROM challenge_participant_profiles
+          WHERE learning_class_id = ? AND provider_user_id = ? AND gender IS NOT NULL AND gender != ''
+          ORDER BY updated_at DESC LIMIT 1)
+       ) AS gender`,
+      [classId, uId, classId, uId]
+    );
+    userGender = String(gRows?.[0]?.gender || '').trim().toLowerCase() || null;
+  } catch { /* gender filter will be skipped if lookup fails */ }
+
   // Helper: get aggregated candidate value for period-based or club-wide metrics
   const getAggregatedValue = async (metricKey) => {
     if (metricKey === 'weekly_distance_miles') {
@@ -1675,6 +1694,14 @@ export const queueClubRecordBreakCandidates = async ({ learningClassId, workoutI
     // Terrain filter
     if (record.terrain) {
       if (workoutTerrain !== String(record.terrain).trim().toLowerCase()) continue;
+    }
+
+    // Gender filter
+    if (record.gender && userGender) {
+      if (userGender !== String(record.gender).trim().toLowerCase()) continue;
+    } else if (record.gender && !userGender) {
+      // If record requires a gender but user's gender is unknown, skip to be safe
+      continue;
     }
 
     let candidateValue;
