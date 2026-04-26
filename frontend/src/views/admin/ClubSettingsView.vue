@@ -363,6 +363,7 @@
                   <option value="Trail">Trail</option>
                   <option value="Track">Track</option>
                   <option value="Treadmill">Treadmill</option>
+                  <option value="Beach">Beach</option>
                   <option value="Indoor">Indoor</option>
                 </select>
               </div>
