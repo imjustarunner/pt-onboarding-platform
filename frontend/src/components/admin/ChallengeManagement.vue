@@ -1451,6 +1451,12 @@
               <div class="weekly-task-card-header">
                 <strong class="task-num">Weekly challenge {{ i + 1 }}</strong>
                 <div class="task-header-actions">
+                  <button
+                    v-if="weeklyTasksForm.length > 1"
+                    class="btn btn-ghost btn-xs remove-task-btn"
+                    @click="weeklyTasksForm.splice(i, 1)"
+                    title="Remove this challenge slot"
+                  >✕ Remove</button>
                   <label class="season-long-toggle">
                     <input type="checkbox" v-model="t.isSeasonLong" />
                     Season-long
@@ -1588,6 +1594,11 @@
 
               <div class="hint" v-if="t.confidenceScore != null">AI confidence: {{ t.confidenceScore }}%</div>
             </div>
+          </div>
+          <div class="weekly-tasks-add-row">
+            <button class="btn btn-secondary btn-sm" @click="weeklyTasksForm.push(defaultTask())">
+              + Add challenge
+            </button>
           </div>
           <div v-if="weeklyTasksWithIds.length && teams.length" class="weekly-assignments">
             <h4>Assignments</h4>
@@ -2970,7 +2981,7 @@ const defaultTask = () => ({
   confidenceScore: null, isSeasonLong: false, criteriaJson: defaultCriteria()
 });
 
-const weeklyTasksForm = ref([defaultTask(), defaultTask(), defaultTask()]);
+const weeklyTasksForm = ref([defaultTask()]);
 const weeklyTasksSaving = ref(false);
 
 // Criteria builder state
@@ -5231,11 +5242,9 @@ const loadWeeklyTasks = async () => {
         criteriaJson: crit
       };
     };
-    weeklyTasksForm.value = [
-      toTaskForm(tasks[0]),
-      toTaskForm(tasks[1]),
-      toTaskForm(tasks[2])
-    ];
+    // Load however many tasks were saved; pad to at least 1 empty slot if none exist
+    const loadedForms = tasks.map(toTaskForm);
+    weeklyTasksForm.value = loadedForms.length ? loadedForms : [defaultTask()];
     weeklyAssignments.value = Array.isArray(assignRes.data?.assignments) ? assignRes.data.assignments : [];
     weeklyTasksWithIds.value = tasks;
     for (const team of teams.value) {
@@ -5250,7 +5259,7 @@ const loadWeeklyTasks = async () => {
     }
     await loadNoShowAlerts();
   } catch {
-    weeklyTasksForm.value = [defaultTask(), defaultTask(), defaultTask()];
+    weeklyTasksForm.value = [defaultTask()];
     weeklyAssignments.value = [];
   }
 };
@@ -5424,7 +5433,7 @@ const generateWeeklyAiDraft = async () => {
         criteriaJson: crit
       };
     };
-    weeklyTasksForm.value = [toAiTask(tasks[0]), toAiTask(tasks[1]), toAiTask(tasks[2])];
+    weeklyTasksForm.value = tasks.map(toAiTask);
   } catch (e) {
     alert(e?.response?.data?.error?.message || 'Failed to generate weekly AI draft');
   } finally {
@@ -7403,6 +7412,19 @@ onMounted(async () => {
 }
 .rd-default-emoji { font-size: 1.25rem; line-height: 1; }
 .rd-icon-picker { flex-shrink: 0; }
+
+.weekly-tasks-add-row {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 8px;
+}
+.remove-task-btn {
+  color: #dc2626;
+  border-color: #fecaca;
+}
+.remove-task-btn:hover {
+  background: #fef2f2;
+}
 
 /* Weekly task preview overlay */
 .cm-preview-overlay {
