@@ -1104,7 +1104,7 @@ export const bulkUploadIcons = async (req, res, next) => {
 
 export const bulkEditIcons = async (req, res, next) => {
   try {
-    const { iconIds, name, category, agencyId, description } = req.body;
+    const { iconIds, name, category, agencyId, description, activityType, subCategory } = req.body;
 
     if (!iconIds || !Array.isArray(iconIds) || iconIds.length === 0) {
       return res.status(400).json({ error: { message: 'iconIds array is required and must not be empty' } });
@@ -1116,6 +1116,8 @@ export const bulkEditIcons = async (req, res, next) => {
     if (category !== undefined) updateData.category = category || null;
     if (agencyId !== undefined) updateData.agencyId = agencyId || null;
     if (description !== undefined) updateData.description = description || null;
+    if (activityType !== undefined) updateData.activityType = activityType ? String(activityType).trim().slice(0, 64) : null;
+    if (subCategory !== undefined) updateData.subCategory = subCategory ? String(subCategory).trim().slice(0, 64) : null;
 
     if (Object.keys(updateData).length === 0) {
       return res.status(400).json({ error: { message: 'At least one field must be provided for update' } });

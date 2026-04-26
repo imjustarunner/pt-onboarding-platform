@@ -35,7 +35,19 @@
           <option value="agency_name">Sort by Agency</option>
         </select>
       </div>
-      <!-- Bulk Actions Toolbar (Super Admin Only) -->
+      <!-- Select mode toggle -->
+      <div class="select-mode-row">
+        <button
+          v-if="!selectModeOn"
+          type="button"
+          class="btn btn-secondary btn-sm"
+          @click="selectModeOn = true"
+        >☑ Select Multiple</button>
+        <template v-if="selectModeOn">
+          <button type="button" class="btn btn-secondary btn-sm" @click="selectModeOn = false; selectedIcons.value = []">✕ Cancel Selection</button>
+        </template>
+      </div>
+      <!-- Bulk Actions Toolbar -->
       <div v-if="isSelectMode && selectedIcons.length > 0" class="bulk-actions-toolbar">
         <span class="selected-count">{{ selectedIcons.length }} icon(s) selected</span>
         <button @click="showBulkEditModal = true" class="btn btn-primary btn-sm">Edit Selected</button>
@@ -139,10 +151,7 @@
           <div class="form-group">
             <label>Activity Type</label>
             <select v-model="iconForm.activityType" class="form-select">
-              <option value="">— None —</option>
-              <option value="Running">Running</option>
-              <option value="Rucking">Rucking</option>
-              <option value="General Fitness">General Fitness</option>
+              <option v-for="opt in ALL_ACTIVITY_TYPES" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
             </select>
           </div>
           <div class="form-group">
@@ -465,6 +474,26 @@
             </select>
           </div>
           <div class="form-group">
+            <label>Activity Type</label>
+            <select v-model="bulkEditForm.activityType">
+              <option :value="undefined">Keep current</option>
+              <option v-for="opt in ALL_ACTIVITY_TYPES" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
+            <small>If selected, will update all selected icons to this activity type</small>
+          </div>
+          <div class="form-group">
+            <label>Sub-category</label>
+            <select v-model="bulkEditForm.subCategory">
+              <option :value="undefined">Keep current</option>
+              <option value="">— None —</option>
+              <option value="Challenge">Challenge</option>
+              <option value="Award">Award</option>
+              <option value="Reactions">Reactions</option>
+              <option value="commenticon">Comment Icon</option>
+            </select>
+            <small>If selected, will update all selected icons to this sub-category</small>
+          </div>
+          <div class="form-group">
             <label>Description</label>
             <textarea v-model="bulkEditForm.description" rows="3" placeholder="Leave empty to keep current descriptions"></textarea>
             <small>If provided, will update all selected icons to this description</small>
@@ -547,11 +576,34 @@ const defaultSubCategory = ref('');
 const uploadedIconIds = ref(new Set()); // Track successfully uploaded icons
 const failedIcons = ref([]); // Track failed icons with error messages
 
-// Bulk selection state (Super Admin only)
+// Bulk selection state
 const selectedIcons = ref([]);
 const showBulkEditModal = ref(false);
 const showBulkDeleteConfirm = ref(false);
-const isSelectMode = computed(() => authStore.user?.role === 'super_admin');
+const selectModeOn = ref(false);
+const isSelectMode = computed(() => selectModeOn.value || authStore.user?.role === 'super_admin');
+
+const ALL_ACTIVITY_TYPES = [
+  { value: '', label: '— None —' },
+  { value: 'run', label: 'Run' },
+  { value: 'ruck', label: 'Ruck' },
+  { value: 'walk', label: 'Walk / Hike' },
+  { value: 'cycling', label: 'Cycling' },
+  { value: 'steps', label: 'Steps' },
+  { value: 'workout_session', label: 'Workout Session' },
+  { value: 'swimming', label: 'Swimming' },
+  { value: 'rowing', label: 'Rowing' },
+  { value: 'yoga', label: 'Yoga' },
+  { value: 'pilates', label: 'Pilates' },
+  { value: 'crossfit', label: 'CrossFit' },
+  { value: 'strength', label: 'Strength Training' },
+  { value: 'hiit', label: 'HIIT' },
+  { value: 'elliptical', label: 'Elliptical' },
+  { value: 'stair_climber', label: 'Stair Climber' },
+  { value: 'paddling', label: 'Paddling / Kayak' },
+  { value: 'skiing', label: 'Skiing / Snowboard' },
+  { value: 'general', label: 'General Fitness' },
+];
 
 const iconForm = ref({
   name: '',
@@ -991,6 +1043,8 @@ const bulkEditForm = ref({
   name: '',
   category: '',
   agencyId: undefined,
+  activityType: undefined,
+  subCategory: undefined,
   description: ''
 });
 
@@ -1007,6 +1061,12 @@ const saveBulkEdit = async () => {
     if (bulkEditForm.value.agencyId !== undefined) {
       updateData.agencyId = bulkEditForm.value.agencyId || null;
     }
+    if (bulkEditForm.value.activityType !== undefined) {
+      updateData.activityType = bulkEditForm.value.activityType || null;
+    }
+    if (bulkEditForm.value.subCategory !== undefined) {
+      updateData.subCategory = bulkEditForm.value.subCategory ?? null;
+    }
     if (bulkEditForm.value.description !== undefined) {
       updateData.description = bulkEditForm.value.description || null;
     }
@@ -1022,7 +1082,7 @@ const saveBulkEdit = async () => {
     });
 
     showBulkEditModal.value = false;
-    bulkEditForm.value = { name: '', category: '', agencyId: undefined, description: '' };
+    bulkEditForm.value = { name: '', category: '', agencyId: undefined, activityType: undefined, subCategory: undefined, description: '' };
     clearSelection();
     fetchIcons();
   } catch (err) {
@@ -1389,6 +1449,13 @@ onMounted(async () => {
 
 .library-controls {
   margin-bottom: 24px;
+}
+
+.select-mode-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .search-controls {
