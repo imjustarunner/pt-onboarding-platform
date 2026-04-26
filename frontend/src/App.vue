@@ -806,7 +806,6 @@
         v-if="isAuthenticated && !hideGlobalNavForSchoolStaff"
         class="mobile-sidebar"
         :class="{ open: mobileMenuOpen }"
-        @click.self="mobileMenuOpen = false"
       >
         <div class="mobile-sidebar-content">
           <div class="mobile-sidebar-header">
@@ -5810,8 +5809,8 @@ onUnmounted(() => {
 .mobile-overlay {
   position: fixed;
   top: 0;
-  left: 280px; /* starts after the sidebar so it never covers sidebar tap targets */
-  right: 0;
+  left: 0;
+  width: 100%;
   height: 100%;
   background-color: rgba(0, 0, 0, 0.5);
   z-index: 999;
