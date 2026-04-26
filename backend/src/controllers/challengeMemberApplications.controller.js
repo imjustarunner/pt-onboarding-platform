@@ -14,7 +14,7 @@ import config from '../config/config.js';
 import { verifyRecaptchaV3 } from '../services/captcha.service.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { resolvePreferredSenderIdentityForAgency } from '../services/emailSenderIdentityResolver.service.js';
-import { getPlatformAgencyId, getPlatformAgencyIds } from './summitStats.controller.js';
+import { getPlatformAgencyId, getPlatformAgencyIds, computeRaceClubMemberships } from './summitStats.controller.js';
 import { sqlAffiliationUnderSummitPlatform } from '../utils/summitPlatformClubs.js';
 import { buildRaceDivisions, buildRecordMetricMap } from './challenges.controller.js';
 import { callGeminiText } from '../services/geminiText.service.js';
@@ -5354,8 +5354,15 @@ export const listClubMembersDirectoryPublic = async (req, res, next) => {
     if (!club) return res.status(404).json({ error: { message: 'Club not found' } });
     const clubId = Number(club.id);
 
+    // Read club's name format preference
+    const [cfgRows] = await pool.execute(
+      `SELECT store_config_json FROM agencies WHERE id = ? LIMIT 1`, [clubId]
+    );
+    const { rosterNameFormat } = buildPublicPageConfig(cfgRows?.[0]?.store_config_json);
+    const fmt = rosterNameFormat || 'full';
+
     const [rows] = await pool.execute(
-      `SELECT u.first_name, u.last_name, u.profile_photo_path,
+      `SELECT u.id AS user_id, u.first_name, u.last_name, u.profile_photo_path,
               u.home_city, u.home_state,
               COALESCE(ua.club_role, 'member') AS club_role,
               COALESCE(st.total_miles, 0) AS total_miles,
@@ -5393,11 +5400,17 @@ export const listClubMembersDirectoryPublic = async (req, res, next) => {
       let publicRole = 'member';
       if (cr === 'manager') publicRole = 'manager';
       else if (cr === 'assistant_manager') publicRole = 'assistant_manager';
-      const firstName = String(r.first_name || '').trim() || 'Member';
+      const fn = String(r.first_name || '').trim();
+      const ln = String(r.last_name || '').trim();
+      let displayName;
+      if (fmt === 'initial_last') {
+        displayName = fn && ln ? `${fn.charAt(0).toUpperCase()}. ${ln}` : fn || ln || 'Member';
+      } else {
+        displayName = ln ? `${fn} ${ln.charAt(0).toUpperCase()}.`.trim() : fn || 'Member';
+      }
       return {
-        firstName,
-        /** @deprecated use firstName for public roster */
-        displayName: firstName,
+        id: r.user_id,       // needed for clickable public profiles
+        displayName,
         publicRole,
         profilePhotoUrl: publicUploadsUrlFromStoredPath(r.profile_photo_path),
         homeCity: r.home_city || null,
@@ -5409,10 +5422,127 @@ export const listClubMembersDirectoryPublic = async (req, res, next) => {
       };
     });
 
-    return res.json({ members, public: true });
+    return res.json({ members, public: true, rosterNameFormat: fmt });
   } catch (e) {
     next(e);
   }
+};
+
+/**
+ * GET /summit-stats/clubs/:id/members/:userId/public-profile
+ * No authentication required — limited public profile:
+ * formatted name, avatar, role, city/state, all-time stats in club,
+ * race club badges, and club records held by this member.
+ */
+export const getPublicClubMemberProfile = async (req, res, next) => {
+  try {
+    const clubRef = String(req.params.id || '').trim();
+    const club = await resolveClubByPublicRef(clubRef);
+    const targetUserId = toInt(req.params.userId);
+    if (!club || !targetUserId) return res.status(400).json({ error: { message: 'Invalid club or user' } });
+    const clubId = Number(club.id);
+
+    // Verify the target is an active member
+    const [memRows] = await pool.execute(
+      `SELECT u.id, u.first_name, u.last_name, u.profile_photo_path, u.home_city, u.home_state,
+              COALESCE(ua.club_role, 'member') AS club_role
+       FROM user_agencies ua
+       INNER JOIN users u ON u.id = ua.user_id
+       WHERE ua.user_id = ? AND ua.agency_id = ? AND ua.is_active = 1 LIMIT 1`,
+      [targetUserId, clubId]
+    );
+    const u = memRows?.[0];
+    if (!u) return res.status(404).json({ error: { message: 'Member not found' } });
+
+    // Read name format preference
+    const [cfgRows] = await pool.execute(`SELECT store_config_json FROM agencies WHERE id = ? LIMIT 1`, [clubId]);
+    const { rosterNameFormat } = buildPublicPageConfig(cfgRows?.[0]?.store_config_json);
+    const fmt = rosterNameFormat || 'full';
+    const fn = String(u.first_name || '').trim();
+    const ln = String(u.last_name || '').trim();
+    let displayName;
+    if (fmt === 'initial_last') {
+      displayName = fn && ln ? `${fn.charAt(0).toUpperCase()}. ${ln}` : fn || ln || 'Member';
+    } else {
+      displayName = ln ? `${fn} ${ln.charAt(0).toUpperCase()}.`.trim() : fn || 'Member';
+    }
+    const initials = `${fn.charAt(0)}${ln.charAt(0)}`.toUpperCase() || 'M';
+
+    const cr = String(u.club_role || 'member').trim().toLowerCase();
+    let publicRole = 'member';
+    if (cr === 'manager') publicRole = 'manager';
+    else if (cr === 'assistant_manager') publicRole = 'assistant_manager';
+
+    // All-time club stats
+    const [statsRows] = await pool.execute(
+      `SELECT COUNT(w.id) AS workout_count,
+              COALESCE(SUM(w.points), 0) AS total_points,
+              COALESCE(SUM(w.distance_value), 0) AS total_miles,
+              COALESCE(SUM(w.duration_minutes), 0) AS total_minutes,
+              MAX(CASE WHEN LOWER(COALESCE(w.activity_type,'')) LIKE '%run%' THEN COALESCE(w.distance_value,0) ELSE 0 END) AS longest_run_miles
+       FROM challenge_workouts w
+       INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+       WHERE w.user_id = ? AND c.organization_id = ?
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)`,
+      [targetUserId, clubId]
+    );
+    const st = statsRows?.[0] || {};
+
+    // Race club badges (public — same logic as trophy case)
+    let raceClubBadges = [];
+    try {
+      const allClubs = await computeRaceClubMemberships({ clubId });
+      raceClubBadges = allClubs
+        .map((rc) => {
+          const member = (rc.members || []).find((mbr) => Number(mbr.userId) === Number(targetUserId));
+          if (!member || !member.earnedTier) return null;
+          return { id: rc.id, label: rc.label, earnedTier: member.earnedTier, count: member.count };
+        })
+        .filter(Boolean);
+    } catch { /* non-fatal */ }
+
+    // Club records held by this member
+    let recordsHeld = [];
+    try {
+      const [recRows] = await pool.execute(
+        `SELECT records_json FROM summit_stats_club_records WHERE agency_id = ? LIMIT 1`, [clubId]
+      );
+      const raw = recRows?.[0]?.records_json;
+      if (raw) {
+        const allRecords = JSON.parse(raw);
+        recordsHeld = (Array.isArray(allRecords) ? allRecords : [])
+          .filter(r => r.holderUserId && Number(r.holderUserId) === Number(targetUserId) && r.value != null)
+          .map(r => ({
+            id: r.id,
+            label: r.label,
+            value: r.value,
+            unit: r.unit,
+            holderYear: r.holderYear || null,
+            iconId: r.iconId || null
+          }));
+      }
+    } catch { /* non-fatal */ }
+
+    return res.json({
+      userId: targetUserId,
+      displayName,
+      initials,
+      publicRole,
+      profilePhotoUrl: publicUploadsUrlFromStoredPath(u.profile_photo_path),
+      homeCity: u.home_city || null,
+      homeState: u.home_state || null,
+      stats: {
+        totalPoints: Math.round(Number(st.total_points || 0)),
+        totalMiles: Math.round(Number(st.total_miles || 0) * 10) / 10,
+        workoutCount: Number(st.workout_count || 0),
+        longestRunMiles: Math.round(Number(st.longest_run_miles || 0) * 10) / 10,
+        totalMinutes: Math.round(Number(st.total_minutes || 0))
+      },
+      raceClubBadges,
+      recordsHeld,
+      public: true
+    });
+  } catch (e) { next(e); }
 };
 
 /**

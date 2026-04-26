@@ -153,6 +153,7 @@ import {
   listClubMembersDirectory,
   listClubMembersDirectoryPublic,
   getClubMemberProfile,
+  getPublicClubMemberProfile,
   postTeamAnnouncementForTeam
 } from '../controllers/challengeMemberApplications.controller.js';
 
@@ -162,6 +163,8 @@ const router = express.Router();
 router.get('/clubs', listClubs);
 router.get('/clubs/:id/public', authenticateOptional, getPublicClubStats);
 router.get('/clubs/:id/members/directory/public', authenticateOptional, listClubMembersDirectoryPublic);
+// Public member profile — no auth required, limited data
+router.get('/clubs/:id/members/:userId/public-profile', getPublicClubMemberProfile);
 router.get('/clubs/:id/feed/public', getClubFeedPublic);
 router.get('/clubs/invite/:token', resolveInviteToken);
 router.post('/application-email-status', getApplicationEmailStatus);

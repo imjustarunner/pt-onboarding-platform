@@ -42,9 +42,9 @@
         <div class="pub-card members-roster-card">
           <div class="card-label">Roster</div>
           <p v-if="isPublicRoster && !membersLoading" class="public-roster-hint">
-            Public view — first names, photos, miles, moving time, and city/state.
+            Public view — tap any member to see their basic stats &amp; trophies.
             <router-link class="public-roster-signin" :to="loginWithRedirect">Sign in</router-link>
-            as a member for full names and profiles.
+            as a member for full profiles.
           </p>
 
           <div v-if="membersLoading" class="roster-loading">Loading members…</div>
@@ -94,16 +94,20 @@
                   <div v-if="m.genderListLabel" class="member-gender">{{ m.genderListLabel }}</div>
                 </div>
               </button>
-              <div v-else class="member-card member-card--readonly">
+              <button
+                v-else
+                type="button"
+                class="member-card member-card--public"
+                @click="openPublicMember(m)"
+              >
                 <div class="member-avatar" aria-hidden="true">
                   <img
                     v-if="photoUrl(m.profilePhotoUrl)"
                     :src="photoUrl(m.profilePhotoUrl)"
                     alt=""
-                    class="member-avatar-img member-avatar-img--static"
-                    draggable="false"
+                    class="member-avatar-img"
                   />
-                  <div v-else class="member-avatar-fallback">{{ initials(m) }}</div>
+                  <div v-else class="member-avatar-fallback">{{ publicInitials(m) }}</div>
                 </div>
                 <div class="member-card-body">
                   <div class="member-name">{{ publicDisplayName(m) }}</div>
@@ -114,7 +118,7 @@
                     <span class="member-loc">{{ locationLine(m) }}</span>
                   </div>
                 </div>
-              </div>
+              </button>
             </li>
           </ul>
         </div>
@@ -281,6 +285,105 @@
         </div>
       </div>
     </Teleport>
+
+    <!-- Public (no-auth) profile modal -->
+    <Teleport to="body">
+      <div v-if="publicModalOpen" class="member-modal-backdrop" @click.self="closePublicModal">
+        <div class="member-modal pub-modal pub-modal--public" role="dialog" aria-modal="true" aria-labelledby="pub-profile-title">
+          <button type="button" class="member-modal-close" aria-label="Close" @click="closePublicModal">×</button>
+          <div v-if="publicProfileLoading" class="member-modal-loading">Loading…</div>
+          <div v-else-if="publicProfileError" class="member-modal-error">{{ publicProfileError }}</div>
+          <template v-else-if="publicProfileData">
+            <div class="member-modal-top">
+              <div class="member-modal-avatar" aria-hidden="true">
+                <img
+                  v-if="photoUrl(publicProfileData.profilePhotoUrl)"
+                  :src="photoUrl(publicProfileData.profilePhotoUrl)"
+                  alt=""
+                  class="member-modal-avatar-img"
+                />
+                <div v-else class="member-modal-avatar-fallback">{{ publicProfileData.initials || '?' }}</div>
+              </div>
+              <div>
+                <h2 id="pub-profile-title" class="member-modal-title">{{ publicProfileData.displayName }}</h2>
+                <p v-if="publicProfileData.homeCity || publicProfileData.homeState" class="member-modal-sub muted">
+                  {{ [publicProfileData.homeCity, publicProfileData.homeState].filter(Boolean).join(', ') }}
+                </p>
+              </div>
+            </div>
+
+            <div class="member-modal-section">
+              <h3 class="member-modal-h">All-time in this club</h3>
+              <div class="member-modal-stats">
+                <span class="member-modal-stat">
+                  <strong>{{ publicProfileData.stats?.totalMiles ?? 0 }}</strong> mi
+                </span>
+                <span class="member-modal-stat">
+                  <strong>{{ publicProfileData.stats?.workoutCount ?? 0 }}</strong> workouts
+                </span>
+                <span v-if="publicProfileData.stats?.longestRunMiles" class="member-modal-stat">
+                  Longest run <strong>{{ publicProfileData.stats.longestRunMiles }}</strong> mi
+                </span>
+                <span v-if="publicProfileData.stats?.totalMinutes" class="member-modal-stat">
+                  <strong>{{ publicProfileData.stats.totalMinutes }}</strong> min moving
+                </span>
+              </div>
+            </div>
+
+            <!-- Trophy Case (public) -->
+            <div v-if="publicHasTrophies" class="member-modal-section member-trophy-section">
+              <h3 class="member-modal-h">🏆 Trophy Case</h3>
+
+              <!-- Race Club Badges -->
+              <div v-if="publicProfileData.raceClubBadges?.length" class="trophy-badges">
+                <div
+                  v-for="rc in publicProfileData.raceClubBadges"
+                  :key="rc.id"
+                  class="trophy-badge"
+                  :title="`${rc.label}: ${rc.count}× completed`"
+                >
+                  <img
+                    v-if="rc.earnedTier?.iconUrl"
+                    :src="rc.earnedTier.iconUrl"
+                    class="trophy-badge-icon"
+                    alt=""
+                  />
+                  <span v-else class="trophy-badge-emoji">🏅</span>
+                  <div class="trophy-badge-info">
+                    <span class="trophy-badge-name">{{ rc.label }}</span>
+                    <span class="trophy-badge-count">{{ rc.count }}×</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Club Records Held -->
+              <div v-if="publicProfileData.recordsHeld?.length" class="trophy-cr-section">
+                <div class="trophy-records-label">Club Records Held</div>
+                <div class="trophy-cr-grid">
+                  <div
+                    v-for="r in publicProfileData.recordsHeld"
+                    :key="r.id"
+                    class="trophy-cr-badge-wrap"
+                    :title="`${r.label}${r.value != null ? ': ' + formatPublicRecordValue(r) + (r.unit ? ' ' + r.unit : '') : ''}${r.holderYear ? ' · ' + r.holderYear : ''}`"
+                  >
+                    <span class="trophy-cr-badge-trophy">🏆</span>
+                    <span class="trophy-cr-badge-label">{{ r.label }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="!publicHasTrophies" class="member-modal-section muted" style="font-size:.85rem;">
+              No trophies yet — check back later!
+            </div>
+
+            <p class="pub-profile-signin-hint">
+              <router-link :to="loginWithRedirect">Sign in</router-link> to view full stats &amp; profile.
+            </p>
+          </template>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -405,11 +508,18 @@ const formatMemberName = (m) => {
 
 const publicDisplayName = (m) => {
   if (isPublicRoster.value) {
-    // public (unauthenticated) always shows first name only
-    const fn = String(m?.firstName || '').trim();
-    return fn || String(m?.displayName || '').trim() || 'Member';
+    // Backend already formats per rosterNameFormat; just use it
+    return String(m?.displayName || '').trim() || 'Member';
   }
   return formatMemberName(m);
+};
+
+const publicInitials = (m) => {
+  const dn = String(m?.displayName || '').trim();
+  const parts = dn.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return 'M';
 };
 
 /** Section headings when roster is grouped by publicRole (manager → assistants → members). */
@@ -502,6 +612,49 @@ const loadMembers = async () => {
 };
 
 const trophyCase = ref(null);
+
+// ─── Public (no-auth) profile modal ──────────────────────────────────────────
+const publicModalOpen = ref(false);
+const publicProfileLoading = ref(false);
+const publicProfileError = ref('');
+const publicProfileData = ref(null);
+
+const openPublicMember = async (m) => {
+  if (!m?.id) return;
+  publicProfileData.value = null;
+  publicProfileError.value = '';
+  publicModalOpen.value = true;
+  publicProfileLoading.value = true;
+  try {
+    const { data } = await api.get(
+      `/summit-stats/clubs/${clubId.value}/members/${m.id}/public-profile`,
+      { skipAuthRedirect: true }
+    );
+    publicProfileData.value = data;
+  } catch (e) {
+    publicProfileError.value = e?.response?.data?.error?.message || 'Could not load profile.';
+  } finally {
+    publicProfileLoading.value = false;
+  }
+};
+
+const closePublicModal = () => {
+  publicModalOpen.value = false;
+  publicProfileData.value = null;
+  publicProfileError.value = '';
+};
+
+const publicHasTrophies = computed(() => {
+  if (!publicProfileData.value) return false;
+  return (publicProfileData.value.raceClubBadges?.length > 0) ||
+         (publicProfileData.value.recordsHeld?.length > 0);
+});
+
+const formatPublicRecordValue = (r) => {
+  if (!r || r.value == null) return '—';
+  return r.value;
+};
+// ─────────────────────────────────────────────────────────────────────────────
 
 const openMember = async (m) => {
   if (isPublicRoster.value) return;
@@ -891,9 +1044,41 @@ onMounted(async () => {
   border-color: rgba(226, 232, 240, 0.9);
   box-shadow: none;
 }
+.member-card--public {
+  cursor: pointer;
+}
 .member-avatar-img--static {
   pointer-events: none;
   user-select: none;
+}
+.pub-profile-signin-hint {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+  font-size: 0.82rem;
+  color: #64748b;
+  text-align: center;
+}
+.pub-profile-signin-hint a {
+  color: #2563eb;
+  text-decoration: none;
+  font-weight: 600;
+}
+.pub-modal--public .trophy-cr-badge-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: help;
+}
+.pub-modal--public .trophy-cr-badge-label {
+  font-size: 0.7rem;
+  color: #64748b;
+  text-align: center;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .member-avatar {
