@@ -21,6 +21,7 @@ import {
   getRaceClubsConfig,
   putRaceClubsConfig,
   getPublicRaceClubs,
+  getRaceClubsAdminMembers,
   getClubMemberStats,
   removeClubMember,
   setClubMemberRole,
@@ -195,6 +196,7 @@ router.get('/clubs/:id/records/verifications', listClubRecordVerifications);
 router.put('/clubs/:id/records/verifications/:verificationId', reviewClubRecordVerification);
 router.get('/clubs/:id/race-clubs-config', getRaceClubsConfig);
 router.put('/clubs/:id/race-clubs-config', putRaceClubsConfig);
+router.get('/clubs/:id/race-clubs-members', getRaceClubsAdminMembers);
 router.get('/clubs/:id/race-clubs', authenticateOptional, getPublicRaceClubs);
 
 // Custom field definitions (club managers)

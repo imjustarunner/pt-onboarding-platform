@@ -569,6 +569,75 @@
               </div>
               <button type="button" class="btn btn-secondary btn-sm" style="margin-top:8px;" @click="addTier(ci)">+ Add Tier</button>
             </div>
+
+            <!-- Member Counts -->
+            <div class="rc-members-section">
+              <button
+                type="button"
+                class="rc-members-toggle"
+                @click="toggleMembersPanel(ci)"
+              >
+                <span>Member Counts</span>
+                <span class="rc-members-toggle-arrow">{{ club._membersOpen ? '▲' : '▼' }}</span>
+              </button>
+              <div v-if="club._membersOpen" class="rc-members-body">
+                <p class="rc-members-hint">
+                  Set a seed count for members who completed this race before system tracking began.
+                  Auto-detected counts come from tagged race workouts — they can't be edited here.
+                  <br><span class="rc-linked-dot rc-linked-dot--linked"></span> Linked = has an account &nbsp;
+                  <span class="rc-linked-dot rc-linked-dot--unlinked"></span> Unlinked = placeholder (no account yet)
+                </p>
+                <div v-if="raceClubMembersLoading" class="hint">Loading members…</div>
+                <template v-else>
+                  <!-- Search -->
+                  <input
+                    v-model="club._memberSearch"
+                    type="text"
+                    placeholder="Search member…"
+                    class="cr-input"
+                    style="width:100%;margin-bottom:10px;"
+                  />
+                  <div class="rc-member-table">
+                    <div class="rc-member-header">
+                      <span>Member</span>
+                      <span>Auto</span>
+                      <span>Seed</span>
+                      <span>Total</span>
+                    </div>
+                    <div
+                      v-for="m in filteredClubMembers(club)"
+                      :key="m.userId"
+                      class="rc-member-row"
+                      :class="{ 'rc-member-row--unlinked': !m.linked }"
+                    >
+                      <span class="rc-member-name">
+                        <span :class="['rc-linked-dot', m.linked ? 'rc-linked-dot--linked' : 'rc-linked-dot--unlinked']"></span>
+                        {{ m.name }}
+                        <span v-if="!m.linked && m.claimEmail" class="rc-claim-email">({{ m.claimEmail }})</span>
+                        <span v-if="!m.linked && !m.claimEmail" class="rc-claim-email">(unlinked)</span>
+                      </span>
+                      <span class="rc-member-auto">{{ autoCountForMember(club.id, m.userId) }}</span>
+                      <span class="rc-member-seed">
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          :value="seedCountForMember(club, m.userId)"
+                          @change="setSeedCount(club, m.userId, $event.target.value)"
+                          class="rc-seed-input"
+                        />
+                      </span>
+                      <span class="rc-member-total">
+                        {{ autoCountForMember(club.id, m.userId) + seedCountForMember(club, m.userId) }}
+                      </span>
+                    </div>
+                    <div v-if="!filteredClubMembers(club).length" class="hint" style="padding:8px 0;">
+                      No members found.
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1920,7 +1989,10 @@ const newRaceClub = () => ({
   label: '',
   raceDistanceMiles: null,
   tolerancePct: 5,
-  tiers: [{ count: 1, iconId: null, label: '' }]
+  tiers: [{ count: 1, iconId: null, label: '' }],
+  manualOverrides: [],
+  _membersOpen: false,
+  _memberSearch: ''
 });
 
 const addRaceClub = () => raceClubs.value.push(newRaceClub());
@@ -1942,7 +2014,13 @@ const loadRaceClubs = async () => {
             count: t.count,
             iconId: t.iconId != null ? Number(t.iconId) : null,
             label: t.label || ''
-          })) : []
+          })) : [],
+          manualOverrides: Array.isArray(rc.manualOverrides) ? rc.manualOverrides.map((o) => ({
+            userId: Number(o.userId),
+            seedCount: Number(o.seedCount) || 0
+          })) : [],
+          _membersOpen: false,
+          _memberSearch: ''
         }))
       : [];
   } catch { raceClubs.value = []; }
@@ -1963,7 +2041,10 @@ const saveRaceClubs = async () => {
           count: Math.max(1, Math.trunc(Number(t.count) || 1)),
           iconId: t.iconId ? Number(t.iconId) : null,
           label: String(t.label || '').trim()
-        })).sort((a, b) => a.count - b.count)
+        })).sort((a, b) => a.count - b.count),
+        manualOverrides: (rc.manualOverrides || [])
+          .filter((o) => o.userId && o.seedCount > 0)
+          .map((o) => ({ userId: Number(o.userId), seedCount: Math.max(0, Math.trunc(Number(o.seedCount) || 0)) }))
       }))
     });
     await loadRaceClubs();
@@ -1971,6 +2052,61 @@ const saveRaceClubs = async () => {
     raceClubsError.value = e?.response?.data?.error?.message || 'Failed to save race clubs';
   } finally {
     savingRaceClubs.value = false;
+  }
+};
+
+// ── Race Club Member Counts panel ─────────────────────────────────────────────
+const raceClubMembersLoading = ref(false);
+// allClubMembers: [{userId, name, linked, claimEmail}]
+const allClubMembers = ref([]);
+// autoCountsByRcId: { [rcId]: { [userId]: count } }
+const autoCountsByRcId = ref({});
+
+const loadRaceClubsMembers = async () => {
+  if (!currentAgencyId.value) return;
+  try {
+    raceClubMembersLoading.value = true;
+    const { data } = await api.get(`/summit-stats/clubs/${currentAgencyId.value}/race-clubs-members`);
+    allClubMembers.value = Array.isArray(data?.members) ? data.members : [];
+    autoCountsByRcId.value = data?.autoCountsByRcId || {};
+  } catch {
+    allClubMembers.value = [];
+  } finally {
+    raceClubMembersLoading.value = false;
+  }
+};
+
+const toggleMembersPanel = async (ci) => {
+  const club = raceClubs.value[ci];
+  club._membersOpen = !club._membersOpen;
+  if (club._membersOpen && !allClubMembers.value.length) {
+    await loadRaceClubsMembers();
+  }
+};
+
+const filteredClubMembers = (club) => {
+  const q = String(club._memberSearch || '').trim().toLowerCase();
+  return allClubMembers.value.filter((m) => !q || m.name.toLowerCase().includes(q));
+};
+
+const autoCountForMember = (rcId, userId) => {
+  const counts = autoCountsByRcId.value[rcId] || {};
+  return Number(counts[String(userId)] || 0);
+};
+
+const seedCountForMember = (club, userId) => {
+  const entry = (club.manualOverrides || []).find((o) => Number(o.userId) === Number(userId));
+  return entry ? Number(entry.seedCount) || 0 : 0;
+};
+
+const setSeedCount = (club, userId, rawVal) => {
+  const val = Math.max(0, Math.trunc(Number(rawVal) || 0));
+  if (!club.manualOverrides) club.manualOverrides = [];
+  const existing = club.manualOverrides.find((o) => Number(o.userId) === Number(userId));
+  if (existing) {
+    existing.seedCount = val;
+  } else {
+    club.manualOverrides.push({ userId: Number(userId), seedCount: val });
   }
 };
 
@@ -2545,6 +2681,129 @@ const unlockRdConfig = async () => {
   gap: 4px;
   flex: 1 1 160px;
   min-width: 0;
+}
+
+/* ── Race Club Member Counts panel ──────────── */
+.rc-members-section {
+  border-top: 1px solid #e2e8f0;
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
+.rc-members-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 8px 4px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #475569;
+  cursor: pointer;
+}
+.rc-members-toggle:hover { color: #1d4ed8; }
+.rc-members-toggle-arrow { font-size: 10px; }
+
+.rc-members-body {
+  padding: 8px 0 4px;
+}
+
+.rc-members-hint {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 10px;
+  line-height: 1.6;
+}
+
+.rc-linked-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+.rc-linked-dot--linked { background: #22c55e; }
+.rc-linked-dot--unlinked { background: #f59e0b; }
+
+.rc-member-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.rc-member-header {
+  display: grid;
+  grid-template-columns: 1fr 56px 80px 56px;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #f1f5f9;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+}
+
+.rc-member-row {
+  display: grid;
+  grid-template-columns: 1fr 56px 80px 56px;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+  border-top: 1px solid #f1f5f9;
+  font-size: 13px;
+}
+.rc-member-row--unlinked { background: #fffbeb; }
+
+.rc-member-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rc-claim-email {
+  font-size: 11px;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.rc-member-auto {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.rc-member-total {
+  text-align: center;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: #0f172a;
+}
+
+.rc-seed-input {
+  width: 64px;
+  padding: 3px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  font-size: 13px;
+  text-align: center;
+}
+.rc-seed-input:focus {
+  outline: none;
+  border-color: #6366f1;
 }
 
 /* ── Club Records card layout ────────────────── */

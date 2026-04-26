@@ -1415,6 +1415,15 @@ const normalizeRaceClubsConfig = (input) => {
             label: String(t?.label || '').trim()
           }))
           .sort((a, b) => a.count - b.count)
+      : [],
+    // manualOverrides: seed counts for members who completed races before system tracking
+    manualOverrides: Array.isArray(rc?.manualOverrides)
+      ? rc.manualOverrides
+          .filter((o) => o?.userId && Number(o.userId) > 0)
+          .map((o) => ({
+            userId: Math.trunc(Number(o.userId)),
+            seedCount: Math.max(0, Math.trunc(Number(o.seedCount) || 0))
+          }))
       : []
   })).filter((rc) => rc.raceDistanceMiles > 0);
 };
@@ -1457,9 +1466,10 @@ export const putRaceClubsConfig = async (req, res, next) => {
 
 /**
  * Compute each member's race completions against all race club configs for a club.
- * Returns [{clubId, clubLabel, raceDistanceMiles, members:[{userId, name, count, earnedTier, iconUrl}]}]
+ * Merges auto-detected workout counts with admin-entered seed counts (manualOverrides).
+ * Returns [{id, label, raceDistanceMiles, tiers, members:[{userId, name, autoCount, seedCount, count, linked, earnedTier, nextTier}]}]
  */
-export const computeRaceClubMemberships = async ({ clubId, iconResolver = null }) => {
+export const computeRaceClubMemberships = async ({ clubId }) => {
   const [cfgRows] = await pool.execute(
     `SELECT race_clubs_config_json FROM agencies WHERE id = ? LIMIT 1`,
     [clubId]
@@ -1467,10 +1477,12 @@ export const computeRaceClubMemberships = async ({ clubId, iconResolver = null }
   const configs = normalizeRaceClubsConfig(parseRaceClubsConfig(cfgRows?.[0]?.race_clubs_config_json));
   if (!configs.length) return [];
 
-  // Fetch all approved races across all seasons for this club
+  // Fetch all approved races across all seasons for this club, including placeholder status
   const [workoutRows] = await pool.execute(
     `SELECT w.user_id, w.race_distance_miles,
-            u.first_name, u.last_name, u.contributor_alias
+            u.first_name, u.last_name, u.contributor_alias,
+            COALESCE(u.is_roster_placeholder, 0) AS is_placeholder,
+            u.roster_placeholder_claim_email
      FROM challenge_workouts w
      INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
      INNER JOIN users u ON u.id = w.user_id
@@ -1482,6 +1494,34 @@ export const computeRaceClubMemberships = async ({ clubId, iconResolver = null }
     [clubId]
   );
   const workouts = workoutRows || [];
+
+  // Also fetch user info for any seed-count-only users referenced in manualOverrides
+  const allSeedUserIds = new Set();
+  for (const rc of configs) {
+    for (const o of rc.manualOverrides) allSeedUserIds.add(o.userId);
+  }
+  const seedUserInfo = new Map(); // userId -> {name, isPlaceholder, claimEmail}
+  if (allSeedUserIds.size) {
+    try {
+      const ph = [...allSeedUserIds].map(() => '?').join(', ');
+      const [uRows] = await pool.execute(
+        `SELECT id, first_name, last_name, contributor_alias,
+                COALESCE(is_roster_placeholder, 0) AS is_placeholder,
+                roster_placeholder_claim_email
+         FROM users WHERE id IN (${ph})`,
+        [...allSeedUserIds]
+      );
+      for (const u of uRows || []) {
+        const alias = String(u.contributor_alias || '').trim();
+        const full = [u.first_name, u.last_name].map(s => String(s || '').trim()).filter(Boolean).join(' ');
+        seedUserInfo.set(Number(u.id), {
+          name: alias || full || `Member ${u.id}`,
+          isPlaceholder: !!Number(u.is_placeholder),
+          claimEmail: u.roster_placeholder_claim_email || null
+        });
+      }
+    } catch { /* non-fatal */ }
+  }
 
   // Collect all icon IDs we need to resolve
   const allIconIds = new Set();
@@ -1511,32 +1551,50 @@ export const computeRaceClubMemberships = async ({ clubId, iconResolver = null }
     const minDist = rc.raceDistanceMiles - tol;
     const maxDist = rc.raceDistanceMiles + tol;
 
-    // Count completions per user
-    const countByUser = new Map();
-    const nameByUser = new Map();
+    // Auto-detected counts from actual workout rows
+    const autoCountByUser = new Map();
+    const userInfoByUser = new Map(); // userId -> {name, isPlaceholder, claimEmail}
     for (const w of workouts) {
       const dist = Number(w.race_distance_miles);
       if (dist < minDist || dist > maxDist) continue;
       const uid = Number(w.user_id);
-      countByUser.set(uid, (countByUser.get(uid) || 0) + 1);
-      if (!nameByUser.has(uid)) {
+      autoCountByUser.set(uid, (autoCountByUser.get(uid) || 0) + 1);
+      if (!userInfoByUser.has(uid)) {
         const alias = String(w.contributor_alias || '').trim();
         const full = [w.first_name, w.last_name].map(s => String(s || '').trim()).filter(Boolean).join(' ');
-        nameByUser.set(uid, alias || full || `Member ${uid}`);
+        userInfoByUser.set(uid, {
+          name: alias || full || `Member ${uid}`,
+          isPlaceholder: !!Number(w.is_placeholder),
+          claimEmail: w.roster_placeholder_claim_email || null
+        });
       }
     }
 
-    // Sort tiers descending so we find highest earned tier first
+    // Merge with seed counts — include seed-only members too
+    const allUserIds = new Set([...autoCountByUser.keys(), ...rc.manualOverrides.map(o => o.userId)]);
+
     const tiersDesc = [...rc.tiers].sort((a, b) => b.count - a.count);
 
     const members = [];
-    for (const [userId, count] of countByUser.entries()) {
+    for (const userId of allUserIds) {
+      const autoCount = autoCountByUser.get(userId) || 0;
+      const seedEntry = rc.manualOverrides.find((o) => o.userId === userId);
+      const seedCount = seedEntry?.seedCount || 0;
+      const count = autoCount + seedCount;
+      if (count <= 0) continue;
+
+      const info = userInfoByUser.get(userId) || seedUserInfo.get(userId) || { name: `Member ${userId}`, isPlaceholder: true, claimEmail: null };
       const earnedTier = tiersDesc.find((t) => count >= t.count) || null;
-      if (!earnedTier) continue; // hasn't hit the first tier yet (shouldn't happen since min tier=1)
+      if (!earnedTier) continue;
       const nextTier = rc.tiers.find((t) => t.count > count) || null;
+
       members.push({
         userId,
-        name: nameByUser.get(userId) || '',
+        name: info.name,
+        linked: !info.isPlaceholder,
+        claimEmail: info.claimEmail,
+        autoCount,
+        seedCount,
         count,
         earnedTier: {
           ...earnedTier,
@@ -1559,6 +1617,87 @@ export const computeRaceClubMemberships = async ({ clubId, iconResolver = null }
     });
   }
   return result;
+};
+
+/**
+ * GET /api/summit-stats/clubs/:id/race-clubs-members
+ * Admin: returns active club members + auto-detected race counts per race club (for seed count UI).
+ */
+export const getRaceClubsAdminMembers = async (req, res, next) => {
+  try {
+    const clubId = parseInt(req.params.id, 10);
+    const access = await ensureClubAdminAccess({ user: req.user, clubId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    // Load config to get race club distance ranges
+    const [cfgRows] = await pool.execute(
+      `SELECT race_clubs_config_json FROM agencies WHERE id = ? LIMIT 1`,
+      [clubId]
+    );
+    const configs = normalizeRaceClubsConfig(parseRaceClubsConfig(cfgRows?.[0]?.race_clubs_config_json));
+
+    // All active members across all seasons for this club (distinct users)
+    const [memberRows] = await pool.execute(
+      `SELECT DISTINCT
+         u.id AS userId,
+         u.first_name, u.last_name, u.contributor_alias,
+         COALESCE(u.is_roster_placeholder, 0) AS is_placeholder,
+         u.roster_placeholder_claim_email AS claim_email
+       FROM learning_class_provider_memberships pm
+       INNER JOIN learning_program_classes c ON c.id = pm.learning_class_id
+       INNER JOIN users u ON u.id = pm.provider_user_id
+       WHERE c.organization_id = ?
+         AND pm.membership_status IN ('active','completed')
+       ORDER BY u.last_name ASC, u.first_name ASC`,
+      [clubId]
+    );
+    const members = (memberRows || []).map((u) => {
+      const alias = String(u.contributor_alias || '').trim();
+      const full = [u.first_name, u.last_name].map(s => String(s || '').trim()).filter(Boolean).join(' ');
+      return {
+        userId: Number(u.userId),
+        name: alias || full || `Member ${u.userId}`,
+        linked: !Number(u.is_placeholder),
+        claimEmail: u.claim_email || null
+      };
+    });
+
+    if (!configs.length) {
+      return res.json({ agencyId: clubId, members, autoCountsByRcId: {} });
+    }
+
+    // Fetch approved race workouts for this club
+    const [workoutRows] = await pool.execute(
+      `SELECT w.user_id, w.race_distance_miles
+       FROM challenge_workouts w
+       INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+       WHERE c.organization_id = ?
+         AND w.is_race = 1
+         AND w.race_distance_miles IS NOT NULL
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+         AND (w.proof_status IN ('approved','none') OR w.proof_status IS NULL)`,
+      [clubId]
+    );
+    const workouts = workoutRows || [];
+
+    // Build autoCountsByRcId: { [rcId]: { [userId]: count } }
+    const autoCountsByRcId = {};
+    for (const rc of configs) {
+      const tol = rc.raceDistanceMiles * (rc.tolerancePct / 100);
+      const minDist = rc.raceDistanceMiles - tol;
+      const maxDist = rc.raceDistanceMiles + tol;
+      const counts = {};
+      for (const w of workouts) {
+        const dist = Number(w.race_distance_miles);
+        if (dist < minDist || dist > maxDist) continue;
+        const uid = String(w.user_id);
+        counts[uid] = (counts[uid] || 0) + 1;
+      }
+      autoCountsByRcId[rc.id] = counts;
+    }
+
+    return res.json({ agencyId: clubId, members, autoCountsByRcId });
+  } catch (error) { next(error); }
 };
 
 /**

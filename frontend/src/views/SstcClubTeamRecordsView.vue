@@ -169,7 +169,14 @@
                   <li v-for="m in rc.members" :key="m.userId" class="trophy-member-row">
                     <img v-if="m.earnedTier?.iconUrl" :src="m.earnedTier.iconUrl" class="trophy-member-icon" alt="" />
                     <span v-else class="trophy-member-icon-placeholder">🏅</span>
-                    <span class="trophy-member-name">{{ m.name }}</span>
+                    <span class="trophy-member-name">
+                      {{ m.name }}
+                      <span
+                        v-if="!m.linked"
+                        class="trophy-unlinked-badge"
+                        title="This member hasn't connected an account yet"
+                      >unlinked</span>
+                    </span>
                     <span class="trophy-member-count">{{ m.count }}×</span>
                     <span v-if="m.nextTier" class="trophy-member-next">
                       {{ m.nextTier.count - m.count }} more for
@@ -901,5 +908,19 @@ onMounted(loadPage);
   height: 16px;
   object-fit: contain;
   border-radius: 3px;
+}
+
+.trophy-unlinked-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  border-radius: 999px;
+  padding: 1px 6px;
+  vertical-align: middle;
+  margin-left: 4px;
 }
 </style>
