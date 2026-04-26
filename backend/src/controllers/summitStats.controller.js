@@ -2124,9 +2124,11 @@ const getMemberTrophyCaseData = async ({ clubId, userId }) => {
  */
 export const getClubMemberTrophyCase = async (req, res, next) => {
   try {
-    const clubId = parseInt(req.params.id, 10);
+    const { resolveClubByPublicRef } = await import('./challengeMemberApplications.controller.js');
+    const club = await resolveClubByPublicRef(String(req.params.id || '').trim());
     const targetUserId = parseInt(req.params.userId, 10);
-    if (!clubId || !targetUserId) return res.status(400).json({ error: { message: 'Invalid club or user' } });
+    if (!club || !targetUserId) return res.status(400).json({ error: { message: 'Invalid club or user' } });
+    const clubId = Number(club.id);
 
     // Viewer must be a club member
     if (!req.user?.id) return res.status(401).json({ error: { message: 'Sign in required' } });
@@ -2147,9 +2149,11 @@ export const getClubMemberTrophyCase = async (req, res, next) => {
  */
 export const getMyTrophyCase = async (req, res, next) => {
   try {
-    const clubId = parseInt(req.params.id, 10);
     if (!req.user?.id) return res.status(401).json({ error: { message: 'Sign in required' } });
-    if (!clubId) return res.status(400).json({ error: { message: 'clubId required' } });
+    const { resolveClubByPublicRef } = await import('./challengeMemberApplications.controller.js');
+    const club = await resolveClubByPublicRef(String(req.params.id || '').trim());
+    if (!club) return res.status(400).json({ error: { message: 'clubId required' } });
+    const clubId = Number(club.id);
 
     const { getUserClubMembership } = await import('../utils/sscClubAccess.js');
     const membership = await getUserClubMembership(req.user.id, clubId);

@@ -832,7 +832,8 @@ export const getPublicClubStats = async (req, res, next) => {
           displayName,
           firstName: fn,
           lastName: ln,
-          teamName: r.team_name || null
+          teamName: r.team_name || null,
+          userId: r.user_id ? Number(r.user_id) : null
         };
       });
     }

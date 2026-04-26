@@ -107,18 +107,19 @@
               </div>
             </div>
 
-            <!-- Club Records Held (not already in PRs) -->
-            <div v-if="extraRecordsHeld.length" class="mpm-records" style="margin-top:10px;">
+            <!-- Club Records Held (icon badge grid with hover tooltip) -->
+            <div v-if="extraRecordsHeld.length" class="mpm-cr-section">
               <div class="mpm-records-label">Club Records Held</div>
-              <div v-for="r in extraRecordsHeld" :key="r.id" class="mpm-record-row">
-                <img v-if="r.iconUrl" :src="r.iconUrl" class="mpm-record-icon" alt="" />
-                <span v-else class="mpm-record-icon-ph">📋</span>
-                <span class="mpm-record-label">{{ r.label }}</span>
-                <span class="mpm-record-value">
-                  {{ r.value != null ? r.value : '—' }}
-                  <span v-if="r.unit" class="mpm-record-unit">{{ r.unit }}</span>
-                </span>
-                <span v-if="r.holderYear" class="mpm-record-year">{{ r.holderYear }}</span>
+              <div class="mpm-cr-grid">
+                <div
+                  v-for="r in extraRecordsHeld"
+                  :key="r.id"
+                  class="mpm-cr-badge-wrap"
+                  :title="`${r.label}${r.value != null ? ': ' + fmtPr(r) + (r.unit && r.metricKey !== 'race_chip_time_seconds' ? ' ' + r.unit : '') : ''}${r.holderYear ? ' · ' + r.holderYear : ''}`"
+                >
+                  <img v-if="r.iconUrl" :src="r.iconUrl" class="mpm-cr-badge-icon" alt="" />
+                  <span v-else class="mpm-cr-badge-trophy">🏆</span>
+                </div>
               </div>
             </div>
           </div>
@@ -359,4 +360,32 @@ watch(() => props.userId, (uid) => { if (uid) load(); else { profile.value = nul
 .mpm-record-value { font-weight: 700; color: #0f172a; white-space: nowrap; }
 .mpm-record-unit { font-weight: 400; color: #64748b; font-size: 0.8em; margin-left: 2px; }
 .mpm-record-year { font-size: 0.78rem; color: #94a3b8; }
+
+/* Club Records icon grid */
+.mpm-cr-section { margin-top: 10px; }
+.mpm-cr-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+.mpm-cr-badge-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  cursor: default;
+  transition: box-shadow 0.15s, border-color 0.15s;
+  position: relative;
+}
+.mpm-cr-badge-wrap:hover {
+  border-color: #a5b4fc;
+  box-shadow: 0 2px 8px rgba(99,102,241,0.2);
+}
+.mpm-cr-badge-icon { width: 38px; height: 38px; object-fit: contain; border-radius: 6px; }
+.mpm-cr-badge-trophy { font-size: 28px; line-height: 1; }
 </style>

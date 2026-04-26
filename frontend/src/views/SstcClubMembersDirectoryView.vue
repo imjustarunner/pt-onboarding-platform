@@ -241,22 +241,19 @@
                 </div>
               </div>
 
-              <!-- Club Records Held (not already shown in PRs) -->
-              <div v-if="trophyCase.recordsHeld?.filter(r => !trophyCase.personalRecords?.some(pr => pr.id === r.id)).length" class="trophy-records" style="margin-top:10px;">
+              <!-- Club Records Held (icon badge grid with hover tooltip) -->
+              <div v-if="trophyCase.recordsHeld?.filter(r => !trophyCase.personalRecords?.some(pr => pr.id === r.id)).length" class="trophy-cr-section">
                 <div class="trophy-records-label">Club Records Held</div>
-                <div
-                  v-for="r in trophyCase.recordsHeld.filter(r => !trophyCase.personalRecords?.some(pr => pr.id === r.id))"
-                  :key="r.id"
-                  class="trophy-record-row"
-                >
-                  <img v-if="r.iconUrl" :src="r.iconUrl" class="trophy-record-icon" alt="" />
-                  <span v-else class="trophy-record-icon-ph">📋</span>
-                  <span class="trophy-record-label">{{ r.label }}</span>
-                  <span class="trophy-record-value">
-                    {{ r.value != null ? r.value : '—' }}
-                    <span v-if="r.unit" class="trophy-record-unit">{{ r.unit }}</span>
-                  </span>
-                  <span v-if="r.holderYear" class="trophy-record-year">{{ r.holderYear }}</span>
+                <div class="trophy-cr-grid">
+                  <div
+                    v-for="r in trophyCase.recordsHeld.filter(r => !trophyCase.personalRecords?.some(pr => pr.id === r.id))"
+                    :key="r.id"
+                    class="trophy-cr-badge-wrap"
+                    :title="`${r.label}${r.value != null ? ': ' + formatPrValue(r) + (r.unit && r.metricKey !== 'race_chip_time_seconds' ? ' ' + r.unit : '') : ''}${r.holderYear ? ' · ' + r.holderYear : ''}`"
+                  >
+                    <img v-if="r.iconUrl" :src="r.iconUrl" class="trophy-cr-badge-icon" alt="" />
+                    <span v-else class="trophy-cr-badge-trophy">🏆</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1211,4 +1208,31 @@ onMounted(async () => {
   color: #94a3b8;
   flex-shrink: 0;
 }
+
+/* Club Records icon badge grid */
+.trophy-cr-section { margin-top: 10px; }
+.trophy-cr-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+.trophy-cr-badge-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  cursor: default;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.trophy-cr-badge-wrap:hover {
+  border-color: #a5b4fc;
+  box-shadow: 0 2px 8px rgba(99,102,241,0.2);
+}
+.trophy-cr-badge-icon { width: 38px; height: 38px; object-fit: contain; border-radius: 6px; }
+.trophy-cr-badge-trophy { font-size: 28px; line-height: 1; }
 </style>

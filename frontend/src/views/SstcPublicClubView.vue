@@ -283,14 +283,17 @@
               Public preview — {{ rosterNameFormat === 'initial_last' ? 'initial and last name' : 'first name and last initial' }} only. This page does not open the full member directory.
             </p>
             <div class="participant-chips">
-              <span
+              <component
                 v-for="(p, idx) in clubData.activeParticipants.slice(0, 36)"
                 :key="`p-${idx}-${p.displayName}`"
+                :is="(authStore.user && p.userId) ? 'button' : 'span'"
                 class="participant-chip"
+                :class="{ 'participant-chip--clickable': authStore.user && p.userId }"
                 :title="p.teamName || ''"
+                @click="openParticipantProfile(p)"
               >
                 {{ formatParticipantName(p) }}
-              </span>
+              </component>
               <span v-if="clubData.activeParticipants.length > 36" class="participant-chip participant-chip--more">
                 +{{ clubData.activeParticipants.length - 36 }} more
               </span>
@@ -501,6 +504,15 @@
 
       </div><!-- /pub-content -->
     </template>
+
+    <!-- Member profile modal (logged-in users clicking active participants) -->
+    <MemberProfileModal
+      v-if="clubNumericId && profileUserId"
+      :clubId="clubNumericId"
+      :userId="profileUserId"
+      :memberName="profileUserName"
+      @close="profileUserId = null; profileUserName = '';"
+    />
   </div>
 </template>
 
@@ -512,6 +524,7 @@ import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import ClubFeedPanel from '../components/sstc/ClubFeedPanel.vue';
+import MemberProfileModal from '../components/shared/MemberProfileModal.vue';
 
 const route  = useRoute();
 const router = useRouter();
@@ -523,6 +536,8 @@ const error    = ref('');
 const clubData = ref(null);
 const configuredStats = ref([]);
 const raceClubs = ref([]);
+const profileUserId = ref(null);
+const profileUserName = ref('');
 const albumSlideIndex = ref(0);
 const albumUploading = ref(false);
 const albumSaving = ref(false);
@@ -537,6 +552,13 @@ const lastLoadedRouteKey = ref('');
 
 const orgSlug = computed(() => route.params.organizationSlug || 'ssc');
 const clubRef = computed(() => route.params.clubId);
+const clubNumericId = computed(() => clubData.value?.club?.id ? Number(clubData.value.club.id) : null);
+
+const openParticipantProfile = (p) => {
+  if (!authStore.user || !p.userId) return;
+  profileUserId.value = p.userId;
+  profileUserName.value = p.displayName || '';
+};
 
 const viewer = computed(() => {
   const v = clubData.value?.viewer;
@@ -1538,6 +1560,17 @@ onBeforeUnmount(() => {
   background: #f1f5f9;
   border-color: #e2e8f0;
   color: #64748b;
+}
+.participant-chip--clickable {
+  cursor: pointer;
+  background: #fff;
+  border-color: #c7d2fe;
+  color: #4338ca;
+  transition: background 0.15s, border-color 0.15s;
+}
+.participant-chip--clickable:hover {
+  background: #eef2ff;
+  border-color: #818cf8;
 }
 
 /* ─── Featured workout card ───────────────────────────────────── */
