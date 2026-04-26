@@ -377,23 +377,49 @@
             </div>
           </div>
 
+          <!-- Race Completion Clubs -->
           <div
-            v-if="Array.isArray(clubData.raceDivisions) && clubData.raceDivisions.some(d => d.allTime?.length)"
-            class="pub-card pub-race-card"
+            v-if="raceClubs.length"
+            class="pub-card pub-race-clubs-card"
           >
-            <div class="card-label">🏁 Race Divisions</div>
-            <p class="race-intro">Members who've completed tagged race distances.</p>
-            <div class="race-blocks">
+            <div class="card-label">Race Completion Clubs</div>
+            <div class="pub-rc-clubs">
               <div
-                v-for="div in clubData.raceDivisions.filter(d => d.allTime?.length)"
-                :key="div.key"
-                class="race-block"
+                v-for="rc in raceClubs"
+                :key="rc.id"
+                class="pub-rc-club"
               >
-                <div class="race-block-head">{{ div.emoji }} {{ div.label }}</div>
-                <ul class="race-list">
-                  <li v-for="m in div.allTime" :key="`${div.key}-${m.userId}`">
-                    <span class="race-name">{{ m.name }}</span>
-                    <span class="race-time">{{ m.bestTimeText }}</span>
+                <!-- Club header: icon + name -->
+                <div class="pub-rc-club-head">
+                  <img
+                    v-if="rc.topTier?.iconUrl"
+                    :src="rc.topTier.iconUrl"
+                    :alt="rc.label"
+                    class="pub-rc-club-icon"
+                  />
+                  <span v-else class="pub-rc-club-icon-ph">🏅</span>
+                  <span class="pub-rc-club-name">{{ rc.label }}</span>
+                </div>
+                <!-- Members list -->
+                <ul class="pub-rc-members">
+                  <li
+                    v-for="m in rc.members"
+                    :key="m.userId"
+                    class="pub-rc-member"
+                  >
+                    <span class="pub-rc-member-name">{{ m.name }}</span>
+                    <span class="pub-rc-member-badges">
+                      <template v-for="tier in (m.earnedTiers || [])" :key="tier.count">
+                        <img
+                          v-if="tier.iconUrl"
+                          :src="tier.iconUrl"
+                          :alt="tier.label || String(tier.count)"
+                          class="pub-rc-tier-icon"
+                          :title="tier.label || `${tier.count}×`"
+                        />
+                      </template>
+                    </span>
+                    <span class="pub-rc-member-count">{{ m.count }}×</span>
                   </li>
                 </ul>
               </div>
@@ -464,6 +490,7 @@ const loading  = ref(true);
 const error    = ref('');
 const clubData = ref(null);
 const configuredStats = ref([]);
+const raceClubs = ref([]);
 const albumSlideIndex = ref(0);
 const joinBusy = ref(false);
 const myApplications = ref([]);
@@ -655,6 +682,7 @@ const loadClubPage = async () => {
     error.value = 'Club not found.';
     loading.value = false;
     clubData.value = null;
+    raceClubs.value = [];
     lastLoadedRouteKey.value = '';
     return;
   }
@@ -686,11 +714,15 @@ const loadClubPage = async () => {
       if (match) agencyStore.setCurrentAgency(match);
     }
     if (numericClubId) {
-      try {
-        const statsRes = await api.get(`/summit-stats/clubs/${numericClubId}/stats`, { skipAuthRedirect: true });
-        if (Array.isArray(statsRes?.data?.stats)) configuredStats.value = statsRes.data.stats;
-      } catch {
-        // Stats endpoint may require auth in some contexts; public page still renders without it.
+      const [statsRes, raceClubsRes] = await Promise.allSettled([
+        api.get(`/summit-stats/clubs/${numericClubId}/stats`, { skipAuthRedirect: true }),
+        api.get(`/summit-stats/clubs/${numericClubId}/race-clubs`, { skipAuthRedirect: true })
+      ]);
+      if (statsRes.status === 'fulfilled' && Array.isArray(statsRes.value?.data?.stats)) {
+        configuredStats.value = statsRes.value.data.stats;
+      }
+      if (raceClubsRes.status === 'fulfilled' && Array.isArray(raceClubsRes.value?.data?.raceClubs)) {
+        raceClubs.value = raceClubsRes.value.data.raceClubs.filter(rc => rc.members?.length > 0);
       }
     }
     await loadMyApplications();
@@ -1529,6 +1561,96 @@ onBeforeUnmount(() => {
 .record-meta { font-size: 11px; color: #64748b; white-space: nowrap; flex-shrink: 0; }
 
 /* ─── Race divisions card ─────────────────────────────────────── */
+/* ── Public Race Completion Clubs card ─────────────────────── */
+.pub-race-clubs-card { }
+
+.pub-rc-clubs {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.pub-rc-club {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.pub-rc-club-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #f1f5f9;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.pub-rc-club-icon {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.pub-rc-club-icon-ph {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.pub-rc-club-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.pub-rc-members {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.pub-rc-member {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.pub-rc-member:last-child { border-bottom: none; }
+
+.pub-rc-member-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.pub-rc-member-badges {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.pub-rc-tier-icon {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  transition: transform 0.15s;
+}
+.pub-rc-tier-icon:hover { transform: scale(2.2); z-index: 10; position: relative; }
+
+.pub-rc-member-count {
+  font-size: 13px;
+  font-weight: 800;
+  color: #1d4ed8;
+  min-width: 28px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .pub-race-card {}
 .race-intro { margin: -6px 0 14px; font-size: 12.5px; color: #94a3b8; }
 .race-blocks { display: flex; flex-direction: column; gap: 14px; }

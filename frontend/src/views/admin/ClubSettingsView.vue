@@ -590,38 +590,93 @@
               <button type="button" class="btn btn-secondary btn-sm" style="margin-top:8px;" @click="addTier(ci)">+ Add Tier</button>
             </div>
 
-            <!-- Member Counts -->
+            <!-- Members in this club -->
             <div class="rc-members-section">
-              <button
-                type="button"
-                class="rc-members-toggle"
-                @click="toggleMembersPanel(ci)"
-              >
-                <span>Member Counts</span>
-                <span class="rc-members-toggle-arrow">{{ club._membersOpen ? '▲' : '▼' }}</span>
-              </button>
+              <div class="rc-members-header-row">
+                <span class="rc-tiers-label" style="margin-bottom:0;">Members</span>
+                <button
+                  type="button"
+                  class="rc-members-toggle-btn"
+                  @click="toggleMembersPanel(ci)"
+                >
+                  {{ club._membersOpen ? 'Hide' : 'Manage members ↓' }}
+                </button>
+              </div>
+
+              <!-- Current members with counts (always visible summary) -->
+              <div v-if="currentMembersForClub(club).length" class="rc-current-members">
+                <div
+                  v-for="m in currentMembersForClub(club)"
+                  :key="m.userId"
+                  class="rc-current-member-row"
+                >
+                  <span :class="['rc-linked-dot', m.linked ? 'rc-linked-dot--linked' : 'rc-linked-dot--unlinked']" :title="m.linked ? 'Has account' : 'No account yet'"></span>
+                  <span class="rc-cm-name">{{ m.name }}</span>
+                  <span class="rc-cm-breakdown">
+                    <span v-if="autoCountForMember(club.id, m.userId)" class="rc-cm-auto" title="Auto-tracked from workouts">{{ autoCountForMember(club.id, m.userId) }} auto</span>
+                    <span v-if="m.seedCount" class="rc-cm-seed" title="Manually entered">+{{ m.seedCount }} manual</span>
+                  </span>
+                  <span class="rc-cm-total">{{ m.total }}×</span>
+                  <button type="button" class="rc-cm-edit-btn" @click="openQuickEdit(club, ci, m)" title="Edit count">✎</button>
+                </div>
+              </div>
+              <div v-else-if="!club._membersOpen" class="rc-no-members-hint">
+                No completions recorded yet. Use "Manage members" to add past completions.
+              </div>
+
+              <!-- Expanded: quick-add + full table -->
               <div v-if="club._membersOpen" class="rc-members-body">
-                <p class="rc-members-hint">
-                  Set a seed count for members who completed this race before system tracking began.
-                  Auto-detected counts come from tagged race workouts — they can't be edited here.
-                  <br><span class="rc-linked-dot rc-linked-dot--linked"></span> Linked = has an account &nbsp;
-                  <span class="rc-linked-dot rc-linked-dot--unlinked"></span> Unlinked = placeholder (no account yet)
-                </p>
                 <div v-if="raceClubMembersLoading" class="hint">Loading members…</div>
                 <template v-else>
-                  <!-- Search -->
-                  <input
-                    v-model="club._memberSearch"
-                    type="text"
-                    placeholder="Search member…"
-                    class="cr-input"
-                    style="width:100%;margin-bottom:10px;"
-                  />
-                  <div class="rc-member-table">
+                  <!-- Quick add / edit form -->
+                  <div class="rc-quick-add">
+                    <div class="rc-quick-add-title">Add or update a member's completions</div>
+                    <div class="rc-quick-add-row">
+                      <select v-model="club._quickAddUserId" class="cr-select" style="flex:1;">
+                        <option :value="null">— Select member —</option>
+                        <option v-for="m in allClubMembers" :key="m.userId" :value="m.userId">
+                          {{ m.name }}{{ !m.linked ? ' (unlinked)' : '' }}
+                        </option>
+                      </select>
+                      <div class="cr-value-wrap" style="flex:0 0 auto;">
+                        <input
+                          v-model.number="club._quickAddCount"
+                          type="number"
+                          min="0"
+                          step="1"
+                          placeholder="0"
+                          class="cr-input"
+                          style="width:72px;"
+                        />
+                        <span class="cr-unit-badge">total</span>
+                      </div>
+                      <button
+                        type="button"
+                        class="btn btn-primary btn-sm"
+                        :disabled="!club._quickAddUserId"
+                        @click="quickAddMember(club)"
+                      >Set</button>
+                    </div>
+                    <p class="rc-members-hint" style="margin-top:6px;">
+                      "Total" is the full count including past and future completions.
+                      <span class="rc-linked-dot rc-linked-dot--linked"></span> Linked account &nbsp;
+                      <span class="rc-linked-dot rc-linked-dot--unlinked"></span> No account yet
+                    </p>
+                  </div>
+
+                  <!-- Full table -->
+                  <div class="rc-member-table" style="margin-top:10px;">
+                    <input
+                      v-model="club._memberSearch"
+                      type="text"
+                      placeholder="Search member…"
+                      class="cr-input"
+                      style="width:100%;margin-bottom:8px;"
+                    />
                     <div class="rc-member-header">
                       <span>Member</span>
                       <span>Auto</span>
-                      <span>Seed</span>
+                      <span>Manual</span>
                       <span>Total</span>
                     </div>
                     <div
@@ -634,7 +689,6 @@
                         <span :class="['rc-linked-dot', m.linked ? 'rc-linked-dot--linked' : 'rc-linked-dot--unlinked']"></span>
                         {{ m.name }}
                         <span v-if="!m.linked && m.claimEmail" class="rc-claim-email">({{ m.claimEmail }})</span>
-                        <span v-if="!m.linked && !m.claimEmail" class="rc-claim-email">(unlinked)</span>
                       </span>
                       <span class="rc-member-auto">{{ autoCountForMember(club.id, m.userId) }}</span>
                       <span class="rc-member-seed">
@@ -2014,7 +2068,9 @@ const newRaceClub = () => ({
   tiers: [{ count: 1, iconId: null, label: '' }],
   manualOverrides: [],
   _membersOpen: false,
-  _memberSearch: ''
+  _memberSearch: '',
+  _quickAddUserId: null,
+  _quickAddCount: null
 });
 
 const addRaceClub = () => raceClubs.value.push(newRaceClub());
@@ -2042,7 +2098,9 @@ const loadRaceClubs = async () => {
             seedCount: Number(o.seedCount) || 0
           })) : [],
           _membersOpen: false,
-          _memberSearch: ''
+          _memberSearch: '',
+          _quickAddUserId: null,
+          _quickAddCount: null
         }))
       : [];
   } catch { raceClubs.value = []; }
@@ -2130,6 +2188,40 @@ const setSeedCount = (club, userId, rawVal) => {
   } else {
     club.manualOverrides.push({ userId: Number(userId), seedCount: val });
   }
+};
+
+// Members with any count (auto or manual) for this club — shown in the summary list
+const currentMembersForClub = (club) => {
+  const autoCounts = autoCountsByRcId.value[club.id] || {};
+  const allIds = new Set([
+    ...Object.keys(autoCounts).map(Number),
+    ...(club.manualOverrides || []).filter(o => o.seedCount > 0).map(o => Number(o.userId))
+  ]);
+  return [...allIds].map((uid) => {
+    const memberInfo = allClubMembers.value.find(m => m.userId === uid) || { userId: uid, name: `Member ${uid}`, linked: false, claimEmail: null };
+    const autoCount = Number(autoCounts[String(uid)] || 0);
+    const seedCount = seedCountForMember(club, uid);
+    return { ...memberInfo, autoCount, seedCount, total: autoCount + seedCount };
+  }).filter(m => m.total > 0).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+};
+
+// Quick-add: set total count for a selected member (auto + seed = total, so seed = total - auto)
+const quickAddMember = (club) => {
+  const uid = club._quickAddUserId;
+  if (!uid) return;
+  const total = Math.max(0, Math.trunc(Number(club._quickAddCount) || 0));
+  const autoCount = autoCountForMember(club.id, uid);
+  const newSeed = Math.max(0, total - autoCount);
+  setSeedCount(club, uid, newSeed);
+  club._quickAddUserId = null;
+  club._quickAddCount = null;
+};
+
+// Open quick edit for an existing member — pre-fill the quick-add form
+const openQuickEdit = (club, ci, m) => {
+  if (!club._membersOpen) toggleMembersPanel(ci);
+  club._quickAddUserId = m.userId;
+  club._quickAddCount = m.total;
 };
 
 const setDefaultPaymentMethod = async (paymentMethodId) => {
@@ -2709,26 +2801,108 @@ const unlockRdConfig = async () => {
 .rc-members-section {
   border-top: 1px solid #e2e8f0;
   margin-top: 4px;
-  padding-top: 4px;
+  padding-top: 8px;
 }
 
-.rc-members-toggle {
+.rc-members-header-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  width: 100%;
+  margin-bottom: 6px;
+}
+
+.rc-members-toggle-btn {
   background: none;
-  border: none;
-  padding: 8px 4px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 3px 10px;
   font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-weight: 600;
   color: #475569;
   cursor: pointer;
 }
-.rc-members-toggle:hover { color: #1d4ed8; }
-.rc-members-toggle-arrow { font-size: 10px; }
+.rc-members-toggle-btn:hover { background: #f1f5f9; color: #1d4ed8; border-color: #6366f1; }
+
+/* Current members summary list */
+.rc-current-members {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.rc-current-member-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: #fff;
+  border: 1px solid #f1f5f9;
+}
+
+.rc-cm-name {
+  flex: 1;
+  font-weight: 600;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rc-cm-breakdown {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.rc-cm-auto {
+  font-size: 11px;
+  background: #f0fdf4;
+  color: #166534;
+  border-radius: 999px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.rc-cm-seed {
+  font-size: 11px;
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 999px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.rc-cm-total {
+  font-size: 14px;
+  font-weight: 800;
+  color: #1d4ed8;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  min-width: 28px;
+  text-align: right;
+}
+
+.rc-cm-edit-btn {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  flex-shrink: 0;
+}
+.rc-cm-edit-btn:hover { color: #6366f1; }
+
+.rc-no-members-hint {
+  font-size: 12px;
+  color: #94a3b8;
+  font-style: italic;
+  margin-bottom: 6px;
+}
 
 .rc-members-body {
   padding: 8px 0 4px;
@@ -2739,6 +2913,28 @@ const unlockRdConfig = async () => {
   color: #64748b;
   margin-bottom: 10px;
   line-height: 1.6;
+}
+
+/* Quick-add form */
+.rc-quick-add {
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.rc-quick-add-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0369a1;
+  margin-bottom: 8px;
+}
+
+.rc-quick-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .rc-linked-dot {

@@ -1590,6 +1590,12 @@ export const computeRaceClubMemberships = async ({ clubId }) => {
       if (!earnedTier) continue;
       const nextTier = rc.tiers.find((t) => t.count > count) || null;
 
+      // All tiers this member has qualified for (ascending by count threshold)
+      const earnedTiers = rc.tiers
+        .filter((t) => count >= t.count)
+        .sort((a, b) => a.count - b.count)
+        .map((t) => ({ ...t, iconUrl: t.iconId ? (iconUrlById.get(t.iconId) || null) : null }));
+
       members.push({
         userId,
         name: info.name,
@@ -1598,6 +1604,7 @@ export const computeRaceClubMemberships = async ({ clubId }) => {
         autoCount,
         seedCount,
         count,
+        earnedTiers,
         earnedTier: {
           ...earnedTier,
           iconUrl: earnedTier.iconId ? (iconUrlById.get(earnedTier.iconId) || null) : null
@@ -1610,11 +1617,16 @@ export const computeRaceClubMemberships = async ({ clubId }) => {
     }
     members.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 
+    const tiersWithUrls = rc.tiers.map((t) => ({ ...t, iconUrl: t.iconId ? (iconUrlById.get(t.iconId) || null) : null }));
+    // topTier = the highest-count tier (with or without icon), used for club card header display
+    const topTier = [...tiersWithUrls].sort((a, b) => b.count - a.count)[0] || null;
+
     result.push({
       id: rc.id,
       label: rc.label,
       raceDistanceMiles: rc.raceDistanceMiles,
-      tiers: rc.tiers.map((t) => ({ ...t, iconUrl: t.iconId ? (iconUrlById.get(t.iconId) || null) : null })),
+      tiers: tiersWithUrls,
+      topTier,
       members
     });
   }
