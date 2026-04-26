@@ -372,6 +372,7 @@
                 <label class="cr-field-label">Race distance <span class="cr-optional">(miles — filters to matching races)</span></label>
                 <select v-model="record.raceDistance" class="cr-select">
                   <option :value="null">Any race distance</option>
+                  <option :value="1">1 Mile</option>
                   <option :value="3.107">5K (3.107 mi)</option>
                   <option :value="6.214">10K (6.214 mi)</option>
                   <option :value="9.321">15K (9.321 mi)</option>
@@ -419,8 +420,13 @@
                 <label class="cr-field-label">Gender <span class="cr-optional">(filter)</span></label>
                 <select v-model="record.gender" class="cr-select">
                   <option value="">Open (any gender)</option>
-                  <option value="male">Men</option>
-                  <option value="female">Women</option>
+                  <option v-if="clubAvailableGenders.includes('male')" value="male">Men</option>
+                  <option v-if="clubAvailableGenders.includes('female')" value="female">Women</option>
+                  <!-- Fallback: show all options if no genders loaded yet -->
+                  <template v-if="!clubAvailableGenders.length">
+                    <option value="male">Men</option>
+                    <option value="female">Women</option>
+                  </template>
                 </select>
               </div>
             </div>
@@ -1046,6 +1052,7 @@ const billingSettings = ref({});
 const paymentMethods = ref([]);
 const invoices = ref([]);
 const clubRecords = ref([]);
+const clubAvailableGenders = ref([]);  // ['male','female'] — loaded from club member profiles
 const recordsError = ref('');
 const savingRecords = ref(false);
 const recordVerifications = ref([]);
@@ -1728,6 +1735,7 @@ const loadClubRecords = async () => {
         iconId: r.iconId != null ? Number(r.iconId) : null
       }))
       : [];
+    clubAvailableGenders.value = Array.isArray(data?.availableGenders) ? data.availableGenders : [];
   } catch (e) {
     clubRecords.value = [];
     recordsError.value = e?.response?.data?.error?.message || 'Failed to load club records';

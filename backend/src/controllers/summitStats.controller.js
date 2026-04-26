@@ -1322,10 +1322,33 @@ export const getClubRecords = async (req, res, next) => {
       [clubId]
     );
     const rec = rows?.[0] || null;
+
+    // Collect distinct genders present across all active seasons for this club
+    let availableGenders = [];
+    try {
+      const [gRows] = await pool.execute(
+        `SELECT DISTINCT g.gender
+         FROM (
+           SELECT a.gender
+           FROM challenge_member_applications a
+           INNER JOIN learning_program_classes c ON c.id = a.learning_class_id
+           WHERE c.organization_id = ? AND a.gender IS NOT NULL AND a.gender != ''
+           UNION
+           SELECT p.gender
+           FROM challenge_participant_profiles p
+           INNER JOIN learning_program_classes c ON c.id = p.learning_class_id
+           WHERE c.organization_id = ? AND p.gender IS NOT NULL AND p.gender != ''
+         ) g`,
+        [clubId, clubId]
+      );
+      availableGenders = (gRows || []).map(r => String(r.gender || '').trim().toLowerCase()).filter(Boolean);
+    } catch { /* non-fatal */ }
+
     return res.json({
       agencyId: clubId,
       records: normalizeClubRecords(parseClubRecords(rec?.records_json)),
-      updatedAt: rec?.updated_at || null
+      updatedAt: rec?.updated_at || null,
+      availableGenders
     });
   } catch (error) {
     next(error);
