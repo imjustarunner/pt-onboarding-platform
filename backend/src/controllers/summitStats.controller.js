@@ -48,19 +48,38 @@ const parseClubRecords = (raw) => {
 const unitForMetricKey = (metricKey) => {
   const k = String(metricKey || '').trim().toLowerCase();
   if (k === 'distance_miles' || k === 'distance') return 'miles';
+  if (k === 'weekly_distance_miles') return 'miles';
+  if (k === 'monthly_distance_miles') return 'miles';
+  if (k === 'team_weekly_distance_miles') return 'miles';
+  if (k === 'team_monthly_distance_miles') return 'miles';
+  if (k === 'team_season_distance_miles') return 'miles';
+  if (k === 'club_season_distance_miles') return 'miles';
   if (k === 'duration_minutes' || k === 'duration') return 'minutes';
+  if (k === 'season_duration_minutes') return 'minutes';
   if (k === 'points') return 'points';
+  if (k === 'race_chip_time_seconds') return 'seconds';
   return '';
 };
+
+// Metric keys where a LOWER value is better (e.g. fastest time)
+const lowerIsBetterMetrics = new Set(['race_chip_time_seconds']);
 
 const normalizeClubRecords = (input) => {
   const rows = Array.isArray(input) ? input : [];
   const out = [];
+  const knownMetricKeys = new Set([
+    'distance_miles', 'duration_minutes', 'points',
+    'weekly_distance_miles', 'monthly_distance_miles',
+    'season_duration_minutes', 'race_chip_time_seconds',
+    'team_weekly_distance_miles', 'team_monthly_distance_miles',
+    'team_season_distance_miles', 'club_season_distance_miles'
+  ]);
   const normalizeMetricKey = (raw) => {
     const s = String(raw || '').trim().toLowerCase();
     if (s === 'distance_miles' || s === 'distance') return 'distance_miles';
     if (s === 'duration_minutes' || s === 'duration') return 'duration_minutes';
     if (s === 'points') return 'points';
+    if (knownMetricKeys.has(s)) return s;
     return null;
   };
   const normalizeHolderYear = (raw) => {
@@ -76,6 +95,10 @@ const normalizeClubRecords = (input) => {
     if (!Number.isFinite(n) || n < 1) return null;
     return Math.trunc(n);
   };
+  const normalizeRaceDistance = (raw) => {
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 1000) / 1000 : null;
+  };
   for (const row of rows) {
     const label = String(row?.label || '').trim();
     if (!label) continue;
@@ -90,6 +113,10 @@ const normalizeClubRecords = (input) => {
       unit,
       notes: String(row?.notes || '').trim(),
       metricKey,
+      activityType: String(row?.activityType || '').trim() || null,
+      terrain: String(row?.terrain || '').trim() || null,
+      raceDistance: normalizeRaceDistance(row?.raceDistance),
+      lowerIsBetter: lowerIsBetterMetrics.has(metricKey),
       holderName: String(row?.holderName || '').trim(),
       holderYear: normalizeHolderYear(row?.holderYear),
       holderTeam: String(row?.holderTeam || '').trim(),
@@ -126,6 +153,9 @@ const mergeSeedRecords = ({ existingRecords, incomingRecords }) => {
       unit: incoming.unit || unitForMetricKey(incoming.metricKey || prev.metricKey),
       notes: incoming.notes,
       metricKey: incoming.metricKey || prev.metricKey || null,
+      activityType: incoming.activityType || null,
+      terrain: incoming.terrain || null,
+      raceDistance: incoming.raceDistance || null,
       holderName: incoming.holderName,
       holderYear: incoming.holderYear,
       holderTeam: incoming.holderTeam,
@@ -1457,68 +1487,211 @@ export const queueClubRecordBreakCandidates = async ({ learningClassId, workoutI
   const uId = Number(userId);
   if (!Number.isFinite(classId) || !Number.isFinite(wId) || !Number.isFinite(uId)) return;
   const [classRows] = await pool.execute(
-    `SELECT id, organization_id
-     FROM learning_program_classes
-     WHERE id = ?
-     LIMIT 1`,
+    `SELECT id, organization_id FROM learning_program_classes WHERE id = ? LIMIT 1`,
     [classId]
   );
   const klass = classRows?.[0];
   if (!klass?.organization_id) return;
   const agencyId = Number(klass.organization_id);
   const [recordRows] = await pool.execute(
-    `SELECT records_json
-     FROM summit_stats_club_records
-     WHERE agency_id = ?
-     LIMIT 1`,
+    `SELECT records_json FROM summit_stats_club_records WHERE agency_id = ? LIMIT 1`,
     [agencyId]
   );
   const records = normalizeClubRecords(parseClubRecords(recordRows?.[0]?.records_json));
   if (!records.length) return;
-  let workoutRows;
+
+  // Fetch the triggering workout with all relevant columns
+  let workout;
   try {
-    [workoutRows] = await pool.execute(
-      `SELECT id, learning_class_id, user_id, points, distance_value, duration_minutes, activity_type, terrain
+    const [rows] = await pool.execute(
+      `SELECT id, learning_class_id, team_id, user_id, points, distance_value, duration_minutes,
+              activity_type, terrain, is_race, race_distance_miles, race_chip_time_seconds,
+              completed_at
        FROM challenge_workouts
        WHERE id = ? AND learning_class_id = ? AND user_id = ?
        LIMIT 1`,
       [wId, classId, uId]
     );
+    workout = rows?.[0];
   } catch (e) {
     if (e?.code === 'ER_BAD_FIELD_ERROR') {
-      [workoutRows] = await pool.execute(
-        `SELECT id, learning_class_id, user_id, points, distance_value, duration_minutes
+      const [rows] = await pool.execute(
+        `SELECT id, learning_class_id, team_id, user_id, points, distance_value, duration_minutes, completed_at
          FROM challenge_workouts
          WHERE id = ? AND learning_class_id = ? AND user_id = ?
          LIMIT 1`,
         [wId, classId, uId]
       );
+      workout = rows?.[0];
     } else { throw e; }
   }
-  const workout = workoutRows?.[0];
   if (!workout) return;
+
   const workoutActivityType = String(workout.activity_type || '').trim().toLowerCase();
   const workoutTerrain = String(workout.terrain || '').trim().toLowerCase();
+  const completedAt = workout.completed_at ? new Date(workout.completed_at) : new Date();
+
+  // Helper: get aggregated candidate value for period-based or club-wide metrics
+  const getAggregatedValue = async (metricKey) => {
+    if (metricKey === 'weekly_distance_miles') {
+      // Sum of this user's miles in the same Mon–Sun week as this workout
+      const dayOfWeek = completedAt.getDay(); // 0=Sun
+      const diffToMon = (dayOfWeek + 6) % 7;
+      const weekStart = new Date(completedAt);
+      weekStart.setDate(weekStart.getDate() - diffToMon);
+      weekStart.setHours(0, 0, 0, 0);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 7);
+      const [rows] = await pool.execute(
+        `SELECT COALESCE(SUM(distance_value), 0) AS total
+         FROM challenge_workouts
+         WHERE user_id = ? AND learning_class_id = ?
+           AND completed_at >= ? AND completed_at < ?
+           AND (proof_status IN ('approved','none') OR proof_status IS NULL)
+           AND (is_disqualified IS NULL OR is_disqualified = 0)`,
+        [uId, classId, weekStart, weekEnd]
+      );
+      return Number(rows?.[0]?.total || 0);
+    }
+    if (metricKey === 'monthly_distance_miles') {
+      // Sum of this user's miles in the same calendar month
+      const monthStart = new Date(completedAt.getFullYear(), completedAt.getMonth(), 1);
+      const monthEnd = new Date(completedAt.getFullYear(), completedAt.getMonth() + 1, 1);
+      const [rows] = await pool.execute(
+        `SELECT COALESCE(SUM(distance_value), 0) AS total
+         FROM challenge_workouts
+         WHERE user_id = ? AND learning_class_id = ?
+           AND completed_at >= ? AND completed_at < ?
+           AND (proof_status IN ('approved','none') OR proof_status IS NULL)
+           AND (is_disqualified IS NULL OR is_disqualified = 0)`,
+        [uId, classId, monthStart, monthEnd]
+      );
+      return Number(rows?.[0]?.total || 0);
+    }
+    if (metricKey === 'season_duration_minutes') {
+      // Club-wide total: sum of all members' duration for the entire season
+      const [rows] = await pool.execute(
+        `SELECT COALESCE(SUM(duration_minutes), 0) AS total
+         FROM challenge_workouts
+         WHERE learning_class_id = ?
+           AND (proof_status IN ('approved','none') OR proof_status IS NULL)
+           AND (is_disqualified IS NULL OR is_disqualified = 0)`,
+        [classId]
+      );
+      return Number(rows?.[0]?.total || 0);
+    }
+    if (metricKey === 'club_season_distance_miles') {
+      // Club-wide total miles for the entire season (all teams combined)
+      const [rows] = await pool.execute(
+        `SELECT COALESCE(SUM(distance_value), 0) AS total
+         FROM challenge_workouts
+         WHERE learning_class_id = ?
+           AND (proof_status IN ('approved','none') OR proof_status IS NULL)
+           AND (is_disqualified IS NULL OR is_disqualified = 0)`,
+        [classId]
+      );
+      return Number(rows?.[0]?.total || 0);
+    }
+    // Team-scoped metrics — requires the workout to belong to a team
+    const teamId = Number(workout.team_id);
+    if (!teamId) return null;
+    if (metricKey === 'team_weekly_distance_miles') {
+      const dayOfWeek = completedAt.getDay();
+      const diffToMon = (dayOfWeek + 6) % 7;
+      const weekStart = new Date(completedAt);
+      weekStart.setDate(weekStart.getDate() - diffToMon);
+      weekStart.setHours(0, 0, 0, 0);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 7);
+      const [rows] = await pool.execute(
+        `SELECT COALESCE(SUM(distance_value), 0) AS total
+         FROM challenge_workouts
+         WHERE team_id = ? AND learning_class_id = ?
+           AND completed_at >= ? AND completed_at < ?
+           AND (proof_status IN ('approved','none') OR proof_status IS NULL)
+           AND (is_disqualified IS NULL OR is_disqualified = 0)`,
+        [teamId, classId, weekStart, weekEnd]
+      );
+      return Number(rows?.[0]?.total || 0);
+    }
+    if (metricKey === 'team_monthly_distance_miles') {
+      const monthStart = new Date(completedAt.getFullYear(), completedAt.getMonth(), 1);
+      const monthEnd = new Date(completedAt.getFullYear(), completedAt.getMonth() + 1, 1);
+      const [rows] = await pool.execute(
+        `SELECT COALESCE(SUM(distance_value), 0) AS total
+         FROM challenge_workouts
+         WHERE team_id = ? AND learning_class_id = ?
+           AND completed_at >= ? AND completed_at < ?
+           AND (proof_status IN ('approved','none') OR proof_status IS NULL)
+           AND (is_disqualified IS NULL OR is_disqualified = 0)`,
+        [teamId, classId, monthStart, monthEnd]
+      );
+      return Number(rows?.[0]?.total || 0);
+    }
+    if (metricKey === 'team_season_distance_miles') {
+      const [rows] = await pool.execute(
+        `SELECT COALESCE(SUM(distance_value), 0) AS total
+         FROM challenge_workouts
+         WHERE team_id = ? AND learning_class_id = ?
+           AND (proof_status IN ('approved','none') OR proof_status IS NULL)
+           AND (is_disqualified IS NULL OR is_disqualified = 0)`,
+        [teamId, classId]
+      );
+      return Number(rows?.[0]?.total || 0);
+    }
+    return null;
+  };
+
   for (const record of records) {
     const metricKey = record.metricKey || null;
     if (!metricKey) continue;
-    // Skip if this record is scoped to a specific activity type and it doesn't match
+
+    // Activity type filter
     if (record.activityType) {
-      const required = String(record.activityType).trim().toLowerCase();
-      if (workoutActivityType !== required) continue;
+      if (workoutActivityType !== String(record.activityType).trim().toLowerCase()) continue;
     }
-    // Skip if this record is scoped to a specific terrain and it doesn't match
+
+    // Terrain filter
     if (record.terrain) {
-      const required = String(record.terrain).trim().toLowerCase();
-      if (workoutTerrain !== required) continue;
+      if (workoutTerrain !== String(record.terrain).trim().toLowerCase()) continue;
     }
-    const candidateValue = getMetricValueFromWorkout(metricKey, workout);
+
+    let candidateValue;
+
+    if (metricKey === 'race_chip_time_seconds') {
+      // Must be tagged as a race
+      if (!workout.is_race) continue;
+      const chipTime = Number(workout.race_chip_time_seconds);
+      if (!Number.isFinite(chipTime) || chipTime <= 0) continue;
+      // If record specifies a race distance, the workout must match within ±10%
+      if (record.raceDistance) {
+        const wDist = Number(workout.race_distance_miles);
+        if (!Number.isFinite(wDist) || wDist <= 0) continue;
+        const tolerance = record.raceDistance * 0.10;
+        if (Math.abs(wDist - record.raceDistance) > tolerance) continue;
+      }
+      candidateValue = chipTime;
+    } else if ([
+      'weekly_distance_miles', 'monthly_distance_miles', 'season_duration_minutes',
+      'club_season_distance_miles',
+      'team_weekly_distance_miles', 'team_monthly_distance_miles', 'team_season_distance_miles'
+    ].includes(metricKey)) {
+      candidateValue = await getAggregatedValue(metricKey);
+    } else {
+      candidateValue = getMetricValueFromWorkout(metricKey, workout);
+    }
+
     const currentValue = Number(record.value);
     if (!Number.isFinite(candidateValue) || !Number.isFinite(currentValue)) continue;
-    if (candidateValue <= currentValue) continue;
+
+    // For lower-is-better records (e.g. fastest race), candidate must be strictly lower
+    const isBetter = record.lowerIsBetter
+      ? candidateValue < currentValue
+      : candidateValue > currentValue;
+    if (!isBetter) continue;
+
     const [existingPending] = await pool.execute(
-      `SELECT id
-       FROM summit_stats_club_record_verifications
+      `SELECT id FROM summit_stats_club_record_verifications
        WHERE agency_id = ? AND record_id = ? AND workout_id = ? AND status = 'pending'
        LIMIT 1`,
       [agencyId, String(record.id), wId]

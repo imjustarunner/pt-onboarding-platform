@@ -329,15 +329,47 @@
                 <label class="cr-field-label">Metric</label>
                 <select v-model="record.metricKey" class="cr-select">
                   <option value="">— Select metric —</option>
-                  <option v-for="opt in recordMetricOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                  <optgroup label="Individual">
+                    <option v-for="opt in recordMetricOptions.filter(o => o.group === 'Individual')" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                  </optgroup>
+                  <optgroup label="Team">
+                    <option v-for="opt in recordMetricOptions.filter(o => o.group === 'Team')" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                  </optgroup>
+                  <optgroup label="Club-Wide">
+                    <option v-for="opt in recordMetricOptions.filter(o => o.group === 'Club')" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                  </optgroup>
                 </select>
               </div>
               <div class="cr-field cr-field--sm">
-                <label class="cr-field-label">Current value</label>
+                <label class="cr-field-label">Current record value</label>
                 <div class="cr-value-wrap">
                   <input v-model.number="record.value" type="number" step="0.01" placeholder="0" class="cr-input" />
                   <span v-if="recordUnitForMetric(record.metricKey)" class="cr-unit-badge">{{ recordUnitForMetric(record.metricKey) }}</span>
                 </div>
+              </div>
+            </div>
+
+            <!-- Lower-is-better notice + race distance -->
+            <div v-if="recordLowerIsBetter(record.metricKey)" class="cr-row">
+              <div class="cr-filter-pill cr-filter-pill--speed">
+                ⚡ Lower is better — fastest time wins
+              </div>
+            </div>
+            <div v-if="record.metricKey === 'race_chip_time_seconds'" class="cr-row">
+              <div class="cr-field">
+                <label class="cr-field-label">Race distance <span class="cr-optional">(miles — filters to matching races)</span></label>
+                <select v-model="record.raceDistance" class="cr-select">
+                  <option :value="null">Any race distance</option>
+                  <option :value="3.107">5K (3.107 mi)</option>
+                  <option :value="6.214">10K (6.214 mi)</option>
+                  <option :value="9.321">15K (9.321 mi)</option>
+                  <option :value="13.109">Half Marathon (13.109 mi)</option>
+                  <option :value="26.219">Marathon (26.219 mi)</option>
+                  <option :value="31.069">50K (31.069 mi)</option>
+                  <option :value="50">50 Mile</option>
+                  <option :value="62.137">100K (62.137 mi)</option>
+                  <option :value="100">100 Mile</option>
+                </select>
               </div>
             </div>
 
@@ -994,9 +1026,31 @@ const savingRecords = ref(false);
 const recordVerifications = ref([]);
 const verificationsLoading = ref(false);
 const recordMetricOptions = [
-  { value: 'distance_miles', label: 'Distance (miles)' },
-  { value: 'duration_minutes', label: 'Duration (minutes)' },
-  { value: 'points', label: 'Points' }
+  // ── Individual records ──────────────────────────────────────────────────
+  { group: 'Individual',
+    value: 'distance_miles',                label: 'Longest Single Run/Workout (miles)',     unit: 'miles',   lowerIsBetter: false },
+  { group: 'Individual',
+    value: 'weekly_distance_miles',         label: 'Most Miles by One Person in a Week',    unit: 'miles',   lowerIsBetter: false },
+  { group: 'Individual',
+    value: 'monthly_distance_miles',        label: 'Most Miles by One Person in a Month',   unit: 'miles',   lowerIsBetter: false },
+  { group: 'Individual',
+    value: 'duration_minutes',              label: 'Longest Single Workout (minutes)',       unit: 'minutes', lowerIsBetter: false },
+  { group: 'Individual',
+    value: 'points',                        label: 'Most Points in One Workout',             unit: 'points',  lowerIsBetter: false },
+  { group: 'Individual',
+    value: 'race_chip_time_seconds',        label: 'Fastest Race Time (chip seconds)',       unit: 'seconds', lowerIsBetter: true  },
+  // ── Team records ────────────────────────────────────────────────────────
+  { group: 'Team',
+    value: 'team_weekly_distance_miles',    label: 'Most Team Miles in a Single Week',      unit: 'miles',   lowerIsBetter: false },
+  { group: 'Team',
+    value: 'team_monthly_distance_miles',   label: 'Most Team Miles in a Single Month',     unit: 'miles',   lowerIsBetter: false },
+  { group: 'Team',
+    value: 'team_season_distance_miles',    label: 'Most Team Miles in a Season',           unit: 'miles',   lowerIsBetter: false },
+  // ── Club-wide records ───────────────────────────────────────────────────
+  { group: 'Club',
+    value: 'club_season_distance_miles',    label: 'Total Club Miles (all teams, season)',  unit: 'miles',   lowerIsBetter: false },
+  { group: 'Club',
+    value: 'season_duration_minutes',       label: 'Total Club Duration — All Runs (min)',  unit: 'minutes', lowerIsBetter: false },
 ];
 
 const form = ref({
@@ -1042,11 +1096,13 @@ const extraFontOption = computed(() => {
 const currentAgency = computed(() => agencyStore.currentAgency?.value || agencyStore.currentAgency || null);
 const currentAgencyId = computed(() => Number(currentAgency.value?.id || 0) || null);
 const recordUnitForMetric = (metricKey) => {
-  const key = String(metricKey || '').trim().toLowerCase();
-  if (key === 'distance_miles') return 'miles';
-  if (key === 'duration_minutes') return 'minutes';
-  if (key === 'points') return 'points';
-  return '';
+  const opt = recordMetricOptions.find(o => o.value === metricKey);
+  return opt?.unit || '';
+};
+
+const recordLowerIsBetter = (metricKey) => {
+  const opt = recordMetricOptions.find(o => o.value === metricKey);
+  return opt?.lowerIsBetter || false;
 };
 
 const normalizedHex = (raw, fallback) => {
@@ -1613,6 +1669,7 @@ const loadClubRecords = async () => {
         metricKey: r.metricKey || '',
         activityType: r.activityType || '',
         terrain: r.terrain || '',
+        raceDistance: r.raceDistance != null ? Number(r.raceDistance) : null,
         holderName: r.holderName || '',
         holderYear: r.holderYear ?? null,
         holderTeam: r.holderTeam || '',
@@ -1635,6 +1692,7 @@ const addRecord = () => {
     metricKey: '',
     activityType: '',
     terrain: '',
+    raceDistance: null,
     holderName: '',
     holderYear: null,
     holderTeam: '',
@@ -1661,6 +1719,7 @@ const saveRecords = async () => {
         metricKey: String(r.metricKey || '').trim() || null,
         activityType: String(r.activityType || '').trim() || null,
         terrain: String(r.terrain || '').trim() || null,
+        raceDistance: r.raceDistance != null && Number.isFinite(Number(r.raceDistance)) ? Number(r.raceDistance) : null,
         holderName: String(r.holderName || '').trim(),
         holderYear: Number.isFinite(Number(r.holderYear)) ? Math.trunc(Number(r.holderYear)) : null,
         holderTeam: String(r.holderTeam || '').trim(),
@@ -2341,6 +2400,12 @@ const unlockRdConfig = async () => {
   border-radius: 999px;
   padding: 3px 10px;
   align-self: flex-start;
+}
+
+.cr-filter-pill--speed {
+  color: #b45309;
+  background: #fffbeb;
+  border-color: #fde68a;
 }
 
 /* Pending verifications */
