@@ -1,7 +1,7 @@
 <template>
   <section class="challenge-activity-feed">
     <div class="activity-feed-header">
-      <h2>Recent Activity</h2>
+    <h2>Recent Activity</h2>
 
       <!-- ── Date navigator ──────────────────────────────────────── -->
       <div class="feed-date-nav">
@@ -86,11 +86,11 @@
         <div class="activity-header">
           <UserAvatar :photo-path="w.profile_photo_url || w.profile_photo_path" :first-name="w.first_name" :last-name="w.last_name" size="sm" extra-class="activity-avatar" />
           <div class="activity-user-info">
-            <span class="activity-user">{{ w.first_name }} {{ w.last_name }}</span>
+          <span class="activity-user">{{ w.first_name }} {{ w.last_name }}</span>
             <span class="activity-timestamp">{{ formatTimestamp(w.completed_at || w.created_at) }}</span>
           </div>
           <div class="activity-badges">
-            <span class="activity-type">{{ formatActivityType(w.activity_type) }}</span>
+          <span class="activity-type">{{ formatActivityType(w.activity_type) }}</span>
             <span v-if="w.terrain" class="terrain-badge" :class="`terrain-${String(w.terrain).toLowerCase()}`">
               {{ w.terrain }}
             </span>
@@ -210,7 +210,7 @@
         <!-- ── Expandable "More info" section ──────────────────────────── -->
         <div v-if="moreInfoOpen[w.id]" class="more-info-panel">
           <!-- Notes -->
-          <div v-if="w.workout_notes" class="activity-notes">{{ w.workout_notes }}</div>
+        <div v-if="w.workout_notes" class="activity-notes">{{ w.workout_notes }}</div>
 
           <!-- Strava metrics chips (Strava-linked workouts) -->
           <div v-if="w.strava_activity_id && (w.elevation_gain_meters > 0 || w.calories_burned > 0 || w.average_heartrate > 0 || w.max_heartrate > 0)" class="strava-metrics-row">
@@ -218,7 +218,7 @@
             <span v-if="w.calories_burned > 0" class="strava-metric" title="Calories verified and capped against evidence-based limits">🔥 {{ w.calories_burned }} cal <span class="cal-source-tag">Strava</span></span>
             <span v-if="w.average_heartrate > 0" class="strava-metric" title="Avg heart rate">❤️ avg {{ Math.round(w.average_heartrate) }} bpm</span>
             <span v-if="w.max_heartrate > 0" class="strava-metric" title="Max heart rate">❤️‍🔥 max {{ Math.round(w.max_heartrate) }} bpm</span>
-          </div>
+      </div>
 
           <!-- Estimated calories for manual (non-Strava) workouts -->
           <div v-else-if="!w.strava_activity_id && w.calories_burned > 0" class="strava-metrics-row">
