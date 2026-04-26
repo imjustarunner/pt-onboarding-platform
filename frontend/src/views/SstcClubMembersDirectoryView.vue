@@ -218,11 +218,34 @@
                 </div>
               </div>
 
-              <!-- Club Records Held -->
-              <div v-if="trophyCase.recordsHeld?.length" class="trophy-records">
+              <!-- Personal Records -->
+              <div v-if="trophyCase.personalRecords?.length" class="trophy-records">
+                <div class="trophy-records-label">Personal Records</div>
+                <div
+                  v-for="r in trophyCase.personalRecords"
+                  :key="r.id"
+                  class="trophy-record-row"
+                  :class="{ 'trophy-record-row--cr': r.isClubRecord }"
+                >
+                  <img v-if="r.iconUrl" :src="r.iconUrl" class="trophy-record-icon" alt="" />
+                  <span v-else class="trophy-record-icon-ph">⭐</span>
+                  <span class="trophy-record-label">
+                    {{ r.label }}
+                    <span v-if="r.isClubRecord" class="trophy-cr-badge">CR</span>
+                  </span>
+                  <span class="trophy-record-value">
+                    {{ formatPrValue(r) }}
+                    <span v-if="r.unit && r.metricKey !== 'race_chip_time_seconds'" class="trophy-record-unit">{{ r.unit }}</span>
+                  </span>
+                  <span v-if="r.context" class="trophy-record-year">{{ r.context }}</span>
+                </div>
+              </div>
+
+              <!-- Club Records Held (not already shown in PRs) -->
+              <div v-if="trophyCase.recordsHeld?.filter(r => !trophyCase.personalRecords?.some(pr => pr.id === r.id)).length" class="trophy-records" style="margin-top:10px;">
                 <div class="trophy-records-label">Club Records Held</div>
                 <div
-                  v-for="r in trophyCase.recordsHeld"
+                  v-for="r in trophyCase.recordsHeld.filter(r => !trophyCase.personalRecords?.some(pr => pr.id === r.id))"
                   :key="r.id"
                   class="trophy-record-row"
                 >
@@ -470,8 +493,22 @@ const openMember = async (m) => {
 
 const hasTrophies = computed(() => {
   if (!trophyCase.value) return false;
-  return (trophyCase.value.raceClubs?.length > 0) || (trophyCase.value.recordsHeld?.length > 0);
+  return (trophyCase.value.raceClubs?.length > 0)
+    || (trophyCase.value.recordsHeld?.length > 0)
+    || (trophyCase.value.personalRecords?.length > 0);
 });
+
+const formatPrValue = (r) => {
+  if (r.metricKey === 'race_chip_time_seconds' && r.value != null) {
+    const s = Math.round(Number(r.value));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+    return `${m}:${String(sec).padStart(2,'0')}`;
+  }
+  return r.value != null ? r.value : '—';
+};
 
 const closeModal = () => {
   modalOpen.value = false;
@@ -1105,8 +1142,28 @@ onMounted(async () => {
   object-fit: contain;
   border-radius: 4px;
   flex-shrink: 0;
+  transition: transform 0.15s ease;
+  cursor: zoom-in;
+  position: relative;
+  z-index: 0;
 }
+.trophy-record-icon:hover { transform: scale(2.5); z-index: 10; box-shadow: 0 3px 12px rgba(0,0,0,0.2); }
 .trophy-record-icon-ph { font-size: 18px; flex-shrink: 0; width: 28px; text-align: center; }
+
+.trophy-record-row--cr { background: #eff6ff; border-radius: 5px; padding: 5px 6px; }
+
+.trophy-cr-badge {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: #dbeafe;
+  color: #1e40af;
+  border-radius: 999px;
+  padding: 1px 5px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
 
 .trophy-record-label {
   flex: 1;

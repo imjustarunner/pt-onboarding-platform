@@ -717,7 +717,7 @@
 
         <!-- My Trophy Case -->
         <DashboardSectionWrapper
-          v-if="myTrophyCase && (myTrophyCase.raceClubs?.length || myTrophyCase.recordsHeld?.length)"
+          v-if="myTrophyCase && (myTrophyCase.raceClubs?.length || myTrophyCase.recordsHeld?.length || myTrophyCase.personalRecords?.length)"
           :id="'my-trophy-case'"
           :label="sectionLabel('my-trophy-case')"
           :order="dashboardLayout.orderOf('my-trophy-case')"
@@ -756,16 +756,43 @@
               </div>
             </div>
 
+            <!-- Personal Records -->
+            <div v-if="myTrophyCase.personalRecords?.length" class="my-trophy-records">
+              <div class="my-trophy-records-title">Personal Records</div>
+              <div
+                v-for="r in myTrophyCase.personalRecords"
+                :key="r.id"
+                class="my-trophy-record-row"
+                :class="{ 'my-trophy-record-row--cr': r.isClubRecord }"
+              >
+                <div class="my-trophy-record-icon-wrap">
+                  <img v-if="r.iconUrl" :src="r.iconUrl" class="my-trophy-record-icon" alt="" />
+                  <span v-else class="my-trophy-record-icon-ph">⭐</span>
+                </div>
+                <span class="my-trophy-record-label">
+                  {{ r.label }}
+                  <span v-if="r.isClubRecord" class="my-trophy-cr-badge" title="You also hold the club record!">📋 CR</span>
+                </span>
+                <span class="my-trophy-record-value">
+                  {{ formatPrValue(r) }}
+                  <span v-if="r.unit && r.metricKey !== 'race_chip_time_seconds'" class="my-trophy-record-unit">{{ r.unit }}</span>
+                </span>
+                <span v-if="r.context" class="my-trophy-record-year">{{ r.context }}</span>
+              </div>
+            </div>
+
             <!-- Club Records Held -->
-            <div v-if="myTrophyCase.recordsHeld?.length" class="my-trophy-records">
+            <div v-if="myTrophyCase.recordsHeld?.filter(r => !myTrophyCase.personalRecords?.some(pr => pr.id === r.id)).length" class="my-trophy-records" style="margin-top:12px;">
               <div class="my-trophy-records-title">Club Records You Hold</div>
               <div
-                v-for="r in myTrophyCase.recordsHeld"
+                v-for="r in myTrophyCase.recordsHeld.filter(r => !myTrophyCase.personalRecords?.some(pr => pr.id === r.id))"
                 :key="r.id"
                 class="my-trophy-record-row"
               >
-                <img v-if="r.iconUrl" :src="r.iconUrl" class="my-trophy-record-icon" alt="" />
-                <span v-else class="my-trophy-record-icon-ph">📋</span>
+                <div class="my-trophy-record-icon-wrap">
+                  <img v-if="r.iconUrl" :src="r.iconUrl" class="my-trophy-record-icon" alt="" />
+                  <span v-else class="my-trophy-record-icon-ph">📋</span>
+                </div>
                 <span class="my-trophy-record-label">{{ r.label }}</span>
                 <span class="my-trophy-record-value">
                   {{ r.value != null ? r.value : '—' }}
@@ -2445,6 +2472,18 @@ const loadKudosStats = async () => {
 // ── My Trophy Case ────────────────────────────────────────────────────────────
 const myTrophyCase = ref(null);
 
+const formatPrValue = (r) => {
+  if (r.metricKey === 'race_chip_time_seconds' && r.value != null) {
+    const s = Math.round(Number(r.value));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+    return `${m}:${String(sec).padStart(2,'0')}`;
+  }
+  return r.value != null ? r.value : '—';
+};
+
 const loadMyTrophyCase = async () => {
   const clubId = Number(challenge.value?.organization_id || 0);
   if (!clubId) return;
@@ -4070,14 +4109,43 @@ watch(() => workoutForm.value.terrain, (terrain) => {
 }
 .my-trophy-record-row:last-child { border-bottom: none; }
 
+.my-trophy-record-icon-wrap {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  position: relative;
+}
 .my-trophy-record-icon {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   object-fit: contain;
   border-radius: 5px;
-  flex-shrink: 0;
+  display: block;
+  transition: transform 0.18s ease;
+  cursor: zoom-in;
+  position: relative;
+  z-index: 0;
 }
-.my-trophy-record-icon-ph { font-size: 20px; width: 28px; text-align: center; flex-shrink: 0; }
+.my-trophy-record-icon:hover {
+  transform: scale(3);
+  z-index: 10;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+}
+.my-trophy-record-icon-ph { font-size: 20px; width: 32px; text-align: center; flex-shrink: 0; line-height: 32px; }
+
+.my-trophy-record-row--cr { background: #eff6ff; border-radius: 6px; padding-left: 6px; padding-right: 6px; }
+
+.my-trophy-cr-badge {
+  font-size: 10px;
+  font-weight: 700;
+  background: #dbeafe;
+  color: #1e40af;
+  border-radius: 999px;
+  padding: 1px 5px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
 
 .my-trophy-record-label {
   flex: 1;

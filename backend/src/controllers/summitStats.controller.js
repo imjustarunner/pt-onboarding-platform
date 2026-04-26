@@ -1766,10 +1766,170 @@ const getMemberTrophyCaseData = async ({ clubId, userId }) => {
     .filter((r) => r.holderUserId && Number(r.holderUserId) === Number(userId))
     .map((r) => ({ ...r, iconUrl: r.iconId ? (iconUrlById.get(r.iconId) || null) : null }));
 
-  // 3. Season awards placeholder — extendable in the future
+  // 3. Personal Records — mirror the club record metrics, computed for this user
+  // Skip team-wide and club-wide aggregate metrics; those aren't personal bests.
+  const personalMetricKeys = new Set([
+    'distance_miles', 'duration_minutes', 'points',
+    'weekly_distance_miles', 'monthly_distance_miles', 'season_distance_miles',
+    'season_duration_minutes', 'race_chip_time_seconds'
+  ]);
+
+  // Build a de-duped list of personal-metric club records (by metricKey + filters)
+  const prTemplates = allRecords.filter((r) => r.metricKey && personalMetricKeys.has(r.metricKey));
+
+  const personalRecords = [];
+  for (const tpl of prTemplates) {
+    try {
+      // Build activity_type / terrain WHERE clauses
+      const actFilter = tpl.activityType ? `AND LOWER(COALESCE(w.activity_type,'')) LIKE ?` : '';
+      const terrainFilter = tpl.terrain ? `AND LOWER(COALESCE(w.terrain,'')) = ?` : '';
+      const actParam = tpl.activityType ? [`%${tpl.activityType.toLowerCase()}%`] : [];
+      const terrainParam = tpl.terrain ? [tpl.terrain.toLowerCase()] : [];
+      const baseWhere = `c.organization_id = ? AND w.user_id = ?
+        AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+        ${actFilter} ${terrainFilter}`;
+      const baseParams = [clubId, userId, ...actParam, ...terrainParam];
+
+      let prValue = null;
+      let prContext = null; // e.g. week/month label
+
+      if (tpl.metricKey === 'distance_miles') {
+        const [rows] = await pool.execute(
+          `SELECT MAX(w.distance_value) AS val
+           FROM challenge_workouts w
+           INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+           WHERE ${baseWhere}`,
+          baseParams
+        );
+        prValue = rows?.[0]?.val != null ? Math.round(Number(rows[0].val) * 100) / 100 : null;
+
+      } else if (tpl.metricKey === 'duration_minutes') {
+        const [rows] = await pool.execute(
+          `SELECT MAX(w.duration_minutes) AS val
+           FROM challenge_workouts w
+           INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+           WHERE ${baseWhere}`,
+          baseParams
+        );
+        prValue = rows?.[0]?.val != null ? Math.round(Number(rows[0].val)) : null;
+
+      } else if (tpl.metricKey === 'points') {
+        const [rows] = await pool.execute(
+          `SELECT MAX(w.points) AS val
+           FROM challenge_workouts w
+           INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+           WHERE ${baseWhere}`,
+          baseParams
+        );
+        prValue = rows?.[0]?.val != null ? Math.round(Number(rows[0].val)) : null;
+
+      } else if (tpl.metricKey === 'weekly_distance_miles') {
+        const [rows] = await pool.execute(
+          `SELECT SUM(w.distance_value) AS val,
+                  YEAR(w.completed_at) AS yr, WEEK(w.completed_at, 1) AS wk
+           FROM challenge_workouts w
+           INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+           WHERE ${baseWhere} AND w.completed_at IS NOT NULL
+           GROUP BY yr, wk
+           ORDER BY val DESC
+           LIMIT 1`,
+          baseParams
+        );
+        if (rows?.[0]?.val != null) {
+          prValue = Math.round(Number(rows[0].val) * 100) / 100;
+          prContext = `Week ${rows[0].wk}, ${rows[0].yr}`;
+        }
+
+      } else if (tpl.metricKey === 'monthly_distance_miles') {
+        const [rows] = await pool.execute(
+          `SELECT SUM(w.distance_value) AS val,
+                  YEAR(w.completed_at) AS yr, MONTH(w.completed_at) AS mo
+           FROM challenge_workouts w
+           INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+           WHERE ${baseWhere} AND w.completed_at IS NOT NULL
+           GROUP BY yr, mo
+           ORDER BY val DESC
+           LIMIT 1`,
+          baseParams
+        );
+        if (rows?.[0]?.val != null) {
+          const MONTHS = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          prValue = Math.round(Number(rows[0].val) * 100) / 100;
+          prContext = `${MONTHS[rows[0].mo] || ''} ${rows[0].yr}`;
+        }
+
+      } else if (tpl.metricKey === 'season_distance_miles') {
+        const [rows] = await pool.execute(
+          `SELECT SUM(w.distance_value) AS val, c.class_name
+           FROM challenge_workouts w
+           INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+           WHERE ${baseWhere}
+           GROUP BY w.learning_class_id, c.class_name
+           ORDER BY val DESC
+           LIMIT 1`,
+          baseParams
+        );
+        if (rows?.[0]?.val != null) {
+          prValue = Math.round(Number(rows[0].val) * 100) / 100;
+          prContext = rows[0].class_name || null;
+        }
+
+      } else if (tpl.metricKey === 'season_duration_minutes') {
+        const [rows] = await pool.execute(
+          `SELECT SUM(w.duration_minutes) AS val, c.class_name
+           FROM challenge_workouts w
+           INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+           WHERE ${baseWhere}
+           GROUP BY w.learning_class_id, c.class_name
+           ORDER BY val DESC
+           LIMIT 1`,
+          baseParams
+        );
+        if (rows?.[0]?.val != null) {
+          prValue = Math.round(Number(rows[0].val));
+          prContext = rows[0].class_name || null;
+        }
+
+      } else if (tpl.metricKey === 'race_chip_time_seconds') {
+        const distFilter = tpl.raceDistance
+          ? `AND ABS(w.race_distance_miles - ${Number(tpl.raceDistance)}) <= ${Number(tpl.raceDistance) * 0.10}`
+          : '';
+        const [rows] = await pool.execute(
+          `SELECT MIN(w.race_chip_time_seconds) AS val
+           FROM challenge_workouts w
+           INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+           WHERE ${baseWhere}
+             AND w.is_race = 1
+             AND w.race_chip_time_seconds IS NOT NULL
+             AND w.race_chip_time_seconds > 0
+             ${distFilter}`,
+          baseParams
+        );
+        prValue = rows?.[0]?.val != null ? Math.round(Number(rows[0].val)) : null;
+      }
+
+      if (prValue == null) continue;
+
+      personalRecords.push({
+        id: tpl.id,
+        label: tpl.label,
+        value: prValue,
+        unit: tpl.unit,
+        metricKey: tpl.metricKey,
+        lowerIsBetter: tpl.lowerIsBetter,
+        iconId: tpl.iconId,
+        iconUrl: tpl.iconId ? (iconUrlById.get(tpl.iconId) || null) : null,
+        context: prContext,
+        // Is this also a current club record (so user holds both)?
+        isClubRecord: recordsHeld.some((r) => r.id === tpl.id)
+      });
+    } catch { /* skip this metric on error */ }
+  }
+
+  // 4. Season awards placeholder — extendable in the future
   const seasonAwards = [];
 
-  return { raceClubs, recordsHeld, seasonAwards };
+  return { raceClubs, recordsHeld, personalRecords, seasonAwards };
 };
 
 /**
