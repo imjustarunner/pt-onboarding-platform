@@ -134,6 +134,7 @@ const normalizeClubRecords = (input) => {
 
 const mergeSeedRecords = ({ existingRecords, incomingRecords }) => {
   const existingById = new Map((existingRecords || []).map((r) => [String(r.id), r]));
+  const now = new Date().toISOString();
   const merged = [];
   for (const incoming of incomingRecords || []) {
     const id = String(incoming.id);
@@ -141,26 +142,33 @@ const mergeSeedRecords = ({ existingRecords, incomingRecords }) => {
     if (!prev) {
       merged.push({
         ...incoming,
-        seededAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        seededAt: now,
+        updatedAt: now
       });
       continue;
     }
-    // Seed values can be defined at creation, but existing records are not manually broken/overwritten.
+    // All user-configurable fields (label, metric, filters, seed value, holder info) are
+    // taken from incoming. Verification history is preserved from prev.
     merged.push({
-      ...prev,
+      id: prev.id,
       label: incoming.label,
+      value: incoming.value != null ? incoming.value : prev.value,
       unit: incoming.unit || unitForMetricKey(incoming.metricKey || prev.metricKey),
       notes: incoming.notes,
       metricKey: incoming.metricKey || prev.metricKey || null,
-      activityType: incoming.activityType || null,
-      terrain: incoming.terrain || null,
-      raceDistance: incoming.raceDistance || null,
+      activityType: incoming.activityType != null ? incoming.activityType : (prev.activityType || null),
+      terrain: incoming.terrain != null ? incoming.terrain : (prev.terrain || null),
+      raceDistance: incoming.raceDistance != null ? incoming.raceDistance : (prev.raceDistance || null),
       holderName: incoming.holderName,
       holderYear: incoming.holderYear,
       holderTeam: incoming.holderTeam,
       iconId: incoming.iconId,
-      verificationRequired: true
+      verificationRequired: true,
+      seededAt: prev.seededAt || now,
+      updatedAt: now,
+      lastVerifiedAt: prev.lastVerifiedAt || null,
+      lastVerifiedWorkoutId: prev.lastVerifiedWorkoutId || null,
+      lastVerifiedByUserId: prev.lastVerifiedByUserId || null
     });
   }
   return merged;
