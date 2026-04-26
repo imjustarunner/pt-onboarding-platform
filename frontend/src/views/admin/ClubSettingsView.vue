@@ -630,33 +630,97 @@
                 <template v-else>
                   <!-- Quick add / edit form -->
                   <div class="rc-quick-add">
-                    <div class="rc-quick-add-title">Add or update a member's completions</div>
-                    <div class="rc-quick-add-row">
-                      <select v-model="club._quickAddUserId" class="cr-select" style="flex:1;">
-                        <option :value="null">— Select member —</option>
-                        <option v-for="m in allClubMembers" :key="m.userId" :value="m.userId">
-                          {{ m.name }}{{ !m.linked ? ' (unlinked)' : '' }}
-                        </option>
-                      </select>
-                      <div class="cr-value-wrap" style="flex:0 0 auto;">
-                        <input
-                          v-model.number="club._quickAddCount"
-                          type="number"
-                          min="0"
-                          step="1"
-                          placeholder="0"
-                          class="cr-input"
-                          style="width:72px;"
-                        />
-                        <span class="cr-unit-badge">total</span>
-                      </div>
+                    <div class="rc-quick-add-tabs">
                       <button
                         type="button"
-                        class="btn btn-primary btn-sm"
-                        :disabled="!club._quickAddUserId"
-                        @click="quickAddMember(club)"
-                      >Set</button>
+                        :class="['rc-qa-tab', !club._addNewMode ? 'rc-qa-tab--active' : '']"
+                        @click="club._addNewMode = false"
+                      >Select existing member</button>
+                      <button
+                        type="button"
+                        :class="['rc-qa-tab', club._addNewMode ? 'rc-qa-tab--active' : '']"
+                        @click="club._addNewMode = true"
+                      >+ Add someone not in the list</button>
                     </div>
+
+                    <!-- Existing member mode -->
+                    <template v-if="!club._addNewMode">
+                      <div class="rc-quick-add-title">Set total completions for a member</div>
+                      <div class="rc-quick-add-row">
+                        <select v-model="club._quickAddUserId" class="cr-select" style="flex:1;">
+                          <option :value="null">— Select member —</option>
+                          <option v-for="m in allClubMembers" :key="m.userId" :value="m.userId">
+                            {{ m.name }}{{ !m.linked ? ' (unlinked)' : '' }}
+                          </option>
+                        </select>
+                        <div class="cr-value-wrap" style="flex:0 0 auto;">
+                          <input
+                            v-model.number="club._quickAddCount"
+                            type="number"
+                            min="0"
+                            step="1"
+                            placeholder="0"
+                            class="cr-input"
+                            style="width:72px;"
+                          />
+                          <span class="cr-unit-badge">total</span>
+                        </div>
+                        <button
+                          type="button"
+                          class="btn btn-primary btn-sm"
+                          :disabled="!club._quickAddUserId"
+                          @click="quickAddMember(club)"
+                        >Set</button>
+                      </div>
+                    </template>
+
+                    <!-- New person mode -->
+                    <template v-else>
+                      <div class="rc-quick-add-title">Enter their name to add them</div>
+                      <div class="rc-quick-add-row" style="flex-wrap:wrap;gap:6px;">
+                        <input
+                          v-model="club._newFirstName"
+                          type="text"
+                          placeholder="First name *"
+                          class="cr-input"
+                          style="flex:1;min-width:100px;"
+                        />
+                        <input
+                          v-model="club._newLastName"
+                          type="text"
+                          placeholder="Last name"
+                          class="cr-input"
+                          style="flex:1;min-width:100px;"
+                        />
+                        <input
+                          v-model="club._newEmail"
+                          type="email"
+                          placeholder="Email (optional, for linking later)"
+                          class="cr-input"
+                          style="flex:2;min-width:180px;"
+                        />
+                        <div class="cr-value-wrap" style="flex:0 0 auto;">
+                          <input
+                            v-model.number="club._newCount"
+                            type="number"
+                            min="1"
+                            step="1"
+                            placeholder="1"
+                            class="cr-input"
+                            style="width:64px;"
+                          />
+                          <span class="cr-unit-badge">total</span>
+                        </div>
+                        <button
+                          type="button"
+                          class="btn btn-primary btn-sm"
+                          :disabled="!club._newFirstName || club._creatingPlaceholder"
+                          @click="createAndAddPlaceholder(club, ci)"
+                        >{{ club._creatingPlaceholder ? 'Adding…' : 'Add' }}</button>
+                      </div>
+                      <div v-if="club._newError" class="rc-qa-error">{{ club._newError }}</div>
+                    </template>
+
                     <p class="rc-members-hint" style="margin-top:6px;">
                       "Total" is the full count including past and future completions.
                       <span class="rc-linked-dot rc-linked-dot--linked"></span> Linked account &nbsp;
@@ -2070,7 +2134,14 @@ const newRaceClub = () => ({
   _membersOpen: false,
   _memberSearch: '',
   _quickAddUserId: null,
-  _quickAddCount: null
+  _quickAddCount: null,
+  _addNewMode: false,
+  _newFirstName: '',
+  _newLastName: '',
+  _newEmail: '',
+  _newCount: 1,
+  _newError: '',
+  _creatingPlaceholder: false
 });
 
 const addRaceClub = () => raceClubs.value.push(newRaceClub());
@@ -2100,7 +2171,14 @@ const loadRaceClubs = async () => {
           _membersOpen: false,
           _memberSearch: '',
           _quickAddUserId: null,
-          _quickAddCount: null
+          _quickAddCount: null,
+          _addNewMode: false,
+          _newFirstName: '',
+          _newLastName: '',
+          _newEmail: '',
+          _newCount: 1,
+          _newError: '',
+          _creatingPlaceholder: false
         }))
       : [];
   } catch { raceClubs.value = []; }
@@ -2220,8 +2298,47 @@ const quickAddMember = (club) => {
 // Open quick edit for an existing member — pre-fill the quick-add form
 const openQuickEdit = (club, ci, m) => {
   if (!club._membersOpen) toggleMembersPanel(ci);
+  club._addNewMode = false;
   club._quickAddUserId = m.userId;
   club._quickAddCount = m.total;
+};
+
+// Create a new placeholder member and immediately set their seed count for this club
+const createAndAddPlaceholder = async (club, ci) => {
+  club._newError = '';
+  const firstName = String(club._newFirstName || '').trim();
+  const lastName  = String(club._newLastName  || '').trim();
+  const email     = String(club._newEmail     || '').trim().toLowerCase() || null;
+  const total     = Math.max(1, Math.trunc(Number(club._newCount) || 1));
+  if (!firstName) { club._newError = 'First name is required.'; return; }
+  club._creatingPlaceholder = true;
+  try {
+    const res = await api.post(`/summit-stats/clubs/${currentAgencyId.value}/race-clubs-placeholder`, {
+      firstName, lastName: lastName || '', email
+    });
+    const member = res.data?.member;
+    if (!member?.userId) throw new Error('Unexpected response');
+
+    // Set seed count for this club
+    const autoCount = autoCountForMember(club.id, member.userId);
+    setSeedCount(club, member.userId, Math.max(0, total - autoCount));
+
+    // Add to local allClubMembers if not already there
+    if (!allClubMembers.value.find(m => m.userId === member.userId)) {
+      allClubMembers.value = [...allClubMembers.value, member].sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    // Reset form
+    club._newFirstName = '';
+    club._newLastName  = '';
+    club._newEmail     = '';
+    club._newCount     = 1;
+    club._addNewMode   = false;
+  } catch (e) {
+    club._newError = e?.response?.data?.error?.message || 'Failed to add member. Please try again.';
+  } finally {
+    club._creatingPlaceholder = false;
+  }
 };
 
 const setDefaultPaymentMethod = async (paymentMethodId) => {
@@ -2923,6 +3040,30 @@ const unlockRdConfig = async () => {
   padding: 12px;
 }
 
+.rc-quick-add-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.rc-qa-tab {
+  background: none;
+  border: 1px solid #bae6fd;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #0369a1;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.rc-qa-tab:hover { background: #e0f2fe; }
+.rc-qa-tab--active {
+  background: #0369a1;
+  color: #fff;
+  border-color: #0369a1;
+}
+
 .rc-quick-add-title {
   font-size: 12px;
   font-weight: 700;
@@ -2935,6 +3076,13 @@ const unlockRdConfig = async () => {
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.rc-qa-error {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #dc2626;
+  font-weight: 600;
 }
 
 .rc-linked-dot {

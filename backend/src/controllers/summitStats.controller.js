@@ -1727,6 +1727,98 @@ export const getPublicRaceClubs = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+/**
+ * POST /api/summit-stats/clubs/:id/race-clubs-placeholder
+ * Admin: create a new unlinked placeholder member and add them to the club roster,
+ * so they can immediately be given seed counts in Race Completion Clubs.
+ * Body: { firstName, lastName, email? }
+ */
+export const createRaceClubPlaceholder = async (req, res, next) => {
+  try {
+    const clubId = parseInt(req.params.id, 10);
+    const access = await ensureClubAdminAccess({ user: req.user, clubId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const firstName = String(req.body?.firstName || '').trim();
+    const lastName  = String(req.body?.lastName  || '').trim();
+    const email     = String(req.body?.email     || '').trim().toLowerCase() || null;
+
+    if (!firstName) return res.status(400).json({ error: { message: 'firstName is required' } });
+
+    // If an email is given, check for an existing user first
+    let existingUserId = null;
+    if (email) {
+      const [existing] = await pool.execute(
+        `SELECT id FROM users WHERE LOWER(TRIM(email)) = ? OR LOWER(TRIM(roster_placeholder_claim_email)) = ? LIMIT 1`,
+        [email, email]
+      );
+      if (existing?.[0]?.id) existingUserId = Number(existing[0].id);
+    }
+
+    let userId;
+    if (existingUserId) {
+      userId = existingUserId;
+    } else {
+      // Create a new placeholder user
+      const { default: crypto } = await import('crypto');
+      const syntheticEmail = email || `placeholder-${clubId}-${crypto.randomUUID()}@placeholder.sstc.local`;
+      const { default: User } = await import('../models/User.model.js');
+      const newUser = await User.create({
+        email: syntheticEmail,
+        personalEmail: email || syntheticEmail,
+        passwordHash: null,
+        firstName,
+        lastName,
+        phoneNumber: null,
+        role: 'provider',
+        status: 'ACTIVE_EMPLOYEE'
+      });
+      userId = newUser.id;
+      await pool.execute(
+        `UPDATE users
+         SET is_roster_placeholder = 1,
+             roster_placeholder_claim_email = ?,
+             roster_placeholder_claimed_at = NULL
+         WHERE id = ?`,
+        [email || null, userId]
+      );
+    }
+
+    // Assign to the club agency
+    const { default: User } = await import('../models/User.model.js');
+    await User.assignToAgency(userId, clubId, { clubRole: 'member', isActive: true });
+
+    // Enroll in all active/upcoming seasons for this club so they appear in the roster
+    const [seasonRows] = await pool.execute(
+      `SELECT id FROM learning_program_classes
+       WHERE organization_id = ? AND status IN ('active','upcoming')
+       ORDER BY id DESC LIMIT 5`,
+      [clubId]
+    );
+    for (const s of seasonRows || []) {
+      await pool.execute(
+        `INSERT INTO learning_class_provider_memberships
+           (learning_class_id, provider_user_id, membership_status, joined_at, created_by_user_id)
+         VALUES (?, ?, 'active', NOW(), ?)
+         ON DUPLICATE KEY UPDATE
+           membership_status = IF(membership_status = 'removed', 'active', membership_status),
+           updated_at = NOW()`,
+        [s.id, userId, req.user.id]
+      );
+    }
+
+    return res.json({
+      ok: true,
+      member: {
+        userId,
+        name: [firstName, lastName].filter(Boolean).join(' '),
+        linked: false,
+        claimEmail: email
+      }
+    });
+  } catch (error) { next(error); }
+};
+
 // ─── Member Trophy Case ───────────────────────────────────────────────────────
 
 /**

@@ -22,6 +22,7 @@ import {
   putRaceClubsConfig,
   getPublicRaceClubs,
   getRaceClubsAdminMembers,
+  createRaceClubPlaceholder,
   getClubMemberTrophyCase,
   getMyTrophyCase,
   getClubMemberStats,
@@ -201,6 +202,7 @@ router.put('/clubs/:id/records/verifications/:verificationId', reviewClubRecordV
 router.get('/clubs/:id/race-clubs-config', getRaceClubsConfig);
 router.put('/clubs/:id/race-clubs-config', putRaceClubsConfig);
 router.get('/clubs/:id/race-clubs-members', getRaceClubsAdminMembers);
+router.post('/clubs/:id/race-clubs-placeholder', authenticate, createRaceClubPlaceholder);
 router.get('/clubs/:id/race-clubs', authenticateOptional, getPublicRaceClubs);
 
 // Custom field definitions (club managers)
