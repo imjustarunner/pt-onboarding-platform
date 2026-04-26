@@ -148,7 +148,44 @@
           </div>
         </div>
 
-        <div v-else class="pub-card pub-empty-records">
+        <!-- Race Completion Clubs / Trophy Case -->
+        <div v-if="raceClubs.length" class="pub-row">
+          <div class="pub-card pub-trophy-card">
+            <div class="card-label">🏆 Trophy Case — Race Clubs</div>
+            <p class="race-intro">Members who have completed race distances and earned club badges.</p>
+            <div class="trophy-clubs">
+              <div v-for="rc in raceClubs" :key="rc.id" class="trophy-club">
+                <div class="trophy-club-head">
+                  <span class="trophy-club-name">{{ rc.label }}</span>
+                  <span class="trophy-club-dist">{{ rc.raceDistanceMiles }} mi</span>
+                </div>
+                <!-- Tier badges legend -->
+                <div v-if="rc.tiers?.length" class="trophy-tiers-legend">
+                  <div v-for="tier in rc.tiers" :key="tier.count" class="trophy-tier-badge">
+                    <img v-if="tier.iconUrl" :src="tier.iconUrl" class="trophy-tier-icon" alt="" />
+                    <span class="trophy-tier-label">{{ tier.label || `${tier.count}×` }}</span>
+                  </div>
+                </div>
+                <!-- Member list -->
+                <ul class="trophy-member-list">
+                  <li v-for="m in rc.members" :key="m.userId" class="trophy-member-row">
+                    <img v-if="m.earnedTier?.iconUrl" :src="m.earnedTier.iconUrl" class="trophy-member-icon" alt="" />
+                    <span v-else class="trophy-member-icon-placeholder">🏅</span>
+                    <span class="trophy-member-name">{{ m.name }}</span>
+                    <span class="trophy-member-count">{{ m.count }}×</span>
+                    <span v-if="m.nextTier" class="trophy-member-next">
+                      {{ m.nextTier.count - m.count }} more for
+                      <img v-if="m.nextTier.iconUrl" :src="m.nextTier.iconUrl" class="trophy-next-icon" alt="" />
+                      {{ m.nextTier.label || `${m.nextTier.count}×` }}
+                    </span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-else-if="!hasRecordsContent" class="pub-card pub-empty-records">
           <div class="card-label">Team records</div>
           <p class="empty-hint">No club records or race divisions yet.</p>
         </div>
@@ -206,10 +243,22 @@ const raceDivisionsArr = computed(() => {
   return Array.isArray(rd) ? rd.filter(d => d.allTime?.length) : [];
 });
 
+const raceClubs = ref([]);
+
 const hasRecordsContent = computed(() => {
   const cr = clubData.value?.clubRecords || [];
-  return cr.length > 0 || raceDivisionsArr.value.length > 0;
+  return cr.length > 0 || raceDivisionsArr.value.length > 0 || raceClubs.value.some(rc => rc.members?.length);
 });
+
+const formatRaceChipTime = (seconds) => {
+  const s = Math.round(Number(seconds) || 0);
+  if (!s) return '';
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  return `${m}:${String(sec).padStart(2,'0')}`;
+};
 
 const decimalStatKeys = new Set(['total_miles', 'run_miles', 'ruck_miles']);
 const fmtPubStat = (stat) => {
@@ -237,11 +286,15 @@ const loadPage = async () => {
     }
     const nid = Number(clubData.value.club.id || 0);
     if (nid) {
-      try {
-        const statsRes = await api.get(`/summit-stats/clubs/${nid}/stats`, { skipAuthRedirect: true });
-        if (Array.isArray(statsRes?.data?.stats)) configuredStats.value = statsRes.data.stats;
-      } catch {
-        configuredStats.value = [];
+      const [statsRes, raceClubsRes] = await Promise.allSettled([
+        api.get(`/summit-stats/clubs/${nid}/stats`, { skipAuthRedirect: true }),
+        api.get(`/summit-stats/clubs/${nid}/race-clubs`, { skipAuthRedirect: true })
+      ]);
+      if (statsRes.status === 'fulfilled' && Array.isArray(statsRes.value?.data?.stats)) {
+        configuredStats.value = statsRes.value.data.stats;
+      }
+      if (raceClubsRes.status === 'fulfilled' && Array.isArray(raceClubsRes.value?.data?.raceClubs)) {
+        raceClubs.value = raceClubsRes.value.data.raceClubs.filter(rc => rc.members?.length > 0);
       }
     }
   } catch (e) {
@@ -685,5 +738,126 @@ onMounted(loadPage);
   margin: 0;
   color: #64748b;
   font-size: 15px;
+}
+
+/* ── Trophy Case ─────────────────────────────── */
+.pub-trophy-card { width: 100%; }
+
+.trophy-clubs {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-top: 8px;
+}
+
+.trophy-club {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.trophy-club-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #1e293b;
+  color: #fff;
+}
+
+.trophy-club-name {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.trophy-club-dist {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.trophy-tiers-legend {
+  display: flex;
+  gap: 10px;
+  padding: 8px 14px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  flex-wrap: wrap;
+}
+
+.trophy-tier-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #475569;
+}
+
+.trophy-tier-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.trophy-member-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.trophy-member-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.trophy-member-row:last-child { border-bottom: none; }
+
+.trophy-member-icon {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.trophy-member-icon-placeholder {
+  font-size: 20px;
+  flex-shrink: 0;
+  width: 28px;
+  text-align: center;
+}
+
+.trophy-member-name {
+  font-weight: 600;
+  font-size: 14px;
+  flex: 1;
+}
+
+.trophy-member-count {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-radius: 999px;
+  padding: 2px 8px;
+  flex-shrink: 0;
+}
+
+.trophy-member-next {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.trophy-next-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  border-radius: 3px;
 }
 </style>

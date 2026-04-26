@@ -1390,6 +1390,190 @@ export const upsertClubRecords = async (req, res, next) => {
   }
 };
 
+// ─── Race Completion Clubs ────────────────────────────────────────────────────
+
+const parseRaceClubsConfig = (raw) => {
+  if (!raw) return [];
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+};
+
+const normalizeRaceClubsConfig = (input) => {
+  const rows = Array.isArray(input) ? input : [];
+  return rows.map((rc) => ({
+    id: String(rc?.id || `rc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+    label: String(rc?.label || '').trim(),
+    raceDistanceMiles: Number(rc?.raceDistanceMiles) || 0,
+    tolerancePct: Math.min(Math.max(Number(rc?.tolerancePct) || 5, 1), 30),
+    tiers: Array.isArray(rc?.tiers)
+      ? rc.tiers
+          .map((t) => ({
+            count: Math.max(1, Math.trunc(Number(t?.count) || 1)),
+            iconId: Number.isFinite(Number(t?.iconId)) && Number(t?.iconId) > 0 ? Math.trunc(Number(t.iconId)) : null,
+            label: String(t?.label || '').trim()
+          }))
+          .sort((a, b) => a.count - b.count)
+      : []
+  })).filter((rc) => rc.raceDistanceMiles > 0);
+};
+
+/**
+ * GET /api/summit-stats/clubs/:id/race-clubs-config
+ * Admin: get race completion clubs config for a club.
+ */
+export const getRaceClubsConfig = async (req, res, next) => {
+  try {
+    const clubId = parseInt(req.params.id, 10);
+    const access = await ensureClubAdminAccess({ user: req.user, clubId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const [rows] = await pool.execute(
+      `SELECT race_clubs_config_json FROM agencies WHERE id = ? LIMIT 1`,
+      [clubId]
+    );
+    const config = normalizeRaceClubsConfig(parseRaceClubsConfig(rows?.[0]?.race_clubs_config_json));
+    return res.json({ agencyId: clubId, raceClubs: config });
+  } catch (error) { next(error); }
+};
+
+/**
+ * PUT /api/summit-stats/clubs/:id/race-clubs-config
+ * Admin: save race completion clubs config.
+ */
+export const putRaceClubsConfig = async (req, res, next) => {
+  try {
+    const clubId = parseInt(req.params.id, 10);
+    const access = await ensureClubAdminAccess({ user: req.user, clubId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const incoming = normalizeRaceClubsConfig(req.body?.raceClubs);
+    await pool.execute(
+      `UPDATE agencies SET race_clubs_config_json = ? WHERE id = ?`,
+      [JSON.stringify(incoming), clubId]
+    );
+    return res.json({ agencyId: clubId, raceClubs: incoming });
+  } catch (error) { next(error); }
+};
+
+/**
+ * Compute each member's race completions against all race club configs for a club.
+ * Returns [{clubId, clubLabel, raceDistanceMiles, members:[{userId, name, count, earnedTier, iconUrl}]}]
+ */
+export const computeRaceClubMemberships = async ({ clubId, iconResolver = null }) => {
+  const [cfgRows] = await pool.execute(
+    `SELECT race_clubs_config_json FROM agencies WHERE id = ? LIMIT 1`,
+    [clubId]
+  );
+  const configs = normalizeRaceClubsConfig(parseRaceClubsConfig(cfgRows?.[0]?.race_clubs_config_json));
+  if (!configs.length) return [];
+
+  // Fetch all approved races across all seasons for this club
+  const [workoutRows] = await pool.execute(
+    `SELECT w.user_id, w.race_distance_miles,
+            u.first_name, u.last_name, u.contributor_alias
+     FROM challenge_workouts w
+     INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+     INNER JOIN users u ON u.id = w.user_id
+     WHERE c.organization_id = ?
+       AND w.is_race = 1
+       AND w.race_distance_miles IS NOT NULL
+       AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+       AND (w.proof_status IN ('approved','none') OR w.proof_status IS NULL)`,
+    [clubId]
+  );
+  const workouts = workoutRows || [];
+
+  // Collect all icon IDs we need to resolve
+  const allIconIds = new Set();
+  for (const rc of configs) {
+    for (const tier of rc.tiers) {
+      if (tier.iconId) allIconIds.add(tier.iconId);
+    }
+  }
+  const iconUrlById = new Map();
+  if (allIconIds.size) {
+    try {
+      const { default: Icon } = await import('../models/Icon.model.js');
+      const placeholders = [...allIconIds].map(() => '?').join(', ');
+      const [iconRows] = await pool.execute(
+        `SELECT id, file_path FROM icons WHERE id IN (${placeholders})`,
+        [...allIconIds]
+      );
+      for (const icon of iconRows || []) {
+        iconUrlById.set(Number(icon.id), Icon.getIconUrl(icon));
+      }
+    } catch { /* non-fatal */ }
+  }
+
+  const result = [];
+  for (const rc of configs) {
+    const tol = rc.raceDistanceMiles * (rc.tolerancePct / 100);
+    const minDist = rc.raceDistanceMiles - tol;
+    const maxDist = rc.raceDistanceMiles + tol;
+
+    // Count completions per user
+    const countByUser = new Map();
+    const nameByUser = new Map();
+    for (const w of workouts) {
+      const dist = Number(w.race_distance_miles);
+      if (dist < minDist || dist > maxDist) continue;
+      const uid = Number(w.user_id);
+      countByUser.set(uid, (countByUser.get(uid) || 0) + 1);
+      if (!nameByUser.has(uid)) {
+        const alias = String(w.contributor_alias || '').trim();
+        const full = [w.first_name, w.last_name].map(s => String(s || '').trim()).filter(Boolean).join(' ');
+        nameByUser.set(uid, alias || full || `Member ${uid}`);
+      }
+    }
+
+    // Sort tiers descending so we find highest earned tier first
+    const tiersDesc = [...rc.tiers].sort((a, b) => b.count - a.count);
+
+    const members = [];
+    for (const [userId, count] of countByUser.entries()) {
+      const earnedTier = tiersDesc.find((t) => count >= t.count) || null;
+      if (!earnedTier) continue; // hasn't hit the first tier yet (shouldn't happen since min tier=1)
+      const nextTier = rc.tiers.find((t) => t.count > count) || null;
+      members.push({
+        userId,
+        name: nameByUser.get(userId) || '',
+        count,
+        earnedTier: {
+          ...earnedTier,
+          iconUrl: earnedTier.iconId ? (iconUrlById.get(earnedTier.iconId) || null) : null
+        },
+        nextTier: nextTier ? {
+          ...nextTier,
+          iconUrl: nextTier.iconId ? (iconUrlById.get(nextTier.iconId) || null) : null
+        } : null
+      });
+    }
+    members.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
+    result.push({
+      id: rc.id,
+      label: rc.label,
+      raceDistanceMiles: rc.raceDistanceMiles,
+      tiers: rc.tiers.map((t) => ({ ...t, iconUrl: t.iconId ? (iconUrlById.get(t.iconId) || null) : null })),
+      members
+    });
+  }
+  return result;
+};
+
+/**
+ * GET /api/summit-stats/clubs/:id/race-clubs
+ * Public (authenticated-optional): computed race club memberships for display.
+ */
+export const getPublicRaceClubs = async (req, res, next) => {
+  try {
+    const clubId = parseInt(req.params.id, 10);
+    if (!clubId) return res.status(400).json({ error: { message: 'clubId required' } });
+    const memberships = await computeRaceClubMemberships({ clubId });
+    return res.json({ agencyId: clubId, raceClubs: memberships });
+  } catch (error) { next(error); }
+};
+
 export const listClubRecordVerifications = async (req, res, next) => {
   try {
     const clubId = parseInt(req.params.id, 10);

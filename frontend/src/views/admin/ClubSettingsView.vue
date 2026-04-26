@@ -492,6 +492,94 @@
         </div>
       </section>
 
+      <!-- ── Race Completion Clubs ───────────────────────── -->
+      <section class="settings-card">
+        <div class="card-header">
+          <h2>Race Completion Clubs</h2>
+          <p>
+            Track how many times members finish each race distance. Award tiered badge icons
+            (e.g. 1× club icon, 5× icon, 10× icon). Badges appear in each member's Trophy Case.
+          </p>
+        </div>
+        <div v-if="raceClubsError" class="error">{{ raceClubsError }}</div>
+
+        <div v-if="raceClubs.length === 0" class="hint" style="margin-bottom:12px;">
+          No race clubs yet. Add one below for each distance you want to track.
+        </div>
+
+        <div class="rc-club-cards">
+          <div v-for="(club, ci) in raceClubs" :key="club.id" class="rc-club-card">
+            <!-- Header row -->
+            <div class="cr-card-head">
+              <input v-model="club.label" type="text" placeholder="Club name (e.g. Marathon Club)" class="cr-label-input" />
+              <button type="button" class="cr-remove-btn" title="Remove" @click="removeRaceClub(ci)">✕</button>
+            </div>
+
+            <!-- Distance + tolerance -->
+            <div class="cr-row">
+              <div class="cr-field">
+                <label class="cr-field-label">Race distance</label>
+                <select v-model="club.raceDistanceMiles" class="cr-select">
+                  <option :value="null">— Select distance —</option>
+                  <option :value="1">1 Mile</option>
+                  <option :value="3.107">5K (3.107 mi)</option>
+                  <option :value="6.214">10K (6.214 mi)</option>
+                  <option :value="9.321">15K (9.321 mi)</option>
+                  <option :value="13.109">Half Marathon (13.109 mi)</option>
+                  <option :value="26.219">Marathon (26.219 mi)</option>
+                  <option :value="31.069">50K (31.069 mi)</option>
+                  <option :value="50">50 Mile</option>
+                  <option :value="62.137">100K (62.137 mi)</option>
+                  <option :value="100">100 Mile</option>
+                </select>
+              </div>
+              <div class="cr-field cr-field--xs">
+                <label class="cr-field-label">Tolerance %</label>
+                <div class="cr-value-wrap">
+                  <input v-model.number="club.tolerancePct" type="number" min="1" max="30" step="1" class="cr-input" />
+                  <span class="cr-unit-badge">%</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tiers -->
+            <div class="rc-tiers-label">Badge Tiers</div>
+            <div class="rc-tiers">
+              <div v-for="(tier, ti) in club.tiers" :key="ti" class="rc-tier-row">
+                <div class="rc-tier-count">
+                  <label class="cr-field-label">At</label>
+                  <div class="cr-value-wrap">
+                    <input v-model.number="tier.count" type="number" min="1" step="1" class="cr-input" style="width:64px" />
+                    <span class="cr-unit-badge">×</span>
+                  </div>
+                </div>
+                <div class="rc-tier-icon">
+                  <label class="cr-field-label">Icon</label>
+                  <IconSelector
+                    v-model="tier.iconId"
+                    :summit-stats-club-id="currentAgencyId"
+                    :context="`race-club-${currentAgencyId}-${ci}-tier-${ti}`"
+                  />
+                </div>
+                <div class="rc-tier-label-field">
+                  <label class="cr-field-label">Badge label <span class="cr-optional">(optional)</span></label>
+                  <input v-model="tier.label" type="text" :placeholder="`${tier.count}× ${club.label || 'Club'}`" class="cr-input" />
+                </div>
+                <button type="button" class="cr-remove-btn" @click="removeTier(ci, ti)" title="Remove tier">✕</button>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" style="margin-top:8px;" @click="addTier(ci)">+ Add Tier</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="actions-row" style="margin-top:16px;">
+          <button type="button" class="btn btn-secondary" @click="addRaceClub">+ Add Race Club</button>
+          <button type="button" class="btn btn-primary" :disabled="savingRaceClubs" @click="saveRaceClubs">
+            {{ savingRaceClubs ? 'Saving…' : 'Save Race Clubs' }}
+          </button>
+        </div>
+      </section>
+
       <!-- ── Team Store ──────────────────────────────────── -->
       <section class="settings-card">
         <div class="card-header">
@@ -1822,6 +1910,70 @@ const reviewVerification = async (verificationId, status) => {
   }
 };
 
+// ── Race Completion Clubs ─────────────────────────────────────────────────────
+const raceClubs = ref([]);
+const savingRaceClubs = ref(false);
+const raceClubsError = ref('');
+
+const newRaceClub = () => ({
+  id: `rc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  label: '',
+  raceDistanceMiles: null,
+  tolerancePct: 5,
+  tiers: [{ count: 1, iconId: null, label: '' }]
+});
+
+const addRaceClub = () => raceClubs.value.push(newRaceClub());
+const removeRaceClub = (ci) => raceClubs.value.splice(ci, 1);
+const addTier = (ci) => raceClubs.value[ci].tiers.push({ count: '', iconId: null, label: '' });
+const removeTier = (ci, ti) => raceClubs.value[ci].tiers.splice(ti, 1);
+
+const loadRaceClubs = async () => {
+  if (!currentAgencyId.value) return;
+  try {
+    const { data } = await api.get(`/summit-stats/clubs/${currentAgencyId.value}/race-clubs-config`);
+    raceClubs.value = Array.isArray(data?.raceClubs)
+      ? data.raceClubs.map((rc) => ({
+          id: rc.id,
+          label: rc.label || '',
+          raceDistanceMiles: rc.raceDistanceMiles || null,
+          tolerancePct: rc.tolerancePct || 5,
+          tiers: Array.isArray(rc.tiers) ? rc.tiers.map((t) => ({
+            count: t.count,
+            iconId: t.iconId != null ? Number(t.iconId) : null,
+            label: t.label || ''
+          })) : []
+        }))
+      : [];
+  } catch { raceClubs.value = []; }
+};
+
+const saveRaceClubs = async () => {
+  if (!currentAgencyId.value) return;
+  try {
+    savingRaceClubs.value = true;
+    raceClubsError.value = '';
+    await api.put(`/summit-stats/clubs/${currentAgencyId.value}/race-clubs-config`, {
+      raceClubs: raceClubs.value.map((rc) => ({
+        id: rc.id,
+        label: String(rc.label || '').trim(),
+        raceDistanceMiles: rc.raceDistanceMiles ? Number(rc.raceDistanceMiles) : 0,
+        tolerancePct: Number(rc.tolerancePct) || 5,
+        tiers: (rc.tiers || []).map((t) => ({
+          count: Math.max(1, Math.trunc(Number(t.count) || 1)),
+          iconId: t.iconId ? Number(t.iconId) : null,
+          label: String(t.label || '').trim()
+        })).sort((a, b) => a.count - b.count)
+      }))
+    });
+    await loadRaceClubs();
+  } catch (e) {
+    raceClubsError.value = e?.response?.data?.error?.message || 'Failed to save race clubs';
+  } finally {
+    savingRaceClubs.value = false;
+  }
+};
+
 const setDefaultPaymentMethod = async (paymentMethodId) => {
   if (!currentAgencyId.value || !paymentMethodId) return;
   try {
@@ -1990,6 +2142,7 @@ onMounted(async () => {
       loadTimePrefs(),
       loadClubRecords(),
       loadRecordVerifications(),
+      loadRaceClubs(),
       loadStatsConfig(),
       loadStoreConfig(),
       loadPublicPageConfig(),
@@ -2326,6 +2479,72 @@ const unlockRdConfig = async () => {
   gap: 8px;
   padding: 8px 0;
   border-top: 1px solid var(--border);
+}
+
+/* ── Race Completion Clubs ───────────────────── */
+.rc-club-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.rc-club-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rc-tiers-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #475569;
+  margin-bottom: -4px;
+}
+
+.rc-tiers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.rc-tier-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.rc-tier-count {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.rc-tier-icon {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.rc-tier-label-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 160px;
+  min-width: 0;
 }
 
 /* ── Club Records card layout ────────────────── */
