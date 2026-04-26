@@ -1482,7 +1482,7 @@ export const computeRaceClubMemberships = async ({ clubId }) => {
   // Fetch all approved races across all seasons for this club, including placeholder status
   const [workoutRows] = await pool.execute(
     `SELECT w.user_id, w.race_distance_miles,
-            u.first_name, u.last_name, u.contributor_alias,
+            u.first_name, u.last_name,
             COALESCE(u.is_roster_placeholder, 0) AS is_placeholder,
             u.roster_placeholder_claim_email
      FROM challenge_workouts w
@@ -1507,17 +1507,16 @@ export const computeRaceClubMemberships = async ({ clubId }) => {
     try {
       const ph = [...allSeedUserIds].map(() => '?').join(', ');
       const [uRows] = await pool.execute(
-        `SELECT id, first_name, last_name, contributor_alias,
+        `SELECT id, first_name, last_name,
                 COALESCE(is_roster_placeholder, 0) AS is_placeholder,
                 roster_placeholder_claim_email
          FROM users WHERE id IN (${ph})`,
         [...allSeedUserIds]
       );
       for (const u of uRows || []) {
-        const alias = String(u.contributor_alias || '').trim();
         const full = [u.first_name, u.last_name].map(s => String(s || '').trim()).filter(Boolean).join(' ');
         seedUserInfo.set(Number(u.id), {
-          name: alias || full || `Member ${u.id}`,
+          name: full || `Member ${u.id}`,
           isPlaceholder: !!Number(u.is_placeholder),
           claimEmail: u.roster_placeholder_claim_email || null
         });
@@ -1562,10 +1561,9 @@ export const computeRaceClubMemberships = async ({ clubId }) => {
       const uid = Number(w.user_id);
       autoCountByUser.set(uid, (autoCountByUser.get(uid) || 0) + 1);
       if (!userInfoByUser.has(uid)) {
-        const alias = String(w.contributor_alias || '').trim();
         const full = [w.first_name, w.last_name].map(s => String(s || '').trim()).filter(Boolean).join(' ');
         userInfoByUser.set(uid, {
-          name: alias || full || `Member ${uid}`,
+          name: full || `Member ${uid}`,
           isPlaceholder: !!Number(w.is_placeholder),
           claimEmail: w.roster_placeholder_claim_email || null
         });
@@ -1656,7 +1654,7 @@ export const getRaceClubsAdminMembers = async (req, res, next) => {
     const [memberRows] = await pool.execute(
       `SELECT DISTINCT
          u.id AS userId,
-         u.first_name, u.last_name, u.contributor_alias,
+         u.first_name, u.last_name,
          COALESCE(u.is_roster_placeholder, 0) AS is_placeholder,
          u.roster_placeholder_claim_email AS claim_email
        FROM users u
@@ -1675,11 +1673,10 @@ export const getRaceClubsAdminMembers = async (req, res, next) => {
       [clubId, clubId]
     );
     const members = (memberRows || []).map((u) => {
-      const alias = String(u.contributor_alias || '').trim();
       const full = [u.first_name, u.last_name].map(s => String(s || '').trim()).filter(Boolean).join(' ');
       return {
         userId: Number(u.userId),
-        name: alias || full || `Member ${u.userId}`,
+        name: full || `Member ${u.userId}`,
         linked: !Number(u.is_placeholder),
         claimEmail: u.claim_email || null
       };

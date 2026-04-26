@@ -763,6 +763,7 @@
                           step="1"
                           :value="seedCountForMember(club, m.userId)"
                           @change="setSeedCount(club, m.userId, $event.target.value)"
+                          @input="setSeedCount(club, m.userId, $event.target.value)"
                           class="rc-seed-input"
                         />
                       </span>
@@ -2231,7 +2232,7 @@ const loadRaceClubsMembers = async () => {
     allClubMembers.value = Array.isArray(data?.members) ? data.members : [];
     autoCountsByRcId.value = data?.autoCountsByRcId || {};
   } catch {
-    allClubMembers.value = [];
+    // Don't wipe existing member data on a transient error — keep whatever was loaded
   } finally {
     raceClubMembersLoading.value = false;
   }
