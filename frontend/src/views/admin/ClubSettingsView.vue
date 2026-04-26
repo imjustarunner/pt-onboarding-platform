@@ -681,14 +681,15 @@
                         <input
                           v-model="club._newFirstName"
                           type="text"
-                          placeholder="First name *"
+                          placeholder="First name or initial *"
+                          maxlength="50"
                           class="cr-input"
-                          style="flex:1;min-width:100px;"
+                          style="flex:1;min-width:80px;"
                         />
                         <input
                           v-model="club._newLastName"
                           type="text"
-                          placeholder="Last name"
+                          placeholder="Last name *"
                           class="cr-input"
                           style="flex:1;min-width:100px;"
                         />
@@ -2310,7 +2311,8 @@ const createAndAddPlaceholder = async (club, ci) => {
   const lastName  = String(club._newLastName  || '').trim();
   const email     = String(club._newEmail     || '').trim().toLowerCase() || null;
   const total     = Math.max(1, Math.trunc(Number(club._newCount) || 1));
-  if (!firstName) { club._newError = 'First name is required.'; return; }
+  if (!firstName) { club._newError = 'First name or initial is required.'; return; }
+  if (firstName.length === 1 && !lastName.trim()) { club._newError = 'Last name is required when only an initial is provided.'; return; }
   club._creatingPlaceholder = true;
   try {
     const res = await api.post(`/summit-stats/clubs/${currentAgencyId.value}/race-clubs-placeholder`, {

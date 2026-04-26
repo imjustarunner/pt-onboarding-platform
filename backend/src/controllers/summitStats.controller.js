@@ -1739,11 +1739,16 @@ export const createRaceClubPlaceholder = async (req, res, next) => {
     const access = await ensureClubAdminAccess({ user: req.user, clubId });
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
-    const firstName = String(req.body?.firstName || '').trim();
+    let firstName = String(req.body?.firstName || '').trim();
     const lastName  = String(req.body?.lastName  || '').trim();
     const email     = String(req.body?.email     || '').trim().toLowerCase() || null;
 
     if (!firstName) return res.status(400).json({ error: { message: 'firstName is required' } });
+    if (!lastName && firstName.length === 1) {
+      return res.status(400).json({ error: { message: 'Last name is required when only an initial is provided' } });
+    }
+    // Normalize single-character first name to just the initial (no period stored)
+    if (firstName.length === 1) firstName = firstName.toUpperCase();
 
     // If an email is given, check for an existing user first
     let existingUserId = null;
@@ -1807,11 +1812,15 @@ export const createRaceClubPlaceholder = async (req, res, next) => {
       );
     }
 
+    const displayName = firstName.length === 1 && lastName
+      ? `${firstName}. ${lastName}`
+      : [firstName, lastName].filter(Boolean).join(' ');
+
     return res.json({
       ok: true,
       member: {
         userId,
-        name: [firstName, lastName].filter(Boolean).join(' '),
+        name: displayName,
         linked: false,
         claimEmail: email
       }
