@@ -486,17 +486,43 @@
               </div>
 
               <!-- Record holder (auto-fill or manual) -->
+              <!-- Auto-fill status (all metric types) -->
               <div v-if="record.autoFill" class="cr-row">
                 <div class="cr-field">
                   <div class="cr-autofill-status">
                     <span v-if="record.holderName">
-                      Current holder: <strong>{{ record.holderName }}</strong>
+                      Current {{ isTeamMetric(record.metricKey) ? 'team' : isClubMetric(record.metricKey) ? 'total' : 'holder' }}:
+                      <strong>{{ record.holderName }}</strong>
                       <template v-if="record.value != null"> — {{ record.value }} {{ recordUnitForMetric(record.metricKey) }}</template>
                     </span>
                     <span v-else class="cr-autofill-empty">No qualifying workouts yet — record will be hidden until someone qualifies.</span>
                   </div>
                 </div>
               </div>
+
+              <!-- Club-wide metrics: no holder needed -->
+              <div v-else-if="isClubMetric(record.metricKey)" class="cr-row">
+                <div class="cr-field">
+                  <div class="cr-autofill-status" style="background:#f8fafc; border-color:#e2e8f0;">
+                    <span v-if="record.value != null">Current total: <strong>{{ record.value }} {{ recordUnitForMetric(record.metricKey) }}</strong></span>
+                    <span v-else class="cr-autofill-empty">Club-wide aggregate — no individual holder. Enable auto-fill to compute automatically.</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Team metrics: holder is a team name, not an individual -->
+              <div v-else-if="isTeamMetric(record.metricKey)" class="cr-row">
+                <div class="cr-field">
+                  <label class="cr-field-label">Holding team <span class="cr-optional">(team name)</span></label>
+                  <input v-model="record.holderName" type="text" placeholder="Which team holds this record" class="cr-input" />
+                </div>
+                <div class="cr-field cr-field--sm">
+                  <label class="cr-field-label">Season / year <span class="cr-optional">(optional)</span></label>
+                  <input v-model.number="record.holderYear" type="number" min="1900" max="2999" step="1" placeholder="2025" class="cr-input" />
+                </div>
+              </div>
+
+              <!-- Individual metrics: link to a specific member -->
               <div v-else class="cr-row">
                 <div class="cr-field">
                   <label class="cr-field-label">Holder — link to member <span class="cr-optional">(connects to trophy case)</span></label>
@@ -523,13 +549,15 @@
                   <input v-model="record.holderName" type="text" placeholder="Who holds this record" class="cr-input" />
                 </div>
               </div>
-              <div class="cr-row">
+
+              <!-- Year + team row (individual records only — team records handle year inline above) -->
+              <div v-if="!isTeamMetric(record.metricKey) && !isClubMetric(record.metricKey)" class="cr-row">
                 <div class="cr-field cr-field--xs">
                   <label class="cr-field-label">Year <span class="cr-optional">(optional)</span></label>
                   <input v-model.number="record.holderYear" type="number" min="1900" max="2999" step="1" placeholder="2024" class="cr-input" />
                 </div>
                 <div class="cr-field cr-field--sm">
-                  <label class="cr-field-label">Team</label>
+                  <label class="cr-field-label">Team <span class="cr-optional">(optional)</span></label>
                   <input v-model="record.holderTeam" type="text" placeholder="Team name" class="cr-input" />
                 </div>
               </div>
@@ -1521,6 +1549,14 @@ const recordLowerIsBetter = (metricKey) => {
   const opt = recordMetricOptions.find(o => o.value === metricKey);
   return opt?.lowerIsBetter || false;
 };
+
+const TEAM_METRICS = new Set([
+  'team_weekly_distance_miles', 'team_monthly_distance_miles', 'team_season_distance_miles'
+]);
+const CLUB_METRICS = new Set(['club_season_distance_miles', 'season_duration_minutes']);
+
+const isTeamMetric = (metricKey) => TEAM_METRICS.has(metricKey);
+const isClubMetric = (metricKey) => CLUB_METRICS.has(metricKey);
 
 // Race chip time helpers: convert between total seconds and H:MM:SS / M:SS display
 const secondsToTimeStr = (totalSeconds) => {
