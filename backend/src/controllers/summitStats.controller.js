@@ -1670,7 +1670,6 @@ export const getRaceClubsAdminMembers = async (req, res, next) => {
          SELECT ua.user_id
          FROM user_agencies ua
          WHERE ua.agency_id = ?
-           AND ua.is_active = 1
        )
        ORDER BY u.last_name ASC, u.first_name ASC`,
       [clubId, clubId]
