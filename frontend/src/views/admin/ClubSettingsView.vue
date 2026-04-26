@@ -309,157 +309,177 @@
         <div v-if="clubRecords.length === 0" class="hint" style="margin-bottom: 12px;">No records yet. Add your first all-time club record below.</div>
 
         <div class="cr-cards">
-          <div v-for="(record, idx) in clubRecords" :key="record.id || `record-${idx}`" class="cr-card">
-            <!-- Card header: icon + label + remove -->
-            <div class="cr-card-head">
-              <div class="cr-icon-slot">
-                <IconSelector
-                  v-model="record.iconId"
-                  :summit-stats-club-id="currentAgencyId"
-                  :context="`club-record-${currentAgencyId || 'none'}-${idx}`"
-                />
-              </div>
-              <input v-model="record.label" type="text" placeholder="Record name (e.g. Longest Road Run)" class="cr-label-input" />
-              <button type="button" class="cr-remove-btn" title="Remove record" @click="removeRecord(idx)">✕</button>
-            </div>
+          <div v-for="(record, idx) in clubRecords" :key="record.id || `record-${idx}`" class="cr-card" :class="{ 'cr-card--open': record._open }">
 
-            <!-- Metric + value -->
-            <div class="cr-row">
-              <div class="cr-field">
-                <label class="cr-field-label">Metric</label>
-                <select v-model="record.metricKey" class="cr-select">
-                  <option value="">— Select metric —</option>
-                  <optgroup label="Individual">
-                    <option v-for="opt in recordMetricOptions.filter(o => o.group === 'Individual')" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-                  </optgroup>
-                  <optgroup label="Team">
-                    <option v-for="opt in recordMetricOptions.filter(o => o.group === 'Team')" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-                  </optgroup>
-                  <optgroup label="Club-Wide">
-                    <option v-for="opt in recordMetricOptions.filter(o => o.group === 'Club')" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-                  </optgroup>
-                </select>
+            <!-- Collapsed header — always visible -->
+            <button type="button" class="cr-card-toggle" @click="record._open = !record._open">
+              <div class="cr-card-toggle-left">
+                <span class="cr-toggle-arrow">{{ record._open ? '▼' : '▶' }}</span>
+                <span v-if="record.iconId" class="cr-toggle-icon-wrap">
+                  <!-- show a tiny icon preview if we have one -->
+                  <span class="cr-toggle-icon-ph">🏅</span>
+                </span>
+                <span class="cr-toggle-label">{{ record.label || 'Untitled record' }}</span>
+                <span v-if="record.value != null" class="cr-toggle-value">
+                  {{ record.metricKey === 'race_chip_time_seconds' ? getRaceTimeDisplay(record) : record.value }}
+                  <span v-if="recordUnitForMetric(record.metricKey) && record.metricKey !== 'race_chip_time_seconds'" class="cr-toggle-unit">{{ recordUnitForMetric(record.metricKey) }}</span>
+                </span>
+                <span class="cr-toggle-pills">
+                  <span v-if="record.activityType" class="cr-mini-pill">{{ record.activityType }}</span>
+                  <span v-if="record.terrain" class="cr-mini-pill">{{ record.terrain }}</span>
+                  <span v-if="record.gender" class="cr-mini-pill cr-mini-pill--gender">{{ record.gender === 'male' ? 'Men' : 'Women' }}</span>
+                </span>
               </div>
-              <div class="cr-field cr-field--sm">
-                <label class="cr-field-label">Current record value</label>
-                <!-- Race chip time: display as H:MM:SS -->
-                <div v-if="record.metricKey === 'race_chip_time_seconds'" class="cr-value-wrap">
-                  <input
-                    :value="getRaceTimeDisplay(record)"
-                    type="text"
-                    placeholder="H:MM:SS or M:SS"
-                    class="cr-input"
-                    @change="e => setRaceTimeFromInput(record, e.target.value)"
+              <button type="button" class="cr-remove-btn" title="Remove record" @click.stop="removeRecord(idx)">✕</button>
+            </button>
+
+            <!-- Expanded body -->
+            <div v-if="record._open" class="cr-card-body">
+              <!-- Icon + label -->
+              <div class="cr-card-head" style="border-bottom:none;padding-bottom:0;">
+                <div class="cr-icon-slot">
+                  <IconSelector
+                    v-model="record.iconId"
+                    :summit-stats-club-id="currentAgencyId"
+                    :context="`club-record-${currentAgencyId || 'none'}-${idx}`"
                   />
-                  <span class="cr-unit-badge">time</span>
                 </div>
-                <!-- All other metrics: numeric -->
-                <div v-else class="cr-value-wrap">
-                  <input v-model.number="record.value" type="number" step="0.01" placeholder="0" class="cr-input" />
-                  <span v-if="recordUnitForMetric(record.metricKey)" class="cr-unit-badge">{{ recordUnitForMetric(record.metricKey) }}</span>
+                <input v-model="record.label" type="text" placeholder="Record name (e.g. Longest Road Run)" class="cr-label-input" />
+              </div>
+
+              <!-- Metric + value -->
+              <div class="cr-row">
+                <div class="cr-field">
+                  <label class="cr-field-label">Metric</label>
+                  <select v-model="record.metricKey" class="cr-select">
+                    <option value="">— Select metric —</option>
+                    <optgroup label="Individual">
+                      <option v-for="opt in recordMetricOptions.filter(o => o.group === 'Individual')" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                    </optgroup>
+                    <optgroup label="Team">
+                      <option v-for="opt in recordMetricOptions.filter(o => o.group === 'Team')" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                    </optgroup>
+                    <optgroup label="Club-Wide">
+                      <option v-for="opt in recordMetricOptions.filter(o => o.group === 'Club')" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                    </optgroup>
+                  </select>
+                </div>
+                <div class="cr-field cr-field--sm">
+                  <label class="cr-field-label">Current record value</label>
+                  <div v-if="record.metricKey === 'race_chip_time_seconds'" class="cr-value-wrap">
+                    <input
+                      :value="getRaceTimeDisplay(record)"
+                      type="text"
+                      placeholder="H:MM:SS or M:SS"
+                      class="cr-input"
+                      @change="e => setRaceTimeFromInput(record, e.target.value)"
+                    />
+                    <span class="cr-unit-badge">time</span>
+                  </div>
+                  <div v-else class="cr-value-wrap">
+                    <input v-model.number="record.value" type="number" step="0.01" placeholder="0" class="cr-input" />
+                    <span v-if="recordUnitForMetric(record.metricKey)" class="cr-unit-badge">{{ recordUnitForMetric(record.metricKey) }}</span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <!-- Lower-is-better notice + race distance -->
-            <div v-if="recordLowerIsBetter(record.metricKey)" class="cr-row">
-              <div class="cr-filter-pill cr-filter-pill--speed">
-                ⚡ Lower is better — fastest time wins
+              <!-- Lower-is-better + race distance -->
+              <div v-if="recordLowerIsBetter(record.metricKey)" class="cr-row">
+                <div class="cr-filter-pill cr-filter-pill--speed">⚡ Lower is better — fastest time wins</div>
               </div>
-            </div>
-            <div v-if="record.metricKey === 'race_chip_time_seconds'" class="cr-row">
-              <div class="cr-field">
-                <label class="cr-field-label">Race distance <span class="cr-optional">(miles — filters to matching races)</span></label>
-                <select v-model="record.raceDistance" class="cr-select">
-                  <option :value="null">Any race distance</option>
-                  <option :value="1">1 Mile</option>
-                  <option :value="3.107">5K (3.107 mi)</option>
-                  <option :value="6.214">10K (6.214 mi)</option>
-                  <option :value="9.321">15K (9.321 mi)</option>
-                  <option :value="13.109">Half Marathon (13.109 mi)</option>
-                  <option :value="26.219">Marathon (26.219 mi)</option>
-                  <option :value="31.069">50K (31.069 mi)</option>
-                  <option :value="50">50 Mile</option>
-                  <option :value="62.137">100K (62.137 mi)</option>
-                  <option :value="100">100 Mile</option>
-                </select>
+              <div v-if="record.metricKey === 'race_chip_time_seconds'" class="cr-row">
+                <div class="cr-field">
+                  <label class="cr-field-label">Race distance <span class="cr-optional">(filters to matching races)</span></label>
+                  <select v-model="record.raceDistance" class="cr-select">
+                    <option :value="null">Any race distance</option>
+                    <option :value="1">1 Mile</option>
+                    <option :value="3.107">5K (3.107 mi)</option>
+                    <option :value="6.214">10K (6.214 mi)</option>
+                    <option :value="9.321">15K (9.321 mi)</option>
+                    <option :value="13.109">Half Marathon (13.109 mi)</option>
+                    <option :value="26.219">Marathon (26.219 mi)</option>
+                    <option :value="31.069">50K (31.069 mi)</option>
+                    <option :value="50">50 Mile</option>
+                    <option :value="62.137">100K (62.137 mi)</option>
+                    <option :value="100">100 Mile</option>
+                  </select>
+                </div>
               </div>
-            </div>
 
-            <!-- Filters: activity type + terrain -->
-            <div class="cr-row">
-              <div class="cr-field">
-                <label class="cr-field-label">Activity type <span class="cr-optional">(filter)</span></label>
-                <select v-model="record.activityType" class="cr-select">
-                  <option value="">Any activity</option>
-                  <option value="Run">Run</option>
-                  <option value="Walk">Walk</option>
-                  <option value="Bike">Bike / Ride</option>
-                  <option value="Swim">Swim</option>
-                  <option value="Workout">Workout</option>
-                  <option value="Hike">Hike</option>
-                </select>
+              <!-- Filters -->
+              <div class="cr-row">
+                <div class="cr-field">
+                  <label class="cr-field-label">Activity type <span class="cr-optional">(filter)</span></label>
+                  <select v-model="record.activityType" class="cr-select">
+                    <option value="">Any activity</option>
+                    <option value="Run">Run</option>
+                    <option value="Walk">Walk</option>
+                    <option value="Bike">Bike / Ride</option>
+                    <option value="Swim">Swim</option>
+                    <option value="Workout">Workout</option>
+                    <option value="Hike">Hike</option>
+                  </select>
+                </div>
+                <div class="cr-field">
+                  <label class="cr-field-label">Terrain <span class="cr-optional">(filter)</span></label>
+                  <select v-model="record.terrain" class="cr-select">
+                    <option value="">Any terrain</option>
+                    <option value="Road">Road</option>
+                    <option value="Trail">Trail</option>
+                    <option value="Track">Track</option>
+                    <option value="Treadmill">Treadmill</option>
+                    <option value="Beach">Beach</option>
+                    <option value="Indoor">Indoor</option>
+                  </select>
+                </div>
               </div>
-              <div class="cr-field">
-                <label class="cr-field-label">Terrain <span class="cr-optional">(filter)</span></label>
-                <select v-model="record.terrain" class="cr-select">
-                  <option value="">Any terrain</option>
-                  <option value="Road">Road</option>
-                  <option value="Trail">Trail</option>
-                  <option value="Track">Track</option>
-                  <option value="Treadmill">Treadmill</option>
-                  <option value="Beach">Beach</option>
-                  <option value="Indoor">Indoor</option>
-                </select>
-              </div>
-            </div>
 
-            <!-- Gender filter -->
-            <div class="cr-row">
-              <div class="cr-field cr-field--sm">
-                <label class="cr-field-label">Gender <span class="cr-optional">(filter)</span></label>
-                <select v-model="record.gender" class="cr-select">
-                  <option value="">Open (any gender)</option>
-                  <option v-if="clubAvailableGenders.includes('male')" value="male">Men</option>
-                  <option v-if="clubAvailableGenders.includes('female')" value="female">Women</option>
-                  <!-- Fallback: show all options if no genders loaded yet -->
-                  <template v-if="!clubAvailableGenders.length">
-                    <option value="male">Men</option>
-                    <option value="female">Women</option>
-                  </template>
-                </select>
+              <!-- Gender filter -->
+              <div class="cr-row">
+                <div class="cr-field cr-field--sm">
+                  <label class="cr-field-label">Gender <span class="cr-optional">(filter)</span></label>
+                  <select v-model="record.gender" class="cr-select">
+                    <option value="">Open (any gender)</option>
+                    <option v-if="clubAvailableGenders.includes('male')" value="male">Men</option>
+                    <option v-if="clubAvailableGenders.includes('female')" value="female">Women</option>
+                    <template v-if="!clubAvailableGenders.length">
+                      <option value="male">Men</option>
+                      <option value="female">Women</option>
+                    </template>
+                  </select>
+                </div>
               </div>
-            </div>
 
-            <!-- Filter summary pill -->
-            <div v-if="record.activityType || record.terrain || record.gender" class="cr-filter-pill">
-              Matches: <strong>{{ record.activityType || 'Any activity' }}</strong>
-              <template v-if="record.terrain"> · <strong>{{ record.terrain }}</strong></template>
-              <template v-if="record.gender"> · <strong>{{ record.gender === 'male' ? 'Men' : 'Women' }}</strong></template>
-              workouts only
-            </div>
+              <!-- Filter summary pill -->
+              <div v-if="record.activityType || record.terrain || record.gender" class="cr-filter-pill">
+                Matches: <strong>{{ record.activityType || 'Any activity' }}</strong>
+                <template v-if="record.terrain"> · <strong>{{ record.terrain }}</strong></template>
+                <template v-if="record.gender"> · <strong>{{ record.gender === 'male' ? 'Men' : 'Women' }}</strong></template>
+                workouts only
+              </div>
 
-            <!-- Record holder -->
-            <div class="cr-row">
-              <div class="cr-field">
-                <label class="cr-field-label">Holder name</label>
-                <input v-model="record.holderName" type="text" placeholder="Who holds this record" class="cr-input" />
+              <!-- Record holder -->
+              <div class="cr-row">
+                <div class="cr-field">
+                  <label class="cr-field-label">Holder name</label>
+                  <input v-model="record.holderName" type="text" placeholder="Who holds this record" class="cr-input" />
+                </div>
+                <div class="cr-field cr-field--xs">
+                  <label class="cr-field-label">Year <span class="cr-optional">(optional)</span></label>
+                  <input v-model.number="record.holderYear" type="number" min="1900" max="2999" step="1" placeholder="2024" class="cr-input" />
+                </div>
+                <div class="cr-field cr-field--sm">
+                  <label class="cr-field-label">Team</label>
+                  <input v-model="record.holderTeam" type="text" placeholder="Team name" class="cr-input" />
+                </div>
               </div>
-              <div class="cr-field cr-field--xs">
-                <label class="cr-field-label">Year</label>
-                <input v-model.number="record.holderYear" type="number" min="1900" max="2999" step="1" placeholder="2024" class="cr-input" />
-              </div>
-              <div class="cr-field cr-field--sm">
-                <label class="cr-field-label">Team</label>
-                <input v-model="record.holderTeam" type="text" placeholder="Team name" class="cr-input" />
-              </div>
-            </div>
 
-            <!-- Notes -->
-            <div class="cr-row">
-              <div class="cr-field cr-field--full">
-                <label class="cr-field-label">Notes <span class="cr-optional">(optional)</span></label>
-                <input v-model="record.notes" type="text" placeholder="Any additional context" class="cr-input" />
+              <!-- Notes -->
+              <div class="cr-row">
+                <div class="cr-field cr-field--full">
+                  <label class="cr-field-label">Notes <span class="cr-optional">(optional)</span></label>
+                  <input v-model="record.notes" type="text" placeholder="Any additional context" class="cr-input" />
+                </div>
               </div>
             </div>
           </div>
@@ -1889,7 +1909,8 @@ const loadClubRecords = async () => {
         holderName: r.holderName || '',
         holderYear: r.holderYear ?? null,
         holderTeam: r.holderTeam || '',
-        iconId: r.iconId != null ? Number(r.iconId) : null
+        iconId: r.iconId != null ? Number(r.iconId) : null,
+        _open: false
       }))
       : [];
     clubAvailableGenders.value = Array.isArray(data?.availableGenders) ? data.availableGenders : [];
@@ -1914,7 +1935,8 @@ const addRecord = () => {
     holderName: '',
     holderYear: null,
     holderTeam: '',
-    iconId: null
+    iconId: null,
+    _open: true  // new records open immediately
   });
 };
 
@@ -2810,24 +2832,117 @@ const unlockRdConfig = async () => {
 .cr-cards {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 6px;
   margin-top: 12px;
 }
 
 .cr-card {
   border: 1px solid #e2e8f0;
   border-radius: 10px;
-  padding: 16px;
   background: #f8fafc;
+  overflow: hidden;
+}
+
+.cr-card--open {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99,102,241,0.12);
+}
+
+/* Collapsed toggle row */
+.cr-card-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+.cr-card-toggle:hover { background: #f1f5f9; }
+
+.cr-card-toggle-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.cr-toggle-arrow {
+  font-size: 10px;
+  color: #94a3b8;
+  flex-shrink: 0;
+  width: 12px;
+}
+
+.cr-toggle-icon-ph { font-size: 16px; flex-shrink: 0; }
+
+.cr-toggle-label {
+  font-weight: 600;
+  font-size: 14px;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.cr-toggle-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1d4ed8;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.cr-toggle-unit {
+  font-size: 11px;
+  font-weight: 400;
+  color: #94a3b8;
+  margin-left: 2px;
+}
+
+.cr-toggle-pills {
+  display: flex;
+  gap: 4px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+.cr-mini-pill {
+  font-size: 10px;
+  font-weight: 600;
+  background: #e0e7ff;
+  color: #3730a3;
+  border-radius: 999px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.cr-mini-pill--gender {
+  background: #fce7f3;
+  color: #9d174d;
+}
+
+/* Expanded body */
+.cr-card-body {
+  padding: 4px 16px 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  border-top: 1px solid #e2e8f0;
 }
 
 .cr-card-head {
   display: flex;
   align-items: center;
   gap: 10px;
+  padding-top: 8px;
 }
 
 .cr-icon-slot {
