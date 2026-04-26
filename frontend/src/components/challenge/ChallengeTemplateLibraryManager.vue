@@ -326,6 +326,10 @@
                 <input v-model.number="templateForm.criteriaJson.splitRuns.count" type="number" min="2" max="5" class="ctlm-input" />
               </div>
               <div class="ctlm-field">
+                <label class="ctlm-label">Min miles per run</label>
+                <input v-model.number="templateForm.criteriaJson.splitRuns.minMilesPerRun" type="number" min="0" step="0.1" class="ctlm-input" placeholder="e.g. 2" />
+              </div>
+              <div class="ctlm-field">
                 <label class="ctlm-label">Min separation between runs (minutes)</label>
                 <input v-model.number="templateForm.criteriaJson.splitRuns.minSeparationMinutes" type="number" min="0" class="ctlm-input" placeholder="e.g. 120" />
               </div>
@@ -476,7 +480,7 @@ function defaultCriteria() {
     distance: { minMiles: null },
     duration: { minMinutes: null },
     pace: { maxSecondsPerMile: null },
-    splitRuns: { count: 2, minSeparationMinutes: 60 },
+    splitRuns: { count: 2, minMilesPerRun: null, minSeparationMinutes: 0 },
     _splitRunEnabled: false
   };
 }

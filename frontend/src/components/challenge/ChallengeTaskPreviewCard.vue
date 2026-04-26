@@ -103,7 +103,9 @@ const chips = computed(() => {
 
   if (c._splitRunEnabled) {
     const cnt = c.splitRuns?.count || 2;
-    result.push({ icon: '✂️', label: `Split-run (${cnt}×)`, type: 'info' });
+    const mpr = c.splitRuns?.minMilesPerRun;
+    const label = mpr ? `Split-run: ${cnt}× ≥ ${mpr} mi each` : `Split-run (${cnt}×)`;
+    result.push({ icon: '✂️', label, type: 'info' });
   }
 
   const tod = c.timeOfDay;

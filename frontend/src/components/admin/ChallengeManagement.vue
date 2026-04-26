@@ -1579,6 +1579,8 @@
                 <div v-if="t.criteriaJson._splitRunEnabled" class="criteria-sub">
                   <label>Number of runs required</label>
                   <input type="number" min="2" max="5" v-model.number="t.criteriaJson.splitRuns.count" />
+                  <label>Min miles per run</label>
+                  <input type="number" min="0" step="0.1" v-model.number="t.criteriaJson.splitRuns.minMilesPerRun" placeholder="e.g. 2" />
                   <label>Min separation between runs (minutes)</label>
                   <input type="number" min="0" v-model.number="t.criteriaJson.splitRuns.minSeparationMinutes" placeholder="e.g. 120" />
                 </div>
@@ -2960,7 +2962,7 @@ const defaultCriteria = () => ({
   distance: { minMiles: null },
   duration: { minMinutes: null },
   pace: { maxSecondsPerMile: null },
-  splitRuns: { count: 2, minSeparationMinutes: 60 },
+  splitRuns: { count: 2, minMilesPerRun: null, minSeparationMinutes: 0 },
   _splitRunEnabled: false
 });
 const defaultTask = () => ({
@@ -2975,7 +2977,7 @@ const weeklyTasksSaving = ref(false);
 const showCriteriaFor = ref({ 0: false, 1: false, 2: false });
 const toggleCriteria = (i) => { showCriteriaFor.value[i] = !showCriteriaFor.value[i]; };
 const onSplitRunToggle = (t) => {
-  if (!t.criteriaJson._splitRunEnabled) t.criteriaJson.splitRuns = { count: 2, minSeparationMinutes: 60 };
+  if (!t.criteriaJson._splitRunEnabled) t.criteriaJson.splitRuns = { count: 2, minMilesPerRun: null, minSeparationMinutes: 0 };
 };
 
 const activityTypeOptions = ['Run', 'Trail Run', 'Ruck', 'Walk', 'Bike', 'Swim', 'Other'];
@@ -3094,7 +3096,8 @@ const applyLibraryTemplate = () => {
   if (!crit.distance) crit.distance = { minMiles: null };
   if (!crit.duration) crit.duration = { minMinutes: null };
   if (!crit.pace) crit.pace = { maxSecondsPerMile: null };
-  if (!crit.splitRuns) crit.splitRuns = { count: 2, minSeparationMinutes: 60 };
+  if (!crit.splitRuns) crit.splitRuns = { count: 2, minMilesPerRun: null, minSeparationMinutes: 0 };
+  if (crit.splitRuns.minMilesPerRun === undefined) crit.splitRuns.minMilesPerRun = null;
   crit._splitRunEnabled = !!(crit.splitRuns?.count && crit.splitRuns.count > 1);
   weeklyTasksForm.value[slot] = {
     name: tpl.name,
