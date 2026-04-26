@@ -1469,6 +1469,9 @@
                   <button class="btn btn-ghost btn-xs" @click="saveTaskToLibrary(t)" title="Save as reusable template">
                     💾 Save to library
                   </button>
+                  <button class="btn btn-ghost btn-xs" @click="previewingWeeklyTask = t" title="Preview card">
+                    👁 Preview
+                  </button>
                 </div>
               </div>
               <div class="weekly-task-identity">
@@ -1993,6 +1996,21 @@
       </div>
     </div>
   </div>
+
+  <!-- Task preview overlay -->
+  <div v-if="previewingWeeklyTask" class="cm-preview-overlay" @click.self="previewingWeeklyTask = null">
+    <div class="cm-preview-modal">
+      <div class="cm-preview-modal-head">
+        <span>Task Preview</span>
+        <button type="button" class="cm-preview-close" @click="previewingWeeklyTask = null">×</button>
+      </div>
+      <ChallengeTaskPreviewCard
+        :task="previewingWeeklyTask"
+        :iconUrl="String(previewingWeeklyTask.icon || '').startsWith('icon:') ? weeklyTemplateIconUrl(previewingWeeklyTask.icon) : null"
+      />
+      <p class="cm-preview-hint">Screenshot this card to share the task details</p>
+    </div>
+  </div>
   </div>
 </template>
 
@@ -2005,6 +2023,7 @@ import { useAgencyStore } from '../../store/agency';
 import RecognitionCategoryBuilder from '../challenge/RecognitionCategoryBuilder.vue';
 import ChallengeTemplateLibraryManager from '../challenge/ChallengeTemplateLibraryManager.vue';
 import RecognitionLibraryManager from '../challenge/RecognitionLibraryManager.vue';
+import ChallengeTaskPreviewCard from '../challenge/ChallengeTaskPreviewCard.vue';
 import ClubCustomFields from '../club/ClubCustomFields.vue';
 import IconSelector from '../admin/IconSelector.vue';
 import IconLibraryView from '../../views/admin/IconLibraryView.vue';
@@ -2030,6 +2049,7 @@ const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 const tenantWriteEnabled = ref(false);
 const showTenantIconLibrary = ref(false);
+const previewingWeeklyTask = ref(null);
 const currentUserRole = computed(() => String(authStore.user?.role || '').toLowerCase());
 const canManageTenantLibraries = computed(() =>
   ['super_admin', 'club_manager', 'assistant_manager'].includes(currentUserRole.value)
@@ -2959,7 +2979,7 @@ const onSplitRunToggle = (t) => {
 };
 
 const activityTypeOptions = ['Run', 'Trail Run', 'Ruck', 'Walk', 'Bike', 'Swim', 'Other'];
-const terrainOptions = ['Road', 'Trail', 'Track', 'Treadmill', 'Race', 'Other'];
+const terrainOptions = ['Road', 'Trail', 'Track', 'Treadmill', 'Beach', 'Race', 'Other'];
 
 // Template library state
 const templateLibrary = ref([]);         // club-specific templates
@@ -7380,4 +7400,45 @@ onMounted(async () => {
 }
 .rd-default-emoji { font-size: 1.25rem; line-height: 1; }
 .rd-icon-picker { flex-shrink: 0; }
+
+/* Weekly task preview overlay */
+.cm-preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+  padding: 20px;
+}
+.cm-preview-modal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.cm-preview-modal-head {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.cm-preview-close {
+  background: transparent;
+  border: 0;
+  color: #fff;
+  font-size: 1.4rem;
+  cursor: pointer;
+  line-height: 1;
+}
+.cm-preview-hint {
+  color: rgba(255,255,255,.7);
+  font-size: 0.75rem;
+  margin: 0;
+}
 </style>

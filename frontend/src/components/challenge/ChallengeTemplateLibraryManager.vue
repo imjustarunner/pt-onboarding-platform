@@ -35,6 +35,7 @@
             </div>
           </div>
           <div class="ctlm-row-actions">
+            <button type="button" class="ctlm-action-btn ctlm-action-btn--preview" @click="openPreview(tpl)" title="Preview card">👁 Preview</button>
             <button type="button" class="ctlm-action-btn" @click="cloneTenantTemplate(tpl)">Clone to My Library</button>
             <button v-if="canWriteTenantLibrary" type="button" class="ctlm-action-btn" @click="openTemplateModal('tenant', tpl)">Edit</button>
             <button v-if="canWriteTenantLibrary" type="button" class="ctlm-action-btn ctlm-action-btn--danger" @click="confirmDelete('tenant', tpl)">Delete</button>
@@ -76,6 +77,7 @@
             </div>
           </div>
           <div class="ctlm-row-actions">
+            <button type="button" class="ctlm-action-btn ctlm-action-btn--preview" @click="openPreview(tpl)" title="Preview card">👁 Preview</button>
             <button
               v-if="canWriteTenantLibrary"
               type="button"
@@ -333,6 +335,18 @@
           <div class="ctlm-field-hint">
             These templates feed the season weekly challenge picker. You can still tweak the full challenge criteria inside a specific season before publishing.
           </div>
+
+          <!-- Live preview -->
+          <div class="ctlm-preview-section">
+            <div class="ctlm-preview-label">
+              <span>Live Preview</span>
+              <span class="ctlm-preview-hint">Screenshot this card to share the task</span>
+            </div>
+            <ChallengeTaskPreviewCard
+              :task="{ ...templateForm, icon: useLibraryIcon ? `icon:${libraryIconId}` : templateForm.icon }"
+              :iconUrl="useLibraryIcon && libraryIconId ? resolvedIconUrl(`icon:${libraryIconId}`) : null"
+            />
+          </div>
         </div>
 
         <div class="ctlm-modal-footer">
@@ -359,6 +373,18 @@
         </div>
       </div>
     </div>
+
+    <!-- Standalone preview modal (from list row "Preview" buttons) -->
+    <div v-if="previewingTpl" class="ctlm-preview-overlay" @click.self="closePreview">
+      <div class="ctlm-preview-modal">
+        <div class="ctlm-preview-modal-head">
+          <span>Task Preview</span>
+          <button type="button" class="ctlm-close-btn" @click="closePreview">×</button>
+        </div>
+        <ChallengeTaskPreviewCard :task="previewingTpl" :iconUrl="previewingIconUrl" />
+        <p class="ctlm-preview-screenshot-hint">Screenshot this card to share the task details</p>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -366,6 +392,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import IconSelector from '../admin/IconSelector.vue';
+import ChallengeTaskPreviewCard from './ChallengeTaskPreviewCard.vue';
 import { CHALLENGE_PROOF_POLICY_OPTIONS, challengeProofPolicyLabel } from '../../utils/challengeProofPolicies.js';
 import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 import {
@@ -388,7 +415,7 @@ const emit = defineEmits(['templates-updated']);
 
 const ICONS = ['🏃', '🥾', '🌲', '🚴', '💪', '🔥', '⚡', '🎯', '🏔', '⭐', '👟', '🏆'];
 const ACTIVITY_TYPES = ['Run', 'Trail Run', 'Ruck', 'Walk', 'Bike', 'Swim', 'Fitness', 'Other'];
-const TERRAIN_OPTIONS = ['Road', 'Trail', 'Track', 'Treadmill', 'Race', 'Other'];
+const TERRAIN_OPTIONS = ['Road', 'Trail', 'Track', 'Treadmill', 'Beach', 'Race', 'Other'];
 
 const clubTemplates = ref([]);
 const tenantTemplates = ref([]);
@@ -409,6 +436,17 @@ const deleteConfirm = ref(null);
 const deleteLoading = ref(false);
 const cloningToTenantId = ref(null);
 const showCriteria = ref(false);
+
+// Preview card state
+const previewingTpl = ref(null);
+const previewingIconUrl = ref(null);
+
+function openPreview(tpl) {
+  previewingTpl.value = tpl;
+  const url = isLibraryIcon(tpl.icon) ? resolvedIconUrl(tpl.icon) : null;
+  previewingIconUrl.value = url;
+}
+function closePreview() { previewingTpl.value = null; }
 
 // Guided draft helper state — mirrors the per-slot helper in ChallengeManagement.vue.
 // Keeps a signature so repeated "Generate example" clicks with the same inputs
@@ -995,9 +1033,12 @@ defineExpose({ loadTemplates });
 }
 .ctlm-modal {
   width: min(720px, 100%);
+  max-height: calc(100vh - 40px);
   background: #fff;
   border-radius: 18px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
   box-shadow: 0 24px 80px rgba(15, 23, 42, 0.28);
 }
 .ctlm-modal--sm {
@@ -1022,6 +1063,8 @@ defineExpose({ loadTemplates });
   flex-direction: column;
   gap: 14px;
   padding: 18px 20px;
+  overflow-y: auto;
+  flex: 1;
 }
 .ctlm-modal-footer {
   display: flex;
@@ -1264,5 +1307,73 @@ defineExpose({ loadTemplates });
   .ctlm-row-actions {
     justify-content: flex-start;
   }
+}
+
+/* Preview card button */
+.ctlm-action-btn--preview {
+  color: #2563eb;
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+.ctlm-action-btn--preview:hover {
+  background: #dbeafe;
+}
+
+/* Live preview section inside editor modal */
+.ctlm-preview-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+.ctlm-preview-label {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #334155;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.ctlm-preview-hint {
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Standalone preview overlay */
+.ctlm-preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+  padding: 20px;
+}
+.ctlm-preview-modal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.ctlm-preview-modal-head {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.ctlm-preview-screenshot-hint {
+  color: rgba(255,255,255,.7);
+  font-size: 0.75rem;
+  margin: 0;
 }
 </style>

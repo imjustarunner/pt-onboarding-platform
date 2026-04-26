@@ -168,10 +168,26 @@
             </span>
 
             <button type="button" class="btn-link" @click="openDetail(task)">View details</button>
+            <button type="button" class="btn-link preview-btn" @click="previewingTask = task" title="Show shareable preview card">📋 Card</button>
           </div>
         </article>
       </div>
     </template>
+
+    <!-- Task preview card overlay -->
+    <div v-if="previewingTask" class="cwt-preview-overlay" @click.self="previewingTask = null">
+      <div class="cwt-preview-modal">
+        <div class="cwt-preview-head">
+          <span>Task Preview</span>
+          <button type="button" class="cwt-preview-close" @click="previewingTask = null">×</button>
+        </div>
+        <ChallengeTaskPreviewCard
+          :task="previewingTask"
+          :iconUrl="resolvedIconUrl(previewingTask.icon)"
+        />
+        <p class="cwt-preview-hint">Screenshot this card to share the task details</p>
+      </div>
+    </div>
 
     <div
       v-if="showSplashModal && splashTasks.length"
@@ -237,6 +253,7 @@
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import ChallengeTaskDetailModal from './ChallengeTaskDetailModal.vue';
+import ChallengeTaskPreviewCard from './ChallengeTaskPreviewCard.vue';
 import { useSeasonWeeks } from '../../composables/useSeasonWeeks.js';
 import { challengeProofPolicyLabel } from '../../utils/challengeProofPolicies.js';
 import { toUploadsUrl } from '../../utils/uploadsUrl.js';
@@ -271,6 +288,7 @@ const volunteering = ref({});
 const assigning = ref({});
 const captainPick = ref({});
 const detailTask = ref(null);
+const previewingTask = ref(null);
 const publishAt = ref('');
 const isPublishedForMembers = ref(true);
 const showWeeklySplash = ref(false);
@@ -1144,5 +1162,52 @@ defineExpose({ load });
   .tag-btn {
     width: 100%;
   }
+}
+
+/* Preview card */
+.preview-btn {
+  opacity: 0.7;
+  font-size: 0.78rem;
+}
+.preview-btn:hover { opacity: 1; }
+
+.cwt-preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+  padding: 20px;
+}
+.cwt-preview-modal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.cwt-preview-head {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.cwt-preview-close {
+  background: transparent;
+  border: 0;
+  color: #fff;
+  font-size: 1.4rem;
+  cursor: pointer;
+  line-height: 1;
+}
+.cwt-preview-hint {
+  color: rgba(255,255,255,.7);
+  font-size: 0.75rem;
+  margin: 0;
 }
 </style>
