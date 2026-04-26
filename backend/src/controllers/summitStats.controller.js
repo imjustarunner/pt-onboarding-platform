@@ -1874,11 +1874,35 @@ export const createRaceClubPlaceholder = async (req, res, next) => {
  * Returns { raceClubs, recordsHeld, seasonAwards }
  */
 const getMemberTrophyCaseData = async ({ clubId, userId }) => {
+  // Fetch user info upfront — needed for name/email fallback matching
+  let userFullName = '';
+  let userEmail = '';
+  try {
+    const [uRows] = await pool.execute(
+      `SELECT first_name, last_name, email FROM users WHERE id = ? LIMIT 1`, [userId]
+    );
+    const u = uRows?.[0];
+    userFullName = [u?.first_name, u?.last_name].filter(Boolean).join(' ').trim().toLowerCase();
+    userEmail = String(u?.email || '').trim().toLowerCase();
+  } catch { /* non-fatal */ }
+
   // 1. Race club memberships for this user
+  // computeRaceClubMemberships uses full name format so name matching is reliable
   const allClubs = await computeRaceClubMemberships({ clubId });
   const raceClubs = allClubs
     .map((rc) => {
-      const m = rc.members.find((m) => Number(m.userId) === Number(userId));
+      // Primary: match by userId
+      let m = rc.members.find((m) => Number(m.userId) === Number(userId));
+      // Fallback 1: placeholder linked by claim email (when admin seeded a placeholder
+      // with the member's email before they claimed/connected their account)
+      if (!m && userEmail) {
+        m = rc.members.find((m) => String(m.claimEmail || '').trim().toLowerCase() === userEmail);
+      }
+      // Fallback 2: match by full name (catches cases where userId mismatch exists
+      // but the member was seeded with the correct name)
+      if (!m && userFullName) {
+        m = rc.members.find((m) => String(m.name || '').trim().toLowerCase() === userFullName);
+      }
       if (!m) return null;
       return {
         id: rc.id,
@@ -1913,15 +1937,6 @@ const getMemberTrophyCaseData = async ({ clubId, userId }) => {
       for (const icon of iconRows || []) iconUrlById.set(Number(icon.id), Icon.getIconUrl(icon));
     } catch { /* non-fatal */ }
   }
-
-  // Fetch user's name for fallback matching when holderUserId isn't set
-  let userFullName = '';
-  try {
-    const [uRows] = await pool.execute(
-      `SELECT first_name, last_name FROM users WHERE id = ? LIMIT 1`, [userId]
-    );
-    userFullName = [uRows?.[0]?.first_name, uRows?.[0]?.last_name].filter(Boolean).join(' ').trim().toLowerCase();
-  } catch { /* non-fatal */ }
 
   const recordsHeld = allRecords
     .filter((r) => {
