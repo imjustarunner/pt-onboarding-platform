@@ -1605,7 +1605,8 @@
             <p class="hint">Assign one person per challenge per team. Captains can also assign from the season dashboard.</p>
             <div v-for="t in weeklyTasksWithIds" :key="t.id" class="assignment-group">
               <strong>{{ t.name }}</strong>
-              <div v-for="team in teams" :key="team.id" class="assignment-row">
+              <span v-if="t.mode === 'full_team'" class="hint" style="font-size:0.85rem;margin-left:8px;">Full Team — no individual assignment needed</span>
+              <div v-if="t.mode !== 'full_team'" v-for="team in teams" :key="team.id" class="assignment-row">
                 <span>{{ team.team_name }}</span>
                 <select :value="getAssignmentFor(t.id, team.id)?.provider_user_id" @change="(e) => updateAssignment(t.id, team.id, e.target.value)">
                   <option value="">— Unassigned —</option>
