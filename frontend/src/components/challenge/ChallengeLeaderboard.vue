@@ -24,7 +24,7 @@
           >
             <span class="rank-badge">{{ rankMedal(idx) }}</span>
             <UserAvatar :photo-path="row.profile_photo_path" :first-name="row.first_name" :last-name="row.last_name" size="sm" />
-            <span class="name">{{ row.first_name }} {{ row.last_name }}</span>
+            <button type="button" class="name lb-name-btn" @click="openProfile(row)">{{ row.first_name }} {{ row.last_name }}</button>
             <span class="pts-chip">
               {{ formatPts(row.total_points) }} pts
               <template v-if="row.total_miles > 0"> · {{ Number(row.total_miles).toFixed(2) }} mi</template>
@@ -67,7 +67,7 @@
               <span class="tbd-cat-label">🏃 Runs</span>
               <div class="tbd-leader-row">
                 <UserAvatar :photo-path="team.runs.leader.profile_photo_path" :first-name="team.runs.leader.first_name" :last-name="team.runs.leader.last_name" size="sm" />
-                <span class="tbd-leader-name">{{ team.runs.leader.first_name }} {{ team.runs.leader.last_name }}</span>
+                <button type="button" class="tbd-leader-name lb-name-btn" @click="openProfile(team.runs.leader)">{{ team.runs.leader.first_name }} {{ team.runs.leader.last_name }}</button>
                 <span class="tbd-stat">{{ team.runs.leader.miles }} mi</span>
                 <span v-if="team.runs.leader.avg_pace" class="tbd-sub">{{ team.runs.leader.avg_pace }}/mi</span>
               </div>
@@ -77,7 +77,7 @@
               <span class="tbd-cat-label">🎒 Rucks</span>
               <div class="tbd-leader-row">
                 <UserAvatar :photo-path="team.rucks.leader.profile_photo_path" :first-name="team.rucks.leader.first_name" :last-name="team.rucks.leader.last_name" size="sm" />
-                <span class="tbd-leader-name">{{ team.rucks.leader.first_name }} {{ team.rucks.leader.last_name }}</span>
+                <button type="button" class="tbd-leader-name lb-name-btn" @click="openProfile(team.rucks.leader)">{{ team.rucks.leader.first_name }} {{ team.rucks.leader.last_name }}</button>
                 <span class="tbd-stat">{{ team.rucks.leader.miles }} mi</span>
                 <span v-if="team.rucks.leader.avg_pace" class="tbd-sub">{{ team.rucks.leader.avg_pace }}/mi</span>
               </div>
@@ -87,7 +87,7 @@
               <span class="tbd-cat-label">🔥 Cross-Training</span>
               <div class="tbd-leader-row">
                 <UserAvatar :photo-path="team.other.leader.profile_photo_path" :first-name="team.other.leader.first_name" :last-name="team.other.leader.last_name" size="sm" />
-                <span class="tbd-leader-name">{{ team.other.leader.first_name }} {{ team.other.leader.last_name }}</span>
+                <button type="button" class="tbd-leader-name lb-name-btn" @click="openProfile(team.other.leader)">{{ team.other.leader.first_name }} {{ team.other.leader.last_name }}</button>
                 <span class="tbd-stat">{{ team.other.leader.calories }} cal</span>
                 <span v-if="team.other.leader.avg_hr" class="tbd-sub">{{ team.other.leader.avg_hr }} bpm</span>
               </div>
@@ -108,7 +108,7 @@
       >
         <span class="rank-badge">{{ rankMedal(idx) }}</span>
         <UserAvatar :photo-path="row.profile_photo_path" :first-name="row.first_name" :last-name="row.last_name" size="sm" />
-        <span class="name">{{ row.first_name }} {{ row.last_name }}</span>
+        <button type="button" class="name lb-name-btn" @click="openProfile(row)">{{ row.first_name }} {{ row.last_name }}</button>
         <span class="pts-chip">
           {{ formatPts(row.total_points) }} pts
           <template v-if="row.total_miles > 0"> · {{ Number(row.total_miles).toFixed(2) }} mi</template>
@@ -143,7 +143,7 @@
               <span class="tbd-cat-label">🏃 Runs</span>
               <div class="tbd-leader-row">
                 <UserAvatar :photo-path="team.runs.leader.profile_photo_path" :first-name="team.runs.leader.first_name" :last-name="team.runs.leader.last_name" size="sm" />
-                <span class="tbd-leader-name">{{ team.runs.leader.first_name }} {{ team.runs.leader.last_name }}</span>
+                <button type="button" class="tbd-leader-name lb-name-btn" @click="openProfile(team.runs.leader)">{{ team.runs.leader.first_name }} {{ team.runs.leader.last_name }}</button>
                 <span class="tbd-stat">{{ team.runs.leader.miles }} mi</span>
                 <span v-if="team.runs.leader.avg_pace" class="tbd-sub">{{ team.runs.leader.avg_pace }}/mi</span>
               </div>
@@ -166,6 +166,16 @@ import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useSeasonWeeks } from '../../composables/useSeasonWeeks.js';
 
 const formatPts = (v) => parseFloat(Number(v || 0).toFixed(2));
+
+const emit = defineEmits(['open-profile']);
+
+const openProfile = (row) => {
+  if (!row?.user_id) return;
+  emit('open-profile', {
+    userId: Number(row.user_id),
+    name: [row.first_name, row.last_name].filter(Boolean).join(' ') || 'Member'
+  });
+};
 
 const props = defineProps({
   leaderboard: { type: Object, default: null },
@@ -258,6 +268,13 @@ watch(weekStartDate, loadBreakdown);
 
 .rank-badge { font-size: 1.1em; min-width: 28px; text-align: center; line-height: 1; }
 .name  { flex: 1; font-size: 0.92em; font-weight: 500; }
+
+.lb-name-btn {
+  background: none; border: none; padding: 0; cursor: pointer;
+  text-align: left; font-family: inherit; color: inherit;
+  font-weight: inherit; font-size: inherit;
+}
+.lb-name-btn:hover { color: #6366f1; text-decoration: underline; text-underline-offset: 2px; }
 .pts-chip {
   font-size: 0.82em; font-weight: 700; color: #fff;
   background: #e63946; border-radius: 999px;

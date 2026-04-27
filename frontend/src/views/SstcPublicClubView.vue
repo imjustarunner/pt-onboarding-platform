@@ -278,6 +278,81 @@
                 :compact="true"
               />
             </div>
+            <!-- Weekly matchup widget -->
+            <div v-if="publicMatchup.enabled" class="pub-matchup-widget">
+              <!-- Current week matchup cards -->
+              <div v-if="publicMatchup.matchups.length" class="pub-mu-header">
+                <span class="pub-mu-title">This Week's Matchup</span>
+                <span v-if="publicMatchup.matchups.some(m => !m.resolvedAt)" class="pub-mu-live">● Live</span>
+              </div>
+              <div
+                v-for="m in pubOrientedMatchups"
+                :key="m.id"
+                class="pub-mu-card"
+              >
+                <!-- Left (leader) -->
+                <div
+                  class="pub-mu-side pub-mu-side--left"
+                  :style="{ background: `linear-gradient(to right, ${m.left.color}44 0%, ${m.left.color}14 60%, transparent 100%)`, borderLeft: `3px solid ${m.left.color}` }"
+                >
+                  <div class="pub-mu-logo-wrap" :style="{ borderColor: m.left.color }">
+                    <img v-if="m.left.logo" :src="toUploadsUrl(m.left.logo)" class="pub-mu-logo" alt="" />
+                    <div v-else class="pub-mu-logo-placeholder" :style="{ background: m.left.color }">{{ (m.left.name||'?')[0].toUpperCase() }}</div>
+                  </div>
+                  <div class="pub-mu-info">
+                    <span class="pub-mu-team">{{ m.left.name }}</span>
+                    <span class="pub-mu-score pub-mu-score--leader" :style="{ color: m.left.color }">
+                      {{ m.left.score != null ? Number(m.left.score).toFixed(1) : '—' }}
+                    </span>
+                  </div>
+                </div>
+                <!-- Center -->
+                <div class="pub-mu-center">
+                  <span class="pub-mu-vs">{{ m.isResolved ? (m.tied ? 'TIE' : 'FINAL') : 'VS' }}</span>
+                </div>
+                <!-- Right (trailer) -->
+                <div
+                  class="pub-mu-side pub-mu-side--right"
+                  :style="{ background: `linear-gradient(to left, ${m.right.color}44 0%, ${m.right.color}14 60%, transparent 100%)`, borderRight: `3px solid ${m.right.color}` }"
+                >
+                  <div class="pub-mu-info pub-mu-info--right">
+                    <span class="pub-mu-team">{{ m.right.name }}</span>
+                    <span class="pub-mu-score pub-mu-score--trail" :style="{ color: m.right.color }">
+                      {{ m.right.score != null ? Number(m.right.score).toFixed(1) : '—' }}
+                    </span>
+                  </div>
+                  <div class="pub-mu-logo-wrap" :style="{ borderColor: m.right.color }">
+                    <img v-if="m.right.logo" :src="toUploadsUrl(m.right.logo)" class="pub-mu-logo" alt="" />
+                    <div v-else class="pub-mu-logo-placeholder" :style="{ background: m.right.color }">{{ (m.right.name||'?')[0].toUpperCase() }}</div>
+                  </div>
+                </div>
+              </div>
+              <!-- W/L Standings -->
+              <div v-if="publicMatchup.standings.length" class="pub-mu-standings">
+                <div class="pub-mu-standings-header">
+                  <span>Season Standings</span>
+                  <span class="pub-mu-standings-cols"><span>W</span><span>L</span><span>T</span></span>
+                </div>
+                <div
+                  v-for="s in publicMatchup.standings"
+                  :key="s.teamId"
+                  class="pub-mu-standings-row"
+                  :style="{ borderLeft: `3px solid ${s.teamColor || pubTeamFallback(s.teamId)}` }"
+                >
+                  <span class="pub-mu-s-rank">{{ s.rank }}</span>
+                  <div class="pub-mu-s-team">
+                    <img v-if="s.logoPath" :src="toUploadsUrl(s.logoPath)" class="pub-mu-s-logo" alt="" />
+                    <div v-else class="pub-mu-s-logo pub-mu-s-logo--ph" :style="{ background: s.teamColor || pubTeamFallback(s.teamId) }">{{ (s.teamName||'?')[0].toUpperCase() }}</div>
+                    <span class="pub-mu-s-name">{{ s.teamName }}</span>
+                  </div>
+                  <span class="pub-mu-s-wlt">
+                    <span class="pub-mu-s-w">{{ s.wins }}</span>
+                    <span class="pub-mu-s-l">{{ s.losses }}</span>
+                    <span class="pub-mu-s-t">{{ s.ties }}</span>
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div
@@ -623,6 +698,7 @@ const error    = ref('');
 const clubData = ref(null);
 const configuredStats = ref([]);
 const raceClubs = ref([]);
+const publicMatchup = ref({ enabled: false, matchups: [], standings: [] });
 const profileUserId = ref(null);
 const profileUserName = ref('');
 const albumSlideIndex = ref(0);
@@ -902,15 +978,24 @@ const loadClubPage = async () => {
       if (match) agencyStore.setCurrentAgency(match);
     }
     if (numericClubId) {
-      const [statsRes, raceClubsRes] = await Promise.allSettled([
+      const seasonId = clubData.value?.currentSeason?.id;
+      const [statsRes, raceClubsRes, matchupRes] = await Promise.allSettled([
         api.get(`/summit-stats/clubs/${numericClubId}/stats`, { skipAuthRedirect: true }),
-        api.get(`/summit-stats/clubs/${numericClubId}/race-clubs`, { skipAuthRedirect: true })
+        api.get(`/summit-stats/clubs/${numericClubId}/race-clubs`, { skipAuthRedirect: true }),
+        seasonId
+          ? api.get(`/learning-program-classes/${seasonId}/matchup-public`, { skipAuthRedirect: true })
+          : Promise.reject(new Error('no season'))
       ]);
       if (statsRes.status === 'fulfilled' && Array.isArray(statsRes.value?.data?.stats)) {
         configuredStats.value = statsRes.value.data.stats;
       }
       if (raceClubsRes.status === 'fulfilled' && Array.isArray(raceClubsRes.value?.data?.raceClubs)) {
         raceClubs.value = raceClubsRes.value.data.raceClubs.filter(rc => rc.members?.length > 0);
+      }
+      if (matchupRes.status === 'fulfilled' && matchupRes.value?.data?.enabled) {
+        publicMatchup.value = matchupRes.value.data;
+      } else {
+        publicMatchup.value = { enabled: false, matchups: [], standings: [] };
       }
     }
     await loadMyApplications();
@@ -963,6 +1048,37 @@ const heroStyle = computed(() => {
   };
 });
 const showCurrentSeasonBlock = computed(() => publicPageConfig.value?.showCurrentSeason !== false);
+
+// ── Public matchup widget helpers ─────────────────────────────
+const PUB_TEAM_PALETTE = ['#b45309','#2563eb','#dc2626','#7c3aed','#0891b2','#15803d','#c026d3','#d97706'];
+const pubAllTeamIds = computed(() => {
+  const ids = [];
+  for (const m of publicMatchup.value.matchups || []) {
+    if (!ids.includes(m.team1Id)) ids.push(m.team1Id);
+    if (!ids.includes(m.team2Id)) ids.push(m.team2Id);
+  }
+  for (const s of publicMatchup.value.standings || []) {
+    if (!ids.includes(s.teamId)) ids.push(s.teamId);
+  }
+  return ids;
+});
+const pubTeamFallback = (teamId) => {
+  const idx = pubAllTeamIds.value.indexOf(teamId);
+  return PUB_TEAM_PALETTE[(idx >= 0 ? idx : 0) % PUB_TEAM_PALETTE.length];
+};
+const pubOrientedMatchups = computed(() =>
+  (publicMatchup.value.matchups || []).map((m) => {
+    const isResolved = !!m.resolvedAt;
+    const t1Score = isResolved ? (m.team1Points ?? 0) : (m.team1LivePoints ?? 0);
+    const t2Score = isResolved ? (m.team2Points ?? 0) : (m.team2LivePoints ?? 0);
+    const swap = t2Score > t1Score || (isResolved && m.winnerTeamId === m.team2Id && m.winnerTeamId !== m.team1Id);
+    const c1 = m.team1Color || pubTeamFallback(m.team1Id);
+    const c2 = m.team2Color || pubTeamFallback(m.team2Id);
+    const left  = swap ? { id: m.team2Id, name: m.team2Name, logo: m.team2Logo, color: c2, score: t2Score, isWinner: m.winnerTeamId === m.team2Id } : { id: m.team1Id, name: m.team1Name, logo: m.team1Logo, color: c1, score: t1Score, isWinner: m.winnerTeamId === m.team1Id };
+    const right = swap ? { id: m.team1Id, name: m.team1Name, logo: m.team1Logo, color: c1, score: t1Score, isWinner: m.winnerTeamId === m.team1Id } : { id: m.team2Id, name: m.team2Name, logo: m.team2Logo, color: c2, score: t2Score, isWinner: m.winnerTeamId === m.team2Id };
+    return { ...m, left, right, isResolved, tied: !!m.isTie };
+  })
+);
 const showActiveParticipantsBlock = computed(() => publicPageConfig.value?.showActiveParticipants !== false);
 const rosterNameFormat = computed(() => publicPageConfig.value?.rosterNameFormat || 'full');
 
@@ -1613,6 +1729,53 @@ onBeforeUnmount(() => {
 /* ─── Season card ─────────────────────────────────────────────── */
 .pub-season-card {}
 .pub-season-recognition { margin-top: 14px; }
+
+/* ── Public matchup widget ─────────────────────────────────── */
+.pub-matchup-widget {
+  margin-top: 16px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0d1520;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.pub-mu-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 6px;
+}
+.pub-mu-title { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em; color: rgba(255,255,255,0.45); }
+.pub-mu-live { font-size: 0.68rem; font-weight: 700; color: #f87171; letter-spacing: 0.04em; animation: pulse 1.5s ease-in-out infinite; }
+.pub-mu-card { display: flex; align-items: stretch; min-height: 80px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.pub-mu-card:last-of-type { border-bottom: none; }
+.pub-mu-side { display: flex; align-items: center; gap: 10px; flex: 1; padding: 12px 14px; min-width: 0; }
+.pub-mu-side--right { flex-direction: row-reverse; }
+.pub-mu-logo-wrap { width: 40px; height: 40px; border-radius: 8px; overflow: hidden; border: 2px solid rgba(255,255,255,0.1); flex-shrink: 0; }
+.pub-mu-logo { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pub-mu-logo-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 1rem; font-weight: 800; color: #fff; }
+.pub-mu-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.pub-mu-info--right { align-items: flex-end; text-align: right; }
+.pub-mu-team { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.5); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pub-mu-score { font-weight: 900; font-variant-numeric: tabular-nums; line-height: 1; }
+.pub-mu-score--leader { font-size: 1.9rem; text-shadow: 0 0 12px currentColor; }
+.pub-mu-score--trail  { font-size: 1.3rem; opacity: 0.65; }
+.pub-mu-center { display: flex; align-items: center; justify-content: center; padding: 0 8px; flex-shrink: 0; }
+.pub-mu-vs { font-size: 0.65rem; font-weight: 900; color: rgba(255,255,255,0.4); letter-spacing: 0.05em; }
+
+.pub-mu-standings { border-top: 1px solid rgba(255,255,255,0.07); padding: 4px 0 2px; }
+.pub-mu-standings-header { display: flex; justify-content: space-between; align-items: center; padding: 7px 14px 5px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.3); }
+.pub-mu-standings-cols { display: flex; gap: 14px; }
+.pub-mu-standings-row { display: flex; align-items: center; gap: 8px; padding: 6px 14px; border-bottom: 1px solid rgba(255,255,255,0.04); border-left: 3px solid transparent; }
+.pub-mu-standings-row:last-child { border-bottom: none; }
+.pub-mu-s-rank { font-size: 0.7rem; color: rgba(255,255,255,0.3); font-weight: 700; width: 12px; flex-shrink: 0; }
+.pub-mu-s-team { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.pub-mu-s-logo { width: 20px; height: 20px; border-radius: 4px; object-fit: cover; flex-shrink: 0; }
+.pub-mu-s-logo--ph { display: flex; align-items: center; justify-content: center; font-size: 0.6rem; font-weight: 800; color: #fff; border-radius: 4px; }
+.pub-mu-s-name { font-size: 0.8rem; font-weight: 600; color: rgba(255,255,255,0.75); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pub-mu-s-wlt { display: flex; gap: 14px; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.pub-mu-s-w { color: #4ade80; font-weight: 700; width: 10px; text-align: center; }
+.pub-mu-s-l { color: #f87171; font-weight: 700; width: 10px; text-align: center; }
+.pub-mu-s-t { color: rgba(255,255,255,0.3); font-weight: 700; width: 10px; text-align: center; }
 .pub-season-card--upcoming {
   background: linear-gradient(180deg, #fff7ed 0%, #ffffff 100%);
   border-color: #fdba74;

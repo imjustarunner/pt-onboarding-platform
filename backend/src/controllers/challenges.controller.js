@@ -4235,6 +4235,7 @@ export const getMatchupStandings = async (req, res, next) => {
          sub.team_id,
          sub.team_name,
          t.logo_path,
+         t.team_color,
          SUM(sub.wins)    AS wins,
          SUM(sub.losses)  AS losses,
          SUM(sub.ties)    AS ties,
@@ -4268,7 +4269,7 @@ export const getMatchupStandings = async (req, res, next) => {
          GROUP BY m.team2_id, t2.team_name
        ) sub
        JOIN challenge_teams t ON t.id = sub.team_id
-       GROUP BY sub.team_id, sub.team_name, t.logo_path
+       GROUP BY sub.team_id, sub.team_name, t.logo_path, t.team_color
        ORDER BY wins DESC, pts_for DESC`,
       [classId, classId]
     );
@@ -4278,6 +4279,7 @@ export const getMatchupStandings = async (req, res, next) => {
       teamId: r.team_id,
       teamName: r.team_name,
       logoPath: r.logo_path || null,
+      teamColor: r.team_color || null,
       wins: Number(r.wins || 0),
       losses: Number(r.losses || 0),
       ties: Number(r.ties || 0),
@@ -4286,6 +4288,136 @@ export const getMatchupStandings = async (req, res, next) => {
     }));
 
     return res.json({ enabled: true, standings });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /:classId/matchup-public
+ * No authentication required — returns current-week matchups + season W/L standings.
+ * Safe for public club pages.
+ */
+export const getPublicMatchupWidget = async (req, res, next) => {
+  try {
+    const classId = Number(req.params.classId);
+    if (!classId) return res.status(400).json({ error: 'Invalid classId' });
+
+    // Load class row directly — no access check needed for a public widget
+    const [classRows] = await pool.execute(
+      `SELECT id, season_settings_json, starts_at FROM learning_program_classes WHERE id = ? LIMIT 1`,
+      [classId]
+    );
+    const klass = classRows?.[0];
+    if (!klass) return res.status(404).json({ error: 'Season not found' });
+
+    const settings = parseJsonObject(klass?.season_settings_json || {});
+    if (!settings?.matchups?.enabled) return res.json({ enabled: false, matchups: [], standings: [] });
+
+    const schedule = settings?.schedule || {};
+    const weekCutoffTime = String(schedule?.weekEndsSundayAt || '23:59');
+    const weekTimeZone   = String(schedule?.weekTimeZone   || 'UTC');
+    const currentWeekStart = getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
+
+    // Current week matchups with live scores
+    const [matchupRows] = await pool.execute(
+      `SELECT m.id, m.team1_id, m.team2_id,
+              m.winner_team_id, m.team1_points, m.team2_points, m.is_tie, m.resolved_at,
+              t1.team_name AS team1_name, t1.logo_path AS team1_logo, t1.team_color AS team1_color,
+              t2.team_name AS team2_name, t2.logo_path AS team2_logo, t2.team_color AS team2_color,
+              tw.team_name AS winner_name
+       FROM challenge_matchups m
+       JOIN challenge_teams t1 ON t1.id = m.team1_id
+       JOIN challenge_teams t2 ON t2.id = m.team2_id
+       LEFT JOIN challenge_teams tw ON tw.id = m.winner_team_id
+       WHERE m.learning_class_id = ? AND m.week_start_date = ?
+       ORDER BY m.id ASC`,
+      [classId, currentWeekStart]
+    );
+
+    // Live scores for current week
+    const teamIds = [...new Set([...matchupRows.map(r => r.team1_id), ...matchupRows.map(r => r.team2_id)])];
+    const liveMap = {};
+    if (teamIds.length) {
+      const ph = teamIds.map(() => '?').join(', ');
+      const weekRange = getWeekDateTimeRange(currentWeekStart, weekCutoffTime, weekTimeZone);
+      if (weekRange) {
+        const metric = String(settings?.matchups?.metric || 'miles').toLowerCase() === 'miles' ? 'distance_value' : 'points';
+        const [scoreRows] = await pool.execute(
+          `SELECT team_id, SUM(${metric}) AS live_points
+           FROM challenge_workouts
+           WHERE learning_class_id = ? AND team_id IN (${ph})
+             AND (is_disqualified IS NULL OR is_disqualified = 0)
+             AND completed_at >= ? AND completed_at < ?
+           GROUP BY team_id`,
+          [classId, ...teamIds, weekRange.start, weekRange.end]
+        );
+        for (const sr of scoreRows) liveMap[sr.team_id] = Math.round(Number(sr.live_points) * 100) / 100;
+      }
+    }
+
+    const matchups = matchupRows.map((row) => ({
+      id: row.id,
+      team1Id: row.team1_id,
+      team1Name: row.team1_name,
+      team1Logo: row.team1_logo || null,
+      team1Color: row.team1_color || null,
+      team1Points: row.team1_points != null ? Number(row.team1_points) : null,
+      team1LivePoints: liveMap[row.team1_id] ?? null,
+      team2Id: row.team2_id,
+      team2Name: row.team2_name,
+      team2Logo: row.team2_logo || null,
+      team2Color: row.team2_color || null,
+      team2Points: row.team2_points != null ? Number(row.team2_points) : null,
+      team2LivePoints: liveMap[row.team2_id] ?? null,
+      winnerTeamId: row.winner_team_id || null,
+      winnerName: row.winner_name || null,
+      isTie: !!row.is_tie,
+      resolvedAt: row.resolved_at || null,
+    }));
+
+    // Season W/L standings
+    const [standingRows] = await pool.execute(
+      `SELECT sub.team_id, sub.team_name, t.logo_path, t.team_color,
+              SUM(sub.wins) AS wins, SUM(sub.losses) AS losses, SUM(sub.ties) AS ties,
+              SUM(sub.pts_for) AS pts_for
+       FROM (
+         SELECT m.team1_id AS team_id, t1.team_name,
+           SUM(m.winner_team_id = m.team1_id AND m.is_tie = 0) AS wins,
+           SUM(m.winner_team_id = m.team2_id AND m.is_tie = 0) AS losses,
+           SUM(m.is_tie = 1 AND m.resolved_at IS NOT NULL) AS ties,
+           SUM(COALESCE(m.team1_points, 0)) AS pts_for
+         FROM challenge_matchups m JOIN challenge_teams t1 ON t1.id = m.team1_id
+         WHERE m.learning_class_id = ? AND m.resolved_at IS NOT NULL
+         GROUP BY m.team1_id, t1.team_name
+         UNION ALL
+         SELECT m.team2_id, t2.team_name,
+           SUM(m.winner_team_id = m.team2_id AND m.is_tie = 0) AS wins,
+           SUM(m.winner_team_id = m.team1_id AND m.is_tie = 0) AS losses,
+           SUM(m.is_tie = 1 AND m.resolved_at IS NOT NULL) AS ties,
+           SUM(COALESCE(m.team2_points, 0)) AS pts_for
+         FROM challenge_matchups m JOIN challenge_teams t2 ON t2.id = m.team2_id
+         WHERE m.learning_class_id = ? AND m.resolved_at IS NOT NULL
+         GROUP BY m.team2_id, t2.team_name
+       ) sub
+       JOIN challenge_teams t ON t.id = sub.team_id
+       GROUP BY sub.team_id, sub.team_name, t.logo_path, t.team_color
+       ORDER BY wins DESC, pts_for DESC`,
+      [classId, classId]
+    );
+
+    const standings = standingRows.map((r, i) => ({
+      rank: i + 1,
+      teamId: r.team_id,
+      teamName: r.team_name,
+      logoPath: r.logo_path || null,
+      teamColor: r.team_color || null,
+      wins: Number(r.wins || 0),
+      losses: Number(r.losses || 0),
+      ties: Number(r.ties || 0),
+    }));
+
+    return res.json({ enabled: true, currentWeekStart, matchups, standings });
   } catch (e) {
     next(e);
   }

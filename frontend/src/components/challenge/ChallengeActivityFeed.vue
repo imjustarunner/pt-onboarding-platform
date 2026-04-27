@@ -86,7 +86,7 @@
         <div class="activity-header">
           <UserAvatar :photo-path="w.profile_photo_url || w.profile_photo_path" :first-name="w.first_name" :last-name="w.last_name" size="sm" extra-class="activity-avatar" />
           <div class="activity-user-info">
-          <span class="activity-user">{{ w.first_name }} {{ w.last_name }}</span>
+            <button type="button" class="activity-user activity-name-btn" @click="openProfile(w)">{{ w.first_name }} {{ w.last_name }}</button>
             <span class="activity-timestamp">{{ formatTimestamp(w.completed_at || w.created_at) }}</span>
           </div>
           <div class="activity-badges">
@@ -700,7 +700,15 @@ const props = defineProps({
 });
 
 const TERRAIN_OPTIONS = ['Road', 'Trail', 'Track', 'Beach', 'Treadmill', 'Race', 'Other'];
-const emit = defineEmits(['media-uploaded']);
+const emit = defineEmits(['media-uploaded', 'open-profile']);
+
+const openProfile = (w) => {
+  if (!w?.user_id) return;
+  emit('open-profile', {
+    userId: Number(w.user_id),
+    name: [w.first_name, w.last_name].filter(Boolean).join(' ') || 'Member'
+  });
+};
 
 /** Whole season vs workouts from the viewer's team only (kept for backwards compat). */
 const feedScope = ref('all');
@@ -1998,6 +2006,11 @@ const reviewProof = async (workoutId, status) => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.activity-name-btn {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font-family: inherit; font-size: inherit; color: inherit; text-align: left;
+}
+.activity-name-btn:hover { color: #6366f1; text-decoration: underline; text-underline-offset: 2px; }
 .activity-timestamp {
   font-size: 0.78em;
   color: var(--text-muted, #888);

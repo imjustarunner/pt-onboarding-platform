@@ -95,7 +95,8 @@ import {
   getMatchupSchedule,
   generateMatchupSchedule,
   getMatchupStandings,
-  listClassWorkouts
+  listClassWorkouts,
+  getPublicMatchupWidget
 } from '../controllers/challenges.controller.js';
 import {
   getScoreboard,
@@ -162,6 +163,8 @@ const seasonImageUpload = multer({
 // which cannot send auth headers), so they must be registered before authenticate.
 router.get('/:classId/banner', serveSeasonBanner);
 router.get('/:classId/logo', serveSeasonLogo);
+// Public matchup widget — no auth required; safe for public club pages
+router.get('/:classId/matchup-public', getPublicMatchupWidget);
 
 router.use(authenticate);
 

@@ -5714,6 +5714,42 @@ export const getClubMemberProfile = async (req, res, next) => {
     );
     const totals = statsRows?.[0] || {};
 
+    // Current (most recent) season stats
+    let currentSeasonStats = null;
+    try {
+      const [seasonRows] = await pool.execute(
+        `SELECT id, class_name, starts_at, ends_at
+         FROM learning_program_classes
+         WHERE organization_id = ?
+         ORDER BY starts_at DESC
+         LIMIT 1`,
+        [clubId]
+      );
+      const latestSeason = seasonRows?.[0];
+      if (latestSeason) {
+        const [sStats] = await pool.execute(
+          `SELECT
+             COUNT(w.id) AS workout_count,
+             COALESCE(SUM(w.points), 0) AS total_points,
+             COALESCE(SUM(w.distance_value), 0) AS total_miles,
+             COALESCE(SUM(w.duration_minutes), 0) AS total_minutes
+           FROM challenge_workouts w
+           WHERE w.user_id = ?
+             AND w.learning_class_id = ?
+             AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)`,
+          [targetUserId, latestSeason.id]
+        );
+        const ss = sStats?.[0];
+        currentSeasonStats = {
+          seasonName: latestSeason.class_name,
+          totalWorkouts: Number(ss?.workout_count || 0),
+          totalPoints: normalizeNum(ss?.total_points, 1),
+          totalMiles: normalizeNum(ss?.total_miles, 1),
+          totalMinutes: Math.round(Number(ss?.total_minutes || 0))
+        };
+      }
+    } catch { /* non-fatal */ }
+
     return res.json({
       member: {
         id: targetUserId,
@@ -5740,7 +5776,8 @@ export const getClubMemberProfile = async (req, res, next) => {
         totalMiles: normalizeNum(totals.total_miles, 1),
         totalMinutes: Math.round(Number(totals.total_minutes || 0)),
         longestRunMiles: normalizeNum(totals.longest_run_miles, 1)
-      }
+      },
+      currentSeasonStats
     });
   } catch (e) { next(e); }
 };

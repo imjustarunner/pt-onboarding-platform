@@ -93,7 +93,7 @@
                 <span class="cp-assign-team">{{ a.teamName }}</span>
                 <span class="cp-assign-name">{{ a.firstName }} {{ a.lastName }}</span>
                 <span class="cp-assign-status" :class="a.hasTagged ? 'cp-status--done' : 'cp-status--pending'">
-                  {{ a.hasTagged ? '✓ Tagged' : 'Not yet' }}
+                  {{ a.hasTagged ? (a.workoutCount > 1 ? `✓ Tagged (${a.workoutCount} runs)` : '✓ Tagged') : 'Not yet' }}
                 </span>
                 <span v-if="a.miles" class="cp-assign-metric">{{ a.miles }} mi</span>
               </div>
@@ -220,23 +220,26 @@ const teamFallbackColor = (teamId) => {
 const totalParticipants = computed(() => totalRosterSize.value);
 
 // Assignment rows per task (for individual tasks)
+// Sum ALL workouts tagged by this user to this task (e.g. Double Duty = 2 runs)
 const taskAssignments = (taskId) => {
   const tidN = Number(taskId);
   const taggedUsers = taggedCountMap.value[tidN] || new Set();
-    return assignments.value
+  return assignments.value
     .filter((a) => Number(a.task_id) === tidN)
     .map((a) => {
       const uid = Number(a.provider_user_id);
-      const tagged = taggedWorkouts.value.find(
+      const allTagged = taggedWorkouts.value.filter(
         (w) => Number(w.weekly_task_id) === tidN && Number(w.user_id) === uid
       );
+      const totalMiles = allTagged.reduce((sum, w) => sum + (w.distance_value != null ? Number(w.distance_value) : 0), 0);
       return {
         assignmentId: a.id,
         teamName: a.team_name || '',
         firstName: a.provider_first_name || a.first_name || '',
         lastName: a.provider_last_name || a.last_name || '',
         hasTagged: taggedUsers.has(uid),
-        miles: tagged?.distance_value != null ? Number(tagged.distance_value).toFixed(2) : null,
+        workoutCount: allTagged.length,
+        miles: allTagged.length > 0 ? totalMiles.toFixed(2) : null,
       };
     });
 };

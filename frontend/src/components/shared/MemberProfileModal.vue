@@ -25,13 +25,20 @@
             </div>
           </div>
 
-          <!-- Gender -->
-          <div v-if="profile.member?.gender" class="mpm-section">
-            <h3 class="mpm-h">Gender</h3>
-            <p class="mpm-p">{{ profile.member.gender }}</p>
+          <!-- Current Season Stats -->
+          <div v-if="profile.currentSeasonStats" class="mpm-section">
+            <h3 class="mpm-h">📅 {{ profile.currentSeasonStats.seasonName || 'Current Season' }}</h3>
+            <div class="mpm-stats">
+              <span class="mpm-stat"><strong>{{ fmtWhole(profile.currentSeasonStats.totalPoints) }}</strong> pts</span>
+              <span class="mpm-stat"><strong>{{ fmtDec(profile.currentSeasonStats.totalMiles) }}</strong> mi</span>
+              <span class="mpm-stat"><strong>{{ fmtWhole(profile.currentSeasonStats.totalWorkouts) }}</strong> workouts</span>
+              <span v-if="profile.currentSeasonStats.totalMinutes" class="mpm-stat">
+                <strong>{{ fmtWhole(profile.currentSeasonStats.totalMinutes) }}</strong> min moving
+              </span>
+            </div>
           </div>
 
-          <!-- Stats -->
+          <!-- All-Time Stats -->
           <div class="mpm-section">
             <h3 class="mpm-h">All-time in this club</h3>
             <div class="mpm-stats">
@@ -47,28 +54,15 @@
             </div>
           </div>
 
-          <!-- Bio fields -->
-          <div v-if="hasBio(profile.member)" class="mpm-section mpm-section--compact">
-            <template v-if="profile.member?.heardAboutClub">
-              <h3 class="mpm-h">How they heard about the club</h3>
-              <p class="mpm-p">{{ profile.member.heardAboutClub }}</p>
-            </template>
-            <template v-if="profile.member?.runningFitnessBackground">
-              <h3 class="mpm-h">Background</h3>
-              <p class="mpm-p">{{ profile.member.runningFitnessBackground }}</p>
-            </template>
-            <template v-if="profile.member?.currentFitnessActivities">
-              <h3 class="mpm-h">Activities</h3>
-              <p class="mpm-p">{{ profile.member.currentFitnessActivities }}</p>
-            </template>
-          </div>
-
           <!-- Trophy Case -->
-          <div v-if="hasTrophies" class="mpm-section mpm-trophy-section">
+          <div class="mpm-section mpm-trophy-section">
             <h3 class="mpm-h">🏆 Trophy Case</h3>
 
+            <div v-if="!trophy" class="mpm-trophy-empty">Loading trophies…</div>
+            <div v-else-if="!hasTrophies" class="mpm-trophy-empty">No trophies yet — keep training!</div>
+
             <!-- Season Recognition Awards (weekly award badges) -->
-            <div v-if="trophy.seasonAwards?.length" class="mpm-awards-section">
+            <div v-if="trophy?.seasonAwards?.length" class="mpm-awards-section">
               <div class="mpm-records-label">Recognition Awards</div>
               <div class="mpm-awards-grid">
                 <div
@@ -87,8 +81,29 @@
               </div>
             </div>
 
+            <!-- Completed Challenges -->
+            <div v-if="trophy?.completedChallenges?.length" class="mpm-awards-section">
+              <div class="mpm-records-label">Completed Challenges</div>
+              <div class="mpm-awards-grid">
+                <div
+                  v-for="ch in trophy.completedChallenges"
+                  :key="ch.taskId || ch.label"
+                  class="mpm-award-badge mpm-award-badge--challenge"
+                  :title="`${ch.label} · Completed ${ch.count}×`"
+                >
+                  <div class="mpm-award-icon-wrap">
+                    <img v-if="ch.iconUrl" :src="ch.iconUrl" class="mpm-award-icon" alt="" />
+                    <span v-else-if="ch.icon && !String(ch.icon).startsWith('icon:')" class="mpm-award-emoji">{{ ch.icon }}</span>
+                    <span v-else class="mpm-award-emoji">⚡</span>
+                    <span v-if="ch.count > 1" class="mpm-award-count">{{ ch.count }}</span>
+                  </div>
+                  <div class="mpm-award-label">{{ ch.label }}</div>
+                </div>
+              </div>
+            </div>
+
             <!-- Race Club Badges -->
-            <div v-if="trophy.raceClubs?.length" class="mpm-badges">
+            <div v-if="trophy?.raceClubs?.length" class="mpm-badges">
               <div
                 v-for="rc in trophy.raceClubs"
                 :key="rc.id"
@@ -105,7 +120,7 @@
             </div>
 
             <!-- Personal Records -->
-            <div v-if="trophy.personalRecords?.length" class="mpm-records">
+            <div v-if="trophy?.personalRecords?.length" class="mpm-records">
               <div class="mpm-records-label">Personal Records</div>
               <div
                 v-for="r in trophy.personalRecords"
@@ -180,13 +195,12 @@ const initials = (m) => {
 
 const subline = (m) => {
   const age = m?.age != null ? `${m.age} yrs` : '';
+  const gender = String(m?.gender || '').trim();
   const city = String(m?.homeCity || '').trim();
   const st = String(m?.homeState || '').trim();
   const loc = [city, st].filter(Boolean).join(', ');
-  return [age, loc].filter(Boolean).join(' · ');
+  return [age, gender, loc].filter(Boolean).join(' · ');
 };
-
-const hasBio = (m) => !!(m?.heardAboutClub || m?.runningFitnessBackground || m?.currentFitnessActivities);
 
 const fmtWhole = (v) => Number(v || 0).toLocaleString();
 const fmtDec = (v) => Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 });
@@ -205,7 +219,8 @@ const fmtPr = (r) => {
 
 const hasTrophies = computed(() =>
   !!(trophy.value?.raceClubs?.length || trophy.value?.recordsHeld?.length ||
-     trophy.value?.personalRecords?.length || trophy.value?.seasonAwards?.length)
+     trophy.value?.personalRecords?.length || trophy.value?.seasonAwards?.length ||
+     trophy.value?.completedChallenges?.length)
 );
 
 const emojiFor = (icon) => {
@@ -429,6 +444,7 @@ watch(() => props.userId, (uid) => { if (uid) load(); else { profile.value = nul
   gap: 10px;
   margin-top: 6px;
 }
+.mpm-trophy-empty { font-size: 0.85rem; color: #9ca3af; padding: 8px 0; }
 .mpm-award-badge {
   display: flex;
   flex-direction: column;
@@ -437,6 +453,8 @@ watch(() => props.userId, (uid) => { if (uid) load(); else { profile.value = nul
   width: 64px;
   cursor: default;
 }
+.mpm-award-badge--challenge .mpm-award-icon-wrap { background: #f0f1ff; border-color: #c7d2fe; }
+.mpm-award-badge--challenge:hover .mpm-award-icon-wrap { border-color: #6366f1; box-shadow: 0 2px 8px rgba(99,102,241,0.25); }
 .mpm-award-icon-wrap {
   position: relative;
   width: 50px;

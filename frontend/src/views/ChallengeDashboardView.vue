@@ -449,31 +449,36 @@
             </div>
           </div>
 
-          <!-- ── Season Standings (collapsible) ───────────────────── -->
-          <details v-if="matchupStandings.length" class="mu-standings-details">
-            <summary class="mu-standings-summary">Season Matchup Standings</summary>
-            <table class="mu-standings-table">
-              <thead>
-                <tr>
-                  <th>#</th><th>Team</th><th>W</th><th>L</th><th>T</th>
-                  <th class="mu-num">Pts For</th><th class="mu-num">Pts Ag</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="s in matchupStandings" :key="s.teamId" :class="{ 'mu-my-team': s.teamId === myTeamId }">
-                  <td class="mu-s-rank">{{ s.rank }}</td>
-                  <td class="mu-s-team-cell">
-                    <img v-if="s.logoPath" :src="resolveUploadUrl(s.logoPath)" class="mu-s-logo" alt="" />
-                    <span>{{ s.teamName }}</span>
-                    <span class="mu-s-win-badge">{{ s.wins }}W</span>
-                  </td>
-                  <td>{{ s.wins }}</td><td>{{ s.losses }}</td><td>{{ s.ties }}</td>
-                  <td class="mu-num">{{ s.ptsFor.toFixed(0) }}</td>
-                  <td class="mu-num">{{ s.ptsAgainst.toFixed(0) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </details>
+          <!-- ── Season W/L Standings ───────────────────────────── -->
+          <div v-if="matchupStandings.length" class="mu-standings-block">
+            <div class="mu-standings-header">
+              <span class="mu-standings-title">Season Standings</span>
+              <span class="mu-standings-cols">
+                <span>W</span><span>L</span><span>T</span>
+              </span>
+            </div>
+            <div
+              v-for="(s, sIdx) in matchupStandings"
+              :key="s.teamId"
+              class="mu-standings-row"
+              :class="{ 'mu-standings-row--mine': s.teamId === myTeamId }"
+              :style="{ borderLeft: `3px solid ${s.teamColor || resolveMatchupTeamColor(s.teamId, null)}` }"
+            >
+              <span class="mu-s-rank">{{ s.rank }}</span>
+              <div class="mu-s-team-cell">
+                <img v-if="s.logoPath" :src="resolveUploadUrl(s.logoPath)" class="mu-s-logo" alt="" />
+                <div v-else class="mu-s-logo mu-s-logo--placeholder" :style="{ background: s.teamColor || resolveMatchupTeamColor(s.teamId, null) }">
+                  {{ (s.teamName || '?')[0].toUpperCase() }}
+                </div>
+                <span class="mu-s-name">{{ s.teamName }}</span>
+              </div>
+              <span class="mu-standings-wlt">
+                <span class="mu-standings-w">{{ s.wins }}</span>
+                <span class="mu-standings-l">{{ s.losses }}</span>
+                <span class="mu-standings-t">{{ s.ties }}</span>
+              </span>
+            </div>
+          </div>
 
         </div>
       </div>
@@ -539,6 +544,7 @@
               :weekly-task-options="taggableWeeklyTaskOptions"
               :moderation-mode="challenge?.season_settings_json?.workoutModeration?.mode || 'treadmill_only'"
               @media-uploaded="refreshAfterActivityAction"
+              @open-profile="({ userId, name }) => { profileUserId = userId; profileUserName = name; }"
             />
           </div>
         </DashboardSectionWrapper>
@@ -583,6 +589,7 @@
               :challenge-id="challengeId"
               :season-starts-at="challenge?.starts_at || challenge?.startsAt"
               :season-ends-at="challenge?.ends_at || challenge?.endsAt"
+              @open-profile="({ userId, name }) => { profileUserId = userId; profileUserName = name; }"
             />
           </div>
         </DashboardSectionWrapper>
@@ -1745,6 +1752,13 @@
       @submit="acceptParticipationAgreement"
     />
 
+    <MemberProfileModal
+      :club-id="challenge?.organization_id || null"
+      :user-id="profileUserId"
+      :member-name="profileUserName"
+      @close="profileUserId = null"
+    />
+
   </div>
 </template>
 
@@ -1779,6 +1793,7 @@ import DashboardSectionWrapper from '../components/dashboard/DashboardSectionWra
 import RecognitionWeekPrompt from '../components/sstc/RecognitionWeekPrompt.vue';
 import SeasonRecognitionStandings from '../components/sstc/SeasonRecognitionStandings.vue';
 import SeasonRecognitionSplash from '../components/sstc/SeasonRecognitionSplash.vue';
+import MemberProfileModal from '../components/shared/MemberProfileModal.vue';
 import { useDashboardLayout } from '../composables/useDashboardLayout';
 
 const REORDERABLE_SECTIONS = [
@@ -1824,6 +1839,8 @@ const challenge = ref(null);
 const providerMembers = ref([]);
 const seasonBannerDismissed = ref(false);
 const standingsKey = ref(0); // incremented after manager posts trophies to refresh standings
+const profileUserId = ref(null);
+const profileUserName = ref('');
 const loading = ref(true);
 const error = ref(null);
 const leaderboard = ref(null);
@@ -4215,7 +4232,10 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   min-width: 0;
   flex: 1;
 }
-.mu-hero-info--right { align-items: flex-end; }
+.mu-hero-info--right {
+  align-items: flex-end;
+  text-align: right;
+}
 .mu-hero-team-label {
   font-size: 0.75rem;
   font-weight: 700;
@@ -4393,50 +4413,52 @@ watch(() => workoutForm.value.terrain, (terrain) => {
 .mu-body-badge--upcoming { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.35); }
 
 /* ── Standings (collapsible) ── */
-.mu-standings-details {
+/* ── Season Standings block ─────────────────────────────────── */
+.mu-standings-block {
   border-top: 1px solid rgba(255,255,255,0.07);
+  padding: 4px 0 2px;
 }
-.mu-standings-summary {
-  padding: 12px 18px;
-  cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: rgba(255,255,255,0.45);
-  user-select: none;
-  list-style: none;
+.mu-standings-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  padding: 8px 18px 6px;
 }
-.mu-standings-summary::-webkit-details-marker { display: none; }
-.mu-standings-summary::after { content: '▼'; font-size: 0.6rem; }
-.mu-standings-details[open] .mu-standings-summary::after { content: '▲'; }
-
-.mu-standings-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.82rem;
-  color: rgba(255,255,255,0.75);
-}
-.mu-standings-table th,
-.mu-standings-table td { padding: 7px 16px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: left; }
-.mu-standings-table th {
-  background: rgba(255,255,255,0.04);
+.mu-standings-title {
   font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
   color: rgba(255,255,255,0.35);
+}
+.mu-standings-cols {
+  display: flex;
+  gap: 18px;
+  font-size: 0.68rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
+  color: rgba(255,255,255,0.3);
 }
-.mu-standings-table tbody tr:last-child td { border-bottom: none; }
-.mu-num { text-align: right !important; }
-.mu-my-team { background: rgba(251,191,36,0.06); }
-.mu-s-rank { color: rgba(255,255,255,0.35); font-weight: 700; }
-.mu-s-team-cell { display: flex; align-items: center; gap: 7px; }
-.mu-s-logo { width: 20px; height: 20px; border-radius: 4px; object-fit: cover; flex-shrink: 0; }
-.mu-s-win-badge { background: rgba(34,197,94,0.15); color: #4ade80; font-size: 0.68rem; font-weight: 700; border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
+.mu-standings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 18px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-left: 3px solid transparent;
+}
+.mu-standings-row:last-child { border-bottom: none; }
+.mu-standings-row--mine { background: rgba(255,255,255,0.03); }
+.mu-s-rank { font-size: 0.72rem; color: rgba(255,255,255,0.3); font-weight: 700; width: 14px; flex-shrink: 0; }
+.mu-s-team-cell { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0; }
+.mu-s-name { font-size: 0.83rem; font-weight: 600; color: rgba(255,255,255,0.8); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mu-s-logo { width: 22px; height: 22px; border-radius: 5px; object-fit: cover; flex-shrink: 0; }
+.mu-s-logo--placeholder { display: flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 800; color: #fff; border-radius: 5px; }
+.mu-standings-wlt { display: flex; gap: 18px; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.mu-standings-w { color: #4ade80; font-weight: 700; width: 12px; text-align: center; }
+.mu-standings-l { color: #f87171; font-weight: 700; width: 12px; text-align: center; }
+.mu-standings-t { color: rgba(255,255,255,0.35); font-weight: 700; width: 12px; text-align: center; }
 /* ─────────────────────────────────────────────────────────────── */
 
 .challenge-sections {
