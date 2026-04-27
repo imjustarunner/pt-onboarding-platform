@@ -127,39 +127,19 @@
               </div>
             </div>
 
-            <!-- Club Records Held shelf -->
-            <div v-if="extraRecordsHeld.length" class="mpm-tc-shelf">
-              <div class="mpm-tc-shelf-label">📋 Club Records</div>
-              <div class="mpm-tc-shelf-row">
-                <div
-                  v-for="r in extraRecordsHeld"
-                  :key="r.id"
-                  class="mpm-tc-trophy"
-                  :title="`${r.label}${r.value != null ? ': ' + fmtPr(r) + (r.unit && r.metricKey !== 'race_chip_time_seconds' ? ' ' + r.unit : '') : ''}${r.holderYear ? ' · ' + r.holderYear : ''}`"
-                >
-                  <div class="mpm-tc-trophy-icon-wrap mpm-tc-trophy-icon-wrap--cr">
-                    <img v-if="r.iconUrl" :src="r.iconUrl" class="mpm-tc-trophy-img" alt="" />
-                    <span v-else class="mpm-tc-trophy-emoji">🏆</span>
-                  </div>
-                  <div class="mpm-tc-nameplate">{{ r.label }}</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Club Records Held (with values) -->
-            <div v-if="trophy?.personalRecords?.length" class="mpm-tc-shelf mpm-tc-shelf--pr">
+            <!-- Club Records Held — single unified list using stored values -->
+            <div v-if="trophy?.recordsHeld?.length" class="mpm-tc-shelf mpm-tc-shelf--pr">
               <div class="mpm-tc-shelf-label">📋 Club Records Held</div>
               <div class="mpm-pr-list">
                 <div
-                  v-for="r in trophy.personalRecords"
+                  v-for="r in trophy.recordsHeld"
                   :key="r.id"
                   class="mpm-pr-row"
-                  :class="{ 'mpm-pr-row--cr': r.isClubRecord }"
                 >
                   <img v-if="r.iconUrl" :src="r.iconUrl" class="mpm-pr-icon" alt="" />
-                  <span v-else class="mpm-pr-icon-ph">⭐</span>
+                  <span v-else class="mpm-pr-icon-ph">🏆</span>
                   <span class="mpm-pr-label">{{ r.label }}</span>
-                  <span class="mpm-pr-value">
+                  <span v-if="r.value != null" class="mpm-pr-value">
                     {{ fmtPr(r) }}
                     <span v-if="r.unit && r.metricKey !== 'race_chip_time_seconds'" class="mpm-pr-unit">{{ r.unit }}</span>
                   </span>
@@ -230,8 +210,7 @@ const fmtPr = (r) => {
 
 const hasTrophies = computed(() =>
   !!(trophy.value?.raceClubs?.length || trophy.value?.recordsHeld?.length ||
-     trophy.value?.personalRecords?.length || trophy.value?.seasonAwards?.length ||
-     trophy.value?.completedChallenges?.length)
+     trophy.value?.seasonAwards?.length || trophy.value?.completedChallenges?.length)
 );
 
 const emojiFor = (icon) => {
@@ -245,11 +224,6 @@ const awardTooltip = (a) => {
   return [a.label, weekStr].filter(Boolean).join('\n');
 };
 
-const extraRecordsHeld = computed(() => {
-  if (!trophy.value?.recordsHeld?.length) return [];
-  const prIds = new Set((trophy.value.personalRecords || []).map((r) => r.id));
-  return trophy.value.recordsHeld.filter((r) => !prIds.has(r.id));
-});
 
 const load = async () => {
   if (!props.clubId || !props.userId) return;
