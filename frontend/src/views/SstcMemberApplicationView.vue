@@ -231,6 +231,18 @@
 
       <!-- ── Form card ───────────────────────────────── -->
       <div class="reg-card">
+
+        <!-- Step progress strip -->
+        <div class="form-steps">
+          <div class="form-step"><span class="step-num">1</span><span class="step-label">Account</span></div>
+          <div class="form-step-sep"></div>
+          <div class="form-step"><span class="step-num">2</span><span class="step-label">Profile</span></div>
+          <div class="form-step-sep"></div>
+          <div class="form-step"><span class="step-num">3</span><span class="step-label">Background</span></div>
+          <div class="form-step-sep"></div>
+          <div class="form-step"><span class="step-num">4</span><span class="step-label">Waiver</span></div>
+        </div>
+
         <form class="reg-form" @submit.prevent="handleSubmit" novalidate>
 
           <!-- ── Account ──────────────────────────────── -->
@@ -241,7 +253,7 @@
           </section>
 
           <section class="form-section">
-            <h2 class="section-title">Your Account</h2>
+            <h2 class="section-title"><span class="section-icon">👤</span> Your Account</h2>
 
             <div class="field-row">
               <div class="field">
@@ -345,7 +357,7 @@
 
           <!-- ── Activity Profile ─────────────────────── -->
           <section class="form-section">
-            <h2 class="section-title">Activity Profile <span class="section-opt">Optional</span></h2>
+            <h2 class="section-title"><span class="section-icon">🏃</span> Activity Profile <span class="section-opt">Optional</span></h2>
 
             <div class="field-row">
               <!-- Gender — only options configured by the club -->
@@ -411,7 +423,7 @@
           </section>
 
           <section class="form-section">
-            <h2 class="section-title">Training Snapshot</h2>
+            <h2 class="section-title"><span class="section-icon">📊</span> Training Snapshot</h2>
 
             <div class="field">
               <label>How did you hear of us / who referred you?</label>
@@ -460,7 +472,7 @@
           </section>
 
           <section class="form-section">
-            <h2 class="section-title">Participation Waiver</h2>
+            <h2 class="section-title"><span class="section-icon">📋</span> Participation Waiver</h2>
             <div class="waiver-card">
               <p class="waiver-copy">
                 By applying to join this club through the {{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }} platform, you understand that your account
@@ -508,7 +520,7 @@
 
           <!-- ── Club Custom Fields ───────────────────── -->
           <section v-if="customFields.length" class="form-section">
-            <h2 class="section-title">Club Profile Fields</h2>
+            <h2 class="section-title"><span class="section-icon">🏷</span> Club Profile Fields</h2>
             <div v-for="field in customFields" :key="field.id" class="field">
               <label>
                 {{ field.label }}
@@ -532,7 +544,7 @@
 
           <!-- Error -->
           <section v-if="requiresCaptcha" class="form-section">
-            <h2 class="section-title">Human Check</h2>
+            <h2 class="section-title"><span class="section-icon">🤖</span> Human Check</h2>
             <div class="captcha-card">
               <p class="field-hint captcha-intro">Protected by reCAPTCHA. Complete this before submitting your application.</p>
               <div ref="recaptchaWidgetEl" class="recaptcha-widget-shell"></div>
@@ -1737,4 +1749,68 @@ const handleSubmit = async () => {
 .btn-primary:hover { opacity: .92; }
 .btn-primary:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
 .btn-lg { padding: 14px 30px; font-size: 15px; }
+
+/* ── Step progress strip ────────────────────────────────── */
+.form-steps {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 18px 24px 0;
+  margin-bottom: 4px;
+}
+.form-step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  opacity: 0.38;
+  flex-shrink: 0;
+}
+.form-step--done {
+  opacity: 1;
+}
+.step-num {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #4f46e5;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.form-step:not(.form-step--done) .step-num {
+  background: #cbd5e1;
+}
+.step-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+}
+.form-step-sep {
+  flex: 1;
+  height: 2px;
+  min-width: 12px;
+  background: #e2e8f0;
+  margin: 0 6px;
+}
+
+/* ── Section title icon ─────────────────────────────────── */
+.section-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+.section-title {
+  border-left: 3px solid #4f46e5;
+  padding-left: 10px;
+}
+
+/* ── Submit button full-width ───────────────────────────── */
+.form-actions .btn-lg {
+  width: 100%;
+  justify-content: center;
+}
 </style>

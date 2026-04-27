@@ -94,10 +94,13 @@
                 </template>
 
                 <template v-else-if="myTeamAssignment(task.id)">
-                  <div class="challenge-status-card">
+                  <div :class="['challenge-status-card', { 'challenge-status-card--done': isTaskCompleted(task) }]">
                     <span class="status-label">{{ myTeamAssignment(task.id)?.volunteered ? 'Claimed by' : 'Assigned to' }}</span>
                     <strong>{{ assigneeName(myTeamAssignment(task.id)) }}</strong>
-                    <span v-if="isMyAssignment(myTeamAssignment(task.id))">You're cleared to tag a qualifying workout.</span>
+                    <span v-if="isTaskCompleted(task)" class="status-done-line">
+                      ✅ Completed — {{ myTaggedCount(task.id) }} workout{{ myTaggedCount(task.id) > 1 ? 's' : '' }} tagged
+                    </span>
+                    <span v-else-if="isMyAssignment(myTeamAssignment(task.id))">You're cleared to tag a qualifying workout.</span>
                     <span v-else>One member handles this challenge for your team.</span>
                   </div>
                 </template>
@@ -147,6 +150,10 @@
             >
               {{ volunteering[task.id] ? 'Claiming…' : 'Claim This Challenge' }}
             </button>
+
+            <span v-else-if="isTaskCompleted(task)" class="task-done-badge">
+              ✅ Done — {{ myTaggedCount(task.id) }} tagged
+            </span>
 
             <button
               v-else-if="canTagTask(task)"
@@ -455,6 +462,18 @@ function fullTeamTaggedCount(taskId) {
   return taggedWorkouts.value.filter((w) => Number(w.weekly_task_id) === Number(taskId)).length;
 }
 
+function myTaggedCount(taskId) {
+  return taggedWorkouts.value.filter(
+    (w) => Number(w.weekly_task_id) === Number(taskId) && Number(w.user_id) === Number(props.myUserId)
+  ).length;
+}
+
+function isTaskCompleted(task) {
+  if (task.mode === 'full_team') return false; // full-team handled separately
+  if (!isMyAssignment(myTeamAssignment(task.id))) return false;
+  return myTaggedCount(task.id) > 0;
+}
+
 function canClaimTask(task) {
   return isOnMyTeam.value
     && task.mode === 'volunteer_or_elect'
@@ -468,6 +487,7 @@ function showCaptainAssign(task) {
 function canTagTask(task) {
   if (!isOnMyTeam.value) return false;
   if (task.mode === 'full_team') return true;
+  if (isTaskCompleted(task)) return false; // already done — hide the tag button
   return isMyAssignment(myTeamAssignment(task.id));
 }
 
@@ -645,17 +665,14 @@ async function load() {
         myTeamMembers.value = [];
       }
 
-      if (tasks.value.some((task) => task.mode === 'full_team')) {
-        try {
-          const workoutRes = await api.get(
-            `/learning-program-classes/${props.challengeId}/workouts`,
-            { params: { week: weekStart.value, teamId: myTeam.value.id, hasTask: true }, skipGlobalLoading: true }
-          );
-          taggedWorkouts.value = Array.isArray(workoutRes.data?.workouts) ? workoutRes.data.workouts : [];
-        } catch {
-          taggedWorkouts.value = [];
-        }
-      } else {
+      // Always fetch tagged workouts so we can detect completion for any task mode
+      try {
+        const workoutRes = await api.get(
+          `/learning-program-classes/${props.challengeId}/workouts`,
+          { params: { week: weekStart.value, teamId: myTeam.value.id, hasTask: true }, skipGlobalLoading: true }
+        );
+        taggedWorkouts.value = Array.isArray(workoutRes.data?.workouts) ? workoutRes.data.workouts : [];
+      } catch {
         taggedWorkouts.value = [];
       }
     } else {
@@ -1024,6 +1041,30 @@ defineExpose({ load });
 .action-hint {
   color: #70809b;
   font-size: 0.92rem;
+}
+
+.challenge-status-card--done {
+  background: color-mix(in srgb, #d1fae5 60%, #ffffff);
+  border-color: #6ee7b7;
+}
+
+.status-done-line {
+  color: #059669;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.task-done-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #d1fae5;
+  color: #065f46;
+  font-weight: 700;
+  font-size: 0.95rem;
+  border-radius: 999px;
+  padding: 10px 18px;
+  border: 1px solid #6ee7b7;
 }
 
 .btn-link {
