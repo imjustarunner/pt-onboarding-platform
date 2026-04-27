@@ -5488,15 +5488,32 @@ export const getPublicClubMemberProfile = async (req, res, next) => {
     );
     const st = statsRows?.[0] || {};
 
-    // Race club badges (public — same logic as trophy case)
+    // Race club badges — use full name for reliable fallback matching
+    const userFullName = `${fn} ${ln}`.trim().toLowerCase();
+    let userEmail = '';
+    try {
+      const [emailRows] = await pool.execute(`SELECT email FROM users WHERE id = ? LIMIT 1`, [targetUserId]);
+      userEmail = String(emailRows?.[0]?.email || '').trim().toLowerCase();
+    } catch { /* non-fatal */ }
+
     let raceClubBadges = [];
     try {
       const allClubs = await computeRaceClubMemberships({ clubId });
       raceClubBadges = allClubs
         .map((rc) => {
-          const member = (rc.members || []).find((mbr) => Number(mbr.userId) === Number(targetUserId));
-          if (!member || !member.earnedTier) return null;
-          return { id: rc.id, label: rc.label, earnedTier: member.earnedTier, count: member.count };
+          const members = rc.members || [];
+          // Primary: match by userId
+          let m = members.find((mbr) => Number(mbr.userId) === Number(targetUserId));
+          // Fallback 1: match by claim email (placeholder seeded with this user's email)
+          if (!m && userEmail) {
+            m = members.find((mbr) => String(mbr.claimEmail || '').trim().toLowerCase() === userEmail);
+          }
+          // Fallback 2: match by full name
+          if (!m && userFullName) {
+            m = members.find((mbr) => String(mbr.name || '').trim().toLowerCase() === userFullName);
+          }
+          if (!m || !m.earnedTier) return null;
+          return { id: rc.id, label: rc.label, earnedTier: m.earnedTier, count: m.count };
         })
         .filter(Boolean);
     } catch { /* non-fatal */ }

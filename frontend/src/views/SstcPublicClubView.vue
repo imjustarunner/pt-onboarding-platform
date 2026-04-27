@@ -449,17 +449,20 @@
                     :key="m.userId"
                     class="pub-rc-member"
                   >
-                    <span class="pub-rc-member-name">{{ m.name }}</span>
+                    <button
+                      type="button"
+                      class="pub-rc-member-name"
+                      :class="{ 'pub-rc-member-name--clickable': m.linked && m.userId }"
+                      @click="m.linked && m.userId ? openRaceMemberProfile(m) : null"
+                    >{{ m.name }}</button>
                     <span class="pub-rc-member-badges">
-                      <template v-for="tier in (m.earnedTiers || [])" :key="tier.count">
-                        <img
-                          v-if="tier.iconUrl"
-                          :src="tier.iconUrl"
-                          :alt="tier.label || String(tier.count)"
-                          class="pub-rc-tier-icon"
-                          :title="tier.label || `${tier.count}×`"
-                        />
-                      </template>
+                      <img
+                        v-if="m.earnedTier?.iconUrl"
+                        :src="m.earnedTier.iconUrl"
+                        :alt="m.earnedTier.label || String(m.earnedTier.count)"
+                        class="pub-rc-tier-icon"
+                        :title="`${m.count}× ${rc.label}`"
+                      />
                     </span>
                     <span class="pub-rc-member-count">{{ m.count }}×</span>
                   </li>
@@ -512,7 +515,7 @@
       </div><!-- /pub-content -->
     </template>
 
-    <!-- Member profile modal (logged-in users clicking active participants) -->
+    <!-- Member profile modal (logged-in users clicking active participants or race names) -->
     <MemberProfileModal
       v-if="clubNumericId && profileUserId"
       :clubId="clubNumericId"
@@ -520,6 +523,82 @@
       :memberName="profileUserName"
       @close="profileUserId = null; profileUserName = '';"
     />
+
+    <!-- Public profile modal (guests clicking race division names) -->
+    <Teleport to="body">
+      <div v-if="pubProfileOpen" class="pub-prof-backdrop" @click.self="closePubProfile">
+        <div class="pub-prof-modal" role="dialog" aria-modal="true" aria-labelledby="pub-prof-title">
+          <button type="button" class="pub-prof-close" aria-label="Close" @click="closePubProfile">×</button>
+          <div v-if="pubProfileLoading" class="pub-prof-loading">Loading…</div>
+          <div v-else-if="pubProfileError" class="pub-prof-error">{{ pubProfileError }}</div>
+          <template v-else-if="pubProfileData">
+            <div class="pub-prof-top">
+              <div class="pub-prof-avatar">
+                <img v-if="pubProfileData.profilePhotoUrl" :src="pubProfileData.profilePhotoUrl" alt="" class="pub-prof-avatar-img" />
+                <div v-else class="pub-prof-avatar-fallback">{{ pubProfileData.initials || '?' }}</div>
+              </div>
+              <div>
+                <h2 id="pub-prof-title" class="pub-prof-name">{{ pubProfileData.displayName }}</h2>
+                <p v-if="pubProfileData.homeCity || pubProfileData.homeState" class="pub-prof-loc">
+                  {{ [pubProfileData.homeCity, pubProfileData.homeState].filter(Boolean).join(', ') }}
+                </p>
+              </div>
+            </div>
+
+            <div class="pub-prof-section">
+              <div class="pub-prof-section-label">All-time in this club</div>
+              <div class="pub-prof-stats">
+                <div class="pub-prof-stat"><strong>{{ pubProfileData.stats?.totalMiles ?? 0 }}</strong><span>mi</span></div>
+                <div class="pub-prof-stat"><strong>{{ pubProfileData.stats?.workoutCount ?? 0 }}</strong><span>workouts</span></div>
+                <div v-if="pubProfileData.stats?.longestRunMiles" class="pub-prof-stat">
+                  <strong>{{ pubProfileData.stats.longestRunMiles }}</strong><span>longest run</span>
+                </div>
+              </div>
+            </div>
+
+            <template v-if="pubProfileHasTrophies">
+              <div class="pub-prof-section">
+                <div class="pub-prof-section-label">🏆 Trophies</div>
+
+                <div v-if="pubProfileData.raceClubBadges?.length" class="pub-prof-badges">
+                  <div
+                    v-for="rc in pubProfileData.raceClubBadges"
+                    :key="rc.id"
+                    class="pub-prof-badge"
+                    :title="`${rc.label} — ${rc.count}× completed`"
+                  >
+                    <img v-if="rc.earnedTier?.iconUrl" :src="rc.earnedTier.iconUrl" class="pub-prof-badge-icon" alt="" />
+                    <span v-else class="pub-prof-badge-emoji">🏅</span>
+                    <div class="pub-prof-badge-info">
+                      <span class="pub-prof-badge-name">{{ rc.label }}</span>
+                      <span class="pub-prof-badge-count">{{ rc.count }}×</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div v-if="pubProfileData.recordsHeld?.length" class="pub-prof-records">
+                  <div
+                    v-for="r in pubProfileData.recordsHeld"
+                    :key="r.id"
+                    class="pub-prof-record"
+                    :title="`${r.label}${r.value != null ? ': ' + r.value + (r.unit ? ' ' + r.unit : '') : ''}${r.holderYear ? ' · ' + r.holderYear : ''}`"
+                  >
+                    <span class="pub-prof-record-trophy">🏆</span>
+                    <span class="pub-prof-record-label">{{ r.label }}</span>
+                    <span class="pub-prof-record-value">{{ r.value != null ? `${r.value}${r.unit ? ' ' + r.unit : ''}` : '' }}</span>
+                  </div>
+                </div>
+              </div>
+            </template>
+            <div v-else class="pub-prof-section pub-prof-no-trophies">No trophies yet — check back later!</div>
+
+            <p class="pub-prof-signin-hint">
+              <router-link :to="loginTo">Sign in</router-link> to see the full profile.
+            </p>
+          </template>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -567,6 +646,50 @@ const openParticipantProfile = (p) => {
   profileUserId.value = p.userId;
   profileUserName.value = p.displayName || '';
 };
+
+// Public profile modal (for race division member names — works with or without login)
+const pubProfileOpen = ref(false);
+const pubProfileLoading = ref(false);
+const pubProfileError = ref('');
+const pubProfileData = ref(null);
+
+const openRaceMemberProfile = async (m) => {
+  if (!m?.userId) return;
+  // Logged-in users: use the rich MemberProfileModal
+  if (authStore.user) {
+    profileUserId.value = m.userId;
+    profileUserName.value = m.name || '';
+    return;
+  }
+  // Guests: use the lightweight public profile
+  pubProfileData.value = null;
+  pubProfileError.value = '';
+  pubProfileOpen.value = true;
+  pubProfileLoading.value = true;
+  try {
+    const { data } = await api.get(
+      `/summit-stats/clubs/${clubNumericId.value}/members/${m.userId}/public-profile`,
+      { skipAuthRedirect: true }
+    );
+    pubProfileData.value = data;
+  } catch (e) {
+    pubProfileError.value = e?.response?.data?.error?.message || 'Could not load profile.';
+  } finally {
+    pubProfileLoading.value = false;
+  }
+};
+
+const closePubProfile = () => {
+  pubProfileOpen.value = false;
+  pubProfileData.value = null;
+  pubProfileError.value = '';
+};
+
+const pubProfileHasTrophies = computed(() => {
+  if (!pubProfileData.value) return false;
+  return (pubProfileData.value.raceClubBadges?.length > 0) ||
+         (pubProfileData.value.recordsHeld?.length > 0);
+});
 
 const viewer = computed(() => {
   const v = clubData.value?.viewer;
@@ -1432,8 +1555,8 @@ onBeforeUnmount(() => {
 }
 .stat-pill:last-child { border-right: none; }
 .stat-pill--race { background: linear-gradient(135deg, #fffbeb, #fef3c7); }
-.stat-icon { font-size: 1.25rem; margin-bottom: 2px; line-height: 1; }
-.stat-icon-img { width: 22px; height: 22px; object-fit: contain; }
+.stat-icon { font-size: 2.6rem; margin-bottom: 4px; line-height: 1; }
+.stat-icon-img { width: 60px; height: 60px; object-fit: contain; }
 .stat-value {
   font-size: 1.6rem;
   font-weight: 900;
@@ -1853,6 +1976,20 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: default;
+}
+.pub-rc-member-name--clickable {
+  cursor: pointer;
+  color: #2563eb;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.pub-rc-member-name--clickable:hover {
+  color: #1d4ed8;
 }
 
 .pub-rc-member-badges {
@@ -1865,12 +2002,11 @@ onBeforeUnmount(() => {
 }
 
 .pub-rc-tier-icon {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   object-fit: contain;
-  transition: transform 0.15s;
+  flex-shrink: 0;
 }
-.pub-rc-tier-icon:hover { transform: scale(2.2); z-index: 10; position: relative; }
 
 .pub-rc-member-count {
   font-size: 13px;
@@ -2160,4 +2296,154 @@ onBeforeUnmount(() => {
   transition: background .12s;
 }
 .btn-ghost:hover { background: #f8fafc; }
+
+/* ─── Public profile modal (guests clicking race names) ──────── */
+.pub-prof-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15,23,42,.55);
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.pub-prof-modal {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.2);
+  width: 100%;
+  max-width: 400px;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 24px;
+  position: relative;
+}
+.pub-prof-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  background: none;
+  border: none;
+  font-size: 22px;
+  color: #94a3b8;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+.pub-prof-close:hover { color: #1e293b; }
+.pub-prof-loading, .pub-prof-error {
+  text-align: center;
+  padding: 24px 0;
+  color: #64748b;
+}
+.pub-prof-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.pub-prof-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.pub-prof-avatar-img { width: 100%; height: 100%; object-fit: cover; }
+.pub-prof-avatar-fallback {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #1d4ed8, #2563eb);
+  color: #fff;
+  font-weight: 700;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pub-prof-name {
+  margin: 0 0 2px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+.pub-prof-loc { margin: 0; font-size: 12px; color: #64748b; }
+.pub-prof-section { margin-bottom: 16px; }
+.pub-prof-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin-bottom: 8px;
+}
+.pub-prof-stats {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.pub-prof-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+.pub-prof-stat strong {
+  font-size: 1.4rem;
+  font-weight: 900;
+  color: #1d4ed8;
+  line-height: 1;
+}
+.pub-prof-stat span {
+  font-size: 10px;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.pub-prof-badges {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pub-prof-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+.pub-prof-badge-icon { width: 36px; height: 36px; object-fit: contain; flex-shrink: 0; }
+.pub-prof-badge-emoji { font-size: 22px; flex-shrink: 0; }
+.pub-prof-badge-info { display: flex; flex-direction: column; gap: 1px; }
+.pub-prof-badge-name { font-size: 13px; font-weight: 700; color: #1e293b; }
+.pub-prof-badge-count { font-size: 11px; color: #64748b; }
+.pub-prof-records { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.pub-prof-record {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 6px 10px;
+  background: #fffbeb;
+  border-radius: 6px;
+  border: 1px solid #fde68a;
+}
+.pub-prof-record-trophy { flex-shrink: 0; }
+.pub-prof-record-label { flex: 1; font-weight: 600; color: #1e293b; }
+.pub-prof-record-value { font-weight: 700; color: #92400e; }
+.pub-prof-no-trophies { font-size: 13px; color: #94a3b8; text-align: center; padding: 8px 0; }
+.pub-prof-signin-hint {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+  font-size: 12px;
+  color: #64748b;
+  text-align: center;
+}
+.pub-prof-signin-hint a { color: #2563eb; text-decoration: none; font-weight: 600; }
 </style>

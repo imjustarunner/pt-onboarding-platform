@@ -166,6 +166,10 @@ router.get('/clubs/:id/members/directory/public', authenticateOptional, listClub
 // Public member profile — no auth required, limited data
 router.get('/clubs/:id/members/:userId/public-profile', getPublicClubMemberProfile);
 router.get('/clubs/:id/feed/public', getClubFeedPublic);
+router.get('/clubs/:id/race-clubs', authenticateOptional, getPublicRaceClubs);
+router.get('/clubs/:id/stats', getClubStats);
+// Public: season recognition standings (no auth required)
+router.get('/seasons/:id/recognition/standings', getRecognitionStandings);
 router.get('/clubs/invite/:token', resolveInviteToken);
 router.post('/application-email-status', getApplicationEmailStatus);
 router.post('/clubs/:id/apply-form', submitApplication);
