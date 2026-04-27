@@ -170,6 +170,31 @@
                   Deny
                 </button>
               </template>
+              <template v-else-if="notification.type === 'new_packet_uploaded' && notification.related_entity_type === 'client' && notification.related_entity_id">
+                <button
+                  @click.stop="openClientPacket(notification)"
+                  class="btn btn-sm btn-primary"
+                  title="Open this client's packet/documents"
+                >
+                  Open packet
+                </button>
+                <button
+                  @click.stop="openClientPortalContext(notification)"
+                  class="btn btn-sm btn-secondary"
+                  title="Open the client portal context"
+                >
+                  Go to portal
+                </button>
+              </template>
+              <template v-else-if="notification.type === 'company_event_registration_submitted' && notification.related_entity_type === 'company_event' && notification.related_entity_id">
+                <button
+                  @click.stop="viewNotification(notification)"
+                  class="btn btn-sm btn-primary"
+                  title="Open event portal"
+                >
+                  Go to event portal
+                </button>
+              </template>
               <template v-else>
                 <button
                   @click.stop="viewNotification(notification)"
@@ -462,6 +487,20 @@ const viewNotification = async (notification) => {
   }
 };
 
+const openClientPacket = (notification) => {
+  const clientId = Number(notification?.related_entity_id || 0);
+  if (!clientId) return;
+  const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/clients` : '/admin/clients';
+  router.push(`${base}?clientId=${clientId}&tab=documents`);
+};
+
+const openClientPortalContext = (notification) => {
+  const clientId = Number(notification?.related_entity_id || 0);
+  if (!clientId) return;
+  const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/clients` : '/admin/clients';
+  router.push(`${base}?clientId=${clientId}`);
+};
+
 const resolveNotification = async (notificationId) => {
   const confirmed = confirm(
     'Are you sure you want to permanently delete this notification?\n\n' +
@@ -555,6 +594,12 @@ const getNotificationNavigationPath = async (notification) => {
   } else if (notification.type === 'client_assigned' && notification.related_entity_type === 'client' && notification.related_entity_id) {
     const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/clients` : '/admin/clients';
     return `${base}?clientId=${notification.related_entity_id}`;
+  } else if (notification.type === 'new_packet_uploaded' && notification.related_entity_type === 'client' && notification.related_entity_id) {
+    const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/clients` : '/admin/clients';
+    return `${base}?clientId=${notification.related_entity_id}&tab=documents`;
+  } else if (notification.type === 'company_event_registration_submitted' && notification.related_entity_type === 'company_event' && notification.related_entity_id) {
+    const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/skill-builders/event` : '/skill-builders/event';
+    return `${base}/${notification.related_entity_id}`;
   } else if ((notification.type === 'unassigned_document_submitted' || notification.type === 'medical_records_release_submitted') && notification.agency_id) {
     const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/unassigned-documents` : '/admin/unassigned-documents';
     return `${base}?agencyId=${notification.agency_id}`;

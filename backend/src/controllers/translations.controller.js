@@ -200,7 +200,7 @@ export const translateStrings = async (req, res, next) => {
     const unique = [...new Set(strings.map((s) => String(s || '').trim()).filter(Boolean))];
     if (!unique.length) return res.json({ translations: {}, configured: isTranslationConfigured() });
 
-    const MAX_STRINGS = 200;
+    const MAX_STRINGS = 500;
     const batch = unique.slice(0, MAX_STRINGS);
 
     const items = batch.map((text) => ({

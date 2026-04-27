@@ -244,8 +244,30 @@
               <div class="sbep-sched-block">
                 <p class="sbep-subh">Dates &amp; locations</p>
                 <p class="muted small sbep-card-lead">
-                  Each scheduled occurrence. Coordinators can update modality, location, and join links inline.
+                  Event-level defaults are listed first. Each date below only needs attention when it is an exception.
                 </p>
+                <div v-if="scheduleDefaults" class="sbep-schedule-defaults">
+                  <div class="sbep-default-chip" :class="{ good: scheduleDefaults.allSameModality }">
+                    <span class="sbep-default-kicker">Modality</span>
+                    <strong>{{ scheduleDefaults.modality || 'Set per date' }}</strong>
+                    <small>{{ scheduleDefaults.allSameModality ? 'All sessions' : 'Overrides by date' }}</small>
+                  </div>
+                  <div class="sbep-default-chip" :class="{ good: scheduleDefaults.allSameLocation }">
+                    <span class="sbep-default-kicker">Location</span>
+                    <strong>{{ scheduleDefaults.location || 'Set per date' }}</strong>
+                    <small>{{ scheduleDefaults.allSameLocation ? 'All sessions' : 'Overrides by date' }}</small>
+                  </div>
+                  <div class="sbep-default-chip" :class="{ good: scheduleDefaults.allSameTime }">
+                    <span class="sbep-default-kicker">Time</span>
+                    <strong>{{ scheduleDefaults.time || 'Set per date' }}</strong>
+                    <small>{{ scheduleDefaults.allSameTime ? 'All sessions' : 'Overrides by date' }}</small>
+                  </div>
+                  <div class="sbep-default-chip">
+                    <span class="sbep-default-kicker">Exceptions</span>
+                    <strong>{{ scheduleDefaults.overrideCount }}</strong>
+                    <small>Dates differing from defaults</small>
+                  </div>
+                </div>
                 <div v-if="sessionsLoading" class="muted">Loading sessions…</div>
                 <div v-else-if="sessions.length" class="sbep-sessions-table-wrap">
                   <table class="sbep-sessions-table">
@@ -253,20 +275,20 @@
                       <tr>
                         <th>Date</th>
                         <th>Time</th>
-                        <th>Location</th>
-                        <th>Modality</th>
+                        <th v-if="scheduleTableShowsLocation">Location</th>
+                        <th v-if="scheduleTableShowsModality">Modality</th>
                       </tr>
                     </thead>
                     <tbody>
                       <template v-for="s in sessionsTableRows" :key="`row-${s.id}`">
                         <tr>
                           <td>{{ formatSessionDateDisplay(s.sessionDate) }}</td>
-                          <td>{{ wallHmToDisplay(formatHm(s.startTime)) }}–{{ wallHmToDisplay(formatHm(s.endTime)) }}</td>
-                          <td>{{ s.locationLabel || s.locationAddress || '—' }}</td>
-                          <td>{{ s.modality || '—' }}</td>
+                          <td>{{ sessionTimeText(s) }}</td>
+                          <td v-if="scheduleTableShowsLocation">{{ sessionLocationText(s) || '—' }}</td>
+                          <td v-if="scheduleTableShowsModality">{{ sessionModalityText(s) || '—' }}</td>
                         </tr>
                         <tr v-if="viewerCaps.canManageCompanyEvent" class="sbep-sessions-edit-row">
-                          <td colspan="4">
+                          <td :colspan="scheduleEditColspan">
                             <div class="sbep-inline-edit-grid">
                               <input
                                 v-model.trim="sessionEditDraft[s.id].locationLabel"
@@ -310,6 +332,75 @@
                 <p v-else-if="sessionsLoadError" class="error-box sbep-sessions-err">{{ sessionsLoadError }}</p>
                 <p v-else-if="sessionsLoadAttempted" class="muted">{{ scheduleEmptyMessage }}</p>
                 <p v-else class="muted">No materialized sessions in range.</p>
+
+                <div v-if="staffingEnabled && staffingSessions.length" class="sbep-schedule-day-card">
+                  <div class="sbep-schedule-day-head">
+                    <div>
+                      <p class="sbep-subh">Day staffing, groups &amp; confirmations</p>
+                      <p class="muted small sbep-card-lead">
+                        Pick a date to see assigned providers, group totals, participants, and confirmation status.
+                      </p>
+                    </div>
+                    <select v-model.number="staffingActiveSessionDateId" class="input sbep-schedule-day-select">
+                      <option v-for="s in staffingSessions" :key="`sch-day-${s.sessionDateId}`" :value="Number(s.sessionDateId)">
+                        {{ formatSessionDateDisplay(s.sessionDate) }}
+                      </option>
+                    </select>
+                  </div>
+
+                  <div v-if="staffingSummaryLoading || staffingSessionGroupsLoading || staffingSessionAssignmentsLoading || scheduleParticipantsLoading" class="muted small">
+                    Loading day details…
+                  </div>
+                  <p v-else-if="staffingSummaryError || staffingSessionGroupsError || staffingSessionAssignmentsError || scheduleParticipantsError" class="error-box sbep-add-client-err">
+                    {{ staffingSummaryError || staffingSessionGroupsError || staffingSessionAssignmentsError || scheduleParticipantsError }}
+                  </p>
+                  <template v-else-if="scheduleSelectedSession">
+                    <div class="sbep-day-stat-grid">
+                      <div class="sbep-day-stat">
+                        <span>Required providers</span>
+                        <strong>{{ scheduleSelectedSession.requiredProviders ?? 0 }}</strong>
+                      </div>
+                      <div class="sbep-day-stat">
+                        <span>Assigned providers</span>
+                        <strong>{{ scheduleSelectedSession.approvedProvidersCount ?? 0 }}</strong>
+                      </div>
+                      <div class="sbep-day-stat">
+                        <span>Groups</span>
+                        <strong>{{ scheduleSelectedSession.groupCount ?? 0 }}</strong>
+                      </div>
+                      <div class="sbep-day-stat">
+                        <span>Participants</span>
+                        <strong>{{ scheduleParticipants.length }}</strong>
+                      </div>
+                    </div>
+                    <div class="sbep-day-provider-list">
+                      <strong>Assigned providers:</strong>
+                      <span v-if="(scheduleSelectedSession.approvedProviders || []).length">
+                        {{ providerListNames(scheduleSelectedSession.approvedProviders) }}
+                      </span>
+                      <span v-else class="muted small">None assigned yet.</span>
+                    </div>
+                    <div class="sbep-day-groups-grid">
+                      <div
+                        v-for="group in scheduleParticipantGroupCards"
+                        :key="group.key"
+                        class="sbep-day-group-card"
+                      >
+                        <div class="sbep-day-group-title">
+                          <strong>{{ group.label }}</strong>
+                          <span>{{ group.participants.length }}</span>
+                        </div>
+                        <ul v-if="group.participants.length" class="sbep-day-participant-list">
+                          <li v-for="p in group.participants" :key="`day-p-${group.key}-${p.clientId}`">
+                            <span>{{ p.fullName || p.initials || p.identifierCode || `Client ${p.clientId}` }}</span>
+                            <em :class="`is-${p.confirmationStatus || 'pending'}`">{{ participantConfirmationLabel(p) }}</em>
+                          </li>
+                        </ul>
+                        <p v-else class="muted small">No participants assigned to this group.</p>
+                      </div>
+                    </div>
+                  </template>
+                </div>
               </div>
 
               <div v-if="detail.skillsGroup && eventBillingAgencyId && eventId" class="sbep-sched-block">
@@ -668,18 +759,6 @@
                     Participants
                     <span class="sbep-status-pill-count">{{ participantCounts.participants }}</span>
                   </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    class="sbep-status-pill"
-                    :class="{ 'is-active': participantStatusFilter === 'all' }"
-                    :aria-selected="participantStatusFilter === 'all'"
-                    :title="`Active total — does not include ${participantCounts.denied} denied`"
-                    @click="setParticipantStatusFilter('all')"
-                  >
-                    All
-                    <span class="sbep-status-pill-count">{{ participantCounts.all }}</span>
-                  </button>
                   <span
                     v-if="participantCounts.denied > 0"
                     class="sbep-status-pill sbep-status-pill--denied"
@@ -794,6 +873,32 @@
                       </div>
 
                       <div v-else>
+                        <div class="sbep-group-create">
+                          <div>
+                            <p class="sbep-subh">Create participant group</p>
+                            <p class="muted small sbep-card-lead">Add a group for this session, then assign participants from the Group column.</p>
+                          </div>
+                          <div class="sbep-group-create-row">
+                            <input
+                              v-model.trim="staffingNewGroupLabel"
+                              class="input"
+                              type="text"
+                              placeholder="e.g. Group A, Morning, Room 1"
+                              :disabled="staffingNewGroupSaving"
+                              @keyup.enter="createStaffingSessionGroup"
+                            />
+                            <button
+                              type="button"
+                              class="btn btn-secondary btn-sm"
+                              :disabled="staffingNewGroupSaving || !staffingNewGroupLabel.trim()"
+                              @click="createStaffingSessionGroup"
+                            >
+                              {{ staffingNewGroupSaving ? 'Adding…' : 'Add group' }}
+                            </button>
+                          </div>
+                          <p v-if="staffingNewGroupError" class="error-box sbep-add-client-err">{{ staffingNewGroupError }}</p>
+                        </div>
+
                         <div class="sbep-group-block">
                           <p class="sbep-subh">Unassigned</p>
                           <p class="muted small sbep-card-lead">Participants not yet assigned to a session group.</p>
@@ -2248,13 +2353,16 @@ const detail = ref(null);
 const genericParticipants = ref([]);
 const genericParticipantsLoading = ref(false);
 const genericParticipantsError = ref('');
+const scheduleParticipants = ref([]);
+const scheduleParticipantsLoading = ref(false);
+const scheduleParticipantsError = ref('');
 const participantProviders = ref([]);
 const participantProvidersLoading = ref(false);
 const participantProvidersError = ref('');
 const participantWorkflowSavingClientId = ref(0);
 const participantNotesSavingClientId = ref(0);
-/** Workflow-status filter for the participants section: 'registrants' | 'participants' | 'all' */
-const participantStatusFilter = ref('all');
+/** Workflow-status filter for the participants section: 'registrants' | 'participants'. */
+const participantStatusFilter = ref('registrants');
 /** Backend-derived counts so registrant pulse + applicants card reflect reality without a 2nd request */
 const participantCounts = ref({ all: 0, registrants: 0, participants: 0, denied: 0 });
 /** Per-session-group breakdown for participants only (empty unless staffing groups exist) */
@@ -2294,6 +2402,9 @@ const staffingActiveSessionDateId = ref(0);
 const staffingSessionGroupsLoading = ref(false);
 const staffingSessionGroupsError = ref('');
 const staffingSessionGroups = ref([]);
+const staffingNewGroupLabel = ref('');
+const staffingNewGroupSaving = ref(false);
+const staffingNewGroupError = ref('');
 const staffingSessionAssignmentsLoading = ref(false);
 const staffingSessionAssignmentsError = ref('');
 const staffingSessionAssignments = ref({}); // { [clientId]: groupId|null }
@@ -2893,6 +3004,65 @@ const scheduleEmptyMessage = computed(() => {
   return 'Recurrence exists, but no materialized sessions were found in the selected range yet. Save the event again to regenerate session dates.';
 });
 
+function sessionTimeText(s) {
+  return `${wallHmToDisplay(formatHm(s?.startTime))}–${wallHmToDisplay(formatHm(s?.endTime))}`;
+}
+
+function sessionLocationText(s) {
+  return String(
+    s?.locationLabel ||
+    s?.locationAddress ||
+    detail.value?.event?.eventLocationName ||
+    detail.value?.event?.eventLocationAddress ||
+    detail.value?.event?.publicLocationAddress ||
+    ''
+  ).trim();
+}
+
+function sessionModalityText(s) {
+  const raw = String(s?.modality || (detail.value?.event?.inPersonPublic ? 'in_person' : '')).trim().toLowerCase();
+  if (raw === 'in_person') return 'In person';
+  if (raw === 'virtual') return 'Virtual';
+  if (raw === 'hybrid') return 'Hybrid';
+  return raw ? raw.replace(/_/g, ' ') : '';
+}
+
+function sameNonEmptyValue(values) {
+  const cleaned = values.map((v) => String(v || '').trim()).filter(Boolean);
+  if (!cleaned.length) return '';
+  const first = cleaned[0];
+  return cleaned.every((v) => v === first) ? first : '';
+}
+
+const scheduleDefaults = computed(() => {
+  const list = Array.isArray(sessions.value) ? sessions.value : [];
+  if (!list.length) return null;
+  const time = sameNonEmptyValue(list.map(sessionTimeText));
+  const location = sameNonEmptyValue(list.map(sessionLocationText));
+  const modality = sameNonEmptyValue(list.map(sessionModalityText));
+  return {
+    time,
+    location,
+    modality,
+    allSameTime: !!time,
+    allSameLocation: !!location,
+    allSameModality: !!modality,
+    overrideCount: list.filter((s) => (
+      (time && sessionTimeText(s) !== time) ||
+      (location && sessionLocationText(s) !== location) ||
+      (modality && sessionModalityText(s) !== modality)
+    )).length
+  };
+});
+
+const scheduleTableShowsLocation = computed(() => !scheduleDefaults.value?.allSameLocation);
+const scheduleTableShowsModality = computed(() => !scheduleDefaults.value?.allSameModality);
+const scheduleEditColspan = computed(() => 2 + (scheduleTableShowsLocation.value ? 1 : 0) + (scheduleTableShowsModality.value ? 1 : 0));
+
+const scheduleSelectedSession = computed(() =>
+  staffingSessions.value.find((s) => Number(s.sessionDateId) === Number(staffingActiveSessionDateId.value)) || null
+);
+
 const eventAssignmentsUpcoming = computed(() => {
   const today = ymdToday();
   return sessions.value
@@ -3372,7 +3542,10 @@ async function addClientToRoster(c) {
     rosterAddResults.value = rosterAddResults.value.filter((r) => r.clientId !== c.clientId);
     rosterAddQuery.value = '';
     if (detail.value?.skillsGroup) await loadDetail();
-    else await loadGenericParticipants();
+    else {
+      await loadGenericParticipants();
+      await loadScheduleParticipants();
+    }
   } catch (e) {
     rosterAddError.value = e.response?.data?.error?.message || e.message || 'Could not add client';
   } finally {
@@ -3418,13 +3591,38 @@ async function loadGenericParticipants() {
   }
 }
 
+async function loadScheduleParticipants() {
+  const aid = eventBillingAgencyId.value;
+  const eid = eventId.value;
+  if (!aid || !eid || detail.value?.skillsGroup) {
+    scheduleParticipants.value = [];
+    scheduleParticipantsError.value = '';
+    scheduleParticipantsLoading.value = false;
+    return;
+  }
+  scheduleParticipantsLoading.value = true;
+  scheduleParticipantsError.value = '';
+  try {
+    const res = await api.get(`/company-events/${eid}/clients`, {
+      params: { agencyId: aid, includeWorkflow: 1, status: 'participants' },
+      skipGlobalLoading: true
+    });
+    scheduleParticipants.value = Array.isArray(res.data?.clients) ? res.data.clients : [];
+  } catch (e) {
+    scheduleParticipants.value = [];
+    scheduleParticipantsError.value = e.response?.data?.error?.message || e.message || 'Could not load schedule participants';
+  } finally {
+    scheduleParticipantsLoading.value = false;
+  }
+}
+
 function setParticipantStatusFilter(next) {
   const v = String(next || 'all').toLowerCase();
   const norm = v === 'registrants' || v === 'registrant'
     ? 'registrants'
     : v === 'participants' || v === 'participant'
       ? 'participants'
-      : 'all';
+      : 'registrants';
   if (participantStatusFilter.value === norm) return;
   participantStatusFilter.value = norm;
   loadGenericParticipants();
@@ -3536,6 +3734,38 @@ async function loadStaffingSessionGroups() {
   }
 }
 
+async function createStaffingSessionGroup() {
+  const aid = eventBillingAgencyId.value;
+  const eid = eventId.value;
+  const sid = Number(staffingActiveSessionDateId.value || 0);
+  const label = String(staffingNewGroupLabel.value || '').trim();
+  if (!aid || !eid || !sid || !label || staffingNewGroupSaving.value) return;
+  staffingNewGroupSaving.value = true;
+  staffingNewGroupError.value = '';
+  try {
+    const groups = [
+      ...(Array.isArray(staffingSessionGroups.value) ? staffingSessionGroups.value : []).map((g) => ({
+        id: Number(g.id || 0) || undefined,
+        label: String(g.label || '').trim(),
+        ageMin: g.ageMin ?? null,
+        ageMax: g.ageMax ?? null
+      })),
+      { label }
+    ];
+    await api.post(`/company-events/${eid}/session-groups`, {
+      agencyId: aid,
+      sessionDateId: sid,
+      groups
+    }, { skipGlobalLoading: true });
+    staffingNewGroupLabel.value = '';
+    await Promise.all([loadStaffingSessionGroups(), loadStaffingSummary()]);
+  } catch (e) {
+    staffingNewGroupError.value = e.response?.data?.error?.message || e.message || 'Could not add group';
+  } finally {
+    staffingNewGroupSaving.value = false;
+  }
+}
+
 async function loadStaffingSessionAssignments() {
   const aid = eventBillingAgencyId.value;
   const eid = eventId.value;
@@ -3634,6 +3864,50 @@ const staffingParticipantGroups = computed(() => {
   });
   return { byGroup, unassigned };
 });
+
+const scheduleParticipantGroups = computed(() => {
+  const groups = Array.isArray(staffingSessionGroups.value) ? staffingSessionGroups.value : [];
+  const roster = Array.isArray(scheduleParticipants.value) ? scheduleParticipants.value : [];
+  const byGroup = groups.map((g) => ({
+    ...g,
+    participants: roster.filter((c) => participantGroupId(c.clientId) === Number(g.id))
+  }));
+  const unassigned = roster.filter((c) => {
+    const gid = participantGroupId(c.clientId);
+    return gid == null || gid === 0;
+  });
+  return { byGroup, unassigned };
+});
+
+const scheduleParticipantGroupCards = computed(() => {
+  const cards = scheduleParticipantGroups.value.byGroup.map((g) => ({
+    key: `group-${g.id}`,
+    label: groupDisplayLabel(g),
+    participants: g.participants || []
+  }));
+  if (scheduleParticipantGroups.value.unassigned.length) {
+    cards.unshift({
+      key: 'unassigned',
+      label: 'Unassigned',
+      participants: scheduleParticipantGroups.value.unassigned
+    });
+  }
+  return cards;
+});
+
+function participantConfirmationLabel(row) {
+  const v = String(row?.confirmationStatus || 'pending').toLowerCase();
+  if (v === 'yes') return 'Confirmed';
+  if (v === 'no') return 'Not attending';
+  return 'Not yet confirmed';
+}
+
+function providerListNames(providers) {
+  return (Array.isArray(providers) ? providers : [])
+    .map((p) => p?.name || `${p?.firstName || ''} ${p?.lastName || ''}`.trim())
+    .filter(Boolean)
+    .join(', ');
+}
 
 async function assignParticipantToGroup(row, rawGroupId) {
   const aid = eventBillingAgencyId.value;
@@ -4375,6 +4649,7 @@ async function loadDetail() {
     const res = await api.get(`/skill-builders/events/${eventId.value}/detail`, params);
     detail.value = res.data;
     await loadGenericParticipants();
+    await loadScheduleParticipants();
     await loadSessions();
     await loadStaffingSummary();
     await Promise.all([
@@ -4388,6 +4663,8 @@ async function loadDetail() {
     detail.value = null;
     genericParticipants.value = [];
     genericParticipantsError.value = '';
+    scheduleParticipants.value = [];
+    scheduleParticipantsError.value = '';
     sessions.value = [];
   } finally {
     loading.value = false;
@@ -6443,6 +6720,147 @@ watch(
   margin-top: 6px;
   padding-top: 6px;
   border-top: 1px dashed var(--border, #e2e8f0);
+}
+.sbep-schedule-defaults {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin: 10px 0 14px;
+}
+.sbep-default-chip {
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 14px;
+  background: #fff;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.sbep-default-chip.good {
+  border-color: rgba(15, 118, 110, 0.28);
+  background: rgba(240, 253, 250, 0.72);
+}
+.sbep-default-kicker {
+  color: #64748b;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.sbep-default-chip strong {
+  color: var(--text-primary, #0f172a);
+  line-height: 1.2;
+}
+.sbep-default-chip small {
+  color: #64748b;
+  font-size: 0.74rem;
+}
+.sbep-schedule-day-card {
+  margin-top: 16px;
+  border: 1px solid rgba(15, 118, 110, 0.18);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(240, 253, 250, 0.72), #fff);
+  padding: 14px;
+}
+.sbep-schedule-day-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.sbep-schedule-day-select {
+  max-width: 220px;
+}
+.sbep-day-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.sbep-day-stat {
+  border: 1px solid rgba(15, 118, 110, 0.16);
+  border-radius: 12px;
+  background: #fff;
+  padding: 8px 10px;
+}
+.sbep-day-stat span {
+  display: block;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.sbep-day-stat strong {
+  color: var(--primary, #0f766e);
+  font-size: 1.1rem;
+}
+.sbep-day-provider-list {
+  margin: 8px 0 12px;
+  color: var(--text-primary, #0f172a);
+  font-size: 0.86rem;
+}
+.sbep-day-groups-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.sbep-day-group-card {
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 14px;
+  background: #fff;
+  padding: 10px;
+}
+.sbep-day-group-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.sbep-day-group-title span {
+  min-width: 28px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.1);
+  color: var(--primary, #0f766e);
+  font-weight: 800;
+  text-align: center;
+  padding: 2px 8px;
+}
+.sbep-day-participant-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.sbep-day-participant-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px dashed var(--border, #e2e8f0);
+  font-size: 0.83rem;
+}
+.sbep-day-participant-list li:first-child {
+  border-top: none;
+}
+.sbep-day-participant-list em {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 0.72rem;
+}
+.sbep-day-participant-list em.is-yes {
+  background: #dcfce7;
+  color: #166534;
+}
+.sbep-day-participant-list em.is-no {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.sbep-day-participant-list em.is-pending {
+  background: #e2e8f0;
+  color: #475569;
 }
 .sbep-kiosk-name {
   font-weight: 600;

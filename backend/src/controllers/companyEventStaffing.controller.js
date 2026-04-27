@@ -200,6 +200,23 @@ async function loadApprovedProvidersCount({ eventId, agencyId, sessionDateId }) 
   return Number(row?.total || 0);
 }
 
+async function loadApprovedProvidersForSession({ eventId, agencyId, sessionDateId }) {
+  const [rows] = await pool.execute(
+    `SELECT u.id, u.first_name, u.last_name
+     FROM company_event_session_providers p
+     INNER JOIN users u ON u.id = p.provider_user_id
+     WHERE p.company_event_id = ? AND p.agency_id = ? AND p.session_date_id = ?
+     ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+    [eventId, agencyId, sessionDateId]
+  );
+  return (rows || []).map((r) => ({
+    id: Number(r.id),
+    firstName: r.first_name || '',
+    lastName: r.last_name || '',
+    name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || `Provider ${r.id}`
+  }));
+}
+
 export const getCompanyEventSessionStaffingSummary = async (req, res, next) => {
   try {
     const eventId = parsePositiveInt(req.params.eventId);
@@ -232,6 +249,7 @@ export const getCompanyEventSessionStaffingSummary = async (req, res, next) => {
       const confirmedClientsCount = await countConfirmedClientsForSession({ eventId, agencyId, sessionDateId });
       const groupCount = await countGroupsForSession({ eventId, sessionDateId });
       const approvedProvidersCount = await loadApprovedProvidersCount({ eventId, agencyId, sessionDateId });
+      const approvedProviders = await loadApprovedProvidersForSession({ eventId, agencyId, sessionDateId });
       const requestStats = await loadSessionRequestStats({ eventId, agencyId, sessionDateId });
       const required = computeRequiredProviders({ staffingConfig, confirmedClientsCount, groupCount });
       summaries.push({
@@ -245,6 +263,7 @@ export const getCompanyEventSessionStaffingSummary = async (req, res, next) => {
         requiredProviders: required.requiredProviders,
         requiredProvidersBreakdown: required.breakdown,
         approvedProvidersCount,
+        approvedProviders,
         requestStats
       });
     }

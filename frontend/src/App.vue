@@ -351,7 +351,15 @@
                     :aria-expanded="directoryMenuOpen ? 'true' : 'false'"
                     @click.stop="toggleDirectoryMenu"
                   >
-                    <span class="nav-dropdown-label">Directory</span> <span class="brand-caret">▾</span>
+                    <span class="nav-dropdown-label">Directory</span>
+                    <span
+                      v-if="eventPortalRegistrantBadgeCount > 0"
+                      class="nav-badge nav-badge-pulse"
+                      :title="`${eventPortalRegistrantBadgeCount} new event registrant(s)`"
+                    >
+                      {{ eventPortalRegistrantBadgeCount }}
+                    </span>
+                    <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="directoryMenuOpen" class="nav-dropdown-menu nav-dropdown-menu-wide">
                     <router-link :to="orgTo('/operations-dashboard')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'provider_plus' || user?.role === 'clinical_practice_assistant')" >{{ isAffiliationContext ? 'Team Lead Dashboards' : 'Operations Dashboard' }}</router-link>
@@ -421,7 +429,16 @@
                             :key="`ep-dir-${ev.id}`"
                             :to="eventPortalHref(ev)"
                             @click="closeAllNavMenus"
-                          >{{ ev.title || `Event ${ev.id}` }}</router-link>
+                          >
+                            {{ ev.title || `Event ${ev.id}` }}
+                            <span
+                              v-if="eventPortalRegistrantCount(ev) > 0"
+                              class="nav-badge nav-badge-pulse"
+                              :title="`${eventPortalRegistrantCount(ev)} new registrant(s)`"
+                            >
+                              {{ eventPortalRegistrantCount(ev) }}
+                            </span>
+                          </router-link>
                         </template>
                       </div>
                     </div>
@@ -1140,7 +1157,16 @@
                       :to="eventPortalHref(ev)"
                       @click="closeMobileMenu"
                       class="mobile-nav-link mobile-nav-sublink"
-                    >{{ ev.title || `Event ${ev.id}` }}</router-link>
+                    >
+                      {{ ev.title || `Event ${ev.id}` }}
+                      <span
+                        v-if="eventPortalRegistrantCount(ev) > 0"
+                        class="nav-badge nav-badge-pulse"
+                        style="margin-left: 8px;"
+                      >
+                        {{ eventPortalRegistrantCount(ev) }}
+                      </span>
+                    </router-link>
                   </template>
                 </template>
               </div>
@@ -2981,6 +3007,15 @@ const eventPortalsForNav = computed(() => {
   const dir = Array.isArray(directoryEventPortals.value) ? directoryEventPortals.value : [];
   return dir.slice(0, 25);
 });
+
+const eventPortalRegistrantCount = (ev) => {
+  const n = Number(ev?.registrantsCount ?? ev?.registrants_count ?? ev?.counts?.registrants ?? 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
+
+const eventPortalRegistrantBadgeCount = computed(() =>
+  eventPortalsForNav.value.reduce((sum, ev) => sum + eventPortalRegistrantCount(ev), 0)
+);
 
 /** Build the href for an event portal link, using the program org slug when available. */
 const eventPortalHref = (ev) => {

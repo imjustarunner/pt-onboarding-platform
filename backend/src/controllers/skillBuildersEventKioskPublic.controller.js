@@ -137,7 +137,6 @@ export const unlockSkillBuildersEventKiosk = async (req, res, next) => {
       `SELECT id, title, agency_id, event_type, kiosk_event_pin_hash
        FROM company_events
        WHERE agency_id = ?
-         AND (is_active = TRUE OR is_active IS NULL)
          AND kiosk_event_pin_hash IS NOT NULL`,
       [agencyId]
     );

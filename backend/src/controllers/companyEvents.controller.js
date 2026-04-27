@@ -392,6 +392,7 @@ function mapEventRow(row, req, opts = {}) {
         ? true
         : !!(row.virtual_sessions_enabled === 1 || row.virtual_sessions_enabled === true),
     kioskEventPinSet: !!(row.kiosk_event_pin_hash && String(row.kiosk_event_pin_hash).trim()),
+    kioskEventPinCode: row.kiosk_event_pin_code ? String(row.kiosk_event_pin_code).trim() : '',
     publicHeroImageUrl: row.public_hero_image_url ? String(row.public_hero_image_url).trim() : '',
     publicHeroFocalPoint: row.public_hero_focal_point ? String(row.public_hero_focal_point).trim() : '',
     publicListingDetails: row.public_listing_details ? String(row.public_listing_details) : '',
@@ -765,7 +766,7 @@ function parseEventPayload(body = {}) {
     } else if (!/^\d{6}$/.test(s)) {
       return { error: 'Kiosk station PIN must be exactly 6 digits' };
     } else {
-      kioskPinOutcome = { mode: 'set', hash: KioskModel.hashPin(s) };
+      kioskPinOutcome = { mode: 'set', hash: KioskModel.hashPin(s), code: s };
     }
   } else if (wantsClear) {
     kioskPinOutcome = { mode: 'clear' };
@@ -890,7 +891,7 @@ async function resolvePublicListingGeocode({
 }
 
 /**
- * Station PIN must be unique among active integrated Skill Builders events for this agency so public
+ * Station PIN must be unique among kiosk-enabled events for this agency so public
  * unlock (scoped by agency portal slug) always resolves to a single event.
  */
 async function assertKioskEventPinUnique(conn, { agencyId, eventId, pinHash }) {
@@ -903,8 +904,6 @@ async function assertKioskEventPinUnique(conn, { agencyId, eventId, pinHash }) {
   const [hit] = await conn.execute(
     `SELECT id FROM company_events
      WHERE agency_id = ? AND id != ? AND kiosk_event_pin_hash = ?
-       AND LOWER(COALESCE(event_type, '')) = 'skills_group'
-       AND (is_active = 1 OR is_active IS NULL)
      LIMIT 1`,
     [aid, excludeId, h]
   );
@@ -1541,14 +1540,41 @@ export const listProgramCompanyEventsForCoordinator = async (req, res, next) => 
         });
       }
     }
+    const eventIds = [...new Set((rows || []).map((r) => Number(r.id)).filter((id) => Number.isFinite(id) && id > 0))];
+    const countsByEventId = new Map();
+    if (eventIds.length) {
+      try {
+        const ph = eventIds.map(() => '?').join(',');
+        const [crow] = await pool.execute(
+          `SELECT company_event_id,
+                  SUM(CASE WHEN COALESCE(treatment_plan_complete, 0) = 0 AND (intake_outcome IS NULL OR intake_outcome <> 'denied') THEN 1 ELSE 0 END) AS registrants_count,
+                  SUM(CASE WHEN COALESCE(treatment_plan_complete, 0) = 1 AND (intake_outcome IS NULL OR intake_outcome <> 'denied') THEN 1 ELSE 0 END) AS participants_count
+           FROM company_event_clients
+           WHERE agency_id = ? AND company_event_id IN (${ph})
+           GROUP BY company_event_id`,
+          [agencyId, ...eventIds]
+        );
+        for (const c of crow || []) {
+          countsByEventId.set(Number(c.company_event_id), {
+            registrants: Number(c.registrants_count || 0),
+            participants: Number(c.participants_count || 0)
+          });
+        }
+      } catch {
+        // Older DBs without workflow columns can still render the portal cards without counts.
+      }
+    }
     const events = (rows || []).map((row) => {
       const base = mapEventRow(row, req);
       const sgid = row.skills_group_id != null ? Number(row.skills_group_id) : null;
+      const counts = countsByEventId.get(Number(row.id)) || { registrants: 0, participants: 0 };
       return {
         ...base,
         skillsGroupStartDate: row.skills_group_start_date || null,
         skillsGroupEndDate: row.skills_group_end_date || null,
-        meetings: sgid && meetingsBySkillsGroupId.has(sgid) ? meetingsBySkillsGroupId.get(sgid) : []
+        meetings: sgid && meetingsBySkillsGroupId.has(sgid) ? meetingsBySkillsGroupId.get(sgid) : [],
+        registrantsCount: counts.registrants,
+        participantsCount: counts.participants
       };
     });
     res.json({ ok: true, events });
@@ -1811,6 +1837,16 @@ async function createCompanyEventCore(req, agencyId, userId, parsed) {
       parsed.staffingConfig ? JSON.stringify(parsed.staffingConfig) : null
     ]
   );
+  if (parsed.kioskPinOutcome?.mode === 'set' && parsed.kioskPinOutcome.code) {
+    try {
+      await pool.execute(
+        'UPDATE company_events SET kiosk_event_pin_code = ? WHERE id = ? AND agency_id = ?',
+        [parsed.kioskPinOutcome.code, insertResult.insertId, agencyId]
+      );
+    } catch (e) {
+      if (!(e?.code === 'ER_BAD_FIELD_ERROR' && String(e?.sqlMessage || '').includes('kiosk_event_pin_code'))) throw e;
+    }
+  }
   const eventId = Number(insertResult.insertId);
   await setEventAudience(eventId, parsed.audience);
 
@@ -2045,6 +2081,20 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
       agencyId
     ]
   );
+  if (parsed.kioskPinOutcome?.mode === 'set' || parsed.kioskPinOutcome?.mode === 'clear') {
+    try {
+      await pool.execute(
+        'UPDATE company_events SET kiosk_event_pin_code = ? WHERE id = ? AND agency_id = ?',
+        [
+          parsed.kioskPinOutcome?.mode === 'set' ? parsed.kioskPinOutcome.code : null,
+          eventId,
+          agencyId
+        ]
+      );
+    } catch (e) {
+      if (!(e?.code === 'ER_BAD_FIELD_ERROR' && String(e?.sqlMessage || '').includes('kiosk_event_pin_code'))) throw e;
+    }
+  }
   await setEventAudience(eventId, parsed.audience);
 
   try {

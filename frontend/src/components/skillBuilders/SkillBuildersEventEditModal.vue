@@ -525,10 +525,18 @@
 
               <div class="sb-ce-pin-status" role="status">
                 <template v-if="draft.kioskEventPinSet">
-                  <p class="sb-ce-pin-status-line"><strong>Station PIN:</strong> already saved (6 digits)</p>
+                  <p class="sb-ce-pin-status-line">
+                    <strong>Station PIN:</strong>
+                    <code v-if="draft.kioskEventPinCode" class="sb-ce-code">{{ draft.kioskEventPinCode }}</code>
+                    <span v-else>already saved (6 digits)</span>
+                  </p>
                   <p class="muted small sb-ce-pin-status-note">
-                    The code is stored securely and cannot be shown again. Share it with staff separately, or set a new PIN
-                    below to replace it.
+                    <template v-if="draft.kioskEventPinCode">
+                      Share this station PIN with staff who should unlock this program kiosk.
+                    </template>
+                    <template v-else>
+                      This older PIN was saved before PIN viewing was supported. Set a new PIN below to make it viewable/shareable.
+                    </template>
                   </p>
                 </template>
                 <template v-else>
@@ -1594,6 +1602,7 @@ function emptyDraft() {
     employeeDepartureTime: '',
     virtualSessionsEnabled: true,
     kioskEventPinSet: false,
+    kioskEventPinCode: '',
     kioskEventPinNew: '',
     kioskEventPinClear: false,
     staffingConfig: {
@@ -1931,6 +1940,7 @@ function populateFromEvent(event) {
     employeeDepartureTime: wallTimeToInput(event.employeeDepartureTime),
     virtualSessionsEnabled: event.virtualSessionsEnabled !== false,
     kioskEventPinSet: !!event.kioskEventPinSet,
+    kioskEventPinCode: String(event.kioskEventPinCode || '').trim(),
     kioskEventPinNew: '',
     kioskEventPinClear: false,
     staffingConfig: (() => {

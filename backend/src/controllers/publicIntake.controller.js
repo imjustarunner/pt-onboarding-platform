@@ -1110,7 +1110,7 @@ const persistClientDemographicsIfProvided = async ({ clientId, demographicsInfo 
 
   if (demographicsInfo.dob) {
     const dob = normalizeDateOnly(demographicsInfo.dob);
-    if (dob) { updates.push('date_of_birth = COALESCE(date_of_birth, ?)'); values.push(dob); }
+    if (dob) { updates.push('date_of_birth = COALESCE(NULLIF(date_of_birth, \'\'), ?)'); values.push(dob); }
   }
   addIfPresent('gender', demographicsInfo.gender);
   addIfPresent('ethnicity', demographicsInfo.ethnicity);

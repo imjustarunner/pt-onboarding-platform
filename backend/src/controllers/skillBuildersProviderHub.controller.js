@@ -463,12 +463,38 @@ export const listMyAssignedSkillBuilderEvents = async (req, res, next) => {
        LIMIT 200`,
       [agencyId, userId]
     );
+    const eventIds = [...new Set((rows || []).map((r) => Number(r.id)).filter((id) => Number.isFinite(id) && id > 0))];
+    const countsByEventId = new Map();
+    if (eventIds.length) {
+      try {
+        const ph = eventIds.map(() => '?').join(',');
+        const [countRows] = await pool.execute(
+          `SELECT company_event_id,
+                  SUM(CASE WHEN COALESCE(treatment_plan_complete, 0) = 0 AND (intake_outcome IS NULL OR intake_outcome <> 'denied') THEN 1 ELSE 0 END) AS registrants_count,
+                  SUM(CASE WHEN COALESCE(treatment_plan_complete, 0) = 1 AND (intake_outcome IS NULL OR intake_outcome <> 'denied') THEN 1 ELSE 0 END) AS participants_count
+           FROM company_event_clients
+           WHERE agency_id = ? AND company_event_id IN (${ph})
+           GROUP BY company_event_id`,
+          [agencyId, ...eventIds]
+        );
+        for (const c of countRows || []) {
+          countsByEventId.set(Number(c.company_event_id), {
+            registrants: Number(c.registrants_count || 0),
+            participants: Number(c.participants_count || 0)
+          });
+        }
+      } catch {
+        // Older DBs without workflow columns can still render assigned event links without counts.
+      }
+    }
     const events = (rows || []).map((r) => ({
       ...formatEventRow(r),
       skillsGroupId: Number(r.skills_group_id),
       skillsGroupName: r.skills_group_name || '',
       schoolOrganizationId: Number(r.school_organization_id),
       schoolName: r.school_name || '',
+      registrantsCount: countsByEventId.get(Number(r.id))?.registrants || 0,
+      participantsCount: countsByEventId.get(Number(r.id))?.participants || 0,
       programPortalSlug:
         r.program_portal_slug != null && String(r.program_portal_slug).trim()
           ? String(r.program_portal_slug).trim().toLowerCase()

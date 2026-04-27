@@ -90,6 +90,19 @@
                     Deny
                   </button>
                 </template>
+                <template v-else-if="n.type === 'new_packet_uploaded' && String(n.related_entity_type || '').toLowerCase() === 'client' && n.related_entity_id">
+                  <button class="btn btn-primary btn-sm" type="button" @click.stop="openPacketDocument(n)">
+                    Open packet
+                  </button>
+                  <button class="btn btn-secondary btn-sm" type="button" @click.stop="openNotification(n)">
+                    Go to portal
+                  </button>
+                </template>
+                <template v-else-if="n.type === 'company_event_registration_submitted' && String(n.related_entity_type || '').toLowerCase() === 'company_event' && n.related_entity_id">
+                  <button class="btn btn-primary btn-sm" type="button" @click.stop="openNotification(n)">
+                    Event portal
+                  </button>
+                </template>
                 <template v-else>
                   <button class="btn btn-secondary btn-sm mark-btn" type="button" @click="markRead(n)" :disabled="!isUnread(n)">
                     Mark read
@@ -386,6 +399,16 @@ const dismissNotification = async (n) => {
   n.resolved_at = new Date().toISOString();
   myNotifications.value = myNotifications.value.filter((item) => item.id !== n.id);
   void notificationStore.fetchCounts();
+};
+
+const openPacketDocument = async (notification) => {
+  const clientId = Number(notification?.related_entity_id || 0);
+  if (!clientId) return;
+  if (!notification.is_read) {
+    await markRead(notification);
+  }
+  const base = orgSlug.value ? `/${orgSlug.value}` : '';
+  router.push({ path: `${base}/admin/clients`, query: { clientId: String(clientId), tab: 'documents' } });
 };
 
 const toggleFollowUp = async (n) => {

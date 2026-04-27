@@ -2387,7 +2387,7 @@ async function fetchStringTranslations() {
       communicationsWorkforceNoLabel.value
     ].forEach(addString);
 
-    const arr = [...strings].filter(Boolean).slice(0, 300);
+    const arr = [...strings].filter(Boolean).slice(0, 500);
     if (!arr.length) {
       stringTranslations.value = {};
       return;
@@ -2402,7 +2402,7 @@ async function fetchStringTranslations() {
 
     const requestId = ++stringTranslationRequestId;
     stringTranslationsLoading.value = true;
-    const resp = await api.post('/public/translate-strings', { strings: arr, lang: 'es' });
+    const resp = await api.post('/public/translations/translate-strings', { strings: arr, lang: 'es' });
     if (requestId !== stringTranslationRequestId || intakeLocale.value !== 'es') return;
     const translations = resp?.data?.translations || {};
     stringTranslationCache.set(cacheKey, translations);

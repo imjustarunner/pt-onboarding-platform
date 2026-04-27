@@ -167,6 +167,10 @@
                       <div class="pch-portal-card-name">{{ t.title }}</div>
                       <div class="pch-portal-card-type">{{ t.typeLabel }}</div>
                       <div v-if="t.subtitle" class="pch-portal-card-sub muted">{{ t.subtitle }}</div>
+                      <div v-if="t.kind === 'event'" class="pch-portal-card-stats">
+                        <span>Registrants {{ t.registrantsCount ?? 0 }}</span>
+                        <span>Participants {{ t.participantsCount ?? 0 }}</span>
+                      </div>
                     </div>
                     <div class="pch-portal-card-cta">Open <span aria-hidden="true">→</span></div>
                   </button>
@@ -941,6 +945,8 @@ const portalTiles = computed(() => {
         title: String(ev.title || '').trim() || `Event ${id}`,
         typeLabel: 'Event',
         subtitle: formatEventDateRange(ev) || null,
+        registrantsCount: Number(ev.registrantsCount || 0),
+        participantsCount: Number(ev.participantsCount || 0),
         emoji: '🎯'
       });
     }
@@ -958,6 +964,8 @@ const portalTiles = computed(() => {
         title: String(ev.title || '').trim() || `Event ${id}`,
         typeLabel: 'Event',
         subtitle: sub || null,
+        registrantsCount: Number(ev.registrantsCount || ev.registrants_count || 0),
+        participantsCount: Number(ev.participantsCount || ev.participants_count || 0),
         emoji: '🎯'
       });
     }
@@ -1873,6 +1881,21 @@ watch(
   margin-top: 4px;
   font-size: 0.75rem;
   line-height: 1.35;
+}
+.pch-portal-card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.pch-portal-card-stats span {
+  border: 1px solid rgba(21, 128, 61, 0.22);
+  border-radius: 999px;
+  background: rgba(21, 128, 61, 0.08);
+  color: #166534;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 7px;
 }
 .pch-portal-card-cta {
   color: var(--primary, #15803d);
