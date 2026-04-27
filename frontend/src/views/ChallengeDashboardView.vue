@@ -4239,7 +4239,7 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   line-height: 1;
 }
 .mu-score--leader { font-size: 2.6rem; text-shadow: 0 0 18px currentColor; }
-.mu-score--trail  { font-size: 1.65rem; opacity: 0.7; }
+.mu-score--trail  { font-size: 1.65rem; opacity: 0.9; text-shadow: 0 0 8px currentColor; }
 
 /* VS center */
 .mu-hero-center {

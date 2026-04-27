@@ -58,7 +58,10 @@
           <div class="mpm-section mpm-trophy-section">
             <h3 class="mpm-h">🏆 Trophy Case</h3>
 
-            <div v-if="!trophy" class="mpm-trophy-empty">Loading trophies…</div>
+            <div v-if="trophyLoading" class="mpm-trophy-empty">Loading trophies…</div>
+            <div v-else-if="trophyFailed" class="mpm-trophy-empty mpm-trophy-retry" @click="load">
+              Could not load trophies — tap to retry
+            </div>
             <div v-else-if="!hasTrophies" class="mpm-trophy-empty">No trophies yet — keep training!</div>
 
             <!-- Season Recognition Awards (weekly award badges) -->
@@ -182,6 +185,8 @@ const loading = ref(false);
 const error = ref('');
 const profile = ref(null);
 const trophy = ref(null);
+const trophyLoading = ref(false);
+const trophyFailed = ref(false);
 
 const close = () => emit('close');
 
@@ -243,6 +248,8 @@ const extraRecordsHeld = computed(() => {
 const load = async () => {
   if (!props.clubId || !props.userId) return;
   loading.value = true;
+  trophyLoading.value = true;
+  trophyFailed.value = false;
   error.value = '';
   profile.value = null;
   trophy.value = null;
@@ -253,15 +260,23 @@ const load = async () => {
     ]);
     if (profileRes.status === 'fulfilled') profile.value = profileRes.value.data;
     else error.value = profileRes.reason?.response?.data?.error?.message || 'Could not load profile.';
-    if (trophyRes.status === 'fulfilled') trophy.value = trophyRes.value.data;
+    if (trophyRes.status === 'fulfilled') {
+      trophy.value = trophyRes.value.data;
+    } else {
+      trophyFailed.value = true;
+    }
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Could not load profile.';
   } finally {
     loading.value = false;
+    trophyLoading.value = false;
   }
 };
 
-watch(() => props.userId, (uid) => { if (uid) load(); else { profile.value = null; trophy.value = null; } }, { immediate: true });
+watch(() => props.userId, (uid) => {
+  if (uid) load();
+  else { profile.value = null; trophy.value = null; trophyFailed.value = false; }
+}, { immediate: true });
 </script>
 
 <style scoped>
@@ -445,6 +460,7 @@ watch(() => props.userId, (uid) => { if (uid) load(); else { profile.value = nul
   margin-top: 6px;
 }
 .mpm-trophy-empty { font-size: 0.85rem; color: #9ca3af; padding: 8px 0; }
+.mpm-trophy-retry { cursor: pointer; color: #6366f1; text-decoration: underline; text-underline-offset: 2px; }
 .mpm-award-badge {
   display: flex;
   flex-direction: column;

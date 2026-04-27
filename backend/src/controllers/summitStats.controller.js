@@ -1888,7 +1888,8 @@ const getMemberTrophyCaseData = async ({ clubId, userId }) => {
 
   // 1. Race club memberships for this user
   // computeRaceClubMemberships uses full name format so name matching is reliable
-  const allClubs = await computeRaceClubMemberships({ clubId });
+  let allClubs = [];
+  try { allClubs = await computeRaceClubMemberships({ clubId }); } catch { /* non-fatal */ }
   const raceClubs = allClubs
     .map((rc) => {
       // Primary: match by userId
@@ -1920,11 +1921,14 @@ const getMemberTrophyCaseData = async ({ clubId, userId }) => {
     .filter(Boolean);
 
   // 2. Club records currently held by this user
-  const [recRows] = await pool.execute(
-    `SELECT records_json FROM summit_stats_club_records WHERE agency_id = ? LIMIT 1`,
-    [clubId]
-  );
-  const allRecords = normalizeClubRecords(parseClubRecords(recRows?.[0]?.records_json));
+  let allRecords = [];
+  try {
+    const [recRows] = await pool.execute(
+      `SELECT records_json FROM summit_stats_club_records WHERE agency_id = ? LIMIT 1`,
+      [clubId]
+    );
+    allRecords = normalizeClubRecords(parseClubRecords(recRows?.[0]?.records_json));
+  } catch { /* non-fatal */ }
 
   // Resolve icon URLs for records that have an iconId
   const iconIds = [...new Set(allRecords.filter((r) => r.iconId).map((r) => r.iconId))];
