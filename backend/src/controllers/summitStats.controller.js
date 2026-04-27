@@ -1877,6 +1877,7 @@ const getMemberTrophyCaseData = async ({ clubId, userId }) => {
   // Fetch user info upfront — needed for name/email fallback matching
   let userFullName = '';
   let userEmail = '';
+  let userGender = null; // used to filter gendered club records (e.g. "Most Miles Season Male")
   try {
     const [uRows] = await pool.execute(
       `SELECT first_name, last_name, email FROM users WHERE id = ? LIMIT 1`, [userId]
@@ -1885,6 +1886,26 @@ const getMemberTrophyCaseData = async ({ clubId, userId }) => {
     userFullName = [u?.first_name, u?.last_name].filter(Boolean).join(' ').trim().toLowerCase();
     userEmail = String(u?.email || '').trim().toLowerCase();
   } catch { /* non-fatal */ }
+
+  // Fetch gender from application or participant profile (any season for this club)
+  try {
+    const [gRows] = await pool.execute(
+      `SELECT COALESCE(
+         (SELECT a.gender FROM challenge_member_applications a
+          INNER JOIN learning_program_classes c ON c.id = a.learning_class_id
+          WHERE c.organization_id = ? AND a.user_id = ?
+            AND a.gender IS NOT NULL AND a.gender != ''
+          ORDER BY a.id DESC LIMIT 1),
+         (SELECT p.gender FROM challenge_participant_profiles p
+          INNER JOIN learning_program_classes c ON c.id = p.learning_class_id
+          WHERE c.organization_id = ? AND p.provider_user_id = ?
+            AND p.gender IS NOT NULL AND p.gender != ''
+          ORDER BY p.updated_at DESC LIMIT 1)
+       ) AS gender`,
+      [clubId, userId, clubId, userId]
+    );
+    userGender = String(gRows?.[0]?.gender || '').trim().toLowerCase() || null;
+  } catch { /* non-fatal — gender filter will be skipped if lookup fails */ }
 
   // 1. Race club memberships for this user
   // computeRaceClubMemberships uses full name format so name matching is reliable
@@ -1944,6 +1965,10 @@ const getMemberTrophyCaseData = async ({ clubId, userId }) => {
 
   const recordsHeld = allRecords
     .filter((r) => {
+      // Skip gendered records that don't match the member's gender
+      if (r.gender && userGender && r.gender.trim().toLowerCase() !== userGender) return false;
+      if (r.gender && !userGender) return false;
+
       if (r.holderUserId && Number(r.holderUserId) === Number(userId)) return true;
       // Fallback: match by holderName when the record was not yet linked to a user
       if (!r.holderUserId && r.holderName && userFullName) {
@@ -1964,8 +1989,15 @@ const getMemberTrophyCaseData = async ({ clubId, userId }) => {
     'season_duration_minutes', 'race_chip_time_seconds'
   ]);
 
-  // Build a de-duped list of personal-metric club records (by metricKey + filters)
-  const prTemplates = allRecords.filter((r) => r.metricKey && personalMetricKeys.has(r.metricKey));
+  // Build a de-duped list of personal-metric club records (by metricKey + filters).
+  // Skip records with a gender restriction that doesn't match the member's gender
+  // (e.g. "Most Miles Season Male" should never appear in a female member's PR list).
+  const prTemplates = allRecords.filter((r) => {
+    if (!r.metricKey || !personalMetricKeys.has(r.metricKey)) return false;
+    if (r.gender && userGender && r.gender.trim().toLowerCase() !== userGender) return false;
+    if (r.gender && !userGender) return false; // gender-specific record, but we don't know member gender — skip
+    return true;
+  });
 
   const personalRecords = [];
   for (const tpl of prTemplates) {
