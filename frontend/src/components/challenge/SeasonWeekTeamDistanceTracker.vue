@@ -63,6 +63,7 @@
         :key="`swtd-${team.teamId}`"
         class="swtd-team"
         :style="teamBorderStyle(tIdx, team)"
+        :data-team-color="resolveTeamColor(tIdx, team)"
       >
         <div v-if="resolveLogoUrl(team.logoPath)" class="swtd-team-logo-col">
           <img
@@ -106,7 +107,7 @@
             <div class="swtd-team-card-bar" aria-hidden="true">
               <span
                 class="swtd-team-card-bar-fill"
-                :style="teamBarStyle(teamTotalMetric(team), teamPlannedTarget(team))"
+                :style="teamBarStyle(teamTotalMetric(team), teamPlannedTarget(team), resolveTeamColor(tIdx, team))"
               />
             </div>
           </div>
@@ -118,8 +119,8 @@
           </div>
         </div>
 
-        <div v-show="isExpanded(team.teamId)" class="swtd-team-body">
-          <p v-if="hasPlannedGroupTarget(team)" class="swtd-team-hint">
+        <div v-show="isExpanded(team.teamId)" class="swtd-team-body" :style="teamBodyStyle(tIdx, team)">
+          <p v-if="hasPlannedGroupTarget(team)" class="swtd-team-hint" :style="teamBarHintStyle(tIdx, team)">
             Team total vs plan roster target ({{ baselineRosterSize ?? '—' }} × {{ fmtNum(individualMinimum || 0) }} {{ isMiles ? 'mi' : metricUnit }}).
             Status reflects the lowest pace among active members and the team total.
           </p>
@@ -142,7 +143,7 @@
                 <template v-else>{{ m.firstName }} {{ m.lastName }}</template>
               </span>
               <span class="swtd-member-bar-wrap">
-                <span class="swtd-member-bar" :style="progressStyle(m)" />
+                <span class="swtd-member-bar" :style="progressStyle(m, resolveTeamColor(tIdx, team))" />
               </span>
               <span class="swtd-member-val">
                 {{ isMiles ? fmtNum(m.weeklyMiles || 0) : fmtNum(m.weeklyPoints) }} {{ metricUnit }}
@@ -393,9 +394,23 @@ const statusLabel = (s) =>
   ({ ahead: '✓ Ahead', met: '✓ Met', tracking: '▶ On track', behind: '⚠ Behind' }[s] || s);
 
 const teamColors = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6', '#f97316', '#3b82f6'];
+
+const resolveTeamColor = (idx, team) =>
+  team?.teamColor || teamColors[idx % teamColors.length];
+
 const teamBorderStyle = (idx, team) => {
-  const color = team?.teamColor || teamColors[idx % teamColors.length];
+  const color = resolveTeamColor(idx, team);
   return { borderLeftColor: color };
+};
+
+const teamBodyStyle = (idx, team) => {
+  const color = resolveTeamColor(idx, team);
+  return { background: `${color}0d` };
+};
+
+const teamBarHintStyle = (idx, team) => {
+  const color = resolveTeamColor(idx, team);
+  return { borderColor: `${color}40` };
 };
 
 const activeMemberCount = (team) => {
@@ -424,23 +439,21 @@ const sortedMemberRows = (team) => {
   return arr;
 };
 
-const progressStyle = (m) => {
+const progressStyle = (m, teamColor) => {
   const val = isMiles.value ? Number(m.weeklyMiles || 0) : Number(m.weeklyPoints || 0);
   const target = individualMinimum.value ?? 0;
   const pct = target > 0 ? Math.min((val / target) * 100, 100) : val > 0 ? 100 : 0;
   if (m.eliminated) {
     return { width: `${pct}%`, background: '#94a3b8' };
   }
-  const color = pct >= 100 ? '#22c55e' : pct >= 60 ? '#f59e0b' : '#ef4444';
-  return { width: `${pct}%`, background: color };
+  return { width: `${pct}%`, background: teamColor || '#6366f1' };
 };
 
-const teamBarStyle = (miles, required) => {
+const teamBarStyle = (miles, required, teamColor) => {
   const m = Number(miles || 0);
   const r = Number(required || 0);
   const pct = r > 0 ? Math.min((m / r) * 100, 100) : m > 0 ? 100 : 0;
-  const color = pct >= 100 ? '#22c55e' : pct >= 60 ? '#f59e0b' : '#ef4444';
-  return { width: `${pct}%`, background: color };
+  return { width: `${pct}%`, background: teamColor || '#6366f1' };
 };
 </script>
 
@@ -654,13 +667,16 @@ const teamBarStyle = (miles, required) => {
 .swtd-team-body {
   padding: 8px 12px 10px;
   border-top: 1px solid #f1f5f9;
-  background: #f8fafc;
 }
 .swtd-team-hint {
-  margin: 6px 0 4px;
+  margin: 6px 0 8px;
   font-size: 0.72rem;
   color: #64748b;
   line-height: 1.3;
+  padding: 6px 10px;
+  border-left: 3px solid;
+  border-radius: 0 6px 6px 0;
+  background: rgba(0,0,0,0.03);
 }
 
 .swtd-member-list {
