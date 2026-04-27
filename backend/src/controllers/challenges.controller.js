@@ -1127,7 +1127,7 @@ export const listClassWorkouts = async (req, res, next) => {
     const params = [classId, range.start, range.end];
 
     if (teamId) {
-      conditions.push('EXISTS (SELECT 1 FROM challenge_team_members ctm WHERE ctm.team_id = ? AND ctm.user_id = w.user_id)');
+      conditions.push('EXISTS (SELECT 1 FROM challenge_team_members ctm WHERE ctm.team_id = ? AND ctm.provider_user_id = w.user_id)');
       params.push(teamId);
     }
     if (hasTask) {
@@ -1135,7 +1135,7 @@ export const listClassWorkouts = async (req, res, next) => {
     }
 
     const [rows] = await pool.execute(
-      `SELECT w.id, w.user_id, w.weekly_task_id, w.activity_type, w.distance_value, w.points,
+      `SELECT w.id, w.user_id, w.team_id, w.weekly_task_id, w.activity_type, w.distance_value, w.points,
               w.completed_at, w.proof_status
        FROM challenge_workouts w
        WHERE ${conditions.join(' AND ')}

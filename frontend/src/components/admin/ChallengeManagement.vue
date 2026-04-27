@@ -1907,6 +1907,25 @@
             </select>
             <small>Team Leads (provider_plus) can manage their team.</small>
           </div>
+          <div class="form-group">
+            <label>Team color (used for progress bars &amp; charts)</label>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <input
+                v-model="teamForm.teamColor"
+                type="color"
+                style="width:44px;height:36px;padding:2px;border:1px solid #e2e8f0;border-radius:6px;cursor:pointer;"
+              />
+              <input
+                v-model="teamForm.teamColor"
+                type="text"
+                maxlength="7"
+                placeholder="#3b82f6"
+                style="width:100px;font-family:monospace;"
+              />
+              <button v-if="teamForm.teamColor" type="button" class="btn btn-secondary" style="padding:4px 10px;font-size:0.8rem;" @click="teamForm.teamColor = ''">Clear</button>
+            </div>
+            <small>Pick the team's primary color so standings bars and charts match their theme.</small>
+          </div>
           <div class="form-actions">
             <button type="button" class="btn btn-secondary" @click="closeTeamModal">Cancel</button>
             <button type="submit" class="btn btn-primary" :disabled="teamSaving">{{ teamSaving ? 'Saving…' : 'Save' }}</button>
@@ -3899,7 +3918,7 @@ const manageBrandingMsg = ref('');
 
 const showTeamModal = ref(false);
 const editingTeam = ref(null);
-const teamForm = ref({ teamName: '', teamManagerUserId: '' });
+const teamForm = ref({ teamName: '', teamManagerUserId: '', teamColor: '' });
 const teamSaving = ref(false);
 
 const showMemberModal = ref(false);
@@ -5512,7 +5531,7 @@ const closeWeek = async () => {
 
 const openAddTeamModal = () => {
   editingTeam.value = null;
-  teamForm.value = { teamName: '', teamManagerUserId: '' };
+  teamForm.value = { teamName: '', teamManagerUserId: '', teamColor: '' };
   showTeamModal.value = true;
 };
 
@@ -5520,7 +5539,8 @@ const openEditTeamModal = (t) => {
   editingTeam.value = t;
   teamForm.value = {
     teamName: t.team_name || '',
-    teamManagerUserId: t.team_manager_user_id ? String(t.team_manager_user_id) : ''
+    teamManagerUserId: t.team_manager_user_id ? String(t.team_manager_user_id) : '',
+    teamColor: t.team_color || ''
   };
   showTeamModal.value = true;
 };
@@ -5528,6 +5548,7 @@ const openEditTeamModal = (t) => {
 const closeTeamModal = () => {
   showTeamModal.value = false;
   editingTeam.value = null;
+  teamForm.value = { teamName: '', teamManagerUserId: '', teamColor: '' };
 };
 
 const saveTeam = async () => {
@@ -5537,15 +5558,18 @@ const saveTeam = async () => {
   if (!name) return;
   teamSaving.value = true;
   try {
+    const color = teamForm.value.teamColor ? String(teamForm.value.teamColor).trim() : null;
     if (editingTeam.value) {
       await api.put(`/learning-program-classes/${classId}/teams/${editingTeam.value.id}`, {
         teamName: name,
-        teamManagerUserId: teamForm.value.teamManagerUserId ? Number(teamForm.value.teamManagerUserId) : null
+        teamManagerUserId: teamForm.value.teamManagerUserId ? Number(teamForm.value.teamManagerUserId) : null,
+        teamColor: color || null
       });
     } else {
       await api.post(`/learning-program-classes/${classId}/teams`, {
         teamName: name,
-        teamManagerUserId: teamForm.value.teamManagerUserId ? Number(teamForm.value.teamManagerUserId) : null
+        teamManagerUserId: teamForm.value.teamManagerUserId ? Number(teamForm.value.teamManagerUserId) : null,
+        teamColor: color || null
       });
     }
     closeTeamModal();

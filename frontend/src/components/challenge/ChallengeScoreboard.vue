@@ -32,19 +32,43 @@
               </div>
             </div>
 
-            <!-- Full-team progress: count of tagged members -->
+            <!-- Full-team progress: per-team breakdown -->
             <div v-if="task.mode === 'full_team'" class="cp-fullteam">
+              <!-- Overall total -->
               <span class="cp-fullteam-count">
                 <strong>{{ taggedCount(task.id) }}</strong>
                 <span class="cp-of"> of </span>
-                <span class="cp-denom">{{ totalParticipants || '?' }}</span>
-                members tagged
+                <span class="cp-denom">{{ totalRosterSize || '?' }}</span>
+                members tagged overall
               </span>
               <div class="cp-fullteam-bar-wrap">
                 <div
                   class="cp-fullteam-bar-fill"
-                  :style="{ width: totalParticipants ? `${taggedPct(task.id)}%` : '0%' }"
+                  :style="{ width: totalRosterSize ? `${overallTaggedPct(task.id)}%` : '0%' }"
                 />
+              </div>
+              <!-- Per-team rows -->
+              <div v-if="teams.length" class="cp-perteam-list">
+                <div v-for="team in teams" :key="team.teamId" class="cp-perteam-row">
+                  <span
+                    class="cp-perteam-swatch"
+                    :style="{ background: team.teamColor || teamFallbackColor(team.teamId) }"
+                  />
+                  <span class="cp-perteam-name">{{ team.teamName }}</span>
+                  <span class="cp-perteam-stat">
+                    <strong>{{ teamTaggedCount(task.id, team.teamId) }}</strong>
+                    <span class="cp-of"> / </span>{{ team.memberCount }}
+                  </span>
+                  <div class="cp-perteam-bar-wrap">
+                    <div
+                      class="cp-perteam-bar-fill"
+                      :style="{
+                        width: team.memberCount ? `${Math.min(100, Math.round(teamTaggedCount(task.id, team.teamId) / team.memberCount * 100))}%` : '0%',
+                        background: team.teamColor || teamFallbackColor(team.teamId)
+                      }"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -140,6 +164,7 @@ const tasks = ref([]);
 const taggedWorkouts = ref([]);   // workouts with weekly_task_id for this week
 const assignments = ref([]);      // weekly assignments [{task_id, team_id, provider_user_id, ...}]
 const recognitionData = ref(null);
+const teams = ref([]);            // [{teamId, teamName, teamColor, memberCount}]
 
 // ── Computed helpers ───────────────────────────────────────────
 // Count of distinct users who have tagged each task
@@ -154,21 +179,38 @@ const taggedCountMap = computed(() => {
 });
 const taggedCount = (taskId) => taggedCountMap.value[Number(taskId)]?.size || 0;
 
-// Total unique assigned + tagged participants (approximation for full_team denominator)
-// The scoreboard doesn't have roster size directly; we approximate from assignments + tagged
-const totalParticipants = computed(() => {
-  const users = new Set();
-  for (const w of taggedWorkouts.value) users.add(Number(w.user_id));
-  for (const a of assignments.value) users.add(Number(a.provider_user_id));
-  // Fallback: at least count distinct tagged users per full_team task
-  return users.size || 0;
-});
+// Total roster across all teams (for overall denominator)
+const totalRosterSize = computed(() => teams.value.reduce((s, t) => s + (t.memberCount || 0), 0));
 
-const taggedPct = (taskId) => {
-  const total = totalParticipants.value;
+const overallTaggedPct = (taskId) => {
+  const total = totalRosterSize.value;
   if (!total) return 0;
   return Math.min(100, Math.round((taggedCount(taskId) / total) * 100));
 };
+
+// Per-team tagged count (distinct users from taggedWorkouts matching team_id)
+const teamTaggedByTask = computed(() => {
+  const map = {}; // { taskId: { teamId: Set<userId> } }
+  for (const w of taggedWorkouts.value) {
+    const tid = Number(w.weekly_task_id);
+    const teamId = Number(w.team_id);
+    if (!map[tid]) map[tid] = {};
+    if (!map[tid][teamId]) map[tid][teamId] = new Set();
+    map[tid][teamId].add(Number(w.user_id));
+  }
+  return map;
+});
+const teamTaggedCount = (taskId, teamId) =>
+  teamTaggedByTask.value[Number(taskId)]?.[Number(teamId)]?.size || 0;
+
+const TEAM_PALETTE = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6', '#f97316', '#3b82f6'];
+const teamFallbackColor = (teamId) => {
+  const idx = teams.value.findIndex((t) => Number(t.teamId) === Number(teamId));
+  return TEAM_PALETTE[(idx >= 0 ? idx : 0) % TEAM_PALETTE.length];
+};
+
+// Legacy: kept for individual task use
+const totalParticipants = computed(() => totalRosterSize.value);
 
 // Assignment rows per task (for individual tasks)
 const taskAssignments = (taskId) => {
@@ -244,7 +286,7 @@ const load = async () => {
   if (!props.challengeId || !weekStartDate.value) return;
   loading.value = true;
   try {
-    const [tasksRes, workoutsRes, assignmentsRes, sbRes] = await Promise.allSettled([
+    const [tasksRes, workoutsRes, assignmentsRes, sbRes, progressRes] = await Promise.allSettled([
       api.get(`/learning-program-classes/${props.challengeId}/weekly-tasks`, {
         params: { week: weekStartDate.value }, skipGlobalLoading: true
       }),
@@ -256,6 +298,9 @@ const load = async () => {
       }),
       api.get(`/learning-program-classes/${props.challengeId}/scoreboard`, {
         params: { week: weekStartDate.value }, skipGlobalLoading: true
+      }),
+      api.get(`/learning-program-classes/${props.challengeId}/team-weekly-progress`, {
+        params: { weekStart: weekStartDate.value }, skipGlobalLoading: true
       }),
     ]);
 
@@ -271,6 +316,18 @@ const load = async () => {
     recognitionData.value = sbRes.status === 'fulfilled'
       ? (sbRes.value.data?.recognitionOfTheWeek || null)
       : null;
+    // Extract teams with memberCount for per-team breakdown
+    if (progressRes.status === 'fulfilled') {
+      const rawTeams = progressRes.value.data?.teams || [];
+      teams.value = rawTeams.map((t) => ({
+        teamId: t.teamId,
+        teamName: t.teamName,
+        teamColor: t.teamColor || null,
+        memberCount: Array.isArray(t.members) ? t.members.length : 0
+      }));
+    } else {
+      teams.value = [];
+    }
   } finally {
     loading.value = false;
   }
@@ -316,6 +373,14 @@ defineExpose({ load });
 .cp-fullteam { display: flex; flex-direction: column; gap: 5px; }
 .cp-fullteam-bar-wrap { height: 8px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
 .cp-fullteam-bar-fill { height: 100%; background: #6366f1; border-radius: 999px; transition: width 0.3s ease; min-width: 2px; }
+
+.cp-perteam-list { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0f4f8; }
+.cp-perteam-row { display: grid; grid-template-columns: 10px 1fr auto 80px; align-items: center; gap: 8px; }
+.cp-perteam-swatch { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.cp-perteam-name { font-size: 0.82em; color: #334155; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cp-perteam-stat { font-size: 0.82em; color: #64748b; white-space: nowrap; text-align: right; }
+.cp-perteam-bar-wrap { height: 5px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }
+.cp-perteam-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s; }
 .cp-fullteam-count { font-size: 0.78em; color: #475569; }
 .cp-fullteam-count strong { color: #1e293b; font-size: 1.1em; }
 .cp-of { color: #94a3b8; }
