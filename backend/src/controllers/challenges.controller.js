@@ -1093,6 +1093,63 @@ export const getActivityFeed = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /:classId/workouts
+ * Lightweight listing of workouts for the week, optionally filtered by team / task tag.
+ * Used by the Weekly Challenges UI to compute "X/Y tagged" progress.
+ */
+export const listClassWorkouts = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const scheduleSettings = parseJsonObject(parseJsonObject(access.class?.season_settings_json || {})?.schedule || {});
+    const weekCutoffTime = String(scheduleSettings?.weekEndsSundayAt || access.class?.week_start_time || '00:00');
+    const weekTimeZone   = String(scheduleSettings?.weekTimeZone || 'UTC');
+    const weekParam = req.query.week || req.query.weekStart;
+    const weekStart = weekParam
+      ? String(weekParam).slice(0, 10)
+      : getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
+    const range = getWeekDateTimeRange(weekStart, weekCutoffTime, weekTimeZone);
+    if (!range) return res.status(400).json({ error: { message: 'Invalid week' } });
+
+    const teamId  = req.query.teamId  ? asInt(req.query.teamId)  : null;
+    const hasTask = req.query.hasTask === 'true' || req.query.hasTask === '1';
+
+    const conditions = [
+      'w.learning_class_id = ?',
+      '(w.is_disqualified IS NULL OR w.is_disqualified = 0)',
+      'w.completed_at >= ?',
+      'w.completed_at < ?',
+    ];
+    const params = [classId, range.start, range.end];
+
+    if (teamId) {
+      conditions.push('EXISTS (SELECT 1 FROM challenge_team_members ctm WHERE ctm.team_id = ? AND ctm.user_id = w.user_id)');
+      params.push(teamId);
+    }
+    if (hasTask) {
+      conditions.push('w.weekly_task_id IS NOT NULL');
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT w.id, w.user_id, w.weekly_task_id, w.activity_type, w.distance_value, w.points,
+              w.completed_at, w.proof_status
+       FROM challenge_workouts w
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY w.completed_at DESC
+       LIMIT 500`,
+      params
+    );
+
+    return res.json({ workouts: rows || [] });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const getMyParticipationSummary = async (req, res, next) => {
   try {
     const userId = Number(req.user?.id || 0);
@@ -1762,7 +1819,7 @@ export const scanBulkWorkoutScreenshots = async (req, res, next) => {
     if (!isBerlinClassRow(classRow)) {
       return res.status(403).json({ error: { message: 'This roster fallback is currently enabled only for Berlin.' } });
     }
-    const files = Array.isArray(req.files) ? req.files.slice(0, 10) : [];
+    const files = Array.isArray(req.files) ? req.files.slice(0, 50) : [];
     if (!files.length) return res.status(400).json({ error: { message: 'At least one image is required' } });
     const roster = await loadChallengeRosterMembers(classId);
     const baseUrl = String(process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL || '').replace(/\/$/, '');
@@ -1843,7 +1900,7 @@ export const submitBulkWorkoutsOnBehalf = async (req, res, next) => {
     const schedule = parseJsonObject(settings?.schedule || {});
     const weekCutoffTime = String(schedule?.weekEndsSundayAt || classRow.week_start_time || '00:00');
     const weekTimeZone = String(schedule?.weekTimeZone || 'UTC');
-    const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 10) : [];
+    const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 50) : [];
     if (!items.length) return res.status(400).json({ error: { message: 'At least one workout item is required' } });
     const created = [];
     const errors = [];

@@ -94,7 +94,8 @@ import {
   getSeasonReport,
   getMatchupSchedule,
   generateMatchupSchedule,
-  getMatchupStandings
+  getMatchupStandings,
+  listClassWorkouts
 } from '../controllers/challenges.controller.js';
 import {
   getScoreboard,
@@ -218,6 +219,7 @@ router.post('/:classId/roster/merge-placeholder', mergeRosterPlaceholder);
 router.post('/:classId/workouts/scan-screenshot', workoutMediaUpload.single('file'), scanWorkoutScreenshot);
 router.post('/:classId/workouts/bulk-scan', workoutMediaUpload.array('files', 10), scanBulkWorkoutScreenshots);
 router.get('/:classId/activity', getActivityFeed);
+router.get('/:classId/workouts', listClassWorkouts);
 router.post('/:classId/workouts', submitWorkout);
 router.post('/:classId/workouts/bulk-on-behalf', submitBulkWorkoutsOnBehalf);
 router.put('/:classId/workouts/:workoutId/proof-review', reviewWorkoutProof);
