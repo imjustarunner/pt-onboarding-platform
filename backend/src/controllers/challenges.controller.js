@@ -4232,44 +4232,27 @@ export const getMatchupStandings = async (req, res, next) => {
 
     const [rows] = await pool.execute(
       `SELECT
-         sub.team_id,
-         sub.team_name,
+         t.id AS team_id,
+         t.team_name,
          t.logo_path,
          t.team_color,
-         SUM(sub.wins)    AS wins,
-         SUM(sub.losses)  AS losses,
-         SUM(sub.ties)    AS ties,
-         SUM(sub.pts_for) AS pts_for,
-         SUM(sub.pts_against) AS pts_against
-       FROM (
-         SELECT
-           m.team1_id AS team_id,
-           t1.team_name,
-           SUM(m.winner_team_id = m.team1_id AND m.is_tie = 0) AS wins,
-           SUM(m.winner_team_id = m.team2_id AND m.is_tie = 0) AS losses,
-           SUM(m.is_tie = 1 AND m.resolved_at IS NOT NULL)     AS ties,
-           SUM(COALESCE(m.team1_points, 0)) AS pts_for,
-           SUM(COALESCE(m.team2_points, 0)) AS pts_against
-         FROM challenge_matchups m
-         JOIN challenge_teams t1 ON t1.id = m.team1_id
-         WHERE m.learning_class_id = ? AND m.resolved_at IS NOT NULL
-         GROUP BY m.team1_id, t1.team_name
-         UNION ALL
-         SELECT
-           m.team2_id,
-           t2.team_name,
-           SUM(m.winner_team_id = m.team2_id AND m.is_tie = 0) AS wins,
-           SUM(m.winner_team_id = m.team1_id AND m.is_tie = 0) AS losses,
-           SUM(m.is_tie = 1 AND m.resolved_at IS NOT NULL)     AS ties,
-           SUM(COALESCE(m.team2_points, 0)) AS pts_for,
-           SUM(COALESCE(m.team1_points, 0)) AS pts_against
-         FROM challenge_matchups m
-         JOIN challenge_teams t2 ON t2.id = m.team2_id
-         WHERE m.learning_class_id = ? AND m.resolved_at IS NOT NULL
-         GROUP BY m.team2_id, t2.team_name
-       ) sub
-       JOIN challenge_teams t ON t.id = sub.team_id
-       GROUP BY sub.team_id, sub.team_name, t.logo_path, t.team_color
+         COALESCE(SUM(CASE WHEN m.winner_team_id = t.id AND m.is_tie = 0 THEN 1 ELSE 0 END), 0) AS wins,
+         COALESCE(SUM(CASE
+           WHEN m.resolved_at IS NOT NULL AND m.is_tie = 0
+                AND m.winner_team_id IS NOT NULL AND m.winner_team_id != t.id
+           THEN 1 ELSE 0 END), 0) AS losses,
+         COALESCE(SUM(CASE WHEN m.is_tie = 1 AND m.resolved_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS ties,
+         COALESCE(SUM(CASE
+           WHEN m.team1_id = t.id THEN COALESCE(m.team1_points, 0)
+           WHEN m.team2_id = t.id THEN COALESCE(m.team2_points, 0)
+           ELSE 0 END), 0) AS pts_for
+       FROM challenge_teams t
+       LEFT JOIN challenge_matchups m
+         ON (m.team1_id = t.id OR m.team2_id = t.id)
+         AND m.learning_class_id = ?
+         AND m.resolved_at IS NOT NULL
+       WHERE t.learning_class_id = ?
+       GROUP BY t.id, t.team_name, t.logo_path, t.team_color
        ORDER BY wins DESC, pts_for DESC`,
       [classId, classId]
     );
@@ -4376,32 +4359,30 @@ export const getPublicMatchupWidget = async (req, res, next) => {
       resolvedAt: row.resolved_at || null,
     }));
 
-    // Season W/L standings
+    // Season W/L standings — include ALL teams even with 0-0-0 records
     const [standingRows] = await pool.execute(
-      `SELECT sub.team_id, sub.team_name, t.logo_path, t.team_color,
-              SUM(sub.wins) AS wins, SUM(sub.losses) AS losses, SUM(sub.ties) AS ties,
-              SUM(sub.pts_for) AS pts_for
-       FROM (
-         SELECT m.team1_id AS team_id, t1.team_name,
-           SUM(m.winner_team_id = m.team1_id AND m.is_tie = 0) AS wins,
-           SUM(m.winner_team_id = m.team2_id AND m.is_tie = 0) AS losses,
-           SUM(m.is_tie = 1 AND m.resolved_at IS NOT NULL) AS ties,
-           SUM(COALESCE(m.team1_points, 0)) AS pts_for
-         FROM challenge_matchups m JOIN challenge_teams t1 ON t1.id = m.team1_id
-         WHERE m.learning_class_id = ? AND m.resolved_at IS NOT NULL
-         GROUP BY m.team1_id, t1.team_name
-         UNION ALL
-         SELECT m.team2_id, t2.team_name,
-           SUM(m.winner_team_id = m.team2_id AND m.is_tie = 0) AS wins,
-           SUM(m.winner_team_id = m.team1_id AND m.is_tie = 0) AS losses,
-           SUM(m.is_tie = 1 AND m.resolved_at IS NOT NULL) AS ties,
-           SUM(COALESCE(m.team2_points, 0)) AS pts_for
-         FROM challenge_matchups m JOIN challenge_teams t2 ON t2.id = m.team2_id
-         WHERE m.learning_class_id = ? AND m.resolved_at IS NOT NULL
-         GROUP BY m.team2_id, t2.team_name
-       ) sub
-       JOIN challenge_teams t ON t.id = sub.team_id
-       GROUP BY sub.team_id, sub.team_name, t.logo_path, t.team_color
+      `SELECT
+         t.id AS team_id,
+         t.team_name,
+         t.logo_path,
+         t.team_color,
+         COALESCE(SUM(CASE WHEN m.winner_team_id = t.id AND m.is_tie = 0 THEN 1 ELSE 0 END), 0) AS wins,
+         COALESCE(SUM(CASE
+           WHEN m.resolved_at IS NOT NULL AND m.is_tie = 0
+                AND m.winner_team_id IS NOT NULL AND m.winner_team_id != t.id
+           THEN 1 ELSE 0 END), 0) AS losses,
+         COALESCE(SUM(CASE WHEN m.is_tie = 1 AND m.resolved_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS ties,
+         COALESCE(SUM(CASE
+           WHEN m.team1_id = t.id THEN COALESCE(m.team1_points, 0)
+           WHEN m.team2_id = t.id THEN COALESCE(m.team2_points, 0)
+           ELSE 0 END), 0) AS pts_for
+       FROM challenge_teams t
+       LEFT JOIN challenge_matchups m
+         ON (m.team1_id = t.id OR m.team2_id = t.id)
+         AND m.learning_class_id = ?
+         AND m.resolved_at IS NOT NULL
+       WHERE t.learning_class_id = ?
+       GROUP BY t.id, t.team_name, t.logo_path, t.team_color
        ORDER BY wins DESC, pts_for DESC`,
       [classId, classId]
     );

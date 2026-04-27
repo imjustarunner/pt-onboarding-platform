@@ -322,7 +322,7 @@
           <div v-else class="mu-hero-cards">
             <div v-for="m in orientedDisplayMatchups" :key="m.id" class="mu-hero-card">
 
-              <!-- LEFT side (leader / higher score) -->
+              <!-- LEFT side: [logo] [name···] [score] — score closest to VS -->
               <div
                 class="mu-hero-side mu-hero-side--left"
                 :class="{ 'mu-hero-side--winner': m.left.isWinner, 'mu-hero-side--leading': m.isLeading }"
@@ -335,12 +335,10 @@
                   <img v-if="m.left.logo" :src="resolveUploadUrl(m.left.logo)" class="mu-hero-logo" alt="" />
                   <div v-else class="mu-hero-logo-placeholder" :style="{ color: m.left.color }">{{ (m.left.name || '?')[0].toUpperCase() }}</div>
                 </div>
-                <div class="mu-hero-info">
-                  <span class="mu-hero-team-label">{{ m.left.name }}</span>
-                  <span class="mu-hero-score" :class="m.left.isWinner || m.isLeading ? 'mu-score--leader' : 'mu-score--trail'" :style="{ color: m.left.color }">
-                    {{ m.left.score != null ? Number(m.left.score).toFixed(1) : '—' }}
-                  </span>
-                </div>
+                <span class="mu-hero-team-label mu-hero-team-label--left">{{ m.left.name }}</span>
+                <span class="mu-hero-score" :class="m.left.isWinner || m.isLeading ? 'mu-score--leader' : 'mu-score--trail'" :style="{ color: m.left.color }">
+                  {{ m.left.score != null ? Number(m.left.score).toFixed(1) : '—' }}
+                </span>
               </div>
 
               <!-- VS center -->
@@ -353,7 +351,7 @@
                 </div>
               </div>
 
-              <!-- RIGHT side (trailer) -->
+              <!-- RIGHT side: [score] [···name] [logo] — score closest to VS -->
               <div
                 class="mu-hero-side mu-hero-side--right"
                 :class="{ 'mu-hero-side--winner': m.right.isWinner }"
@@ -362,12 +360,10 @@
                   borderRight: `3px solid ${m.right.color}`
                 }"
               >
-                <div class="mu-hero-info mu-hero-info--right">
-                  <span class="mu-hero-team-label">{{ m.right.name }}</span>
-                  <span class="mu-hero-score mu-score--trail" :style="{ color: m.right.color }">
-                    {{ m.right.score != null ? Number(m.right.score).toFixed(1) : '—' }}
-                  </span>
-                </div>
+                <span class="mu-hero-score mu-score--trail" :style="{ color: m.right.color }">
+                  {{ m.right.score != null ? Number(m.right.score).toFixed(1) : '—' }}
+                </span>
+                <span class="mu-hero-team-label mu-hero-team-label--right">{{ m.right.name }}</span>
                 <div class="mu-hero-logo-wrap" :style="{ borderColor: m.right.color }">
                   <img v-if="m.right.logo" :src="resolveUploadUrl(m.right.logo)" class="mu-hero-logo" alt="" />
                   <div v-else class="mu-hero-logo-placeholder" :style="{ color: m.right.color }">{{ (m.right.name || '?')[0].toUpperCase() }}</div>
@@ -450,7 +446,7 @@
           </div>
 
           <!-- ── Season W/L Standings ───────────────────────────── -->
-          <div v-if="matchupStandings.length" class="mu-standings-block">
+          <div v-if="matchupStandings.length || matchupsEnabled" class="mu-standings-block">
             <div class="mu-standings-header">
               <span class="mu-standings-title">Season Standings</span>
               <span class="mu-standings-cols">
@@ -4188,7 +4184,7 @@ watch(() => workoutForm.value.terrain, (terrain) => {
 .mu-hero-side {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   flex: 1;
   padding: 18px 16px 18px 20px;
   min-width: 0;
@@ -4198,8 +4194,6 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   border-right: 1px solid rgba(255,255,255,0.05);
 }
 .mu-hero-side--right {
-  flex-direction: row-reverse;
-  text-align: right;
   padding: 18px 20px 18px 16px;
   border-left: 1px solid rgba(255,255,255,0.05);
 }
@@ -4225,27 +4219,19 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   background: rgba(255,255,255,0.06);
 }
 
-.mu-hero-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 1;
-}
-.mu-hero-info--right {
-  align-items: flex-end;
-  text-align: right;
-}
 .mu-hero-team-label {
-  font-size: 0.75rem;
+  flex: 1;
+  font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
-  color: rgba(255,255,255,0.5);
+  color: rgba(255,255,255,0.55);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.mu-hero-team-label--left  { text-align: left; }
+.mu-hero-team-label--right { text-align: right; }
 .mu-hero-score {
   font-weight: 900;
   letter-spacing: -0.01em;
