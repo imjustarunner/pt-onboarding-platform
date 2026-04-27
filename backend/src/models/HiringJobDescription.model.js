@@ -15,6 +15,7 @@ class HiringJobDescription {
     city = null,
     state = null,
     educationLevel = null,
+    applicationPageJson = null,
     storagePath = null,
     originalName = null,
     mimeType = null,
@@ -24,9 +25,9 @@ class HiringJobDescription {
     const [result] = await pool.execute(
       `INSERT INTO hiring_job_descriptions (
         agency_id, title, description_text, posted_date, application_deadline, city, state, education_level,
-        storage_path, original_name, mime_type,
+        application_page_json, storage_path, original_name, mime_type,
         is_active, created_by_user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         parseIntParam(agencyId),
         String(title || '').trim().slice(0, 255),
@@ -36,6 +37,7 @@ class HiringJobDescription {
         city !== undefined && city !== null ? String(city).trim().slice(0, 120) : null,
         state !== undefined && state !== null ? String(state).trim().slice(0, 120) : null,
         educationLevel !== undefined && educationLevel !== null ? String(educationLevel).trim().slice(0, 80) : null,
+        applicationPageJson !== undefined && applicationPageJson !== null ? JSON.stringify(applicationPageJson) : null,
         storagePath || null,
         originalName || null,
         mimeType || null,
@@ -80,6 +82,7 @@ class HiringJobDescription {
     city,
     state,
     educationLevel,
+    applicationPageJson,
     storagePath,
     originalName,
     mimeType,
@@ -115,6 +118,10 @@ class HiringJobDescription {
     if (educationLevel !== undefined) {
       updates.push('education_level = ?');
       params.push(educationLevel !== null ? String(educationLevel).trim().slice(0, 80) : null);
+    }
+    if (applicationPageJson !== undefined) {
+      updates.push('application_page_json = ?');
+      params.push(applicationPageJson !== null ? JSON.stringify(applicationPageJson) : null);
     }
     if (storagePath !== undefined) {
       updates.push('storage_path = ?');
@@ -154,4 +161,3 @@ class HiringJobDescription {
 }
 
 export default HiringJobDescription;
-

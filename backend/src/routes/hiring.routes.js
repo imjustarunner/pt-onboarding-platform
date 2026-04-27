@@ -6,6 +6,8 @@ import {
   createCandidate,
   listHiringAssignees,
   listJobDescriptions,
+  getAgencyCareersPage,
+  updateAgencyCareersPage,
   createJobDescription,
   updateJobDescription,
   deleteJobDescription,
@@ -60,6 +62,8 @@ const upload = multer({
       'text/plain',
       'image/png',
       'image/jpeg',
+      'image/webp',
+      'image/gif',
       'application/msword',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     ]);
@@ -77,9 +81,11 @@ router.post('/me/time-capsule-reveals/:entryId/open', postTimeCapsuleRevealOpen)
 router.post('/me/time-capsule-reveals/:entryId/acknowledge', postTimeCapsuleRevealAcknowledge);
 router.post('/me/time-capsule-reveals/:entryId/snooze', postTimeCapsuleRevealSnooze);
 router.get('/assignees', listHiringAssignees);
+router.get('/careers-page', getAgencyCareersPage);
+router.put('/careers-page', upload.fields([{ name: 'agencyHeroImage', maxCount: 1 }]), updateAgencyCareersPage);
 router.get('/job-descriptions', listJobDescriptions);
-router.post('/job-descriptions', upload.single('file'), createJobDescription);
-router.put('/job-descriptions/:jobDescriptionId', upload.single('file'), updateJobDescription);
+router.post('/job-descriptions', upload.fields([{ name: 'file', maxCount: 1 }, { name: 'heroImage', maxCount: 1 }]), createJobDescription);
+router.put('/job-descriptions/:jobDescriptionId', upload.fields([{ name: 'file', maxCount: 1 }, { name: 'heroImage', maxCount: 1 }]), updateJobDescription);
 router.delete('/job-descriptions/:jobDescriptionId', deleteJobDescription);
 router.get('/job-descriptions/:jobDescriptionId/view', viewJobDescriptionFile);
 router.get('/candidates/:userId', getCandidate);
@@ -111,4 +117,3 @@ router.post('/candidates/:userId/prescreen', generateCandidatePreScreenReport);
 router.post('/candidates/:userId/promote', promoteCandidateToPendingSetup);
 
 export default router;
-

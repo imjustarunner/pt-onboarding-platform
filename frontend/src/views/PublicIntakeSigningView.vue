@@ -3,22 +3,22 @@
     <div v-if="loading" class="loading">{{ loadingText }}</div>
     <div v-else-if="fatalError" class="error">{{ fatalError }}</div>
 
-    <div v-else class="intake-card">
+    <div v-else class="intake-card" :class="{ 'intake-card--job-landing': isJobApplication && step === -1 }">
       <!-- Inline recoverable error banner — form stays fully visible and Back works -->
       <div v-if="error" class="intake-inline-error-banner">
         <span>{{ error }}</span>
         <button type="button" class="intake-inline-error-dismiss" @click="error = ''">&#10005;</button>
       </div>
       <button
-        v-if="isSuperAdmin"
+        v-if="isSuperAdmin && !(isJobApplication && step === -1)"
         class="btn btn-secondary btn-sm dev-fill-button"
         type="button"
         @click="fillExample"
       >
         Dev Fill
       </button>
-      <h2>{{ tx(link?.title || defaultTitle) }}</h2>
-      <p v-if="link?.description" class="muted">{{ tx(link.description) }}</p>
+      <h2 v-if="!(isJobApplication && step === -1)">{{ tx(link?.title || defaultTitle) }}</h2>
+      <p v-if="link?.description && !(isJobApplication && step === -1)" class="muted">{{ tx(link.description) }}</p>
       <div v-if="hasLinkedLanguageToggle" class="intake-language-toggle" role="group" aria-label="Form language">
         <button
           type="button"
@@ -41,7 +41,108 @@
       <div v-if="draftRestoredMessage" class="draft-restored-banner">{{ draftRestoredMessage }}</div>
 
       <div v-if="step === -1" class="step cover-step">
-        <div class="cover-card">
+        <div v-if="isJobApplication" class="job-landing-shell">
+          <header class="job-landing-header">
+            <div class="job-landing-brand">
+              <img v-if="jobLandingLogoUrl" :src="jobLandingLogoUrl" :alt="`${jobLandingAgencyName} logo`" />
+              <span>{{ jobLandingAgencyName }}</span>
+            </div>
+            <div class="job-landing-secure">
+              <span class="job-landing-secure-icon"><JobLandingIcon name="shield" /></span>
+              <span>
+                <strong>{{ jobLandingSecureTitle }}</strong>
+                <small>{{ jobLandingSecureSubtitle }}</small>
+              </span>
+            </div>
+          </header>
+
+          <main class="job-landing-hero" :class="{ 'job-landing-hero--no-image': !jobLandingHeroImageUrl }">
+            <section class="job-landing-copy">
+              <div v-if="jobLandingEyebrow" class="job-landing-eyebrow">
+                <span><JobLandingIcon name="heart" /></span>
+                {{ jobLandingEyebrow }}
+              </div>
+              <h1>
+                <span>{{ jobLandingTitleBase }}</span>
+                <span v-if="jobLandingTitleHighlight" class="job-landing-title-highlight">{{ jobLandingTitleHighlight }}</span>
+              </h1>
+              <div v-if="jobLandingLead" class="job-landing-lead">{{ jobLandingLead }}</div>
+              <div v-if="jobLandingDescription" class="job-landing-accent"></div>
+              <p v-if="jobLandingDescription" class="job-landing-description">{{ jobLandingDescription }}</p>
+              <div v-if="jobLandingMetaItems.length" class="job-landing-meta">
+                <span v-for="item in jobLandingMetaItems" :key="item.label" class="job-landing-meta-pill">
+                  {{ item.label }}
+                </span>
+              </div>
+            </section>
+            <figure v-if="jobLandingHeroImageUrl" class="job-landing-image">
+              <div v-if="jobLandingShowLeafAccent" class="job-landing-leaf-accent" aria-hidden="true">
+                <span></span><span></span><span></span><span></span><span></span>
+              </div>
+              <img :src="jobLandingHeroImageUrl" :alt="jobLandingHeroImageAlt" :style="{ objectPosition: jobLandingHeroImagePosition }" />
+            </figure>
+          </main>
+
+          <section v-if="jobLandingFeatureCards.length" class="job-landing-feature-grid" aria-label="Job highlights">
+            <article v-for="card in jobLandingFeatureCards" :key="`${card.title}-${card.body}`" class="job-landing-feature-card">
+              <div v-if="card.icon && card.icon !== 'none'" class="job-landing-feature-icon"><JobLandingIcon :name="card.icon" /></div>
+              <h3>{{ card.title }}</h3>
+              <p v-if="card.body">{{ card.body }}</p>
+            </article>
+          </section>
+
+          <section class="job-landing-start-card">
+            <div class="job-landing-start-icon"><JobLandingIcon name="shield" /></div>
+            <div class="job-landing-start-body">
+              <h2>{{ jobLandingStartHeading }}</h2>
+              <p>{{ jobLandingStartSubtitle }}</p>
+
+              <div v-if="showCaptchaGate" class="captcha-block captcha-block-start">
+                <div class="muted">{{ t('protectedByRecaptcha') }}</div>
+                <div v-if="showRecaptchaWidget" class="recaptcha-verify-first">
+                  {{ t('verifyHumanFirst') }}
+                </div>
+                <div v-if="captchaError" class="error">{{ captchaError }}</div>
+                <div class="recaptcha-widget">
+                  <div id="recaptcha-widget-start" ref="recaptchaWidgetElStart" />
+                  <div v-if="captchaWidgetFailed" class="muted" style="margin-top: 6px; color: var(--warning, #b8860b);">
+                    Verification widget failed to load. Please refresh the page.
+                  </div>
+                  <div v-else-if="!captchaToken" class="muted" style="margin-top: 6px;">
+                    {{ t('completeCaptchaToContinue') }}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                class="btn btn-primary job-landing-start-btn"
+                type="button"
+                :disabled="(requiresCaptchaAtStart && (!showRecaptchaWidget || !captchaToken)) || consentLoading"
+                @click="beginIntakeSession"
+              >
+                <span>{{ jobLandingStartButtonText }}</span>
+                <span aria-hidden="true">→</span>
+              </button>
+              <div v-if="jobLandingStartTimeNote" class="job-landing-start-note">
+                <JobLandingIcon name="clock" />
+                <span>{{ jobLandingStartTimeNote }}</span>
+              </div>
+              <div v-if="beginError" class="error" style="margin-top: 10px;">{{ beginError }}</div>
+            </div>
+          </section>
+
+          <section v-if="jobLandingTrustItems.length" class="job-landing-trust-row" aria-label="Application details">
+            <article v-for="item in jobLandingTrustItems" :key="`${item.title}-${item.body}`" class="job-landing-trust-item">
+              <div v-if="item.icon && item.icon !== 'none'" class="job-landing-trust-icon"><JobLandingIcon :name="item.icon" /></div>
+              <div>
+                <strong>{{ item.title }}</strong>
+                <small v-if="item.body">{{ item.body }}</small>
+              </div>
+            </article>
+          </section>
+        </div>
+
+        <div v-else class="cover-card">
           <div v-for="screen in introScreens" :key="screen.key" class="cover-logo">
             <img v-if="screen.logoUrl" :src="screen.logoUrl" :alt="screen.altText" />
             <div class="cover-title">{{ screen.displayName }}</div>
@@ -1599,7 +1700,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue';
+import { computed, h, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import SignaturePad from '../components/SignaturePad.vue';
@@ -1611,6 +1712,85 @@ import PublicIntakePaymentStep from '../components/public-intake/PublicIntakePay
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { isMedicaidInsurer } from '../utils/coloradoInsurances';
 import { useAuthStore } from '../store/auth';
+
+const JOB_LANDING_ICON_PATHS = {
+  school: [
+    'M4 21V9l8-5 8 5v12',
+    'M9 21v-6h6v6',
+    'M8 11h.01M12 11h.01M16 11h.01'
+  ],
+  office: [
+    'M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16',
+    'M9 7h.01M12 7h.01M15 7h.01M9 11h.01M12 11h.01M15 11h.01M9 15h.01M12 15h.01M15 15h.01',
+    'M10 21v-3h4v3'
+  ],
+  people: [
+    'M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2',
+    'M9.5 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8',
+    'M21 21v-2a4 4 0 0 0-3-3.87',
+    'M16 3.13a4 4 0 0 1 0 7.75'
+  ],
+  growth: [
+    'M4 19V5',
+    'M4 19h16',
+    'M7 16v-4M12 16V8M17 16v-7',
+    'M8 7l4-4 4 4M12 3v5'
+  ],
+  heart: [
+    'M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z'
+  ],
+  shield: [
+    'M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-3z',
+    'M9 12l2 2 4-5'
+  ],
+  lock: [
+    'M7 11V8a5 5 0 0 1 10 0v3',
+    'M6 11h12v10H6z',
+    'M12 15v2'
+  ],
+  handshake: [
+    'M8 12l3-3 3 3',
+    'M3 13l5 5 4-4 4 4 5-5',
+    'M7 9l-4 4M17 9l4 4',
+    'M11 9l2-2a3 3 0 0 1 4 0l1 1'
+  ],
+  star: [
+    'M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2 7.5 14 3 9.6l6.2-.9L12 3z'
+  ],
+  clock: [
+    'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z',
+    'M12 6v6l4 2'
+  ]
+};
+
+const JobLandingIcon = {
+  props: {
+    name: { type: String, default: 'star' }
+  },
+  setup(props) {
+    return () => {
+      const key = String(props.name || '').trim().toLowerCase();
+      const paths = JOB_LANDING_ICON_PATHS[key] || JOB_LANDING_ICON_PATHS.star;
+      return h(
+        'svg',
+        {
+          class: 'job-landing-icon-svg',
+          viewBox: '0 0 24 24',
+          fill: 'none',
+          'aria-hidden': 'true',
+          focusable: 'false'
+        },
+        paths.map((d) => h('path', {
+          d,
+          stroke: 'currentColor',
+          'stroke-width': '1.9',
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round'
+        }))
+      );
+    };
+  }
+};
 
 const INTAKE_TRANSLATIONS = {
   en: {
@@ -3962,6 +4142,118 @@ const isExistingClientByMatch = computed(() =>
   String(intakeResponses.submission?.registration_client_match || '').trim().toLowerCase() === 'existing'
 );
 const isJobApplication = computed(() => String(link.value?.form_type || '').toLowerCase() === 'job_application');
+const jobApplicationPage = computed(() => {
+  const raw = jobDescriptionSummary.value?.applicationPage;
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+});
+const normalizeJobLandingCards = (items, maxItems) => {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item) => ({
+      icon: String(item?.icon || 'none').trim() || 'none',
+      title: String(item?.title || '').trim(),
+      body: String(item?.body || '').trim()
+    }))
+    .filter((item) => item.title || item.body)
+    .slice(0, maxItems);
+};
+const jobLandingLogoUrl = computed(() => {
+  const firstWithLogo = (introScreens.value || []).find((screen) => screen?.logoUrl);
+  return firstWithLogo?.logoUrl || resolveLogoUrl(agencyInfo.value) || '';
+});
+const jobLandingAgencyName = computed(() =>
+  getDisplayName(agencyInfo.value) || getDisplayName(organizationInfo.value) || 'Application'
+);
+const jobLandingTitle = computed(() =>
+  String(jobDescriptionSummary.value?.title || link.value?.title || defaultTitle.value || '').trim()
+);
+const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const jobLandingTitleHighlight = computed(() => {
+  const configured = String(jobApplicationPage.value?.titleHighlight || '').trim();
+  if (configured) return configured;
+  const city = String(jobDescriptionSummary.value?.city || '').trim();
+  if (city && jobLandingTitle.value.toLowerCase().includes(city.toLowerCase())) return city;
+  return '';
+});
+const jobLandingTitleBase = computed(() => {
+  const title = jobLandingTitle.value;
+  const highlight = jobLandingTitleHighlight.value;
+  if (!highlight) return title;
+  const trailingPattern = new RegExp(`\\s*[-–—]?\\s*${escapeRegExp(highlight)}\\s*$`, 'i');
+  const base = title.replace(trailingPattern, '').trim();
+  return base || title;
+});
+const jobLandingEyebrow = computed(() => String(jobApplicationPage.value?.eyebrow || '').trim());
+const jobLandingLead = computed(() => String(jobApplicationPage.value?.lead || '').trim());
+const jobLandingDescription = computed(() =>
+  String(jobDescriptionSummary.value?.descriptionText || link.value?.description || '').trim()
+);
+const jobLandingSecureTitle = computed(() =>
+  String(jobApplicationPage.value?.secureTitle || 'Secure & Confidential').trim()
+);
+const jobLandingSecureSubtitle = computed(() =>
+  String(jobApplicationPage.value?.secureSubtitle || 'Your information is always protected').trim()
+);
+const jobLandingHeroImageUrl = computed(() => {
+  const raw = String(jobApplicationPage.value?.heroImageUrl || '').trim();
+  return toUploadsUrl(raw) || raw;
+});
+const jobLandingHeroImagePosition = computed(() =>
+  String(jobApplicationPage.value?.heroImagePosition || 'center center').trim()
+);
+const jobLandingShowLeafAccent = computed(() =>
+  jobApplicationPage.value?.showLeafAccent !== false
+);
+const jobLandingHeroImageAlt = computed(() =>
+  String(jobApplicationPage.value?.heroImageAlt || jobLandingTitle.value || 'Job application image').trim()
+);
+const jobLandingStartHeading = computed(() =>
+  String(jobApplicationPage.value?.startHeading || 'Ready to take the next step?').trim()
+);
+const jobLandingStartSubtitle = computed(() =>
+  String(jobApplicationPage.value?.startSubtitle || 'Click below to start your application. It only takes a few minutes.').trim()
+);
+const jobLandingStartButtonText = computed(() =>
+  String(jobApplicationPage.value?.startButtonText || beginIntakeButtonText.value || 'Start Application').trim()
+);
+const jobLandingStartTimeNote = computed(() =>
+  String(jobApplicationPage.value?.startTimeNote || 'Takes 3-5 minutes to begin').trim()
+);
+const jobLandingFeatureCards = computed(() =>
+  normalizeJobLandingCards(jobApplicationPage.value?.featureCards, 4)
+);
+const jobLandingTrustItems = computed(() =>
+  normalizeJobLandingCards(jobApplicationPage.value?.trustItems, 3)
+);
+const formatEducationLevel = (value) => {
+  const raw = String(value || '').trim();
+  const map = {
+    bachelors: 'Bachelors',
+    masters_level_intern: 'Masters level intern',
+    masters_or_doctoral: 'Masters/Doctoral level'
+  };
+  return map[raw] || raw;
+};
+const formatJobDate = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const dt = new Date(raw);
+  if (!Number.isFinite(dt.getTime())) return raw;
+  return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+};
+const jobLandingMetaItems = computed(() => {
+  const items = [];
+  const cityState = [jobDescriptionSummary.value?.city, jobDescriptionSummary.value?.state]
+    .map((v) => String(v || '').trim())
+    .filter(Boolean)
+    .join(', ');
+  if (cityState) items.push({ label: cityState });
+  const education = formatEducationLevel(jobDescriptionSummary.value?.educationLevel);
+  if (education) items.push({ label: education });
+  const deadline = formatJobDate(jobDescriptionSummary.value?.applicationDeadline);
+  if (deadline) items.push({ label: `Apply by ${deadline}` });
+  return items;
+});
 const isMedicalRecordsRequest = computed(() => String(link.value?.form_type || '').toLowerCase() === 'medical_records_request');
 const jobAckPdfViewerUrl = computed(() => {
   const base = String(jobDescriptionSummary.value?.fileUrl || '').trim();
@@ -8425,6 +8717,399 @@ onBeforeUnmount(() => {
   background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
 }
 
+.intake-card--job-landing {
+  width: min(1420px, 100%);
+  padding: 0;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #f8fcfa;
+}
+.intake-card--job-landing .cover-step {
+  align-items: stretch;
+}
+.job-landing-shell {
+  width: 100%;
+  color: #102033;
+}
+.job-landing-icon-svg {
+  display: block;
+  width: 1em;
+  height: 1em;
+  flex: 0 0 auto;
+}
+.job-landing-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 32px;
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+}
+.job-landing-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  font-size: 22px;
+  font-weight: 800;
+  color: #132033;
+}
+.job-landing-brand img {
+  width: auto;
+  height: 58px;
+  max-width: 150px;
+  object-fit: contain;
+}
+.job-landing-brand span {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+.job-landing-secure {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #334155;
+  text-align: left;
+  flex: 0 0 auto;
+}
+.job-landing-secure-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #e8f7ee;
+  color: #258451;
+}
+.job-landing-secure strong,
+.job-landing-secure small {
+  display: block;
+}
+.job-landing-secure strong {
+  font-size: 13px;
+}
+.job-landing-secure small {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #64748b;
+}
+.job-landing-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.78fr);
+  gap: 34px;
+  align-items: center;
+  padding: 48px 68px 28px;
+}
+.job-landing-hero--no-image {
+  grid-template-columns: minmax(0, 820px);
+  justify-content: center;
+  text-align: center;
+}
+.job-landing-copy {
+  min-width: 0;
+}
+.job-landing-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border: 1px solid rgba(36, 145, 82, 0.34);
+  border-radius: 999px;
+  color: #258451;
+  background: #f6fff9;
+  font-weight: 800;
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+.job-landing-eyebrow .job-landing-icon-svg {
+  width: 15px;
+  height: 15px;
+}
+.job-landing-copy h1 {
+  margin: 0;
+  font-size: 56px;
+  line-height: 1.05;
+  letter-spacing: 0;
+  color: #102033;
+}
+.job-landing-copy h1 span {
+  display: block;
+}
+.job-landing-title-highlight {
+  color: #2fa26b;
+}
+.job-landing-lead {
+  margin-top: 22px;
+  font-size: 26px;
+  line-height: 1.22;
+  font-weight: 800;
+  color: #18304c;
+}
+.job-landing-accent {
+  width: 86px;
+  height: 3px;
+  margin: 20px 0 18px;
+  border-radius: 999px;
+  background: #2fa26b;
+}
+.job-landing-hero--no-image .job-landing-accent {
+  margin-left: auto;
+  margin-right: auto;
+}
+.job-landing-description {
+  margin: 0;
+  color: #4b5b72;
+  font-size: 17px;
+  line-height: 1.65;
+  white-space: pre-line;
+}
+.job-landing-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+.job-landing-hero--no-image .job-landing-meta {
+  justify-content: center;
+}
+.job-landing-meta-pill {
+  padding: 7px 12px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+}
+.job-landing-image {
+  position: relative;
+  margin: 0;
+  align-self: center;
+}
+.job-landing-image img {
+  position: relative;
+  z-index: 2;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1.45 / 1;
+  object-fit: cover;
+  border-radius: 44px 44px 44px 8px;
+  box-shadow: 0 24px 60px -34px rgba(15, 23, 42, 0.58);
+}
+.job-landing-leaf-accent {
+  position: absolute;
+  z-index: 1;
+  left: -72px;
+  bottom: -24px;
+  width: 190px;
+  height: 190px;
+  pointer-events: none;
+  opacity: 0.78;
+}
+.job-landing-leaf-accent::before {
+  content: "";
+  position: absolute;
+  left: 54px;
+  bottom: 34px;
+  width: 120px;
+  height: 68px;
+  border-bottom: 3px solid rgba(84, 190, 135, 0.5);
+  border-radius: 0 0 90px 90px;
+  transform: rotate(10deg);
+}
+.job-landing-leaf-accent span {
+  position: absolute;
+  width: 48px;
+  height: 28px;
+  border-radius: 48px 0 48px 0;
+  background: linear-gradient(135deg, rgba(83, 194, 137, 0.18), rgba(83, 194, 137, 0.5));
+  transform-origin: 100% 100%;
+}
+.job-landing-leaf-accent span:nth-child(1) {
+  left: 18px;
+  bottom: 78px;
+  transform: rotate(26deg);
+}
+.job-landing-leaf-accent span:nth-child(2) {
+  left: 48px;
+  bottom: 106px;
+  transform: rotate(-18deg) scale(0.9);
+}
+.job-landing-leaf-accent span:nth-child(3) {
+  left: 72px;
+  bottom: 70px;
+  transform: rotate(30deg) scale(0.82);
+}
+.job-landing-leaf-accent span:nth-child(4) {
+  left: 98px;
+  bottom: 98px;
+  transform: rotate(-28deg) scale(0.68);
+}
+.job-landing-leaf-accent span:nth-child(5) {
+  left: 28px;
+  bottom: 42px;
+  transform: rotate(8deg) scale(0.72);
+}
+.job-landing-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  margin: 0 58px;
+  padding: 22px 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 18px 48px -38px rgba(15, 23, 42, 0.5);
+}
+.job-landing-feature-card {
+  min-width: 0;
+  padding: 0 22px;
+  text-align: center;
+  border-right: 1px solid rgba(15, 23, 42, 0.1);
+}
+.job-landing-feature-card:last-child {
+  border-right: 0;
+}
+.job-landing-feature-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 50px;
+  height: 50px;
+  margin-bottom: 12px;
+  border-radius: 999px;
+  background: #e8f7ee;
+  color: #258451;
+  font-size: 24px;
+}
+.job-landing-feature-card h3 {
+  margin: 0 0 6px;
+  font-size: 17px;
+  line-height: 1.25;
+  color: #102033;
+}
+.job-landing-feature-card p {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.45;
+  font-size: 14px;
+}
+.job-landing-start-card {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  align-items: center;
+  gap: 28px;
+  width: min(820px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 34px 42px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 48px -36px rgba(15, 23, 42, 0.55);
+}
+.job-landing-hero + .job-landing-start-card {
+  margin-top: 16px;
+}
+.job-landing-feature-grid + .job-landing-start-card {
+  margin-top: -1px;
+}
+.job-landing-start-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 92px;
+  height: 92px;
+  border-radius: 999px;
+  background: #e8f7ee;
+  color: #258451;
+  font-size: 42px;
+}
+.job-landing-start-body h2 {
+  margin: 0 0 6px;
+  font-size: 26px;
+  line-height: 1.2;
+  color: #102033;
+}
+.job-landing-start-body p {
+  margin: 0 0 14px;
+  color: #64748b;
+}
+.job-landing-start-card .captcha-block-start {
+  align-items: flex-start;
+  text-align: left;
+  margin: 12px 0;
+  padding: 0;
+}
+.job-landing-start-card .captcha-block-start .recaptcha-widget {
+  align-items: flex-start;
+}
+.job-landing-start-btn {
+  width: min(420px, 100%);
+  justify-content: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  background: #2fa26b;
+  border-color: #2fa26b;
+}
+.job-landing-start-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  color: #64748b;
+  font-size: 13px;
+}
+.job-landing-start-note .job-landing-icon-svg {
+  width: 15px;
+  height: 15px;
+  color: #94a3b8;
+}
+.job-landing-trust-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  width: min(1180px, calc(100% - 72px));
+  margin: 18px auto 24px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+.job-landing-trust-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px 22px;
+  border-right: 1px solid rgba(15, 23, 42, 0.08);
+}
+.job-landing-trust-item:last-child {
+  border-right: 0;
+}
+.job-landing-trust-icon {
+  color: #258451;
+  font-size: 24px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+.job-landing-trust-item strong,
+.job-landing-trust-item small {
+  display: block;
+}
+.job-landing-trust-item strong {
+  color: #334155;
+  font-size: 15px;
+}
+.job-landing-trust-item small {
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
 @media (max-width: 720px) {
   .intake-card {
     padding: 18px 16px;
@@ -8445,6 +9130,120 @@ onBeforeUnmount(() => {
   .btn {
     padding: 11px 18px;
     font-size: 14px;
+  }
+}
+
+@media (max-width: 980px) {
+  .job-landing-header {
+    padding: 16px 20px;
+  }
+  .job-landing-hero {
+    grid-template-columns: 1fr;
+    padding: 34px 24px 22px;
+  }
+  .job-landing-copy h1 {
+    font-size: 44px;
+  }
+  .job-landing-lead {
+    font-size: 23px;
+  }
+  .job-landing-image img {
+    border-radius: 28px 28px 28px 8px;
+  }
+  .job-landing-leaf-accent {
+    left: -34px;
+    bottom: -18px;
+    transform: scale(0.8);
+    transform-origin: left bottom;
+  }
+  .job-landing-feature-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin: 0 24px;
+  }
+  .job-landing-feature-card {
+    border-right: 0;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+    padding: 18px;
+  }
+  .job-landing-feature-card:nth-last-child(-n+2) {
+    border-bottom: 0;
+  }
+  .job-landing-start-card {
+    width: calc(100% - 32px);
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+    padding: 28px 22px;
+  }
+  .job-landing-start-card .captcha-block-start,
+  .job-landing-start-card .captcha-block-start .recaptcha-widget {
+    align-items: center;
+    text-align: center;
+  }
+  .job-landing-trust-row {
+    width: calc(100% - 32px);
+    grid-template-columns: 1fr;
+  }
+  .job-landing-trust-item {
+    border-right: 0;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  }
+  .job-landing-trust-item:last-child {
+    border-bottom: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .intake-card--job-landing {
+    border-radius: 12px;
+  }
+  .job-landing-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .job-landing-brand {
+    font-size: 18px;
+  }
+  .job-landing-brand img {
+    height: 48px;
+    max-width: 120px;
+  }
+  .job-landing-hero {
+    padding: 28px 18px 18px;
+  }
+  .job-landing-copy h1 {
+    font-size: 34px;
+  }
+  .job-landing-lead {
+    font-size: 21px;
+  }
+  .job-landing-description {
+    font-size: 15px;
+  }
+  .job-landing-leaf-accent {
+    display: none;
+  }
+  .job-landing-feature-grid {
+    grid-template-columns: 1fr;
+    margin: 0 14px;
+  }
+  .job-landing-feature-card,
+  .job-landing-feature-card:nth-last-child(-n+2) {
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  }
+  .job-landing-feature-card:last-child {
+    border-bottom: 0;
+  }
+  .job-landing-start-card {
+    width: calc(100% - 20px);
+  }
+  .job-landing-start-icon {
+    width: 76px;
+    height: 76px;
+    font-size: 34px;
+  }
+  .job-landing-start-body h2 {
+    font-size: 22px;
   }
 }
 </style>

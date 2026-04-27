@@ -40,6 +40,76 @@
 
     <div v-if="error" class="error-banner">{{ error }}</div>
 
+    <section class="panel agency-careers-panel">
+      <div class="config-header">
+        <div>
+          <h3>Agency careers page defaults</h3>
+          <div class="muted small">Used by every public job application unless a job override is filled in below.</div>
+        </div>
+        <button class="btn btn-primary btn-sm" type="button" :disabled="savingAgencyCareers" @click="saveAgencyCareersPage">
+          {{ savingAgencyCareers ? 'Saving...' : 'Save defaults' }}
+        </button>
+      </div>
+      <div class="application-page-config agency-page-config">
+        <div class="form-grid">
+          <input v-model="agencyPageForm.eyebrow" class="input" type="text" placeholder="Small label, e.g. Join Our Team" />
+          <input v-model="agencyPageForm.lead" class="input" type="text" placeholder="Lead line under the title" />
+          <input v-model="agencyPageForm.titleHighlight" class="input" type="text" placeholder="Default title highlight, e.g. Colorado Springs" />
+          <label class="checkbox-inline">
+            <input v-model="agencyPageForm.showLeafAccent" type="checkbox" />
+            Show leaf accent near photo
+          </label>
+          <div class="hero-upload-field">
+            <input v-model="agencyPageForm.heroImageUrl" class="input" type="text" placeholder="Default hero image URL or upload below" />
+            <button type="button" class="btn btn-secondary btn-sm" @click="triggerAgencyHeroUpload">Upload shared photo</button>
+            <input
+              ref="agencyHeroFileRef"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/*"
+              class="hidden-file"
+              @change="onAgencyHeroFileChange"
+            />
+            <div v-if="agencyHeroImageFile" class="muted small">Selected: {{ agencyHeroImageFile.name }}</div>
+            <div v-else-if="agencyPageForm.heroImageUrl" class="hero-thumb">
+              <img :src="displayAssetUrl(agencyPageForm.heroImageUrl)" alt="Shared careers hero preview" />
+            </div>
+          </div>
+          <input v-model="agencyPageForm.heroImageAlt" class="input" type="text" placeholder="Default hero image alt text" />
+          <input v-model="agencyPageForm.heroImagePosition" class="input" type="text" placeholder="Photo focus, e.g. center center" />
+          <input v-model="agencyPageForm.secureTitle" class="input" type="text" placeholder="Header secure title, e.g. Secure & Confidential" />
+          <input v-model="agencyPageForm.secureSubtitle" class="input" type="text" placeholder="Header secure subtitle" />
+          <input v-model="agencyPageForm.startHeading" class="input" type="text" placeholder="Start card heading" />
+          <input v-model="agencyPageForm.startSubtitle" class="input" type="text" placeholder="Start card subtitle" />
+          <input v-model="agencyPageForm.startButtonText" class="input" type="text" placeholder="Start button text" />
+          <input v-model="agencyPageForm.startTimeNote" class="input" type="text" placeholder="Time note, e.g. Takes 3-5 minutes to begin" />
+        </div>
+        <div class="display-card-editor">
+          <h5>Default feature cells</h5>
+          <div class="display-card-grid">
+            <div v-for="(card, idx) in agencyPageForm.featureCards" :key="`agency-feature-${idx}`" class="display-card-draft">
+              <select v-model="card.icon" class="input">
+                <option v-for="opt in cardIconOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+              <input v-model="card.title" class="input" type="text" :placeholder="`Feature ${idx + 1} title`" />
+              <textarea v-model="card.body" class="textarea" rows="2" :placeholder="`Feature ${idx + 1} detail`" />
+            </div>
+          </div>
+        </div>
+        <div class="display-card-editor">
+          <h5>Default trust cells</h5>
+          <div class="display-card-grid display-card-grid-trust">
+            <div v-for="(card, idx) in agencyPageForm.trustItems" :key="`agency-trust-${idx}`" class="display-card-draft">
+              <select v-model="card.icon" class="input">
+                <option v-for="opt in cardIconOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+              <input v-model="card.title" class="input" type="text" :placeholder="`Trust ${idx + 1} title`" />
+              <textarea v-model="card.body" class="textarea" rows="2" :placeholder="`Trust ${idx + 1} detail`" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="panel create-panel">
       <h3>Create job posting</h3>
       <div class="form-grid">
@@ -64,6 +134,68 @@
           placeholder="Quick description shown on careers page"
           style="grid-column: 1 / -1;"
         />
+      </div>
+      <div class="application-page-config">
+        <div class="config-header">
+          <h4>Single job posting override</h4>
+          <span class="muted small">Optional. Empty fields fall back to the agency defaults above.</span>
+        </div>
+        <div class="form-grid">
+          <input v-model="createForm.applicationPage.eyebrow" class="input" type="text" placeholder="Small label, e.g. Join Our Team" />
+          <input v-model="createForm.applicationPage.lead" class="input" type="text" placeholder="Lead line under the title" />
+          <input v-model="createForm.applicationPage.titleHighlight" class="input" type="text" placeholder="Title highlight text, e.g. Colorado Springs" />
+          <label class="checkbox-inline">
+            <input v-model="createForm.applicationPage.showLeafAccent" type="checkbox" />
+            Show leaf accent near photo
+          </label>
+          <div class="hero-upload-field">
+            <input v-model="createForm.applicationPage.heroImageUrl" class="input" type="text" placeholder="Hero image URL or upload below" />
+            <button type="button" class="btn btn-secondary btn-sm" @click="triggerCreateHeroUpload">Upload photo</button>
+            <input
+              ref="createHeroFileRef"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/*"
+              class="hidden-file"
+              @change="onCreateHeroFileChange"
+            />
+            <div v-if="createForm.heroImageFile" class="muted small">Selected: {{ createForm.heroImageFile.name }}</div>
+            <div v-else-if="createForm.applicationPage.heroImageUrl" class="hero-thumb">
+              <img :src="displayAssetUrl(createForm.applicationPage.heroImageUrl)" alt="Hero preview" />
+            </div>
+          </div>
+          <input v-model="createForm.applicationPage.heroImageAlt" class="input" type="text" placeholder="Hero image alt text" />
+          <input v-model="createForm.applicationPage.heroImagePosition" class="input" type="text" placeholder="Photo focus, e.g. center center" />
+          <input v-model="createForm.applicationPage.secureTitle" class="input" type="text" placeholder="Header secure title, e.g. Secure & Confidential" />
+          <input v-model="createForm.applicationPage.secureSubtitle" class="input" type="text" placeholder="Header secure subtitle" />
+          <input v-model="createForm.applicationPage.startHeading" class="input" type="text" placeholder="Start card heading" />
+          <input v-model="createForm.applicationPage.startSubtitle" class="input" type="text" placeholder="Start card subtitle" />
+          <input v-model="createForm.applicationPage.startButtonText" class="input" type="text" placeholder="Start button text" />
+          <input v-model="createForm.applicationPage.startTimeNote" class="input" type="text" placeholder="Time note, e.g. Takes 3-5 minutes to begin" />
+        </div>
+        <div class="display-card-editor">
+          <h5>Feature cells</h5>
+          <div class="display-card-grid">
+            <div v-for="(card, idx) in createForm.applicationPage.featureCards" :key="`create-feature-${idx}`" class="display-card-draft">
+              <select v-model="card.icon" class="input">
+                <option v-for="opt in cardIconOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+              <input v-model="card.title" class="input" type="text" :placeholder="`Feature ${idx + 1} title`" />
+              <textarea v-model="card.body" class="textarea" rows="2" :placeholder="`Feature ${idx + 1} detail`" />
+            </div>
+          </div>
+        </div>
+        <div class="display-card-editor">
+          <h5>Trust cells</h5>
+          <div class="display-card-grid display-card-grid-trust">
+            <div v-for="(card, idx) in createForm.applicationPage.trustItems" :key="`create-trust-${idx}`" class="display-card-draft">
+              <select v-model="card.icon" class="input">
+                <option v-for="opt in cardIconOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+              <input v-model="card.title" class="input" type="text" :placeholder="`Trust ${idx + 1} title`" />
+              <textarea v-model="card.body" class="textarea" rows="2" :placeholder="`Trust ${idx + 1} detail`" />
+            </div>
+          </div>
+        </div>
       </div>
       <div class="actions">
         <button class="btn btn-primary" :disabled="creating || !createForm.title.trim()" @click="createJob">
@@ -169,6 +301,68 @@
               style="grid-column: 1 / -1;"
             />
           </div>
+          <div class="application-page-config">
+            <div class="config-header">
+              <h4>Application landing page</h4>
+              <span class="muted small">Optional single-job override. Empty fields fall back to agency defaults.</span>
+            </div>
+            <div class="form-grid">
+              <input v-model="editForm.applicationPage.eyebrow" class="input" type="text" placeholder="Small label, e.g. Join Our Team" />
+              <input v-model="editForm.applicationPage.lead" class="input" type="text" placeholder="Lead line under the title" />
+              <input v-model="editForm.applicationPage.titleHighlight" class="input" type="text" placeholder="Title highlight text, e.g. Colorado Springs" />
+              <label class="checkbox-inline">
+                <input v-model="editForm.applicationPage.showLeafAccent" type="checkbox" />
+                Show leaf accent near photo
+              </label>
+              <div class="hero-upload-field">
+                <input v-model="editForm.applicationPage.heroImageUrl" class="input" type="text" placeholder="Hero image URL or upload below" />
+                <button type="button" class="btn btn-secondary btn-sm" @click="triggerEditHeroUpload">Upload photo</button>
+                <input
+                  ref="editHeroFileRef"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/*"
+                  class="hidden-file"
+                  @change="onEditHeroFileChange"
+                />
+                <div v-if="editForm.heroImageFile" class="muted small">Selected: {{ editForm.heroImageFile.name }}</div>
+                <div v-else-if="editForm.applicationPage.heroImageUrl" class="hero-thumb">
+                  <img :src="displayAssetUrl(editForm.applicationPage.heroImageUrl)" alt="Hero preview" />
+                </div>
+              </div>
+              <input v-model="editForm.applicationPage.heroImageAlt" class="input" type="text" placeholder="Hero image alt text" />
+              <input v-model="editForm.applicationPage.heroImagePosition" class="input" type="text" placeholder="Photo focus, e.g. center center" />
+              <input v-model="editForm.applicationPage.secureTitle" class="input" type="text" placeholder="Header secure title, e.g. Secure & Confidential" />
+              <input v-model="editForm.applicationPage.secureSubtitle" class="input" type="text" placeholder="Header secure subtitle" />
+              <input v-model="editForm.applicationPage.startHeading" class="input" type="text" placeholder="Start card heading" />
+              <input v-model="editForm.applicationPage.startSubtitle" class="input" type="text" placeholder="Start card subtitle" />
+              <input v-model="editForm.applicationPage.startButtonText" class="input" type="text" placeholder="Start button text" />
+              <input v-model="editForm.applicationPage.startTimeNote" class="input" type="text" placeholder="Time note, e.g. Takes 3-5 minutes to begin" />
+            </div>
+            <div class="display-card-editor">
+              <h5>Feature cells</h5>
+              <div class="display-card-grid">
+                <div v-for="(card, idx) in editForm.applicationPage.featureCards" :key="`edit-feature-${idx}`" class="display-card-draft">
+                  <select v-model="card.icon" class="input">
+                    <option v-for="opt in cardIconOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                  </select>
+                  <input v-model="card.title" class="input" type="text" :placeholder="`Feature ${idx + 1} title`" />
+                  <textarea v-model="card.body" class="textarea" rows="2" :placeholder="`Feature ${idx + 1} detail`" />
+                </div>
+              </div>
+            </div>
+            <div class="display-card-editor">
+              <h5>Trust cells</h5>
+              <div class="display-card-grid display-card-grid-trust">
+                <div v-for="(card, idx) in editForm.applicationPage.trustItems" :key="`edit-trust-${idx}`" class="display-card-draft">
+                  <select v-model="card.icon" class="input">
+                    <option v-for="opt in cardIconOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                  </select>
+                  <input v-model="card.title" class="input" type="text" :placeholder="`Trust ${idx + 1} title`" />
+                  <textarea v-model="card.body" class="textarea" rows="2" :placeholder="`Trust ${idx + 1} detail`" />
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="modal-actions">
           <button class="btn btn-primary" :disabled="savingEdit || !editForm.title.trim()" @click="saveEdit">
@@ -187,6 +381,7 @@ import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 const router = useRouter();
 const route = useRoute();
@@ -196,10 +391,93 @@ const authStore = useAuthStore();
 const loading = ref(false);
 const creating = ref(false);
 const savingEdit = ref(false);
+const savingAgencyCareers = ref(false);
 const error = ref('');
 const jobs = ref([]);
 const links = ref([]);
 const applicantCounts = ref({});
+const agencyHeroImageFile = ref(null);
+
+const cardIconOptions = [
+  { value: 'school', label: 'School' },
+  { value: 'office', label: 'Office' },
+  { value: 'people', label: 'People' },
+  { value: 'growth', label: 'Growth' },
+  { value: 'heart', label: 'Heart' },
+  { value: 'shield', label: 'Shield' },
+  { value: 'lock', label: 'Lock' },
+  { value: 'handshake', label: 'Handshake' },
+  { value: 'star', label: 'Star' },
+  { value: 'none', label: 'No icon' }
+];
+const blankDisplayCard = () => ({ icon: 'none', title: '', body: '' });
+const blankApplicationPage = () => ({
+  eyebrow: '',
+  lead: '',
+  titleHighlight: '',
+  heroImageUrl: '',
+  heroImageAlt: '',
+  heroImagePosition: '',
+  secureTitle: '',
+  secureSubtitle: '',
+  startHeading: '',
+  startSubtitle: '',
+  startButtonText: '',
+  startTimeNote: '',
+  showLeafAccent: true,
+  featureCards: [blankDisplayCard(), blankDisplayCard(), blankDisplayCard(), blankDisplayCard()],
+  trustItems: [blankDisplayCard(), blankDisplayCard(), blankDisplayCard()]
+});
+const normalizeDisplayCard = (card) => ({
+  icon: String(card?.icon || 'none').trim() || 'none',
+  title: String(card?.title || '').trim(),
+  body: String(card?.body || '').trim()
+});
+const normalizeApplicationPage = (page) => {
+  const rawFeatures = Array.isArray(page?.featureCards) ? page.featureCards : [];
+  const rawTrust = Array.isArray(page?.trustItems) ? page.trustItems : [];
+  const next = {
+    eyebrow: String(page?.eyebrow || '').trim(),
+    lead: String(page?.lead || '').trim(),
+    titleHighlight: String(page?.titleHighlight || page?.title_highlight || '').trim(),
+    heroImageUrl: String(page?.heroImageUrl || '').trim(),
+    heroImageAlt: String(page?.heroImageAlt || '').trim(),
+    heroImagePosition: String(page?.heroImagePosition || page?.hero_image_position || '').trim(),
+    secureTitle: String(page?.secureTitle || page?.secure_title || '').trim(),
+    secureSubtitle: String(page?.secureSubtitle || page?.secure_subtitle || '').trim(),
+    startHeading: String(page?.startHeading || page?.start_heading || '').trim(),
+    startSubtitle: String(page?.startSubtitle || page?.start_subtitle || '').trim(),
+    startButtonText: String(page?.startButtonText || page?.start_button_text || '').trim(),
+    startTimeNote: String(page?.startTimeNote || page?.start_time_note || '').trim(),
+    showLeafAccent: page?.showLeafAccent !== false && page?.show_leaf_accent !== false,
+    featureCards: rawFeatures.map(normalizeDisplayCard).slice(0, 4),
+    trustItems: rawTrust.map(normalizeDisplayCard).slice(0, 3)
+  };
+  while (next.featureCards.length < 4) next.featureCards.push(blankDisplayCard());
+  while (next.trustItems.length < 3) next.trustItems.push(blankDisplayCard());
+  return next;
+};
+const compactApplicationPage = (page) => {
+  const normalized = normalizeApplicationPage(page);
+  return {
+    eyebrow: normalized.eyebrow,
+    lead: normalized.lead,
+    titleHighlight: normalized.titleHighlight,
+    heroImageUrl: normalized.heroImageUrl,
+    heroImageAlt: normalized.heroImageAlt,
+    heroImagePosition: normalized.heroImagePosition,
+    secureTitle: normalized.secureTitle,
+    secureSubtitle: normalized.secureSubtitle,
+    startHeading: normalized.startHeading,
+    startSubtitle: normalized.startSubtitle,
+    startButtonText: normalized.startButtonText,
+    startTimeNote: normalized.startTimeNote,
+    showLeafAccent: normalized.showLeafAccent,
+    featureCards: normalized.featureCards.filter((card) => card.title || card.body),
+    trustItems: normalized.trustItems.filter((card) => card.title || card.body)
+  };
+};
+const agencyPageForm = ref(blankApplicationPage());
 
 const createForm = ref({
   title: '',
@@ -210,6 +488,8 @@ const createForm = ref({
   city: '',
   state: '',
   educationLevel: '',
+  applicationPage: blankApplicationPage(),
+  heroImageFile: null,
   file: null
 });
 const editForm = ref({
@@ -221,11 +501,16 @@ const editForm = ref({
   city: '',
   state: '',
   educationLevel: '',
+  applicationPage: blankApplicationPage(),
+  heroImageFile: null,
   file: null
 });
 const editingRow = ref(null);
 const jobFileRef = ref(null);
 const editFileRef = ref(null);
+const agencyHeroFileRef = ref(null);
+const createHeroFileRef = ref(null);
+const editHeroFileRef = ref(null);
 
 const agencyChoices = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
@@ -303,6 +588,31 @@ const onCreateFileChange = (e) => {
 const onEditFileChange = (e) => {
   editForm.value.file = e?.target?.files?.[0] || null;
 };
+const displayAssetUrl = (url) => toUploadsUrl(String(url || '').trim()) || String(url || '').trim();
+const triggerCreateHeroUpload = () => {
+  createHeroFileRef.value?.click?.();
+};
+const triggerEditHeroUpload = () => {
+  editHeroFileRef.value?.click?.();
+};
+const triggerAgencyHeroUpload = () => {
+  agencyHeroFileRef.value?.click?.();
+};
+const onAgencyHeroFileChange = (e) => {
+  const file = e?.target?.files?.[0] || null;
+  agencyHeroImageFile.value = file;
+  if (file) agencyPageForm.value.heroImageUrl = file.name;
+};
+const onCreateHeroFileChange = (e) => {
+  const file = e?.target?.files?.[0] || null;
+  createForm.value.heroImageFile = file;
+  if (file) createForm.value.applicationPage.heroImageUrl = file.name;
+};
+const onEditHeroFileChange = (e) => {
+  const file = e?.target?.files?.[0] || null;
+  editForm.value.heroImageFile = file;
+  if (file) editForm.value.applicationPage.heroImageUrl = file.name;
+};
 
 const buildDefaultJobApplicationSteps = () => ([
   { id: `step_${Date.now()}_resume`, type: 'upload', label: 'Resume', accept: '.pdf,.doc,.docx,.txt', maxFiles: 1, required: true, visibility: 'always', allowPasteText: true },
@@ -352,6 +662,16 @@ const loadApplicantCounts = async () => {
   applicantCounts.value = counts;
 };
 
+const loadAgencyCareersPage = async () => {
+  if (!effectiveAgencyId.value) return;
+  const r = await api.get('/hiring/careers-page', {
+    params: { agencyId: effectiveAgencyId.value }
+  });
+  agencyPageForm.value = normalizeApplicationPage(r.data?.careersPage);
+  agencyHeroImageFile.value = null;
+  if (agencyHeroFileRef.value) agencyHeroFileRef.value.value = '';
+};
+
 const ensureApplicationLink = async (jobId) => {
   const existing = (links.value || []).find((l) => Number(l.job_description_id || l.jobDescriptionId || 0) === Number(jobId));
   if (existing?.id) return existing;
@@ -370,11 +690,32 @@ const refresh = async () => {
   loading.value = true;
   error.value = '';
   try {
-    await Promise.all([loadJobs(), loadLinks(), loadApplicantCounts()]);
+    await Promise.all([loadJobs(), loadLinks(), loadApplicantCounts(), loadAgencyCareersPage()]);
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load careers data';
   } finally {
     loading.value = false;
+  }
+};
+
+const saveAgencyCareersPage = async () => {
+  if (!effectiveAgencyId.value) return;
+  try {
+    savingAgencyCareers.value = true;
+    error.value = '';
+    const fd = new FormData();
+    fd.append('agencyId', String(effectiveAgencyId.value));
+    fd.append('careersPageJson', JSON.stringify(compactApplicationPage(agencyPageForm.value)));
+    if (agencyHeroImageFile.value) fd.append('agencyHeroImage', agencyHeroImageFile.value);
+    const r = await api.put('/hiring/careers-page', fd);
+    agencyPageForm.value = normalizeApplicationPage(r.data?.careersPage);
+    agencyHeroImageFile.value = null;
+    if (agencyHeroFileRef.value) agencyHeroFileRef.value.value = '';
+    await loadJobs();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to save careers page defaults';
+  } finally {
+    savingAgencyCareers.value = false;
   }
 };
 
@@ -395,6 +736,8 @@ const createJob = async () => {
     if (String(createForm.value.city || '').trim()) fd.append('city', String(createForm.value.city || '').trim());
     if (String(createForm.value.state || '').trim()) fd.append('state', String(createForm.value.state || '').trim());
     if (String(createForm.value.educationLevel || '').trim()) fd.append('educationLevel', String(createForm.value.educationLevel || '').trim());
+    fd.append('applicationPageJson', JSON.stringify(compactApplicationPage(createForm.value.applicationPage)));
+    if (createForm.value.heroImageFile) fd.append('heroImage', createForm.value.heroImageFile);
     if (createForm.value.file) fd.append('file', createForm.value.file);
     const r = await api.post('/hiring/job-descriptions', fd);
     const jobId = Number(r.data?.id || 0);
@@ -408,9 +751,12 @@ const createJob = async () => {
       city: '',
       state: '',
       educationLevel: '',
+      applicationPage: blankApplicationPage(),
+      heroImageFile: null,
       file: null
     };
     if (jobFileRef.value) jobFileRef.value.value = '';
+    if (createHeroFileRef.value) createHeroFileRef.value.value = '';
     await refresh();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to create job';
@@ -430,9 +776,12 @@ const openEdit = (row) => {
     city: row.city || '',
     state: row.state || '',
     educationLevel: row.educationLevel || '',
+    applicationPage: normalizeApplicationPage(row.applicationPage),
+    heroImageFile: null,
     file: null
   };
   if (editFileRef.value) editFileRef.value.value = '';
+  if (editHeroFileRef.value) editHeroFileRef.value.value = '';
 };
 const closeEdit = () => {
   editingRow.value = null;
@@ -445,6 +794,8 @@ const closeEdit = () => {
     city: '',
     state: '',
     educationLevel: '',
+    applicationPage: blankApplicationPage(),
+    heroImageFile: null,
     file: null
   };
 };
@@ -462,6 +813,8 @@ const saveEdit = async () => {
     fd.append('city', String(editForm.value.city || '').trim());
     fd.append('state', String(editForm.value.state || '').trim());
     fd.append('educationLevel', String(editForm.value.educationLevel || '').trim());
+    fd.append('applicationPageJson', JSON.stringify(compactApplicationPage(editForm.value.applicationPage)));
+    if (editForm.value.heroImageFile) fd.append('heroImage', editForm.value.heroImageFile);
     if (editForm.value.file) fd.append('file', editForm.value.file);
     await api.put(`/hiring/job-descriptions/${editingRow.value.id}`, fd);
     closeEdit();
@@ -580,6 +933,18 @@ onMounted(async () => {
 .public-link-panel { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .form-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .input, .textarea { width: 100%; border: 1px solid #d1d5db; border-radius: 8px; padding: 10px; font-size: 14px; }
+.application-page-config { margin-top: 14px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 10px; background: #f9fafb; }
+.config-header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.config-header h4, .display-card-editor h5 { margin: 0; }
+.display-card-editor { margin-top: 12px; }
+.display-card-editor h5 { font-size: 13px; color: #374151; margin-bottom: 8px; }
+.display-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.display-card-grid-trust { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.display-card-draft { display: grid; gap: 8px; padding: 10px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; }
+.hero-upload-field { display: grid; gap: 8px; }
+.hidden-file { display: none; }
+.hero-thumb { width: 100%; max-width: 260px; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: #fff; }
+.hero-thumb img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
 .checkbox-inline { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #374151; }
 .actions { margin-top: 10px; display: flex; gap: 8px; }
 .table { width: 100%; border-collapse: collapse; }
@@ -595,9 +960,12 @@ onMounted(async () => {
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; justify-content: center; align-items: center; z-index: 90; }
 .modal { width: 760px; max-width: 95vw; background: white; border-radius: 12px; border: 1px solid #e5e7eb; overflow: hidden; }
 .modal-header { display: flex; justify-content: space-between; padding: 12px; border-bottom: 1px solid #e5e7eb; }
-.modal-body { padding: 12px; }
+.modal-body { padding: 12px; max-height: min(72vh, 820px); overflow: auto; }
 .modal-actions { display: flex; justify-content: flex-end; padding: 12px; border-top: 1px solid #e5e7eb; }
 @media (max-width: 900px) {
   .form-grid { grid-template-columns: 1fr; }
+  .display-card-grid,
+  .display-card-grid-trust { grid-template-columns: 1fr; }
+  .config-header { align-items: flex-start; flex-direction: column; }
 }
 </style>

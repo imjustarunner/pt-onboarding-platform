@@ -78,6 +78,185 @@ function parseMetadata(metadata) {
   return null;
 }
 
+function parseJsonBodyValue(value, fieldName) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === 'object') return value;
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const err = new Error(`${fieldName} must be valid JSON`);
+    err.status = 400;
+    throw err;
+  }
+}
+
+function compactText(value, max = 240) {
+  const raw = String(value || '').replace(/\s+/g, ' ').trim();
+  return raw ? raw.slice(0, max) : '';
+}
+
+function sanitizeApplicationPageJson(raw) {
+  if (raw === undefined) return undefined;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+
+  const normalizeItems = (items, maxItems) => {
+    if (!Array.isArray(items)) return [];
+    return items
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null;
+        const title = compactText(item.title, 80);
+        const body = compactText(item.body || item.description, 180);
+        if (!title && !body) return null;
+        return {
+          icon: compactText(item.icon, 32),
+          title,
+          body
+        };
+      })
+      .filter(Boolean)
+      .slice(0, maxItems);
+  };
+
+  const out = {
+    eyebrow: compactText(raw.eyebrow, 80),
+    lead: compactText(raw.lead, 160),
+    titleHighlight: compactText(raw.titleHighlight || raw.title_highlight, 120),
+    heroImageUrl: compactText(raw.heroImageUrl || raw.hero_image_url, 1024),
+    heroImageAlt: compactText(raw.heroImageAlt || raw.hero_image_alt, 160),
+    heroImagePosition: compactText(raw.heroImagePosition || raw.hero_image_position, 80),
+    secureTitle: compactText(raw.secureTitle || raw.secure_title, 80),
+    secureSubtitle: compactText(raw.secureSubtitle || raw.secure_subtitle, 120),
+    startHeading: compactText(raw.startHeading || raw.start_heading, 120),
+    startSubtitle: compactText(raw.startSubtitle || raw.start_subtitle, 180),
+    startButtonText: compactText(raw.startButtonText || raw.start_button_text, 80),
+    startTimeNote: compactText(raw.startTimeNote || raw.start_time_note, 120),
+    showLeafAccent: raw.showLeafAccent !== false && raw.show_leaf_accent !== false,
+    featureCards: normalizeItems(raw.featureCards || raw.feature_cards, 4),
+    trustItems: normalizeItems(raw.trustItems || raw.trust_items, 3)
+  };
+
+  return Object.values(out).some((v) => (Array.isArray(v) ? v.length > 0 : !!v)) ? out : null;
+}
+
+function getApplicationPageJsonFromBody(body) {
+  const parsed = parseJsonBodyValue(
+    body?.applicationPageJson !== undefined ? body.applicationPageJson : body?.application_page_json,
+    'applicationPageJson'
+  );
+  return sanitizeApplicationPageJson(parsed);
+}
+
+function getUploadedFile(req, fieldName = 'file') {
+  if (fieldName === 'file' && req.file) return req.file;
+  const list = req.files?.[fieldName];
+  return Array.isArray(list) && list.length ? list[0] : null;
+}
+
+async function saveJobHeroImageUpload({ req, agencyId, applicationPageJson }) {
+  const heroImage = getUploadedFile(req, 'heroImage');
+  if (!heroImage) return applicationPageJson;
+
+  const mimeType = String(heroImage.mimetype || '').trim().toLowerCase();
+  if (!mimeType.startsWith('image/')) {
+    const err = new Error('Hero image must be an image file');
+    err.status = 400;
+    throw err;
+  }
+
+  const originalName = heroImage.originalname || 'job-hero';
+  const safeExt = originalName.includes('.') ? `.${originalName.split('.').pop()}` : '';
+  const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+  const filename = `job-hero-${agencyId}-${uniqueSuffix}${safeExt}`;
+  const storageResult = await StorageService.savePublicMarketingAsset(heroImage.buffer, filename, heroImage.mimetype);
+  const filePath = storageResult.relativePath;
+  const publicRel = String(filePath || '').startsWith('uploads/')
+    ? String(filePath).substring('uploads/'.length)
+    : String(filePath || '');
+
+  return {
+    ...(applicationPageJson || {}),
+    heroImageUrl: `/uploads/${publicRel}`,
+    heroImageAlt: compactText(applicationPageJson?.heroImageAlt || 'Job application image', 160)
+  };
+}
+
+async function saveAgencyCareersHeroImageUpload({ req, agencyId, careersPageJson }) {
+  const heroImage = getUploadedFile(req, 'agencyHeroImage');
+  if (!heroImage) return careersPageJson;
+
+  const mimeType = String(heroImage.mimetype || '').trim().toLowerCase();
+  if (!mimeType.startsWith('image/')) {
+    const err = new Error('Careers page photo must be an image');
+    err.status = 400;
+    throw err;
+  }
+
+  const originalName = heroImage.originalname || 'agency-careers-hero';
+  const ext = originalName.includes('.') ? originalName.split('.').pop() : 'png';
+  const base = originalName.replace(/\.[^.]+$/, '') || 'agency-careers-hero';
+  const filename = StorageService.sanitizeFilename(`agency-${agencyId}-careers-${Date.now()}-${base}.${ext}`);
+  const storageResult = await StorageService.savePublicMarketingAsset(heroImage.buffer, filename, heroImage.mimetype);
+  const publicRel = String(storageResult.relativePath || storageResult.path || '').replace(/^uploads\//, '');
+  if (!publicRel) {
+    const err = new Error('Unable to save careers page photo');
+    err.status = 500;
+    throw err;
+  }
+
+  return {
+    ...(careersPageJson || {}),
+    heroImageUrl: `/uploads/${publicRel}`,
+    heroImageAlt: compactText(careersPageJson?.heroImageAlt || 'Careers page image', 160)
+  };
+}
+
+export const getAgencyCareersPage = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query?.agencyId || req.params?.agencyId || req.body?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    const [rows] = await pool.execute(
+      `SELECT careers_page_json FROM agencies WHERE id = ? LIMIT 1`,
+      [agencyId]
+    );
+    if (!rows?.length) {
+      return res.status(404).json({ error: { message: 'Agency not found' } });
+    }
+    return res.json({
+      careersPage: sanitizeApplicationPageJson(parseMetadata(rows[0].careers_page_json)) || null
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const updateAgencyCareersPage = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.body?.agencyId || req.query?.agencyId || req.params?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    let careersPageJson = parseJsonBodyValue(
+      req.body?.careersPageJson !== undefined ? req.body.careersPageJson : req.body?.careers_page_json,
+      'careersPageJson'
+    );
+    careersPageJson = sanitizeApplicationPageJson(careersPageJson);
+    careersPageJson = await saveAgencyCareersHeroImageUpload({ req, agencyId, careersPageJson });
+    careersPageJson = sanitizeApplicationPageJson(careersPageJson);
+
+    const [result] = await pool.execute(
+      `UPDATE agencies SET careers_page_json = ? WHERE id = ?`,
+      [careersPageJson ? JSON.stringify(careersPageJson) : null, agencyId]
+    );
+    if (!result?.affectedRows) {
+      return res.status(404).json({ error: { message: 'Agency not found' } });
+    }
+    return res.json({ careersPage: careersPageJson || null });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 function normalizeDateOnly(value) {
   const raw = String(value || '').trim();
   if (!raw) return null;
@@ -534,6 +713,7 @@ export const listJobDescriptions = async (req, res, next) => {
         city: r.city || null,
         state: r.state || null,
         educationLevel: r.education_level || null,
+        applicationPage: sanitizeApplicationPageJson(parseMetadata(r.application_page_json)) || null,
         isActive: r.is_active === 1 || r.is_active === true,
         createdAt: r.created_at,
         updatedAt: r.updated_at
@@ -557,17 +737,20 @@ export const createJobDescription = async (req, res, next) => {
     const city = req.body?.city !== undefined ? String(req.body.city || '').trim().slice(0, 120) : null;
     const state = req.body?.state !== undefined ? String(req.body.state || '').trim().slice(0, 120) : null;
     const educationLevel = req.body?.educationLevel !== undefined ? String(req.body.educationLevel || '').trim().slice(0, 80) : null;
-
     if (!title) return res.status(400).json({ error: { message: 'title is required' } });
+
+    let applicationPageJson = getApplicationPageJsonFromBody(req.body);
+    applicationPageJson = await saveJobHeroImageUpload({ req, agencyId, applicationPageJson });
 
     let storagePath = null;
     let originalName = null;
     let mimeType = null;
 
-    if (req.file) {
-      const fileBuffer = req.file.buffer;
-      originalName = req.file.originalname || 'job-description';
-      mimeType = req.file.mimetype || 'application/octet-stream';
+    const descriptionFile = getUploadedFile(req, 'file');
+    if (descriptionFile) {
+      const fileBuffer = descriptionFile.buffer;
+      originalName = descriptionFile.originalname || 'job-description';
+      mimeType = descriptionFile.mimetype || 'application/octet-stream';
 
       // If the upload is plain text and no description was provided, use its content.
       if (!descriptionText && mimeType === 'text/plain') {
@@ -594,6 +777,7 @@ export const createJobDescription = async (req, res, next) => {
       city: city || null,
       state: state || null,
       educationLevel: educationLevel || null,
+      applicationPageJson,
       storagePath,
       originalName,
       mimeType,
@@ -628,7 +812,8 @@ export const updateJobDescription = async (req, res, next) => {
       ? undefined
       : (String(isActiveRaw).trim() === '1' || String(isActiveRaw).trim().toLowerCase() === 'true');
 
-    const hasUploadedFile = !!req.file;
+    const descriptionFile = getUploadedFile(req, 'file');
+    const hasUploadedFile = !!descriptionFile;
     const replaceWithNewVersion = String(req.body?.createNewVersion || '').trim() === '1' || hasUploadedFile;
 
     // Uploaded JDs should be versioned by creating a new row; pasted JDs can be edited in-place.
@@ -652,11 +837,15 @@ export const updateJobDescription = async (req, res, next) => {
       const educationLevel = req.body?.educationLevel !== undefined
         ? String(req.body.educationLevel || '').trim().slice(0, 80)
         : String(existing.education_level || '').trim();
+      let applicationPageJson = req.body?.applicationPageJson !== undefined || req.body?.application_page_json !== undefined
+        ? getApplicationPageJsonFromBody(req.body)
+        : sanitizeApplicationPageJson(parseMetadata(existing.application_page_json));
+      applicationPageJson = await saveJobHeroImageUpload({ req, agencyId, applicationPageJson });
 
       if (hasUploadedFile) {
-        const fileBuffer = req.file.buffer;
-        originalName = req.file.originalname || 'job-description';
-        mimeType = req.file.mimetype || 'application/octet-stream';
+        const fileBuffer = descriptionFile.buffer;
+        originalName = descriptionFile.originalname || 'job-description';
+        mimeType = descriptionFile.mimetype || 'application/octet-stream';
 
         if (!descriptionText && mimeType === 'text/plain') {
           try {
@@ -682,6 +871,7 @@ export const updateJobDescription = async (req, res, next) => {
         city: city || null,
         state: state || null,
         educationLevel: educationLevel || null,
+        applicationPageJson,
         storagePath: storagePath || null,
         originalName: originalName || null,
         mimeType: mimeType || null,
@@ -711,6 +901,18 @@ export const updateJobDescription = async (req, res, next) => {
     const educationLevel = req.body?.educationLevel !== undefined
       ? String(req.body.educationLevel || '').trim().slice(0, 80)
       : undefined;
+    let applicationPageJson = req.body?.applicationPageJson !== undefined || req.body?.application_page_json !== undefined
+      ? getApplicationPageJsonFromBody(req.body)
+      : undefined;
+    if (applicationPageJson !== undefined || getUploadedFile(req, 'heroImage')) {
+      applicationPageJson = await saveJobHeroImageUpload({
+        req,
+        agencyId,
+        applicationPageJson: applicationPageJson !== undefined
+          ? applicationPageJson
+          : sanitizeApplicationPageJson(parseMetadata(existing.application_page_json))
+      });
+    }
 
     const updated = await HiringJobDescription.updateById(jdId, {
       title,
@@ -720,6 +922,7 @@ export const updateJobDescription = async (req, res, next) => {
       city: city !== undefined ? (city || null) : undefined,
       state: state !== undefined ? (state || null) : undefined,
       educationLevel: educationLevel !== undefined ? (educationLevel || null) : undefined,
+      applicationPageJson,
       ...(isActive !== undefined ? { isActive } : {})
     });
 
@@ -2470,4 +2673,3 @@ export const submitMyInterviewSplash = async (req, res, next) => {
     next(e);
   }
 };
-

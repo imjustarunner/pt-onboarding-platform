@@ -125,6 +125,91 @@ const parseFeatureFlagsSafe = (raw) => {
   }
   return {};
 };
+
+const parseJsonObjectSafe = (raw) => {
+  if (!raw) return null;
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+};
+
+const compactText = (value, max = 240) => {
+  const raw = String(value || '').replace(/\s+/g, ' ').trim();
+  return raw ? raw.slice(0, max) : '';
+};
+
+const sanitizeApplicationPageJson = (raw) => {
+  const obj = parseJsonObjectSafe(raw);
+  if (!obj) return null;
+  const normalizeItems = (items, maxItems) => {
+    if (!Array.isArray(items)) return [];
+    return items
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null;
+        const title = compactText(item.title, 80);
+        const body = compactText(item.body || item.description, 180);
+        if (!title && !body) return null;
+        return {
+          icon: compactText(item.icon, 32),
+          title,
+          body
+        };
+      })
+      .filter(Boolean)
+      .slice(0, maxItems);
+  };
+  const out = {
+    eyebrow: compactText(obj.eyebrow, 80),
+    lead: compactText(obj.lead, 160),
+    titleHighlight: compactText(obj.titleHighlight || obj.title_highlight, 120),
+    heroImageUrl: compactText(obj.heroImageUrl || obj.hero_image_url, 1024),
+    heroImageAlt: compactText(obj.heroImageAlt || obj.hero_image_alt, 160),
+    heroImagePosition: compactText(obj.heroImagePosition || obj.hero_image_position, 80),
+    secureTitle: compactText(obj.secureTitle || obj.secure_title, 80),
+    secureSubtitle: compactText(obj.secureSubtitle || obj.secure_subtitle, 120),
+    startHeading: compactText(obj.startHeading || obj.start_heading, 120),
+    startSubtitle: compactText(obj.startSubtitle || obj.start_subtitle, 180),
+    startButtonText: compactText(obj.startButtonText || obj.start_button_text, 80),
+    startTimeNote: compactText(obj.startTimeNote || obj.start_time_note, 120),
+    showLeafAccent: obj.showLeafAccent !== false && obj.show_leaf_accent !== false,
+    featureCards: normalizeItems(obj.featureCards || obj.feature_cards, 4),
+    trustItems: normalizeItems(obj.trustItems || obj.trust_items, 3)
+  };
+  return Object.values(out).some((v) => (Array.isArray(v) ? v.length > 0 : !!v)) ? out : null;
+};
+const mergeApplicationPageJson = (agencyPage, jobPage) => {
+  const base = sanitizeApplicationPageJson(agencyPage) || null;
+  const override = sanitizeApplicationPageJson(jobPage) || null;
+  if (!base) return override;
+  if (!override) return base;
+
+  const pick = (key) => override[key] || base[key] || '';
+  const merged = {
+    eyebrow: pick('eyebrow'),
+    lead: pick('lead'),
+    titleHighlight: pick('titleHighlight'),
+    heroImageUrl: pick('heroImageUrl'),
+    heroImageAlt: pick('heroImageAlt'),
+    heroImagePosition: pick('heroImagePosition'),
+    secureTitle: pick('secureTitle'),
+    secureSubtitle: pick('secureSubtitle'),
+    startHeading: pick('startHeading'),
+    startSubtitle: pick('startSubtitle'),
+    startButtonText: pick('startButtonText'),
+    startTimeNote: pick('startTimeNote'),
+    showLeafAccent: override.showLeafAccent !== undefined ? override.showLeafAccent : base.showLeafAccent,
+    featureCards: override.featureCards?.length ? override.featureCards : (base.featureCards || []),
+    trustItems: override.trustItems?.length ? override.trustItems : (base.trustItems || [])
+  };
+  return sanitizeApplicationPageJson(merged);
+};
 const parseLinkIntakeSteps = (link) => {
   const raw = link?.intake_steps;
   if (!raw) return [];
@@ -3879,6 +3964,7 @@ export const listPublicCareers = async (req, res, next) => {
     if (!agency?.id) {
       return res.status(404).json({ error: { message: 'Agency not found' } });
     }
+    const agencyCareersPage = sanitizeApplicationPageJson(parseMetadata(agency.careers_page_json)) || null;
 
     const cityFilter = String(req.query?.city || '').trim().toLowerCase();
     const stateFilter = String(req.query?.state || '').trim().toLowerCase();
@@ -3894,6 +3980,7 @@ export const listPublicCareers = async (req, res, next) => {
         hjd.city,
         hjd.state,
         hjd.education_level,
+        hjd.application_page_json,
         hjd.storage_path,
         hjd.original_name,
         hjd.created_at,
@@ -3923,6 +4010,7 @@ export const listPublicCareers = async (req, res, next) => {
         city: String(r.city || '').trim() || null,
         state: String(r.state || '').trim() || null,
         educationLevel: String(r.education_level || '').trim() || null,
+        applicationPage: mergeApplicationPageJson(agencyCareersPage, r.application_page_json),
         jobDescriptionFileUrl: null,
         jobDescriptionFileName: String(r.original_name || '').trim() || null,
         postedAt: r.created_at || null,
@@ -3945,7 +4033,8 @@ export const listPublicCareers = async (req, res, next) => {
         slug: agency.slug || null,
         name: agency.name || null,
         officialName: agency.official_name || null,
-        logoUrl: agency.logo_url || null
+        logoUrl: agency.logo_url || null,
+        careersPage: agencyCareersPage
       },
       jobs
     });
@@ -4324,12 +4413,29 @@ export const getPublicIntakeLink = async (req, res, next) => {
           id: Number(jd.id),
           title: String(jd.title || '').trim() || null,
           descriptionText: String(jd.description_text || '').trim() || null,
+          applicationDeadline: jd.application_deadline || null,
+          city: String(jd.city || '').trim() || null,
+          state: String(jd.state || '').trim() || null,
+          educationLevel: String(jd.education_level || '').trim() || null,
+          applicationPage: sanitizeApplicationPageJson(jd.application_page_json),
           fileUrl,
           fileName: String(jd.original_name || '').trim() || null
         };
       }
     }
     const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
+    if (jobDescription && agency?.id) {
+      try {
+        const [agencyRows] = await pool.execute(
+          `SELECT careers_page_json FROM agencies WHERE id = ? LIMIT 1`,
+          [agency.id]
+        );
+        const agencyCareersPage = sanitizeApplicationPageJson(parseMetadata(agencyRows?.[0]?.careers_page_json)) || null;
+        jobDescription.applicationPage = mergeApplicationPageJson(agencyCareersPage, jobDescription.applicationPage);
+      } catch {
+        jobDescription.applicationPage = sanitizeApplicationPageJson(jobDescription.applicationPage);
+      }
+    }
     const isClientBoundRoiLink = !!issuedRoiLink?.client_id;
     const needsCaptcha = !isSmartSchoolRoiForm(link) && !isClientBoundRoiLink && requiresCaptchaForLink(organization, agency);
     const shouldIncludeRoiContext = isSmartSchoolRoiForm(link) || hasProgrammedSchoolRoiStep(link);

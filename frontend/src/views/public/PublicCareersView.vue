@@ -1,15 +1,31 @@
 <template>
   <div class="careers-root" :style="rootFontStyle">
     <header class="careers-hero">
-      <div class="careers-hero-inner">
-        <p class="careers-eyebrow">Careers</p>
-        <div v-if="headerLogoUrl" class="careers-logo-wrap">
-          <img class="careers-logo" :src="headerLogoUrl" :alt="headerLogoAlt" loading="eager" />
+      <div class="careers-hero-inner" :class="{ 'careers-hero-inner--no-image': !careersHeroImageUrl }">
+        <div class="careers-hero-copy">
+          <p class="careers-eyebrow">Careers</p>
+          <div v-if="headerLogoUrl" class="careers-logo-wrap">
+            <img class="careers-logo" :src="headerLogoUrl" :alt="headerLogoAlt" loading="eager" />
+          </div>
+          <h1 class="careers-title">{{ pageTitle }}</h1>
+          <p class="careers-subtitle">
+            {{ careersSubtitle }}
+          </p>
         </div>
-        <h1 class="careers-title">{{ pageTitle }}</h1>
-        <p class="careers-subtitle">
-          Browse open roles and apply directly online.
-        </p>
+        <figure v-if="careersHeroImageUrl" class="careers-hero-image">
+          <img
+            :src="careersHeroImageUrl"
+            :alt="careersHeroImageAlt"
+            :style="{ objectPosition: careersHeroImagePosition }"
+            loading="eager"
+          />
+        </figure>
+        <div v-if="agencyFeatureCards.length" class="careers-feature-row">
+          <article v-for="card in agencyFeatureCards" :key="`${card.title}-${card.body}`" class="careers-feature-cell">
+            <strong>{{ card.title }}</strong>
+            <span v-if="card.body">{{ card.body }}</span>
+          </article>
+        </div>
       </div>
     </header>
 
@@ -90,6 +106,7 @@ import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useBrandingStore } from '../../store/branding';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 const route = useRoute();
 const brandingStore = useBrandingStore();
@@ -99,6 +116,7 @@ const loading = ref(false);
 const error = ref('');
 const jobs = ref([]);
 const agencyName = ref('');
+const agencyCareersPage = ref({});
 const selectedState = ref('');
 const selectedCity = ref('');
 const selectedEducation = ref('');
@@ -111,6 +129,28 @@ const educationLevelOptions = [
 ];
 
 const pageTitle = computed(() => (agencyName.value ? `${agencyName.value} Careers` : 'Careers'));
+const careersSubtitle = computed(() =>
+  String(agencyCareersPage.value?.lead || 'Browse open roles and apply directly online.').trim()
+);
+const careersHeroImageUrl = computed(() => {
+  const raw = String(agencyCareersPage.value?.heroImageUrl || '').trim();
+  return toUploadsUrl(raw) || raw;
+});
+const careersHeroImageAlt = computed(() =>
+  String(agencyCareersPage.value?.heroImageAlt || `${agencyName.value || 'Agency'} careers image`).trim()
+);
+const careersHeroImagePosition = computed(() =>
+  String(agencyCareersPage.value?.heroImagePosition || 'center center').trim()
+);
+const agencyFeatureCards = computed(() =>
+  (Array.isArray(agencyCareersPage.value?.featureCards) ? agencyCareersPage.value.featureCards : [])
+    .map((card) => ({
+      title: String(card?.title || '').trim(),
+      body: String(card?.body || '').trim()
+    }))
+    .filter((card) => card.title || card.body)
+    .slice(0, 4)
+);
 const headerLogoUrl = computed(() => {
   const t = brandingStore.portalTheme;
   const u = t?.logoUrl || brandingStore.portalAgency?.logoUrl;
@@ -184,10 +224,14 @@ const loadCareers = async () => {
       timeout: 15000
     });
     agencyName.value = String(r.data?.agency?.officialName || r.data?.agency?.name || '').trim();
+    agencyCareersPage.value = r.data?.agency?.careersPage && typeof r.data.agency.careersPage === 'object'
+      ? r.data.agency.careersPage
+      : {};
     jobs.value = Array.isArray(r.data?.jobs) ? r.data.jobs : [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Unable to load careers at this time.';
     jobs.value = [];
+    agencyCareersPage.value = {};
   } finally {
     loading.value = false;
   }
@@ -205,14 +249,25 @@ watch(slug, () => loadCareers(), { immediate: true });
   padding-bottom: 48px;
 }
 .careers-hero {
-  padding: 28px 20px 20px;
-  text-align: center;
+  padding: 28px 20px 24px;
   border-bottom: 1px solid #e2e8f0;
   background: #fff;
 }
 .careers-hero-inner {
-  max-width: 720px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.72fr);
+  align-items: center;
+  gap: 28px;
+  max-width: 1120px;
   margin: 0 auto;
+}
+.careers-hero-copy {
+  min-width: 0;
+}
+.careers-hero-inner--no-image {
+  grid-template-columns: minmax(0, 760px);
+  justify-content: center;
+  text-align: center;
 }
 .careers-eyebrow {
   margin: 0 0 8px;
@@ -233,7 +288,8 @@ watch(slug, () => loadCareers(), { immediate: true });
 }
 .careers-title {
   margin: 0;
-  font-size: 1.65rem;
+  font-size: 2.35rem;
+  line-height: 1.08;
   color: var(--primary, #15803d);
 }
 .careers-subtitle {
@@ -241,6 +297,51 @@ watch(slug, () => loadCareers(), { immediate: true });
   font-size: 0.95rem;
   line-height: 1.5;
   color: #64748b;
+}
+.careers-hero-image {
+  margin: 0;
+}
+.careers-hero-image img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1.55 / 1;
+  object-fit: cover;
+  border-radius: 34px 34px 34px 8px;
+  box-shadow: 0 22px 52px -34px rgba(15, 23, 42, 0.6);
+}
+.careers-feature-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  margin-top: 6px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 14px 34px -30px rgba(15, 23, 42, 0.45);
+}
+.careers-feature-cell {
+  min-width: 0;
+  padding: 16px;
+  text-align: center;
+  border-right: 1px solid #e2e8f0;
+}
+.careers-feature-cell:last-child {
+  border-right: 0;
+}
+.careers-feature-cell strong,
+.careers-feature-cell span {
+  display: block;
+}
+.careers-feature-cell strong {
+  color: #0f172a;
+  font-size: 0.95rem;
+}
+.careers-feature-cell span {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 0.85rem;
+  line-height: 1.35;
 }
 .careers-loading,
 .careers-error,
@@ -348,5 +449,28 @@ watch(slug, () => loadCareers(), { immediate: true });
   width: 100%;
   min-height: 560px;
   border: 0;
+}
+@media (max-width: 720px) {
+  .careers-hero-inner {
+    grid-template-columns: 1fr;
+  }
+  .careers-title {
+    font-size: 1.8rem;
+  }
+  .careers-feature-row {
+    grid-template-columns: 1fr;
+  }
+  .careers-feature-cell {
+    border-right: 0;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .careers-feature-cell:last-child {
+    border-bottom: 0;
+  }
+  .careers-card,
+  .careers-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 </style>
