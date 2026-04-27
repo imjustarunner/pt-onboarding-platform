@@ -2212,11 +2212,13 @@ export const getClubMemberTrophyCase = async (req, res, next) => {
   try {
     const { resolveClubByPublicRef } = await import('./challengeMemberApplications.controller.js');
 
-    let club = null;
-    try { club = await resolveClubByPublicRef(String(req.params.id || '').trim()); } catch { /* DB blip */ }
+    const clubRef = String(req.params.id || '').trim();
     const targetUserId = parseInt(req.params.userId, 10);
-    if (!club || !targetUserId) return res.status(400).json({ error: { message: 'Invalid club or user' } });
-    const clubId = Number(club.id);
+    let club = null;
+    try { club = await resolveClubByPublicRef(clubRef); } catch { /* DB blip — fall through to numeric fallback */ }
+    // If lookup failed but ref is a plain numeric ID, use it directly
+    const clubId = club ? Number(club.id) : (parseInt(clubRef, 10) || 0);
+    if (!clubId || !targetUserId) return res.status(400).json({ error: { message: 'Invalid club or user' } });
 
     // Viewer must be authenticated
     if (!req.user?.id) return res.status(401).json({ error: { message: 'Sign in required' } });
@@ -2254,10 +2256,11 @@ export const getMyTrophyCase = async (req, res, next) => {
   try {
     if (!req.user?.id) return res.status(401).json({ error: { message: 'Sign in required' } });
     const { resolveClubByPublicRef } = await import('./challengeMemberApplications.controller.js');
+    const clubRef = String(req.params.id || '').trim();
     let club = null;
-    try { club = await resolveClubByPublicRef(String(req.params.id || '').trim()); } catch { /* DB blip */ }
-    if (!club) return res.status(400).json({ error: { message: 'clubId required' } });
-    const clubId = Number(club.id);
+    try { club = await resolveClubByPublicRef(clubRef); } catch { /* DB blip — fall through to numeric fallback */ }
+    const clubId = club ? Number(club.id) : (parseInt(clubRef, 10) || 0);
+    if (!clubId) return res.status(400).json({ error: { message: 'clubId required' } });
 
     let membershipOk = false;
     try {
