@@ -294,125 +294,181 @@
 
       <!-- Matchup Standings & Schedule (additive — only when matchups enabled) -->
       <div v-if="matchupsEnabled" class="matchup-dash-section">
-        <!-- Season Standings -->
-        <div class="matchup-standings-card">
-          <div class="matchup-card-header">
-            <h3 class="matchup-card-title">Season Matchup Standings</h3>
-          </div>
-          <div v-if="matchupStandingsLoading && !matchupStandings.length" class="matchup-loading">Loading standings…</div>
-          <table v-else-if="matchupStandings.length" class="matchup-standings-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Team</th>
-                <th>W</th><th>L</th><th>T</th>
-                <th class="num">Pts For</th>
-                <th class="num">Pts Ag</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="s in matchupStandings"
-                :key="s.teamId"
-                :class="{ 'matchup-my-team': s.teamId === myTeamId }"
-              >
-                <td class="matchup-rank">{{ s.rank }}</td>
-                <td class="matchup-team-cell">
-                  <img v-if="s.logoPath" :src="resolveUploadUrl(s.logoPath)" class="matchup-logo" alt="" />
-                  <span class="matchup-team-name">{{ s.teamName }}</span>
-                  <span class="matchup-win-badge">{{ s.wins }}W</span>
-                </td>
-                <td>{{ s.wins }}</td><td>{{ s.losses }}</td><td>{{ s.ties }}</td>
-                <td class="num">{{ s.ptsFor.toFixed(0) }}</td>
-                <td class="num">{{ s.ptsAgainst.toFixed(0) }}</td>
-              </tr>
-            </tbody>
-          </table>
-          <p v-else class="matchup-empty">No resolved matchups yet — standings will appear after the first week closes.</p>
-        </div>
+        <div id="section-matchups" class="mu-board">
 
-        <!-- Week-by-week accordion -->
-        <div id="section-matchups" class="matchup-schedule-card">
-          <div class="matchup-card-header">
-            <h3 class="matchup-card-title">Weekly Matchups</h3>
-          </div>
-          <div v-if="matchupScheduleLoading && !matchupWeeks.length" class="matchup-loading">Loading schedule…</div>
-          <div v-else-if="!matchupWeeks.length" class="matchup-empty">No matchup schedule available yet.</div>
-          <div v-else>
-            <!-- Current week highlight (live scores) -->
-            <div v-if="currentWeekMatchups.length" class="matchup-current-week-card">
-              <div class="matchup-current-title">
-                This Week's Matchup{{ currentWeekMatchups.length > 1 ? 's' : '' }}
-                <span class="matchup-live-badge">LIVE</span>
+          <!-- ── Board header: title + week nav ───────────────────── -->
+          <div class="mu-board-header">
+            <div class="mu-board-title-block">
+              <h3 class="mu-board-title">WEEKLY MATCHUPS</h3>
+              <div v-if="selectedDisplayWeekDate" class="mu-board-subtitle">
+                Week {{ selectedDisplayWeekIdx + 1 }}
+                <span class="mu-subtitle-dot">·</span>
+                {{ fmtWeekDate(selectedDisplayWeekDate) }}
+                <span class="mu-status-pill" :class="displayedWeekStatusClass">{{ displayedWeekStatusLabel }}</span>
               </div>
-              <div v-for="m in currentWeekMatchups" :key="m.id" class="matchup-vs-row">
-                <div class="matchup-vs-team" :class="{ 'matchup-vs-winner': m.resolvedAt && m.winnerTeamId === m.team1Id, 'matchup-vs-leading': !m.resolvedAt && (m.team1LivePoints ?? 0) > (m.team2LivePoints ?? 0) }">
-                  <img v-if="m.team1Logo" :src="resolveUploadUrl(m.team1Logo)" class="matchup-vs-logo" alt="" />
-                  <span>{{ m.team1Name }}</span>
+            </div>
+            <div class="mu-week-nav">
+              <select v-model="selectedDisplayWeekIdx" class="mu-week-select">
+                <option v-for="(w, i) in matchupWeeks" :key="w.date" :value="i">Week {{ i + 1 }}</option>
+              </select>
+              <button class="mu-nav-btn" @click="navigateWeek(-1)" :disabled="selectedDisplayWeekIdx <= 0">‹</button>
+              <button class="mu-nav-btn" @click="navigateWeek(1)" :disabled="selectedDisplayWeekIdx >= matchupWeeks.length - 1">›</button>
+            </div>
+          </div>
+
+          <!-- ── Hero matchup cards ─────────────────────────────── -->
+          <div v-if="matchupScheduleLoading && !matchupWeeks.length" class="mu-loading">Loading matchups…</div>
+          <div v-else-if="!matchupWeeks.length" class="mu-empty">No matchup schedule available yet.</div>
+          <div v-else class="mu-hero-cards">
+            <div v-for="m in displayedWeekMatchups" :key="m.id" class="mu-hero-card">
+
+              <!-- Team 1 side -->
+              <div class="mu-hero-side mu-hero-side--left"
+                :class="{
+                  'mu-hero-side--winner': m.winnerTeamId === m.team1Id,
+                  'mu-hero-side--leading': !m.resolvedAt && (m.team1LivePoints ?? 0) > (m.team2LivePoints ?? 0)
+                }">
+                <div class="mu-hero-logo-wrap">
+                  <img v-if="m.team1Logo" :src="resolveUploadUrl(m.team1Logo)" class="mu-hero-logo" alt="" />
+                  <div v-else class="mu-hero-logo-placeholder">{{ (m.team1Name || '?')[0].toUpperCase() }}</div>
                 </div>
-                <div class="matchup-vs-score">
-                  <span class="matchup-vs-pts" :class="{ 'matchup-pts-leading': !m.resolvedAt && (m.team1LivePoints ?? 0) > (m.team2LivePoints ?? 0) }">
-                    {{ m.resolvedAt ? (m.team1Points != null ? m.team1Points.toFixed(1) : '—') : (m.team1LivePoints != null ? m.team1LivePoints.toFixed(1) : '0.0') }}
-                  </span>
-                  <span class="matchup-vs-divider">{{ m.resolvedAt ? (m.isTie ? 'TIE' : 'FINAL') : 'VS' }}</span>
-                  <span class="matchup-vs-pts" :class="{ 'matchup-pts-leading': !m.resolvedAt && (m.team2LivePoints ?? 0) > (m.team1LivePoints ?? 0) }">
-                    {{ m.resolvedAt ? (m.team2Points != null ? m.team2Points.toFixed(1) : '—') : (m.team2LivePoints != null ? m.team2LivePoints.toFixed(1) : '0.0') }}
+                <div class="mu-hero-info">
+                  <span class="mu-hero-team-label">{{ m.team1Name }}</span>
+                  <span class="mu-hero-score mu-score--t1">
+                    {{ m.resolvedAt ? (m.team1Points != null ? m.team1Points.toFixed(1) : '—') : (m.team1LivePoints != null ? m.team1LivePoints.toFixed(1) : '—') }}
                   </span>
                 </div>
-                <div class="matchup-vs-team matchup-vs-team--right" :class="{ 'matchup-vs-winner': m.resolvedAt && m.winnerTeamId === m.team2Id, 'matchup-vs-leading': !m.resolvedAt && (m.team2LivePoints ?? 0) > (m.team1LivePoints ?? 0) }">
-                  <img v-if="m.team2Logo" :src="resolveUploadUrl(m.team2Logo)" class="matchup-vs-logo" alt="" />
-                  <span>{{ m.team2Name }}</span>
+              </div>
+
+              <!-- VS center -->
+              <div class="mu-hero-center">
+                <div class="mu-vs-diamond">
+                  <span class="mu-vs-text">{{ m.resolvedAt ? (m.isTie ? 'TIE' : 'FINAL') : 'VS' }}</span>
+                </div>
+                <div v-if="!m.resolvedAt && selectedDisplayWeekDate === matchupCurrentWeekStart" class="mu-live-badge">
+                  <span class="mu-live-dot"></span>LIVE
+                </div>
+              </div>
+
+              <!-- Team 2 side -->
+              <div class="mu-hero-side mu-hero-side--right"
+                :class="{
+                  'mu-hero-side--winner': m.winnerTeamId === m.team2Id,
+                  'mu-hero-side--leading': !m.resolvedAt && (m.team2LivePoints ?? 0) > (m.team1LivePoints ?? 0)
+                }">
+                <div class="mu-hero-info mu-hero-info--right">
+                  <span class="mu-hero-team-label">{{ m.team2Name }}</span>
+                  <span class="mu-hero-score mu-score--t2">
+                    {{ m.resolvedAt ? (m.team2Points != null ? m.team2Points.toFixed(1) : '—') : (m.team2LivePoints != null ? m.team2LivePoints.toFixed(1) : '—') }}
+                  </span>
+                </div>
+                <div class="mu-hero-logo-wrap">
+                  <img v-if="m.team2Logo" :src="resolveUploadUrl(m.team2Logo)" class="mu-hero-logo" alt="" />
+                  <div v-else class="mu-hero-logo-placeholder mu-hero-logo-placeholder--t2">{{ (m.team2Name || '?')[0].toUpperCase() }}</div>
                 </div>
               </div>
             </div>
 
-            <!-- All-weeks accordion -->
+            <div v-if="!displayedWeekMatchups.length" class="mu-hero-none">
+              No matchups scheduled for this week.
+            </div>
+          </div>
+
+          <!-- ── Week-by-week accordion list ───────────────────────── -->
+          <div class="mu-week-list">
             <div
               v-for="(week, wIdx) in matchupWeeks"
               :key="week.date"
-              class="matchup-week"
-              :class="{ 'matchup-week--current': week.date === matchupCurrentWeekStart }"
+              class="mu-week-item"
+              :class="{ 'mu-week-item--current': week.date === matchupCurrentWeekStart }"
             >
-              <button class="matchup-week-hd" @click="toggleMatchupWeek(week.date)">
-                <span class="matchup-week-label">Week {{ wIdx + 1 }} <small class="matchup-week-date">{{ fmtWeekDate(week.date) }}</small></span>
-                <span class="matchup-week-summary" :class="{
-                  'matchup-summary--final': week.matchups.every(m => m.resolvedAt),
-                  'matchup-summary--live': week.date === matchupCurrentWeekStart && !week.matchups.every(m => m.resolvedAt),
-                  'matchup-summary--upcoming': week.date !== matchupCurrentWeekStart && !week.matchups.some(m => m.resolvedAt)
+              <button class="mu-week-row" @click="toggleMatchupWeek(week.date)">
+                <span class="mu-wk-icon">📅</span>
+                <span class="mu-wk-num">WEEK {{ wIdx + 1 }}</span>
+                <span class="mu-wk-date">{{ fmtWeekDate(week.date) }}</span>
+                <span class="mu-wk-pill" :class="{
+                  'mu-pill--final': week.matchups.every(m => m.resolvedAt),
+                  'mu-pill--live': week.date === matchupCurrentWeekStart && !week.matchups.every(m => m.resolvedAt),
+                  'mu-pill--upcoming': week.date !== matchupCurrentWeekStart && !week.matchups.some(m => m.resolvedAt)
                 }">
-                  <template v-if="week.matchups.every(m => m.resolvedAt)">Final</template>
-                  <template v-else-if="week.date === matchupCurrentWeekStart">In Progress</template>
-                  <template v-else>Upcoming</template>
+                  <template v-if="week.matchups.every(m => m.resolvedAt)">FINAL</template>
+                  <template v-else-if="week.date === matchupCurrentWeekStart">IN PROGRESS</template>
+                  <template v-else>UPCOMING</template>
                 </span>
-                <span class="matchup-chevron">{{ matchupExpandedWeeks.has(week.date) ? '▲' : '▼' }}</span>
+                <div class="mu-wk-preview">
+                  <template v-for="(m, mi) in week.matchups" :key="m.id">
+                    <span v-if="mi > 0" class="mu-wk-preview-sep">·</span>
+                    <img v-if="m.team1Logo" :src="resolveUploadUrl(m.team1Logo)" class="mu-wk-logo" alt="" />
+                    <span class="mu-wk-preview-name" :class="{ 'mu-wk-winner': m.winnerTeamId === m.team1Id }">{{ m.team1Name }}</span>
+                    <span class="mu-wk-score" :class="{ 'mu-wk-score--leading': m.winnerTeamId === m.team1Id || (!m.resolvedAt && (m.team1LivePoints ?? 0) > (m.team2LivePoints ?? 0)) }">
+                      {{ m.resolvedAt ? (m.team1Points != null ? m.team1Points.toFixed(1) : '') : (m.team1LivePoints != null ? m.team1LivePoints.toFixed(1) : '') }}
+                    </span>
+                    <span class="mu-wk-vs">VS</span>
+                    <span class="mu-wk-score" :class="{ 'mu-wk-score--leading': m.winnerTeamId === m.team2Id || (!m.resolvedAt && (m.team2LivePoints ?? 0) > (m.team1LivePoints ?? 0)) }">
+                      {{ m.resolvedAt ? (m.team2Points != null ? m.team2Points.toFixed(1) : '') : (m.team2LivePoints != null ? m.team2LivePoints.toFixed(1) : '') }}
+                    </span>
+                    <span class="mu-wk-preview-name mu-wk-preview-name--right" :class="{ 'mu-wk-winner': m.winnerTeamId === m.team2Id }">{{ m.team2Name }}</span>
+                    <img v-if="m.team2Logo" :src="resolveUploadUrl(m.team2Logo)" class="mu-wk-logo" alt="" />
+                  </template>
+                </div>
+                <span class="mu-wk-chevron">{{ matchupExpandedWeeks.has(week.date) ? '▲' : '▼' }}</span>
               </button>
-              <div v-if="matchupExpandedWeeks.has(week.date)" class="matchup-week-body">
-                <div v-for="m in week.matchups" :key="m.id" class="matchup-row">
-                  <div class="matchup-row-team" :class="{ 'matchup-row-winner': m.winnerTeamId === m.team1Id }">
-                    <img v-if="m.team1Logo" :src="resolveUploadUrl(m.team1Logo)" class="matchup-row-logo" alt="" />
-                    {{ m.team1Name }}
+
+              <!-- Expanded detail body -->
+              <div v-if="matchupExpandedWeeks.has(week.date)" class="mu-week-body">
+                <div v-for="m in week.matchups" :key="m.id" class="mu-body-row">
+                  <div class="mu-body-team" :class="{ 'mu-body-winner': m.winnerTeamId === m.team1Id }">
+                    <img v-if="m.team1Logo" :src="resolveUploadUrl(m.team1Logo)" class="mu-body-logo" alt="" />
+                    <span>{{ m.team1Name }}</span>
                   </div>
-                  <div class="matchup-row-scores">
-                    <span :class="{ 'matchup-pts-winner': m.winnerTeamId === m.team1Id }">
+                  <div class="mu-body-scores">
+                    <span :class="{ 'mu-body-pts-win': m.winnerTeamId === m.team1Id }">
                       {{ m.resolvedAt ? (m.team1Points != null ? m.team1Points.toFixed(1) : '—') : (m.team1LivePoints != null ? m.team1LivePoints.toFixed(1) : '—') }}
                     </span>
-                    <span class="matchup-row-vs">vs</span>
-                    <span :class="{ 'matchup-pts-winner': m.winnerTeamId === m.team2Id }">
+                    <span class="mu-body-vs">vs</span>
+                    <span :class="{ 'mu-body-pts-win': m.winnerTeamId === m.team2Id }">
                       {{ m.resolvedAt ? (m.team2Points != null ? m.team2Points.toFixed(1) : '—') : (m.team2LivePoints != null ? m.team2LivePoints.toFixed(1) : '—') }}
                     </span>
                   </div>
-                  <div class="matchup-row-team matchup-row-team--right" :class="{ 'matchup-row-winner': m.winnerTeamId === m.team2Id }">
-                    {{ m.team2Name }}
-                    <img v-if="m.team2Logo" :src="resolveUploadUrl(m.team2Logo)" class="matchup-row-logo" alt="" />
+                  <div class="mu-body-team mu-body-team--right" :class="{ 'mu-body-winner': m.winnerTeamId === m.team2Id }">
+                    <span>{{ m.team2Name }}</span>
+                    <img v-if="m.team2Logo" :src="resolveUploadUrl(m.team2Logo)" class="mu-body-logo" alt="" />
                   </div>
-                  <span v-if="m.isTie" class="matchup-badge matchup-badge--tie">TIE</span>
-                  <span v-else-if="m.resolvedAt" class="matchup-badge matchup-badge--win">{{ m.winnerName }} wins</span>
-                  <span v-else-if="week.date === matchupCurrentWeekStart" class="matchup-badge matchup-badge--live">Live</span>
-                  <span v-else class="matchup-badge matchup-badge--pending">Upcoming</span>
+                  <span v-if="m.isTie" class="mu-body-badge mu-body-badge--tie">TIE</span>
+                  <span v-else-if="m.resolvedAt" class="mu-body-badge mu-body-badge--win">{{ m.winnerName }} wins</span>
+                  <span v-else-if="week.date === matchupCurrentWeekStart" class="mu-body-badge mu-body-badge--live">● Live</span>
+                  <span v-else class="mu-body-badge mu-body-badge--upcoming">Upcoming</span>
                 </div>
               </div>
             </div>
           </div>
+
+          <!-- ── Season Standings (collapsible) ───────────────────── -->
+          <details v-if="matchupStandings.length" class="mu-standings-details">
+            <summary class="mu-standings-summary">Season Matchup Standings</summary>
+            <table class="mu-standings-table">
+              <thead>
+                <tr>
+                  <th>#</th><th>Team</th><th>W</th><th>L</th><th>T</th>
+                  <th class="mu-num">Pts For</th><th class="mu-num">Pts Ag</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="s in matchupStandings" :key="s.teamId" :class="{ 'mu-my-team': s.teamId === myTeamId }">
+                  <td class="mu-s-rank">{{ s.rank }}</td>
+                  <td class="mu-s-team-cell">
+                    <img v-if="s.logoPath" :src="resolveUploadUrl(s.logoPath)" class="mu-s-logo" alt="" />
+                    <span>{{ s.teamName }}</span>
+                    <span class="mu-s-win-badge">{{ s.wins }}W</span>
+                  </td>
+                  <td>{{ s.wins }}</td><td>{{ s.losses }}</td><td>{{ s.ties }}</td>
+                  <td class="mu-num">{{ s.ptsFor.toFixed(0) }}</td>
+                  <td class="mu-num">{{ s.ptsAgainst.toFixed(0) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </details>
+
         </div>
       </div>
       <!-- ──────────────────────────────────────────────────────────── -->
@@ -1429,7 +1485,7 @@
         <div v-if="showBulkUploadModal && isBerlinChallenge" class="modal-overlay" @click.self="closeBulkUploadModal">
           <div class="modal-content modal-wide bulk-upload-modal">
             <h2>Bulk Upload On Behalf</h2>
-            <p class="hint">Upload screenshots — OCR will auto-fill fields. <span class="bulk-hint-warn">Red fields</span> need your attention before submitting.</p>
+            <p class="hint">Upload up to 50 screenshots at once — OCR will auto-fill fields. <span class="bulk-hint-warn">Red fields</span> need your attention before submitting.</p>
 
             <!-- ① Global date picker -->
             <div class="bulk-batch-date-row">
@@ -2154,6 +2210,11 @@ const loadMatchupSchedule = async () => {
       || weeks.filter((w) => w.matchups.some((m) => m.resolvedAt)).at(-1)?.date
       || weeks.at(-1)?.date;
     if (toOpen) matchupExpandedWeeks.value = new Set([toOpen]);
+    // Set hero display to current week (or most recent)
+    const heroIdx = matchupCurrentWeekStart.value
+      ? weeks.findIndex((w) => w.date === matchupCurrentWeekStart.value)
+      : weeks.findLastIndex((w) => w.matchups.some((m) => m.resolvedAt));
+    selectedDisplayWeekIdx.value = Math.max(0, heroIdx);
   } catch { /* best-effort */ }
   finally { matchupScheduleLoading.value = false; }
 };
@@ -2173,6 +2234,36 @@ const toggleMatchupWeek = (date) => {
   s.has(date) ? s.delete(date) : s.add(date);
   matchupExpandedWeeks.value = s;
 };
+
+const selectedDisplayWeekIdx = ref(0);
+
+const displayedWeekMatchups = computed(() =>
+  matchupWeeks.value[selectedDisplayWeekIdx.value]?.matchups || []
+);
+
+const selectedDisplayWeekDate = computed(() =>
+  matchupWeeks.value[selectedDisplayWeekIdx.value]?.date || null
+);
+
+const navigateWeek = (dir) => {
+  const next = selectedDisplayWeekIdx.value + dir;
+  if (next >= 0 && next < matchupWeeks.value.length) selectedDisplayWeekIdx.value = next;
+};
+
+const displayedWeekStatusLabel = computed(() => {
+  const week = matchupWeeks.value[selectedDisplayWeekIdx.value];
+  if (!week) return '';
+  if (week.matchups.every((m) => m.resolvedAt)) return 'FINAL';
+  if (week.date === matchupCurrentWeekStart.value) return 'IN PROGRESS';
+  return 'UPCOMING';
+});
+
+const displayedWeekStatusClass = computed(() => {
+  const lbl = displayedWeekStatusLabel.value;
+  if (lbl === 'FINAL') return 'mu-pill--final';
+  if (lbl === 'IN PROGRESS') return 'mu-pill--live';
+  return 'mu-pill--upcoming';
+});
 // ─────────────────────────────────────────────────────────────────────────────
 
 const isChallengeManager = computed(() => {
@@ -3006,7 +3097,7 @@ const currentDatetimeLocal = () => {
 
 const onBulkFilesSelected = async (event) => {
   const id = challengeId.value;
-  const files = Array.from(event.target?.files || []).slice(0, 10);
+  const files = Array.from(event.target?.files || []).slice(0, 50);
   if (!id || !files.length) return;
   bulkScanning.value = true;
   bulkUploadError.value = '';
@@ -3927,90 +4018,389 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   min-width: 38px;
 }
 
-/* ── Matchup dashboard section ────────────────────────────────────── */
-.matchup-dash-section {
+/* ═══════════════════════════════════════════════════════════════════
+   WEEKLY MATCHUPS — dark sports-board
+═══════════════════════════════════════════════════════════════════ */
+.matchup-dash-section { margin: 16px 0; }
+
+/* Board shell */
+.mu-board {
+  background: #0e1621;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.35);
+  color: #e2e8f0;
+}
+
+/* ── Board header ── */
+.mu-board-header {
   display: flex;
-  flex-direction: column;
-  gap: 16px;
-  margin: 16px 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 22px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
 }
-.matchup-standings-card,
-.matchup-schedule-card {
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  padding: 18px 20px;
-  box-shadow: 0 1px 6px rgba(0,0,0,0.06);
-}
-.matchup-card-header { margin-bottom: 14px; }
-.matchup-card-title { font-size: 1.05rem; font-weight: 700; margin: 0; }
-.matchup-loading, .matchup-empty { color: #94a3b8; font-size: 0.9rem; padding: 12px 0; }
-
-/* Standings table */
-.matchup-standings-table { width: 100%; border-collapse: collapse; font-size: 0.87rem; }
-.matchup-standings-table th,
-.matchup-standings-table td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; text-align: left; }
-.matchup-standings-table th { background: #f8fafc; font-size: 0.75rem; color: #64748b; font-weight: 700; text-transform: uppercase; }
-.matchup-standings-table .num { text-align: right; }
-.matchup-standings-table .matchup-my-team { background: #eff6ff; }
-.matchup-rank { color: #94a3b8; font-weight: 700; font-size: 0.85rem; }
-.matchup-team-cell { display: flex; align-items: center; gap: 7px; }
-.matchup-logo { width: 24px; height: 24px; border-radius: 5px; object-fit: cover; flex-shrink: 0; }
-.matchup-team-name { flex: 1; }
-.matchup-win-badge { background: #dcfce7; color: #15803d; font-size: 0.7rem; font-weight: 700; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
-
-/* Current week highlight */
-.matchup-current-week-card {
-  background: linear-gradient(135deg, #1e3a5f 0%, #0f2744 100%);
-  border-radius: 12px;
-  padding: 16px 18px;
-  margin-bottom: 14px;
+.mu-board-title {
+  margin: 0 0 4px;
+  font-size: 1.25rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: #fff;
 }
-.matchup-current-title { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.7); margin-bottom: 10px; }
-.matchup-live-badge { background: #ef4444; color: #fff; font-size: 0.65rem; font-weight: 800; border-radius: 999px; padding: 1px 7px; letter-spacing: 0.06em; animation: mu-pulse 1.6s ease-in-out infinite; }
-@keyframes mu-pulse { 0%,100%{opacity:1} 50%{opacity:0.55} }
-.matchup-vs-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
-.matchup-vs-team { display: flex; align-items: center; gap: 8px; flex: 1; font-weight: 700; font-size: 0.95rem; }
-.matchup-vs-team--right { justify-content: flex-end; text-align: right; }
-.matchup-vs-winner { color: #fbbf24; }
-.matchup-vs-leading { color: #86efac; }
-.matchup-vs-logo { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; flex-shrink: 0; }
-.matchup-vs-score { display: flex; align-items: center; gap: 8px; font-size: 1.1rem; font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
-.matchup-vs-pts { min-width: 42px; text-align: center; }
-.matchup-pts-leading { color: #86efac; }
-.matchup-vs-divider { font-size: 0.72rem; color: rgba(255,255,255,0.55); font-weight: 400; }
+.mu-board-subtitle {
+  font-size: 0.78rem;
+  color: rgba(255,255,255,0.5);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.mu-subtitle-dot { opacity: 0.4; }
 
-/* Week accordion */
-.matchup-week { border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
-.matchup-week--current { border-color: #93c5fd; box-shadow: 0 0 0 1px #93c5fd30; }
-.matchup-week-hd { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #f8fafc; border: none; cursor: pointer; text-align: left; font-size: 0.88rem; }
-.matchup-week-hd:hover { background: #f1f5f9; }
-.matchup-week--current .matchup-week-hd { background: #eff6ff; }
-.matchup-week-label { font-weight: 700; flex: 0 0 auto; }
-.matchup-week-date { font-weight: 400; color: #94a3b8; font-size: 0.78rem; margin-left: 4px; }
-.matchup-week-summary { flex: 1; font-size: 0.78rem; font-weight: 600; border-radius: 999px; padding: 1px 9px; display: inline-flex; width: fit-content; }
-.matchup-summary--final { background: #dbeafe; color: #1e40af; }
-.matchup-summary--live { background: #dcfce7; color: #166534; }
-.matchup-summary--upcoming { background: #f1f5f9; color: #64748b; }
-.matchup-chevron { font-size: 0.7rem; color: #94a3b8; }
-.matchup-week-body { padding: 8px 14px 12px; }
+/* Status pills */
+.mu-status-pill,
+.mu-wk-pill {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+.mu-pill--live    { background: #fbbf24; color: #1a0c00; }
+.mu-pill--final   { background: #3b82f6; color: #fff; }
+.mu-pill--upcoming{ background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.12); }
 
-.matchup-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid #f1f5f9; flex-wrap: wrap; }
-.matchup-row:last-child { border-bottom: none; }
-.matchup-row-team { display: flex; align-items: center; gap: 6px; flex: 1; font-size: 0.87rem; }
-.matchup-row-team--right { justify-content: flex-end; }
-.matchup-row-winner { font-weight: 700; color: #0066cc; }
-.matchup-row-logo { width: 20px; height: 20px; border-radius: 4px; object-fit: cover; flex-shrink: 0; }
-.matchup-row-scores { font-size: 0.85rem; color: #475569; font-variant-numeric: tabular-nums; white-space: nowrap; display: flex; align-items: center; gap: 4px; }
-.matchup-pts-winner { font-weight: 700; color: #0066cc; }
-.matchup-row-vs { margin: 0 4px; color: #94a3b8; font-size: 0.75rem; }
-.matchup-badge { font-size: 0.72rem; font-weight: 700; border-radius: 999px; padding: 2px 9px; white-space: nowrap; }
-.matchup-badge--win { background: #dbeafe; color: #1d4ed8; }
-.matchup-badge--tie { background: #fef9c3; color: #92400e; }
-.matchup-badge--pending { background: #f1f5f9; color: #64748b; }
-.matchup-badge--live { background: #dcfce7; color: #166534; }
-/* ──────────────────────────────────────────────────────────────────── */
+/* Week navigation */
+.mu-week-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.mu-week-select {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  color: #e2e8f0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.mu-week-select option { background: #1a2638; color: #e2e8f0; }
+.mu-nav-btn {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  color: #e2e8f0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s;
+  line-height: 1;
+}
+.mu-nav-btn:hover:not(:disabled) { background: rgba(255,255,255,0.16); }
+.mu-nav-btn:disabled { opacity: 0.28; cursor: default; }
+
+/* ── Hero matchup cards ── */
+.mu-hero-cards { display: flex; flex-direction: column; gap: 3px; }
+.mu-loading, .mu-empty { color: rgba(255,255,255,0.35); font-size: 0.9rem; padding: 24px 22px; }
+.mu-hero-none { color: rgba(255,255,255,0.35); font-size: 0.88rem; padding: 20px 22px; text-align: center; }
+
+.mu-hero-card {
+  display: flex;
+  align-items: stretch;
+  min-height: 110px;
+  position: relative;
+}
+
+/* Left team side */
+.mu-hero-side {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  padding: 18px 16px 18px 20px;
+  min-width: 0;
+  transition: background 0.2s;
+}
+.mu-hero-side--left {
+  background: linear-gradient(100deg, #1c1305 0%, #2a1f0a 60%, #1a1720 100%);
+  border-right: 1px solid rgba(255,255,255,0.05);
+}
+.mu-hero-side--right {
+  background: linear-gradient(260deg, #04101c 0%, #081a30 60%, #1a1720 100%);
+  flex-direction: row-reverse;
+  text-align: right;
+  padding: 18px 20px 18px 16px;
+  border-left: 1px solid rgba(255,255,255,0.05);
+}
+.mu-hero-side--winner.mu-hero-side--left  { background: linear-gradient(100deg, #251a02 0%, #3a2d04 60%, #1e1a10 100%); }
+.mu-hero-side--winner.mu-hero-side--right { background: linear-gradient(260deg, #041020 0%, #082040 60%, #0e1a28 100%); }
+.mu-hero-side--leading.mu-hero-side--left  { box-shadow: inset 3px 0 0 #fbbf24; }
+.mu-hero-side--leading.mu-hero-side--right { box-shadow: inset -3px 0 0 #38bdf8; }
+
+.mu-hero-logo-wrap {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 2px solid rgba(255,255,255,0.12);
+}
+.mu-hero-logo { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mu-hero-logo-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  font-weight: 900;
+  color: rgba(255,255,255,0.5);
+  background: rgba(255,255,255,0.06);
+}
+.mu-hero-logo-placeholder--t2 { color: rgba(56,189,248,0.6); }
+
+.mu-hero-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.mu-hero-info--right { align-items: flex-end; }
+.mu-hero-team-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mu-hero-score {
+  font-size: 2rem;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.mu-score--t1 { color: #fbbf24; }
+.mu-score--t2 { color: #38bdf8; }
+
+/* VS center */
+.mu-hero-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 6px;
+  flex-shrink: 0;
+  z-index: 1;
+  background: #0e1621;
+}
+.mu-vs-diamond {
+  width: 46px;
+  height: 46px;
+  background: #1a2840;
+  border: 1px solid rgba(255,255,255,0.12);
+  transform: rotate(45deg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.mu-vs-text {
+  transform: rotate(-45deg);
+  font-size: 0.6rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  color: rgba(255,255,255,0.7);
+  white-space: nowrap;
+}
+.mu-live-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #ef4444;
+  white-space: nowrap;
+}
+.mu-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: mu-pulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes mu-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.8)} }
+
+/* ── Week accordion list ── */
+.mu-week-list {
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
+.mu-week-item { border-bottom: 1px solid rgba(255,255,255,0.06); }
+.mu-week-item:last-child { border-bottom: none; }
+.mu-week-item--current > .mu-week-row {
+  background: rgba(251,191,36,0.06);
+}
+
+.mu-week-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 16px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: #cbd5e1;
+  font-size: 0.82rem;
+  transition: background 0.12s;
+  flex-wrap: wrap;
+}
+.mu-week-row:hover { background: rgba(255,255,255,0.04); }
+
+.mu-wk-icon { font-size: 0.85rem; opacity: 0.5; flex-shrink: 0; }
+.mu-wk-num  { font-weight: 800; font-size: 0.8rem; letter-spacing: 0.05em; color: #fff; flex-shrink: 0; }
+.mu-wk-date { font-size: 0.75rem; color: rgba(255,255,255,0.4); flex-shrink: 0; }
+.mu-wk-pill { flex-shrink: 0; }
+
+.mu-wk-preview {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  flex-wrap: nowrap;
+}
+.mu-wk-logo { width: 16px; height: 16px; border-radius: 3px; object-fit: cover; flex-shrink: 0; }
+.mu-wk-preview-name {
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 90px;
+}
+.mu-wk-preview-name--right { text-align: right; }
+.mu-wk-winner { color: #fbbf24; font-weight: 700; }
+.mu-wk-preview-sep { color: rgba(255,255,255,0.2); font-size: 0.7rem; }
+.mu-wk-score {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.45);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.mu-wk-score--leading { color: #fbbf24; }
+.mu-wk-vs { font-size: 0.66rem; color: rgba(255,255,255,0.25); letter-spacing: 0.04em; flex-shrink: 0; }
+.mu-wk-chevron { font-size: 0.65rem; color: rgba(255,255,255,0.3); margin-left: auto; flex-shrink: 0; }
+
+/* Expanded week body */
+.mu-week-body {
+  padding: 4px 16px 12px;
+  background: rgba(0,0,0,0.2);
+}
+.mu-body-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  flex-wrap: wrap;
+}
+.mu-body-row:last-child { border-bottom: none; }
+.mu-body-team { display: flex; align-items: center; gap: 6px; flex: 1; font-size: 0.85rem; color: rgba(255,255,255,0.7); }
+.mu-body-team--right { justify-content: flex-end; text-align: right; }
+.mu-body-winner { color: #fbbf24; font-weight: 700; }
+.mu-body-logo { width: 20px; height: 20px; border-radius: 4px; object-fit: cover; flex-shrink: 0; }
+.mu-body-scores {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: rgba(255,255,255,0.6);
+}
+.mu-body-pts-win { color: #fbbf24; }
+.mu-body-vs { font-size: 0.7rem; color: rgba(255,255,255,0.25); font-weight: 400; }
+.mu-body-badge {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+.mu-body-badge--win      { background: #1e3a8a; color: #93c5fd; }
+.mu-body-badge--tie      { background: #713f12; color: #fde68a; }
+.mu-body-badge--live     { background: #7f1d1d; color: #fca5a5; }
+.mu-body-badge--upcoming { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.35); }
+
+/* ── Standings (collapsible) ── */
+.mu-standings-details {
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
+.mu-standings-summary {
+  padding: 12px 18px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.45);
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mu-standings-summary::-webkit-details-marker { display: none; }
+.mu-standings-summary::after { content: '▼'; font-size: 0.6rem; }
+.mu-standings-details[open] .mu-standings-summary::after { content: '▲'; }
+
+.mu-standings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  color: rgba(255,255,255,0.75);
+}
+.mu-standings-table th,
+.mu-standings-table td { padding: 7px 16px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: left; }
+.mu-standings-table th {
+  background: rgba(255,255,255,0.04);
+  font-size: 0.7rem;
+  color: rgba(255,255,255,0.35);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.mu-standings-table tbody tr:last-child td { border-bottom: none; }
+.mu-num { text-align: right !important; }
+.mu-my-team { background: rgba(251,191,36,0.06); }
+.mu-s-rank { color: rgba(255,255,255,0.35); font-weight: 700; }
+.mu-s-team-cell { display: flex; align-items: center; gap: 7px; }
+.mu-s-logo { width: 20px; height: 20px; border-radius: 4px; object-fit: cover; flex-shrink: 0; }
+.mu-s-win-badge { background: rgba(34,197,94,0.15); color: #4ade80; font-size: 0.68rem; font-weight: 700; border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
+/* ─────────────────────────────────────────────────────────────── */
 
 .challenge-sections {
   display: flex;
