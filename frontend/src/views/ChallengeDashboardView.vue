@@ -1429,56 +1429,157 @@
         <div v-if="showBulkUploadModal && isBerlinChallenge" class="modal-overlay" @click.self="closeBulkUploadModal">
           <div class="modal-content modal-wide bulk-upload-modal">
             <h2>Bulk Upload On Behalf</h2>
-            <p class="hint">Upload up to 10 screenshots. Names detected from screenshots will auto-match; highlighted rows need a member selected before submit.</p>
-            <input type="file" multiple accept="image/*" :disabled="bulkScanning" @change="onBulkFilesSelected" />
+            <p class="hint">Upload screenshots — OCR will auto-fill fields. <span class="bulk-hint-warn">Red fields</span> need your attention before submitting.</p>
+
+            <!-- ① Global date picker -->
+            <div class="bulk-batch-date-row">
+              <label class="bulk-batch-date-label">
+                📅 Workout date (applied to all)
+                <input
+                  v-model="bulkBatchDate"
+                  type="date"
+                  class="bulk-batch-date-input"
+                  @change="applyBulkBatchDate"
+                />
+              </label>
+              <span class="bulk-batch-date-hint">Changes the date on all items at once. You can still edit each one individually.</span>
+            </div>
+
+            <!-- ② File chooser -->
+            <label class="bulk-file-btn">
+              <input type="file" multiple accept="image/*" :disabled="bulkScanning" @change="onBulkFilesSelected" style="display:none" />
+              {{ bulkScanning ? '⏳ Scanning…' : (bulkItems.length ? '+ Add more screenshots' : '📸 Choose screenshots') }}
+            </label>
             <div v-if="bulkUploadError" class="error-inline">{{ bulkUploadError }}</div>
-            <div v-if="bulkScanning" class="loading-inline">Scanning screenshots...</div>
+
+            <!-- ③ Item cards in upload order -->
             <div v-if="bulkItems.length" class="bulk-review-list">
-              <div v-for="item in bulkItems" :key="item.clientItemId" class="bulk-review-card" :class="{ 'needs-match': item.needsMemberSelection || !item.userId }">
+              <div
+                v-for="(item, cardIdx) in bulkItems"
+                :key="item.clientItemId"
+                class="bulk-review-card"
+                :class="{ 'needs-match': item.needsMemberSelection || !item.userId, 'has-missing': !item.activityType || item.distanceValue == null || (!item.durationMinutes && !item.durationSeconds) }"
+              >
                 <div class="bulk-review-head">
-                  <strong>{{ item.originalName }}</strong>
-                  <span>{{ item.confidence || 0 }}% OCR</span>
+                  <span class="bulk-card-num">#{{ cardIdx + 1 }}</span>
+                  <strong class="bulk-card-name">{{ item.originalName }}</strong>
+                  <span class="bulk-ocr-badge" :class="{ 'ocr-low': (item.confidence || 0) < 60 }">{{ item.confidence || 0 }}% OCR</span>
+                  <!-- Challenge detected hint -->
+                  <span v-if="item.challengeDetected" class="bulk-challenge-hint" title="Screenshot text contains a checkmark and challenge keywords — verify and tag below">
+                    ✅ Challenge?
+                  </span>
                 </div>
+
                 <div class="bulk-review-grid">
-                  <label>
-                    Member
+                  <!-- Member (required) -->
+                  <label class="bulk-field" :class="{ 'bulk-field--missing': !item.userId }">
+                    Member <span class="bulk-req">*</span>
                     <select v-model.number="item.userId" required>
-                      <option :value="null">Select member...</option>
-                      <option v-for="m in bulkRosterMembers" :key="m.userId" :value="m.userId">{{ m.displayName }}{{ m.teamName ? ` - ${m.teamName}` : '' }}</option>
+                      <option :value="null">— Select member —</option>
+                      <option v-for="m in bulkRosterMembers" :key="m.userId" :value="m.userId">{{ m.displayName }}{{ m.teamName ? ` – ${m.teamName}` : '' }}</option>
                     </select>
                   </label>
-                  <label>
-                    Activity
+
+                  <!-- Activity (required) -->
+                  <label class="bulk-field" :class="{ 'bulk-field--missing': !item.activityType }">
+                    Activity <span class="bulk-req">*</span>
                     <select v-model="item.activityType">
-                      <option value="">Select...</option>
+                      <option value="">— Select —</option>
                       <option v-for="opt in activityTypeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
                     </select>
                   </label>
-                  <label>Distance <input v-model.number="item.distanceValue" type="number" step="0.01" min="0" /></label>
-                  <label>Minutes <input v-model.number="item.durationMinutes" type="number" min="0" /></label>
-                  <label>Seconds <input v-model.number="item.durationSeconds" type="number" min="0" max="59" /></label>
-                  <label>Calories <input v-model.number="item.caloriesBurned" type="number" min="0" /></label>
-                  <label>Terrain <input v-model="item.terrain" type="text" placeholder="Road, Trail, Treadmill" /></label>
-                  <label>Completed <input v-model="item.completedAt" type="datetime-local" /></label>
-                  <label>
-                    Challenge
+
+                  <!-- Distance (required) -->
+                  <label class="bulk-field" :class="{ 'bulk-field--missing': item.distanceValue == null || item.distanceValue === '' }">
+                    Distance (mi) <span class="bulk-req">*</span>
+                    <input v-model.number="item.distanceValue" type="number" step="0.01" min="0" placeholder="e.g. 8.01" />
+                  </label>
+
+                  <!-- Duration (required — at least minutes) -->
+                  <label class="bulk-field bulk-field--duration" :class="{ 'bulk-field--missing': (item.durationMinutes == null || item.durationMinutes === '') && (item.durationSeconds == null || item.durationSeconds === '') }">
+                    Moving time <span class="bulk-req">*</span>
+                    <div class="bulk-duration-row">
+                      <input v-model.number="item.durationMinutes" type="number" min="0" placeholder="min" />
+                      <span class="bulk-duration-sep">:</span>
+                      <input v-model.number="item.durationSeconds" type="number" min="0" max="59" placeholder="sec" style="width:52px" />
+                    </div>
+                  </label>
+
+                  <!-- Terrain (required — dropdown) -->
+                  <label class="bulk-field" :class="{ 'bulk-field--missing': !item.terrain }">
+                    Terrain <span class="bulk-req">*</span>
+                    <select v-model="item.terrain">
+                      <option value="">— Select —</option>
+                      <option value="Road">Road</option>
+                      <option value="Trail">Trail</option>
+                      <option value="Track">Track</option>
+                      <option value="Beach">Beach</option>
+                      <option value="Treadmill">Treadmill</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </label>
+
+                  <!-- Elevation gain (optional) -->
+                  <label class="bulk-field">
+                    Elevation gain (ft)
+                    <input
+                      :value="item.elevationGainMeters != null ? Math.round(item.elevationGainMeters * 3.28084) : ''"
+                      @input="item.elevationGainMeters = $event.target.value !== '' ? Math.round(Number($event.target.value) / 3.28084) : null"
+                      type="number"
+                      min="0"
+                      placeholder="e.g. 170"
+                    />
+                  </label>
+
+                  <!-- Calories (optional) -->
+                  <label class="bulk-field">
+                    Calories
+                    <input v-model.number="item.caloriesBurned" type="number" min="0" placeholder="Optional" />
+                  </label>
+
+                  <!-- Heart rate (optional) -->
+                  <label class="bulk-field">
+                    Avg HR (bpm)
+                    <input v-model.number="item.averageHeartrate" type="number" min="30" max="250" placeholder="Optional" />
+                  </label>
+
+                  <!-- Completed datetime (editable per-item) -->
+                  <label class="bulk-field">
+                    Time of day
+                    <input v-model="item.completedAt" type="datetime-local" />
+                  </label>
+
+                  <!-- Weekly challenge tag -->
+                  <label class="bulk-field bulk-field--wide">
+                    Weekly challenge
+                    <span v-if="item.challengeDetected && !item.weeklyTaskId" class="bulk-challenge-nudge">↑ Screenshot may include a challenge</span>
                     <select v-model="item.weeklyTaskId">
                       <option :value="null">None</option>
                       <option v-for="t in weeklyTaskOptions" :key="`bulk-task-${t.id}`" :value="t.id">{{ t.name }}</option>
                     </select>
                   </label>
-                  <label class="checkbox-label"><input v-model="item.isRace" type="checkbox" /> This was a race</label>
-                  <label v-if="item.isRace">Race Distance <input v-model.number="item.raceDistanceMiles" type="number" step="0.01" min="0" /></label>
-                  <label v-if="item.isRace">Chip Time Sec <input v-model.number="item.raceChipTimeSeconds" type="number" min="0" /></label>
-                  <label v-if="item.isRace">Overall Place <input v-model.number="item.raceOverallPlace" type="number" min="0" /></label>
+
+                  <label class="checkbox-label bulk-field--wide"><input v-model="item.isRace" type="checkbox" /> 🏅 This was a race</label>
+                  <template v-if="item.isRace">
+                    <label class="bulk-field">Race distance (mi) <input v-model.number="item.raceDistanceMiles" type="number" step="0.01" min="0" /></label>
+                    <label class="bulk-field">Chip time (sec) <input v-model.number="item.raceChipTimeSeconds" type="number" min="0" /></label>
+                    <label class="bulk-field">Overall place <input v-model.number="item.raceOverallPlace" type="number" min="0" /></label>
+                  </template>
                 </div>
-                <p v-if="item.needsMemberSelection || !item.userId" class="bulk-match-warning">Name was not detected confidently. Select the member before submitting.</p>
+
+                <p v-if="item.needsMemberSelection || !item.userId" class="bulk-match-warning">⚠️ Member not auto-detected — select one above.</p>
               </div>
             </div>
+
             <div class="form-actions">
               <button type="button" class="btn btn-secondary" @click="closeBulkUploadModal">Cancel</button>
-              <button type="button" class="btn btn-primary" :disabled="bulkSubmitting || !bulkItems.length || bulkItems.some((i) => !i.userId || !i.activityType)" @click="submitBulkWorkouts">
-                {{ bulkSubmitting ? 'Submitting...' : `Submit ${bulkItems.length} Workout(s)` }}
+              <button
+                type="button"
+                class="btn btn-primary"
+                :disabled="bulkSubmitting || !bulkItems.length || bulkItems.some((i) => !i.userId || !i.activityType || i.distanceValue == null || (!i.durationMinutes && !i.durationSeconds) || !i.terrain)"
+                @click="submitBulkWorkouts"
+              >
+                {{ bulkSubmitting ? 'Submitting…' : `Submit ${bulkItems.length} Workout${bulkItems.length !== 1 ? 's' : ''}` }}
               </button>
             </div>
           </div>
@@ -1734,6 +1835,8 @@ const bulkSubmitting = ref(false);
 const bulkUploadError = ref('');
 const bulkItems = ref([]);
 const bulkRosterMembers = ref([]);
+/** Global date applied to all bulk items at once (YYYY-MM-DD). */
+const bulkBatchDate = ref(new Date().toISOString().slice(0, 10));
 const captainApplications = ref([]);
 const captainAppsLoading = ref(false);
 const draftSessionStatus = ref(null);
@@ -2875,9 +2978,19 @@ const loadBulkRosterMembers = async () => {
 };
 
 const openBulkUploadModal = async () => {
-  showBulkUploadModal.value = true;
+  bulkBatchDate.value = new Date().toISOString().slice(0, 10);
+  bulkItems.value = [];
   bulkUploadError.value = '';
+  showBulkUploadModal.value = true;
   if (!bulkRosterMembers.value.length) await loadBulkRosterMembers();
+};
+
+/** Apply the global batch date to all existing bulk items (preserving OCR time). */
+const applyBulkBatchDate = () => {
+  bulkItems.value = bulkItems.value.map((item) => {
+    const existingTime = String(item.completedAt || '').slice(11, 16) || '00:00';
+    return { ...item, completedAt: `${bulkBatchDate.value}T${existingTime}` };
+  });
 };
 
 const closeBulkUploadModal = () => {
@@ -2904,12 +3017,20 @@ const onBulkFilesSelected = async (event) => {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
     bulkRosterMembers.value = Array.isArray(data?.members) ? data.members : bulkRosterMembers.value;
-    bulkItems.value = (Array.isArray(data?.items) ? data.items : []).map((item) => {
+    // Preserve upload order by using the index from the response array
+    const newItems = (Array.isArray(data?.items) ? data.items : []).map((item, idx) => {
       const ex = item.extracted || {};
+      const rawText = String(item.rawText || '');
       const hint = String(ex.activityTypeHint || '').toLowerCase();
       const activityType = ({ running: 'run', run: 'run', ruck: 'ruck', walking: 'walk', walk: 'walk', cycling: 'cycling', bike: 'cycling', steps: 'steps' }[hint]) || hint || '';
+      // Challenge detected: look for checkmark emoji followed by challenge keywords in the caption/rawText
+      const challengeDetected = /[✅✓☑]/.test(rawText) && /(?:run|mile|challenge|min|ruck|walk)/i.test(rawText);
+      // Use global batch date + time from OCR (or midnight if only date was set)
+      const ocrTime = ex.completedAt ? String(ex.completedAt).slice(11, 16) : '00:00';
+      const completedAt = `${bulkBatchDate.value}T${ocrTime}`;
       return {
         ...item,
+        _uploadIdx: idx,   // preserve order
         userId: item.matchedUserId || null,
         activityType,
         distanceValue: ex.distanceMiles ?? null,
@@ -2917,9 +3038,11 @@ const onBulkFilesSelected = async (event) => {
         durationSeconds: ex.durationSeconds ?? null,
         caloriesBurned: ex.caloriesBurned ?? null,
         averageHeartrate: ex.averageHeartrate ?? null,
+        elevationGainMeters: ex.elevationGainMeters ?? null,
         terrain: ex.terrain || '',
-        completedAt: ex.completedAt ? String(ex.completedAt).slice(0, 16) : currentDatetimeLocal(),
+        completedAt,
         weeklyTaskId: null,
+        challengeDetected,
         isRace: false,
         raceDistanceMiles: null,
         raceChipTimeSeconds: null,
@@ -2927,6 +3050,8 @@ const onBulkFilesSelected = async (event) => {
         ocrConfidence: item.confidence || 0
       };
     });
+    // Append to existing items (if manager uploads more files) — sorted by upload index
+    bulkItems.value = [...bulkItems.value, ...newItems].sort((a, b) => a._uploadIdx - b._uploadIdx);
   } catch (e) {
     bulkUploadError.value = e?.response?.data?.error?.message || 'Bulk scan failed';
   } finally {
@@ -2955,7 +3080,8 @@ const submitBulkWorkouts = async () => {
         durationSeconds: item.durationSeconds,
         caloriesBurned: item.caloriesBurned,
         averageHeartrate: item.averageHeartrate,
-        terrain: item.terrain,
+        elevationGainMeters: item.elevationGainMeters || null,
+        terrain: item.terrain || null,
         completedAt: item.completedAt,
         weeklyTaskId: item.weeklyTaskId || null,
         isRace: item.isRace === true,
@@ -4354,7 +4480,10 @@ watch(() => workoutForm.value.terrain, (terrain) => {
 }
 .bulk-upload-modal {
   width: min(980px, 96vw);
+  max-height: 90vh;
+  overflow-y: auto;
 }
+.bulk-hint-warn { color: #dc2626; font-weight: 600; }
 .bulk-textarea {
   width: 100%;
   border: 1px solid #d1d5db;
@@ -4370,6 +4499,51 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   border: 1px solid #a7f3d0;
   margin: 10px 0;
 }
+
+/* ── Global batch date ──────────────────────────────────── */
+.bulk-batch-date-row {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin: 10px 0;
+}
+.bulk-batch-date-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+.bulk-batch-date-input {
+  padding: 4px 8px;
+  border: 1px solid #93c5fd;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+.bulk-batch-date-hint { font-size: 0.8rem; color: #64748b; align-self: center; }
+
+/* ── File chooser button ────────────────────────────────── */
+.bulk-file-btn {
+  display: inline-block;
+  cursor: pointer;
+  background: linear-gradient(135deg, #1d4ed8, #2563eb);
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 10px 18px;
+  border-radius: 10px;
+  margin: 8px 0;
+  user-select: none;
+}
+.bulk-file-btn:hover { opacity: .9; }
+
+/* ── Item list ──────────────────────────────────────────── */
 .bulk-review-list {
   display: grid;
   gap: 14px;
@@ -4386,37 +4560,107 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   background: #fff7ed;
   box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.15);
 }
+.bulk-review-card.has-missing {
+  border-color: #fca5a5;
+}
 .bulk-review-head {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
 }
+.bulk-card-num {
+  background: #1d4ed8;
+  color: #fff;
+  font-weight: 800;
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 2px 7px;
+  flex-shrink: 0;
+}
+.bulk-card-name { font-weight: 600; font-size: 0.9rem; flex: 1; }
+.bulk-ocr-badge {
+  font-size: 11px;
+  background: #f1f5f9;
+  color: #64748b;
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.bulk-ocr-badge.ocr-low { background: #fef3c7; color: #92400e; }
+.bulk-challenge-hint {
+  font-size: 12px;
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-weight: 700;
+  flex-shrink: 0;
+  cursor: default;
+}
+.bulk-challenge-nudge {
+  display: block;
+  font-size: 11px;
+  color: #065f46;
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+
+/* ── Field grid ──────────────────────────────────────────── */
 .bulk-review-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 10px;
 }
-.bulk-review-grid label {
+.bulk-field {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
+  font-weight: 600;
   color: #334155;
 }
-.bulk-review-grid input,
-.bulk-review-grid select {
+.bulk-field input,
+.bulk-field select {
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: #fff;
   min-width: 0;
 }
-.bulk-review-grid .checkbox-label {
+.bulk-field--missing input,
+.bulk-field--missing select {
+  border-color: #dc2626;
+  background: #fef2f2;
+}
+.bulk-field--missing {
+  color: #dc2626;
+}
+.bulk-req { color: #dc2626; }
+.bulk-field--wide { grid-column: 1 / -1; }
+.bulk-field--duration .bulk-duration-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.bulk-field--duration input { width: 60px; }
+.bulk-duration-sep { font-weight: 700; color: #64748b; }
+.checkbox-label.bulk-field--wide {
   flex-direction: row;
   align-items: center;
-  margin-top: 22px;
+  gap: 6px;
+  font-weight: 600;
+  cursor: pointer;
 }
 .bulk-match-warning {
   margin: 10px 0 0;
   color: #9a3412;
   font-weight: 700;
+  font-size: 0.85rem;
 }
 .log-workout-modal {
   width: min(560px, 96vw);

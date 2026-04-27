@@ -491,6 +491,30 @@ export const parseVisionText = (rawText) => {
     }
   }
 
+  // ── Elevation gain ────────────────────────────────────────────────────────
+  let elevationGainMeters = null;
+  {
+    // Match patterns like "170 ft", "52 m", "1,234 ft" after elevation labels
+    const elevLine = valueEither(RE.elevation);
+    if (elevLine) {
+      const mFt = elevLine.match(/([\d,]+)\s*ft/i);
+      const mM  = elevLine.match(/([\d,]+)\s*m\b/i);
+      if (mFt)      elevationGainMeters = Math.round(parseFloat(mFt[1].replace(/,/g,'')) * 0.3048);
+      else if (mM)  elevationGainMeters = Math.round(parseFloat(mM[1].replace(/,/g,'')));
+    }
+    // Broader scan: "170 ft Elevation Gain" or "Elevation Gain 170 ft"
+    if (elevationGainMeters == null) {
+      const m = rawText.match(/(?:elevation\s*gain|elev\.?\s*gain|total\s*ascent|ascent)[^\n]{0,40}?([\d,]+)\s*(ft|m)\b/i)
+               || rawText.match(/([\d,]+)\s*(ft|m)\b[^\n]{0,40}?(?:elevation\s*gain|elev\.?\s*gain|total\s*ascent)/i);
+      if (m) {
+        const val = parseFloat(m[1].replace(/,/g,''));
+        elevationGainMeters = /ft/i.test(m[2]) ? Math.round(val * 0.3048) : Math.round(val);
+      }
+    }
+    // Sanity check: elevation gain over 9000m is almost certainly OCR noise
+    if (elevationGainMeters != null && elevationGainMeters > 9000) elevationGainMeters = null;
+  }
+
   // ── Terrain detection ─────────────────────────────────────────────────────
   let terrain = null;
   if (/treadmill|tread\s*mill/i.test(rawText))              terrain = 'Treadmill';
@@ -520,6 +544,7 @@ export const parseVisionText = (rawText) => {
     caloriesBurned,
     averageHeartrate,
     paceSecondsPerMile,
+    elevationGainMeters,
     completedAt,
     terrain,
     activityTypeHint,

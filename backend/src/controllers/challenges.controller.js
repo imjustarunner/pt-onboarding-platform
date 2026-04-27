@@ -1924,6 +1924,7 @@ export const submitBulkWorkoutsOnBehalf = async (req, res, next) => {
           durationMinutes,
           durationSeconds,
           caloriesBurned,
+          elevationGainMeters: item.elevationGainMeters != null ? Math.round(Number(item.elevationGainMeters)) : null,
           averageHeartrate: item.averageHeartrate != null ? Number(item.averageHeartrate) : null,
           points,
           workoutNotes: item.workoutNotes || 'Manager bulk uploaded on behalf of athlete',
