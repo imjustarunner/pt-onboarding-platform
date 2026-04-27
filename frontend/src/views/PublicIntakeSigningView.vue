@@ -17,8 +17,8 @@
       >
         Dev Fill
       </button>
-      <h2>{{ link?.title || defaultTitle }}</h2>
-      <p v-if="link?.description" class="muted">{{ link.description }}</p>
+      <h2>{{ tx(link?.title || defaultTitle) }}</h2>
+      <p v-if="link?.description" class="muted">{{ tx(link.description) }}</p>
       <div v-if="hasLinkedLanguageToggle" class="intake-language-toggle" role="group" aria-label="Form language">
         <button
           type="button"
@@ -546,19 +546,20 @@
             :data-question-key="field.key"
           >
             <div v-if="field.type === 'info'" class="info-block">
-              <div class="info-title">{{ field.label || t('notice') }}</div>
-              <div v-if="field.helperText" class="info-text">{{ field.helperText }}</div>
+              <div class="info-title">{{ tx(field.label) || t('notice') }}</div>
+              <div v-if="field.helperText" class="info-text">{{ tx(field.helperText) }}</div>
             </div>
             <template v-else>
               <label>
-                {{ field.label || field.key }}
+                {{ tx(field.label || field.key) }}
                 <span v-if="field.required" class="required-indicator">*</span>
               </label>
-              <div v-if="field.helperText" class="helper-text">{{ field.helperText }}</div>
+              <div v-if="field.helperText" class="helper-text">{{ tx(field.helperText) }}</div>
               <input
                 v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
                 v-model="questionValues[field.key]"
                 type="text"
+                :placeholder="tx(field.placeholder) || ''"
                 :class="{ 'input-error': isQuestionFieldMissing(field) }"
                 @blur="maybeAutofillQuestionLocation(field)"
               />
@@ -566,22 +567,23 @@
                 v-else-if="field.type === 'textarea'"
                 v-model="questionValues[field.key]"
                 rows="4"
+                :placeholder="tx(field.placeholder) || ''"
                 :class="{ 'input-error': isQuestionFieldMissing(field) }"
               ></textarea>
               <label v-else-if="field.type === 'checkbox'" class="checkbox-row">
                 <input v-model="questionValues[field.key]" type="checkbox" :class="{ 'input-error': isQuestionFieldMissing(field) }" />
-                <span>{{ field.label || field.key }}</span>
+                <span>{{ tx(field.label || field.key) }}</span>
               </label>
               <select v-else-if="field.type === 'select'" v-model="questionValues[field.key]" :class="{ 'input-error': isQuestionFieldMissing(field) }">
                 <option value="">{{ t('selectOption') }}</option>
                 <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
-                  {{ opt.label || opt.value }}
+                  {{ tx(opt.label || opt.value) }}
                 </option>
               </select>
               <div v-else-if="field.type === 'radio'" class="radio-group" :class="{ 'input-error': isQuestionFieldMissing(field) }">
                 <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="radio-row" :class="{ 'input-error': isQuestionFieldMissing(field) }">
                   <input type="radio" :name="`q_${field.key}`" :value="opt.value || opt.label" v-model="questionValues[field.key]" />
-                  <span>{{ opt.label || opt.value }}</span>
+                  <span>{{ tx(opt.label || opt.value) }}</span>
                 </label>
               </div>
               <input v-else v-model="questionValues[field.key]" type="date" :class="{ 'input-error': isQuestionFieldMissing(field) }" />
@@ -596,8 +598,7 @@
           </p>
         </div>
         <div class="muted" style="margin-top: 8px;">
-          Most families complete this in about 15 minutes. To protect your information, the form clears
-          itself after roughly an hour of inactivity and any unsaved entries are removed.
+          {{ tx('Most families complete this in about 15 minutes. To protect your information, the form clears itself after roughly an hour of inactivity and any unsaved entries are removed.') }}
         </div>
 
         <div class="actions">
@@ -610,42 +611,42 @@
             {{ consentLoading ? t('saving') : t('iConsentContinue') }}
           </button>
           <button class="btn btn-outline" type="button" @click="cancelIntake" :disabled="consentLoading || submitLoading">
-            Cancel & delete
+            {{ t('cancelDelete') }}
           </button>
           <button class="btn btn-outline" type="button" @click="restartIntake" :disabled="consentLoading || submitLoading">
-            Restart
+            {{ t('restart') }}
           </button>
         </div>
         </div>
       </div>
 
         <div v-else-if="step === 2 && currentFlowStep?.type !== 'questions'" class="step">
-        <h3 v-if="currentFlowStep?.type === 'document'">Document</h3>
-        <h3 v-else-if="currentFlowStep?.type === 'upload'">{{ currentFlowStep?.label || 'Upload' }}</h3>
+        <h3 v-if="currentFlowStep?.type === 'document'">{{ t('document') }}</h3>
+        <h3 v-else-if="currentFlowStep?.type === 'upload'">{{ tx(currentFlowStep?.label) || t('upload') }}</h3>
         <h3 v-else-if="currentFlowStep?.type === 'school_roi'">School ROI</h3>
-        <h3 v-else-if="currentFlowStep?.type === 'registration'">{{ currentFlowStep?.label || 'Registration' }}</h3>
+        <h3 v-else-if="currentFlowStep?.type === 'registration'">{{ tx(currentFlowStep?.label) || t('registration') }}</h3>
         <h3 v-else-if="currentFlowStep?.type === 'guardian_waiver'">
-          {{ currentFlowStep?.label || 'Guardian waivers & safety' }}
+          {{ tx(currentFlowStep?.label) || t('guardianWaiversSafety') }}
         </h3>
         <h3 v-else-if="currentFlowStep?.type === 'insurance_info'">
-          {{ currentFlowStep?.label || 'Insurance information' }}
+          {{ tx(currentFlowStep?.label) || t('insuranceInformation') }}
         </h3>
         <h3 v-else-if="currentFlowStep?.type === 'payment_collection'">
-          {{ currentFlowStep?.label || 'Payment information' }}
+          {{ tx(currentFlowStep?.label) || t('paymentInformation') }}
         </h3>
         <h3 v-else-if="currentFlowStep?.type === 'communications'">
-          {{ currentFlowStep?.label || 'Communication preferences' }}
+          {{ tx(currentFlowStep?.label) || t('communicationPreferences') }}
         </h3>
         <h3 v-else-if="currentFlowStep?.type === 'demographics'">
-          {{ currentFlowStep?.label || 'Demographics' }}
+          {{ tx(currentFlowStep?.label) || t('demographics') }}
         </h3>
         <h3 v-else-if="currentFlowStep?.type === 'clinical_questions'">
-          {{ currentFlowStep?.label || 'Clinical Questions' }}
+          {{ tx(currentFlowStep?.label) || t('clinicalQuestions') }}
         </h3>
         <h3 v-else-if="currentFlowStep?.type === 'references'">
-          {{ currentFlowStep?.label || 'Professional references' }}
+          {{ tx(currentFlowStep?.label) || t('professionalReferences') }}
         </h3>
-        <h3 v-else-if="currentFlowStep?.type === 'questions'">Questions</h3>
+        <h3 v-else-if="currentFlowStep?.type === 'questions'">{{ t('questions') }}</h3>
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
         <div v-if="currentFlowStep?.type === 'school_roi'" class="school-roi-step">
           <SmartSchoolRoiFlow
@@ -660,7 +661,7 @@
           />
         </div>
         <div v-if="currentFlowStep?.type === 'upload'" class="upload-step">
-          <p class="muted">{{ currentFlowStep?.label || t('upload') }} ({{ currentFlowStep?.required ? t('required') : t('optional') }})</p>
+          <p class="muted">{{ tx(currentFlowStep?.label) || t('upload') }} ({{ currentFlowStep?.required ? t('required') : t('optional') }})</p>
           <div v-if="isUploadPasteEnabled" class="radio-group" style="margin-bottom: 8px;">
             <label class="radio-row">
               <input v-model="coverLetterInputMode" type="radio" value="upload" />
@@ -694,9 +695,9 @@
           </div>
         </div>
         <div v-if="currentFlowStep?.type === 'references'" class="references-step">
-          <p class="muted">{{ currentFlowStep?.authorizationNotice || defaultReferencesAuthorizationNotice }}</p>
+          <p class="muted">{{ tx(currentFlowStep?.authorizationNotice || defaultReferencesAuthorizationNotice) }}</p>
           <div v-for="(refEntry, idx) in referencesEntries" :key="`ref_${idx}`" class="reference-card">
-            <h4>Reference {{ idx + 1 }}</h4>
+            <h4>{{ t('reference') }} {{ idx + 1 }}</h4>
             <div class="form-grid">
               <div class="form-group"><label>Name</label><input v-model="refEntry.name" type="text" /></div>
               <div class="form-group"><label>Relationship / Title</label><input v-model="refEntry.relationship" type="text" /></div>
@@ -710,7 +711,7 @@
           </div>
           <label v-if="currentFlowStep?.waivable !== false" class="checkbox-row">
             <input v-model="referencesWaived" type="checkbox" />
-            <span>I waive providing professional references.</span>
+            <span>{{ t('waiveProfessionalReferences') }}</span>
           </label>
           <div v-if="!referencesWaived" class="reference-consents muted">
             <label class="checkbox-row">
@@ -731,7 +732,7 @@
           </div>
         </div>
         <div v-if="currentFlowStep?.type === 'registration'" class="registration-step">
-          <p v-if="currentFlowStep?.description" class="muted">{{ currentFlowStep.description }}</p>
+          <p v-if="currentFlowStep?.description" class="muted">{{ tx(currentFlowStep.description) }}</p>
 
           <!-- Rich event card for locked / single event -->
           <div v-if="hideRegistrationOptionsPicker && currentRegistrationOptions[0]" class="reg-event-card">
@@ -751,10 +752,10 @@
                 <span v-if="currentRegistrationOptions[0].endsAtFormatted"> – {{ currentRegistrationOptions[0].endsAtFormatted }}</span>
               </p>
               <p v-if="currentRegistrationOptions[0].summaryText" class="reg-event-summary muted">
-                {{ currentRegistrationOptions[0].summaryText }}
+                {{ tx(currentRegistrationOptions[0].summaryText) }}
               </p>
               <p v-if="currentRegistrationOptions[0].description && !currentRegistrationOptions[0].summaryText" class="reg-event-summary muted">
-                {{ currentRegistrationOptions[0].description }}
+                {{ tx(currentRegistrationOptions[0].description) }}
               </p>
               <p v-if="currentRegistrationOptions[0].frequencyLabel" class="reg-event-meta">
                 🗓 {{ currentRegistrationOptions[0].frequencyLabel }}
@@ -798,17 +799,17 @@
                 @change="selectSingleRegistrationOption(currentFlowStep?.id, opt.id)"
               />
               <span>
-                <strong>{{ opt.label }}</strong>
+                <strong>{{ tx(opt.label) }}</strong>
                 <small v-if="opt.startsAtFormatted" class="muted">📅 {{ opt.startsAtFormatted }}</small>
-                <small v-else-if="opt.description" class="muted">{{ opt.description }}</small>
+                <small v-else-if="opt.description" class="muted">{{ tx(opt.description) }}</small>
                 <small v-if="opt.videoJoinUrl" class="muted">
-                  Video: <a :href="opt.videoJoinUrl" target="_blank" rel="noopener">Join link</a>
+                  {{ t('video') }}: <a :href="opt.videoJoinUrl" target="_blank" rel="noopener">{{ t('joinLink') }}</a>
                 </small>
                 <small v-if="opt.displayCost" class="muted">
-                  Cost: {{ opt.displayCost }}
+                  {{ t('cost') }}: {{ opt.displayCost }}
                 </small>
                 <small v-if="opt.frequencyLabel" class="muted">
-                  {{ opt.frequencyLabel }}
+                  {{ tx(opt.frequencyLabel) }}
                 </small>
               </span>
             </label>
@@ -892,7 +893,7 @@
               </label>
               <label class="radio-row">
                 <input type="radio" name="communications_email_preference" value="no" v-model="communications.emailPreference" />
-                <span>No</span>
+                <span>{{ t('no') }}</span>
               </label>
             </div>
           </section>
@@ -924,20 +925,19 @@
             </p>
             <template v-else>
               <p class="communications-disclosure">
-                If you choose Yes, you consent to receive service-related text messages through PlotTwistHQ from
+                {{ tx('If you choose Yes, you consent to receive service-related text messages through PlotTwistHQ from') }}
                 {{ communicationsTenantName }} and, when applicable, your provider/care team (for example,
-                follow-up, coordination, and service-related responses). These messages are HIPAA-protected and
-                associated with your care relationship at {{ communicationsTenantName }}.
+                {{ tx('follow-up, coordination, and service-related responses). These messages are HIPAA-protected and associated with your care relationship at') }} {{ communicationsTenantName }}.
               </p>
               <p class="communications-disclosure" style="margin-top: 8px;">
-                By selecting <strong>Yes</strong> and opting in, you understand and agree to the following:
+                {{ tx('By selecting') }} <strong>{{ t('yes') }}</strong> {{ tx('and opting in, you understand and agree to the following:') }}
               </p>
               <ol class="communications-provider-terms">
-                <li>These messages may be viewed by the care team associated with your provider.</li>
-                <li>Your provider and our care team are <strong>not</strong> available for emergencies, and these messages are not monitored in real time. In case of emergency, call 911.</li>
-                <li>Your provider will not receive messages outside of their working hours. All messages are confidentially stored within the platform.</li>
-                <li>PlotTwistHQ is not responsible for, nor independently aware of, the content of direct communications between you and your provider.</li>
-                <li>You agree not to share confidential third-party information in these messages, and understand that this communication channel does <strong>not</strong> replace nor constitute clinical care or a therapeutic relationship.</li>
+                <li>{{ tx('These messages may be viewed by the care team associated with your provider.') }}</li>
+                <li>{{ tx('Your provider and our care team are not available for emergencies, and these messages are not monitored in real time. In case of emergency, call 911.') }}</li>
+                <li>{{ tx('Your provider will not receive messages outside of their working hours. All messages are confidentially stored within the platform.') }}</li>
+                <li>{{ tx('PlotTwistHQ is not responsible for, nor independently aware of, the content of direct communications between you and your provider.') }}</li>
+                <li>{{ tx('You agree not to share confidential third-party information in these messages, and understand that this communication channel does not replace nor constitute clinical care or a therapeutic relationship.') }}</li>
               </ol>
             </template>
             <p class="communications-disclosure" style="margin-top: 8px;">
@@ -1032,7 +1032,7 @@
             <div v-if="currentFlowStep.showEthnicity" class="form-group">
               <label>{{ tx('Race / Ethnicity') }}</label>
               <select v-model="demographicsData.ethnicity">
-                <option value="">Prefer not to say</option>
+                <option value="">{{ tx('Prefer not to say') }}</option>
                 <option value="american_indian">{{ tx('American Indian or Alaska Native') }}</option>
                 <option value="asian">{{ tx('Asian') }}</option>
                 <option value="black">{{ tx('Black or African American') }}</option>
@@ -1040,7 +1040,7 @@
                 <option value="nhpi">{{ tx('Native Hawaiian or Other Pacific Islander') }}</option>
                 <option value="white">{{ tx('White') }}</option>
                 <option value="two_or_more">{{ tx('Two or more races') }}</option>
-                <option value="other">Other / self-describe</option>
+                <option value="other">{{ tx('Other / self-describe') }}</option>
               </select>
             </div>
             <div v-if="currentFlowStep.showPreferredLanguage" class="form-group">
@@ -1075,11 +1075,11 @@
                 />
               </div>
               <div class="form-group">
-                <label>City</label>
+                <label>{{ tx('City') }}</label>
                 <input type="text" v-model="demographicsData.addressCity" placeholder="Colorado Springs" />
               </div>
               <div class="form-group">
-                <label>State</label>
+                <label>{{ tx('State') }}</label>
                 <input type="text" v-model="demographicsData.addressState" placeholder="CO" maxlength="2" style="max-width: 80px;" />
               </div>
             </template>
@@ -1089,7 +1089,7 @@
         <!-- Clinical questions step — rendered identically to regular questions but saved separately -->
         <div v-if="currentFlowStep?.type === 'clinical_questions'" class="clinical-questions-step">
           <p class="muted" style="margin-bottom: 16px; font-size: 13px;">
-            The following questions help your provider understand your needs. Your answers are confidential and only visible to your assigned provider.
+            {{ tx('The following questions help your provider understand your needs. Your answers are confidential and only visible to your assigned provider.') }}
           </p>
           <div
             v-for="(group, gIdx) in clinicalFieldGroups"
@@ -1104,32 +1104,32 @@
               repeating it under every question — mirrors the paper scale.
             -->
             <div v-if="group.sharedHelper" class="clinical-group-header">
-              {{ group.sharedHelper }}
+              {{ tx(group.sharedHelper) }}
             </div>
             <div v-for="field in group.fields" :key="field.key || field.id" class="question-field-row" :ref="el => fieldRefs[field.key || field.id] = el">
               <label :class="{ 'required-label': field.required }">
-                {{ field.label }}
+                {{ tx(field.label) }}
                 <span v-if="field.required" class="required-indicator">*</span>
               </label>
-              <div v-if="!group.sharedHelper && field.helperText" class="helper-text">{{ field.helperText }}</div>
+              <div v-if="!group.sharedHelper && field.helperText" class="helper-text">{{ tx(field.helperText) }}</div>
               <select
                 v-if="field.type === 'select'"
                 v-model="clinicalResponses[field.key]"
                 :class="{ 'input-error': isClinicalFieldMissing(field) }"
               >
-                <option value="">Select…</option>
-                <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                <option value="">{{ tx('Select…') }}</option>
+                <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ tx(opt.label) }}</option>
               </select>
               <div v-else-if="field.type === 'radio'" class="radio-group">
                 <label v-for="opt in field.options" :key="opt.value" class="radio-row">
                   <input type="radio" :name="'cq_' + field.key" :value="opt.value" v-model="clinicalResponses[field.key]" />
-                  <span>{{ opt.label }}</span>
+                  <span>{{ tx(opt.label) }}</span>
                 </label>
               </div>
               <div v-else-if="field.type === 'checkbox'" class="checkbox-group">
                 <label class="checkbox-row">
                   <input type="checkbox" v-model="clinicalResponses[field.key]" :true-value="'yes'" :false-value="'no'" />
-                  <span>{{ field.label }}</span>
+                  <span>{{ tx(field.label) }}</span>
                 </label>
               </div>
               <textarea
@@ -1150,11 +1150,11 @@
 
         <div class="doc-nav" v-if="currentFlowStep?.type === 'document'">
           <button class="btn btn-secondary btn-sm" type="button" :disabled="currentDocIndex === 0" @click="goToPrevious">
-            Previous
+            {{ t('previous') }}
           </button>
           <div class="doc-meta">
-            {{ currentDoc?.name || 'Untitled' }}
-            <span v-if="docStatus[currentDoc?.id]" class="badge badge-success" style="margin-left: 8px;">Completed</span>
+            {{ tx(currentDoc?.name) || t('untitled') }}
+            <span v-if="docStatus[currentDoc?.id]" class="badge badge-success" style="margin-left: 8px;">{{ t('completed') }}</span>
           </div>
           <button
             class="btn btn-secondary btn-sm"
@@ -1163,15 +1163,15 @@
             :class="{ 'doc-nav-btn--pulse': navPulse }"
             @click="goToNext"
           >
-            Next
+            {{ t('next') }}
           </button>
         </div>
         <div v-if="currentFlowStep?.type !== 'school_roi'" class="actions" style="margin-top: 10px;">
           <button class="btn btn-outline" type="button" @click="cancelIntake" :disabled="submitLoading">
-            Cancel & delete
+            {{ t('cancelDelete') }}
           </button>
           <button class="btn btn-outline" type="button" @click="restartIntake" :disabled="submitLoading">
-            Restart
+            {{ t('restart') }}
           </button>
         </div>
 
@@ -1192,7 +1192,7 @@
               @page-change="handlePageChange"
               @marker-click="handleMarkerClick"
             />
-            <p class="note">Please review the document above. You must reach the last page before continuing.</p>
+            <p class="note">{{ t('reviewDocumentAbove') }}</p>
             <p v-if="checkboxMarkers.length && checkboxDisclaimer" class="note">
               {{ checkboxDisclaimer }}
             </p>
@@ -1202,15 +1202,15 @@
               </button>
             </div>
           </div>
-          <div v-else class="muted">Document preview not available.</div>
+          <div v-else class="muted">{{ t('documentPreviewUnavailable') }}</div>
         </div>
 
         <div v-if="pageNotice" class="page-notice">{{ pageNotice }}</div>
 
         <div v-if="currentFlowStep?.type === 'document' && requiredFieldsForList.length" class="field-inputs">
-          <h4>Required Fields</h4>
+          <h4>{{ t('requiredFields') }}</h4>
           <div v-for="field in requiredFieldsForList" :key="field.id" class="form-group">
-            <label>{{ field.label || field.type }}</label>
+            <label>{{ tx(field.label || field.type) }}</label>
             <input
               v-if="field.type !== 'date' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio'"
               v-model="currentFieldValues[field.id]"
@@ -1220,16 +1220,16 @@
             />
             <label v-else-if="field.type === 'checkbox'" class="checkbox-row" :data-field-id="field.id">
               <input v-model="currentFieldValues[field.id]" type="checkbox" />
-              <span>{{ field.label || 'I agree' }}</span>
+              <span>{{ tx(field.label || 'I agree') }}</span>
             </label>
             <select
               v-else-if="field.type === 'select'"
               v-model="currentFieldValues[field.id]"
               :data-field-id="field.id"
             >
-              <option value="">Select an option</option>
+              <option value="">{{ t('selectOption') }}</option>
               <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
-                {{ opt.label || opt.value }}
+                {{ tx(opt.label || opt.value) }}
               </option>
             </select>
             <div v-else-if="field.type === 'radio'" class="radio-group" :data-field-id="field.id">
@@ -1240,7 +1240,7 @@
                   :value="opt.value || opt.label"
                   v-model="currentFieldValues[field.id]"
                 />
-                <span>{{ opt.label || opt.value }}</span>
+                <span>{{ tx(opt.label || opt.value) }}</span>
               </label>
             </div>
             <input v-else-if="field.autoToday" v-model="currentFieldValues[field.id]" type="text" disabled />
@@ -1259,14 +1259,14 @@
               {{ t('useSavedSignature') }}
             </button>
           </div>
-          <div v-if="signatureData" class="muted" style="margin-top: 6px;">Signature ready for this document.</div>
+          <div v-if="signatureData" class="muted" style="margin-top: 6px;">{{ t('signatureReady') }}</div>
         </div>
 
         <div v-if="showSavedSigPrompt" class="saved-sig-prompt">
-          <p>You haven't signed this document yet. Would you like to apply your saved signature?</p>
+          <p>{{ t('applySavedSignaturePrompt') }}</p>
           <div class="saved-sig-prompt-actions">
-            <button type="button" class="btn btn-primary btn-sm" @click="applyPromptedSavedSignature">Yes, apply signature</button>
-            <button type="button" class="btn btn-outline btn-sm" @click="showSavedSigPrompt = false">Sign manually instead</button>
+            <button type="button" class="btn btn-primary btn-sm" @click="applyPromptedSavedSignature">{{ t('yesApplySignature') }}</button>
+            <button type="button" class="btn btn-outline btn-sm" @click="showSavedSigPrompt = false">{{ t('signManuallyInstead') }}</button>
           </div>
         </div>
 
@@ -1278,7 +1278,7 @@
             :disabled="submitLoading"
             @click="goToPrevious"
           >
-            ← Back
+            {{ t('back') }}
           </button>
           <button
             class="btn btn-primary"
@@ -1633,7 +1633,30 @@ const INTAKE_TRANSLATIONS = {
     digitalIntakeRegistration: 'Smart Registration',
     welcome: 'Welcome',
     formTimeLimit: 'This form must be completed within 1 hour. Each new page adds 5 minutes. In-progress answers are saved in this browser session for up to 1 hour in case you accidentally navigate away.',
+    previous: 'Previous',
     next: 'Next',
+    back: '← Back',
+    cancelDelete: 'Cancel & delete',
+    restart: 'Restart',
+    completed: 'Completed',
+    untitled: 'Untitled',
+    document: 'Document',
+    upload: 'Upload',
+    registration: 'Registration',
+    guardianWaiversSafety: 'Guardian waivers & safety',
+    insuranceInformation: 'Insurance information',
+    paymentInformation: 'Payment information',
+    communicationPreferences: 'Communication preferences',
+    demographics: 'Demographics',
+    clinicalQuestions: 'Clinical Questions',
+    professionalReferences: 'Professional references',
+    documentPreviewUnavailable: 'Document preview not available.',
+    reviewDocumentAbove: 'Please review the document above. You must reach the last page before continuing.',
+    requiredFields: 'Required Fields',
+    signatureReady: 'Signature ready for this document.',
+    applySavedSignaturePrompt: "You haven't signed this document yet. Would you like to apply your saved signature?",
+    yesApplySignature: 'Yes, apply signature',
+    signManuallyInstead: 'Sign manually instead',
     tapNext: 'Tap Next to continue',
     acknowledgeAndContinue: 'Acknowledge & Continue',
     introAgencySubtitle: 'Acknowledging this agency as your service provider.',
@@ -1713,6 +1736,12 @@ const INTAKE_TRANSLATIONS = {
     noClinicalResponses: 'No clinical responses captured.',
     noAnswersCaptured: 'No answers captured.',
     required: 'Required',
+    optional: 'Optional',
+    reference: 'Reference',
+    waiveProfessionalReferences: 'I waive providing professional references.',
+    video: 'Video',
+    joinLink: 'Join link',
+    cost: 'Cost',
     organizationRequired: 'Organization is required.',
     guardianRequired: 'Guardian name and guardian email are required.',
     applicantRequired: 'Name and email are required.',
@@ -1776,7 +1805,30 @@ const INTAKE_TRANSLATIONS = {
     beginIntakeMedical: 'Comenzar solicitud de registros médicos',
     welcome: 'Bienvenido',
     formTimeLimit: 'Este formulario debe completarse en 1 hora. Cada página nueva agrega 5 minutos. Las respuestas en progreso se guardan en esta sesión del navegador por hasta 1 hora por si sale accidentalmente.',
+    previous: 'Anterior',
     next: 'Siguiente',
+    back: '← Atrás',
+    cancelDelete: 'Cancelar y eliminar',
+    restart: 'Reiniciar',
+    completed: 'Completado',
+    untitled: 'Sin título',
+    document: 'Documento',
+    upload: 'Carga',
+    registration: 'Registro',
+    guardianWaiversSafety: 'Autorizaciones y seguridad del tutor',
+    insuranceInformation: 'Información del seguro',
+    paymentInformation: 'Información de pago',
+    communicationPreferences: 'Preferencias de comunicación',
+    demographics: 'Datos demográficos',
+    clinicalQuestions: 'Preguntas clínicas',
+    professionalReferences: 'Referencias profesionales',
+    documentPreviewUnavailable: 'La vista previa del documento no está disponible.',
+    reviewDocumentAbove: 'Revise el documento anterior. Debe llegar a la última página antes de continuar.',
+    requiredFields: 'Campos requeridos',
+    signatureReady: 'La firma está lista para este documento.',
+    applySavedSignaturePrompt: 'Aún no ha firmado este documento. ¿Desea aplicar su firma guardada?',
+    yesApplySignature: 'Sí, aplicar firma',
+    signManuallyInstead: 'Firmar manualmente',
     tapNext: 'Toque Siguiente para continuar',
     acknowledgeAndContinue: 'Aceptar y continuar',
     introAgencySubtitle: 'Reconociendo a esta agencia como su proveedor de servicios.',
@@ -1858,6 +1910,12 @@ const INTAKE_TRANSLATIONS = {
     noClinicalResponses: 'No se capturaron respuestas clínicas.',
     noAnswersCaptured: 'No se capturaron respuestas.',
     required: 'Requerido',
+    optional: 'Opcional',
+    reference: 'Referencia',
+    waiveProfessionalReferences: 'Renuncio a proporcionar referencias profesionales.',
+    video: 'Video',
+    joinLink: 'Enlace para unirse',
+    cost: 'Costo',
     organizationRequired: 'Se requiere la organización.',
     guardianRequired: 'Se requieren el nombre del tutor y el correo electrónico del tutor.',
     completeCaptcha: 'Por favor complete la verificación de captcha arriba.',
@@ -1893,6 +1951,7 @@ const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCa
 const linkedLanguageSwitching = ref(false);
 
 const currentFormLanguage = computed(() => {
+  if (hasDocumentTranslationMap.value) return inPageLocale.value === 'es' ? 'es' : 'en';
   const code = String(link.value?.language_code || 'en').toLowerCase();
   return code.startsWith('es') ? 'es' : 'en';
 });
@@ -1914,6 +1973,8 @@ const inPageLocale = ref('en');
  */
 const stringTranslations = ref({});
 const stringTranslationsLoading = ref(false);
+let stringTranslationRequestId = 0;
+const stringTranslationCache = new Map();
 
 // Provide the translation map to all child components (insurance, waiver, etc.)
 // so they can translate their own hardcoded strings without prop-drilling.
@@ -1932,27 +1993,52 @@ const tx = (text) => {
  */
 async function fetchStringTranslations() {
   if (intakeLocale.value !== 'es') {
+    stringTranslationRequestId += 1;
     stringTranslations.value = {};
     return;
   }
-  if (stringTranslationsLoading.value) return;
   try {
-    stringTranslationsLoading.value = true;
     const strings = new Set();
+    const addString = (value) => {
+      const text = String(value || '').trim();
+      if (text) strings.add(text);
+    };
+    const collectDynamicStrings = (value) => {
+      if (!value) return;
+      if (typeof value === 'string') return;
+      if (Array.isArray(value)) {
+        for (const item of value) collectDynamicStrings(item);
+        return;
+      }
+      if (typeof value !== 'object') return;
+      for (const [key, child] of Object.entries(value)) {
+        if (['label', 'title', 'description', 'helperText', 'placeholder', 'summaryText', 'authorizationNotice'].includes(key)) {
+          addString(child);
+        } else if (key === 'options' || key === 'fields' || key === 'groups' || key === 'steps') {
+          collectDynamicStrings(child);
+        } else if (child && typeof child === 'object') {
+          collectDynamicStrings(child);
+        }
+      }
+    };
 
     // Intake fields (guardian, client, submission scopes).
+    addString(link.value?.title);
+    addString(link.value?.description);
     const fields = Array.isArray(link.value?.intake_fields) ? link.value.intake_fields : [];
     for (const f of fields) {
-      if (f?.label) strings.add(String(f.label).trim());
-      if (f?.description) strings.add(String(f.description).trim());
-      if (f?.placeholder) strings.add(String(f.placeholder).trim());
+      if (f?.label) addString(f.label);
+      if (f?.description) addString(f.description);
+      if (f?.placeholder) addString(f.placeholder);
+      if (f?.helperText) addString(f.helperText);
       if (Array.isArray(f?.options)) {
         for (const opt of f.options) {
-          if (opt?.label) strings.add(String(opt.label).trim());
-          if (opt?.value && typeof opt.value === 'string') strings.add(String(opt.value).trim());
+          if (opt?.label) addString(opt.label);
+          if (opt?.value && typeof opt.value === 'string') addString(opt.value);
         }
       }
     }
+    collectDynamicStrings(link.value?.intake_steps);
 
     // Guardian waiver section headings and blurbs.
     const waiverStrings = [
@@ -1965,6 +2051,9 @@ async function fetchStringTranslations() {
       'People we may contact if we cannot reach you.',
       'This program does not provide meals. Please plan to bring your own lunch or snacks as needed.',
       'ESIGN Act Disclosure',
+      'Most families complete this in about 15 minutes. To protect your information, the form clears itself after roughly an hour of inactivity and any unsaved entries are removed.',
+      'The following questions help your provider understand your needs. Your answers are confidential and only visible to your assigned provider.',
+      'I agree',
     ];
     for (const l of waiverStrings) strings.add(l);
 
@@ -2039,15 +2128,28 @@ async function fetchStringTranslations() {
     // Communications step strings.
     const commStrings = [
       'No', 'No - Do not text me',
+      'Choose how you would like to receive operational communications. You can update these preferences at any time.',
+      'Choose how you would like to receive platform communications. You can update these preferences at any time.',
+      'Email Notifications Preference', 'Email Communication Preference',
+      'Text Message (SMS) Communication Preference',
+      'Please choose what you would like to receive by email from us. If you opt in, we may email you about operational scheduling, internal announcements, and optional platform participation updates. Your email will never be shared or sold to third parties, and you may unsubscribe at any time.',
+      'Please choose what you would like to receive emails from us. If you opt in, we may email you about scheduling, appointment reminders, and-if selected-updates about mental health programs and services. Your email will never be shared or sold to third parties, and you may unsubscribe at any time.',
+      'Yes - Operational scheduling + internal announcements',
+      'Yes - Scheduling + all program communications',
+      'Yes - Scheduling only',
+      'Yes - Scheduling and appointment reminders',
       'SMS With Your Provider/Care Team',
       'If you choose Yes, you consent to receive service-related text messages through PlotTwistHQ from',
+      'follow-up, coordination, and service-related responses). These messages are HIPAA-protected and associated with your care relationship at',
       'and, when applicable, your provider/care team (for example, follow-up, coordination, and service-related responses). These messages are HIPAA-protected and associated with your care relationship at',
       'By selecting', 'Yes', 'and opting in, you understand and agree to the following:',
       'These messages may be viewed by the care team associated with your provider.',
+      'Your provider and our care team are not available for emergencies, and these messages are not monitored in real time. In case of emergency, call 911.',
       'Your provider and our care team are', 'not',
       'available for emergencies, and these messages are not monitored in real time. In case of emergency, call 911.',
       'Your provider will not receive messages outside of their working hours. All messages are confidentially stored within the platform.',
       'PlotTwistHQ is not responsible for, nor independently aware of, the content of direct communications between you and your provider.',
+      'You agree not to share confidential third-party information in these messages, and understand that this communication channel does not replace nor constitute clinical care or a therapeutic relationship.',
       'You agree not to share confidential third-party information in these messages, and understand that this communication channel does',
       'replace nor constitute clinical care or a therapeutic relationship.',
       'Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help. Appointment reminders/confirmations are not sent from individual provider numbers. Additional terms apply —',
@@ -2077,16 +2179,54 @@ async function fetchStringTranslations() {
       'American Indian or Alaska Native', 'Asian', 'Black or African American',
       'Hispanic or Latino', 'Native Hawaiian or Other Pacific Islander', 'White',
       'Two or more races', 'Select…', 'English', 'Spanish', 'French', 'Mandarin', 'Arabic', 'Other',
-      'Street Address', 'Apt / Unit (optional)', 'Zip Code', 'Required',
+      'Street Address', 'Apt / Unit (optional)', 'Zip Code', 'City', 'State', 'Required',
       'Upload file', 'Paste text',
     ];
     for (const s of demoStrings) strings.add(s);
+    [
+      communicationsIntroText.value,
+      communicationsEmailTitle.value,
+      communicationsSmsTitle.value,
+      communicationsEmailDisclosure.value,
+      communicationsSmsDisclosure.value,
+      communicationsEmailAllLabel.value,
+      communicationsEmailSchedulingOnlyLabel.value,
+      communicationsSmsYesLabel.value,
+      communicationsProviderTextingTitle.value,
+      communicationsProviderTextingIntro.value,
+      communicationsProviderTextingClosing.value,
+      communicationsProviderTextingYesLabel.value,
+      communicationsProviderTextingNoLabel.value,
+      communicationsProgramUpdatesTitle.value,
+      communicationsProgramUpdatesDisclosure.value,
+      communicationsProgramUpdatesYesLabel.value,
+      communicationsProgramUpdatesNoLabel.value,
+      communicationsWorkforceTitle.value,
+      communicationsWorkforceDisclosure.value,
+      communicationsWorkforceYesLabel.value,
+      communicationsWorkforceNoLabel.value
+    ].forEach(addString);
 
     const arr = [...strings].filter(Boolean).slice(0, 300);
-    if (!arr.length) return;
+    if (!arr.length) {
+      stringTranslations.value = {};
+      return;
+    }
 
+    const cacheKey = arr.join('\u0001');
+    const cached = stringTranslationCache.get(cacheKey);
+    if (cached) {
+      stringTranslations.value = cached;
+      return;
+    }
+
+    const requestId = ++stringTranslationRequestId;
+    stringTranslationsLoading.value = true;
     const resp = await api.post('/public/translate-strings', { strings: arr, lang: 'es' });
-    stringTranslations.value = resp?.data?.translations || {};
+    if (requestId !== stringTranslationRequestId || intakeLocale.value !== 'es') return;
+    const translations = resp?.data?.translations || {};
+    stringTranslationCache.set(cacheKey, translations);
+    stringTranslations.value = translations;
   } catch {
     // Fail silently — form still works, just untranslated.
   } finally {
@@ -2118,6 +2258,10 @@ const intakeLocale = computed(() => {
   if (hasDocumentTranslationMap.value) return inPageLocale.value;
   const code = String(link.value?.language_code || 'en').toLowerCase();
   return code.startsWith('es') ? 'es' : 'en';
+});
+
+watch(intakeLocale, () => {
+  fetchStringTranslations();
 });
 const customMessages = computed(() => link.value?.custom_messages || null);
 const t = (key) => {
@@ -2303,24 +2447,24 @@ const isWorkforceAudience = computed(() =>
 );
 const communicationsIntroText = computed(() =>
   isWorkforceAudience.value
-    ? 'Choose how you would like to receive operational communications. You can update these preferences at any time.'
-    : 'Choose how you would like to receive platform communications. You can update these preferences at any time.'
+    ? tx('Choose how you would like to receive operational communications. You can update these preferences at any time.')
+    : tx('Choose how you would like to receive platform communications. You can update these preferences at any time.')
 );
 const communicationsEmailTitle = computed(() => {
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.emailTitle?.trim();
-  if (override) return override;
-  return isWorkforceAudience.value ? 'Email Notifications Preference' : 'Email Communication Preference';
+  if (override) return tx(override);
+  return isWorkforceAudience.value ? tx('Email Notifications Preference') : tx('Email Communication Preference');
 });
 const communicationsSmsTitle = computed(() => {
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.smsTitle?.trim();
-  return override || 'Text Message (SMS) Communication Preference';
+  return tx(override || 'Text Message (SMS) Communication Preference');
 });
 const communicationsEmailDisclosure = computed(() => {
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.emailDisclosure?.trim();
-  if (override) return override;
-  return isWorkforceAudience.value
+  if (override) return tx(override);
+  return tx(isWorkforceAudience.value
     ? 'Please choose what you would like to receive by email from us. If you opt in, we may email you about operational scheduling, internal announcements, and optional platform participation updates. Your email will never be shared or sold to third parties, and you may unsubscribe at any time.'
-    : 'Please choose what you would like to receive emails from us. If you opt in, we may email you about scheduling, appointment reminders, and-if selected-updates about mental health programs and services. Your email will never be shared or sold to third parties, and you may unsubscribe at any time.';
+    : 'Please choose what you would like to receive emails from us. If you opt in, we may email you about scheduling, appointment reminders, and-if selected-updates about mental health programs and services. Your email will never be shared or sold to third parties, and you may unsubscribe at any time.');
 });
 const communicationsTenantName = computed(() => {
   const agencyName = (agencyInfo.value?.official_name || agencyInfo.value?.name || '').trim();
@@ -2330,8 +2474,8 @@ const communicationsTenantName = computed(() => {
 });
 const communicationsSmsDisclosure = computed(() => {
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.smsDisclosure?.trim();
-  if (override) return override;
-  return (
+  if (override) return tx(override);
+  return tx(
     `${communicationsTenantName.value} utilizes PlotTwistHQ, a platform by PlotTwistCo (PTCo), to facilitate appointment scheduling, reminders, and related communication. ` +
     `All messages you receive are scheduled, coordinated, and established directly by ${communicationsTenantName.value} — you will never receive any communications from PlotTwistCo (PTCo) directly. ` +
     'Please select your preference for receiving text messages. If you opt in, you may receive messages related to scheduling and appointment reminders. ' +
@@ -2341,64 +2485,72 @@ const communicationsSmsDisclosure = computed(() => {
 });
 const communicationsEmailAllLabel = computed(() => {
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.emailAllLabel?.trim();
-  if (override) return override;
-  return isWorkforceAudience.value
+  if (override) return tx(override);
+  return tx(isWorkforceAudience.value
     ? 'Yes - Operational scheduling + internal announcements'
-    : 'Yes - Scheduling + all program communications';
+    : 'Yes - Scheduling + all program communications');
 });
 const communicationsEmailSchedulingOnlyLabel = computed(() => {
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.emailSchedulingOnlyLabel?.trim();
-  return override || 'Yes - Scheduling only';
+  return tx(override || 'Yes - Scheduling only');
 });
 const communicationsSmsYesLabel = computed(() => {
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.smsYesLabel?.trim();
-  return override || 'Yes - Scheduling and appointment reminders';
+  return tx(override || 'Yes - Scheduling and appointment reminders');
 });
 // Campaign 2 — Provider/care-team texting
 const communicationsProviderTextingTitle = computed(() =>
-  currentFlowStep.value?.campaigns?.content?.providerTexting?.title?.trim() || tx('SMS With Your Provider/Care Team')
+  tx(currentFlowStep.value?.campaigns?.content?.providerTexting?.title?.trim() || 'SMS With Your Provider/Care Team')
 );
 const communicationsProviderTextingIntro = computed(() =>
-  currentFlowStep.value?.campaigns?.content?.providerTexting?.disclosure?.trim() || null
+  currentFlowStep.value?.campaigns?.content?.providerTexting?.disclosure?.trim()
+    ? tx(currentFlowStep.value.campaigns.content.providerTexting.disclosure.trim())
+    : null
 );
 const communicationsProviderTextingClosing = computed(() =>
-  currentFlowStep.value?.campaigns?.content?.providerTexting?.closingDisclosure?.trim() || null
+  currentFlowStep.value?.campaigns?.content?.providerTexting?.closingDisclosure?.trim()
+    ? tx(currentFlowStep.value.campaigns.content.providerTexting.closingDisclosure.trim())
+    : null
 );
 const communicationsProviderTextingYesLabel = computed(() =>
-  currentFlowStep.value?.campaigns?.content?.providerTexting?.yesLabel?.trim() ||
-  tx('Yes - I opt in to provider/care-team texting and agree to the terms above')
+  tx(currentFlowStep.value?.campaigns?.content?.providerTexting?.yesLabel?.trim() ||
+  'Yes - I opt in to provider/care-team texting and agree to the terms above')
 );
 const communicationsProviderTextingNoLabel = computed(() =>
-  currentFlowStep.value?.campaigns?.content?.providerTexting?.noLabel?.trim() || tx('No - Keep provider texting off')
+  tx(currentFlowStep.value?.campaigns?.content?.providerTexting?.noLabel?.trim() || 'No - Keep provider texting off')
 );
 // Campaign 3 — Program updates
 const communicationsProgramUpdatesTitle = computed(() =>
-  currentFlowStep.value?.campaigns?.content?.programUpdates?.title?.trim() || tx('Optional Program & Service Updates')
+  tx(currentFlowStep.value?.campaigns?.content?.programUpdates?.title?.trim() || 'Optional Program & Service Updates')
 );
 const communicationsProgramUpdatesDisclosure = computed(() =>
-  currentFlowStep.value?.campaigns?.content?.programUpdates?.disclosure?.trim() || null
+  currentFlowStep.value?.campaigns?.content?.programUpdates?.disclosure?.trim()
+    ? tx(currentFlowStep.value.campaigns.content.programUpdates.disclosure.trim())
+    : null
 );
 const communicationsProgramUpdatesYesLabel = computed(() =>
-  currentFlowStep.value?.campaigns?.content?.programUpdates?.yesLabel?.trim() || tx('Yes - I want optional updates')
+  tx(currentFlowStep.value?.campaigns?.content?.programUpdates?.yesLabel?.trim() || 'Yes - I want optional updates')
 );
 const communicationsProgramUpdatesNoLabel = computed(() =>
-  currentFlowStep.value?.campaigns?.content?.programUpdates?.noLabel?.trim() || tx('No - Keep optional updates off')
+  tx(currentFlowStep.value?.campaigns?.content?.programUpdates?.noLabel?.trim() || 'No - Keep optional updates off')
 );
 // Campaign 4 — Internal workforce
 const communicationsWorkforceTitle = computed(() =>
-  currentFlowStep.value?.campaigns?.content?.internalWorkforce?.title?.trim() ||
-  tx('Internal Workforce + School Staff Notifications (Opt-In)')
+  tx(currentFlowStep.value?.campaigns?.content?.internalWorkforce?.title?.trim() ||
+  'Internal Workforce + School Staff Notifications (Opt-In)')
 );
 const communicationsWorkforceDisclosure = computed(() =>
-  currentFlowStep.value?.campaigns?.content?.internalWorkforce?.disclosure?.trim() || null
+  currentFlowStep.value?.campaigns?.content?.internalWorkforce?.disclosure?.trim()
+    ? tx(currentFlowStep.value.campaigns.content.internalWorkforce.disclosure.trim())
+    : null
 );
 const communicationsWorkforceYesLabel = computed(() =>
-  currentFlowStep.value?.campaigns?.content?.internalWorkforce?.yesLabel?.trim() ||
-  tx('Yes - I opt in to internal workforce / school staff SMS notifications')
+  tx(currentFlowStep.value?.campaigns?.content?.internalWorkforce?.yesLabel?.trim() ||
+  'Yes - I opt in to internal workforce / school staff SMS notifications')
 );
 const communicationsWorkforceNoLabel = computed(() =>
-  currentFlowStep.value?.campaigns?.content?.internalWorkforce?.noLabel?.trim() ||
-  tx('No - Keep internal notifications off')
+  tx(currentFlowStep.value?.campaigns?.content?.internalWorkforce?.noLabel?.trim() ||
+  'No - Keep internal notifications off')
 );
 const templates = ref([]);
 const agencyInfo = ref(null);
@@ -4287,7 +4439,6 @@ const switchLinkedLanguage = async (target) => {
   if (hasDocumentTranslationMap.value) {
     inPageLocale.value = targetLang;
     try { localStorage.setItem('preferredFormLanguage', targetLang); } catch { /* ignore */ }
-    fetchStringTranslations();
     return;
   }
 

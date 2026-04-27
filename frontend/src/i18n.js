@@ -11,12 +11,12 @@ import es from './locales/es.json';
 
 function detectInitialLocale() {
   try {
-    const stored = localStorage.getItem('publicLocale');
-    if (stored === 'es' || stored === 'en') return stored;
-  } catch { /* ignore */ }
-  try {
     const urlLang = new URLSearchParams(window.location.search).get('lang');
     if (urlLang === 'es' || urlLang === 'en') return urlLang;
+  } catch { /* ignore */ }
+  try {
+    const stored = localStorage.getItem('publicLocale');
+    if (stored === 'es' || stored === 'en') return stored;
   } catch { /* ignore */ }
   return 'en';
 }
