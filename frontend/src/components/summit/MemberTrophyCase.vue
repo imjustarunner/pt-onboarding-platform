@@ -17,35 +17,71 @@
 
     <div v-if="loading" class="trophy-empty">Loading your trophy case…</div>
     <div v-else-if="errorMessage" class="trophy-empty trophy-empty--error">{{ errorMessage }}</div>
-    <div v-else-if="!groupedAwards.length" class="trophy-empty">
+    <div v-else-if="!groupedAwards.length && !completedChallenges.length" class="trophy-empty">
       No awards yet. Keep training — recognition winners are posted when each week closes.
     </div>
 
-    <div v-else class="trophy-grid">
-      <button
-        v-for="award in groupedAwards"
-        :key="award.key"
-        type="button"
-        class="trophy-card"
-        @click="openAward(award)"
-      >
-        <div class="trophy-card-icon">
-          <img v-if="award.iconUrl" :src="award.iconUrl" :alt="award.label" />
-          <span v-else-if="award.iconText" class="trophy-emoji">{{ award.iconText }}</span>
-          <span v-else class="trophy-emoji" aria-hidden="true">🏆</span>
+    <template v-else>
+      <!-- ── Recognition awards ──────────────────────────────────────── -->
+      <div v-if="groupedAwards.length">
+        <p class="trophy-section-label">Recognition Awards</p>
+        <div class="trophy-grid">
+          <button
+            v-for="award in groupedAwards"
+            :key="award.key"
+            type="button"
+            class="trophy-card"
+            @click="openAward(award)"
+          >
+            <div class="trophy-card-icon">
+              <img v-if="award.iconUrl" :src="award.iconUrl" :alt="award.label" />
+              <span v-else-if="award.iconText" class="trophy-emoji">{{ award.iconText }}</span>
+              <span v-else class="trophy-emoji" aria-hidden="true">🏆</span>
+            </div>
+            <div class="trophy-card-body">
+              <div class="trophy-card-label">{{ award.label }}</div>
+              <div class="trophy-card-meta">
+                <span class="trophy-card-count">Earned {{ award.count }}×</span>
+                <span v-if="award.latestGrantedAt" class="trophy-card-date">
+                  · latest {{ formatShortDate(award.latestGrantedAt) }}
+                </span>
+              </div>
+            </div>
+          </button>
         </div>
-        <div class="trophy-card-body">
-          <div class="trophy-card-label">{{ award.label }}</div>
-          <div class="trophy-card-meta">
-            <span class="trophy-card-count">Earned {{ award.count }}×</span>
-            <span v-if="award.latestGrantedAt" class="trophy-card-date">
-              · latest {{ formatShortDate(award.latestGrantedAt) }}
-            </span>
-          </div>
-        </div>
-      </button>
-    </div>
+      </div>
 
+      <!-- ── Completed challenges ────────────────────────────────────── -->
+      <div v-if="completedChallenges.length" :class="groupedAwards.length ? 'trophy-challenges-section' : ''">
+        <p class="trophy-section-label">Completed Challenges</p>
+        <div class="trophy-grid">
+          <button
+            v-for="ch in completedChallenges"
+            :key="ch.label"
+            type="button"
+            class="trophy-card trophy-card--challenge"
+            @click="openChallenge(ch)"
+          >
+            <div class="trophy-card-icon">
+              <img v-if="ch.iconUrl" :src="ch.iconUrl" :alt="ch.label" />
+              <span v-else-if="ch.iconText" class="trophy-emoji">{{ ch.iconText }}</span>
+              <span v-else class="trophy-emoji" aria-hidden="true">⚡</span>
+            </div>
+            <div class="trophy-card-body">
+              <div class="trophy-card-label">{{ ch.label }}</div>
+              <div class="trophy-card-meta">
+                <span class="trophy-card-count">Completed {{ ch.count }}×</span>
+                <span v-if="ch.latestCompletedAt" class="trophy-card-date">
+                  · latest {{ formatShortDate(ch.latestCompletedAt) }}
+                </span>
+              </div>
+            </div>
+          </button>
+        </div>
+      </div>
+    </template>
+
+    <!-- Recognition award detail modal -->
     <transition name="trophy-modal">
       <div v-if="activeAward" class="trophy-modal-backdrop" @click.self="activeAward = null">
         <div class="trophy-modal">
@@ -80,12 +116,49 @@
         </div>
       </div>
     </transition>
+
+    <!-- Challenge completion detail modal -->
+    <transition name="trophy-modal">
+      <div v-if="activeChallenge" class="trophy-modal-backdrop" @click.self="activeChallenge = null">
+        <div class="trophy-modal">
+          <button type="button" class="trophy-modal-close" @click="activeChallenge = null">×</button>
+          <div class="trophy-modal-head">
+            <div class="trophy-modal-icon trophy-modal-icon--challenge">
+              <img v-if="activeChallenge.iconUrl" :src="activeChallenge.iconUrl" :alt="activeChallenge.label" />
+              <span v-else-if="activeChallenge.iconText" class="trophy-emoji">{{ activeChallenge.iconText }}</span>
+              <span v-else class="trophy-emoji" aria-hidden="true">⚡</span>
+            </div>
+            <div>
+              <h3>{{ activeChallenge.label }}</h3>
+              <p class="muted">Completed {{ activeChallenge.count }}× across all seasons.</p>
+            </div>
+          </div>
+          <ul class="trophy-grant-list">
+            <li v-for="(c, i) in activeChallenge.completions" :key="`cc-${i}`" class="trophy-grant">
+              <div class="trophy-grant-main">
+                <div class="trophy-grant-season">{{ c.seasonName || 'Season' }}</div>
+                <div class="trophy-grant-club muted">{{ c.clubName || '' }}</div>
+              </div>
+              <div class="trophy-grant-right">
+                <span v-if="c.distanceMiles != null" class="trophy-grant-value">
+                  {{ Number(c.distanceMiles).toFixed(2) }} mi
+                </span>
+                <span class="trophy-grant-date muted">
+                  {{ formatShortDate(c.completedAt) }}
+                </span>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </transition>
   </section>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../services/api';
+import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 
 const props = defineProps({
   clubId: { type: [Number, String], default: null },
@@ -95,8 +168,10 @@ const props = defineProps({
 const loading = ref(false);
 const errorMessage = ref('');
 const awards = ref([]);
-const totals = ref({ lifetimeCount: 0, distinctLabels: 0 });
+const rawCompletedChallenges = ref([]);
+const totals = ref({ lifetimeCount: 0, distinctLabels: 0, challengeCount: 0 });
 const activeAward = ref(null);
+const activeChallenge = ref(null);
 
 const load = async () => {
   loading.value = true;
@@ -107,11 +182,13 @@ const load = async () => {
     if (Number.isFinite(clubId) && clubId > 0) params.clubId = clubId;
     const { data } = await api.get('/summit-stats/me/awards', { params, skipGlobalLoading: true });
     awards.value = Array.isArray(data?.awards) ? data.awards : [];
-    totals.value = data?.totals || { lifetimeCount: 0, distinctLabels: 0 };
+    rawCompletedChallenges.value = Array.isArray(data?.completedChallenges) ? data.completedChallenges : [];
+    totals.value = data?.totals || { lifetimeCount: 0, distinctLabels: 0, challengeCount: 0 };
   } catch (err) {
     errorMessage.value = err?.response?.data?.error?.message || 'Failed to load your trophy case.';
     awards.value = [];
-    totals.value = { lifetimeCount: 0, distinctLabels: 0 };
+    rawCompletedChallenges.value = [];
+    totals.value = { lifetimeCount: 0, distinctLabels: 0, challengeCount: 0 };
   } finally {
     loading.value = false;
   }
@@ -121,16 +198,22 @@ onMounted(() => { if (props.autoLoad) load(); });
 watch(() => props.clubId, () => { if (props.autoLoad) load(); });
 
 const isLikelyUrl = (s) => typeof s === 'string' && /^(https?:|\/)/.test(s);
+const iconCache = ref({});
 
 const resolveIconUrl = (icon) => {
   if (!icon) return '';
   const str = String(icon).trim();
   if (!str) return '';
   if (isLikelyUrl(str)) return str;
-  // Numeric icon id — dashboard doesn't have direct access to the icon library
-  // URL endpoint here, so fall back to showing nothing (the emoji placeholder
-  // takes over). Future: wire this to the icon lookup endpoint if needed.
-  if (/^\d+$/.test(str)) return '';
+  if (str.startsWith('icon:')) {
+    const id = parseInt(str.replace('icon:', ''), 10);
+    if (!id) return '';
+    if (iconCache.value[id]) return iconCache.value[id];
+    api.get(`/icons/${id}`).then(({ data }) => {
+      if (data?.url) iconCache.value[id] = toUploadsUrl(data.url) || data.url;
+    }).catch(() => {});
+    return iconCache.value[id] || '';
+  }
   return '';
 };
 
@@ -140,6 +223,7 @@ const resolveIconText = (icon) => {
   if (!str) return '';
   if (isLikelyUrl(str)) return '';
   if (/^\d+$/.test(str)) return '';
+  if (str.startsWith('icon:')) return '';
   return str; // emoji or short text
 };
 
@@ -162,6 +246,19 @@ const groupedAwards = computed(() => {
 });
 
 const openAward = (award) => { activeAward.value = award; };
+
+const completedChallenges = computed(() =>
+  (rawCompletedChallenges.value || []).map((ch) => ({
+    label: ch.label,
+    iconUrl: resolveIconUrl(ch.icon),
+    iconText: resolveIconText(ch.icon),
+    count: ch.count,
+    latestCompletedAt: ch.latestCompletedAt,
+    completions: ch.completions || []
+  }))
+);
+
+const openChallenge = (ch) => { activeChallenge.value = ch; };
 
 const formatShortDate = (raw) => {
   if (!raw) return '';
@@ -199,6 +296,29 @@ defineExpose({ reload: load });
 .trophy-total strong { color: #111827; }
 .trophy-dot { color: #9ca3af; }
 
+.trophy-section-label {
+  font-size: 0.73rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #9ca3af;
+  margin: 0 0 10px;
+}
+.trophy-challenges-section {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid #f3f4f6;
+}
+.trophy-card--challenge {
+  border-color: #e0e7ff;
+}
+.trophy-card--challenge:hover {
+  border-color: #6366f1;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.18);
+}
+.trophy-modal-icon--challenge {
+  background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
+}
 .trophy-empty {
   padding: 24px;
   text-align: center;

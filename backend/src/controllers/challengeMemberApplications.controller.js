@@ -4909,11 +4909,75 @@ export const getMyAwards = async (req, res, next) => {
 
     const awards = Array.from(buckets.values())
       .sort((a, b) => (new Date(b.latestGrantedAt || 0)) - (new Date(a.latestGrantedAt || 0)));
+
+    // ── Individual challenge completions ──────────────────────────────
+    // Workouts tagged to non-full-team weekly tasks by this user.
+    let completedChallenges = [];
+    try {
+      const challengeParams = [userId];
+      let challengeScopeSql = '';
+      if (clubIdFilter) {
+        challengeScopeSql = ` AND c.organization_id = ?`;
+        challengeParams.push(clubIdFilter);
+      }
+      const [challengeRows] = await pool.execute(
+        `SELECT w.id AS workout_id, w.completed_at, w.distance_value,
+                t.id AS task_id, t.name AS task_name, t.icon AS task_icon,
+                c.id AS class_id, c.class_name,
+                c.organization_id AS club_id, a.name AS club_name
+         FROM challenge_workouts w
+         INNER JOIN challenge_weekly_tasks t
+           ON t.id = w.weekly_task_id AND t.mode != 'full_team'
+         INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+         INNER JOIN agencies a ON a.id = c.organization_id
+         WHERE w.user_id = ?
+           AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+           AND w.weekly_task_id IS NOT NULL
+           ${challengeScopeSql}
+         ORDER BY w.completed_at DESC`,
+        challengeParams
+      );
+
+      // Group by task name + icon (same task appears in multiple weeks)
+      const challengeBuckets = new Map();
+      for (const r of challengeRows || []) {
+        const key = `${String(r.task_name || '').toLowerCase().trim()}__${String(r.task_icon || '')}`;
+        if (!challengeBuckets.has(key)) {
+          challengeBuckets.set(key, {
+            taskId: r.task_id,
+            label: r.task_name,
+            icon: r.task_icon || null,
+            count: 0,
+            latestCompletedAt: null,
+            completions: []
+          });
+        }
+        const bucket = challengeBuckets.get(key);
+        bucket.count += 1;
+        if (r.completed_at && (!bucket.latestCompletedAt || new Date(r.completed_at) > new Date(bucket.latestCompletedAt))) {
+          bucket.latestCompletedAt = r.completed_at;
+        }
+        bucket.completions.push({
+          workoutId: Number(r.workout_id),
+          classId: Number(r.class_id),
+          seasonName: r.class_name || null,
+          clubId: Number(r.club_id),
+          clubName: r.club_name || '',
+          distanceMiles: r.distance_value != null ? Number(r.distance_value) : null,
+          completedAt: r.completed_at || null
+        });
+      }
+
+      completedChallenges = Array.from(challengeBuckets.values())
+        .sort((a, b) => (new Date(b.latestCompletedAt || 0)) - (new Date(a.latestCompletedAt || 0)));
+    } catch { /* non-fatal — challenges missing from schema on older DBs */ }
+
     const totals = {
       lifetimeCount: rows.length,
-      distinctLabels: awards.length
+      distinctLabels: awards.length,
+      challengeCount: completedChallenges.reduce((s, b) => s + b.count, 0)
     };
-    return res.json({ awards, totals });
+    return res.json({ awards, completedChallenges, totals });
   } catch (e) { next(e); }
 };
 
