@@ -1,8 +1,8 @@
 <template>
   <section class="challenge-scoreboard">
     <div class="sb-header">
-      <span class="sb-icon">📊</span>
-      <h2>Challenge Rankings</h2>
+      <span class="sb-icon">🎯</span>
+      <h2>Weekly Challenge Progress</h2>
     </div>
     <div class="scoreboard-week-selector">
       <label class="week-label">Week</label>
@@ -14,94 +14,66 @@
     <div v-if="loading" class="loading-inline">Loading…</div>
     <div v-else class="scoreboard-content">
 
-      <!-- ── Team Rankings ─────────────────────────────────────── -->
-      <div class="scoreboard-block">
-        <p class="block-label">🏆 Overall Team Standings</p>
-        <div class="scoreboard-list">
-          <div
-            v-for="(r, idx) in (data?.teamRankings || data?.top5Teams || [])"
-            :key="`t-${r.team_id}`"
-            class="scoreboard-row"
-            :class="rankClass(idx)"
-          >
-            <span class="rank-badge">{{ rankMedal(idx) }}</span>
-            <span class="name team-name-bold">{{ r.team_name }}</span>
-            <span class="pts-chip">{{ formatPts(r.total_points) }} pts</span>
+      <!-- ── Weekly Challenge Progress ─────────────────────────────── -->
+      <div v-if="tasks.length" class="scoreboard-block">
+        <p class="block-label">This Week's Challenges</p>
+        <div class="challenge-progress-list">
+          <div v-for="task in tasks" :key="task.id" class="cp-card">
+            <div class="cp-card-head">
+              <span v-if="taskIcon(task)" class="cp-icon">
+                <img v-if="isIconRef(task.icon)" :src="resolveTaskIconUrl(task.icon)" class="cp-icon-img" alt="" />
+                <template v-else>{{ task.icon }}</template>
+              </span>
+              <div class="cp-card-title-block">
+                <span class="cp-task-name">{{ task.name }}</span>
+                <span class="cp-mode-badge" :class="task.mode === 'full_team' ? 'cp-mode--team' : 'cp-mode--individual'">
+                  {{ task.mode === 'full_team' ? 'Full Team' : 'Self-Elect' }}
+                </span>
+              </div>
+            </div>
+
+            <!-- Full-team progress: count of tagged members -->
+            <div v-if="task.mode === 'full_team'" class="cp-fullteam">
+              <span class="cp-fullteam-count">
+                <strong>{{ taggedCount(task.id) }}</strong>
+                <span class="cp-of"> of </span>
+                <span class="cp-denom">{{ totalParticipants || '?' }}</span>
+                members tagged
+              </span>
+              <div class="cp-fullteam-bar-wrap">
+                <div
+                  class="cp-fullteam-bar-fill"
+                  :style="{ width: totalParticipants ? `${taggedPct(task.id)}%` : '0%' }"
+                />
+              </div>
+            </div>
+
+            <!-- Individual/self-elect: show assignments per team -->
+            <div v-else class="cp-individual-list">
+              <div v-if="!taskAssignments(task.id).length" class="cp-no-assigns">
+                No one has claimed this challenge yet.
+              </div>
+              <div
+                v-for="a in taskAssignments(task.id)"
+                :key="a.assignmentId || a.id"
+                class="cp-assign-row"
+                :class="{ 'cp-assign-row--done': a.hasTagged }"
+              >
+                <span class="cp-assign-team">{{ a.teamName }}</span>
+                <span class="cp-assign-name">{{ a.firstName }} {{ a.lastName }}</span>
+                <span class="cp-assign-status" :class="a.hasTagged ? 'cp-status--done' : 'cp-status--pending'">
+                  {{ a.hasTagged ? '✓ Tagged' : 'Not yet' }}
+                </span>
+                <span v-if="a.miles" class="cp-assign-metric">{{ a.miles }} mi</span>
+              </div>
+            </div>
           </div>
-          <div v-if="!(data?.teamRankings?.length || data?.top5Teams?.length)" class="empty-hint">No team activity this week yet.</div>
+
+          <div v-if="!tasks.length" class="empty-hint">No weekly challenges published for this week.</div>
         </div>
       </div>
 
-      <!-- ── Top Per Team breakdown ────────────────────────────── -->
-      <div v-if="data?.teamBreakdown?.length" class="scoreboard-block">
-        <p class="block-label">⭐ Top Performers Per Team</p>
-        <div class="team-breakdown-grid">
-          <div v-for="team in data.teamBreakdown" :key="`bd-${team.team_id}`" class="team-breakdown-card">
-            <div class="tbd-team-name">{{ team.team_name }}</div>
-
-            <!-- Runs -->
-            <div v-if="team.runs" class="tbd-category">
-              <span class="tbd-cat-label">🏃 Runs</span>
-              <div class="tbd-leader-row">
-                <UserAvatar
-                  :photo-path="team.runs.leader.profile_photo_path"
-                  :first-name="team.runs.leader.first_name"
-                  :last-name="team.runs.leader.last_name"
-                  size="sm"
-                />
-                <span class="tbd-leader-name">{{ team.runs.leader.first_name }} {{ team.runs.leader.last_name }}</span>
-                <span class="tbd-stat">{{ team.runs.leader.miles }} mi</span>
-                <span v-if="team.runs.leader.avg_pace" class="tbd-sub">{{ team.runs.leader.avg_pace }}/mi</span>
-              </div>
-              <div class="tbd-team-agg">
-                Team: {{ team.runs.team_total_miles }} mi total
-                <span v-if="team.runs.team_avg_pace"> · avg {{ team.runs.team_avg_pace }}/mi</span>
-              </div>
-            </div>
-
-            <!-- Rucks -->
-            <div v-if="team.rucks" class="tbd-category">
-              <span class="tbd-cat-label">🎒 Rucks</span>
-              <div class="tbd-leader-row">
-                <UserAvatar
-                  :photo-path="team.rucks.leader.profile_photo_path"
-                  :first-name="team.rucks.leader.first_name"
-                  :last-name="team.rucks.leader.last_name"
-                  size="sm"
-                />
-                <span class="tbd-leader-name">{{ team.rucks.leader.first_name }} {{ team.rucks.leader.last_name }}</span>
-                <span class="tbd-stat">{{ team.rucks.leader.miles }} mi</span>
-                <span v-if="team.rucks.leader.avg_pace" class="tbd-sub">{{ team.rucks.leader.avg_pace }}/mi</span>
-              </div>
-              <div class="tbd-team-agg">
-                Team: {{ team.rucks.team_total_miles }} mi total
-                <span v-if="team.rucks.team_avg_pace"> · avg {{ team.rucks.team_avg_pace }}/mi</span>
-              </div>
-            </div>
-
-            <!-- Other (calories) -->
-            <div v-if="team.other" class="tbd-category">
-              <span class="tbd-cat-label">🔥 Cross-Training</span>
-              <div class="tbd-leader-row">
-                <UserAvatar
-                  :photo-path="team.other.leader.profile_photo_path"
-                  :first-name="team.other.leader.first_name"
-                  :last-name="team.other.leader.last_name"
-                  size="sm"
-                />
-                <span class="tbd-leader-name">{{ team.other.leader.first_name }} {{ team.other.leader.last_name }}</span>
-                <span class="tbd-stat">{{ team.other.leader.calories }} cal</span>
-                <span v-if="team.other.leader.avg_hr" class="tbd-sub">{{ team.other.leader.avg_hr }} bpm</span>
-              </div>
-              <div v-if="team.other.team_avg_hr" class="tbd-team-agg">
-                Team avg heart rate: {{ team.other.team_avg_hr }} bpm
-              </div>
-            </div>
-
-            <div v-if="!team.runs && !team.rucks && !team.other" class="tbd-empty">No activity logged yet.</div>
-          </div>
-        </div>
-      </div>
+      <div v-else-if="!loading" class="empty-hint">No weekly challenges for this week.</div>
 
       <!-- ── Recognition of the Week ───────────────────────────── -->
       <div v-if="normalizedRecognition.length" class="scoreboard-block recognition-block">
@@ -148,10 +120,6 @@ import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useSeasonWeeks } from '../../composables/useSeasonWeeks.js';
 import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 
-const formatPts = (v) => parseFloat(Number(v || 0).toFixed(2));
-const rankMedal = (idx) => idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
-const rankClass  = (idx) => idx === 0 ? 'rank-gold' : idx === 1 ? 'rank-silver' : idx === 2 ? 'rank-bronze' : '';
-
 const props = defineProps({
   challengeId: { type: [String, Number], required: true },
   seasonStartsAt: { type: [String, Date], default: null },
@@ -160,15 +128,79 @@ const props = defineProps({
 
 const emit = defineEmits(['load']);
 
+// ── Week selector ──────────────────────────────────────────────
+const { seasonWeeks, selectedWeekIdx, weekStartDate } = useSeasonWeeks(
+  computed(() => props.seasonStartsAt),
+  { defaultToLatest: false, seasonEndsAtRef: computed(() => props.seasonEndsAt) }
+);
+
+// ── State ──────────────────────────────────────────────────────
+const loading = ref(false);
+const tasks = ref([]);
+const taggedWorkouts = ref([]);   // workouts with weekly_task_id for this week
+const assignments = ref([]);      // weekly assignments [{task_id, team_id, provider_user_id, ...}]
+const recognitionData = ref(null);
+
+// ── Computed helpers ───────────────────────────────────────────
+// Count of distinct users who have tagged each task
+const taggedCountMap = computed(() => {
+  const map = {};
+  for (const w of taggedWorkouts.value) {
+    const tid = Number(w.weekly_task_id);
+    if (!map[tid]) map[tid] = new Set();
+    map[tid].add(Number(w.user_id));
+  }
+  return map;
+});
+const taggedCount = (taskId) => taggedCountMap.value[Number(taskId)]?.size || 0;
+
+// Total unique assigned + tagged participants (approximation for full_team denominator)
+// The scoreboard doesn't have roster size directly; we approximate from assignments + tagged
+const totalParticipants = computed(() => {
+  const users = new Set();
+  for (const w of taggedWorkouts.value) users.add(Number(w.user_id));
+  for (const a of assignments.value) users.add(Number(a.provider_user_id));
+  // Fallback: at least count distinct tagged users per full_team task
+  return users.size || 0;
+});
+
+const taggedPct = (taskId) => {
+  const total = totalParticipants.value;
+  if (!total) return 0;
+  return Math.min(100, Math.round((taggedCount(taskId) / total) * 100));
+};
+
+// Assignment rows per task (for individual tasks)
+const taskAssignments = (taskId) => {
+  const tidN = Number(taskId);
+  const taggedUsers = taggedCountMap.value[tidN] || new Set();
+    return assignments.value
+    .filter((a) => Number(a.task_id) === tidN)
+    .map((a) => {
+      const uid = Number(a.provider_user_id);
+      const tagged = taggedWorkouts.value.find(
+        (w) => Number(w.weekly_task_id) === tidN && Number(w.user_id) === uid
+      );
+      return {
+        assignmentId: a.id,
+        teamName: a.team_name || '',
+        firstName: a.provider_first_name || a.first_name || '',
+        lastName: a.provider_last_name || a.last_name || '',
+        hasTagged: taggedUsers.has(uid),
+        miles: tagged?.distance_value != null ? Number(tagged.distance_value).toFixed(2) : null,
+      };
+    });
+};
+
+// Recognition
 const LEGACY_LABELS = {
   fastest_male: 'Fastest Male',
   fastest_female: 'Fastest Female',
   fastest_masters_male: "Fastest Master's Male",
   fastest_masters_female: "Fastest Master's Female"
 };
-
 const normalizedRecognition = computed(() => {
-  const raw = data.value?.recognitionOfTheWeek;
+  const raw = recognitionData.value;
   if (!raw) return [];
   if (Array.isArray(raw)) return raw;
   return Object.entries(raw).map(([key, r]) => ({
@@ -184,8 +216,19 @@ function metricUnit(metric) {
   return map[metric] || 'pts';
 }
 
+// ── Icons ──────────────────────────────────────────────────────
 const scoreboardIconCache = ref({});
+const isIconRef = (icon) => typeof icon === 'string' && icon.startsWith('icon:');
+function taskIcon(task) { return task.icon || null; }
+
+function resolveTaskIconUrl(iconRef) {
+  return resolveIconById(iconRef);
+}
 function resolveScoreboardIconUrl(iconRef) {
+  if (!iconRef || !String(iconRef).startsWith('icon:')) return null;
+  return resolveIconById(iconRef);
+}
+function resolveIconById(iconRef) {
   if (!iconRef || !String(iconRef).startsWith('icon:')) return null;
   const id = parseInt(String(iconRef).replace('icon:', ''), 10);
   if (!id) return null;
@@ -196,25 +239,38 @@ function resolveScoreboardIconUrl(iconRef) {
   return null;
 }
 
-const { seasonWeeks, selectedWeekIdx, weekStartDate } = useSeasonWeeks(
-  computed(() => props.seasonStartsAt),
-  { defaultToLatest: false, seasonEndsAtRef: computed(() => props.seasonEndsAt) }
-);
-
-const loading = ref(false);
-const data = ref(null);
-
+// ── Load ───────────────────────────────────────────────────────
 const load = async () => {
   if (!props.challengeId || !weekStartDate.value) return;
   loading.value = true;
   try {
-    const r = await api.get(`/learning-program-classes/${props.challengeId}/scoreboard`, {
-      params: { week: weekStartDate.value },
-      skipGlobalLoading: true
-    });
-    data.value = r.data || null;
-  } catch {
-    data.value = null;
+    const [tasksRes, workoutsRes, assignmentsRes, sbRes] = await Promise.allSettled([
+      api.get(`/learning-program-classes/${props.challengeId}/weekly-tasks`, {
+        params: { week: weekStartDate.value }, skipGlobalLoading: true
+      }),
+      api.get(`/learning-program-classes/${props.challengeId}/workouts`, {
+        params: { week: weekStartDate.value, hasTask: true }, skipGlobalLoading: true
+      }),
+      api.get(`/learning-program-classes/${props.challengeId}/weekly-assignments`, {
+        params: { week: weekStartDate.value }, skipGlobalLoading: true
+      }),
+      api.get(`/learning-program-classes/${props.challengeId}/scoreboard`, {
+        params: { week: weekStartDate.value }, skipGlobalLoading: true
+      }),
+    ]);
+
+    tasks.value = tasksRes.status === 'fulfilled'
+      ? (tasksRes.value.data?.tasks || tasksRes.value.data || [])
+      : [];
+    taggedWorkouts.value = workoutsRes.status === 'fulfilled'
+      ? (workoutsRes.value.data?.workouts || [])
+      : [];
+    assignments.value = assignmentsRes.status === 'fulfilled'
+      ? (assignmentsRes.value.data?.assignments || [])
+      : [];
+    recognitionData.value = sbRes.status === 'fulfilled'
+      ? (sbRes.value.data?.recognitionOfTheWeek || null)
+      : null;
   } finally {
     loading.value = false;
   }
@@ -238,70 +294,56 @@ defineExpose({ load });
 .scoreboard-content { display: flex; flex-direction: column; gap: 24px; }
 .block-label { margin: 0 0 10px; font-size: 0.78em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8; }
 
-/* Overall team rankings */
+/* Challenge progress cards */
+.challenge-progress-list { display: flex; flex-direction: column; gap: 10px; }
+.cp-card {
+  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;
+}
+.cp-card-head { display: flex; align-items: flex-start; gap: 10px; }
+.cp-icon { font-size: 1.4em; flex-shrink: 0; line-height: 1; }
+.cp-icon-img { width: 28px; height: 28px; object-fit: contain; display: block; }
+.cp-card-title-block { display: flex; flex-direction: column; gap: 4px; }
+.cp-task-name { font-weight: 700; font-size: 0.95em; color: #1e293b; }
+.cp-mode-badge {
+  display: inline-block; font-size: 0.66em; font-weight: 700; letter-spacing: 0.05em;
+  text-transform: uppercase; border-radius: 999px; padding: 2px 8px; width: fit-content;
+}
+.cp-mode--team { background: #dbeafe; color: #1e40af; }
+.cp-mode--individual { background: #dcfce7; color: #166534; }
+
+/* Full team progress bar */
+.cp-fullteam { display: flex; flex-direction: column; gap: 5px; }
+.cp-fullteam-bar-wrap { height: 8px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
+.cp-fullteam-bar-fill { height: 100%; background: #6366f1; border-radius: 999px; transition: width 0.3s ease; min-width: 2px; }
+.cp-fullteam-count { font-size: 0.78em; color: #475569; }
+.cp-fullteam-count strong { color: #1e293b; font-size: 1.1em; }
+.cp-of { color: #94a3b8; }
+.cp-denom { color: #64748b; }
+
+/* Individual assignments */
+.cp-individual-list { display: flex; flex-direction: column; gap: 5px; }
+.cp-no-assigns { font-size: 0.8em; color: #94a3b8; font-style: italic; }
+.cp-assign-row {
+  display: flex; align-items: center; gap: 8px;
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 10px;
+  font-size: 0.82em;
+}
+.cp-assign-row--done { border-color: #bbf7d0; background: #f0fdf4; }
+.cp-assign-team { color: #94a3b8; font-size: 0.85em; white-space: nowrap; flex-shrink: 0; }
+.cp-assign-name { flex: 1; font-weight: 600; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cp-assign-status { font-weight: 700; font-size: 0.85em; white-space: nowrap; flex-shrink: 0; }
+.cp-status--done { color: #16a34a; }
+.cp-status--pending { color: #94a3b8; }
+.cp-assign-metric { font-size: 0.82em; color: #e63946; font-weight: 700; white-space: nowrap; flex-shrink: 0; }
+
+/* Scoreboard list (for recognition) */
 .scoreboard-list { display: flex; flex-direction: column; gap: 5px; }
 .scoreboard-row {
   display: flex; align-items: center; gap: 10px;
   padding: 9px 12px; border-radius: 10px;
-  background: #f8fafc; transition: background 0.15s;
-}
-.scoreboard-row:hover { background: #f1f5f9; }
-.rank-gold   { background: linear-gradient(90deg, #fffbeb 0%, #fef3c7 100%); }
-.rank-silver { background: linear-gradient(90deg, #f8fafc 0%, #f1f5f9 100%); }
-.rank-bronze { background: linear-gradient(90deg, #fff7ed 0%, #ffedd5 100%); }
-.rank-badge { font-size: 1.1em; min-width: 28px; text-align: center; line-height: 1; }
-.name { flex: 1; font-size: 0.92em; font-weight: 500; }
-.team-name-bold { font-weight: 700; font-size: 0.95em; }
-.team-tag { font-size: 0.78em; color: #94a3b8; background: #f1f5f9; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
-.pts-chip { font-size: 0.82em; font-weight: 700; color: #fff; background: #e63946; border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
-.empty-hint { color: #94a3b8; padding: 8px 0; font-size: 0.9em; }
-.loading-inline { color: #94a3b8; padding: 12px 0; }
-
-/* Team breakdown grid */
-.team-breakdown-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 14px;
-}
-
-.team-breakdown-card {
   background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
-
-.tbd-team-name {
-  font-weight: 800;
-  font-size: 0.97em;
-  color: #1e293b;
-  border-bottom: 1px solid #e2e8f0;
-  padding-bottom: 8px;
-}
-
-.tbd-category { display: flex; flex-direction: column; gap: 5px; }
-.tbd-cat-label { font-size: 0.72em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8; }
-
-.tbd-leader-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  background: #fff;
-  border-radius: 10px;
-  padding: 6px 10px;
-  border: 1px solid #e2e8f0;
-}
-.tbd-leader-name { flex: 1; font-size: 0.88em; font-weight: 600; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tbd-stat { font-size: 0.82em; font-weight: 800; color: #e63946; white-space: nowrap; }
-.tbd-sub { font-size: 0.75em; color: #64748b; background: #f1f5f9; border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
-
-.tbd-team-agg { font-size: 0.75em; color: #64748b; padding-left: 2px; }
-.tbd-empty { font-size: 0.85em; color: #94a3b8; font-style: italic; }
-
-/* Recognition */
 .recognition-icon { font-size: 18px; flex-shrink: 0; display: flex; align-items: center; }
 .scoreboard-icon-img { width: 24px; height: 24px; object-fit: contain; display: block; }
 .recognition-label { font-weight: 600; min-width: 140px; color: var(--text-primary); }
@@ -310,4 +352,10 @@ defineExpose({ load });
 .recognition-block .scoreboard-row { align-items: flex-start; }
 .recognition-winners { display: flex; flex-direction: column; gap: 8px; flex: 1; align-items: flex-start; min-width: 0; }
 .recognition-winner-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%; }
+.name { flex: 1; font-size: 0.92em; font-weight: 500; }
+.team { font-size: 0.78em; color: #94a3b8; background: #f1f5f9; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+.points { font-size: 0.82em; font-weight: 700; color: #e63946; }
+
+.empty-hint { color: #94a3b8; padding: 8px 0; font-size: 0.9em; }
+.loading-inline { color: #94a3b8; padding: 12px 0; }
 </style>

@@ -571,7 +571,13 @@
           @move-down="moveSectionDown('leaderboard')"
         >
           <div id="section-leaderboard" class="challenge-section">
-            <ChallengeLeaderboard :leaderboard="leaderboard" :loading="leaderboardLoading" />
+            <ChallengeLeaderboard
+              :leaderboard="leaderboard"
+              :loading="leaderboardLoading"
+              :challenge-id="challengeId"
+              :season-starts-at="challenge?.starts_at || challenge?.startsAt"
+              :season-ends-at="challenge?.ends_at || challenge?.endsAt"
+            />
           </div>
         </DashboardSectionWrapper>
 
