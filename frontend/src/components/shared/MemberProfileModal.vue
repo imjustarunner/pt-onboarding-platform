@@ -55,8 +55,10 @@
           </div>
 
           <!-- Trophy Case -->
-          <div class="mpm-section mpm-trophy-section">
-            <h3 class="mpm-h">🏆 Trophy Case</h3>
+          <div class="mpm-trophy-case">
+            <div class="mpm-tc-header">
+              <span class="mpm-tc-title">🏆 Trophy Case</span>
+            </div>
 
             <div v-if="trophyLoading" class="mpm-trophy-empty">Loading trophies…</div>
             <div v-else-if="trophyFailed" class="mpm-trophy-empty mpm-trophy-retry" @click="load">
@@ -64,99 +66,106 @@
             </div>
             <div v-else-if="!hasTrophies" class="mpm-trophy-empty">No trophies yet — keep training!</div>
 
-            <!-- Season Recognition Awards (weekly award badges) -->
-            <div v-if="trophy?.seasonAwards?.length" class="mpm-awards-section">
-              <div class="mpm-records-label">Recognition Awards</div>
-              <div class="mpm-awards-grid">
+            <!-- Recognition Awards shelf -->
+            <div v-if="trophy?.seasonAwards?.length" class="mpm-tc-shelf">
+              <div class="mpm-tc-shelf-label">🎖 Recognition Awards</div>
+              <div class="mpm-tc-shelf-row">
                 <div
                   v-for="a in trophy.seasonAwards"
                   :key="a.categoryId"
-                  class="mpm-award-badge"
+                  class="mpm-tc-trophy"
                   :title="awardTooltip(a)"
                 >
-                  <div class="mpm-award-icon-wrap">
-                    <img v-if="a.iconUrl" :src="a.iconUrl" class="mpm-award-icon" alt="" />
-                    <span v-else class="mpm-award-emoji">{{ emojiFor(a.icon) }}</span>
-                    <span v-if="a.count > 1" class="mpm-award-count">{{ a.count }}</span>
+                  <div class="mpm-tc-trophy-icon-wrap">
+                    <img v-if="a.iconUrl" :src="a.iconUrl" class="mpm-tc-trophy-img" alt="" />
+                    <span v-else class="mpm-tc-trophy-emoji">{{ emojiFor(a.icon) }}</span>
+                    <span v-if="a.count > 1" class="mpm-tc-count">×{{ a.count }}</span>
                   </div>
-                  <div class="mpm-award-label">{{ a.label }}</div>
+                  <div class="mpm-tc-nameplate">{{ a.label }}</div>
                 </div>
               </div>
             </div>
 
-            <!-- Completed Challenges -->
-            <div v-if="trophy?.completedChallenges?.length" class="mpm-awards-section">
-              <div class="mpm-records-label">Completed Challenges</div>
-              <div class="mpm-awards-grid">
+            <!-- Race Clubs shelf -->
+            <div v-if="trophy?.raceClubs?.length" class="mpm-tc-shelf">
+              <div class="mpm-tc-shelf-label">🏅 Race Clubs</div>
+              <div class="mpm-tc-shelf-row">
+                <div
+                  v-for="rc in trophy.raceClubs"
+                  :key="rc.id"
+                  class="mpm-tc-trophy"
+                  :title="`${rc.label}: ${rc.count}× completed`"
+                >
+                  <div class="mpm-tc-trophy-icon-wrap mpm-tc-trophy-icon-wrap--race">
+                    <img v-if="rc.earnedTier?.iconUrl" :src="rc.earnedTier.iconUrl" class="mpm-tc-trophy-img" alt="" />
+                    <span v-else class="mpm-tc-trophy-emoji">🏅</span>
+                    <span class="mpm-tc-count">×{{ rc.count }}</span>
+                  </div>
+                  <div class="mpm-tc-nameplate">{{ rc.label }}</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Completed Challenges shelf -->
+            <div v-if="trophy?.completedChallenges?.length" class="mpm-tc-shelf">
+              <div class="mpm-tc-shelf-label">⚡ Challenges</div>
+              <div class="mpm-tc-shelf-row">
                 <div
                   v-for="ch in trophy.completedChallenges"
                   :key="ch.taskId || ch.label"
-                  class="mpm-award-badge mpm-award-badge--challenge"
+                  class="mpm-tc-trophy"
                   :title="`${ch.label} · Completed ${ch.count}×`"
                 >
-                  <div class="mpm-award-icon-wrap">
-                    <img v-if="ch.iconUrl" :src="ch.iconUrl" class="mpm-award-icon" alt="" />
-                    <span v-else-if="ch.icon && !String(ch.icon).startsWith('icon:')" class="mpm-award-emoji">{{ ch.icon }}</span>
-                    <span v-else class="mpm-award-emoji">⚡</span>
-                    <span v-if="ch.count > 1" class="mpm-award-count">{{ ch.count }}</span>
+                  <div class="mpm-tc-trophy-icon-wrap mpm-tc-trophy-icon-wrap--challenge">
+                    <img v-if="ch.iconUrl" :src="ch.iconUrl" class="mpm-tc-trophy-img" alt="" />
+                    <span v-else-if="ch.icon && !String(ch.icon).startsWith('icon:')" class="mpm-tc-trophy-emoji">{{ ch.icon }}</span>
+                    <span v-else class="mpm-tc-trophy-emoji">⚡</span>
+                    <span v-if="ch.count > 1" class="mpm-tc-count">×{{ ch.count }}</span>
                   </div>
-                  <div class="mpm-award-label">{{ ch.label }}</div>
+                  <div class="mpm-tc-nameplate">{{ ch.label }}</div>
                 </div>
               </div>
             </div>
 
-            <!-- Race Club Badges -->
-            <div v-if="trophy?.raceClubs?.length" class="mpm-badges">
-              <div
-                v-for="rc in trophy.raceClubs"
-                :key="rc.id"
-                class="mpm-badge"
-                :title="`${rc.label}: ${rc.count}× completed`"
-              >
-                <img v-if="rc.earnedTier?.iconUrl" :src="rc.earnedTier.iconUrl" class="mpm-badge-icon" alt="" />
-                <span v-else class="mpm-badge-emoji">🏅</span>
-                <div class="mpm-badge-info">
-                  <span class="mpm-badge-name">{{ rc.label }}</span>
-                  <span class="mpm-badge-count">{{ rc.count }}×</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Personal Records -->
-            <div v-if="trophy?.personalRecords?.length" class="mpm-records">
-              <div class="mpm-records-label">Personal Records</div>
-              <div
-                v-for="r in trophy.personalRecords"
-                :key="r.id"
-                class="mpm-record-row"
-                :class="{ 'mpm-record-row--cr': r.isClubRecord }"
-              >
-                <img v-if="r.iconUrl" :src="r.iconUrl" class="mpm-record-icon" alt="" />
-                <span v-else class="mpm-record-icon-ph">⭐</span>
-                <span class="mpm-record-label">
-                  {{ r.label }}
-                  <span v-if="r.isClubRecord" class="mpm-cr-badge">CR</span>
-                </span>
-                <span class="mpm-record-value">
-                  {{ fmtPr(r) }}
-                  <span v-if="r.unit && r.metricKey !== 'race_chip_time_seconds'" class="mpm-record-unit">{{ r.unit }}</span>
-                </span>
-                <span v-if="r.context" class="mpm-record-year">{{ r.context }}</span>
-              </div>
-            </div>
-
-            <!-- Club Records Held (icon badge grid with hover tooltip) -->
-            <div v-if="extraRecordsHeld.length" class="mpm-cr-section">
-              <div class="mpm-records-label">Club Records Held</div>
-              <div class="mpm-cr-grid">
+            <!-- Club Records Held shelf -->
+            <div v-if="extraRecordsHeld.length" class="mpm-tc-shelf">
+              <div class="mpm-tc-shelf-label">📋 Club Records</div>
+              <div class="mpm-tc-shelf-row">
                 <div
                   v-for="r in extraRecordsHeld"
                   :key="r.id"
-                  class="mpm-cr-badge-wrap"
+                  class="mpm-tc-trophy"
                   :title="`${r.label}${r.value != null ? ': ' + fmtPr(r) + (r.unit && r.metricKey !== 'race_chip_time_seconds' ? ' ' + r.unit : '') : ''}${r.holderYear ? ' · ' + r.holderYear : ''}`"
                 >
-                  <img v-if="r.iconUrl" :src="r.iconUrl" class="mpm-cr-badge-icon" alt="" />
-                  <span v-else class="mpm-cr-badge-trophy">🏆</span>
+                  <div class="mpm-tc-trophy-icon-wrap mpm-tc-trophy-icon-wrap--cr">
+                    <img v-if="r.iconUrl" :src="r.iconUrl" class="mpm-tc-trophy-img" alt="" />
+                    <span v-else class="mpm-tc-trophy-emoji">🏆</span>
+                  </div>
+                  <div class="mpm-tc-nameplate">{{ r.label }}</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Personal Records list -->
+            <div v-if="trophy?.personalRecords?.length" class="mpm-tc-shelf mpm-tc-shelf--pr">
+              <div class="mpm-tc-shelf-label">⭐ Personal Records</div>
+              <div class="mpm-pr-list">
+                <div
+                  v-for="r in trophy.personalRecords"
+                  :key="r.id"
+                  class="mpm-pr-row"
+                  :class="{ 'mpm-pr-row--cr': r.isClubRecord }"
+                >
+                  <img v-if="r.iconUrl" :src="r.iconUrl" class="mpm-pr-icon" alt="" />
+                  <span v-else class="mpm-pr-icon-ph">⭐</span>
+                  <span class="mpm-pr-label">
+                    {{ r.label }}
+                    <span v-if="r.isClubRecord" class="mpm-cr-tag">CR</span>
+                  </span>
+                  <span class="mpm-pr-value">
+                    {{ fmtPr(r) }}
+                    <span v-if="r.unit && r.metricKey !== 'race_chip_time_seconds'" class="mpm-pr-unit">{{ r.unit }}</span>
+                  </span>
                 </div>
               </div>
             </div>
@@ -382,113 +391,131 @@ watch(() => props.userId, (uid) => {
 }
 .mpm-stat { font-size: 0.9rem; color: #334155; }
 .mpm-stat strong { color: #1d4ed8; }
-.mpm-trophy-section { background: #fafafa; border-radius: 12px; padding: 14px 12px; border-top: none; margin-top: 12px; }
-.mpm-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 12px;
+/* ── Trophy Case ──────────────────────────────────────── */
+.mpm-trophy-case {
+  margin-top: 16px;
+  background: linear-gradient(160deg, #1e1a14 0%, #2d2518 60%, #1e1a14 100%);
+  border-radius: 16px;
+  padding: 16px 14px 18px;
+  box-shadow: inset 0 2px 8px rgba(0,0,0,0.4), 0 4px 16px rgba(0,0,0,0.2);
 }
-.mpm-badge {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: #fff;
-  border-radius: 10px;
-  padding: 8px 12px;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 1px 4px rgba(0,0,0,.05);
-}
-.mpm-badge-icon { width: 32px; height: 32px; object-fit: contain; border-radius: 6px; }
-.mpm-badge-emoji { font-size: 28px; }
-.mpm-badge-info { display: flex; flex-direction: column; }
-.mpm-badge-name { font-size: 0.82rem; font-weight: 700; color: #1e293b; }
-.mpm-badge-count { font-size: 0.75rem; color: #64748b; }
-.mpm-records { margin-top: 6px; }
-.mpm-records-label { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 6px; }
-.mpm-record-row {
+.mpm-tc-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 0;
-  border-top: 1px solid #f1f5f9;
-  font-size: 0.88rem;
+  margin-bottom: 14px;
 }
-.mpm-record-row--cr { background: #fffbeb; border-radius: 6px; padding: 6px 6px; }
-.mpm-record-icon { width: 22px; height: 22px; object-fit: contain; border-radius: 4px; flex-shrink: 0; }
-.mpm-record-icon-ph { font-size: 16px; flex-shrink: 0; }
-.mpm-record-label { flex: 1; color: #334155; font-weight: 500; }
-.mpm-cr-badge { display: inline-block; font-size: 9px; font-weight: 800; background: #fbbf24; color: #92400e; border-radius: 4px; padding: 1px 4px; margin-left: 4px; vertical-align: middle; }
-.mpm-record-value { font-weight: 700; color: #0f172a; white-space: nowrap; }
-.mpm-record-unit { font-weight: 400; color: #64748b; font-size: 0.8em; margin-left: 2px; }
-.mpm-record-year { font-size: 0.78rem; color: #94a3b8; }
+.mpm-tc-title {
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #d4a843;
+}
+.mpm-trophy-empty {
+  font-size: 0.85rem;
+  color: rgba(255,255,255,0.4);
+  padding: 8px 0;
+}
+.mpm-trophy-retry { cursor: pointer; color: #a5b4fc; text-decoration: underline; text-underline-offset: 2px; }
 
-/* Club Records icon grid */
-.mpm-cr-section { margin-top: 10px; }
-.mpm-cr-grid {
+/* Shelf */
+.mpm-tc-shelf {
+  margin-bottom: 14px;
+}
+.mpm-tc-shelf:last-child { margin-bottom: 0; }
+.mpm-tc-shelf-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(212,168,67,0.7);
+  margin-bottom: 8px;
+}
+.mpm-tc-shelf-row {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  margin-top: 6px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid rgba(255,255,255,0.07);
+  box-shadow: 0 3px 0 rgba(0,0,0,0.3);
 }
-.mpm-cr-badge-wrap {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 52px;
-  height: 52px;
-  border-radius: 10px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  cursor: default;
-  transition: box-shadow 0.15s, border-color 0.15s;
-  position: relative;
-}
-.mpm-cr-badge-wrap:hover {
-  border-color: #a5b4fc;
-  box-shadow: 0 2px 8px rgba(99,102,241,0.2);
-}
-.mpm-cr-badge-icon { width: 38px; height: 38px; object-fit: contain; border-radius: 6px; }
-.mpm-cr-badge-trophy { font-size: 28px; line-height: 1; }
+.mpm-tc-shelf:last-child .mpm-tc-shelf-row { border-bottom: none; box-shadow: none; padding-bottom: 0; }
 
-/* Season Recognition Award badges */
-.mpm-awards-section { margin-bottom: 10px; }
-.mpm-awards-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 6px;
-}
-.mpm-trophy-empty { font-size: 0.85rem; color: #9ca3af; padding: 8px 0; }
-.mpm-trophy-retry { cursor: pointer; color: #6366f1; text-decoration: underline; text-underline-offset: 2px; }
-.mpm-award-badge {
+/* Individual trophy */
+.mpm-tc-trophy {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  width: 64px;
+  gap: 6px;
+  width: 80px;
   cursor: default;
 }
-.mpm-award-badge--challenge .mpm-award-icon-wrap { background: #f0f1ff; border-color: #c7d2fe; }
-.mpm-award-badge--challenge:hover .mpm-award-icon-wrap { border-color: #6366f1; box-shadow: 0 2px 8px rgba(99,102,241,0.25); }
-.mpm-award-icon-wrap {
+.mpm-tc-trophy-icon-wrap {
   position: relative;
-  width: 50px;
-  height: 50px;
-  border-radius: 12px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  width: 72px;
+  height: 72px;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #3d3420 0%, #2a2212 100%);
+  border: 1px solid rgba(212,168,67,0.3);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08);
+  transition: transform 0.15s, box-shadow 0.15s;
 }
-.mpm-award-badge:hover .mpm-award-icon-wrap {
-  border-color: #a5b4fc;
-  box-shadow: 0 2px 8px rgba(99,102,241,0.2);
+.mpm-tc-trophy:hover .mpm-tc-trophy-icon-wrap {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1);
 }
-.mpm-award-icon { width: 36px; height: 36px; object-fit: contain; border-radius: 6px; }
-.mpm-award-emoji { font-size: 26px; line-height: 1; }
+.mpm-tc-trophy-icon-wrap--race  { background: linear-gradient(145deg, #1e3340 0%, #12232d 100%); border-color: rgba(56,189,248,0.3); }
+.mpm-tc-trophy-icon-wrap--challenge { background: linear-gradient(145deg, #2d1e40 0%, #1e1228 100%); border-color: rgba(167,139,250,0.3); }
+.mpm-tc-trophy-icon-wrap--cr    { background: linear-gradient(145deg, #3d1e1e 0%, #2a1212 100%); border-color: rgba(248,113,113,0.3); }
+.mpm-tc-trophy-img  { width: 52px; height: 52px; object-fit: contain; border-radius: 8px; }
+.mpm-tc-trophy-emoji { font-size: 44px; line-height: 1; }
+.mpm-tc-count {
+  position: absolute;
+  bottom: -6px;
+  right: -6px;
+  background: #d4a843;
+  color: #1e1a14;
+  font-size: 11px;
+  font-weight: 900;
+  border-radius: 999px;
+  padding: 2px 6px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+  line-height: 1.2;
+}
+.mpm-tc-nameplate {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.6);
+  text-align: center;
+  line-height: 1.3;
+  max-width: 80px;
+  word-break: break-word;
+}
+
+/* Personal Records list inside trophy case */
+.mpm-tc-shelf--pr .mpm-tc-shelf-row { display: block; }
+.mpm-pr-list { display: flex; flex-direction: column; gap: 4px; }
+.mpm-pr-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.05);
+  font-size: 0.83rem;
+}
+.mpm-pr-row--cr { background: rgba(212,168,67,0.12); }
+.mpm-pr-icon { width: 20px; height: 20px; object-fit: contain; border-radius: 4px; flex-shrink: 0; }
+.mpm-pr-icon-ph { font-size: 14px; flex-shrink: 0; }
+.mpm-pr-label { flex: 1; color: rgba(255,255,255,0.8); font-weight: 500; }
+.mpm-cr-tag { display: inline-block; font-size: 9px; font-weight: 800; background: #d4a843; color: #1e1a14; border-radius: 4px; padding: 1px 4px; margin-left: 4px; vertical-align: middle; }
+.mpm-pr-value { font-weight: 700; color: #fff; white-space: nowrap; }
+.mpm-pr-unit { font-weight: 400; color: rgba(255,255,255,0.5); font-size: 0.8em; margin-left: 2px; }
+
+/* keep old names referenced elsewhere as aliases */
 .mpm-award-count {
   position: absolute;
   bottom: -4px;

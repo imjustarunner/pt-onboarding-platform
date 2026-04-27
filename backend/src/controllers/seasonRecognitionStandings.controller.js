@@ -518,10 +518,15 @@ export const dismissRecognitionSplash = async (req, res, next) => {
 // Used by trophy case — returns awards grouped by label+icon.
 
 export const getMemberRecognitionSummary = async ({ classId, userId }) => {
+  // Only return grants from weeks the manager has officially posted/published
   const [rows] = await pool.execute(
     `SELECT g.category_id, g.label, g.icon, g.week_number, g.workout_id,
             g.metric_value, g.week_start_date
      FROM challenge_member_award_grants g
+     INNER JOIN season_recognition_week_status ws
+       ON ws.learning_class_id = g.learning_class_id
+      AND ws.week_number = g.week_number
+      AND ws.status = 'posted'
      WHERE g.user_id = ? AND g.learning_class_id = ?
      ORDER BY g.week_number`,
     [userId, classId]
