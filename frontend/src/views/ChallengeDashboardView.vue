@@ -223,7 +223,7 @@
 
       <!-- Quick-action bar -->
       <div v-if="canParticipateInSeason && !isSuperadminPreview" class="season-action-bar">
-        <button type="button" class="season-action-btn season-action-btn--primary" @click="showLogWorkoutModal = true">
+        <button type="button" class="season-action-btn season-action-btn--primary" @click="openLogWorkoutModal">
           <span class="season-action-icon">+</span> Log Workout
         </button>
         <button v-if="stravaImportAvailable" type="button" class="season-action-btn season-action-btn--strava" @click="openStravaImportModal">
@@ -1144,13 +1144,29 @@
         </DashboardSectionWrapper>
 
         <!-- Log Workout Modal -->
-        <div v-if="showLogWorkoutModal" class="modal-overlay" @click.self="showLogWorkoutModal = false">
+        <div v-if="showLogWorkoutModal" class="modal-overlay" @click.self="finishLoggingWorkouts">
           <div class="modal-content modal-wide log-workout-modal" @click.stop>
             <div class="log-workout-modal-header">
-              <h2>Log Workout</h2>
-              <button type="button" class="modal-close-btn" @click="showLogWorkoutModal = false">✕</button>
+              <h2>{{ isAddingAnotherWorkout ? 'Log Another Workout' : 'Log Workout' }}</h2>
+              <button type="button" class="modal-close-btn" @click="finishLoggingWorkouts">✕</button>
             </div>
-            <form class="workout-form" @submit.prevent="submitWorkout">
+
+            <!-- ── Success prompt: "Add another for today?" ──────────── -->
+            <div v-if="workoutSuccessPrompt" class="workout-success-prompt">
+              <div class="workout-success-icon">✅</div>
+              <h3 class="workout-success-title">Workout logged!</h3>
+              <p class="workout-success-sub">You've logged {{ todayWorkoutCount }} workout{{ todayWorkoutCount !== 1 ? 's' : '' }} today. Daily totals are combined on the leaderboard.</p>
+              <div class="workout-success-actions">
+                <button type="button" class="btn btn-primary" @click="addAnotherWorkout">
+                  + Add another workout for today
+                </button>
+                <button type="button" class="btn btn-ghost" @click="finishLoggingWorkouts">
+                  Done
+                </button>
+              </div>
+            </div>
+
+            <form v-else class="workout-form" @submit.prevent="submitWorkout">
 
               <!-- ① Workout screenshot — primary data source via Vision OCR -->
               <div class="workout-upload-section">
@@ -1256,6 +1272,11 @@
                   <option v-for="t in taggableWeeklyTaskOptions" :key="`weekly-task-option-${t.id}`" :value="t.id">{{ t.name }}</option>
                 </select>
                 <small class="hint" v-if="selectedTaskProofPolicyLabel">Proof policy: {{ selectedTaskProofPolicyLabel }}</small>
+                <!-- Multi-run disclaimer -->
+                <div v-if="isAddingAnotherWorkout || todayWorkoutCount > 0" class="multirun-disclaimer">
+                  <span class="multirun-disclaimer-icon">ℹ️</span>
+                  <span>Each workout is submitted separately. If your weekly challenge was not included in one of your previous runs, you must tag it in this submission.</span>
+                </div>
               </div>
               <div class="form-row race-toggle-row">
                 <label class="race-toggle-label">
@@ -1341,7 +1362,7 @@
                   Import from Strava
                 </button>
                 <span v-else-if="STRAVA_COMING_SOON" class="btn btn-secondary btn--coming-soon" title="Strava integration coming soon">Strava <span class="coming-soon-tag">Soon</span></span>
-                <button type="button" class="btn btn-ghost" @click="showLogWorkoutModal = false">Cancel</button>
+                <button type="button" class="btn btn-ghost" @click="finishLoggingWorkouts">Cancel</button>
               </div>
             </form>
           </div>
@@ -1684,6 +1705,12 @@ const workoutForm = ref(defaultWorkoutForm());
 const workoutSubmitting = ref(false);
 const workoutError = ref('');
 const showLogWorkoutModal = ref(false);
+/** How many workouts the member has already logged today in this season. */
+const todayWorkoutCount = ref(0);
+/** True when the modal is showing the "success + add another?" prompt. */
+const workoutSuccessPrompt = ref(false);
+/** True when the member chose "Add another" — shows multi-run disclaimer. */
+const isAddingAnotherWorkout = ref(false);
 
 // Vision OCR state
 const screenshotInputRef = ref(null);
@@ -2790,7 +2817,9 @@ const submitWorkout = async () => {
     workoutForm.value = defaultWorkoutForm();
     visionExtracted.value = false;
     visionError.value = null;
-    showLogWorkoutModal.value = false;
+    todayWorkoutCount.value += 1;
+    // Show "add another?" prompt instead of closing immediately
+    workoutSuccessPrompt.value = true;
     await Promise.all([loadLeaderboard(), loadActivity(), loadCurrentWeekAssignments(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats(), loadMyTrophyCase()]);
   } catch (e) {
     if (Number(e?.response?.status || 0) === 428) {
@@ -2800,6 +2829,38 @@ const submitWorkout = async () => {
   } finally {
     workoutSubmitting.value = false;
   }
+};
+
+/** User confirmed "Done" after the success prompt — close the modal. */
+const finishLoggingWorkouts = () => {
+  workoutSuccessPrompt.value = false;
+  isAddingAnotherWorkout.value = false;
+  showLogWorkoutModal.value = false;
+};
+
+/** User chose "Add another workout for today" — reset form but keep context. */
+const addAnotherWorkout = () => {
+  workoutSuccessPrompt.value = false;
+  isAddingAnotherWorkout.value = true;
+  workoutForm.value = defaultWorkoutForm();
+  visionExtracted.value = false;
+  visionError.value = null;
+};
+
+/** Open the log workout modal and reset multi-run state. */
+const openLogWorkoutModal = () => {
+  workoutForm.value = defaultWorkoutForm();
+  workoutError.value = '';
+  workoutSuccessPrompt.value = false;
+  isAddingAnotherWorkout.value = false;
+  // Count today's existing workouts logged by this user so we know if it's a multi-run day
+  const today = new Date().toDateString();
+  const myId = authStore.user?.id;
+  todayWorkoutCount.value = (activity.value || []).filter((a) => {
+    if (myId && a.user_id && Number(a.user_id) !== Number(myId)) return false;
+    try { return new Date(a.completed_at).toDateString() === today; } catch { return false; }
+  }).length;
+  showLogWorkoutModal.value = true;
 };
 
 const loadBulkRosterMembers = async () => {
@@ -4391,6 +4452,53 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   margin: 0;
   font-size: 1.25rem;
 }
+
+/* ── Success prompt: "Add another?" ─────────────────────── */
+.workout-success-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 32px 16px;
+  text-align: center;
+}
+.workout-success-icon { font-size: 2.8rem; line-height: 1; }
+.workout-success-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+.workout-success-sub {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #64748b;
+  max-width: 340px;
+}
+.workout-success-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 280px;
+  margin-top: 8px;
+}
+
+/* ── Multi-run disclaimer ────────────────────────────────── */
+.multirun-disclaimer {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: #92400e;
+  line-height: 1.4;
+}
+.multirun-disclaimer-icon { flex-shrink: 0; font-size: 14px; margin-top: 1px; }
 .modal-close-btn {
   background: none;
   border: none;
