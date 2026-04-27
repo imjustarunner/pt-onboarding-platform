@@ -146,9 +146,9 @@
               </div>
             </div>
 
-            <!-- Personal Records list -->
+            <!-- Club Records Held (with values) -->
             <div v-if="trophy?.personalRecords?.length" class="mpm-tc-shelf mpm-tc-shelf--pr">
-              <div class="mpm-tc-shelf-label">⭐ Personal Records</div>
+              <div class="mpm-tc-shelf-label">📋 Club Records Held</div>
               <div class="mpm-pr-list">
                 <div
                   v-for="r in trophy.personalRecords"
@@ -158,10 +158,7 @@
                 >
                   <img v-if="r.iconUrl" :src="r.iconUrl" class="mpm-pr-icon" alt="" />
                   <span v-else class="mpm-pr-icon-ph">⭐</span>
-                  <span class="mpm-pr-label">
-                    {{ r.label }}
-                    <span v-if="r.isClubRecord" class="mpm-cr-tag">CR</span>
-                  </span>
+                  <span class="mpm-pr-label">{{ r.label }}</span>
                   <span class="mpm-pr-value">
                     {{ fmtPr(r) }}
                     <span v-if="r.unit && r.metricKey !== 'race_chip_time_seconds'" class="mpm-pr-unit">{{ r.unit }}</span>

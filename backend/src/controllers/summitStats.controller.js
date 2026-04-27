@@ -2132,6 +2132,12 @@ const getMemberTrophyCaseData = async ({ clubId, userId }) => {
 
       if (prValue == null) continue;
 
+      // Only show this in the trophy case if the member actually holds the club record.
+      // We don't want to show "Most Miles Single Run - Road: 3 mi" just because they ran
+      // 3 miles on a road once — that's not their trophy, it's just a stat.
+      const isClubRecord = recordsHeld.some((r) => r.id === tpl.id);
+      if (!isClubRecord) continue;
+
       personalRecords.push({
         id: tpl.id,
         label: tpl.label,
@@ -2142,8 +2148,7 @@ const getMemberTrophyCaseData = async ({ clubId, userId }) => {
         iconId: tpl.iconId,
         iconUrl: tpl.iconId ? (iconUrlById.get(tpl.iconId) || null) : null,
         context: prContext,
-        // Is this also a current club record (so user holds both)?
-        isClubRecord: recordsHeld.some((r) => r.id === tpl.id)
+        isClubRecord: true
       });
     } catch { /* skip this metric on error */ }
   }
