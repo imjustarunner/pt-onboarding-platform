@@ -4081,8 +4081,8 @@ export const getMatchupSchedule = async (req, res, next) => {
     let [rows] = await pool.execute(
       `SELECT m.id, m.week_start_date, m.team1_id, m.team2_id,
               m.winner_team_id, m.team1_points, m.team2_points, m.is_tie, m.resolved_at,
-              t1.team_name AS team1_name, t1.logo_path AS team1_logo,
-              t2.team_name AS team2_name, t2.logo_path AS team2_logo,
+              t1.team_name AS team1_name, t1.logo_path AS team1_logo, t1.team_color AS team1_color,
+              t2.team_name AS team2_name, t2.logo_path AS team2_logo, t2.team_color AS team2_color,
               tw.team_name AS winner_name
        FROM challenge_matchups m
        JOIN challenge_teams t1 ON t1.id = m.team1_id
@@ -4190,11 +4190,13 @@ export const getMatchupSchedule = async (req, res, next) => {
         team1Id: row.team1_id,
         team1Name: row.team1_name,
         team1Logo: row.team1_logo || null,
+        team1Color: row.team1_color || null,
         team1Points: row.team1_points != null ? Number(row.team1_points) : null,
         team1LivePoints: live[row.team1_id] ?? null,
         team2Id: row.team2_id,
         team2Name: row.team2_name,
         team2Logo: row.team2_logo || null,
+        team2Color: row.team2_color || null,
         team2Points: row.team2_points != null ? Number(row.team2_points) : null,
         team2LivePoints: live[row.team2_id] ?? null,
         winnerTeamId: row.winner_team_id || null,

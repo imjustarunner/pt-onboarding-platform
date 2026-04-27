@@ -320,22 +320,25 @@
           <div v-if="matchupScheduleLoading && !matchupWeeks.length" class="mu-loading">Loading matchups…</div>
           <div v-else-if="!matchupWeeks.length" class="mu-empty">No matchup schedule available yet.</div>
           <div v-else class="mu-hero-cards">
-            <div v-for="m in displayedWeekMatchups" :key="m.id" class="mu-hero-card">
+            <div v-for="m in orientedDisplayMatchups" :key="m.id" class="mu-hero-card">
 
-              <!-- Team 1 side -->
-              <div class="mu-hero-side mu-hero-side--left"
-                :class="{
-                  'mu-hero-side--winner': m.winnerTeamId === m.team1Id,
-                  'mu-hero-side--leading': !m.resolvedAt && (m.team1LivePoints ?? 0) > (m.team2LivePoints ?? 0)
-                }">
-                <div class="mu-hero-logo-wrap">
-                  <img v-if="m.team1Logo" :src="resolveUploadUrl(m.team1Logo)" class="mu-hero-logo" alt="" />
-                  <div v-else class="mu-hero-logo-placeholder">{{ (m.team1Name || '?')[0].toUpperCase() }}</div>
+              <!-- LEFT side (leader / higher score) -->
+              <div
+                class="mu-hero-side mu-hero-side--left"
+                :class="{ 'mu-hero-side--winner': m.left.isWinner, 'mu-hero-side--leading': m.isLeading }"
+                :style="{
+                  background: `linear-gradient(to right, ${m.left.color}44 0%, ${m.left.color}18 55%, transparent 100%)`,
+                  borderLeft: `3px solid ${m.left.color}`
+                }"
+              >
+                <div class="mu-hero-logo-wrap" :style="{ borderColor: m.left.color }">
+                  <img v-if="m.left.logo" :src="resolveUploadUrl(m.left.logo)" class="mu-hero-logo" alt="" />
+                  <div v-else class="mu-hero-logo-placeholder" :style="{ color: m.left.color }">{{ (m.left.name || '?')[0].toUpperCase() }}</div>
                 </div>
                 <div class="mu-hero-info">
-                  <span class="mu-hero-team-label">{{ m.team1Name }}</span>
-                  <span class="mu-hero-score mu-score--t1">
-                    {{ m.resolvedAt ? (m.team1Points != null ? m.team1Points.toFixed(1) : '—') : (m.team1LivePoints != null ? m.team1LivePoints.toFixed(1) : '—') }}
+                  <span class="mu-hero-team-label">{{ m.left.name }}</span>
+                  <span class="mu-hero-score" :class="m.left.isWinner || m.isLeading ? 'mu-score--leader' : 'mu-score--trail'" :style="{ color: m.left.color }">
+                    {{ m.left.score != null ? Number(m.left.score).toFixed(1) : '—' }}
                   </span>
                 </div>
               </div>
@@ -343,33 +346,36 @@
               <!-- VS center -->
               <div class="mu-hero-center">
                 <div class="mu-vs-diamond">
-                  <span class="mu-vs-text">{{ m.resolvedAt ? (m.isTie ? 'TIE' : 'FINAL') : 'VS' }}</span>
+                  <span class="mu-vs-text">{{ m.isResolved ? (m.tied ? 'TIE' : 'FINAL') : 'VS' }}</span>
                 </div>
-                <div v-if="!m.resolvedAt && selectedDisplayWeekDate === matchupCurrentWeekStart" class="mu-live-badge">
+                <div v-if="!m.isResolved && m.isCurrentWeek" class="mu-live-badge">
                   <span class="mu-live-dot"></span>LIVE
                 </div>
               </div>
 
-              <!-- Team 2 side -->
-              <div class="mu-hero-side mu-hero-side--right"
-                :class="{
-                  'mu-hero-side--winner': m.winnerTeamId === m.team2Id,
-                  'mu-hero-side--leading': !m.resolvedAt && (m.team2LivePoints ?? 0) > (m.team1LivePoints ?? 0)
-                }">
+              <!-- RIGHT side (trailer) -->
+              <div
+                class="mu-hero-side mu-hero-side--right"
+                :class="{ 'mu-hero-side--winner': m.right.isWinner }"
+                :style="{
+                  background: `linear-gradient(to left, ${m.right.color}44 0%, ${m.right.color}18 55%, transparent 100%)`,
+                  borderRight: `3px solid ${m.right.color}`
+                }"
+              >
                 <div class="mu-hero-info mu-hero-info--right">
-                  <span class="mu-hero-team-label">{{ m.team2Name }}</span>
-                  <span class="mu-hero-score mu-score--t2">
-                    {{ m.resolvedAt ? (m.team2Points != null ? m.team2Points.toFixed(1) : '—') : (m.team2LivePoints != null ? m.team2LivePoints.toFixed(1) : '—') }}
+                  <span class="mu-hero-team-label">{{ m.right.name }}</span>
+                  <span class="mu-hero-score mu-score--trail" :style="{ color: m.right.color }">
+                    {{ m.right.score != null ? Number(m.right.score).toFixed(1) : '—' }}
                   </span>
                 </div>
-                <div class="mu-hero-logo-wrap">
-                  <img v-if="m.team2Logo" :src="resolveUploadUrl(m.team2Logo)" class="mu-hero-logo" alt="" />
-                  <div v-else class="mu-hero-logo-placeholder mu-hero-logo-placeholder--t2">{{ (m.team2Name || '?')[0].toUpperCase() }}</div>
+                <div class="mu-hero-logo-wrap" :style="{ borderColor: m.right.color }">
+                  <img v-if="m.right.logo" :src="resolveUploadUrl(m.right.logo)" class="mu-hero-logo" alt="" />
+                  <div v-else class="mu-hero-logo-placeholder" :style="{ color: m.right.color }">{{ (m.right.name || '?')[0].toUpperCase() }}</div>
                 </div>
               </div>
             </div>
 
-            <div v-if="!displayedWeekMatchups.length" class="mu-hero-none">
+            <div v-if="!orientedDisplayMatchups.length" class="mu-hero-none">
               No matchups scheduled for this week.
             </div>
           </div>
@@ -2245,6 +2251,39 @@ const selectedDisplayWeekIdx = ref(0);
 
 const displayedWeekMatchups = computed(() =>
   matchupWeeks.value[selectedDisplayWeekIdx.value]?.matchups || []
+);
+
+// Per-matchup view model: leader always on left, with display-ready colors
+const TEAM_FALLBACK_PALETTE = ['#b45309','#2563eb','#dc2626','#7c3aed','#0891b2','#15803d','#c026d3','#d97706'];
+const allTeamIds = computed(() => {
+  const ids = [];
+  for (const w of matchupWeeks.value) {
+    for (const m of w.matchups) {
+      if (!ids.includes(m.team1Id)) ids.push(m.team1Id);
+      if (!ids.includes(m.team2Id)) ids.push(m.team2Id);
+    }
+  }
+  return ids;
+});
+const resolveMatchupTeamColor = (teamId, rawColor) => {
+  if (rawColor) return rawColor;
+  const idx = allTeamIds.value.indexOf(teamId);
+  return TEAM_FALLBACK_PALETTE[(idx >= 0 ? idx : 0) % TEAM_FALLBACK_PALETTE.length];
+};
+
+const orientedDisplayMatchups = computed(() =>
+  displayedWeekMatchups.value.map((m) => {
+    const isResolved = !!m.resolvedAt;
+    const t1Score = isResolved ? (m.team1Points ?? 0) : (m.team1LivePoints ?? 0);
+    const t2Score = isResolved ? (m.team2Points ?? 0) : (m.team2LivePoints ?? 0);
+    // Winner (or current leader) goes on the left
+    const swapSides = t2Score > t1Score || (isResolved && m.winnerTeamId === m.team2Id && m.winnerTeamId !== m.team1Id);
+    const left  = swapSides ? { id: m.team2Id, name: m.team2Name, logo: m.team2Logo, color: resolveMatchupTeamColor(m.team2Id, m.team2Color), score: t2Score, isWinner: m.winnerTeamId === m.team2Id } : { id: m.team1Id, name: m.team1Name, logo: m.team1Logo, color: resolveMatchupTeamColor(m.team1Id, m.team1Color), score: t1Score, isWinner: m.winnerTeamId === m.team1Id };
+    const right = swapSides ? { id: m.team1Id, name: m.team1Name, logo: m.team1Logo, color: resolveMatchupTeamColor(m.team1Id, m.team1Color), score: t1Score, isWinner: m.winnerTeamId === m.team1Id } : { id: m.team2Id, name: m.team2Name, logo: m.team2Logo, color: resolveMatchupTeamColor(m.team2Id, m.team2Color), score: t2Score, isWinner: m.winnerTeamId === m.team2Id };
+    const isLeading = !isResolved && left.score > right.score;
+    const tied = isResolved && m.isTie;
+    return { ...m, left, right, isLeading, tied, isResolved, isCurrentWeek: selectedDisplayWeekDate.value === matchupCurrentWeekStart.value };
+  })
 );
 
 const selectedDisplayWeekDate = computed(() =>
@@ -4139,20 +4178,14 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   transition: background 0.2s;
 }
 .mu-hero-side--left {
-  background: linear-gradient(100deg, #1c1305 0%, #2a1f0a 60%, #1a1720 100%);
   border-right: 1px solid rgba(255,255,255,0.05);
 }
 .mu-hero-side--right {
-  background: linear-gradient(260deg, #04101c 0%, #081a30 60%, #1a1720 100%);
   flex-direction: row-reverse;
   text-align: right;
   padding: 18px 20px 18px 16px;
   border-left: 1px solid rgba(255,255,255,0.05);
 }
-.mu-hero-side--winner.mu-hero-side--left  { background: linear-gradient(100deg, #251a02 0%, #3a2d04 60%, #1e1a10 100%); }
-.mu-hero-side--winner.mu-hero-side--right { background: linear-gradient(260deg, #041020 0%, #082040 60%, #0e1a28 100%); }
-.mu-hero-side--leading.mu-hero-side--left  { box-shadow: inset 3px 0 0 #fbbf24; }
-.mu-hero-side--leading.mu-hero-side--right { box-shadow: inset -3px 0 0 #38bdf8; }
 
 .mu-hero-logo-wrap {
   flex-shrink: 0;
@@ -4174,7 +4207,6 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   color: rgba(255,255,255,0.5);
   background: rgba(255,255,255,0.06);
 }
-.mu-hero-logo-placeholder--t2 { color: rgba(56,189,248,0.6); }
 
 .mu-hero-info {
   display: flex;
@@ -4195,14 +4227,13 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   text-overflow: ellipsis;
 }
 .mu-hero-score {
-  font-size: 2rem;
   font-weight: 900;
   letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
-.mu-score--t1 { color: #fbbf24; }
-.mu-score--t2 { color: #38bdf8; }
+.mu-score--leader { font-size: 2.6rem; text-shadow: 0 0 18px currentColor; }
+.mu-score--trail  { font-size: 1.65rem; opacity: 0.7; }
 
 /* VS center */
 .mu-hero-center {

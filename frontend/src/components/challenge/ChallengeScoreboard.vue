@@ -47,13 +47,20 @@
                   :style="{ width: totalRosterSize ? `${overallTaggedPct(task.id)}%` : '0%' }"
                 />
               </div>
-              <!-- Per-team rows -->
+              <!-- Per-team rows (styled like team standings) -->
               <div v-if="teams.length" class="cp-perteam-list">
-                <div v-for="team in teams" :key="team.teamId" class="cp-perteam-row">
-                  <span
-                    class="cp-perteam-swatch"
-                    :style="{ background: team.teamColor || teamFallbackColor(team.teamId) }"
-                  />
+                <div
+                  v-for="team in teams"
+                  :key="team.teamId"
+                  class="cp-perteam-row"
+                  :style="{ borderLeft: `3px solid ${team.teamColor || teamFallbackColor(team.teamId)}` }"
+                >
+                  <div class="cp-perteam-logo-wrap">
+                    <img v-if="team.logoPath" :src="toUploadsUrl(team.logoPath)" class="cp-perteam-logo" alt="" />
+                    <span v-else class="cp-perteam-logo-placeholder" :style="{ background: team.teamColor || teamFallbackColor(team.teamId) }">
+                      {{ (team.teamName || '?')[0].toUpperCase() }}
+                    </span>
+                  </div>
                   <span class="cp-perteam-name">{{ team.teamName }}</span>
                   <span class="cp-perteam-stat">
                     <strong>{{ teamTaggedCount(task.id, team.teamId) }}</strong>
@@ -316,13 +323,14 @@ const load = async () => {
     recognitionData.value = sbRes.status === 'fulfilled'
       ? (sbRes.value.data?.recognitionOfTheWeek || null)
       : null;
-    // Extract teams with memberCount for per-team breakdown
+      // Extract teams with memberCount for per-team breakdown
     if (progressRes.status === 'fulfilled') {
       const rawTeams = progressRes.value.data?.teams || [];
       teams.value = rawTeams.map((t) => ({
         teamId: t.teamId,
         teamName: t.teamName,
         teamColor: t.teamColor || null,
+        logoPath: t.logoPath || null,
         memberCount: Array.isArray(t.members) ? t.members.length : 0
       }));
     } else {
@@ -374,12 +382,27 @@ defineExpose({ load });
 .cp-fullteam-bar-wrap { height: 8px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
 .cp-fullteam-bar-fill { height: 100%; background: #6366f1; border-radius: 999px; transition: width 0.3s ease; min-width: 2px; }
 
-.cp-perteam-list { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0f4f8; }
-.cp-perteam-row { display: grid; grid-template-columns: 10px 1fr auto 80px; align-items: center; gap: 8px; }
-.cp-perteam-swatch { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-.cp-perteam-name { font-size: 0.82em; color: #334155; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cp-perteam-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #f0f4f8; }
+.cp-perteam-row {
+  display: grid;
+  grid-template-columns: 32px 1fr auto 80px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px 7px 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border-left: 3px solid #e2e8f0;
+}
+.cp-perteam-logo-wrap { width: 28px; height: 28px; flex-shrink: 0; border-radius: 6px; overflow: hidden; }
+.cp-perteam-logo { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cp-perteam-logo-placeholder {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.75rem; font-weight: 800; color: #fff; border-radius: 6px;
+}
+.cp-perteam-name { font-size: 0.83em; color: #1e293b; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cp-perteam-stat { font-size: 0.82em; color: #64748b; white-space: nowrap; text-align: right; }
-.cp-perteam-bar-wrap { height: 5px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }
+.cp-perteam-bar-wrap { height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }
 .cp-perteam-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s; }
 .cp-fullteam-count { font-size: 0.78em; color: #475569; }
 .cp-fullteam-count strong { color: #1e293b; font-size: 1.1em; }
