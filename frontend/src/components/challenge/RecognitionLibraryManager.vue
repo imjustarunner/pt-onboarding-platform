@@ -107,20 +107,29 @@
             </div>
             <div v-if="tenantAwardForm.period !== 'challenge'" class="rlm-field">
               <label class="rlm-label">Metric</label>
-              <select v-model="tenantAwardForm.metric" class="rlm-select">
+              <select v-model="tenantAwardForm.metric" class="rlm-select" @change="() => { if (tenantAwardForm.metric === 'pace_min_per_mile') tenantAwardForm.aggregation = 'fastest'; }">
                 <option value="distance_miles">Miles</option>
                 <option value="points">Points</option>
                 <option value="duration_minutes">Duration (min)</option>
+                <option value="elevation_gain_ft">Elevation Gain (ft)</option>
+                <option value="pace_min_per_mile">Pace (fastest)</option>
                 <option value="activities_count">Activity count</option>
                 <option value="challenge_completions">Challenges completed</option>
               </select>
             </div>
             <div v-if="tenantAwardForm.period !== 'challenge'" class="rlm-field">
               <label class="rlm-label">Winner by</label>
-              <select v-model="tenantAwardForm.aggregation" class="rlm-select">
-                <option value="most">Most (total) — one winner</option>
-                <option value="average">Average per entry — one winner</option>
-                <option value="milestone">Milestone — everyone who reaches target</option>
+              <select v-model="tenantAwardForm.aggregation" class="rlm-select" :disabled="tenantAwardForm.metric === 'pace_min_per_mile'">
+                <option v-if="tenantAwardForm.metric === 'pace_min_per_mile'" value="fastest">Fastest (lowest pace)</option>
+                <option v-else value="most">Most (total) — one winner</option>
+                <option v-if="tenantAwardForm.metric !== 'pace_min_per_mile'" value="least">Least (total)</option>
+                <option v-if="tenantAwardForm.metric !== 'pace_min_per_mile'" value="average">Average per entry</option>
+                <option v-if="tenantAwardForm.metric !== 'pace_min_per_mile'" value="best_single">Best single workout</option>
+                <option v-if="tenantAwardForm.metric !== 'pace_min_per_mile'" value="best_day">Best single day</option>
+                <option v-if="tenantAwardForm.metric !== 'pace_min_per_mile'" value="milestone">Milestone — everyone who reaches target</option>
+                <option v-if="tenantAwardForm.metric !== 'pace_min_per_mile'" value="longest_streak">Longest streak (consecutive days)</option>
+                <option v-if="tenantAwardForm.metric !== 'pace_min_per_mile'" value="most_active_days">Most active days</option>
+                <option v-if="tenantAwardForm.metric !== 'pace_min_per_mile'" value="perfect_season">Perfect season (everyone hits daily target)</option>
               </select>
             </div>
           </div>
@@ -151,17 +160,57 @@
             />
             <span class="rlm-field-hint">Same units as the metric. Shown with the award for context; does not change who wins (most/average still pick one winner).</span>
           </div>
-          <div class="rlm-field">
-            <label class="rlm-label">Activity type</label>
-            <select v-model="tenantAwardForm.activityType" class="rlm-select">
-              <option value="">Any activity</option>
-              <option value="run">Run</option>
-              <option value="ruck">Ruck</option>
-              <option value="walk">Walk</option>
-              <option value="fitness">Fitness / Strength</option>
-            </select>
-            <span class="rlm-field-hint">Award only counts workouts of this type. Leave as "Any" to include all activity types.</span>
+          <!-- Streak config (shown for streak aggregations) -->
+          <div v-if="['longest_streak','most_active_days','perfect_season'].includes(tenantAwardForm.aggregation)" class="rlm-field-row">
+            <div class="rlm-field">
+              <label class="rlm-label">Min miles per day</label>
+              <input v-model.number="tenantAwardForm.streakMinMilesPerDay" type="number" class="rlm-input" min="0" step="0.1" placeholder="0" />
+              <span class="rlm-field-hint">0 = any workout counts for the day.</span>
+            </div>
+            <div class="rlm-field">
+              <label class="rlm-label">Min activities per day</label>
+              <input v-model.number="tenantAwardForm.streakMinActivitiesPerDay" type="number" class="rlm-input" min="0" step="1" placeholder="1" />
+            </div>
           </div>
+
+          <div class="rlm-field-row">
+            <div class="rlm-field">
+              <label class="rlm-label">Activity type</label>
+              <select v-model="tenantAwardForm.activityType" class="rlm-select">
+                <option value="">Any activity</option>
+                <optgroup label="Running">
+                  <option value="running">Running</option>
+                  <option value="trail_run">Trail Run</option>
+                  <option value="road_run">Road Run</option>
+                  <option value="race">Race</option>
+                </optgroup>
+                <optgroup label="Other">
+                  <option value="hiking">Hiking</option>
+                  <option value="walking">Walking</option>
+                  <option value="cycling">Cycling</option>
+                  <option value="workout">Workout / Strength</option>
+                </optgroup>
+              </select>
+              <span class="rlm-field-hint">Leave as "Any" to count all activity types.</span>
+            </div>
+            <div class="rlm-field">
+              <label class="rlm-label">Terrain (optional)</label>
+              <select v-model="tenantAwardForm.terrainFilter" class="rlm-select">
+                <option value="">Any terrain</option>
+                <option value="Road">Road</option>
+                <option value="Trail">Trail</option>
+                <option value="Track">Track</option>
+                <option value="Beach">Beach</option>
+                <option value="Treadmill">Treadmill</option>
+              </select>
+            </div>
+          </div>
+          <div v-if="tenantAwardForm.metric === 'pace_min_per_mile' || tenantAwardForm.aggregation === 'best_day'" class="rlm-field">
+            <label class="rlm-label">Min distance per workout (mi)</label>
+            <input v-model.number="tenantAwardForm.minDistanceMiles" type="number" class="rlm-input" min="0" step="0.5" placeholder="e.g. 3" />
+            <span class="rlm-field-hint">Only count workouts at or above this distance. Required for pace awards.</span>
+          </div>
+
           <div class="rlm-field">
             <label class="rlm-label">Details / Notes <span class="rlm-label-hint">(used for AI challenge &amp; workout generation)</span></label>
             <textarea
@@ -412,23 +461,29 @@
             </div>
             <div v-if="awardForm.period !== 'challenge'" class="rlm-field">
               <label class="rlm-label">Metric</label>
-              <select v-model="awardForm.metric" class="rlm-select">
+              <select v-model="awardForm.metric" class="rlm-select" @change="() => { if (awardForm.metric === 'pace_min_per_mile') awardForm.aggregation = 'fastest'; }">
                 <option value="distance_miles">Miles</option>
                 <option value="points">Points</option>
                 <option value="duration_minutes">Duration (min)</option>
+                <option value="elevation_gain_ft">Elevation Gain (ft)</option>
+                <option value="pace_min_per_mile">Pace (fastest)</option>
                 <option value="activities_count">Activity count</option>
                 <option value="challenge_completions">Challenges completed</option>
               </select>
             </div>
             <div v-if="awardForm.period !== 'challenge'" class="rlm-field">
               <label class="rlm-label">Winner by</label>
-              <select v-model="awardForm.aggregation" class="rlm-select">
-                <option value="most">Most (total)</option>
-                <option value="least">Least (total)</option>
-                <option value="average">Average per entry</option>
-                <option value="best_single">Best single workout</option>
-                <option value="best_day">Best single day</option>
-                <option value="milestone">Milestone (everyone who reaches target)</option>
+              <select v-model="awardForm.aggregation" class="rlm-select" :disabled="awardForm.metric === 'pace_min_per_mile'">
+                <option v-if="awardForm.metric === 'pace_min_per_mile'" value="fastest">Fastest (lowest pace)</option>
+                <option v-else value="most">Most (total)</option>
+                <option v-if="awardForm.metric !== 'pace_min_per_mile'" value="least">Least (total)</option>
+                <option v-if="awardForm.metric !== 'pace_min_per_mile'" value="average">Average per entry</option>
+                <option v-if="awardForm.metric !== 'pace_min_per_mile'" value="best_single">Best single workout</option>
+                <option v-if="awardForm.metric !== 'pace_min_per_mile'" value="best_day">Best single day</option>
+                <option v-if="awardForm.metric !== 'pace_min_per_mile'" value="milestone">Milestone (everyone who reaches target)</option>
+                <option v-if="awardForm.metric !== 'pace_min_per_mile'" value="longest_streak">Longest streak (consecutive days)</option>
+                <option v-if="awardForm.metric !== 'pace_min_per_mile'" value="most_active_days">Most active days</option>
+                <option v-if="awardForm.metric !== 'pace_min_per_mile'" value="perfect_season">Perfect season (everyone hits daily target)</option>
               </select>
             </div>
           </div>
@@ -461,18 +516,58 @@
             <span class="rlm-field-hint">Same units as the metric. For display/context only for most, least, average, etc.</span>
           </div>
 
+          <!-- Streak config -->
+          <div v-if="['longest_streak','most_active_days','perfect_season'].includes(awardForm.aggregation)" class="rlm-field-row">
+            <div class="rlm-field">
+              <label class="rlm-label">Min miles per day</label>
+              <input v-model.number="awardForm.streakMinMilesPerDay" type="number" class="rlm-input" min="0" step="0.1" placeholder="0" />
+              <span class="rlm-field-hint">0 = any workout counts for the day.</span>
+            </div>
+            <div class="rlm-field">
+              <label class="rlm-label">Min activities per day</label>
+              <input v-model.number="awardForm.streakMinActivitiesPerDay" type="number" class="rlm-input" min="0" step="1" placeholder="1" />
+            </div>
+          </div>
+
           <div class="rlm-field-row">
             <div class="rlm-field">
               <label class="rlm-label">Activity type</label>
               <select v-model="awardForm.activityType" class="rlm-select">
                 <option value="">Any activity</option>
-                <option value="run">Run</option>
-                <option value="ruck">Ruck</option>
-                <option value="walk">Walk</option>
-                <option value="fitness">Fitness / Strength</option>
+                <optgroup label="Running">
+                  <option value="running">Running</option>
+                  <option value="trail_run">Trail Run</option>
+                  <option value="road_run">Road Run</option>
+                  <option value="race">Race</option>
+                </optgroup>
+                <optgroup label="Other">
+                  <option value="hiking">Hiking</option>
+                  <option value="walking">Walking</option>
+                  <option value="cycling">Cycling</option>
+                  <option value="workout">Workout / Strength</option>
+                </optgroup>
               </select>
-              <span class="rlm-field-hint">Award only counts workouts of this type. Leave as "Any" to include all activity types.</span>
+              <span class="rlm-field-hint">Leave as "Any" to count all activity types.</span>
             </div>
+            <div class="rlm-field">
+              <label class="rlm-label">Terrain (optional)</label>
+              <select v-model="awardForm.terrainFilter" class="rlm-select">
+                <option value="">Any terrain</option>
+                <option value="Road">Road</option>
+                <option value="Trail">Trail</option>
+                <option value="Track">Track</option>
+                <option value="Beach">Beach</option>
+                <option value="Treadmill">Treadmill</option>
+              </select>
+            </div>
+          </div>
+          <div v-if="awardForm.metric === 'pace_min_per_mile' || awardForm.aggregation === 'best_day'" class="rlm-field">
+            <label class="rlm-label">Min distance per workout (mi)</label>
+            <input v-model.number="awardForm.minDistanceMiles" type="number" class="rlm-input" min="0" step="0.5" placeholder="e.g. 3" />
+            <span class="rlm-field-hint">Only count workouts at or above this distance. Required for pace awards.</span>
+          </div>
+
+          <div class="rlm-field-row">
             <div class="rlm-field">
               <label class="rlm-label">Eligible group</label>
               <select v-model="awardForm.groupFilter" class="rlm-select">
@@ -648,7 +743,7 @@ const deleteConfirm  = ref(null);  // { type: 'group'|'award', id, label }
 const deleteLoading  = ref(false);
 
 function defaultTenantAwardForm() {
-  return { label: '', icon: '🏆', period: 'weekly', metric: 'distance_miles', aggregation: 'most', activityType: '', details: '', milestoneThreshold: null, referenceTarget: null };
+  return { label: '', icon: '🏆', period: 'weekly', metric: 'distance_miles', aggregation: 'most', activityType: '', terrainFilter: '', minDistanceMiles: null, streakMinMilesPerDay: null, streakMinActivitiesPerDay: null, details: '', milestoneThreshold: null, referenceTarget: null };
 }
 
 // ── Load ──────────────────────────────────────────────────────────
@@ -742,13 +837,13 @@ async function saveGroup() {
 
 // ── Award modal ───────────────────────────────────────────────────
 function defaultAwardForm() {
-  return { label: '', icon: '🏆', period: 'weekly', monthEndDay: 'last', metric: 'distance_miles', aggregation: 'most', activityType: '', groupFilter: '', details: '', milestoneThreshold: null, referenceTarget: null };
+  return { label: '', icon: '🏆', period: 'weekly', monthEndDay: 'last', metric: 'distance_miles', aggregation: 'most', activityType: '', terrainFilter: '', minDistanceMiles: null, groupFilter: '', streakMinMilesPerDay: null, streakMinActivitiesPerDay: null, details: '', milestoneThreshold: null, referenceTarget: null };
 }
 function openAwardModal(a = null) {
   editingAward.value = a;
   const icon = a?.icon || '🏆';
   awardForm.value = a
-    ? { label: a.label, icon, period: a.period, monthEndDay: a.monthEndDay || 'last', metric: a.metric, aggregation: a.aggregation, activityType: a.activityType || '', groupFilter: a.groupFilter || '', details: a.details || '', milestoneThreshold: a.milestoneThreshold != null ? Number(a.milestoneThreshold) : null, referenceTarget: a.referenceTarget != null ? Number(a.referenceTarget) : null }
+    ? { label: a.label, icon, period: a.period, monthEndDay: a.monthEndDay || 'last', metric: a.metric, aggregation: a.aggregation, activityType: a.activityType || '', terrainFilter: a.terrainFilter || '', minDistanceMiles: a.minDistanceMiles != null ? Number(a.minDistanceMiles) : null, groupFilter: a.groupFilter || '', streakMinMilesPerDay: a.streakMinMilesPerDay != null ? Number(a.streakMinMilesPerDay) : null, streakMinActivitiesPerDay: a.streakMinActivitiesPerDay != null ? Number(a.streakMinActivitiesPerDay) : null, details: a.details || '', milestoneThreshold: a.milestoneThreshold != null ? Number(a.milestoneThreshold) : null, referenceTarget: a.referenceTarget != null ? Number(a.referenceTarget) : null }
     : defaultAwardForm();
   awardSaveError.value = '';
   showIconPicker.value = false;
@@ -792,8 +887,12 @@ async function saveAward() {
         const n = Number(awardForm.value.referenceTarget);
         return Number.isFinite(n) && n >= 0 ? n : undefined;
       })(),
-      activityType: awardForm.value.activityType.trim(),
+      activityType: awardForm.value.activityType?.trim() || '',
+      terrainFilter: awardForm.value.terrainFilter || '',
+      minDistanceMiles: (() => { const n = Number(awardForm.value.minDistanceMiles); return Number.isFinite(n) && n > 0 ? n : undefined; })(),
       groupFilter: awardForm.value.groupFilter,
+      streakMinMilesPerDay: (() => { const n = Number(awardForm.value.streakMinMilesPerDay); return Number.isFinite(n) ? n : undefined; })(),
+      streakMinActivitiesPerDay: (() => { const n = Number(awardForm.value.streakMinActivitiesPerDay); return Number.isFinite(n) ? n : undefined; })(),
       details: awardForm.value.details?.trim() || ''
     };
     if (editingAward.value) {
@@ -818,7 +917,7 @@ function openTenantAwardModal(a = null) {
   editingTenantAward.value = a;
   const icon = a?.icon || '🏆';
   tenantAwardForm.value = a
-    ? { label: a.label, icon, period: a.period, metric: a.metric, aggregation: a.aggregation, activityType: a.activityType || '', details: a.details || '', milestoneThreshold: a.milestoneThreshold != null ? Number(a.milestoneThreshold) : null, referenceTarget: a.referenceTarget != null ? Number(a.referenceTarget) : null }
+    ? { label: a.label, icon, period: a.period, metric: a.metric, aggregation: a.aggregation, activityType: a.activityType || '', terrainFilter: a.terrainFilter || '', minDistanceMiles: a.minDistanceMiles != null ? Number(a.minDistanceMiles) : null, streakMinMilesPerDay: a.streakMinMilesPerDay != null ? Number(a.streakMinMilesPerDay) : null, streakMinActivitiesPerDay: a.streakMinActivitiesPerDay != null ? Number(a.streakMinActivitiesPerDay) : null, details: a.details || '', milestoneThreshold: a.milestoneThreshold != null ? Number(a.milestoneThreshold) : null, referenceTarget: a.referenceTarget != null ? Number(a.referenceTarget) : null }
     : defaultTenantAwardForm();
   tenantAwardSaveError.value = '';
   showTenantIconPicker.value = false;
@@ -865,7 +964,11 @@ async function saveTenantAward() {
         const n = Number(tenantAwardForm.value.referenceTarget);
         return Number.isFinite(n) && n >= 0 ? n : undefined;
       })(),
-      activityType: tenantAwardForm.value.activityType.trim(),
+      activityType: tenantAwardForm.value.activityType?.trim() || '',
+      terrainFilter: tenantAwardForm.value.terrainFilter || '',
+      minDistanceMiles: (() => { const n = Number(tenantAwardForm.value.minDistanceMiles); return Number.isFinite(n) && n > 0 ? n : undefined; })(),
+      streakMinMilesPerDay: (() => { const n = Number(tenantAwardForm.value.streakMinMilesPerDay); return Number.isFinite(n) ? n : undefined; })(),
+      streakMinActivitiesPerDay: (() => { const n = Number(tenantAwardForm.value.streakMinActivitiesPerDay); return Number.isFinite(n) ? n : undefined; })(),
       details: tenantAwardForm.value.details?.trim() || ''
     };
     if (editingTenantAward.value) {
