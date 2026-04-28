@@ -431,7 +431,13 @@ const toggleTeam = (teamId) => {
 const sortedMemberRows = (team) => {
   const arr = [...(team?.members || [])];
   arr.sort((a, b) => {
+    // Eliminated members always sink to the bottom
     if (!!a.eliminated !== !!b.eliminated) return a.eliminated ? 1 : -1;
+    // Sort active members by miles (or points) descending — most at top
+    const aVal = isMiles.value ? Number(a.weeklyMiles || 0) : Number(a.weeklyPoints || 0);
+    const bVal = isMiles.value ? Number(b.weeklyMiles || 0) : Number(b.weeklyPoints || 0);
+    if (bVal !== aVal) return bVal - aVal;
+    // Tie-break alphabetically
     const an = `${a.lastName || ''} ${a.firstName || ''}`.trim();
     const bn = `${b.lastName || ''} ${b.firstName || ''}`.trim();
     return an.localeCompare(bn);
