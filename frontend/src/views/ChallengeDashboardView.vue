@@ -3153,9 +3153,29 @@ const currentDatetimeLocal = () => {
   return d.toISOString().slice(0, 16);
 };
 
+/**
+ * Parse a macOS screenshot filename timestamp so files are displayed
+ * chronologically (oldest first) regardless of how the OS returns them.
+ * Handles: "Screenshot 2026-04-27 at 7.51.24 PM.png"
+ */
+const parseScreenshotTimestamp = (name) => {
+  const m = name.match(/(\d{4}-\d{2}-\d{2})\s+at\s+(\d{1,2})\.(\d{2})\.(\d{2})\s*(AM|PM)?/i);
+  if (!m) return 0;
+  const [, date, rawH, min, sec, meridiem] = m;
+  let h = parseInt(rawH, 10);
+  if (meridiem) {
+    if (/pm/i.test(meridiem) && h < 12) h += 12;
+    if (/am/i.test(meridiem) && h === 12) h = 0;
+  }
+  return new Date(`${date}T${String(h).padStart(2,'0')}:${min}:${sec}`).getTime() || 0;
+};
+
 const onBulkFilesSelected = async (event) => {
   const id = challengeId.value;
-  const files = Array.from(event.target?.files || []).slice(0, 50);
+  // Sort by filename timestamp so screenshots appear oldest → newest
+  const files = Array.from(event.target?.files || [])
+    .sort((a, b) => parseScreenshotTimestamp(a.name) - parseScreenshotTimestamp(b.name))
+    .slice(0, 50);
   if (!id || !files.length) return;
   bulkScanning.value = true;
   bulkUploadError.value = '';
@@ -3172,8 +3192,8 @@ const onBulkFilesSelected = async (event) => {
       const rawText = String(item.rawText || '');
       const hint = String(ex.activityTypeHint || '').toLowerCase();
       const activityType = ({ running: 'run', run: 'run', ruck: 'ruck', walking: 'walk', walk: 'walk', cycling: 'cycling', bike: 'cycling', steps: 'steps' }[hint]) || hint || '';
-      // Challenge detected: look for checkmark emoji followed by challenge keywords in the caption/rawText
-      const challengeDetected = /[✅✓☑]/.test(rawText) && /(?:run|mile|challenge|min|ruck|walk)/i.test(rawText);
+      // Challenge detected: caption checkmark (most reliable) OR checkmark + keywords in rawText
+      const challengeDetected = !!ex.captionChallenge || (/[✅✓☑]/.test(rawText) && /(?:run|mile|challenge|min|ruck|walk)/i.test(rawText));
       // Use global batch date + time from OCR (or midnight if only date was set)
       const ocrTime = ex.completedAt ? String(ex.completedAt).slice(11, 16) : '00:00';
       const completedAt = `${bulkBatchDate.value}T${ocrTime}`;

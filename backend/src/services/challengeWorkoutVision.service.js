@@ -367,9 +367,17 @@ export const parseVisionText = (rawText) => {
     else if (paceKm)  paceSecondsPerMile = Math.round((parseInt(paceKm[1]) * 60 + parseInt(paceKm[2])) * 1.60934);
     else if (paceNRC) paceSecondsPerMile = parseInt(paceNRC[1]) * 60 + parseInt(paceNRC[2]);
   }
-  // Compute from distance + duration as last resort
+  // Compute pace from distance + duration as last resort
   if (paceSecondsPerMile == null && distanceMiles && durationMinutes != null) {
     paceSecondsPerMile = Math.round((durationMinutes * 60 + (durationSeconds || 0)) / distanceMiles);
+  }
+
+  // ── Derive duration from pace × distance when total time was not found ────
+  // e.g. screenshot shows "8:50 /mi" and "4.20 mi" but total time is cut off
+  if (durationMinutes == null && paceSecondsPerMile != null && distanceMiles != null && distanceMiles > 0) {
+    const totalSec = Math.round(paceSecondsPerMile * distanceMiles);
+    durationMinutes = Math.floor(totalSec / 60);
+    durationSeconds = totalSec % 60;
   }
 
   // ── Calories ─────────────────────────────────────────────────────────────
@@ -515,12 +523,58 @@ export const parseVisionText = (rawText) => {
     if (elevationGainMeters != null && elevationGainMeters > 9000) elevationGainMeters = null;
   }
 
+  // ── Bottom caption parser ─────────────────────────────────────────────────
+  // Members often add a caption like "D. Hensley - Charlie - Road - 4.20"
+  // (Name - Team - Terrain - Miles, sometimes with a checkmark for challenge).
+  // This is the most reliable source for terrain and distance when OCR of the
+  // activity screen is noisy.
+  let captionName = null;
+  let captionTerrain = null;
+  let captionMiles = null;
+  let captionChallenge = false;
+  {
+    const TERRAIN_WORDS = /^(road|trail|track|treadmill|tread|beach|indoor|outdoor|grass|gravel|sand|dirt|pavement)$/i;
+    // Look at the last few non-empty lines of the OCR text (caption is at the bottom)
+    const lastLines = lines.filter(l => l.trim()).slice(-6);
+    for (const line of lastLines) {
+      // Split on " - " or " – " (en-dash) separators
+      const parts = line.split(/\s*[-–]\s*/).map(p => p.trim()).filter(Boolean);
+      if (parts.length < 3) continue;
+      // The last token must be a decimal number (miles)
+      const lastMilesMatch = parts[parts.length - 1].match(/^(\d+(?:\.\d+)?)(?:\s*mi(?:les?)?)?$/i);
+      if (!lastMilesMatch) continue;
+      const miles = parseFloat(lastMilesMatch[1]);
+      if (isNaN(miles) || miles <= 0 || miles > 200) continue;
+      // One of the middle tokens should be a terrain word
+      const terrainToken = parts.slice(1, -1).find(p => TERRAIN_WORDS.test(p));
+      if (!terrainToken) continue;
+      // If we get here, it looks like a valid caption line
+      captionName    = parts[0];   // e.g. "D. Hensley"
+      captionTerrain = terrainToken.charAt(0).toUpperCase() + terrainToken.slice(1).toLowerCase();
+      captionMiles   = Math.round(miles * 100) / 100;
+      // Challenge check: checkmark anywhere on this line
+      captionChallenge = /[✅✓☑✔]/.test(line);
+      break; // use first match from the bottom
+    }
+
+    // Override distance if caption gives a cleaner value
+    if (captionMiles != null && distanceMiles == null) distanceMiles = captionMiles;
+    // Caption distance takes precedence when OCR value is suspiciously small/wrong
+    if (captionMiles != null && distanceMiles != null && Math.abs(captionMiles - distanceMiles) > 0.5) {
+      distanceMiles = captionMiles;
+    }
+  }
+
   // ── Terrain detection ─────────────────────────────────────────────────────
-  let terrain = null;
-  if (/treadmill|tread\s*mill/i.test(rawText))              terrain = 'Treadmill';
-  else if (/\btrack\b/i.test(rawText))                       terrain = 'Track';
-  else if (/trail|dirt|offroad|off-road/i.test(rawText))     terrain = 'Trail';
-  else if (/beach/i.test(rawText))                           terrain = 'Beach';
+  // Caption terrain takes priority over keyword scan
+  let terrain = captionTerrain || null;
+  if (!terrain) {
+    if (/treadmill|tread\s*mill/i.test(rawText))              terrain = 'Treadmill';
+    else if (/\btrack\b/i.test(rawText))                       terrain = 'Track';
+    else if (/trail|dirt|offroad|off-road/i.test(rawText))     terrain = 'Trail';
+    else if (/\broad\b/i.test(rawText))                        terrain = 'Road';
+    else if (/beach/i.test(rawText))                           terrain = 'Beach';
+  }
 
   // ── Activity type hint ────────────────────────────────────────────────────
   // Scan the first ~120 chars (likely the workout title in most apps)
@@ -548,7 +602,9 @@ export const parseVisionText = (rawText) => {
     completedAt,
     terrain,
     activityTypeHint,
-    _app: APP   // useful for debugging
+    captionName,      // e.g. "D. Hensley" — from the bottom caption line
+    captionChallenge, // true if caption line contains a checkmark
+    _app: APP
   };
 };
 
