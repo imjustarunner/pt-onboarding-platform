@@ -1284,8 +1284,12 @@
                   <option value="">—</option>
                   <option value="male">Male</option>
                   <option value="female">Female</option>
-                  <option value="non_binary">Non-binary</option>
                   <option value="prefer_not_to_say">Prefer not to say</option>
+                  <!-- Show any non-standard value already saved so it isn't lost -->
+                  <option
+                    v-if="profileEdits[m.provider_user_id].gender && !['male','female','prefer_not_to_say',''].includes(profileEdits[m.provider_user_id].gender)"
+                    :value="profileEdits[m.provider_user_id].gender"
+                  >{{ profileEdits[m.provider_user_id].gender }}</option>
                 </select>
                 <input v-model="profileEdits[m.provider_user_id].dateOfBirth" type="date" @change="saveProfile(m)" placeholder="DOB" />
               </template>
