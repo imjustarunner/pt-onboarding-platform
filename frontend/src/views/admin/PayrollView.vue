@@ -3671,9 +3671,16 @@
             </table>
           </div>
 
-          <div v-if="stagingUnmatched?.length" class="warn-box" style="margin-top: 12px;">
-            <div><strong>Unmatched rows</strong> (couldn’t map provider name to a user in this org):</div>
-            <div class="hint">These rows are not editable until the provider name matches a user (first+last) in this organization.</div>
+          <div v-if="filteredStagingUnmatched?.length" class="warn-box" style="margin-top: 12px;">
+            <div>
+              <strong>Unmatched rows</strong>
+              <span v-if="selectedUserId"> for {{ selectedUserName }}</span>
+              <span v-else> (couldn’t map provider name to a user in this org)</span>
+            </div>
+            <div class="hint">
+              <span v-if="selectedUserId">These rows could not be automatically matched to {{ selectedUserName }}. If the import name is slightly different, update it in the billing system and re-import.</span>
+              <span v-else>These rows are not editable until the provider name matches a user (first+last) in this organization.</span>
+            </div>
             <div class="table-wrap" style="margin-top: 8px;">
               <table class="table">
                 <thead>
@@ -3686,7 +3693,7 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(u, idx) in stagingUnmatched" :key="idx">
+                  <tr v-for="(u, idx) in filteredStagingUnmatched" :key="idx">
                     <td>{{ u.providerName }}</td>
                     <td>{{ u.serviceCode }}</td>
                     <td class="right">{{ fmtNum(u.effective?.noNoteUnits ?? 0) }}</td>
@@ -5852,6 +5859,21 @@ const payrollUserOptionLabel = (u) => {
   const email = String(u?.email || '').trim();
   return `${base} (${email || `ID ${u?.id}`})`;
 };
+
+// When a specific provider is selected, show only unmatched rows whose name plausibly
+// belongs to that provider. Otherwise show all unmatched rows for admins to triage.
+const filteredStagingUnmatched = computed(() => {
+  const all = stagingUnmatched.value || [];
+  const uid = Number(selectedUserId.value || 0);
+  if (!uid) return all;
+  const selectedUser = (agencyUsers.value || []).find((u) => Number(u?.id) === uid) || null;
+  if (!selectedUser) return all;
+  const selectedKeys = new Set(payrollUserNameKeys(selectedUser));
+  return all.filter((row) => {
+    const rowKeys = nameKeyCandidates(String(row.providerName || ''));
+    return rowKeys.some((k) => selectedKeys.has(k));
+  });
+});
 
 const summariesSortedByProvider = computed(() => {
   const list = (summaries.value || []).slice();

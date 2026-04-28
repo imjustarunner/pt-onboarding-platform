@@ -7389,7 +7389,47 @@ export const getPayrollStaging = async (req, res, next) => {
     if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
     if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
 
-    const aggregates = await PayrollImportRow.listAggregatedForPeriod(payrollPeriodId);
+    let aggregates = await PayrollImportRow.listAggregatedForPeriod(payrollPeriodId);
+
+    // Auto-rematch: rows stored with user_id = NULL may have been ambiguous at import time
+    // (e.g. two users with the same name). Re-run name resolution using the current active
+    // user list (which excludes pre-hire applicants) and update any newly-resolvable rows.
+    {
+      const unmatchedNames = [
+        ...new Set(
+          (aggregates || [])
+            .filter((a) => !a.user_id && a.provider_name)
+            .map((a) => String(a.provider_name).trim())
+            .filter(Boolean)
+        )
+      ];
+      if (unmatchedNames.length > 0) {
+        const matchingUsers = await getAgencyUsersForPayrollMatching(period.agency_id);
+        const nameToIdsLocal = new Map();
+        for (const u of matchingUsers || []) {
+          const first = String(u.first_name || '').trim();
+          const last = String(u.last_name || '').trim();
+          const ka = normalizeName(`${first} ${last}`);
+          const kb = normalizeName(`${last} ${first}`);
+          if (ka) addNameKeyToIds(nameToIdsLocal, ka, u.id);
+          if (kb) addNameKeyToIds(nameToIdsLocal, kb, u.id);
+        }
+        let anyFixed = false;
+        for (const pName of unmatchedNames) {
+          const uid = resolveUserIdForProviderName(nameToIdsLocal, pName);
+          if (!uid) continue;
+          await pool.execute(
+            `UPDATE payroll_import_rows SET user_id = ? WHERE payroll_period_id = ? AND (user_id IS NULL OR user_id = 0) AND provider_name = ?`,
+            [uid, payrollPeriodId, pName]
+          );
+          anyFixed = true;
+        }
+        if (anyFixed) {
+          aggregates = await PayrollImportRow.listAggregatedForPeriod(payrollPeriodId);
+        }
+      }
+    }
+
     const overrides = await PayrollStagingOverride.listForPeriod(payrollPeriodId);
     const carryovers = await PayrollStageCarryover.listForPeriod(payrollPeriodId);
     const priorUnpaidStage = await PayrollStagePriorUnpaid.listForPeriod(payrollPeriodId);
