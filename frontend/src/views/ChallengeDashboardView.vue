@@ -1539,6 +1539,12 @@
                   <span v-if="item.challengeDetected" class="bulk-challenge-hint" title="Screenshot text contains a checkmark and challenge keywords — verify and tag below">
                     ✅ Challenge?
                   </span>
+                  <button
+                    type="button"
+                    class="bulk-remove-btn"
+                    title="Remove this screenshot"
+                    @click="bulkItems.splice(cardIdx, 1)"
+                  >✕</button>
                 </div>
 
                 <div class="bulk-review-grid">
@@ -5045,6 +5051,25 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   flex-shrink: 0;
 }
 .bulk-ocr-badge.ocr-low { background: #fef3c7; color: #92400e; }
+.bulk-remove-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: none;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  transition: background 0.12s;
+}
+.bulk-remove-btn:hover { background: #fca5a5; }
 .bulk-challenge-hint {
   font-size: 12px;
   background: #ecfdf5;
