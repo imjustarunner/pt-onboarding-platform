@@ -886,8 +886,18 @@ class ChallengeWorkout {
       // ── Activity type filter (applies to all award types) ────────
       const activityTypeFilter = String(cat.activityType || '').trim();
       if (activityTypeFilter && activityTypeFilter !== '__add__') {
-        whereExtra += ` AND w.activity_type = ?`;
-        params.push(activityTypeFilter);
+        if (activityTypeFilter === '__race__') {
+          // Races are tagged via is_race flag, not activity_type value
+          whereExtra += ` AND w.is_race = 1`;
+        } else if (activityTypeFilter === 'run') {
+          whereExtra += ` AND LOWER(w.activity_type) LIKE '%run%' AND w.is_race = 0`;
+        } else if (activityTypeFilter === 'ruck') {
+          whereExtra += ` AND LOWER(w.activity_type) LIKE '%ruck%'`;
+        } else {
+          // Exact match for walk, cycling, workout_session, steps, etc.
+          whereExtra += ` AND LOWER(w.activity_type) = LOWER(?)`;
+          params.push(activityTypeFilter);
+        }
       }
 
       // ── Terrain filter ──────────────────────────────────────────
@@ -1076,11 +1086,35 @@ class ChallengeWorkout {
         continue; // skip the remaining SQL-building branch for this gender variant
       }
 
-      // For best_day we need a two-level GROUP BY:
-      // 1) sum per user+day, 2) take the max day per user.
+      // For best_day/best_week we need a two-level GROUP BY:
+      // 1) sum per user+day/week, 2) take the max per user.
       let sql;
       const milestoneThreshold = Number(cat.milestoneThreshold);
-      if (aggregation === 'best_day') {
+      if (aggregation === 'best_week') {
+        const weekMetric = metric === 'activities_count'
+          ? 'COUNT(w.id)'
+          : metric === 'challenge_completions'
+            ? 'COUNT(DISTINCT w.weekly_task_id)'
+            : `SUM(${metricCol})`;
+        sql = `
+          SELECT d.user_id, d.first_name, d.last_name, d.profile_photo_path, d.team_id, d.team_name,
+                 MAX(d.week_total) AS metric_value
+          FROM (
+            SELECT w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name,
+                   YEARWEEK(w.completed_at, 1) AS activity_week,
+                   ${weekMetric} AS week_total
+            FROM challenge_workouts w
+            INNER JOIN users u ON u.id = w.user_id
+            LEFT JOIN challenge_teams t ON t.id = w.team_id
+            ${joinClause}
+            WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')} AND w.completed_at >= ? AND w.completed_at < ?
+              ${whereExtra}
+            GROUP BY w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name, YEARWEEK(w.completed_at, 1)
+          ) d
+          GROUP BY d.user_id, d.first_name, d.last_name, d.profile_photo_path, d.team_id, d.team_name
+          ORDER BY metric_value DESC
+          LIMIT 1`;
+      } else if (aggregation === 'best_day') {
         const dayMetric = metric === 'activities_count'
           ? 'COUNT(w.id)'
           : metric === 'challenge_completions'

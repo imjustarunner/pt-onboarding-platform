@@ -303,27 +303,13 @@
             <label class="rcb-field-label">Activity</label>
             <select v-model="aw.activityType" class="rcb-select" @change="emit_">
               <option value="">Any activity</option>
-              <optgroup label="Running">
-                <option value="running">Running</option>
-                <option value="trail_run">Trail Run</option>
-                <option value="road_run">Road Run</option>
-                <option value="track_run">Track / Speed</option>
-                <option value="race">Race</option>
-              </optgroup>
-              <optgroup label="Other cardio">
-                <option value="cycling">Cycling</option>
-                <option value="swimming">Swimming</option>
-                <option value="rowing">Rowing</option>
-                <option value="hiking">Hiking</option>
-                <option value="walking">Walking</option>
-                <option value="elliptical">Elliptical</option>
-              </optgroup>
-              <optgroup label="Strength / Other">
-                <option value="workout">Workout / Strength</option>
-                <option value="steps">Steps</option>
-                <option value="yoga">Yoga</option>
-                <option value="sports">Sports</option>
-              </optgroup>
+              <option value="run">Run</option>
+              <option value="ruck">Ruck</option>
+              <option value="__race__">Race (is_race logged)</option>
+              <option value="walk">Walk</option>
+              <option value="cycling">Cycling</option>
+              <option value="workout_session">Workout / Strength</option>
+              <option value="steps">Steps</option>
               <optgroup v-if="customActivityTypes.length" label="Custom">
                 <option v-for="ct in customActivityTypes" :key="ct" :value="ct">{{ ct }}</option>
               </optgroup>
@@ -352,6 +338,7 @@
               <option v-if="aw.metric !== 'kudos_received' && aw.metric !== 'pace_min_per_mile'" value="average">Average per entry</option>
               <option v-if="aw.metric !== 'kudos_received' && aw.metric !== 'pace_min_per_mile'" value="best_single">Best single workout</option>
               <option v-if="aw.metric !== 'kudos_received' && aw.metric !== 'pace_min_per_mile'" value="best_day">Best single day</option>
+              <option v-if="aw.metric !== 'kudos_received' && aw.metric !== 'pace_min_per_mile'" value="best_week">Best single week</option>
               <option v-if="aw.metric === 'kudos_received'" value="most">Most (total)</option>
               <option v-if="aw.metric !== 'kudos_received' && aw.metric !== 'pace_min_per_mile'" value="milestone">Milestone (everyone who reaches target)</option>
               <option v-if="aw.metric !== 'kudos_received' && aw.metric !== 'pace_min_per_mile'" value="longest_streak">Longest streak (consecutive days)</option>
@@ -570,18 +557,13 @@
               <!-- Activity -->
               <select v-model="row.activityType" class="rcb-select rcb-bulk-select">
                 <option value="">Any activity</option>
-                <optgroup label="Running">
-                  <option value="running">Running</option>
-                  <option value="trail_run">Trail Run</option>
-                  <option value="road_run">Road Run</option>
-                  <option value="race">Race</option>
-                </optgroup>
-                <optgroup label="Other">
-                  <option value="hiking">Hiking</option>
-                  <option value="walking">Walking</option>
-                  <option value="cycling">Cycling</option>
-                  <option value="workout">Workout / Strength</option>
-                </optgroup>
+                <option value="run">Run</option>
+                <option value="ruck">Ruck</option>
+                <option value="__race__">Race</option>
+                <option value="walk">Walk</option>
+                <option value="cycling">Cycling</option>
+                <option value="workout_session">Workout / Strength</option>
+                <option value="steps">Steps</option>
               </select>
 
               <!-- Terrain -->
@@ -610,6 +592,7 @@
                 <option v-else value="most">Most (total)</option>
                 <option v-if="row.metric !== 'pace_min_per_mile'" value="best_single">Best single workout</option>
                 <option v-if="row.metric !== 'pace_min_per_mile'" value="best_day">Best single day</option>
+                <option v-if="row.metric !== 'pace_min_per_mile'" value="best_week">Best single week</option>
                 <option v-if="row.metric !== 'pace_min_per_mile'" value="longest_streak">Longest streak</option>
                 <option v-if="row.metric !== 'pace_min_per_mile'" value="most_active_days">Most active days</option>
                 <option v-if="row.metric !== 'pace_min_per_mile'" value="perfect_season">Perfect season</option>

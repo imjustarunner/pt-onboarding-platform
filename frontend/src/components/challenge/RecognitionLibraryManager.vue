@@ -126,6 +126,7 @@
                 <option v-if="tenantAwardForm.metric !== 'pace_min_per_mile'" value="average">Average per entry</option>
                 <option v-if="tenantAwardForm.metric !== 'pace_min_per_mile'" value="best_single">Best single workout</option>
                 <option v-if="tenantAwardForm.metric !== 'pace_min_per_mile'" value="best_day">Best single day</option>
+                <option v-if="tenantAwardForm.metric !== 'pace_min_per_mile'" value="best_week">Best single week</option>
                 <option v-if="tenantAwardForm.metric !== 'pace_min_per_mile'" value="milestone">Milestone — everyone who reaches target</option>
                 <option v-if="tenantAwardForm.metric !== 'pace_min_per_mile'" value="longest_streak">Longest streak (consecutive days)</option>
                 <option v-if="tenantAwardForm.metric !== 'pace_min_per_mile'" value="most_active_days">Most active days</option>
@@ -178,18 +179,13 @@
               <label class="rlm-label">Activity type</label>
               <select v-model="tenantAwardForm.activityType" class="rlm-select">
                 <option value="">Any activity</option>
-                <optgroup label="Running">
-                  <option value="running">Running</option>
-                  <option value="trail_run">Trail Run</option>
-                  <option value="road_run">Road Run</option>
-                  <option value="race">Race</option>
-                </optgroup>
-                <optgroup label="Other">
-                  <option value="hiking">Hiking</option>
-                  <option value="walking">Walking</option>
-                  <option value="cycling">Cycling</option>
-                  <option value="workout">Workout / Strength</option>
-                </optgroup>
+                <option value="run">Run</option>
+                <option value="ruck">Ruck</option>
+                <option value="__race__">Race (is_race logged)</option>
+                <option value="walk">Walk</option>
+                <option value="cycling">Cycling</option>
+                <option value="workout_session">Workout / Strength</option>
+                <option value="steps">Steps</option>
               </select>
               <span class="rlm-field-hint">Leave as "Any" to count all activity types.</span>
             </div>
@@ -205,7 +201,7 @@
               </select>
             </div>
           </div>
-          <div v-if="tenantAwardForm.metric === 'pace_min_per_mile' || tenantAwardForm.aggregation === 'best_day'" class="rlm-field">
+          <div v-if="tenantAwardForm.metric === 'pace_min_per_mile' || ['best_day','best_week'].includes(tenantAwardForm.aggregation)" class="rlm-field">
             <label class="rlm-label">Min distance per workout (mi)</label>
             <input v-model.number="tenantAwardForm.minDistanceMiles" type="number" class="rlm-input" min="0" step="0.5" placeholder="e.g. 3" />
             <span class="rlm-field-hint">Only count workouts at or above this distance. Required for pace awards.</span>
@@ -394,18 +390,13 @@
               </select>
               <select v-model="row.activityType" class="rlm-select rlm-bulk-sel">
                 <option value="">Any activity</option>
-                <optgroup label="Running">
-                  <option value="running">Running</option>
-                  <option value="trail_run">Trail Run</option>
-                  <option value="road_run">Road Run</option>
-                  <option value="race">Race</option>
-                </optgroup>
-                <optgroup label="Other">
-                  <option value="hiking">Hiking</option>
-                  <option value="walking">Walking</option>
-                  <option value="cycling">Cycling</option>
-                  <option value="workout">Workout / Strength</option>
-                </optgroup>
+                <option value="run">Run</option>
+                <option value="ruck">Ruck</option>
+                <option value="__race__">Race</option>
+                <option value="walk">Walk</option>
+                <option value="cycling">Cycling</option>
+                <option value="workout_session">Workout / Strength</option>
+                <option value="steps">Steps</option>
               </select>
               <select v-model="row.terrainFilter" class="rlm-select rlm-bulk-sel">
                 <option value="">Any terrain</option>
@@ -428,6 +419,7 @@
                 <option v-else value="most">Most (total)</option>
                 <option v-if="row.metric !== 'pace_min_per_mile'" value="best_single">Best single</option>
                 <option v-if="row.metric !== 'pace_min_per_mile'" value="best_day">Best single day</option>
+                <option v-if="row.metric !== 'pace_min_per_mile'" value="best_week">Best single week</option>
                 <option v-if="row.metric !== 'pace_min_per_mile'" value="longest_streak">Longest streak</option>
                 <option v-if="row.metric !== 'pace_min_per_mile'" value="most_active_days">Most active days</option>
                 <option v-if="row.metric !== 'pace_min_per_mile'" value="perfect_season">Perfect season</option>
@@ -614,6 +606,7 @@
                 <option v-if="awardForm.metric !== 'pace_min_per_mile'" value="average">Average per entry</option>
                 <option v-if="awardForm.metric !== 'pace_min_per_mile'" value="best_single">Best single workout</option>
                 <option v-if="awardForm.metric !== 'pace_min_per_mile'" value="best_day">Best single day</option>
+                <option v-if="awardForm.metric !== 'pace_min_per_mile'" value="best_week">Best single week</option>
                 <option v-if="awardForm.metric !== 'pace_min_per_mile'" value="milestone">Milestone (everyone who reaches target)</option>
                 <option v-if="awardForm.metric !== 'pace_min_per_mile'" value="longest_streak">Longest streak (consecutive days)</option>
                 <option v-if="awardForm.metric !== 'pace_min_per_mile'" value="most_active_days">Most active days</option>
@@ -668,18 +661,13 @@
               <label class="rlm-label">Activity type</label>
               <select v-model="awardForm.activityType" class="rlm-select">
                 <option value="">Any activity</option>
-                <optgroup label="Running">
-                  <option value="running">Running</option>
-                  <option value="trail_run">Trail Run</option>
-                  <option value="road_run">Road Run</option>
-                  <option value="race">Race</option>
-                </optgroup>
-                <optgroup label="Other">
-                  <option value="hiking">Hiking</option>
-                  <option value="walking">Walking</option>
-                  <option value="cycling">Cycling</option>
-                  <option value="workout">Workout / Strength</option>
-                </optgroup>
+                <option value="run">Run</option>
+                <option value="ruck">Ruck</option>
+                <option value="__race__">Race (is_race logged)</option>
+                <option value="walk">Walk</option>
+                <option value="cycling">Cycling</option>
+                <option value="workout_session">Workout / Strength</option>
+                <option value="steps">Steps</option>
               </select>
               <span class="rlm-field-hint">Leave as "Any" to count all activity types.</span>
             </div>
@@ -695,7 +683,7 @@
               </select>
             </div>
           </div>
-          <div v-if="awardForm.metric === 'pace_min_per_mile' || awardForm.aggregation === 'best_day'" class="rlm-field">
+          <div v-if="awardForm.metric === 'pace_min_per_mile' || ['best_day','best_week'].includes(awardForm.aggregation)" class="rlm-field">
             <label class="rlm-label">Min distance per workout (mi)</label>
             <input v-model.number="awardForm.minDistanceMiles" type="number" class="rlm-input" min="0" step="0.5" placeholder="e.g. 3" />
             <span class="rlm-field-hint">Only count workouts at or above this distance. Required for pace awards.</span>
@@ -1269,7 +1257,7 @@ async function executeDelete() {
 // ── Display helpers ────────────────────────────────────────────────
 function periodLabel(p) { return { weekly: 'Weekly', monthly: 'Monthly', season: 'Full Season', challenge: 'Challenge' }[p] || p; }
 function metricLabel(m) { return { distance_miles: 'Miles', points: 'Points', duration_minutes: 'Duration', activities_count: 'Activity count', challenge_completions: 'Challenges completed' }[m] || m; }
-function aggregationLabel(a) { return { most: 'Most total', least: 'Least total', average: 'Avg/entry', best_single: 'Best workout', best_day: 'Best day', milestone: 'Milestone' }[a] || a; }
+function aggregationLabel(a) { return { most: 'Most total', least: 'Least total', average: 'Avg/entry', best_single: 'Best workout', best_day: 'Best day', best_week: 'Best week', fastest: 'Fastest', milestone: 'Milestone', longest_streak: 'Longest streak', most_active_days: 'Most active days', perfect_season: 'Perfect season' }[a] || a; }
 function groupFilterLabel(gf) {
   if (!gf) return 'Everyone';
   if (gf === 'gender_male') return 'Male';
