@@ -3964,7 +3964,7 @@ export const listPublicCareers = async (req, res, next) => {
     if (!agency?.id) {
       return res.status(404).json({ error: { message: 'Agency not found' } });
     }
-    const agencyCareersPage = sanitizeApplicationPageJson(parseMetadata(agency.careers_page_json)) || null;
+    const agencyCareersPage = sanitizeApplicationPageJson(agency.careers_page_json) || null;
 
     const cityFilter = String(req.query?.city || '').trim().toLowerCase();
     const stateFilter = String(req.query?.state || '').trim().toLowerCase();
@@ -4430,7 +4430,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
           `SELECT careers_page_json FROM agencies WHERE id = ? LIMIT 1`,
           [agency.id]
         );
-        const agencyCareersPage = sanitizeApplicationPageJson(parseMetadata(agencyRows?.[0]?.careers_page_json)) || null;
+        const agencyCareersPage = sanitizeApplicationPageJson(agencyRows?.[0]?.careers_page_json) || null;
         jobDescription.applicationPage = mergeApplicationPageJson(agencyCareersPage, jobDescription.applicationPage);
       } catch {
         jobDescription.applicationPage = sanitizeApplicationPageJson(jobDescription.applicationPage);
