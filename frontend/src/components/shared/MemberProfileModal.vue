@@ -59,93 +59,14 @@
             <div class="mpm-tc-header">
               <span class="mpm-tc-title">🏆 Trophy Case</span>
             </div>
-
-            <div v-if="trophyLoading" class="mpm-trophy-empty">Loading trophies…</div>
-            <div v-else-if="trophyFailed" class="mpm-trophy-empty mpm-trophy-retry" @click="load">
+            <div v-if="trophyFailed" class="mpm-trophy-retry" @click="load">
               Could not load trophies — tap to retry
             </div>
-            <div v-else-if="!hasTrophies" class="mpm-trophy-empty">No trophies yet — keep training!</div>
-
-            <!-- Recognition Awards shelf -->
-            <div v-if="trophy?.seasonAwards?.length" class="mpm-tc-shelf">
-              <div class="mpm-tc-shelf-label">🎖 Recognition Awards</div>
-              <div class="mpm-tc-shelf-row">
-                <div
-                  v-for="a in trophy.seasonAwards"
-                  :key="a.categoryId"
-                  class="mpm-tc-trophy"
-                  :title="awardTooltip(a)"
-                >
-                  <div class="mpm-tc-trophy-icon-wrap">
-                    <img v-if="a.iconUrl" :src="a.iconUrl" class="mpm-tc-trophy-img" alt="" />
-                    <span v-else class="mpm-tc-trophy-emoji">{{ emojiFor(a.icon) }}</span>
-                    <span v-if="a.count > 1" class="mpm-tc-count">×{{ a.count }}</span>
-                  </div>
-                  <div class="mpm-tc-nameplate">{{ a.label }}</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Race Clubs shelf -->
-            <div v-if="trophy?.raceClubs?.length" class="mpm-tc-shelf">
-              <div class="mpm-tc-shelf-label">🏅 Race Clubs</div>
-              <div class="mpm-tc-shelf-row">
-                <div
-                  v-for="rc in trophy.raceClubs"
-                  :key="rc.id"
-                  class="mpm-tc-trophy"
-                  :title="`${rc.label}: ${rc.count}× completed`"
-                >
-                  <div class="mpm-tc-trophy-icon-wrap mpm-tc-trophy-icon-wrap--race">
-                    <img v-if="rc.earnedTier?.iconUrl" :src="rc.earnedTier.iconUrl" class="mpm-tc-trophy-img" alt="" />
-                    <span v-else class="mpm-tc-trophy-emoji">🏅</span>
-                    <span class="mpm-tc-count">×{{ rc.count }}</span>
-                  </div>
-                  <div class="mpm-tc-nameplate">{{ rc.label }}</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Completed Challenges shelf -->
-            <div v-if="trophy?.completedChallenges?.length" class="mpm-tc-shelf">
-              <div class="mpm-tc-shelf-label">⚡ Challenges</div>
-              <div class="mpm-tc-shelf-row">
-                <div
-                  v-for="ch in trophy.completedChallenges"
-                  :key="ch.taskId || ch.label"
-                  class="mpm-tc-trophy"
-                  :title="`${ch.label} · Completed ${ch.count}×`"
-                >
-                  <div class="mpm-tc-trophy-icon-wrap mpm-tc-trophy-icon-wrap--challenge">
-                    <img v-if="ch.iconUrl" :src="ch.iconUrl" class="mpm-tc-trophy-img" alt="" />
-                    <span v-else-if="ch.icon && !String(ch.icon).startsWith('icon:')" class="mpm-tc-trophy-emoji">{{ ch.icon }}</span>
-                    <span v-else class="mpm-tc-trophy-emoji">⚡</span>
-                    <span v-if="ch.count > 1" class="mpm-tc-count">×{{ ch.count }}</span>
-                  </div>
-                  <div class="mpm-tc-nameplate">{{ ch.label }}</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Club Records Held — single unified list using stored values -->
-            <div v-if="trophy?.recordsHeld?.length" class="mpm-tc-shelf mpm-tc-shelf--pr">
-              <div class="mpm-tc-shelf-label">📋 Club Records Held</div>
-              <div class="mpm-pr-list">
-                <div
-                  v-for="r in trophy.recordsHeld"
-                  :key="r.id"
-                  class="mpm-pr-row"
-                >
-                  <img v-if="r.iconUrl" :src="r.iconUrl" class="mpm-pr-icon" alt="" />
-                  <span v-else class="mpm-pr-icon-ph">🏆</span>
-                  <span class="mpm-pr-label">{{ r.label }}</span>
-                  <span v-if="r.value != null" class="mpm-pr-value">
-                    {{ fmtPr(r) }}
-                    <span v-if="r.unit && r.metricKey !== 'race_chip_time_seconds'" class="mpm-pr-unit">{{ r.unit }}</span>
-                  </span>
-                </div>
-              </div>
-            </div>
+            <TrophyCaseShelf
+              :trophies="shelfSlots"
+              :loading="trophyLoading"
+              empty-text="No trophies yet — keep training!"
+            />
           </div>
         </template>
       </div>
@@ -157,6 +78,7 @@
 import { ref, computed, watch } from 'vue';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl.js';
+import TrophyCaseShelf from '../summit/TrophyCaseShelf.vue';
 
 const props = defineProps({
   clubId: { type: [Number, String], required: true },
@@ -212,6 +134,83 @@ const hasTrophies = computed(() =>
   !!(trophy.value?.raceClubs?.length || trophy.value?.recordsHeld?.length ||
      trophy.value?.seasonAwards?.length || trophy.value?.completedChallenges?.length)
 );
+
+const fmtDate = (d) => {
+  if (!d) return '';
+  try { return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); }
+  catch { return String(d).slice(0, 10); }
+};
+const fmtVal = (v) => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '';
+  if (Math.abs(n) >= 100) return Math.round(n).toLocaleString();
+  return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+};
+
+const shelfSlots = computed(() => {
+  if (!trophy.value) return [];
+  const slots = [];
+  for (const a of (trophy.value.seasonAwards || [])) {
+    slots.push({
+      key: `award-${a.categoryId}`,
+      type: 'award',
+      label: a.label,
+      count: a.count || 1,
+      iconUrl: a.iconUrl || null,
+      iconText: (!a.iconUrl && a.icon && !String(a.icon).startsWith('icon:')) ? a.icon : null,
+      details: (a.grants || []).map(g => ({
+        title: g.seasonName || 'Season',
+        subtitle: g.clubName || '',
+        value: g.metricValue != null ? fmtVal(g.metricValue) : null,
+        date: fmtDate(g.grantedAt)
+      }))
+    });
+  }
+  for (const rc of (trophy.value.raceClubs || [])) {
+    slots.push({
+      key: `race-${rc.id}`,
+      type: 'race',
+      label: rc.label,
+      count: rc.count || 1,
+      iconUrl: rc.earnedTier?.iconUrl || null,
+      iconText: null,
+      details: [{ title: `Completed ${rc.count}×`, subtitle: '', value: null, date: null }]
+    });
+  }
+  for (const ch of (trophy.value.completedChallenges || [])) {
+    slots.push({
+      key: `ch-${ch.taskId || ch.label}`,
+      type: 'challenge',
+      label: ch.label,
+      count: ch.count || 1,
+      iconUrl: ch.iconUrl || null,
+      iconText: (!ch.iconUrl && ch.icon && !String(ch.icon).startsWith('icon:')) ? ch.icon : null,
+      details: (ch.completions || []).map(c => ({
+        title: c.seasonName || 'Season',
+        subtitle: c.clubName || '',
+        value: c.distanceMiles != null ? `${Number(c.distanceMiles).toFixed(2)} mi` : null,
+        date: fmtDate(c.completedAt)
+      }))
+    });
+  }
+  for (const r of (trophy.value.recordsHeld || [])) {
+    slots.push({
+      key: `rec-${r.id}`,
+      type: 'record',
+      label: r.label,
+      count: 1,
+      iconUrl: r.iconUrl || null,
+      iconText: null,
+      details: [{
+        title: r.value != null ? `${r.value}${r.unit ? ' ' + r.unit : ''}` : 'Record held',
+        subtitle: r.holderYear ? `Set in ${r.holderYear}` : '',
+        value: null,
+        date: null
+      }]
+    });
+  }
+  return slots;
+});
 
 const emojiFor = (icon) => {
   if (!icon || String(icon).startsWith('icon:')) return '🏅';
@@ -365,15 +364,15 @@ watch(() => props.userId, (uid) => {
 /* ── Trophy Case ──────────────────────────────────────── */
 .mpm-trophy-case {
   margin-top: 16px;
-  background: linear-gradient(160deg, #1e1a14 0%, #2d2518 60%, #1e1a14 100%);
+  background: linear-gradient(160deg, #1a1510 0%, #0f0c07 100%);
   border-radius: 16px;
-  padding: 16px 14px 18px;
+  padding: 14px 12px 16px;
   box-shadow: inset 0 2px 8px rgba(0,0,0,0.4), 0 4px 16px rgba(0,0,0,0.2);
 }
 .mpm-tc-header {
   display: flex;
   align-items: center;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 .mpm-tc-title {
   font-size: 0.78rem;
@@ -382,12 +381,14 @@ watch(() => props.userId, (uid) => {
   letter-spacing: 0.1em;
   color: #d4a843;
 }
-.mpm-trophy-empty {
-  font-size: 0.85rem;
-  color: rgba(255,255,255,0.4);
-  padding: 8px 0;
+.mpm-trophy-retry {
+  cursor: pointer;
+  color: #a5b4fc;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-size: 0.82rem;
+  margin-bottom: 8px;
 }
-.mpm-trophy-retry { cursor: pointer; color: #a5b4fc; text-decoration: underline; text-underline-offset: 2px; }
 
 /* Shelf */
 .mpm-tc-shelf {

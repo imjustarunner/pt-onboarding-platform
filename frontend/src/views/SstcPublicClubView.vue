@@ -622,7 +622,7 @@
           <template v-else-if="pubProfileData">
             <div class="pub-prof-top">
               <div class="pub-prof-avatar">
-                <img v-if="pubProfileData.profilePhotoUrl" :src="pubProfileData.profilePhotoUrl" alt="" class="pub-prof-avatar-img" />
+                <img v-if="pubProfileData.profilePhotoUrl" :src="toUploadsUrl(pubProfileData.profilePhotoUrl) || pubProfileData.profilePhotoUrl" alt="" class="pub-prof-avatar-img" />
                 <div v-else class="pub-prof-avatar-fallback">{{ pubProfileData.initials || '?' }}</div>
               </div>
               <div>
@@ -644,41 +644,13 @@
               </div>
             </div>
 
-            <template v-if="pubProfileHasTrophies">
-              <div class="pub-prof-section">
-                <div class="pub-prof-section-label">🏆 Trophies</div>
-
-                <div v-if="pubProfileData.raceClubBadges?.length" class="pub-prof-badges">
-                  <div
-                    v-for="rc in pubProfileData.raceClubBadges"
-                    :key="rc.id"
-                    class="pub-prof-badge"
-                    :title="`${rc.label} — ${rc.count}× completed`"
-                  >
-                    <img v-if="rc.earnedTier?.iconUrl" :src="rc.earnedTier.iconUrl" class="pub-prof-badge-icon" alt="" />
-                    <span v-else class="pub-prof-badge-emoji">🏅</span>
-                    <div class="pub-prof-badge-info">
-                      <span class="pub-prof-badge-name">{{ rc.label }}</span>
-                      <span class="pub-prof-badge-count">{{ rc.count }}×</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div v-if="pubProfileData.recordsHeld?.length" class="pub-prof-records">
-                  <div
-                    v-for="r in pubProfileData.recordsHeld"
-                    :key="r.id"
-                    class="pub-prof-record"
-                    :title="`${r.label}${r.value != null ? ': ' + r.value + (r.unit ? ' ' + r.unit : '') : ''}${r.holderYear ? ' · ' + r.holderYear : ''}`"
-                  >
-                    <span class="pub-prof-record-trophy">🏆</span>
-                    <span class="pub-prof-record-label">{{ r.label }}</span>
-                    <span class="pub-prof-record-value">{{ r.value != null ? `${r.value}${r.unit ? ' ' + r.unit : ''}` : '' }}</span>
-                  </div>
-                </div>
-              </div>
-            </template>
-            <div v-else class="pub-prof-section pub-prof-no-trophies">No trophies yet — check back later!</div>
+            <div class="pub-prof-section pub-prof-trophy-section">
+              <div class="pub-prof-section-label">🏆 Trophy Case</div>
+              <TrophyCaseShelf
+                :trophies="pubProfileShelfSlots"
+                empty-text="No trophies yet — check back later!"
+              />
+            </div>
 
             <p class="pub-prof-signin-hint">
               <router-link :to="loginTo">Sign in</router-link> to see the full profile.
@@ -700,6 +672,7 @@ import { toUploadsUrl } from '../utils/uploadsUrl';
 import ClubFeedPanel from '../components/sstc/ClubFeedPanel.vue';
 import MemberProfileModal from '../components/shared/MemberProfileModal.vue';
 import SeasonRecognitionStandings from '../components/sstc/SeasonRecognitionStandings.vue';
+import TrophyCaseShelf from '../components/summit/TrophyCaseShelf.vue';
 
 const route  = useRoute();
 const router = useRouter();
@@ -777,8 +750,64 @@ const closePubProfile = () => {
 
 const pubProfileHasTrophies = computed(() => {
   if (!pubProfileData.value) return false;
-  return (pubProfileData.value.raceClubBadges?.length > 0) ||
+  return (pubProfileData.value.seasonAwards?.length > 0) ||
+         (pubProfileData.value.raceClubs?.length > 0) ||
+         (pubProfileData.value.raceClubBadges?.length > 0) ||
+         (pubProfileData.value.completedChallenges?.length > 0) ||
          (pubProfileData.value.recordsHeld?.length > 0);
+});
+
+const pubProfileShelfSlots = computed(() => {
+  const d = pubProfileData.value;
+  if (!d) return [];
+  const slots = [];
+  const fmtDate = (dt) => { try { return dt ? new Date(dt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : ''; } catch { return ''; } };
+  for (const a of (d.seasonAwards || [])) {
+    slots.push({
+      key: `award-${a.categoryId}`,
+      type: 'award',
+      label: a.label,
+      count: a.count || 1,
+      iconUrl: a.iconUrl || null,
+      iconText: (!a.iconUrl && a.icon && !String(a.icon).startsWith('icon:')) ? a.icon : null,
+      details: (a.grants || []).map(g => ({ title: g.seasonName || 'Season', subtitle: g.clubName || '', value: null, date: fmtDate(g.grantedAt) }))
+    });
+  }
+  const raceSrc = d.raceClubs?.length ? d.raceClubs : (d.raceClubBadges || []);
+  for (const rc of raceSrc) {
+    slots.push({
+      key: `race-${rc.id}`,
+      type: 'race',
+      label: rc.label,
+      count: rc.count || 1,
+      iconUrl: rc.earnedTier?.iconUrl || null,
+      iconText: null,
+      details: [{ title: `Completed ${rc.count}×`, subtitle: '', value: null, date: null }]
+    });
+  }
+  for (const ch of (d.completedChallenges || [])) {
+    slots.push({
+      key: `ch-${ch.taskId || ch.label}`,
+      type: 'challenge',
+      label: ch.label,
+      count: ch.count || 1,
+      iconUrl: ch.iconUrl || null,
+      iconText: (!ch.iconUrl && ch.icon && !String(ch.icon).startsWith('icon:')) ? ch.icon : null,
+      details: (ch.completions || []).map(c => ({ title: c.seasonName || 'Season', subtitle: '', value: c.distanceMiles != null ? `${Number(c.distanceMiles).toFixed(2)} mi` : null, date: fmtDate(c.completedAt) }))
+    });
+  }
+  for (const r of (d.recordsHeld || [])) {
+    slots.push({
+      key: `rec-${r.id}`,
+      type: 'record',
+      label: r.label,
+      count: 1,
+      iconUrl: r.iconUrl || null,
+      iconText: null,
+      details: [{ title: r.value != null ? `${r.value}${r.unit ? ' ' + r.unit : ''}` : 'Record held', subtitle: r.holderYear ? `Set ${r.holderYear}` : '', value: null, date: null }]
+    });
+  }
+  return slots;
 });
 
 const viewer = computed(() => {

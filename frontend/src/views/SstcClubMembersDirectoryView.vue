@@ -197,89 +197,12 @@
             </div>
 
             <!-- Trophy Case -->
-            <div v-if="hasTrophies" class="member-modal-section member-trophy-section">
+            <div class="member-modal-section member-trophy-section">
               <h3 class="member-modal-h">🏆 Trophy Case</h3>
-
-              <!-- Season Recognition Awards -->
-              <div v-if="trophyCase.seasonAwards?.length" class="dir-awards-section">
-                <div class="trophy-records-label">Recognition Awards</div>
-                <div class="dir-awards-grid">
-                  <div
-                    v-for="a in trophyCase.seasonAwards"
-                    :key="a.categoryId"
-                    class="dir-award-badge"
-                    :title="dirAwardTooltip(a)"
-                  >
-                    <div class="dir-award-icon-wrap">
-                      <img v-if="a.iconUrl" :src="a.iconUrl" class="dir-award-icon" alt="" />
-                      <span v-else class="dir-award-emoji">{{ dirEmojiFor(a.icon) }}</span>
-                      <span v-if="a.count > 1" class="dir-award-count">{{ a.count }}</span>
-                    </div>
-                    <div class="dir-award-label">{{ a.label }}</div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Race Club Badges -->
-              <div v-if="trophyCase.raceClubs?.length" class="trophy-badges">
-                <div
-                  v-for="rc in trophyCase.raceClubs"
-                  :key="rc.id"
-                  class="trophy-badge"
-                  :title="`${rc.label}: ${rc.count}× completed`"
-                >
-                  <img
-                    v-if="rc.earnedTier?.iconUrl"
-                    :src="rc.earnedTier.iconUrl"
-                    class="trophy-badge-icon"
-                    alt=""
-                  />
-                  <span v-else class="trophy-badge-emoji">🏅</span>
-                  <div class="trophy-badge-info">
-                    <span class="trophy-badge-name">{{ rc.label }}</span>
-                    <span class="trophy-badge-count">{{ rc.count }}×</span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Personal Records -->
-              <div v-if="trophyCase.personalRecords?.length" class="trophy-records">
-                <div class="trophy-records-label">Personal Records</div>
-                <div
-                  v-for="r in trophyCase.personalRecords"
-                  :key="r.id"
-                  class="trophy-record-row"
-                  :class="{ 'trophy-record-row--cr': r.isClubRecord }"
-                >
-                  <img v-if="r.iconUrl" :src="r.iconUrl" class="trophy-record-icon" alt="" />
-                  <span v-else class="trophy-record-icon-ph">⭐</span>
-                  <span class="trophy-record-label">
-                    {{ r.label }}
-                    <span v-if="r.isClubRecord" class="trophy-cr-badge">CR</span>
-                  </span>
-                  <span class="trophy-record-value">
-                    {{ formatPrValue(r) }}
-                    <span v-if="r.unit && r.metricKey !== 'race_chip_time_seconds'" class="trophy-record-unit">{{ r.unit }}</span>
-                  </span>
-                  <span v-if="r.context" class="trophy-record-year">{{ r.context }}</span>
-                </div>
-              </div>
-
-              <!-- Club Records Held (icon badge grid with hover tooltip) -->
-              <div v-if="trophyCase.recordsHeld?.filter(r => !trophyCase.personalRecords?.some(pr => pr.id === r.id)).length" class="trophy-cr-section">
-                <div class="trophy-records-label">Club Records Held</div>
-                <div class="trophy-cr-grid">
-                  <div
-                    v-for="r in trophyCase.recordsHeld.filter(r => !trophyCase.personalRecords?.some(pr => pr.id === r.id))"
-                    :key="r.id"
-                    class="trophy-cr-badge-wrap"
-                    :title="`${r.label}${r.value != null ? ': ' + formatPrValue(r) + (r.unit && r.metricKey !== 'race_chip_time_seconds' ? ' ' + r.unit : '') : ''}${r.holderYear ? ' · ' + r.holderYear : ''}`"
-                  >
-                    <img v-if="r.iconUrl" :src="r.iconUrl" class="trophy-cr-badge-icon" alt="" />
-                    <span v-else class="trophy-cr-badge-trophy">🏆</span>
-                  </div>
-                </div>
-              </div>
+              <TrophyCaseShelf
+                :trophies="dirShelfSlots"
+                empty-text="No trophies yet — keep training!"
+              />
             </div>
           </template>
         </div>
@@ -331,50 +254,12 @@
             </div>
 
             <!-- Trophy Case (public) -->
-            <div v-if="publicHasTrophies" class="member-modal-section member-trophy-section">
+            <div class="member-modal-section member-trophy-section">
               <h3 class="member-modal-h">🏆 Trophy Case</h3>
-
-              <!-- Race Club Badges -->
-              <div v-if="publicProfileData.raceClubBadges?.length" class="trophy-badges">
-                <div
-                  v-for="rc in publicProfileData.raceClubBadges"
-                  :key="rc.id"
-                  class="trophy-badge"
-                  :title="`${rc.label}: ${rc.count}× completed`"
-                >
-                  <img
-                    v-if="rc.earnedTier?.iconUrl"
-                    :src="rc.earnedTier.iconUrl"
-                    class="trophy-badge-icon"
-                    alt=""
-                  />
-                  <span v-else class="trophy-badge-emoji">🏅</span>
-                  <div class="trophy-badge-info">
-                    <span class="trophy-badge-name">{{ rc.label }}</span>
-                    <span class="trophy-badge-count">{{ rc.count }}×</span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Club Records Held -->
-              <div v-if="publicProfileData.recordsHeld?.length" class="trophy-cr-section">
-                <div class="trophy-records-label">Club Records Held</div>
-                <div class="trophy-cr-grid">
-                  <div
-                    v-for="r in publicProfileData.recordsHeld"
-                    :key="r.id"
-                    class="trophy-cr-badge-wrap"
-                    :title="`${r.label}${r.value != null ? ': ' + formatPublicRecordValue(r) + (r.unit ? ' ' + r.unit : '') : ''}${r.holderYear ? ' · ' + r.holderYear : ''}`"
-                  >
-                    <span class="trophy-cr-badge-trophy">🏆</span>
-                    <span class="trophy-cr-badge-label">{{ r.label }}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div v-if="!publicHasTrophies" class="member-modal-section muted" style="font-size:.85rem;">
-              No trophies yet — check back later!
+              <TrophyCaseShelf
+                :trophies="publicShelfSlots"
+                empty-text="No trophies yet — check back later!"
+              />
             </div>
 
             <p class="pub-profile-signin-hint">
@@ -393,6 +278,7 @@ import { useRoute } from 'vue-router';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
+import TrophyCaseShelf from '../components/summit/TrophyCaseShelf.vue';
 
 const route = useRoute();
 const authStore = useAuthStore();
@@ -646,8 +532,68 @@ const closePublicModal = () => {
 
 const publicHasTrophies = computed(() => {
   if (!publicProfileData.value) return false;
-  return (publicProfileData.value.raceClubBadges?.length > 0) ||
-         (publicProfileData.value.recordsHeld?.length > 0);
+  const d = publicProfileData.value;
+  return (d.seasonAwards?.length > 0) || (d.raceClubs?.length > 0) ||
+         (d.raceClubBadges?.length > 0) || (d.completedChallenges?.length > 0) ||
+         (d.recordsHeld?.length > 0);
+});
+
+const publicShelfSlots = computed(() => {
+  const d = publicProfileData.value;
+  if (!d) return [];
+  const slots = [];
+  const fmtDt = (dt) => { try { return dt ? new Date(dt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : ''; } catch { return ''; } };
+  for (const a of (d.seasonAwards || [])) {
+    slots.push({ key: `award-${a.categoryId}`, type: 'award', label: a.label, count: a.count || 1,
+      iconUrl: a.iconUrl || null, iconText: (!a.iconUrl && a.icon && !String(a.icon).startsWith('icon:')) ? a.icon : null,
+      details: (a.grants || []).map(g => ({ title: g.seasonName || 'Season', subtitle: g.clubName || '', value: null, date: fmtDt(g.grantedAt) })) });
+  }
+  const raceSrc = d.raceClubs?.length ? d.raceClubs : (d.raceClubBadges || []);
+  for (const rc of raceSrc) {
+    slots.push({ key: `race-${rc.id}`, type: 'race', label: rc.label, count: rc.count || 1,
+      iconUrl: rc.earnedTier?.iconUrl || null, iconText: null,
+      details: [{ title: `Completed ${rc.count}×`, subtitle: '', value: null, date: null }] });
+  }
+  for (const ch of (d.completedChallenges || [])) {
+    slots.push({ key: `ch-${ch.taskId || ch.label}`, type: 'challenge', label: ch.label, count: ch.count || 1,
+      iconUrl: ch.iconUrl || null, iconText: (!ch.iconUrl && ch.icon && !String(ch.icon).startsWith('icon:')) ? ch.icon : null,
+      details: (ch.completions || []).map(c => ({ title: c.seasonName || 'Season', subtitle: '', value: c.distanceMiles != null ? `${Number(c.distanceMiles).toFixed(2)} mi` : null, date: fmtDt(c.completedAt) })) });
+  }
+  for (const r of (d.recordsHeld || [])) {
+    slots.push({ key: `rec-${r.id}`, type: 'record', label: r.label, count: 1,
+      iconUrl: r.iconUrl || null, iconText: null,
+      details: [{ title: r.value != null ? `${r.value}${r.unit ? ' ' + r.unit : ''}` : 'Record held', subtitle: r.holderYear ? `Set ${r.holderYear}` : '', value: null, date: null }] });
+  }
+  return slots;
+});
+
+const dirShelfSlots = computed(() => {
+  const tc = trophyCase.value;
+  if (!tc) return [];
+  const slots = [];
+  const fmtDt = (dt) => { try { return dt ? new Date(dt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : ''; } catch { return ''; } };
+  const fmtV = (v) => { const n = Number(v); if (!Number.isFinite(n)) return ''; return Math.abs(n) >= 100 ? Math.round(n).toLocaleString() : n.toLocaleString(undefined, { maximumFractionDigits: 2 }); };
+  for (const a of (tc.seasonAwards || [])) {
+    slots.push({ key: `award-${a.categoryId}`, type: 'award', label: a.label, count: a.count || 1,
+      iconUrl: a.iconUrl || null, iconText: (!a.iconUrl && a.icon && !String(a.icon).startsWith('icon:')) ? a.icon : null,
+      details: (a.grants || []).map(g => ({ title: g.seasonName || 'Season', subtitle: g.clubName || '', value: g.metricValue != null ? fmtV(g.metricValue) : null, date: fmtDt(g.grantedAt) })) });
+  }
+  for (const rc of (tc.raceClubs || [])) {
+    slots.push({ key: `race-${rc.id}`, type: 'race', label: rc.label, count: rc.count || 1,
+      iconUrl: rc.earnedTier?.iconUrl || null, iconText: null,
+      details: [{ title: `Completed ${rc.count}×`, subtitle: '', value: null, date: null }] });
+  }
+  for (const ch of (tc.completedChallenges || [])) {
+    slots.push({ key: `ch-${ch.taskId || ch.label}`, type: 'challenge', label: ch.label, count: ch.count || 1,
+      iconUrl: ch.iconUrl || null, iconText: (!ch.iconUrl && ch.icon && !String(ch.icon).startsWith('icon:')) ? ch.icon : null,
+      details: (ch.completions || []).map(c => ({ title: c.seasonName || 'Season', subtitle: '', value: c.distanceMiles != null ? `${Number(c.distanceMiles).toFixed(2)} mi` : null, date: fmtDt(c.completedAt) })) });
+  }
+  for (const r of (tc.recordsHeld || [])) {
+    slots.push({ key: `rec-${r.id}`, type: 'record', label: r.label, count: 1,
+      iconUrl: r.iconUrl || null, iconText: null,
+      details: [{ title: r.value != null ? `${r.value}${r.unit ? ' ' + r.unit : ''}` : 'Record held', subtitle: r.holderYear ? `Set ${r.holderYear}` : '', value: null, date: null }] });
+  }
+  return slots;
 });
 
 const formatPublicRecordValue = (r) => {

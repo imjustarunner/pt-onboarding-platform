@@ -1873,7 +1873,7 @@ export const createRaceClubPlaceholder = async (req, res, next) => {
  * Builds the trophy case data for a single member within a club.
  * Returns { raceClubs, recordsHeld, seasonAwards }
  */
-const getMemberTrophyCaseData = async ({ clubId, userId }) => {
+export const getMemberTrophyCaseData = async ({ clubId, userId }) => {
   // Fetch user info upfront — needed for name/email fallback matching
   let userFullName = '';
   let userEmail = '';

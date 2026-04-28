@@ -5582,27 +5582,15 @@ export const getPublicClubMemberProfile = async (req, res, next) => {
         .filter(Boolean);
     } catch { /* non-fatal */ }
 
-    // Club records held by this member
-    let recordsHeld = [];
+    // Full trophy case data (season awards, race clubs, challenge completions, records)
+    let trophyCaseData = { seasonAwards: [], raceClubs: [], completedChallenges: [], recordsHeld: [] };
     try {
-      const [recRows] = await pool.execute(
-        `SELECT records_json FROM summit_stats_club_records WHERE agency_id = ? LIMIT 1`, [clubId]
-      );
-      const raw = recRows?.[0]?.records_json;
-      if (raw) {
-        const allRecords = JSON.parse(raw);
-        recordsHeld = (Array.isArray(allRecords) ? allRecords : [])
-          .filter(r => r.holderUserId && Number(r.holderUserId) === Number(targetUserId) && r.value != null)
-          .map(r => ({
-            id: r.id,
-            label: r.label,
-            value: r.value,
-            unit: r.unit,
-            holderYear: r.holderYear || null,
-            iconId: r.iconId || null
-          }));
-      }
-    } catch { /* non-fatal */ }
+      const { getMemberTrophyCaseData } = await import('./summitStats.controller.js');
+      trophyCaseData = await getMemberTrophyCaseData({ clubId, userId: targetUserId });
+    } catch { /* non-fatal — fall back to race badges already fetched above */ }
+
+    // Merge race club badges: prefer getMemberTrophyCaseData result if available
+    const mergedRaceClubs = trophyCaseData.raceClubs?.length ? trophyCaseData.raceClubs : raceClubBadges;
 
     return res.json({
       userId: targetUserId,
@@ -5619,8 +5607,12 @@ export const getPublicClubMemberProfile = async (req, res, next) => {
         longestRunMiles: Math.round(Number(st.longest_run_miles || 0) * 10) / 10,
         totalMinutes: Math.round(Number(st.total_minutes || 0))
       },
+      seasonAwards: trophyCaseData.seasonAwards || [],
+      raceClubs: mergedRaceClubs,
+      completedChallenges: trophyCaseData.completedChallenges || [],
+      recordsHeld: trophyCaseData.recordsHeld || [],
+      // Legacy field for backward compat
       raceClubBadges,
-      recordsHeld,
       public: true
     });
   } catch (e) { next(e); }
