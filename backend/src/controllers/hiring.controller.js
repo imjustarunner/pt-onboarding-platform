@@ -156,11 +156,36 @@ function sanitizeApplicationPageJson(raw) {
       : [],
     bannerLinkText: compactText(raw.bannerLinkText || raw.banner_link_text, 80),
     bannerLinkHref: compactText(raw.bannerLinkHref || raw.banner_link_href, 512),
+    iconUrl: compactText(raw.iconUrl || raw.icon_url, 512),
+    iconAlt: compactText(raw.iconAlt || raw.icon_alt, 120),
     featureCards: normalizeItems(raw.featureCards || raw.feature_cards, 4),
     trustItems: normalizeItems(raw.trustItems || raw.trust_items, 3)
   };
 
   return Object.values(out).some((v) => (Array.isArray(v) ? v.length > 0 : !!v)) ? out : null;
+}
+
+async function saveJobIconImageUpload({ req, agencyId, applicationPageJson }) {
+  const iconImage = getUploadedFile(req, 'jobIcon');
+  if (!iconImage) return applicationPageJson;
+  const mimeType = String(iconImage.mimetype || '').trim().toLowerCase();
+  if (!mimeType.startsWith('image/')) {
+    const err = new Error('Job icon must be an image file');
+    err.status = 400;
+    throw err;
+  }
+  const originalName = iconImage.originalname || 'job-icon';
+  const ext = originalName.includes('.') ? originalName.split('.').pop() : 'png';
+  const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+  const filename = StorageService.sanitizeFilename(`job-icon-${agencyId}-${uniqueSuffix}.${ext}`);
+  const storageResult = await StorageService.savePublicMarketingAsset(iconImage.buffer, filename, iconImage.mimetype);
+  const publicRel = String(storageResult.relativePath || storageResult.path || '').replace(/^uploads\//, '');
+  if (!publicRel) return applicationPageJson;
+  return {
+    ...(applicationPageJson || {}),
+    iconUrl: `/uploads/${publicRel}`,
+    iconAlt: compactText((applicationPageJson || {}).iconAlt || 'Job icon', 120)
+  };
 }
 
 function getApplicationPageJsonFromBody(body) {
@@ -782,6 +807,7 @@ export const createJobDescription = async (req, res, next) => {
 
     let applicationPageJson = getApplicationPageJsonFromBody(req.body);
     applicationPageJson = await saveJobHeroImageUpload({ req, agencyId, applicationPageJson });
+    applicationPageJson = await saveJobIconImageUpload({ req, agencyId, applicationPageJson });
 
     let storagePath = null;
     let originalName = null;
@@ -885,6 +911,7 @@ export const updateJobDescription = async (req, res, next) => {
         ? getApplicationPageJsonFromBody(req.body)
         : sanitizeApplicationPageJson(parseMetadata(existing.application_page_json));
       applicationPageJson = await saveJobHeroImageUpload({ req, agencyId, applicationPageJson });
+      applicationPageJson = await saveJobIconImageUpload({ req, agencyId, applicationPageJson });
 
       if (hasUploadedFile) {
         const fileBuffer = descriptionFile.buffer;
@@ -973,14 +1000,12 @@ export const updateJobDescription = async (req, res, next) => {
     let applicationPageJson = req.body?.applicationPageJson !== undefined || req.body?.application_page_json !== undefined
       ? getApplicationPageJsonFromBody(req.body)
       : undefined;
-    if (applicationPageJson !== undefined || getUploadedFile(req, 'heroImage')) {
-      applicationPageJson = await saveJobHeroImageUpload({
-        req,
-        agencyId,
-        applicationPageJson: applicationPageJson !== undefined
-          ? applicationPageJson
-          : sanitizeApplicationPageJson(parseMetadata(existing.application_page_json))
-      });
+    if (applicationPageJson !== undefined || getUploadedFile(req, 'heroImage') || getUploadedFile(req, 'jobIcon')) {
+      const baseJson = applicationPageJson !== undefined
+        ? applicationPageJson
+        : sanitizeApplicationPageJson(parseMetadata(existing.application_page_json));
+      applicationPageJson = await saveJobHeroImageUpload({ req, agencyId, applicationPageJson: baseJson });
+      applicationPageJson = await saveJobIconImageUpload({ req, agencyId, applicationPageJson });
     }
 
     const updated = await HiringJobDescription.updateById(jdId, {

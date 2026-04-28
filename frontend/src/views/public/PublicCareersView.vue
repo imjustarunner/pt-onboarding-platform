@@ -70,13 +70,9 @@
     <!-- ── FILTERS ── -->
     <div class="cr-filters-wrap">
       <div class="cr-filters">
+        <!-- Role type pills -->
         <div class="cr-pill-group">
-          <button
-            class="cr-pill"
-            :class="{ 'cr-pill--active': !selectedRoleType }"
-            type="button"
-            @click="selectedRoleType = ''"
-          >All Roles</button>
+          <button class="cr-pill" :class="{ 'cr-pill--active': !selectedRoleType }" type="button" @click="selectedRoleType = ''">All Roles</button>
           <button
             v-for="rt in availableRoleTypes"
             :key="rt"
@@ -87,28 +83,25 @@
           >{{ rt }}</button>
         </div>
 
+        <!-- Location pills (cities) -->
         <div class="cr-pill-group cr-pill-group--location">
           <svg class="cr-loc-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M8 1.5A4.5 4.5 0 0 1 12.5 6c0 3.5-4.5 8.5-4.5 8.5S3.5 9.5 3.5 6A4.5 4.5 0 0 1 8 1.5Z" stroke="currentColor" stroke-width="1.3"/>
             <circle cx="8" cy="6" r="1.5" stroke="currentColor" stroke-width="1.3"/>
           </svg>
+          <button class="cr-pill" :class="{ 'cr-pill--active': !selectedLocation }" type="button" @click="selectedLocation = ''">All Locations</button>
           <button
+            v-for="loc in availableLocations"
+            :key="loc"
             class="cr-pill"
-            :class="{ 'cr-pill--active': !selectedState }"
+            :class="{ 'cr-pill--active': selectedLocation === loc }"
             type="button"
-            @click="selectedState = ''; selectedCity = ''"
-          >All Locations</button>
-          <button
-            v-for="st in availableStates"
-            :key="st"
-            class="cr-pill"
-            :class="{ 'cr-pill--active': selectedState === st }"
-            type="button"
-            @click="selectedState = st; selectedCity = ''"
-          >{{ st }}</button>
+            @click="selectedLocation = loc"
+          >{{ loc }}</button>
         </div>
 
-        <select v-model="sortBy" class="cr-sort-select">
+        <!-- Sort dropdown (fixed: outer is div, not select) -->
+        <div class="cr-sort-wrap">
           <svg class="cr-sort-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <rect x="2" y="4" width="12" height="1.3" rx="0.65" fill="currentColor"/>
             <rect x="4" y="7.3" width="8" height="1.3" rx="0.65" fill="currentColor"/>
@@ -119,7 +112,7 @@
             <option value="posted_asc">Oldest Posted</option>
             <option value="city_asc">City / State (A–Z)</option>
           </select>
-        </select>
+        </div>
       </div>
     </div>
 
@@ -161,9 +154,18 @@
         <li v-for="job in pagedJobs" :key="job.jobId" class="cr-item">
           <article class="cr-card" :class="{ 'cr-card--featured': job.isFeatured }">
             <span v-if="job.isFeatured" class="cr-featured-badge">FEATURED</span>
-            <div class="cr-card-icon" :class="`cr-card-icon--${roleTypeKey(job.roleType || job.educationLevel)}`" aria-hidden="true">
-              <span>{{ roleTypeEmoji(job.roleType || job.educationLevel) }}</span>
+
+            <!-- Job card icon: uploaded image or emoji fallback -->
+            <div class="cr-card-icon" :class="`cr-card-icon--${roleTypeKey(job.roleType || job.educationLevel)}`">
+              <img
+                v-if="job.iconUrl"
+                :src="resolveIconUrl(job.iconUrl)"
+                :alt="job.roleType || 'Role icon'"
+                class="cr-card-icon-img"
+              />
+              <span v-else aria-hidden="true">{{ roleTypeEmoji(job.roleType || job.educationLevel) }}</span>
             </div>
+
             <div class="cr-card-body">
               <h2 class="cr-card-title">{{ job.title }}</h2>
               <div class="cr-card-meta">
@@ -185,6 +187,7 @@
                 <span v-for="tag in job.tags" :key="tag" class="cr-tag">{{ tag }}</span>
               </div>
             </div>
+
             <div class="cr-card-actions">
               <a
                 class="cr-apply-btn"
@@ -210,7 +213,7 @@
       </ul>
 
       <!-- ── PAGINATION ── -->
-      <div v-if="totalPages > 1 || filteredJobs.length > 0" class="cr-pagination">
+      <div v-if="filteredJobs.length > 0" class="cr-pagination">
         <p class="cr-pagination-count">
           Showing {{ pageStart + 1 }}–{{ pageEnd }} of {{ filteredJobs.length }} role{{ filteredJobs.length !== 1 ? 's' : '' }}
         </p>
@@ -282,8 +285,7 @@ const error = ref('');
 const jobs = ref([]);
 const agencyName = ref('');
 const agencyCareersPage = ref({});
-const selectedState = ref('');
-const selectedCity = ref('');
+const selectedLocation = ref('');
 const selectedRoleType = ref('');
 const sortBy = ref('featured_desc');
 const learnMoreJob = ref(null);
@@ -291,12 +293,35 @@ const savedJobs = ref(new Set());
 const currentPage = ref(1);
 const showAll = ref(false);
 
-const accentColor = computed(() => String(agencyCareersPage.value?.accentColor || '').trim() || '#1a8c54');
-const rootStyle = computed(() => ({ '--accent': accentColor.value }));
+/* ── Brand color (careers page explicit → branding store primary → default) ── */
+const hexToRgba = (hex, alpha) => {
+  const clean = String(hex || '').replace(/^#/, '');
+  const full = clean.length === 3 ? clean.split('').map((c) => c + c).join('') : clean.padEnd(6, '0');
+  const r = parseInt(full.slice(0, 2), 16) || 26;
+  const g = parseInt(full.slice(2, 4), 16) || 140;
+  const b = parseInt(full.slice(4, 6), 16) || 84;
+  return `rgba(${r},${g},${b},${alpha})`;
+};
 
-const navItems = computed(() =>
-  Array.isArray(agencyCareersPage.value?.navItems) ? agencyCareersPage.value.navItems : []
-);
+const accentColor = computed(() => {
+  const explicit = String(agencyCareersPage.value?.accentColor || '').trim();
+  if (explicit && /^#[0-9a-fA-F]{3,8}$/.test(explicit)) return explicit;
+  const brand =
+    brandingStore.portalTheme?.colorPalette?.primary ||
+    brandingStore.portalAgency?.colorPalette?.primary ||
+    brandingStore.primaryColor;
+  if (brand && String(brand).startsWith('#')) return String(brand).trim();
+  return '#1a8c54';
+});
+
+const rootStyle = computed(() => ({
+  '--accent': accentColor.value,
+  '--accent-light': hexToRgba(accentColor.value, 0.1),
+  '--accent-border': hexToRgba(accentColor.value, 0.28),
+}));
+
+/* ── Careers page data accessors ── */
+const navItems = computed(() => Array.isArray(agencyCareersPage.value?.navItems) ? agencyCareersPage.value.navItems : []);
 const eyebrow = computed(() => String(agencyCareersPage.value?.eyebrow || '').trim());
 const heroHeadline = computed(() => String(agencyCareersPage.value?.heroHeadline || '').trim());
 const heroSubheadline = computed(() => String(agencyCareersPage.value?.heroSubheadline || '').trim());
@@ -305,27 +330,20 @@ const careersHeroImageUrl = computed(() => {
   const raw = String(agencyCareersPage.value?.heroImageUrl || '').trim();
   return toUploadsUrl(raw) || raw;
 });
-const careersHeroImageAlt = computed(() =>
-  String(agencyCareersPage.value?.heroImageAlt || `${agencyName.value || 'Agency'} careers`).trim()
-);
-const careersHeroImagePosition = computed(() =>
-  String(agencyCareersPage.value?.heroImagePosition || 'center center').trim()
-);
+const careersHeroImageAlt = computed(() => String(agencyCareersPage.value?.heroImageAlt || `${agencyName.value || 'Agency'} careers`).trim());
+const careersHeroImagePosition = computed(() => String(agencyCareersPage.value?.heroImagePosition || 'center center').trim());
 const showLeafAccent = computed(() => agencyCareersPage.value?.showLeafAccent !== false);
 const agencyFeatureCards = computed(() =>
   (Array.isArray(agencyCareersPage.value?.featureCards) ? agencyCareersPage.value.featureCards : [])
     .map((c) => ({ icon: String(c?.icon || ''), title: String(c?.title || '').trim(), body: String(c?.body || '').trim() }))
-    .filter((c) => c.title || c.body)
-    .slice(0, 4)
+    .filter((c) => c.title || c.body).slice(0, 4)
 );
 const bannerText = computed(() => String(agencyCareersPage.value?.bannerText || '').trim());
-const bannerBullets = computed(() =>
-  Array.isArray(agencyCareersPage.value?.bannerBullets) ? agencyCareersPage.value.bannerBullets.filter(Boolean) : []
-);
+const bannerBullets = computed(() => Array.isArray(agencyCareersPage.value?.bannerBullets) ? agencyCareersPage.value.bannerBullets.filter(Boolean) : []);
 const bannerLinkText = computed(() => String(agencyCareersPage.value?.bannerLinkText || '').trim());
 const bannerLinkHref = computed(() => String(agencyCareersPage.value?.bannerLinkHref || '').trim());
-
 const pageTitle = computed(() => agencyName.value ? `${agencyName.value} Careers` : 'Careers');
+
 const headerLogoUrl = computed(() => {
   const t = brandingStore.portalTheme;
   const u = t?.logoUrl || brandingStore.portalAgency?.logoUrl;
@@ -336,39 +354,25 @@ const headerLogoAlt = computed(() => {
   return n ? `${n} logo` : 'Organization logo';
 });
 
-const cardIconEmoji = (icon) => {
-  const map = { school: '🏫', office: '🏢', people: '👥', growth: '📈', heart: '❤️', shield: '🛡️', lock: '🔒', handshake: '🤝', star: '⭐' };
-  return map[String(icon || '').toLowerCase()] || '✦';
-};
-
-const ROLE_EMOJIS = { provider: '🩺', facilitator: '📖', intern: '🎓', clinician: '💼', admin: '📋' };
-const roleTypeKey = (rt) => String(rt || '').toLowerCase().replace(/[^a-z]/g, '') || 'default';
-const roleTypeEmoji = (rt) => {
-  const key = String(rt || '').toLowerCase();
-  for (const [k, v] of Object.entries(ROLE_EMOJIS)) {
-    if (key.includes(k)) return v;
-  }
-  return '👤';
-};
-
+/* ── Filters ── */
 const availableRoleTypes = computed(() =>
   Array.from(new Set((jobs.value || []).map((j) => String(j?.roleType || '').trim()).filter(Boolean))).sort()
 );
-const availableStates = computed(() =>
-  Array.from(new Set((jobs.value || []).map((j) => String(j?.state || '').trim()).filter(Boolean))).sort()
+
+// Cities as location pills
+const availableLocations = computed(() =>
+  Array.from(new Set((jobs.value || []).map((j) => String(j?.city || '').trim()).filter(Boolean))).sort()
 );
 
 const filteredJobs = computed(() => {
   let list = (jobs.value || []).slice();
   if (selectedRoleType.value) list = list.filter((j) => String(j.roleType || '').trim() === selectedRoleType.value);
-  if (selectedState.value) list = list.filter((j) => String(j.state || '').trim() === selectedState.value);
-  if (selectedCity.value) list = list.filter((j) => String(j.city || '').trim() === selectedCity.value);
+  if (selectedLocation.value) list = list.filter((j) => String(j.city || '').trim() === selectedLocation.value);
   if (sortBy.value === 'city_asc') {
     list.sort((a, b) => `${a.city || ''} ${a.state || ''}`.localeCompare(`${b.city || ''} ${b.state || ''}`));
   } else if (sortBy.value === 'posted_asc') {
     list.sort((a, b) => String(a.postedDate || '').localeCompare(String(b.postedDate || '')));
   } else {
-    // featured first, then newest
     list.sort((a, b) => {
       if (b.isFeatured !== a.isFeatured) return (b.isFeatured ? 1 : 0) - (a.isFeatured ? 1 : 0);
       return String(b.postedDate || b.postedAt || '').localeCompare(String(a.postedDate || a.postedAt || ''));
@@ -377,12 +381,26 @@ const filteredJobs = computed(() => {
   return list;
 });
 
-const totalPages = computed(() => showAll.value ? 1 : Math.ceil(filteredJobs.value.length / PER_PAGE));
+watch([selectedRoleType, selectedLocation, sortBy], () => { currentPage.value = 1; });
+
+const totalPages = computed(() => showAll.value ? 1 : Math.max(1, Math.ceil(filteredJobs.value.length / PER_PAGE)));
 const pageStart = computed(() => showAll.value ? 0 : (currentPage.value - 1) * PER_PAGE);
 const pageEnd = computed(() => showAll.value ? filteredJobs.value.length : Math.min(currentPage.value * PER_PAGE, filteredJobs.value.length));
 const pagedJobs = computed(() => filteredJobs.value.slice(pageStart.value, pageEnd.value));
 
-watch([selectedRoleType, selectedState, selectedCity, sortBy], () => { currentPage.value = 1; });
+/* ── Icon helpers ── */
+const cardIconEmoji = (icon) => {
+  const map = { school: '🏫', office: '🏢', people: '👥', growth: '📈', heart: '❤️', shield: '🛡️', lock: '🔒', handshake: '🤝', star: '⭐' };
+  return map[String(icon || '').toLowerCase()] || '✦';
+};
+const ROLE_EMOJIS = { provider: '🩺', facilitator: '📖', intern: '🎓', clinician: '💼', admin: '📋' };
+const roleTypeKey = (rt) => String(rt || '').toLowerCase().replace(/[^a-z]/g, '') || 'default';
+const roleTypeEmoji = (rt) => {
+  const key = String(rt || '').toLowerCase();
+  for (const [k, v] of Object.entries(ROLE_EMOJIS)) { if (key.includes(k)) return v; }
+  return '👤';
+};
+const resolveIconUrl = (url) => toUploadsUrl(String(url || '').trim()) || String(url || '').trim();
 
 const formatDate = (v) => {
   const raw = String(v || '').trim();
@@ -398,8 +416,7 @@ const trimText = (text, max = 220) => {
 };
 const toggleSave = (jobId) => {
   const s = new Set(savedJobs.value);
-  if (s.has(jobId)) s.delete(jobId);
-  else s.add(jobId);
+  if (s.has(jobId)) s.delete(jobId); else s.add(jobId);
   savedJobs.value = s;
 };
 
@@ -409,13 +426,9 @@ const loadCareers = async () => {
   error.value = '';
   try {
     try { await brandingStore.fetchAgencyTheme(slug.value, { pageContext: 'public_events' }); } catch { /* best effort */ }
-    const r = await api.get(`/public-intake/careers/${encodeURIComponent(slug.value)}`, {
-      skipAuthRedirect: true,
-      timeout: 15000
-    });
+    const r = await api.get(`/public-intake/careers/${encodeURIComponent(slug.value)}`, { skipAuthRedirect: true, timeout: 15000 });
     agencyName.value = String(r.data?.agency?.officialName || r.data?.agency?.name || '').trim();
-    agencyCareersPage.value = r.data?.agency?.careersPage && typeof r.data.agency.careersPage === 'object'
-      ? r.data.agency.careersPage : {};
+    agencyCareersPage.value = r.data?.agency?.careersPage && typeof r.data.agency.careersPage === 'object' ? r.data.agency.careersPage : {};
     jobs.value = Array.isArray(r.data?.jobs) ? r.data.jobs : [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Unable to load careers at this time.';
@@ -430,8 +443,8 @@ watch(slug, () => loadCareers(), { immediate: true });
 </script>
 
 <style scoped>
-/* ── TOKENS ── */
-.cr { --accent: #1a8c54; --accent-light: #e8f5ee; --dark: #0f172a; --muted: #64748b; --border: #e2e8f0; --radius: 14px; --card-radius: 16px; min-height: 100vh; background: #f8fafc; color: var(--dark); font-family: inherit; }
+/* ── TOKENS (set via :style binding) ── */
+.cr { --accent: #1a8c54; --accent-light: rgba(26,140,84,0.1); --accent-border: rgba(26,140,84,0.28); --dark: #0f172a; --muted: #64748b; --border: #e2e8f0; --card-radius: 16px; min-height: 100vh; background: #f8fafc; color: var(--dark); font-family: inherit; }
 
 /* ── NAV ── */
 .cr-nav { background: #fff; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 20; }
@@ -473,16 +486,16 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-pill { font-size: 0.82rem; font-weight: 500; padding: 6px 14px; border-radius: 99px; border: 1.5px solid var(--border); background: #fff; color: var(--dark); cursor: pointer; transition: all 0.12s; white-space: nowrap; }
 .cr-pill:hover { border-color: var(--accent); color: var(--accent); }
 .cr-pill--active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-.cr-sort-select { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.cr-sort-wrap { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.cr-sort-icon { width: 14px; height: 14px; color: var(--muted); flex-shrink: 0; }
 .cr-select { font-size: 0.82rem; border: 1.5px solid var(--border); border-radius: 8px; padding: 7px 10px; color: var(--dark); background: #fff; cursor: pointer; }
-.cr-sort-icon { width: 14px; height: 14px; color: var(--muted); }
 
 /* ── STATUS ── */
 .cr-status { max-width: 760px; margin: 40px auto; padding: 0 24px; text-align: center; color: var(--muted); }
 .cr-status--error { color: #b91c1c; }
 
 /* ── BANNER ── */
-.cr-banner { background: var(--accent-light); border-top: 1px solid #c6e8d5; border-bottom: 1px solid #c6e8d5; padding: 16px 24px; }
+.cr-banner { background: var(--accent-light); border-top: 1px solid var(--accent-border); border-bottom: 1px solid var(--accent-border); padding: 16px 24px; }
 .cr-banner-inner { max-width: 1160px; margin: 0 auto; display: flex; align-items: center; gap: 16px; }
 .cr-banner-icon { width: 40px; height: 40px; color: var(--accent); flex-shrink: 0; }
 .cr-banner-body { flex: 1; min-width: 0; }
@@ -495,14 +508,14 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-list { list-style: none; margin: 20px auto; padding: 0 24px; max-width: 1000px; display: flex; flex-direction: column; gap: 12px; }
 .cr-item { display: block; }
 .cr-card { position: relative; display: grid; grid-template-columns: 64px 1fr auto; align-items: start; gap: 18px; padding: 22px 20px; background: #fff; border: 1.5px solid var(--border); border-radius: var(--card-radius); transition: box-shadow 0.15s, border-color 0.15s; }
-.cr-card:hover { box-shadow: 0 6px 24px -8px rgba(15, 23, 42, 0.12); border-color: #c4d9ca; }
+.cr-card:hover { box-shadow: 0 6px 24px -8px rgba(15, 23, 42, 0.12); border-color: var(--accent-border); }
 .cr-card--featured { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 6px 24px -8px rgba(26, 140, 84, 0.2); }
 .cr-featured-badge { position: absolute; top: 0; left: 16px; background: var(--accent); color: #fff; font-size: 0.65rem; font-weight: 800; letter-spacing: 0.1em; padding: 3px 10px; border-radius: 0 0 8px 8px; text-transform: uppercase; }
-.cr-card-icon { width: 56px; height: 56px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 1.6rem; flex-shrink: 0; margin-top: 4px; }
-.cr-card-icon--provider, .cr-card-icon--default { background: #e0f2fe; }
-.cr-card-icon--facilitator { background: #ede9fe; }
-.cr-card-icon--intern { background: #fef9c3; }
-.cr-card-icon--clinician { background: #ffe4e6; }
+.cr-card-icon { width: 56px; height: 56px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 1.6rem; flex-shrink: 0; margin-top: 4px; overflow: hidden; background: var(--accent-light); border: 1.5px solid var(--accent-border); }
+.cr-card-icon--facilitator { background: #ede9fe; border-color: #c4b5fd; }
+.cr-card-icon--intern { background: #fef9c3; border-color: #fde047; }
+.cr-card-icon--clinician { background: #ffe4e6; border-color: #fca5a5; }
+.cr-card-icon-img { width: 100%; height: 100%; object-fit: cover; }
 .cr-card-body { min-width: 0; }
 .cr-card-title { margin: 0 0 6px; font-size: 1.05rem; font-weight: 700; color: var(--dark); }
 .cr-card-meta { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 0.8rem; color: var(--muted); margin-bottom: 8px; }
@@ -510,7 +523,7 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-meta-item svg { width: 12px; height: 12px; flex-shrink: 0; }
 .cr-card-desc { margin: 0 0 10px; font-size: 0.88rem; color: var(--muted); line-height: 1.5; }
 .cr-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.cr-tag { font-size: 0.75rem; font-weight: 500; padding: 3px 10px; border-radius: 99px; background: var(--accent-light); color: var(--accent); border: 1px solid #c6e8d5; }
+.cr-tag { font-size: 0.75rem; font-weight: 500; padding: 3px 10px; border-radius: 99px; background: var(--accent-light); color: var(--accent); border: 1px solid var(--accent-border); }
 .cr-card-actions { display: flex; flex-direction: column; gap: 8px; align-items: stretch; min-width: 120px; }
 .cr-apply-btn { display: inline-flex; align-items: center; justify-content: center; font-size: 0.88rem; font-weight: 700; padding: 10px 18px; border-radius: 10px; background: var(--accent); color: #fff; text-decoration: none; border: none; cursor: pointer; white-space: nowrap; transition: opacity 0.15s; }
 .cr-apply-btn:hover { opacity: 0.88; }
@@ -527,7 +540,7 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-page-btn:hover { border-color: var(--accent); color: var(--accent); }
 .cr-page-btn--active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .cr-page-btn--next { font-size: 1.1rem; }
-.cr-view-all-link { font-size: 0.85rem; font-weight: 600; color: var(--accent); background: none; border: none; cursor: pointer; text-decoration: none; padding: 0; }
+.cr-view-all-link { font-size: 0.85rem; font-weight: 600; color: var(--accent); background: none; border: none; cursor: pointer; padding: 0; }
 .cr-view-all-link:hover { text-decoration: underline; }
 
 /* ── MODAL ── */
@@ -554,15 +567,13 @@ watch(slug, () => loadCareers(), { immediate: true });
   .cr-card { grid-template-columns: 48px 1fr; }
   .cr-card-actions { grid-column: 1 / -1; flex-direction: row; }
   .cr-feature-cards { grid-template-columns: 1fr; }
-  .cr-nav-links { gap: 12px; }
 }
 @media (max-width: 560px) {
   .cr-nav-inner { flex-direction: column; align-items: flex-start; gap: 10px; }
   .cr-hero { padding: 28px 16px 24px; }
   .cr-list, .cr-pagination { padding: 0 12px; }
-  .cr-card { padding: 18px 14px; gap: 12px; }
+  .cr-card { padding: 18px 14px; gap: 12px; grid-template-columns: 1fr; }
   .cr-card-icon { display: none; }
-  .cr-card { grid-template-columns: 1fr; }
   .cr-card-actions { flex-direction: row; }
   .cr-pill-group { padding-right: 0; border-right: 0; }
   .cr-pagination { flex-direction: column; align-items: flex-start; }

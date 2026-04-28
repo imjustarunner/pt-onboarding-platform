@@ -43,47 +43,74 @@
     <section class="panel agency-careers-panel">
       <div class="config-header">
         <div>
-          <h3>Agency careers page defaults</h3>
-          <div class="muted small">Used by every public job application unless a job override is filled in below.</div>
+          <h3>Careers page settings</h3>
+          <div class="muted small">Customize how your public careers page looks and the defaults used on every job application form.</div>
         </div>
         <button class="btn btn-primary btn-sm" type="button" :disabled="savingAgencyCareers" @click="saveAgencyCareersPage">
           {{ savingAgencyCareers ? 'Saving...' : 'Save defaults' }}
         </button>
       </div>
       <div class="application-page-config agency-page-config">
-        <h5 class="config-section-label">Brand &amp; appearance</h5>
+        <!-- Page layout diagram -->
+        <div class="page-diagram">
+          <div class="pd-nav">Nav bar → <em>logo, nav links, CTA button</em></div>
+          <div class="pd-hero">
+            <div class="pd-hero-copy">Hero copy → <em>eyebrow, headline (dark), subheadline (accent color), lead text, feature cards</em></div>
+            <div class="pd-hero-img">Hero photo →</div>
+          </div>
+          <div class="pd-filters">Filters bar → <em>role type pills, city pills, sort</em></div>
+          <div class="pd-banner">Banner strip → <em>text, bullet points, link</em></div>
+          <div class="pd-jobs">Job cards → <em>icon, title, tags, Apply Now</em></div>
+        </div>
+
+        <h5 class="config-section-label">🎨 Brand colors &amp; hero</h5>
         <div class="form-grid">
-          <input v-model="agencyPageForm.heroHeadline" class="input" type="text" placeholder="Hero headline (dark), e.g. Make a difference." />
-          <input v-model="agencyPageForm.heroSubheadline" class="input" type="text" placeholder="Hero subheadline (accent color), e.g. Build brighter futures." />
+          <div class="field-with-hint">
+            <input v-model="agencyPageForm.heroHeadline" class="input" type="text" placeholder="Hero headline — large dark text, e.g. Make a difference." />
+            <span class="field-hint">Appears as the first large line in the hero section (dark color)</span>
+          </div>
+          <div class="field-with-hint">
+            <input v-model="agencyPageForm.heroSubheadline" class="input" type="text" placeholder="Hero subheadline — large accent text, e.g. Build brighter futures." />
+            <span class="field-hint">Appears as the second large line in the hero (your brand color)</span>
+          </div>
           <div class="color-field">
-            <label class="color-label small">Accent color</label>
+            <label class="color-label small">Brand accent color <span class="field-hint">— buttons, pills, highlights, and tags all use this color</span></label>
             <div class="color-row">
               <input v-model="agencyPageForm.accentColor" type="color" class="color-swatch" />
               <input v-model="agencyPageForm.accentColor" class="input" type="text" placeholder="#1a8c54" style="flex:1" />
             </div>
           </div>
-          <input v-model="agencyPageForm.eyebrow" class="input" type="text" placeholder="Small eyebrow label, e.g. Careers" />
-          <input v-model="agencyPageForm.lead" class="input" type="text" placeholder="Lead paragraph under hero headlines" />
+          <div class="field-with-hint">
+            <input v-model="agencyPageForm.eyebrow" class="input" type="text" placeholder="Small eyebrow label, e.g. Careers" />
+            <span class="field-hint">Tiny uppercase pill above the headline</span>
+          </div>
+          <div class="field-with-hint">
+            <input v-model="agencyPageForm.lead" class="input" type="text" placeholder="Lead paragraph, e.g. Join a supportive, purpose-driven team…" />
+            <span class="field-hint">Paragraph shown below the headline</span>
+          </div>
           <label class="checkbox-inline">
             <input v-model="agencyPageForm.showLeafAccent" type="checkbox" />
-            Show leaf accent decoration near photo
+            Show decorative leaf accent near hero photo
           </label>
           <div class="hero-upload-field" style="grid-column: 1 / -1;">
-            <input v-model="agencyPageForm.heroImageUrl" class="input" type="text" placeholder="Hero image URL or upload below" />
-            <button type="button" class="btn btn-secondary btn-sm" @click="triggerAgencyHeroUpload">Upload photo</button>
+            <label class="field-label">Hero photo <span class="field-hint">— large image shown to the right of your hero text</span></label>
+            <div class="upload-row">
+              <input v-model="agencyPageForm.heroImageUrl" class="input" type="text" placeholder="Paste image URL or use the upload button →" style="flex:1" />
+              <button type="button" class="btn btn-secondary btn-sm" @click="triggerAgencyHeroUpload">📷 Upload photo</button>
+            </div>
             <input ref="agencyHeroFileRef" type="file" accept="image/png,image/jpeg,image/webp,image/*" class="hidden-file" @change="onAgencyHeroFileChange" />
-            <div v-if="agencyHeroImageFile" class="muted small">Selected: {{ agencyHeroImageFile.name }}</div>
+            <div v-if="agencyHeroImageFile" class="upload-preview-label">✓ Selected: {{ agencyHeroImageFile.name }}</div>
             <div v-else-if="agencyPageForm.heroImageUrl" class="hero-thumb">
-              <img :src="displayAssetUrl(agencyPageForm.heroImageUrl)" alt="Shared careers hero preview" />
+              <img :src="displayAssetUrl(agencyPageForm.heroImageUrl)" alt="Hero image preview" />
             </div>
           </div>
-          <input v-model="agencyPageForm.heroImageAlt" class="input" type="text" placeholder="Hero image alt text" />
-          <input v-model="agencyPageForm.heroImagePosition" class="input" type="text" placeholder="Photo focus, e.g. center center" />
+          <input v-model="agencyPageForm.heroImageAlt" class="input" type="text" placeholder="Hero image alt text (for accessibility)" />
+          <input v-model="agencyPageForm.heroImagePosition" class="input" type="text" placeholder="Photo focal point, e.g. center top, 30% 50%" />
         </div>
 
         <div class="display-card-editor">
-          <h5>Navigation items</h5>
-          <p class="muted small" style="margin:0 0 8px;">Links shown in the top nav bar. Use "button" style for the primary CTA.</p>
+          <h5>🔗 Navigation items</h5>
+          <p class="muted small" style="margin:0 0 8px;">Links shown in the top nav bar next to your logo. Use "Button" style for the primary call-to-action (e.g. "Join Our Team").</p>
           <div class="nav-items-list">
             <div v-for="(item, idx) in agencyPageForm.navItems" :key="idx" class="nav-item-row">
               <input v-model="item.label" class="input" type="text" placeholder="Label, e.g. Why ITSCO" style="flex:2" />
@@ -103,7 +130,7 @@
           </div>
         </div>
 
-        <h5 class="config-section-label" style="margin-top:14px;">Banner strip</h5>
+        <h5 class="config-section-label" style="margin-top:14px;">📣 Banner strip <span class="field-hint">— full-width tinted row shown above job listings</span></h5>
         <div class="form-grid">
           <input v-model="agencyPageForm.bannerText" class="input" type="text" placeholder="Banner headline, e.g. Join a team supporting 1,000+ students" style="grid-column: 1 / -1;" />
           <input v-model="agencyPageForm.bannerLinkText" class="input" type="text" placeholder="Banner link text, e.g. Learn more about ITSCO" />
@@ -125,7 +152,7 @@
           </div>
         </div>
 
-        <h5 class="config-section-label" style="margin-top:14px;">Application page defaults</h5>
+        <h5 class="config-section-label" style="margin-top:14px;">📋 Application landing page defaults <span class="field-hint">— shown on the form applicants fill out after clicking Apply Now</span></h5>
         <div class="form-grid">
           <input v-model="agencyPageForm.titleHighlight" class="input" type="text" placeholder="Title highlight text, e.g. Colorado Springs" />
           <input v-model="agencyPageForm.secureTitle" class="input" type="text" placeholder="Header secure title, e.g. Secure & Confidential" />
@@ -136,7 +163,7 @@
           <input v-model="agencyPageForm.startTimeNote" class="input" type="text" placeholder="Time note, e.g. Takes 3-5 minutes to begin" />
         </div>
         <div class="display-card-editor">
-          <h5>Default feature cells</h5>
+          <h5>Feature cards <span class="field-hint">— icon + title + description shown in the hero section</span></h5>
           <div class="display-card-grid">
             <div v-for="(card, idx) in agencyPageForm.featureCards" :key="`agency-feature-${idx}`" class="display-card-draft">
               <select v-model="card.icon" class="input">
@@ -167,6 +194,18 @@
       <div class="form-grid">
         <input v-model="createForm.title" class="input" type="text" placeholder="Job title" />
         <input v-model="createForm.roleType" class="input" type="text" placeholder="Role type label, e.g. Provider, Facilitator, Intern" />
+        <div class="job-icon-field">
+          <label class="field-label">Job card icon <span class="field-hint">— small image shown in the circle on the job card</span></label>
+          <div class="upload-row">
+            <input v-model="createForm.iconUrl" class="input" type="text" placeholder="Paste icon URL or upload →" style="flex:1" />
+            <button type="button" class="btn btn-secondary btn-sm" @click="createIconFileRef?.click()">📷 Upload icon</button>
+          </div>
+          <input ref="createIconFileRef" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/*" class="hidden-file" @change="onCreateIconFileChange" />
+          <div v-if="createForm.iconFile" class="upload-preview-label">✓ Selected: {{ createForm.iconFile.name }}</div>
+          <div v-else-if="createForm.iconUrl" class="icon-thumb">
+            <img :src="displayAssetUrl(createForm.iconUrl)" alt="Job icon preview" />
+          </div>
+        </div>
         <input ref="jobFileRef" class="input" type="file" @change="onCreateFileChange" />
         <input v-model="createForm.city" class="input" type="text" placeholder="City" />
         <input v-model="createForm.state" class="input" type="text" placeholder="State" />
@@ -347,6 +386,18 @@
           <div class="form-grid">
             <input v-model="editForm.title" class="input" type="text" placeholder="Job title" />
             <input v-model="editForm.roleType" class="input" type="text" placeholder="Role type label, e.g. Provider, Facilitator, Intern" />
+            <div class="job-icon-field">
+              <label class="field-label">Job card icon <span class="field-hint">— small image shown in the circle on the job card</span></label>
+              <div class="upload-row">
+                <input v-model="editForm.iconUrl" class="input" type="text" placeholder="Paste icon URL or upload →" style="flex:1" />
+                <button type="button" class="btn btn-secondary btn-sm" @click="editIconFileRef?.click()">📷 Upload icon</button>
+              </div>
+              <input ref="editIconFileRef" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/*" class="hidden-file" @change="onEditIconFileChange" />
+              <div v-if="editForm.iconFile" class="upload-preview-label">✓ Selected: {{ editForm.iconFile.name }}</div>
+              <div v-else-if="editForm.iconUrl" class="icon-thumb">
+                <img :src="displayAssetUrl(editForm.iconUrl)" alt="Job icon preview" />
+              </div>
+            </div>
             <input ref="editFileRef" class="input" type="file" @change="onEditFileChange" />
             <div v-if="editingRow?.hasFile" class="muted small">
               Current file: {{ editingRow.originalName || 'Uploaded file' }}
@@ -613,6 +664,8 @@ const createForm = ref({
   roleType: '',
   isFeatured: false,
   tags: [],
+  iconUrl: '',
+  iconFile: null,
   applicationPage: blankApplicationPage(),
   heroImageFile: null,
   file: null
@@ -629,6 +682,8 @@ const editForm = ref({
   roleType: '',
   isFeatured: false,
   tags: [],
+  iconUrl: '',
+  iconFile: null,
   applicationPage: blankApplicationPage(),
   heroImageFile: null,
   file: null
@@ -639,6 +694,8 @@ const editFileRef = ref(null);
 const agencyHeroFileRef = ref(null);
 const createHeroFileRef = ref(null);
 const editHeroFileRef = ref(null);
+const createIconFileRef = ref(null);
+const editIconFileRef = ref(null);
 
 const agencyChoices = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
@@ -740,6 +797,16 @@ const onEditHeroFileChange = (e) => {
   const file = e?.target?.files?.[0] || null;
   editForm.value.heroImageFile = file;
   if (file) editForm.value.applicationPage.heroImageUrl = file.name;
+};
+const onCreateIconFileChange = (e) => {
+  const file = e?.target?.files?.[0] || null;
+  createForm.value.iconFile = file;
+  if (file) createForm.value.iconUrl = file.name;
+};
+const onEditIconFileChange = (e) => {
+  const file = e?.target?.files?.[0] || null;
+  editForm.value.iconFile = file;
+  if (file) editForm.value.iconUrl = file.name;
 };
 
 const buildDefaultJobApplicationSteps = () => ([
@@ -869,6 +936,7 @@ const createJob = async () => {
     fd.append('tagsJson', JSON.stringify(createForm.value.tags || []));
     fd.append('applicationPageJson', JSON.stringify(compactApplicationPage(createForm.value.applicationPage)));
     if (createForm.value.heroImageFile) fd.append('heroImage', createForm.value.heroImageFile);
+    if (createForm.value.iconFile) fd.append('jobIcon', createForm.value.iconFile);
     if (createForm.value.file) fd.append('file', createForm.value.file);
     const r = await api.post('/hiring/job-descriptions', fd);
     const jobId = Number(r.data?.id || 0);
@@ -885,12 +953,15 @@ const createJob = async () => {
       roleType: '',
       isFeatured: false,
       tags: [],
+      iconUrl: '',
+      iconFile: null,
       applicationPage: blankApplicationPage(),
       heroImageFile: null,
       file: null
     };
     if (jobFileRef.value) jobFileRef.value.value = '';
     if (createHeroFileRef.value) createHeroFileRef.value.value = '';
+    if (createIconFileRef.value) createIconFileRef.value.value = '';
     await refresh();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to create job';
@@ -913,12 +984,15 @@ const openEdit = (row) => {
     roleType: row.roleType || '',
     isFeatured: !!row.isFeatured,
     tags: Array.isArray(row.tags) ? [...row.tags] : [],
+    iconUrl: String(row.applicationPage?.iconUrl || '').trim(),
+    iconFile: null,
     applicationPage: normalizeApplicationPage(row.applicationPage),
     heroImageFile: null,
     file: null
   };
   if (editFileRef.value) editFileRef.value.value = '';
   if (editHeroFileRef.value) editHeroFileRef.value.value = '';
+  if (editIconFileRef.value) editIconFileRef.value.value = '';
 };
 const closeEdit = () => {
   editingRow.value = null;
@@ -934,6 +1008,8 @@ const closeEdit = () => {
     roleType: '',
     isFeatured: false,
     tags: [],
+    iconUrl: '',
+    iconFile: null,
     applicationPage: blankApplicationPage(),
     heroImageFile: null,
     file: null
@@ -958,6 +1034,7 @@ const saveEdit = async () => {
     fd.append('tagsJson', JSON.stringify(editForm.value.tags || []));
     fd.append('applicationPageJson', JSON.stringify(compactApplicationPage(editForm.value.applicationPage)));
     if (editForm.value.heroImageFile) fd.append('heroImage', editForm.value.heroImageFile);
+    if (editForm.value.iconFile) fd.append('jobIcon', editForm.value.iconFile);
     if (editForm.value.file) fd.append('file', editForm.value.file);
     await api.put(`/hiring/job-descriptions/${editingRow.value.id}`, fd);
     closeEdit();
@@ -1118,6 +1195,28 @@ onMounted(async () => {
 .color-swatch { width: 40px; height: 38px; padding: 2px; border: 1px solid #d1d5db; border-radius: 8px; cursor: pointer; flex-shrink: 0; }
 .nav-items-list { display: flex; flex-direction: column; gap: 8px; }
 .nav-item-row { display: flex; align-items: center; gap: 8px; }
+/* Upload / icon helpers */
+.upload-row { display: flex; gap: 8px; align-items: center; }
+.upload-preview-label { font-size: 0.8rem; color: #16a34a; font-weight: 500; }
+.field-label { display: block; font-size: 0.82rem; font-weight: 600; color: #374151; margin-bottom: 5px; }
+.field-hint { font-size: 0.77rem; color: #9ca3af; font-weight: 400; }
+.field-with-hint { display: flex; flex-direction: column; gap: 3px; }
+.job-icon-field { display: flex; flex-direction: column; gap: 5px; grid-column: 1 / -1; }
+.icon-thumb { width: 56px; height: 56px; border-radius: 10px; overflow: hidden; border: 1px solid #e2e8f0; background: #f8fafc; }
+.icon-thumb img { width: 100%; height: 100%; object-fit: cover; }
+/* Page layout diagram */
+.page-diagram { display: flex; flex-direction: column; gap: 0; margin: 0 0 20px; font-size: 0.78rem; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+.page-diagram > div { padding: 7px 14px; border-bottom: 1px solid #e2e8f0; color: #374151; }
+.page-diagram > div:last-child { border-bottom: 0; }
+.page-diagram em { color: #6b7280; font-style: normal; }
+.pd-nav { background: #1e293b; color: #f1f5f9; }
+.pd-nav em { color: #94a3b8; }
+.pd-hero { display: grid; grid-template-columns: 3fr 2fr; }
+.pd-hero-copy { padding: 10px 14px; background: #fff; }
+.pd-hero-img { background: #e2e8f0; padding: 10px 14px; color: #64748b; display: flex; align-items: center; }
+.pd-filters { background: #fff; }
+.pd-banner { background: #f0fdf4; color: #166534; }
+.pd-jobs { background: #f8fafc; }
 .tags-field { display: flex; flex-direction: column; gap: 6px; }
 .tags-input-row { display: flex; flex-direction: column; gap: 6px; }
 .tags-chips { display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; }

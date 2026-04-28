@@ -201,6 +201,8 @@ const sanitizeApplicationPageJson = (raw) => {
       : [],
     bannerLinkText: compactText(obj.bannerLinkText || obj.banner_link_text, 80),
     bannerLinkHref: compactText(obj.bannerLinkHref || obj.banner_link_href, 512),
+    iconUrl: compactText(obj.iconUrl || obj.icon_url, 512),
+    iconAlt: compactText(obj.iconAlt || obj.icon_alt, 120),
     featureCards: normalizeItems(obj.featureCards || obj.feature_cards, 4),
     trustItems: normalizeItems(obj.trustItems || obj.trust_items, 3)
   };
@@ -4033,24 +4035,29 @@ export const listPublicCareers = async (req, res, next) => {
       .filter((r) => (cityFilter ? String(r.city || '').trim().toLowerCase() === cityFilter : true))
       .filter((r) => (stateFilter ? String(r.state || '').trim().toLowerCase() === stateFilter : true))
       .filter((r) => (educationFilter ? String(r.education_level || '').trim().toLowerCase() === educationFilter : true))
-      .map((r) => ({
-        jobId: Number(r.id),
-        title: String(r.title || '').trim(),
-        descriptionText: String(r.description_text || '').trim() || null,
-        postedDate: r.posted_date || null,
-        applicationDeadline: r.application_deadline || null,
-        city: String(r.city || '').trim() || null,
-        state: String(r.state || '').trim() || null,
-        educationLevel: String(r.education_level || '').trim() || null,
-        roleType: String(r.role_type || '').trim() || null,
-        isFeatured: Number(r.is_featured) === 1,
-        tags: parseTags(r.tags_json),
-        applicationPage: mergeApplicationPageJson(agencyCareersPage, r.application_page_json),
-        jobDescriptionFileUrl: null,
-        jobDescriptionFileName: String(r.original_name || '').trim() || null,
-        postedAt: r.created_at || null,
-        applicationPublicKey: String(r.public_key || '').trim()
-      }));
+      .map((r) => {
+        const jobAppPage = sanitizeApplicationPageJson(r.application_page_json);
+        const iconUrl = String(jobAppPage?.iconUrl || '').trim() || null;
+        return {
+          jobId: Number(r.id),
+          title: String(r.title || '').trim(),
+          descriptionText: String(r.description_text || '').trim() || null,
+          postedDate: r.posted_date || null,
+          applicationDeadline: r.application_deadline || null,
+          city: String(r.city || '').trim() || null,
+          state: String(r.state || '').trim() || null,
+          educationLevel: String(r.education_level || '').trim() || null,
+          roleType: String(r.role_type || '').trim() || null,
+          isFeatured: Number(r.is_featured) === 1,
+          tags: parseTags(r.tags_json),
+          iconUrl,
+          applicationPage: mergeApplicationPageJson(agencyCareersPage, r.application_page_json),
+          jobDescriptionFileUrl: null,
+          jobDescriptionFileName: String(r.original_name || '').trim() || null,
+          postedAt: r.created_at || null,
+          applicationPublicKey: String(r.public_key || '').trim()
+        };
+      });
     for (const job of jobs) {
       const source = (rows || []).find((r) => Number(r.id) === Number(job.jobId));
       const storagePath = String(source?.storage_path || '').trim();
