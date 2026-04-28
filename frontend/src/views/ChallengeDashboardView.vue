@@ -1091,6 +1091,7 @@
         >
           <div id="section-weekly-challenges" class="challenge-section">
             <ChallengeWeeklyTasks
+              ref="weeklyTasksRef"
               :challenge-id="challengeId"
               :my-user-id="authStore.user?.id"
               :is-captain="isTeamCaptain"
@@ -1916,6 +1917,7 @@ const stravaActivitiesError = ref(null);
 const selectedStravaIds = ref([]);
 const stravaImporting = ref(false);
 const stravaDuplicateMessage = ref('');
+const weeklyTasksRef = ref(null);
 const showBulkUploadModal = ref(false);
 const bulkScanning = ref(false);
 const bulkSubmitting = ref(false);
@@ -3273,7 +3275,22 @@ const submitBulkWorkouts = async () => {
       bulkItems.value = [];
       showBulkUploadModal.value = false;
     }
-    await Promise.all([loadLeaderboard(), loadActivity(), loadCurrentWeekAssignments(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats(), loadMyTrophyCase()]);
+    // Full dashboard refresh so all sections (leaderboard, standings, matchups,
+    // weekly tasks, activity feed) immediately reflect the new workouts
+    standingsKey.value++;
+    weeklyTasksRef.value?.load();
+    await Promise.all([
+      loadLeaderboard(),
+      loadActivity(),
+      loadCurrentWeekAssignments(),
+      loadSeasonSummary(),
+      loadRecordBoards(),
+      loadRaceDivisions(),
+      loadKudosStats(),
+      loadMyTrophyCase(),
+      loadMatchupSchedule(),
+      loadMatchupStandings(),
+    ]);
   } catch (e) {
     bulkUploadError.value = e?.response?.data?.error?.message || 'Bulk submit failed';
   } finally {

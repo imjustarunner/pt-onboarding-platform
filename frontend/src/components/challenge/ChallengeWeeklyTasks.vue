@@ -459,7 +459,14 @@ function isMyAssignment(assignment) {
 }
 
 function fullTeamTaggedCount(taskId) {
-  return taggedWorkouts.value.filter((w) => Number(w.weekly_task_id) === Number(taskId)).length;
+  // Count distinct members — if someone is accidentally tagged twice,
+  // they still only count as 1 toward the team's full-team progress.
+  const userIds = new Set(
+    taggedWorkouts.value
+      .filter((w) => Number(w.weekly_task_id) === Number(taskId))
+      .map((w) => w.user_id)
+  );
+  return userIds.size;
 }
 
 function myTaggedCount(taskId) {
