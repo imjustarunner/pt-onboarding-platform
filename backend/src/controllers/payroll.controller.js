@@ -1302,10 +1302,13 @@ async function getAgencyUsersForPayrollMatching(agencyId) {
      FROM users u
      JOIN user_agencies ua ON u.id = ua.user_id
      WHERE ua.agency_id = ?
+       AND (u.status IS NULL OR u.status NOT IN ('pending', 'ready_for_review'))
+       AND (u.is_archived = FALSE OR u.is_archived IS NULL)
      UNION
      SELECT DISTINCT u.id, u.first_name, u.last_name
      FROM users u
      WHERE u.role = 'super_admin'
+       AND (u.status IS NULL OR u.status NOT IN ('pending', 'ready_for_review'))
        AND (u.is_archived = FALSE OR u.is_archived IS NULL)`,
     [agencyId]
   );
@@ -7356,18 +7359,20 @@ export const listPayrollAgencyUsers = async (req, res, next) => {
     const medcancelField = hasMedcancelScheduleCol ? ', u.medcancel_rate_schedule' : '';
     const includeInactive = String(req.query?.includeInactive || '').toLowerCase() === 'true' || String(req.query?.includeInactive || '') === '1';
     const activeFilter = (hasIsActiveCol && !includeInactive) ? ' AND u.is_active = TRUE' : '';
+    const payrollEligibleFilter = " AND (u.status IS NULL OR u.status NOT IN ('pending', 'ready_for_review')) AND (u.is_archived = FALSE OR u.is_archived IS NULL)";
     const [rows] = await pool.execute(
       `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role${supField}${activeField}${medcancelField}
        FROM users u
        JOIN user_agencies ua ON u.id = ua.user_id
        WHERE ua.agency_id = ?
        ${activeFilter}
+       ${payrollEligibleFilter}
        UNION
        SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role${supField}${activeField}${medcancelField}
        FROM users u
        WHERE u.role = 'super_admin'
-         AND (u.is_archived = FALSE OR u.is_archived IS NULL)
          ${activeFilter}
+         ${payrollEligibleFilter}
        ORDER BY last_name ASC, first_name ASC`,
       [resolvedAgencyId]
     );

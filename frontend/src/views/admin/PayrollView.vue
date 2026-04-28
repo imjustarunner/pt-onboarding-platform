@@ -3444,7 +3444,7 @@
               <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end;">
                 <select v-model="selectedUserId">
                   <option :value="null">All providers</option>
-                  <option v-for="u in sortedAgencyUsers" :key="u.id" :value="u.id">{{ u.last_name }}, {{ u.first_name }}</option>
+                  <option v-for="u in sortedAgencyUsers" :key="u.id" :value="u.id">{{ payrollUserOptionLabel(u) }}</option>
                 </select>
                 <button class="btn btn-secondary btn-sm" @click="clearSelectedProvider" :disabled="!selectedUserId">
                   Clear
@@ -5801,6 +5801,57 @@ const sortedAgencyUsers = computed(() => {
   });
   return list;
 });
+
+const payrollNameKey = (value) => String(value || '')
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, ' ')
+  .trim()
+  .replace(/\s+/g, ' ');
+
+const nameKeyCandidates = (raw) => {
+  const parts = payrollNameKey(raw).split(' ').filter(Boolean);
+  const keys = new Set();
+  const full = payrollNameKey(raw);
+  if (full) keys.add(full);
+  if (parts.length >= 2) {
+    const first = parts[0];
+    const last = parts[parts.length - 1];
+    const a = payrollNameKey(`${first} ${last}`);
+    const b = payrollNameKey(`${last} ${first}`);
+    if (a) keys.add(a);
+    if (b) keys.add(b);
+  }
+  return Array.from(keys);
+};
+
+const payrollUserNameKeys = (u) => {
+  const first = String(u?.first_name || '').trim();
+  const last = String(u?.last_name || '').trim();
+  const keys = new Set();
+  const a = payrollNameKey(`${first} ${last}`);
+  const b = payrollNameKey(`${last} ${first}`);
+  if (a) keys.add(a);
+  if (b) keys.add(b);
+  return Array.from(keys);
+};
+
+const duplicatePayrollNameCounts = computed(() => {
+  const counts = new Map();
+  for (const u of agencyUsers.value || []) {
+    const key = payrollNameKey(`${u?.last_name || ''} ${u?.first_name || ''}`);
+    if (!key) continue;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return counts;
+});
+
+const payrollUserOptionLabel = (u) => {
+  const base = `${u?.last_name || ''}, ${u?.first_name || ''}`.replace(/^,\s*|,\s*$/g, '').trim() || `User #${u?.id || ''}`;
+  const key = payrollNameKey(`${u?.last_name || ''} ${u?.first_name || ''}`);
+  if ((duplicatePayrollNameCounts.value.get(key) || 0) <= 1) return base;
+  const email = String(u?.email || '').trim();
+  return `${base} (${email || `ID ${u?.id}`})`;
+};
 
 const summariesSortedByProvider = computed(() => {
   const list = (summaries.value || []).slice();
@@ -11280,15 +11331,27 @@ const payrollStageTierSort = ref('tier_desc'); // tier_desc | tier_asc | name_as
 
 const payrollStageProviderTierRows = computed(() => {
   const rows = rawImportRows.value || [];
+  const selectedUid = Number(selectedUserId.value || 0);
+  const selectedUser = selectedUid
+    ? (agencyUsers.value || []).find((u) => Number(u?.id) === selectedUid) || null
+    : null;
+  const selectedNameKeys = new Set(selectedUser ? payrollUserNameKeys(selectedUser) : []);
 
   const matchedUserIds = new Set();
   const unmatchedNames = new Set();
   for (const r of rows || []) {
     const uid = Number(r?.user_id || r?.userId || 0);
-    if (Number.isFinite(uid) && uid > 0) matchedUserIds.add(uid);
+    if (Number.isFinite(uid) && uid > 0) {
+      if (!selectedUid || uid === selectedUid) matchedUserIds.add(uid);
+    }
     else {
       const nm = String(r?.provider_name || r?.providerName || '').trim();
-      if (nm) unmatchedNames.add(nm);
+      if (!nm) continue;
+      // When a provider is selected, don't show every unmatched import name under that provider.
+      // Only keep unmatched names that could plausibly be this selected provider.
+      if (!selectedUid || nameKeyCandidates(nm).some((k) => selectedNameKeys.has(k))) {
+        unmatchedNames.add(nm);
+      }
     }
   }
 
