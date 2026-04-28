@@ -332,10 +332,12 @@
           </div>
           <div class="rcb-award-field">
             <label class="rcb-field-label">Metric</label>
-            <select v-model="aw.metric" class="rcb-select" @change="() => { if (aw.metric === 'kudos_received') aw.aggregation = 'most'; emit_(); }">
+            <select v-model="aw.metric" class="rcb-select" @change="() => { if (aw.metric === 'kudos_received') aw.aggregation = 'most'; if (aw.metric === 'pace_min_per_mile') aw.aggregation = 'fastest'; emit_(); }">
               <option value="points">Points</option>
               <option value="distance_miles">Miles</option>
               <option value="duration_minutes">Duration (min)</option>
+              <option value="elevation_gain_ft">Elevation Gain (ft)</option>
+              <option value="pace_min_per_mile">Pace (fastest)</option>
               <option value="activities_count">Activity count</option>
               <option value="challenge_completions">Challenges completed</option>
               <option value="kudos_received">Kudos received</option>
@@ -343,16 +345,18 @@
           </div>
           <div class="rcb-award-field">
             <label class="rcb-field-label">Winner by</label>
-            <select v-model="aw.aggregation" class="rcb-select" @change="emit_" :disabled="aw.metric === 'kudos_received'">
-              <option value="most">Most (total)</option>
-              <option v-if="aw.metric !== 'kudos_received'" value="least">Least (total)</option>
-              <option v-if="aw.metric !== 'kudos_received'" value="average">Average per entry</option>
-              <option v-if="aw.metric !== 'kudos_received'" value="best_single">Best single workout</option>
-              <option v-if="aw.metric !== 'kudos_received'" value="best_day">Best single day</option>
-              <option v-if="aw.metric !== 'kudos_received'" value="milestone">Milestone (everyone who reaches target)</option>
-              <option v-if="aw.metric !== 'kudos_received'" value="longest_streak">Longest streak (consecutive days)</option>
-              <option v-if="aw.metric !== 'kudos_received'" value="most_active_days">Most active days</option>
-              <option v-if="aw.metric !== 'kudos_received'" value="perfect_season">Perfect season (everyone who hits daily target)</option>
+            <select v-model="aw.aggregation" class="rcb-select" @change="emit_" :disabled="aw.metric === 'kudos_received' || aw.metric === 'pace_min_per_mile'">
+              <option v-if="aw.metric === 'pace_min_per_mile'" value="fastest">Fastest (lowest pace)</option>
+              <option v-if="aw.metric !== 'kudos_received' && aw.metric !== 'pace_min_per_mile'" value="most">Most (total)</option>
+              <option v-if="aw.metric !== 'kudos_received' && aw.metric !== 'pace_min_per_mile'" value="least">Least (total)</option>
+              <option v-if="aw.metric !== 'kudos_received' && aw.metric !== 'pace_min_per_mile'" value="average">Average per entry</option>
+              <option v-if="aw.metric !== 'kudos_received' && aw.metric !== 'pace_min_per_mile'" value="best_single">Best single workout</option>
+              <option v-if="aw.metric !== 'kudos_received' && aw.metric !== 'pace_min_per_mile'" value="best_day">Best single day</option>
+              <option v-if="aw.metric === 'kudos_received'" value="most">Most (total)</option>
+              <option v-if="aw.metric !== 'kudos_received' && aw.metric !== 'pace_min_per_mile'" value="milestone">Milestone (everyone who reaches target)</option>
+              <option v-if="aw.metric !== 'kudos_received' && aw.metric !== 'pace_min_per_mile'" value="longest_streak">Longest streak (consecutive days)</option>
+              <option v-if="aw.metric !== 'kudos_received' && aw.metric !== 'pace_min_per_mile'" value="most_active_days">Most active days</option>
+              <option v-if="aw.metric !== 'kudos_received' && aw.metric !== 'pace_min_per_mile'" value="perfect_season">Perfect season (everyone who hits daily target)</option>
             </select>
           </div>
         </div>
@@ -420,6 +424,35 @@
           <span class="rcb-panel-hint" style="margin:0;">Same units as metric. For display/context; does not change single-winner rules.</span>
         </div>
 
+        <!-- Row 2b: Terrain filter + Min distance filter -->
+        <div class="rcb-award-settings">
+          <div class="rcb-award-field">
+            <label class="rcb-field-label">Terrain (optional)</label>
+            <select v-model="aw.terrainFilter" class="rcb-select" @change="emit_">
+              <option value="">Any terrain</option>
+              <option value="Road">Road</option>
+              <option value="Trail">Trail</option>
+              <option value="Track">Track</option>
+              <option value="Treadmill">Treadmill</option>
+              <option value="Beach">Beach</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="rcb-award-field">
+            <label class="rcb-field-label">Min distance (mi)</label>
+            <input
+              v-model.number="aw.minDistanceMiles"
+              type="number"
+              class="rcb-num-input rcb-num-input--wide"
+              min="0"
+              step="0.5"
+              placeholder="e.g. 3"
+              @input="emit_"
+            />
+            <span class="rcb-group-sub" style="font-size:11px;color:#888;">Required for pace awards</span>
+          </div>
+        </div>
+
         <!-- Row 3: Eligible group -->
         <div class="rcb-award-row">
           <label class="rcb-field-label">Eligible group</label>
@@ -442,9 +475,182 @@
         </div>
       </div>
 
-      <button type="button" class="rcb-dashed-btn rcb-dashed-btn--primary" @click="addAward">
-        + Add recognition award
-      </button>
+      <div class="rcb-award-actions-row">
+        <button type="button" class="rcb-dashed-btn rcb-dashed-btn--primary" @click="addAward">
+          + Add recognition award
+        </button>
+        <button type="button" class="rcb-bulk-btn" @click="openBulkCreator">
+          ⚡ Bulk Create
+        </button>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════
+         BULK RECOGNITION CREATOR
+    ══════════════════════════════════════════════════════════════ -->
+    <div v-if="showBulkCreator" class="rcb-bulk-overlay" @click.self="showBulkCreator = false">
+      <div class="rcb-bulk-modal">
+        <div class="rcb-bulk-header">
+          <h2 class="rcb-bulk-title">Bulk Recognition Creator</h2>
+          <button type="button" class="rcb-bulk-close" @click="showBulkCreator = false">×</button>
+        </div>
+
+        <!-- Step 1: Icon Selection -->
+        <div v-if="bulkStep === 1" class="rcb-bulk-body">
+          <p class="rcb-bulk-hint">Select one or more icons — each selected icon will become one award row. You can change icons on each row afterwards.</p>
+
+          <div class="rcb-bulk-icon-tabs">
+            <button :class="['rcb-icon-tab', { active: bulkIconTab === 'emoji' }]" type="button" @click="bulkIconTab = 'emoji'">Emoji</button>
+            <button :class="['rcb-icon-tab', { active: bulkIconTab === 'library' }]" type="button" @click="bulkIconTab = 'library'; ensureLibraryLoaded()">Library</button>
+          </div>
+
+          <!-- Emoji grid -->
+          <div v-if="bulkIconTab === 'emoji'" class="rcb-bulk-icon-grid">
+            <button
+              v-for="ic in ICONS"
+              :key="ic"
+              type="button"
+              :class="['rcb-bulk-icon-btn', { selected: bulkSelectedIcons.includes(ic) }]"
+              @click="toggleBulkIcon(ic)"
+            >{{ ic }}</button>
+          </div>
+
+          <!-- Library icon grid -->
+          <div v-else class="rcb-bulk-icon-grid">
+            <div v-if="libraryIconsLoading" class="rcb-lib-loading">Loading…</div>
+            <div v-else-if="!libraryIcons.length" class="rcb-lib-hint">No icons in library yet.</div>
+            <button
+              v-for="li in libraryIcons"
+              :key="li.id"
+              type="button"
+              :class="['rcb-bulk-icon-btn', 'rcb-bulk-icon-btn--img', { selected: bulkSelectedIcons.includes(`icon:${li.id}`) }]"
+              @click="toggleBulkIcon(`icon:${li.id}`, li.url)"
+            >
+              <img :src="li.url" :alt="li.name || ''" />
+            </button>
+          </div>
+
+          <div class="rcb-bulk-step1-footer">
+            <span class="rcb-bulk-count">{{ bulkSelectedIcons.length }} icon{{ bulkSelectedIcons.length !== 1 ? 's' : '' }} selected</span>
+            <button type="button" class="rcb-confirm-btn" :disabled="!bulkSelectedIcons.length" @click="bulkStep = 2">
+              Next → Configure Awards
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 2: Configure each award -->
+        <div v-else class="rcb-bulk-body rcb-bulk-body--scroll">
+          <p class="rcb-bulk-hint">Fill in each award below. All fields default to "Miles / Most / Weekly" — change only what you need.</p>
+
+          <div class="rcb-bulk-rows">
+            <div v-for="(row, ri) in bulkRows" :key="ri" class="rcb-bulk-row">
+              <!-- Icon preview + remove -->
+              <div class="rcb-bulk-row-icon">
+                <span v-if="!isLibraryIcon(row.icon)" class="rcb-bulk-row-emoji">{{ row.icon }}</span>
+                <img v-else :src="libraryIconCache[row.icon] || resolveLibraryIconUrl(row.icon)" class="rcb-bulk-row-img" :alt="''" />
+                <button type="button" class="rcb-icon-btn rcb-remove-btn" title="Remove row" @click="bulkRows.splice(ri,1)">×</button>
+              </div>
+
+              <!-- Award title -->
+              <input
+                v-model="row.label"
+                type="text"
+                class="rcb-bulk-row-title"
+                placeholder="Award title *"
+                maxlength="80"
+              />
+
+              <!-- Period -->
+              <select v-model="row.period" class="rcb-select rcb-bulk-select">
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="season">Full Season</option>
+              </select>
+
+              <!-- Activity -->
+              <select v-model="row.activityType" class="rcb-select rcb-bulk-select">
+                <option value="">Any activity</option>
+                <optgroup label="Running">
+                  <option value="running">Running</option>
+                  <option value="trail_run">Trail Run</option>
+                  <option value="road_run">Road Run</option>
+                  <option value="race">Race</option>
+                </optgroup>
+                <optgroup label="Other">
+                  <option value="hiking">Hiking</option>
+                  <option value="walking">Walking</option>
+                  <option value="cycling">Cycling</option>
+                  <option value="workout">Workout / Strength</option>
+                </optgroup>
+              </select>
+
+              <!-- Terrain -->
+              <select v-model="row.terrainFilter" class="rcb-select rcb-bulk-select">
+                <option value="">Any terrain</option>
+                <option value="Road">Road</option>
+                <option value="Trail">Trail</option>
+                <option value="Track">Track</option>
+                <option value="Beach">Beach</option>
+                <option value="Treadmill">Treadmill</option>
+              </select>
+
+              <!-- Metric -->
+              <select v-model="row.metric" class="rcb-select rcb-bulk-select" @change="onBulkMetricChange(row)">
+                <option value="distance_miles">Miles</option>
+                <option value="points">Points</option>
+                <option value="elevation_gain_ft">Elevation (ft)</option>
+                <option value="pace_min_per_mile">Pace (fastest)</option>
+                <option value="activities_count">Activity count</option>
+                <option value="duration_minutes">Duration (min)</option>
+              </select>
+
+              <!-- Aggregation -->
+              <select v-model="row.aggregation" class="rcb-select rcb-bulk-select" :disabled="row.metric === 'pace_min_per_mile'">
+                <option v-if="row.metric === 'pace_min_per_mile'" value="fastest">Fastest</option>
+                <option v-else value="most">Most (total)</option>
+                <option v-if="row.metric !== 'pace_min_per_mile'" value="best_single">Best single workout</option>
+                <option v-if="row.metric !== 'pace_min_per_mile'" value="best_day">Best single day</option>
+                <option v-if="row.metric !== 'pace_min_per_mile'" value="longest_streak">Longest streak</option>
+                <option v-if="row.metric !== 'pace_min_per_mile'" value="most_active_days">Most active days</option>
+                <option v-if="row.metric !== 'pace_min_per_mile'" value="perfect_season">Perfect season</option>
+              </select>
+
+              <!-- Group filter -->
+              <select v-model="row.groupFilter" class="rcb-select rcb-bulk-select">
+                <option value="">Everyone</option>
+                <option v-if="maleActive" value="gender_male">Male</option>
+                <option v-if="femaleActive" value="gender_female">Female</option>
+                <option v-if="mastersActive" value="masters">Masters</option>
+                <option v-if="heavyweightActive" value="heavyweight_male">{{ hwMaleName || 'Clydesdale' }}</option>
+                <option v-if="heavyweightActive" value="heavyweight_female">{{ hwFemaleName || 'Athena' }}</option>
+                <option v-for="g in customGroups" :key="g.id" :value="g.id">{{ g.label || 'Group' }}</option>
+              </select>
+
+              <!-- Min distance -->
+              <input
+                v-model.number="row.minDistanceMiles"
+                type="number"
+                class="rcb-num-input"
+                min="0"
+                step="0.5"
+                placeholder="Min mi"
+                title="Minimum miles per workout"
+              />
+            </div>
+          </div>
+
+          <!-- Add more rows manually -->
+          <button type="button" class="rcb-dashed-btn" @click="addBulkRow">+ Add another row</button>
+
+          <div class="rcb-bulk-step2-footer">
+            <button type="button" class="rcb-cancel-btn" @click="bulkStep = 1">← Back</button>
+            <span class="rcb-bulk-count">{{ bulkRows.filter(r => r.label.trim()).length }} / {{ bulkRows.length }} titled</span>
+            <button type="button" class="rcb-confirm-btn" :disabled="!bulkRows.some(r => r.label.trim())" @click="commitBulkCreate">
+              ✓ Create {{ bulkRows.filter(r => r.label.trim()).length }} Award{{ bulkRows.filter(r => r.label.trim()).length !== 1 ? 's' : '' }}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Add activity type dialog -->
@@ -677,6 +883,8 @@ function addAwardFromLibrary(libAward) {
     period: libAward.period || 'weekly',
     monthEndDay: libAward.monthEndDay || 'last',
     activityType: libAward.activityType || '',
+    terrainFilter: libAward.terrainFilter || '',
+    minDistanceMiles: libAward.minDistanceMiles != null ? Number(libAward.minDistanceMiles) : undefined,
     metric: libAward.metric || 'distance_miles',
     aggregation: libAward.aggregation || 'most',
     milestoneThreshold: libAward.milestoneThreshold != null ? Number(libAward.milestoneThreshold) : undefined,
@@ -693,6 +901,79 @@ function saveToLibrary(aw) {
   emit('save-award-to-library', { ...aw });
 }
 
+// ── Bulk Recognition Creator ───────────────────────────────────────
+const showBulkCreator   = ref(false);
+const bulkStep          = ref(1);        // 1 = icon picker, 2 = award rows
+const bulkIconTab       = ref('emoji');  // 'emoji' | 'library'
+const bulkSelectedIcons = ref([]);       // array of icon strings (emoji or 'icon:N')
+const bulkRows          = ref([]);
+
+function makeBulkRow(icon = '🏆') {
+  return {
+    icon,
+    label: '',
+    period: 'weekly',
+    monthEndDay: 'last',
+    activityType: '',
+    terrainFilter: '',
+    minDistanceMiles: undefined,
+    metric: 'distance_miles',
+    aggregation: 'most',
+    groupFilter: '',
+    streakMinMilesPerDay: undefined,
+    streakMinActivitiesPerDay: undefined,
+    milestoneThreshold: undefined,
+    referenceTarget: undefined
+  };
+}
+
+function toggleBulkIcon(icon, url) {
+  if (url && icon.startsWith('icon:')) {
+    libraryIconCache.value = { ...libraryIconCache.value, [icon]: url };
+  }
+  const idx = bulkSelectedIcons.value.indexOf(icon);
+  if (idx === -1) bulkSelectedIcons.value.push(icon);
+  else bulkSelectedIcons.value.splice(idx, 1);
+}
+
+function openBulkCreator() {
+  bulkStep.value = 1;
+  bulkIconTab.value = 'emoji';
+  bulkSelectedIcons.value = [];
+  bulkRows.value = [];
+  showBulkCreator.value = true;
+}
+
+function onBulkMetricChange(row) {
+  if (row.metric === 'pace_min_per_mile') row.aggregation = 'fastest';
+  else if (row.aggregation === 'fastest') row.aggregation = 'most';
+}
+
+function addBulkRow() {
+  bulkRows.value.push(makeBulkRow('🏆'));
+}
+
+watch(() => bulkStep.value, (step) => {
+  if (step === 2) {
+    bulkRows.value = bulkSelectedIcons.value.map(icon => makeBulkRow(icon));
+    if (!bulkRows.value.length) bulkRows.value.push(makeBulkRow('🏆'));
+  }
+});
+
+function commitBulkCreate() {
+  const toAdd = bulkRows.value.filter(r => r.label.trim());
+  for (const row of toAdd) {
+    cats.value.push({
+      id: `award_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      type: 'award',
+      active: true,
+      ...row
+    });
+  }
+  emit_();
+  showBulkCreator.value = false;
+}
+
 function addAward() {
   const id = `award_${Date.now()}`;
   cats.value.push({
@@ -704,6 +985,8 @@ function addAward() {
     period: 'weekly',
     monthEndDay: 'last',
     activityType: '',
+    terrainFilter: '',
+    minDistanceMiles: undefined,
     metric: 'distance_miles',
     aggregation: 'most',
     milestoneThreshold: undefined,
@@ -792,6 +1075,31 @@ const awardPresets = [
     key: 'most_active_days', icon: '📅', label: 'Most Active Days', subtitle: 'Distinct days',
     description: 'Member with the most distinct active days during the season.',
     fields: { period: 'season', metric: 'activities_count', aggregation: 'most_active_days', streakMinMilesPerDay: 0, streakMinActivitiesPerDay: 1 }
+  },
+  {
+    key: 'most_elevation_week', icon: '⛰️', label: 'Mountain Goat', subtitle: 'Most elevation (weekly)',
+    description: 'Weekly award for the member with the most elevation gain.',
+    fields: { period: 'weekly', metric: 'elevation_gain_ft', aggregation: 'most' }
+  },
+  {
+    key: 'most_elevation_season', icon: '🏔️', label: 'Summit King/Queen', subtitle: 'Most elevation (season)',
+    description: 'Season award for the member with the most total elevation gain.',
+    fields: { period: 'season', metric: 'elevation_gain_ft', aggregation: 'most' }
+  },
+  {
+    key: 'fastest_pace_week', icon: '⚡', label: 'Speed Demon', subtitle: 'Fastest pace (weekly)',
+    description: 'Weekly award for the member with the fastest pace on a run of 1+ miles.',
+    fields: { period: 'weekly', metric: 'pace_min_per_mile', aggregation: 'fastest', minDistanceMiles: 1 }
+  },
+  {
+    key: 'most_daily_workouts', icon: '💥', label: 'Daily Double', subtitle: 'Most workouts in a day',
+    description: 'Member who logged the most workouts in a single day (1+ mile each).',
+    fields: { period: 'weekly', metric: 'activities_count', aggregation: 'best_day', minDistanceMiles: 1 }
+  },
+  {
+    key: 'week_streak', icon: '🔗', label: 'Week Warrior', subtitle: 'Workout every day this week',
+    description: 'Members who log at least one qualifying activity every day of the week.',
+    fields: { period: 'weekly', metric: 'activities_count', aggregation: 'perfect_season', streakMinMilesPerDay: 0, streakMinActivitiesPerDay: 1 }
   }
 ];
 
@@ -806,6 +1114,8 @@ function addAwardFromPreset(preset) {
     period: preset.fields.period || 'weekly',
     monthEndDay: 'last',
     activityType: '',
+    terrainFilter: '',
+    minDistanceMiles: undefined,
     metric: preset.fields.metric || 'distance_miles',
     aggregation: preset.fields.aggregation || 'most',
     milestoneThreshold: preset.fields.milestoneThreshold ?? undefined,
@@ -1833,4 +2143,159 @@ function commitActivityType() {
   text-underline-offset: 2px;
 }
 .rcb-save-library-btn:hover { color: var(--primary, #2563eb); }
+
+/* ── Bulk create button + actions row ────────────────────────── */
+.rcb-award-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.rcb-bulk-btn {
+  background: #1e293b;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.rcb-bulk-btn:hover { background: #334155; }
+
+/* ── Min distance num input variant ────────────────────────── */
+.rcb-num-input--wide { width: 80px; }
+
+/* ── Bulk creator overlay & modal ────────────────────────────── */
+.rcb-bulk-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 3000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 32px 12px;
+  overflow-y: auto;
+}
+.rcb-bulk-modal {
+  background: #fff;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 860px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+  overflow: hidden;
+}
+.rcb-bulk-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+}
+.rcb-bulk-title { font-size: 17px; font-weight: 700; margin: 0; }
+.rcb-bulk-close {
+  background: none;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  color: #94a3b8;
+  line-height: 1;
+  padding: 2px 6px;
+}
+.rcb-bulk-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+.rcb-bulk-body--scroll { overflow-y: auto; }
+.rcb-bulk-hint {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0 0 12px 0;
+}
+.rcb-bulk-icon-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.rcb-bulk-icon-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px;
+}
+.rcb-bulk-icon-btn {
+  background: #f8fafc;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  width: 52px;
+  height: 52px;
+  font-size: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.1s, background 0.1s;
+}
+.rcb-bulk-icon-btn:hover { border-color: #93c5fd; background: #eff6ff; }
+.rcb-bulk-icon-btn.selected { border-color: #2563eb; background: #dbeafe; }
+.rcb-bulk-icon-btn--img img { width: 34px; height: 34px; object-fit: contain; border-radius: 4px; }
+.rcb-bulk-step1-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8f0;
+}
+.rcb-bulk-count { font-size: 13px; color: #64748b; }
+.rcb-bulk-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.rcb-bulk-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.rcb-bulk-row-icon {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.rcb-bulk-row-emoji { font-size: 26px; line-height: 1; }
+.rcb-bulk-row-img { width: 32px; height: 32px; object-fit: contain; border-radius: 4px; }
+.rcb-bulk-row-title {
+  flex: 1;
+  min-width: 140px;
+  font-size: 13px;
+  padding: 5px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+}
+.rcb-bulk-select { font-size: 12px; padding: 4px 6px; min-width: 90px; }
+.rcb-bulk-step2-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+  flex-wrap: wrap;
+}
 </style>

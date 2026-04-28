@@ -706,17 +706,26 @@ class ChallengeWorkout {
     }
 
     const metricColMap = {
-      points:           'w.points',
-      distance_miles:   'w.distance_value',
-      duration_minutes: 'w.duration_minutes',
-      activities_count: null,
+      points:              'w.points',
+      distance_miles:      'w.distance_value',
+      duration_minutes:    'w.duration_minutes',
+      elevation_gain_ft:   '(w.elevation_gain_meters * 3.28084)',
+      pace_min_per_mile:   null, // special case
+      activities_count:    null,
       challenge_completions: null
     };
     const metricCol = metricColMap[metric] ?? 'w.points';
 
+    // Pace is computed as (duration_minutes + duration_seconds/60) / distance_value — lower = better
+    const isPace = metric === 'pace_min_per_mile';
+
     function buildMetricExpr(agg) {
       if (metric === 'activities_count') return 'COUNT(w.id)';
       if (metric === 'challenge_completions') return 'COUNT(DISTINCT w.weekly_task_id)';
+      if (isPace) {
+        // Best (fastest) single workout pace; need distance > 0
+        return `MIN((w.duration_minutes + w.duration_seconds / 60.0) / NULLIF(w.distance_value, 0))`;
+      }
       switch (agg) {
         case 'average':     return `AVG(${metricCol})`;
         case 'best_single': return `MAX(${metricCol})`;
@@ -879,6 +888,20 @@ class ChallengeWorkout {
       if (activityTypeFilter && activityTypeFilter !== '__add__') {
         whereExtra += ` AND w.activity_type = ?`;
         params.push(activityTypeFilter);
+      }
+
+      // ── Terrain filter ──────────────────────────────────────────
+      const terrainFilter = String(cat.terrainFilter || '').trim();
+      if (terrainFilter) {
+        whereExtra += ` AND w.terrain = ?`;
+        params.push(terrainFilter);
+      }
+
+      // ── Minimum distance filter ─────────────────────────────────
+      const minDistMi = Number(cat.minDistanceMiles);
+      if (Number.isFinite(minDistMi) && minDistMi > 0) {
+        whereExtra += ` AND w.distance_value >= ?`;
+        params.push(minDistMi);
       }
 
       const displayLabel = genderLabel && genderVariants.length > 1
@@ -1109,15 +1132,19 @@ class ChallengeWorkout {
          ORDER BY metric_value DESC`;
         params.push(milestoneThreshold);
       } else {
+        // For pace: ensure duration and distance are present; filter NULLs
+        const paceHavingClause = isPace ? ` HAVING metric_value IS NOT NULL` : '';
+        const orderDir = (aggregation === 'least' || aggregation === 'fastest' || isPace) ? 'ASC' : 'DESC';
         sql = `SELECT w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name, ${metricExpr} AS metric_value
          FROM challenge_workouts w
          INNER JOIN users u ON u.id = w.user_id
          LEFT JOIN challenge_teams t ON t.id = w.team_id
          ${joinClause}
          WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')} AND w.completed_at >= ? AND w.completed_at < ?
-           ${whereExtra}
+           ${whereExtra}${isPace ? ` AND w.duration_minutes IS NOT NULL AND w.distance_value > 0` : ''}
          GROUP BY w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name
-         ORDER BY metric_value ${aggregation === 'least' ? 'ASC' : 'DESC'}
+         ${paceHavingClause}
+         ORDER BY metric_value ${orderDir}
          LIMIT 1`;
       }
 

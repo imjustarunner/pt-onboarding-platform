@@ -1291,7 +1291,7 @@
                     :value="profileEdits[m.provider_user_id].gender"
                   >{{ profileEdits[m.provider_user_id].gender }}</option>
                 </select>
-                <input v-model="profileEdits[m.provider_user_id].dateOfBirth" type="date" @change="saveProfile(m)" placeholder="DOB" />
+                <input v-model="profileEdits[m.provider_user_id].dateOfBirth" type="date" min="1920-01-01" max="2015-12-31" @blur="saveProfile(m)" placeholder="DOB" />
               </template>
               <template v-else>
                 <select disabled><option>—</option></select>
