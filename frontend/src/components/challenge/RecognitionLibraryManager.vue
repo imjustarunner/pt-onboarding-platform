@@ -287,9 +287,10 @@
           <span class="rlm-section-title">Recognition Awards Library</span>
           <span class="rlm-section-hint">Saved award templates you can reuse across seasons.</span>
         </div>
-        <button type="button" class="btn btn-sm btn-secondary" @click="openAwardModal()">
-          + Add Award
-        </button>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button type="button" class="btn btn-sm btn-secondary" @click="openAwardModal()">+ Add Award</button>
+          <button type="button" class="rlm-bulk-btn" @click="openBulkCreator()">⚡ Bulk Create</button>
+        </div>
       </div>
 
       <div v-if="awardsLoading" class="rlm-hint">Loading awards…</div>
@@ -321,6 +322,139 @@
             <button type="button" class="rlm-action-btn" @click="openAwardModal(a)">Edit</button>
             <button type="button" class="rlm-action-btn rlm-action-btn--danger" @click="confirmDeleteAward(a)">Delete</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════
+         BULK RECOGNITION CREATOR
+    ══════════════════════════════════════════════════════════════ -->
+    <div v-if="showBulkCreator" class="rlm-modal-overlay" @click.self="showBulkCreator = false">
+      <div class="rlm-modal rlm-modal--bulk">
+        <div class="rlm-modal-head">
+          <h3>Bulk Recognition Creator</h3>
+          <button type="button" class="rlm-close-btn" @click="showBulkCreator = false">×</button>
+        </div>
+
+        <!-- Step 1: Icon picker -->
+        <div v-if="bulkStep === 1" class="rlm-modal-body">
+          <p class="rlm-field-hint" style="margin-bottom:12px;">Select one or more icons — each becomes one award row you'll configure next.</p>
+          <div class="rlm-bulk-tabs">
+            <button :class="['rlm-icon-tab', { active: bulkIconTab === 'emoji' }]" type="button" @click="bulkIconTab = 'emoji'">Emoji</button>
+            <button :class="['rlm-icon-tab', { active: bulkIconTab === 'library' }]" type="button" @click="bulkIconTab = 'library'; loadBulkClubIcons()">Library</button>
+          </div>
+          <div class="rlm-bulk-icon-grid">
+            <template v-if="bulkIconTab === 'emoji'">
+              <button
+                v-for="ic in ICONS"
+                :key="ic"
+                type="button"
+                :class="['rlm-bulk-icon-btn', { selected: bulkSelectedIcons.includes(ic) }]"
+                @click="toggleBulkIcon(ic)"
+              >{{ ic }}</button>
+            </template>
+            <template v-else>
+              <div v-if="bulkClubIconsLoading" class="rlm-hint">Loading…</div>
+              <div v-else-if="!bulkClubIcons.length" class="rlm-hint">No icons in library yet.</div>
+              <button
+                v-for="li in bulkClubIcons"
+                :key="li.id"
+                type="button"
+                :class="['rlm-bulk-icon-btn', 'rlm-bulk-icon-btn--img', { selected: bulkSelectedIcons.includes(`icon:${li.id}`) }]"
+                @click="toggleBulkIcon(`icon:${li.id}`, li.url)"
+              >
+                <img :src="li.url" :alt="li.name || ''" />
+              </button>
+            </template>
+          </div>
+          <div class="rlm-bulk-footer">
+            <span class="rlm-field-hint">{{ bulkSelectedIcons.length }} icon{{ bulkSelectedIcons.length !== 1 ? 's' : '' }} selected</span>
+            <button type="button" class="btn btn-primary btn-sm" :disabled="!bulkSelectedIcons.length" @click="bulkStep = 2">
+              Next → Configure Awards
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 2: Configure rows -->
+        <div v-else class="rlm-modal-body rlm-modal-body--scroll">
+          <p class="rlm-field-hint" style="margin-bottom:12px;">Fill in each award. Rows without a title will be skipped.</p>
+
+          <div class="rlm-bulk-rows">
+            <div v-for="(row, ri) in bulkRows" :key="ri" class="rlm-bulk-row">
+              <div class="rlm-bulk-row-icon">
+                <span v-if="!isLibraryIcon(row.icon)" class="rlm-bulk-row-emoji">{{ row.icon }}</span>
+                <img v-else :src="resolvedBulkIconUrl(row.icon)" class="rlm-bulk-row-img" alt="" />
+                <button type="button" class="rlm-close-btn" style="font-size:16px;" title="Remove" @click="bulkRows.splice(ri,1)">×</button>
+              </div>
+              <input v-model="row.label" type="text" class="rlm-bulk-row-title" placeholder="Award title *" maxlength="80" />
+              <select v-model="row.period" class="rlm-select rlm-bulk-sel">
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="season">Full Season</option>
+              </select>
+              <select v-model="row.activityType" class="rlm-select rlm-bulk-sel">
+                <option value="">Any activity</option>
+                <optgroup label="Running">
+                  <option value="running">Running</option>
+                  <option value="trail_run">Trail Run</option>
+                  <option value="road_run">Road Run</option>
+                  <option value="race">Race</option>
+                </optgroup>
+                <optgroup label="Other">
+                  <option value="hiking">Hiking</option>
+                  <option value="walking">Walking</option>
+                  <option value="cycling">Cycling</option>
+                  <option value="workout">Workout / Strength</option>
+                </optgroup>
+              </select>
+              <select v-model="row.terrainFilter" class="rlm-select rlm-bulk-sel">
+                <option value="">Any terrain</option>
+                <option value="Road">Road</option>
+                <option value="Trail">Trail</option>
+                <option value="Track">Track</option>
+                <option value="Beach">Beach</option>
+                <option value="Treadmill">Treadmill</option>
+              </select>
+              <select v-model="row.metric" class="rlm-select rlm-bulk-sel" @change="onBulkRowMetricChange(row)">
+                <option value="distance_miles">Miles</option>
+                <option value="points">Points</option>
+                <option value="elevation_gain_ft">Elevation (ft)</option>
+                <option value="pace_min_per_mile">Pace (fastest)</option>
+                <option value="activities_count">Activity count</option>
+                <option value="duration_minutes">Duration (min)</option>
+              </select>
+              <select v-model="row.aggregation" class="rlm-select rlm-bulk-sel" :disabled="row.metric === 'pace_min_per_mile'">
+                <option v-if="row.metric === 'pace_min_per_mile'" value="fastest">Fastest</option>
+                <option v-else value="most">Most (total)</option>
+                <option v-if="row.metric !== 'pace_min_per_mile'" value="best_single">Best single</option>
+                <option v-if="row.metric !== 'pace_min_per_mile'" value="best_day">Best single day</option>
+                <option v-if="row.metric !== 'pace_min_per_mile'" value="longest_streak">Longest streak</option>
+                <option v-if="row.metric !== 'pace_min_per_mile'" value="most_active_days">Most active days</option>
+                <option v-if="row.metric !== 'pace_min_per_mile'" value="perfect_season">Perfect season</option>
+              </select>
+              <select v-model="row.groupFilter" class="rlm-select rlm-bulk-sel">
+                <option value="">Everyone</option>
+                <option value="gender_male">Male</option>
+                <option value="gender_female">Female</option>
+                <option value="masters">Masters</option>
+                <option value="heavyweight_male">Clydesdale</option>
+                <option value="heavyweight_female">Athena</option>
+                <option v-for="g in groups" :key="g.id" :value="`group_${g.id}`">{{ g.label }}</option>
+              </select>
+              <input v-model.number="row.minDistanceMiles" type="number" class="rlm-bulk-mini-input" min="0" step="0.5" placeholder="Min mi" title="Min distance (mi)" />
+            </div>
+          </div>
+
+          <button type="button" class="rlm-dashed-add-btn" @click="addBulkRow()">+ Add another row</button>
+
+          <div class="rlm-bulk-footer" style="margin-top:12px;">
+            <button type="button" class="btn btn-secondary btn-sm" @click="bulkStep = 1">← Back</button>
+            <span class="rlm-field-hint">{{ bulkRows.filter(r => r.label.trim()).length }} / {{ bulkRows.length }} titled</span>
+            <button type="button" class="btn btn-primary btn-sm" :disabled="bulkSaving || !bulkRows.some(r => r.label.trim())" @click="commitBulkCreate()">
+              {{ bulkSaving ? 'Saving…' : `✓ Create ${bulkRows.filter(r => r.label.trim()).length} Award${bulkRows.filter(r => r.label.trim()).length !== 1 ? 's' : ''}` }}
+            </button>
+          </div>
+          <p v-if="bulkSaveError" class="rlm-error" style="margin-top:8px;">{{ bulkSaveError }}</p>
         </div>
       </div>
     </div>
@@ -861,6 +995,105 @@ function closeAwardModal() {
   editingAward.value = null;
   useLibraryIcon.value = false;
   libraryIconId.value = null;
+}
+
+// ── Bulk creator ──────────────────────────────────────────────────
+const showBulkCreator    = ref(false);
+const bulkStep           = ref(1);
+const bulkIconTab        = ref('emoji');
+const bulkSelectedIcons  = ref([]);
+const bulkRows           = ref([]);
+const bulkSaving         = ref(false);
+const bulkSaveError      = ref('');
+const bulkClubIcons      = ref([]);
+const bulkClubIconsLoading = ref(false);
+const bulkClubIconsLoaded  = ref(false);
+const bulkIconUrlCache   = ref({});
+
+function makeBulkRow(icon = '🏆') {
+  return { icon, label: '', period: 'weekly', activityType: '', terrainFilter: '', metric: 'distance_miles', aggregation: 'most', groupFilter: '', minDistanceMiles: null, streakMinMilesPerDay: null, streakMinActivitiesPerDay: null };
+}
+
+function toggleBulkIcon(icon, url) {
+  if (url && icon.startsWith('icon:')) bulkIconUrlCache.value[icon] = url;
+  const idx = bulkSelectedIcons.value.indexOf(icon);
+  if (idx === -1) bulkSelectedIcons.value.push(icon);
+  else bulkSelectedIcons.value.splice(idx, 1);
+}
+
+function openBulkCreator() {
+  bulkStep.value = 1;
+  bulkIconTab.value = 'emoji';
+  bulkSelectedIcons.value = [];
+  bulkRows.value = [];
+  bulkSaveError.value = '';
+  showBulkCreator.value = true;
+}
+
+async function loadBulkClubIcons() {
+  if (bulkClubIconsLoaded.value || bulkClubIconsLoading.value || !props.clubId) return;
+  bulkClubIconsLoading.value = true;
+  try {
+    const { data } = await api.get(`/summit-stats/clubs/${props.clubId}/icons`);
+    bulkClubIcons.value = Array.isArray(data?.icons) ? data.icons : [];
+    bulkClubIcons.value.forEach(i => { if (i.id && i.url) bulkIconUrlCache.value[`icon:${i.id}`] = i.url; });
+    bulkClubIconsLoaded.value = true;
+  } catch { bulkClubIcons.value = []; } finally { bulkClubIconsLoading.value = false; }
+}
+
+function resolvedBulkIconUrl(icon) {
+  if (bulkIconUrlCache.value[icon]) return bulkIconUrlCache.value[icon];
+  return resolvedIconUrl(icon);
+}
+
+function onBulkRowMetricChange(row) {
+  if (row.metric === 'pace_min_per_mile') row.aggregation = 'fastest';
+  else if (row.aggregation === 'fastest') row.aggregation = 'most';
+}
+
+function addBulkRow() {
+  bulkRows.value.push(makeBulkRow('🏆'));
+}
+
+watch(() => bulkStep.value, (step) => {
+  if (step === 2) {
+    bulkRows.value = bulkSelectedIcons.value.map(icon => makeBulkRow(icon));
+    if (!bulkRows.value.length) bulkRows.value.push(makeBulkRow('🏆'));
+  }
+});
+
+async function commitBulkCreate() {
+  const toAdd = bulkRows.value.filter(r => r.label.trim());
+  if (!toAdd.length) return;
+  bulkSaving.value = true;
+  bulkSaveError.value = '';
+  try {
+    for (const row of toAdd) {
+      const payload = {
+        label: row.label.trim(),
+        icon: row.icon,
+        period: row.period,
+        monthEndDay: 'last',
+        metric: row.metric,
+        aggregation: row.aggregation,
+        activityType: row.activityType || '',
+        terrainFilter: row.terrainFilter || '',
+        minDistanceMiles: (() => { const n = Number(row.minDistanceMiles); return Number.isFinite(n) && n > 0 ? n : undefined; })(),
+        groupFilter: row.groupFilter || '',
+        streakMinMilesPerDay: (() => { const n = Number(row.streakMinMilesPerDay); return Number.isFinite(n) ? n : undefined; })(),
+        streakMinActivitiesPerDay: (() => { const n = Number(row.streakMinActivitiesPerDay); return Number.isFinite(n) ? n : undefined; })(),
+        details: ''
+      };
+      const { data } = await api.post(`/summit-stats/clubs/${props.clubId}/recognition-awards`, payload);
+      awards.value.push(data.award);
+    }
+    emit('awards-updated', awards.value);
+    showBulkCreator.value = false;
+  } catch (e) {
+    bulkSaveError.value = e.response?.data?.error?.message || 'Save failed. Some awards may not have been created.';
+  } finally {
+    bulkSaving.value = false;
+  }
 }
 async function saveAward() {
   if (!awardForm.value.label.trim()) { awardSaveError.value = 'Award title is required.'; return; }
@@ -1419,4 +1652,107 @@ function formatCriteria(criteria) {
   color: #dc2626;
   flex: 1;
 }
+
+/* ── Bulk creator ──────────────────────────────────────────────── */
+.rlm-bulk-btn {
+  background: #1e293b;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rlm-bulk-btn:hover { background: #334155; }
+.rlm-modal--bulk {
+  max-width: 900px;
+  width: 100%;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+}
+.rlm-modal-body--scroll { overflow-y: auto; flex: 1; }
+.rlm-bulk-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.rlm-bulk-icon-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 12px;
+}
+.rlm-bulk-icon-btn {
+  background: #f8fafc;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  width: 52px;
+  height: 52px;
+  font-size: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.1s, background 0.1s;
+}
+.rlm-bulk-icon-btn:hover { border-color: #93c5fd; background: #eff6ff; }
+.rlm-bulk-icon-btn.selected { border-color: #2563eb; background: #dbeafe; }
+.rlm-bulk-icon-btn--img img { width: 34px; height: 34px; object-fit: contain; border-radius: 4px; }
+.rlm-bulk-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 10px;
+}
+.rlm-bulk-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.rlm-bulk-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.rlm-bulk-row-icon { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.rlm-bulk-row-emoji { font-size: 26px; line-height: 1; }
+.rlm-bulk-row-img { width: 32px; height: 32px; object-fit: contain; border-radius: 4px; }
+.rlm-bulk-row-title {
+  flex: 1;
+  min-width: 140px;
+  font-size: 13px;
+  padding: 5px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+}
+.rlm-bulk-sel { font-size: 12px; padding: 4px 6px; min-width: 90px; }
+.rlm-bulk-mini-input {
+  width: 64px;
+  font-size: 12px;
+  padding: 4px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  text-align: center;
+}
+.rlm-dashed-add-btn {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  border: 2px dashed #cbd5e1;
+  border-radius: 8px;
+  background: none;
+  color: #64748b;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: center;
+  margin-bottom: 4px;
+}
+.rlm-dashed-add-btn:hover { border-color: #94a3b8; color: #374151; }
 </style>
