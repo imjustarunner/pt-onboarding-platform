@@ -250,12 +250,12 @@
                   <div class="sbep-default-chip" :class="{ good: scheduleDefaults.allSameModality }">
                     <span class="sbep-default-kicker">Modality</span>
                     <strong>{{ scheduleDefaults.modality || 'Set per date' }}</strong>
-                    <small>{{ scheduleDefaults.allSameModality ? 'All sessions' : 'Overrides by date' }}</small>
+                    <small>{{ scheduleDefaults.allSameModality ? 'All sessions' : (scheduleDefaults.modality ? 'Has overrides' : 'Set per date') }}</small>
                   </div>
                   <div class="sbep-default-chip" :class="{ good: scheduleDefaults.allSameLocation }">
                     <span class="sbep-default-kicker">Location</span>
                     <strong>{{ scheduleDefaults.location || 'Set per date' }}</strong>
-                    <small>{{ scheduleDefaults.allSameLocation ? 'All sessions' : 'Overrides by date' }}</small>
+                    <small>{{ scheduleDefaults.allSameLocation ? 'All sessions' : (scheduleDefaults.location ? 'Has overrides' : 'Set per date') }}</small>
                   </div>
                   <div class="sbep-default-chip" :class="{ good: scheduleDefaults.allSameTime }">
                     <span class="sbep-default-kicker">Time</span>
@@ -267,6 +267,20 @@
                     <strong>{{ scheduleDefaults.overrideCount }}</strong>
                     <small>Dates differing from defaults</small>
                   </div>
+                </div>
+                <div
+                  v-if="viewerCaps.canManageCompanyEvent && scheduleDefaults?.hasEventDefaults && sessions.length"
+                  class="sbep-apply-defaults-row"
+                >
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-outline"
+                    :disabled="applyDefaultsLoading"
+                    @click="applyEventDefaultsToAllSessions"
+                  >
+                    {{ applyDefaultsLoading ? 'Applying…' : 'Apply event defaults to all sessions' }}
+                  </button>
+                  <small class="muted">Stamps the location &amp; modality from event settings onto every session row at once.</small>
                 </div>
                 <div v-if="sessionsLoading" class="muted">Loading sessions…</div>
                 <div v-else-if="sessions.length" class="sbep-sessions-table-wrap">
@@ -2419,6 +2433,7 @@ const sessionsLoadAttempted = ref(false);
 const sessionsLoadError = ref('');
 const sessionEditDraft = reactive({});
 const sessionEditSavingId = ref(null);
+const applyDefaultsLoading = ref(false);
 const virtualRoomsGenerating = ref(false);
 const kioskSessionId = ref(0);
 const kioskClientId = ref(0);
@@ -3008,23 +3023,39 @@ function sessionTimeText(s) {
   return `${wallHmToDisplay(formatHm(s?.startTime))}–${wallHmToDisplay(formatHm(s?.endTime))}`;
 }
 
-function sessionLocationText(s) {
-  return String(
-    s?.locationLabel ||
-    s?.locationAddress ||
-    detail.value?.event?.eventLocationName ||
-    detail.value?.event?.eventLocationAddress ||
-    detail.value?.event?.publicLocationAddress ||
-    ''
-  ).trim();
+/** Returns only the session-explicit location text (not event-level fallback). */
+function sessionExplicitLocation(s) {
+  return String(s?.locationLabel || s?.locationAddress || '').trim();
 }
 
-function sessionModalityText(s) {
-  const raw = String(s?.modality || (detail.value?.event?.inPersonPublic ? 'in_person' : '')).trim().toLowerCase();
+/** Returns only the session-explicit modality as display text (not event-level fallback). */
+function sessionExplicitModality(s) {
+  const raw = String(s?.modality || '').trim().toLowerCase();
   if (raw === 'in_person') return 'In person';
   if (raw === 'virtual') return 'Virtual';
   if (raw === 'hybrid') return 'Hybrid';
   return raw ? raw.replace(/_/g, ' ') : '';
+}
+
+/** For display in session table rows — includes event-level fallback so row never shows blank when a default exists. */
+function sessionLocationText(s) {
+  return (
+    sessionExplicitLocation(s) ||
+    String(
+      detail.value?.event?.eventLocationName ||
+      detail.value?.event?.eventLocationAddress ||
+      detail.value?.event?.publicLocationAddress ||
+      ''
+    ).trim()
+  );
+}
+
+/** For display in session table rows — includes event-level fallback. */
+function sessionModalityText(s) {
+  return (
+    sessionExplicitModality(s) ||
+    (detail.value?.event?.inPersonPublic ? 'In person' : '')
+  );
 }
 
 function sameNonEmptyValue(values) {
@@ -3036,22 +3067,49 @@ function sameNonEmptyValue(values) {
 
 const scheduleDefaults = computed(() => {
   const list = Array.isArray(sessions.value) ? sessions.value : [];
-  if (!list.length) return null;
-  const time = sameNonEmptyValue(list.map(sessionTimeText));
-  const location = sameNonEmptyValue(list.map(sessionLocationText));
-  const modality = sameNonEmptyValue(list.map(sessionModalityText));
+  const ev = detail.value?.event || {};
+
+  // Event-level canonical defaults (set in Edit Event settings)
+  const evLocation = String(ev.eventLocationName || ev.eventLocationAddress || ev.publicLocationAddress || '').trim();
+  const evModality = ev.inPersonPublic ? 'In person' : '';
+
+  // Session-derived fallbacks (used only when event-level fields are empty)
+  const sessionLocs = list.map(sessionExplicitLocation);
+  const sessionMods = list.map(sessionExplicitModality);
+  const sessionLocFallback = sameNonEmptyValue(sessionLocs);
+  const sessionModFallback = sameNonEmptyValue(sessionMods);
+
+  const location = evLocation || sessionLocFallback;
+  const modality = evModality || sessionModFallback;
+  const time = list.length ? sameNonEmptyValue(list.map(sessionTimeText)) : '';
+
+  // "All same" = a default is known AND no session has an explicit value that differs
+  const allSameLocation = !!location && !list.some((s) => {
+    const sl = sessionExplicitLocation(s);
+    return sl && sl !== location;
+  });
+  const allSameModality = !!modality && !list.some((s) => {
+    const sm = sessionExplicitModality(s);
+    return sm && sm !== modality;
+  });
+
+  const overrideCount = list.filter((s) => {
+    const sl = sessionExplicitLocation(s);
+    const sm = sessionExplicitModality(s);
+    return (sl && location && sl !== location) || (sm && modality && sm !== modality);
+  }).length;
+
   return {
     time,
     location,
     modality,
+    evLocation,
+    evModality,
     allSameTime: !!time,
-    allSameLocation: !!location,
-    allSameModality: !!modality,
-    overrideCount: list.filter((s) => (
-      (time && sessionTimeText(s) !== time) ||
-      (location && sessionLocationText(s) !== location) ||
-      (modality && sessionModalityText(s) !== modality)
-    )).length
+    allSameLocation,
+    allSameModality,
+    overrideCount,
+    hasEventDefaults: !!(evLocation || evModality)
   };
 });
 
@@ -3211,6 +3269,57 @@ async function saveSessionInlineEdits(sessionId) {
     window.alert(e.response?.data?.error?.message || e.message || 'Could not save session details');
   } finally {
     sessionEditSavingId.value = null;
+  }
+}
+
+async function applyEventDefaultsToAllSessions() {
+  const ev = detail.value?.event;
+  const list = Array.isArray(sessions.value) ? sessions.value : [];
+  if (!ev || !eventBillingAgencyId.value || !eventId.value || !list.length) return;
+
+  const evLocLabel = String(ev.eventLocationName || '').trim();
+  const evLocAddress = String(ev.eventLocationAddress || ev.publicLocationAddress || '').trim();
+  const evModalityRaw = ev.inPersonPublic ? 'in_person' : '';
+  const evModalityDisplay = ev.inPersonPublic ? 'In person' : '(none)';
+  const evLocDisplay = evLocLabel || evLocAddress || '(none)';
+
+  if (!evLocLabel && !evLocAddress && !evModalityRaw) {
+    window.alert(
+      'No event-level location or modality to apply.\n\nSet "Event location name", "Event location address", or "In person" in the event settings first, then try again.'
+    );
+    return;
+  }
+
+  if (
+    !window.confirm(
+      `Apply event defaults to all ${list.length} session(s)?\n\nLocation: ${evLocDisplay}\nModality: ${evModalityDisplay}\n\nThis will overwrite any per-session overrides.`
+    )
+  )
+    return;
+
+  applyDefaultsLoading.value = true;
+  try {
+    for (const s of list) {
+      const endpoint = isProgramSessionMode.value
+        ? `/skill-builders/events/${eventId.value}/program-sessions/${s.id}`
+        : `/skill-builders/events/${eventId.value}/sessions/${s.id}`;
+      await api.patch(
+        endpoint,
+        {
+          agencyId: eventBillingAgencyId.value,
+          locationLabel: evLocLabel || null,
+          locationAddress: evLocAddress || null,
+          modality: evModalityRaw || null,
+          joinUrl: String(s.joinUrl || '').trim() || null
+        },
+        { skipGlobalLoading: true }
+      );
+    }
+    await loadSessions();
+  } catch (e) {
+    window.alert(e.response?.data?.error?.message || e.message || 'Could not apply defaults to sessions');
+  } finally {
+    applyDefaultsLoading.value = false;
   }
 }
 
@@ -6754,6 +6863,16 @@ watch(
 .sbep-default-chip small {
   color: #64748b;
   font-size: 0.74rem;
+}
+.sbep-apply-defaults-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -4px 0 14px;
+  flex-wrap: wrap;
+}
+.sbep-apply-defaults-row small {
+  color: #64748b;
 }
 .sbep-schedule-day-card {
   margin-top: 16px;

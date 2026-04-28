@@ -399,7 +399,12 @@ function formatEventRow(row) {
     virtualSessionsEnabled:
       row.virtual_sessions_enabled === undefined || row.virtual_sessions_enabled === null
         ? true
-        : !!(row.virtual_sessions_enabled === 1 || row.virtual_sessions_enabled === true)
+        : !!(row.virtual_sessions_enabled === 1 || row.virtual_sessions_enabled === true),
+    inPersonPublic: !!(row.in_person_public === 1 || row.in_person_public === true),
+    publicLocationAddress: row.public_location_address ? String(row.public_location_address).trim() : '',
+    eventLocationName: row.event_location_name ? String(row.event_location_name).trim() : '',
+    eventLocationAddress: row.event_location_address ? String(row.event_location_address).trim() : '',
+    kioskEventPinCode: row.kiosk_event_pin_code ? String(row.kiosk_event_pin_code).trim() : null
   };
 }
 
