@@ -533,7 +533,7 @@ export const parseVisionText = (rawText) => {
   let captionMiles = null;
   let captionChallenge = false;
   {
-    const TERRAIN_WORDS = /^(road|trail|track|treadmill|tread|beach|indoor|outdoor|grass|gravel|sand|dirt|pavement)$/i;
+    const TERRAIN_WORDS = /^(road|trail|track|treadmill|tread|beach|indoor|outdoor|grass|gravel|sand|dirt|pavement|mixed|other)$/i;
     // Look at the last few non-empty lines of the OCR text (caption is at the bottom)
     const lastLines = lines.filter(l => l.trim()).slice(-6);
     for (const line of lastLines) {
@@ -566,14 +566,38 @@ export const parseVisionText = (rawText) => {
   }
 
   // ── Terrain detection ─────────────────────────────────────────────────────
-  // Caption terrain takes priority over keyword scan
-  let terrain = captionTerrain || null;
+  // Caption terrain takes priority over keyword scan.
+  // Grass, gravel, sand, and multi-surface captions → 'Other'.
+  const normaliseTerrain = (raw) => {
+    const t = raw.trim().toLowerCase();
+    if (/treadmill|tread\s*mill/.test(t))        return 'Treadmill';
+    if (/\btrack\b/.test(t))                      return 'Track';
+    if (/trail|dirt|offroad|off-road/.test(t))    return 'Trail';
+    if (/\broad\b/.test(t))                       return 'Road';
+    if (/beach/.test(t))                          return 'Beach';
+    // Less-common or mixed surfaces → Other
+    if (/grass|gravel|sand|pavement|indoor|outdoor|mixed|multiple|surface/.test(t)) return 'Other';
+    return null;
+  };
+
+  let terrain = captionTerrain ? normaliseTerrain(captionTerrain) : null;
+
   if (!terrain) {
-    if (/treadmill|tread\s*mill/i.test(rawText))              terrain = 'Treadmill';
-    else if (/\btrack\b/i.test(rawText))                       terrain = 'Track';
-    else if (/trail|dirt|offroad|off-road/i.test(rawText))     terrain = 'Trail';
-    else if (/\broad\b/i.test(rawText))                        terrain = 'Road';
-    else if (/beach/i.test(rawText))                           terrain = 'Beach';
+    // Collect all surface types mentioned in the full text
+    const surfaceHits = [];
+    if (/treadmill|tread\s*mill/i.test(rawText))          surfaceHits.push('Treadmill');
+    if (/\btrack\b/i.test(rawText))                        surfaceHits.push('Track');
+    if (/trail|dirt|offroad|off-road/i.test(rawText))      surfaceHits.push('Trail');
+    if (/\broad\b/i.test(rawText))                         surfaceHits.push('Road');
+    if (/beach/i.test(rawText))                            surfaceHits.push('Beach');
+    if (/\bgrass\b|\bgravel\b|\bsand\b|\bpavement\b/i.test(rawText)) surfaceHits.push('Other');
+
+    if (surfaceHits.length === 1) {
+      terrain = surfaceHits[0];
+    } else if (surfaceHits.length > 1) {
+      // Multiple surfaces detected → Other
+      terrain = 'Other';
+    }
   }
 
   // ── Activity type hint ────────────────────────────────────────────────────
