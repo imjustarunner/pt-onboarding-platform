@@ -136,7 +136,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const workoutMediaUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100 MB total — supports up to 50 screenshots
   fileFilter: (_req, file, cb) => {
     const allowed = ['image/gif', 'image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
     if (!allowed.includes(String(file.mimetype || '').toLowerCase())) {
@@ -220,7 +220,7 @@ router.get('/:classId/roster', listChallengeRoster);
 router.post('/:classId/roster/import', importChallengeRoster);
 router.post('/:classId/roster/merge-placeholder', mergeRosterPlaceholder);
 router.post('/:classId/workouts/scan-screenshot', workoutMediaUpload.single('file'), scanWorkoutScreenshot);
-router.post('/:classId/workouts/bulk-scan', workoutMediaUpload.array('files', 10), scanBulkWorkoutScreenshots);
+router.post('/:classId/workouts/bulk-scan', workoutMediaUpload.array('files', 50), scanBulkWorkoutScreenshots);
 router.get('/:classId/activity', getActivityFeed);
 router.get('/:classId/workouts', listClassWorkouts);
 router.post('/:classId/workouts', submitWorkout);
