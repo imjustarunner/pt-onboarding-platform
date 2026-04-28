@@ -51,31 +51,83 @@
         </button>
       </div>
       <div class="application-page-config agency-page-config">
+        <h5 class="config-section-label">Brand &amp; appearance</h5>
         <div class="form-grid">
-          <input v-model="agencyPageForm.eyebrow" class="input" type="text" placeholder="Small label, e.g. Join Our Team" />
-          <input v-model="agencyPageForm.lead" class="input" type="text" placeholder="Lead line under the title" />
-          <input v-model="agencyPageForm.titleHighlight" class="input" type="text" placeholder="Default title highlight, e.g. Colorado Springs" />
+          <input v-model="agencyPageForm.heroHeadline" class="input" type="text" placeholder="Hero headline (dark), e.g. Make a difference." />
+          <input v-model="agencyPageForm.heroSubheadline" class="input" type="text" placeholder="Hero subheadline (accent color), e.g. Build brighter futures." />
+          <div class="color-field">
+            <label class="color-label small">Accent color</label>
+            <div class="color-row">
+              <input v-model="agencyPageForm.accentColor" type="color" class="color-swatch" />
+              <input v-model="agencyPageForm.accentColor" class="input" type="text" placeholder="#1a8c54" style="flex:1" />
+            </div>
+          </div>
+          <input v-model="agencyPageForm.eyebrow" class="input" type="text" placeholder="Small eyebrow label, e.g. Careers" />
+          <input v-model="agencyPageForm.lead" class="input" type="text" placeholder="Lead paragraph under hero headlines" />
           <label class="checkbox-inline">
             <input v-model="agencyPageForm.showLeafAccent" type="checkbox" />
-            Show leaf accent near photo
+            Show leaf accent decoration near photo
           </label>
-          <div class="hero-upload-field">
-            <input v-model="agencyPageForm.heroImageUrl" class="input" type="text" placeholder="Default hero image URL or upload below" />
-            <button type="button" class="btn btn-secondary btn-sm" @click="triggerAgencyHeroUpload">Upload shared photo</button>
-            <input
-              ref="agencyHeroFileRef"
-              type="file"
-              accept="image/png,image/jpeg,image/webp,image/*"
-              class="hidden-file"
-              @change="onAgencyHeroFileChange"
-            />
+          <div class="hero-upload-field" style="grid-column: 1 / -1;">
+            <input v-model="agencyPageForm.heroImageUrl" class="input" type="text" placeholder="Hero image URL or upload below" />
+            <button type="button" class="btn btn-secondary btn-sm" @click="triggerAgencyHeroUpload">Upload photo</button>
+            <input ref="agencyHeroFileRef" type="file" accept="image/png,image/jpeg,image/webp,image/*" class="hidden-file" @change="onAgencyHeroFileChange" />
             <div v-if="agencyHeroImageFile" class="muted small">Selected: {{ agencyHeroImageFile.name }}</div>
             <div v-else-if="agencyPageForm.heroImageUrl" class="hero-thumb">
               <img :src="displayAssetUrl(agencyPageForm.heroImageUrl)" alt="Shared careers hero preview" />
             </div>
           </div>
-          <input v-model="agencyPageForm.heroImageAlt" class="input" type="text" placeholder="Default hero image alt text" />
+          <input v-model="agencyPageForm.heroImageAlt" class="input" type="text" placeholder="Hero image alt text" />
           <input v-model="agencyPageForm.heroImagePosition" class="input" type="text" placeholder="Photo focus, e.g. center center" />
+        </div>
+
+        <div class="display-card-editor">
+          <h5>Navigation items</h5>
+          <p class="muted small" style="margin:0 0 8px;">Links shown in the top nav bar. Use "button" style for the primary CTA.</p>
+          <div class="nav-items-list">
+            <div v-for="(item, idx) in agencyPageForm.navItems" :key="idx" class="nav-item-row">
+              <input v-model="item.label" class="input" type="text" placeholder="Label, e.g. Why ITSCO" style="flex:2" />
+              <input v-model="item.href" class="input" type="url" placeholder="URL" style="flex:3" />
+              <select v-model="item.style" class="input" style="flex:1">
+                <option value="link">Link</option>
+                <option value="button">Button</option>
+              </select>
+              <button type="button" class="btn btn-secondary btn-sm" @click="agencyPageForm.navItems.splice(idx, 1)">✕</button>
+            </div>
+            <button
+              v-if="agencyPageForm.navItems.length < 6"
+              type="button"
+              class="btn btn-secondary btn-sm"
+              @click="agencyPageForm.navItems.push({ label: '', href: '', style: 'link' })"
+            >+ Add nav item</button>
+          </div>
+        </div>
+
+        <h5 class="config-section-label" style="margin-top:14px;">Banner strip</h5>
+        <div class="form-grid">
+          <input v-model="agencyPageForm.bannerText" class="input" type="text" placeholder="Banner headline, e.g. Join a team supporting 1,000+ students" style="grid-column: 1 / -1;" />
+          <input v-model="agencyPageForm.bannerLinkText" class="input" type="text" placeholder="Banner link text, e.g. Learn more about ITSCO" />
+          <input v-model="agencyPageForm.bannerLinkHref" class="input" type="url" placeholder="Banner link URL" />
+        </div>
+        <div class="display-card-editor">
+          <h5>Banner bullet points</h5>
+          <div class="nav-items-list">
+            <div v-for="(bullet, idx) in agencyPageForm.bannerBullets" :key="idx" class="nav-item-row">
+              <input v-model="agencyPageForm.bannerBullets[idx]" class="input" type="text" :placeholder="`Bullet ${idx + 1}, e.g. Flexible schedules`" style="flex:1" />
+              <button type="button" class="btn btn-secondary btn-sm" @click="agencyPageForm.bannerBullets.splice(idx, 1)">✕</button>
+            </div>
+            <button
+              v-if="agencyPageForm.bannerBullets.length < 6"
+              type="button"
+              class="btn btn-secondary btn-sm"
+              @click="agencyPageForm.bannerBullets.push('')"
+            >+ Add bullet</button>
+          </div>
+        </div>
+
+        <h5 class="config-section-label" style="margin-top:14px;">Application page defaults</h5>
+        <div class="form-grid">
+          <input v-model="agencyPageForm.titleHighlight" class="input" type="text" placeholder="Title highlight text, e.g. Colorado Springs" />
           <input v-model="agencyPageForm.secureTitle" class="input" type="text" placeholder="Header secure title, e.g. Secure & Confidential" />
           <input v-model="agencyPageForm.secureSubtitle" class="input" type="text" placeholder="Header secure subtitle" />
           <input v-model="agencyPageForm.startHeading" class="input" type="text" placeholder="Start card heading" />
@@ -114,6 +166,7 @@
       <h3>Create job posting</h3>
       <div class="form-grid">
         <input v-model="createForm.title" class="input" type="text" placeholder="Job title" />
+        <input v-model="createForm.roleType" class="input" type="text" placeholder="Role type label, e.g. Provider, Facilitator, Intern" />
         <input ref="jobFileRef" class="input" type="file" @change="onCreateFileChange" />
         <input v-model="createForm.city" class="input" type="text" placeholder="City" />
         <input v-model="createForm.state" class="input" type="text" placeholder="State" />
@@ -127,6 +180,25 @@
           Ongoing (no deadline)
         </label>
         <input v-model="createForm.applicationDeadline" class="input" type="date" :disabled="createForm.ongoing" />
+        <label class="checkbox-inline">
+          <input v-model="createForm.isFeatured" type="checkbox" />
+          Pin as featured on careers page
+        </label>
+        <div class="tags-field" style="grid-column: 1 / -1;">
+          <label class="small" style="display:block;margin-bottom:4px;color:#374151;">Display tags (shown as chips on the job card)</label>
+          <div class="tags-input-row">
+            <div class="tags-chips">
+              <span v-for="(tag, idx) in createForm.tags" :key="idx" class="tag-chip">{{ tag }}<button type="button" @click="createForm.tags.splice(idx,1)">✕</button></span>
+            </div>
+            <input
+              class="input tag-input"
+              type="text"
+              placeholder="Add tag, press Enter…"
+              @keydown.enter.prevent="addTag(createForm, $event.target)"
+              @keydown.comma.prevent="addTag(createForm, $event.target)"
+            />
+          </div>
+        </div>
         <textarea
           v-model="createForm.descriptionText"
           class="textarea"
@@ -274,6 +346,7 @@
         <div class="modal-body">
           <div class="form-grid">
             <input v-model="editForm.title" class="input" type="text" placeholder="Job title" />
+            <input v-model="editForm.roleType" class="input" type="text" placeholder="Role type label, e.g. Provider, Facilitator, Intern" />
             <input ref="editFileRef" class="input" type="file" @change="onEditFileChange" />
             <div v-if="editingRow?.hasFile" class="muted small">
               Current file: {{ editingRow.originalName || 'Uploaded file' }}
@@ -293,6 +366,25 @@
               Ongoing (no deadline)
             </label>
             <input v-model="editForm.applicationDeadline" class="input" type="date" :disabled="editForm.ongoing" />
+            <label class="checkbox-inline">
+              <input v-model="editForm.isFeatured" type="checkbox" />
+              Pin as featured on careers page
+            </label>
+            <div class="tags-field" style="grid-column: 1 / -1;">
+              <label class="small" style="display:block;margin-bottom:4px;color:#374151;">Display tags</label>
+              <div class="tags-input-row">
+                <div class="tags-chips">
+                  <span v-for="(tag, idx) in editForm.tags" :key="idx" class="tag-chip">{{ tag }}<button type="button" @click="editForm.tags.splice(idx,1)">✕</button></span>
+                </div>
+                <input
+                  class="input tag-input"
+                  type="text"
+                  placeholder="Add tag, press Enter…"
+                  @keydown.enter.prevent="addTag(editForm, $event.target)"
+                  @keydown.comma.prevent="addTag(editForm, $event.target)"
+                />
+              </div>
+            </div>
             <textarea
               v-model="editForm.descriptionText"
               class="textarea"
@@ -412,6 +504,10 @@ const cardIconOptions = [
 ];
 const blankDisplayCard = () => ({ icon: 'none', title: '', body: '' });
 const blankApplicationPage = () => ({
+  heroHeadline: '',
+  heroSubheadline: '',
+  accentColor: '#1a8c54',
+  navItems: [],
   eyebrow: '',
   lead: '',
   titleHighlight: '',
@@ -425,6 +521,10 @@ const blankApplicationPage = () => ({
   startButtonText: '',
   startTimeNote: '',
   showLeafAccent: true,
+  bannerText: '',
+  bannerBullets: [],
+  bannerLinkText: '',
+  bannerLinkHref: '',
   featureCards: [blankDisplayCard(), blankDisplayCard(), blankDisplayCard(), blankDisplayCard()],
   trustItems: [blankDisplayCard(), blankDisplayCard(), blankDisplayCard()]
 });
@@ -436,7 +536,17 @@ const normalizeDisplayCard = (card) => ({
 const normalizeApplicationPage = (page) => {
   const rawFeatures = Array.isArray(page?.featureCards) ? page.featureCards : [];
   const rawTrust = Array.isArray(page?.trustItems) ? page.trustItems : [];
+  const rawNav = Array.isArray(page?.navItems) ? page.navItems : [];
+  const rawBullets = Array.isArray(page?.bannerBullets) ? page.bannerBullets : [];
   const next = {
+    heroHeadline: String(page?.heroHeadline || '').trim(),
+    heroSubheadline: String(page?.heroSubheadline || '').trim(),
+    accentColor: String(page?.accentColor || '#1a8c54').trim(),
+    navItems: rawNav.map((n) => ({
+      label: String(n?.label || '').trim(),
+      href: String(n?.href || '').trim(),
+      style: String(n?.style || 'link').trim() === 'button' ? 'button' : 'link'
+    })).filter((n) => n.label),
     eyebrow: String(page?.eyebrow || '').trim(),
     lead: String(page?.lead || '').trim(),
     titleHighlight: String(page?.titleHighlight || page?.title_highlight || '').trim(),
@@ -450,6 +560,10 @@ const normalizeApplicationPage = (page) => {
     startButtonText: String(page?.startButtonText || page?.start_button_text || '').trim(),
     startTimeNote: String(page?.startTimeNote || page?.start_time_note || '').trim(),
     showLeafAccent: page?.showLeafAccent !== false && page?.show_leaf_accent !== false,
+    bannerText: String(page?.bannerText || '').trim(),
+    bannerBullets: rawBullets.map((b) => String(b || '').trim()).filter(Boolean),
+    bannerLinkText: String(page?.bannerLinkText || '').trim(),
+    bannerLinkHref: String(page?.bannerLinkHref || '').trim(),
     featureCards: rawFeatures.map(normalizeDisplayCard).slice(0, 4),
     trustItems: rawTrust.map(normalizeDisplayCard).slice(0, 3)
   };
@@ -460,6 +574,10 @@ const normalizeApplicationPage = (page) => {
 const compactApplicationPage = (page) => {
   const normalized = normalizeApplicationPage(page);
   return {
+    heroHeadline: normalized.heroHeadline,
+    heroSubheadline: normalized.heroSubheadline,
+    accentColor: normalized.accentColor,
+    navItems: normalized.navItems,
     eyebrow: normalized.eyebrow,
     lead: normalized.lead,
     titleHighlight: normalized.titleHighlight,
@@ -473,6 +591,10 @@ const compactApplicationPage = (page) => {
     startButtonText: normalized.startButtonText,
     startTimeNote: normalized.startTimeNote,
     showLeafAccent: normalized.showLeafAccent,
+    bannerText: normalized.bannerText,
+    bannerBullets: normalized.bannerBullets,
+    bannerLinkText: normalized.bannerLinkText,
+    bannerLinkHref: normalized.bannerLinkHref,
     featureCards: normalized.featureCards.filter((card) => card.title || card.body),
     trustItems: normalized.trustItems.filter((card) => card.title || card.body)
   };
@@ -488,6 +610,9 @@ const createForm = ref({
   city: '',
   state: '',
   educationLevel: '',
+  roleType: '',
+  isFeatured: false,
+  tags: [],
   applicationPage: blankApplicationPage(),
   heroImageFile: null,
   file: null
@@ -501,6 +626,9 @@ const editForm = ref({
   city: '',
   state: '',
   educationLevel: '',
+  roleType: '',
+  isFeatured: false,
+  tags: [],
   applicationPage: blankApplicationPage(),
   heroImageFile: null,
   file: null
@@ -736,6 +864,9 @@ const createJob = async () => {
     if (String(createForm.value.city || '').trim()) fd.append('city', String(createForm.value.city || '').trim());
     if (String(createForm.value.state || '').trim()) fd.append('state', String(createForm.value.state || '').trim());
     if (String(createForm.value.educationLevel || '').trim()) fd.append('educationLevel', String(createForm.value.educationLevel || '').trim());
+    if (String(createForm.value.roleType || '').trim()) fd.append('roleType', String(createForm.value.roleType || '').trim());
+    fd.append('isFeatured', createForm.value.isFeatured ? '1' : '0');
+    fd.append('tagsJson', JSON.stringify(createForm.value.tags || []));
     fd.append('applicationPageJson', JSON.stringify(compactApplicationPage(createForm.value.applicationPage)));
     if (createForm.value.heroImageFile) fd.append('heroImage', createForm.value.heroImageFile);
     if (createForm.value.file) fd.append('file', createForm.value.file);
@@ -751,6 +882,9 @@ const createJob = async () => {
       city: '',
       state: '',
       educationLevel: '',
+      roleType: '',
+      isFeatured: false,
+      tags: [],
       applicationPage: blankApplicationPage(),
       heroImageFile: null,
       file: null
@@ -776,6 +910,9 @@ const openEdit = (row) => {
     city: row.city || '',
     state: row.state || '',
     educationLevel: row.educationLevel || '',
+    roleType: row.roleType || '',
+    isFeatured: !!row.isFeatured,
+    tags: Array.isArray(row.tags) ? [...row.tags] : [],
     applicationPage: normalizeApplicationPage(row.applicationPage),
     heroImageFile: null,
     file: null
@@ -794,6 +931,9 @@ const closeEdit = () => {
     city: '',
     state: '',
     educationLevel: '',
+    roleType: '',
+    isFeatured: false,
+    tags: [],
     applicationPage: blankApplicationPage(),
     heroImageFile: null,
     file: null
@@ -813,6 +953,9 @@ const saveEdit = async () => {
     fd.append('city', String(editForm.value.city || '').trim());
     fd.append('state', String(editForm.value.state || '').trim());
     fd.append('educationLevel', String(editForm.value.educationLevel || '').trim());
+    fd.append('roleType', String(editForm.value.roleType || '').trim());
+    fd.append('isFeatured', editForm.value.isFeatured ? '1' : '0');
+    fd.append('tagsJson', JSON.stringify(editForm.value.tags || []));
     fd.append('applicationPageJson', JSON.stringify(compactApplicationPage(editForm.value.applicationPage)));
     if (editForm.value.heroImageFile) fd.append('heroImage', editForm.value.heroImageFile);
     if (editForm.value.file) fd.append('file', editForm.value.file);
@@ -893,6 +1036,12 @@ const copyLink = async (row) => {
     // ignore clipboard permission failures
   }
 };
+const addTag = (form, input) => {
+  const val = String(input?.value || '').trim().replace(/,+$/, '').trim();
+  if (val && !form.tags.includes(val)) form.tags.push(val);
+  if (input) input.value = '';
+};
+
 const copyPublicCareersUrl = async () => {
   if (!publicCareersUrl.value) return;
   try {
@@ -962,10 +1111,24 @@ onMounted(async () => {
 .modal-header { display: flex; justify-content: space-between; padding: 12px; border-bottom: 1px solid #e5e7eb; }
 .modal-body { padding: 12px; max-height: min(72vh, 820px); overflow: auto; }
 .modal-actions { display: flex; justify-content: flex-end; padding: 12px; border-top: 1px solid #e5e7eb; }
+.config-section-label { font-size: 13px; font-weight: 700; color: #374151; margin: 4px 0 10px; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; }
+.color-field { display: flex; flex-direction: column; gap: 4px; }
+.color-label { color: #374151; }
+.color-row { display: flex; align-items: center; gap: 8px; }
+.color-swatch { width: 40px; height: 38px; padding: 2px; border: 1px solid #d1d5db; border-radius: 8px; cursor: pointer; flex-shrink: 0; }
+.nav-items-list { display: flex; flex-direction: column; gap: 8px; }
+.nav-item-row { display: flex; align-items: center; gap: 8px; }
+.tags-field { display: flex; flex-direction: column; gap: 6px; }
+.tags-input-row { display: flex; flex-direction: column; gap: 6px; }
+.tags-chips { display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; }
+.tag-chip { display: inline-flex; align-items: center; gap: 4px; background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; border-radius: 99px; font-size: 12px; padding: 2px 8px; }
+.tag-chip button { background: none; border: none; cursor: pointer; color: inherit; font-size: 11px; padding: 0 2px; }
+.tag-input { max-width: 320px; }
 @media (max-width: 900px) {
   .form-grid { grid-template-columns: 1fr; }
   .display-card-grid,
   .display-card-grid-trust { grid-template-columns: 1fr; }
   .config-header { align-items: flex-start; flex-direction: column; }
+  .nav-item-row { flex-wrap: wrap; }
 }
 </style>

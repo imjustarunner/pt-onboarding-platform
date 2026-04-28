@@ -121,6 +121,19 @@ function sanitizeApplicationPageJson(raw) {
   };
 
   const out = {
+    heroHeadline: compactText(raw.heroHeadline || raw.hero_headline, 120),
+    heroSubheadline: compactText(raw.heroSubheadline || raw.hero_subheadline, 120),
+    accentColor: compactText(raw.accentColor || raw.accent_color, 24),
+    navItems: Array.isArray(raw.navItems || raw.nav_items)
+      ? (raw.navItems || raw.nav_items)
+          .map((n) => ({
+            label: compactText(n?.label, 60),
+            href: compactText(n?.href || n?.url, 512),
+            style: String(n?.style || 'link').trim() === 'button' ? 'button' : 'link'
+          }))
+          .filter((n) => n.label)
+          .slice(0, 6)
+      : [],
     eyebrow: compactText(raw.eyebrow, 80),
     lead: compactText(raw.lead, 160),
     titleHighlight: compactText(raw.titleHighlight || raw.title_highlight, 120),
@@ -134,6 +147,15 @@ function sanitizeApplicationPageJson(raw) {
     startButtonText: compactText(raw.startButtonText || raw.start_button_text, 80),
     startTimeNote: compactText(raw.startTimeNote || raw.start_time_note, 120),
     showLeafAccent: raw.showLeafAccent !== false && raw.show_leaf_accent !== false,
+    bannerText: compactText(raw.bannerText || raw.banner_text, 240),
+    bannerBullets: Array.isArray(raw.bannerBullets || raw.banner_bullets)
+      ? (raw.bannerBullets || raw.banner_bullets)
+          .map((b) => compactText(String(b || ''), 120))
+          .filter(Boolean)
+          .slice(0, 6)
+      : [],
+    bannerLinkText: compactText(raw.bannerLinkText || raw.banner_link_text, 80),
+    bannerLinkHref: compactText(raw.bannerLinkHref || raw.banner_link_href, 512),
     featureCards: normalizeItems(raw.featureCards || raw.feature_cards, 4),
     trustItems: normalizeItems(raw.trustItems || raw.trust_items, 3)
   };
@@ -699,6 +721,12 @@ export const listJobDescriptions = async (req, res, next) => {
 
     const includeInactive = String(req.query.includeInactive || '').trim() === '1';
     const rows = await HiringJobDescription.listByAgencyId(agencyId, { includeInactive, limit: 500 });
+    const parseTags = (raw) => {
+      try {
+        const t = typeof raw === 'string' ? JSON.parse(raw) : (raw || []);
+        return Array.isArray(t) ? t.map((s) => String(s || '').trim()).filter(Boolean) : [];
+      } catch { return []; }
+    };
     res.json(
       (rows || []).map((r) => ({
         id: r.id,
@@ -713,6 +741,9 @@ export const listJobDescriptions = async (req, res, next) => {
         city: r.city || null,
         state: r.state || null,
         educationLevel: r.education_level || null,
+        roleType: String(r.role_type || '').trim() || null,
+        isFeatured: Number(r.is_featured) === 1,
+        tags: parseTags(r.tags_json),
         applicationPage: sanitizeApplicationPageJson(parseMetadata(r.application_page_json)) || null,
         isActive: r.is_active === 1 || r.is_active === true,
         createdAt: r.created_at,
@@ -737,6 +768,16 @@ export const createJobDescription = async (req, res, next) => {
     const city = req.body?.city !== undefined ? String(req.body.city || '').trim().slice(0, 120) : null;
     const state = req.body?.state !== undefined ? String(req.body.state || '').trim().slice(0, 120) : null;
     const educationLevel = req.body?.educationLevel !== undefined ? String(req.body.educationLevel || '').trim().slice(0, 80) : null;
+    const roleType = req.body?.roleType !== undefined ? String(req.body.roleType || '').trim().slice(0, 80) || null : null;
+    const isFeatured = String(req.body?.isFeatured || '').trim() === '1' || req.body?.isFeatured === true;
+    const tagsJsonRaw = req.body?.tagsJson !== undefined ? req.body.tagsJson : null;
+    let tagsJson = null;
+    if (tagsJsonRaw !== null && tagsJsonRaw !== undefined) {
+      try {
+        const parsed = typeof tagsJsonRaw === 'string' ? JSON.parse(tagsJsonRaw) : tagsJsonRaw;
+        tagsJson = Array.isArray(parsed) ? parsed.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 20) : null;
+      } catch { tagsJson = null; }
+    }
     if (!title) return res.status(400).json({ error: { message: 'title is required' } });
 
     let applicationPageJson = getApplicationPageJsonFromBody(req.body);
@@ -777,6 +818,9 @@ export const createJobDescription = async (req, res, next) => {
       city: city || null,
       state: state || null,
       educationLevel: educationLevel || null,
+      roleType: roleType || null,
+      isFeatured,
+      tagsJson,
       applicationPageJson,
       storagePath,
       originalName,
@@ -862,6 +906,17 @@ export const updateJobDescription = async (req, res, next) => {
         storagePath = storageResult.relativePath;
       }
 
+      const vRoleType = req.body?.roleType !== undefined ? (String(req.body.roleType || '').trim().slice(0, 80) || null) : (String(existing.role_type || '').trim() || null);
+      const vIsFeatured = req.body?.isFeatured !== undefined ? (String(req.body.isFeatured).trim() === '1' || req.body.isFeatured === true) : Number(existing.is_featured) === 1;
+      let vTagsJson = (() => {
+        try { const t = typeof existing.tags_json === 'string' ? JSON.parse(existing.tags_json) : (existing.tags_json || []); return Array.isArray(t) ? t : null; } catch { return null; }
+      })();
+      if (req.body?.tagsJson !== undefined) {
+        try {
+          const parsed = typeof req.body.tagsJson === 'string' ? JSON.parse(req.body.tagsJson) : req.body.tagsJson;
+          vTagsJson = Array.isArray(parsed) ? parsed.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 20) : null;
+        } catch { vTagsJson = null; }
+      }
       const created = await HiringJobDescription.create({
         agencyId,
         title,
@@ -871,6 +926,9 @@ export const updateJobDescription = async (req, res, next) => {
         city: city || null,
         state: state || null,
         educationLevel: educationLevel || null,
+        roleType: vRoleType,
+        isFeatured: vIsFeatured,
+        tagsJson: vTagsJson,
         applicationPageJson,
         storagePath: storagePath || null,
         originalName: originalName || null,
@@ -901,6 +959,17 @@ export const updateJobDescription = async (req, res, next) => {
     const educationLevel = req.body?.educationLevel !== undefined
       ? String(req.body.educationLevel || '').trim().slice(0, 80)
       : undefined;
+    const roleType = req.body?.roleType !== undefined ? (String(req.body.roleType || '').trim().slice(0, 80) || null) : undefined;
+    const isFeatured = req.body?.isFeatured !== undefined
+      ? (String(req.body.isFeatured).trim() === '1' || req.body.isFeatured === true)
+      : undefined;
+    let tagsJson = undefined;
+    if (req.body?.tagsJson !== undefined) {
+      try {
+        const parsed = typeof req.body.tagsJson === 'string' ? JSON.parse(req.body.tagsJson) : req.body.tagsJson;
+        tagsJson = Array.isArray(parsed) ? parsed.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 20) : null;
+      } catch { tagsJson = null; }
+    }
     let applicationPageJson = req.body?.applicationPageJson !== undefined || req.body?.application_page_json !== undefined
       ? getApplicationPageJsonFromBody(req.body)
       : undefined;
@@ -922,6 +991,9 @@ export const updateJobDescription = async (req, res, next) => {
       city: city !== undefined ? (city || null) : undefined,
       state: state !== undefined ? (state || null) : undefined,
       educationLevel: educationLevel !== undefined ? (educationLevel || null) : undefined,
+      roleType,
+      isFeatured,
+      tagsJson,
       applicationPageJson,
       ...(isActive !== undefined ? { isActive } : {})
     });

@@ -15,6 +15,9 @@ class HiringJobDescription {
     city = null,
     state = null,
     educationLevel = null,
+    roleType = null,
+    isFeatured = false,
+    tagsJson = null,
     applicationPageJson = null,
     storagePath = null,
     originalName = null,
@@ -25,9 +28,10 @@ class HiringJobDescription {
     const [result] = await pool.execute(
       `INSERT INTO hiring_job_descriptions (
         agency_id, title, description_text, posted_date, application_deadline, city, state, education_level,
+        role_type, is_featured, tags_json,
         application_page_json, storage_path, original_name, mime_type,
         is_active, created_by_user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         parseIntParam(agencyId),
         String(title || '').trim().slice(0, 255),
@@ -37,6 +41,9 @@ class HiringJobDescription {
         city !== undefined && city !== null ? String(city).trim().slice(0, 120) : null,
         state !== undefined && state !== null ? String(state).trim().slice(0, 120) : null,
         educationLevel !== undefined && educationLevel !== null ? String(educationLevel).trim().slice(0, 80) : null,
+        roleType !== undefined && roleType !== null ? String(roleType).trim().slice(0, 80) : null,
+        isFeatured ? 1 : 0,
+        tagsJson !== undefined && tagsJson !== null ? JSON.stringify(tagsJson) : null,
         applicationPageJson !== undefined && applicationPageJson !== null ? JSON.stringify(applicationPageJson) : null,
         storagePath || null,
         originalName || null,
@@ -82,6 +89,9 @@ class HiringJobDescription {
     city,
     state,
     educationLevel,
+    roleType,
+    isFeatured,
+    tagsJson,
     applicationPageJson,
     storagePath,
     originalName,
@@ -118,6 +128,18 @@ class HiringJobDescription {
     if (educationLevel !== undefined) {
       updates.push('education_level = ?');
       params.push(educationLevel !== null ? String(educationLevel).trim().slice(0, 80) : null);
+    }
+    if (roleType !== undefined) {
+      updates.push('role_type = ?');
+      params.push(roleType !== null ? String(roleType).trim().slice(0, 80) : null);
+    }
+    if (isFeatured !== undefined) {
+      updates.push('is_featured = ?');
+      params.push(isFeatured ? 1 : 0);
+    }
+    if (tagsJson !== undefined) {
+      updates.push('tags_json = ?');
+      params.push(tagsJson !== null ? JSON.stringify(tagsJson) : null);
     }
     if (applicationPageJson !== undefined) {
       updates.push('application_page_json = ?');

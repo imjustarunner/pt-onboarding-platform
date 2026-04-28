@@ -166,6 +166,19 @@ const sanitizeApplicationPageJson = (raw) => {
       .slice(0, maxItems);
   };
   const out = {
+    heroHeadline: compactText(obj.heroHeadline || obj.hero_headline, 120),
+    heroSubheadline: compactText(obj.heroSubheadline || obj.hero_subheadline, 120),
+    accentColor: compactText(obj.accentColor || obj.accent_color, 24),
+    navItems: Array.isArray(obj.navItems || obj.nav_items)
+      ? (obj.navItems || obj.nav_items)
+          .map((n) => ({
+            label: compactText(n?.label, 60),
+            href: compactText(n?.href || n?.url, 512),
+            style: String(n?.style || 'link').trim() === 'button' ? 'button' : 'link'
+          }))
+          .filter((n) => n.label)
+          .slice(0, 6)
+      : [],
     eyebrow: compactText(obj.eyebrow, 80),
     lead: compactText(obj.lead, 160),
     titleHighlight: compactText(obj.titleHighlight || obj.title_highlight, 120),
@@ -179,6 +192,15 @@ const sanitizeApplicationPageJson = (raw) => {
     startButtonText: compactText(obj.startButtonText || obj.start_button_text, 80),
     startTimeNote: compactText(obj.startTimeNote || obj.start_time_note, 120),
     showLeafAccent: obj.showLeafAccent !== false && obj.show_leaf_accent !== false,
+    bannerText: compactText(obj.bannerText || obj.banner_text, 240),
+    bannerBullets: Array.isArray(obj.bannerBullets || obj.banner_bullets)
+      ? (obj.bannerBullets || obj.banner_bullets)
+          .map((b) => compactText(String(b || ''), 120))
+          .filter(Boolean)
+          .slice(0, 6)
+      : [],
+    bannerLinkText: compactText(obj.bannerLinkText || obj.banner_link_text, 80),
+    bannerLinkHref: compactText(obj.bannerLinkHref || obj.banner_link_href, 512),
     featureCards: normalizeItems(obj.featureCards || obj.feature_cards, 4),
     trustItems: normalizeItems(obj.trustItems || obj.trust_items, 3)
   };
@@ -3980,6 +4002,9 @@ export const listPublicCareers = async (req, res, next) => {
         hjd.city,
         hjd.state,
         hjd.education_level,
+        hjd.role_type,
+        hjd.is_featured,
+        hjd.tags_json,
         hjd.application_page_json,
         hjd.storage_path,
         hjd.original_name,
@@ -3992,9 +4017,16 @@ export const listPublicCareers = async (req, res, next) => {
        AND il.is_active = 1
       WHERE hjd.agency_id = ?
         AND hjd.is_active = 1
-      ORDER BY hjd.updated_at DESC, hjd.id DESC`,
+      ORDER BY hjd.is_featured DESC, hjd.updated_at DESC, hjd.id DESC`,
       [agency.id]
     );
+
+    const parseTags = (raw) => {
+      try {
+        const t = typeof raw === 'string' ? JSON.parse(raw) : (raw || []);
+        return Array.isArray(t) ? t.map((s) => String(s || '').trim()).filter(Boolean) : [];
+      } catch { return []; }
+    };
 
     const jobs = (rows || [])
       .filter((r) => !!r?.public_key)
@@ -4010,6 +4042,9 @@ export const listPublicCareers = async (req, res, next) => {
         city: String(r.city || '').trim() || null,
         state: String(r.state || '').trim() || null,
         educationLevel: String(r.education_level || '').trim() || null,
+        roleType: String(r.role_type || '').trim() || null,
+        isFeatured: Number(r.is_featured) === 1,
+        tags: parseTags(r.tags_json),
         applicationPage: mergeApplicationPageJson(agencyCareersPage, r.application_page_json),
         jobDescriptionFileUrl: null,
         jobDescriptionFileName: String(r.original_name || '').trim() || null,
