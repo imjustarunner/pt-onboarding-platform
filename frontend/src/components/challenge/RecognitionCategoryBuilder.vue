@@ -133,7 +133,7 @@
 
       <!-- ── Import panel ─────────────────────────────────────────── -->
       <div v-if="props.clubId" class="rcb-import-panel">
-        <!-- Row 1: Add one from club library (existing) -->
+        <!-- Row 1: Add one from club library / Add all -->
         <div v-if="libraryAwards.length" class="rcb-library-bar">
           <select v-model="selectedLibraryAwardId" class="rcb-select rcb-library-select">
             <option value="">Add one from club library…</option>
@@ -145,6 +145,11 @@
             :disabled="!selectedLibraryAwardId"
             @click="addAwardFromLibrary(libraryAwards.find(a => String(a.id) === String(selectedLibraryAwardId)))">
             Add
+          </button>
+        </div>
+        <div v-if="libraryAwards.length" class="rcb-import-row">
+          <button type="button" class="rcb-import-btn rcb-import-btn--club" @click="addAllFromClubLibrary">
+            + Add all from club library ({{ libraryAwards.length }})
           </button>
         </div>
 
@@ -878,6 +883,13 @@ function addAwardFromLibrary(libAward) {
   });
   emit_();
   selectedLibraryAwardId.value = '';
+}
+
+function addAllFromClubLibrary() {
+  if (!props.libraryAwards?.length) return;
+  for (const la of props.libraryAwards) {
+    addAwardFromLibrary(la);
+  }
 }
 
 function saveToLibrary(aw) {
@@ -2014,6 +2026,11 @@ function commitActivityType() {
   opacity: 0.6;
   cursor: default;
 }
+.rcb-import-btn--club {
+  border-color: #3b82f6;
+  color: #1d4ed8;
+}
+.rcb-import-btn--club:hover:not(:disabled) { background: #eff6ff; }
 .rcb-import-msg {
   font-size: 0.82rem;
   color: #b91c1c;

@@ -271,6 +271,19 @@
                 {{ formatDate(clubData.currentSeason.endsAt) }}
               </span>
             </div>
+            <!-- Season miles summary -->
+            <div v-if="pubSeasonMiles.loaded" class="pub-season-miles-bar">
+              <div class="pub-season-miles-stat">
+                <span class="pub-season-miles-label">This week</span>
+                <span class="pub-season-miles-value">{{ pubSeasonMiles.weekMiles.toLocaleString(undefined, { maximumFractionDigits: 1 }) }}<span class="pub-season-miles-unit"> mi</span></span>
+              </div>
+              <div class="pub-season-miles-divider"></div>
+              <div class="pub-season-miles-stat">
+                <span class="pub-season-miles-label">Season total</span>
+                <span class="pub-season-miles-value">{{ pubSeasonMiles.totalMiles.toLocaleString(undefined, { maximumFractionDigits: 1 }) }}<span class="pub-season-miles-unit"> mi</span></span>
+              </div>
+            </div>
+
             <!-- Recognition standings below the season card -->
             <div v-if="clubData.currentSeason.id" class="pub-season-recognition">
               <SeasonRecognitionStandings
@@ -698,7 +711,8 @@ const error    = ref('');
 const clubData = ref(null);
 const configuredStats = ref([]);
 const raceClubs = ref([]);
-const publicMatchup = ref({ enabled: false, matchups: [], standings: [] });
+const publicMatchup  = ref({ enabled: false, matchups: [], standings: [] });
+const pubSeasonMiles = ref({ loaded: false, totalMiles: 0, weekMiles: 0 });
 const profileUserId = ref(null);
 const profileUserName = ref('');
 const albumSlideIndex = ref(0);
@@ -979,11 +993,14 @@ const loadClubPage = async () => {
     }
     if (numericClubId) {
       const seasonId = clubData.value?.currentSeason?.id;
-      const [statsRes, raceClubsRes, matchupRes] = await Promise.allSettled([
+      const [statsRes, raceClubsRes, matchupRes, milesRes] = await Promise.allSettled([
         api.get(`/summit-stats/clubs/${numericClubId}/stats`, { skipAuthRedirect: true }),
         api.get(`/summit-stats/clubs/${numericClubId}/race-clubs`, { skipAuthRedirect: true }),
         seasonId
           ? api.get(`/learning-program-classes/${seasonId}/matchup-public`, { skipAuthRedirect: true })
+          : Promise.reject(new Error('no season')),
+        seasonId
+          ? api.get(`/learning-program-classes/${seasonId}/season-miles-summary`, { skipAuthRedirect: true })
           : Promise.reject(new Error('no season'))
       ]);
       if (statsRes.status === 'fulfilled' && Array.isArray(statsRes.value?.data?.stats)) {
@@ -996,6 +1013,9 @@ const loadClubPage = async () => {
         publicMatchup.value = matchupRes.value.data;
       } else {
         publicMatchup.value = { enabled: false, matchups: [], standings: [] };
+      }
+      if (milesRes.status === 'fulfilled' && milesRes.value?.data) {
+        pubSeasonMiles.value = { loaded: true, totalMiles: milesRes.value.data.totalMiles || 0, weekMiles: milesRes.value.data.weekMiles || 0 };
       }
     }
     await loadMyApplications();
@@ -1728,6 +1748,44 @@ onBeforeUnmount(() => {
 
 /* ─── Season card ─────────────────────────────────────────────── */
 .pub-season-card {}
+
+/* Season miles summary bar inside season card */
+.pub-season-miles-bar {
+  display: flex;
+  align-items: center;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  border-radius: 10px;
+  padding: 12px 18px;
+  margin: 12px 0 4px;
+}
+.pub-season-miles-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+.pub-season-miles-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+}
+.pub-season-miles-value {
+  font-size: 24px;
+  font-weight: 800;
+  color: #f1f5f9;
+  line-height: 1.15;
+  margin-top: 1px;
+}
+.pub-season-miles-unit { font-size: 12px; font-weight: 600; color: #64748b; }
+.pub-season-miles-divider {
+  width: 1px;
+  height: 36px;
+  background: #334155;
+  flex-shrink: 0;
+  margin: 0 14px;
+}
 .pub-season-recognition { margin-top: 14px; }
 
 /* ── Public matchup widget ─────────────────────────────────── */

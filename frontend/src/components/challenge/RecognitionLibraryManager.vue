@@ -283,11 +283,17 @@
           <span class="rlm-section-title">Recognition Awards Library</span>
           <span class="rlm-section-hint">Saved award templates you can reuse across seasons.</span>
         </div>
-        <div style="display:flex;gap:8px;align-items:center;">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <button type="button" class="btn btn-sm btn-secondary" @click="openAwardModal()">+ Add Award</button>
           <button type="button" class="rlm-bulk-btn" @click="openBulkCreator()">⚡ Bulk Create</button>
+          <button v-if="awards.length" type="button" class="rlm-promote-btn"
+            :disabled="promotingToTenant" @click="promoteAllToTenant"
+            title="Copy all club awards to the Summit Stats shared library">
+            {{ promotingToTenant ? 'Promoting…' : `↑ Promote all (${awards.length}) to Summit Stats Library` }}
+          </button>
         </div>
       </div>
+      <p v-if="promoteMessage" class="rlm-promote-msg" :class="{ ok: promoteOk }">{{ promoteMessage }}</p>
 
       <div v-if="awardsLoading" class="rlm-hint">Loading awards…</div>
       <div v-else-if="!awards.length" class="rlm-empty">
@@ -985,6 +991,29 @@ function closeAwardModal() {
   libraryIconId.value = null;
 }
 
+// ── Promote all to tenant library ────────────────────────────────
+const promotingToTenant = ref(false);
+const promoteMessage    = ref('');
+const promoteOk         = ref(false);
+
+async function promoteAllToTenant() {
+  if (!props.clubId || !awards.value.length) return;
+  if (!confirm(`Copy all ${awards.value.length} club awards to the Summit Stats Library? Duplicates may be created if you run this more than once.`)) return;
+  promotingToTenant.value = true;
+  promoteMessage.value = '';
+  try {
+    const { data } = await api.post(`/summit-stats/clubs/${props.clubId}/recognition-awards/promote-all-to-tenant`);
+    promoteOk.value = true;
+    promoteMessage.value = `✓ ${data.created} award${data.created !== 1 ? 's' : ''} added to the Summit Stats Library.`;
+    await loadTenantAwards();
+  } catch (e) {
+    promoteOk.value = false;
+    promoteMessage.value = e.response?.data?.error?.message || 'Promote failed.';
+  } finally {
+    promotingToTenant.value = false;
+  }
+}
+
 // ── Bulk creator ──────────────────────────────────────────────────
 const showBulkCreator    = ref(false);
 const bulkStep           = ref(1);
@@ -1653,6 +1682,20 @@ function formatCriteria(criteria) {
   cursor: pointer;
 }
 .rlm-bulk-btn:hover { background: #334155; }
+.rlm-promote-btn {
+  background: none;
+  border: 1px dashed #f59e0b;
+  color: #92400e;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rlm-promote-btn:hover:not(:disabled) { background: #fef3c7; }
+.rlm-promote-btn:disabled { opacity: 0.6; cursor: default; }
+.rlm-promote-msg { font-size: 12px; color: #dc2626; margin: 4px 0 0; }
+.rlm-promote-msg.ok { color: #15803d; }
 .rlm-modal--bulk {
   max-width: 900px;
   width: 100%;

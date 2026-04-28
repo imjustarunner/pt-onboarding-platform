@@ -102,6 +102,19 @@
           {{ formatDates(challenge) }}
         </div>
 
+        <!-- Season miles stats bar -->
+        <div v-if="seasonMiles.loaded" class="season-miles-bar">
+          <div class="season-miles-stat">
+            <span class="season-miles-label">This week</span>
+            <span class="season-miles-value">{{ seasonMiles.weekMiles.toLocaleString(undefined, { maximumFractionDigits: 1 }) }} <span class="season-miles-unit">mi</span></span>
+          </div>
+          <div class="season-miles-divider"></div>
+          <div class="season-miles-stat">
+            <span class="season-miles-label">Season total</span>
+            <span class="season-miles-value">{{ seasonMiles.totalMiles.toLocaleString(undefined, { maximumFractionDigits: 1 }) }} <span class="season-miles-unit">mi</span></span>
+          </div>
+        </div>
+
         <!-- Countdown row: daily + weekly -->
         <div class="countdown-row">
           <!-- Daily workout submission countdown -->
@@ -2720,6 +2733,18 @@ const loadCurrentWeekAssignments = async () => {
   }
 };
 
+const seasonMiles = ref({ loaded: false, totalMiles: 0, weekMiles: 0 });
+const loadSeasonMiles = async () => {
+  const id = challengeId.value;
+  if (!id) return;
+  try {
+    const { data } = await api.get(`/learning-program-classes/${id}/season-miles-summary`, { skipGlobalLoading: true });
+    seasonMiles.value = { loaded: true, totalMiles: data.totalMiles || 0, weekMiles: data.weekMiles || 0 };
+  } catch {
+    seasonMiles.value = { loaded: false, totalMiles: 0, weekMiles: 0 };
+  }
+};
+
 const loadSeasonSummary = async () => {
   const id = challengeId.value;
   if (!id) return;
@@ -3463,6 +3488,7 @@ onMounted(async () => {
       loadWeeklyTaskOptions(),
       loadCurrentWeekAssignments(),
       loadSeasonSummary(),
+      loadSeasonMiles(),
       loadRecordBoards(),
       loadRaceDivisions(),
       loadKudosStats(),
@@ -3682,6 +3708,50 @@ watch(() => workoutForm.value.terrain, (terrain) => {
 }
 .challenge-dates {
   margin-top: 4px;
+}
+
+/* ── Season miles stats bar ── */
+.season-miles-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  border-radius: 12px;
+  padding: 14px 20px;
+  margin-top: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+.season-miles-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+.season-miles-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+}
+.season-miles-value {
+  font-size: 28px;
+  font-weight: 800;
+  color: #f1f5f9;
+  line-height: 1.1;
+  margin-top: 2px;
+}
+.season-miles-unit {
+  font-size: 14px;
+  font-weight: 600;
+  color: #64748b;
+}
+.season-miles-divider {
+  width: 1px;
+  height: 40px;
+  background: #334155;
+  flex-shrink: 0;
+  margin: 0 16px;
 }
 
 /* ── Week countdown banner ── */

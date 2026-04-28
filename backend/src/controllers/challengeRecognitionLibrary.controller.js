@@ -356,7 +356,7 @@ export const createRecognitionAward = async (req, res, next) => {
     const icon          = String(req.body?.icon || '🏆').slice(0, 64);
     const period        = ['weekly', 'monthly', 'season', 'challenge'].includes(req.body?.period) ? req.body.period : 'weekly';
     const activityType  = String(req.body?.activityType || '').trim().slice(0, 64);
-    const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count', 'challenge_completions'].includes(req.body?.metric) ? req.body.metric : 'points';
+    const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count', 'challenge_completions', 'elevation_gain_ft', 'pace_min_per_mile', 'kudos_received'].includes(req.body?.metric) ? req.body.metric : 'points';
     const resolvedAgg   = resolveAwardAggregation(req.body);
     if (resolvedAgg.error) return res.status(400).json({ error: { message: resolvedAgg.error } });
     const { aggregation, milestoneThreshold } = resolvedAgg;
@@ -387,7 +387,7 @@ export const updateRecognitionAward = async (req, res, next) => {
     const icon          = String(req.body?.icon || '🏆').slice(0, 64);
     const period        = ['weekly', 'monthly', 'season', 'challenge'].includes(req.body?.period) ? req.body.period : 'weekly';
     const activityType  = String(req.body?.activityType || '').trim().slice(0, 64);
-    const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count', 'challenge_completions'].includes(req.body?.metric) ? req.body.metric : 'points';
+    const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count', 'challenge_completions', 'elevation_gain_ft', 'pace_min_per_mile', 'kudos_received'].includes(req.body?.metric) ? req.body.metric : 'points';
     const resolvedAgg   = resolveAwardAggregation(req.body);
     if (resolvedAgg.error) return res.status(400).json({ error: { message: resolvedAgg.error } });
     const { aggregation, milestoneThreshold } = resolvedAgg;
@@ -556,7 +556,7 @@ export const createTenantAward = async (req, res, next) => {
     const icon          = String(req.body?.icon || '🏆').slice(0, 64);
     const period        = ['weekly', 'monthly', 'season', 'challenge'].includes(req.body?.period) ? req.body.period : 'weekly';
     const activityType  = String(req.body?.activityType || '').trim().slice(0, 64);
-    const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count', 'challenge_completions'].includes(req.body?.metric) ? req.body.metric : 'points';
+    const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count', 'challenge_completions', 'elevation_gain_ft', 'pace_min_per_mile', 'kudos_received'].includes(req.body?.metric) ? req.body.metric : 'points';
     const resolvedAgg   = resolveAwardAggregation(req.body);
     if (resolvedAgg.error) return res.status(400).json({ error: { message: resolvedAgg.error } });
     const { aggregation, milestoneThreshold } = resolvedAgg;
@@ -596,7 +596,7 @@ export const updateTenantAward = async (req, res, next) => {
     const icon          = String(req.body?.icon || '🏆').slice(0, 64);
     const period        = ['weekly', 'monthly', 'season', 'challenge'].includes(req.body?.period) ? req.body.period : 'weekly';
     const activityType  = String(req.body?.activityType || '').trim().slice(0, 64);
-    const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count', 'challenge_completions'].includes(req.body?.metric) ? req.body.metric : 'points';
+    const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count', 'challenge_completions', 'elevation_gain_ft', 'pace_min_per_mile', 'kudos_received'].includes(req.body?.metric) ? req.body.metric : 'points';
     const resolvedAgg   = resolveAwardAggregation(req.body);
     if (resolvedAgg.error) return res.status(400).json({ error: { message: resolvedAgg.error } });
     const { aggregation, milestoneThreshold } = resolvedAgg;
@@ -958,5 +958,49 @@ export const updateStoreConfig = async (req, res, next) => {
       [JSON.stringify(next), clubId]
     );
     return res.json({ ok: true, store: config });
+  } catch (e) { next(e); }
+};
+
+/**
+ * POST /summit-stats/clubs/:id/recognition-awards/promote-all-to-tenant
+ * Temporary: copies all club recognition awards into the tenant (Summit Stats) library.
+ */
+export const promoteAllAwardsToTenant = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    if (!clubId) return res.status(400).json({ error: { message: 'Invalid club id' } });
+    if (!(await assertClubAccess(req, clubId))) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const tenantAgencyId = await getClubPlatformTenantAgencyId(clubId);
+    if (!tenantAgencyId) return res.status(400).json({ error: { message: 'No tenant found for this club' } });
+    if (!(await assertTenantAwardWriteAccess(req, tenantAgencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized to write to tenant library' } });
+    }
+
+    const ALLOWED_METRICS = ['points', 'distance_miles', 'duration_minutes', 'activities_count', 'challenge_completions', 'elevation_gain_ft', 'pace_min_per_mile', 'kudos_received'];
+
+    const [clubAwards] = await pool.execute(
+      `SELECT * FROM challenge_recognition_awards WHERE agency_id = ? AND (is_tenant_template = 0 OR is_tenant_template IS NULL) ORDER BY id`,
+      [clubId]
+    );
+
+    let created = 0;
+    for (const a of clubAwards) {
+      const metric = ALLOWED_METRICS.includes(a.metric) ? a.metric : 'points';
+      await pool.execute(
+        `INSERT INTO challenge_recognition_awards
+           (agency_id, is_tenant_template, label, icon, period, activity_type, metric, aggregation,
+            milestone_threshold, reference_target, group_filter, details, gender_variants,
+            terrain_filter, min_distance_miles, streak_min_miles_per_day, streak_min_activities_per_day)
+         VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [tenantAgencyId, a.label, a.icon, a.period, a.activity_type || null, metric, a.aggregation,
+         a.milestone_threshold, a.reference_target, a.group_filter || null, a.details || null,
+         a.gender_variants || '[]', a.terrain_filter || null, a.min_distance_miles || null,
+         a.streak_min_miles_per_day || null, a.streak_min_activities_per_day || null]
+      );
+      created++;
+    }
+
+    return res.json({ ok: true, created });
   } catch (e) { next(e); }
 };

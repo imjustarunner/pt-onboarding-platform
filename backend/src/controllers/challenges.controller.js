@@ -540,6 +540,52 @@ export const deleteTeamBanner = async (req, res, next) => {
   } catch (e) { next(e); }
 };
 
+/**
+ * GET /learning-program-classes/:classId/season-miles-summary
+ * Returns total season miles and current week miles. Public (no auth required).
+ */
+export const getSeasonMilesSummary = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+
+    const [klassRows] = await pool.execute(
+      `SELECT id, week_start_time, season_settings_json FROM learning_program_classes WHERE id = ? LIMIT 1`,
+      [classId]
+    );
+    const klass = klassRows?.[0];
+    if (!klass) return res.status(404).json({ error: { message: 'Season not found' } });
+
+    const settings = klass.season_settings_json
+      ? (typeof klass.season_settings_json === 'string' ? JSON.parse(klass.season_settings_json) : klass.season_settings_json)
+      : {};
+    const weekCutoff = String(settings?.schedule?.weekEndsSundayAt || klass.week_start_time || '00:00');
+    const tzName = String(settings?.schedule?.timeZone || 'America/Chicago');
+    const range = getWeekDateTimeRange(null, weekCutoff, tzName);
+
+    const [[totalRow]] = await pool.execute(
+      `SELECT COALESCE(SUM(w.distance_value), 0) AS total_miles
+       FROM challenge_workouts w
+       WHERE w.learning_class_id = ? AND w.proof_status = 'approved'`,
+      [classId]
+    );
+    const [[weekRow]] = await pool.execute(
+      `SELECT COALESCE(SUM(w.distance_value), 0) AS week_miles
+       FROM challenge_workouts w
+       WHERE w.learning_class_id = ? AND w.proof_status = 'approved'
+         AND w.completed_at >= ? AND w.completed_at < ?`,
+      [classId, range.start, range.end]
+    );
+
+    return res.json({
+      totalMiles: Math.round(Number(totalRow.total_miles) * 10) / 10,
+      weekMiles:  Math.round(Number(weekRow.week_miles) * 10) / 10,
+      weekStart:  range.start,
+      weekEnd:    range.end
+    });
+  } catch (e) { next(e); }
+};
+
 export const getPreSeasonStats = async (req, res, next) => {
   try {
     const classId = asInt(req.params.classId);

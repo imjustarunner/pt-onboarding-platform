@@ -91,6 +91,7 @@ import {
   listMessageReactions,
   toggleMessageReaction,
   getPreSeasonStats,
+  getSeasonMilesSummary,
   getSeasonReport,
   getMatchupSchedule,
   generateMatchupSchedule,
@@ -208,6 +209,7 @@ router.delete('/:classId/teams/:teamId/banner', deleteTeamBanner);
 router.post('/:classId/teams/:teamId/members/:userId/send-password-reset', sendTeamMemberPasswordReset);
 router.get('/:classId/teams/:teamId/members', listTeamMembers);
 router.put('/:classId/teams/:teamId/members', upsertTeamMembers);
+router.get('/:classId/season-miles-summary', getSeasonMilesSummary);
 router.get('/:classId/pre-season-stats', getPreSeasonStats);
 router.get('/:classId/season-report', getSeasonReport);
 router.get('/:classId/matchup-schedule', getMatchupSchedule);

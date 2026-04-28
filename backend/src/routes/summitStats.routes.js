@@ -82,7 +82,8 @@ import {
   updateStatsConfig,
   getClubStats,
   getStoreConfig,
-  updateStoreConfig
+  updateStoreConfig,
+  promoteAllAwardsToTenant
 } from '../controllers/challengeRecognitionLibrary.controller.js';
 import {
   getManagerPendingWeeks,
@@ -264,6 +265,7 @@ router.delete('/clubs/:id/recognition-awards/:awardId', deleteRecognitionAward);
 router.post('/clubs/:id/recognition-awards/clone-from-tenant/:awardId', cloneTenantAward);
 
 // Tenant recognition award templates (superadmin or feature-flagged managers)
+router.post('/clubs/:id/recognition-awards/promote-all-to-tenant', authenticate, promoteAllAwardsToTenant);
 router.get('/clubs/:id/tenant-awards', listTenantAwards);
 router.post('/clubs/:id/tenant-awards', createTenantAward);
 router.put('/clubs/:id/tenant-awards/:awardId', updateTenantAward);
