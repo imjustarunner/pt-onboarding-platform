@@ -1047,6 +1047,28 @@ if (!isBootstrap) {
     }
   })();
 
+  // Migration 819 – manager edit audit columns on challenge_workouts
+  (async () => {
+    try {
+      const { default: pool } = await import('./config/database.js');
+      const [cols] = await pool.execute(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'challenge_workouts'
+           AND COLUMN_NAME = 'manager_edited_at'`
+      );
+      if (!cols.length) {
+        await pool.execute(
+          `ALTER TABLE challenge_workouts
+             ADD COLUMN manager_edited_by_user_id INT NULL DEFAULT NULL AFTER manager_edited,
+             ADD COLUMN manager_edited_at DATETIME NULL DEFAULT NULL AFTER manager_edited_by_user_id`
+        );
+        console.log('[startup] Migration 819 applied: manager_edited_by_user_id + manager_edited_at added to challenge_workouts');
+      }
+    } catch (err) {
+      console.warn('[startup] Migration 819 check skipped:', err.message);
+    }
+  })();
+
   // Migration 733 – is_required flag on challenge_custom_field_definitions
   // Without this, public season fast-track invite pages crash with
   // "Unknown column 'is_required' in 'field list'" because both the
