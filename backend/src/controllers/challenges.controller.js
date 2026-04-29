@@ -1168,6 +1168,71 @@ export const getActivityFeed = async (req, res, next) => {
 };
 
 /**
+ * GET /:classId/activity/duplicates
+ * Returns groups of workouts that are likely duplicates:
+ * same user, same calendar date (UTC), same activity type, logged more than once.
+ * Only accessible to managers/assistant-managers.
+ */
+export const getDuplicateWorkouts = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) {
+      return res.status(403).json({ error: { message: 'Manager access required' } });
+    }
+    // Find all (user, date, activity_type) combos with more than one workout
+    const [groups] = await pool.execute(
+      `SELECT
+         w.user_id,
+         DATE(w.completed_at) AS workout_date,
+         w.activity_type,
+         COUNT(*)             AS dupe_count,
+         u.first_name, u.last_name
+       FROM challenge_workouts w
+       INNER JOIN users u ON u.id = w.user_id
+       WHERE w.learning_class_id = ?
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+       GROUP BY w.user_id, DATE(w.completed_at), w.activity_type
+       HAVING COUNT(*) > 1
+       ORDER BY dupe_count DESC, workout_date DESC`,
+      [classId]
+    );
+    if (!groups.length) return res.json({ groups: [] });
+
+    // For each group, fetch the individual workouts
+    const result = [];
+    for (const g of groups) {
+      const [rows] = await pool.execute(
+        `SELECT w.id, w.completed_at, w.distance_value, w.duration_minutes, w.duration_seconds,
+                w.points, w.proof_status, w.is_disqualified, w.workout_notes, w.created_at,
+                u.first_name, u.last_name, u.profile_photo_path
+         FROM challenge_workouts w
+         INNER JOIN users u ON u.id = w.user_id
+         WHERE w.learning_class_id = ?
+           AND w.user_id = ?
+           AND DATE(w.completed_at) = ?
+           AND w.activity_type = ?
+           AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+         ORDER BY w.completed_at ASC, w.created_at ASC`,
+        [classId, g.user_id, g.workout_date, g.activity_type]
+      );
+      result.push({
+        userId: g.user_id,
+        firstName: g.first_name,
+        lastName: g.last_name,
+        date: g.workout_date,
+        activityType: g.activity_type,
+        count: Number(g.dupe_count),
+        workouts: rows || []
+      });
+    }
+    return res.json({ groups: result });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
  * GET /:classId/workouts
  * Lightweight listing of workouts for the week, optionally filtered by team / task tag.
  * Used by the Weekly Challenges UI to compute "X/Y tagged" progress.
@@ -1901,16 +1966,49 @@ export const managerEditWorkout = async (req, res, next) => {
 
     const patch = {};
 
-    // --- Date (completed_at) ---
+    // --- Date + Time (completed_at) ---
     if (req.body?.completedDate !== undefined) {
       const dateStr = String(req.body.completedDate || '').slice(0, 10);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
         return res.status(400).json({ error: { message: 'completedDate must be YYYY-MM-DD' } });
       }
-      // Use noon UTC so the stored datetime lands on the correct calendar date
-      // in any reasonable timezone (avoids a midnight-UTC entry rolling back to
-      // the previous local day for users in UTC-offset timezones).
-      patch.completedAt = `${dateStr} 12:00:00`;
+      const rawTime = String(req.body.completedTime || '').trim();
+      const timeStr = /^\d{2}:\d{2}$/.test(rawTime) ? `${rawTime}:00` : null;
+
+      if (timeStr) {
+        // Convert the manager's local date+time (in the season timezone) to a UTC datetime.
+        const [[classRow]] = await pool.execute(
+          `SELECT season_settings_json FROM learning_program_classes WHERE id = ? LIMIT 1`, [classId]
+        );
+        let tz = 'UTC';
+        try {
+          const s = typeof classRow?.season_settings_json === 'string'
+            ? JSON.parse(classRow.season_settings_json) : (classRow?.season_settings_json || {});
+          tz = s?.schedule?.weekTimeZone || 'UTC';
+          Intl.DateTimeFormat(undefined, { timeZone: tz }); // validate
+        } catch { tz = 'UTC'; }
+
+        // Find UTC time corresponding to dateStr + timeStr in tz
+        const [y, mo, da] = dateStr.split('-').map(Number);
+        const [h, mi] = timeStr.split(':').map(Number);
+        // Build an approx UTC date, then find the actual offset by formatting it back
+        const approxUtc = new Date(Date.UTC(y, mo - 1, da, h, mi, 0));
+        const parts = new Intl.DateTimeFormat('en-US', {
+          timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+        }).formatToParts(approxUtc);
+        const get = (t) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+        const tzH = get('hour') % 24;
+        const tzMs = Date.UTC(get('year'), get('month') - 1, get('day'), tzH, get('minute'), get('second'));
+        const offsetMs = Date.UTC(y, mo - 1, da, h, mi, 0) - tzMs;
+        const utcDate = new Date(approxUtc.getTime() + offsetMs);
+        const pad = (n) => String(n).padStart(2, '0');
+        patch.completedAt = `${utcDate.getUTCFullYear()}-${pad(utcDate.getUTCMonth() + 1)}-${pad(utcDate.getUTCDate())} `
+          + `${pad(utcDate.getUTCHours())}:${pad(utcDate.getUTCMinutes())}:00`;
+      } else {
+        // No time provided — use noon UTC so local date is always correct
+        patch.completedAt = `${dateStr} 12:00:00`;
+      }
     }
 
     if (req.body?.activityType !== undefined) {

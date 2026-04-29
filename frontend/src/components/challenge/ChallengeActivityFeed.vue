@@ -83,12 +83,49 @@
         </template>
       </span>
       <div class="manager-bar-actions">
+        <button type="button" class="btn-find-dupes" :class="{ active: showDuplicates }" @click="toggleDuplicates">
+          {{ duplicatesLoading ? 'Scanning…' : (showDuplicates ? '✕ Hide duplicates' : '⊕ Show duplicates') }}
+        </button>
         <button v-if="pendingWorkouts.length" type="button" class="btn-expand-pending" @click="expandAllPending">
           Expand all pending ▼
         </button>
         <button v-if="anyExpanded" type="button" class="btn-collapse-all" @click="collapseAll">
           Collapse all ▲
         </button>
+      </div>
+    </div>
+
+    <!-- ── Duplicates panel ─────────────────────────────────────── -->
+    <div v-if="showDuplicates && props.isManager" class="dupes-panel">
+      <div class="dupes-panel-header">
+        <strong>Potential duplicates</strong>
+        <span class="dupes-panel-sub">Same member · same date · same activity type logged more than once</span>
+      </div>
+      <div v-if="duplicatesLoading" class="dupes-loading">Scanning…</div>
+      <div v-else-if="!duplicateGroups.length" class="dupes-empty">No duplicates found 🎉</div>
+      <div v-else class="dupes-group-list">
+        <div v-for="(g, gi) in duplicateGroups" :key="gi" class="dupes-group">
+          <div class="dupes-group-header">
+            <span class="dupes-member">{{ g.firstName }} {{ g.lastName }}</span>
+            <span class="dupes-meta">{{ formatActivityType(g.activityType) }} · {{ new Date(g.date + 'T12:00:00Z').toLocaleDateString(undefined, { weekday:'short', month:'short', day:'numeric' }) }}</span>
+            <span class="dupes-count-badge">{{ g.count }} entries</span>
+          </div>
+          <div class="dupes-workout-list">
+            <div v-for="dw in g.workouts" :key="dw.id" class="dupes-workout-row">
+              <span class="dupes-workout-time">{{ formatTimestamp(dw.completed_at) }}</span>
+              <span v-if="dw.distance_value" class="dupes-workout-detail">{{ Number(dw.distance_value).toFixed(2) }} mi</span>
+              <span v-if="dw.duration_minutes" class="dupes-workout-detail">{{ dw.duration_minutes }}m</span>
+              <span class="dupes-workout-detail">{{ dw.points }} pts</span>
+              <span v-if="dw.workout_notes" class="dupes-workout-notes">"{{ dw.workout_notes }}"</span>
+              <button
+                type="button"
+                class="btn-dupe-disqualify"
+                :disabled="!!dupesDisqualifying[dw.id]"
+                @click="disqualifyDupe(dw.id, g)"
+              >{{ dupesDisqualifying[dw.id] ? 'Removing…' : 'Remove (disqualify)' }}</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -577,6 +614,10 @@
               <label class="manager-edit-field">
                 <span>Date</span>
                 <input v-model="managerEditDraftByWorkout[w.id].completedDate" type="date" class="input" />
+              </label>
+              <label class="manager-edit-field">
+                <span>Time <span v-if="tzAbbr" class="tz-abbr-hint">({{ tzAbbr }})</span></span>
+                <input v-model="managerEditDraftByWorkout[w.id].completedTime" type="time" class="input" />
               </label>
               <label class="manager-edit-field">
                 <span>Activity type</span>
@@ -1070,6 +1111,45 @@ const editDraftByWorkout = ref({});
 const editSubmitting = ref({});
 const managerEditOpenByWorkout = ref({});
 const managerEditDraftByWorkout = ref({});
+
+// ── Duplicate detector ──────────────────────────────────────────────────────
+const showDuplicates    = ref(false);
+const duplicatesLoading = ref(false);
+const duplicateGroups   = ref([]);
+const dupesDisqualifying = ref({});
+
+const toggleDuplicates = async () => {
+  if (showDuplicates.value) { showDuplicates.value = false; return; }
+  showDuplicates.value = true;
+  if (duplicateGroups.value.length) return; // already loaded
+  duplicatesLoading.value = true;
+  try {
+    const r = await api.get(`/learning-program-classes/${props.challengeId}/activity/duplicates`, { skipGlobalLoading: true });
+    duplicateGroups.value = r.data?.groups || [];
+  } catch { duplicateGroups.value = []; }
+  finally { duplicatesLoading.value = false; }
+};
+
+const disqualifyDupe = async (workoutId, group) => {
+  dupesDisqualifying.value = { ...dupesDisqualifying.value, [workoutId]: true };
+  try {
+    await api.put(`/learning-program-classes/${props.challengeId}/workouts/${workoutId}/disqualify`, {
+      isDisqualified: true,
+      reason: 'Duplicate entry removed by manager'
+    });
+    // Remove from group display
+    group.workouts = group.workouts.filter((w) => w.id !== workoutId);
+    group.count = group.workouts.length;
+    if (group.count <= 1) {
+      duplicateGroups.value = duplicateGroups.value.filter((g) => g !== group);
+    }
+    emit('media-uploaded');
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to disqualify workout');
+  } finally {
+    dupesDisqualifying.value = { ...dupesDisqualifying.value, [workoutId]: false };
+  }
+};
 const managerEditSubmittingByWorkout = ref({});
 const managerEditErrorByWorkout = ref({});
 const disqualifyDraftByWorkout = ref({});
@@ -1880,10 +1960,27 @@ function toDateInputValue(dateTimeStr) {
   if (!dateTimeStr) return '';
   const d = new Date(dateTimeStr);
   if (Number.isNaN(d.getTime())) return '';
-  const y = d.getFullYear();
-  const mo = String(d.getMonth() + 1).padStart(2, '0');
-  const da = String(d.getDate()).padStart(2, '0');
-  return `${y}-${mo}-${da}`;
+  const tz = resolvedTz.value;
+  if (tz) {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d);
+    const get = (t) => parts.find((p) => p.type === t)?.value || '00';
+    return `${get('year')}-${get('month')}-${get('day')}`;
+  }
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function toTimeInputValue(dateTimeStr) {
+  if (!dateTimeStr) return '';
+  const d = new Date(dateTimeStr);
+  if (Number.isNaN(d.getTime())) return '';
+  const tz = resolvedTz.value;
+  if (tz) {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d);
+    const h = String(Number(parts.find((p) => p.type === 'hour')?.value || 0) % 24).padStart(2, '0');
+    const m = (parts.find((p) => p.type === 'minute')?.value || '00').padStart(2, '0');
+    return `${h}:${m}`;
+  }
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 const openManagerEditPanel = (w) => {
@@ -1894,6 +1991,7 @@ const openManagerEditPanel = (w) => {
       ...managerEditDraftByWorkout.value,
       [wid]: {
         completedDate: toDateInputValue(w.completed_at || w.created_at),
+        completedTime: toTimeInputValue(w.completed_at || w.created_at),
         activityType: w.activity_type || '',
         terrain: w.terrain || '',
         distanceValue: w.distance_value != null ? Number(w.distance_value) : null,
@@ -1915,6 +2013,7 @@ const submitManagerEdit = async (workoutId) => {
   try {
     const body = {};
     if (draft.completedDate) body.completedDate = draft.completedDate;
+    if (draft.completedTime) body.completedTime = draft.completedTime;
     if (draft.activityType !== undefined) body.activityType = draft.activityType;
     if (draft.terrain !== undefined) body.terrain = draft.terrain;
     if (draft.distanceValue != null) body.distanceValue = draft.distanceValue;
@@ -2610,6 +2709,96 @@ const reviewProof = async (workoutId, status) => {
   transition: border-color 0.15s, color 0.15s;
 }
 .btn-edit-entry:hover { border-color: #94a3b8; color: #0f172a; }
+.tz-abbr-hint { font-weight: 400; color: #94a3b8; font-size: 0.72rem; }
+
+/* ── Find duplicates button ─────────────────────────────────────── */
+.btn-find-dupes {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.btn-find-dupes:hover, .btn-find-dupes.active { background: #4338ca; color: #fff; border-color: #4338ca; }
+
+/* ── Duplicates panel ───────────────────────────────────────────── */
+.dupes-panel {
+  background: #fafafa;
+  border: 1px solid #e0e7ff;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.dupes-panel-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  margin-bottom: 12px;
+}
+.dupes-panel-header strong { font-size: 0.92rem; color: #1e1b4b; }
+.dupes-panel-sub { font-size: 0.78rem; color: #6b7280; }
+.dupes-loading, .dupes-empty { font-size: 0.85rem; color: #6b7280; text-align: center; padding: 12px; }
+.dupes-group-list { display: flex; flex-direction: column; gap: 10px; }
+.dupes-group {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.dupes-group-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 8px 12px;
+  background: #f5f3ff;
+  border-bottom: 1px solid #ede9fe;
+}
+.dupes-member { font-weight: 700; font-size: 0.88rem; color: #1e1b4b; }
+.dupes-meta { font-size: 0.8rem; color: #6b7280; }
+.dupes-count-badge {
+  margin-left: auto;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.dupes-workout-list { display: flex; flex-direction: column; }
+.dupes-workout-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 7px 12px;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 0.8rem;
+}
+.dupes-workout-row:last-child { border-bottom: none; }
+.dupes-workout-time { color: #374151; font-weight: 600; }
+.dupes-workout-detail { color: #6b7280; }
+.dupes-workout-notes { color: #9ca3af; font-style: italic; flex: 1 1 100%; }
+.btn-dupe-disqualify {
+  margin-left: auto;
+  padding: 3px 10px;
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.btn-dupe-disqualify:hover:not(:disabled) { background: #ef4444; color: #fff; border-color: #ef4444; }
+.btn-dupe-disqualify:disabled { opacity: 0.55; cursor: not-allowed; }
+
 .manager-edit-panel {
   background: #f8fafc;
   border: 1px solid #e2e8f0;

@@ -51,6 +51,7 @@ import {
   getRaceDivisions,
   scanWorkoutScreenshot,
   getActivityFeed,
+  getDuplicateWorkouts,
   getMyParticipationSummary,
   listChallengeRoster,
   importChallengeRoster,
@@ -225,6 +226,7 @@ router.post('/:classId/roster/merge-placeholder', mergeRosterPlaceholder);
 router.post('/:classId/workouts/scan-screenshot', workoutMediaUpload.single('file'), scanWorkoutScreenshot);
 router.post('/:classId/workouts/bulk-scan', workoutMediaUpload.array('files', 50), scanBulkWorkoutScreenshots);
 router.get('/:classId/activity', getActivityFeed);
+router.get('/:classId/activity/duplicates', getDuplicateWorkouts);
 router.get('/:classId/workouts', listClassWorkouts);
 router.post('/:classId/workouts', submitWorkout);
 router.post('/:classId/workouts/bulk-on-behalf', submitBulkWorkoutsOnBehalf);
