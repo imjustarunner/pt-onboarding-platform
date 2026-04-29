@@ -382,6 +382,22 @@
               :club-id="organizationId"
               @save-award-to-library="saveAwardToLibrary"
             />
+            <div v-if="editingChallenge" class="rcb-backfill-row">
+              <p class="rcb-backfill-hint">Added a recognition after the season started? Use this to retroactively grant it to members who already qualified in past weeks.</p>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="backfillLoading"
+                @click="backfillPastWeekRecognitions"
+              >
+                {{ backfillLoading ? 'Applying…' : 'Apply to past weeks' }}
+              </button>
+              <span v-if="backfillResult" class="rcb-backfill-result" :class="backfillResult.ok ? 'rcb-backfill-ok' : 'rcb-backfill-err'">
+                {{ backfillResult.ok
+                  ? `Done — ${backfillResult.weeksProcessed} week(s) re-evaluated, ${backfillResult.grantCount} grant(s) written`
+                  : backfillResult.message }}
+              </span>
+            </div>
           </div>
           <div class="form-group">
             <label>Event category</label>
@@ -2506,6 +2522,8 @@ const saving = ref(false);
 const showChallengeModal = ref(false);
 const challengeFormSnapshotJson = ref('');
 const editingChallenge = ref(null);
+const backfillLoading = ref(false);
+const backfillResult = ref(null);
 
 // Invite link state (lives next to season list)
 const generatingInviteFor = ref(null);
@@ -4293,6 +4311,21 @@ const closeChallengeModal = (force = false) => {
   challengeFormSnapshotJson.value = '';
 };
 
+const backfillPastWeekRecognitions = async () => {
+  const seasonId = editingChallenge.value?.id;
+  if (!seasonId) return;
+  backfillLoading.value = true;
+  backfillResult.value = null;
+  try {
+    const res = await api.post(`/summit-stats/seasons/${seasonId}/recognition/backfill-past-weeks`);
+    backfillResult.value = { ok: true, weeksProcessed: res.data.weeksProcessed, grantCount: res.data.grantCount };
+  } catch (err) {
+    backfillResult.value = { ok: false, message: err?.response?.data?.error?.message || 'Something went wrong' };
+  } finally {
+    backfillLoading.value = false;
+  }
+};
+
 const saveChallenge = async () => {
   if (!organizationId.value) return;
   const name = String(challengeForm.value.className || '').trim();
@@ -5746,6 +5779,31 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.rcb-backfill-row {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: var(--bg-subtle, #f8fafc);
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.rcb-backfill-hint {
+  flex: 1;
+  min-width: 180px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+  line-height: 1.4;
+}
+.rcb-backfill-result {
+  font-size: 12px;
+  font-weight: 600;
+}
+.rcb-backfill-ok { color: #16a34a; }
+.rcb-backfill-err { color: #dc2626; }
 .btn-outline {
   border: 1px solid #cbd5e1;
   background: #fff;

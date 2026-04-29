@@ -89,6 +89,7 @@ import {
   getManagerPendingWeeks,
   snoozeWeekTrophies,
   postWeekTrophies,
+  backfillPastWeeks,
   getRecognitionStandings,
   getPendingRecognitionSplash,
   dismissRecognitionSplash
@@ -197,6 +198,7 @@ router.get('/seasons/:id/recognition/standings', getRecognitionStandings);
 router.get('/seasons/:id/recognition/manager-pending', getManagerPendingWeeks);
 router.post('/seasons/:id/recognition/snooze-week', snoozeWeekTrophies);
 router.post('/seasons/:id/recognition/post-week', postWeekTrophies);
+router.post('/seasons/:id/recognition/backfill-past-weeks', backfillPastWeeks);
 // Member splash (auth already enforced by authenticate middleware above)
 router.get('/seasons/:id/recognition/splash', getPendingRecognitionSplash);
 router.post('/seasons/:id/recognition/splash/dismiss', dismissRecognitionSplash);

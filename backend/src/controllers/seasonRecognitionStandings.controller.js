@@ -299,6 +299,101 @@ export const postWeekTrophies = async (req, res, next) => {
   } catch (e) { next(e); }
 };
 
+// ─── POST /seasons/:id/recognition/backfill-past-weeks ──────────────────────
+// Re-evaluates every past week with the CURRENT recognition_categories_json
+// and upserts grant rows. Does NOT change season_recognition_week_status so
+// the manager's pending-week queue is preserved.
+// Use this after adding a new recognition category mid-season.
+
+export const backfillPastWeeks = async (req, res, next) => {
+  try {
+    const classId = toInt(req.params.id);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid season id' } });
+
+    const access = await canUserManageChallengeClass(req.user, classId);
+    if (!access.ok) return res.status(access.status ?? 403).json({ error: { message: access.message } });
+
+    const klass = await fetchClass(classId);
+    if (!klass) return res.status(404).json({ error: { message: 'Season not found' } });
+
+    await ensureWeekStatusRows(classId, klass);
+
+    const pastWeeks = getPastWeeks(klass);
+    if (!pastWeeks.length) return res.json({ ok: true, weeksProcessed: 0, grantCount: 0 });
+
+    // Pre-fetch existing week_start_date → week_number mapping from status table
+    const [statusRows] = await pool.execute(
+      `SELECT week_number, week_start_date FROM season_recognition_week_status WHERE learning_class_id = ?`,
+      [classId]
+    );
+    const weekNumByDate = new Map(statusRows.map(r => [String(r.week_start_date).slice(0, 10), Number(r.week_number)]));
+
+    const categories = normalizeRecognitionCategories(klass.recognition_categories_json) || [];
+    const activeCategories = categories.filter(c => c.active);
+    const klassWithCats = { ...klass, _allCategories: categories };
+
+    let grantCount = 0;
+
+    const upsertGrant = async (entry, winner, weekStartDate, weekNumber) => {
+      if (!entry || !winner?.user_id) return;
+      const label = String(entry.label || '').slice(0, 255);
+      const icon = entry.icon ? String(entry.icon).slice(0, 128) : null;
+      const period = ['weekly', 'monthly', 'season', 'challenge'].includes(entry.period) ? entry.period : 'weekly';
+      const metric = entry.metric ? String(entry.metric).slice(0, 64) : '';
+      const aggregation = entry.aggregation ? String(entry.aggregation).slice(0, 64) : 'most';
+      const categoryId = entry.categoryId ? String(entry.categoryId).slice(0, 64) : '';
+      if (!categoryId || !label) return;
+      const metricValue = winner.value != null && Number.isFinite(Number(winner.value)) ? Number(winner.value) : null;
+      const workoutId = winner.workout_id ? toInt(winner.workout_id) : null;
+      const detailsJson = JSON.stringify({
+        firstName: winner.first_name || null,
+        lastName: winner.last_name || null,
+        teamName: winner.team_name || null,
+        milestoneThreshold: entry.milestoneThreshold ?? null,
+        referenceTarget: entry.referenceTarget ?? null
+      });
+      await pool.execute(
+        `INSERT INTO challenge_member_award_grants
+           (learning_class_id, user_id, category_id, label, icon, period, metric, aggregation,
+            week_start_date, week_number, workout_id, metric_value, details_json, granted_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+         ON DUPLICATE KEY UPDATE
+           label        = VALUES(label),
+           icon         = VALUES(icon),
+           period       = VALUES(period),
+           metric       = VALUES(metric),
+           aggregation  = VALUES(aggregation),
+           week_number  = VALUES(week_number),
+           workout_id   = VALUES(workout_id),
+           metric_value = VALUES(metric_value),
+           details_json = VALUES(details_json),
+           updated_at   = CURRENT_TIMESTAMP`,
+        [classId, Number(winner.user_id), categoryId, label, icon, period, metric, aggregation,
+         weekStartDate, weekNumber, workoutId, metricValue, detailsJson]
+      );
+      grantCount++;
+    };
+
+    for (const { weekNumber, weekStartDate } of pastWeeks) {
+      const resolvedWeekNum = weekNumByDate.get(weekStartDate) ?? weekNumber;
+      const recognitionEntries = [];
+      for (const cat of activeCategories) {
+        const entries = await ChallengeWorkout.computeRecognitionWinner(classId, cat, weekStartDate, klassWithCats);
+        recognitionEntries.push(...entries);
+      }
+      for (const entry of recognitionEntries) {
+        if (Array.isArray(entry?.winners) && entry.winners.length) {
+          for (const w of entry.winners) await upsertGrant(entry, w, weekStartDate, resolvedWeekNum);
+        } else if (entry?.winner?.user_id) {
+          await upsertGrant(entry, entry.winner, weekStartDate, resolvedWeekNum);
+        }
+      }
+    }
+
+    return res.json({ ok: true, weeksProcessed: pastWeeks.length, grantCount });
+  } catch (e) { next(e); }
+};
+
 // ─── GET /seasons/:id/recognition/standings ──────────────────────────────────
 // Live standings: last week's winners + current season-level leaders.
 // Public — no auth required but viewer membership may be checked by caller.
