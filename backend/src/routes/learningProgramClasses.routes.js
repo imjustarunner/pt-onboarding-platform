@@ -83,6 +83,7 @@ import {
   uploadCommentAttachment,
   uploadWorkoutMedia,
   reviewWorkoutProof,
+  managerEditWorkout,
   disqualifyWorkout,
   editOwnImportedTreadmillWorkout,
   patchStravaWorkoutDetails,
@@ -228,6 +229,7 @@ router.get('/:classId/workouts', listClassWorkouts);
 router.post('/:classId/workouts', submitWorkout);
 router.post('/:classId/workouts/bulk-on-behalf', submitBulkWorkoutsOnBehalf);
 router.put('/:classId/workouts/:workoutId/proof-review', reviewWorkoutProof);
+router.patch('/:classId/workouts/:workoutId/manager-edit', managerEditWorkout);
 router.put('/:classId/workouts/:workoutId/disqualify', disqualifyWorkout);
 router.put('/:classId/workouts/:workoutId/import-edit', editOwnImportedTreadmillWorkout);
 router.patch('/:classId/workouts/:workoutId/strava-details', workoutMediaUpload.single('treadmillProof'), patchStravaWorkoutDetails);

@@ -545,7 +545,79 @@
             <span v-if="feedPostError[w.id]" class="post-feed-error">{{ feedPostError[w.id] }}</span>
           </div>
 
-          <div class="activity-time hint">Logged {{ formatTime(w.completed_at || w.created_at) }}</div>
+          <!-- Manager: Edit entry button + inline edit form -->
+          <div v-if="props.isManager" class="manager-edit-entry-row">
+            <button type="button" class="btn-edit-entry" @click="openManagerEditPanel(w)">
+              {{ managerEditOpenByWorkout[w.id] ? '✕ Cancel edit' : '✎ Edit entry' }}
+            </button>
+          </div>
+          <div v-if="props.isManager && managerEditOpenByWorkout[w.id]" class="manager-edit-panel">
+            <p class="manager-edit-title">Edit entry</p>
+            <div class="manager-edit-grid">
+              <label class="manager-edit-field">
+                <span>Date</span>
+                <input v-model="managerEditDraftByWorkout[w.id].completedDate" type="date" class="input" />
+              </label>
+              <label class="manager-edit-field">
+                <span>Activity type</span>
+                <select v-model="managerEditDraftByWorkout[w.id].activityType" class="input">
+                  <option value="">— unchanged —</option>
+                  <option value="run">Run</option>
+                  <option value="walk">Walk</option>
+                  <option value="ruck">Ruck</option>
+                  <option value="cycling">Cycling</option>
+                  <option value="workout_session">Workout</option>
+                  <option value="steps">Steps</option>
+                  <option value="other">Other</option>
+                </select>
+              </label>
+              <label class="manager-edit-field">
+                <span>Surface</span>
+                <select v-model="managerEditDraftByWorkout[w.id].terrain" class="input">
+                  <option value="">— unchanged —</option>
+                  <option value="road">Road</option>
+                  <option value="trail">Trail</option>
+                  <option value="track">Track</option>
+                  <option value="treadmill">Treadmill</option>
+                  <option value="beach">Beach</option>
+                  <option value="grass">Grass</option>
+                  <option value="other">Other</option>
+                </select>
+              </label>
+              <label class="manager-edit-field">
+                <span>Distance (mi)</span>
+                <input v-model.number="managerEditDraftByWorkout[w.id].distanceValue" type="number" step="0.01" min="0" class="input" />
+              </label>
+              <label class="manager-edit-field">
+                <span>Duration (min)</span>
+                <input v-model.number="managerEditDraftByWorkout[w.id].durationMinutes" type="number" min="0" class="input" />
+              </label>
+              <label class="manager-edit-field">
+                <span>Seconds</span>
+                <input v-model.number="managerEditDraftByWorkout[w.id].durationSeconds" type="number" min="0" max="59" class="input" />
+              </label>
+            </div>
+            <label class="manager-edit-field manager-edit-notes">
+              <span>Notes</span>
+              <input v-model.trim="managerEditDraftByWorkout[w.id].workoutNotes" type="text" maxlength="1000" class="input" placeholder="Workout notes…" />
+            </label>
+            <div class="manager-edit-actions">
+              <button
+                type="button"
+                class="btn btn-primary btn-small"
+                :disabled="!!managerEditSubmittingByWorkout[w.id]"
+                @click="submitManagerEdit(w.id)"
+              >
+                {{ managerEditSubmittingByWorkout[w.id] ? 'Saving…' : 'Save changes' }}
+              </button>
+              <span v-if="managerEditErrorByWorkout[w.id]" class="manager-edit-error">{{ managerEditErrorByWorkout[w.id] }}</span>
+            </div>
+          </div>
+
+          <div class="activity-time hint">
+            Logged {{ formatTime(w.completed_at || w.created_at) }}
+            <span v-if="w.manager_edited_at" class="manager-edited-note"> · Edited by manager</span>
+          </div>
         </div>
 
         <!-- ── Comments section ──────────────────────────────────────────── -->
@@ -918,6 +990,10 @@ const proofSubmitting = ref({});
 const editOpenByWorkout = ref({});
 const editDraftByWorkout = ref({});
 const editSubmitting = ref({});
+const managerEditOpenByWorkout = ref({});
+const managerEditDraftByWorkout = ref({});
+const managerEditSubmittingByWorkout = ref({});
+const managerEditErrorByWorkout = ref({});
 const disqualifyDraftByWorkout = ref({});
 const disqualifySubmitting = ref({});
 
@@ -1698,6 +1774,68 @@ const formatSplitPace = (s) => {
   return `${m}:${String(ss).padStart(2, '0')}/mi`;
 };
 
+// ── Manager edit entry ──────────────────────────────────────────────────────
+function toDateInputValue(dateTimeStr) {
+  if (!dateTimeStr) return '';
+  const d = new Date(dateTimeStr);
+  if (Number.isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const da = String(d.getDate()).padStart(2, '0');
+  return `${y}-${mo}-${da}`;
+}
+
+const openManagerEditPanel = (w) => {
+  const wid = w.id;
+  const isOpen = !!managerEditOpenByWorkout.value[wid];
+  if (!isOpen) {
+    managerEditDraftByWorkout.value = {
+      ...managerEditDraftByWorkout.value,
+      [wid]: {
+        completedDate: toDateInputValue(w.completed_at || w.created_at),
+        activityType: w.activity_type || '',
+        terrain: w.terrain || '',
+        distanceValue: w.distance_value != null ? Number(w.distance_value) : null,
+        durationMinutes: w.duration_minutes != null ? Number(w.duration_minutes) : null,
+        durationSeconds: w.duration_seconds != null ? Number(w.duration_seconds) : null,
+        workoutNotes: w.workout_notes || ''
+      }
+    };
+    managerEditErrorByWorkout.value = { ...managerEditErrorByWorkout.value, [wid]: '' };
+  }
+  managerEditOpenByWorkout.value = { ...managerEditOpenByWorkout.value, [wid]: !isOpen };
+};
+
+const submitManagerEdit = async (workoutId) => {
+  const draft = managerEditDraftByWorkout.value[workoutId];
+  if (!draft) return;
+  managerEditSubmittingByWorkout.value = { ...managerEditSubmittingByWorkout.value, [workoutId]: true };
+  managerEditErrorByWorkout.value = { ...managerEditErrorByWorkout.value, [workoutId]: '' };
+  try {
+    const body = {};
+    if (draft.completedDate) body.completedDate = draft.completedDate;
+    if (draft.activityType !== undefined) body.activityType = draft.activityType;
+    if (draft.terrain !== undefined) body.terrain = draft.terrain;
+    if (draft.distanceValue != null) body.distanceValue = draft.distanceValue;
+    if (draft.durationMinutes != null) body.durationMinutes = draft.durationMinutes;
+    if (draft.durationSeconds != null) body.durationSeconds = draft.durationSeconds;
+    if (draft.workoutNotes !== undefined) body.workoutNotes = draft.workoutNotes;
+    await api.patch(
+      `/learning-program-classes/${props.challengeId}/workouts/${workoutId}/manager-edit`,
+      body
+    );
+    managerEditOpenByWorkout.value = { ...managerEditOpenByWorkout.value, [workoutId]: false };
+    emit('media-uploaded');
+  } catch (e) {
+    managerEditErrorByWorkout.value = {
+      ...managerEditErrorByWorkout.value,
+      [workoutId]: e?.response?.data?.error?.message || 'Failed to save changes'
+    };
+  } finally {
+    managerEditSubmittingByWorkout.value = { ...managerEditSubmittingByWorkout.value, [workoutId]: false };
+  }
+};
+
 const reviewProof = async (workoutId, status) => {
   const workout = (props.workouts || []).find((w) => Number(w.id) === Number(workoutId));
   ensureProofDraft(workoutId, workout);
@@ -2272,6 +2410,72 @@ const reviewProof = async (workoutId, status) => {
 .activity-time {
   margin-top: 4px;
   font-size: 0.85em;
+}
+.manager-edited-note {
+  color: #64748b;
+  font-style: italic;
+}
+
+/* ── Manager edit entry ───────────────────────────────────────── */
+.manager-edit-entry-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: 6px 0 2px;
+}
+.btn-edit-entry {
+  background: none;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #475569;
+  cursor: pointer;
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  transition: border-color 0.15s, color 0.15s;
+}
+.btn-edit-entry:hover { border-color: #94a3b8; color: #0f172a; }
+.manager-edit-panel {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px;
+  margin: 4px 0 10px;
+}
+.manager-edit-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  margin: 0 0 10px;
+}
+.manager-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.manager-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.82rem;
+}
+.manager-edit-field > span {
+  font-weight: 600;
+  color: #64748b;
+  font-size: 0.75rem;
+}
+.manager-edit-notes {
+  margin-bottom: 10px;
+}
+.manager-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.manager-edit-error {
+  color: #dc2626;
+  font-size: 0.8rem;
 }
 .activity-media {
   margin-top: 12px;

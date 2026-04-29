@@ -1853,6 +1853,78 @@ export const reviewWorkoutProof = async (req, res, next) => {
   }
 };
 
+const ALLOWED_ACTIVITY_TYPES = [
+  'run', 'running', 'walk', 'ruck', 'cycling', 'workout_session', 'steps', 'other'
+];
+const ALLOWED_TERRAINS = ['road', 'trail', 'track', 'treadmill', 'beach', 'race', 'grass', 'other'];
+
+/**
+ * PATCH /learning-program-classes/:classId/workouts/:workoutId/manager-edit
+ * Manager/assistant-manager can update date, activity type, terrain, distance,
+ * duration, and notes on any workout in the class.
+ */
+export const managerEditWorkout = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const workoutId = asInt(req.params.workoutId);
+    if (!classId || !workoutId) return res.status(400).json({ error: { message: 'Invalid classId/workoutId' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) {
+      return res.status(403).json({ error: { message: 'Manage access required' } });
+    }
+    const workout = await ChallengeWorkout.findById(workoutId);
+    if (!workout || Number(workout.learning_class_id) !== Number(classId)) {
+      return res.status(404).json({ error: { message: 'Workout not found' } });
+    }
+
+    const patch = {};
+
+    // --- Date (completed_at) ---
+    if (req.body?.completedDate !== undefined) {
+      const dateStr = String(req.body.completedDate || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        return res.status(400).json({ error: { message: 'completedDate must be YYYY-MM-DD' } });
+      }
+      // Preserve the original time component; only swap the date part
+      const origTime = workout.completed_at
+        ? String(workout.completed_at).slice(11, 19) || '00:00:00'
+        : '00:00:00';
+      patch.completedAt = `${dateStr} ${origTime}`;
+    }
+
+    if (req.body?.activityType !== undefined) {
+      const at = String(req.body.activityType || '').trim().toLowerCase();
+      patch.activityType = at || null;
+    }
+    if (req.body?.terrain !== undefined) {
+      const t = String(req.body.terrain || '').trim().toLowerCase();
+      patch.terrain = t || null;
+    }
+    if (req.body?.workoutNotes !== undefined) {
+      patch.workoutNotes = String(req.body.workoutNotes || '').trim() || null;
+    }
+    if (req.body?.distanceValue !== undefined) {
+      const d = parseFloat(req.body.distanceValue);
+      if (!Number.isFinite(d) || d < 0) return res.status(400).json({ error: { message: 'distanceValue must be a non-negative number' } });
+      patch.distanceValue = parseFloat(d.toFixed(4));
+      patch.reportedDistanceValue = patch.distanceValue;
+    }
+    if (req.body?.durationMinutes !== undefined) {
+      patch.durationMinutes = Math.max(0, asInt(req.body.durationMinutes) || 0);
+    }
+    if (req.body?.durationSeconds !== undefined) {
+      patch.durationSeconds = Math.min(59, Math.max(0, asInt(req.body.durationSeconds) || 0));
+    }
+
+    patch.managerEditedByUserId = req.user.id;
+    patch.managerEditedAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+    const updated = await ChallengeWorkout.managerEdit(workoutId, patch);
+    return res.json({ workout: updated });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const scanBulkWorkoutScreenshots = async (req, res, next) => {
   try {
     const classId = asInt(req.params.classId);

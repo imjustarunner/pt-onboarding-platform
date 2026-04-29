@@ -220,6 +220,33 @@ class ChallengeWorkout {
     return this.findById(id);
   }
 
+  /**
+   * Manager-level full edit: date, activity type, terrain, distance, duration, notes.
+   * Sets manager_edited = 1 plus audit columns.
+   */
+  static async managerEdit(workoutId, patch = {}) {
+    const id = toInt(workoutId);
+    if (!id) return null;
+    const parts = [];
+    const values = [];
+    if (patch.completedAt !== undefined) { parts.push('completed_at = ?'); values.push(patch.completedAt || null); }
+    if (patch.activityType !== undefined) { parts.push('activity_type = ?'); values.push(patch.activityType ? String(patch.activityType).slice(0, 64) : null); }
+    if (patch.terrain !== undefined) { parts.push('terrain = ?'); values.push(patch.terrain ? String(patch.terrain).slice(0, 64) : null); }
+    if (patch.workoutNotes !== undefined) { parts.push('workout_notes = ?'); values.push(patch.workoutNotes ? String(patch.workoutNotes).slice(0, 1000) : null); }
+    if (patch.distanceValue !== undefined) { parts.push('distance_value = ?'); values.push(patch.distanceValue != null ? Number(patch.distanceValue) : null); }
+    if (patch.reportedDistanceValue !== undefined) { parts.push('reported_distance_value = ?'); values.push(patch.reportedDistanceValue != null ? Number(patch.reportedDistanceValue) : null); }
+    if (patch.durationMinutes !== undefined) { parts.push('duration_minutes = ?'); values.push(patch.durationMinutes != null ? toInt(patch.durationMinutes) : null); }
+    if (patch.durationSeconds !== undefined) { parts.push('duration_seconds = ?'); values.push(patch.durationSeconds != null ? Math.min(59, Math.max(0, toInt(patch.durationSeconds) || 0)) : null); }
+    // Always mark as manager-edited with audit trail
+    parts.push('manager_edited = 1');
+    if (patch.managerEditedByUserId !== undefined) { parts.push('manager_edited_by_user_id = ?'); values.push(patch.managerEditedByUserId ? toInt(patch.managerEditedByUserId) : null); }
+    if (patch.managerEditedAt !== undefined) { parts.push('manager_edited_at = ?'); values.push(patch.managerEditedAt || null); }
+    if (!parts.length) return this.findById(id);
+    values.push(id);
+    await pool.execute(`UPDATE challenge_workouts SET ${parts.join(', ')} WHERE id = ?`, values);
+    return this.findById(id);
+  }
+
   static async updateDisqualification(workoutId, patch = {}) {
     const id = toInt(workoutId);
     if (!id) return null;
