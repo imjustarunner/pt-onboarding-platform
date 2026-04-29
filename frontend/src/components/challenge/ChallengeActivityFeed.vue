@@ -1825,6 +1825,10 @@ const submitManagerEdit = async (workoutId) => {
       body
     );
     managerEditOpenByWorkout.value = { ...managerEditOpenByWorkout.value, [workoutId]: false };
+    // If the date changed, navigate the feed to the new date so the entry stays visible.
+    if (draft.completedDate && draft.completedDate !== selectedDate.value) {
+      selectedDate.value = draft.completedDate;
+    }
     emit('media-uploaded');
   } catch (e) {
     managerEditErrorByWorkout.value = {
