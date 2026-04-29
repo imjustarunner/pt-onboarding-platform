@@ -1093,7 +1093,35 @@ export const getActivityFeed = async (req, res, next) => {
     const limit = Math.min(100, asInt(req.query.limit) || 50);
     const offset = asInt(req.query.offset) || 0;
     const teamId = req.query.teamId ? asInt(req.query.teamId) : null;
-    const workouts = await ChallengeWorkout.listByChallenge(classId, { limit, offset, teamId });
+    const searchQ = String(req.query.q || '').trim();
+
+    let workouts;
+    if (searchQ) {
+      // Full-season name / activity / notes search — bypass the recency limit
+      const like = `%${searchQ.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
+      const teamClause = teamId ? `AND w.team_id = ${asInt(teamId)}` : '';
+      const [rows] = await pool.execute(
+        `SELECT w.*, u.first_name, u.last_name, u.profile_photo_path, t.team_name, wt.name AS weekly_task_name
+         FROM challenge_workouts w
+         INNER JOIN users u ON u.id = w.user_id
+         LEFT JOIN challenge_teams t ON t.id = w.team_id
+         LEFT JOIN challenge_weekly_tasks wt ON wt.id = w.weekly_task_id
+         WHERE w.learning_class_id = ? ${teamClause}
+           AND (
+             u.first_name LIKE ? OR u.last_name LIKE ?
+             OR CONCAT(u.first_name, ' ', u.last_name) LIKE ?
+             OR w.activity_type LIKE ?
+             OR w.workout_notes LIKE ?
+             OR t.team_name LIKE ?
+           )
+         ORDER BY w.completed_at DESC, w.created_at DESC
+         LIMIT 200`,
+        [classId, like, like, like, like, like, like]
+      );
+      workouts = rows || [];
+    } else {
+      workouts = await ChallengeWorkout.listByChallenge(classId, { limit, offset, teamId });
+    }
     const workoutIds = (workouts || []).map((w) => Number(w.id)).filter(Boolean);
     const mediaRows = await ChallengeWorkoutMedia.listByWorkoutIds(workoutIds);
     const commentsByWorkout = new Map();

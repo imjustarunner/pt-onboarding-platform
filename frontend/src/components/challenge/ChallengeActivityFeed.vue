@@ -26,7 +26,8 @@
         />
         <button v-if="searchQuery" type="button" class="feed-search-clear" @click="searchQuery = ''" title="Clear search">✕</button>
       </div>
-      <span v-if="searchQuery" class="feed-search-hint">Showing all matching activity across all dates</span>
+      <span v-if="searchQuery && searchLoading" class="feed-search-hint">Searching…</span>
+      <span v-else-if="searchQuery" class="feed-search-hint">Showing all matching activity across all dates</span>
     </div>
 
     <!-- ── Filter bar ──────────────────────────────────────────────── -->
@@ -744,7 +745,7 @@
           </div>
         </div>
       </div>
-      <div v-if="!filteredWorkouts.length" class="feed-empty-state">
+      <div v-if="!filteredWorkouts.length && !searchLoading" class="feed-empty-state">
         <div class="feed-empty-icon">🏃</div>
         <p class="feed-empty-title">
           <template v-if="searchQuery">No workouts found matching "{{ searchQuery }}".</template>
@@ -851,7 +852,30 @@ const shiftDate = (delta) => {
 const resetDate = () => { selectedDate.value = todayStr(); };
 
 // ── Member search ──────────────────────────────────────────────────
-const searchQuery = ref('');
+const searchQuery   = ref('');
+const searchResults = ref([]);   // workouts returned from backend search
+const searchLoading = ref(false);
+
+let searchDebounce = null;
+watch(searchQuery, (q) => {
+  clearTimeout(searchDebounce);
+  if (!q.trim()) { searchResults.value = []; return; }
+  searchDebounce = setTimeout(async () => {
+    searchLoading.value = true;
+    try {
+      const r = await api.get(
+        `/learning-program-classes/${props.challengeId}/activity`,
+        { params: { q: q.trim() }, skipGlobalLoading: true }
+      );
+      // Enrich profile photo URLs the same way the parent does
+      searchResults.value = (r.data?.workouts || []).map((w) => ({
+        ...w,
+        profile_photo_url: w.profile_photo_url || w.profile_photo_path || null,
+      }));
+    } catch { searchResults.value = []; }
+    finally { searchLoading.value = false; }
+  }, 350);
+});
 
 /**
  * Returns the local calendar date (YYYY-MM-DD) for a completed_at value.
@@ -968,27 +992,9 @@ const filteredWorkouts = computed(() => {
     list = list.filter((w) => !blockedUserIds.value.has(Number(w.user_id)));
   }
 
-  const q = searchQuery.value.trim().toLowerCase();
-
-  if (q) {
-    // Search mode — show ALL dates, filter by name / activity type / notes
-    list = list.filter((w) => {
-      const fullName = `${w.first_name || ''} ${w.last_name || ''}`.toLowerCase();
-      const activity = String(w.activity_type || '').toLowerCase();
-      const notes    = String(w.workout_notes || '').toLowerCase();
-      const team     = String(w.team_name || '').toLowerCase();
-      return fullName.includes(q) || activity.includes(q) || notes.includes(q) || team.includes(q);
-    });
-    // Sort: workouts on selectedDate first, then all others by date descending
-    list = [...list].sort((a, b) => {
-      const aDate = workoutLocalDate(a.completed_at || a.created_at);
-      const bDate = workoutLocalDate(b.completed_at || b.created_at);
-      const aIsSelected = aDate === selectedDate.value ? 0 : 1;
-      const bIsSelected = bDate === selectedDate.value ? 0 : 1;
-      if (aIsSelected !== bIsSelected) return aIsSelected - bIsSelected;
-      // Both on same tier — sort by most recent first
-      return new Date(b.completed_at || b.created_at) - new Date(a.completed_at || a.created_at);
-    });
+  if (searchQuery.value.trim()) {
+    // Search mode — results come from the backend (full-season search)
+    list = searchResults.value;
   } else {
     // Date mode — show only workouts on the selected local date
     list = list.filter((w) => {
