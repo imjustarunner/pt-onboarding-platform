@@ -1879,17 +1879,10 @@ export const managerEditWorkout = async (req, res, next) => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
         return res.status(400).json({ error: { message: 'completedDate must be YYYY-MM-DD' } });
       }
-      // Preserve the original time component; only swap the date part.
-      // completed_at is a JS Date object from mysql2 — extract UTC H:M:S directly.
-      const origTime = (() => {
-        if (!workout.completed_at) return '00:00:00';
-        const d = workout.completed_at instanceof Date ? workout.completed_at : new Date(workout.completed_at);
-        if (Number.isNaN(d.getTime())) return '00:00:00';
-        return [d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()]
-          .map((n) => String(n).padStart(2, '0'))
-          .join(':');
-      })();
-      patch.completedAt = `${dateStr} ${origTime}`;
+      // Use noon UTC so the stored datetime lands on the correct calendar date
+      // in any reasonable timezone (avoids a midnight-UTC entry rolling back to
+      // the previous local day for users in UTC-offset timezones).
+      patch.completedAt = `${dateStr} 12:00:00`;
     }
 
     if (req.body?.activityType !== undefined) {

@@ -3,14 +3,30 @@
     <div class="activity-feed-header">
     <h2>Recent Activity</h2>
 
-      <!-- ── Date navigator ──────────────────────────────────────── -->
-      <div class="feed-date-nav">
+      <!-- ── Date navigator (hidden while searching) ────────────── -->
+      <div v-if="!searchQuery" class="feed-date-nav">
         <button type="button" class="date-nav-btn" title="Previous day" @click="shiftDate(-1)">‹</button>
         <button type="button" class="date-nav-today" :class="{ 'date-nav-today--active': isToday }" @click="resetDate">
           {{ isToday ? 'Today' : formattedDate }}
         </button>
         <button type="button" class="date-nav-btn" title="Next day" :disabled="isToday" @click="shiftDate(1)">›</button>
       </div>
+    </div>
+
+    <!-- ── Member search ───────────────────────────────────────────── -->
+    <div class="feed-search-row">
+      <div class="feed-search-wrap">
+        <span class="feed-search-icon">🔍</span>
+        <input
+          v-model="searchQuery"
+          type="text"
+          class="feed-search-input"
+          placeholder="Search by name, activity…"
+          @keydown.escape="searchQuery = ''"
+        />
+        <button v-if="searchQuery" type="button" class="feed-search-clear" @click="searchQuery = ''" title="Clear search">✕</button>
+      </div>
+      <span v-if="searchQuery" class="feed-search-hint">Showing all matching activity across all dates</span>
     </div>
 
     <!-- ── Filter bar ──────────────────────────────────────────────── -->
@@ -83,6 +99,9 @@
         class="activity-card"
         :style="{ borderLeftColor: activityColor(w.activity_type), boxShadow: `inset 3px 0 0 ${activityColor(w.activity_type)}` }"
       >
+        <div v-if="searchQuery" class="activity-search-date-badge">
+          {{ workoutDateLabel(w.completed_at || w.created_at) }}
+        </div>
         <div class="activity-header">
           <UserAvatar :photo-path="w.profile_photo_url || w.profile_photo_path" :first-name="w.first_name" :last-name="w.last_name" size="sm" extra-class="activity-avatar" />
           <div class="activity-user-info">
@@ -728,11 +747,15 @@
       <div v-if="!filteredWorkouts.length" class="feed-empty-state">
         <div class="feed-empty-icon">🏃</div>
         <p class="feed-empty-title">
-          <template v-if="hasActiveFilters">No workouts match your current filters.</template>
+          <template v-if="searchQuery">No workouts found matching "{{ searchQuery }}".</template>
+          <template v-else-if="hasActiveFilters">No workouts match your current filters.</template>
           <template v-else-if="teamFilter === 'my' && myTeamId">No team workouts yet — get moving!</template>
           <template v-else>No activity logged on {{ isToday ? 'today' : formattedDate }} yet.</template>
         </p>
-        <p v-if="hasActiveFilters" class="feed-empty-sub">
+        <p v-if="searchQuery" class="feed-empty-sub">
+          Try a different name or <button class="btn-link" @click="searchQuery = ''">clear the search</button>.
+        </p>
+        <p v-else-if="hasActiveFilters" class="feed-empty-sub">
           <button class="btn-link" @click="clearFilters">Clear filters</button> to see all workouts.
         </p>
         <p v-else class="feed-empty-sub">Workouts, kudos, emoji reactions, comments and photos will show here once members start logging.</p>
@@ -827,6 +850,37 @@ const shiftDate = (delta) => {
 };
 const resetDate = () => { selectedDate.value = todayStr(); };
 
+// ── Member search ──────────────────────────────────────────────────
+const searchQuery = ref('');
+
+/**
+ * Returns the local calendar date (YYYY-MM-DD) for a completed_at value.
+ * mysql2 returns DATETIME as a JS Date, Express serializes it as an ISO Z string,
+ * so new Date(raw) is already UTC-correct — we just convert to local.
+ */
+function workoutLocalDate(raw) {
+  if (!raw) return '';
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return String(raw).slice(0, 10);
+  return d.toLocaleDateString('en-CA');
+}
+
+/**
+ * Human-friendly label for a workout date used in the search-mode date badge.
+ */
+function workoutDateLabel(raw) {
+  if (!raw) return '';
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return String(raw).slice(0, 10);
+  const today = todayStr();
+  const local = d.toLocaleDateString('en-CA');
+  if (local === today) return 'Today';
+  const yesterday = new Date(today + 'T12:00:00');
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (local === yesterday.toLocaleDateString('en-CA')) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
 // ── Team + activity-type filters ───────────────────────────────────
 const teamFilter        = ref(null);   // null | 'my' | '<team_id>'
 const activityTypeFilter = ref(null);  // null | 'running' | 'rucking' | …
@@ -898,9 +952,10 @@ const activityTypeList = computed(() => {
 });
 
 const hasActiveFilters = computed(
-  () => teamFilter.value !== null || activityTypeFilter.value !== null || !isToday.value
+  () => !!searchQuery.value || teamFilter.value !== null || activityTypeFilter.value !== null || !isToday.value
 );
 const clearFilters = () => {
+  searchQuery.value = '';
   teamFilter.value = null;
   activityTypeFilter.value = null;
   selectedDate.value = todayStr();
@@ -913,19 +968,34 @@ const filteredWorkouts = computed(() => {
     list = list.filter((w) => !blockedUserIds.value.has(Number(w.user_id)));
   }
 
-  // Date filter — show workouts completed on selectedDate. completed_at is stored
-  // as UTC by the backend, so we must convert to the viewer's local date before
-  // comparing; otherwise late-evening workouts (whose UTC date has rolled over)
-  // get hidden from the current day's feed.
-  list = list.filter((w) => {
-    const raw = w.completed_at || w.created_at;
-    if (!raw) return false;
-    const dt = new Date(raw);
-    if (Number.isNaN(dt.getTime())) {
-      return String(raw).slice(0, 10) === selectedDate.value;
-    }
-    return dt.toLocaleDateString('en-CA') === selectedDate.value;
-  });
+  const q = searchQuery.value.trim().toLowerCase();
+
+  if (q) {
+    // Search mode — show ALL dates, filter by name / activity type / notes
+    list = list.filter((w) => {
+      const fullName = `${w.first_name || ''} ${w.last_name || ''}`.toLowerCase();
+      const activity = String(w.activity_type || '').toLowerCase();
+      const notes    = String(w.workout_notes || '').toLowerCase();
+      const team     = String(w.team_name || '').toLowerCase();
+      return fullName.includes(q) || activity.includes(q) || notes.includes(q) || team.includes(q);
+    });
+    // Sort: workouts on selectedDate first, then all others by date descending
+    list = [...list].sort((a, b) => {
+      const aDate = workoutLocalDate(a.completed_at || a.created_at);
+      const bDate = workoutLocalDate(b.completed_at || b.created_at);
+      const aIsSelected = aDate === selectedDate.value ? 0 : 1;
+      const bIsSelected = bDate === selectedDate.value ? 0 : 1;
+      if (aIsSelected !== bIsSelected) return aIsSelected - bIsSelected;
+      // Both on same tier — sort by most recent first
+      return new Date(b.completed_at || b.created_at) - new Date(a.completed_at || a.created_at);
+    });
+  } else {
+    // Date mode — show only workouts on the selected local date
+    list = list.filter((w) => {
+      const raw = w.completed_at || w.created_at;
+      return workoutLocalDate(raw) === selectedDate.value;
+    });
+  }
 
   // Team filter
   if (teamFilter.value === 'my' && props.myTeamId) {
@@ -1981,6 +2051,78 @@ const reviewProof = async (workoutId, status) => {
 @media (max-width: 480px) {
   .date-nav-btn { width: 26px; height: 26px; font-size: 14px; }
   .date-nav-today { padding: 4px 8px; font-size: 0.78rem; }
+}
+
+/* ── Member search ─────────────────────────────────────────────── */
+.feed-search-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 10px;
+}
+.feed-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 180px;
+  max-width: 360px;
+}
+.feed-search-icon {
+  position: absolute;
+  left: 9px;
+  font-size: 0.85rem;
+  pointer-events: none;
+  opacity: 0.5;
+}
+.feed-search-input {
+  width: 100%;
+  padding: 7px 32px 7px 30px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  background: #f9fafb;
+  color: #0f172a;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.feed-search-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
+  background: #fff;
+}
+.feed-search-clear {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: #6b7280;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.feed-search-clear:hover { color: #111; }
+.feed-search-hint {
+  font-size: 0.78rem;
+  color: #2563eb;
+  font-style: italic;
+  white-space: nowrap;
+}
+/* Date badge shown on each card while searching */
+.activity-search-date-badge {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 /* ── Filter bar ────────────────────────────────────────────────── */
