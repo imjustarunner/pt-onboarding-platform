@@ -1853,11 +1853,6 @@ export const reviewWorkoutProof = async (req, res, next) => {
   }
 };
 
-const ALLOWED_ACTIVITY_TYPES = [
-  'run', 'running', 'walk', 'ruck', 'cycling', 'workout_session', 'steps', 'other'
-];
-const ALLOWED_TERRAINS = ['road', 'trail', 'track', 'treadmill', 'beach', 'race', 'grass', 'other'];
-
 /**
  * PATCH /learning-program-classes/:classId/workouts/:workoutId/manager-edit
  * Manager/assistant-manager can update date, activity type, terrain, distance,
