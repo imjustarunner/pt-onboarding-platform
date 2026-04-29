@@ -52,28 +52,51 @@
                 <div
                   v-for="team in teams"
                   :key="team.teamId"
-                  class="cp-perteam-row"
-                  :style="{ borderLeft: `3px solid ${team.teamColor || teamFallbackColor(team.teamId)}` }"
+                  class="cp-perteam-block"
                 >
-                  <div class="cp-perteam-logo-wrap">
-                    <img v-if="team.logoPath" :src="toUploadsUrl(team.logoPath)" class="cp-perteam-logo" alt="" />
-                    <span v-else class="cp-perteam-logo-placeholder" :style="{ background: team.teamColor || teamFallbackColor(team.teamId) }">
-                      {{ (team.teamName || '?')[0].toUpperCase() }}
+                  <div
+                    class="cp-perteam-row"
+                    :style="{ borderLeft: `3px solid ${team.teamColor || teamFallbackColor(team.teamId)}` }"
+                    @click="toggleTeamExpand(task.id, team.teamId)"
+                    style="cursor: pointer;"
+                  >
+                    <div class="cp-perteam-logo-wrap">
+                      <img v-if="team.logoPath" :src="toUploadsUrl(team.logoPath)" class="cp-perteam-logo" alt="" />
+                      <span v-else class="cp-perteam-logo-placeholder" :style="{ background: team.teamColor || teamFallbackColor(team.teamId) }">
+                        {{ (team.teamName || '?')[0].toUpperCase() }}
+                      </span>
+                    </div>
+                    <span class="cp-perteam-name">{{ team.teamName }}</span>
+                    <span class="cp-perteam-stat">
+                      <strong>{{ teamTaggedCount(task.id, team.teamId) }}</strong>
+                      <span class="cp-of"> / </span>{{ team.memberCount }}
                     </span>
+                    <div class="cp-perteam-bar-wrap">
+                      <div
+                        class="cp-perteam-bar-fill"
+                        :style="{
+                          width: team.memberCount ? `${Math.min(100, Math.round(teamTaggedCount(task.id, team.teamId) / team.memberCount * 100))}%` : '0%',
+                          background: team.teamColor || teamFallbackColor(team.teamId)
+                        }"
+                      />
+                    </div>
+                    <span class="cp-perteam-chevron" :class="{ 'cp-perteam-chevron--open': isTeamExpanded(task.id, team.teamId) }">▾</span>
                   </div>
-                  <span class="cp-perteam-name">{{ team.teamName }}</span>
-                  <span class="cp-perteam-stat">
-                    <strong>{{ teamTaggedCount(task.id, team.teamId) }}</strong>
-                    <span class="cp-of"> / </span>{{ team.memberCount }}
-                  </span>
-                  <div class="cp-perteam-bar-wrap">
+                  <!-- Expanded member list -->
+                  <div v-if="isTeamExpanded(task.id, team.teamId)" class="cp-member-list">
                     <div
-                      class="cp-perteam-bar-fill"
-                      :style="{
-                        width: team.memberCount ? `${Math.min(100, Math.round(teamTaggedCount(task.id, team.teamId) / team.memberCount * 100))}%` : '0%',
-                        background: team.teamColor || teamFallbackColor(team.teamId)
-                      }"
-                    />
+                      v-for="m in teamMembersForTask(task.id, team.teamId)"
+                      :key="m.userId"
+                      class="cp-member-row"
+                      :class="m.tagged ? 'cp-member-row--done' : 'cp-member-row--pending'"
+                    >
+                      <span class="cp-member-status-dot" :class="m.tagged ? 'cp-dot--done' : 'cp-dot--pending'"></span>
+                      <span class="cp-member-name">{{ m.firstName }} {{ m.lastName }}</span>
+                      <span class="cp-member-status" :class="m.tagged ? 'cp-status--done' : 'cp-status--pending'">
+                        {{ m.tagged ? '✓ Tagged' : 'Not yet' }}
+                      </span>
+                    </div>
+                    <div v-if="!teamMembersForTask(task.id, team.teamId).length" class="cp-member-empty">No members found</div>
                   </div>
                 </div>
               </div>
@@ -172,6 +195,8 @@ const taggedWorkouts = ref([]);   // workouts with weekly_task_id for this week
 const assignments = ref([]);      // weekly assignments [{task_id, team_id, provider_user_id, ...}]
 const recognitionData = ref(null);
 const teams = ref([]);            // [{teamId, teamName, teamColor, memberCount}]
+const teamMembersMap = ref({});   // { teamId: [{userId, firstName, lastName}] }
+const expandedTeamTasks = ref(new Set()); // keys: `${taskId}:${teamId}`
 
 // ── Computed helpers ───────────────────────────────────────────
 // Count of distinct users who have tagged each task
@@ -242,6 +267,25 @@ const taskAssignments = (taskId) => {
         miles: allTagged.length > 0 ? totalMiles.toFixed(2) : null,
       };
     });
+};
+
+// Per-team member expansion
+const expandKey = (taskId, teamId) => `${taskId}:${teamId}`;
+const isTeamExpanded = (taskId, teamId) => expandedTeamTasks.value.has(expandKey(taskId, teamId));
+const toggleTeamExpand = (taskId, teamId) => {
+  const key = expandKey(taskId, teamId);
+  const s = new Set(expandedTeamTasks.value);
+  s.has(key) ? s.delete(key) : s.add(key);
+  expandedTeamTasks.value = s;
+};
+const teamMembersForTask = (taskId, teamId) => {
+  const members = teamMembersMap.value[Number(teamId)] || [];
+  const taskN = Number(taskId);
+  const teamN = Number(teamId);
+  const taggedSet = teamTaggedByTask.value[taskN]?.[teamN] || new Set();
+  return members
+    .map((m) => ({ ...m, tagged: taggedSet.has(m.userId) }))
+    .sort((a, b) => (b.tagged ? 1 : 0) - (a.tagged ? 1 : 0) || a.lastName.localeCompare(b.lastName));
 };
 
 // Recognition
@@ -326,7 +370,7 @@ const load = async () => {
     recognitionData.value = sbRes.status === 'fulfilled'
       ? (sbRes.value.data?.recognitionOfTheWeek || null)
       : null;
-      // Extract teams with memberCount for per-team breakdown
+      // Extract teams with memberCount and per-member list for per-team breakdown
     if (progressRes.status === 'fulfilled') {
       const rawTeams = progressRes.value.data?.teams || [];
       teams.value = rawTeams.map((t) => ({
@@ -336,8 +380,20 @@ const load = async () => {
         logoPath: t.logoPath || null,
         memberCount: Array.isArray(t.members) ? t.members.length : 0
       }));
+      const membersMap = {};
+      for (const t of rawTeams) {
+        if (Array.isArray(t.members)) {
+          membersMap[Number(t.teamId)] = t.members.map((m) => ({
+            userId: Number(m.userId),
+            firstName: m.firstName || '',
+            lastName: m.lastName || ''
+          }));
+        }
+      }
+      teamMembersMap.value = membersMap;
     } else {
       teams.value = [];
+      teamMembersMap.value = {};
     }
   } finally {
     loading.value = false;
@@ -386,16 +442,39 @@ defineExpose({ load });
 .cp-fullteam-bar-fill { height: 100%; background: #6366f1; border-radius: 999px; transition: width 0.3s ease; min-width: 2px; }
 
 .cp-perteam-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #f0f4f8; }
+.cp-perteam-block { display: flex; flex-direction: column; }
 .cp-perteam-row {
   display: grid;
-  grid-template-columns: 32px 1fr auto 80px;
+  grid-template-columns: 32px 1fr auto 80px 16px;
   align-items: center;
   gap: 8px;
   padding: 7px 10px 7px 12px;
   background: #f8fafc;
   border-radius: 8px;
   border-left: 3px solid #e2e8f0;
+  transition: background 0.15s;
 }
+.cp-perteam-row:hover { background: #f1f5f9; }
+.cp-perteam-chevron { font-size: 0.9em; color: #94a3b8; transition: transform 0.2s; line-height: 1; user-select: none; }
+.cp-perteam-chevron--open { transform: rotate(180deg); }
+.cp-member-list {
+  display: flex; flex-direction: column;
+  background: #fff; border: 1px solid #e2e8f0;
+  border-top: none; border-radius: 0 0 8px 8px;
+  padding: 4px 0; margin-bottom: 2px;
+}
+.cp-member-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 12px 5px 16px; font-size: 0.81em;
+}
+.cp-member-row--done { background: #f0fdf4; }
+.cp-member-row--pending { background: #fff; }
+.cp-member-status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.cp-dot--done { background: #16a34a; }
+.cp-dot--pending { background: #cbd5e1; }
+.cp-member-name { flex: 1; font-weight: 500; color: #1e293b; }
+.cp-member-status { font-size: 0.88em; font-weight: 700; white-space: nowrap; }
+.cp-member-empty { padding: 8px 16px; font-size: 0.8em; color: #94a3b8; font-style: italic; }
 .cp-perteam-logo-wrap { width: 28px; height: 28px; flex-shrink: 0; border-radius: 6px; overflow: hidden; }
 .cp-perteam-logo { width: 100%; height: 100%; object-fit: cover; display: block; }
 .cp-perteam-logo-placeholder {
