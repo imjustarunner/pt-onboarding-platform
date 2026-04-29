@@ -129,7 +129,7 @@
       </div>
     </div>
 
-    <div v-if="loading" class="loading-inline">Loading…</div>
+    <div v-if="loading || dateLoading" class="loading-inline">Loading…</div>
     <div v-else class="activity-list">
       <div
         v-for="w in filteredWorkouts"
@@ -899,6 +899,39 @@ const searchQuery   = ref('');
 const searchResults = ref([]);   // workouts returned from backend search
 const searchLoading = ref(false);
 
+// ── Date-specific backend fetch ─────────────────────────────────────────────
+// When the user navigates to a past date, the preloaded 50-workout batch
+// may not include workouts for that day. Fetch directly from the backend.
+const dateWorkouts  = ref(null);  // null = use props.workouts; Array = use these
+const dateLoading   = ref(false);
+
+async function loadWorkoutsForDate(dateStr) {
+  if (!props.challengeId || !dateStr) return;
+  dateLoading.value = true;
+  dateWorkouts.value = null;
+  try {
+    const r = await api.get(
+      `/learning-program-classes/${props.challengeId}/activity`,
+      { params: { date: dateStr }, skipGlobalLoading: true }
+    );
+    // Enrich photo URLs
+    dateWorkouts.value = (r.data?.workouts || []).map((w) => ({
+      ...w,
+      profile_photo_url: w.profile_photo_url || w.profile_photo_path || null,
+    }));
+  } catch { dateWorkouts.value = []; }
+  finally { dateLoading.value = false; }
+}
+
+watch(selectedDate, (date) => {
+  if (searchQuery.value.trim()) return; // search mode handles its own data
+  if (date === todayStr()) {
+    dateWorkouts.value = null; // revert to props.workouts (already loaded fresh)
+  } else {
+    loadWorkoutsForDate(date);
+  }
+});
+
 let searchDebounce = null;
 watch(searchQuery, (q) => {
   clearTimeout(searchDebounce);
@@ -1029,22 +1062,31 @@ const clearFilters = () => {
 };
 
 const filteredWorkouts = computed(() => {
-  let list = props.workouts || [];
+  if (searchQuery.value.trim()) {
+    // Search mode — results come from the backend (full-season search)
+    let list = searchResults.value;
+    if (blockedUserIds.value.size) list = list.filter((w) => !blockedUserIds.value.has(Number(w.user_id)));
+    if (teamFilter.value === 'my' && props.myTeamId) {
+      list = list.filter((w) => w.team_id != null && Number(w.team_id) === Number(props.myTeamId));
+    } else if (teamFilter.value && teamFilter.value !== 'my') {
+      list = list.filter((w) => String(w.team_id) === teamFilter.value);
+    }
+    if (activityTypeFilter.value) list = list.filter((w) => canonicalActivity(w.activity_type) === activityTypeFilter.value);
+    return list;
+  }
+
+  // Date mode: use date-specific backend results if loaded, otherwise filter props.workouts
+  let list = dateWorkouts.value !== null ? dateWorkouts.value : (props.workouts || []);
 
   if (blockedUserIds.value.size) {
     list = list.filter((w) => !blockedUserIds.value.has(Number(w.user_id)));
   }
 
-  if (searchQuery.value.trim()) {
-    // Search mode — results come from the backend (full-season search)
-    list = searchResults.value;
-  } else {
-    // Date mode — show only workouts on the selected local date
-    list = list.filter((w) => {
-      const raw = w.completed_at || w.created_at;
-      return workoutLocalDate(raw) === selectedDate.value;
-    });
-  }
+  // Always filter to the selected local date (backend ±1-day window still needs trimming)
+  list = list.filter((w) => {
+    const raw = w.completed_at || w.created_at;
+    return workoutLocalDate(raw) === selectedDate.value;
+  });
 
   // Team filter
   if (teamFilter.value === 'my' && props.myTeamId) {
@@ -1167,6 +1209,11 @@ watch(
   (list) => {
     for (const w of list || []) {
       if (w.club_feed_post_id) feedPostedIds.value[w.id] = true;
+    }
+    // When the parent refreshes the workout list and we're on a past date,
+    // re-fetch the date-specific backend results so edits/new entries appear.
+    if (selectedDate.value !== todayStr() && !searchQuery.value.trim()) {
+      loadWorkoutsForDate(selectedDate.value);
     }
   },
   { immediate: true }

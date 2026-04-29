@@ -1093,7 +1093,8 @@ export const getActivityFeed = async (req, res, next) => {
     const limit = Math.min(100, asInt(req.query.limit) || 50);
     const offset = asInt(req.query.offset) || 0;
     const teamId = req.query.teamId ? asInt(req.query.teamId) : null;
-    const searchQ = String(req.query.q || '').trim();
+    const searchQ  = String(req.query.q    || '').trim();
+    const dateQ    = String(req.query.date || '').trim(); // YYYY-MM-DD — load all workouts for that calendar day
 
     let workouts;
     if (searchQ) {
@@ -1117,6 +1118,25 @@ export const getActivityFeed = async (req, res, next) => {
          ORDER BY w.completed_at DESC, w.created_at DESC
          LIMIT 200`,
         [classId, like, like, like, like, like, like]
+      );
+      workouts = rows || [];
+    } else if (dateQ && /^\d{4}-\d{2}-\d{2}$/.test(dateQ)) {
+      // Date-specific fetch: load every workout whose UTC date matches dateQ.
+      // We widen by ±1 day (covering UTC-14 to UTC+14 edge cases) and let the
+      // frontend filter to the viewer's local date as usual.
+      const teamClause = teamId ? `AND w.team_id = ${asInt(teamId)}` : '';
+      const [rows] = await pool.execute(
+        `SELECT w.*, u.first_name, u.last_name, u.profile_photo_path, t.team_name, wt.name AS weekly_task_name
+         FROM challenge_workouts w
+         INNER JOIN users u ON u.id = w.user_id
+         LEFT JOIN challenge_teams t ON t.id = w.team_id
+         LEFT JOIN challenge_weekly_tasks wt ON wt.id = w.weekly_task_id
+         WHERE w.learning_class_id = ? ${teamClause}
+           AND w.completed_at >= DATE_SUB(?, INTERVAL 1 DAY)
+           AND w.completed_at <  DATE_ADD(?, INTERVAL 2 DAY)
+         ORDER BY w.completed_at DESC, w.created_at DESC
+         LIMIT 500`,
+        [classId, dateQ, dateQ]
       );
       workouts = rows || [];
     } else {
