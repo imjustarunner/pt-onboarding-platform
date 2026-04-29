@@ -793,6 +793,8 @@ const props = defineProps({
   clubId: { type: [String, Number], default: null },
   weeklyTaskOptions: { type: Array, default: () => [] },
   moderationMode: { type: String, default: 'treadmill_only' },
+  /** IANA timezone string for the club/season (e.g. "America/Chicago"). Timestamps are shown in this tz. */
+  timeZone: { type: String, default: null },
 });
 
 const TERRAIN_OPTIONS = ['Road', 'Trail', 'Track', 'Beach', 'Treadmill', 'Race', 'Other'];
@@ -1147,17 +1149,40 @@ const formatActivityType = (t) => {
   return String(t).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 };
 
+/** Resolve a safe IANA tz string or fall back to browser local. */
+const resolvedTz = computed(() => {
+  const tz = props.timeZone;
+  if (!tz) return undefined; // undefined → toLocaleString uses browser local
+  try { Intl.DateTimeFormat(undefined, { timeZone: tz }); return tz; }
+  catch { return undefined; }
+});
+
+/** Short timezone abbreviation for display (e.g. "CDT", "MST"). */
+const tzAbbr = computed(() => {
+  const tz = resolvedTz.value;
+  if (!tz) return '';
+  try {
+    // Extract the short tz name by formatting a known date and pulling the timeZoneName part
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' })
+      .formatToParts(new Date());
+    return parts.find((p) => p.type === 'timeZoneName')?.value || '';
+  } catch { return ''; }
+});
+
 const formatTime = (d) => {
   if (!d) return '';
-  return new Date(d).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const opts = { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+  if (resolvedTz.value) opts.timeZone = resolvedTz.value;
+  const base = new Date(d).toLocaleString(undefined, opts);
+  return tzAbbr.value ? `${base} ${tzAbbr.value}` : base;
 };
 
 const formatTimestamp = (d) => {
   if (!d) return '';
-  return new Date(d).toLocaleString(undefined, {
-    month: 'short', day: 'numeric', year: 'numeric',
-    hour: 'numeric', minute: '2-digit'
-  });
+  const opts = { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' };
+  if (resolvedTz.value) opts.timeZone = resolvedTz.value;
+  const base = new Date(d).toLocaleString(undefined, opts);
+  return tzAbbr.value ? `${base} ${tzAbbr.value}` : base;
 };
 
 const stravaActivityUrl = (activityId) => {

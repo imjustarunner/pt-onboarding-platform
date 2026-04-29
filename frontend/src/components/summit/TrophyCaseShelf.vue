@@ -136,9 +136,9 @@ const detailSub = (t) => {
   position: absolute;
   inset: 0;
   display: grid;
-  /* Padding approximates the wooden frame edges of each shelf image */
-  padding: 15% 5% 12%;
-  gap: 2% 2%;
+  /* Tighter padding so trophies fill each shelf bay */
+  padding: 10% 4% 8%;
+  gap: 3% 2%;
 }
 
 .tc-grid--8  { grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(2, 1fr); }
@@ -151,27 +151,27 @@ const detailSub = (t) => {
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
-  gap: 4%;
+  gap: 3%;
   background: none;
   border: none;
   cursor: pointer;
   padding: 0;
   min-width: 0;
-  transition: transform 0.15s;
+  transition: transform 0.18s;
 }
-.tc-slot:hover { transform: translateY(-6%); }
+.tc-slot:hover { transform: translateY(-8%) scale(1.05); }
 
-/* Icon ring */
+/* Icon ring — larger so the art is clearly visible */
 .tc-icon-ring {
   position: relative;
-  width: 78%;
+  width: 92%;
   aspect-ratio: 1;
   border-radius: 50%;
   background: radial-gradient(circle at 35% 35%, #5a4a1e 0%, #2d2310 100%);
-  border: 2px solid rgba(212,168,67,0.55);
+  border: 3px solid rgba(212,168,67,0.65);
   box-shadow:
-    0 4px 14px rgba(0,0,0,0.55),
-    inset 0 2px 4px rgba(255,255,255,0.08);
+    0 6px 20px rgba(0,0,0,0.65),
+    inset 0 2px 6px rgba(255,255,255,0.10);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -179,48 +179,48 @@ const detailSub = (t) => {
   flex-shrink: 0;
 }
 
-.tc-icon-ring--award   { border-color: rgba(212,168,67,0.7);  background: radial-gradient(circle at 35% 35%, #5a4a1e, #2a2008); }
-.tc-icon-ring--race    { border-color: rgba(56,189,248,0.6);   background: radial-gradient(circle at 35% 35%, #1e3d5a, #0f2030); }
-.tc-icon-ring--challenge { border-color: rgba(167,139,250,0.6); background: radial-gradient(circle at 35% 35%, #2d1e4a, #1a0f30); }
-.tc-icon-ring--record  { border-color: rgba(248,113,113,0.55); background: radial-gradient(circle at 35% 35%, #4a1e1e, #2a0f0f); }
+.tc-icon-ring--award   { border-color: rgba(212,168,67,0.85); background: radial-gradient(circle at 35% 35%, #6b5a22, #2a2008); }
+.tc-icon-ring--race    { border-color: rgba(56,189,248,0.75);  background: radial-gradient(circle at 35% 35%, #1e3d5a, #0f2030); }
+.tc-icon-ring--challenge { border-color: rgba(167,139,250,0.75); background: radial-gradient(circle at 35% 35%, #2d1e4a, #1a0f30); }
+.tc-icon-ring--record  { border-color: rgba(248,113,113,0.7);  background: radial-gradient(circle at 35% 35%, #4a1e1e, #2a0f0f); }
 
 .tc-icon-img {
-  width: 72%;
-  height: 72%;
+  width: 86%;
+  height: 86%;
   object-fit: contain;
   border-radius: 50%;
 }
 .tc-icon-emoji {
-  font-size: min(4vw, 2.2rem);
+  font-size: min(5vw, 2.8rem);
   line-height: 1;
 }
 
 .tc-count-badge {
   position: absolute;
-  bottom: -4%;
-  right: -4%;
+  bottom: -3%;
+  right: -3%;
   background: #d4a843;
   color: #1a1200;
-  font-size: min(1.4vw, 0.7rem);
+  font-size: min(1.6vw, 0.72rem);
   font-weight: 900;
   border-radius: 999px;
-  padding: 2px 5px;
+  padding: 2px 6px;
   line-height: 1.2;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.55);
 }
 
 /* Nameplate */
 .tc-nameplate {
-  font-size: min(1.4vw, 0.65rem);
+  font-size: min(1.5vw, 0.7rem);
   font-weight: 700;
-  color: rgba(255, 255, 255, 0.88);
+  color: rgba(255, 255, 255, 0.92);
   text-align: center;
   line-height: 1.2;
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
-  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+  text-shadow: 0 1px 4px rgba(0,0,0,0.9);
   max-width: 100%;
 }
 

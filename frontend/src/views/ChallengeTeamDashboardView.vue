@@ -249,6 +249,7 @@
           :show-all-teams-toggle="false"
           :locked-to-team="true"
           :date-nav="true"
+          :time-zone="challenge?.season_settings_json?.schedule?.weekTimeZone || null"
           class="td-feed"
         />
         <div v-if="activityLoading" class="td-loading">Loading activity…</div>

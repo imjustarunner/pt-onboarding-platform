@@ -545,6 +545,7 @@
               :loading="activityLoading"
               :challenge-id="challengeId"
               :my-user-id="authStore.user?.id"
+              :time-zone="weekSchedule?.weekTimeZone || null"
               :my-team-id="myTeamId"
               :is-manager="isChallengeManager"
               :activity-type-options="activityTypeOptions"
