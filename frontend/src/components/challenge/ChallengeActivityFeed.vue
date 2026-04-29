@@ -107,7 +107,11 @@
         <div v-for="(g, gi) in duplicateGroups" :key="gi" class="dupes-group">
           <div class="dupes-group-header">
             <span class="dupes-member">{{ g.firstName }} {{ g.lastName }}</span>
-            <span class="dupes-meta">{{ formatActivityType(g.activityType) }} · {{ new Date(g.date + 'T12:00:00Z').toLocaleDateString(undefined, { weekday:'short', month:'short', day:'numeric' }) }}</span>
+            <span class="dupes-meta">
+              {{ formatActivityType(g.activityType) }}
+              <template v-if="g.distance"> · {{ Number(g.distance).toFixed(2) }} mi</template>
+              <template v-if="g.duration"> · {{ g.duration }}m</template>
+            </span>
             <span class="dupes-count-badge">{{ g.count }} entries</span>
           </div>
           <div class="dupes-workout-list">

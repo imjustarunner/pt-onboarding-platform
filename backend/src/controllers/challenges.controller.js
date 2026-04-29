@@ -1190,7 +1190,7 @@ export const getActivityFeed = async (req, res, next) => {
 /**
  * GET /:classId/activity/duplicates
  * Returns groups of workouts that are likely duplicates:
- * same user, same calendar date (UTC), same activity type, logged more than once.
+ * same user + same distance (rounded to 2 dp) + same duration (minutes) logged more than once.
  * Only accessible to managers/assistant-managers.
  */
 export const getDuplicateWorkouts = async (req, res, next) => {
@@ -1200,26 +1200,31 @@ export const getDuplicateWorkouts = async (req, res, next) => {
     if (!(await canManageChallenge({ user: req.user, classId }))) {
       return res.status(403).json({ error: { message: 'Manager access required' } });
     }
-    // Find all (user, date, activity_type) combos with more than one workout
+    // A real duplicate: same user logged the same distance + duration more than once.
+    // Round distance to 2 decimal places to absorb minor float noise.
     const [groups] = await pool.execute(
       `SELECT
          w.user_id,
-         DATE(w.completed_at) AS workout_date,
          w.activity_type,
-         COUNT(*)             AS dupe_count,
-         u.first_name, u.last_name
+         ROUND(w.distance_value, 2)  AS dist,
+         w.duration_minutes          AS dur,
+         COUNT(*)                    AS dupe_count,
+         u.first_name, u.last_name,
+         MIN(DATE(w.completed_at))   AS earliest_date
        FROM challenge_workouts w
        INNER JOIN users u ON u.id = w.user_id
        WHERE w.learning_class_id = ?
          AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
-       GROUP BY w.user_id, DATE(w.completed_at), w.activity_type
+         AND w.distance_value IS NOT NULL
+         AND w.duration_minutes IS NOT NULL
+       GROUP BY w.user_id, w.activity_type, ROUND(w.distance_value, 2), w.duration_minutes
        HAVING COUNT(*) > 1
-       ORDER BY dupe_count DESC, workout_date DESC`,
+       ORDER BY dupe_count DESC, earliest_date DESC`,
       [classId]
     );
     if (!groups.length) return res.json({ groups: [] });
 
-    // For each group, fetch the individual workouts
+    // For each group, fetch the individual workout rows
     const result = [];
     for (const g of groups) {
       const [rows] = await pool.execute(
@@ -1230,18 +1235,20 @@ export const getDuplicateWorkouts = async (req, res, next) => {
          INNER JOIN users u ON u.id = w.user_id
          WHERE w.learning_class_id = ?
            AND w.user_id = ?
-           AND DATE(w.completed_at) = ?
            AND w.activity_type = ?
+           AND ROUND(w.distance_value, 2) = ?
+           AND w.duration_minutes = ?
            AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
          ORDER BY w.completed_at ASC, w.created_at ASC`,
-        [classId, g.user_id, g.workout_date, g.activity_type]
+        [classId, g.user_id, g.activity_type, g.dist, g.dur]
       );
       result.push({
         userId: g.user_id,
         firstName: g.first_name,
         lastName: g.last_name,
-        date: g.workout_date,
         activityType: g.activity_type,
+        distance: Number(g.dist),
+        duration: Number(g.dur),
         count: Number(g.dupe_count),
         workouts: rows || []
       });
