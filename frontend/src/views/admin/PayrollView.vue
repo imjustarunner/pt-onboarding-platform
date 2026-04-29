@@ -58,6 +58,51 @@
 
     <div v-if="error" class="error-box">{{ error }}</div>
 
+    <!-- Typed-confirmation modal for destructive actions (Unpost / Reset) -->
+    <teleport to="body">
+      <div v-if="dangerConfirm.show" class="modal-backdrop" @click.self="dangerConfirm.show = false">
+        <div class="modal" style="max-width: 520px;">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title" style="color: #c0392b;">{{ dangerConfirm.title }}</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" type="button" @click="dangerConfirm.show = false">Cancel</button>
+          </div>
+          <div style="padding: 20px 20px 4px;">
+            <div
+              style="background: #fff8f7; border: 1px solid #f5c6c2; border-radius: 8px; padding: 14px 16px; font-size: 0.93em; line-height: 1.6; margin-bottom: 18px;"
+              v-html="dangerConfirm.description"
+            ></div>
+            <div class="field">
+              <label style="font-weight: 600;">
+                Type <strong style="letter-spacing: 0.05em; color: #c0392b;">{{ dangerConfirm.word }}</strong> to confirm
+              </label>
+              <input
+                v-model="dangerConfirm.typed"
+                type="text"
+                :placeholder="`Type ${dangerConfirm.word} here`"
+                autocomplete="off"
+                spellcheck="false"
+                style="font-family: monospace; font-size: 1em; letter-spacing: 0.05em;"
+                @keyup.enter="dangerConfirmOk"
+              />
+            </div>
+          </div>
+          <div style="padding: 12px 20px 20px; display: flex; gap: 8px; justify-content: flex-end;">
+            <button class="btn btn-secondary" type="button" @click="dangerConfirm.show = false">Cancel</button>
+            <button
+              class="btn btn-danger"
+              type="button"
+              :disabled="dangerConfirm.typed !== dangerConfirm.word || dangerConfirm.loading"
+              @click="dangerConfirmOk"
+            >
+              {{ dangerConfirm.loading ? 'Please wait…' : dangerConfirm.buttonLabel }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </teleport>
+
     <!-- Global modals (must not be nested under Payroll Stage) -->
     <teleport to="body">
       <div v-if="showTodoModal" class="modal-backdrop">
@@ -1568,14 +1613,14 @@
           {{ postingPayroll ? 'Posting...' : (isPeriodPosted ? 'Posted' : 'Post Payroll') }}
         </button>
         <button
-          v-if="isSuperAdmin && isPeriodPosted"
+          v-if="isPeriodPosted"
           class="btn btn-danger"
           type="button"
           @click.prevent.stop="unpostPayroll"
           :disabled="unpostingPayroll || !selectedPeriodId"
-          title="Super admin only: revert a posted period back to Ran"
+          title="Revert this posted period back to Ran so you can make corrections, then re-run and re-post."
         >
-          {{ unpostingPayroll ? 'Unposting...' : 'Unpost (Super Admin)' }}
+          {{ unpostingPayroll ? 'Unposting...' : 'Unpost Pay Period' }}
         </button>
         <button class="btn btn-danger" @click="resetPeriod" :disabled="resettingPeriod || !selectedPeriodId">
           {{ resettingPeriod ? 'Resetting...' : 'Reset Pay Period' }}
@@ -2199,14 +2244,14 @@
                   Meeting attendance
                 </button>
                 <button
-                  v-if="isSuperAdmin && isPeriodPosted"
+                  v-if="isPeriodPosted"
                   class="btn btn-danger btn-sm"
                   type="button"
                   @click.prevent.stop="unpostPayroll"
                   style="margin-left: 8px;"
-                  title="Super admin only: revert posted → ran"
+                  title="Revert this posted period back to Ran so you can make corrections, then re-run and re-post."
                 >
-                  Unpost
+                  Unpost Pay Period
                 </button>
                 <button class="btn btn-secondary btn-sm" @click="confirmClose(() => { showStageModal = false; })" style="margin-left: 8px;">Close</button>
               </div>
@@ -12583,39 +12628,111 @@ const postPayroll = async () => {
   }
 };
 
-const unpostPayroll = async () => {
+// Typed-confirmation modal state for destructive payroll actions.
+const dangerConfirm = ref({
+  show: false,
+  title: '',
+  description: '',
+  word: '',
+  typed: '',
+  buttonLabel: '',
+  loading: false,
+  action: null
+});
+
+const dangerConfirmOk = async () => {
+  if (dangerConfirm.value.typed !== dangerConfirm.value.word) return;
+  if (!dangerConfirm.value.action) return;
+  dangerConfirm.value.loading = true;
   try {
-    if (!selectedPeriodId.value) return;
-    if (!isSuperAdmin.value) return;
-    const ok = window.confirm('UNPOST this pay period? This will revert it back to Ran so you can correct settings and re-run/post. It does not delete imports or run results.');
-    if (!ok) return;
-    unpostingPayroll.value = true;
-    error.value = '';
-    await api.post(`/payroll/periods/${selectedPeriodId.value}/unpost`);
-    await loadPeriods();
-    await loadPeriodDetails();
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || e.message || 'Failed to unpost pay period';
+    await dangerConfirm.value.action();
+    dangerConfirm.value.show = false;
   } finally {
-    unpostingPayroll.value = false;
+    dangerConfirm.value.loading = false;
+    dangerConfirm.value.typed = '';
   }
 };
 
-const resetPeriod = async () => {
-  try {
-    if (!selectedPeriodId.value) return;
-    const ok = window.confirm('Reset this pay period back to Draft and clear ALL related data (imports, staging, adjustments, run results)? The pay period will remain.');
-    if (!ok) return;
-    resettingPeriod.value = true;
-    error.value = '';
-    await api.post(`/payroll/periods/${selectedPeriodId.value}/reset`);
-    await loadPeriods();
-    await loadPeriodDetails();
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || e.message || 'Failed to reset pay period';
-  } finally {
-    resettingPeriod.value = false;
-  }
+const unpostPayroll = () => {
+  if (!selectedPeriodId.value) return;
+  dangerConfirm.value = {
+    show: true,
+    title: 'Unpost Pay Period',
+    description: `
+      <strong>What this does:</strong>
+      <ul style="margin: 8px 0 0 16px; padding: 0;">
+        <li>Reverts the period from <em>Posted</em> back to <em>Ran</em></li>
+        <li>Rolls back PTO accrual entries that were created at posting time</li>
+        <li>Clears any notification records tied to this post so they re-send correctly when you re-post</li>
+      </ul>
+      <br>
+      <strong>What this does NOT do:</strong>
+      <ul style="margin: 4px 0 0 16px; padding: 0;">
+        <li>Does <em>not</em> delete billing import rows</li>
+        <li>Does <em>not</em> delete staging edits or overrides</li>
+        <li>Does <em>not</em> delete run results</li>
+      </ul>
+      <br>
+      After unposting, use <strong>Restage</strong> to go back to the staging workspace, make your correction, re-run payroll, then re-post.
+    `,
+    word: 'UNPOST',
+    typed: '',
+    buttonLabel: 'Unpost Pay Period',
+    loading: false,
+    action: async () => {
+      unpostingPayroll.value = true;
+      error.value = '';
+      try {
+        await api.post(`/payroll/periods/${selectedPeriodId.value}/unpost`);
+        await loadPeriods();
+        await loadPeriodDetails();
+      } finally {
+        unpostingPayroll.value = false;
+      }
+    }
+  };
+};
+
+const resetPeriod = () => {
+  if (!selectedPeriodId.value) return;
+  dangerConfirm.value = {
+    show: true,
+    title: 'Reset Pay Period',
+    description: `
+      <strong style="color: #c0392b;">⚠ This is permanent and cannot be undone.</strong>
+      <br><br>
+      <strong>What this deletes:</strong>
+      <ul style="margin: 8px 0 0 16px; padding: 0;">
+        <li>All billing import rows for this period</li>
+        <li>All staging edits, overrides, and adjustments</li>
+        <li>All run results</li>
+        <li>All carryover and prior-unpaid records for this period</li>
+      </ul>
+      <br>
+      <strong>What is kept:</strong>
+      <ul style="margin: 4px 0 0 16px; padding: 0;">
+        <li>The pay period record itself (dates, status reset to Draft)</li>
+      </ul>
+      <br>
+      You will need to re-import the billing report and redo all staging work from scratch.
+      Only use this if you need to start completely over. To fix a single person, use <strong>Unpost → Restage</strong> instead.
+    `,
+    word: 'RESET',
+    typed: '',
+    buttonLabel: 'Reset Everything',
+    loading: false,
+    action: async () => {
+      resettingPeriod.value = true;
+      error.value = '';
+      try {
+        await api.post(`/payroll/periods/${selectedPeriodId.value}/reset`);
+        await loadPeriods();
+        await loadPeriodDetails();
+      } finally {
+        resettingPeriod.value = false;
+      }
+    }
+  };
 };
 
 const restagePeriod = async () => {

@@ -12123,7 +12123,6 @@ export const unpostPayrollPeriod = async (req, res, next) => {
     const period = await PayrollPeriod.findById(payrollPeriodId);
     if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
     if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
-    if (req.user?.role !== 'super_admin') return res.status(403).json({ error: { message: 'Super admin required' } });
 
     const st = String(period.status || '').toLowerCase();
     const looksPosted = st === 'posted' || st === 'finalized' || !!period?.posted_at || !!period?.posted_by_user_id;
