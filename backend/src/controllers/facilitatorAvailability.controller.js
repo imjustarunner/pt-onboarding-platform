@@ -442,12 +442,13 @@ export const getRequestForEmployee = async (req, res, next) => {
               ce.starts_at AS event_date, ce.ends_at AS end_date,
               ce.employee_report_time, ce.employee_departure_time,
               ce.public_session_label, ce.public_session_date_range,
-              ce.event_location_address,
+              COALESCE(NULLIF(ce.event_location_address,''), NULLIF(ce.public_location_address,'')) AS event_location_address,
               CASE WHEN fare.program_id IS NOT NULL THEN 'program' ELSE 'company_event' END AS _type
        FROM facilitator_availability_request_events fare
        LEFT JOIN company_events ce ON ce.id = fare.company_event_id
        LEFT JOIN programs p ON p.id = fare.program_id
        WHERE fare.request_id = ?
+         AND (fare.program_id IS NOT NULL OR ce.is_active = 1)
        ORDER BY fare.display_order`,
       [requestId]
     );
@@ -1124,17 +1125,25 @@ export const getLocationDistances = async (req, res, next) => {
     const userId    = req.user?.id;
     if (!requestId || !userId) return res.status(400).json({ error: 'Bad request' });
 
-    // Pull unique location labels + addresses from the request.
+    // Pull unique location labels + addresses from the request (active events only).
     // Use session-date address first; fall back to the event-level address.
     const [locRows] = await pool.execute(
       `SELECT DISTINCT
          COALESCE(cesd.location_label, ce.title) AS location_label,
-         COALESCE(NULLIF(cesd.location_address, ''), NULLIF(ce.event_location_address, '')) AS location_address
+         COALESCE(
+           NULLIF(cesd.location_address, ''),
+           NULLIF(ce.event_location_address, ''),
+           NULLIF(ce.public_location_address, '')
+         ) AS location_address
        FROM facilitator_availability_request_events fare
-       JOIN company_events ce ON ce.id = fare.company_event_id
+       JOIN company_events ce ON ce.id = fare.company_event_id AND ce.is_active = 1
        JOIN company_event_session_dates cesd ON cesd.company_event_id = fare.company_event_id
        WHERE fare.request_id = ?
-         AND COALESCE(NULLIF(cesd.location_address, ''), NULLIF(ce.event_location_address, '')) IS NOT NULL`,
+         AND COALESCE(
+           NULLIF(cesd.location_address, ''),
+           NULLIF(ce.event_location_address, ''),
+           NULLIF(ce.public_location_address, '')
+         ) IS NOT NULL`,
       [requestId]
     );
 

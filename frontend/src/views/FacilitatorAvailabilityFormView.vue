@@ -34,19 +34,19 @@
         <div class="faf-howto-items">
           <div class="faf-howto-item">
             <span class="faf-howto-icon faf-howto-slot">●</span>
-            <span><strong>Want a Slot</strong> — you want to be assigned to this date. Slots are limited; you may also mark yourself as willing to waitlist or be on-call as a backup.</span>
+            <span><strong>Want a Slot</strong> — you want to be scheduled to work this date. If assigned, attendance is expected.</span>
           </div>
           <div class="faf-howto-item">
             <span class="faf-howto-icon faf-howto-waitlist">●</span>
-            <span><strong>Waitlist Only</strong> — you can make this date work but only want to fill in if someone drops.</span>
+            <span><strong>Waitlist Only</strong> — you are willing to work but only if a spot opens up. If called up, this is a commitment and attendance is expected.</span>
           </div>
           <div class="faf-howto-item">
             <span class="faf-howto-icon faf-howto-oncall">●</span>
-            <span><strong>On-Call Only</strong> — you're available to step in before report time if needed.</span>
+            <span><strong>On-Call Only</strong> — you are not scheduled but available to be called in if someone calls out last-minute. You must be reachable and able to report on short notice.</span>
           </div>
           <div class="faf-howto-item">
             <span class="faf-howto-icon faf-howto-unavail">●</span>
-            <span><strong>Not Available</strong> — you cannot make this date.</span>
+            <span><strong>Not Available</strong> — you cannot work this date.</span>
           </div>
         </div>
       </div>
@@ -148,6 +148,7 @@
                   `faf-pref-btn--${opt.value}`,
                   { 'faf-pref-btn--active': getDatePref(ud.date) === opt.value },
                 ]"
+                :title="opt.tooltip"
                 @click="setDatePref(ud.date, opt.value)"
               >
                 {{ opt.label }}
@@ -249,10 +250,26 @@ const locationDistances = ref({});
 const linkCopied = ref(false);
 
 const PREF_OPTIONS = [
-  { value: 'slot',        label: 'Want a Slot' },
-  { value: 'waitlist',    label: 'Waitlist Only' },
-  { value: 'oncall',      label: 'On-Call Only' },
-  { value: 'unavailable', label: 'Not Available' }
+  {
+    value: 'slot',
+    label: 'Want a Slot',
+    tooltip: 'You want to be scheduled to work this date. This is a commitment — if assigned, you are expected to show up.'
+  },
+  {
+    value: 'waitlist',
+    label: 'Waitlist Only',
+    tooltip: 'You are willing to work this date but only if needed to fill a spot. If called up from the waitlist, this is a commitment and you are expected to show up.'
+  },
+  {
+    value: 'oncall',
+    label: 'On-Call Only',
+    tooltip: 'You are not scheduled to work but are available to be called in if someone else calls out last-minute. You must be reachable and able to report on short notice.'
+  },
+  {
+    value: 'unavailable',
+    label: 'Not Available',
+    tooltip: 'You cannot work this date. No action will be taken.'
+  }
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -366,16 +383,15 @@ const formDateRange = computed(() => {
 const locationAddresses = computed(() => {
   const map = {};
   for (const ev of form.value?.events || []) {
+    // event_location_address already coalesces event_location_address + public_location_address
     const evAddress = ev.event_location_address || null;
     for (const sd of ev.session_dates || []) {
       const label = displayLocation(ev, sd);
       if (!label) continue;
       if (!map[label]) {
-        // Prefer per-date address; fall back to event-level address
         map[label] = sd.location_address || evAddress || null;
       }
     }
-    // Also index by event title in case the label comes from the event title
     const evLabel = String(ev.event_title || '').trim();
     if (evLabel && !map[evLabel] && evAddress) {
       map[evLabel] = evAddress;
