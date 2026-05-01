@@ -37,11 +37,38 @@
           </div>
           <div class="faf-howto-item">
             <span class="faf-howto-icon faf-howto-oncall">●</span>
-            <span><strong>On-Call Only</strong> — you're available to step in up to 1.5 hours before report time if needed.</span>
+            <span><strong>On-Call Only</strong> — you're available to step in before report time if needed.</span>
           </div>
           <div class="faf-howto-item">
             <span class="faf-howto-icon faf-howto-unavail">●</span>
             <span><strong>Not Available</strong> — you cannot make this date.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Location preference ranking ───────────────────────── -->
+      <div v-if="locationRankingItems.length > 1" class="faf-section">
+        <div class="faf-section-head">
+          Preferred Locations
+        </div>
+        <p class="faf-loc-intro">
+          Rank the locations you prefer. Each date below shows which locations and sessions are available that day.
+        </p>
+        <div class="faf-loc-rank-list">
+          <div
+            v-for="item in locationRankingItems"
+            :key="item.key"
+            class="faf-loc-rank-row"
+          >
+            <select
+              class="faf-rank-select"
+              :value="locationRanks[item.key] || ''"
+              @change="locationRanks[item.key] = $event.target.value ? Number($event.target.value) : null"
+            >
+              <option value="">—</option>
+              <option v-for="n in locationRankingItems.length" :key="n" :value="n">{{ n }}</option>
+            </select>
+            <span class="faf-loc-name">{{ item.label }}</span>
           </div>
         </div>
       </div>
@@ -64,14 +91,24 @@
               <div class="faf-date-label">
                 <span class="faf-date-dow">{{ fmtDayOfWeek(ud.date) }}</span>
                 <span class="faf-date-full">{{ fmtDate(ud.date) }}</span>
-                <span v-if="ud.starts_at" class="faf-date-time">{{ fmtTime(ud.starts_at) }}</span>
+                <span v-if="ud.staffWindow" class="faf-date-time">{{ ud.staffWindow }}</span>
               </div>
               <div
                 class="faf-slot-badge"
-                :class="ud.openSlots === 0 ? 'faf-slot-badge--full' : 'faf-slot-badge--open'"
+                :class="ud.demandLevel === 'high' ? 'faf-slot-badge--high' : 'faf-slot-badge--standard'"
               >
-                <template v-if="ud.openSlots === 0">Full — {{ ud.effective }} slots filled</template>
-                <template v-else>{{ ud.openSlots }} of {{ ud.effective }} slots open</template>
+                {{ ud.demandLabel }} · {{ ud.effective }} workers needed
+              </div>
+            </div>
+
+            <div v-if="ud.sessionLabels.length || ud.locations.length" class="faf-date-context">
+              <div v-if="ud.sessionLabels.length" class="faf-date-context-row">
+                <span class="faf-date-context-label">Session</span>
+                <span class="faf-chip" v-for="label in ud.sessionLabels" :key="`session-${ud.date}-${label}`">{{ label }}</span>
+              </div>
+              <div v-if="ud.locations.length" class="faf-date-context-row">
+                <span class="faf-date-context-label">Locations</span>
+                <span class="faf-chip" v-for="loc in ud.locations" :key="`loc-${ud.date}-${loc}`">{{ loc }}</span>
               </div>
             </div>
 
@@ -85,12 +122,10 @@
                 :class="[
                   `faf-pref-btn--${opt.value}`,
                   { 'faf-pref-btn--active': getDatePref(ud.date) === opt.value },
-                  { 'faf-pref-btn--disabled-slot': opt.value === 'slot' && ud.openSlots === 0 && getDatePref(ud.date) !== 'slot' }
                 ]"
                 @click="setDatePref(ud.date, opt.value)"
               >
                 {{ opt.label }}
-                <span v-if="opt.value === 'slot' && ud.openSlots === 0" class="faf-pref-full-note">(full)</span>
               </button>
             </div>
 
@@ -113,7 +148,7 @@
                   :checked="getDateOncallWilling(ud.date)"
                   @change="setDateOncallWilling(ud.date, $event.target.checked)"
                 />
-                <span>Also willing to be on-call (step in up to 1.5 hrs before)</span>
+                <span>Also willing to be on-call before report time</span>
               </label>
             </div>
 
@@ -127,33 +162,6 @@
                 @input="setDateComment(ud.date, $event.target.value)"
               />
             </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ── Location preference ranking ───────────────────────── -->
-      <div v-if="locationRankingItems.length > 1" class="faf-section">
-        <div class="faf-section-head">
-          Location Preferences
-        </div>
-        <p class="faf-loc-intro">
-          Rank the locations below in order of preference. Your dates above apply to all locations — your ranking helps us make assignments.
-        </p>
-        <div class="faf-loc-rank-list">
-          <div
-            v-for="item in locationRankingItems"
-            :key="item.key"
-            class="faf-loc-rank-row"
-          >
-            <select
-              class="faf-rank-select"
-              :value="locationRanks[item.key] || ''"
-              @change="locationRanks[item.key] = $event.target.value ? Number($event.target.value) : null"
-            >
-              <option value="">—</option>
-              <option v-for="n in locationRankingItems.length" :key="n" :value="n">{{ n }}</option>
-            </select>
-            <span class="faf-loc-name">{{ item.label }}</span>
           </div>
         </div>
       </div>
@@ -234,9 +242,49 @@ const fmtDayOfWeek = (d) => {
 
 const fmtTime = (d) => {
   if (!d) return '';
+  if (typeof d === 'string' && /^\d{1,2}:\d{2}(:\d{2})?$/.test(d)) {
+    const [hRaw, mRaw] = d.split(':');
+    const h = Number(hRaw);
+    const m = Number(mRaw);
+    const suffix = h >= 12 ? 'PM' : 'AM';
+    const displayH = h % 12 || 12;
+    return `${displayH}:${String(m).padStart(2, '0')} ${suffix}`;
+  }
   const dt = new Date(d);
   if (isNaN(dt)) return '';
   return dt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+};
+
+const dateKey = (value) => {
+  if (!value) return '';
+  if (typeof value === 'string') return value.slice(0, 10);
+  return String(value).slice(0, 10);
+};
+
+const displayLocation = (ev, sd) => {
+  return String(
+    sd.location_label ||
+    ev.event_title ||
+    (ev.locations_json && ev.locations_json[0]) ||
+    ''
+  ).trim();
+};
+
+const displaySessionLabel = (ev) => {
+  return String(ev.public_session_label || ev.publicSessionLabel || '').trim();
+};
+
+const staffWindowFor = (ev, sd) => {
+  const start = ev.employee_report_time || ev.employeeReportTime || sd.starts_at || null;
+  const end = ev.employee_departure_time || ev.employeeDepartureTime || sd.ends_at || null;
+  if (start && end) return `${fmtTime(start)} - ${fmtTime(end)}`;
+  if (start) return fmtTime(start);
+  return '';
+};
+
+const addUnique = (arr, value) => {
+  const v = String(value || '').trim();
+  if (v && !arr.includes(v)) arr.push(v);
 };
 
 // ── Unified date list ─────────────────────────────────────────────────────────
@@ -246,19 +294,35 @@ const allDates = computed(() => {
   const map = new Map();
   for (const ev of form.value?.events || []) {
     for (const sd of ev.session_dates || []) {
-      const d = typeof sd.session_date === 'string' ? sd.session_date.slice(0, 10) : String(sd.session_date || '').slice(0, 10);
+      const d = dateKey(sd.session_date);
       if (!d) continue;
       if (!map.has(d)) {
-        map.set(d, { date: d, starts_at: sd.starts_at || null, effective: 0, filled: 0 });
+        map.set(d, {
+          date: d,
+          effective: 0,
+          filled: 0,
+          locations: [],
+          sessionLabels: [],
+          staffWindows: []
+        });
       }
       const entry = map.get(d);
       entry.effective += Number(sd.effectiveSlots) || 2;
       entry.filled   += Number(sd.filledSlots)    || 0;
+      addUnique(entry.locations, displayLocation(ev, sd));
+      addUnique(entry.sessionLabels, displaySessionLabel(ev));
+      addUnique(entry.staffWindows, staffWindowFor(ev, sd));
     }
   }
   return [...map.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([, v]) => ({ ...v, openSlots: Math.max(0, v.effective - v.filled) }));
+    .map(([, v]) => ({
+      ...v,
+      openSlots: Math.max(0, v.effective - v.filled),
+      staffWindow: v.staffWindows.length === 1 ? v.staffWindows[0] : (v.staffWindows.length > 1 ? 'Multiple staff windows' : ''),
+      demandLevel: v.effective >= 12 ? 'high' : 'standard',
+      demandLabel: v.effective >= 12 ? 'High staffing need' : 'Standard staffing need'
+    }));
 });
 
 const formDateRange = computed(() => {
@@ -270,16 +334,16 @@ const formDateRange = computed(() => {
 
 // ── Location ranking items ────────────────────────────────────────────────────
 // Build a flat list of locations to rank:
-//  • If there are multiple events, each event is its own location (ranked by title).
+//  • If there are multiple events, each event is its own location (ranked by session-date location label/title).
 //  • If there's only one event but it has multiple locations_json entries, rank those.
 const locationRankingItems = computed(() => {
   const events = form.value?.events || [];
   if (events.length > 1) {
     return events.map((ev) => ({
       key: `ev__${ev.id}`,
-      label: ev.event_title || `Location ${ev.id}`,
+      label: eventLocationLabel(ev),
       requestEventId: ev.id,
-      location: ev.event_title || `Location ${ev.id}`
+      location: eventLocationLabel(ev)
     }));
   }
   if (events.length === 1) {
@@ -295,6 +359,11 @@ const locationRankingItems = computed(() => {
   }
   return [];
 });
+
+const eventLocationLabel = (ev) => {
+  const firstDate = Array.isArray(ev.session_dates) ? ev.session_dates[0] : null;
+  return String(firstDate?.location_label || ev.event_title || `Location ${ev.id}`).trim();
+};
 
 // ── Per-date accessors ────────────────────────────────────────────────────────
 const ensureDateEntry = (date) => {
@@ -328,7 +397,7 @@ const hydrateSubmission = (submission) => {
   // Collapse per-event date entries to per-date (take first non-unavailable, else first)
   const byDate = {};
   for (const de of (submission.dateEntries || [])) {
-    const d = de.entry_date?.slice(0, 10) ?? de.entry_date;
+    const d = dateKey(de.entry_date);
     if (!d) continue;
     const rawAvail = de.availability || 'unavailable';
     const pref = rawAvail === 'available' ? 'slot' : rawAvail;
@@ -399,7 +468,7 @@ const buildPayload = (isSubmit) => {
   const entries = [];
   for (const ev of form.value?.events || []) {
     for (const sd of ev.session_dates || []) {
-      const d = typeof sd.session_date === 'string' ? sd.session_date.slice(0, 10) : String(sd.session_date || '').slice(0, 10);
+      const d = dateKey(sd.session_date);
       const entry = dateEntries.value[d];
       if (!entry) continue;
       entries.push({
@@ -527,6 +596,41 @@ onMounted(load);
 .faf-date-full { font-size: .82rem; color: #475569; }
 .faf-date-time { font-size: .78rem; color: #64748b; }
 
+.faf-date-context {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,.65);
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+.faf-date-context-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.faf-date-context-label {
+  min-width: 70px;
+  font-size: .75rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.faf-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: .78rem;
+  font-weight: 600;
+  color: #334155;
+}
+
 /* Slot badge */
 .faf-slot-badge {
   font-size: .75rem; font-weight: 700; border-radius: 999px;
@@ -534,6 +638,8 @@ onMounted(load);
 }
 .faf-slot-badge--open { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
 .faf-slot-badge--full { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+.faf-slot-badge--standard { background: #e0f2fe; color: #075985; border: 1px solid #7dd3fc; }
+.faf-slot-badge--high { background: #fef3c7; color: #92400e; border: 1px solid #fbbf24; }
 
 /* Preference buttons */
 .faf-pref-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }

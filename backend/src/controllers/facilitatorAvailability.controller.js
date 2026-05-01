@@ -143,6 +143,8 @@ export const getRequest = async (req, res, next) => {
       `SELECT fare.*,
               COALESCE(ce.title, p.name) AS event_title,
               ce.starts_at AS event_date, ce.ends_at AS end_date,
+              ce.employee_report_time, ce.employee_departure_time,
+              ce.public_session_label, ce.public_session_date_range,
               CASE WHEN fare.program_id IS NOT NULL THEN 'program' ELSE 'company_event' END AS _type
        FROM facilitator_availability_request_events fare
        LEFT JOIN company_events ce ON ce.id = fare.company_event_id
