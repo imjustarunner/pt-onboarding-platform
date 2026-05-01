@@ -848,6 +848,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { useGuardianStore } from '../../store/guardian';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
@@ -861,6 +862,7 @@ import GuardianSkillBuildersEventView from './GuardianSkillBuildersEventView.vue
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const guardianStore = useGuardianStore();
 const route = useRoute();
 const router = useRouter();
 const isSuperadminPreview = computed(() => {
@@ -903,7 +905,10 @@ const registrationEnrollSaving = ref(false);
 const registrationEnrollError = ref('');
 
 const activePanel = ref('overview');
-const selectedChildId = ref(null);
+const selectedChildId = computed({
+  get: () => guardianStore.selectedChildId,
+  set: (v) => guardianStore.setSelectedChild(v)
+});
 const comingSoonKey = ref('');
 const selectedInlineEvent = ref(null); // { eventId:number, programMode:boolean } | null
 

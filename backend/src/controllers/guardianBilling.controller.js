@@ -70,9 +70,9 @@ export const getDependentsSummary = async (req, res, next) => {
       const [waiverRows] = await pool.query(
         `SELECT sections_json, updated_at
          FROM guardian_client_waiver_profiles
-         WHERE guardian_user_id = ? AND client_id = ? AND agency_id = ?
+         WHERE guardian_user_id = ? AND client_id = ?
          ORDER BY updated_at DESC LIMIT 1`,
-        [guardianUserId, client.id, agencyId]
+        [guardianUserId, client.id]
       );
       let sections = {};
       let waiverUpdatedAt = null;

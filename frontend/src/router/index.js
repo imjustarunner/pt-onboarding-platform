@@ -3297,6 +3297,11 @@ router.beforeEach(async (to, from, next) => {
       next(getDashboardRoute());
     }
   } else if (to.meta.blockApprovedEmployees) {
+    // Guardians landing on employee-only surfaces get sent back to their portal
+    if (String(authStore.user?.role || '').toLowerCase() === 'client_guardian') {
+      next(getDashboardRoute());
+      return;
+    }
     // Block approved employees from accessing regular user routes
     if (authStore.user?.type === 'approved_employee') {
       next('/on-demand-training');
@@ -3309,7 +3314,17 @@ router.beforeEach(async (to, from, next) => {
       next('/login');
       return;
     }
-    
+
+    // Guardians should not roam general employee surfaces
+    if (String(authStore.user?.role || '').toLowerCase() === 'client_guardian') {
+      const p = String(to.path || '');
+      const isGuardianPath = p === '/guardian' || p.endsWith('/guardian') || p.includes('/guardian/');
+      if (!isGuardianPath) {
+        next(getDashboardRoute());
+        return;
+      }
+    }
+
     // Block regular routes for approved employees - they should only access on-demand training
     const isOnDemandRoute = to.path.includes('/on-demand-training');
     if (authStore.user?.type === 'approved_employee' && !isOnDemandRoute) {

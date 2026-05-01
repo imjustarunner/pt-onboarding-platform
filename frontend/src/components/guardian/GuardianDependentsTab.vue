@@ -5,86 +5,114 @@
     <div v-else-if="!dependents.length" class="gdt-empty">
       No dependents on file. Children are linked to your account during program enrollment.
     </div>
+
     <div v-else class="gdt-list">
-      <div v-for="dep in dependents" :key="dep.clientId" class="gdt-card">
-        <!-- Header -->
-        <div class="gdt-card-head">
-          <div class="gdt-name">{{ dep.fullName || 'Unnamed child' }}</div>
-          <div class="gdt-meta">
-            <span v-if="dep.grade">Grade {{ dep.grade }}</span>
-            <span v-if="dep.gender">{{ dep.gender }}</span>
-            <span v-if="dep.relationshipType" class="gdt-rel">{{ dep.relationshipType }}</span>
+      <div
+        v-for="dep in dependents"
+        :key="dep.clientId"
+        class="gdt-card"
+        :class="{ 'gdt-card--active': isActive(dep) }"
+      >
+        <!-- Accordion header -->
+        <button
+          type="button"
+          class="gdt-card-head"
+          :aria-expanded="isOpen(dep)"
+          @click="toggle(dep)"
+        >
+          <div class="gdt-head-left">
+            <span class="gdt-name">{{ dep.fullName || 'Unnamed child' }}</span>
+            <span class="gdt-meta">
+              <span v-if="dep.grade">Grade {{ dep.grade }}</span>
+              <span v-if="dep.gender">{{ dep.gender }}</span>
+              <span v-if="dep.relationshipType" class="gdt-rel">{{ dep.relationshipType }}</span>
+            </span>
           </div>
+          <div class="gdt-head-right">
+            <span v-if="isActive(dep)" class="gdt-active-badge">Active</span>
+            <span v-else class="gdt-set-active" @click.stop="setActive(dep)">Set active</span>
+            <svg
+              class="gdt-chevron"
+              :class="{ 'gdt-chevron--open': isOpen(dep) }"
+              viewBox="0 0 20 20" fill="currentColor" width="18" height="18"
+            >
+              <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
+            </svg>
+          </div>
+        </button>
+
+        <!-- Accordion body -->
+        <div v-if="isOpen(dep)" class="gdt-card-body">
           <div v-if="dep.waiverUpdatedAt" class="gdt-waiver-date">
             Waivers last updated {{ formatDate(dep.waiverUpdatedAt) }}
           </div>
           <div v-else class="gdt-waiver-date muted">No waiver info on file yet</div>
-        </div>
 
-        <!-- Emergency Contacts -->
-        <div class="gdt-section">
-          <h5 class="gdt-section-title">Emergency contacts</h5>
-          <div v-if="emergencyContacts(dep).length" class="gdt-contact-list">
-            <div v-for="(c, i) in emergencyContacts(dep)" :key="i" class="gdt-contact-row">
-              <span class="gdt-contact-name">{{ c.name || '—' }}</span>
-              <span v-if="c.relationship" class="gdt-contact-rel">{{ c.relationship }}</span>
-              <span v-if="c.phone" class="gdt-contact-phone">{{ c.phone }}</span>
+          <!-- Emergency Contacts -->
+          <div class="gdt-section">
+            <h5 class="gdt-section-title">Emergency contacts</h5>
+            <div v-if="emergencyContacts(dep).length" class="gdt-contact-list">
+              <div v-for="(c, i) in emergencyContacts(dep)" :key="i" class="gdt-contact-row">
+                <span class="gdt-contact-name">{{ c.name || '—' }}</span>
+                <span v-if="c.relationship" class="gdt-contact-rel">{{ c.relationship }}</span>
+                <span v-if="c.phone" class="gdt-contact-phone">{{ c.phone }}</span>
+              </div>
             </div>
+            <div v-else class="gdt-none">Not on file</div>
           </div>
-          <div v-else class="gdt-none">Not on file</div>
-        </div>
 
-        <!-- Allergies & Medical -->
-        <div class="gdt-section">
-          <h5 class="gdt-section-title">Allergies &amp; medical notes</h5>
-          <div v-if="dep.sections?.allergies_snacks" class="gdt-allergy-block">
-            <div v-if="dep.sections.allergies_snacks.allergies" class="gdt-allergy-row">
-              <span class="gdt-allergy-label">Allergies / medical:</span>
-              <span>{{ dep.sections.allergies_snacks.allergies }}</span>
+          <!-- Allergies & Medical -->
+          <div class="gdt-section">
+            <h5 class="gdt-section-title">Allergies &amp; medical notes</h5>
+            <div v-if="dep.sections?.allergies_snacks" class="gdt-allergy-block">
+              <div v-if="dep.sections.allergies_snacks.allergies" class="gdt-allergy-row">
+                <span class="gdt-allergy-label">Allergies / medical:</span>
+                <span>{{ dep.sections.allergies_snacks.allergies }}</span>
+              </div>
+              <div v-if="dep.sections.allergies_snacks.noSnacks" class="gdt-allergy-row gdt-allergy-row--warn">
+                No snacks — do not give this child any snacks.
+              </div>
+              <div v-else-if="approvedSnacksSummary(dep)" class="gdt-allergy-row">
+                <span class="gdt-allergy-label">Approved snacks:</span>
+                <span>{{ approvedSnacksSummary(dep) }}</span>
+              </div>
+              <div v-if="dep.sections.allergies_snacks.notes" class="gdt-allergy-row">
+                <span class="gdt-allergy-label">Other notes:</span>
+                <span>{{ dep.sections.allergies_snacks.notes }}</span>
+              </div>
             </div>
-            <div v-if="dep.sections.allergies_snacks.noSnacks" class="gdt-allergy-row gdt-allergy-row--warn">
-              No snacks — do not give this child any snacks.
-            </div>
-            <div v-else-if="approvedSnacksSummary(dep)" class="gdt-allergy-row">
-              <span class="gdt-allergy-label">Approved snacks:</span>
-              <span>{{ approvedSnacksSummary(dep) }}</span>
-            </div>
-            <div v-if="dep.sections.allergies_snacks.notes" class="gdt-allergy-row">
-              <span class="gdt-allergy-label">Other notes:</span>
-              <span>{{ dep.sections.allergies_snacks.notes }}</span>
-            </div>
+            <div v-else class="gdt-none">Not on file</div>
           </div>
-          <div v-else class="gdt-none">Not on file</div>
-        </div>
 
-        <!-- Pickup Authorization -->
-        <div class="gdt-section">
-          <h5 class="gdt-section-title">Authorized pickups</h5>
-          <div v-if="authorizedPickups(dep).length" class="gdt-contact-list">
-            <div v-for="(p, i) in authorizedPickups(dep)" :key="i" class="gdt-contact-row">
-              <span class="gdt-contact-name">{{ p.name || '—' }}</span>
-              <span v-if="p.relationship" class="gdt-contact-rel">{{ p.relationship }}</span>
-              <span v-if="p.phone" class="gdt-contact-phone">{{ p.phone }}</span>
+          <!-- Pickup Authorization -->
+          <div class="gdt-section">
+            <h5 class="gdt-section-title">Authorized pickups</h5>
+            <div v-if="authorizedPickups(dep).length" class="gdt-contact-list">
+              <div v-for="(p, i) in authorizedPickups(dep)" :key="i" class="gdt-contact-row">
+                <span class="gdt-contact-name">{{ p.name || '—' }}</span>
+                <span v-if="p.relationship" class="gdt-contact-rel">{{ p.relationship }}</span>
+                <span v-if="p.phone" class="gdt-contact-phone">{{ p.phone }}</span>
+              </div>
             </div>
+            <div v-else class="gdt-none">Not on file</div>
           </div>
-          <div v-else class="gdt-none">Not on file</div>
-        </div>
 
-        <!-- Meal Preferences -->
-        <div v-if="dep.sections?.meal_preferences" class="gdt-section">
-          <h5 class="gdt-section-title">Meal preferences</h5>
-          <div class="gdt-allergy-block">
-            <div v-if="dep.sections.meal_preferences.allowedMeals" class="gdt-allergy-row">
-              <span class="gdt-allergy-label">Allowed:</span>
-              <span>{{ dep.sections.meal_preferences.allowedMeals }}</span>
-            </div>
-            <div v-if="dep.sections.meal_preferences.restrictedMeals" class="gdt-allergy-row">
-              <span class="gdt-allergy-label">Restricted:</span>
-              <span>{{ dep.sections.meal_preferences.restrictedMeals }}</span>
-            </div>
-            <div v-if="dep.sections.meal_preferences.notes" class="gdt-allergy-row">
-              <span class="gdt-allergy-label">Notes:</span>
-              <span>{{ dep.sections.meal_preferences.notes }}</span>
+          <!-- Meal Preferences -->
+          <div v-if="dep.sections?.meal_preferences" class="gdt-section">
+            <h5 class="gdt-section-title">Meal preferences</h5>
+            <div class="gdt-allergy-block">
+              <div v-if="dep.sections.meal_preferences.allowedMeals" class="gdt-allergy-row">
+                <span class="gdt-allergy-label">Allowed:</span>
+                <span>{{ dep.sections.meal_preferences.allowedMeals }}</span>
+              </div>
+              <div v-if="dep.sections.meal_preferences.restrictedMeals" class="gdt-allergy-row">
+                <span class="gdt-allergy-label">Restricted:</span>
+                <span>{{ dep.sections.meal_preferences.restrictedMeals }}</span>
+              </div>
+              <div v-if="dep.sections.meal_preferences.notes" class="gdt-allergy-row">
+                <span class="gdt-allergy-label">Notes:</span>
+                <span>{{ dep.sections.meal_preferences.notes }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -101,15 +129,44 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import api from '../../services/api';
+import { useGuardianStore } from '../../store/guardian';
 
 const props = defineProps({
   agencyId: { type: [Number, String], default: null },
   guardianUserId: { type: [Number, String], default: null }
 });
 
+const guardianStore = useGuardianStore();
+
 const dependents = ref([]);
 const loading = ref(false);
 const error = ref('');
+
+// Track which accordion panels are open (by clientId)
+const openIds = ref(new Set());
+
+function isOpen(dep) {
+  return openIds.value.has(dep.clientId);
+}
+
+function isActive(dep) {
+  return Number(guardianStore.selectedChildId) === Number(dep.clientId);
+}
+
+function toggle(dep) {
+  const s = new Set(openIds.value);
+  if (s.has(dep.clientId)) s.delete(dep.clientId);
+  else s.add(dep.clientId);
+  openIds.value = s;
+}
+
+function setActive(dep) {
+  guardianStore.setSelectedChild(dep.clientId);
+  // Also expand their panel when set active
+  const s = new Set(openIds.value);
+  s.add(dep.clientId);
+  openIds.value = s;
+}
 
 function emergencyContacts(dep) {
   return dep.sections?.emergency_contacts?.contacts || [];
@@ -143,6 +200,14 @@ async function load() {
       params: { agencyId: props.agencyId }
     });
     dependents.value = resp.data?.dependents || [];
+
+    // Auto-expand the currently active child, or the first child if none set
+    const initialId = guardianStore.selectedChildId
+      ? Number(guardianStore.selectedChildId)
+      : dependents.value[0]?.clientId ?? null;
+    if (initialId) {
+      openIds.value = new Set([initialId]);
+    }
   } catch {
     error.value = 'Could not load dependent information.';
   } finally {
@@ -157,7 +222,7 @@ onMounted(load);
 .gdt {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   padding: 4px 0;
 }
 .gdt-hint, .gdt-empty {
@@ -171,23 +236,57 @@ onMounted(load);
 .gdt-list {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
 }
 .gdt-card {
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 10px;
   overflow: hidden;
   background: var(--bg, #fff);
+  transition: box-shadow 0.15s;
+}
+.gdt-card--active {
+  border-color: #2d6a4f;
+  box-shadow: 0 0 0 2px rgba(45, 106, 79, 0.15);
 }
 .gdt-card-head {
-  padding: 14px 16px 10px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
   background: var(--bg-alt, #f8fafc);
-  border-bottom: 1px solid var(--border, #e2e8f0);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  gap: 12px;
+}
+.gdt-card--active .gdt-card-head {
+  background: #f0faf4;
+}
+.gdt-card-head:hover {
+  background: #f1f5f9;
+}
+.gdt-card--active .gdt-card-head:hover {
+  background: #e6f4ec;
+}
+.gdt-head-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.gdt-head-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
 }
 .gdt-name {
-  font-size: 1.1rem;
+  font-size: 1rem;
   font-weight: 700;
-  margin-bottom: 4px;
+  color: var(--text-primary, #1e293b);
 }
 .gdt-meta {
   display: flex;
@@ -195,15 +294,46 @@ onMounted(load);
   font-size: 13px;
   color: #64748b;
   flex-wrap: wrap;
-  margin-bottom: 2px;
 }
 .gdt-rel {
   font-style: italic;
 }
+.gdt-active-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: #2d6a4f;
+  background: #d1fae5;
+  border-radius: 99px;
+  padding: 2px 10px;
+}
+.gdt-set-active {
+  font-size: 12px;
+  font-weight: 500;
+  color: #2d6a4f;
+  border: 1px solid #2d6a4f;
+  border-radius: 99px;
+  padding: 2px 10px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.gdt-set-active:hover {
+  background: #f0faf4;
+}
+.gdt-chevron {
+  color: #94a3b8;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+.gdt-chevron--open {
+  transform: rotate(180deg);
+}
+.gdt-card-body {
+  border-top: 1px solid var(--border, #e2e8f0);
+}
 .gdt-waiver-date {
   font-size: 12px;
   color: #94a3b8;
-  margin-top: 4px;
+  padding: 8px 16px 0;
 }
 .gdt-section {
   padding: 12px 16px;
