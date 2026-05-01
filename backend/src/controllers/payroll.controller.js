@@ -1088,6 +1088,21 @@ async function isAgencyFeatureEnabled(agencyId, key, defaultValue = true) {
   }
 }
 
+async function getAgencyMileageSettingsPayload(agencyId) {
+  const agency = await Agency.findById(agencyId);
+  const flags = parseFeatureFlags(agency?.feature_flags);
+  const standardTierRatesEnabled = flags?.otherMileageTierRatesEnabled === true
+    || flags?.otherMileageTierRatesEnabled === 1
+    || flags?.otherMileageTierRatesEnabled === '1'
+    || String(flags?.otherMileageTierRatesEnabled || '').toLowerCase() === 'true';
+  const settings = await AgencyMileageRate.getSettings(agencyId);
+  return {
+    standardMileageRatePerMile: Number(settings?.standard_mileage_rate_per_mile || 0),
+    standardMileageTierRatesEnabled: !!standardTierRatesEnabled,
+    standardMileageUsesTierRates: !!standardTierRatesEnabled && !!Number(settings?.standard_mileage_uses_tier_rates || 0)
+  };
+}
+
 async function canManagePayrollForAgency({ userId, role, agencyId }) {
   if (!agencyId) return false;
   if (role === 'super_admin') return true;
@@ -12806,7 +12821,8 @@ export const getAgencyMileageRates = async (req, res, next) => {
       const r = byTier.get(t) || null;
       return { tierLevel: t, ratePerMile: r ? Number(r.rate_per_mile || 0) : 0 };
     });
-    res.json({ agencyId, rates });
+    const settings = await getAgencyMileageSettingsPayload(agencyId);
+    res.json({ agencyId, rates, settings });
   } catch (e) {
     next(e);
   }
@@ -12836,7 +12852,8 @@ export const getMyAgencyMileageRates = async (req, res, next) => {
       const r = byTier.get(t) || null;
       return { tierLevel: t, ratePerMile: r ? Number(r.rate_per_mile || 0) : 0 };
     });
-    res.json({ agencyId, rates });
+    const settings = await getAgencyMileageSettingsPayload(agencyId);
+    res.json({ agencyId, rates, settings });
   } catch (e) {
     next(e);
   }
@@ -12851,6 +12868,13 @@ export const upsertAgencyMileageRates = async (req, res, next) => {
     const body = req.body || {};
     const rates = Array.isArray(body.rates) ? body.rates : [];
     if (!rates.length) return res.status(400).json({ error: { message: 'rates array is required' } });
+    const standardMileageRatePerMile = Number(body.standardMileageRatePerMile ?? body.settings?.standardMileageRatePerMile ?? 0);
+    const standardMileageUsesTierRatesRaw = body.standardMileageUsesTierRates ?? body.settings?.standardMileageUsesTierRates;
+    const standardMileageUsesTierRates = standardMileageUsesTierRatesRaw === true
+      || standardMileageUsesTierRatesRaw === 1
+      || standardMileageUsesTierRatesRaw === '1'
+      || String(standardMileageUsesTierRatesRaw || '').toLowerCase() === 'true';
+    const settingsBefore = await getAgencyMileageSettingsPayload(agencyId);
 
     for (const r of rates) {
       const tierLevel = Number(r?.tierLevel);
@@ -12861,6 +12885,9 @@ export const upsertAgencyMileageRates = async (req, res, next) => {
       if (!Number.isFinite(ratePerMile) || ratePerMile < 0) {
         return res.status(400).json({ error: { message: 'ratePerMile must be a non-negative number' } });
       }
+    }
+    if (!Number.isFinite(standardMileageRatePerMile) || standardMileageRatePerMile < 0) {
+      return res.status(400).json({ error: { message: 'standardMileageRatePerMile must be a non-negative number' } });
     }
 
     await Promise.all(
@@ -12873,6 +12900,12 @@ export const upsertAgencyMileageRates = async (req, res, next) => {
         })
       )
     );
+    await AgencyMileageRate.upsertSettings({
+      agencyId,
+      standardMileageRatePerMile,
+      standardMileageUsesTierRates: settingsBefore.standardMileageTierRatesEnabled && standardMileageUsesTierRates,
+      updatedByUserId: req.user?.id
+    });
 
     const updated = await AgencyMileageRate.listForAgency(agencyId);
     const byTier = new Map((updated || []).map((r) => [Number(r.tier_level), r]));
@@ -12880,7 +12913,8 @@ export const upsertAgencyMileageRates = async (req, res, next) => {
       const row = byTier.get(t) || null;
       return { tierLevel: t, ratePerMile: row ? Number(row.rate_per_mile || 0) : 0 };
     });
-    res.json({ ok: true, agencyId, rates: normalized });
+    const settings = await getAgencyMileageSettingsPayload(agencyId);
+    res.json({ ok: true, agencyId, rates: normalized, settings });
   } catch (e) {
     next(e);
   }
@@ -15643,6 +15677,16 @@ function parseTimeHm(raw) {
   return { hh, mm };
 }
 
+function minutesBetweenTimeHm(startRaw, endRaw) {
+  const start = parseTimeHm(startRaw);
+  const end = parseTimeHm(endRaw);
+  if (!start || !end) return null;
+  const startMins = start.hh * 60 + start.mm;
+  let endMins = end.hh * 60 + end.mm;
+  if (endMins <= startMins) endMins += 24 * 60;
+  return endMins - startMins;
+}
+
 function pad2(n) {
   return String(Number(n || 0)).padStart(2, '0');
 }
@@ -15694,7 +15738,7 @@ async function maybeAttachMeetToTimeClaimPayload({
   const hostEmail = String(user?.email || '').trim().toLowerCase();
   if (!hostEmail) return payload;
 
-  const summaryPrefix = claimType === 'mentor_cpa_meeting' ? 'Mentor/CPA Meeting' : 'Meeting/Training';
+  const summaryPrefix = claimType === 'mentor_cpa_meeting' ? 'Mentor/CPA Meeting' : 'Meeting/Training/Outreach';
   const meetingType = String(payload?.meetingType || '').trim();
   const summary = meetingType ? `${summaryPrefix} — ${meetingType}` : summaryPrefix;
   const description = String(payload?.summary || '').trim() || null;
@@ -15848,10 +15892,29 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
 
     // Light validation per type (keep payload flexible for iteration).
     if (claimType === 'meeting_training' || claimType === 'mentor_cpa_meeting') {
-      const totalMinutes = toMinutes(payload?.totalMinutes);
+      let totalMinutes = toMinutes(payload?.totalMinutes);
+      if (!(totalMinutes >= 1)) {
+        const derivedMinutes = minutesBetweenTimeHm(payload?.startTime, payload?.endTime);
+        if (derivedMinutes >= 1) {
+          totalMinutes = derivedMinutes;
+          payload = { ...payload, totalMinutes };
+        }
+      }
       if (!(totalMinutes >= 1)) return res.status(400).json({ error: { message: 'totalMinutes is required' } });
       if (claimType === 'meeting_training' && !String(payload?.meetingType || '').trim()) {
         return res.status(400).json({ error: { message: 'meetingType is required' } });
+      }
+      const isOutreach = String(payload?.meetingType || '').trim().toLowerCase() === 'outreach';
+      if (isOutreach) {
+        if (!String(payload?.approvedBy || '').trim()) {
+          return res.status(400).json({ error: { message: 'approvedBy is required for outreach claims' } });
+        }
+        if (!String(payload?.outreachLocations || '').trim()) {
+          return res.status(400).json({ error: { message: 'outreachLocations is required for outreach claims' } });
+        }
+        if (!parseTimeHm(payload?.startTime) || !parseTimeHm(payload?.endTime)) {
+          return res.status(400).json({ error: { message: 'startTime and endTime are required for outreach claims' } });
+        }
       }
       if (!String(payload?.platform || '').trim()) return res.status(400).json({ error: { message: 'platform is required' } });
       if (!String(payload?.summary || '').trim()) return res.status(400).json({ error: { message: 'summary is required' } });
@@ -17345,6 +17408,7 @@ export const patchPtoRequest = async (req, res, next) => {
         agencyId: reqRow.agency_id,
         requestId: id,
         approvedByUserId: req.user.id,
+        targetPayrollPeriodId: Number(req.body?.targetPayrollPeriodId || 0) || null,
         overrideDeadline,
         overrideBalance
       });
@@ -17547,10 +17611,13 @@ export const patchMileageClaim = async (req, res, next) => {
 
     if (action === 'approve') {
       const targetPayrollPeriodId = Number(body.targetPayrollPeriodId || 0);
-      const tierLevel = Number(body.tierLevel || claim.tier_level || 0);
       if (!Number.isFinite(targetPayrollPeriodId) || targetPayrollPeriodId <= 0) {
         return res.status(400).json({ error: { message: 'targetPayrollPeriodId is required' } });
       }
+      const claimType = String(claim.claim_type || '').toLowerCase();
+      const mileageSettings = await getAgencyMileageSettingsPayload(claim.agency_id);
+      const usesTierRate = claimType === 'school_travel' || mileageSettings.standardMileageUsesTierRates;
+      const tierLevel = usesTierRate ? Number(body.tierLevel || claim.tier_level || 0) : null;
 
       const targetPeriod = await PayrollPeriod.findById(targetPayrollPeriodId);
       if (!targetPeriod) return res.status(404).json({ error: { message: 'Target pay period not found' } });
@@ -17578,15 +17645,26 @@ export const patchMileageClaim = async (req, res, next) => {
       });
       if (!ok.ok) return;
 
-      if (![1, 2, 3].includes(tierLevel)) {
+      if (usesTierRate && ![1, 2, 3].includes(tierLevel)) {
         return res.status(400).json({ error: { message: 'tierLevel must be 1, 2, or 3' } });
       }
 
-      const rates = await AgencyMileageRate.listForAgency(claim.agency_id);
-      const rateRow = (rates || []).find((r) => Number(r.tier_level) === tierLevel) || null;
-      const ratePerMile = Number(rateRow?.rate_per_mile || 0);
+      let ratePerMile = 0;
+      if (usesTierRate) {
+        const rates = await AgencyMileageRate.listForAgency(claim.agency_id);
+        const rateRow = (rates || []).find((r) => Number(r.tier_level) === tierLevel) || null;
+        ratePerMile = Number(rateRow?.rate_per_mile || 0);
+      } else {
+        ratePerMile = Number(mileageSettings.standardMileageRatePerMile || 0);
+      }
       if (!Number.isFinite(ratePerMile) || ratePerMile <= 0) {
-        return res.status(409).json({ error: { message: `Mileage rate not configured for Tier ${tierLevel}` } });
+        return res.status(409).json({
+          error: {
+            message: usesTierRate
+              ? `Mileage rate not configured for Tier ${tierLevel}`
+              : 'Other Mileage rate is not configured for this agency'
+          }
+        });
       }
 
       const computedEligible = computeEligibleMilesForClaim(claim);
@@ -17595,7 +17673,7 @@ export const patchMileageClaim = async (req, res, next) => {
           ? Number(claim.eligible_miles)
           : (computedEligible !== null ? computedEligible : Number(claim.miles || 0));
       const billableMiles =
-        String(claim.claim_type || '').toLowerCase() === 'school_travel'
+        claimType === 'school_travel'
           ? Math.max(0, eligibleMiles)
           : ((claim.round_trip === 1 || claim.round_trip === true) ? (Math.max(0, eligibleMiles) * 2) : Math.max(0, eligibleMiles));
       const appliedAmount = Math.round((billableMiles * ratePerMile) * 100) / 100;

@@ -4,6 +4,7 @@ import PayrollPtoAccount from '../models/PayrollPtoAccount.model.js';
 import PayrollPtoLedger from '../models/PayrollPtoLedger.model.js';
 import PayrollPtoRequest from '../models/PayrollPtoRequest.model.js';
 import PayrollAdjustment from '../models/PayrollAdjustment.model.js';
+import PayrollPeriod from '../models/PayrollPeriod.model.js';
 import { computeSubmissionWindow, resolveClaimTimeZone } from '../utils/payrollSubmissionWindow.js';
 
 const DEFAULT_PTO_POLICY = {
@@ -302,6 +303,7 @@ export async function approvePtoRequestAndPostToPayroll({
   agencyId,
   requestId,
   approvedByUserId,
+  targetPayrollPeriodId = null,
   overrideDeadline = true,
   overrideBalance = false
 }) {
@@ -324,17 +326,29 @@ export async function approvePtoRequestAndPostToPayroll({
     if (!acct.training_pto_eligible) throw new Error('Training PTO is not enabled for this provider');
   }
 
+  let explicitTargetPeriod = null;
+  if (Number.isFinite(Number(targetPayrollPeriodId)) && Number(targetPayrollPeriodId) > 0) {
+    explicitTargetPeriod = await PayrollPeriod.findById(Number(targetPayrollPeriodId));
+    if (!explicitTargetPeriod) throw new Error('Target pay period not found');
+    if (Number(explicitTargetPeriod.agency_id) !== Number(agencyId)) {
+      throw new Error('Target pay period does not belong to this agency');
+    }
+    const st = String(explicitTargetPeriod.status || '').toLowerCase();
+    if (st === 'posted' || st === 'finalized') {
+      throw new Error('Target pay period is posted/finalized');
+    }
+  }
+
   // Group requested hours by payroll period.
   const byPeriod = new Map();
   for (const it of items) {
     const d = ymd(it.request_date);
     const h = Number(it.hours || 0);
     if (!d || !(h > 0)) continue;
-    // Enforce the same soft cutoff as other payroll-impacting submissions:
-    // if the request was submitted after the Sunday cutoff for that pay period,
-    // it will be posted to the next eligible pay period instead of backdating.
     let pid = null;
-    if (overrideDeadline) {
+    if (explicitTargetPeriod) {
+      pid = Number(explicitTargetPeriod.id);
+    } else if (overrideDeadline) {
       const [pRows] = await pool.execute(
         `SELECT id, status
          FROM payroll_periods
@@ -386,7 +400,9 @@ export async function approvePtoRequestAndPostToPayroll({
     const h = Number(it.hours || 0);
     if (!d || !(h > 0)) continue;
     let payrollPeriodId = null;
-    if (overrideDeadline) {
+    if (explicitTargetPeriod) {
+      payrollPeriodId = Number(explicitTargetPeriod.id) || null;
+    } else if (overrideDeadline) {
       const [pRows] = await pool.execute(
         `SELECT id, status
          FROM payroll_periods

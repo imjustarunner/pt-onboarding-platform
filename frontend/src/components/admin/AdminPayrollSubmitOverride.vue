@@ -873,13 +873,13 @@
     </div>
   </div>
 
-  <!-- Time Claim: Meeting/Training modal -->
+  <!-- Time Claim: Meeting/Training/Outreach modal -->
   <div v-if="showTimeMeetingModal" class="modal-backdrop" @click.self="closeTimeMeetingModal">
     <div class="modal" style="width: min(720px, 100%);">
       <div class="modal-header">
         <div>
-          <div class="modal-title">Time Claim — Meeting / Training (Admin Override)</div>
-          <div class="hint">Module 3A: Log attendance for meeting or training.</div>
+          <div class="modal-title">Time Claim — Meeting / Training / Outreach (Admin Override)</div>
+          <div class="hint">Module 3A: Log attendance for meeting, training, or outreach.</div>
         </div>
         <button class="btn btn-secondary btn-sm" @click="closeTimeMeetingModal">Close</button>
       </div>
@@ -899,6 +899,7 @@
             <option>Leadership Circle Meeting</option>
             <option>Admin Town Hall Meeting</option>
             <option>Training</option>
+            <option>Outreach</option>
             <option>Evaluation</option>
             <option>Not listed</option>
           </select>
@@ -908,6 +909,17 @@
       <div class="field" v-if="timeMeetingForm.meetingType === 'Not listed'" style="margin-top: 10px;">
         <label>Other meeting not listed</label>
         <input v-model="timeMeetingForm.otherMeeting" type="text" placeholder="Describe the meeting" />
+      </div>
+
+      <div v-if="timeMeetingForm.meetingType === 'Outreach'" class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>Approved by</label>
+          <input v-model="timeMeetingForm.approvedBy" type="text" placeholder="Name or email" />
+        </div>
+        <div class="field">
+          <label>Locations visited</label>
+          <textarea v-model="timeMeetingForm.outreachLocations" rows="2" placeholder="List each outreach location visited"></textarea>
+        </div>
       </div>
 
       <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr 1fr;">
@@ -1483,6 +1495,8 @@ const timeMeetingForm = ref({
   claimDate: '',
   meetingType: 'Admin Update Meeting',
   otherMeeting: '',
+  approvedBy: '',
+  outreachLocations: '',
   startTime: '',
   endTime: '',
   totalMinutes: '',
@@ -1619,6 +1633,31 @@ const fmtMoney = (v) =>
 const fmtNum = (v) => Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 const apiBase = computed(() => (props.userId ? `/payroll/users/${props.userId}` : '/payroll/users/0'));
+
+const minutesFromStartEnd = (startTime, endTime) => {
+  const s = String(startTime || '').trim();
+  const e = String(endTime || '').trim();
+  if (!s || !e || !/^\d{1,2}:\d{2}$/.test(s) || !/^\d{1,2}:\d{2}$/.test(e)) return null;
+  const [sh, sm] = s.split(':').map(Number);
+  const [eh, em] = e.split(':').map(Number);
+  const startMins = sh * 60 + sm;
+  let endMins = eh * 60 + em;
+  if (endMins <= startMins) endMins += 24 * 60;
+  return endMins - startMins;
+};
+
+watch(
+  () => [timeMeetingForm.value.startTime, timeMeetingForm.value.endTime],
+  ([start, end]) => {
+    if (start && end) {
+      const mins = minutesFromStartEnd(start, end);
+      if (mins != null && mins >= 1) {
+        timeMeetingForm.value.totalMinutes = String(mins);
+      }
+    }
+  },
+  { deep: true }
+);
 
 watch(
   () => `${props.agencyId || ''}:${props.userId || ''}`,
@@ -2283,6 +2322,8 @@ const openTimeMeetingModal = () => {
     claimDate: ymd,
     meetingType: 'Admin Update Meeting',
     otherMeeting: '',
+    approvedBy: '',
+    outreachLocations: '',
     startTime: '',
     endTime: '',
     totalMinutes: '',
@@ -2294,18 +2335,31 @@ const openTimeMeetingModal = () => {
 };
 const closeTimeMeetingModal = () => { showTimeMeetingModal.value = false; };
 const submitTimeMeeting = async () => {
+  const f = timeMeetingForm.value;
+  const isOutreach = String(f.meetingType || '').trim() === 'Outreach';
+  let totalMinutes = Number(f.totalMinutes || 0);
+  if (totalMinutes < 1 && f.startTime && f.endTime) {
+    const computed = minutesFromStartEnd(f.startTime, f.endTime);
+    if (computed != null && computed >= 1) totalMinutes = computed;
+  }
+  if (isOutreach && (!String(f.approvedBy || '').trim() || !String(f.outreachLocations || '').trim() || !String(f.startTime || '').trim() || !String(f.endTime || '').trim())) {
+    submitTimeClaimError.value = 'Outreach claims require approver, locations visited, start time, and end time.';
+    return;
+  }
   await submitTimeClaim({
     claimType: 'meeting_training',
-    claimDate: timeMeetingForm.value.claimDate,
+    claimDate: f.claimDate,
     payload: {
-      meetingType: timeMeetingForm.value.meetingType,
-      otherMeeting: timeMeetingForm.value.otherMeeting,
-      startTime: timeMeetingForm.value.startTime,
-      endTime: timeMeetingForm.value.endTime,
-      totalMinutes: Number(timeMeetingForm.value.totalMinutes || 0),
-      platform: timeMeetingForm.value.platform,
-      summary: timeMeetingForm.value.summary,
-      attestation: !!timeMeetingForm.value.attestation
+      meetingType: f.meetingType,
+      otherMeeting: f.otherMeeting,
+      approvedBy: isOutreach ? f.approvedBy : null,
+      outreachLocations: isOutreach ? f.outreachLocations : null,
+      startTime: f.startTime,
+      endTime: f.endTime,
+      totalMinutes,
+      platform: f.platform,
+      summary: f.summary,
+      attestation: !!f.attestation
     }
   });
   if (!submitTimeClaimError.value) closeTimeMeetingModal();

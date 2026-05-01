@@ -866,8 +866,8 @@
               <div class="hint" style="margin-top: 6px;">Time Claims</div>
               <div class="submit-grid-2" style="margin-top: 12px;">
                 <button type="button" class="dash-card" @click="openTimeMeetingModal">
-                  <div class="dash-card-title">Meeting / Training Attendance</div>
-                  <div class="dash-card-desc">Log meeting/training minutes.</div>
+                  <div class="dash-card-title">Meeting / Training / Outreach Attendance</div>
+                  <div class="dash-card-desc">Log meeting, training, or outreach minutes.</div>
                   <div class="dash-card-meta">
                     <span class="dash-card-cta">Open</span>
                   </div>

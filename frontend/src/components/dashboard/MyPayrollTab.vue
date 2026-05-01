@@ -206,10 +206,10 @@
                             if (rate > 0 && miles > 0) {
                               return isSchool
                                 ? `Estimated = ${fmtNum(miles)} mi × ${fmtMoney(rate)}/mi (Tier ${tier || '—'})`
-                                : `Estimated = ${fmtNum(miles)} mi × ${fmtMoney(rate)}/mi (Tier 3 or national standard; subject to change)`;
+                                : `Estimated = ${fmtNum(miles)} mi × ${fmtMoney(rate)}/mi (${otherMileageRateLabel()})`;
                             }
                             if (isSchool && tier > 0 && rate <= 0) return `Tier ${tier} mileage rate is not configured`;
-                            return isSchool ? 'Estimated amount will appear once approved' : `Estimated = miles × rate (Tier 3 or national standard)`;
+                            return isSchool ? 'Estimated amount will appear once approved' : `Estimated = miles × rate (${otherMileageRateLabel()})`;
                           })()
                         )
                   "
@@ -1696,8 +1696,8 @@
     <div class="modal" style="width: min(720px, 100%);">
       <div class="modal-header">
         <div>
-          <div class="modal-title">Time Claim — Meeting / Training</div>
-          <div class="hint">Module 3A: Log attendance for meeting or training.</div>
+          <div class="modal-title">Time Claim — Meeting / Training / Outreach</div>
+          <div class="hint">Module 3A: Log attendance for meeting, training, or outreach.</div>
         </div>
         <button class="btn btn-secondary btn-sm" @click="closeTimeMeetingModal">Close</button>
       </div>
@@ -1717,6 +1717,7 @@
             <option>Leadership Circle Meeting</option>
             <option>Admin Town Hall Meeting</option>
             <option>Training</option>
+            <option>Outreach</option>
             <option>Evaluation</option>
             <option>Mentor/CPA Individual Meeting</option>
             <option>Not listed</option>
@@ -1735,6 +1736,17 @@
       <div class="field" v-if="timeMeetingForm.meetingType === 'Not listed'" style="margin-top: 10px;">
         <label>Other meeting not listed</label>
         <input v-model="timeMeetingForm.otherMeeting" type="text" placeholder="Describe the meeting" />
+      </div>
+
+      <div v-if="timeMeetingForm.meetingType === 'Outreach'" class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>Approved by</label>
+          <input v-model="timeMeetingForm.approvedBy" type="text" placeholder="Name or email" />
+        </div>
+        <div class="field">
+          <label>Locations visited</label>
+          <textarea v-model="timeMeetingForm.outreachLocations" rows="2" placeholder="List each outreach location visited"></textarea>
+        </div>
       </div>
 
       <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr 1fr;">
@@ -2386,6 +2398,8 @@ const timeMeetingForm = ref({
   meetingType: 'Training',
   mentorRole: 'intern_mentor',
   otherMeeting: '',
+  approvedBy: '',
+  outreachLocations: '',
   startTime: '',
   endTime: '',
   totalMinutes: '',
@@ -2891,18 +2905,26 @@ const fmtPeriodTitle = (p) => {
   return fmtDateRange(p?.period_start, p?.period_end) || 'Pay Period';
 };
 
-const mileageRates = ref({ byTier: new Map() });
+const mileageRates = ref({
+  byTier: new Map(),
+  standardMileageRatePerMile: 0,
+  standardMileageUsesTierRates: false
+});
 const mileageRateForTier = (tierLevel) => {
   const t = Number(tierLevel || 0);
   if (!t) return 0;
   return Number(mileageRates.value.byTier.get(t) || 0);
 };
 
-/** Rate for Other mileage: tier 3 or IRS national standard (cents → dollars). */
-const NATIONAL_STANDARD_RATE_PER_MILE = 0.725;
 const rateForOtherMileage = () => {
-  const tier3 = Number(mileageRates.value.byTier.get(3) || 0);
-  return tier3 > 0 ? tier3 : NATIONAL_STANDARD_RATE_PER_MILE;
+  if (mileageRates.value.standardMileageUsesTierRates) {
+    return Number(mileageRates.value.byTier.get(3) || 0);
+  }
+  return Number(mileageRates.value.standardMileageRatePerMile || 0);
+};
+
+const otherMileageRateLabel = () => {
+  return mileageRates.value.standardMileageUsesTierRates ? 'Tier 3 rate' : 'Other Mileage agency rate';
 };
 
 const loadMyMileageRates = async () => {
@@ -2910,11 +2932,16 @@ const loadMyMileageRates = async () => {
   try {
     const resp = await api.get('/payroll/me/mileage-rates', { params: { agencyId: agencyId.value } });
     const rows = resp.data?.rates || [];
+    const settings = resp.data?.settings || {};
     const m = new Map();
     for (const r of rows) m.set(Number(r.tierLevel), Number(r.ratePerMile || 0));
-    mileageRates.value = { byTier: m };
+    mileageRates.value = {
+      byTier: m,
+      standardMileageRatePerMile: Number(settings.standardMileageRatePerMile || 0),
+      standardMileageUsesTierRates: !!settings.standardMileageUsesTierRates
+    };
   } catch {
-    mileageRates.value = { byTier: new Map() };
+    mileageRates.value = { byTier: new Map(), standardMileageRatePerMile: 0, standardMileageUsesTierRates: false };
   }
 };
 
@@ -3701,7 +3728,7 @@ const loadTimeClaims = async () => {
 
 const timeClaimTypeLabel = (c) => {
   const t = String(c?.claim_type || '').toLowerCase();
-  if (t === 'meeting_training') return 'Meeting/Training';
+  if (t === 'meeting_training') return 'Meeting/Training/Outreach';
   if (t === 'mentor_cpa_meeting') return 'Mentor/CPA Meeting';
   if (t === 'excess_holiday') return 'Excess time';
   if (t === 'service_correction') return 'Service correction';
@@ -3796,7 +3823,20 @@ const openTimeMeetingModal = () => {
   submitTimeClaimError.value = '';
   const today = new Date();
   const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  timeMeetingForm.value = { ...timeMeetingForm.value, claimDate: ymd, attestation: false };
+  timeMeetingForm.value = {
+    claimDate: ymd,
+    meetingType: 'Training',
+    mentorRole: 'intern_mentor',
+    otherMeeting: '',
+    approvedBy: '',
+    outreachLocations: '',
+    startTime: '',
+    endTime: '',
+    totalMinutes: '',
+    platform: 'Google Meet',
+    summary: '',
+    attestation: false
+  };
   showTimeMeetingModal.value = true;
 };
 const closeTimeMeetingModal = () => {
@@ -3954,6 +3994,8 @@ const openEditTimeClaim = (c) => {
       meetingType: (type === 'mentor_cpa_meeting') ? 'Mentor/CPA Individual Meeting' : (payload.meetingType || 'Training'),
       mentorRole: payload.mentorRole || 'intern_mentor',
       otherMeeting: payload.otherMeeting || '',
+      approvedBy: payload.approvedBy || '',
+      outreachLocations: payload.outreachLocations || '',
       startTime: payload.startTime || '',
       endTime: payload.endTime || '',
       totalMinutes: String(payload.totalMinutes ?? ''),
@@ -4076,6 +4118,11 @@ const submitTimeMeeting = async () => {
     if (computed != null && computed >= 1) totalMinutes = computed;
   }
   const isMentorCpaMeeting = String(f.meetingType || '').trim() === 'Mentor/CPA Individual Meeting';
+  const isOutreach = String(f.meetingType || '').trim() === 'Outreach';
+  if (isOutreach && (!String(f.approvedBy || '').trim() || !String(f.outreachLocations || '').trim() || !String(f.startTime || '').trim() || !String(f.endTime || '').trim())) {
+    submitTimeClaimError.value = 'Outreach claims require approver, locations visited, start time, and end time.';
+    return;
+  }
   await submitTimeClaim({
     claimType: isMentorCpaMeeting ? 'mentor_cpa_meeting' : 'meeting_training',
     claimDate: f.claimDate,
@@ -4083,6 +4130,8 @@ const submitTimeMeeting = async () => {
       meetingType: f.meetingType,
       mentorRole: isMentorCpaMeeting ? f.mentorRole : null,
       otherMeeting: f.otherMeeting,
+      approvedBy: isOutreach ? f.approvedBy : null,
+      outreachLocations: isOutreach ? f.outreachLocations : null,
       startTime: f.startTime,
       endTime: f.endTime,
       totalMinutes,

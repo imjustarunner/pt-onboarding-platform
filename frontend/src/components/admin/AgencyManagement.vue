@@ -1440,6 +1440,13 @@
               <ToggleSwitch v-model="agencyForm.featureFlags.payrollEnabled" compact />
             </div>
             <small v-if="isFeatureAvailable('payrollEnabled')" class="hint">When enabled, users with Payroll access can manage payroll for this organization.</small>
+            <div v-if="agencyForm.featureFlags.payrollEnabled" class="toggle-row" style="margin-top: 10px;">
+              <span>Allow tier rates for Other Mileage</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.otherMileageTierRatesEnabled" compact />
+            </div>
+            <small v-if="agencyForm.featureFlags.payrollEnabled" class="hint">
+              When off, Other Mileage uses the agency's flat Other Mileage rate even if Tier 1/2/3 rates are configured for School Mileage.
+            </small>
 
             <div v-if="isFeatureAvailable('onboardingTrainingEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Onboarding &amp; Training</span>
@@ -1898,6 +1905,10 @@
                 <input v-model="mileageRatesDraft.tier3" class="filters-input" type="number" step="0.0001" min="0" :disabled="mileageRatesLoading || savingMileageRates" />
               </div>
               <div class="filters-group">
+                <label class="filters-label">Other Mileage ($/mile)</label>
+                <input v-model="mileageRatesDraft.standard" class="filters-input" type="number" step="0.0001" min="0" :disabled="mileageRatesLoading || savingMileageRates || mileageRatesDraft.standardUsesTierRates" />
+              </div>
+              <div class="filters-group">
                 <button type="button" class="btn btn-secondary btn-sm" @click="loadMileageRates" :disabled="mileageRatesLoading || !editingAgency?.id">
                   {{ mileageRatesLoading ? 'Loading…' : 'Reload' }}
                 </button>
@@ -1908,6 +1919,17 @@
                 </button>
               </div>
             </div>
+            <div class="toggle-row" style="margin-top: 10px;">
+              <span>Use tier rates for Other Mileage</span>
+              <ToggleSwitch
+                v-model="mileageRatesDraft.standardUsesTierRates"
+                compact
+                :disabled="mileageRatesLoading || savingMileageRates || !agencyForm.featureFlags.otherMileageTierRatesEnabled"
+              />
+            </div>
+            <small class="hint">
+              Other Mileage uses the flat rate unless the agency has tiered Other Mileage enabled and this setting is on.
+            </small>
           </div>
 
           <div
@@ -3269,6 +3291,10 @@
                 <input v-model="mileageRatesDraft.tier3" class="filters-input" type="number" step="0.0001" min="0" :disabled="mileageRatesLoading || savingMileageRates" />
               </div>
               <div class="filters-group">
+                <label class="filters-label">Other Mileage ($/mile)</label>
+                <input v-model="mileageRatesDraft.standard" class="filters-input" type="number" step="0.0001" min="0" :disabled="mileageRatesLoading || savingMileageRates || mileageRatesDraft.standardUsesTierRates" />
+              </div>
+              <div class="filters-group">
                 <button type="button" class="btn btn-secondary btn-sm" @click="loadMileageRates" :disabled="mileageRatesLoading || !editingAgency?.id">
                   {{ mileageRatesLoading ? 'Loading…' : 'Reload' }}
                 </button>
@@ -3279,6 +3305,17 @@
                 </button>
               </div>
             </div>
+            <div class="toggle-row" style="margin-top: 10px;">
+              <span>Use tier rates for Other Mileage</span>
+              <ToggleSwitch
+                v-model="mileageRatesDraft.standardUsesTierRates"
+                compact
+                :disabled="mileageRatesLoading || savingMileageRates || !agencyForm.featureFlags.otherMileageTierRatesEnabled"
+              />
+            </div>
+            <p class="section-description" style="margin-top: 6px;">
+              Other Mileage uses the flat rate unless tiered Other Mileage is enabled for this agency and selected here.
+            </p>
 
             <div class="settings-section-divider" style="margin-top: 18px;">
               <h4>PTO Policy (Sick Leave + Training PTO)</h4>
@@ -4523,7 +4560,7 @@ const saveOtherRateTitles = async () => {
 const mileageRatesLoading = ref(false);
 const savingMileageRates = ref(false);
 const mileageRatesError = ref('');
-const mileageRatesDraft = ref({ tier1: 0, tier2: 0, tier3: 0 });
+const mileageRatesDraft = ref({ tier1: 0, tier2: 0, tier3: 0, standard: 0, standardUsesTierRates: false });
 const mileageRatesLoadedAgencyId = ref(null);
 
 // Med Cancel policy (agency-only; rates + pay service code)
@@ -5858,11 +5895,14 @@ const loadMileageRates = async () => {
     mileageRatesError.value = '';
     const resp = await api.get('/payroll/mileage-rates', { params: { agencyId: editingAgency.value.id } });
     const rates = resp.data?.rates || [];
+    const settings = resp.data?.settings || {};
     const byTier = new Map((rates || []).map((r) => [Number(r.tierLevel), Number(r.ratePerMile || 0)]));
     mileageRatesDraft.value = {
       tier1: byTier.get(1) || 0,
       tier2: byTier.get(2) || 0,
-      tier3: byTier.get(3) || 0
+      tier3: byTier.get(3) || 0,
+      standard: Number(settings.standardMileageRatePerMile || 0),
+      standardUsesTierRates: !!settings.standardMileageUsesTierRates
     };
     mileageRatesLoadedAgencyId.value = Number(editingAgency.value.id) || null;
   } catch (e) {
@@ -5880,12 +5920,15 @@ const saveMileageRates = async () => {
     const t1 = Number(mileageRatesDraft.value.tier1 || 0);
     const t2 = Number(mileageRatesDraft.value.tier2 || 0);
     const t3 = Number(mileageRatesDraft.value.tier3 || 0);
+    const standard = Number(mileageRatesDraft.value.standard || 0);
     await api.put('/payroll/mileage-rates', {
       rates: [
         { tierLevel: 1, ratePerMile: t1 },
         { tierLevel: 2, ratePerMile: t2 },
         { tierLevel: 3, ratePerMile: t3 }
-      ]
+      ],
+      standardMileageRatePerMile: standard,
+      standardMileageUsesTierRates: !!mileageRatesDraft.value.standardUsesTierRates
     }, { params: { agencyId: editingAgency.value.id } });
     await loadMileageRates();
   } catch (e) {
@@ -6396,6 +6439,7 @@ const defaultAgencyForm = () => ({
 
     // Payroll: when enabled, users with has_payroll_access can access Payroll (off by default)
     payrollEnabled: false,
+    otherMileageTierRatesEnabled: false,
     // Onboarding packages, checklists, field defs, digital forms in Settings (off by default)
     onboardingTrainingEnabled: false,
     // Hiring: when enabled, users with has_hiring_access can access Hiring (off by default)
@@ -7796,6 +7840,7 @@ const editAgency = async (agency) => {
       momentumListEnabled: featureFlags.momentumListEnabled === true,
       budgetManagementEnabled: featureFlags.budgetManagementEnabled === true,
       payrollEnabled: featureFlags.payrollEnabled === true,
+      otherMileageTierRatesEnabled: featureFlags.otherMileageTierRatesEnabled === true,
       hiringEnabled: featureFlags.hiringEnabled === true,
       onboardingTrainingEnabled: featureFlags.onboardingTrainingEnabled === true,
 
@@ -7873,7 +7918,7 @@ const editAgency = async (agency) => {
   officeLocationsLoadedAgencyId.value = null;
   mileageRatesError.value = '';
   officeLocationsError.value = '';
-  mileageRatesDraft.value = { tier1: 0, tier2: 0, tier3: 0 };
+  mileageRatesDraft.value = { tier1: 0, tier2: 0, tier3: 0, standard: 0, standardUsesTierRates: false };
   officeLocations.value = [];
   officeLocationEdits.value = {};
 

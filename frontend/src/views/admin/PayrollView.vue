@@ -2376,7 +2376,7 @@
                       <th>Submitted by</th>
                       <th>Date</th>
                       <th class="right">Eligible miles</th>
-                      <th class="right">Tier</th>
+                      <th class="right">Rate / Tier</th>
                       <th class="right">Pay period</th>
                       <th class="right">Est.</th>
                       <th class="right">Actions</th>
@@ -2392,11 +2392,12 @@
                         {{ fmtNum(Number(c.eligible_miles ?? c.miles ?? 0)) }}
                       </td>
                       <td class="right">
-                        <select v-model="mileageTierByClaimId[c.id]" :disabled="approvingMileageClaimId === c.id">
+                        <select v-if="mileageClaimUsesTierRate(c)" v-model="mileageTierByClaimId[c.id]" :disabled="approvingMileageClaimId === c.id">
                           <option :value="1">Tier 1</option>
                           <option :value="2">Tier 2</option>
                           <option :value="3">Tier 3</option>
                         </select>
+                        <span v-else>{{ fmtMoney(mileageStandardRatePerMile) }}/mi</span>
                       </td>
                       <td class="right">
                         <select v-model="mileageTargetPeriodByClaimId[c.id]" :disabled="approvingMileageClaimId === c.id">
@@ -2764,6 +2765,7 @@
                       <th class="right">New balance</th>
                       <th>First date</th>
                       <th>Proof</th>
+                      <th class="right">Pay period</th>
                       <th class="right">Actions</th>
                     </tr>
                   </thead>
@@ -2799,8 +2801,17 @@
                         <span v-else class="muted">—</span>
                       </td>
                       <td class="right">
+                        <select v-model="ptoTargetPeriodByRequestId[r.id]" :disabled="approvingPtoRequestId === r.id">
+                          <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                        </select>
+                      </td>
+                      <td class="right">
                         <div class="actions" style="justify-content: flex-end; margin: 0;">
-                          <button class="btn btn-primary btn-sm" @click="approvePtoRequest(r)" :disabled="approvingPtoRequestId === r.id">
+                          <button
+                            class="btn btn-primary btn-sm"
+                            @click="approvePtoRequest(r)"
+                            :disabled="approvingPtoRequestId === r.id || !isValidTargetPeriodId(ptoTargetPeriodByRequestId[r.id]) || isTargetPeriodLocked(ptoTargetPeriodByRequestId[r.id])"
+                          >
                             {{ approvingPtoRequestId === r.id ? 'Approving…' : 'Approve' }}
                           </button>
                           <button class="btn btn-secondary btn-sm" @click="returnPtoRequest(r)" :disabled="approvingPtoRequestId === r.id">
@@ -5671,9 +5682,19 @@
             <!-- meeting_training / mentor_cpa_meeting -->
             <template v-else-if="reviewedTimeClaim.claim_type === 'meeting_training' || reviewedTimeClaim.claim_type === 'mentor_cpa_meeting'">
               <div class="field-row" style="grid-template-columns: 1fr 1fr;">
+                <div class="field"><label>Attendance Type</label><div>{{ reviewedTimeClaim.payload?.meetingType || '—' }}</div></div>
                 <div class="field"><label>Total Minutes</label><div>{{ reviewedTimeClaim.payload?.totalMinutes ?? '—' }}</div></div>
-                <div class="field"><label>Meeting Date</label><div>{{ reviewedTimeClaim.payload?.meetingDate || '—' }}</div></div>
               </div>
+              <div class="field-row" style="grid-template-columns: 1fr 1fr;">
+                <div class="field"><label>Start Time</label><div>{{ reviewedTimeClaim.payload?.startTime || '—' }}</div></div>
+                <div class="field"><label>End Time</label><div>{{ reviewedTimeClaim.payload?.endTime || '—' }}</div></div>
+              </div>
+              <template v-if="String(reviewedTimeClaim.payload?.meetingType || '').trim() === 'Outreach'">
+                <div class="field-row" style="grid-template-columns: 1fr 1fr;">
+                  <div class="field"><label>Approved By</label><div>{{ reviewedTimeClaim.payload?.approvedBy || '—' }}</div></div>
+                  <div class="field"><label>Locations Visited</label><div style="white-space: pre-wrap;">{{ reviewedTimeClaim.payload?.outreachLocations || '—' }}</div></div>
+                </div>
+              </template>
               <div class="field" v-if="reviewedTimeClaim.payload?.googleMeetLink">
                 <label>Google Meet Link</label>
                 <div><a :href="reviewedTimeClaim.payload.googleMeetLink" target="_blank" rel="noopener noreferrer">{{ reviewedTimeClaim.payload.googleMeetLink }}</a></div>
@@ -6181,7 +6202,7 @@ const previewAdjustmentsError = ref('');
 const mileageRatesLoading = ref(false);
 const savingMileageRates = ref(false);
 const mileageRatesError = ref('');
-const mileageRatesDraft = ref({ tier1: 0, tier2: 0, tier3: 0 });
+const mileageRatesDraft = ref({ tier1: 0, tier2: 0, tier3: 0, standard: 0, standardUsesTierRates: false });
 
 const pendingMileageClaims = ref([]);
 const pendingMileageLoading = ref(false);
@@ -6240,6 +6261,7 @@ const pendingPtoLoading = ref(false);
 const pendingPtoError = ref('');
 const approvingPtoRequestId = ref(null);
 const ptoBalancesByUserId = ref({}); // userId -> { sickHours, trainingHours }
+const ptoTargetPeriodByRequestId = ref({});
 const pendingPtoMode = ref('period'); // 'period' | 'all'
 
 const serviceCodeRules = ref([]);
@@ -7512,7 +7534,7 @@ const splitSummary = (c) => {
 
 const timeTypeLabel = (c) => {
   const t = String(c?.claim_type || '').toLowerCase();
-  if (t === 'meeting_training') return 'Meeting/Training';
+  if (t === 'meeting_training') return 'Meeting/Training/Outreach';
   if (t === 'mentor_cpa_meeting') return 'Mentor/CPA Meeting';
   if (t === 'excess_holiday') return 'Excess time';
   if (t === 'service_correction') return 'Service correction';
@@ -8017,6 +8039,22 @@ const isPtoRequestInSelectedPeriod = (r) => {
   });
 };
 
+const ptoDefaultTargetPeriodId = (r) => {
+  const items = Array.isArray(r?.items) ? r.items : [];
+  const firstDate = items
+    .map((it) => String(it?.request_date || it?.requestDate || '').slice(0, 10))
+    .filter(Boolean)
+    .sort()[0] || '';
+  const containing = firstDate
+    ? (periods.value || []).find((p) => {
+        const start = String(p?.period_start || '').slice(0, 10);
+        const end = String(p?.period_end || '').slice(0, 10);
+        return start && end && firstDate >= start && firstDate <= end;
+      })
+    : null;
+  return Number(containing?.id || selectedPeriodId.value || 0) || null;
+};
+
 const fetchAllPendingPtoRequests = async () => {
   if (!agencyId.value) return;
   try {
@@ -8026,6 +8064,11 @@ const fetchAllPendingPtoRequests = async () => {
       params: { agencyId: agencyId.value, status: 'submitted' }
     });
     pendingPtoRequests.value = (resp.data || []).filter((r) => !!r && typeof r === 'object');
+    const nextTarget = { ...(ptoTargetPeriodByRequestId.value || {}) };
+    for (const r of pendingPtoRequests.value || []) {
+      if (!nextTarget[r.id]) nextTarget[r.id] = ptoDefaultTargetPeriodId(r);
+    }
+    ptoTargetPeriodByRequestId.value = nextTarget;
 
     // Fetch balances for preview (starting balance / projected balance).
     const ids = Array.from(
@@ -8086,11 +8129,20 @@ const ptoBalancePreviewForRequest = (r) => {
 
 const approvePtoRequest = async (r) => {
   if (!r?.id) return;
+  const targetPayrollPeriodId = Number(ptoTargetPeriodByRequestId.value?.[r.id] || 0);
+  if (!Number.isFinite(targetPayrollPeriodId) || targetPayrollPeriodId <= 0) {
+    pendingPtoError.value = 'Choose a target pay period for this PTO request.';
+    return;
+  }
+  if (isTargetPeriodLocked(targetPayrollPeriodId)) {
+    pendingPtoError.value = 'Target pay period is posted (locked). Choose an open pay period.';
+    return;
+  }
   try {
     approvingPtoRequestId.value = r.id;
     pendingPtoError.value = '';
     try {
-      await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'approve' });
+      await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'approve', targetPayrollPeriodId });
     } catch (e) {
       const status = e.response?.status || 0;
       const msg = e.response?.data?.error?.message || e.message || '';
@@ -8103,13 +8155,13 @@ const approvePtoRequest = async (r) => {
           `${msg}\n\nApprove anyway using an admin override? (This can result in a negative PTO balance.)`
         );
         if (!ok) throw e;
-        await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'approve', overrideBalance: true });
+        await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'approve', targetPayrollPeriodId, overrideBalance: true });
       } else if ((status === 409 || status === 500) && looksLikeDeadline) {
         const ok = window.confirm(
           `${msg || 'This request was submitted after the cutoff for the intended pay period.'}\n\nApprove anyway using an admin override?`
         );
         if (!ok) throw e;
-        await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'approve', overrideDeadline: true });
+        await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'approve', targetPayrollPeriodId, overrideDeadline: true });
       } else {
         throw e;
       }
@@ -8946,6 +8998,16 @@ const mileageRateForTier = (tierLevel) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+const mileageStandardRatePerMile = computed(() => {
+  const n = Number(mileageRatesDraft.value?.standard || 0);
+  return Number.isFinite(n) ? n : 0;
+});
+
+const mileageClaimUsesTierRate = (c) => {
+  return String(c?.claim_type || '').toLowerCase() === 'school_travel'
+    || mileageRatesDraft.value?.standardUsesTierRates === true;
+};
+
 const billableMilesForClaim = (c) => {
   const claimType = String(c?.claim_type || '').toLowerCase();
   const eligibleMiles = Number(c?.eligible_miles ?? c?.miles ?? 0);
@@ -8956,16 +9018,18 @@ const billableMilesForClaim = (c) => {
 };
 
 const estimateMileageAmount = (c) => {
-  const tierLevel = Number(mileageTierByClaimId.value?.[c?.id] || c?.tier_level || 0);
-  const rate = mileageRateForTier(tierLevel);
+  const rate = mileageClaimUsesTierRate(c)
+    ? mileageRateForTier(Number(mileageTierByClaimId.value?.[c?.id] || c?.tier_level || 0))
+    : mileageStandardRatePerMile.value;
   const miles = billableMilesForClaim(c);
   if (!(rate > 0) || !(miles > 0)) return null;
   return Math.round((miles * rate) * 100) / 100;
 };
 
 const estimateMileageDisplay = (c) => {
-  const tierLevel = Number(mileageTierByClaimId.value?.[c?.id] || c?.tier_level || 0);
-  const rate = mileageRateForTier(tierLevel);
+  const rate = mileageClaimUsesTierRate(c)
+    ? mileageRateForTier(Number(mileageTierByClaimId.value?.[c?.id] || c?.tier_level || 0))
+    : mileageStandardRatePerMile.value;
   if (!(rate > 0)) return '—';
   const est = estimateMileageAmount(c);
   return est !== null ? fmtMoney(est) : '—';
@@ -8973,8 +9037,13 @@ const estimateMileageDisplay = (c) => {
 
 const estimateMileageTitle = (c) => {
   const tierLevel = Number(mileageTierByClaimId.value?.[c?.id] || c?.tier_level || 0);
-  const rate = mileageRateForTier(tierLevel);
-  if (!(rate > 0)) return `Tier ${tierLevel || '—'} mileage rate is not configured`;
+  const usesTierRate = mileageClaimUsesTierRate(c);
+  const rate = usesTierRate ? mileageRateForTier(tierLevel) : mileageStandardRatePerMile.value;
+  if (!(rate > 0)) {
+    return usesTierRate
+      ? `Tier ${tierLevel || '—'} mileage rate is not configured`
+      : 'Other Mileage agency rate is not configured';
+  }
   const miles = billableMilesForClaim(c);
   if (!(miles > 0)) return 'No billable miles';
   return `Estimated = ${fmtNum(miles)} mi × ${fmtMoney(rate)}/mi`;
@@ -9344,11 +9413,14 @@ const loadMileageRates = async () => {
     mileageRatesError.value = '';
     const resp = await api.get('/payroll/mileage-rates', { params: { agencyId: agencyId.value } });
     const rates = resp.data?.rates || [];
+    const settings = resp.data?.settings || {};
     const byTier = new Map((rates || []).map((r) => [Number(r.tierLevel), Number(r.ratePerMile || 0)]));
     mileageRatesDraft.value = {
       tier1: byTier.get(1) || 0,
       tier2: byTier.get(2) || 0,
-      tier3: byTier.get(3) || 0
+      tier3: byTier.get(3) || 0,
+      standard: Number(settings.standardMileageRatePerMile || 0),
+      standardUsesTierRates: !!settings.standardMileageUsesTierRates
     };
   } catch (e) {
     mileageRatesError.value = e.response?.data?.error?.message || e.message || 'Failed to load mileage rates';
@@ -9365,12 +9437,15 @@ const saveMileageRates = async () => {
     const t1 = Number(mileageRatesDraft.value.tier1 || 0);
     const t2 = Number(mileageRatesDraft.value.tier2 || 0);
     const t3 = Number(mileageRatesDraft.value.tier3 || 0);
+    const standard = Number(mileageRatesDraft.value.standard || 0);
     await api.put('/payroll/mileage-rates', {
       rates: [
         { tierLevel: 1, ratePerMile: t1 },
         { tierLevel: 2, ratePerMile: t2 },
         { tierLevel: 3, ratePerMile: t3 }
-      ]
+      ],
+      standardMileageRatePerMile: standard,
+      standardMileageUsesTierRates: !!mileageRatesDraft.value.standardUsesTierRates
     }, { params: { agencyId: agencyId.value } });
     await loadMileageRates();
   } catch (e) {
@@ -9464,7 +9539,8 @@ const approveMileageClaim = async (c) => {
   try {
     approvingMileageClaimId.value = c.id;
     pendingMileageError.value = '';
-    const tierLevel = Number(mileageTierByClaimId.value?.[c.id] || 1);
+    const usesTierRate = mileageClaimUsesTierRate(c);
+    const tierLevel = usesTierRate ? Number(mileageTierByClaimId.value?.[c.id] || 1) : null;
     const targetPayrollPeriodId = Number(mileageTargetPeriodByClaimId.value?.[c.id] || selectedPeriodId.value);
     if (isTargetPeriodLocked(targetPayrollPeriodId)) {
       pendingMileageError.value = 'Target pay period is posted (locked). Choose an open pay period.';
