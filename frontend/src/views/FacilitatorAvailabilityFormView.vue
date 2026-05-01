@@ -15,7 +15,12 @@
 
       <!-- ── Header ─────────────────────────────────────────────── -->
       <div class="faf-header">
-        <h1 class="faf-title">{{ form.title }}</h1>
+        <div class="faf-header-top">
+          <h1 class="faf-title">{{ form.title }}</h1>
+          <button type="button" class="faf-share-btn" :class="{ 'faf-share-btn--copied': linkCopied }" @click="copyShareLink">
+            {{ linkCopied ? '✓ Copied!' : '🔗 Share Link' }}
+          </button>
+        </div>
         <p v-if="form.subtitle" class="faf-subtitle">{{ form.subtitle }}</p>
         <p v-if="form.description" class="faf-desc">{{ form.description }}</p>
         <div v-if="form.deadline" class="faf-deadline">
@@ -52,7 +57,7 @@
           Preferred Locations
         </div>
         <p class="faf-loc-intro">
-          Rank the locations you prefer. Each date below shows which locations and sessions are available that day.
+          Rank the locations you prefer (1 = most preferred). Assignments are made based on your availability and preference — you will be assigned to one location.
         </p>
         <div class="faf-loc-rank-list">
           <div
@@ -68,7 +73,17 @@
               <option value="">—</option>
               <option v-for="n in locationRankingItems.length" :key="n" :value="n">{{ n }}</option>
             </select>
-            <span class="faf-loc-name">{{ item.label }}</span>
+            <div class="faf-loc-info">
+              <span class="faf-loc-name">{{ item.label }}</span>
+              <span v-if="item.address" class="faf-loc-address">{{ item.address }}</span>
+              <span
+                v-if="locationDistances[item.label]?.distance"
+                class="faf-loc-dist"
+              >
+                {{ locationDistances[item.label].distance }} away
+                <span v-if="locationDistances[item.label].duration">(~{{ locationDistances[item.label].duration }} drive)</span>
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -108,8 +123,11 @@
               </div>
               <div v-if="ud.locations.length" class="faf-date-context-row">
                 <span class="faf-date-context-label">Locations</span>
-                <span class="faf-chip" v-for="loc in ud.locations" :key="`loc-${ud.date}-${loc}`">{{ loc }}</span>
+                <span class="faf-chip faf-chip--info" v-for="loc in ud.locations" :key="`loc-${ud.date}-${loc}`">{{ loc }}</span>
               </div>
+              <p v-if="ud.locations.length" class="faf-loc-info-note">
+                Locations shown for reference only — we will assign you based on your availability and location preference above.
+              </p>
             </div>
 
             <!-- Primary preference -->
@@ -217,6 +235,11 @@ const saving = ref(false);
 const submitting = ref(false);
 const saveMsg = ref('');
 const saveError = ref(false);
+
+// Distances: label → { label, address, distance, duration }
+const locationDistances = ref({});
+// Share link copy state
+const linkCopied = ref(false);
 
 const PREF_OPTIONS = [
   { value: 'slot',        label: 'Want a Slot' },
@@ -332,19 +355,40 @@ const formDateRange = computed(() => {
   return first === last ? fmtDate(first) : `${fmtDate(first)} – ${fmtDate(last)}`;
 });
 
+// ── Address map: location label → address string ──────────────────────────────
+const locationAddresses = computed(() => {
+  const map = {};
+  for (const ev of form.value?.events || []) {
+    for (const sd of ev.session_dates || []) {
+      const label = displayLocation(ev, sd);
+      if (sd.location_address && label && !map[label]) {
+        map[label] = sd.location_address;
+      }
+    }
+  }
+  return map;
+});
+
 // ── Location ranking items ────────────────────────────────────────────────────
-// Build a flat list of locations to rank:
-//  • If there are multiple events, each event is its own location (ranked by session-date location label/title).
-//  • If there's only one event but it has multiple locations_json entries, rank those.
+// Deduplicated: one entry per unique location label.
 const locationRankingItems = computed(() => {
   const events = form.value?.events || [];
   if (events.length > 1) {
-    return events.map((ev) => ({
-      key: `ev__${ev.id}`,
-      label: eventLocationLabel(ev),
-      requestEventId: ev.id,
-      location: eventLocationLabel(ev)
-    }));
+    const seen = new Set();
+    const items = [];
+    for (const ev of events) {
+      const label = eventLocationLabel(ev);
+      if (seen.has(label)) continue;
+      seen.add(label);
+      items.push({
+        key: `ev__${label}`,
+        label,
+        address: locationAddresses.value[label] || null,
+        requestEventId: ev.id,
+        location: label
+      });
+    }
+    return items;
   }
   if (events.length === 1) {
     const locs = events[0].locations_json || [];
@@ -352,6 +396,7 @@ const locationRankingItems = computed(() => {
       return locs.map((loc, i) => ({
         key: `loc__${events[0].id}__${i}`,
         label: loc,
+        address: locationAddresses.value[loc] || null,
         requestEventId: events[0].id,
         location: loc
       }));
@@ -449,6 +494,8 @@ const load = async () => {
       hydrateSubmission(r.data.submission);
       resolveLocationRanks();
     }
+    // Load distances in the background — non-blocking
+    loadDistances();
   } catch (e) {
     if (e?.response?.status === 401) {
       loadError.value = 'You must be logged in to fill out this form. Please log in and try again.';
@@ -459,6 +506,33 @@ const load = async () => {
     }
   } finally {
     loading.value = false;
+  }
+};
+
+// ── Load distances from Google Maps (optional — silently skips on error) ──────
+const loadDistances = async () => {
+  if (!requestId) return;
+  try {
+    const r = await api.get(`/facilitator-availability/${requestId}/location-distances`);
+    const map = {};
+    for (const item of (r.data || [])) {
+      if (item.label) map[item.label] = item;
+    }
+    locationDistances.value = map;
+  } catch {
+    // Distance lookup is best-effort; don't surface errors to the user
+  }
+};
+
+// ── Copy shareable link ───────────────────────────────────────────────────────
+const copyShareLink = async () => {
+  const url = window.location.href;
+  try {
+    await navigator.clipboard.writeText(url);
+    linkCopied.value = true;
+    setTimeout(() => { linkCopied.value = false; }, 2500);
+  } catch {
+    window.prompt('Copy this link to share the form:', url);
   }
 };
 
@@ -483,12 +557,17 @@ const buildPayload = (isSubmit) => {
     }
   }
 
-  const ranks = locationRankingItems.value
-    .map((item) => {
-      const r = locationRanks.value[item.key];
-      return r ? { requestEventId: item.requestEventId, location: item.location, rankOrder: Number(r) } : null;
-    })
-    .filter(Boolean);
+  // Fan each deduplicated rank out to every event that shares the same location label
+  const ranks = [];
+  for (const item of locationRankingItems.value) {
+    const r = locationRanks.value[item.key];
+    if (!r) continue;
+    for (const ev of form.value?.events || []) {
+      if (eventLocationLabel(ev) === item.label) {
+        ranks.push({ requestEventId: ev.id, location: item.location, rankOrder: Number(r) });
+      }
+    }
+  }
 
   return {
     generalNotes: myGeneralNotes.value.trim() || null,
@@ -540,7 +619,16 @@ onMounted(load);
 
 /* Header */
 .faf-header { margin-bottom: 20px; }
-.faf-title { font-size: 1.7rem; font-weight: 800; color: #0f172a; margin: 0 0 6px; }
+.faf-header-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.faf-title { font-size: 1.7rem; font-weight: 800; color: #0f172a; margin: 0; }
+.faf-share-btn {
+  flex-shrink: 0;
+  border: 1px solid #cbd5e1; border-radius: 8px; padding: 7px 14px;
+  font-size: .82rem; font-weight: 600; cursor: pointer; background: #fff;
+  color: #475569; transition: all .12s; white-space: nowrap;
+}
+.faf-share-btn:hover { background: #f1f5f9; border-color: #94a3b8; }
+.faf-share-btn--copied { background: #dcfce7; border-color: #86efac; color: #166534; }
 .faf-subtitle { font-size: 1rem; color: #475569; margin: 0 0 8px; }
 .faf-desc { color: #64748b; font-size: .93rem; margin: 0 0 12px; white-space: pre-wrap; }
 .faf-deadline {
@@ -629,7 +717,10 @@ onMounted(load);
   font-size: .78rem;
   font-weight: 600;
   color: #334155;
+  cursor: default;
+  user-select: none;
 }
+.faf-chip--info { cursor: default; }
 
 /* Slot badge */
 .faf-slot-badge {
@@ -672,10 +763,14 @@ onMounted(load);
 
 /* Location ranking */
 .faf-loc-intro { font-size: .88rem; color: #475569; margin: 0 0 14px; }
-.faf-loc-rank-list { display: grid; gap: 10px; }
-.faf-loc-rank-row { display: flex; align-items: center; gap: 12px; }
-.faf-rank-select { width: 68px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 8px; font-size: .9rem; }
-.faf-loc-name { color: #0f172a; font-size: .93rem; font-weight: 500; }
+.faf-loc-rank-list { display: grid; gap: 12px; }
+.faf-loc-rank-row { display: flex; align-items: flex-start; gap: 12px; }
+.faf-rank-select { width: 68px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 8px; font-size: .9rem; flex-shrink: 0; margin-top: 2px; }
+.faf-loc-info { display: flex; flex-direction: column; gap: 2px; }
+.faf-loc-name { color: #0f172a; font-size: .93rem; font-weight: 600; }
+.faf-loc-address { font-size: .8rem; color: #64748b; }
+.faf-loc-dist { font-size: .78rem; color: #0284c7; font-weight: 500; }
+.faf-loc-info-note { font-size: .75rem; color: #94a3b8; margin: 4px 0 0; font-style: italic; }
 
 /* General notes */
 .faf-input { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 12px; font-size: .9rem; color: #0f172a; box-sizing: border-box; }

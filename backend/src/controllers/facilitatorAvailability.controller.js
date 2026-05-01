@@ -1,6 +1,8 @@
 import pool from '../config/database.js';
 import Notification from '../models/Notification.model.js';
 import { listAgencyIdsInTenantTree } from '../utils/meDashboardTenantScope.js';
+import config from '../config/config.js';
+import https from 'https';
 
 const parseId = (raw) => {
   const n = Number.parseInt(String(raw ?? ''), 10);
@@ -1105,6 +1107,91 @@ export const listAgencyEvents = async (req, res, next) => {
     }));
 
     res.json([...ceRows, ...programs]);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ── getLocationDistances ───────────────────────────────────────────────────────
+// Returns driving distance/duration from the authenticated user's home address
+// to each unique (label, address) pair in the request's session dates.
+export const getLocationDistances = async (req, res, next) => {
+  try {
+    const requestId = parseId(req.params.requestId);
+    const userId    = req.user?.id;
+    if (!requestId || !userId) return res.status(400).json({ error: 'Bad request' });
+
+    // Pull unique location addresses from the request
+    const [locRows] = await pool.execute(
+      `SELECT DISTINCT cesd.location_label, cesd.location_address
+       FROM facilitator_availability_request_events fare
+       JOIN company_event_session_dates cesd ON cesd.company_event_id = fare.company_event_id
+       WHERE fare.request_id = ?
+         AND cesd.location_address IS NOT NULL
+         AND cesd.location_address <> ''`,
+      [requestId]
+    );
+
+    // Get user home address
+    const [[userRow]] = await pool.execute(
+      `SELECT home_street_address, home_address_line2, home_city, home_state, home_postal_code
+       FROM users WHERE id = ? LIMIT 1`,
+      [userId]
+    );
+
+    const origin = [
+      userRow?.home_street_address,
+      userRow?.home_city,
+      userRow?.home_state,
+      userRow?.home_postal_code
+    ].filter(Boolean).join(', ');
+
+    // If no API key or no home address, return locations without distance
+    const apiKey = config?.googleMaps?.apiKey;
+    if (!apiKey || !origin || !locRows.length) {
+      return res.json(locRows.map(r => ({
+        label:    r.location_label,
+        address:  r.location_address,
+        distance: null,
+        duration: null
+      })));
+    }
+
+    // Deduplicate by address
+    const unique = [];
+    const seen = new Set();
+    for (const r of locRows) {
+      const addr = String(r.location_address || '').trim();
+      if (addr && !seen.has(addr)) {
+        seen.add(addr);
+        unique.push(r);
+      }
+    }
+
+    // Call Google Distance Matrix API
+    const destinations = unique.map(r => encodeURIComponent(r.location_address)).join('|');
+    const originEnc    = encodeURIComponent(origin);
+    const gmUrl = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${originEnc}&destinations=${destinations}&mode=driving&units=imperial&key=${apiKey}`;
+
+    const gmData = await new Promise((resolve, reject) => {
+      https.get(gmUrl, (gmRes) => {
+        let body = '';
+        gmRes.on('data', d => { body += d; });
+        gmRes.on('end', () => {
+          try { resolve(JSON.parse(body)); } catch (e) { reject(e); }
+        });
+      }).on('error', reject);
+    });
+
+    const elements = gmData?.rows?.[0]?.elements || [];
+    const result = unique.map((r, i) => ({
+      label:    r.location_label,
+      address:  r.location_address,
+      distance: elements[i]?.distance?.text || null,
+      duration: elements[i]?.duration?.text || null
+    }));
+
+    res.json(result);
   } catch (err) {
     next(err);
   }

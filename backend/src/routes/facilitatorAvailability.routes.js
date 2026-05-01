@@ -14,13 +14,15 @@ import {
   getSchedulingData,
   setSlotOverride,
   assignFacilitator,
-  unassignFacilitator
+  unassignFacilitator,
+  getLocationDistances
 } from '../controllers/facilitatorAvailability.controller.js';
 
 // ── Employee routes — mounted at /api/facilitator-availability ────────────────
 export const employeeRouter = express.Router();
 employeeRouter.use(authenticate);
 employeeRouter.get('/my-pending', listMyPending);
+employeeRouter.get('/:requestId/location-distances', getLocationDistances);
 employeeRouter.get('/:requestId', getRequestForEmployee);
 employeeRouter.post('/:requestId/submit', submitResponse);
 
