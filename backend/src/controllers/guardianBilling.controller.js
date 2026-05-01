@@ -59,7 +59,7 @@ export const getDependentsSummary = async (req, res, next) => {
               cg.relationship_type, cg.permissions_json
        FROM client_guardians cg
        JOIN clients c ON c.id = cg.client_id
-       WHERE cg.guardian_user_id = ? AND c.agency_id = ? AND cg.is_active = 1
+       WHERE cg.guardian_user_id = ? AND c.agency_id = ? AND cg.access_enabled = 1
        ORDER BY c.full_name ASC`,
       [guardianUserId, agencyId]
     );

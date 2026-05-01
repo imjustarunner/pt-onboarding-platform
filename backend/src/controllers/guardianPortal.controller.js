@@ -994,8 +994,16 @@ async function assertGuardianHasAgencyAccess(guardianUserId, agencyId) {
   const gid = Number(guardianUserId);
   const aid = Number(agencyId);
   if (!gid || !aid) return false;
-  const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: gid });
-  return (linked || []).some((c) => Number(c.agency_id) === aid);
+  // Check directly — guardian_portal_enabled can be unset for legacy clients so we only
+  // require the link row to be access_enabled.
+  const [rows] = await pool.execute(
+    `SELECT 1 FROM client_guardians cg
+     JOIN clients c ON c.id = cg.client_id
+     WHERE cg.guardian_user_id = ? AND c.agency_id = ? AND cg.access_enabled = 1
+     LIMIT 1`,
+    [gid, aid]
+  );
+  return rows.length > 0;
 }
 
 /** GET /api/guardian-portal/dependents?agencyId= */
@@ -1010,19 +1018,29 @@ export const listGuardianDependentsForAgency = async (req, res, next) => {
     if (!(await assertGuardianHasAgencyAccess(uid, agencyId))) {
       return res.status(403).json({ error: { message: 'No linked dependents for this agency' } });
     }
-    const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: uid });
-    const dependents = (linked || [])
-      .filter((c) => Number(c.agency_id) === agencyId)
-      .filter((c) => String(c?.relationship_type || '').toLowerCase() !== 'self')
-      .map((c) => ({
-        clientId: Number(c.client_id),
-        initials: c.initials || null,
-        fullName: c.full_name ? String(c.full_name).trim() || null : null,
-        grade: c.grade ?? null,
-        organizationId: Number(c.organization_id) || null,
-        organizationName: c.organization_name || null,
-        relationshipTitle: c.relationship_title || null
-      }));
+    const [depRows] = await pool.execute(
+      `SELECT c.id AS client_id, c.initials, c.full_name, c.grade,
+              c.organization_id,
+              o.name AS organization_name,
+              cg.relationship_type, cg.relationship_title
+       FROM client_guardians cg
+       JOIN clients c ON c.id = cg.client_id
+       LEFT JOIN agencies o ON o.id = c.organization_id
+       WHERE cg.guardian_user_id = ? AND c.agency_id = ?
+         AND cg.access_enabled = 1
+         AND COALESCE(cg.relationship_type, 'guardian') != 'self'
+       ORDER BY c.full_name ASC`,
+      [uid, agencyId]
+    );
+    const dependents = (depRows || []).map((c) => ({
+      clientId: Number(c.client_id),
+      initials: c.initials || null,
+      fullName: c.full_name ? String(c.full_name).trim() || null : null,
+      grade: c.grade ?? null,
+      organizationId: Number(c.organization_id) || null,
+      organizationName: c.organization_name || null,
+      relationshipTitle: c.relationship_title || null
+    }));
     res.json({ ok: true, dependents });
   } catch (e) {
     next(e);
