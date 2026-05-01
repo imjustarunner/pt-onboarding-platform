@@ -465,10 +465,12 @@ export const getRequestForEmployee = async (req, res, next) => {
       );
 
       const [overrides] = await pool.execute(
-        `SELECT faso.session_date_id, faso.slot_count
+        `SELECT cesd.id AS session_date_id, faso.slot_count
          FROM facilitator_availability_slot_overrides faso
          JOIN facilitator_availability_request_events fare
            ON fare.company_event_id = faso.company_event_id
+         JOIN company_event_session_dates cesd
+           ON cesd.company_event_id = faso.company_event_id AND cesd.session_date = faso.entry_date
          WHERE fare.request_id = ?`,
         [requestId]
       );
