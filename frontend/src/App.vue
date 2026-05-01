@@ -1408,7 +1408,7 @@
       <MomentumStickiesOverlay v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && momentumListEnabled" />
       <AddStickyFab v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && momentumListEnabled" />
       <AddToStickyContextMenu v-if="isAuthenticated && momentumListEnabled" />
-      <RegistrationPromoToastRail v-if="isAuthenticated" />
+      <!-- <RegistrationPromoToastRail v-if="isAuthenticated" /> -->
       <HelperWidget v-if="isAuthenticated" />
       <BetaFeedbackWidget v-if="isAuthenticated && !isNative" />
       <SuperAdminBuilderPanel v-if="isAuthenticated && brandingStore.isSuperAdmin" />

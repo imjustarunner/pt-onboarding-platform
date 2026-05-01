@@ -458,7 +458,7 @@ export const getRequestForEmployee = async (req, res, next) => {
                 COUNT(DISTINCT cecga.client_id) AS participant_count
          FROM company_event_session_dates cesd
          LEFT JOIN company_event_session_groups cesg ON cesg.session_date_id = cesd.id
-         LEFT JOIN company_event_client_group_assignments cecga ON cecga.session_group_id = cesg.id
+         LEFT JOIN company_event_client_group_assignments cecga ON cecga.group_id = cesg.id
          WHERE cesd.company_event_id IN (${ph})
          GROUP BY cesd.id`,
         ceEventIds
