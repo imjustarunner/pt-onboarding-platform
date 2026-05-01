@@ -52,36 +52,16 @@
         :key="ev.id"
         class="faf-section"
       >
+        <!-- Session header -->
         <div class="faf-session-head">
           <div class="faf-session-name">{{ ev.event_title }}</div>
           <div class="faf-session-range">
             {{ fmtDate(ev.event_date) }}<template v-if="ev.end_date"> – {{ fmtDate(ev.end_date) }}</template>
           </div>
-        </div>
-
-        <!-- Location ranking for this session -->
-        <div v-if="ev.locations_json && ev.locations_json.length > 1" class="faf-loc-rank">
-          <div class="faf-loc-rank-head">Rank your preferred locations <span class="faf-loc-hint">(1 = top choice)</span></div>
-          <div class="faf-loc-rank-list">
-            <div
-              v-for="(loc, locIdx) in ev.locations_json"
-              :key="`loc-${ev.id}-${locIdx}`"
-              class="faf-loc-rank-row"
-            >
-              <select
-                class="faf-rank-select"
-                :value="getRank(ev.id, loc)"
-                @change="setRank(ev.id, loc, $event.target.value)"
-              >
-                <option value="">—</option>
-                <option v-for="n in ev.locations_json.length" :key="n" :value="n">{{ n }}</option>
-              </select>
-              <span class="faf-loc-name">{{ loc }}</span>
-            </div>
+          <!-- Single-location label in header -->
+          <div v-if="ev.locations_json && ev.locations_json.length === 1" class="faf-loc-single">
+            Location: <strong>{{ ev.locations_json[0] }}</strong>
           </div>
-        </div>
-        <div v-else-if="ev.locations_json && ev.locations_json.length === 1" class="faf-loc-single">
-          Location: <strong>{{ ev.locations_json[0] }}</strong>
         </div>
 
         <!-- Date rows -->
@@ -102,13 +82,17 @@
                 <span class="faf-date-full">{{ fmtDate(sd.session_date) }}</span>
                 <span v-if="sd.starts_at" class="faf-date-time">{{ fmtTime(sd.starts_at) }}</span>
               </div>
-              <!-- Slot availability badge -->
-              <div class="faf-slot-badge" :class="sd.openSlots === 0 ? 'faf-slot-badge--full' : 'faf-slot-badge--open'">
-                <template v-if="sd.openSlots === 0">
-                  Full — {{ sd.effectiveSlots }} slots filled
+              <!-- Slot badge — multiply per-date slots by number of locations so the count
+                   reflects total facilitator slots across all sites for this day -->
+              <div
+                class="faf-slot-badge"
+                :class="totalOpenSlots(ev, sd) === 0 ? 'faf-slot-badge--full' : 'faf-slot-badge--open'"
+              >
+                <template v-if="totalOpenSlots(ev, sd) === 0">
+                  Full — {{ totalEffectiveSlots(ev, sd) }} slots filled
                 </template>
                 <template v-else>
-                  {{ sd.openSlots }} of {{ sd.effectiveSlots }} slots open
+                  {{ totalOpenSlots(ev, sd) }} of {{ totalEffectiveSlots(ev, sd) }} slots open
                 </template>
               </div>
             </div>
@@ -123,12 +107,12 @@
                 :class="[
                   `faf-pref-btn--${opt.value}`,
                   { 'faf-pref-btn--active': getPref(ev, sd.session_date) === opt.value },
-                  { 'faf-pref-btn--disabled-slot': opt.value === 'slot' && sd.openSlots === 0 && getPref(ev, sd.session_date) !== 'slot' }
+                  { 'faf-pref-btn--disabled-slot': opt.value === 'slot' && totalOpenSlots(ev, sd) === 0 && getPref(ev, sd.session_date) !== 'slot' }
                 ]"
                 @click="setPref(ev, sd.id, sd.session_date, opt.value)"
               >
                 {{ opt.label }}
-                <span v-if="opt.value === 'slot' && sd.openSlots === 0" class="faf-pref-full-note">(full)</span>
+                <span v-if="opt.value === 'slot' && totalOpenSlots(ev, sd) === 0" class="faf-pref-full-note">(full)</span>
               </button>
             </div>
 
@@ -164,6 +148,31 @@
                 :value="getComment(ev, sd.session_date)"
                 @input="setComment(ev, sd.session_date, $event.target.value)"
               />
+            </div>
+          </div>
+        </div>
+
+        <!-- Location ranking — shown after dates, only when multiple locations -->
+        <div v-if="ev.locations_json && ev.locations_json.length > 1" class="faf-loc-rank">
+          <div class="faf-loc-rank-head">
+            Rank your preferred locations for this session
+            <span class="faf-loc-hint">(1 = top choice)</span>
+          </div>
+          <div class="faf-loc-rank-list">
+            <div
+              v-for="(loc, locIdx) in ev.locations_json"
+              :key="`loc-${ev.id}-${locIdx}`"
+              class="faf-loc-rank-row"
+            >
+              <select
+                class="faf-rank-select"
+                :value="getRank(ev.id, loc)"
+                @change="setRank(ev.id, loc, $event.target.value)"
+              >
+                <option value="">—</option>
+                <option v-for="n in ev.locations_json.length" :key="n" :value="n">{{ n }}</option>
+              </select>
+              <span class="faf-loc-name">{{ loc }}</span>
             </div>
           </div>
         </div>
@@ -305,6 +314,14 @@ const setComment = (evObj, date, value) => {
 const setRank = (eventId, loc, value) => {
   locationRanks.value[rankKey(eventId, loc)] = value ? Number(value) : null;
 };
+
+// Total slots across all locations for a given session date.
+// Each location independently needs effectiveSlots facilitators, so the form
+// shows the aggregate so facilitators understand overall demand.
+const locCount = (ev) => Math.max(1, ev.locations_json?.length || 1);
+const totalEffectiveSlots = (ev, sd) => (sd.effectiveSlots || 2) * locCount(ev);
+const totalFilledSlots = (ev, sd) => (sd.filledSlots || 0) * locCount(ev);
+const totalOpenSlots = (ev, sd) => Math.max(0, totalEffectiveSlots(ev, sd) - totalFilledSlots(ev, sd));
 
 // ── Hydrate existing submission ───────────────────────────────────────────────
 const hydrateSubmission = (submission) => {
@@ -482,8 +499,8 @@ onMounted(load);
 .faf-session-name { font-size: 1.1rem; font-weight: 700; color: #1e3a8a; }
 .faf-session-range { font-size: .85rem; color: #64748b; margin-top: 2px; }
 
-/* Location ranking */
-.faf-loc-rank { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; margin-bottom: 16px; }
+/* Location ranking — shown after date list as a session footer */
+.faf-loc-rank { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; margin-top: 16px; }
 .faf-loc-rank-head { font-size: .88rem; font-weight: 600; color: #374151; margin-bottom: 10px; }
 .faf-loc-hint { color: #94a3b8; font-weight: 400; }
 .faf-loc-rank-list { display: grid; gap: 8px; }
