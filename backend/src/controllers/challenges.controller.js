@@ -2301,6 +2301,79 @@ export const submitBulkWorkoutsOnBehalf = async (req, res, next) => {
   }
 };
 
+/**
+ * POST /:classId/workouts/bulk-check-duplicates
+ * Accepts the same items array as bulk-on-behalf and returns which ones appear
+ * to already exist in the DB (same user, same day, same distance ±5%).
+ * Does NOT create anything — purely a read/check.
+ */
+export const checkBulkDuplicates = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) {
+      return res.status(403).json({ error: { message: 'Manage access required' } });
+    }
+    const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 50) : [];
+    const results = [];
+    for (const item of items) {
+      const userId = asInt(item.userId);
+      const distance = item.distanceValue != null ? Number(item.distanceValue) : null;
+      const completedAt = item.completedAt ? new Date(item.completedAt) : null;
+      if (!userId || !completedAt || Number.isNaN(completedAt.getTime())) {
+        results.push({ clientItemId: item.clientItemId, isDuplicate: false });
+        continue;
+      }
+      // Check for workouts on the same calendar date for this user in this season
+      const dateStr = completedAt.toISOString().slice(0, 10); // YYYY-MM-DD
+      const [rows] = await pool.execute(
+        `SELECT id, distance_value, completed_at, activity_type, duration_minutes, proof_status
+         FROM challenge_workouts
+         WHERE user_id = ? AND learning_class_id = ?
+           AND DATE(completed_at) = ?
+           AND (is_disqualified IS NULL OR is_disqualified = 0)
+         ORDER BY id DESC
+         LIMIT 10`,
+        [userId, classId, dateStr]
+      );
+      let duplicate = null;
+      if (rows?.length) {
+        // If distance is known, look for a close match (within 5% or 0.1 mi)
+        if (distance != null && distance > 0) {
+          duplicate = rows.find((r) => {
+            const d = Number(r.distance_value || 0);
+            if (!d) return false;
+            const pct = Math.abs(d - distance) / Math.max(d, distance);
+            return pct <= 0.05 || Math.abs(d - distance) <= 0.1;
+          }) || null;
+        } else {
+          // No distance to match on — any workout same day same user is a possible duplicate
+          duplicate = rows[0];
+        }
+      }
+      if (duplicate) {
+        results.push({
+          clientItemId: item.clientItemId,
+          isDuplicate: true,
+          existingWorkout: {
+            id: duplicate.id,
+            distanceMiles: duplicate.distance_value != null ? Number(duplicate.distance_value) : null,
+            completedAt: duplicate.completed_at,
+            activityType: duplicate.activity_type,
+            durationMinutes: duplicate.duration_minutes,
+            proofStatus: duplicate.proof_status
+          }
+        });
+      } else {
+        results.push({ clientItemId: item.clientItemId, isDuplicate: false });
+      }
+    }
+    return res.json({ results });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const disqualifyWorkout = async (req, res, next) => {
   try {
     const classId = asInt(req.params.classId);

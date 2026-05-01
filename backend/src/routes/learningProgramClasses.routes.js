@@ -58,6 +58,7 @@ import {
   mergeRosterPlaceholder,
   scanBulkWorkoutScreenshots,
   submitBulkWorkoutsOnBehalf,
+  checkBulkDuplicates,
   submitWorkout,
   listCaptainApplications,
   applyForCaptain,
@@ -229,6 +230,7 @@ router.get('/:classId/activity', getActivityFeed);
 router.get('/:classId/activity/duplicates', getDuplicateWorkouts);
 router.get('/:classId/workouts', listClassWorkouts);
 router.post('/:classId/workouts', submitWorkout);
+router.post('/:classId/workouts/bulk-check-duplicates', checkBulkDuplicates);
 router.post('/:classId/workouts/bulk-on-behalf', submitBulkWorkoutsOnBehalf);
 router.put('/:classId/workouts/:workoutId/proof-review', reviewWorkoutProof);
 router.patch('/:classId/workouts/:workoutId/manager-edit', managerEditWorkout);

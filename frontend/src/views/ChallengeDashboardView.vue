@@ -1544,12 +1544,22 @@
                 v-for="(item, cardIdx) in bulkItems"
                 :key="item.clientItemId"
                 class="bulk-review-card"
-                :class="{ 'needs-match': item.needsMemberSelection || !item.userId, 'has-missing': !item.activityType || item.distanceValue == null || (!item.durationMinutes && !item.durationSeconds) }"
+                :class="{
+                  'needs-match': item.needsMemberSelection || !item.userId,
+                  'has-missing': !item.activityType || item.distanceValue == null || (!item.durationMinutes && !item.durationSeconds),
+                  'is-duplicate': item._isDuplicate
+                }"
               >
                 <div class="bulk-review-head">
                   <span class="bulk-card-num">#{{ cardIdx + 1 }}</span>
                   <strong class="bulk-card-name">{{ item.originalName }}</strong>
                   <span class="bulk-ocr-badge" :class="{ 'ocr-low': (item.confidence || 0) < 60 }">{{ item.confidence || 0 }}% OCR</span>
+                  <!-- Duplicate warning -->
+                  <span
+                    v-if="item._isDuplicate"
+                    class="bulk-dup-badge"
+                    :title="item._duplicateInfo ? `Possible duplicate of workout #${item._duplicateInfo.id} on ${item._duplicateInfo.completedAt?.slice(0,10)} — ${item._duplicateInfo.distanceMiles ?? '?'} mi (will be auto-skipped)` : 'Possible duplicate — will be auto-skipped'"
+                  >⚠️ Duplicate — will skip</span>
                   <!-- Challenge detected hint -->
                   <span v-if="item.challengeDetected" class="bulk-challenge-hint" title="Screenshot text contains a checkmark and challenge keywords — verify and tag below">
                     ✅ Challenge?
@@ -1663,15 +1673,67 @@
               </div>
             </div>
 
+            <!-- Skipped duplicates review panel -->
+            <div v-if="bulkSkippedDuplicates.length" class="bulk-skipped-panel">
+              <button
+                type="button"
+                class="bulk-skipped-toggle"
+                @click="showSkippedDuplicates = !showSkippedDuplicates"
+              >
+                {{ showSkippedDuplicates ? '▾' : '▸' }}
+                ⚠️ {{ bulkSkippedDuplicates.length }} skipped as duplicate{{ bulkSkippedDuplicates.length !== 1 ? 's' : '' }} — tap to review
+              </button>
+              <div v-if="showSkippedDuplicates" class="bulk-skipped-list">
+                <p class="bulk-skipped-hint">These workouts matched an existing entry. If the skip was wrong, remove the duplicate flag by clicking "Not a duplicate" and resubmit.</p>
+                <div
+                  v-for="item in bulkSkippedDuplicates"
+                  :key="item.clientItemId"
+                  class="bulk-skipped-row"
+                >
+                  <div class="bulk-skipped-row-info">
+                    <span class="bulk-skipped-name">{{ item.originalName }}</span>
+                    <span class="bulk-skipped-detail">
+                      {{ item.distanceValue != null ? `${item.distanceValue} mi` : '? mi' }}
+                      · {{ item.completedAt?.slice(0,10) || '?' }}
+                      <template v-if="item._duplicateInfo">
+                        → matched workout #{{ item._duplicateInfo.id }}
+                        ({{ item._duplicateInfo.distanceMiles ?? '?' }} mi,
+                        {{ item._duplicateInfo.proofStatus || 'pending' }})
+                      </template>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    class="bulk-skipped-restore"
+                    @click="() => {
+                      item._isDuplicate = false;
+                      item._duplicateInfo = null;
+                      bulkItems.push(item);
+                      bulkSkippedDuplicates.splice(bulkSkippedDuplicates.indexOf(item), 1);
+                    }"
+                  >Not a duplicate</button>
+                </div>
+              </div>
+            </div>
+
             <div class="form-actions">
               <button type="button" class="btn btn-secondary" @click="closeBulkUploadModal">Cancel</button>
               <button
                 type="button"
                 class="btn btn-primary"
-                :disabled="bulkSubmitting || !bulkItems.length || bulkItems.some((i) => !i.userId || !i.activityType || i.distanceValue == null || (!i.durationMinutes && !i.durationSeconds) || !i.terrain)"
+                :disabled="bulkSubmitting || bulkCheckingDups || !bulkItems.length || bulkItems.filter(i => !i._isDuplicate).some((i) => !i.userId || !i.activityType || i.distanceValue == null || (!i.durationMinutes && !i.durationSeconds) || !i.terrain)"
                 @click="submitBulkWorkouts"
               >
-                {{ bulkSubmitting ? 'Submitting…' : `Submit ${bulkItems.length} Workout${bulkItems.length !== 1 ? 's' : ''}` }}
+                <template v-if="bulkCheckingDups">🔍 Checking duplicates…</template>
+                <template v-else-if="bulkSubmitting">Submitting…</template>
+                <template v-else>
+                  Submit
+                  {{ bulkItems.filter(i => !i._isDuplicate).length }}
+                  workout{{ bulkItems.filter(i => !i._isDuplicate).length !== 1 ? 's' : '' }}
+                  <span v-if="bulkItems.some(i => i._isDuplicate)" class="bulk-submit-dup-note">
+                    ({{ bulkItems.filter(i => i._isDuplicate).length }} duplicate{{ bulkItems.filter(i => i._isDuplicate).length !== 1 ? 's' : '' }} will skip)
+                  </span>
+                </template>
               </button>
             </div>
           </div>
@@ -1934,10 +1996,14 @@ const stravaDuplicateMessage = ref('');
 const weeklyTasksRef = ref(null);
 const showBulkUploadModal = ref(false);
 const bulkScanning = ref(false);
+const bulkCheckingDups = ref(false);
 const bulkSubmitting = ref(false);
 const bulkUploadError = ref('');
 const bulkItems = ref([]);
 const bulkRosterMembers = ref([]);
+/** Workouts auto-skipped as duplicates on the last submit run */
+const bulkSkippedDuplicates = ref([]);
+const showSkippedDuplicates = ref(false);
 /** Global date applied to all bulk items at once (YYYY-MM-DD). */
 const bulkBatchDate = ref(new Date().toISOString().slice(0, 10));
 const captainApplications = ref([]);
@@ -3179,6 +3245,50 @@ const applyBulkBatchDate = () => {
 const closeBulkUploadModal = () => {
   showBulkUploadModal.value = false;
   bulkUploadError.value = '';
+  bulkSkippedDuplicates.value = [];
+  showSkippedDuplicates.value = false;
+};
+
+/**
+ * Call the backend duplicate-check endpoint for the current bulkItems list
+ * and annotate each item with { _isDuplicate, _duplicateInfo }.
+ * Silently no-ops if classId or items are missing.
+ */
+const runDuplicateCheck = async (items) => {
+  const id = challengeId.value;
+  if (!id || !items.length) return items;
+  // Only check items that have a userId and a date
+  const checkable = items.filter((i) => i.userId && i.completedAt);
+  if (!checkable.length) return items;
+  bulkCheckingDups.value = true;
+  try {
+    const { data } = await api.post(
+      `/learning-program-classes/${id}/workouts/bulk-check-duplicates`,
+      {
+        items: checkable.map((i) => ({
+          clientItemId: i.clientItemId,
+          userId: i.userId,
+          distanceValue: i.distanceValue,
+          completedAt: i.completedAt
+        }))
+      }
+    );
+    const resultMap = new Map((data?.results || []).map((r) => [r.clientItemId, r]));
+    return items.map((item) => {
+      const result = resultMap.get(item.clientItemId);
+      if (!result) return item;
+      return {
+        ...item,
+        _isDuplicate: result.isDuplicate === true,
+        _duplicateInfo: result.existingWorkout || null
+      };
+    });
+  } catch {
+    // Non-fatal — duplicate check failing shouldn't block the upload
+    return items;
+  } finally {
+    bulkCheckingDups.value = false;
+  }
 };
 
 const currentDatetimeLocal = () => {
@@ -3254,7 +3364,9 @@ const onBulkFilesSelected = async (event) => {
       };
     });
     // Append to existing items (if manager uploads more files) — sorted by upload index
-    bulkItems.value = [...bulkItems.value, ...newItems].sort((a, b) => a._uploadIdx - b._uploadIdx);
+    const merged = [...bulkItems.value, ...newItems].sort((a, b) => a._uploadIdx - b._uploadIdx);
+    // Run duplicate check immediately so warnings appear as soon as items are rendered
+    bulkItems.value = await runDuplicateCheck(merged);
   } catch (e) {
     bulkUploadError.value = e?.response?.data?.error?.message || 'Bulk scan failed';
   } finally {
@@ -3268,9 +3380,25 @@ const submitBulkWorkouts = async () => {
   if (!id || !bulkItems.value.length) return;
   bulkSubmitting.value = true;
   bulkUploadError.value = '';
+  bulkSkippedDuplicates.value = [];
+  showSkippedDuplicates.value = false;
   try {
+    // Re-run duplicate check with current state (user may have changed member/date since scan)
+    bulkItems.value = await runDuplicateCheck(bulkItems.value);
+
+    const toSubmit = bulkItems.value.filter((i) => !i._isDuplicate);
+    const skipped = bulkItems.value.filter((i) => i._isDuplicate);
+    bulkSkippedDuplicates.value = skipped;
+
+    if (!toSubmit.length && skipped.length) {
+      bulkUploadError.value = `All ${skipped.length} workout${skipped.length !== 1 ? 's' : ''} appear to already exist. Review them below.`;
+      showSkippedDuplicates.value = true;
+      bulkSubmitting.value = false;
+      return;
+    }
+
     const payload = {
-      items: bulkItems.value.map((item) => ({
+      items: toSubmit.map((item) => ({
         clientItemId: item.clientItemId,
         userId: item.userId,
         filePath: item.filePath,
@@ -3295,11 +3423,27 @@ const submitBulkWorkouts = async () => {
     };
     const { data } = await api.post(`/learning-program-classes/${id}/workouts/bulk-on-behalf`, payload);
     if (data?.errors?.length) {
-      bulkUploadError.value = `${data.created?.length || 0} created, ${data.errors.length} need fixes. ${data.errors[0]?.message || ''}`;
-      bulkItems.value = bulkItems.value.filter((item) => data.errors.some((err) => err.clientItemId === item.clientItemId));
+      const created = data.created?.length || 0;
+      const skippedCount = skipped.length;
+      bulkUploadError.value = `${created} created${skippedCount ? `, ${skippedCount} skipped (duplicate)` : ''}, ${data.errors.length} need fixes. ${data.errors[0]?.message || ''}`;
+      // Keep only items that had errors (not duplicates, not successful)
+      bulkItems.value = toSubmit.filter((item) => data.errors.some((err) => err.clientItemId === item.clientItemId));
     } else {
-      bulkItems.value = [];
-      showBulkUploadModal.value = false;
+      const created = data.created?.length || 0;
+      const skippedCount = skipped.length;
+      // Close modal only if there are no skipped duplicates to review
+      if (skippedCount > 0) {
+        bulkItems.value = [];
+        showSkippedDuplicates.value = true;
+        bulkUploadError.value = '';
+        // Show a success-style message inline instead of closing
+      } else {
+        bulkItems.value = [];
+        showBulkUploadModal.value = false;
+      }
+      if (created > 0 && skippedCount === 0) {
+        // nothing — modal closes
+      }
     }
     // Full dashboard refresh so all sections (leaderboard, standings, matchups,
     // weekly tasks, activity feed) immediately reflect the new workouts
@@ -5111,6 +5255,75 @@ watch(() => workoutForm.value.terrain, (terrain) => {
 }
 .bulk-review-card.has-missing {
   border-color: #fca5a5;
+}
+.bulk-review-card.is-duplicate {
+  border-color: #a78bfa;
+  background: #f5f3ff;
+  opacity: 0.75;
+}
+.bulk-dup-badge {
+  font-size: 11px;
+  background: #ede9fe;
+  color: #5b21b6;
+  border: 1px solid #c4b5fd;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-weight: 700;
+  flex-shrink: 0;
+  cursor: help;
+}
+/* Skipped duplicates panel */
+.bulk-skipped-panel {
+  border: 1px dashed #a78bfa;
+  border-radius: 12px;
+  background: #faf5ff;
+  padding: 12px 14px;
+  margin-top: 12px;
+}
+.bulk-skipped-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #5b21b6;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+.bulk-skipped-toggle:hover { color: #4c1d95; }
+.bulk-skipped-list { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.bulk-skipped-hint { font-size: 0.8rem; color: #7c3aed; margin: 0 0 8px; }
+.bulk-skipped-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  background: #ede9fe;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.bulk-skipped-row-info { flex: 1; min-width: 0; }
+.bulk-skipped-name { display: block; font-size: 0.85rem; font-weight: 600; color: #3730a3; }
+.bulk-skipped-detail { display: block; font-size: 0.78rem; color: #6d28d9; margin-top: 2px; }
+.bulk-skipped-restore {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: #fff;
+  border: 1px solid #a78bfa;
+  color: #5b21b6;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bulk-skipped-restore:hover { background: #ede9fe; }
+.bulk-submit-dup-note {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.75);
+  margin-left: 4px;
 }
 .bulk-review-head {
   display: flex;
