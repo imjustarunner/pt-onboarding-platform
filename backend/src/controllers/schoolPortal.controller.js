@@ -198,6 +198,28 @@ function parseJsonMaybe(v) {
   }
 }
 
+function isContinuationServicesSeason(now = new Date()) {
+  const d = now instanceof Date ? now : new Date(now);
+  if (!Number.isFinite(d.getTime())) return false;
+  const start = new Date(d.getFullYear(), 4, 1);
+  const end = new Date(d.getFullYear(), 8, 1);
+  return d.getTime() >= start.getTime() && d.getTime() < end.getTime();
+}
+
+function hasCompletedContinuationServices(raw) {
+  const data = parseJsonMaybe(raw);
+  if (!data || typeof data !== 'object') return false;
+  if (data.plan === 'not_continue_school') return !!data.notContinuingAction;
+  if (data.plan !== 'continue_school') return false;
+  if (data.schoolChoice === 'current_school') return !!data.currentSchoolAction;
+  if (data.schoolChoice === 'new_school') {
+    const hasSchool = !!Number(data.newSchoolOrganizationId || 0) || !!String(data.newSchoolName || '').trim();
+    const selectedAgencySchool = !!Number(data.newSchoolOrganizationId || 0);
+    return hasSchool && (!selectedAgencySchool || !!data.newSchoolAction);
+  }
+  return false;
+}
+
 function safeJsonFromText(text) {
   if (!text) return null;
   const m = String(text).match(/\{[\s\S]*\}/);
@@ -682,6 +704,7 @@ export const getSchoolClients = async (req, res, next) => {
            c.parents_contacted_successful,
            c.intake_at,
            c.first_service_at,
+           c.continuation_services_json,
            c.roi_expires_at,
            c.skills,
            c.status,
@@ -969,6 +992,7 @@ export const getSchoolClients = async (req, res, next) => {
     }
 
     // Format response: Only include non-sensitive fields
+    const canViewOperationalChecklist = String(userRole || '').toLowerCase() !== 'school_staff';
     const restrictedClients = clients.map(client => {
       const clientId = Number(client.id);
       const schoolStaffAccessMeta = String(userRole || '').toLowerCase() === 'school_staff'
@@ -1020,6 +1044,15 @@ export const getSchoolClients = async (req, res, next) => {
         paperwork_delivery_method_id: client.paperwork_delivery_method_id || null,
         paperwork_delivery_method_label: client.paperwork_delivery_method_label || null,
         doc_date: client.doc_date || null,
+        parents_contacted_at: canViewOperationalChecklist ? (client.parents_contacted_at || null) : null,
+        parents_contacted_successful:
+          !canViewOperationalChecklist ||
+          client.parents_contacted_successful === null || client.parents_contacted_successful === undefined
+            ? null
+            : (client.parents_contacted_successful === 1 || client.parents_contacted_successful === true),
+        intake_at: canViewOperationalChecklist ? (client.intake_at || null) : null,
+        first_service_at: canViewOperationalChecklist ? (client.first_service_at || null) : null,
+        continuation_services_json: canViewOperationalChecklist ? parseJsonMaybe(client.continuation_services_json) : null,
         roi_expires_at: client.roi_expires_at || null,
         skills: client.skills === 1 || client.skills === true,
         unread_notes_count: unreadCountsByClientId.get(clientId) || 0,
@@ -1206,6 +1239,7 @@ export const getProviderMyRoster = async (req, res, next) => {
            c.parents_contacted_successful,
            c.intake_at,
            c.first_service_at,
+           c.continuation_services_json,
            c.roi_expires_at,
            c.skills,
            c.status,
@@ -1446,6 +1480,7 @@ export const getProviderMyRoster = async (req, res, next) => {
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const continuationSeasonActive = isContinuationServicesSeason(today);
     const restrictedClients = clients.map((client) => {
       const firstServiceAt = client.first_service_at ? new Date(client.first_service_at) : null;
       const firstServicePassed = firstServiceAt && firstServiceAt.getTime() <= today.getTime();
@@ -1464,6 +1499,9 @@ export const getProviderMyRoster = async (req, res, next) => {
         client.parents_contacted_successful === 1 || client.parents_contacted_successful === true;
       if (!parentsContactedAt || !parentsContactedOk) missingChecklist.push('Parents contacted');
       if (!firstServicePassed) missingChecklist.push('First session');
+      const continuationMissing = continuationSeasonActive && !hasCompletedContinuationServices(client.continuation_services_json);
+      if (continuationMissing) missingChecklist.push('Continuation of Services');
+      const compliancePendingWithContinuation = compliancePending || continuationMissing;
       return {
         id: client.id,
         initials: client.initials,
@@ -1488,6 +1526,14 @@ export const getProviderMyRoster = async (req, res, next) => {
         paperwork_delivery_method_id: client.paperwork_delivery_method_id || null,
         paperwork_delivery_method_label: client.paperwork_delivery_method_label || null,
         doc_date: client.doc_date || null,
+        parents_contacted_at: client.parents_contacted_at || null,
+        parents_contacted_successful:
+          client.parents_contacted_successful === null || client.parents_contacted_successful === undefined
+            ? null
+            : (client.parents_contacted_successful === 1 || client.parents_contacted_successful === true),
+        intake_at: client.intake_at || null,
+        first_service_at: client.first_service_at || null,
+        continuation_services_json: parseJsonMaybe(client.continuation_services_json),
         roi_expires_at: client.roi_expires_at || null,
         skills: client.skills === 1 || client.skills === true,
         unread_notes_count: unreadCountsByClientId.get(Number(client.id)) || 0,
@@ -1499,7 +1545,7 @@ export const getProviderMyRoster = async (req, res, next) => {
         answered_ticket_count: answeredTicketsByClientId.get(Number(client.id)) || 0,
         has_open_ticket: (openTicketsByClientId.get(Number(client.id)) || 0) > 0,
         has_answered_ticket: (answeredTicketsByClientId.get(Number(client.id)) || 0) > 0,
-        compliance_pending: compliancePending,
+        compliance_pending: compliancePendingWithContinuation,
         compliance_days_since_assigned: daysSinceAssigned,
         compliance_missing: missingChecklist,
         provider_assigned_at: client.provider_assigned_at || null,

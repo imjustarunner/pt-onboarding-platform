@@ -30,6 +30,98 @@
               Do not list the date of first service unless the appointment has actually occurred, as this will mark the client as current.
             </p>
           </div>
+          <div v-if="showContinuationServices" class="form-group continuation-section">
+            <label>Continuation of Services</label>
+            <select v-model="form.continuation.plan" class="input">
+              <option value="">—</option>
+              <option value="continue_school">Continuing for in-school services in the fall</option>
+              <option value="not_continue_school">Not continuing for in-school services in the fall</option>
+            </select>
+
+            <div v-if="form.continuation.plan === 'continue_school'" class="nested-fields">
+              <div class="choice-row">
+                <label class="choice-card">
+                  <input v-model="form.continuation.schoolChoice" type="radio" value="current_school" />
+                  <span>Current school</span>
+                </label>
+                <label class="choice-card">
+                  <input v-model="form.continuation.schoolChoice" type="radio" value="new_school" />
+                  <span>New school</span>
+                </label>
+              </div>
+
+              <div v-if="form.continuation.schoolChoice === 'current_school'" class="nested-fields">
+                <label class="choice-card">
+                  <input v-model="form.continuation.currentSchoolAction" type="radio" value="continuing_with_me" />
+                  <span>Continuing with me</span>
+                </label>
+                <label class="choice-card">
+                  <input v-model="form.continuation.currentSchoolAction" type="radio" value="requesting_transfer" />
+                  <span>Requesting transfer</span>
+                </label>
+              </div>
+
+              <div v-if="form.continuation.schoolChoice === 'new_school'" class="nested-fields">
+                <label>New school</label>
+                <select v-model="form.continuation.newSchoolOrganizationId" class="input">
+                  <option value="">Select affiliated school…</option>
+                  <option
+                    v-for="school in agencySchools"
+                    :key="school.school_organization_id"
+                    :value="String(school.school_organization_id)"
+                  >
+                    {{ school.school_name }}
+                  </option>
+                </select>
+                <input
+                  v-if="!form.continuation.newSchoolOrganizationId"
+                  v-model="form.continuation.newSchoolName"
+                  class="input"
+                  type="text"
+                  placeholder="Type school if it is not listed"
+                />
+                <p v-if="agencySchoolsError" class="hint" style="font-size: 12px;">{{ agencySchoolsError }}</p>
+
+                <div v-if="form.continuation.newSchoolOrganizationId" class="nested-fields">
+                  <label class="choice-card">
+                    <input
+                      v-model="form.continuation.newSchoolAction"
+                      type="radio"
+                      value="continue_at_new_school_if_possible"
+                    />
+                    <span>I would like to continue to see them at their new school if possible</span>
+                  </label>
+                  <label class="choice-card">
+                    <input
+                      v-model="form.continuation.newSchoolAction"
+                      type="radio"
+                      value="pursue_in_office_support"
+                    />
+                    <span>I will pursue in-office support at the client's request</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="form.continuation.plan === 'not_continue_school'" class="nested-fields">
+              <label class="choice-card">
+                <input
+                  v-model="form.continuation.notContinuingAction"
+                  type="radio"
+                  value="transferring_terminating_client"
+                />
+                <span>Transferring/terminating the client</span>
+              </label>
+              <label class="choice-card">
+                <input
+                  v-model="form.continuation.notContinuingAction"
+                  type="radio"
+                  value="continuing_office_virtual"
+                />
+                <span>Continuing as an in-office/virtual client</span>
+              </label>
+            </div>
+          </div>
         </div>
         <div v-if="error" class="error" style="margin-top: 10px;">{{ error }}</div>
         <div class="actions" style="margin-top: 14px;">
@@ -44,24 +136,70 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
-  client: { type: Object, required: true }
+  client: { type: Object, required: true },
+  parentAgencyId: { type: Number, default: null }
 });
 const emit = defineEmits(['close', 'saved']);
+
+const emptyContinuation = () => ({
+  plan: '',
+  schoolChoice: '',
+  currentSchoolAction: '',
+  newSchoolOrganizationId: '',
+  newSchoolName: '',
+  newSchoolAction: '',
+  notContinuingAction: ''
+});
 
 const form = ref({
   parentsContactedAt: '',
   parentsContactedSuccessful: '',
-  firstServiceAt: ''
+  firstServiceAt: '',
+  continuation: emptyContinuation()
 });
 
 const saving = ref(false);
 const error = ref('');
+const agencySchools = ref([]);
+const agencySchoolsError = ref('');
 
 const clientLabel = ref('');
+const isContinuationServicesSeason = (value = new Date()) => {
+  const d = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+  if (!Number.isFinite(d.getTime())) return false;
+  const start = new Date(d.getFullYear(), 4, 1);
+  const end = new Date(d.getFullYear(), 8, 1);
+  return d.getTime() >= start.getTime() && d.getTime() < end.getTime();
+};
+const showContinuationServices = computed(() => isContinuationServicesSeason());
+
+const parseContinuationServices = (value) => {
+  if (!value) return emptyContinuation();
+  let data = value;
+  if (typeof value === 'string') {
+    try {
+      data = JSON.parse(value);
+    } catch {
+      return emptyContinuation();
+    }
+  }
+  if (!data || typeof data !== 'object') return emptyContinuation();
+  return {
+    ...emptyContinuation(),
+    plan: String(data.plan || ''),
+    schoolChoice: String(data.schoolChoice || ''),
+    currentSchoolAction: String(data.currentSchoolAction || ''),
+    newSchoolOrganizationId: data.newSchoolOrganizationId ? String(data.newSchoolOrganizationId) : '',
+    newSchoolName: String(data.newSchoolName || ''),
+    newSchoolAction: String(data.newSchoolAction || ''),
+    notContinuingAction: String(data.notContinuingAction || '')
+  };
+};
+
 const syncForm = () => {
   const c = props.client;
   if (!c) return;
@@ -74,7 +212,8 @@ const syncForm = () => {
         : c.parents_contacted_successful
           ? 'true'
           : 'false',
-    firstServiceAt: c.first_service_at ? String(c.first_service_at).slice(0, 10) : ''
+    firstServiceAt: c.first_service_at ? String(c.first_service_at).slice(0, 10) : '',
+    continuation: parseContinuationServices(c.continuation_services_json)
   };
 };
 
@@ -86,6 +225,18 @@ const onKeydown = (e) => {
 onMounted(() => window.addEventListener('keydown', onKeydown));
 onUnmounted(() => window.removeEventListener('keydown', onKeydown));
 
+const fetchAgencySchools = async () => {
+  if (!props.parentAgencyId || !showContinuationServices.value) return;
+  try {
+    agencySchoolsError.value = '';
+    const response = await api.get(`/agencies/${props.parentAgencyId}/schools`, { skipGlobalLoading: true });
+    agencySchools.value = Array.isArray(response.data) ? response.data : [];
+  } catch {
+    agencySchools.value = [];
+    agencySchoolsError.value = 'Affiliated schools could not be loaded. Type the school if it is not listed.';
+  }
+};
+
 const todayYmd = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -93,6 +244,25 @@ const todayYmd = () => {
 
 const setFirstServiceToday = () => {
   form.value.firstServiceAt = todayYmd();
+};
+
+const continuationPayload = () => {
+  const c = form.value.continuation || emptyContinuation();
+  if (!showContinuationServices.value || !c.plan) return null;
+  const payload = { plan: c.plan };
+  if (c.plan === 'continue_school') {
+    payload.schoolChoice = c.schoolChoice || '';
+    if (c.schoolChoice === 'current_school') {
+      payload.currentSchoolAction = c.currentSchoolAction || '';
+    } else if (c.schoolChoice === 'new_school') {
+      payload.newSchoolOrganizationId = c.newSchoolOrganizationId ? Number(c.newSchoolOrganizationId) : null;
+      payload.newSchoolName = c.newSchoolOrganizationId ? null : (String(c.newSchoolName || '').trim() || null);
+      if (c.newSchoolOrganizationId) payload.newSchoolAction = c.newSchoolAction || '';
+    }
+  } else if (c.plan === 'not_continue_school') {
+    payload.notContinuingAction = c.notContinuingAction || '';
+  }
+  return payload;
 };
 
 const save = async () => {
@@ -106,6 +276,7 @@ const save = async () => {
         form.value.parentsContactedSuccessful === '' ? null : form.value.parentsContactedSuccessful === 'true',
       firstServiceAt: form.value.firstServiceAt || null
     };
+    if (showContinuationServices.value) payload.continuationServices = continuationPayload();
     await api.put(`/clients/${props.client.id}/compliance-checklist`, payload);
     emit('saved');
     emit('close');
@@ -115,6 +286,42 @@ const save = async () => {
     saving.value = false;
   }
 };
+
+watch(() => props.parentAgencyId, fetchAgencySchools, { immediate: true });
+
+watch(
+  () => form.value.continuation.plan,
+  (plan) => {
+    if (plan !== 'continue_school') {
+      form.value.continuation.schoolChoice = '';
+      form.value.continuation.currentSchoolAction = '';
+      form.value.continuation.newSchoolOrganizationId = '';
+      form.value.continuation.newSchoolName = '';
+      form.value.continuation.newSchoolAction = '';
+    }
+    if (plan !== 'not_continue_school') form.value.continuation.notContinuingAction = '';
+  }
+);
+
+watch(
+  () => form.value.continuation.schoolChoice,
+  (choice) => {
+    if (choice !== 'current_school') form.value.continuation.currentSchoolAction = '';
+    if (choice !== 'new_school') {
+      form.value.continuation.newSchoolOrganizationId = '';
+      form.value.continuation.newSchoolName = '';
+      form.value.continuation.newSchoolAction = '';
+    }
+  }
+);
+
+watch(
+  () => form.value.continuation.newSchoolOrganizationId,
+  (schoolId) => {
+    if (schoolId) form.value.continuation.newSchoolName = '';
+    if (!schoolId) form.value.continuation.newSchoolAction = '';
+  }
+);
 </script>
 
 <style scoped>
@@ -165,6 +372,41 @@ const save = async () => {
   font-weight: 700;
   color: var(--text-secondary);
   margin-bottom: 6px;
+}
+.continuation-section {
+  grid-column: 1 / -1;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-alt, #f8fafc);
+}
+.nested-fields {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+.choice-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.choice-card {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 !important;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: white;
+  color: var(--text-primary) !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  line-height: 1.3;
+}
+.choice-card input {
+  margin-top: 2px;
+  flex-shrink: 0;
 }
 .input-with-today {
   display: flex;
@@ -226,6 +468,9 @@ const save = async () => {
     padding: 0;
   }
   .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .choice-row {
     grid-template-columns: 1fr;
   }
   .input-with-today {

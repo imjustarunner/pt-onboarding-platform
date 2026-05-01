@@ -153,6 +153,16 @@
               <span class="sort-indicator" v-if="sortKey === 'service_day'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
             <th
+              v-if="showContinuationServicesColumn"
+              class="sortable"
+              @click="toggleSort('continuation_services')"
+              role="button"
+              tabindex="0"
+            >
+              Continuation of Services
+              <span class="sort-indicator" v-if="sortKey === 'continuation_services'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            </th>
+            <th
               v-if="showPsychotherapyColumn"
               class="sortable"
               @click="toggleSort('psychotherapy_total')"
@@ -345,6 +355,18 @@
             </td>
             <td>{{ client.skills ? 'Yes' : 'No' }}</td>
             <td>{{ client.service_day || '—' }}</td>
+            <td v-if="showContinuationServicesColumn" class="continuation-cell">
+              <button
+                v-if="client.user_is_assigned_provider"
+                type="button"
+                class="btn-link continuation-link"
+                :class="{ 'continuation-link-needed': !hasContinuationServices(client) }"
+                @click.stop="openQuickChecklist(client)"
+              >
+                {{ continuationServicesSummary(client) }}
+              </button>
+              <span v-else>{{ continuationServicesSummary(client) }}</span>
+            </td>
             <td v-if="showPsychotherapyColumn" class="psy-cell">
               <span
                 class="psy-pill"
@@ -424,6 +446,7 @@
     <QuickChecklistModal
       v-if="quickChecklistClient"
       :client="quickChecklistClient"
+      :parent-agency-id="parentAgencyId"
       @close="quickChecklistClient = null"
       @saved="onQuickChecklistSaved"
     />
@@ -631,6 +654,14 @@ const showChecklistButton = computed(() => {
 });
 const showTerminateButton = computed(() => props.rosterScope === 'provider');
 const showAssignedColumn = computed(() => props.rosterScope === 'provider');
+const isContinuationServicesSeason = (value = new Date()) => {
+  const d = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+  if (!Number.isFinite(d.getTime())) return false;
+  const start = new Date(d.getFullYear(), 4, 1);
+  const end = new Date(d.getFullYear(), 8, 1);
+  return d.getTime() >= start.getTime() && d.getTime() < end.getTime();
+};
+const showContinuationServicesColumn = computed(() => showChecklistButton.value && isContinuationServicesSeason());
 
 const orgKey = computed(() => {
   // school roster expects numeric org id; provider roster may only have slug.
@@ -951,6 +982,7 @@ const sortValue = (client, key) => {
   if (key === 'organization_name') return String(props.organizationName || client.organization_name || '').toLowerCase();
   if (key === 'provider_name') return String(client.provider_name || '').toLowerCase();
   if (key === 'skills') return client.skills ? 1 : 0;
+  if (key === 'continuation_services') return String(continuationServicesSummary(client) || '').toLowerCase();
   if (key === 'psychotherapy_total') {
     const m = props.psychotherapyTotalsByClientId || {};
     const rec = m?.[String(client?.id ?? '')] || m?.[Number(client?.id ?? 0)] || null;
@@ -1068,6 +1100,7 @@ const filteredClients = computed(() => {
       props.organizationName || client?.organization_name,
       client?.provider_name,
       client?.service_day,
+      continuationServicesSummary(client),
       formatDocSummary(client)
     ]
       .filter(Boolean)
@@ -1142,6 +1175,58 @@ const formatClientStatusLabel = (client) => {
     'ARCHIVED': 'Archived'
   };
   return map[status] || '—';
+};
+
+const parseContinuationServices = (client) => {
+  const raw = client?.continuation_services_json;
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  if (typeof raw !== 'string') return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const hasContinuationServices = (client) => {
+  const data = parseContinuationServices(client);
+  if (!data) return false;
+  if (data.plan === 'not_continue_school') return !!data.notContinuingAction;
+  if (data.plan !== 'continue_school') return false;
+  if (data.schoolChoice === 'current_school') return !!data.currentSchoolAction;
+  if (data.schoolChoice === 'new_school') {
+    const hasSchool = !!Number(data.newSchoolOrganizationId || 0) || !!String(data.newSchoolName || '').trim();
+    const selectedAgencySchool = !!Number(data.newSchoolOrganizationId || 0);
+    return hasSchool && (!selectedAgencySchool || !!data.newSchoolAction);
+  }
+  return false;
+};
+
+const continuationServicesSummary = (client) => {
+  const data = parseContinuationServices(client);
+  if (!data?.plan) return 'Needs response';
+  if (data.plan === 'not_continue_school') {
+    if (data.notContinuingAction === 'transferring_terminating_client') return 'Not continuing · transfer/terminate';
+    if (data.notContinuingAction === 'continuing_office_virtual') return 'Office/virtual';
+    return 'Not continuing · needs detail';
+  }
+  if (data.plan !== 'continue_school') return 'Needs response';
+  if (data.schoolChoice === 'current_school') {
+    if (data.currentSchoolAction === 'continuing_with_me') return 'Current school · with me';
+    if (data.currentSchoolAction === 'requesting_transfer') return 'Current school · transfer';
+    return 'Current school · needs detail';
+  }
+  if (data.schoolChoice === 'new_school') {
+    if (!Number(data.newSchoolOrganizationId || 0) && String(data.newSchoolName || '').trim()) {
+      return `New school · ${String(data.newSchoolName).trim()}`;
+    }
+    if (data.newSchoolAction === 'continue_at_new_school_if_possible') return 'New school · continue if possible';
+    if (data.newSchoolAction === 'pursue_in_office_support') return 'New school · office support';
+    return 'New school · needs detail';
+  }
+  return 'Continuing · needs school';
 };
 
 const rosterLabelTitle = (client) => {
@@ -1848,6 +1933,16 @@ onMounted(() => {
   margin-top: 4px;
   font-size: 11px;
   color: var(--text-secondary);
+}
+.continuation-cell {
+  min-width: 150px;
+}
+.continuation-link {
+  font-weight: 800;
+  text-align: left;
+}
+.continuation-link-needed {
+  color: #b91c1c;
 }
 .roi-summary-grid {
   display: grid;

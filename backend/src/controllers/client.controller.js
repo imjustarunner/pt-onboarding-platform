@@ -254,6 +254,71 @@ function mergeGuardianIntakeWithFallback(intake, fallback) {
   return merged;
 }
 
+const CONTINUATION_SERVICES_PLANS = new Set(['continue_school', 'not_continue_school']);
+const CONTINUATION_SCHOOL_CHOICES = new Set(['current_school', 'new_school']);
+const CONTINUATION_CURRENT_SCHOOL_ACTIONS = new Set(['continuing_with_me', 'requesting_transfer']);
+const CONTINUATION_NEW_SCHOOL_ACTIONS = new Set(['continue_at_new_school_if_possible', 'pursue_in_office_support']);
+const CONTINUATION_NOT_CONTINUING_ACTIONS = new Set(['transferring_terminating_client', 'continuing_office_virtual']);
+
+function normalizeOptionalText(value, maxLength = 255) {
+  const text = String(value || '').trim();
+  return text ? text.slice(0, maxLength) : null;
+}
+
+function normalizeContinuationServicesPayload(raw) {
+  if (raw === undefined) return undefined;
+  if (raw === null || raw === '') return null;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('Continuation of Services must be an object');
+  }
+
+  const plan = String(raw.plan || '').trim();
+  if (!CONTINUATION_SERVICES_PLANS.has(plan)) {
+    throw new Error('Select a Continuation of Services option');
+  }
+
+  const normalized = { plan };
+  if (plan === 'continue_school') {
+    const schoolChoice = String(raw.schoolChoice || '').trim();
+    if (!CONTINUATION_SCHOOL_CHOICES.has(schoolChoice)) {
+      throw new Error('Select current school or new school');
+    }
+    normalized.schoolChoice = schoolChoice;
+
+    if (schoolChoice === 'current_school') {
+      const currentSchoolAction = String(raw.currentSchoolAction || '').trim();
+      if (!CONTINUATION_CURRENT_SCHOOL_ACTIONS.has(currentSchoolAction)) {
+        throw new Error('Select how services should continue at the current school');
+      }
+      normalized.currentSchoolAction = currentSchoolAction;
+    } else {
+      const newSchoolOrganizationId = parseInt(raw.newSchoolOrganizationId, 10);
+      normalized.newSchoolOrganizationId = Number.isFinite(newSchoolOrganizationId) && newSchoolOrganizationId > 0
+        ? newSchoolOrganizationId
+        : null;
+      normalized.newSchoolName = normalizeOptionalText(raw.newSchoolName);
+      if (!normalized.newSchoolOrganizationId && !normalized.newSchoolName) {
+        throw new Error('Select or enter the new school');
+      }
+      if (normalized.newSchoolOrganizationId) {
+        const newSchoolAction = String(raw.newSchoolAction || '').trim();
+        if (!CONTINUATION_NEW_SCHOOL_ACTIONS.has(newSchoolAction)) {
+          throw new Error('Select how services should continue at the new school');
+        }
+        normalized.newSchoolAction = newSchoolAction;
+      }
+    }
+  } else {
+    const notContinuingAction = String(raw.notContinuingAction || '').trim();
+    if (!CONTINUATION_NOT_CONTINUING_ACTIONS.has(notContinuingAction)) {
+      throw new Error('Select the fall plan for not continuing in-school services');
+    }
+    normalized.notContinuingAction = notContinuingAction;
+  }
+
+  return normalized;
+}
+
 /**
  * Returns true when an intake-shaped guardian profile object lacks every
  * identifying field we expect to render on the Overview panel. An intake row
@@ -2870,6 +2935,7 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
       req.body?.parentsContactedSuccessful !== undefined &&
       req.body?.parentsContactedSuccessful !== null &&
       String(req.body.parentsContactedSuccessful).trim() !== '';
+    const continuationServicesProvided = req.body?.continuationServices !== undefined;
 
     const parentsContactedAt = parseDate(req.body?.parentsContactedAt);
     const intakeAt = req.body?.intakeAt !== undefined ? parseDate(req.body.intakeAt) : undefined;
@@ -2879,6 +2945,12 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
       pcs === null || pcs === undefined || pcs === ''
         ? null
         : (pcs === true || pcs === 'true' || pcs === 1 || pcs === '1');
+    let continuationServices;
+    try {
+      continuationServices = normalizeContinuationServicesPayload(req.body?.continuationServices);
+    } catch (validationError) {
+      return res.status(400).json({ error: { message: validationError.message || 'Invalid Continuation of Services response' } });
+    }
 
     // School portal sends only parentsContactedAt, parentsContactedSuccessful, firstServiceAt (no intakeAt).
     // Only update intake_at when explicitly provided so we preserve it from admin/other flows.
@@ -2899,6 +2971,10 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
       updateParts.push('intake_at = ?');
       updateValues.push(intakeAt);
     }
+    if (continuationServices !== undefined) {
+      updateParts.push('continuation_services_json = ?');
+      updateValues.push(continuationServices === null ? null : JSON.stringify(continuationServices));
+    }
     await pool.execute(
       `UPDATE clients SET ${updateParts.join(', ')} WHERE id = ?`,
       [...updateValues, clientId]
@@ -2913,7 +2989,7 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
           clientId,
           userId,
           null,
-          JSON.stringify({ parentsContactedAt, parentsContactedSuccessful, intakeAt, firstServiceAt }),
+          JSON.stringify({ parentsContactedAt, parentsContactedSuccessful, intakeAt, firstServiceAt, continuationServices }),
           'Updated compliance checklist'
         ]
       );
@@ -2997,7 +3073,8 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
         parentsContactedAtProvided ||
         parentsContactedSuccessfulProvided ||
         intakeAtProvided ||
-        firstServiceAtProvided;
+        firstServiceAtProvided ||
+        continuationServicesProvided;
       const checklistDatesPassed =
         (intakeAtProvided && intakeAt && intakeAt <= todayStr) ||
         (firstServiceAtProvided && firstServiceAt && firstServiceAt <= todayStr);
