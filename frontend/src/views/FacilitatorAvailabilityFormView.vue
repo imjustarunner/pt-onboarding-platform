@@ -74,13 +74,20 @@
               <option v-for="n in locationRankingItems.length" :key="n" :value="n">{{ n }}</option>
             </select>
             <div class="faf-loc-info">
-              <span class="faf-loc-name">{{ item.label }}</span>
+              <div class="faf-loc-name-row">
+                <span class="faf-loc-name">{{ item.label }}</span>
+                <span
+                  v-for="s in item.sessions"
+                  :key="s"
+                  class="faf-loc-session-chip"
+                >{{ s }}</span>
+              </div>
               <span v-if="item.address" class="faf-loc-address">{{ item.address }}</span>
               <span
                 v-if="locationDistances[item.label]?.distance"
                 class="faf-loc-dist"
               >
-                {{ locationDistances[item.label].distance }} away
+                📍 {{ locationDistances[item.label].distance }} from your home
                 <span v-if="locationDistances[item.label].duration">(~{{ locationDistances[item.label].duration }} drive)</span>
               </span>
             </div>
@@ -359,18 +366,42 @@ const formDateRange = computed(() => {
 const locationAddresses = computed(() => {
   const map = {};
   for (const ev of form.value?.events || []) {
+    const evAddress = ev.event_location_address || null;
     for (const sd of ev.session_dates || []) {
       const label = displayLocation(ev, sd);
-      if (sd.location_address && label && !map[label]) {
-        map[label] = sd.location_address;
+      if (!label) continue;
+      if (!map[label]) {
+        // Prefer per-date address; fall back to event-level address
+        map[label] = sd.location_address || evAddress || null;
       }
+    }
+    // Also index by event title in case the label comes from the event title
+    const evLabel = String(ev.event_title || '').trim();
+    if (evLabel && !map[evLabel] && evAddress) {
+      map[evLabel] = evAddress;
     }
   }
   return map;
 });
 
+// ── Session labels per location label ─────────────────────────────────────────
+const locationSessionLabels = computed(() => {
+  const map = {};
+  for (const ev of form.value?.events || []) {
+    const label = eventLocationLabel(ev);
+    const session = displaySessionLabel(ev);
+    if (!label) continue;
+    if (!map[label]) map[label] = new Set();
+    if (session) map[label].add(session);
+  }
+  // Convert Sets to sorted arrays
+  const result = {};
+  for (const [k, v] of Object.entries(map)) result[k] = [...v].sort();
+  return result;
+});
+
 // ── Location ranking items ────────────────────────────────────────────────────
-// Deduplicated: one entry per unique location label.
+// Deduplicated: one entry per unique location label, tagged with which sessions it covers.
 const locationRankingItems = computed(() => {
   const events = form.value?.events || [];
   if (events.length > 1) {
@@ -384,6 +415,7 @@ const locationRankingItems = computed(() => {
         key: `ev__${label}`,
         label,
         address: locationAddresses.value[label] || null,
+        sessions: locationSessionLabels.value[label] || [],
         requestEventId: ev.id,
         location: label
       });
@@ -397,6 +429,7 @@ const locationRankingItems = computed(() => {
         key: `loc__${events[0].id}__${i}`,
         label: loc,
         address: locationAddresses.value[loc] || null,
+        sessions: [],
         requestEventId: events[0].id,
         location: loc
       }));
@@ -766,8 +799,13 @@ onMounted(load);
 .faf-loc-rank-list { display: grid; gap: 12px; }
 .faf-loc-rank-row { display: flex; align-items: flex-start; gap: 12px; }
 .faf-rank-select { width: 68px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 8px; font-size: .9rem; flex-shrink: 0; margin-top: 2px; }
-.faf-loc-info { display: flex; flex-direction: column; gap: 2px; }
+.faf-loc-info { display: flex; flex-direction: column; gap: 3px; }
+.faf-loc-name-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .faf-loc-name { color: #0f172a; font-size: .93rem; font-weight: 600; }
+.faf-loc-session-chip {
+  font-size: .7rem; font-weight: 700; padding: 2px 7px; border-radius: 999px;
+  background: #ede9fe; color: #5b21b6; border: 1px solid #c4b5fd;
+}
 .faf-loc-address { font-size: .8rem; color: #64748b; }
 .faf-loc-dist { font-size: .78rem; color: #0284c7; font-weight: 500; }
 .faf-loc-info-note { font-size: .75rem; color: #94a3b8; margin: 4px 0 0; font-style: italic; }
