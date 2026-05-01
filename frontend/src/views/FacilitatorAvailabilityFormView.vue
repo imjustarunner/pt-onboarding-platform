@@ -46,58 +46,36 @@
         </div>
       </div>
 
-      <!-- ── Sessions ──────────────────────────────────────────── -->
-      <div
-        v-for="ev in form.events"
-        :key="ev.id"
-        class="faf-section"
-      >
-        <!-- Session header -->
-        <div class="faf-session-head">
-          <div class="faf-session-name">{{ ev.event_title }}</div>
-          <div class="faf-session-range">
-            {{ fmtDate(ev.event_date) }}<template v-if="ev.end_date"> – {{ fmtDate(ev.end_date) }}</template>
-          </div>
-          <!-- Single-location label in header -->
-          <div v-if="ev.locations_json && ev.locations_json.length === 1" class="faf-loc-single">
-            Location: <strong>{{ ev.locations_json[0] }}</strong>
-          </div>
+      <!-- ── Unified date list ───────────────────────────────────── -->
+      <div class="faf-section">
+        <div class="faf-section-head">
+          Your Availability
+          <span v-if="formDateRange" class="faf-section-range">{{ formDateRange }}</span>
         </div>
-
-        <!-- Date rows -->
-        <div v-if="!ev.session_dates || !ev.session_dates.length" class="faf-no-dates">
-          No session dates configured for this session.
-        </div>
+        <div v-if="!allDates.length" class="faf-no-dates">No session dates configured.</div>
         <div v-else class="faf-dates-list">
           <div
-            v-for="sd in ev.session_dates"
-            :key="sd.id"
+            v-for="ud in allDates"
+            :key="ud.date"
             class="faf-date-card"
-            :class="`faf-date-card--${getPref(ev, sd.session_date)}`"
+            :class="`faf-date-card--${getDatePref(ud.date)}`"
           >
-            <!-- Date info row -->
             <div class="faf-date-top">
               <div class="faf-date-label">
-                <span class="faf-date-dow">{{ fmtDayOfWeek(sd.session_date) }}</span>
-                <span class="faf-date-full">{{ fmtDate(sd.session_date) }}</span>
-                <span v-if="sd.starts_at" class="faf-date-time">{{ fmtTime(sd.starts_at) }}</span>
+                <span class="faf-date-dow">{{ fmtDayOfWeek(ud.date) }}</span>
+                <span class="faf-date-full">{{ fmtDate(ud.date) }}</span>
+                <span v-if="ud.starts_at" class="faf-date-time">{{ fmtTime(ud.starts_at) }}</span>
               </div>
-              <!-- Slot badge — multiply per-date slots by number of locations so the count
-                   reflects total facilitator slots across all sites for this day -->
               <div
                 class="faf-slot-badge"
-                :class="totalOpenSlots(ev, sd) === 0 ? 'faf-slot-badge--full' : 'faf-slot-badge--open'"
+                :class="ud.openSlots === 0 ? 'faf-slot-badge--full' : 'faf-slot-badge--open'"
               >
-                <template v-if="totalOpenSlots(ev, sd) === 0">
-                  Full — {{ totalEffectiveSlots(ev, sd) }} slots filled
-                </template>
-                <template v-else>
-                  {{ totalOpenSlots(ev, sd) }} of {{ totalEffectiveSlots(ev, sd) }} slots open
-                </template>
+                <template v-if="ud.openSlots === 0">Full — {{ ud.effective }} slots filled</template>
+                <template v-else>{{ ud.openSlots }} of {{ ud.effective }} slots open</template>
               </div>
             </div>
 
-            <!-- Primary preference selector -->
+            <!-- Primary preference -->
             <div class="faf-pref-row">
               <button
                 v-for="opt in PREF_OPTIONS"
@@ -106,34 +84,34 @@
                 class="faf-pref-btn"
                 :class="[
                   `faf-pref-btn--${opt.value}`,
-                  { 'faf-pref-btn--active': getPref(ev, sd.session_date) === opt.value },
-                  { 'faf-pref-btn--disabled-slot': opt.value === 'slot' && totalOpenSlots(ev, sd) === 0 && getPref(ev, sd.session_date) !== 'slot' }
+                  { 'faf-pref-btn--active': getDatePref(ud.date) === opt.value },
+                  { 'faf-pref-btn--disabled-slot': opt.value === 'slot' && ud.openSlots === 0 && getDatePref(ud.date) !== 'slot' }
                 ]"
-                @click="setPref(ev, sd.id, sd.session_date, opt.value)"
+                @click="setDatePref(ud.date, opt.value)"
               >
                 {{ opt.label }}
-                <span v-if="opt.value === 'slot' && totalOpenSlots(ev, sd) === 0" class="faf-pref-full-note">(full)</span>
+                <span v-if="opt.value === 'slot' && ud.openSlots === 0" class="faf-pref-full-note">(full)</span>
               </button>
             </div>
 
-            <!-- Secondary willingness checkboxes (when preference is 'slot' or 'waitlist') -->
+            <!-- Secondary willingness -->
             <div
-              v-if="['slot', 'waitlist'].includes(getPref(ev, sd.session_date))"
+              v-if="['slot', 'waitlist'].includes(getDatePref(ud.date))"
               class="faf-secondary-opts"
             >
-              <label v-if="getPref(ev, sd.session_date) === 'slot'" class="faf-check-label">
+              <label v-if="getDatePref(ud.date) === 'slot'" class="faf-check-label">
                 <input
                   type="checkbox"
-                  :checked="getWaitlistWilling(ev, sd.session_date)"
-                  @change="setWaitlistWilling(ev, sd.id, sd.session_date, $event.target.checked)"
+                  :checked="getDateWaitlistWilling(ud.date)"
+                  @change="setDateWaitlistWilling(ud.date, $event.target.checked)"
                 />
                 <span>Also willing to waitlist if I'm not selected</span>
               </label>
               <label class="faf-check-label">
                 <input
                   type="checkbox"
-                  :checked="getOncallWilling(ev, sd.session_date)"
-                  @change="setOncallWilling(ev, sd.id, sd.session_date, $event.target.checked)"
+                  :checked="getDateOncallWilling(ud.date)"
+                  @change="setDateOncallWilling(ud.date, $event.target.checked)"
                 />
                 <span>Also willing to be on-call (step in up to 1.5 hrs before)</span>
               </label>
@@ -145,35 +123,37 @@
                 class="faf-comment"
                 rows="2"
                 placeholder="Notes for this day… (optional)"
-                :value="getComment(ev, sd.session_date)"
-                @input="setComment(ev, sd.session_date, $event.target.value)"
+                :value="getDateComment(ud.date)"
+                @input="setDateComment(ud.date, $event.target.value)"
               />
             </div>
           </div>
         </div>
+      </div>
 
-        <!-- Location ranking — shown after dates, only when multiple locations -->
-        <div v-if="ev.locations_json && ev.locations_json.length > 1" class="faf-loc-rank">
-          <div class="faf-loc-rank-head">
-            Rank your preferred locations for this session
-            <span class="faf-loc-hint">(1 = top choice)</span>
-          </div>
-          <div class="faf-loc-rank-list">
-            <div
-              v-for="(loc, locIdx) in ev.locations_json"
-              :key="`loc-${ev.id}-${locIdx}`"
-              class="faf-loc-rank-row"
+      <!-- ── Location preference ranking ───────────────────────── -->
+      <div v-if="locationRankingItems.length > 1" class="faf-section">
+        <div class="faf-section-head">
+          Location Preferences
+        </div>
+        <p class="faf-loc-intro">
+          Rank the locations below in order of preference. Your dates above apply to all locations — your ranking helps us make assignments.
+        </p>
+        <div class="faf-loc-rank-list">
+          <div
+            v-for="item in locationRankingItems"
+            :key="item.key"
+            class="faf-loc-rank-row"
+          >
+            <select
+              class="faf-rank-select"
+              :value="locationRanks[item.key] || ''"
+              @change="locationRanks[item.key] = $event.target.value ? Number($event.target.value) : null"
             >
-              <select
-                class="faf-rank-select"
-                :value="getRank(ev.id, loc)"
-                @change="setRank(ev.id, loc, $event.target.value)"
-              >
-                <option value="">—</option>
-                <option v-for="n in ev.locations_json.length" :key="n" :value="n">{{ n }}</option>
-              </select>
-              <span class="faf-loc-name">{{ loc }}</span>
-            </div>
+              <option value="">—</option>
+              <option v-for="n in locationRankingItems.length" :key="n" :value="n">{{ n }}</option>
+            </select>
+            <span class="faf-loc-name">{{ item.label }}</span>
           </div>
         </div>
       </div>
@@ -201,7 +181,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 
@@ -218,10 +198,11 @@ const alreadySubmitted = ref(false);
 
 const myGeneralNotes = ref('');
 
-// dateEntries keyed by `${eventId}__${entryDate}`
-// → { preference, waitlistWilling, oncallWilling, comment, sessionDateId, companyEventId, entryDate }
+// dateEntries keyed by date string (YYYY-MM-DD) — one entry per date regardless of location.
+// When saving we fan this out to all events that have that date.
 const dateEntries = ref({});
-// locationRanks keyed by `${eventId}__${location}` → rank (number)
+
+// locationRanks keyed by a stable string per location item
 const locationRanks = ref({});
 
 const saving = ref(false);
@@ -258,70 +239,85 @@ const fmtTime = (d) => {
   return dt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 };
 
-const entryKey = (id, date) => `${id}__${date}`;
-const rankKey = (eventId, loc) => `${eventId}__${loc}`;
-
-// Resolve the keying ID for an event object (program_id takes precedence over company_event_id)
-const srcId = (ev) => ev.program_id || ev.company_event_id || ev.id;
-
-const getEntry = (ev, date) => dateEntries.value[entryKey(srcId(ev), date)];
-const getPref = (ev, date) => getEntry(ev, date)?.preference || 'unavailable';
-const getWaitlistWilling = (ev, date) => !!getEntry(ev, date)?.waitlistWilling;
-const getOncallWilling = (ev, date) => !!getEntry(ev, date)?.oncallWilling;
-const getComment = (ev, date) => getEntry(ev, date)?.comment || '';
-const getRank = (eventId, loc) => locationRanks.value[rankKey(eventId, loc)] || '';
-
-// evObj is the full event object from form.events so we can detect program vs company_event
-const ensureEntry = (evObj, sessionDateId, date) => {
-  const sourceId = evObj.program_id || evObj.company_event_id;
-  const k = entryKey(sourceId, date);
-  if (!dateEntries.value[k]) {
-    dateEntries.value[k] = {
-      companyEventId: evObj.program_id ? null : (evObj.company_event_id || sourceId),
-      programId: evObj.program_id || null,
-      sessionDateId,
-      entryDate: date,
-      preference: 'unavailable',
-      waitlistWilling: false,
-      oncallWilling: false,
-      comment: ''
-    };
+// ── Unified date list ─────────────────────────────────────────────────────────
+// Aggregate all session dates across all events so each calendar date appears once.
+// Slot counts are summed across every event that runs on that date.
+const allDates = computed(() => {
+  const map = new Map();
+  for (const ev of form.value?.events || []) {
+    for (const sd of ev.session_dates || []) {
+      const d = typeof sd.session_date === 'string' ? sd.session_date.slice(0, 10) : String(sd.session_date || '').slice(0, 10);
+      if (!d) continue;
+      if (!map.has(d)) {
+        map.set(d, { date: d, starts_at: sd.starts_at || null, effective: 0, filled: 0 });
+      }
+      const entry = map.get(d);
+      entry.effective += Number(sd.effectiveSlots) || 2;
+      entry.filled   += Number(sd.filledSlots)    || 0;
+    }
   }
-  return dateEntries.value[k];
+  return [...map.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, v]) => ({ ...v, openSlots: Math.max(0, v.effective - v.filled) }));
+});
+
+const formDateRange = computed(() => {
+  if (!allDates.value.length) return '';
+  const first = allDates.value[0].date;
+  const last  = allDates.value[allDates.value.length - 1].date;
+  return first === last ? fmtDate(first) : `${fmtDate(first)} – ${fmtDate(last)}`;
+});
+
+// ── Location ranking items ────────────────────────────────────────────────────
+// Build a flat list of locations to rank:
+//  • If there are multiple events, each event is its own location (ranked by title).
+//  • If there's only one event but it has multiple locations_json entries, rank those.
+const locationRankingItems = computed(() => {
+  const events = form.value?.events || [];
+  if (events.length > 1) {
+    return events.map((ev) => ({
+      key: `ev__${ev.id}`,
+      label: ev.event_title || `Location ${ev.id}`,
+      requestEventId: ev.id,
+      location: ev.event_title || `Location ${ev.id}`
+    }));
+  }
+  if (events.length === 1) {
+    const locs = events[0].locations_json || [];
+    if (locs.length > 1) {
+      return locs.map((loc, i) => ({
+        key: `loc__${events[0].id}__${i}`,
+        label: loc,
+        requestEventId: events[0].id,
+        location: loc
+      }));
+    }
+  }
+  return [];
+});
+
+// ── Per-date accessors ────────────────────────────────────────────────────────
+const ensureDateEntry = (date) => {
+  if (!dateEntries.value[date]) {
+    dateEntries.value[date] = { preference: 'unavailable', waitlistWilling: false, oncallWilling: false, comment: '' };
+  }
+  return dateEntries.value[date];
 };
 
-const setPref = (evObj, sessionDateId, date, value) => {
-  const e = ensureEntry(evObj, sessionDateId, date);
+const getDatePref         = (date) => dateEntries.value[date]?.preference || 'unavailable';
+const getDateWaitlistWilling = (date) => !!dateEntries.value[date]?.waitlistWilling;
+const getDateOncallWilling   = (date) => !!dateEntries.value[date]?.oncallWilling;
+const getDateComment         = (date) => dateEntries.value[date]?.comment || '';
+
+const setDatePref = (date, value) => {
+  const e = ensureDateEntry(date);
   e.preference = value;
   if (value === 'oncall' || value === 'unavailable') { e.waitlistWilling = false; e.oncallWilling = false; }
   if (value === 'waitlist') e.waitlistWilling = false;
 };
-
-const setWaitlistWilling = (evObj, sessionDateId, date, val) => {
-  ensureEntry(evObj, sessionDateId, date).waitlistWilling = val;
-};
-
-const setOncallWilling = (evObj, sessionDateId, date, val) => {
-  ensureEntry(evObj, sessionDateId, date).oncallWilling = val;
-};
-
-const setComment = (evObj, date, value) => {
-  const k = entryKey(srcId(evObj), date);
-  if (!dateEntries.value[k]) dateEntries.value[k] = { companyEventId: evObj.company_event_id || null, programId: evObj.program_id || null, sessionDateId: null, entryDate: date, preference: 'unavailable', waitlistWilling: false, oncallWilling: false, comment: '' };
-  dateEntries.value[k].comment = value;
-};
-
-const setRank = (eventId, loc, value) => {
-  locationRanks.value[rankKey(eventId, loc)] = value ? Number(value) : null;
-};
-
-// Total slots across all locations for a given session date.
-// Each location independently needs effectiveSlots facilitators, so the form
-// shows the aggregate so facilitators understand overall demand.
-const locCount = (ev) => Math.max(1, ev.locations_json?.length || 1);
-const totalEffectiveSlots = (ev, sd) => (sd.effectiveSlots || 2) * locCount(ev);
-const totalFilledSlots = (ev, sd) => (sd.filledSlots || 0) * locCount(ev);
-const totalOpenSlots = (ev, sd) => Math.max(0, totalEffectiveSlots(ev, sd) - totalFilledSlots(ev, sd));
+const setDateWaitlistWilling = (date, val) => { ensureDateEntry(date).waitlistWilling = val; };
+const setDateOncallWilling   = (date, val) => { ensureDateEntry(date).oncallWilling = val; };
+const setDateComment         = (date, val) => { ensureDateEntry(date).comment = val; };
 
 // ── Hydrate existing submission ───────────────────────────────────────────────
 const hydrateSubmission = (submission) => {
@@ -329,45 +325,48 @@ const hydrateSubmission = (submission) => {
   myGeneralNotes.value = submission.general_notes || '';
   alreadySubmitted.value = !!submission.submitted_at;
 
+  // Collapse per-event date entries to per-date (take first non-unavailable, else first)
+  const byDate = {};
   for (const de of (submission.dateEntries || [])) {
-    const dateStr = de.entry_date?.slice(0, 10) ?? de.entry_date;
-    const sourceId = de.program_id || de.company_event_id;
-    const k = entryKey(sourceId, dateStr);
+    const d = de.entry_date?.slice(0, 10) ?? de.entry_date;
+    if (!d) continue;
     const rawAvail = de.availability || 'unavailable';
     const pref = rawAvail === 'available' ? 'slot' : rawAvail;
-    dateEntries.value[k] = {
-      companyEventId: de.company_event_id || null,
-      programId: de.program_id || null,
-      sessionDateId: de.session_date_id,
-      entryDate: dateStr,
-      preference: pref,
-      waitlistWilling: !!de.waitlist_willing,
-      oncallWilling: !!de.oncall_willing,
-      comment: de.comment || ''
-    };
+    if (!byDate[d] || pref !== 'unavailable') {
+      byDate[d] = {
+        preference: pref,
+        waitlistWilling: !!de.waitlist_willing,
+        oncallWilling: !!de.oncall_willing,
+        comment: de.comment || ''
+      };
+    }
   }
+  dateEntries.value = byDate;
 
+  // Hydrate location ranks
   for (const lr of (submission.locationRanks || [])) {
-    const k = `__re__${lr.request_event_id}__${lr.location}`;
-    locationRanks.value[k] = lr.rank_order;
+    // Try to match against locationRankingItems after form is set
+    // Store by requestEventId + location for later remapping
+    locationRanks.value[`__pending__${lr.request_event_id}__${lr.location}`] = lr.rank_order;
   }
 };
 
-const hydrateLocationRanks = () => {
-  if (!form.value?.events) return;
-  const reMap = {};
-  for (const ev of form.value.events) reMap[ev.id] = ev.company_event_id;
-  const newRanks = {};
+const resolveLocationRanks = () => {
+  const items = locationRankingItems.value;
+  if (!items.length) return;
+  const resolved = {};
   for (const [k, v] of Object.entries(locationRanks.value)) {
-    if (k.startsWith('__re__')) {
-      const [, , reId, ...locParts] = k.split('__');
-      const eventId = reMap[Number(reId)];
-      if (eventId) newRanks[rankKey(eventId, locParts.join('__'))] = v;
+    if (k.startsWith('__pending__')) {
+      const parts = k.split('__');
+      const reId = Number(parts[2]);
+      const loc = parts.slice(3).join('__');
+      const match = items.find((i) => i.requestEventId === reId && i.location === loc);
+      if (match) resolved[match.key] = v;
     } else {
-      newRanks[k] = v;
+      resolved[k] = v;
     }
   }
-  locationRanks.value = newRanks;
+  locationRanks.value = resolved;
 };
 
 // ── Load form ─────────────────────────────────────────────────────────────────
@@ -379,7 +378,7 @@ const load = async () => {
     form.value = r.data;
     if (r.data?.submission) {
       hydrateSubmission(r.data.submission);
-      hydrateLocationRanks();
+      resolveLocationRanks();
     }
   } catch (e) {
     if (e?.response?.status === 401) {
@@ -395,31 +394,37 @@ const load = async () => {
 };
 
 // ── Build payload ─────────────────────────────────────────────────────────────
+// Fan each per-date entry out to every event (location) that runs on that date.
 const buildPayload = (isSubmit) => {
-  const entries = Object.values(dateEntries.value).filter((e) => e.entryDate && e.companyEventId);
-
-  const ranks = [];
-  if (form.value?.events) {
-    for (const ev of form.value.events) {
-      for (const loc of (ev.locations_json || [])) {
-        const r = locationRanks.value[rankKey(srcId(ev), loc)];
-        if (r) ranks.push({ requestEventId: ev.id, location: loc, rankOrder: r });
-      }
+  const entries = [];
+  for (const ev of form.value?.events || []) {
+    for (const sd of ev.session_dates || []) {
+      const d = typeof sd.session_date === 'string' ? sd.session_date.slice(0, 10) : String(sd.session_date || '').slice(0, 10);
+      const entry = dateEntries.value[d];
+      if (!entry) continue;
+      entries.push({
+        ...(ev.program_id ? { programId: ev.program_id } : { companyEventId: ev.company_event_id }),
+        sessionDateId: sd.id || null,
+        entryDate: d,
+        availability: entry.preference,
+        waitlistWilling: !!entry.waitlistWilling,
+        oncallWilling: !!entry.oncallWilling,
+        comment: entry.comment?.trim() || null
+      });
     }
   }
+
+  const ranks = locationRankingItems.value
+    .map((item) => {
+      const r = locationRanks.value[item.key];
+      return r ? { requestEventId: item.requestEventId, location: item.location, rankOrder: Number(r) } : null;
+    })
+    .filter(Boolean);
 
   return {
     generalNotes: myGeneralNotes.value.trim() || null,
     submit: isSubmit,
-    dateEntries: entries.map((e) => ({
-      ...(e.programId ? { programId: e.programId } : { companyEventId: e.companyEventId }),
-      sessionDateId: e.sessionDateId || null,
-      entryDate: e.entryDate,
-      availability: e.preference,
-      waitlistWilling: !!e.waitlistWilling,
-      oncallWilling: !!e.oncallWilling,
-      comment: e.comment?.trim() || null
-    })),
+    dateEntries: entries,
     locationRanks: ranks
   };
 };
@@ -491,23 +496,14 @@ onMounted(load);
 
 /* Section */
 .faf-section { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 22px; margin-bottom: 20px; }
-.faf-section-head { font-size: 1rem; font-weight: 700; color: #0f172a; margin-bottom: 14px; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px; }
+.faf-section-head {
+  font-size: 1rem; font-weight: 700; color: #0f172a; margin-bottom: 14px;
+  border-bottom: 1px solid #f1f5f9; padding-bottom: 8px;
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+}
+.faf-section-range { font-size: .82rem; font-weight: 400; color: #64748b; }
 .faf-opt { font-size: .82rem; font-weight: 400; color: #94a3b8; }
 
-/* Session header */
-.faf-session-head { margin-bottom: 16px; }
-.faf-session-name { font-size: 1.1rem; font-weight: 700; color: #1e3a8a; }
-.faf-session-range { font-size: .85rem; color: #64748b; margin-top: 2px; }
-
-/* Location ranking — shown after date list as a session footer */
-.faf-loc-rank { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; margin-top: 16px; }
-.faf-loc-rank-head { font-size: .88rem; font-weight: 600; color: #374151; margin-bottom: 10px; }
-.faf-loc-hint { color: #94a3b8; font-weight: 400; }
-.faf-loc-rank-list { display: grid; gap: 8px; }
-.faf-loc-rank-row { display: flex; align-items: center; gap: 10px; }
-.faf-rank-select { width: 64px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 5px 8px; font-size: .9rem; }
-.faf-loc-name { color: #0f172a; font-size: .92rem; }
-.faf-loc-single { font-size: .88rem; color: #475569; margin-bottom: 12px; }
 .faf-no-dates { color: #94a3b8; font-size: .88rem; padding: 12px 0; }
 
 /* Date cards list */
@@ -567,6 +563,13 @@ onMounted(load);
   background: rgba(255,255,255,.8);
 }
 .faf-comment:focus { outline: 2px solid #3b82f6; border-color: transparent; }
+
+/* Location ranking */
+.faf-loc-intro { font-size: .88rem; color: #475569; margin: 0 0 14px; }
+.faf-loc-rank-list { display: grid; gap: 10px; }
+.faf-loc-rank-row { display: flex; align-items: center; gap: 12px; }
+.faf-rank-select { width: 68px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 8px; font-size: .9rem; }
+.faf-loc-name { color: #0f172a; font-size: .93rem; font-weight: 500; }
 
 /* General notes */
 .faf-input { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 12px; font-size: .9rem; color: #0f172a; box-sizing: border-box; }
