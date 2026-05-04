@@ -698,6 +698,81 @@
             </div>
           </div>
 
+          <div v-if="showContinuationServicesChecklist" class="continuation-checklist-section">
+            <label class="continuation-checklist-label">Continuation of Services</label>
+            <select v-model="checklist.continuation.plan" class="inline-select">
+              <option value="">—</option>
+              <option value="continue_school">Continuing for in-school services in the fall</option>
+              <option value="not_continue_school">Not continuing for in-school services in the fall</option>
+            </select>
+
+            <div v-if="checklist.continuation.plan === 'continue_school'" class="cont-nested">
+              <div class="cont-choice-row">
+                <label class="cont-choice-card">
+                  <input v-model="checklist.continuation.schoolChoice" type="radio" value="current_school" />
+                  <span>Current school</span>
+                </label>
+                <label class="cont-choice-card">
+                  <input v-model="checklist.continuation.schoolChoice" type="radio" value="new_school" />
+                  <span>New school</span>
+                </label>
+              </div>
+
+              <div v-if="checklist.continuation.schoolChoice === 'current_school'" class="cont-nested">
+                <label class="cont-choice-card">
+                  <input v-model="checklist.continuation.currentSchoolAction" type="radio" value="continuing_with_me" />
+                  <span>Continuing with me</span>
+                </label>
+                <label class="cont-choice-card">
+                  <input v-model="checklist.continuation.currentSchoolAction" type="radio" value="requesting_transfer" />
+                  <span>Requesting transfer</span>
+                </label>
+              </div>
+
+              <div v-if="checklist.continuation.schoolChoice === 'new_school'" class="cont-nested">
+                <label style="font-size: 12px; font-weight: 700; color: var(--text-secondary);">New school</label>
+                <select v-model="checklist.continuation.newSchoolOrganizationId" class="inline-select">
+                  <option value="">Select affiliated school…</option>
+                  <option
+                    v-for="school in checklistAgencySchools"
+                    :key="school.school_organization_id"
+                    :value="String(school.school_organization_id)"
+                  >
+                    {{ school.school_name }}
+                  </option>
+                </select>
+                <input
+                  v-if="!checklist.continuation.newSchoolOrganizationId"
+                  v-model="checklist.continuation.newSchoolName"
+                  class="inline-input"
+                  type="text"
+                  placeholder="Type school if not listed"
+                />
+                <div v-if="checklist.continuation.newSchoolOrganizationId" class="cont-nested">
+                  <label class="cont-choice-card">
+                    <input v-model="checklist.continuation.newSchoolAction" type="radio" value="continue_at_new_school_if_possible" />
+                    <span>I would like to continue to see them at their new school if possible</span>
+                  </label>
+                  <label class="cont-choice-card">
+                    <input v-model="checklist.continuation.newSchoolAction" type="radio" value="pursue_in_office_support" />
+                    <span>I will pursue in-office support at the client's request</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="checklist.continuation.plan === 'not_continue_school'" class="cont-nested">
+              <label class="cont-choice-card">
+                <input v-model="checklist.continuation.notContinuingAction" type="radio" value="transferring_terminating_client" />
+                <span>Transferring/terminating the client</span>
+              </label>
+              <label class="cont-choice-card">
+                <input v-model="checklist.continuation.notContinuingAction" type="radio" value="continuing_office_virtual" />
+                <span>Continuing as an in-office/virtual client</span>
+              </label>
+            </div>
+          </div>
+
           <div class="form-actions" style="margin-top: 12px;">
             <button class="btn btn-primary" @click="saveChecklist" :disabled="savingChecklist">
               {{ savingChecklist ? 'Saving…' : 'Save Checklist' }}
@@ -2802,11 +2877,115 @@ const refreshOverviewProviders = async () => {
 // Compliance checklist
 const savingChecklist = ref(false);
 const checklistAuditText = ref('');
+
+const isContinuationServicesSeason = (value = new Date()) => {
+  const d = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+  if (!Number.isFinite(d.getTime())) return false;
+  const start = new Date(d.getFullYear(), 4, 1);
+  const end = new Date(d.getFullYear(), 8, 1);
+  return d.getTime() >= start.getTime() && d.getTime() < end.getTime();
+};
+const showContinuationServicesChecklist = computed(() => isContinuationServicesSeason());
+
+const emptyContSvc = () => ({
+  plan: '',
+  schoolChoice: '',
+  currentSchoolAction: '',
+  newSchoolOrganizationId: '',
+  newSchoolName: '',
+  newSchoolAction: '',
+  notContinuingAction: ''
+});
+
 const checklist = ref({
   parentsContactedAt: '',
   parentsContactedSuccessful: '',
-  firstServiceAt: ''
+  firstServiceAt: '',
+  continuation: emptyContSvc()
 });
+const checklistAgencySchools = ref([]);
+
+const fetchChecklistAgencySchools = async () => {
+  if (!showContinuationServicesChecklist.value) return;
+  const agencyId = Number(props.client?.agency_id || 0);
+  if (!agencyId) return;
+  try {
+    const r = await api.get(`/agencies/${agencyId}/schools`, { skipGlobalLoading: true });
+    checklistAgencySchools.value = Array.isArray(r.data) ? r.data : [];
+  } catch {
+    checklistAgencySchools.value = [];
+  }
+};
+
+const parseContSvcJson = (raw) => {
+  if (!raw) return emptyContSvc();
+  let data = raw;
+  if (typeof raw === 'string') {
+    try { data = JSON.parse(raw); } catch { return emptyContSvc(); }
+  }
+  if (!data || typeof data !== 'object') return emptyContSvc();
+  return {
+    ...emptyContSvc(),
+    plan: String(data.plan || ''),
+    schoolChoice: String(data.schoolChoice || ''),
+    currentSchoolAction: String(data.currentSchoolAction || ''),
+    newSchoolOrganizationId: data.newSchoolOrganizationId ? String(data.newSchoolOrganizationId) : '',
+    newSchoolName: String(data.newSchoolName || ''),
+    newSchoolAction: String(data.newSchoolAction || ''),
+    notContinuingAction: String(data.notContinuingAction || '')
+  };
+};
+
+const contSvcPayload = () => {
+  const c = checklist.value.continuation || emptyContSvc();
+  if (!showContinuationServicesChecklist.value || !c.plan) return null;
+  const payload = { plan: c.plan };
+  if (c.plan === 'continue_school') {
+    payload.schoolChoice = c.schoolChoice || '';
+    if (c.schoolChoice === 'current_school') {
+      payload.currentSchoolAction = c.currentSchoolAction || '';
+    } else if (c.schoolChoice === 'new_school') {
+      payload.newSchoolOrganizationId = c.newSchoolOrganizationId ? Number(c.newSchoolOrganizationId) : null;
+      payload.newSchoolName = c.newSchoolOrganizationId ? null : (String(c.newSchoolName || '').trim() || null);
+      if (c.newSchoolOrganizationId) payload.newSchoolAction = c.newSchoolAction || '';
+    }
+  } else if (c.plan === 'not_continue_school') {
+    payload.notContinuingAction = c.notContinuingAction || '';
+  }
+  return payload;
+};
+
+watch(
+  () => checklist.value.continuation.plan,
+  (plan) => {
+    if (plan !== 'continue_school') {
+      checklist.value.continuation.schoolChoice = '';
+      checklist.value.continuation.currentSchoolAction = '';
+      checklist.value.continuation.newSchoolOrganizationId = '';
+      checklist.value.continuation.newSchoolName = '';
+      checklist.value.continuation.newSchoolAction = '';
+    }
+    if (plan !== 'not_continue_school') checklist.value.continuation.notContinuingAction = '';
+  }
+);
+watch(
+  () => checklist.value.continuation.schoolChoice,
+  (choice) => {
+    if (choice !== 'current_school') checklist.value.continuation.currentSchoolAction = '';
+    if (choice !== 'new_school') {
+      checklist.value.continuation.newSchoolOrganizationId = '';
+      checklist.value.continuation.newSchoolName = '';
+      checklist.value.continuation.newSchoolAction = '';
+    }
+  }
+);
+watch(
+  () => checklist.value.continuation.newSchoolOrganizationId,
+  (schoolId) => {
+    if (schoolId) checklist.value.continuation.newSchoolName = '';
+    if (!schoolId) checklist.value.continuation.newSchoolAction = '';
+  }
+);
 
 // Guardians tab state (non-clinical portal access)
 const guardiansLoading = ref(false);
@@ -4194,6 +4373,8 @@ const hydrateChecklist = async () => {
         ? ''
         : (c.parents_contacted_successful ? 'true' : 'false');
     checklist.value.firstServiceAt = c.first_service_at ? String(c.first_service_at).slice(0, 10) : '';
+    checklist.value.continuation = parseContSvcJson(c.continuation_services_json);
+    await fetchChecklistAgencySchools();
     const who = c.checklist_updated_by_name || null;
     const when = c.checklist_updated_at ? new Date(c.checklist_updated_at).toLocaleString() : null;
     checklistAuditText.value = who && when ? `Last updated by ${who} on ${when}` : (when ? `Last updated on ${when}` : '');
@@ -4210,6 +4391,7 @@ const saveChecklist = async () => {
       parentsContactedSuccessful: checklist.value.parentsContactedSuccessful === '' ? null : (checklist.value.parentsContactedSuccessful === 'true'),
       firstServiceAt: checklist.value.firstServiceAt || null
     };
+    if (showContinuationServicesChecklist.value) payload.continuationServices = contSvcPayload();
     const r = await api.put(`/clients/${props.client.id}/compliance-checklist`, payload);
     const c = r.data || {};
     const who = c.checklist_updated_by_name || null;
@@ -6487,5 +6669,49 @@ watch(
 }
 @media (max-width: 980px) {
   .cdp-page-body { padding: 0 12px; }
+}
+.continuation-checklist-section {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-alt, #f8fafc);
+  display: grid;
+  gap: 10px;
+}
+.continuation-checklist-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+.cont-nested {
+  display: grid;
+  gap: 8px;
+}
+.cont-choice-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.cont-choice-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: white;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.cont-choice-card input {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+@media (max-width: 640px) {
+  .cont-choice-row { grid-template-columns: 1fr; }
 }
 </style>
