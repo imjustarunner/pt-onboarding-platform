@@ -39,6 +39,10 @@
                 <div class="k">First Service</div>
                 <div class="v">{{ formatDateOnly(checklist.first_service_at) }}</div>
               </div>
+              <div v-if="showContinuationField" class="check-item check-item-full">
+                <div class="k">Continuation of Services</div>
+                <div class="v">{{ continuationServicesSummary(checklist.continuation_services_json) }}</div>
+              </div>
             </div>
             <div v-if="checklistAudit" class="checklist-audit">{{ checklistAudit }}</div>
           </div>
@@ -171,6 +175,43 @@ const formatStatus = (s) => {
 
 const formatDateOnly = (d) => (d ? String(d).slice(0, 10) : '—');
 
+const isContinuationServicesSeason = (value = new Date()) => {
+  const d = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+  if (!Number.isFinite(d.getTime())) return false;
+  const start = new Date(d.getFullYear(), 4, 1);
+  const end = new Date(d.getFullYear(), 8, 1);
+  return d.getTime() >= start.getTime() && d.getTime() < end.getTime();
+};
+const showContinuationField = computed(() => isContinuationServicesSeason());
+
+const continuationServicesSummary = (raw) => {
+  let data = raw;
+  if (typeof raw === 'string') {
+    try { data = JSON.parse(raw); } catch { return '—'; }
+  }
+  if (!data?.plan) return '—';
+  if (data.plan === 'not_continue_school') {
+    if (data.notContinuingAction === 'transferring_terminating_client') return 'Not continuing · transfer/terminate';
+    if (data.notContinuingAction === 'continuing_office_virtual') return 'Not continuing · office/virtual';
+    return 'Not continuing in school';
+  }
+  if (data.plan !== 'continue_school') return '—';
+  if (data.schoolChoice === 'current_school') {
+    if (data.currentSchoolAction === 'continuing_with_me') return 'Current school · with me';
+    if (data.currentSchoolAction === 'requesting_transfer') return 'Current school · transfer';
+    return 'Current school';
+  }
+  if (data.schoolChoice === 'new_school') {
+    if (!Number(data.newSchoolOrganizationId || 0) && String(data.newSchoolName || '').trim()) {
+      return `New school · ${String(data.newSchoolName).trim()}`;
+    }
+    if (data.newSchoolAction === 'continue_at_new_school_if_possible') return 'New school · continue if possible';
+    if (data.newSchoolAction === 'pursue_in_office_support') return 'New school · office support';
+    return 'New school';
+  }
+  return 'Continuing in school';
+};
+
 const buildTree = (flat) => {
   const list = Array.isArray(flat) ? flat : [];
   const byId = new Map();
@@ -260,7 +301,8 @@ const load = async () => {
           c.parents_contacted_successful === null || c.parents_contacted_successful === undefined
             ? null
             : !!c.parents_contacted_successful,
-        first_service_at: c.first_service_at || null
+        first_service_at: c.first_service_at || null,
+        continuation_services_json: c.continuation_services_json || null
       };
       const who = c.checklist_updated_by_name || null;
       const when = c.checklist_updated_at ? new Date(c.checklist_updated_at).toLocaleString() : null;
@@ -475,6 +517,9 @@ onMounted(load);
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 10px;
+}
+.check-item-full {
+  grid-column: 1 / -1;
 }
 .check-item .k {
   font-size: 12px;
