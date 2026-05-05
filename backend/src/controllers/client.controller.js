@@ -2971,14 +2971,31 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
       updateParts.push('intake_at = ?');
       updateValues.push(intakeAt);
     }
-    if (continuationServices !== undefined) {
+    const baseUpdateParts = [...updateParts];
+    const baseUpdateValues = [...updateValues];
+    const hasContinuationField = continuationServices !== undefined;
+    if (hasContinuationField) {
       updateParts.push('continuation_services_json = ?');
       updateValues.push(continuationServices === null ? null : JSON.stringify(continuationServices));
     }
-    await pool.execute(
-      `UPDATE clients SET ${updateParts.join(', ')} WHERE id = ?`,
-      [...updateValues, clientId]
-    );
+    try {
+      await pool.execute(
+        `UPDATE clients SET ${updateParts.join(', ')} WHERE id = ?`,
+        [...updateValues, clientId]
+      );
+    } catch (updateErr) {
+      const msg = String(updateErr?.message || '');
+      const isUnknownColumn =
+        updateErr?.code === 'ER_BAD_FIELD_ERROR' ||
+        msg.includes('Unknown column') ||
+        msg.includes('continuation_services_json');
+      if (!hasContinuationField || !isUnknownColumn) throw updateErr;
+      // Column not migrated yet — retry without it so the rest of the checklist still saves.
+      await pool.execute(
+        `UPDATE clients SET ${baseUpdateParts.join(', ')} WHERE id = ?`,
+        [...baseUpdateValues, clientId]
+      );
+    }
 
     // History entry (lightweight)
     try {
