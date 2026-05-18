@@ -804,13 +804,13 @@ export const getSchedulingData = async (req, res, next) => {
       `SELECT fare.id AS request_event_id, fare.company_event_id, fare.display_order,
               ce.title AS event_title, ce.starts_at AS event_date, ce.ends_at AS end_date
        FROM facilitator_availability_request_events fare
-       JOIN company_events ce ON ce.id = fare.company_event_id
+       JOIN company_events ce ON ce.id = fare.company_event_id AND ce.is_active = 1
        WHERE fare.request_id = ?
        ORDER BY fare.display_order`,
       [requestId]
     );
 
-    const result = [];
+    const dateMap = new Map();
 
     for (const ev of reqEvents) {
       const [sessionDates] = await pool.execute(
@@ -821,10 +821,9 @@ export const getSchedulingData = async (req, res, next) => {
         [ev.company_event_id]
       );
 
-      const dates = [];
-
       for (const sd of sessionDates) {
         const dateStr = toDateOnlyString(sd.session_date) || '';
+        if (!dateStr) continue;
 
         // Group count and participant count (for auto slot rule)
         const [[groupRow]] = await pool.execute(
@@ -849,7 +848,7 @@ export const getSchedulingData = async (req, res, next) => {
         const override = overrideRow ? Number(overrideRow.slot_count) : null;
         const effectiveSlots = override !== null ? override : autoSlots;
 
-        // Assigned employees
+        // Assigned employees at this location
         const [assigned] = await pool.execute(
           `SELECT csp.provider_user_id AS user_id, u.first_name, u.last_name, u.email
            FROM company_event_session_providers csp
@@ -859,30 +858,20 @@ export const getSchedulingData = async (req, res, next) => {
           [ev.company_event_id, sd.id]
         );
 
-        // Available pool: responded available/waitlist AND not already assigned to this session date
-        const [available] = await pool.execute(
-          `SELECT fade.user_id, fade.availability, fade.waitlist_willing, fade.oncall_willing,
-                  u.first_name, u.last_name, u.email,
-                  COALESCE(fas.submitted_at, fas.updated_at, fade.created_at) AS signed_up_at
-           FROM facilitator_availability_date_entries fade
-           JOIN users u ON u.id = fade.user_id
-           LEFT JOIN facilitator_availability_submissions fas
-             ON fas.id = fade.submission_id
-           LEFT JOIN company_event_session_providers csp
-             ON csp.session_date_id = ? AND csp.provider_user_id = fade.user_id
-           WHERE fade.request_id = ?
-             AND fade.entry_date = ?
-             AND fade.availability IN ('slot', 'waitlist', 'oncall', 'available')
-             AND csp.id IS NULL
-           ORDER BY
-             FIELD(fade.availability, 'slot', 'available', 'waitlist', 'oncall'),
-             COALESCE(fas.submitted_at, fas.updated_at, fade.created_at) ASC`,
-          [sd.id, requestId, dateStr]
-        );
+        if (!dateMap.has(dateStr)) {
+          dateMap.set(dateStr, { date: dateStr, locations: [], available: null });
+        }
 
-        dates.push({
+        const dayBlock = dateMap.get(dateStr);
+        if (dayBlock.locations.some((l) => l.companyEventId === ev.company_event_id)) {
+          continue;
+        }
+
+        dayBlock.locations.push({
+          requestEventId: ev.request_event_id,
+          companyEventId: ev.company_event_id,
+          eventTitle: ev.event_title,
           sessionDateId: sd.id,
-          date: dateStr,
           startsAt: sd.starts_at,
           endsAt: sd.ends_at,
           timezone: sd.timezone,
@@ -893,31 +882,63 @@ export const getSchedulingData = async (req, res, next) => {
           override,
           effectiveSlots,
           filled: assigned.length,
+          openSlots: Math.max(0, effectiveSlots - assigned.length),
           assigned: assigned.map((r) => ({
             userId: r.user_id,
             name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email,
             email: r.email
-          })),
-          available: available.map((r) => ({
-            userId: r.user_id,
-            name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email,
-            email: r.email,
-            availability: r.availability
           }))
         });
       }
-
-      result.push({
-        requestEventId: ev.request_event_id,
-        companyEventId: ev.company_event_id,
-        eventTitle: ev.event_title,
-        eventDate: ev.event_date,
-        endDate: ev.end_date,
-        dates
-      });
     }
 
-    res.json({ requestId, title: request.title, events: result });
+    // One deduped available pool per calendar date (not per location)
+    for (const [dateStr, block] of dateMap) {
+      const [availableRows] = await pool.execute(
+        `SELECT fade.user_id, fade.availability, fade.waitlist_willing, fade.oncall_willing,
+                u.first_name, u.last_name, u.email,
+                COALESCE(fas.submitted_at, fas.updated_at, fade.created_at) AS signed_up_at
+         FROM facilitator_availability_date_entries fade
+         JOIN users u ON u.id = fade.user_id
+         LEFT JOIN facilitator_availability_submissions fas ON fas.id = fade.submission_id
+         WHERE fade.request_id = ?
+           AND fade.entry_date = ?
+           AND fade.availability IN ('slot', 'waitlist', 'oncall', 'available')
+           AND NOT EXISTS (
+             SELECT 1
+             FROM company_event_session_providers csp
+             JOIN company_event_session_dates cesd ON cesd.id = csp.session_date_id
+             JOIN facilitator_availability_request_events fare
+               ON fare.company_event_id = cesd.company_event_id AND fare.request_id = ?
+             WHERE csp.provider_user_id = fade.user_id
+               AND cesd.session_date = fade.entry_date
+           )
+         ORDER BY
+           FIELD(fade.availability, 'slot', 'available', 'waitlist', 'oncall'),
+           COALESCE(fas.submitted_at, fas.updated_at, fade.created_at) ASC`,
+        [requestId, dateStr, requestId]
+      );
+
+      const byUser = new Map();
+      for (const r of availableRows) {
+        if (byUser.has(r.user_id)) continue;
+        byUser.set(r.user_id, {
+          userId: r.user_id,
+          name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email,
+          email: r.email,
+          availability: r.availability,
+          waitlistWilling: !!r.waitlist_willing,
+          oncallWilling: !!r.oncall_willing,
+          signedUpAt: r.signed_up_at
+        });
+      }
+      block.available = [...byUser.values()];
+      block.locations.sort((a, b) => String(a.eventTitle).localeCompare(String(b.eventTitle)));
+    }
+
+    const dates = [...dateMap.values()].sort((a, b) => a.date.localeCompare(b.date));
+
+    res.json({ requestId, title: request.title, dates });
   } catch (err) {
     next(err);
   }
@@ -996,9 +1017,7 @@ export const assignFacilitator = async (req, res, next) => {
     );
     if (!sdRow) return res.status(404).json({ error: { message: 'Session date not found' } });
 
-    const dateStr = sdRow.session_date instanceof Date
-      ? sdRow.session_date.toISOString().slice(0, 10)
-      : String(sdRow.session_date || '').slice(0, 10);
+    const dateStr = toDateOnlyString(sdRow.session_date) || '';
 
     // Check slot capacity
     const [[gcRow]] = await pool.execute(
