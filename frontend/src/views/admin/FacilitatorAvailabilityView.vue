@@ -370,6 +370,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import { formatDate } from '../../utils/formatDate';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -476,16 +477,15 @@ const fmtRelTime = (iso) => {
   return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
 
-const fmtDate = (d) => {
-  if (!d) return '';
-  const dt = new Date(typeof d === 'string' && d.length === 10 ? d + 'T00:00:00' : d);
-  if (isNaN(dt)) return d;
-  return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-};
+const fmtDate = (d) => formatDate(d) || '';
 
 const fmtDow = (d) => {
   if (!d) return '';
-  const dt = new Date(typeof d === 'string' && d.length === 10 ? d + 'T00:00:00' : d);
+  const s = String(d);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const dt = m
+    ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+    : new Date(d);
   if (isNaN(dt)) return '';
   return dt.toLocaleDateString(undefined, { weekday: 'short' });
 };

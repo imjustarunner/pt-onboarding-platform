@@ -1,5 +1,20 @@
 const pad2 = (n) => String(n).padStart(2, '0');
 
+/**
+ * Normalize a MySQL DATE (or date-like value) to YYYY-MM-DD without timezone shift.
+ * mysql2 returns DATE columns as JS Date at UTC midnight; using local getters would show the prior day in US timezones.
+ */
+export function toDateOnlyString(value) {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return `${value.getUTCFullYear()}-${pad2(value.getUTCMonth() + 1)}-${pad2(value.getUTCDate())}`;
+  }
+  const raw = String(value).trim();
+  const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : null;
+}
+
 function formatUtcDateTime(d) {
   return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
 }

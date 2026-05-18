@@ -49,7 +49,15 @@ function getTimeOptions(prefs) {
  * (e.g. "2024-02-13" as midnight UTC would show as 2/12 in Pacific timezone).
  */
 function parseDateSafe(dateLike) {
-  if (dateLike instanceof Date) return dateLike;
+  if (dateLike instanceof Date) {
+    if (Number.isNaN(dateLike.getTime())) return dateLike;
+    // MySQL DATE arrives as UTC midnight — use UTC components for local calendar day
+    return new Date(
+      dateLike.getUTCFullYear(),
+      dateLike.getUTCMonth(),
+      dateLike.getUTCDate()
+    );
+  }
   const s = String(dateLike || '').trim();
   const ymd = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:\s|T|$)/);
   if (ymd) {

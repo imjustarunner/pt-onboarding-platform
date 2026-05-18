@@ -3,6 +3,45 @@ import Notification from '../models/Notification.model.js';
 import { listAgencyIdsInTenantTree } from '../utils/meDashboardTenantScope.js';
 import config from '../config/config.js';
 import https from 'https';
+import { toDateOnlyString } from '../utils/mysqlDateTime.utils.js';
+
+/** One row per calendar date for admin display (availability is per-date, not per-location). */
+const AVAIL_RANK = { slot: 0, available: 0, waitlist: 1, oncall: 2, unavailable: 3 };
+
+function dedupeDateEntriesForDisplay(entries) {
+  const byDate = new Map();
+  for (const de of entries) {
+    const d = toDateOnlyString(de.entry_date);
+    if (!d) continue;
+    const normalized = { ...de, entry_date: d };
+    const existing = byDate.get(d);
+    if (!existing) {
+      byDate.set(d, normalized);
+      continue;
+    }
+    const rankA = AVAIL_RANK[existing.availability] ?? 9;
+    const rankB = AVAIL_RANK[normalized.availability] ?? 9;
+    if (rankB < rankA) {
+      byDate.set(d, normalized);
+    } else if (rankB === rankA && !existing.comment && normalized.comment) {
+      byDate.set(d, normalized);
+    }
+  }
+  return [...byDate.values()].sort((a, b) => a.entry_date.localeCompare(b.entry_date));
+}
+
+function dedupeLocationRanksForDisplay(ranks) {
+  const byLoc = new Map();
+  for (const lr of ranks) {
+    const loc = String(lr.location || '').trim();
+    if (!loc) continue;
+    const existing = byLoc.get(loc);
+    if (!existing || Number(lr.rank_order) < Number(existing.rank_order)) {
+      byLoc.set(loc, lr);
+    }
+  }
+  return [...byLoc.values()].sort((a, b) => Number(a.rank_order) - Number(b.rank_order));
+}
 
 const parseId = (raw) => {
   const n = Number.parseInt(String(raw ?? ''), 10);
@@ -387,6 +426,12 @@ export const getResponses = async (req, res, next) => {
       if (bySubmission[lr.submission_id]) bySubmission[lr.submission_id].locationRanks.push(lr);
     }
 
+    // Availability is per calendar date — collapse duplicate rows from multi-location fan-out
+    for (const sub of Object.values(bySubmission)) {
+      sub.dateEntries = dedupeDateEntriesForDisplay(sub.dateEntries);
+      sub.locationRanks = dedupeLocationRanksForDisplay(sub.locationRanks);
+    }
+
     res.json(Object.values(bySubmission));
   } catch (err) {
     next(err);
@@ -526,6 +571,7 @@ export const getRequestForEmployee = async (req, res, next) => {
         );
         re.session_dates = dates.map((d) => ({
           ...d,
+          session_date: toDateOnlyString(d.session_date),
           effectiveSlots: 2, filledSlots: 0, openSlots: 2  // programs use signup count not slot system
         }));
       } else {
@@ -538,6 +584,7 @@ export const getRequestForEmployee = async (req, res, next) => {
         );
         re.session_dates = dates.map((d) => ({
           ...d,
+          session_date: toDateOnlyString(d.session_date),
           ...(slotMap[d.id] || { effectiveSlots: 2, filledSlots: 0, openSlots: 2 })
         }));
       }
@@ -569,7 +616,11 @@ export const getRequestForEmployee = async (req, res, next) => {
       ...request,
       events: reqEvents,
       submission: submission
-        ? { ...submission, dateEntries, locationRanks }
+        ? {
+            ...submission,
+            dateEntries: dedupeDateEntriesForDisplay(dateEntries),
+            locationRanks: dedupeLocationRanksForDisplay(locationRanks)
+          }
         : null
     });
   } catch (err) {
@@ -649,12 +700,17 @@ export const submitResponse = async (req, res, next) => {
         [submissionId]
       );
       const VALID_AVAIL = new Set(['slot', 'waitlist', 'oncall', 'unavailable', 'available']);
+      // One row per calendar date (form collects availability per date, not per location)
+      const seenDates = new Set();
       for (const de of dateEntries) {
+        const entryDate = toDateOnlyString(de?.entryDate ?? de?.entry_date);
+        if (!entryDate || seenDates.has(entryDate)) continue;
+        seenDates.add(entryDate);
+
         const isProgram = !!de?.programId || !!de?.program_id;
         const eventId = isProgram ? null : parseId(de?.companyEventId ?? de?.company_event_id);
         const programId = isProgram ? parseId(de?.programId ?? de?.program_id) : null;
         if (!eventId && !programId) continue;
-        if (!de?.entryDate) continue;
         const avail = VALID_AVAIL.has(de?.availability) ? de.availability : 'unavailable';
         await conn.execute(
           `INSERT INTO facilitator_availability_date_entries
@@ -668,7 +724,7 @@ export const submitResponse = async (req, res, next) => {
             eventId,
             programId,
             parseId(de?.sessionDateId ?? de?.session_date_id) || null,
-            de.entryDate,
+            entryDate,
             avail,
             de?.waitlistWilling ? 1 : 0,
             de?.oncallWilling ? 1 : 0,
@@ -682,19 +738,23 @@ export const submitResponse = async (req, res, next) => {
         `DELETE FROM facilitator_availability_location_ranks WHERE submission_id = ?`,
         [submissionId]
       );
+      const seenLocs = new Map();
       for (const lr of locationRanks) {
+        const loc = String(lr?.location || '').trim();
+        if (!loc) continue;
+        const rank = Math.max(1, Number(lr?.rankOrder ?? lr?.rank_order ?? 1));
         const reqEventId = parseId(lr?.requestEventId ?? lr?.request_event_id);
-        if (!reqEventId || !lr?.location) continue;
+        const existing = seenLocs.get(loc);
+        if (existing && existing.rank <= rank) continue;
+        seenLocs.set(loc, { rank, reqEventId });
+      }
+      for (const [loc, { rank, reqEventId }] of seenLocs) {
+        if (!reqEventId) continue;
         await conn.execute(
           `INSERT INTO facilitator_availability_location_ranks
             (submission_id, request_event_id, location, rank_order)
            VALUES (?, ?, ?, ?)`,
-          [
-            submissionId,
-            reqEventId,
-            String(lr.location).trim(),
-            Math.max(1, Number(lr?.rankOrder ?? lr?.rank_order ?? 1))
-          ]
+          [submissionId, reqEventId, loc, rank]
         );
       }
 
@@ -764,9 +824,7 @@ export const getSchedulingData = async (req, res, next) => {
       const dates = [];
 
       for (const sd of sessionDates) {
-        const dateStr = sd.session_date instanceof Date
-          ? sd.session_date.toISOString().slice(0, 10)
-          : String(sd.session_date || '').slice(0, 10);
+        const dateStr = toDateOnlyString(sd.session_date) || '';
 
         // Group count and participant count (for auto slot rule)
         const [[groupRow]] = await pool.execute(
@@ -813,14 +871,13 @@ export const getSchedulingData = async (req, res, next) => {
            LEFT JOIN company_event_session_providers csp
              ON csp.session_date_id = ? AND csp.provider_user_id = fade.user_id
            WHERE fade.request_id = ?
-             AND fade.company_event_id = ?
              AND fade.entry_date = ?
              AND fade.availability IN ('slot', 'waitlist', 'oncall', 'available')
              AND csp.id IS NULL
            ORDER BY
              FIELD(fade.availability, 'slot', 'available', 'waitlist', 'oncall'),
              COALESCE(fas.submitted_at, fas.updated_at, fade.created_at) ASC`,
-          [sd.id, requestId, ev.company_event_id, dateStr]
+          [sd.id, requestId, dateStr]
         );
 
         dates.push({

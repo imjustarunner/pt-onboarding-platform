@@ -218,6 +218,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
+import { formatDate } from '../utils/formatDate';
 
 const route = useRoute();
 const router = useRouter();
@@ -273,17 +274,24 @@ const PREF_OPTIONS = [
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const fmtDate = (d) => {
-  if (!d) return '';
-  const dt = new Date(typeof d === 'string' && d.length === 10 ? d + 'T00:00:00' : d);
-  if (isNaN(dt)) return d;
-  return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+/** Parse YYYY-MM-DD (or MySQL DATE serialized as ISO) as local calendar date. */
+const parseDateKey = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return new Date(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate());
+  }
+  const s = String(value);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return new Date(s);
 };
+
+const fmtDate = (d) => formatDate(d) || '';
 
 const fmtDayOfWeek = (d) => {
   if (!d) return '';
-  const dt = new Date(typeof d === 'string' && d.length === 10 ? d + 'T00:00:00' : d);
-  if (isNaN(dt)) return '';
+  const dt = parseDateKey(d);
+  if (!dt || isNaN(dt.getTime())) return '';
   return dt.toLocaleDateString(undefined, { weekday: 'long' });
 };
 
@@ -304,8 +312,15 @@ const fmtTime = (d) => {
 
 const dateKey = (value) => {
   if (!value) return '';
-  if (typeof value === 'string') return value.slice(0, 10);
-  return String(value).slice(0, 10);
+  if (value instanceof Date) {
+    const y = value.getUTCFullYear();
+    const m = String(value.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(value.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const s = String(value);
+  const match = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : s.slice(0, 10);
 };
 
 const displayLocation = (ev, sd) => {
@@ -586,14 +601,17 @@ const copyShareLink = async () => {
 };
 
 // ── Build payload ─────────────────────────────────────────────────────────────
-// Fan each per-date entry out to every event (location) that runs on that date.
+// One row per calendar date (availability is per-date, not per location).
 const buildPayload = (isSubmit) => {
   const entries = [];
+  const seenDates = new Set();
   for (const ev of form.value?.events || []) {
     for (const sd of ev.session_dates || []) {
       const d = dateKey(sd.session_date);
+      if (!d || seenDates.has(d)) continue;
       const entry = dateEntries.value[d];
       if (!entry) continue;
+      seenDates.add(d);
       entries.push({
         ...(ev.program_id ? { programId: ev.program_id } : { companyEventId: ev.company_event_id }),
         sessionDateId: sd.id || null,
@@ -606,17 +624,12 @@ const buildPayload = (isSubmit) => {
     }
   }
 
-  // Fan each deduplicated rank out to every event that shares the same location label
-  const ranks = [];
-  for (const item of locationRankingItems.value) {
-    const r = locationRanks.value[item.key];
-    if (!r) continue;
-    for (const ev of form.value?.events || []) {
-      if (eventLocationLabel(ev) === item.label) {
-        ranks.push({ requestEventId: ev.id, location: item.location, rankOrder: Number(r) });
-      }
-    }
-  }
+  const ranks = locationRankingItems.value
+    .map((item) => {
+      const r = locationRanks.value[item.key];
+      return r ? { requestEventId: item.requestEventId, location: item.location, rankOrder: Number(r) } : null;
+    })
+    .filter(Boolean);
 
   return {
     generalNotes: myGeneralNotes.value.trim() || null,
