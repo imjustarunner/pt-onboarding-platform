@@ -270,14 +270,19 @@
       </div>
     </div>
 
-    <div v-if="confirmingDoc" class="modal-overlay" @click.self="confirmingDoc = null">
+    <div v-if="confirmingDoc" class="modal-overlay" @click.self="closeConfirmModal">
       <div class="modal" @click.stop>
         <h3>PHI Warning</h3>
         <p>
           This packet may contain PHI. Access is logged. Only open if you have a legitimate need and are authorized.
         </p>
+        <p v-if="openModalError" class="modal-error">{{ openModalError }}</p>
+        <p v-else-if="openModalLink" class="modal-fallback">
+          If nothing opened,
+          <a :href="openModalLink" target="_blank" rel="noopener noreferrer">click here to open the document</a>.
+        </p>
         <div class="modal-actions">
-          <button class="btn btn-secondary" @click="confirmingDoc = null">Cancel</button>
+          <button class="btn btn-secondary" @click="closeConfirmModal">Cancel</button>
           <button class="btn btn-primary" @click="openDoc(confirmingDoc)" :disabled="opening">
             {{ opening ? 'Opening…' : 'I Understand — Open' }}
           </button>
@@ -320,6 +325,8 @@ const auditStatements = ref([]);
 const ocrRequests = ref([]);
 const intakeSubmissions = ref([]);
 const confirmingDoc = ref(null);
+const openModalError = ref('');
+const openModalLink = ref('');
 const fileInput = ref(null);
 const uploadTitle = ref('');
 const uploadType = ref('');
@@ -402,41 +409,104 @@ const reload = async () => {
   await Promise.all([reloadDocs(), reloadOcr(), reloadAudit(), reloadIntakeResponses()]);
 };
 
+const closeConfirmModal = () => {
+  confirmingDoc.value = null;
+  openModalError.value = '';
+  openModalLink.value = '';
+};
+
 const confirmOpen = (doc) => {
+  openModalError.value = '';
+  openModalLink.value = '';
   confirmingDoc.value = doc;
+};
+
+const navigateToUrl = (url, popup) => {
+  if (!url) return false;
+  if (popup && !popup.closed) {
+    try {
+      popup.location.href = url;
+      return true;
+    } catch {
+      // fall through
+    }
+  }
+  const opened = window.open(url, '_blank', 'noopener,noreferrer');
+  if (opened) return true;
+  openModalLink.value = url;
+  return false;
+};
+
+const openBlobInWindow = (blob, filename, popup) => {
+  const blobUrl = URL.createObjectURL(blob);
+  const opened = navigateToUrl(blobUrl, popup);
+  if (!opened) openModalLink.value = blobUrl;
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 120_000);
+  return blobUrl;
 };
 
 const openDoc = async (doc) => {
   if (!doc?.id) return;
+  openModalError.value = '';
+  openModalLink.value = '';
+
+  // Open tab synchronously on click so popup blockers do not silently discard window.open after the API call.
+  const popup = window.open('about:blank', '_blank', 'noopener,noreferrer');
+
   try {
     opening.value = true;
     error.value = '';
     const resp = await api.get(`/phi-documents/${doc.id}/view`, { responseType: 'blob' });
-    const contentType = resp.headers?.['content-type'] || '';
+    const contentType = String(resp.headers?.['content-type'] || '').toLowerCase();
+
     if (contentType.includes('application/json')) {
-      const text = await resp.data.text();
-      const data = JSON.parse(text);
+      const raw = await resp.data.text();
+      const data = JSON.parse(raw);
       const url = data?.url;
-      if (!url) throw new Error('Missing URL');
-      window.open(url, '_blank', 'noopener');
-    } else {
-      const blobUrl = URL.createObjectURL(resp.data);
-      window.open(blobUrl, '_blank', 'noopener');
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
-    }
-    confirmingDoc.value = null;
-  } catch (e) {
-    if (e.response?.data instanceof Blob) {
-      try {
-        const text = await e.response.data.text();
-        const data = JSON.parse(text);
-        error.value = data?.error?.message || e.message || 'Failed to open packet';
-      } catch {
-        error.value = e.message || 'Failed to open packet';
+      if (!url) throw new Error('Could not get a download link for this document.');
+      const opened = navigateToUrl(url, popup);
+      if (!opened) {
+        openModalLink.value = url;
+        openModalError.value = popup
+          ? 'The new tab was closed before the document loaded. Use the link below to open it.'
+          : 'Your browser blocked opening a new tab. Use the link below, or allow pop-ups for this site.';
       }
     } else {
-      error.value = e.response?.data?.error?.message || e.message || 'Failed to open packet';
+      const filename = doc.original_name || doc.document_title || `document-${doc.id}`;
+      const blob = resp.data instanceof Blob
+        ? resp.data
+        : new Blob([resp.data], { type: contentType || 'application/octet-stream' });
+      const blobUrl = URL.createObjectURL(blob);
+      const opened = navigateToUrl(blobUrl, popup);
+      if (!opened) {
+        openModalLink.value = blobUrl;
+        openModalError.value = 'Your browser blocked the document tab. Use the link below to open it.';
+      }
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 120_000);
     }
+    if (!openModalLink.value && !openModalError.value) {
+      closeConfirmModal();
+    } else if (openModalLink.value && !openModalError.value) {
+      openModalError.value = 'If the document did not open, use the link below.';
+    }
+  } catch (e) {
+    if (popup && !popup.closed) {
+      try { popup.close(); } catch { /* ignore */ }
+    }
+    let message = 'Failed to open packet';
+    if (e.response?.data instanceof Blob) {
+      try {
+        const raw = await e.response.data.text();
+        const data = JSON.parse(raw);
+        message = data?.error?.message || message;
+      } catch {
+        message = e.message || message;
+      }
+    } else {
+      message = e.response?.data?.error?.message || e.message || message;
+    }
+    openModalError.value = message;
+    error.value = message;
   } finally {
     opening.value = false;
   }
@@ -989,6 +1059,20 @@ tr.doc-highlight {
 .modal p {
   margin: 0 0 14px;
   color: var(--text-secondary);
+}
+.modal-error {
+  margin: 0 0 10px;
+  color: var(--danger);
+  font-size: 14px;
+}
+.modal-fallback {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+.modal-fallback a {
+  color: var(--primary, #2563eb);
+  font-weight: 600;
 }
 .modal-actions {
   display: flex;
