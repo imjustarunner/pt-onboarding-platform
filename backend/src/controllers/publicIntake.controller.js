@@ -42,6 +42,10 @@ import QuickBooksPaymentsService from '../services/quickbooksPayments.service.js
 import StripePaymentsService, { isStripeConfigured, getStripePublishableKey } from '../services/stripePayments.service.js';
 import { normalizeGradeForSave } from '../utils/clientGrade.js';
 import { getIntakePdfStrings } from '../services/intakeLocaleLabels.js';
+import {
+  resolveIntakeFieldLabel,
+  resolveIntakeFormLocale
+} from '../utils/intakeFieldLabels.js';
 
 /** Fetch the Stripe Connect account ID for an agency (null if not connected). */
 async function getAgencyStripeConnectAccountId(agencyId) {
@@ -2921,13 +2925,15 @@ const isIntakeFieldVisibleWithShowIfContext = (field, showIfContext) => {
   return String(actual ?? '').trim().toLowerCase() === String(expected ?? '').trim().toLowerCase();
 };
 
-const buildAnswerLinesForScope = ({ fields, responses }) => {
+const buildAnswerLinesForScope = ({ fields, responses, link, locale }) => {
   const lines = [];
   fields.forEach((field) => {
     if (!isIntakeFieldVisible(field, responses)) return;
     const value = responses?.[field.key];
     if (!hasValue(value)) return;
-    const label = String(field?.label || field?.key || '').trim() || String(field?.key || '').trim();
+    const label =
+      resolveIntakeFieldLabel(field, locale, link) ||
+      String(field?.key || '').trim();
     const rendered = normalizeAnswerValue(value);
     if (!label || !rendered) return;
     lines.push({ key: field.key, label, value: rendered });
@@ -2943,6 +2949,7 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
   // "Intake Responses" pages never appear in the bundled packet.
   const normalized = normalizeIntakeDataShape(intakeData);
   const { fields } = buildIntakeFieldIndex(link);
+  const formLocale = resolveIntakeFormLocale(link, normalized);
   const intakeForSelf = Boolean(normalized?.intakeForSelf);
   const guardianPayload = normalized?.guardian || {};
   const clientPayload = Array.isArray(normalized?.clients) ? normalized.clients[clientIndex] : null;
@@ -2981,7 +2988,12 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
 
     // Self-scoped question answers
     const selfFields = getOrderedFieldsByScope(fields, 'self');
-    const selfLines = buildAnswerLinesForScope({ fields: selfFields, responses: submissionResponses });
+    const selfLines = buildAnswerLinesForScope({
+      fields: selfFields,
+      responses: submissionResponses,
+      link,
+      locale: formLocale
+    });
     if (selfLines.length) {
       pushHeader('Your Responses');
       selfLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
@@ -2990,7 +3002,9 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
     // Submission (one-time) answers — skip built-in name keys
     const submissionLines = buildAnswerLinesForScope({
       fields: getOrderedFieldsByScope(fields, 'submission').filter((f) => !builtInNameKeys.has(f.key)),
-      responses: submissionResponses
+      responses: submissionResponses,
+      link,
+      locale: formLocale
     });
     if (submissionLines.length) {
       pushHeader('Additional Responses');
@@ -3019,7 +3033,9 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
     pushLine('Client last name', clientLast);
     const clientLines = buildAnswerLinesForScope({
       fields: getOrderedFieldsByScope(fields, 'client').filter((f) => !builtInNameKeys.has(f.key)),
-      responses: clientResponses
+      responses: clientResponses,
+      link,
+      locale: formLocale
     });
     if (clientLines.length) {
       clientLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
@@ -3037,7 +3053,9 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
 
     const guardianLines = buildAnswerLinesForScope({
       fields: getOrderedFieldsByScope(fields, 'guardian'),
-      responses: guardianResponses
+      responses: guardianResponses,
+      link,
+      locale: formLocale
     });
     if (guardianLines.length) {
       pushHeader('Guardian Questions');
@@ -3046,7 +3064,9 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
 
     const submissionLines = buildAnswerLinesForScope({
       fields: getOrderedFieldsByScope(fields, 'submission').filter((f) => !builtInNameKeys.has(f.key)),
-      responses: submissionResponses
+      responses: submissionResponses,
+      link,
+      locale: formLocale
     });
     if (submissionLines.length) {
       pushHeader('One-Time Questions');
@@ -3237,6 +3257,7 @@ export const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) 
   // submission/guardian/clients promoted under `responses` or this whole summary stays empty.
   const normalized = normalizeIntakeDataShape(intakeData);
   const { fields, byKey } = buildIntakeFieldIndex(link);
+  const formLocale = resolveIntakeFormLocale(link, normalized);
   const responses = normalized?.responses || {};
   const guardianResponses = responses?.guardian || {};
   const submissionResponses = responses?.submission || {};
@@ -3377,15 +3398,21 @@ export const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) 
 
   const orderedGuardian = buildAnswerLinesForScope({
     fields: getOrderedFieldsByScope(fields, 'guardian'),
-    responses: guardianResponses
+    responses: guardianResponses,
+    link,
+    locale: formLocale
   });
   const orderedSubmission = buildAnswerLinesForScope({
     fields: getOrderedFieldsByScope(fields, 'submission'),
-    responses: submissionResponses
+    responses: submissionResponses,
+    link,
+    locale: formLocale
   });
   const orderedClient = buildAnswerLinesForScope({
     fields: getOrderedFieldsByScope(fields, 'client'),
-    responses: clientResponses
+    responses: clientResponses,
+    link,
+    locale: formLocale
   }).filter((line) => !/^psc_\d+$/i.test(line.key || ''));
 
   const traumaQuestionPatterns = [

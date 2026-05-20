@@ -324,6 +324,25 @@
                 When enabled, a language toggle appears on the public intake page. All form text is translated automatically by AI.
                 For each <strong>PDF document</strong> in this form, you can optionally select a Spanish-language PDF version below — upload it first via Documents Library with Language set to <em>Spanish</em>.
               </div>
+              <div v-if="spanishVersionEnabled" class="spanish-toggle-row" style="margin-top: 12px;">
+                <button
+                  type="button"
+                  class="spanish-toggle-btn"
+                  :class="{ active: spanishQuestionLabelsEnabled }"
+                  :aria-pressed="spanishQuestionLabelsEnabled ? 'true' : 'false'"
+                  @click="onToggleSpanishQuestionLabels(!spanishQuestionLabelsEnabled)"
+                >
+                  <span class="spanish-toggle-track">
+                    <span class="spanish-toggle-thumb" />
+                  </span>
+                  <span class="spanish-toggle-label">
+                    <strong>Spanish question labels</strong>
+                  </span>
+                </button>
+              </div>
+              <p v-if="spanishVersionEnabled && spanishQuestionLabelsEnabled" class="muted" style="margin-top: 6px;">
+                Families see your saved Spanish wording for each question (not live AI on every label). Edit per question below; hover a Spanish field to see the English original.
+              </p>
             </div>
             <div class="form-group">
               <label>Description</label>
@@ -611,6 +630,24 @@
           <div class="form-group">
             <label>Intake Flow Builder</label>
             <div class="step-builder">
+              <div
+                v-if="spanishVersionEnabled && spanishQuestionLabelsEnabled"
+                class="spanish-questions-toolbar"
+                role="region"
+                aria-label="Spanish question labels"
+              >
+                <p class="spanish-questions-toolbar-lead">
+                  <strong>Spanish questions</strong> — shown to families when they choose Español. Generate from English, then edit any row.
+                </p>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="generatingSpanishLabels"
+                  @click="generateAllSpanishLabels"
+                >
+                  {{ generatingSpanishLabels ? 'Generating…' : 'Generate Spanish labels for all questions' }}
+                </button>
+              </div>
               <div v-if="canAddGuardianWaiverStep" class="flow-legend-guardian" role="note">
                 <span class="flow-legend-guardian-dot" aria-hidden="true" />
                 <span><strong>Green</strong> = adds a step tied to the <strong>guardian account</strong> (waivers today; more later).</span>
@@ -1562,6 +1599,31 @@
                         <div class="question-index">#{{ fIdx + 1 }}</div>
                         <input v-model="field.label" placeholder="Question label" class="question-label-input" />
                       </div>
+                      <div
+                        v-if="spanishVersionEnabled && spanishQuestionLabelsEnabled"
+                        class="question-spanish-row"
+                      >
+                        <label class="question-spanish-lbl">Español</label>
+                        <input
+                          v-model="field.labelEs"
+                          class="question-label-input question-label-input--es"
+                          placeholder="Spanish question (shown to families in Español)"
+                          :title="field.label ? `English: ${field.label}` : 'English question not set yet'"
+                        />
+                        <span v-if="field.label" class="question-english-ref" :title="field.label">EN: {{ field.label }}</span>
+                      </div>
+                      <div
+                        v-if="spanishVersionEnabled && spanishQuestionLabelsEnabled && field.helperText"
+                        class="question-spanish-row question-spanish-row--sub"
+                      >
+                        <label class="question-spanish-lbl">Helper (ES)</label>
+                        <input
+                          v-model="field.helperTextEs"
+                          class="question-label-input question-label-input--es"
+                          placeholder="Spanish helper text"
+                          :title="`English: ${field.helperText}`"
+                        />
+                      </div>
                       <div class="question-row">
                         <input v-model="field.key" placeholder="Key (e.g., grade)" />
                         <select v-model="field.type">
@@ -2154,6 +2216,10 @@ import { buildPublicIntakeUrl, buildFormUrl } from '../../utils/publicIntakeUrl'
 import PublicIntakeGuardianWaiverStep from '../../components/public-intake/PublicIntakeGuardianWaiverStep.vue';
 import PublicIntakeInsuranceStep from '../../components/public-intake/PublicIntakeInsuranceStep.vue';
 import PublicIntakePaymentStep from '../../components/public-intake/PublicIntakePaymentStep.vue';
+import {
+  collectSpanishTranslationTargets,
+  spanishExtrasForIntakeField
+} from '../../utils/intakeFieldSpanish.js';
 
 /** Stored on the intake link customMessages when the admin picks the built-in parent/class registration email preset. */
 const COMPLETION_EMAIL_PRESET_GUARDIAN_PARTNERSHIP = 'guardian_partnership';
@@ -2417,7 +2483,8 @@ const form = reactive({
     completionEmailPreset: null,
     completionEmailTemplateType: 'school_full_intake_packet_default',
     completionEmailSubject: '',
-    completionEmailBody: ''
+    completionEmailBody: '',
+    spanishQuestionLabelsEnabled: false
   },
   allowAllDocuments: false,
   allowedDocumentTemplateIds: [],
@@ -2456,6 +2523,48 @@ const onToggleSpanishVersion = (enabled) => {
   if (!enabled) {
     form.linkedEsFormId = null;
     form.documentTranslationMap = {};
+    onToggleSpanishQuestionLabels(false);
+  }
+};
+
+const spanishQuestionLabelsEnabled = computed({
+  get: () => !!form.customMessages?.spanishQuestionLabelsEnabled,
+  set: (v) => {
+    if (!form.customMessages || typeof form.customMessages !== 'object') return;
+    form.customMessages.spanishQuestionLabelsEnabled = !!v;
+  }
+});
+
+const onToggleSpanishQuestionLabels = (enabled) => {
+  spanishQuestionLabelsEnabled.value = !!enabled;
+};
+
+const generatingSpanishLabels = ref(false);
+
+const generateAllSpanishLabels = async () => {
+  if (!spanishQuestionLabelsEnabled.value) return;
+  generatingSpanishLabels.value = true;
+  formError.value = '';
+  try {
+    const { strings, targets } = collectSpanishTranslationTargets(form.intakeSteps, getStepFields);
+    if (!strings.length) {
+      formError.value = 'Add at least one question label in English before generating Spanish text.';
+      return;
+    }
+    const resp = await api.post('/public/translations/translate-strings', { strings, lang: 'es' });
+    const map = resp?.data?.translations || {};
+    for (const t of targets) {
+      const translated = map[t.source];
+      if (!translated) continue;
+      if (t.field && t.prop) {
+        t.field[t.prop] = translated;
+      }
+    }
+  } catch (e) {
+    formError.value =
+      e.response?.data?.error?.message || e.message || 'Failed to generate Spanish labels.';
+  } finally {
+    generatingSpanishLabels.value = false;
   }
 };
 
@@ -2466,6 +2575,14 @@ watch(
     if (String(lang) !== 'en' || String(scope) === 'school') return;
     const hasMap = map && Object.keys(map).length > 0;
     if (linkedId || hasMap) spanishVersionEnabled.value = true;
+  },
+  { immediate: true }
+);
+
+watch(
+  () => form.customMessages?.spanishQuestionLabelsEnabled,
+  (on) => {
+    if (on) spanishVersionEnabled.value = true;
   },
   { immediate: true }
 );
@@ -3485,7 +3602,8 @@ const applyDraft = (draft) => {
         completionEmailPreset: data.customMessages.completionEmailPreset ?? null,
         completionEmailTemplateType: data.customMessages.completionEmailTemplateType ?? 'school_full_intake_packet_default',
         completionEmailSubject: data.customMessages.completionEmailSubject ?? '',
-        completionEmailBody: data.customMessages.completionEmailBody ?? ''
+        completionEmailBody: data.customMessages.completionEmailBody ?? '',
+        spanishQuestionLabelsEnabled: !!data.customMessages.spanishQuestionLabelsEnabled
       }
     : {
         beginSubtitle: '',
@@ -3494,7 +3612,8 @@ const applyDraft = (draft) => {
         completionEmailPreset: null,
         completionEmailTemplateType: 'school_full_intake_packet_default',
         completionEmailSubject: '',
-        completionEmailBody: ''
+        completionEmailBody: '',
+        spanishQuestionLabelsEnabled: false
       };
   form.allowAllDocuments = data.allowAllDocuments ?? false;
   form.allowedDocumentTemplateIds = Array.isArray(data.allowedDocumentTemplateIds)
@@ -3769,7 +3888,8 @@ const editLink = (link) => {
         completionEmailPreset: link.custom_messages.completionEmailPreset ?? null,
         completionEmailTemplateType: link.custom_messages.completionEmailTemplateType ?? 'school_full_intake_packet_default',
         completionEmailSubject: link.custom_messages.completionEmailSubject ?? '',
-        completionEmailBody: link.custom_messages.completionEmailBody ?? ''
+        completionEmailBody: link.custom_messages.completionEmailBody ?? '',
+        spanishQuestionLabelsEnabled: !!link.custom_messages.spanishQuestionLabelsEnabled
       }
     : {
         beginSubtitle: '',
@@ -3778,7 +3898,8 @@ const editLink = (link) => {
         completionEmailPreset: null,
         completionEmailTemplateType: 'school_full_intake_packet_default',
         completionEmailSubject: '',
-        completionEmailBody: ''
+        completionEmailBody: '',
+        spanishQuestionLabelsEnabled: false
       };
   form.intakeFieldsText = link.intake_fields ? JSON.stringify(link.intake_fields, null, 2) : '';
   form.intakeSteps = normalizeIntakeSteps(link);
@@ -4036,7 +4157,8 @@ const save = async () => {
         || hasCustomCompletionType
         || (cm.completionEmailSubject || '').trim()
         || (cm.completionEmailBody || '').trim()
-        || COMPLETION_EMAIL_PRESET_IDS.has(preset);
+        || COMPLETION_EMAIL_PRESET_IDS.has(preset)
+        || !!cm.spanishQuestionLabelsEnabled;
       if (!hasAny) return null;
       return {
         beginSubtitle: (cm.beginSubtitle || '').trim() || undefined,
@@ -4045,7 +4167,8 @@ const save = async () => {
         completionEmailPreset: COMPLETION_EMAIL_PRESET_IDS.has(preset) ? preset : undefined,
         completionEmailTemplateType: hasCustomCompletionType ? completionType : undefined,
         completionEmailSubject: (cm.completionEmailSubject || '').trim() || undefined,
-        completionEmailBody: (cm.completionEmailBody || '').trim() || undefined
+        completionEmailBody: (cm.completionEmailBody || '').trim() || undefined,
+        spanishQuestionLabelsEnabled: cm.spanishQuestionLabelsEnabled ? true : undefined
       };
     })();
     const payload = {
@@ -5549,7 +5672,8 @@ const buildPayloadFromSteps = () => {
           helperText: f.helperText || '',
           showIf: f.showIf || null,
           scope: step.type === 'clinical_questions' ? 'clinical' : (f.scope || 'submission'),
-          category: f.category || defaultCategoryForField(f, step)
+          category: f.category || defaultCategoryForField(f, step),
+          ...spanishExtrasForIntakeField(f)
         });
       });
     } else if (step.type === 'document' && step.templateId) {
@@ -5868,6 +5992,60 @@ watch(
   align-items: center;
   margin-bottom: 6px;
 }
+.spanish-questions-toolbar {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #86efac;
+  background: #f0fdf4;
+}
+
+.spanish-questions-toolbar-lead {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.question-spanish-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 4px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #f0fdf4;
+  border: 1px dashed #86efac;
+}
+
+.question-spanish-row--sub {
+  margin-top: 0;
+  background: #fafafa;
+  border-color: #d1d5db;
+}
+
+.question-spanish-lbl {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #166534;
+  min-width: 4.5rem;
+}
+
+.question-label-input--es {
+  flex: 1;
+  min-width: 200px;
+}
+
+.question-english-ref {
+  font-size: 11px;
+  color: #6b7280;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .question-label-input {
   flex: 1;
   min-width: 0;
