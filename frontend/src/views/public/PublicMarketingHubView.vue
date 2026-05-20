@@ -2070,9 +2070,10 @@ function eventMatchesAnyOfficeSource(ev, officeSources) {
   return false;
 }
 
-/** Office journey: partner convention — put “Office” in the public event title when hub officeSources JSON is omitted. */
+/** Office / park journey: match public event titles (e.g. Denver Office, Denver Park) when officeSources JSON is omitted. */
 function eventOfficePathByEventTitle(ev) {
-  return /\boffice\b/i.test(String(ev?.title || ''));
+  const title = String(ev?.title || '');
+  return /\boffice\b/i.test(title) || /\bpark\b/i.test(title);
 }
 
 function normalizeSkillbuildersPathFilter(raw) {
