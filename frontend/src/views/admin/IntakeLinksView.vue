@@ -341,7 +341,7 @@
                 </button>
               </div>
               <p v-if="spanishVersionEnabled && spanishQuestionLabelsEnabled" class="muted" style="margin-top: 6px;">
-                Families see your saved Spanish wording for each question (not live AI on every label). Edit per question below; hover a Spanish field to see the English original.
+                Spanish labels are generated automatically when you turn this on. Save the form so families see them on the public page. Edit per question below; hover a Spanish field to see the English original.
               </p>
             </div>
             <div class="form-group">
@@ -2535,8 +2535,11 @@ const spanishQuestionLabelsEnabled = computed({
   }
 });
 
-const onToggleSpanishQuestionLabels = (enabled) => {
+const onToggleSpanishQuestionLabels = async (enabled) => {
   spanishQuestionLabelsEnabled.value = !!enabled;
+  if (enabled) {
+    await generateAllSpanishLabels();
+  }
 };
 
 const generatingSpanishLabels = ref(false);
@@ -4171,6 +4174,22 @@ const save = async () => {
         spanishQuestionLabelsEnabled: cm.spanishQuestionLabelsEnabled ? true : undefined
       };
     })();
+    const documentTranslationMapPayload = (() => {
+      if (form.languageCode !== 'en') return null;
+      if (!spanishVersionEnabled.value) return null;
+      const map = form.documentTranslationMap || {};
+      const cleaned = {};
+      Object.entries(map).forEach(([k, v]) => {
+        const enId = Number(k);
+        const esId = Number(v);
+        if (Number.isFinite(enId) && enId > 0 && Number.isFinite(esId) && esId > 0) {
+          cleaned[String(enId)] = esId;
+        }
+      });
+      if (Object.keys(cleaned).length) return cleaned;
+      // Omit empty map so a save for question-label changes does not wipe stored PDF mappings.
+      return undefined;
+    })();
     const payload = {
       title: form.title,
       description: form.description,
@@ -4188,21 +4207,11 @@ const save = async () => {
       allowedDocumentTemplateIds,
       intakeFields,
       intakeSteps,
-      linkedEsFormId: form.languageCode === 'en' && form.linkedEsFormId ? Number(form.linkedEsFormId) : null,
-      documentTranslationMap: (() => {
-        if (form.languageCode !== 'en') return null;
-        const map = form.documentTranslationMap || {};
-        const cleaned = {};
-        Object.entries(map).forEach(([k, v]) => {
-          const enId = Number(k);
-          const esId = Number(v);
-          if (Number.isFinite(enId) && enId > 0 && Number.isFinite(esId) && esId > 0) {
-            cleaned[String(enId)] = esId;
-          }
-        });
-        return Object.keys(cleaned).length ? cleaned : null;
-      })()
+      linkedEsFormId: form.languageCode === 'en' && form.linkedEsFormId ? Number(form.linkedEsFormId) : null
     };
+    if (documentTranslationMapPayload !== undefined) {
+      payload.documentTranslationMap = documentTranslationMapPayload;
+    }
     if (form.formType === 'job_application' && form.jobDescriptionId) {
       payload.jobDescriptionId = form.jobDescriptionId;
     }
@@ -4568,24 +4577,27 @@ const sanitizeSteps = (steps, { formType } = {}) => {
         const fields = Array.isArray(next.fields) ? next.fields : [];
         next.fields = fields
           .filter((f) => f && typeof f === 'object')
-          .map((f) => ({
-            id: f.id || createId('field'),
-            key: f.key || '',
-            label: f.label || '',
-            type: f.type || 'text',
-            required: !!f.required,
-            helperText: f.helperText || '',
-            scope: next.type === 'clinical_questions' ? 'clinical' : (f.scope || 'submission'),
-            documentKey: f.documentKey || '',
-            visibility: ['always', 'new_client_only'].includes(String(f.visibility || '').trim())
-              ? String(f.visibility).trim()
-              : 'always',
-            showIf: {
-              fieldKey: f.showIf?.fieldKey || '',
-              equals: f.showIf?.equals || ''
-            },
-            options: Array.isArray(f.options) ? f.options.filter((o) => o && typeof o === 'object') : []
-          }));
+          .map((f) => {
+            const sanitized = {
+              id: f.id || createId('field'),
+              key: f.key || '',
+              label: f.label || '',
+              type: f.type || 'text',
+              required: !!f.required,
+              helperText: f.helperText || '',
+              scope: next.type === 'clinical_questions' ? 'clinical' : (f.scope || 'submission'),
+              documentKey: f.documentKey || '',
+              visibility: ['always', 'new_client_only'].includes(String(f.visibility || '').trim())
+                ? String(f.visibility).trim()
+                : 'always',
+              showIf: {
+                fieldKey: f.showIf?.fieldKey || '',
+                equals: f.showIf?.equals || ''
+              },
+              options: Array.isArray(f.options) ? f.options.filter((o) => o && typeof o === 'object') : []
+            };
+            return { ...sanitized, ...spanishExtrasForIntakeField(f) };
+          });
       } else if (next.type === 'demographics') {
         next.showDob = next.showDob !== false;
         next.showGender = next.showGender !== false;

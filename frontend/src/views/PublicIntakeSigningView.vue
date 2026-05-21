@@ -2134,8 +2134,15 @@ const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCa
 
 const linkedLanguageSwitching = ref(false);
 
+const spanishQuestionLabelsEnabled = computed(() => spanishQuestionLabelsEnabledFromLink(link.value));
+
+/** In-page EN/ES switch for document maps and/or admin-saved question labels. */
+const hasInPageSpanish = computed(
+  () => hasDocumentTranslationMap.value || spanishQuestionLabelsEnabled.value
+);
+
 const currentFormLanguage = computed(() => {
-  if (hasDocumentTranslationMap.value) return inPageLocale.value === 'es' ? 'es' : 'en';
+  if (hasInPageSpanish.value) return inPageLocale.value === 'es' ? 'es' : 'en';
   const code = String(link.value?.language_code || 'en').toLowerCase();
   return code.startsWith('es') ? 'es' : 'en';
 });
@@ -2170,8 +2177,6 @@ const tx = (text) => {
   if (intakeLocale.value !== 'es') return s;
   return stringTranslations.value[s] || s;
 };
-
-const spanishQuestionLabelsEnabled = computed(() => spanishQuestionLabelsEnabledFromLink(link.value));
 
 /** Question label / helper with admin-saved Spanish overrides when enabled. */
 const txField = (field, prop = 'label') => {
@@ -2456,6 +2461,7 @@ const hasDocumentTranslationMap = computed(() => {
  * - We are on the Spanish side and know the English key to return to.
  */
 const hasLinkedLanguageToggle = computed(() => {
+  if (spanishQuestionLabelsEnabled.value) return true;
   if (link.value?.linked_es_form?.public_key) return true;
   if (hasDocumentTranslationMap.value) return true;
   if (currentFormLanguage.value === 'es' && linkedLanguageEnglishPublicKey.value) return true;
@@ -2464,7 +2470,7 @@ const hasLinkedLanguageToggle = computed(() => {
 
 const intakeLocale = computed(() => {
   // In-page locale takes priority for map-based (non-linked-form) Spanish.
-  if (hasDocumentTranslationMap.value) return inPageLocale.value;
+  if (hasInPageSpanish.value) return inPageLocale.value;
   const code = String(link.value?.language_code || 'en').toLowerCase();
   return code.startsWith('es') ? 'es' : 'en';
 });
@@ -4689,7 +4695,8 @@ const loadLink = async () => {
       // Restore in-page locale for map-based Spanish (persists across refreshes).
       const map = link.value?.document_translation_map;
       const hasMap = map != null && typeof map === 'object' && Object.keys(map).length > 0;
-      if (hasMap) {
+      const hasQuestionLabelsEs = spanishQuestionLabelsEnabledFromLink(link.value);
+      if (hasMap || hasQuestionLabelsEs) {
         const stored = localStorage.getItem('preferredFormLanguage');
         if (stored === 'es') {
           inPageLocale.value = 'es';
@@ -4756,8 +4763,8 @@ const switchLinkedLanguage = async (target) => {
   const targetLang = String(target || '').toLowerCase().startsWith('es') ? 'es' : 'en';
   if (linkedLanguageSwitching.value) return;
 
-  // In-page locale switch (per-document map approach — no separate form navigation).
-  if (hasDocumentTranslationMap.value) {
+  // In-page locale switch (document map and/or saved question labels — no separate form navigation).
+  if (hasInPageSpanish.value) {
     inPageLocale.value = targetLang;
     try { localStorage.setItem('preferredFormLanguage', targetLang); } catch { /* ignore */ }
     return;
