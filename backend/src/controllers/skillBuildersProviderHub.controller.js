@@ -25,6 +25,7 @@ import {
   upsertBiweeklySkillBuilderConfirmations
 } from '../services/skillBuilderAvailabilityBlocks.service.js';
 import { computeSkillBuilderProgramCreditMinutesPerWeek } from '../services/skillBuilderProgramCredit.service.js';
+import { loadCompanyEventDirectoryCounts } from '../services/companyEventDirectoryCounts.service.js';
 import {
   fetchCompanyEventDetailForEdit,
   persistCompanyEventUpdate
@@ -1256,6 +1257,9 @@ export const listSkillBuildersEventsDirectory = async (req, res, next) => {
       }
     }
 
+    const eventIds = [...new Set((rows || []).map((row) => Number(row.id)).filter((n) => n > 0))];
+    const countsByEventId = await loadCompanyEventDirectoryCounts(agencyId, eventIds);
+
     const nowMs = Date.now();
     const events = (rows || []).map((row) => {
       const sgId = Number(row.skills_group_id);
@@ -1265,6 +1269,11 @@ export const listSkillBuildersEventsDirectory = async (req, res, next) => {
       const pslug = row.program_portal_slug != null && String(row.program_portal_slug).trim()
         ? String(row.program_portal_slug).trim().toLowerCase()
         : null;
+      const counts = countsByEventId.get(Number(row.id)) || {
+        registrantsCount: 0,
+        participantsCount: 0,
+        staffAssignedCount: 0
+      };
       return {
         companyEventId: Number(row.id),
         title: row.title,
@@ -1280,7 +1289,10 @@ export const listSkillBuildersEventsDirectory = async (req, res, next) => {
         isActive: !!(row.is_active === true || row.is_active === 1),
         isPast,
         weekdaysShort: formatWeekdaysShort(wset),
-        providers: provMap.get(sgId) || []
+        providers: provMap.get(sgId) || [],
+        registrantsCount: counts.registrantsCount,
+        participantsCount: counts.participantsCount,
+        staffAssignedCount: counts.staffAssignedCount
       };
     });
 

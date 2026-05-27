@@ -22,6 +22,7 @@ import crypto from 'crypto';
 import EmailTemplateService from '../services/emailTemplate.service.js';
 import { sendNotificationEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { fetchRegistrationCatalogItems } from '../services/registrationCatalog.service.js';
+import { loadCompanyEventDirectoryCounts } from '../services/companyEventDirectoryCounts.service.js';
 import { canUserManageClub } from '../utils/sscClubAccess.js';
 import {
   BOOK_CLUB_EVENT_AUDIENCE_KEYS,
@@ -1625,12 +1626,23 @@ export const listCompanyEventsForAgency = async (req, res, next) => {
       summaries.set(eventId, await listEventResponseSummary(eventId));
       deliveries.set(eventId, await getEventDeliverySummary(eventId));
     }
-    const withAudience = eventsWithProgramSlug.map((event) => ({
-      ...event,
-      audience: audienceMap.get(event.id) || { all: true, userIds: [], groupIds: [], roleKeys: [] },
-      responseSummary: summaries.get(event.id) || [],
-      deliverySummary: deliveries.get(event.id) || { inAppSent: 0, inAppFailed: 0, smsSent: 0, smsFailed: 0, smsSkipped: 0 }
-    }));
+    const countsByEventId = await loadCompanyEventDirectoryCounts(agencyId, eventIds);
+    const withAudience = eventsWithProgramSlug.map((event) => {
+      const counts = countsByEventId.get(Number(event.id)) || {
+        registrantsCount: 0,
+        participantsCount: 0,
+        staffAssignedCount: 0
+      };
+      return {
+        ...event,
+        audience: audienceMap.get(event.id) || { all: true, userIds: [], groupIds: [], roleKeys: [] },
+        responseSummary: summaries.get(event.id) || [],
+        deliverySummary: deliveries.get(event.id) || { inAppSent: 0, inAppFailed: 0, smsSent: 0, smsFailed: 0, smsSkipped: 0 },
+        registrantsCount: counts.registrantsCount,
+        participantsCount: counts.participantsCount,
+        staffAssignedCount: counts.staffAssignedCount
+      };
+    });
     res.json(withAudience);
   } catch (error) {
     next(error);

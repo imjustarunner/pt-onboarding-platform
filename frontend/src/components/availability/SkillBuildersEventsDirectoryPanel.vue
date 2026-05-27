@@ -99,6 +99,11 @@
                 <div v-if="providingLine(e)" class="sbes-card-meta"><strong>Included</strong> {{ providingLine(e) }}</div>
                 <div v-if="familyLine(e)" class="sbes-card-meta"><strong>Family</strong> {{ familyLine(e) }}</div>
                 <div v-if="e.weekdaysShort" class="sbes-card-meta"><strong>Days</strong> {{ e.weekdaysShort }}</div>
+                <div class="sbes-card-stats" :class="{ 'sbes-card-stats--gap': staffingGap(e) }">
+                  <span>Registrants <strong>{{ countRegistrants(e) }}</strong></span>
+                  <span>Participants <strong>{{ countParticipants(e) }}</strong></span>
+                  <span>Staff <strong>{{ countStaff(e) }}</strong></span>
+                </div>
               </div>
               <div class="sbes-card-cta-row">
                 <span class="sbes-card-cta">{{ isSkillsBuildersEvent(e) ? 'Open portal' : 'Manage event' }}</span>
@@ -156,6 +161,11 @@
                 <div v-if="providingLine(e)" class="sbes-card-meta"><strong>Included</strong> {{ providingLine(e) }}</div>
                 <div v-if="familyLine(e)" class="sbes-card-meta"><strong>Family</strong> {{ familyLine(e) }}</div>
                 <div v-if="e.weekdaysShort" class="sbes-card-meta">{{ e.weekdaysShort }}</div>
+                <div class="sbes-card-stats">
+                  <span>Registrants <strong>{{ countRegistrants(e) }}</strong></span>
+                  <span>Participants <strong>{{ countParticipants(e) }}</strong></span>
+                  <span>Staff <strong>{{ countStaff(e) }}</strong></span>
+                </div>
               </div>
               <div class="sbes-card-cta-row sbes-card-cta-row--past">
                 <span class="sbes-card-cta">{{ isSkillsBuildersEvent(e) ? 'View' : 'Manage' }}</span>
@@ -396,6 +406,24 @@ function familyLine(e) {
   return s.length > 80 ? `${s.slice(0, 80)}…` : s;
 }
 
+function countRegistrants(e) {
+  return Number(e?.registrantsCount ?? e?.registrants_count ?? 0);
+}
+
+function countParticipants(e) {
+  return Number(e?.participantsCount ?? e?.participants_count ?? 0);
+}
+
+function countStaff(e) {
+  return Number(e?.staffAssignedCount ?? e?.staff_assigned_count ?? 0);
+}
+
+/** Highlight events with enrollments but no staff assigned yet. */
+function staffingGap(e) {
+  if (e?.isPast) return false;
+  return countStaff(e) === 0 && countRegistrants(e) + countParticipants(e) > 0;
+}
+
 const schoolSelectOptions = computed(() => {
   const list = [...(events.value || [])].filter((e) => Number(e.schoolOrganizationId) > 0);
   list.sort((a, b) => {
@@ -499,7 +527,10 @@ async function load() {
         familyProvisionNote: String(row?.familyProvisionNote || '').trim(),
         organizerProviding: Array.isArray(row?.organizerProviding) ? row.organizerProviding : [],
         eventImageUrl: String(row?.eventImageUrl || '').trim(),
-        eventImageUrls: Array.isArray(row?.eventImageUrls) ? row.eventImageUrls : []
+        eventImageUrls: Array.isArray(row?.eventImageUrls) ? row.eventImageUrls : [],
+        registrantsCount: Number(row?.registrantsCount ?? row?.registrants_count ?? 0),
+        participantsCount: Number(row?.participantsCount ?? row?.participants_count ?? 0),
+        staffAssignedCount: Number(row?.staffAssignedCount ?? row?.staff_assigned_count ?? 0)
       };
     });
 
@@ -739,6 +770,24 @@ watch(
   color: var(--text-secondary, #475569);
   margin-top: 4px;
   line-height: 1.35;
+}
+.sbes-card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #475569);
+}
+.sbes-card-stats strong {
+  color: var(--text-primary, #0f172a);
+  font-weight: 700;
+}
+.sbes-card-stats--gap {
+  color: #b45309;
+}
+.sbes-card-stats--gap strong {
+  color: #b45309;
 }
 .sbes-card-cta-row {
   display: flex;
