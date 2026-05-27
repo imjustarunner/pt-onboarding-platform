@@ -1347,6 +1347,8 @@
 import { ref, watch, computed } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import { useBrandingStore } from '../../store/branding';
+import { buildEventKioskEntryPath } from '../../utils/orgScopedPath';
 import SkillBuildersEventProgramMeetingsCard from './SkillBuildersEventProgramMeetingsCard.vue';
 import StaffEventInviteePanel from '../admin/StaffEventInviteePanel.vue';
 
@@ -1369,6 +1371,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'saved']);
 
 const authStore = useAuthStore();
+const brandingStore = useBrandingStore();
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 /** Target agency for POST create when super admin duplicates across tenants. */
 const effectiveAgencyId = ref(0);
@@ -1458,7 +1461,8 @@ const isServiceProgramEventType = computed(() => {
 const kioskEntryUrl = computed(() => {
   const s = String(props.portalSlug || '').trim();
   if (!s || typeof window === 'undefined') return '';
-  return `${window.location.origin}/${encodeURI(s)}/kiosk`;
+  const path = buildEventKioskEntryPath(s, null, brandingStore.portalHostPortalUrl);
+  return `${window.location.origin}${path.startsWith('/') ? path : `/${path}`}`;
 });
 
 const kioskCopied = ref(false);

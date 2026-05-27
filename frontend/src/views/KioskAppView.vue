@@ -90,7 +90,7 @@ const fetchContext = async () => {
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load kiosk context';
     if (e.response?.status === 401) {
-      router.push('/kiosk/login');
+      router.push({ path: '/kiosk', query: { mode: 'office' } });
     }
   } finally {
     loading.value = false;
@@ -112,12 +112,12 @@ const selectLocation = (locationId) => {
 
 const logout = async () => {
   await authStore.logout();
-  router.push('/kiosk/login');
+  router.push({ path: '/kiosk', query: { mode: 'office' } });
 };
 
 onMounted(() => {
   if (authStore.user?.role?.toLowerCase() !== 'kiosk') {
-    router.push('/kiosk/login');
+    router.push({ path: '/kiosk', query: { mode: 'office' } });
     return;
   }
   fetchContext();

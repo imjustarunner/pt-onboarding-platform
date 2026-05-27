@@ -98,11 +98,16 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import { useBrandingStore } from '../../store/branding';
+import { buildEventKioskEntryPath, resolvePortalSlug } from '../../utils/orgScopedPath';
 
 const route = useRoute();
 const router = useRouter();
+const brandingStore = useBrandingStore();
 
-const slug = computed(() => String(route.params.organizationSlug || '').trim());
+const slug = computed(() =>
+  resolvePortalSlug(route.params, brandingStore.portalHostPortalUrl)
+);
 const eventId = computed(() => Number(route.params.eventId));
 
 const token = ref('');
@@ -121,7 +126,9 @@ const working = ref(false);
 const doneTitle = ref('');
 const doneDetail = ref('');
 
-const entryPath = computed(() => `/${slug.value}/kiosk`);
+const entryPath = computed(() =>
+  buildEventKioskEntryPath(slug.value, null, brandingStore.portalHostPortalUrl)
+);
 
 function storageKey() {
   return `skillBuildersEventKiosk:${slug.value}`;

@@ -407,7 +407,7 @@ const routes = [
   {
     path: '/:organizationSlug/kiosk',
     name: 'OrganizationSkillBuildersEventKioskEntry',
-    component: () => import('../views/public/PublicSkillBuildersEventKioskView.vue'),
+    component: () => import('../views/KioskEntryView.vue'),
     meta: { requiresGuest: false, organizationSlug: true }
   },
   {
@@ -445,6 +445,26 @@ const routes = [
     name: 'PublicAgencyEnrollBranded',
     component: () => import('../views/public/PublicAgencyEnrollView.vue'),
     meta: { requiresGuest: false, organizationSlug: true, publicAgencyEnrollBranding: true }
+  },
+  // Flat event kiosk routes for custom-domain portals (app.{agency}.health strips /{slug} prefix).
+  // Must stay before /:organizationSlug so /kiosk is not mistaken for org slug "kiosk" → /kiosk/login.
+  {
+    path: '/kiosk',
+    name: 'FlatEventKioskEntry',
+    component: () => import('../views/KioskEntryView.vue'),
+    meta: { requiresGuest: false, flatEventKiosk: true }
+  },
+  {
+    path: '/skill-builders/kiosk/:eventId',
+    name: 'FlatSkillBuildersEventKioskStation',
+    component: () => import('../views/public/PublicSkillBuildersEventKioskStationView.vue'),
+    meta: { requiresGuest: false, flatEventKiosk: true }
+  },
+  {
+    path: '/program-event/kiosk/:eventId',
+    name: 'FlatProgramEventKioskStation',
+    component: () => import('../views/public/PublicProgramEventKioskStationView.vue'),
+    meta: { requiresGuest: false, flatEventKiosk: true }
   },
   // Organization-specific routes (supports Agency, School, Program, Learning)
   // Root org path redirects directly to the branded login page — splash was removed.
@@ -525,12 +545,11 @@ const routes = [
     component: () => import('../components/school/ReferralUpload.vue'),
     meta: { organizationSlug: true }
   },
-  // Kiosk login (kiosk users only)
+  // Legacy office kiosk login URL → unified /kiosk entry (office tab)
   {
     path: '/kiosk/login',
     name: 'KioskLogin',
-    component: () => import('../views/KioskLoginView.vue'),
-    meta: { requiresGuest: false }
+    redirect: (to) => ({ path: '/kiosk', query: { ...to.query, mode: 'office' } })
   },
   // Kiosk app (authenticated kiosk users – agency/location selector, then KioskView)
   {

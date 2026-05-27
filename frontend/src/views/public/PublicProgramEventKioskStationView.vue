@@ -154,9 +154,14 @@
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import { useBrandingStore } from '../../store/branding';
+import { resolvePortalSlug } from '../../utils/orgScopedPath';
 
 const route = useRoute();
-const slug = computed(() => String(route.params.organizationSlug || '').trim().toLowerCase());
+const brandingStore = useBrandingStore();
+const slug = computed(() =>
+  resolvePortalSlug(route.params, brandingStore.portalHostPortalUrl)
+);
 const eventId = computed(() => String(route.params.eventId || '').trim());
 
 const loading = ref(true);
