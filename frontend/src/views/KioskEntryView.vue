@@ -32,6 +32,7 @@
           Enter the 6-digit station PIN from today’s event settings. Staff may use their personal 4-digit kiosk PIN on the
           next screen when required.
         </p>
+        <div v-if="slugLoading" class="muted small">Detecting organization…</div>
         <div v-if="eventError" class="error">{{ eventError }}</div>
         <form class="kiosk-form" @submit.prevent="submitEventPin">
           <label class="field-label" for="event-pin">Event station PIN</label>
@@ -45,10 +46,14 @@
             autocomplete="one-time-code"
             maxlength="6"
             placeholder="••••••"
-            :disabled="eventBusy"
+            :disabled="eventBusy || slugLoading"
             @input="eventPin = ($event.target?.value || '').replace(/\D/g, '').slice(0, 6)"
           />
-          <button type="submit" class="btn btn-primary" :disabled="eventBusy || eventPin.length !== 6">
+          <button
+            type="submit"
+            class="btn btn-primary"
+            :disabled="eventBusy || slugLoading || eventPin.length !== 6"
+          >
             {{ eventBusy ? 'Checking…' : 'Continue to event' }}
           </button>
         </form>
@@ -93,21 +98,34 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
-import { buildEventKioskStationPath, resolvePortalSlug } from '../utils/orgScopedPath';
+import {
+  buildEventKioskStationPath,
+  ensurePortalSlugResolved,
+  resolvePortalSlug
+} from '../utils/orgScopedPath';
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 
+const portalSlug = ref('');
+const slugLoading = ref(true);
+
 const slug = computed(() =>
-  resolvePortalSlug(route.params, brandingStore.portalHostPortalUrl)
+  portalSlug.value || resolvePortalSlug(route.params, brandingStore.portalHostPortalUrl)
 );
+
+onMounted(async () => {
+  slugLoading.value = true;
+  portalSlug.value = await ensurePortalSlugResolved(route.params, brandingStore);
+  slugLoading.value = false;
+});
 
 const mode = ref(String(route.query?.mode || '').toLowerCase() === 'office' ? 'office' : 'event');
 
@@ -138,6 +156,11 @@ function eventStorageKey() {
 
 async function submitEventPin() {
   eventError.value = '';
+  if (!slug.value) {
+    slugLoading.value = true;
+    portalSlug.value = await ensurePortalSlugResolved(route.params, brandingStore);
+    slugLoading.value = false;
+  }
   if (!slug.value) {
     eventError.value =
       'Could not determine your organization. Use the kiosk link from event settings, or open /{your-org}/kiosk.';

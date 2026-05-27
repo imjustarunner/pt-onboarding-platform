@@ -1,7 +1,34 @@
 import { getCurrentPortalSlugFromHostCache } from './loginRedirect.js';
+import { getPortalUrl } from './subdomain.js';
 
 function norm(value) {
   return String(value || '').trim().toLowerCase();
+}
+
+function cachePortalSlugForHost(portalSlug) {
+  const resolved = norm(portalSlug);
+  if (!resolved || typeof window === 'undefined') return;
+  try {
+    const cacheKey = `__pt_portal_host__:${window.location.hostname}`;
+    const payload = JSON.stringify({ portalUrl: resolved, ts: Date.now() });
+    sessionStorage.setItem(cacheKey, payload);
+    localStorage.setItem(cacheKey, payload);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Best-effort portal slug from app.{portal}.{tld} custom domains (e.g. app.ltsco.health → ltsco).
+ */
+export function guessPortalSlugFromHostname(hostname = null) {
+  const h = norm(hostname ?? (typeof window !== 'undefined' ? window.location.hostname : '')).replace(/:\d+$/, '');
+  if (!h || h === 'localhost' || h === '127.0.0.1') return '';
+  const parts = h.split('.').filter(Boolean);
+  if (parts.length === 3 && parts[0] === 'app' && parts[1] && parts[1] !== 'www') {
+    return parts[1];
+  }
+  return '';
 }
 
 /**
@@ -11,7 +38,62 @@ function norm(value) {
 export function resolvePortalSlug(routeParams = {}, hostImpliedAgencySlug = null) {
   const fromRoute = norm(routeParams?.organizationSlug);
   if (fromRoute) return fromRoute;
-  return norm(hostImpliedAgencySlug ?? getCurrentPortalSlugFromHostCache());
+
+  const fromHost = norm(hostImpliedAgencySlug);
+  if (fromHost) return fromHost;
+
+  const fromCache = norm(getCurrentPortalSlugFromHostCache());
+  if (fromCache) return fromCache;
+
+  const fromSubdomain = norm(getPortalUrl());
+  if (fromSubdomain) return fromSubdomain;
+
+  return guessPortalSlugFromHostname();
+}
+
+/**
+ * Resolve portal slug for kiosk/public flows, including async host lookup when sync sources fail.
+ */
+export async function ensurePortalSlugResolved(routeParams = {}, brandingStore = null) {
+  let slug = resolvePortalSlug(routeParams, brandingStore?.portalHostPortalUrl);
+  if (slug) return slug;
+
+  if (brandingStore?.initializePortalTheme) {
+    try {
+      await brandingStore.initializePortalTheme();
+    } catch {
+      /* ignore */
+    }
+    slug = resolvePortalSlug(routeParams, brandingStore?.portalHostPortalUrl);
+    if (slug) return slug;
+  }
+
+  if (typeof window !== 'undefined') {
+    try {
+      const api = (await import('../services/api.js')).default;
+      const resp = await api.get('/agencies/resolve', {
+        params: { host: window.location.hostname },
+        skipGlobalLoading: true,
+        skipAuthRedirect: true,
+        timeout: 15000
+      });
+      slug = norm(resp.data?.portalUrl || resp.data?.slug);
+      if (slug) {
+        if (brandingStore) brandingStore.portalHostPortalUrl = slug;
+        cachePortalSlugForHost(slug);
+        return slug;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  slug = guessPortalSlugFromHostname();
+  if (slug) {
+    if (brandingStore) brandingStore.portalHostPortalUrl = slug;
+    cachePortalSlugForHost(slug);
+  }
+  return slug;
 }
 
 /**
