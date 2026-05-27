@@ -785,6 +785,401 @@ function slotReason({ groupCount, participantCount }) {
   return 'auto';
 }
 
+function personName(first, last, email) {
+  return `${first || ''} ${last || ''}`.trim() || email || 'Unknown';
+}
+
+const AVAIL_FOR_STAFFING = new Set(['slot', 'waitlist', 'oncall', 'available']);
+
+async function syncEventProviderAssignment(conn, { eventId, providerUserId }) {
+  const [existing] = await conn.execute(
+    `SELECT 1 AS ok FROM company_event_provider_assignments
+     WHERE company_event_id = ? AND provider_user_id = ? LIMIT 1`,
+    [eventId, providerUserId]
+  );
+  if (existing?.[0]?.ok) return;
+  const [[userRow]] = await conn.execute(`SELECT title FROM users WHERE id = ? LIMIT 1`, [providerUserId]);
+  const roleTitle = String(userRow?.title || '').trim() || 'Facilitator';
+  await conn.execute(
+    `INSERT INTO company_event_provider_assignments
+      (company_event_id, provider_user_id, role_title, role_key, is_primary_access, virtual_access_role)
+     VALUES (?, ?, ?, NULL, 0, 'participant')`,
+    [eventId, providerUserId, roleTitle]
+  );
+}
+
+async function removeEventProviderIfNoFinalizedSessions(conn, { eventId, providerUserId }) {
+  const [[row]] = await conn.execute(
+    `SELECT COUNT(*) AS cnt FROM company_event_session_providers
+     WHERE company_event_id = ? AND provider_user_id = ? AND assignment_status = 'finalized'`,
+    [eventId, providerUserId]
+  );
+  if (Number(row?.cnt || 0) > 0) return;
+  await conn.execute(
+    `DELETE FROM company_event_provider_assignments WHERE company_event_id = ? AND provider_user_id = ?`,
+    [eventId, providerUserId]
+  );
+}
+
+async function computeSessionSlotMeta({ requestId, companyEventId, sessionDateId, sessionDateStr }) {
+  const [[groupRow]] = await pool.execute(
+    `SELECT COUNT(*) AS cnt FROM company_event_session_groups WHERE session_date_id = ?`,
+    [sessionDateId]
+  );
+  const [[participantRow]] = await pool.execute(
+    `SELECT COUNT(*) AS cnt FROM company_event_client_group_assignments WHERE session_date_id = ?`,
+    [sessionDateId]
+  );
+  const groupCount = Number(groupRow?.cnt ?? 0);
+  const participantCount = Number(participantRow?.cnt ?? 0);
+  const autoSlots = computeAutoSlots({ groupCount, participantCount });
+  const [[overrideRow]] = await pool.execute(
+    `SELECT slot_count FROM facilitator_availability_slot_overrides
+     WHERE request_id = ? AND company_event_id = ? AND entry_date = ?
+     LIMIT 1`,
+    [requestId, companyEventId, sessionDateStr]
+  );
+  const override = overrideRow ? Number(overrideRow.slot_count) : null;
+  const effectiveSlots = override !== null ? override : autoSlots;
+  return {
+    groupCount,
+    participantCount,
+    autoSlots,
+    override,
+    effectiveSlots,
+    slotReason: slotReason({ groupCount, participantCount })
+  };
+}
+
+async function assertRequestInAgency(requestId, agencyId) {
+  const [[request]] = await pool.execute(
+    `SELECT id, title, status, tentative_schedule_posted_at, final_schedule_published_at
+     FROM facilitator_availability_requests WHERE id = ? AND agency_id = ? LIMIT 1`,
+    [requestId, agencyId]
+  );
+  return request || null;
+}
+
+async function insertSessionProviderAssignment(conn, {
+  agencyId, eventId, sdId, providerUserId, assignedByUserId, assignmentStatus = 'draft'
+}) {
+  await conn.execute(
+    `INSERT INTO company_event_session_providers
+      (company_event_id, agency_id, session_date_id, provider_user_id, assigned_by_user_id, assigned_at, assignment_status)
+     VALUES (?, ?, ?, ?, ?, NOW(), ?)
+     ON DUPLICATE KEY UPDATE
+       assigned_by_user_id = VALUES(assigned_by_user_id),
+       assigned_at = NOW()`,
+    [eventId, agencyId, sdId, providerUserId, assignedByUserId, assignmentStatus]
+  );
+  await conn.execute(
+    `UPDATE company_event_session_provider_requests
+     SET status = 'approved', decided_by_user_id = ?, decided_at = NOW()
+     WHERE company_event_id = ? AND session_date_id = ? AND provider_user_id = ?
+       AND status IN ('pending', 'waitlist')`,
+    [assignedByUserId, eventId, sdId, providerUserId]
+  );
+}
+
+async function transitionAssignmentStatus(conn, {
+  agencyId, requestId, requestTitle, mode, companyEventId, assignmentIds, publisherUserId
+}) {
+  const nextStatus = mode === 'finalized' ? 'finalized' : 'tentative';
+  const params = [agencyId, requestId];
+  let where = `csp.agency_id = ?
+    AND csp.company_event_id IN (
+      SELECT fare.company_event_id FROM facilitator_availability_request_events fare WHERE fare.request_id = ?
+    )`;
+  if (mode === 'finalized') {
+    where += " AND csp.assignment_status IN ('draft', 'tentative')";
+  } else {
+    where += " AND csp.assignment_status = 'draft'";
+  }
+  if (companyEventId) {
+    where += ' AND csp.company_event_id = ?';
+    params.push(companyEventId);
+  }
+  const idList = (Array.isArray(assignmentIds) ? assignmentIds : [])
+    .map((id) => parseId(id))
+    .filter(Boolean);
+  if (idList.length) {
+    where += ` AND csp.id IN (${idList.map(() => '?').join(',')})`;
+    params.push(...idList);
+  }
+
+  const [rows] = await conn.execute(
+    `SELECT csp.id, csp.company_event_id, csp.provider_user_id
+     FROM company_event_session_providers csp
+     WHERE ${where}`,
+    params
+  );
+
+  const affectedUserEvents = new Map();
+  for (const row of rows || []) {
+    await conn.execute(
+      `UPDATE company_event_session_providers
+       SET assignment_status = ?, published_at = NOW(), published_by_user_id = ?
+       WHERE id = ?`,
+      [nextStatus, publisherUserId, row.id]
+    );
+    if (nextStatus === 'finalized') {
+      const key = `${row.company_event_id}:${row.provider_user_id}`;
+      affectedUserEvents.set(key, { eventId: row.company_event_id, providerUserId: row.provider_user_id });
+    }
+  }
+
+  for (const { eventId, providerUserId } of affectedUserEvents.values()) {
+    await syncEventProviderAssignment(conn, { eventId, providerUserId });
+  }
+
+  const requestField = mode === 'finalized' ? 'final_schedule_published_at' : 'tentative_schedule_posted_at';
+  await conn.execute(
+    `UPDATE facilitator_availability_requests SET ${requestField} = NOW() WHERE id = ?`,
+    [requestId]
+  );
+
+  const notifyUserIds = [...new Set((rows || []).map((r) => r.provider_user_id))];
+  const notifyTitle = mode === 'finalized'
+    ? `Final schedule published: ${requestTitle}`
+    : `Tentative schedule posted: ${requestTitle}`;
+  const notifyMessage = mode === 'finalized'
+    ? `Your finalized facilitator schedule for "${requestTitle}" is now available.`
+    : `A tentative facilitator schedule for "${requestTitle}" has been posted — details may still change.`;
+
+  for (const uid of notifyUserIds) {
+    try {
+      await Notification.create({
+        type: mode === 'finalized' ? 'facilitator_schedule_finalized' : 'facilitator_schedule_tentative',
+        severity: mode === 'finalized' ? 'success' : 'warning',
+        title: notifyTitle,
+        message: notifyMessage,
+        userId: uid,
+        agencyId,
+        relatedEntityType: 'facilitator_availability_request',
+        relatedEntityId: requestId,
+        actorUserId: publisherUserId,
+        actorSource: 'facilitator_availability_publish'
+      });
+    } catch {
+      /* best effort */
+    }
+  }
+
+  return { updatedCount: (rows || []).length, notifiedCount: notifyUserIds.length };
+}
+
+// ─── Admin: staffing workspace (main interface) ───────────────────────────────
+
+export const getStaffingWorkspace = async (req, res, next) => {
+  try {
+    const agencyId = parseId(req.params?.agencyId);
+    const requestId = parseId(req.params?.requestId);
+    if (!agencyId || !requestId) return res.status(400).json({ error: { message: 'Invalid id' } });
+    if (!(await canManage(req, agencyId))) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const request = await assertRequestInAgency(requestId, agencyId);
+    if (!request) return res.status(404).json({ error: { message: 'Not found' } });
+
+    const [reqEvents] = await pool.execute(
+      `SELECT fare.id AS request_event_id, fare.company_event_id, fare.locations_json, fare.display_order,
+              ce.title AS event_title, ce.starts_at, ce.ends_at
+       FROM facilitator_availability_request_events fare
+       JOIN company_events ce ON ce.id = fare.company_event_id AND ce.is_active = 1
+       WHERE fare.request_id = ?
+       ORDER BY fare.display_order, ce.title`,
+      [requestId]
+    );
+
+    const events = [];
+    let totalSlotsNeeded = 0;
+    let totalSlotsFilled = 0;
+    const statusCounts = { draft: 0, tentative: 0, finalized: 0 };
+
+    for (const ev of reqEvents) {
+      const locationsJson = parseJson(ev.locations_json) || [];
+      const [sessionDates] = await pool.execute(
+        `SELECT id, session_date, starts_at, ends_at, timezone, location_label
+         FROM company_event_session_dates
+         WHERE company_event_id = ?
+         ORDER BY session_date, starts_at`,
+        [ev.company_event_id]
+      );
+
+      const sessionDateRows = [];
+      let eventSlotsNeeded = 0;
+      let eventSlotsFilled = 0;
+      const assignedUserIds = new Set();
+
+      for (const sd of sessionDates) {
+        const dateStr = toDateOnlyString(sd.session_date) || '';
+        if (!dateStr) continue;
+        const slotMeta = await computeSessionSlotMeta({
+          requestId,
+          companyEventId: ev.company_event_id,
+          sessionDateId: sd.id,
+          sessionDateStr: dateStr
+        });
+
+        const [assignedRows] = await pool.execute(
+          `SELECT csp.id AS session_provider_id, csp.provider_user_id, csp.assignment_status,
+                  u.first_name, u.last_name, u.email
+           FROM company_event_session_providers csp
+           JOIN users u ON u.id = csp.provider_user_id
+           WHERE csp.company_event_id = ? AND csp.session_date_id = ?
+           ORDER BY u.last_name, u.first_name`,
+          [ev.company_event_id, sd.id]
+        );
+
+        const assigned = (assignedRows || []).map((r) => {
+          assignedUserIds.add(r.provider_user_id);
+          const st = String(r.assignment_status || 'draft');
+          if (statusCounts[st] != null) statusCounts[st] += 1;
+          return {
+            sessionProviderId: r.session_provider_id,
+            userId: r.provider_user_id,
+            name: personName(r.first_name, r.last_name, r.email),
+            email: r.email,
+            assignmentStatus: st
+          };
+        });
+
+        const filled = assigned.length;
+        const openSlots = Math.max(0, slotMeta.effectiveSlots - filled);
+        eventSlotsNeeded += openSlots;
+        eventSlotsFilled += filled;
+        totalSlotsNeeded += openSlots;
+        totalSlotsFilled += filled;
+
+        sessionDateRows.push({
+          sessionDateId: sd.id,
+          date: dateStr,
+          startsAt: sd.starts_at,
+          endsAt: sd.ends_at,
+          timezone: sd.timezone,
+          locationLabel: sd.location_label || locationsJson[0] || ev.event_title,
+          ...slotMeta,
+          filled,
+          openSlots,
+          assigned
+        });
+      }
+
+      const dateRange = sessionDateRows.length
+        ? { start: sessionDateRows[0].date, end: sessionDateRows[sessionDateRows.length - 1].date }
+        : null;
+
+      events.push({
+        requestEventId: ev.request_event_id,
+        companyEventId: ev.company_event_id,
+        title: ev.event_title,
+        locations: locationsJson,
+        dateRange,
+        slotsFilled: eventSlotsFilled,
+        slotsNeeded: eventSlotsNeeded,
+        staffAssignedCount: assignedUserIds.size,
+        sessionDates: sessionDateRows
+      });
+    }
+
+    const [submissions] = await pool.execute(
+      `SELECT fas.id AS submission_id, fas.user_id, fas.submitted_at, fas.is_on_call,
+              u.first_name, u.last_name, u.email
+       FROM facilitator_availability_submissions fas
+       JOIN users u ON u.id = fas.user_id
+       WHERE fas.request_id = ?
+       ORDER BY COALESCE(fas.submitted_at, fas.updated_at) ASC`,
+      [requestId]
+    );
+
+    const submissionIds = submissions.map((s) => s.submission_id);
+    let dateEntries = [];
+    let locationRanks = [];
+    if (submissionIds.length) {
+      const ph = submissionIds.map(() => '?').join(',');
+      const [deRows] = await pool.execute(
+        `SELECT submission_id, user_id, entry_date, availability FROM facilitator_availability_date_entries
+         WHERE submission_id IN (${ph})`,
+        submissionIds
+      );
+      dateEntries = deRows || [];
+      const [lrRows] = await pool.execute(
+        `SELECT submission_id, request_event_id, location, rank_order FROM facilitator_availability_location_ranks
+         WHERE submission_id IN (${ph})`,
+        submissionIds
+      );
+      locationRanks = lrRows || [];
+    }
+
+    const staffPool = submissions.map((sub) => {
+      const userEntries = dateEntries.filter((de) => de.submission_id === sub.submission_id);
+      const userRanks = locationRanks.filter((lr) => lr.submission_id === sub.submission_id);
+      const perEvent = events.map((ev) => {
+        const eventDates = new Set((ev.sessionDates || []).map((sd) => sd.date));
+        const totalDays = eventDates.size;
+        let daysAvailable = 0;
+        for (const d of eventDates) {
+          const entry = userEntries.find((de) => toDateOnlyString(de.entry_date) === d);
+          if (entry && AVAIL_FOR_STAFFING.has(String(entry.availability))) daysAvailable += 1;
+        }
+        const rankRows = userRanks.filter((lr) => Number(lr.request_event_id) === Number(ev.requestEventId));
+        const locationRank = rankRows.length
+          ? Math.min(...rankRows.map((lr) => Number(lr.rank_order) || 99))
+          : null;
+        const assignedHere = (ev.sessionDates || []).reduce(
+          (sum, sd) => sum + (sd.assigned || []).filter((a) => a.userId === sub.user_id).length,
+          0
+        );
+        return {
+          companyEventId: ev.companyEventId,
+          locationRank,
+          daysAvailable,
+          totalDays,
+          isFullyAvailable: totalDays > 0 && daysAvailable === totalDays,
+          assignedSessionCount: assignedHere,
+          isFullyAssigned: totalDays > 0 && assignedHere >= totalDays
+        };
+      });
+      return {
+        userId: sub.user_id,
+        name: personName(sub.first_name, sub.last_name, sub.email),
+        email: sub.email,
+        submittedAt: sub.submitted_at,
+        isSubmitted: !!sub.submitted_at,
+        isOnCall: !!sub.is_on_call,
+        perEvent
+      };
+    });
+
+    const staffSubmitted = staffPool.filter((s) => s.isSubmitted).length;
+    const staffDraft = staffPool.length - staffSubmitted;
+
+    res.json({
+      requestId,
+      title: request.title,
+      status: request.status,
+      tentativeSchedulePostedAt: request.tentative_schedule_posted_at,
+      finalSchedulePublishedAt: request.final_schedule_published_at,
+      summary: {
+        eventCount: events.length,
+        staffSubmitted,
+        staffDraft,
+        staffTotal: staffPool.length,
+        slotsFilled: totalSlotsFilled,
+        slotsNeeded: totalSlotsNeeded,
+        statusCounts,
+        eventsWithGaps: events.filter((e) => e.slotsNeeded > 0).length
+      },
+      events,
+      staffPool
+    });
+  } catch (err) {
+    if (String(err?.message || '').includes('assignment_status')) {
+      return res.status(503).json({ error: { message: 'Run migration 820_session_provider_assignment_status.sql' } });
+    }
+    next(err);
+  }
+};
+
 // ─── Admin: get full scheduling data for a request ────────────────────────────
 
 export const getSchedulingData = async (req, res, next) => {
@@ -850,7 +1245,8 @@ export const getSchedulingData = async (req, res, next) => {
 
         // Assigned employees at this location
         const [assigned] = await pool.execute(
-          `SELECT csp.provider_user_id AS user_id, u.first_name, u.last_name, u.email
+          `SELECT csp.id AS session_provider_id, csp.provider_user_id AS user_id, csp.assignment_status,
+                  u.first_name, u.last_name, u.email
            FROM company_event_session_providers csp
            JOIN users u ON u.id = csp.provider_user_id
            WHERE csp.company_event_id = ? AND csp.session_date_id = ?
@@ -884,9 +1280,11 @@ export const getSchedulingData = async (req, res, next) => {
           filled: assigned.length,
           openSlots: Math.max(0, effectiveSlots - assigned.length),
           assigned: assigned.map((r) => ({
+            sessionProviderId: r.session_provider_id,
             userId: r.user_id,
-            name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email,
-            email: r.email
+            name: personName(r.first_name, r.last_name, r.email),
+            email: r.email,
+            assignmentStatus: String(r.assignment_status || 'draft')
           }))
         });
       }
@@ -1046,22 +1444,14 @@ export const assignFacilitator = async (req, res, next) => {
     try {
       await conn.beginTransaction();
 
-      await conn.execute(
-        `INSERT INTO company_event_session_providers
-          (company_event_id, agency_id, session_date_id, provider_user_id, assigned_by_user_id, assigned_at)
-         VALUES (?, ?, ?, ?, ?, NOW())
-         ON DUPLICATE KEY UPDATE assigned_by_user_id = VALUES(assigned_by_user_id), assigned_at = NOW()`,
-        [eventId, agencyId, sdId, providerUserId, req.user.id]
-      );
-
-      // If there's a pending/waitlist request for this provider+session, mark it approved
-      await conn.execute(
-        `UPDATE company_event_session_provider_requests
-         SET status = 'approved', decided_by_user_id = ?, decided_at = NOW()
-         WHERE company_event_id = ? AND session_date_id = ? AND provider_user_id = ?
-           AND status IN ('pending', 'waitlist')`,
-        [req.user.id, eventId, sdId, providerUserId]
-      );
+      await insertSessionProviderAssignment(conn, {
+        agencyId,
+        eventId,
+        sdId,
+        providerUserId,
+        assignedByUserId: req.user.id,
+        assignmentStatus: 'draft'
+      });
 
       await conn.commit();
       res.json({ ok: true, overCapacity });
@@ -1109,6 +1499,8 @@ export const unassignFacilitator = async (req, res, next) => {
         [eventId, agencyId, sdId, providerUserId]
       );
 
+      await removeEventProviderIfNoFinalizedSessions(conn, { eventId, providerUserId });
+
       // Revert any approved request back to pending so the employee can be re-considered
       await conn.execute(
         `UPDATE company_event_session_provider_requests
@@ -1127,6 +1519,307 @@ export const unassignFacilitator = async (req, res, next) => {
       conn.release();
     }
   } catch (err) {
+    next(err);
+  }
+};
+
+// ─── Admin: assign facilitator to all session dates of an event ───────────────
+
+export const assignFacilitatorToEvent = async (req, res, next) => {
+  try {
+    const agencyId = parseId(req.params?.agencyId);
+    const requestId = parseId(req.params?.requestId);
+    if (!agencyId || !requestId) return res.status(400).json({ error: { message: 'Invalid id' } });
+    if (!(await canManage(req, agencyId))) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const request = await assertRequestInAgency(requestId, agencyId);
+    if (!request) return res.status(404).json({ error: { message: 'Not found' } });
+
+    const eventId = parseId(req.body?.companyEventId);
+    const providerUserId = parseId(req.body?.userId);
+    if (!eventId || !providerUserId) {
+      return res.status(400).json({ error: { message: 'companyEventId and userId are required' } });
+    }
+
+    const [[fare]] = await pool.execute(
+      `SELECT 1 AS ok FROM facilitator_availability_request_events
+       WHERE request_id = ? AND company_event_id = ? LIMIT 1`,
+      [requestId, eventId]
+    );
+    if (!fare?.ok) return res.status(404).json({ error: { message: 'Event not in this request' } });
+
+    const [sessionDates] = await pool.execute(
+      `SELECT id FROM company_event_session_dates WHERE company_event_id = ? ORDER BY session_date`,
+      [eventId]
+    );
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      let assignedDates = 0;
+      const overCapacityDates = [];
+      for (const sd of sessionDates || []) {
+        const sdId = sd.id;
+        const [[sdRow]] = await conn.execute(
+          `SELECT session_date FROM company_event_session_dates WHERE id = ? LIMIT 1`,
+          [sdId]
+        );
+        const dateStr = toDateOnlyString(sdRow?.session_date) || '';
+        const slotMeta = await computeSessionSlotMeta({ requestId, companyEventId: eventId, sessionDateId: sdId, sessionDateStr: dateStr });
+        const [[filledRow]] = await conn.execute(
+          `SELECT COUNT(*) AS cnt FROM company_event_session_providers WHERE session_date_id = ?`,
+          [sdId]
+        );
+        if (Number(filledRow?.cnt || 0) >= slotMeta.effectiveSlots) overCapacityDates.push(dateStr);
+        await insertSessionProviderAssignment(conn, {
+          agencyId,
+          eventId,
+          sdId,
+          providerUserId,
+          assignedByUserId: req.user.id,
+          assignmentStatus: 'draft'
+        });
+        assignedDates += 1;
+      }
+      await conn.commit();
+      res.json({ ok: true, assignedDates, overCapacityDates });
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    } finally {
+      conn.release();
+    }
+  } catch (err) {
+    if (String(err?.message || '').includes('assignment_status')) {
+      return res.status(503).json({ error: { message: 'Run migration 820_session_provider_assignment_status.sql' } });
+    }
+    next(err);
+  }
+};
+
+// ─── Admin: unassign facilitator from all session dates of an event ───────────
+
+export const unassignFacilitatorFromEvent = async (req, res, next) => {
+  try {
+    const agencyId = parseId(req.params?.agencyId);
+    const requestId = parseId(req.params?.requestId);
+    if (!agencyId || !requestId) return res.status(400).json({ error: { message: 'Invalid id' } });
+    if (!(await canManage(req, agencyId))) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const eventId = parseId(req.body?.companyEventId);
+    const providerUserId = parseId(req.body?.userId);
+    if (!eventId || !providerUserId) {
+      return res.status(400).json({ error: { message: 'companyEventId and userId are required' } });
+    }
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [result] = await conn.execute(
+        `DELETE FROM company_event_session_providers
+         WHERE company_event_id = ? AND agency_id = ? AND provider_user_id = ?`,
+        [eventId, agencyId, providerUserId]
+      );
+      await removeEventProviderIfNoFinalizedSessions(conn, { eventId, providerUserId });
+      await conn.commit();
+      res.json({ ok: true, removedCount: result.affectedRows || 0 });
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    } finally {
+      conn.release();
+    }
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ─── Admin: update a single assignment row ────────────────────────────────────
+
+export const updateAssignment = async (req, res, next) => {
+  try {
+    const agencyId = parseId(req.params?.agencyId);
+    const requestId = parseId(req.params?.requestId);
+    const sessionProviderId = parseId(req.params?.sessionProviderId);
+    if (!agencyId || !requestId || !sessionProviderId) {
+      return res.status(400).json({ error: { message: 'Invalid id' } });
+    }
+    if (!(await canManage(req, agencyId))) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const [[row]] = await pool.execute(
+      `SELECT csp.* FROM company_event_session_providers csp
+       JOIN facilitator_availability_request_events fare
+         ON fare.company_event_id = csp.company_event_id AND fare.request_id = ?
+       WHERE csp.id = ? AND csp.agency_id = ? LIMIT 1`,
+      [requestId, sessionProviderId, agencyId]
+    );
+    if (!row) return res.status(404).json({ error: { message: 'Assignment not found' } });
+
+    const nextStatus = String(req.body?.assignmentStatus || '').trim().toLowerCase();
+    const validStatuses = new Set(['draft', 'tentative', 'finalized']);
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      if (validStatuses.has(nextStatus) && nextStatus !== String(row.assignment_status)) {
+        await conn.execute(
+          `UPDATE company_event_session_providers
+           SET assignment_status = ?,
+               published_at = CASE WHEN ? IN ('tentative', 'finalized') THEN NOW() ELSE NULL END,
+               published_by_user_id = CASE WHEN ? IN ('tentative', 'finalized') THEN ? ELSE NULL END
+           WHERE id = ?`,
+          [nextStatus, nextStatus, nextStatus, req.user.id, sessionProviderId]
+        );
+        if (nextStatus === 'finalized') {
+          await syncEventProviderAssignment(conn, {
+            eventId: row.company_event_id,
+            providerUserId: row.provider_user_id
+          });
+        } else if (String(row.assignment_status) === 'finalized') {
+          await removeEventProviderIfNoFinalizedSessions(conn, {
+            eventId: row.company_event_id,
+            providerUserId: row.provider_user_id
+          });
+        }
+      }
+
+      const reassignUserId = parseId(req.body?.reassignUserId);
+      if (reassignUserId && reassignUserId !== Number(row.provider_user_id)) {
+        await conn.execute(
+          `UPDATE company_event_session_providers SET provider_user_id = ? WHERE id = ?`,
+          [reassignUserId, sessionProviderId]
+        );
+      }
+
+      await conn.commit();
+      res.json({ ok: true });
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    } finally {
+      conn.release();
+    }
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ─── Admin: publish tentative or finalized schedules ──────────────────────────
+
+export const publishSchedule = async (req, res, next) => {
+  try {
+    const agencyId = parseId(req.params?.agencyId);
+    const requestId = parseId(req.params?.requestId);
+    if (!agencyId || !requestId) return res.status(400).json({ error: { message: 'Invalid id' } });
+    if (!(await canManage(req, agencyId))) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const request = await assertRequestInAgency(requestId, agencyId);
+    if (!request) return res.status(404).json({ error: { message: 'Not found' } });
+
+    const mode = String(req.body?.mode || '').trim().toLowerCase();
+    if (!['tentative', 'finalized'].includes(mode)) {
+      return res.status(400).json({ error: { message: 'mode must be tentative or finalized' } });
+    }
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const result = await transitionAssignmentStatus(conn, {
+        agencyId,
+        requestId,
+        requestTitle: request.title,
+        mode,
+        companyEventId: parseId(req.body?.companyEventId),
+        assignmentIds: req.body?.assignmentIds,
+        publisherUserId: req.user.id
+      });
+      await conn.commit();
+      res.json({ ok: true, ...result });
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    } finally {
+      conn.release();
+    }
+  } catch (err) {
+    if (String(err?.message || '').includes('assignment_status')) {
+      return res.status(503).json({ error: { message: 'Run migration 820_session_provider_assignment_status.sql' } });
+    }
+    next(err);
+  }
+};
+
+// ─── Employee: published schedule (tentative + finalized only) ──────────────
+
+export const getMyPublishedSchedule = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: { message: 'Unauthenticated' } });
+
+    const requestId = req.query?.requestId ? parseId(req.query.requestId) : null;
+    const params = [userId];
+    let requestFilter = '';
+    if (requestId) {
+      requestFilter = ' AND far.id = ?';
+      params.push(requestId);
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT far.id AS request_id, far.title AS request_title,
+              ce.id AS company_event_id, ce.title AS event_title,
+              cesd.session_date, cesd.starts_at, cesd.ends_at,
+              csp.assignment_status, csp.published_at
+       FROM company_event_session_providers csp
+       JOIN company_event_session_dates cesd ON cesd.id = csp.session_date_id
+       JOIN company_events ce ON ce.id = csp.company_event_id
+       JOIN facilitator_availability_request_events fare ON fare.company_event_id = ce.id
+       JOIN facilitator_availability_requests far ON far.id = fare.request_id
+       WHERE csp.provider_user_id = ?
+         AND csp.assignment_status IN ('tentative', 'finalized')
+         ${requestFilter}
+       ORDER BY far.title, ce.title, cesd.session_date, cesd.starts_at`,
+      params
+    );
+
+    const byRequest = new Map();
+    for (const r of rows || []) {
+      const rid = r.request_id;
+      if (!byRequest.has(rid)) {
+        byRequest.set(rid, {
+          requestId: rid,
+          requestTitle: r.request_title,
+          events: new Map()
+        });
+      }
+      const reqBlock = byRequest.get(rid);
+      const eid = r.company_event_id;
+      if (!reqBlock.events.has(eid)) {
+        reqBlock.events.set(eid, {
+          companyEventId: eid,
+          eventTitle: r.event_title,
+          sessions: []
+        });
+      }
+      reqBlock.events.get(eid).sessions.push({
+        date: toDateOnlyString(r.session_date),
+        startsAt: r.starts_at,
+        endsAt: r.ends_at,
+        assignmentStatus: r.assignment_status,
+        publishedAt: r.published_at
+      });
+    }
+
+    const schedules = [...byRequest.values()].map((block) => ({
+      requestId: block.requestId,
+      requestTitle: block.requestTitle,
+      events: [...block.events.values()]
+    }));
+
+    res.json(schedules);
+  } catch (err) {
+    if (String(err?.message || '').includes('assignment_status')) {
+      return res.json([]);
+    }
     next(err);
   }
 };

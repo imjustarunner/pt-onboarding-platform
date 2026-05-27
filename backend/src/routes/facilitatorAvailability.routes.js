@@ -12,9 +12,15 @@ import {
   submitResponse,
   listAgencyEvents,
   getSchedulingData,
+  getStaffingWorkspace,
   setSlotOverride,
   assignFacilitator,
+  assignFacilitatorToEvent,
   unassignFacilitator,
+  unassignFacilitatorFromEvent,
+  updateAssignment,
+  publishSchedule,
+  getMyPublishedSchedule,
   getLocationDistances
 } from '../controllers/facilitatorAvailability.controller.js';
 
@@ -22,6 +28,7 @@ import {
 export const employeeRouter = express.Router();
 employeeRouter.use(authenticate);
 employeeRouter.get('/my-pending', listMyPending);
+employeeRouter.get('/my-schedule', getMyPublishedSchedule);
 employeeRouter.get('/:requestId/location-distances', getLocationDistances);
 employeeRouter.get('/:requestId', getRequestForEmployee);
 employeeRouter.post('/:requestId/submit', submitResponse);
@@ -36,7 +43,12 @@ adminRouter.get('/:requestId', getRequest);
 adminRouter.put('/:requestId', updateRequest);
 adminRouter.post('/:requestId/push', requireAdmin, pushRequest);
 adminRouter.get('/:requestId/responses', getResponses);
+adminRouter.get('/:requestId/staffing-workspace', getStaffingWorkspace);
 adminRouter.get('/:requestId/schedule', getSchedulingData);
 adminRouter.put('/:requestId/slot-override', setSlotOverride);
 adminRouter.post('/:requestId/assign', assignFacilitator);
+adminRouter.post('/:requestId/assign-event', assignFacilitatorToEvent);
 adminRouter.post('/:requestId/unassign', unassignFacilitator);
+adminRouter.post('/:requestId/unassign-event', unassignFacilitatorFromEvent);
+adminRouter.patch('/:requestId/assignments/:sessionProviderId', updateAssignment);
+adminRouter.post('/:requestId/publish-schedule', publishSchedule);

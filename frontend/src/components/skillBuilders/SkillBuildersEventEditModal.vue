@@ -1322,6 +1322,37 @@
                 </template>
               </div>
 
+              <div class="sb-ce-section">
+                <strong class="sb-ce-subhead">Assigned session staff</strong>
+                <p class="muted small sb-ce-card-lead">
+                  Staff assigned via Facilitator Availability (draft assignments are admin-only until published).
+                </p>
+                <div v-if="sessionStaffingLoading" class="muted small">Loading session staff…</div>
+                <div v-else-if="sessionStaffingError" class="error-box sb-ce-msg">{{ sessionStaffingError }}</div>
+                <template v-else-if="sessionStaffingSessions.length">
+                  <div
+                    v-for="s in sessionStaffingSessions"
+                    :key="`ss-${s.sessionDateId}`"
+                    class="sb-ce-session-staff-row"
+                  >
+                    <div class="sb-ce-session-staff-date">{{ fmtSessionStaffDate(s.sessionDate) }}</div>
+                    <div v-if="s.approvedProviders?.length" class="sb-ce-session-staff-names">
+                      <span
+                        v-for="p in s.approvedProviders"
+                        :key="`ssp-${s.sessionDateId}-${p.id}`"
+                        class="sb-ce-staff-chip"
+                        :class="`sb-ce-staff-chip--${p.assignmentStatus || 'draft'}`"
+                      >
+                        {{ p.name }}
+                        <small>{{ p.assignmentStatus || 'draft' }}</small>
+                      </span>
+                    </div>
+                    <div v-else class="muted small">No one assigned</div>
+                  </div>
+                </template>
+                <p v-else class="muted small">No scheduled sessions yet.</p>
+              </div>
+
               <div class="sb-ce-actions">
                 <button
                   type="button"
@@ -1435,6 +1466,9 @@ const staffingGroupsLoading = ref(false);
 const staffingGroupsError = ref('');
 const staffingGroupsSaving = ref(false);
 const staffingSessionGroups = ref([]);
+const sessionStaffingSummary = ref(null);
+const sessionStaffingLoading = ref(false);
+const sessionStaffingError = ref('');
 
 const rosterAssignedIds = computed(() => new Set((roster.value.assignedProviders || []).map((p) => p.id)));
 const addableProviders = computed(() =>
@@ -2146,6 +2180,41 @@ async function loadStaffingGroupsForSession() {
     staffingSessionGroups.value = [];
   } finally {
     staffingGroupsLoading.value = false;
+  }
+}
+
+const sessionStaffingSessions = computed(() =>
+  Array.isArray(sessionStaffingSummary.value?.sessions) ? sessionStaffingSummary.value.sessions : []
+);
+
+function fmtSessionStaffDate(value) {
+  if (!value) return '-';
+  const s = String(value);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(value);
+  if (!Number.isFinite(d.getTime())) return '-';
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+async function loadSessionStaffingSummary() {
+  if (!props.agencyId || !props.eventId) {
+    sessionStaffingSummary.value = null;
+    sessionStaffingError.value = '';
+    return;
+  }
+  sessionStaffingLoading.value = true;
+  sessionStaffingError.value = '';
+  try {
+    const res = await api.get(`/company-events/${props.eventId}/session-staffing-summary`, {
+      params: { agencyId: props.agencyId },
+      skipGlobalLoading: true
+    });
+    sessionStaffingSummary.value = res.data || null;
+  } catch (e) {
+    sessionStaffingSummary.value = null;
+    sessionStaffingError.value = e?.response?.data?.error?.message || e?.message || 'Could not load session staff';
+  } finally {
+    sessionStaffingLoading.value = false;
   }
 }
 
@@ -2925,6 +2994,7 @@ watch(
       if (first) staffingSessionDateId.value = first;
     }
     await loadStaffingGroupsForSession();
+    await loadSessionStaffingSummary();
   }
 );
 
@@ -3127,6 +3197,37 @@ watch(
     justify-content: flex-start;
   }
 }
+.sb-ce-session-staff-row {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+.sb-ce-session-staff-date {
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.sb-ce-session-staff-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sb-ce-staff-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  background: #f1f5f9;
+}
+.sb-ce-staff-chip small {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+.sb-ce-staff-chip--draft { background: #f1f5f9; }
+.sb-ce-staff-chip--tentative { background: #fef3c7; }
+.sb-ce-staff-chip--finalized { background: #dcfce7; }
 .sb-ce-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

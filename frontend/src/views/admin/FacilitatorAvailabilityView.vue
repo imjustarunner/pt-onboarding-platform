@@ -51,8 +51,8 @@
           >
             {{ copiedId === r.id ? '✓ Copied' : '🔗 Copy Link' }}
           </button>
-          <button class="btn btn-sm btn-secondary" type="button" @click.stop="openResponses(r)">
-            View Responses
+          <button class="btn btn-sm btn-primary" type="button" @click.stop="openResponses(r)">
+            Open Staffing
           </button>
         </div>
       </div>
@@ -163,13 +163,19 @@
       </div>
     </div>
 
-    <!-- ── Responses + Schedule modal ──────────────────────────── -->
+    <!-- ── Staffing workspace modal ─────────────────────────────── -->
     <div v-if="showResponses" class="fav-overlay" @click.self="showResponses = false">
-      <div class="fav-modal">
+      <div class="fav-modal fav-modal--wide">
         <div class="fav-drawer-header">
           <div>
             <h2>{{ responsesRequest?.title }}</h2>
             <div class="fav-modal-tabs">
+              <button
+                type="button"
+                class="fav-tab"
+                :class="{ 'fav-tab--active': modalTab === 'staffing' }"
+                @click="switchTab('staffing')"
+              >Staffing</button>
               <button
                 type="button"
                 class="fav-tab"
@@ -181,10 +187,20 @@
                 class="fav-tab"
                 :class="{ 'fav-tab--active': modalTab === 'schedule' }"
                 @click="switchTab('schedule')"
-              >Schedule</button>
+              >By date</button>
             </div>
           </div>
           <button type="button" class="fav-close" @click="showResponses = false">✕</button>
+        </div>
+
+        <div v-if="modalTab === 'staffing'" class="fav-modal-body">
+          <FacilitatorStaffingWorkspace
+            v-if="responsesRequest"
+            ref="staffingWorkspaceRef"
+            :agency-base="agencyBase"
+            :request-id="responsesRequest.id"
+            :read-only="responsesRequest.status === 'closed'"
+          />
         </div>
 
         <!-- ── Responses tab ─────────────────────────────────── -->
@@ -407,6 +423,7 @@ import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { formatDate } from '../../utils/formatDate';
+import FacilitatorStaffingWorkspace from '../../components/admin/FacilitatorStaffingWorkspace.vue';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -455,7 +472,8 @@ const responsesLoading = ref(false);
 const expanded = ref(new Set());
 
 // ── Schedule tab state ───────────────────────────────────────────────────────
-const modalTab = ref('responses'); // 'responses' | 'schedule'
+const modalTab = ref('staffing'); // 'staffing' | 'responses' | 'schedule'
+const staffingWorkspaceRef = ref(null);
 const scheduleData = ref(null);
 const scheduleLoading = ref(false);
 const scheduleActionLoading = ref(false);
@@ -670,6 +688,9 @@ const switchTab = (tab) => {
   if (tab === 'schedule' && !scheduleData.value && responsesRequest.value) {
     loadSchedule(responsesRequest.value);
   }
+  if (tab === 'responses' && !responses.length && responsesRequest.value) {
+    loadResponses(responsesRequest.value);
+  }
 };
 
 // Slot override helpers
@@ -732,6 +753,7 @@ const assign = async (eventId, d, emp) => {
     });
     assignPickerKey.value = null;
     await loadSchedule(responsesRequest.value);
+    staffingWorkspaceRef.value?.reload?.();
   } finally {
     scheduleActionLoading.value = false;
   }
@@ -747,6 +769,7 @@ const unassign = async (eventId, d, emp) => {
       userId: emp.userId
     });
     await loadSchedule(responsesRequest.value);
+    staffingWorkspaceRef.value?.reload?.();
   } finally {
     scheduleActionLoading.value = false;
   }
@@ -790,12 +813,11 @@ const loadRequestEvents = async (requestId) => {
 
 const openResponses = async (r) => {
   responsesRequest.value = r;
-  modalTab.value = 'responses';
+  modalTab.value = 'staffing';
   scheduleData.value = null;
   slotEditMode.value = {};
   slotEditValues.value = {};
   showResponses.value = true;
-  await loadResponses(r);
 };
 
 const closeDrawer = () => {
@@ -915,6 +937,7 @@ onMounted(async () => {
 .fav-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 1300; display: flex; justify-content: flex-end; align-items: stretch; }
 .fav-drawer { background: #fff; width: min(540px, 100vw); display: flex; flex-direction: column; height: 100%; box-shadow: -4px 0 24px rgba(15,23,42,.15); overflow: hidden; }
 .fav-modal { background: #fff; border-radius: 16px; width: min(780px, 96vw); max-height: 90vh; display: flex; flex-direction: column; margin: auto; box-shadow: 0 20px 56px rgba(15,23,42,.25); }
+.fav-modal--wide { width: min(1100px, 98vw); max-height: 94vh; }
 
 .fav-drawer-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid #e2e8f0; }
 .fav-drawer-header h2 { font-size: 1.15rem; font-weight: 700; color: #0f172a; margin: 0; }

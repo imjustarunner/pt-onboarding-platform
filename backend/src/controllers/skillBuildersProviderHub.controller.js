@@ -990,6 +990,23 @@ async function assertEventAccess({ req, agencyId, eventId }) {
     [eid, userId]
   );
   if (sgp?.[0]) return { ok: true, row: ev };
+
+  const [epa] = await pool.execute(
+    `SELECT 1 FROM company_event_provider_assignments
+     WHERE company_event_id = ? AND provider_user_id = ?
+     LIMIT 1`,
+    [eid, userId]
+  );
+  if (epa?.[0]) return { ok: true, row: ev };
+
+  const [csp] = await pool.execute(
+    `SELECT 1 FROM company_event_session_providers
+     WHERE company_event_id = ? AND provider_user_id = ? AND assignment_status = 'finalized'
+     LIMIT 1`,
+    [eid, userId]
+  );
+  if (csp?.[0]) return { ok: true, row: ev };
+
   return { error: { status: 403, message: 'Not assigned to this event' } };
 }
 
@@ -1484,6 +1501,15 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
       isAssignedProvider = true;
       const vr = normalizeVirtualAccessRole(ownAssignment?.virtual_access_role);
       canPresentVirtual = vr === 'presenter' || vr === 'co_presenter';
+    }
+    if (userId && !isAssignedProvider) {
+      const [finalizedRows] = await pool.execute(
+        `SELECT 1 AS ok FROM company_event_session_providers
+         WHERE company_event_id = ? AND provider_user_id = ? AND assignment_status = 'finalized'
+         LIMIT 1`,
+        [eventId, userId]
+      );
+      if (finalizedRows?.[0]?.ok) isAssignedProvider = true;
     }
 
     let meetings = [];

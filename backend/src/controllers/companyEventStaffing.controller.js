@@ -202,7 +202,7 @@ async function loadApprovedProvidersCount({ eventId, agencyId, sessionDateId }) 
 
 async function loadApprovedProvidersForSession({ eventId, agencyId, sessionDateId }) {
   const [rows] = await pool.execute(
-    `SELECT u.id, u.first_name, u.last_name
+    `SELECT u.id, u.first_name, u.last_name, p.assignment_status
      FROM company_event_session_providers p
      INNER JOIN users u ON u.id = p.provider_user_id
      WHERE p.company_event_id = ? AND p.agency_id = ? AND p.session_date_id = ?
@@ -213,7 +213,8 @@ async function loadApprovedProvidersForSession({ eventId, agencyId, sessionDateI
     id: Number(r.id),
     firstName: r.first_name || '',
     lastName: r.last_name || '',
-    name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || `Provider ${r.id}`
+    name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || `Provider ${r.id}`,
+    assignmentStatus: String(r.assignment_status || 'draft')
   }));
 }
 

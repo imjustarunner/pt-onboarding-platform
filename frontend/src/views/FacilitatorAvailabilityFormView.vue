@@ -13,6 +13,25 @@
         ✓ You've already submitted this form. You can update your responses and re-submit any time before the deadline.
       </div>
 
+      <!-- Published schedule (tentative / finalized only) -->
+      <div v-if="publishedSchedule.length" class="faf-schedule-banner">
+        <div class="faf-schedule-banner-title">Your schedule</div>
+        <div v-for="block in publishedSchedule" :key="`sched-${block.companyEventId}`" class="faf-schedule-block">
+          <strong>{{ block.eventTitle }}</strong>
+          <span
+            class="faf-schedule-status"
+            :class="block.isFinalized ? 'faf-schedule-status--final' : 'faf-schedule-status--tentative'"
+          >
+            {{ block.isFinalized ? 'Finalized' : 'Tentative — may still change' }}
+          </span>
+          <ul class="faf-schedule-dates">
+            <li v-for="(s, idx) in block.sessions" :key="`${block.companyEventId}-${idx}`">
+              {{ fmtDate(s.date) }}
+            </li>
+          </ul>
+        </div>
+      </div>
+
       <!-- ── Header ─────────────────────────────────────────────── -->
       <div class="faf-header">
         <div class="faf-header-top">
@@ -230,6 +249,7 @@ const loading = ref(true);
 const loadError = ref('');
 const form = ref(null);
 const alreadySubmitted = ref(false);
+const publishedSchedule = ref([]);
 
 const myGeneralNotes = ref('');
 
@@ -560,6 +580,7 @@ const load = async () => {
     }
     // Load distances in the background — non-blocking
     loadDistances();
+    loadPublishedSchedule();
   } catch (e) {
     if (e?.response?.status === 401) {
       loadError.value = 'You must be logged in to fill out this form. Please log in and try again.';
@@ -585,6 +606,32 @@ const loadDistances = async () => {
     locationDistances.value = map;
   } catch {
     // Distance lookup is best-effort; don't surface errors to the user
+  }
+};
+
+const loadPublishedSchedule = async () => {
+  if (!requestId) return;
+  try {
+    const r = await api.get('/facilitator-availability/my-schedule', {
+      params: { requestId },
+      skipGlobalLoading: true
+    });
+    const blocks = [];
+    for (const req of r.data || []) {
+      for (const ev of req.events || []) {
+        const sessions = (ev.sessions || []).filter((s) => s.assignmentStatus === 'tentative' || s.assignmentStatus === 'finalized');
+        if (!sessions.length) continue;
+        blocks.push({
+          companyEventId: ev.companyEventId,
+          eventTitle: ev.eventTitle,
+          sessions,
+          isFinalized: sessions.every((s) => s.assignmentStatus === 'finalized')
+        });
+      }
+    }
+    publishedSchedule.value = blocks;
+  } catch {
+    publishedSchedule.value = [];
   }
 };
 
@@ -838,6 +885,21 @@ onMounted(load);
 .faf-loc-address { font-size: .8rem; color: #64748b; }
 .faf-loc-dist { font-size: .78rem; color: #0284c7; font-weight: 500; }
 .faf-loc-info-note { font-size: .75rem; color: #94a3b8; margin: 4px 0 0; font-style: italic; }
+
+.faf-schedule-banner {
+  margin-bottom: 20px; padding: 14px 16px; border-radius: 12px;
+  background: #eff6ff; border: 1px solid #bfdbfe;
+}
+.faf-schedule-banner-title { font-weight: 700; color: #1e3a8a; margin-bottom: 10px; }
+.faf-schedule-block { margin-bottom: 10px; }
+.faf-schedule-block:last-child { margin-bottom: 0; }
+.faf-schedule-status {
+  display: inline-block; margin-left: 8px; font-size: .72rem; font-weight: 700;
+  padding: 2px 8px; border-radius: 999px; text-transform: uppercase;
+}
+.faf-schedule-status--tentative { background: #fef3c7; color: #92400e; }
+.faf-schedule-status--final { background: #dcfce7; color: #166534; }
+.faf-schedule-dates { margin: 6px 0 0 18px; padding: 0; font-size: .85rem; color: #334155; }
 
 /* General notes */
 .faf-input { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 12px; font-size: .9rem; color: #0f172a; box-sizing: border-box; }
