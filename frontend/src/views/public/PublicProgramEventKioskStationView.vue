@@ -21,6 +21,15 @@
     </section>
 
     <section v-else class="pe-kiosk-body">
+      <div v-if="!kioskActive" class="pe-preview-banner" role="status">
+        <strong>Preview mode</strong>
+        <span>
+          Today is not a scheduled event day — you can browse the roster and resource info, but check-in and check-out are
+          disabled.
+          <template v-if="nextEventDateLabel"> Next session: {{ nextEventDateLabel }}.</template>
+        </span>
+      </div>
+
       <!-- Person type toggle (check in / check out only) -->
       <div v-if="mainMode !== 'resource'" class="pe-person-tabs">
         <button
@@ -62,7 +71,7 @@
             </div>
             <button
               class="btn btn-primary btn-sm"
-              :disabled="checkingInClientId === c.id"
+              :disabled="!kioskActive || checkingInClientId === c.id"
               @click="checkinClient(c)"
             >
               {{ checkingInClientId === c.id ? '…' : 'Check in' }}
@@ -87,10 +96,10 @@
               inputmode="numeric"
               maxlength="4"
               placeholder="••••"
-              :disabled="empPinBusy"
+              :disabled="!kioskActive || empPinBusy"
               @input="empPin = ($event.target?.value || '').replace(/\D/g, '').slice(0, 4)"
             />
-            <button class="btn btn-primary btn-sm" :disabled="empPinBusy || empPin.length !== 4" @click="checkinByPin">
+            <button class="btn btn-primary btn-sm" :disabled="!kioskActive || empPinBusy || empPin.length !== 4" @click="checkinByPin">
               {{ empPinBusy ? '…' : 'Go' }}
             </button>
           </div>
@@ -101,7 +110,7 @@
             <div class="pe-row-main"><strong>{{ s.displayName }}</strong></div>
             <button
               class="btn btn-secondary btn-sm"
-              :disabled="checkingInUserId === s.id"
+              :disabled="!kioskActive || checkingInUserId === s.id"
               @click="checkinEmployee(s)"
             >
               {{ checkingInUserId === s.id ? '…' : 'Check in' }}
@@ -115,14 +124,16 @@
 
       <!-- CHECK OUT · CLIENT (release flow) -->
       <div v-else-if="mainMode === 'checkout' && personMode === 'client'" class="pe-panel">
-        <p class="pe-panel-lead muted">Tap a checked-in client to release with signature</p>
+        <p class="pe-panel-lead muted">
+          {{ kioskActive ? 'Tap a checked-in client to release with signature' : 'Release is available on event days only' }}
+        </p>
         <ul class="pe-roster pe-roster--grid">
           <li
             v-for="c in filteredCheckoutClients"
             :key="c.id"
             class="pe-card"
-            :class="{ 'pe-card--released': releasedToday(c.id) }"
-            @click="!releasedToday(c.id) && openCheckout(c)"
+            :class="{ 'pe-card--released': releasedToday(c.id), 'pe-card--disabled': !kioskActive }"
+            @click="kioskActive && !releasedToday(c.id) && openCheckout(c)"
           >
             <strong>{{ c.fullName }}</strong>
             <span v-if="c.identifierCode" class="muted small"> · {{ c.identifierCode }}</span>
@@ -145,7 +156,7 @@
             <div class="pe-row-main"><strong>{{ s.displayName }}</strong></div>
             <button
               class="btn btn-secondary btn-sm"
-              :disabled="checkingOutUserId === s.id"
+              :disabled="!kioskActive || checkingOutUserId === s.id"
               @click="checkoutEmployee(s)"
             >
               {{ checkingOutUserId === s.id ? '…' : 'Check out' }}
@@ -159,7 +170,9 @@
 
       <!-- RESOURCE -->
       <div v-else class="pe-panel">
-        <p class="pe-panel-lead muted">Checked-in clients · tap for emergency & waiver info</p>
+        <p class="pe-panel-lead muted">
+          {{ kioskActive ? 'Checked-in clients · tap for emergency & waiver info' : 'Enrolled clients · tap to preview emergency & waiver info' }}
+        </p>
         <ul class="pe-roster pe-roster--grid">
           <li
             v-for="c in filteredResourceClients"
@@ -175,7 +188,7 @@
             <span v-else class="pe-tag pe-tag--warn">No emergency contacts</span>
           </li>
           <li v-if="!filteredResourceClients.length" class="pe-empty muted">
-            {{ search ? 'No matches.' : 'No clients checked in yet.' }}
+            {{ search ? 'No matches.' : (kioskActive ? 'No clients checked in yet.' : 'No enrolled clients yet.') }}
           </li>
         </ul>
       </div>
@@ -345,6 +358,7 @@ const clients = ref([]);
 const staff = ref([]);
 const checkins = ref([]);
 const releases = ref([]);
+const kioskDay = ref({});
 const search = ref('');
 const clockNow = ref(formatNow());
 let clockTimer = null;
@@ -391,12 +405,31 @@ async function loadContext() {
     staff.value = Array.isArray(res.data?.staff) ? res.data.staff : [];
     checkins.value = Array.isArray(res.data?.checkins) ? res.data.checkins : [];
     releases.value = Array.isArray(res.data?.releases) ? res.data.releases : [];
+    kioskDay.value = res.data?.kioskDay || {};
   } catch (e) {
     loadError.value = e.response?.data?.error?.message || e.message || 'Could not load event';
   } finally {
     loading.value = false;
   }
 }
+
+const kioskActive = computed(() => kioskDay.value?.kioskActive === true);
+
+function formatYmdLabel(ymd) {
+  if (!ymd) return '';
+  try {
+    const [y, mo, d] = String(ymd).split('-').map(Number);
+    return new Date(y, mo - 1, d).toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric'
+    });
+  } catch {
+    return String(ymd);
+  }
+}
+
+const nextEventDateLabel = computed(() => formatYmdLabel(kioskDay.value?.nextEventDate));
 
 function personCheckedIn(personType, id) {
   return checkins.value.some(
@@ -447,7 +480,7 @@ const filteredActiveStaff = computed(() =>
   filterList(activeCheckedInStaff.value, ['displayName', 'firstName', 'lastName'])
 );
 const filteredResourceClients = computed(() =>
-  filterList(activeCheckedInClients.value, ['fullName', 'initials', 'identifierCode'])
+  filterList(kioskActive.value ? activeCheckedInClients.value : clients.value, ['fullName', 'initials', 'identifierCode'])
 );
 
 const searchPlaceholder = computed(() => {
@@ -480,6 +513,7 @@ function initials(name) {
 }
 
 async function checkinClient(c) {
+  if (!kioskActive.value) return;
   checkingInClientId.value = c.id;
   try {
     await api.post(`${apiBase()}/checkin/client`, { clientId: c.id }, {
@@ -502,6 +536,7 @@ async function checkinClient(c) {
 }
 
 async function checkinEmployee(s) {
+  if (!kioskActive.value) return;
   checkingInUserId.value = s.id;
   try {
     await api.post(`${apiBase()}/checkin/employee`, { userId: s.id }, {
@@ -524,6 +559,7 @@ async function checkinEmployee(s) {
 }
 
 async function checkinByPin() {
+  if (!kioskActive.value) return;
   empPinError.value = '';
   empPinBusy.value = true;
   try {
@@ -548,6 +584,7 @@ async function checkinByPin() {
 }
 
 async function checkoutEmployee(s) {
+  if (!kioskActive.value) return;
   checkingOutUserId.value = s.id;
   try {
     await api.post(`${apiBase()}/checkout/employee`, { userId: s.id }, {
@@ -606,6 +643,7 @@ function selectPickup(p) {
   walkHomeAlone.value = false;
 }
 function openCheckout(client) {
+  if (!kioskActive.value) return;
   activeClient.value = client;
   selectedPickupKey.value = '';
   walkHomeAlone.value = false;
@@ -770,6 +808,21 @@ onBeforeUnmount(() => {
 .pe-kiosk-load { padding: 40px; text-align: center; flex: 1; }
 .pe-kiosk-body { flex: 1; padding: 16px 16px 8px; max-width: 960px; width: 100%; margin: 0 auto; }
 
+.pe-preview-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.pe-preview-banner strong { font-size: 14px; }
+
 .pe-person-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -827,6 +880,8 @@ onBeforeUnmount(() => {
 }
 .pe-card:hover { border-color: var(--primary, #0f766e); transform: translateY(-1px); }
 .pe-card--released { opacity: 0.55; cursor: default; transform: none; }
+.pe-card--disabled { cursor: default; opacity: 0.85; }
+.pe-card--disabled:hover { transform: none; border-color: var(--border, #e2e8f0); }
 .pe-card--resource { align-items: center; text-align: center; padding: 18px 12px; }
 .pe-card-initials {
   width: 48px; height: 48px; border-radius: 50%;

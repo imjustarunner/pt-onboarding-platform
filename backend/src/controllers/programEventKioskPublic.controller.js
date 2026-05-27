@@ -21,6 +21,7 @@ import pool from '../config/database.js';
 import StorageService from '../services/storage.service.js';
 import DocumentEncryptionService from '../services/documentEncryption.service.js';
 import KioskModel from '../models/Kiosk.model.js';
+import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import {
   verifyKioskBearerForProgramEvent,
   assertKioskTokenMatchesSlugAndEvent
@@ -107,6 +108,94 @@ function mapCheckinRows(rows) {
   }));
 }
 
+function normalizeDbDateToYmd(input) {
+  if (!input) return '';
+  if (input instanceof Date) {
+    if (!Number.isFinite(input.getTime())) return '';
+    return input.toISOString().slice(0, 10);
+  }
+  const raw = String(input).trim();
+  const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+  const parsed = new Date(raw);
+  if (!Number.isFinite(parsed.getTime())) return '';
+  return parsed.toISOString().slice(0, 10);
+}
+
+/**
+ * Decide whether the kiosk may record check-ins today and which calendar
+ * date bucket to use (event timezone, not server UTC).
+ */
+async function resolveKioskDayContext(eventRow) {
+  const tz = String(eventRow?.timezone || 'America/Denver').trim() || 'America/Denver';
+  const todayYmd = utcDateToZonedYmd(new Date(), tz);
+
+  let sessionDates = [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT session_date
+       FROM company_event_session_dates
+       WHERE company_event_id = ?
+       ORDER BY session_date ASC`,
+      [eventRow.id]
+    );
+    sessionDates = (rows || [])
+      .map((r) => normalizeDbDateToYmd(r.session_date))
+      .filter(Boolean);
+  } catch (err) {
+    if (err?.code !== 'ER_NO_SUCH_TABLE') throw err;
+  }
+
+  let isEventDay = false;
+  if (sessionDates.length) {
+    isEventDay = sessionDates.includes(todayYmd);
+  } else if (eventRow.starts_at && eventRow.ends_at) {
+    const startYmd = utcDateToZonedYmd(new Date(eventRow.starts_at), tz);
+    const endYmd = utcDateToZonedYmd(new Date(eventRow.ends_at), tz);
+    if (startYmd && endYmd) {
+      isEventDay = todayYmd >= startYmd && todayYmd <= endYmd;
+    }
+  }
+
+  const upcoming = sessionDates.filter((d) => d >= todayYmd);
+  const nextEventDate = upcoming[0] || null;
+
+  return {
+    timezone: tz,
+    todayYmd,
+    isEventDay,
+    kioskActive: isEventDay,
+    sessionDates,
+    nextEventDate
+  };
+}
+
+function kioskInactiveResponse(res, kioskDay) {
+  const next = kioskDay?.nextEventDate;
+  const msg = next
+    ? `Check-in is only available on scheduled event dates. Next session: ${next}.`
+    : 'Check-in is only available on scheduled event dates.';
+  return res.status(403).json({ error: { message: msg, code: 'KIOSK_NOT_EVENT_DAY' } });
+}
+
+async function assertKioskRecordingAllowed(agencyId, eventId, res) {
+  const [evRows] = await pool.execute(
+    `SELECT id, starts_at, ends_at, timezone FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1`,
+    [eventId, agencyId]
+  );
+  const ev = evRows?.[0];
+  if (!ev) {
+    res.status(404).json({ error: { message: 'Event not found' } });
+    return null;
+  }
+  const kioskDay = await resolveKioskDayContext(ev);
+  if (!kioskDay.kioskActive) {
+    kioskInactiveResponse(res, kioskDay);
+    return null;
+  }
+  return kioskDay;
+}
+
 /**
  * GET /api/public/program-event/agency/:slug/kiosk/events/:eventId/context
  *
@@ -130,7 +219,7 @@ export const getProgramEventKioskContext = async (req, res, next) => {
 
     // Event + branding
     const [evRows] = await pool.execute(
-      `SELECT ce.id, ce.title, ce.starts_at, ce.ends_at, ce.event_type,
+      `SELECT ce.id, ce.title, ce.starts_at, ce.ends_at, ce.timezone, ce.event_type,
               ce.organization_id,
               a.name AS agency_name, a.logo_url AS agency_logo, a.color_palette AS agency_colors,
               org.name AS org_name, org.logo_url AS org_logo, org.color_palette AS org_colors
@@ -142,6 +231,8 @@ export const getProgramEventKioskContext = async (req, res, next) => {
     );
     const ev = evRows?.[0];
     if (!ev) return res.status(404).json({ error: { message: 'Event not found' } });
+
+    const kioskDay = await resolveKioskDayContext(ev);
 
     // Roster: pull every active enrollment + the linked guardian's waiver
     // profile so we can surface authorized pickups + walk-home auth at
@@ -257,7 +348,7 @@ export const getProgramEventKioskContext = async (req, res, next) => {
       c.emergencyContacts = c.emergencyContacts.map(({ _k, ...rest }) => rest);
     }
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = kioskDay.todayYmd;
 
     const staffRows = await loadProgramEventStaff(eventId);
     const checkinRows = await loadEventDayCheckins(eventId, today);
@@ -309,6 +400,14 @@ export const getProgramEventKioskContext = async (req, res, next) => {
         displayName: `${s.first_name || ''} ${s.last_name || ''}`.trim()
       })),
       checkins: mapCheckinRows(checkinRows),
+      kioskDay: {
+        timezone: kioskDay.timezone,
+        todayYmd: kioskDay.todayYmd,
+        isEventDay: kioskDay.isEventDay,
+        kioskActive: kioskDay.kioskActive,
+        sessionDates: kioskDay.sessionDates,
+        nextEventDate: kioskDay.nextEventDate
+      },
       releases: releases.map((r) => ({
         id: Number(r.id),
         clientId: Number(r.client_id),
@@ -351,6 +450,9 @@ export const submitProgramEventCheckout = async (req, res, next) => {
     const m = await assertKioskTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
     if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
     const { agencyId, eventId } = m;
+
+    const kioskDay = await assertKioskRecordingAllowed(agencyId, eventId, res);
+    if (!kioskDay) return;
 
     const clientId = parsePositiveInt(req.body?.clientId);
     if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
@@ -515,9 +617,12 @@ export const programEventClientCheckin = async (req, res, next) => {
     const m = await assertKioskTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
     if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
 
+    const kioskDay = await assertKioskRecordingAllowed(m.agencyId, m.eventId, res);
+    if (!kioskDay) return;
+
     const clientId = parsePositiveInt(req.body?.clientId);
     if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
-    const today = new Date().toISOString().slice(0, 10);
+    const today = kioskDay.todayYmd;
 
     const [enrollRows] = await pool.execute(
       `SELECT 1 FROM company_event_clients WHERE company_event_id = ? AND client_id = ? LIMIT 1`,
@@ -555,13 +660,16 @@ export const programEventEmployeeCheckin = async (req, res, next) => {
     const m = await assertKioskTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
     if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
 
+    const kioskDay = await assertKioskRecordingAllowed(m.agencyId, m.eventId, res);
+    if (!kioskDay) return;
+
     const userId = parsePositiveInt(req.body?.userId);
     if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
     if (!(await assertProgramEventStaff(m.eventId, userId))) {
       return res.status(403).json({ error: { message: 'Employee is not assigned to this event' } });
     }
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = kioskDay.todayYmd;
     try {
       await pool.execute(
         `INSERT INTO event_day_kiosk_checkins
@@ -589,6 +697,9 @@ export const programEventEmployeeCheckinByPin = async (req, res, next) => {
     if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
     const m = await assertKioskTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
     if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const kioskDay = await assertKioskRecordingAllowed(m.agencyId, m.eventId, res);
+    if (!kioskDay) return;
 
     const pin = normalizeStaffKioskPin(req.body?.pin);
     if (!pin) return res.status(400).json({ error: { message: 'Enter your 4-digit personal kiosk PIN' } });
@@ -619,7 +730,7 @@ export const programEventEmployeeCheckinByPin = async (req, res, next) => {
     }
 
     const user = rows[0];
-    const today = new Date().toISOString().slice(0, 10);
+    const today = kioskDay.todayYmd;
     await pool.execute(
       `INSERT INTO event_day_kiosk_checkins
          (company_event_id, agency_id, user_id, person_type, action, checked_in_at, kiosk_date, ip_address)
@@ -646,9 +757,12 @@ export const programEventEmployeeCheckout = async (req, res, next) => {
     const m = await assertKioskTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
     if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
 
+    const kioskDay = await assertKioskRecordingAllowed(m.agencyId, m.eventId, res);
+    if (!kioskDay) return;
+
     const userId = parsePositiveInt(req.body?.userId);
     if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
-    const today = new Date().toISOString().slice(0, 10);
+    const today = kioskDay.todayYmd;
 
     await pool.execute(
       `UPDATE event_day_kiosk_checkins
