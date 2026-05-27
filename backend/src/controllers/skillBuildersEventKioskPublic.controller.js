@@ -423,7 +423,7 @@ export const getEventDayKioskContext = async (req, res, next) => {
        FROM skills_group_clients sgc
        INNER JOIN clients c ON c.id = sgc.client_id
        INNER JOIN skills_groups sg ON sg.id = sgc.skills_group_id
-       LEFT JOIN client_guardians cg ON cg.client_id = c.id AND cg.is_active = 1
+       LEFT JOIN client_guardians cg ON cg.client_id = c.id AND cg.access_enabled = 1
        LEFT JOIN users gu ON gu.id = cg.guardian_user_id
        LEFT JOIN guardian_client_waiver_profiles gwp
               ON gwp.client_id = c.id AND gwp.guardian_user_id = cg.guardian_user_id

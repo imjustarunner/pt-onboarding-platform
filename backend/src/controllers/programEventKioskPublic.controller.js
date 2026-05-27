@@ -93,7 +93,7 @@ export const getProgramEventKioskContext = async (req, res, next) => {
                 gwp.updated_at AS waiver_updated_at
          FROM company_event_clients cec
          INNER JOIN clients c ON c.id = cec.client_id
-         LEFT JOIN client_guardians cg ON cg.client_id = c.id AND (cg.is_active = 1 OR cg.is_active IS NULL)
+         LEFT JOIN client_guardians cg ON cg.client_id = c.id AND (cg.access_enabled = 1 OR cg.access_enabled IS NULL)
          LEFT JOIN users gu ON gu.id = cg.guardian_user_id
          LEFT JOIN guardian_client_waiver_profiles gwp
                 ON gwp.client_id = c.id AND gwp.guardian_user_id = cg.guardian_user_id
