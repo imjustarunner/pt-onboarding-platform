@@ -100,7 +100,7 @@
         <div class="fsw-detail-grid">
           <div class="fsw-staff-panel">
             <div class="fsw-panel-head">Staff pool</div>
-            <p class="fsw-panel-lead">Sorted by full availability, location rank, then sign-up time.</p>
+            <p class="fsw-panel-lead">Only staff who marked at least one available day for this event appear here.</p>
             <label class="fsw-check">
               <input v-model="fullSessionOnly" type="checkbox" />
               Show only full-session + rank #1
@@ -114,13 +114,24 @@
                 </span>
               </div>
               <button
+                v-if="person.isFullyAvailable"
                 type="button"
                 class="btn btn-sm btn-primary"
-                :disabled="actionLoading || readOnly || person.isFullyAssignedHere"
-                @click="assignAllDates(person.userId)"
+                :disabled="actionLoading || readOnly || person.isFullyAssignedHere || person.assignableCount <= 0"
+                @click="assignAllDates(person.userId, true)"
               >
                 {{ person.isFullyAssignedHere ? 'Assigned' : 'Assign all (draft)' }}
               </button>
+              <button
+                v-else-if="person.assignableCount > 0"
+                type="button"
+                class="btn btn-sm btn-secondary"
+                :disabled="actionLoading || readOnly"
+                @click="assignAllDates(person.userId, false)"
+              >
+                Assign {{ person.assignableCount }} available day{{ person.assignableCount === 1 ? '' : 's' }} (draft)
+              </button>
+              <span v-else-if="person.assignedSessionCount > 0" class="fsw-assigned-label">Assigned</span>
             </div>
           </div>
 
@@ -262,10 +273,11 @@ const sortedStaffPool = computed(() => {
       locationRank: meta.locationRank,
       isFullyAvailable: !!meta.isFullyAvailable,
       isFullyAssignedHere: !!meta.isFullyAssigned,
-      assignedSessionCount: meta.assignedSessionCount || 0
+      assignedSessionCount: meta.assignedSessionCount || 0,
+      assignableCount: meta.assignableCount ?? Math.max(0, (meta.daysAvailable || 0) - (meta.assignedOnAvailableCount || 0))
     };
   });
-  let list = enriched;
+  let list = enriched.filter((p) => p.daysAvailable > 0 || p.assignedSessionCount > 0);
   if (fullSessionOnly.value) {
     list = list.filter((p) => p.isFullyAvailable && p.locationRank === 1);
   }
@@ -307,14 +319,17 @@ const load = async () => {
   }
 };
 
-const assignAllDates = async (userId) => {
+const assignAllDates = async (userId, requireFullSession = false) => {
   actionLoading.value = true;
   try {
     await api.post(`${props.agencyBase}/${props.requestId}/assign-event`, {
       companyEventId: selectedEventId.value,
-      userId
+      userId,
+      requireFullSession
     });
     await load();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e.message || 'Assignment failed';
   } finally {
     actionLoading.value = false;
   }
@@ -408,6 +423,7 @@ defineExpose({ reload: load });
 .fsw-staff-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
 .fsw-staff-info { min-width: 0; }
 .fsw-staff-meta { display: block; font-size: .75rem; color: #64748b; margin-top: 2px; }
+.fsw-assigned-label { font-size: .78rem; font-weight: 600; color: #166534; white-space: nowrap; }
 
 .fsw-date-row { padding: 10px 0; border-bottom: 1px solid #e2e8f0; }
 .fsw-date-row--gap { background: #fff7ed; margin: 0 -16px; padding-left: 16px; padding-right: 16px; }

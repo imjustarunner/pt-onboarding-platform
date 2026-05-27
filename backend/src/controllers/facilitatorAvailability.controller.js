@@ -881,6 +881,78 @@ async function insertSessionProviderAssignment(conn, {
   );
 }
 
+async function loadUserAssignableSessionDatesForEvent({ requestId, userId, companyEventId, agencyId }) {
+  const [sessionDates] = await pool.execute(
+    `SELECT id, session_date FROM company_event_session_dates
+     WHERE company_event_id = ? ORDER BY session_date, id`,
+    [companyEventId]
+  );
+  const totalCount = sessionDates.length;
+  if (!totalCount) {
+    return { totalCount: 0, availableCount: 0, assignable: [], availableDates: [] };
+  }
+
+  const [entries] = await pool.execute(
+    `SELECT entry_date, availability FROM facilitator_availability_date_entries
+     WHERE request_id = ? AND user_id = ?`,
+    [requestId, userId]
+  );
+  const availDates = new Set();
+  for (const e of entries || []) {
+    const d = toDateOnlyString(e.entry_date);
+    if (d && AVAIL_FOR_STAFFING.has(String(e.availability))) availDates.add(d);
+  }
+
+  const [assignedRows] = await pool.execute(
+    `SELECT cesd.session_date
+     FROM company_event_session_providers csp
+     JOIN company_event_session_dates cesd ON cesd.id = csp.session_date_id
+     WHERE csp.company_event_id = ? AND csp.agency_id = ? AND csp.provider_user_id = ?`,
+    [companyEventId, agencyId, userId]
+  );
+  const assignedDates = new Set(
+    (assignedRows || []).map((r) => toDateOnlyString(r.session_date)).filter(Boolean)
+  );
+
+  const availableDates = [];
+  const assignable = [];
+  for (const sd of sessionDates) {
+    const d = toDateOnlyString(sd.session_date) || '';
+    if (!d || !availDates.has(d)) continue;
+    availableDates.push(d);
+    if (!assignedDates.has(d)) {
+      assignable.push({ sessionDateId: sd.id, date: d });
+    }
+  }
+
+  return {
+    totalCount,
+    availableCount: availableDates.length,
+    availableDates,
+    assignable
+  };
+}
+
+async function assertUserAvailableForSessionDate({ requestId, userId, sessionDateId, companyEventId }) {
+  const [[sd]] = await pool.execute(
+    `SELECT session_date FROM company_event_session_dates WHERE id = ? AND company_event_id = ? LIMIT 1`,
+    [sessionDateId, companyEventId]
+  );
+  if (!sd) return { ok: false, message: 'Session date not found' };
+  const dateStr = toDateOnlyString(sd.session_date) || '';
+  const [rows] = await pool.execute(
+    `SELECT 1 AS ok FROM facilitator_availability_date_entries
+     WHERE request_id = ? AND user_id = ? AND entry_date = ?
+       AND availability IN ('slot', 'waitlist', 'oncall', 'available')
+     LIMIT 1`,
+    [requestId, userId, dateStr]
+  );
+  if (!rows?.[0]?.ok) {
+    return { ok: false, message: 'This person did not mark availability for this date' };
+  }
+  return { ok: true, dateStr };
+}
+
 async function transitionAssignmentStatus(conn, {
   agencyId, requestId, requestTitle, mode, companyEventId, assignmentIds, publisherUserId
 }) {
@@ -1129,6 +1201,13 @@ export const getStaffingWorkspace = async (req, res, next) => {
           (sum, sd) => sum + (sd.assigned || []).filter((a) => a.userId === sub.user_id).length,
           0
         );
+        const assignedOnAvailable = (ev.sessionDates || []).reduce((sum, sd) => {
+          const entry = userEntries.find((de) => toDateOnlyString(de.entry_date) === sd.date);
+          const avail = entry && AVAIL_FOR_STAFFING.has(String(entry.availability));
+          const isAssigned = (sd.assigned || []).some((a) => a.userId === sub.user_id);
+          return sum + (avail && isAssigned ? 1 : 0);
+        }, 0);
+        const assignableCount = Math.max(0, daysAvailable - assignedOnAvailable);
         return {
           companyEventId: ev.companyEventId,
           locationRank,
@@ -1136,6 +1215,8 @@ export const getStaffingWorkspace = async (req, res, next) => {
           totalDays,
           isFullyAvailable: totalDays > 0 && daysAvailable === totalDays,
           assignedSessionCount: assignedHere,
+          assignedOnAvailableCount: assignedOnAvailable,
+          assignableCount,
           isFullyAssigned: totalDays > 0 && assignedHere >= totalDays
         };
       });
@@ -1408,6 +1489,16 @@ export const assignFacilitator = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'companyEventId, sessionDateId, and userId are required' } });
     }
 
+    const availGate = await assertUserAvailableForSessionDate({
+      requestId,
+      userId: providerUserId,
+      sessionDateId: sdId,
+      companyEventId: eventId
+    });
+    if (!availGate.ok) {
+      return res.status(400).json({ error: { message: availGate.message } });
+    }
+
     // Get the session date to determine entry_date for slot check
     const [[sdRow]] = await pool.execute(
       `SELECT session_date FROM company_event_session_dates WHERE id = ? AND company_event_id = ? LIMIT 1`,
@@ -1548,24 +1639,49 @@ export const assignFacilitatorToEvent = async (req, res, next) => {
     );
     if (!fare?.ok) return res.status(404).json({ error: { message: 'Event not in this request' } });
 
-    const [sessionDates] = await pool.execute(
-      `SELECT id FROM company_event_session_dates WHERE company_event_id = ? ORDER BY session_date`,
-      [eventId]
-    );
+    const requireFullSession = !!req.body?.requireFullSession;
+
+    const dateInfo = await loadUserAssignableSessionDatesForEvent({
+      requestId,
+      userId: providerUserId,
+      companyEventId: eventId,
+      agencyId
+    });
+
+    if (dateInfo.availableCount === 0) {
+      return res.status(400).json({
+        error: { message: 'This person has no available days for this event' }
+      });
+    }
+
+    if (requireFullSession && dateInfo.availableCount < dateInfo.totalCount) {
+      return res.status(400).json({
+        error: {
+          message: `Cannot assign all days — only ${dateInfo.availableCount} of ${dateInfo.totalCount} days marked available`
+        }
+      });
+    }
+
+    if (!dateInfo.assignable.length) {
+      return res.status(400).json({
+        error: { message: 'No remaining available days to assign for this person' }
+      });
+    }
 
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
       let assignedDates = 0;
       const overCapacityDates = [];
-      for (const sd of sessionDates || []) {
-        const sdId = sd.id;
-        const [[sdRow]] = await conn.execute(
-          `SELECT session_date FROM company_event_session_dates WHERE id = ? LIMIT 1`,
-          [sdId]
-        );
-        const dateStr = toDateOnlyString(sdRow?.session_date) || '';
-        const slotMeta = await computeSessionSlotMeta({ requestId, companyEventId: eventId, sessionDateId: sdId, sessionDateStr: dateStr });
+      for (const sd of dateInfo.assignable) {
+        const sdId = sd.sessionDateId;
+        const dateStr = sd.date;
+        const slotMeta = await computeSessionSlotMeta({
+          requestId,
+          companyEventId: eventId,
+          sessionDateId: sdId,
+          sessionDateStr: dateStr
+        });
         const [[filledRow]] = await conn.execute(
           `SELECT COUNT(*) AS cnt FROM company_event_session_providers WHERE session_date_id = ?`,
           [sdId]
@@ -1582,7 +1698,12 @@ export const assignFacilitatorToEvent = async (req, res, next) => {
         assignedDates += 1;
       }
       await conn.commit();
-      res.json({ ok: true, assignedDates, overCapacityDates });
+      res.json({
+        ok: true,
+        assignedDates,
+        overCapacityDates,
+        skippedUnavailable: dateInfo.totalCount - dateInfo.availableCount
+      });
     } catch (e) {
       await conn.rollback();
       throw e;
