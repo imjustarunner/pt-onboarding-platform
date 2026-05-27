@@ -8,12 +8,20 @@
 import express from 'express';
 import {
   getProgramEventKioskContext,
-  submitProgramEventCheckout
+  submitProgramEventCheckout,
+  programEventClientCheckin,
+  programEventEmployeeCheckin,
+  programEventEmployeeCheckinByPin,
+  programEventEmployeeCheckout
 } from '../controllers/programEventKioskPublic.controller.js';
 
 const router = express.Router();
 
 router.get('/agency/:slug/kiosk/events/:eventId/context', getProgramEventKioskContext);
 router.post('/agency/:slug/kiosk/events/:eventId/checkout', submitProgramEventCheckout);
+router.post('/agency/:slug/kiosk/events/:eventId/checkin/client', programEventClientCheckin);
+router.post('/agency/:slug/kiosk/events/:eventId/checkin/employee', programEventEmployeeCheckin);
+router.post('/agency/:slug/kiosk/events/:eventId/checkin/employee-pin', programEventEmployeeCheckinByPin);
+router.post('/agency/:slug/kiosk/events/:eventId/checkout/employee', programEventEmployeeCheckout);
 
 export default router;

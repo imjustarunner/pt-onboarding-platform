@@ -20,6 +20,7 @@
 import pool from '../config/database.js';
 import StorageService from '../services/storage.service.js';
 import DocumentEncryptionService from '../services/documentEncryption.service.js';
+import KioskModel from '../models/Kiosk.model.js';
 import {
   verifyKioskBearerForProgramEvent,
   assertKioskTokenMatchesSlugAndEvent
@@ -38,6 +39,72 @@ function safeJsonParse(raw, fallback) {
 
 function parseColorPalette(raw) {
   return safeJsonParse(raw, null);
+}
+
+function normalizeStaffKioskPin(pin) {
+  const p = String(pin || '').trim();
+  return /^\d{4}$/.test(p) ? p : null;
+}
+
+function kioskIp(req) {
+  return String(req.ip || req.headers?.['x-forwarded-for'] || '').split(',')[0].trim() || null;
+}
+
+async function loadProgramEventStaff(eventId) {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT u.id, u.first_name, u.last_name
+       FROM (
+         SELECT cepa.provider_user_id AS uid
+         FROM company_event_provider_assignments cepa
+         WHERE cepa.company_event_id = ?
+         UNION
+         SELECT cesp.provider_user_id AS uid
+         FROM company_event_session_providers cesp
+         WHERE cesp.company_event_id = ?
+       ) roster
+       INNER JOIN users u ON u.id = roster.uid
+       WHERE u.status = 'active'
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+      [eventId, eventId]
+    );
+    return rows || [];
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return [];
+    throw err;
+  }
+}
+
+async function assertProgramEventStaff(eventId, userId) {
+  const staff = await loadProgramEventStaff(eventId);
+  return staff.some((s) => Number(s.id) === Number(userId));
+}
+
+async function loadEventDayCheckins(eventId, today) {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT id, client_id, user_id, person_type, action, checked_in_at, checked_out_at
+       FROM event_day_kiosk_checkins
+       WHERE company_event_id = ? AND kiosk_date = ?`,
+      [eventId, today]
+    );
+    return rows || [];
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return [];
+    throw err;
+  }
+}
+
+function mapCheckinRows(rows) {
+  return (rows || []).map((c) => ({
+    id: Number(c.id),
+    clientId: c.client_id ? Number(c.client_id) : null,
+    userId: c.user_id ? Number(c.user_id) : null,
+    personType: c.person_type,
+    action: c.action,
+    checkedInAt: c.checked_in_at,
+    checkedOutAt: c.checked_out_at
+  }));
 }
 
 /**
@@ -190,8 +257,12 @@ export const getProgramEventKioskContext = async (req, res, next) => {
       c.emergencyContacts = c.emergencyContacts.map(({ _k, ...rest }) => rest);
     }
 
-    // Today's release log (so the kiosk can dim already-released kids).
     const today = new Date().toISOString().slice(0, 10);
+
+    const staffRows = await loadProgramEventStaff(eventId);
+    const checkinRows = await loadEventDayCheckins(eventId, today);
+
+    // Today's release log (so the kiosk can dim already-released kids).
     let releases = [];
     try {
       const [rows] = await pool.execute(
@@ -231,6 +302,13 @@ export const getProgramEventKioskContext = async (req, res, next) => {
         orgColors: parseColorPalette(ev.org_colors)
       },
       clients: Array.from(clientMap.values()),
+      staff: staffRows.map((s) => ({
+        id: Number(s.id),
+        firstName: s.first_name || '',
+        lastName: s.last_name || '',
+        displayName: `${s.first_name || ''} ${s.last_name || ''}`.trim()
+      })),
+      checkins: mapCheckinRows(checkinRows),
       releases: releases.map((r) => ({
         id: Number(r.id),
         clientId: Number(r.client_id),
@@ -424,6 +502,162 @@ export const submitProgramEventCheckout = async (req, res, next) => {
       photoCaptured: !!photoFields.photo_storage_key,
       signedAt: new Date().toISOString()
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** POST …/checkin/client — mark a client checked in for today */
+export const programEventClientCheckin = async (req, res, next) => {
+  try {
+    const ctx = verifyKioskBearerForProgramEvent(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertKioskTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const clientId = parsePositiveInt(req.body?.clientId);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+    const today = new Date().toISOString().slice(0, 10);
+
+    const [enrollRows] = await pool.execute(
+      `SELECT 1 FROM company_event_clients WHERE company_event_id = ? AND client_id = ? LIMIT 1`,
+      [m.eventId, clientId]
+    ).catch(() => [[]]);
+    if (!enrollRows?.length) {
+      return res.status(403).json({ error: { message: 'Client is not enrolled in this event' } });
+    }
+
+    try {
+      await pool.execute(
+        `INSERT INTO event_day_kiosk_checkins
+           (company_event_id, agency_id, client_id, person_type, action, checked_in_at, kiosk_date, ip_address)
+         VALUES (?, ?, ?, 'client', 'check_in', NOW(), ?, ?)`,
+        [m.eventId, m.agencyId, clientId, today, kioskIp(req)]
+      );
+    } catch (err) {
+      if (err?.code === 'ER_NO_SUCH_TABLE') {
+        return res.status(503).json({ error: { message: 'Run migration 615 for event-day check-ins' } });
+      }
+      throw err;
+    }
+
+    res.status(201).json({ ok: true, clientId, checkedInAt: new Date().toISOString() });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** POST …/checkin/employee — check in staff by userId (tap name) */
+export const programEventEmployeeCheckin = async (req, res, next) => {
+  try {
+    const ctx = verifyKioskBearerForProgramEvent(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertKioskTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const userId = parsePositiveInt(req.body?.userId);
+    if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
+    if (!(await assertProgramEventStaff(m.eventId, userId))) {
+      return res.status(403).json({ error: { message: 'Employee is not assigned to this event' } });
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    try {
+      await pool.execute(
+        `INSERT INTO event_day_kiosk_checkins
+           (company_event_id, agency_id, user_id, person_type, action, checked_in_at, kiosk_date, ip_address)
+         VALUES (?, ?, ?, 'employee', 'check_in', NOW(), ?, ?)`,
+        [m.eventId, m.agencyId, userId, today, kioskIp(req)]
+      );
+    } catch (err) {
+      if (err?.code === 'ER_NO_SUCH_TABLE') {
+        return res.status(503).json({ error: { message: 'Run migration 615 for event-day check-ins' } });
+      }
+      throw err;
+    }
+
+    res.status(201).json({ ok: true, userId, checkedInAt: new Date().toISOString() });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** POST …/checkin/employee-pin — identify employee by 4-digit kiosk PIN */
+export const programEventEmployeeCheckinByPin = async (req, res, next) => {
+  try {
+    const ctx = verifyKioskBearerForProgramEvent(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertKioskTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const pin = normalizeStaffKioskPin(req.body?.pin);
+    if (!pin) return res.status(400).json({ error: { message: 'Enter your 4-digit personal kiosk PIN' } });
+    const pinHash = KioskModel.hashPin(pin);
+
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT u.id, u.first_name, u.last_name
+       FROM users u
+       JOIN user_preferences up ON up.user_id = u.id AND up.kiosk_pin_hash = ?
+       JOIN (
+         SELECT cepa.provider_user_id AS uid
+         FROM company_event_provider_assignments cepa
+         WHERE cepa.company_event_id = ?
+         UNION
+         SELECT cesp.provider_user_id AS uid
+         FROM company_event_session_providers cesp
+         WHERE cesp.company_event_id = ?
+       ) roster ON roster.uid = u.id
+       WHERE u.status = 'active'`,
+      [pinHash, m.eventId, m.eventId]
+    ).catch(() => [[]]);
+
+    if (!rows?.length) {
+      return res.status(404).json({ error: { message: 'No employee on this event roster matches that PIN' } });
+    }
+    if (rows.length > 1) {
+      return res.status(400).json({ error: { message: 'Multiple employees share this PIN. Tap your name instead.' } });
+    }
+
+    const user = rows[0];
+    const today = new Date().toISOString().slice(0, 10);
+    await pool.execute(
+      `INSERT INTO event_day_kiosk_checkins
+         (company_event_id, agency_id, user_id, person_type, action, checked_in_at, kiosk_date, ip_address)
+       VALUES (?, ?, ?, 'employee', 'check_in', NOW(), ?, ?)`,
+      [m.eventId, m.agencyId, user.id, today, kioskIp(req)]
+    ).catch(() => null);
+
+    res.status(201).json({
+      ok: true,
+      userId: Number(user.id),
+      displayName: `${user.first_name || ''} ${user.last_name || ''}`.trim(),
+      checkedInAt: new Date().toISOString()
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** POST …/checkout/employee — mark employee checked out */
+export const programEventEmployeeCheckout = async (req, res, next) => {
+  try {
+    const ctx = verifyKioskBearerForProgramEvent(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertKioskTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const userId = parsePositiveInt(req.body?.userId);
+    if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
+    const today = new Date().toISOString().slice(0, 10);
+
+    await pool.execute(
+      `UPDATE event_day_kiosk_checkins
+       SET action = 'check_out', checked_out_at = NOW(), updated_at = NOW()
+       WHERE company_event_id = ? AND user_id = ? AND kiosk_date = ? AND person_type = 'employee'`,
+      [m.eventId, userId, today]
+    ).catch(() => null);
+
+    res.json({ ok: true, userId, checkedOutAt: new Date().toISOString() });
   } catch (e) {
     next(e);
   }
