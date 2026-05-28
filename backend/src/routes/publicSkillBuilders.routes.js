@@ -18,11 +18,13 @@ import {
   eventDayEmployeeCheckinById,
   eventDayEmployeeCheckout,
   eventDayEmployeeIdentifyCheckin,
+  getEventDayClientCheckinSheet,
   getEventDayKioskContext,
   getSkillBuildersEventKioskMeta,
   identifySkillBuildersEventKioskStaff,
   listSkillBuildersEventKioskRoster,
   listSkillBuildersEventKioskSessions,
+  postEventDayClientWaiverSection,
   skillBuildersEventKioskPublicClockIn,
   skillBuildersEventKioskPublicClockOut,
   unlockSkillBuildersEventKiosk,
@@ -56,6 +58,8 @@ router.post('/agency/:slug/kiosk/events/:eventId/clock-out', skillBuildersEventK
 
 // Event-day kiosk (check-in/check-out, waiver review, phase gating)
 router.get('/agency/:slug/kiosk/events/:eventId/event-day', getEventDayKioskContext);
+router.get('/agency/:slug/kiosk/events/:eventId/event-day/client/:clientId/checkin-sheet', getEventDayClientCheckinSheet);
+router.post('/agency/:slug/kiosk/events/:eventId/event-day/client/waiver-section', postEventDayClientWaiverSection);
 router.post('/agency/:slug/kiosk/events/:eventId/event-day/gate-pin', verifyEventDayGatePin);
 router.post('/agency/:slug/kiosk/events/:eventId/event-day/client-checkin', eventDayClientCheckin);
 router.post('/agency/:slug/kiosk/events/:eventId/event-day/client-checkout', eventDayClientCheckout);

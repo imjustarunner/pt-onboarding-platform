@@ -41,7 +41,7 @@ test('readActiveSectionPayload ignores revoked sections', () => {
   assert.equal(payload, null);
 });
 
-test('mergeWaiverSectionsIntoKioskClient fillMissingOnly keeps existing profile data', () => {
+test('mergeWaiverSectionsIntoKioskClient fillMissingOnly keeps profile emergency data and adds intake contacts', () => {
   const entry = {
     ...emptyKioskClientWaiverFields(),
     emergencyContacts: [{ _k: 'a', name: 'Profile Contact', phone: '111' }]
@@ -52,8 +52,9 @@ test('mergeWaiverSectionsIntoKioskClient fillMissingOnly keeps existing profile 
       payload: { contacts: [{ name: 'Intake Contact', phone: '222' }] }
     }
   }, null, { fillMissingOnly: true });
-  assert.equal(entry.emergencyContacts.length, 1);
-  assert.equal(entry.emergencyContacts[0].name, 'Profile Contact');
+  assert.equal(entry.emergencyContacts.length, 2);
+  assert.ok(entry.emergencyContacts.some((c) => c.name === 'Profile Contact'));
+  assert.ok(entry.emergencyContacts.some((c) => c.name === 'Intake Contact'));
 });
 
 test('extractProfileSectionsFromIntakeData maps guardian waiver intake bundle', () => {
@@ -115,6 +116,63 @@ test('clientCheckoutBlocked when no pickups and no walk-home authorization', () 
   assert.equal(clientCheckoutBlocked(entry), true);
   entry.walkHome = { allowedToWalkHome: true };
   assert.equal(clientCheckoutBlocked(entry), false);
+});
+
+test('mergeWaiverSectionsIntoKioskClient unions pickups when fillMissingOnly and profile already has one', () => {
+  const entry = {
+    ...emptyKioskClientWaiverFields(),
+    authorizedPickups: [{ _k: 'a', name: 'Jane Parent', phone: '5551112222', source: 'guardian' }]
+  };
+  mergeWaiverSectionsIntoKioskClient(entry, {
+    pickup_authorization: {
+      status: 'active',
+      payload: {
+        authorizedPickups: [
+          { name: 'Grandma Sue', relationship: 'Grandmother', phone: '5553334444' },
+          { name: 'Uncle Bob', relationship: 'Uncle', phone: '5555556666' }
+        ]
+      }
+    }
+  }, null, { fillMissingOnly: true });
+  assert.equal(entry.authorizedPickups.length, 3);
+  assert.ok(entry.authorizedPickups.some((p) => p.name === 'Grandma Sue'));
+  assert.ok(entry.authorizedPickups.some((p) => p.name === 'Uncle Bob'));
+});
+
+test('mergeWaiverSectionsIntoKioskClient unions emergency contacts when fillMissingOnly', () => {
+  const entry = {
+    ...emptyKioskClientWaiverFields(),
+    emergencyContacts: [{ _k: 'a', name: 'Existing Contact', phone: '5551112222' }]
+  };
+  mergeWaiverSectionsIntoKioskClient(entry, {
+    emergency_contacts: {
+      status: 'active',
+      payload: {
+        contacts: [{ name: 'Registration Contact', phone: '5559998888', relationship: 'Aunt' }]
+      }
+    }
+  }, null, { fillMissingOnly: true });
+  assert.equal(entry.emergencyContacts.length, 2);
+  assert.ok(entry.emergencyContacts.some((c) => c.name === 'Registration Contact'));
+});
+
+test('extractProfileSectionsFromIntakeData accepts legacy flat section rows', () => {
+  const sections = extractProfileSectionsFromIntakeData({
+    responses: {
+      submission: {
+        guardianWaiverIntake: {
+          clients: [{
+            sections: {
+              emergency_contacts: {
+                contacts: [{ name: 'Flat Contact', phone: '5551234567', relationship: 'Neighbor' }]
+              }
+            }
+          }]
+        }
+      }
+    }
+  }, 999);
+  assert.ok(sections?.emergency_contacts?.payload?.contacts?.[0]?.name, 'Flat Contact');
 });
 
 test('buildSectionsFromWaiverHistoryRows keeps latest payload per section key', () => {

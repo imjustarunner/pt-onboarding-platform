@@ -601,12 +601,25 @@ export async function loadIntakeWaiverSectionsFallbackForClientIds(clientIds) {
     );
 
     for (const clientId of linkedClientIds) {
-      if (out.has(clientId)) continue;
       const sections = extractProfileSectionsFromIntakeData(intakeData, clientId);
       if (!sections) continue;
+
+      const existing = out.get(clientId);
+      if (!existing) {
+        out.set(clientId, {
+          sections: { ...sections },
+          updatedAt: row.submitted_at || null
+        });
+        continue;
+      }
+
+      const merged = { ...existing.sections };
+      for (const [key, sec] of Object.entries(sections)) {
+        if (!merged[key]) merged[key] = sec;
+      }
       out.set(clientId, {
-        sections,
-        updatedAt: row.submitted_at || null
+        sections: merged,
+        updatedAt: existing.updatedAt || row.submitted_at || null
       });
     }
   }

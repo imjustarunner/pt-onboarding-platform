@@ -41,6 +41,11 @@ import {
   loadWaiverHistorySectionsFallbackForClientIds
 } from '../services/guardianWaivers.service.js';
 import {
+  buildKioskClientWaiverEntry,
+  getEventKioskClientCheckinSheet,
+  saveEventKioskClientWaiverSection
+} from '../services/eventKioskClientCheckinWaiver.service.js';
+import {
   loadCompanyEventRegistrationForKiosk
 } from '../utils/eventKioskRegistration.util.js';
 import {
@@ -170,68 +175,6 @@ async function loadWaiverProfilesForClientIds(clientIds) {
     if (err?.code === 'ER_NO_SUCH_TABLE') return [];
     throw err;
   }
-}
-
-async function buildKioskClientReleaseEntry(clientId) {
-  const cid = Number(clientId);
-  if (!cid) return null;
-
-  let dateOfBirth = null;
-  try {
-    const [rows] = await pool.execute(
-      'SELECT full_name, date_of_birth FROM clients WHERE id = ? LIMIT 1',
-      [cid]
-    );
-    dateOfBirth = rows?.[0]?.date_of_birth ? String(rows[0].date_of_birth).slice(0, 10) : null;
-  } catch (err) {
-    if (err?.code !== 'ER_BAD_FIELD_ERROR' && !String(err?.message || '').includes('date_of_birth')) {
-      throw err;
-    }
-    await pool.execute('SELECT full_name FROM clients WHERE id = ? LIMIT 1', [cid]).catch(() => [[]]);
-  }
-
-  const entry = {
-    id: cid,
-    dateOfBirth,
-    ageYears: ageFromDateOfBirth(dateOfBirth),
-    guardians: [],
-    ...emptyKioskClientWaiverFields()
-  };
-
-  const [guardianRows, waiverRows, intakeFallback, historyFallback] = await Promise.all([
-    loadGuardiansForClientIds([cid]),
-    loadWaiverProfilesForClientIds([cid]),
-    loadIntakeWaiverSectionsFallbackForClientIds([cid]),
-    loadWaiverHistorySectionsFallbackForClientIds([cid])
-  ]);
-
-  for (const g of guardianRows) {
-    if (Number(g.client_id) !== cid || !g.guardian_user_id) continue;
-    entry.guardians.push({
-      userId: Number(g.guardian_user_id),
-      name: g.guardian_name ? String(g.guardian_name).trim() : null,
-      email: g.guardian_email || null,
-      phone: g.guardian_phone || null
-    });
-  }
-
-  for (const w of waiverRows) {
-    if (Number(w.client_id) !== cid) continue;
-    mergeWaiverSectionsIntoKioskClient(entry, parseWaiverSectionsJson(w.sections_json), w.updated_at);
-  }
-
-  const intakeRow = intakeFallback.get(cid);
-  if (intakeRow) {
-    mergeWaiverSectionsIntoKioskClient(entry, intakeRow.sections, intakeRow.updatedAt, { fillMissingOnly: true });
-  }
-
-  const historyRow = historyFallback.get(cid);
-  if (historyRow) {
-    mergeWaiverSectionsIntoKioskClient(entry, historyRow.sections, historyRow.updatedAt, { fillMissingOnly: true });
-  }
-
-  finalizeKioskClientWaiverEntry(entry, entry.guardians);
-  return entry;
 }
 
 function pickupMatchesReleaseOption(entry, { releasedToName, releasedToPhone }) {
@@ -768,7 +711,7 @@ export const submitProgramEventCheckout = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Client is not a confirmed participant for this event' } });
     }
 
-    const releaseEntry = await buildKioskClientReleaseEntry(clientId);
+    const releaseEntry = await buildKioskClientWaiverEntry(clientId);
     if (!releaseEntry) {
       return res.status(404).json({ error: { message: 'Client not found' } });
     }
@@ -904,6 +847,85 @@ export const submitProgramEventCheckout = async (req, res, next) => {
       signedAt: new Date().toISOString()
     });
   } catch (e) {
+    next(e);
+  }
+};
+
+/** GET …/checkin/client/:clientId/sheet — pickup list + waiver gate for guardian check-in */
+export const getProgramEventClientCheckinSheet = async (req, res, next) => {
+  try {
+    const ctx = verifyKioskBearerForProgramEvent(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertKioskTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const clientId = parsePositiveInt(req.params.clientId);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+
+    const isParticipant = await assertClientIsKioskParticipant(m.eventId, clientId);
+    if (!isParticipant) {
+      return res.status(403).json({ error: { message: 'Client is not a confirmed participant for this event' } });
+    }
+
+    const guardianUserId = parsePositiveInt(req.query.guardianUserId) || null;
+    const sheet = await getEventKioskClientCheckinSheet({
+      companyEventId: m.eventId,
+      clientId,
+      guardianUserId
+    });
+    if (!sheet) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    res.json(sheet);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** POST …/checkin/client/waiver-section — sign pickup (or esign) waiver at check-in */
+export const postProgramEventClientWaiverSection = async (req, res, next) => {
+  try {
+    const ctx = verifyKioskBearerForProgramEvent(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertKioskTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const kioskDay = await assertKioskRecordingAllowed(m.agencyId, m.eventId, res);
+    if (!kioskDay) return;
+
+    const clientId = parsePositiveInt(req.body?.clientId);
+    const guardianUserId = parsePositiveInt(req.body?.guardianUserId);
+    const sectionKey = String(req.body?.sectionKey || '').trim();
+    if (!clientId || !guardianUserId || !sectionKey) {
+      return res.status(400).json({ error: { message: 'clientId, guardianUserId, and sectionKey are required' } });
+    }
+
+    const isParticipant = await assertClientIsKioskParticipant(m.eventId, clientId);
+    if (!isParticipant) {
+      return res.status(403).json({ error: { message: 'Client is not a confirmed participant for this event' } });
+    }
+
+    const act = String(req.body?.action || 'update').toLowerCase();
+    if (act !== 'create' && act !== 'update') {
+      return res.status(400).json({ error: { message: 'action must be create or update' } });
+    }
+
+    const result = await saveEventKioskClientWaiverSection({
+      companyEventId: m.eventId,
+      clientId,
+      guardianUserId,
+      sectionKey,
+      payload: req.body?.payload,
+      signatureData: req.body?.signatureData,
+      consentAcknowledged: req.body?.consentAcknowledged,
+      intentToSign: req.body?.intentToSign,
+      action: act,
+      ipAddress: kioskIp(req),
+      userAgent: req.headers['user-agent'] || null
+    });
+
+    res.json(result);
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message, code: e.code } });
     next(e);
   }
 };

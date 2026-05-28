@@ -90,10 +90,10 @@
             </div>
             <button
               class="btn btn-primary btn-sm"
-              :disabled="!kioskActive || checkingInClientId === c.id"
-              @click="checkinClient(c)"
+              :disabled="!kioskActive || (checkinOpen && checkinClient?.id === c.id) || checkinSubmitting"
+              @click="openCheckin(c)"
             >
-              {{ checkingInClientId === c.id ? '…' : 'Check in' }}
+              {{ (checkinOpen && checkinClient?.id === c.id) || checkinSubmitting ? '…' : 'Check in' }}
             </button>
           </li>
           <li v-if="!filteredPendingClients.length" class="pe-empty muted">
@@ -319,6 +319,167 @@
       </div>
     </div>
 
+    <!-- Check-in modal: approved pickups + waiver signing -->
+    <div v-if="checkinOpen" class="pe-kiosk-modal" @click.self="closeCheckin">
+      <div class="pe-kiosk-modal-card">
+        <header class="pe-kiosk-modal-hdr">
+          <div>
+            <div class="pe-kiosk-modal-title">Check in {{ clientDisplayName(checkinClient) }}</div>
+            <div class="muted small">Review who is approved for pickup. Add and sign pickup authorization if needed.</div>
+          </div>
+          <button class="btn btn-text" @click="closeCheckin">Close</button>
+        </header>
+
+        <div v-if="checkinError" class="error-box pe-kiosk-modal-err">{{ checkinError }}</div>
+        <div v-if="checkinSheetLoading" class="muted small">Loading pickup info…</div>
+
+        <template v-else-if="checkinSheet">
+          <div v-if="checkinSheet.guardians?.length > 1" class="pe-checkin-guardian-pick">
+            <label class="pe-checkin-lbl">Signing as guardian</label>
+            <select
+              v-model="checkinGuardianUserId"
+              class="input"
+              @change="loadCheckinSheet"
+            >
+              <option v-for="g in checkinSheet.guardians" :key="g.userId" :value="g.userId">
+                {{ g.name || `Guardian #${g.userId}` }}
+              </option>
+            </select>
+          </div>
+          <p v-else-if="checkinSheet.guardians?.length === 1" class="muted small">
+            Signing as <strong>{{ checkinSheet.guardians[0].name || 'guardian' }}</strong>
+          </p>
+          <p v-else-if="checkinSheet.waiversEnabled && checkinSheet.gate?.pickupRequired" class="pe-checkout-issue-banner">
+            No guardian linked on file — ask staff before signing pickup authorization.
+          </p>
+
+          <h4 class="pe-kiosk-modal-h4">Approved for pickup</h4>
+          <p v-if="sheetGuardianPickups.length" class="pe-kiosk-modal-sub muted small">Guardians</p>
+          <ul v-if="sheetGuardianPickups.length" class="pe-info-list">
+            <li v-for="(p, i) in sheetGuardianPickups" :key="`sg-${i}`">
+              <strong>{{ p.name }}</strong>
+              <span class="muted small"> · Guardian</span>
+              <div v-if="p.phone" class="muted small">{{ p.phone }}</div>
+            </li>
+          </ul>
+          <p v-if="sheetOtherPickups.length" class="pe-kiosk-modal-sub muted small">Other authorized pickups</p>
+          <ul v-if="sheetOtherPickups.length" class="pe-info-list">
+            <li v-for="(p, i) in sheetOtherPickups" :key="`so-${i}`">
+              <strong>{{ p.name }}</strong>
+              <span v-if="p.relationship" class="muted small"> · {{ p.relationship }}</span>
+              <div v-if="p.phone" class="muted small">{{ p.phone }}</div>
+            </li>
+          </ul>
+          <p v-if="!sheetGuardianPickups.length && !sheetOtherPickups.length" class="muted small">
+            No pickup contacts on file yet.
+          </p>
+
+          <h4 class="pe-kiosk-modal-h4">Emergency contacts</h4>
+          <ul v-if="checkinSheet.emergencyContacts?.length" class="pe-info-list">
+            <li v-for="(e, i) in checkinSheet.emergencyContacts" :key="`ec-${i}`">
+              <strong>{{ e.name }}</strong>
+              <span v-if="e.relationship" class="muted small"> · {{ e.relationship }}</span>
+              <div v-if="e.phone" class="muted small">{{ e.phone }}</div>
+            </li>
+          </ul>
+          <p v-else class="muted small">None on file.</p>
+
+          <div
+            v-if="checkinSheet.waiversEnabled && checkinSheet.gate?.pickupRequired && !checkinSheet.gate?.pickupSatisfied"
+            class="pe-checkin-waiver-banner"
+          >
+            <strong>Pickup authorization required</strong>
+            <p class="small">
+              Sign the pickup waiver to list who may pick up {{ clientDisplayName(checkinClient) }} today.
+            </p>
+            <button
+              v-if="checkinSheet.gate?.needsEsignBeforePickup"
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :disabled="!checkinGuardianUserId"
+              @click="openCheckinWaiverEdit('esignature_consent')"
+            >
+              Sign e-signature consent first
+            </button>
+            <button
+              v-else
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="!checkinGuardianUserId"
+              @click="openCheckinWaiverEdit('pickup_authorization')"
+            >
+              Add pickup person &amp; sign
+            </button>
+          </div>
+          <div v-else-if="checkinSheet.waiversEnabled && checkinSheet.gate?.pickupSatisfied" class="pe-checkin-ok-banner">
+            Pickup authorization on file — ready to check in.
+          </div>
+          <div
+            v-if="checkinSheet.waiversEnabled && checkinGuardianUserId && checkinSheet.gate?.esignActive && !(checkinSheet.gate?.pickupRequired && !checkinSheet.gate?.pickupSatisfied)"
+            class="pe-checkin-update-row"
+          >
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              @click="openCheckinWaiverEdit('pickup_authorization')"
+            >
+              Update pickup list
+            </button>
+          </div>
+
+          <div class="pe-checkin-actions">
+            <button type="button" class="btn btn-secondary" @click="closeCheckin">Cancel</button>
+            <button
+              type="button"
+              class="btn btn-primary"
+              :disabled="!canCompleteCheckin || checkinSubmitting"
+              @click="confirmCheckin"
+            >
+              {{ checkinSubmitting ? 'Checking in…' : 'Complete check-in' }}
+            </button>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Waiver section editor (pickup / e-sign at check-in) -->
+    <div v-if="checkinWaiverEditOpen" class="pe-kiosk-modal pe-kiosk-modal--stack" @click.self="closeCheckinWaiverEdit">
+      <div class="pe-kiosk-modal-card">
+        <header class="pe-kiosk-modal-hdr">
+          <div class="pe-kiosk-modal-title">{{ checkinWaiverTitle }}</div>
+          <button class="btn btn-text" @click="closeCheckinWaiverEdit">Close</button>
+        </header>
+        <component
+          :is="checkinWaiverFieldComponent"
+          v-if="checkinWaiverFieldComponent"
+          v-model="checkinWaiverDraft"
+        />
+        <div class="pe-checkin-waiver-checks">
+          <label class="pe-checkin-check-row">
+            <input v-model="checkinWaiverConsent" type="checkbox" />
+            <span>I have read this section and consent to sign.</span>
+          </label>
+          <label class="pe-checkin-check-row">
+            <input v-model="checkinWaiverIntent" type="checkbox" />
+            <span>I intend my electronic signature to have the same effect as a handwritten signature.</span>
+          </label>
+        </div>
+        <SignaturePad compact @signed="(d) => (checkinWaiverSig = d)" />
+        <div v-if="checkinWaiverError" class="error-box pe-kiosk-modal-err">{{ checkinWaiverError }}</div>
+        <div class="pe-checkin-actions">
+          <button type="button" class="btn btn-secondary" @click="closeCheckinWaiverEdit">Cancel</button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            :disabled="checkinWaiverSaving"
+            @click="saveCheckinWaiverEdit"
+          >
+            {{ checkinWaiverSaving ? 'Saving…' : 'Save & continue' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Checkout / release modal (unchanged flow) -->
     <div v-if="checkoutOpen" class="pe-kiosk-modal" @click.self="closeCheckout">
       <div class="pe-kiosk-modal-card">
@@ -499,6 +660,9 @@ import api from '../../services/api';
 import { useBrandingStore } from '../../store/branding';
 import { resolvePortalSlug } from '../../utils/orgScopedPath';
 import { buildFormUrl } from '../../utils/publicIntakeUrl';
+import SignaturePad from '../../components/SignaturePad.vue';
+import GwvFieldsEsign from '../guardian/waivers/GwvFieldsEsign.vue';
+import GwvFieldsPickup from '../guardian/waivers/GwvFieldsPickup.vue';
 
 const route = useRoute();
 const brandingStore = useBrandingStore();
@@ -522,7 +686,7 @@ let clockTimer = null;
 const mainMode = ref('checkin');
 const personMode = ref('client');
 
-const checkingInClientId = ref(null);
+const checkingInClientId = ref(null); // legacy; check-in uses modal flow
 const checkingInUserId = ref(null);
 const checkingOutUserId = ref(null);
 const empPin = ref('');
@@ -796,27 +960,233 @@ function clientHasAllergyInfo(client) {
   );
 }
 
-async function checkinClient(c) {
+async function openCheckin(c) {
   if (!kioskActive.value) return;
-  checkingInClientId.value = c.id;
+  checkinClient.value = c;
+  checkinError.value = '';
+  checkinSheet.value = null;
+  checkinGuardianUserId.value = null;
+  checkinOpen.value = true;
+  await loadCheckinSheet();
+}
+
+function closeCheckin() {
+  checkinOpen.value = false;
+  checkinClient.value = null;
+  checkinSheet.value = null;
+  checkinError.value = '';
+  checkinGuardianUserId.value = null;
+  closeCheckinWaiverEdit();
+}
+
+const checkinOpen = ref(false);
+const checkinClient = ref(null);
+const checkinSheet = ref(null);
+const checkinSheetLoading = ref(false);
+const checkinGuardianUserId = ref(null);
+const checkinError = ref('');
+const checkinSubmitting = ref(false);
+
+const CHECKIN_WAIVER_FIELDS = {
+  esignature_consent: GwvFieldsEsign,
+  pickup_authorization: GwvFieldsPickup
+};
+const CHECKIN_WAIVER_TITLES = {
+  esignature_consent: 'E-signature consent',
+  pickup_authorization: 'Authorized pickups'
+};
+
+const checkinWaiverEditOpen = ref(false);
+const checkinWaiverEditKey = ref('');
+const checkinWaiverDraft = ref({});
+const checkinWaiverConsent = ref(false);
+const checkinWaiverIntent = ref(false);
+const checkinWaiverSig = ref('');
+const checkinWaiverSaving = ref(false);
+const checkinWaiverError = ref('');
+
+const checkinWaiverFieldComponent = computed(() => CHECKIN_WAIVER_FIELDS[checkinWaiverEditKey.value] || null);
+const checkinWaiverTitle = computed(() => CHECKIN_WAIVER_TITLES[checkinWaiverEditKey.value] || 'Waiver section');
+
+const sheetGuardianPickups = computed(() =>
+  (checkinSheet.value?.authorizedPickups || []).filter((p) => p.source === 'guardian')
+);
+const sheetOtherPickups = computed(() =>
+  (checkinSheet.value?.authorizedPickups || []).filter((p) => p.source !== 'guardian')
+);
+
+const canCompleteCheckin = computed(() => {
+  if (!checkinSheet.value || checkinSheetLoading.value) return false;
+  if (checkinSheet.value.waiversEnabled && checkinSheet.value.gate?.pickupRequired && !checkinSheet.value.gate?.pickupSatisfied) {
+    return false;
+  }
+  if (checkinSheet.value.waiversEnabled && checkinSheet.value.gate?.pickupRequired && !checkinGuardianUserId.value) {
+    return false;
+  }
+  return true;
+});
+
+function defaultCheckinWaiverPayload(key) {
+  if (key === 'esignature_consent') {
+    return { consented: false, understoodElectronicRecords: false };
+  }
+  if (key === 'pickup_authorization') {
+    const existing = checkinSheet.value?.pickupSection;
+    if (existing && typeof existing === 'object') {
+      return JSON.parse(JSON.stringify(existing));
+    }
+    return { authorizedPickups: [{ name: '', relationship: '', phone: '' }] };
+  }
+  return {};
+}
+
+async function loadCheckinSheet() {
+  if (!checkinClient.value?.id) return;
+  checkinSheetLoading.value = true;
+  checkinError.value = '';
   try {
-    await api.post(`${apiBase()}/checkin/client`, { clientId: c.id }, {
+    const params = {};
+    if (checkinGuardianUserId.value) params.guardianUserId = checkinGuardianUserId.value;
+    const res = await api.get(`${apiBase()}/checkin/client/${checkinClient.value.id}/sheet`, {
+      params,
+      headers: authHeaders(),
+      skipGlobalLoading: true,
+      skipAuthRedirect: true
+    });
+    checkinSheet.value = res.data;
+    if (!checkinGuardianUserId.value && res.data?.guardianUserId) {
+      checkinGuardianUserId.value = res.data.guardianUserId;
+    } else if (!checkinGuardianUserId.value && res.data?.guardians?.length) {
+      checkinGuardianUserId.value = res.data.guardians[0].userId;
+    }
+    applyCheckinSheetToClient(res.data);
+  } catch (e) {
+    checkinError.value = e.response?.data?.error?.message || 'Could not load pickup info';
+  } finally {
+    checkinSheetLoading.value = false;
+  }
+}
+
+function applyCheckinSheetToClient(sheet) {
+  if (!sheet?.clientId) return;
+  const idx = clients.value.findIndex((c) => Number(c.id) === Number(sheet.clientId));
+  if (idx === -1) return;
+  clients.value[idx] = {
+    ...clients.value[idx],
+    authorizedPickups: sheet.authorizedPickups || clients.value[idx].authorizedPickups,
+    emergencyContacts: sheet.emergencyContacts || clients.value[idx].emergencyContacts,
+    walkHome: sheet.walkHome || clients.value[idx].walkHome,
+    guardians: sheet.guardians || clients.value[idx].guardians
+  };
+}
+
+function openCheckinWaiverEdit(key) {
+  checkinWaiverEditKey.value = key;
+  checkinWaiverDraft.value = defaultCheckinWaiverPayload(key);
+  checkinWaiverConsent.value = false;
+  checkinWaiverIntent.value = false;
+  checkinWaiverSig.value = '';
+  checkinWaiverError.value = '';
+  checkinWaiverEditOpen.value = true;
+}
+
+function closeCheckinWaiverEdit() {
+  checkinWaiverEditOpen.value = false;
+  checkinWaiverEditKey.value = '';
+  checkinWaiverError.value = '';
+}
+
+async function saveCheckinWaiverEdit() {
+  const key = checkinWaiverEditKey.value;
+  if (!key || !checkinWaiverConsent.value || !checkinWaiverIntent.value) {
+    checkinWaiverError.value = 'Check both boxes and sign to save.';
+    return;
+  }
+  const sig = String(checkinWaiverSig.value || '').trim();
+  if (sig.length < 80) {
+    checkinWaiverError.value = 'Signature is required.';
+    return;
+  }
+  if (key === 'esignature_consent') {
+    const p = checkinWaiverDraft.value || {};
+    if (!p.consented || !p.understoodElectronicRecords) {
+      checkinWaiverError.value = 'Complete e-sign consent checkboxes in the form.';
+      return;
+    }
+  }
+  if (key === 'pickup_authorization') {
+    const p = checkinWaiverDraft.value || {};
+    if (!p.declinePickupAuthorization) {
+      const rows = Array.isArray(p.authorizedPickups) ? p.authorizedPickups : [];
+      const hasPerson = rows.some((r) => String(r?.name || '').trim());
+      if (!hasPerson) {
+        checkinWaiverError.value = 'Add at least one pickup person or check the opt-out box.';
+        return;
+      }
+    }
+  }
+  const gid = checkinGuardianUserId.value;
+  const cid = checkinClient.value?.id;
+  if (!gid || !cid) {
+    checkinWaiverError.value = 'Select a guardian to sign.';
+    return;
+  }
+  const status = checkinSheet.value?.sectionStatus?.[key];
+  const action = status === 'active' ? 'update' : 'create';
+  checkinWaiverSaving.value = true;
+  checkinWaiverError.value = '';
+  try {
+    const res = await api.post(`${apiBase()}/checkin/client/waiver-section`, {
+      clientId: cid,
+      guardianUserId: gid,
+      sectionKey: key,
+      payload: checkinWaiverDraft.value,
+      signatureData: sig,
+      consentAcknowledged: true,
+      intentToSign: true,
+      action
+    }, {
+      headers: authHeaders(),
+      skipGlobalLoading: true,
+      skipAuthRedirect: true
+    });
+    checkinSheet.value = res.data?.sheet || checkinSheet.value;
+    if (res.data?.sheet) applyCheckinSheetToClient(res.data.sheet);
+    closeCheckinWaiverEdit();
+  } catch (e) {
+    checkinWaiverError.value = e.response?.data?.error?.message || 'Save failed';
+  } finally {
+    checkinWaiverSaving.value = false;
+  }
+}
+
+async function confirmCheckin() {
+  if (!checkinClient.value || !canCompleteCheckin.value) return;
+  checkinSubmitting.value = true;
+  checkinError.value = '';
+  try {
+    await api.post(`${apiBase()}/checkin/client`, { clientId: checkinClient.value.id }, {
       headers: authHeaders(),
       skipGlobalLoading: true,
       skipAuthRedirect: true
     });
     checkins.value.push({
-      clientId: c.id,
+      clientId: checkinClient.value.id,
       userId: null,
       personType: 'client',
       action: 'check_in',
       checkedInAt: new Date().toISOString()
     });
+    closeCheckin();
   } catch (e) {
-    loadError.value = e.response?.data?.error?.message || 'Check-in failed';
+    checkinError.value = e.response?.data?.error?.message || 'Check-in failed';
   } finally {
-    checkingInClientId.value = null;
+    checkinSubmitting.value = false;
   }
+}
+
+async function checkinClient(c) {
+  await openCheckin(c);
 }
 
 async function checkinEmployee(s) {
@@ -1322,6 +1692,30 @@ onBeforeUnmount(() => {
 .pe-kiosk-sig-canvas { width: 100%; height: 140px; border: 1px solid var(--border); border-radius: 8px; touch-action: none; }
 .pe-kiosk-photo-video, .pe-kiosk-photo-preview { width: 100%; max-width: 280px; border-radius: 8px; }
 .pe-kiosk-modal-footer { margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px; }
+.pe-kiosk-modal--stack { z-index: 60; }
+.pe-checkin-guardian-pick { margin-bottom: 12px; }
+.pe-checkin-lbl { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.pe-checkin-waiver-banner {
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+}
+.pe-checkin-ok-banner {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #ecfdf5;
+  border: 1px solid #6ee7b7;
+  color: #065f46;
+  font-size: 13px;
+}
+.pe-checkin-actions { margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.pe-checkin-update-row { margin-top: 10px; }
+.pe-checkin-waiver-checks { display: grid; gap: 8px; margin: 12px 0; }
+.pe-checkin-check-row { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; }
 .muted { color: var(--text-secondary, #64748b); }
 .small { font-size: 13px; }
 </style>

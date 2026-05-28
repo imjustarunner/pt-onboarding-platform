@@ -20,6 +20,10 @@ import {
   loadWaiverHistorySectionsFallbackForClientIds
 } from '../services/guardianWaivers.service.js';
 import { loadCompanyEventRegistrationForKiosk } from '../utils/eventKioskRegistration.util.js';
+import {
+  getEventKioskClientCheckinSheet,
+  saveEventKioskClientWaiverSection
+} from '../services/eventKioskClientCheckinWaiver.service.js';
 
 const TOKEN_TYPE = 'skill_builders_event_kiosk';
 
@@ -943,6 +947,112 @@ export const skillBuildersEventKioskPublicClockOut = async (req, res, next) => {
       workedHours: result.workedHours
     });
   } catch (e) {
+    next(e);
+  }
+};
+
+async function assertClientOnEventDayRoster(eventId, agencyId, clientId) {
+  const cid = Number(clientId);
+  if (!cid) return false;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 AS ok FROM (
+         SELECT sgc.client_id
+         FROM skills_group_clients sgc
+         INNER JOIN skills_groups sg ON sg.id = sgc.skills_group_id
+         WHERE sg.company_event_id = ? AND sg.agency_id = ?
+         UNION
+         SELECT cec.client_id
+         FROM company_event_clients cec
+         WHERE cec.company_event_id = ?
+           AND (cec.is_active = TRUE OR cec.is_active IS NULL)
+       ) roster
+       WHERE client_id = ?
+       LIMIT 1`,
+      [eventId, agencyId, eventId, cid]
+    );
+    return !!rows?.length;
+  } catch {
+    return false;
+  }
+}
+
+function kioskIp(req) {
+  return String(req.ip || req.headers?.['x-forwarded-for'] || '').split(',')[0].trim() || null;
+}
+
+/** GET …/event-day/client/:clientId/checkin-sheet */
+export const getEventDayClientCheckinSheet = async (req, res, next) => {
+  try {
+    const ctx = verifySkillBuildersEventKioskBearer(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const clientId = parsePositiveInt(req.params.clientId);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+
+    const onRoster = await assertClientOnEventDayRoster(m.eventId, m.agencyId, clientId);
+    if (!onRoster) {
+      return res.status(403).json({ error: { message: 'Client is not enrolled for this event' } });
+    }
+
+    const guardianUserId = parsePositiveInt(req.query.guardianUserId) || null;
+    const sheet = await getEventKioskClientCheckinSheet({
+      companyEventId: m.eventId,
+      clientId,
+      guardianUserId
+    });
+    if (!sheet) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    res.json(sheet);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** POST …/event-day/client/waiver-section */
+export const postEventDayClientWaiverSection = async (req, res, next) => {
+  try {
+    const ctx = verifySkillBuildersEventKioskBearer(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const clientId = parsePositiveInt(req.body?.clientId);
+    const guardianUserId = parsePositiveInt(req.body?.guardianUserId);
+    const sectionKey = String(req.body?.sectionKey || '').trim();
+    if (!clientId || !guardianUserId || !sectionKey) {
+      return res.status(400).json({ error: { message: 'clientId, guardianUserId, and sectionKey are required' } });
+    }
+
+    const onRoster = await assertClientOnEventDayRoster(m.eventId, m.agencyId, clientId);
+    if (!onRoster) {
+      return res.status(403).json({ error: { message: 'Client is not enrolled for this event' } });
+    }
+
+    const act = String(req.body?.action || 'update').toLowerCase();
+    if (act !== 'create' && act !== 'update') {
+      return res.status(400).json({ error: { message: 'action must be create or update' } });
+    }
+
+    const result = await saveEventKioskClientWaiverSection({
+      companyEventId: m.eventId,
+      clientId,
+      guardianUserId,
+      sectionKey,
+      payload: req.body?.payload,
+      signatureData: req.body?.signatureData,
+      consentAcknowledged: req.body?.consentAcknowledged,
+      intentToSign: req.body?.intentToSign,
+      action: act,
+      ipAddress: kioskIp(req),
+      userAgent: req.headers['user-agent'] || null
+    });
+
+    res.json(result);
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message, code: e.code } });
     next(e);
   }
 };

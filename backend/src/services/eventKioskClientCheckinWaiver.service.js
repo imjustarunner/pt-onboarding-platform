@@ -1,0 +1,282 @@
+import pool from '../config/database.js';
+import {
+  GUARDIAN_WAIVER_ESIGN_KEY,
+  evaluateWaiverCompleteness,
+  isSectionSatisfied,
+  resolveRequiredSectionKeys
+} from '../utils/guardianWaivers.utils.js';
+import {
+  ageFromDateOfBirth,
+  clientHasReleasePickupOptions,
+  emptyKioskClientWaiverFields,
+  finalizeKioskClientWaiverEntry,
+  mergeWaiverSectionsIntoKioskClient,
+  parseWaiverSectionsJson,
+  readActiveSectionPayload
+} from '../utils/kioskWaiverDisplay.util.js';
+import {
+  getCompanyEventWaiverJson,
+  isWaiversEnabledForClient,
+  loadIntakeWaiverSectionsFallbackForClientIds,
+  loadWaiverHistorySectionsFallbackForClientIds,
+  upsertGuardianWaiverSection
+} from './guardianWaivers.service.js';
+
+async function loadGuardiansForClientIds(clientIds) {
+  const ids = [...new Set((clientIds || []).map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0))];
+  if (!ids.length) return [];
+  const ph = ids.map(() => '?').join(',');
+  try {
+    const [rows] = await pool.execute(
+      `SELECT cg.client_id, cg.guardian_user_id,
+              CONCAT(gu.first_name, ' ', gu.last_name) AS guardian_name,
+              gu.email AS guardian_email,
+              gu.phone_number AS guardian_phone
+       FROM client_guardians cg
+       INNER JOIN users gu ON gu.id = cg.guardian_user_id
+       WHERE cg.client_id IN (${ph})
+         AND (cg.access_enabled = 1 OR cg.access_enabled IS NULL)
+       ORDER BY cg.client_id ASC, cg.id ASC`,
+      ids
+    );
+    return rows || [];
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return [];
+    throw err;
+  }
+}
+
+async function loadWaiverProfilesForClientIds(clientIds) {
+  const ids = [...new Set((clientIds || []).map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0))];
+  if (!ids.length) return [];
+  const ph = ids.map(() => '?').join(',');
+  try {
+    const [rows] = await pool.execute(
+      `SELECT client_id, guardian_user_id, sections_json, updated_at
+       FROM guardian_client_waiver_profiles
+       WHERE client_id IN (${ph})
+       ORDER BY client_id ASC, updated_at ASC, id ASC`,
+      ids
+    );
+    return rows || [];
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return [];
+    throw err;
+  }
+}
+
+/** Shared waiver merge for kiosk check-in, check-out, and release validation. */
+export async function buildKioskClientWaiverEntry(clientId) {
+  const cid = Number(clientId);
+  if (!cid) return null;
+
+  let dateOfBirth = null;
+  try {
+    const [rows] = await pool.execute(
+      'SELECT full_name, date_of_birth FROM clients WHERE id = ? LIMIT 1',
+      [cid]
+    );
+    dateOfBirth = rows?.[0]?.date_of_birth ? String(rows[0].date_of_birth).slice(0, 10) : null;
+  } catch (err) {
+    if (err?.code !== 'ER_BAD_FIELD_ERROR' && !String(err?.message || '').includes('date_of_birth')) {
+      throw err;
+    }
+    await pool.execute('SELECT full_name FROM clients WHERE id = ? LIMIT 1', [cid]).catch(() => [[]]);
+  }
+
+  const entry = {
+    id: cid,
+    dateOfBirth,
+    ageYears: ageFromDateOfBirth(dateOfBirth),
+    guardians: [],
+    ...emptyKioskClientWaiverFields()
+  };
+
+  const [guardianRows, waiverRows, intakeFallback, historyFallback] = await Promise.all([
+    loadGuardiansForClientIds([cid]),
+    loadWaiverProfilesForClientIds([cid]),
+    loadIntakeWaiverSectionsFallbackForClientIds([cid]),
+    loadWaiverHistorySectionsFallbackForClientIds([cid])
+  ]);
+
+  for (const g of guardianRows) {
+    if (Number(g.client_id) !== cid || !g.guardian_user_id) continue;
+    entry.guardians.push({
+      userId: Number(g.guardian_user_id),
+      name: g.guardian_name ? String(g.guardian_name).trim() : null,
+      email: g.guardian_email || null,
+      phone: g.guardian_phone || null
+    });
+  }
+
+  for (const w of waiverRows) {
+    if (Number(w.client_id) !== cid) continue;
+    mergeWaiverSectionsIntoKioskClient(entry, parseWaiverSectionsJson(w.sections_json), w.updated_at);
+  }
+
+  const intakeRow = intakeFallback.get(cid);
+  if (intakeRow) {
+    mergeWaiverSectionsIntoKioskClient(entry, intakeRow.sections, intakeRow.updatedAt, { fillMissingOnly: true });
+  }
+
+  const historyRow = historyFallback.get(cid);
+  if (historyRow) {
+    mergeWaiverSectionsIntoKioskClient(entry, historyRow.sections, historyRow.updatedAt, { fillMissingOnly: true });
+  }
+
+  finalizeKioskClientWaiverEntry(entry, entry.guardians);
+  return entry;
+}
+
+async function evaluateProgramEventWaiverGate({ companyEventId, guardianUserId, clientId }) {
+  const enabled = await isWaiversEnabledForClient(clientId);
+  if (!enabled) {
+    return {
+      enabled: false,
+      complete: true,
+      missing: [],
+      requiredKeys: [],
+      sections: {},
+      pickupRequired: false,
+      pickupSatisfied: true,
+      esignActive: false
+    };
+  }
+
+  const ev = await getCompanyEventWaiverJson(companyEventId);
+  const requiredKeys = resolveRequiredSectionKeys(null, ev?.event_required_json);
+  const pickupRequired = requiredKeys.includes('pickup_authorization');
+
+  const gid = Number(guardianUserId);
+  const cid = Number(clientId);
+  let sections = {};
+  if (gid && cid) {
+    const [prows] = await pool.execute(
+      'SELECT sections_json FROM guardian_client_waiver_profiles WHERE guardian_user_id = ? AND client_id = ? LIMIT 1',
+      [gid, cid]
+    );
+    const raw = prows?.[0]?.sections_json;
+    if (raw) {
+      try {
+        sections = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      } catch {
+        sections = {};
+      }
+    }
+  }
+
+  const { complete, missing, sections: parsedSections } = evaluateWaiverCompleteness(sections, requiredKeys);
+  const esignActive = isSectionSatisfied(GUARDIAN_WAIVER_ESIGN_KEY, parsedSections);
+  const pickupSatisfied = isSectionSatisfied('pickup_authorization', parsedSections);
+
+  return {
+    enabled: true,
+    complete,
+    missing,
+    requiredKeys,
+    sections: parsedSections,
+    pickupRequired,
+    pickupSatisfied,
+    esignActive
+  };
+}
+
+function pickupPayloadFromSections(sections) {
+  const payload = readActiveSectionPayload(sections, 'pickup_authorization');
+  if (!payload || payload.declinePickupAuthorization) return null;
+  return payload;
+}
+
+/** Check-in sheet: approved pickups + waiver status for guardian signing at the kiosk. */
+export async function getEventKioskClientCheckinSheet({ companyEventId, clientId, guardianUserId = null }) {
+  const cid = Number(clientId);
+  const entry = await buildKioskClientWaiverEntry(cid);
+  if (!entry) return null;
+
+  const guardians = entry.guardians || [];
+  const gid = Number(guardianUserId) || guardians[0]?.userId || null;
+
+  const gate = await evaluateProgramEventWaiverGate({
+    companyEventId,
+    guardianUserId: gid,
+    clientId: cid
+  });
+
+  const pickupPayload = gid ? pickupPayloadFromSections(gate.sections) : null;
+
+  const pickupRequired = gate.enabled && gate.pickupRequired;
+  const pickupSatisfied = !pickupRequired || gate.pickupSatisfied;
+  const esignActive = !gate.enabled || gate.esignActive;
+
+  return {
+    clientId: cid,
+    guardianUserId: gid,
+    waiversEnabled: gate.enabled,
+    guardians,
+    authorizedPickups: entry.authorizedPickups || [],
+    emergencyContacts: entry.emergencyContacts || [],
+    hasPickupOptions: clientHasReleasePickupOptions(entry),
+    walkHome: entry.walkHome,
+    canCheckIn: !gate.enabled || pickupSatisfied,
+    gate: {
+      pickupRequired,
+      pickupSatisfied,
+      esignActive,
+      needsEsignBeforePickup: pickupRequired && !gate.esignActive,
+      missing: gate.missing
+    },
+    pickupSection: pickupPayload
+      ? {
+          authorizedPickups: Array.isArray(pickupPayload.authorizedPickups) ? pickupPayload.authorizedPickups : [],
+          declinePickupAuthorization: !!pickupPayload.declinePickupAuthorization
+        }
+      : null,
+    sectionStatus: gid
+      ? {
+          esignature_consent: gate.sections?.esignature_consent?.status || null,
+          pickup_authorization: gate.sections?.pickup_authorization?.status || null
+        }
+      : null
+  };
+}
+
+export async function saveEventKioskClientWaiverSection({
+  companyEventId,
+  clientId,
+  guardianUserId,
+  sectionKey,
+  payload,
+  signatureData,
+  consentAcknowledged,
+  intentToSign,
+  action,
+  ipAddress,
+  userAgent
+}) {
+  const enabled = await isWaiversEnabledForClient(clientId);
+  if (!enabled) {
+    throw Object.assign(new Error('Guardian waivers are not enabled for this agency'), { status: 403 });
+  }
+
+  const profile = await upsertGuardianWaiverSection({
+    guardianUserId,
+    clientId,
+    sectionKey,
+    payload,
+    action,
+    signatureData,
+    consentAcknowledged,
+    intentToSign,
+    ipAddress,
+    userAgent,
+    linkCheckMode: 'relationship_exists'
+  });
+
+  const sheet = await getEventKioskClientCheckinSheet({
+    companyEventId,
+    clientId,
+    guardianUserId
+  });
+
+  return { profile, sheet };
+}

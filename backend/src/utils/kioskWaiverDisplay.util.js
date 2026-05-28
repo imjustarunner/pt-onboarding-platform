@@ -84,6 +84,7 @@ function resolveGuardianWaiverIntakeBundle(intakeData) {
   return (
     intakeData?.responses?.submission?.guardianWaiverIntake
     || intakeData?.submission?.guardianWaiverIntake
+    || intakeData?.guardianWaiverIntake
     || null
   );
 }
@@ -91,6 +92,14 @@ function resolveGuardianWaiverIntakeBundle(intakeData) {
 function resolveClientIndexInIntake(intakeData, clientId) {
   const cid = Number(clientId);
   if (!cid) return -1;
+
+  const bundle = resolveGuardianWaiverIntakeBundle(intakeData);
+  const bundleClients = Array.isArray(bundle?.clients) ? bundle.clients : [];
+  for (let i = 0; i < bundleClients.length; i += 1) {
+    const row = bundleClients[i];
+    const id = Number(row?.id || row?.clientId || row?.client_id || 0);
+    if (id === cid) return i;
+  }
 
   const candidates = [
     ...(Array.isArray(intakeData?.clients) ? intakeData.clients : []),
@@ -104,6 +113,7 @@ function resolveClientIndexInIntake(intakeData, clientId) {
 
   if (Number(intakeData?.clientId || intakeData?.client_id || 0) === cid) return 0;
   if (Array.isArray(intakeData?.clients) && intakeData.clients.length === 1) return 0;
+  if (bundleClients.length === 1) return 0;
   return -1;
 }
 
@@ -254,7 +264,10 @@ export function extractProfileSectionsFromIntakeData(intakeData, clientId) {
   const out = {};
   for (const [key, sec] of Object.entries(row.sections)) {
     if (!sec || typeof sec !== 'object') continue;
-    const payload = sec.payload;
+    let payload = sec.payload;
+    if ((!payload || typeof payload !== 'object' || Array.isArray(payload)) && legacySectionHasPayload(sec, key)) {
+      payload = sec;
+    }
     if (!intakeSectionHasPayload(key, payload)) continue;
     out[key] = { status: 'active', payload };
   }
@@ -273,28 +286,29 @@ export function mergeWaiverSectionsIntoKioskClient(entry, sections, profileUpdat
   const fillMissingOnly = options.fillMissingOnly === true;
 
   const pickupPayload = readActiveSectionPayload(sections, 'pickup_authorization');
-  if (pickupPayload && !pickupPayload.declinePickupAuthorization && (!fillMissingOnly || !entry.authorizedPickups.length)) {
+  if (pickupPayload && !pickupPayload.declinePickupAuthorization) {
     const pickups = Array.isArray(pickupPayload.authorizedPickups) ? pickupPayload.authorizedPickups : [];
     for (const p of pickups) {
       const name = String(p?.name || '').trim();
       if (!name) continue;
-      const dedupeKey = `${name}|${String(p?.phone || '').trim()}`.toLowerCase();
+      const dedupeKey = `pickup|${name}|${String(p?.phone || '').trim()}`.toLowerCase();
       dedupeContact(entry.authorizedPickups, {
         name,
         relationship: String(p?.relationship || '').trim() || null,
         phone: String(p?.phone || '').trim() || null,
-        governmentIdRequired: !!p?.governmentIdRequired
+        governmentIdRequired: !!p?.governmentIdRequired,
+        source: 'waiver'
       }, dedupeKey);
     }
   }
 
   const emergencyPayload = readActiveSectionPayload(sections, 'emergency_contacts');
-  if (emergencyPayload && !emergencyPayload.declineEmergencyContacts && (!fillMissingOnly || !entry.emergencyContacts.length)) {
+  if (emergencyPayload && !emergencyPayload.declineEmergencyContacts) {
     const contacts = Array.isArray(emergencyPayload.contacts) ? emergencyPayload.contacts : [];
     for (const e of contacts) {
       const name = String(e?.name || '').trim();
       if (!name) continue;
-      const dedupeKey = `${name}|${String(e?.phone || '').trim()}`.toLowerCase();
+      const dedupeKey = `emergency|${name}|${String(e?.phone || '').trim()}`.toLowerCase();
       dedupeContact(entry.emergencyContacts, {
         name,
         relationship: String(e?.relationship || '').trim() || null,
