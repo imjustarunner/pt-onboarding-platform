@@ -158,7 +158,7 @@ async function applyPreservedSkillsGroupState({ agencyId, eventId, clientId, sna
 }
 
 /**
- * List eligible target events when moving a registration within the same program.
+ * List eligible target events when moving a registration within the same agency (tenant).
  */
 export async function listSwitchTargetEvents({ agencyId, fromEventId }) {
   const aid = parsePositiveInt(agencyId);
@@ -173,23 +173,23 @@ export async function listSwitchTargetEvents({ agencyId, fromEventId }) {
   }
 
   const programOrgId = fromEvent.organization_id != null ? Number(fromEvent.organization_id) : null;
-  const params = [aid, fromId];
-  let orgClause = '';
-  if (programOrgId) {
-    orgClause = ' AND ce.organization_id = ?';
-    params.push(programOrgId);
-  }
 
   const [rows] = await pool.execute(
-    `SELECT ce.id, ce.title, ce.starts_at, ce.ends_at, ce.registration_eligible, ce.event_type
+    `SELECT ce.id,
+            ce.title,
+            ce.starts_at,
+            ce.ends_at,
+            ce.registration_eligible,
+            ce.event_type,
+            ce.organization_id,
+            prog.name AS program_name
      FROM company_events ce
+     LEFT JOIN agencies prog ON prog.id = ce.organization_id
      WHERE ce.agency_id = ?
        AND ce.id <> ?
-       ${orgClause}
-       AND (ce.ends_at IS NULL OR ce.ends_at >= NOW())
-     ORDER BY ce.starts_at ASC, ce.title ASC
-     LIMIT 100`,
-    params
+     ORDER BY COALESCE(prog.name, ''), ce.starts_at ASC, ce.title ASC
+     LIMIT 200`,
+    [aid, fromId]
   );
 
   return {
@@ -205,13 +205,15 @@ export async function listSwitchTargetEvents({ agencyId, fromEventId }) {
       startsAt: row.starts_at,
       endsAt: row.ends_at,
       registrationEligible: row.registration_eligible === 1 || row.registration_eligible === true,
-      eventType: row.event_type || null
+      eventType: row.event_type || null,
+      organizationId: row.organization_id != null ? Number(row.organization_id) : null,
+      programName: String(row.program_name || '').trim() || null
     }))
   };
 }
 
 /**
- * Move a client from one company event registration to another (same program).
+ * Move a client from one company event registration to another within the same agency.
  */
 export async function switchClientEventRegistration({
   agencyId,
@@ -248,9 +250,7 @@ export async function switchClientEventRegistration({
 
   const fromOrg = fromEvent.organization_id != null ? Number(fromEvent.organization_id) : null;
   const toOrg = toEvent.organization_id != null ? Number(toEvent.organization_id) : null;
-  if (fromOrg && toOrg && fromOrg !== toOrg) {
-    return { ok: false, error: 'Events must belong to the same program' };
-  }
+  const crossProgram = !!(fromOrg && toOrg && fromOrg !== toOrg);
 
   const enrollment = await clientEnrolledInEvent({ agencyId: aid, clientId: cid, eventId: fromId });
   if (!enrollment) {
@@ -330,6 +330,7 @@ export async function switchClientEventRegistration({
     fromCompanyEventId: fromId,
     toCompanyEventId: toId,
     clientId: cid,
-    preservedWorkflow: !!preserveWorkflow
+    preservedWorkflow: !!preserveWorkflow,
+    crossProgram
   };
 }

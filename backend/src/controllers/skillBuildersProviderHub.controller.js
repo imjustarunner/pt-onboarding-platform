@@ -2,7 +2,6 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import { userHasAgencyOrAffiliatedOrgAccessForRequest } from '../utils/userAgencyAffiliationAccess.js';
-import { hasTenantAccess } from '../utils/meDashboardTenantScope.js';
 import {
   listAffiliatedProgramOrganizations,
   resolveSkillBuildersProgramOrganizationId,
@@ -30,7 +29,7 @@ import {
 } from '../services/skillBuilderAvailabilityBlocks.service.js';
 import { computeSkillBuilderProgramCreditMinutesPerWeek } from '../services/skillBuilderProgramCredit.service.js';
 import { loadCompanyEventDirectoryCounts, loadCompanyEventDirectoryStaff } from '../services/companyEventDirectoryCounts.service.js';
-import { isUserAssignedToCompanyEvent } from '../services/companyEventAccess.service.js';
+import { isUserAssignedToCompanyEvent, isUserAssignedToAnyCompanyEventInAgency } from '../services/companyEventAccess.service.js';
 import { fetchMyEventPortalWorkSchedule } from '../services/eventPortalWorkSchedule.service.js';
 import {
   fetchCompanyEventDetailForEdit,
@@ -279,9 +278,7 @@ async function mergeCanonicalSkillsGroupWindowForEditFetch(agencyId, eventId, bu
 
 async function userHasAgencyAccess(req, agencyId) {
   if (!agencyId) return false;
-  // Use the strict tenant-scoped check from meDashboardTenantScope for consistency across new tenants
-  // (prevents over-access; super_admin/admin/support get full tenant tree, others limited to membership)
-  return await hasTenantAccess(req, agencyId);
+  return userHasAgencyOrAffiliatedOrgAccessForRequest(req, agencyId);
 }
 
 /** Admin / staff / support with membership in this agency (plus super_admin). */
@@ -472,8 +469,14 @@ export const listMyAssignedSkillBuilderEvents = async (req, res, next) => {
          SELECT cesp.provider_user_id
          FROM company_event_session_providers cesp
          WHERE cesp.agency_id = ? AND cesp.provider_user_id = ?
+         UNION
+         SELECT p.provider_user_id
+         FROM skill_builders_event_session_providers p
+         INNER JOIN skill_builders_event_sessions s ON s.id = p.session_id
+         INNER JOIN company_events ce ON ce.id = s.company_event_id AND ce.agency_id = ?
+         WHERE p.provider_user_id = ?
        ) roster LIMIT 1`,
-      [agencyId, userId, agencyId, userId, agencyId, userId]
+      [agencyId, userId, agencyId, userId, agencyId, userId, agencyId, userId]
     ).catch(() => [[]]);
     const hasAssignment = !!assignedProbe?.[0]?.ok;
     if (!coord && !elig && !hasAssignment) {
@@ -501,6 +504,12 @@ export const listMyAssignedSkillBuilderEvents = async (req, res, next) => {
          SELECT DISTINCT cesp.company_event_id AS event_id
          FROM company_event_session_providers cesp
          WHERE cesp.agency_id = ? AND cesp.provider_user_id = ?
+         UNION
+         SELECT DISTINCT s.company_event_id AS event_id
+         FROM skill_builders_event_session_providers p
+         INNER JOIN skill_builders_event_sessions s ON s.id = p.session_id
+         INNER JOIN company_events ce1 ON ce1.id = s.company_event_id AND ce1.agency_id = ?
+         WHERE p.provider_user_id = ?
        ) assigned
        INNER JOIN company_events ce ON ce.id = assigned.event_id AND ce.agency_id = ?
        LEFT JOIN skills_groups sg ON sg.company_event_id = ce.id AND sg.agency_id = ce.agency_id
@@ -509,7 +518,7 @@ export const listMyAssignedSkillBuilderEvents = async (req, res, next) => {
        WHERE (ce.is_active = TRUE OR ce.is_active IS NULL)
        ORDER BY ce.starts_at DESC, ce.id DESC
        LIMIT 200`,
-      [agencyId, userId, agencyId, userId, agencyId, userId, agencyId]
+      [agencyId, userId, agencyId, userId, agencyId, userId, agencyId, userId, agencyId]
     ).catch(async () => {
       const [fallback] = await pool.execute(
         `SELECT ce.*,
@@ -1054,6 +1063,12 @@ async function assertEventAccess({ req, agencyId, eventId }) {
     return { error: { status: 404, message: 'Event not found' } };
   }
 
+  // Assigned facilitators/providers get portal access for this event even without
+  // coordinator flag or broad agency membership (program staffing is enough).
+  if (userId && (await isUserAssignedToCompanyEvent(userId, eid, billingAgencyId))) {
+    return { ok: true, row: ev };
+  }
+
   if (!(await userHasAgencyAccess(req, billingAgencyId))) {
     return { error: { status: 403, message: 'Not authorized for this agency' } };
   }
@@ -1066,10 +1081,6 @@ async function assertEventAccess({ req, agencyId, eventId }) {
   }
   const coord = await getSkillBuilderCoordinatorAccess(userId);
   if (coord && Number(ev.agency_id) === billingAgencyId) return { ok: true, row: ev };
-
-  if (await isUserAssignedToCompanyEvent(userId, eid, billingAgencyId)) {
-    return { ok: true, row: ev };
-  }
 
   return { error: { status: 403, message: 'Not assigned to this event' } };
 }
@@ -1201,7 +1212,8 @@ export const listSkillBuildersEventsDirectory = async (req, res, next) => {
     const agencyId = parsePositiveInt(req.query.agencyId);
     const userId = parsePositiveInt(req.user?.id);
     if (!agencyId || !userId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    if (!(await userHasAgencyAccess(req, agencyId))) {
+    const hasEventAssignment = await isUserAssignedToAnyCompanyEventInAgency(userId, agencyId);
+    if (!(await userHasAgencyAccess(req, agencyId)) && !hasEventAssignment) {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
 
@@ -1247,7 +1259,7 @@ export const listSkillBuildersEventsDirectory = async (req, res, next) => {
         [agencyId, agencyId]
       );
       rows = r || [];
-    } else if (eligible) {
+    } else if (eligible || hasEventAssignment) {
       const [r] = await pool.execute(
         `SELECT ce.id,
                 ce.title,
@@ -1261,24 +1273,60 @@ export const listSkillBuildersEventsDirectory = async (req, res, next) => {
                 sch.logo_url AS school_logo_url,
                 sch.logo_path AS school_logo_path,
                 LOWER(TRIM(prog.slug)) AS program_portal_slug
-         FROM skills_group_providers sgp
-         INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id AND sg.agency_id = ?
-         INNER JOIN company_events ce ON ce.id = sg.company_event_id AND ce.agency_id = sg.agency_id
-         INNER JOIN agencies sch ON sch.id = sg.organization_id
+         FROM (
+           SELECT DISTINCT sg.company_event_id AS event_id
+           FROM skills_group_providers sgp
+           INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id AND sg.agency_id = ?
+           WHERE sgp.provider_user_id = ?
+           UNION
+           SELECT DISTINCT cepa.company_event_id AS event_id
+           FROM company_event_provider_assignments cepa
+           INNER JOIN company_events ce0 ON ce0.id = cepa.company_event_id AND ce0.agency_id = ?
+           WHERE cepa.provider_user_id = ?
+           UNION
+           SELECT DISTINCT cesp.company_event_id AS event_id
+           FROM company_event_session_providers cesp
+           WHERE cesp.agency_id = ? AND cesp.provider_user_id = ?
+           UNION
+           SELECT DISTINCT s.company_event_id AS event_id
+           FROM skill_builders_event_session_providers p
+           INNER JOIN skill_builders_event_sessions s ON s.id = p.session_id
+           INNER JOIN company_events ce1 ON ce1.id = s.company_event_id AND ce1.agency_id = ?
+           WHERE p.provider_user_id = ?
+         ) assigned
+         INNER JOIN company_events ce ON ce.id = assigned.event_id AND ce.agency_id = ?
+         LEFT JOIN skills_groups sg ON sg.company_event_id = ce.id AND sg.agency_id = ce.agency_id
+         LEFT JOIN agencies sch ON sch.id = sg.organization_id
          LEFT JOIN agencies prog ON prog.id = ce.organization_id
-         WHERE sgp.provider_user_id = ?
-           AND ce.organization_id IN (
-             SELECT oa.organization_id
-             FROM organization_affiliations oa
-             INNER JOIN agencies ch ON ch.id = oa.organization_id
-             WHERE oa.agency_id = ?
-               AND oa.is_active = TRUE
-               AND LOWER(COALESCE(ch.organization_type, '')) = 'program'
-           )
          ORDER BY (ce.ends_at < NOW()) ASC, ce.ends_at DESC, ce.id DESC
          LIMIT 300`,
-        [agencyId, userId, agencyId]
-      );
+        [agencyId, userId, agencyId, userId, agencyId, userId, agencyId, userId, agencyId]
+      ).catch(async () => {
+        const [fallback] = await pool.execute(
+          `SELECT ce.id,
+                  ce.title,
+                  ce.starts_at,
+                  ce.ends_at,
+                  ce.is_active,
+                  sg.id AS skills_group_id,
+                  sg.name AS skills_group_name,
+                  sg.organization_id AS school_organization_id,
+                  sch.name AS school_name,
+                  sch.logo_url AS school_logo_url,
+                  sch.logo_path AS school_logo_path,
+                  LOWER(TRIM(prog.slug)) AS program_portal_slug
+           FROM skills_group_providers sgp
+           INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id AND sg.agency_id = ?
+           INNER JOIN company_events ce ON ce.id = sg.company_event_id AND ce.agency_id = sg.agency_id
+           INNER JOIN agencies sch ON sch.id = sg.organization_id
+           LEFT JOIN agencies prog ON prog.id = ce.organization_id
+           WHERE sgp.provider_user_id = ?
+           ORDER BY (ce.ends_at < NOW()) ASC, ce.ends_at DESC, ce.id DESC
+           LIMIT 300`,
+          [agencyId, userId]
+        );
+        return fallback;
+      });
       rows = r || [];
     } else {
       return res.status(403).json({ error: { message: 'Skill Builders access required' } });

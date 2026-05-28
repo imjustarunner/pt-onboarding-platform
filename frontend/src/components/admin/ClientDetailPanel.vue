@@ -1964,7 +1964,7 @@
                 <p class="hint" style="margin: 0 0 14px;">
                   Move this client from
                   <strong>{{ switchRegistrationSourceTitle }}</strong>
-                  to another session in the same program. Intake and workflow progress can be kept.
+                  to another event or program in this agency. Intake and workflow progress can be kept when applicable.
                 </p>
                 <div v-if="switchRegistrationLoading" class="hint">Loading available events…</div>
                 <div v-else-if="switchRegistrationError" class="error" style="text-align:left;">{{ switchRegistrationError }}</div>
@@ -1977,9 +1977,17 @@
                     style="width: 100%; margin-bottom: 12px;"
                   >
                     <option value="">Select an event…</option>
-                    <option v-for="opt in switchRegistrationOptions" :key="`sw-${opt.id}`" :value="String(opt.id)">
-                      {{ switchRegistrationOptionLabel(opt) }}
-                    </option>
+                    <template v-for="group in switchRegistrationGroupedOptions" :key="`sw-grp-${group.programName}`">
+                      <optgroup :label="group.programName">
+                        <option
+                          v-for="opt in group.events"
+                          :key="`sw-${opt.id}`"
+                          :value="String(opt.id)"
+                        >
+                          {{ switchRegistrationOptionLabel(opt) }}
+                        </option>
+                      </optgroup>
+                    </template>
                   </select>
                   <label class="check-left" style="display:flex; align-items:center; gap:8px; margin-bottom: 14px;">
                     <input v-model="switchRegistrationPreserveWorkflow" type="checkbox" />
@@ -2899,9 +2907,20 @@ const switchRegistrationSaving = ref(false);
 const switchRegistrationError = ref('');
 const switchRegistrationSourceEventId = ref(0);
 const switchRegistrationSourceTitle = ref('');
+const switchRegistrationSourceProgramId = ref(null);
 const switchRegistrationTargetId = ref('');
 const switchRegistrationPreserveWorkflow = ref(true);
 const switchRegistrationOptions = ref([]);
+
+const switchRegistrationGroupedOptions = computed(() => {
+  const groups = new Map();
+  for (const opt of switchRegistrationOptions.value || []) {
+    const label = String(opt?.programName || '').trim() || 'Other programs';
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label).push(opt);
+  }
+  return [...groups.entries()].map(([programName, events]) => ({ programName, events }));
+});
 const providerOptions = ref([]);
 const addProviderUserId = ref('');
 const addProviderDay = ref('');
@@ -4208,11 +4227,13 @@ function switchRegistrationOptionLabel(opt) {
   const b = opt?.endsAt ? new Date(opt.endsAt) : null;
   const validA = a && Number.isFinite(a.getTime());
   const validB = b && Number.isFinite(b.getTime());
+  let datePart = '';
   if (validA && validB) {
-    return `${title} (${a.toLocaleDateString()} – ${b.toLocaleDateString()})`;
+    datePart = `${a.toLocaleDateString()} – ${b.toLocaleDateString()}`;
+  } else if (validA) {
+    datePart = a.toLocaleDateString();
   }
-  if (validA) return `${title} (${a.toLocaleDateString()})`;
-  return title;
+  return datePart ? `${title} (${datePart})` : title;
 }
 
 function closeSwitchRegistration() {
@@ -4222,6 +4243,7 @@ function closeSwitchRegistration() {
   switchRegistrationError.value = '';
   switchRegistrationSourceEventId.value = 0;
   switchRegistrationSourceTitle.value = '';
+  switchRegistrationSourceProgramId.value = null;
   switchRegistrationTargetId.value = '';
   switchRegistrationPreserveWorkflow.value = true;
   switchRegistrationOptions.value = [];
@@ -4239,6 +4261,7 @@ async function openSwitchRegistration(ev) {
   }
   switchRegistrationSourceEventId.value = fromId;
   switchRegistrationSourceTitle.value = eventAssignmentTitle(ev);
+  switchRegistrationSourceProgramId.value = Number(ev?.organization_id || 0) || null;
   switchRegistrationTargetId.value = '';
   switchRegistrationPreserveWorkflow.value = true;
   switchRegistrationOptions.value = [];
@@ -4250,9 +4273,11 @@ async function openSwitchRegistration(ev) {
       params: { agencyId, fromCompanyEventId: fromId },
       skipGlobalLoading: true
     });
+    switchRegistrationSourceProgramId.value =
+      Number(r.data?.fromEvent?.organizationId || switchRegistrationSourceProgramId.value || 0) || null;
     switchRegistrationOptions.value = Array.isArray(r.data?.events) ? r.data.events : [];
     if (!switchRegistrationOptions.value.length) {
-      switchRegistrationError.value = 'No other upcoming events found in this program.';
+      switchRegistrationError.value = 'No other events found in this agency.';
     }
   } catch (e) {
     switchRegistrationError.value = e.response?.data?.error?.message || 'Failed to load events';
@@ -4269,8 +4294,18 @@ async function submitSwitchRegistration() {
   if (!fromId || !toId || !agencyId) return;
   const target = switchRegistrationOptions.value.find((o) => Number(o.id) === toId);
   const targetTitle = target ? String(target.title || '').trim() : `event ${toId}`;
+  const crossProgram =
+    switchRegistrationSourceProgramId.value &&
+    target?.organizationId &&
+    Number(switchRegistrationSourceProgramId.value) !== Number(target.organizationId);
+  const programNote =
+    crossProgram && target?.programName
+      ? `\n\nThis also moves them to the "${target.programName}" program.`
+      : crossProgram
+        ? '\n\nThis also moves them to a different program.'
+        : '';
   const ok = window.confirm(
-    `Move this client from "${switchRegistrationSourceTitle.value}" to "${targetTitle}"?`
+    `Move this client from "${switchRegistrationSourceTitle.value}" to "${targetTitle}"?${programNote}`
   );
   if (!ok) return;
   switchRegistrationSaving.value = true;

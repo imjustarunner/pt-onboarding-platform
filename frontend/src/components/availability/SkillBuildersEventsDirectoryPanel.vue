@@ -268,13 +268,6 @@ function openPortal(eventOrId) {
   }
   if (!Number.isFinite(id) || id <= 0) return;
 
-  // Non-SB events (company/staff/program events without a skills group) are managed
-  // in the Programs & Events page itself — not the Skill Builders portal.
-  if (ev && !isSkillsBuildersEvent(ev)) {
-    emit('openCompanyEvent', { id, agencyId: props.agencyId });
-    return;
-  }
-
   const slugFromEvent = ev ? String(ev.programPortalSlug || '').trim().toLowerCase() : '';
   const slug = slugFromEvent || orgSlug();
   if (!slug) return;

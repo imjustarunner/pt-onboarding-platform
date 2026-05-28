@@ -41,6 +41,101 @@ function formatGroupAssignmentLabel(assignment) {
   return parts.join(' · ');
 }
 
+function isTruthyDbFlag(v) {
+  return v === true || v === 1 || v === '1';
+}
+
+function mapClientSearchRow(r) {
+  const intakeReady = isTruthyDbFlag(r.skill_builders_intake_complete);
+  const tpReady = isTruthyDbFlag(r.skill_builders_treatment_plan_complete);
+  const docStatus = String(r.documentStatus || r.document_status || '').trim().toUpperCase();
+  const docsComplete = ['COMPLETE', 'COMPLETED', 'UPLOADED', 'RECEIVED', 'APPROVED'].includes(docStatus);
+  return {
+    clientId: Number(r.clientId),
+    initials: r.initials || null,
+    fullName: r.fullName || null,
+    identifierCode: r.identifierCode || null,
+    documentStatus: r.documentStatus || r.document_status || null,
+    programAffiliated: !!(r.programAffiliated === 1 || r.programAffiliated === true),
+    intakeReady,
+    treatmentPlanReady: tpReady,
+    readyForParticipant: tpReady || (intakeReady && docsComplete),
+    suggestedRegisterAsParticipant: tpReady || (intakeReady && docsComplete)
+  };
+}
+
+async function loadClientEnrollmentHints(clientId, agencyId) {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT skill_builders_intake_complete,
+              skill_builders_treatment_plan_complete,
+              document_status
+       FROM clients
+       WHERE id = ? AND agency_id = ?
+       LIMIT 1`,
+      [clientId, agencyId]
+    );
+    return rows?.[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveEnrollmentWorkflow({ clientRow, registerAsParticipant = false }) {
+  const intakeReady = isTruthyDbFlag(clientRow?.skill_builders_intake_complete);
+  const tpReady = isTruthyDbFlag(clientRow?.skill_builders_treatment_plan_complete);
+  const docStatus = String(clientRow?.document_status || '').trim().toUpperCase();
+  const docsComplete = ['COMPLETE', 'COMPLETED', 'UPLOADED', 'RECEIVED', 'APPROVED'].includes(docStatus);
+  const asParticipant = !!registerAsParticipant || tpReady || (intakeReady && docsComplete);
+  const intakeComplete = asParticipant || intakeReady;
+  return {
+    intakeComplete,
+    intakeOutcome: intakeComplete ? 'accepted' : null,
+    treatmentPlanComplete: asParticipant
+  };
+}
+
+async function applyEnrollmentWorkflow({ eventId, agencyId, clientId, actorUserId, workflow }) {
+  const uid = parsePositiveInt(actorUserId);
+  try {
+    await pool.execute(
+      `UPDATE company_event_clients
+       SET intake_complete = ?,
+           intake_outcome = ?,
+           intake_completed_at = CASE WHEN ? = 1 THEN COALESCE(intake_completed_at, NOW()) ELSE NULL END,
+           intake_completed_by_user_id = CASE WHEN ? = 1 THEN COALESCE(intake_completed_by_user_id, ?) ELSE NULL END,
+           treatment_plan_complete = ?,
+           treatment_plan_completed_at = CASE WHEN ? = 1 THEN COALESCE(treatment_plan_completed_at, NOW()) ELSE NULL END,
+           treatment_plan_completed_by_user_id = CASE WHEN ? = 1 THEN COALESCE(treatment_plan_completed_by_user_id, ?) ELSE NULL END
+       WHERE company_event_id = ? AND agency_id = ? AND client_id = ?`,
+      [
+        workflow.intakeComplete ? 1 : 0,
+        workflow.intakeOutcome,
+        workflow.intakeComplete ? 1 : 0,
+        workflow.intakeComplete ? 1 : 0,
+        uid,
+        workflow.treatmentPlanComplete ? 1 : 0,
+        workflow.treatmentPlanComplete ? 1 : 0,
+        workflow.treatmentPlanComplete ? 1 : 0,
+        uid,
+        eventId,
+        agencyId,
+        clientId
+      ]
+    );
+    await syncClientStatusForEvent({
+      clientId,
+      agencyId,
+      intakeOutcome: workflow.intakeOutcome,
+      treatmentPlanComplete: workflow.treatmentPlanComplete,
+      actorUserId: uid
+    });
+  } catch (e) {
+    const msg = String(e?.message || '');
+    if (!msg.includes('Unknown column') && !msg.includes('intake_complete')) throw e;
+  }
+}
+
 async function loadGroupAssignmentsByClientId(eventId, agencyId) {
   const map = new Map();
   if (!eventId || !agencyId) return map;
@@ -415,7 +510,10 @@ export const searchCompanyEventClients = async (req, res, next) => {
     const event = await loadEventForAgency(eventId, agencyId);
     if (!event) return res.status(404).json({ error: { message: 'Event not found' } });
 
+    const programOrgId = Number(event.organization_id) > 0 ? Number(event.organization_id) : 0;
+
     let searchClause = '';
+    const searchParams = [];
     if (q) {
       searchClause = `
         AND (
@@ -425,16 +523,7 @@ export const searchCompanyEventClients = async (req, res, next) => {
           OR CAST(c.id AS CHAR) = ?
         )
       `;
-    }
-
-    let affiliationJoin = '';
-    if (Number(event.organization_id) > 0) {
-      affiliationJoin = `
-        INNER JOIN client_organization_assignments coa
-          ON coa.client_id = c.id
-         AND coa.organization_id = ?
-         AND coa.is_active = TRUE
-      `;
+      searchParams.push(`%${q}%`, `%${q}%`, `%${q}%`, q);
     }
 
     const [rows] = await pool.execute(
@@ -442,29 +531,31 @@ export const searchCompanyEventClients = async (req, res, next) => {
          c.id AS clientId,
          c.initials,
          c.full_name AS fullName,
-         c.identifier_code AS identifierCode
+         c.identifier_code AS identifierCode,
+         c.document_status AS documentStatus,
+         c.skill_builders_intake_complete,
+         c.skill_builders_treatment_plan_complete,
+         (coa.client_id IS NOT NULL) AS programAffiliated
        FROM clients c
-       ${affiliationJoin}
+       LEFT JOIN client_organization_assignments coa
+         ON coa.client_id = c.id
+        AND coa.organization_id = ?
+        AND coa.is_active = TRUE
        LEFT JOIN company_event_clients cec
          ON cec.company_event_id = ? AND cec.agency_id = ? AND cec.client_id = c.id
        WHERE c.agency_id = ?
+         AND (c.status IS NULL OR UPPER(c.status) NOT IN ('ARCHIVED', 'INACTIVE'))
          AND cec.client_id IS NULL
          ${searchClause}
-       ORDER BY COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code, CONCAT('Client ', c.id)) ASC
+       ORDER BY programAffiliated DESC,
+                COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code, CONCAT('Client ', c.id)) ASC
        LIMIT 60`,
-      Number(event.organization_id) > 0
-        ? [Number(event.organization_id), eventId, agencyId, agencyId, ...(q ? [`%${q}%`, `%${q}%`, `%${q}%`, q] : [])]
-        : [eventId, agencyId, agencyId, ...(q ? [`%${q}%`, `%${q}%`, `%${q}%`, q] : [])]
+      [programOrgId || 0, eventId, agencyId, agencyId, ...searchParams]
     );
 
     res.json({
       ok: true,
-      clients: (rows || []).map((r) => ({
-        clientId: Number(r.clientId),
-        initials: r.initials || null,
-        fullName: r.fullName || null,
-        identifierCode: r.identifierCode || null
-      }))
+      clients: (rows || []).map(mapClientSearchRow)
     });
   } catch (e) {
     next(e);
@@ -488,15 +579,29 @@ export const addCompanyEventClient = async (req, res, next) => {
     const affiliation = await ensureClientAgencyProgramAffiliation(clientId, agencyId, event.organization_id);
     if (!affiliation.ok) return res.status(400).json({ error: { message: affiliation.message } });
 
+    const registerAsParticipant =
+      req.body?.registerAsParticipant === true || req.body?.registerAsParticipant === 'true';
+    const clientRow = await loadClientEnrollmentHints(clientId, agencyId);
+    const workflow = resolveEnrollmentWorkflow({ clientRow, registerAsParticipant });
+    const actorUserId = parsePositiveInt(req.user?.id);
+
     await pool.execute(
       `INSERT INTO company_event_clients
         (company_event_id, agency_id, client_id, enrolled_by_user_id, is_active)
        VALUES (?, ?, ?, ?, TRUE)
        ON DUPLICATE KEY UPDATE is_active = TRUE, enrolled_by_user_id = VALUES(enrolled_by_user_id)`,
-      [eventId, agencyId, clientId, parsePositiveInt(req.user?.id)]
+      [eventId, agencyId, clientId, actorUserId]
     );
 
-    res.json({ ok: true, eventId, clientId });
+    await applyEnrollmentWorkflow({ eventId, agencyId, clientId, actorUserId, workflow });
+
+    res.json({
+      ok: true,
+      eventId,
+      clientId,
+      registeredAsParticipant: workflow.treatmentPlanComplete,
+      intakeComplete: workflow.intakeComplete
+    });
   } catch (e) {
     next(e);
   }

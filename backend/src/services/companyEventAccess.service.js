@@ -74,7 +74,61 @@ export async function isUserAssignedToCompanyEvent(userId, eventId, agencyId = n
        WHERE company_event_id = ? AND provider_user_id = ?
        LIMIT 1`;
   const [csp] = await pool.execute(sessionSql, sessionParams).catch(() => [[]]);
-  return !!csp?.[0]?.ok;
+  if (csp?.[0]?.ok) return true;
+
+  try {
+    const [sbsp] = await pool.execute(
+      `SELECT 1 AS ok
+       FROM skill_builders_event_session_providers p
+       INNER JOIN skill_builders_event_sessions s ON s.id = p.session_id
+       WHERE s.company_event_id = ? AND p.provider_user_id = ?
+       LIMIT 1`,
+      [eid, uid]
+    );
+    if (sbsp?.[0]?.ok) return true;
+  } catch {
+    // optional table
+  }
+
+  return false;
+}
+
+/** True when the user has any staffing row on a company event in this agency. */
+export async function isUserAssignedToAnyCompanyEventInAgency(userId, agencyId) {
+  const uid = parsePositiveInt(userId);
+  const aid = parsePositiveInt(agencyId);
+  if (!uid || !aid) return false;
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 AS ok FROM (
+         SELECT sgp.provider_user_id
+         FROM skills_group_providers sgp
+         INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id AND sg.agency_id = ?
+         WHERE sgp.provider_user_id = ?
+         UNION
+         SELECT cepa.provider_user_id
+         FROM company_event_provider_assignments cepa
+         INNER JOIN company_events ce ON ce.id = cepa.company_event_id AND ce.agency_id = ?
+         WHERE cepa.provider_user_id = ?
+         UNION
+         SELECT cesp.provider_user_id
+         FROM company_event_session_providers cesp
+         WHERE cesp.agency_id = ? AND cesp.provider_user_id = ?
+         UNION
+         SELECT p.provider_user_id
+         FROM skill_builders_event_session_providers p
+         INNER JOIN skill_builders_event_sessions s ON s.id = p.session_id
+         INNER JOIN company_events ce ON ce.id = s.company_event_id AND ce.agency_id = ?
+         WHERE p.provider_user_id = ?
+       ) assigned
+       LIMIT 1`,
+      [aid, uid, aid, uid, aid, uid, aid, uid]
+    );
+    return !!rows?.[0]?.ok;
+  } catch {
+    return false;
+  }
 }
 
 /** School portal parent events with optional outreach table staffing. */
@@ -97,7 +151,11 @@ export async function isSchoolOutreachEvent(eventId) {
 
 /** Read-only event portal access: coordinators/staff or anyone assigned to the event. */
 export async function canViewProgramEvent(req, agencyId, eventId) {
+  const uid = parsePositiveInt(req.user?.id);
+  const eid = parsePositiveInt(eventId);
+  const aid = parsePositiveInt(agencyId);
+  if (uid && eid && (await isUserAssignedToCompanyEvent(uid, eid, aid))) return true;
   if (!(await userHasAgencyAccessForRequest(req, agencyId))) return false;
   if (await canManageProgramEvent(req, agencyId)) return true;
-  return isUserAssignedToCompanyEvent(parsePositiveInt(req.user?.id), eventId, agencyId);
+  return false;
 }

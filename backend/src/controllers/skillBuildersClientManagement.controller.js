@@ -73,6 +73,9 @@ async function assertEventAccessForUser({ req, agencyId, eventId }) {
   );
   const ev = evRows?.[0];
   if (!ev) return { error: { status: 404, message: 'Event not found' } };
+  if (userId && (await isUserAssignedToCompanyEvent(userId, eventId, agencyId))) {
+    return { ok: true, row: ev };
+  }
   if (!(await userHasAgencyAccess(req, agencyId))) {
     return { error: { status: 403, message: 'Not authorized for this agency' } };
   }
@@ -90,9 +93,6 @@ async function assertEventAccessForUser({ req, agencyId, eventId }) {
     [eventId, userId]
   );
   if (sgp?.[0]) return { ok: true, row: ev };
-  if (await isUserAssignedToCompanyEvent(userId, eventId, agencyId)) {
-    return { ok: true, row: ev };
-  }
   return { error: { status: 403, message: 'Not assigned to this event' } };
 }
 
