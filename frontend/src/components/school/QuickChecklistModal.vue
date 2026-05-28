@@ -52,14 +52,16 @@
               </div>
 
               <div v-if="form.continuation.schoolChoice === 'current_school'" class="nested-fields">
-                <label class="choice-card">
-                  <input v-model="form.continuation.currentSchoolAction" type="radio" value="continuing_with_me" />
-                  <span class="choice-card-label">Continuing with me</span>
-                </label>
-                <label class="choice-card">
-                  <input v-model="form.continuation.currentSchoolAction" type="radio" value="requesting_transfer" />
-                  <span class="choice-card-label">Requesting transfer</span>
-                </label>
+                <div class="choice-row">
+                  <label class="choice-card">
+                    <input v-model="form.continuation.currentSchoolAction" type="radio" value="continuing_with_me" />
+                    <span class="choice-card-label">Continuing with me</span>
+                  </label>
+                  <label class="choice-card">
+                    <input v-model="form.continuation.currentSchoolAction" type="radio" value="requesting_transfer" />
+                    <span class="choice-card-label">Requesting transfer</span>
+                  </label>
+                </div>
               </div>
 
               <div v-if="form.continuation.schoolChoice === 'new_school'" class="nested-fields">
@@ -105,6 +107,7 @@
             </div>
 
             <div v-if="form.continuation.plan === 'not_continue_school'" class="nested-fields">
+              <div class="choice-row">
               <label class="choice-card">
                 <input
                   v-model="form.continuation.notContinuingAction"
@@ -121,6 +124,7 @@
                 />
                 <span class="choice-card-label">Continuing as an in-office/virtual client</span>
               </label>
+              </div>
             </div>
 
             <div
@@ -426,30 +430,46 @@ watch(
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
-.choice-card {
+.continuation-section label.choice-card {
   display: flex !important;
+  flex-direction: row !important;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
   margin: 0 !important;
-  padding: 10px;
+  margin-bottom: 0 !important;
+  padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #fff;
   color: #1d2633 !important;
   font-size: 13px !important;
   font-weight: 700 !important;
-  line-height: 1.3;
+  line-height: 1.35;
   cursor: pointer;
+  width: 100%;
+  box-sizing: border-box;
 }
 .choice-card-label {
+  flex: 1;
+  min-width: 0;
   color: #1d2633;
   font-size: 13px;
   font-weight: 700;
-  line-height: 1.3;
+  line-height: 1.35;
 }
-.choice-card input {
-  margin-top: 2px;
-  flex-shrink: 0;
+.continuation-section label.choice-card input[type='radio'] {
+  width: 18px !important;
+  min-width: 18px !important;
+  height: 18px !important;
+  margin: 1px 0 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  flex: 0 0 18px;
+  align-self: flex-start;
+  accent-color: var(--primary, #c69a2b);
 }
 .sub-prompt-overlay {
   position: relative;

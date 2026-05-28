@@ -6876,29 +6876,46 @@ watch(
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
-.cont-choice-card {
-  display: flex;
+.continuation-checklist-section label.cont-choice-card {
+  display: flex !important;
+  flex-direction: row !important;
   align-items: flex-start;
-  gap: 8px;
-  padding: 10px;
+  gap: 10px;
+  margin: 0 !important;
+  margin-bottom: 0 !important;
+  padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #fff;
   font-size: 13px;
   font-weight: 700;
-  line-height: 1.3;
+  line-height: 1.35;
   color: #1d2633;
   cursor: pointer;
+  width: 100%;
+  box-sizing: border-box;
 }
 .cont-choice-card-label {
+  flex: 1;
+  min-width: 0;
   color: #1d2633;
   font-size: 13px;
   font-weight: 700;
-  line-height: 1.3;
+  line-height: 1.35;
 }
-.cont-choice-card input {
-  margin-top: 2px;
-  flex-shrink: 0;
+.continuation-checklist-section label.cont-choice-card input[type='radio'] {
+  width: 18px !important;
+  min-width: 18px !important;
+  height: 18px !important;
+  margin: 1px 0 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  flex: 0 0 18px;
+  align-self: flex-start;
+  accent-color: var(--primary, #c69a2b);
 }
 .cont-sub-prompt {
   margin-top: 10px;
