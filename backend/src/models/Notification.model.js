@@ -73,6 +73,7 @@ class Notification {
     'office_schedule_unbooked_forfeit',
     'office_schedule_booked_no_external_calendar_2_weeks',
     'office_schedule_booked_reverted_no_tn',
+    'office_schedule_slot_rescheduled',
     // Supervision tracking
     'supervision_individual_50_reached',
     'supervision_total_100_reached',

@@ -280,6 +280,7 @@
     <div v-if="showModal" class="modal-overlay" @click="closeModal">
       <div class="modal" @click.stop>
         <h3 style="margin-top: 0;">Slot</h3>
+        <div v-if="error" class="error-box" style="margin-bottom: 10px;">{{ error }}</div>
         <div class="muted" style="margin-bottom: 10px;">
           {{ modalSlot ? `${modalSlot.date} ${formatHour(modalSlot.hour)} — ${modalSlot.state}` : '' }}
         </div>
@@ -369,6 +370,59 @@
               >
                 Assign
               </button>
+            </div>
+
+            <div v-if="assignConflict" class="assign-conflict card">
+              <div class="assign-conflict-title">Slot conflict</div>
+              <p class="assign-conflict-message">{{ assignConflict.message }}</p>
+              <div class="assign-conflict-details">
+                <div><strong>Assigned to:</strong> {{ assignConflict.conflict?.providerName || 'Unknown' }}</div>
+                <div><strong>When:</strong> {{ assignConflict.conflict?.weekdayLabel }} {{ assignConflict.conflict?.hourLabel }}</div>
+                <div><strong>Room:</strong> {{ assignConflict.conflict?.roomLabel }}</div>
+                <div><strong>Recurrence:</strong> {{ (assignConflict.conflict?.assignedFrequency || 'weekly').toLowerCase() }}</div>
+                <div v-if="assignConflict.conflict?.isBooked">
+                  <strong>Status:</strong> Booked<span v-if="assignConflict.conflict?.clientName"> for {{ assignConflict.conflict.clientName }}</span>
+                </div>
+                <div v-else-if="assignConflict.conflict?.hasActiveBookingPlan">
+                  <strong>Status:</strong> Has {{ (assignConflict.conflict?.bookedFrequency || 'recurring').toLowerCase() }} booking plan (not booked on next occurrence)
+                </div>
+                <div v-else><strong>Status:</strong> Assigned available</div>
+              </div>
+
+              <div class="assign-conflict-reschedule">
+                <div class="section-title" style="margin-top: 0;">Reschedule existing provider</div>
+                <div class="muted" style="margin-bottom: 8px;">
+                  Move {{ assignConflict.conflict?.providerName || 'this provider' }} to another recurring slot, then retry your assignment.
+                </div>
+                <div class="row">
+                  <label style="font-weight: 700;">Room</label>
+                  <select v-model.number="rescheduleRoomId" class="select" :disabled="saving">
+                    <option v-for="r in sortedRooms" :key="`rc-room-${r.id}`" :value="Number(r.id)">
+                      {{ r.label || r.name || `Room ${r.id}` }}
+                    </option>
+                  </select>
+                  <label style="font-weight: 700;">Day</label>
+                  <select v-model.number="rescheduleWeekday" class="select" :disabled="saving">
+                    <option v-for="wd in weekdayOptions" :key="`rc-wd-${wd.value}`" :value="wd.value">{{ wd.label }}</option>
+                  </select>
+                  <label style="font-weight: 700;">Start</label>
+                  <select v-model.number="rescheduleHour" class="select" :disabled="saving">
+                    <option v-for="h in rescheduleHourOptions" :key="`rc-h-${h}`" :value="h">{{ formatHour(h) }}</option>
+                  </select>
+                  <label class="check" style="align-self: center;">
+                    <input type="checkbox" v-model="rescheduleNotifyProvider" :disabled="saving" />
+                    <span>Notify provider</span>
+                  </label>
+                  <button
+                    class="btn btn-secondary"
+                    type="button"
+                    @click="submitRescheduleConflict"
+                    :disabled="saving || !canSubmitRescheduleConflict"
+                  >
+                    {{ saving ? 'Rescheduling…' : 'Reschedule & retry assign' }}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1242,6 +1296,11 @@ const assignRecurrenceFreq = ref('ONCE');
 const assignTemporary4Weeks = ref(false);
 const assignRecurringUntilDate = ref('');
 const assignWeekdays = ref([]);
+const assignConflict = ref(null);
+const rescheduleRoomId = ref(0);
+const rescheduleWeekday = ref(0);
+const rescheduleHour = ref(9);
+const rescheduleNotifyProvider = ref(true);
 const weekdayOptions = [
   { value: 0, label: 'Sun' },
   { value: 1, label: 'Mon' },
@@ -1263,6 +1322,17 @@ const assignEndHourOptions = computed(() => {
   // Grid is 7..21 so end is max 22
   for (let h = start + 1; h <= 22; h++) out.push(h);
   return out;
+});
+const rescheduleHourOptions = computed(() => {
+  const out = [];
+  for (let h = 7; h <= 21; h++) out.push(h);
+  return out;
+});
+const canSubmitRescheduleConflict = computed(() => {
+  const conflict = assignConflict.value?.conflict;
+  if (!conflict?.standingAssignmentId) return false;
+  if (!rescheduleRoomId.value) return false;
+  return true;
 });
 const canAssignSubmit = computed(() => {
   if (!selectedProviderId.value || !modalSlot.value?.roomId) return false;
@@ -1493,6 +1563,7 @@ watch(bookingAppointmentType, (nextType) => {
 const closeModal = () => {
   showModal.value = false;
   modalSlot.value = null;
+  error.value = '';
   bookingMetadataLoading.value = false;
   bookingMetadataError.value = '';
   bookingMetadata.value = { appointmentTypes: [], appointmentSubtypes: [], serviceCodes: [] };
@@ -1512,6 +1583,11 @@ const closeModal = () => {
   assignTemporary4Weeks.value = false;
   assignRecurringUntilDate.value = '';
   assignWeekdays.value = [];
+  assignConflict.value = null;
+  rescheduleRoomId.value = 0;
+  rescheduleWeekday.value = 0;
+  rescheduleHour.value = 9;
+  rescheduleNotifyProvider.value = true;
   editRecurrenceUntil.value = '';
   selectedLearningClientId.value = 0;
   selectedLearningServiceId.value = 0;
@@ -1676,7 +1752,11 @@ const bulkAssignSelected = async () => {
     await loadGrid();
     clearSelection();
   } catch (e) {
-    error.value = e.response?.data?.error?.message || `Assigned ${okCount} slots before an error occurred.`;
+    const errPayload = e.response?.data?.error || {};
+    error.value = errPayload.message || `Assigned ${okCount} slots before an error occurred.`;
+    if (errPayload.code === 'STANDING_SLOT_CONFLICT' && errPayload.conflict) {
+      error.value = `${errPayload.message || 'Slot conflict.'} Assigned ${okCount} slot(s) before the conflict. Open the conflicting slot in the grid to reschedule the existing provider.`;
+    }
   } finally {
     saving.value = false;
   }
@@ -1860,6 +1940,7 @@ const assignOpenSlot = async () => {
   try {
     saving.value = true;
     error.value = '';
+    assignConflict.value = null;
     await api.post(`/office-slots/${officeId.value}/open-slots/assign`, {
       roomId: modalSlot.value.roomId,
       date: modalSlot.value.date,
@@ -1875,7 +1956,61 @@ const assignOpenSlot = async () => {
     await loadGrid();
     closeModal();
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to assign slot';
+    const errPayload = e.response?.data?.error || {};
+    if (errPayload.code === 'STANDING_SLOT_CONFLICT' && errPayload.conflict) {
+      assignConflict.value = {
+        message: errPayload.message || 'That recurring slot is already assigned.',
+        conflict: errPayload.conflict
+      };
+      const c = errPayload.conflict;
+      const conflictWd = Number(c.weekday);
+      const conflictHr = Number(c.hour);
+      const modalWd = weekdayFromYmd(modalSlot.value?.date);
+      const modalHr = Number(modalSlot.value?.hour);
+      let targetWd = Number.isInteger(modalWd) ? modalWd : conflictWd;
+      let targetHr = Number.isFinite(modalHr) ? modalHr : conflictHr;
+      if (targetWd === conflictWd && targetHr === conflictHr) {
+        targetHr = Math.min(21, conflictHr + 1);
+        if (targetHr === conflictHr) targetWd = (conflictWd + 1) % 7;
+      }
+      rescheduleRoomId.value = Number(c.roomId || modalSlot.value?.roomId || 0);
+      rescheduleWeekday.value = targetWd;
+      rescheduleHour.value = targetHr;
+      error.value = '';
+    } else {
+      error.value = errPayload.message || 'Failed to assign slot';
+    }
+  } finally {
+    saving.value = false;
+  }
+};
+
+const submitRescheduleConflict = async () => {
+  const conflict = assignConflict.value?.conflict;
+  if (!officeId.value || !conflict?.standingAssignmentId) return;
+  try {
+    saving.value = true;
+    error.value = '';
+    await api.post(`/office-slots/${officeId.value}/assignments/${conflict.standingAssignmentId}/reschedule`, {
+      newRoomId: rescheduleRoomId.value,
+      newWeekday: rescheduleWeekday.value,
+      newHour: rescheduleHour.value,
+      notifyProvider: rescheduleNotifyProvider.value
+    });
+    assignConflict.value = null;
+    await loadGrid();
+    await assignOpenSlot();
+  } catch (e) {
+    const errPayload = e.response?.data?.error || {};
+    if (errPayload.code === 'STANDING_SLOT_CONFLICT' && errPayload.conflict) {
+      assignConflict.value = {
+        message: errPayload.message || 'The target slot is already assigned.',
+        conflict: errPayload.conflict
+      };
+      error.value = '';
+    } else {
+      error.value = errPayload.message || 'Failed to reschedule existing provider';
+    }
   } finally {
     saving.value = false;
   }
@@ -2821,6 +2956,32 @@ input[type='date'] {
   text-align: center;
   border: 1px solid rgba(217, 119, 6, 0.62);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.16);
+}
+
+.assign-conflict {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid #fecaca;
+  background: #fff7ed;
+}
+.assign-conflict-title {
+  font-weight: 800;
+  color: #9a3412;
+  margin-bottom: 6px;
+}
+.assign-conflict-message {
+  margin: 0 0 10px;
+  color: #7c2d12;
+}
+.assign-conflict-details {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+.assign-conflict-reschedule {
+  border-top: 1px solid #fed7aa;
+  padding-top: 12px;
 }
 
 .modal-overlay {

@@ -93,6 +93,9 @@ class OfficeStandingAssignment {
 
   static async update(id, updates = {}) {
     const allowed = [
+      'room_id',
+      'weekday',
+      'hour',
       'assigned_frequency',
       'availability_mode',
       'temporary_until_date',

@@ -11,6 +11,8 @@ import ProviderInPersonSlotAvailability from '../models/ProviderInPersonSlotAvai
 import User from '../models/User.model.js';
 import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
+import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.service.js';
+import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 import { validateSchedulingSelection } from '../services/schedulingTaxonomy.service.js';
 import { ensureAppointmentContext } from '../services/appointmentContext.service.js';
 import pool from '../config/database.js';
@@ -240,6 +242,144 @@ function uniqueWeekdays(rawWeekdays, fallbackDate) {
 
 function generateRecurrenceGroupId(prefix = 'OFFICE_SET') {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function formatHourLabel(hour) {
+  const h = Number(hour);
+  if (!Number.isFinite(h)) return '';
+  if (h === 0) return '12:00 AM';
+  if (h < 12) return `${h}:00 AM`;
+  if (h === 12) return '12:00 PM';
+  return `${h - 12}:00 PM`;
+}
+
+function formatProviderName(user, fallbackId = null) {
+  if (!user) return fallbackId ? `User #${fallbackId}` : 'Unknown provider';
+  const last = String(user.last_name || '').trim();
+  const first = String(user.first_name || '').trim();
+  const full = [last, first].filter(Boolean).join(', ');
+  return full || `User #${user.id}`;
+}
+
+function formatClientName(row) {
+  if (!row?.client_id) return null;
+  const last = String(row.client_last_name || '').trim();
+  const first = String(row.client_first_name || '').trim();
+  const full = [last, first].filter(Boolean).join(', ');
+  return full || `Client #${row.client_id}`;
+}
+
+async function buildStandingSlotConflictDetail({ officeLocationId, roomId, weekday, hour }) {
+  const existingStanding = await OfficeStandingAssignment.findActiveBySlot({
+    officeLocationId,
+    roomId,
+    weekday,
+    hour
+  });
+  if (!existingStanding?.id) return null;
+
+  const provider = await User.findById(existingStanding.provider_id);
+  const room = await OfficeRoom.findById(roomId);
+  const plan = await OfficeBookingPlan.findActiveByAssignmentId(existingStanding.id);
+
+  const [eventRows] = await pool.execute(
+    `SELECT e.id, e.start_at, e.end_at, e.status, e.slot_state, e.client_id,
+            c.first_name AS client_first_name, c.last_name AS client_last_name
+     FROM office_events e
+     LEFT JOIN clients c ON c.id = e.client_id
+     WHERE e.standing_assignment_id = ?
+       AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+       AND e.start_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+     ORDER BY e.start_at ASC
+     LIMIT 10`,
+    [existingStanding.id]
+  );
+
+  const upcomingEvents = eventRows || [];
+  const bookedEvent = upcomingEvents.find((e) => eventLooksBooked(e)) || null;
+  const nextEvent = upcomingEvents.find((e) => String(e.start_at || '') >= new Date().toISOString().slice(0, 19).replace('T', ' ')) || upcomingEvents[0] || null;
+  const displayEvent = bookedEvent || nextEvent;
+
+  const providerName = formatProviderName(provider, existingStanding.provider_id);
+  const roomLabel = String(room?.label || room?.name || '').trim() || `Room #${roomId}`;
+  const weekdayLabel = WEEKDAY_NAMES[Number(weekday)] || String(weekday);
+  const hourLabel = formatHourLabel(hour);
+  const freq = String(existingStanding.assigned_frequency || 'WEEKLY').toUpperCase();
+  const mode = String(existingStanding.availability_mode || 'AVAILABLE').toUpperCase();
+  const slotState = String(displayEvent?.slot_state || '').toLowerCase() || null;
+  const isBooked = displayEvent ? eventLooksBooked(displayEvent) : false;
+  const clientName = formatClientName(displayEvent);
+
+  let statusLabel = 'assigned available';
+  if (isBooked) statusLabel = clientName ? `booked for ${clientName}` : 'booked';
+  else if (slotState === 'assigned_temporary') statusLabel = 'temporary assignment';
+  else if (plan?.id) statusLabel = `${String(plan.booked_frequency || 'weekly').toLowerCase()} booking plan`;
+
+  const message = `Recurring slot already assigned: ${weekdayLabel} ${hourLabel} in ${roomLabel} — ${providerName} (${freq.toLowerCase()}, ${statusLabel}).`;
+
+  return {
+    message,
+    conflict: {
+      standingAssignmentId: Number(existingStanding.id),
+      providerId: Number(existingStanding.provider_id),
+      providerName,
+      weekday: Number(weekday),
+      weekdayLabel,
+      hour: Number(hour),
+      hourLabel,
+      roomId: Number(roomId),
+      roomLabel,
+      assignedFrequency: freq,
+      availabilityMode: mode,
+      hasActiveBookingPlan: Boolean(plan?.id),
+      bookedFrequency: plan ? String(plan.booked_frequency || '').toUpperCase() : null,
+      slotState,
+      isBooked,
+      clientId: displayEvent?.client_id ? Number(displayEvent.client_id) : null,
+      clientName,
+      nextEventId: displayEvent?.id ? Number(displayEvent.id) : null,
+      nextEventStartAt: displayEvent?.start_at ? String(displayEvent.start_at).slice(0, 19) : null
+    }
+  };
+}
+
+async function cancelFutureEventsForStandingAssignment(standingAssignmentId, fromDateYmd) {
+  const sid = Number(standingAssignmentId || 0);
+  if (!sid) return [];
+  const rangeStart = mysqlDateTimeForDateHour(fromDateYmd, 0) || `${fromDateYmd} 00:00:00`;
+  const [rows] = await pool.execute(
+    `SELECT id
+     FROM office_events
+     WHERE standing_assignment_id = ?
+       AND start_at >= ?
+       AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
+    [sid, rangeStart]
+  );
+  const eventIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+  if (!eventIds.length) return [];
+  await pool.execute(
+    `UPDATE office_events
+     SET status = 'CANCELLED',
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id IN (${eventIds.map(() => '?').join(',')})`,
+    eventIds
+  );
+  await cancelGoogleForOfficeEventIds(eventIds);
+  return eventIds;
+}
+
+async function materializeOfficeWeeks({ officeLocationId, startDateYmd, createdByUserId, weeks = 4 }) {
+  const startWeek = OfficeScheduleMaterializer.startOfWeekISO(startDateYmd);
+  if (!startWeek) return;
+  for (let i = 0; i < weeks; i++) {
+    const weekStart = OfficeScheduleMaterializer.addDays(startWeek, i * 7);
+    // eslint-disable-next-line no-await-in-loop
+    await OfficeScheduleMaterializer.materializeWeek({
+      officeLocationId,
+      weekStartRaw: weekStart,
+      createdByUserId
+    });
+  }
 }
 
 export const setBookingPlan = async (req, res, next) => {
@@ -2192,6 +2332,140 @@ export const forfeitEvent = async (req, res, next) => {
   }
 };
 
+export const rescheduleStandingAssignment = async (req, res, next) => {
+  try {
+    const { officeId, assignmentId } = req.params;
+    const officeLocationId = parseInt(officeId, 10);
+    const sid = parseInt(assignmentId, 10);
+    if (!officeLocationId || !sid) return res.status(400).json({ error: { message: 'Invalid ids' } });
+
+    if (!canManageSchedule(req.user.role)) {
+      return res.status(403).json({ error: { message: 'Only staff/admin can reschedule office slots' } });
+    }
+
+    const ok = await requireOfficeAccess(req, officeLocationId);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const assignment = await OfficeStandingAssignment.findById(sid);
+    if (!assignment || Number(assignment.office_location_id) !== Number(officeLocationId)) {
+      return res.status(404).json({ error: { message: 'Standing assignment not found' } });
+    }
+    if (!assignment.is_active) {
+      return res.status(409).json({ error: { message: 'That standing assignment is no longer active.' } });
+    }
+
+    const newRoomId = parseInt(req.body?.newRoomId ?? req.body?.roomId, 10) || Number(assignment.room_id);
+    const newWeekday = parseInt(req.body?.newWeekday ?? req.body?.weekday, 10);
+    const newHour = parseInt(req.body?.newHour ?? req.body?.hour, 10);
+    const notifyProvider = req.body?.notifyProvider !== false && req.body?.notifyProvider !== 'false';
+    const reason = String(req.body?.reason || req.body?.notes || '').trim().slice(0, 500);
+
+    if (!newRoomId) return res.status(400).json({ error: { message: 'newRoomId is required' } });
+    if (!(Number.isInteger(newWeekday) && newWeekday >= 0 && newWeekday <= 6)) {
+      return res.status(400).json({ error: { message: 'newWeekday must be 0..6' } });
+    }
+    if (!(Number.isInteger(newHour) && newHour >= 0 && newHour <= 23)) {
+      return res.status(400).json({ error: { message: 'newHour must be 0..23' } });
+    }
+
+    const room = await OfficeRoom.findById(newRoomId);
+    if (!room || Number(room.location_id) !== Number(officeLocationId)) {
+      return res.status(404).json({ error: { message: 'Room not found for this office' } });
+    }
+
+    const sameSlot = Number(assignment.room_id) === Number(newRoomId)
+      && Number(assignment.weekday) === Number(newWeekday)
+      && Number(assignment.hour) === Number(newHour);
+    if (!sameSlot) {
+      const targetConflict = await OfficeStandingAssignment.findActiveBySlot({
+        officeLocationId,
+        roomId: newRoomId,
+        weekday: newWeekday,
+        hour: newHour
+      });
+      if (targetConflict?.id && Number(targetConflict.id) !== Number(sid)) {
+        const conflictDetail = await buildStandingSlotConflictDetail({
+          officeLocationId,
+          roomId: newRoomId,
+          weekday: newWeekday,
+          hour: newHour
+        });
+        return res.status(409).json({
+          error: {
+            code: 'STANDING_SLOT_CONFLICT',
+            message: conflictDetail?.message || 'The target slot is already assigned.',
+            conflict: conflictDetail?.conflict || null
+          }
+        });
+      }
+    }
+
+    const oldWeekday = Number(assignment.weekday);
+    const oldHour = Number(assignment.hour);
+    const oldRoomId = Number(assignment.room_id);
+    const providerId = Number(assignment.provider_id);
+    const todayYmd = new Date().toISOString().slice(0, 10);
+
+    const cancelledEventIds = await cancelFutureEventsForStandingAssignment(sid, todayYmd);
+
+    const updated = await OfficeStandingAssignment.update(sid, {
+      room_id: newRoomId,
+      weekday: newWeekday,
+      hour: newHour,
+      last_two_week_confirmed_at: new Date()
+    });
+
+    await materializeOfficeWeeks({
+      officeLocationId,
+      startDateYmd: todayYmd,
+      createdByUserId: req.user.id,
+      weeks: 4
+    });
+
+    const oldRoom = oldRoomId !== newRoomId ? await OfficeRoom.findById(oldRoomId) : room;
+    const oldRoomLabel = String(oldRoom?.label || oldRoom?.name || '').trim() || `Room #${oldRoomId}`;
+    const newRoomLabel = String(room?.label || room?.name || '').trim() || `Room #${newRoomId}`;
+    const oldSlotLabel = `${WEEKDAY_NAMES[oldWeekday] || oldWeekday} ${formatHourLabel(oldHour)} in ${oldRoomLabel}`;
+    const newSlotLabel = `${WEEKDAY_NAMES[newWeekday] || newWeekday} ${formatHourLabel(newHour)} in ${newRoomLabel}`;
+
+    let notificationSent = false;
+    if (notifyProvider && providerId) {
+      try {
+        const agencyId = await resolveAgencyForProviderOffice({ providerId, officeLocationId });
+        const actor = await User.findById(req.user.id);
+        const actorName = formatProviderName(actor, req.user.id);
+        const reasonSuffix = reason ? ` Reason: ${reason}` : '';
+        await createNotificationAndDispatch({
+          type: 'office_schedule_slot_rescheduled',
+          severity: 'info',
+          title: 'Office slot rescheduled',
+          message: `${actorName} moved your recurring office slot from ${oldSlotLabel} to ${newSlotLabel}.${reasonSuffix}`,
+          userId: providerId,
+          agencyId,
+          relatedEntityType: 'office_standing_assignment',
+          relatedEntityId: sid,
+          actorUserId: req.user.id,
+          actorSource: 'Office Scheduling'
+        });
+        notificationSent = true;
+      } catch {
+        // best-effort notification
+      }
+    }
+
+    return res.json({
+      ok: true,
+      assignment: updated,
+      cancelledEventCount: cancelledEventIds.length,
+      notificationSent,
+      from: { roomId: oldRoomId, weekday: oldWeekday, hour: oldHour, label: oldSlotLabel },
+      to: { roomId: newRoomId, weekday: newWeekday, hour: newHour, label: newSlotLabel }
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const staffAssignOpenSlot = async (req, res, next) => {
   try {
     const { officeId } = req.params;
@@ -2306,7 +2580,20 @@ export const staffAssignOpenSlot = async (req, res, next) => {
             hour: h
           });
           if (existingStanding?.id) {
-            return res.status(409).json({ error: { message: `Recurring slot already assigned for weekday ${weekday} hour ${h}.` } });
+            const conflictDetail = await buildStandingSlotConflictDetail({
+              officeLocationId,
+              roomId,
+              weekday,
+              hour: h
+            });
+            return res.status(409).json({
+              error: {
+                code: 'STANDING_SLOT_CONFLICT',
+                message: conflictDetail?.message
+                  || `Recurring slot already assigned for ${WEEKDAY_NAMES[weekday] || weekday} ${formatHourLabel(h)}.`,
+                conflict: conflictDetail?.conflict || null
+              }
+            });
           }
         }
       }
