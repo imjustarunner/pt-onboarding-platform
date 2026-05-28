@@ -737,8 +737,10 @@
                 :week-start-ymd="activeScheduleWeekStartYmd || null"
                 :hide-office-and-calendar-integration="isClubContext"
                 :show-skill-builders-programs-button="skillBuildersProgramsPickerRoleOk"
+                :show-company-events-calendar-button="!isClubContext"
                 @update:weekStartYmd="onScheduleWeekStartUpdate"
                 @open-skill-builders-programs="goSkillBuildersProgramsPage"
+                @open-company-events-calendar="openCompanyEventsCalendar"
               />
             </div>
           </div>
@@ -1291,6 +1293,11 @@
       </div>
     </div>
     <SchoolMarketingSplash v-if="!previewMode" mode="dashboard" />
+
+    <CompanyEventsCalendarModal
+      v-if="showCompanyEventsCalendar"
+      @close="showCompanyEventsCalendar = false"
+    />
   </div>
 </template>
 
@@ -1318,6 +1325,7 @@ import MySstcClubsCard from '../components/sstc/MySstcClubsCard.vue';
 import AdditionalAvailabilitySubmit from '../components/AdditionalAvailabilitySubmit.vue';
 import VirtualWorkingHoursEditor from '../components/availability/VirtualWorkingHoursEditor.vue';
 import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilityGrid.vue';
+import CompanyEventsCalendarModal from '../components/schedule/CompanyEventsCalendarModal.vue';
 import PersonSearchSelect from '../components/schedule/PersonSearchSelect.vue';
 import ScheduleMultiUserOverlayGrid from '../components/schedule/ScheduleMultiUserOverlayGrid.vue';
 import CredentialsView from './CredentialsView.vue';
@@ -1382,6 +1390,11 @@ function goSkillBuildersProgramsPage() {
   const slug = String(route.params?.organizationSlug || '').trim();
   const path = slug ? `/${slug}/admin/program-events` : '/admin/program-events';
   router.push(path);
+}
+
+const showCompanyEventsCalendar = ref(false);
+function openCompanyEventsCalendar() {
+  showCompanyEventsCalendar.value = true;
 }
 
 const authStore = useAuthStore();

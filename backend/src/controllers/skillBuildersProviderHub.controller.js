@@ -25,7 +25,7 @@ import {
   upsertBiweeklySkillBuilderConfirmations
 } from '../services/skillBuilderAvailabilityBlocks.service.js';
 import { computeSkillBuilderProgramCreditMinutesPerWeek } from '../services/skillBuilderProgramCredit.service.js';
-import { loadCompanyEventDirectoryCounts } from '../services/companyEventDirectoryCounts.service.js';
+import { loadCompanyEventDirectoryCounts, loadCompanyEventDirectoryStaff } from '../services/companyEventDirectoryCounts.service.js';
 import { isUserAssignedToCompanyEvent } from '../services/companyEventAccess.service.js';
 import { fetchMyEventPortalWorkSchedule } from '../services/eventPortalWorkSchedule.service.js';
 import {
@@ -1316,6 +1316,7 @@ export const listSkillBuildersEventsDirectory = async (req, res, next) => {
 
     const eventIds = [...new Set((rows || []).map((row) => Number(row.id)).filter((n) => n > 0))];
     const countsByEventId = await loadCompanyEventDirectoryCounts(agencyId, eventIds);
+    const staffByEventId = await loadCompanyEventDirectoryStaff(agencyId, eventIds);
 
     const nowMs = Date.now();
     const events = (rows || []).map((row) => {
@@ -1331,6 +1332,7 @@ export const listSkillBuildersEventsDirectory = async (req, res, next) => {
         participantsCount: 0,
         staffAssignedCount: 0
       };
+      const staffAssigned = staffByEventId.get(Number(row.id)) || [];
       return {
         companyEventId: Number(row.id),
         title: row.title,
@@ -1349,7 +1351,8 @@ export const listSkillBuildersEventsDirectory = async (req, res, next) => {
         providers: provMap.get(sgId) || [],
         registrantsCount: counts.registrantsCount,
         participantsCount: counts.participantsCount,
-        staffAssignedCount: counts.staffAssignedCount
+        staffAssignedCount: counts.staffAssignedCount,
+        staffAssigned
       };
     });
 

@@ -126,6 +126,17 @@
           </button>
 
           <button
+            v-if="showCompanyEventsCalendarButton"
+            type="button"
+            class="sched-pill"
+            :disabled="loading"
+            title="Company-wide events and school outreach opportunities"
+            @click="emit('open-company-events-calendar')"
+          >
+            Company events
+          </button>
+
+          <button
             v-if="showSkillBuildersProgramsButton"
             type="button"
             class="sched-pill"
@@ -1702,9 +1713,10 @@ const props = defineProps({
   availabilityOverlay: { type: Object, default: null },
   // Club/affiliation context: hide office space, Open finder, Google busy, Therapy Notes.
   hideOfficeAndCalendarIntegration: { type: Boolean, default: false },
-  showSkillBuildersProgramsButton: { type: Boolean, default: false }
+  showSkillBuildersProgramsButton: { type: Boolean, default: false },
+  showCompanyEventsCalendarButton: { type: Boolean, default: true }
 });
-const emit = defineEmits(['update:weekStartYmd', 'open-skill-builders-programs']);
+const emit = defineEmits(['update:weekStartYmd', 'open-skill-builders-programs', 'open-company-events-calendar']);
 
 const route = useRoute();
 const authStore = useAuthStore();

@@ -490,7 +490,9 @@ const TIMEZONE_OPTIONS = [
 
 const EVENT_TYPE_OPTIONS = [
   { value: 'company_event', label: 'Company Event' },
-  { value: 'staff_event', label: 'Staff/Internal Event' }
+  { value: 'staff_event', label: 'Staff/Internal Event' },
+  { value: 'school_back_to_school', label: 'School — Back to School' },
+  { value: 'school_spring_event', label: 'School — Spring Event' }
 ];
 
 function browserTimeZone() {

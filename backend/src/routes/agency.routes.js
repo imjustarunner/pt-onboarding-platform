@@ -35,6 +35,7 @@ import {
 } from '../controllers/programReminderSchedule.controller.js';
 import {
   listCompanyEventsForAgency,
+  exportCompanyEventsDirectoryRosterPdf,
   listInternalRegistrationPromosForAgency,
   listCompanyEventAudienceOptions,
   createCompanyEvent,
@@ -534,6 +535,7 @@ router.post('/:id/program-reminders', authenticate, requireBackofficeAdmin, crea
 router.put('/:id/program-reminders/:scheduleId', authenticate, requireBackofficeAdmin, updateProgramReminderSchedule);
 router.delete('/:id/program-reminders/:scheduleId', authenticate, requireBackofficeAdmin, deleteProgramReminderSchedule);
 router.get('/:id/company-events/:eventId/ics', authenticate, downloadCompanyEventIcsForAgency);
+router.get('/:id/company-events/directory/roster.pdf', authenticate, exportCompanyEventsDirectoryRosterPdf);
 router.get('/:id/company-events', authenticate, listCompanyEventsForAgency);
 router.get('/:id/company-events/internal-registration-feed', authenticate, listInternalRegistrationPromosForAgency);
 router.get('/:id/company-events/audience-options', authenticate, listCompanyEventAudienceOptions);

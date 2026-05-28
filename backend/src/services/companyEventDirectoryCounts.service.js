@@ -85,3 +85,57 @@ export async function loadCompanyEventDirectoryCounts(agencyId, eventIds) {
 
   return result;
 }
+
+/**
+ * Assigned staff names for directory cards (same sources as staff counts).
+ * @returns {Promise<Map<number, { userId: number, firstName: string, lastName: string, fullName: string }[]>>}
+ */
+export async function loadCompanyEventDirectoryStaff(agencyId, eventIds) {
+  const result = new Map();
+  const ids = [...new Set((eventIds || []).map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0))];
+  if (!ids.length || !agencyId) return result;
+
+  const ph = ids.map(() => '?').join(',');
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT staff_union.company_event_id,
+              u.id AS user_id,
+              u.first_name,
+              u.last_name
+       FROM (
+         SELECT company_event_id, provider_user_id
+         FROM company_event_session_providers
+         WHERE company_event_id IN (${ph})
+         UNION
+         SELECT sg.company_event_id, sgp.provider_user_id
+         FROM skills_groups sg
+         INNER JOIN skills_group_providers sgp ON sgp.skills_group_id = sg.id
+         WHERE sg.company_event_id IN (${ph}) AND sg.agency_id = ?
+         UNION
+         SELECT company_event_id, provider_user_id
+         FROM company_event_provider_assignments
+         WHERE company_event_id IN (${ph})
+       ) staff_union
+       INNER JOIN users u ON u.id = staff_union.provider_user_id
+       ORDER BY staff_union.company_event_id ASC, u.last_name ASC, u.first_name ASC, u.id ASC`,
+      [...ids, ...ids, agencyId, ...ids]
+    );
+    for (const r of rows || []) {
+      const eid = Number(r.company_event_id);
+      if (!eid) continue;
+      const uid = Number(r.user_id);
+      if (!result.has(eid)) result.set(eid, []);
+      const list = result.get(eid);
+      if (list.some((x) => x.userId === uid)) continue;
+      const firstName = String(r.first_name || '').trim();
+      const lastName = String(r.last_name || '').trim();
+      const fullName = [firstName, lastName].filter(Boolean).join(' ') || `User ${uid}`;
+      list.push({ userId: uid, firstName, lastName, fullName });
+    }
+  } catch {
+    // optional tables
+  }
+
+  return result;
+}

@@ -22,7 +22,14 @@ import crypto from 'crypto';
 import EmailTemplateService from '../services/emailTemplate.service.js';
 import { sendNotificationEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { fetchRegistrationCatalogItems } from '../services/registrationCatalog.service.js';
-import { loadCompanyEventDirectoryCounts } from '../services/companyEventDirectoryCounts.service.js';
+import {
+  loadCompanyEventDirectoryCounts,
+  loadCompanyEventDirectoryStaff
+} from '../services/companyEventDirectoryCounts.service.js';
+import {
+  loadCompanyEventDirectoryRosterExport,
+  generateCompanyEventDirectoryRosterPdf
+} from '../services/companyEventDirectoryRoster.service.js';
 import { canUserManageClub } from '../utils/sscClubAccess.js';
 import {
   BOOK_CLUB_EVENT_AUDIENCE_KEYS,
@@ -32,6 +39,10 @@ import {
   listTenantEligibleBookClubUsers
 } from '../utils/bookClub.js';
 import { resolveScopedAgencyIdsForMyDashboard } from '../utils/meDashboardTenantScope.js';
+import {
+  isSchoolPortalEventType,
+  SCHOOL_PORTAL_EVENT_TYPES
+} from '../services/schoolPortalEvents.service.js';
 import { assertSkillBuildersSchoolProgramForRequest } from '../utils/skillBuildersSchoolProgramFeature.js';
 import { userHasAgencyOrAffiliatedOrgAccessForRequest } from '../utils/userAgencyAffiliationAccess.js';
 
@@ -434,6 +445,8 @@ function mapEventRow(row, req, opts = {}) {
     registrationFormUrl: row.registration_form_url ? String(row.registration_form_url).trim() : '',
     smsDraft: parseJsonMaybe(row.sms_draft_json),
     staffingConfig: parseJsonMaybe(row.staffing_config_json),
+    outreachTableInvited: !!(row.outreach_table_invited === 1 || row.outreach_table_invited === true),
+    flierFileUrl: row.flier_file_url ? String(row.flier_file_url).trim() : '',
     publicRegistrationStatus: String(row.public_registration_status || 'open').trim().toLowerCase(),
     publicRegistrationStatusLabel: row.public_registration_status_label
       ? String(row.public_registration_status_label).trim()
@@ -1627,12 +1640,14 @@ export const listCompanyEventsForAgency = async (req, res, next) => {
       deliveries.set(eventId, await getEventDeliverySummary(eventId));
     }
     const countsByEventId = await loadCompanyEventDirectoryCounts(agencyId, eventIds);
+    const staffByEventId = await loadCompanyEventDirectoryStaff(agencyId, eventIds);
     const withAudience = eventsWithProgramSlug.map((event) => {
       const counts = countsByEventId.get(Number(event.id)) || {
         registrantsCount: 0,
         participantsCount: 0,
         staffAssignedCount: 0
       };
+      const staffAssigned = staffByEventId.get(Number(event.id)) || [];
       return {
         ...event,
         audience: audienceMap.get(event.id) || { all: true, userIds: [], groupIds: [], roleKeys: [] },
@@ -1640,10 +1655,37 @@ export const listCompanyEventsForAgency = async (req, res, next) => {
         deliverySummary: deliveries.get(event.id) || { inAppSent: 0, inAppFailed: 0, smsSent: 0, smsFailed: 0, smsSkipped: 0 },
         registrantsCount: counts.registrantsCount,
         participantsCount: counts.participantsCount,
-        staffAssignedCount: counts.staffAssignedCount
+        staffAssignedCount: counts.staffAssignedCount,
+        staffAssigned
       };
     });
     res.json(withAudience);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** GET /api/agencies/:id/company-events/directory/roster.pdf */
+export const exportCompanyEventsDirectoryRosterPdf = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.params.id);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    if (!(await userHasAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
+    }
+    if (!(await userCanManageCompanyEventsAsync(req))) {
+      return res.status(403).json({ error: { message: 'Admin or staff access required' } });
+    }
+
+    const agency = await Agency.findById(agencyId);
+    const agencyName = String(agency?.name || agency?.official_name || 'Agency').trim();
+    const events = await loadCompanyEventDirectoryRosterExport(agencyId);
+    const pdfBytes = await generateCompanyEventDirectoryRosterPdf({ agencyName, events });
+    const stamp = new Date().toISOString().slice(0, 10);
+    const safeName = agencyName.replace(/[^\w.-]+/g, '_').slice(0, 48) || 'agency';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="programs-events-roster-${safeName}-${stamp}.pdf"`);
+    res.send(Buffer.from(pdfBytes));
   } catch (error) {
     next(error);
   }
@@ -3337,6 +3379,127 @@ export const listMyCompanyEvents = async (req, res, next) => {
       ...event,
       myResponse: responseMap.get(`${event.id}:${userId}`) || null
     })));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const listMyCompanyEventsCalendar = async (req, res, next) => {
+  try {
+    const userId = parsePositiveInt(req.user?.id);
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    const agencyIds = await resolveScopedAgencyIdsForMyDashboard(req);
+    if (!agencyIds.length) return res.json([]);
+
+    const placeholders = agencyIds.map(() => '?').join(', ');
+    const schoolTypePlaceholders = [...SCHOOL_PORTAL_EVENT_TYPES].map(() => '?').join(', ');
+    const [rows] = await pool.execute(
+      `SELECT ce.*,
+              sch.name AS school_name,
+              sch.portal_url AS school_portal_url,
+              sch.slug AS school_slug
+       FROM company_events ce
+       LEFT JOIN agencies sch ON sch.id = ce.organization_id
+       WHERE ce.agency_id IN (${placeholders})
+         AND ce.is_active = 1
+         AND NOT EXISTS (
+           SELECT 1 FROM skills_groups sg
+           WHERE sg.company_event_id = ce.id AND sg.agency_id = ce.agency_id
+         )
+         AND (
+           ce.ends_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)
+           OR ce.event_type IN (${schoolTypePlaceholders})
+         )
+       ORDER BY ce.starts_at ASC
+       LIMIT 400`,
+      [...agencyIds, ...SCHOOL_PORTAL_EVENT_TYPES]
+    );
+
+    const eventIds = (rows || []).map((r) => Number(r.id)).filter(Boolean);
+    if (!eventIds.length) return res.json([]);
+
+    const idPlaceholders = eventIds.map(() => '?').join(', ');
+    const [sessionRows] = await pool.execute(
+      `SELECT cesd.id AS session_date_id, cesd.company_event_id, cesd.session_date,
+              cesd.starts_at, cesd.ends_at
+       FROM company_event_session_dates cesd
+       WHERE cesd.company_event_id IN (${idPlaceholders})
+       ORDER BY cesd.starts_at ASC`,
+      eventIds
+    );
+    const [providerRows] = await pool.execute(
+      `SELECT session_date_id, company_event_id, COUNT(*) AS approved_count
+       FROM company_event_session_providers
+       WHERE company_event_id IN (${idPlaceholders})
+       GROUP BY session_date_id, company_event_id`,
+      eventIds
+    );
+    const [requestRows] = await pool.execute(
+      `SELECT id, company_event_id, session_date_id, status, request_type
+       FROM company_event_session_provider_requests
+       WHERE company_event_id IN (${idPlaceholders}) AND provider_user_id = ?`,
+      [...eventIds, userId]
+    );
+    const [assignmentRows] = await pool.execute(
+      `SELECT session_date_id, company_event_id, assignment_status
+       FROM company_event_session_providers
+       WHERE company_event_id IN (${idPlaceholders}) AND provider_user_id = ?`,
+      [...eventIds, userId]
+    );
+
+    const approvedBySession = new Map();
+    for (const r of providerRows || []) {
+      approvedBySession.set(`${r.company_event_id}:${r.session_date_id}`, Number(r.approved_count || 0));
+    }
+    const myRequestBySession = new Map();
+    for (const r of requestRows || []) {
+      myRequestBySession.set(`${r.company_event_id}:${r.session_date_id}`, {
+        id: Number(r.id),
+        status: String(r.status || 'pending'),
+        requestType: String(r.request_type || 'regular')
+      });
+    }
+    const myAssignmentBySession = new Map();
+    for (const r of assignmentRows || []) {
+      myAssignmentBySession.set(`${r.company_event_id}:${r.session_date_id}`, {
+        assignmentStatus: String(r.assignment_status || 'draft')
+      });
+    }
+
+    const sessionsByEvent = new Map();
+    for (const s of sessionRows || []) {
+      const eid = Number(s.company_event_id);
+      const sid = Number(s.session_date_id);
+      const key = `${eid}:${sid}`;
+      const list = sessionsByEvent.get(eid) || [];
+      list.push({
+        sessionDateId: sid,
+        sessionDate: s.session_date,
+        startsAt: s.starts_at,
+        endsAt: s.ends_at,
+        approvedProvidersCount: approvedBySession.get(key) || 0,
+        myRequest: myRequestBySession.get(key) || null,
+        myAssignment: myAssignmentBySession.get(key) || null
+      });
+      sessionsByEvent.set(eid, list);
+    }
+
+    const events = (rows || []).map((row) => {
+      const base = mapEventRow(row, req, { myEndpoint: true });
+      const eid = Number(row.id);
+      const eventType = String(row.event_type || '').toLowerCase();
+      const isSchoolEvent = isSchoolPortalEventType(eventType);
+      return {
+        ...base,
+        isSchoolPortalEvent: isSchoolEvent,
+        schoolName: row.school_name ? String(row.school_name).trim() : null,
+        schoolSlug: String(row.school_portal_url || row.school_slug || '').trim() || null,
+        sessions: sessionsByEvent.get(eid) || [],
+        canRequestOutreachShift: isSchoolEvent && !!(row.outreach_table_invited === 1 || row.outreach_table_invited === true)
+      };
+    });
+
+    res.json(events);
   } catch (error) {
     next(error);
   }

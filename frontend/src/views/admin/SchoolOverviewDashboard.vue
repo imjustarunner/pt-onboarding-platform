@@ -35,6 +35,14 @@
         >
           Post announcement
         </button>
+        <button
+          class="btn btn-secondary"
+          type="button"
+          :disabled="loading || !selectedAgencyId"
+          @click="openSchoolEventRequestModal"
+        >
+          Request school events
+        </button>
         <button class="btn btn-secondary" type="button" :disabled="loading" @click="refresh">
           {{ loading ? 'Refreshing…' : 'Refresh' }}
         </button>
@@ -88,6 +96,30 @@
     </div>
 
     <div v-if="announcementFlash" class="success-banner">{{ announcementFlash }}</div>
+    <div v-if="schoolEventRequestFlash" class="success-banner">{{ schoolEventRequestFlash }}</div>
+
+    <div v-if="!isAllPortalsPage && schoolEventsOverview.events?.length" class="school-events-section">
+      <div class="school-events-header">
+        <strong>School events ({{ schoolEventsOverview.year }})</strong>
+        <span class="school-events-count">{{ schoolEventsOverview.events.length }} posted</span>
+      </div>
+      <div class="school-events-list">
+        <div v-for="ev in schoolEventsOverview.events.slice(0, 12)" :key="`se-${ev.id}`" class="school-event-row">
+          <div>
+            <strong>{{ ev.title }}</strong>
+            <span class="muted"> · {{ ev.schoolName || 'School' }}</span>
+          </div>
+          <div class="muted small">
+            {{ formatAnnouncementDate(ev.startsAt) }}
+            <span v-if="ev.outreachTableInvited"> · Outreach table</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="!isAllPortalsPage && schoolEventsMissingCount > 0" class="school-events-missing-banner">
+      {{ schoolEventsMissingCount }} {{ schoolEventsMissingCount === 1 ? 'school has' : 'schools have' }} not yet posted a Back to School or Spring event this year.
+    </div>
 
     <div v-if="bulkAnnouncements.length > 0" class="bulk-announcements-section">
       <div class="bulk-announcements-header">
@@ -491,6 +523,56 @@
       </div>
     </div>
 
+    <div v-if="showSchoolEventRequestModal" class="modal-overlay" @click.self="closeSchoolEventRequestModal">
+      <div class="modal announcement-modal" @click.stop>
+        <div class="modal-header">
+          <div>
+            <strong>Request school event submissions</strong>
+            <div class="modal-subtitle">
+              Email school staff at schools that have not yet posted the selected event type this year.
+            </div>
+          </div>
+          <button class="close" type="button" aria-label="Close" @click="closeSchoolEventRequestModal">×</button>
+        </div>
+        <div class="modal-body announcement-modal-body">
+          <div class="form-group">
+            <label>Event type</label>
+            <select v-model="schoolEventRequestCategory" class="control-select">
+              <option value="back_to_school">Back to School</option>
+              <option value="spring">Spring Event</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Custom message (optional)</label>
+            <textarea
+              v-model="schoolEventRequestMessage"
+              class="announcement-textarea"
+              rows="4"
+              maxlength="1200"
+              placeholder="Please input your school's back to school event info"
+            />
+          </div>
+          <div class="hint-row">
+            <span>{{ schoolEventRequestTargetCount }} schools missing this event · {{ schoolEventsOverview.year || new Date().getFullYear() }}</span>
+          </div>
+          <div v-if="schoolEventRequestError" class="error">{{ schoolEventRequestError }}</div>
+          <div class="announcement-actions">
+            <button type="button" class="btn btn-secondary" :disabled="schoolEventRequestSaving" @click="closeSchoolEventRequestModal">
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary"
+              :disabled="schoolEventRequestSaving || schoolEventRequestTargetCount === 0"
+              @click="submitSchoolEventRequest"
+            >
+              {{ schoolEventRequestSaving ? 'Sending…' : 'Send emails' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <AddSchoolScopedModal
       v-model="showAddSchoolModal"
       :affiliated-agency-id="affiliatedAgencyIdForModal"
@@ -589,6 +671,25 @@ const deleteTarget = ref(null);
 const deleteSaving = ref(false);
 const deleteError = ref('');
 const showAddSchoolModal = ref(false);
+
+const schoolEventsOverview = ref({ year: new Date().getFullYear(), schools: [], events: [], missingBySchool: {} });
+const showSchoolEventRequestModal = ref(false);
+const schoolEventRequestCategory = ref('back_to_school');
+const schoolEventRequestMessage = ref('');
+const schoolEventRequestSaving = ref(false);
+const schoolEventRequestError = ref('');
+const schoolEventRequestFlash = ref('');
+
+const schoolEventsMissingCount = computed(() => {
+  const missing = schoolEventsOverview.value?.missingBySchool || {};
+  return Object.values(missing).filter((cats) => Array.isArray(cats) && cats.length > 0).length;
+});
+
+const schoolEventRequestTargetCount = computed(() => {
+  const missing = schoolEventsOverview.value?.missingBySchool || {};
+  const cat = schoolEventRequestCategory.value;
+  return Object.values(missing).filter((cats) => Array.isArray(cats) && cats.includes(cat)).length;
+});
 
 const orgSlug = computed(() => (typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug : ''));
 const hubTo = computed(() => (orgSlug.value ? `/${orgSlug.value}/admin/school-portals-hub` : '/admin/school-portals-hub'));
@@ -844,7 +945,55 @@ const fetchOverview = async () => {
 };
 
 const refresh = async () => {
-  await Promise.all([fetchOverview(), fetchBulkAnnouncements()]);
+  await Promise.all([fetchOverview(), fetchBulkAnnouncements(), fetchSchoolEventsOverview()]);
+};
+
+const fetchSchoolEventsOverview = async () => {
+  const agencyId = selectedAgencyId.value ? parseInt(String(selectedAgencyId.value), 10) : null;
+  if (!agencyId) {
+    schoolEventsOverview.value = { year: new Date().getFullYear(), schools: [], events: [], missingBySchool: {} };
+    return;
+  }
+  try {
+    const res = await api.get('/school-portal/school-events/overview', { params: { agencyId } });
+    schoolEventsOverview.value = res.data || { year: new Date().getFullYear(), schools: [], events: [], missingBySchool: {} };
+  } catch {
+    schoolEventsOverview.value = { year: new Date().getFullYear(), schools: [], events: [], missingBySchool: {} };
+  }
+};
+
+const openSchoolEventRequestModal = () => {
+  schoolEventRequestError.value = '';
+  schoolEventRequestMessage.value = '';
+  schoolEventRequestCategory.value = 'back_to_school';
+  showSchoolEventRequestModal.value = true;
+};
+
+const closeSchoolEventRequestModal = () => {
+  showSchoolEventRequestModal.value = false;
+  schoolEventRequestError.value = '';
+};
+
+const submitSchoolEventRequest = async () => {
+  const agencyId = selectedAgencyId.value ? parseInt(String(selectedAgencyId.value), 10) : null;
+  if (!agencyId) return;
+  try {
+    schoolEventRequestSaving.value = true;
+    schoolEventRequestError.value = '';
+    const res = await api.post('/school-portal/school-events/request-submissions', {
+      agencyId,
+      category: schoolEventRequestCategory.value,
+      message: schoolEventRequestMessage.value.trim() || null,
+      year: schoolEventsOverview.value?.year || new Date().getFullYear()
+    });
+    schoolEventRequestFlash.value = `Requested event info from ${res.data?.emailedSchools || 0} schools (${res.data?.emailedRecipients || 0} recipients).`;
+    closeSchoolEventRequestModal();
+    await fetchSchoolEventsOverview();
+  } catch (e) {
+    schoolEventRequestError.value = e?.response?.data?.error?.message || 'Failed to send request emails';
+  } finally {
+    schoolEventRequestSaving.value = false;
+  }
 };
 
 const openBulkAnnouncementModal = () => {
@@ -1107,7 +1256,7 @@ const openSkillsUnassigned = (school) => {
 watch(
   () => selectedAgencyId.value,
   async () => {
-    await Promise.all([fetchOverview(), fetchBulkAnnouncements()]);
+    await Promise.all([fetchOverview(), fetchBulkAnnouncements(), fetchSchoolEventsOverview()]);
   }
 );
 
@@ -1125,7 +1274,7 @@ onMounted(async () => {
   await agencyStore.fetchUserAgencies();
   await fetchAgenciesForPicker();
   selectedAgencyId.value = resolveDefaultAgencyId();
-  await Promise.all([fetchOverview(), fetchBulkAnnouncements()]);
+  await Promise.all([fetchOverview(), fetchBulkAnnouncements(), fetchSchoolEventsOverview()]);
 });
 </script>
 
@@ -1838,6 +1987,44 @@ onMounted(async () => {
     flex-direction: column;
     align-items: stretch;
   }
+}
+
+.school-events-section {
+  margin: 16px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 10px;
+  background: var(--surface-elevated, #fff);
+}
+.school-events-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.school-events-count {
+  font-size: 0.85rem;
+  color: var(--text-muted, #6b7280);
+}
+.school-events-list {
+  display: grid;
+  gap: 8px;
+}
+.school-event-row {
+  padding: 8px 0;
+  border-top: 1px solid var(--border-color, #f3f4f6);
+}
+.school-event-row:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+.school-events-missing-banner {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.92rem;
 }
 </style>
 

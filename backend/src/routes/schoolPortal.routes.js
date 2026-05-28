@@ -94,12 +94,25 @@ import {
   createSchoolPortalIntakeLink,
   duplicateSchoolPortalIntakeLinkFrom
 } from '../controllers/schoolPortalIntakeLinks.controller.js';
+import {
+  listSchoolPortalEvents,
+  getSchoolPortalEventsMissing,
+  createSchoolPortalEventHandler,
+  updateSchoolPortalEventHandler,
+  uploadSchoolEventFlier,
+  getSchoolEventsOverview,
+  validateSchoolEventPostToken,
+  requestSchoolEventSubmissions
+} from '../controllers/schoolPortalEvents.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
 // School portal routes (authenticated)
 // GET /api/school-portal/:organizationId/clients
+router.get('/school-events/overview', authenticate, getSchoolEventsOverview);
+router.post('/school-events/request-submissions', authenticate, requestSchoolEventSubmissions);
+router.get('/school-events/post-token/:token', authenticate, validateSchoolEventPostToken);
 router.get('/bulk-announcements', authenticate, listBulkSchoolPortalAnnouncements);
 router.post('/bulk-announcements', authenticate, createBulkSchoolPortalAnnouncements);
 router.put('/bulk-announcements/:groupId', authenticate, updateBulkSchoolPortalAnnouncements);
@@ -144,6 +157,11 @@ router.post('/:organizationId/school-staff/forfeit-school-admin', authenticate, 
 router.post('/:organizationId/school-staff', authenticate, addSchoolStaff);
 router.get('/:organizationId/faq', authenticate, listSchoolPortalFaq);
 router.post('/:organizationId/faq', authenticate, createSchoolPortalFaq);
+router.get('/:organizationId/school-events/missing', authenticate, getSchoolPortalEventsMissing);
+router.get('/:organizationId/school-events', authenticate, listSchoolPortalEvents);
+router.post('/:organizationId/school-events/upload-flier', authenticate, uploadSchoolEventFlier);
+router.post('/:organizationId/school-events', authenticate, createSchoolPortalEventHandler);
+router.put('/:organizationId/school-events/:eventId', authenticate, updateSchoolPortalEventHandler);
 
 // School portal: shared public documents library (non-PHI)
 router.get('/:organizationId/intake-links/copy-sources', authenticate, listSchoolPortalIntakeLinkCopySources);

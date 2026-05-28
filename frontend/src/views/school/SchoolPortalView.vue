@@ -173,6 +173,14 @@
           >
             Display weekly splash
           </button>
+          <button
+            v-if="isSchoolStaff && !props.previewMode"
+            class="btn btn-secondary btn-sm"
+            type="button"
+            @click="openPostSchoolEvent()"
+          >
+            Post school event
+          </button>
           <button v-if="!props.previewMode" class="btn btn-secondary btn-sm" type="button" @click="showHelpDesk = true">Contact admin</button>
           <button
             v-if="isSchoolStaff && !props.previewMode"
@@ -904,6 +912,25 @@
       @close="showHelpDesk = false"
     />
 
+    <PostSchoolEventModal
+      v-if="showPostSchoolEvent && organizationId"
+      :school-organization-id="organizationId"
+      :initial-category="postSchoolEventCategory"
+      :locked-category="!!postSchoolEventToken"
+      :post-token="postSchoolEventToken"
+      @close="closePostSchoolEvent"
+      @saved="handleSchoolEventSaved"
+    />
+
+    <SchoolEventPromptModal
+      v-if="showSchoolEventPrompt && organizationId"
+      :organization-id="organizationId"
+      :category="schoolEventPromptCategory"
+      :year="schoolEventPromptYear"
+      @close="showSchoolEventPrompt = false"
+      @post="openPostSchoolEventFromPrompt"
+    />
+
     <div v-if="showAnnouncementModal" class="modal-overlay" @click.self="closeAnnouncementModal">
       <div class="modal school-announcement-modal" @click.stop>
         <div class="modal-header">
@@ -1352,6 +1379,8 @@ import { useAgencyStore } from '../../store/agency';
 import { useTutorialStore } from '../../store/tutorial';
 import ClientListGrid from '../../components/school/ClientListGrid.vue';
 import SchoolHelpDeskModal from '../../components/school/SchoolHelpDeskModal.vue';
+import PostSchoolEventModal from '../../components/school/PostSchoolEventModal.vue';
+import SchoolEventPromptModal from '../../components/school/SchoolEventPromptModal.vue';
 import ReviewPromptModal from '../../components/school/ReviewPromptModal.vue';
 import ClientTicketThreadModal from '../../components/school/ClientTicketThreadModal.vue';
 import ReferralUpload from '../../components/school/ReferralUpload.vue';
@@ -1403,6 +1432,95 @@ const agencyStore = useAgencyStore();
 const tutorialStore = useTutorialStore();
 
 const showHelpDesk = ref(false);
+const showPostSchoolEvent = ref(false);
+const postSchoolEventCategory = ref('back_to_school');
+const postSchoolEventToken = ref('');
+const showSchoolEventPrompt = ref(false);
+const schoolEventPromptCategory = ref('back_to_school');
+const schoolEventPromptYear = ref(new Date().getFullYear());
+const schoolEventsMissingCategories = ref([]);
+const openPostSchoolEvent = (category = 'back_to_school') => {
+  postSchoolEventCategory.value = String(category || 'back_to_school');
+  showPostSchoolEvent.value = true;
+};
+
+const openPostSchoolEventFromPrompt = (category) => {
+  showSchoolEventPrompt.value = false;
+  openPostSchoolEvent(category);
+};
+
+const closePostSchoolEvent = () => {
+  showPostSchoolEvent.value = false;
+  postSchoolEventToken.value = '';
+};
+
+const handleSchoolEventSaved = async () => {
+  await loadSchoolEventsMissing();
+  showSchoolEventPrompt.value = false;
+};
+
+const promptDismissKey = (orgId, category, year) =>
+  `schoolEventPromptDismiss:${orgId}:${category}:${year}`;
+
+const loadSchoolEventsMissing = async () => {
+  if (!organizationId.value || !isSchoolStaff.value || props.previewMode) return;
+  try {
+    const res = await api.get(`/school-portal/${organizationId.value}/school-events/missing`);
+    schoolEventsMissingCategories.value = Array.isArray(res.data?.missingCategories)
+      ? res.data.missingCategories
+      : [];
+    schoolEventPromptYear.value = Number(res.data?.year) || new Date().getFullYear();
+  } catch {
+    schoolEventsMissingCategories.value = [];
+  }
+};
+
+const maybeShowSchoolEventPrompt = () => {
+  if (!isSchoolStaff.value || props.previewMode || !organizationId.value) return;
+  const year = schoolEventPromptYear.value;
+  const orgId = organizationId.value;
+  const missing = schoolEventsMissingCategories.value || [];
+  const category = missing.includes('back_to_school')
+    ? 'back_to_school'
+    : (missing.includes('spring') ? 'spring' : null);
+  if (!category) return;
+  try {
+    if (window.localStorage.getItem(promptDismissKey(orgId, category, year)) === '1') return;
+  } catch {
+    // ignore
+  }
+  schoolEventPromptCategory.value = category;
+  showSchoolEventPrompt.value = true;
+};
+
+const applySchoolEventDeepLink = async () => {
+  if (!isSchoolStaff.value || props.previewMode) return;
+  const categoryRaw = String(route.query?.postSchoolEvent || route.query?.post_school_event || '').trim().toLowerCase();
+  const token = String(route.query?.setk || '').trim();
+  if (!categoryRaw && !token) return;
+
+  let category = ['back_to_school', 'spring'].includes(categoryRaw) ? categoryRaw : 'back_to_school';
+  if (token) {
+    try {
+      const res = await api.get(`/school-portal/school-events/post-token/${encodeURIComponent(token)}`);
+      if (res.data?.eventCategory) category = res.data.eventCategory;
+      postSchoolEventToken.value = token;
+    } catch {
+      // still open modal with query category if token invalid
+    }
+  }
+  openPostSchoolEvent(category);
+  try {
+    const q = { ...(route.query || {}) };
+    delete q.postSchoolEvent;
+    delete q.post_school_event;
+    delete q.setk;
+    await router.replace({ query: q });
+  } catch {
+    // ignore
+  }
+};
+
 const showReviewPrompt = ref(false);
 const showTicketModal = ref(false);
 const ticketModalClient = ref(null);
@@ -3167,6 +3285,9 @@ onMounted(async () => {
     await loadNotificationsPreview();
     await loadBannerAnnouncements();
     await refreshWaiverGateStatus({ force: true });
+    await loadSchoolEventsMissing();
+    await applySchoolEventDeepLink();
+    if (!showPostSchoolEvent.value) maybeShowSchoolEventPrompt();
     if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
     await openClientFromQuery();
   }

@@ -69,6 +69,17 @@
               <option value="title-asc">Event title (A–Z)</option>
             </select>
           </div>
+          <div class="sbes-control sbes-control-actions">
+            <label class="sbes-label">&nbsp;</label>
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :disabled="pdfDownloading || !props.agencyId"
+              @click="downloadDirectoryRosterPdf"
+            >
+              {{ pdfDownloading ? 'Preparing PDF…' : 'Download roster PDF' }}
+            </button>
+          </div>
         </div>
 
         <section v-if="upcomingFiltered.length" class="sbes-section">
@@ -102,7 +113,14 @@
                 <div class="sbes-card-stats" :class="{ 'sbes-card-stats--gap': staffingGap(e) }">
                   <span>Registrants <strong>{{ countRegistrants(e) }}</strong></span>
                   <span>Participants <strong>{{ countParticipants(e) }}</strong></span>
-                  <span>Staff <strong>{{ countStaff(e) }}</strong></span>
+                  <span
+                    :class="['sbes-staff-stat', { 'sbes-staff-stat--has-tip': staffNamesForEvent(e).length }]"
+                  >
+                    Staff <strong>{{ countStaff(e) }}</strong>
+                    <span v-if="staffNamesForEvent(e).length" class="sbes-staff-tip" role="tooltip">
+                      {{ staffNamesForEvent(e).join(', ') }}
+                    </span>
+                  </span>
                 </div>
               </div>
               <div class="sbes-card-cta-row">
@@ -164,7 +182,14 @@
                 <div class="sbes-card-stats">
                   <span>Registrants <strong>{{ countRegistrants(e) }}</strong></span>
                   <span>Participants <strong>{{ countParticipants(e) }}</strong></span>
-                  <span>Staff <strong>{{ countStaff(e) }}</strong></span>
+                  <span
+                    :class="['sbes-staff-stat', { 'sbes-staff-stat--has-tip': staffNamesForEvent(e).length }]"
+                  >
+                    Staff <strong>{{ countStaff(e) }}</strong>
+                    <span v-if="staffNamesForEvent(e).length" class="sbes-staff-tip" role="tooltip">
+                      {{ staffNamesForEvent(e).join(', ') }}
+                    </span>
+                  </span>
                 </div>
               </div>
               <div class="sbes-card-cta-row sbes-card-cta-row--past">
@@ -216,6 +241,7 @@ const selectedEventId = ref(0);
 const searchQuery = ref('');
 const sortBy = ref('school-asc');
 const failedLogos = ref(new Set());
+const pdfDownloading = ref(false);
 
 function orgSlug() {
   const fromProp = String(props.portalSlug || '').trim();
@@ -418,6 +444,45 @@ function countStaff(e) {
   return Number(e?.staffAssignedCount ?? e?.staff_assigned_count ?? 0);
 }
 
+function staffNamesForEvent(e) {
+  const assigned = Array.isArray(e?.staffAssigned) ? e.staffAssigned : [];
+  if (assigned.length) {
+    return assigned
+      .map((p) => String(p?.fullName || `${p?.firstName || ''} ${p?.lastName || ''}`.trim()).trim())
+      .filter(Boolean);
+  }
+  const providers = Array.isArray(e?.providers) ? e.providers : [];
+  return providers
+    .map((p) => `${p?.firstName || ''} ${p?.lastName || ''}`.trim())
+    .filter(Boolean);
+}
+
+async function downloadDirectoryRosterPdf() {
+  const agencyId = Number(props.agencyId || 0);
+  if (!Number.isFinite(agencyId) || agencyId <= 0 || pdfDownloading.value) return;
+  pdfDownloading.value = true;
+  try {
+    const res = await api.get(`/agencies/${agencyId}/company-events/directory/roster.pdf`, {
+      responseType: 'blob',
+      skipGlobalLoading: true
+    });
+    const blob = new Blob([res.data], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `programs-events-roster-${stamp}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    window.alert(e?.response?.data?.error?.message || e?.message || 'Could not download roster PDF.');
+  } finally {
+    pdfDownloading.value = false;
+  }
+}
+
 /** Highlight events with enrollments but no staff assigned yet. */
 function staffingGap(e) {
   if (e?.isPast) return false;
@@ -530,7 +595,8 @@ async function load() {
         eventImageUrls: Array.isArray(row?.eventImageUrls) ? row.eventImageUrls : [],
         registrantsCount: Number(row?.registrantsCount ?? row?.registrants_count ?? 0),
         participantsCount: Number(row?.participantsCount ?? row?.participants_count ?? 0),
-        staffAssignedCount: Number(row?.staffAssignedCount ?? row?.staff_assigned_count ?? 0)
+        staffAssignedCount: Number(row?.staffAssignedCount ?? row?.staff_assigned_count ?? 0),
+        staffAssigned: Array.isArray(row?.staffAssigned) ? row.staffAssigned : []
       };
     });
 
@@ -547,6 +613,9 @@ async function load() {
       byId.set(id, {
         ...prior,
         ...e,
+        staffAssigned: (Array.isArray(e?.staffAssigned) && e.staffAssigned.length)
+          ? e.staffAssigned
+          : (prior?.staffAssigned || []),
         registrationEligible:
           e?.registrationEligible !== undefined
             ? !!e.registrationEligible
@@ -675,6 +744,40 @@ watch(
 .sbes-control {
   flex: 1 1 200px;
   min-width: 0;
+}
+.sbes-control-actions {
+  flex: 0 0 auto;
+}
+.sbes-staff-stat {
+  position: relative;
+}
+.sbes-staff-stat--has-tip {
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.sbes-staff-tip {
+  display: none;
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  bottom: calc(100% + 6px);
+  min-width: 160px;
+  max-width: 260px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #f8fafc;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  font-weight: 400;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.25);
+  pointer-events: none;
+  white-space: normal;
+}
+.sbes-staff-stat--has-tip:hover .sbes-staff-tip,
+.sbes-staff-stat--has-tip:focus-within .sbes-staff-tip {
+  display: block;
 }
 .sbes-section {
   margin-top: 8px;

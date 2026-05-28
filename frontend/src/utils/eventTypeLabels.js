@@ -37,7 +37,9 @@ const COMPANY_EVENT_TYPE_LABELS = {
   meeting: 'Meeting',
   training: 'Training',
   social: 'Social Event',
-  holiday: 'Holiday Event'
+  holiday: 'Holiday Event',
+  school_back_to_school: 'Back to School',
+  school_spring_event: 'Spring Event'
 };
 
 const SKILL_BUILDERS_EVENT_TYPE_LABELS = {
@@ -68,6 +70,11 @@ export function isProgramEventType(eventType) {
 export function isSkillBuildersEventType(eventType) {
   const t = norm(eventType);
   return !!t && (t in SKILL_BUILDERS_EVENT_TYPE_LABELS || t.startsWith('skill_builder'));
+}
+
+export function isSchoolPortalEventType(eventType) {
+  const t = norm(eventType);
+  return t === 'school_back_to_school' || t === 'school_spring_event';
 }
 
 export function isCompanyEventType(eventType) {
@@ -137,6 +144,7 @@ export function eventWorkspaceLabel(event) {
 export default {
   isProgramEventType,
   isSkillBuildersEventType,
+  isSchoolPortalEventType,
   isCompanyEventType,
   eventTypeLabel,
   eventCategoryPluralLabel,

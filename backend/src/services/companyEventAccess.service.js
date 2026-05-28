@@ -77,6 +77,24 @@ export async function isUserAssignedToCompanyEvent(userId, eventId, agencyId = n
   return !!csp?.[0]?.ok;
 }
 
+/** School portal parent events with optional outreach table staffing. */
+export function isSchoolPortalEventType(eventType) {
+  const t = String(eventType || '').trim().toLowerCase();
+  return t === 'school_back_to_school' || t === 'school_spring_event';
+}
+
+export async function isSchoolOutreachEvent(eventId) {
+  const eid = parsePositiveInt(eventId);
+  if (!eid) return false;
+  const [rows] = await pool.execute(
+    `SELECT event_type, outreach_table_invited FROM company_events WHERE id = ? LIMIT 1`,
+    [eid]
+  );
+  const row = rows?.[0];
+  if (!row) return false;
+  return isSchoolPortalEventType(row.event_type) && !!(row.outreach_table_invited === 1 || row.outreach_table_invited === true);
+}
+
 /** Read-only event portal access: coordinators/staff or anyone assigned to the event. */
 export async function canViewProgramEvent(req, agencyId, eventId) {
   if (!(await userHasAgencyAccessForRequest(req, agencyId))) return false;

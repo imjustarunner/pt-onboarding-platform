@@ -1,6 +1,6 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
-import { downloadCompanyEventIcsForMe, listMyCompanyEvents, respondToMyCompanyEvent } from '../controllers/companyEvents.controller.js';
+import { downloadCompanyEventIcsForMe, listMyCompanyEvents, listMyCompanyEventsCalendar, respondToMyCompanyEvent } from '../controllers/companyEvents.controller.js';
 import { sendReminderSms } from '../controllers/reminderSms.controller.js';
 import { createCustomTask, updateCustomTask, deleteCustomTask, claimTask } from '../controllers/meTasks.controller.js';
 import {
@@ -39,6 +39,7 @@ router.get('/tasks/:id/comments', authenticate, requireTaskCommentAccess, listCo
 router.post('/tasks/:id/comments', authenticate, requireTaskCommentAccess, createComment);
 router.post('/send-reminder-sms', authenticate, sendReminderSms);
 router.get('/company-events', authenticate, listMyCompanyEvents);
+router.get('/company-events/calendar', authenticate, listMyCompanyEventsCalendar);
 router.get('/company-events/:eventId/ics', authenticate, downloadCompanyEventIcsForMe);
 router.post('/company-events/:eventId/respond', authenticate, respondToMyCompanyEvent);
 router.get('/book-club/status', authenticate, getMyBookClubStatus);
