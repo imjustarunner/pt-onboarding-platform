@@ -19,6 +19,7 @@ import {
   loadIntakeWaiverSectionsFallbackForClientIds,
   loadWaiverHistorySectionsFallbackForClientIds
 } from '../services/guardianWaivers.service.js';
+import { loadCompanyEventRegistrationForKiosk } from '../utils/eventKioskRegistration.util.js';
 
 const TOKEN_TYPE = 'skill_builders_event_kiosk';
 
@@ -414,6 +415,7 @@ export const getEventDayKioskContext = async (req, res, next) => {
     // Event + branding
     const [evRows] = await pool.execute(
       `SELECT ce.id, ce.title, ce.starts_at, ce.ends_at, ce.organization_id,
+              ce.registration_form_url,
               ce.snacks_available, ce.snack_options_json, ce.meals_available, ce.meal_options_json,
               a.name AS agency_name, a.logo_url AS agency_logo, a.color_palette AS agency_colors,
               org.name AS org_name, org.logo_url AS org_logo, org.color_palette AS org_colors
@@ -596,6 +598,10 @@ export const getEventDayKioskContext = async (req, res, next) => {
       [eventId, today]
     ).catch(() => [[]]);
 
+    const registration = await loadCompanyEventRegistrationForKiosk(pool, eventId, {
+      registrationFormUrl: ev.registration_form_url
+    });
+
     res.json({
       ok: true,
       event: {
@@ -632,6 +638,7 @@ export const getEventDayKioskContext = async (req, res, next) => {
         checkedInAt: c.checked_in_at,
         checkedOutAt: c.checked_out_at
       })),
+      registration,
       kioskDate: today
     });
   } catch (e) {

@@ -65,6 +65,13 @@
 
       <!-- ── CHECK-IN PHASE ──────────────────────────────────────────────── -->
       <div v-if="phase === 'checkin'" class="edk-body">
+        <div v-if="registrationAvailable" class="edk-walkin-banner">
+          <div>
+            <strong>Walk-in today?</strong>
+            <span class="muted small"> Show parents the registration QR to enroll on site.</span>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" @click="openRegistrationQr()">Show QR</button>
+        </div>
         <div class="edk-columns">
           <!-- Client check-in -->
           <div class="edk-panel">
@@ -352,13 +359,43 @@
         </div>
       </div>
     </div>
+
+    <div v-if="registrationQrOpen" class="edk-modal-overlay" @click.self="closeRegistrationQr">
+      <div class="edk-modal edk-reg-qr-modal">
+        <h3 class="edk-modal-title">Register for {{ eventContext.title || 'this program' }}</h3>
+        <p class="muted small">Scan to open the enrollment form for this event.</p>
+        <div v-if="registrationLinks.length > 1" class="edk-reg-link-tabs">
+          <button
+            v-for="link in registrationLinks"
+            :key="link.id || link.url"
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :class="{ 'edk-reg-link-tab--active': selectedRegistrationLink?.url === link.url }"
+            @click="selectRegistrationLink(link)"
+          >
+            {{ link.title || 'Registration' }}
+          </button>
+        </div>
+        <div class="edk-reg-qr-wrap">
+          <img v-if="registrationQrDataUrl" :src="registrationQrDataUrl" alt="Registration QR code" class="edk-reg-qr-img" />
+          <div v-else class="muted small">Generating QR…</div>
+        </div>
+        <div class="edk-reg-url-row">
+          <input class="input" :value="selectedRegistrationUrl" readonly />
+          <button type="button" class="btn btn-secondary btn-sm" @click="copyRegistrationUrl">Copy</button>
+        </div>
+        <button class="btn btn-primary edk-waiver-close" @click="closeRegistrationQr">Close</button>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
+import QRCode from 'qrcode';
 import api from '../../services/api';
+import { buildFormUrl } from '../../utils/publicIntakeUrl';
 
 const route = useRoute();
 const slug = computed(() => String(route.params.organizationSlug || '').trim().toLowerCase());
@@ -373,6 +410,7 @@ const eventContext = ref({ id: null, title: '', snacksAvailable: true, snackOpti
 const allClients = ref([]);
 const allStaff = ref([]);
 const checkins = ref([]); // from server
+const registration = ref({ available: false, primary: null, links: [], externalUrl: null });
 
 const loadError = ref('');
 
@@ -508,6 +546,68 @@ function clientDisplayName(client) {
   return lastInitial ? `${parts[0]} ${lastInitial}.` : parts[0];
 }
 
+const registrationAvailable = computed(() => registration.value?.available === true);
+const registrationLinks = computed(() => {
+  const links = Array.isArray(registration.value?.links) ? registration.value.links : [];
+  if (links.length) return links;
+  const primary = registration.value?.primary;
+  return primary?.url ? [primary] : [];
+});
+const registrationQrOpen = ref(false);
+const selectedRegistrationLink = ref(null);
+const registrationQrDataUrl = ref('');
+
+function resolveRegistrationUrl(link) {
+  if (!link) return '';
+  const fromApi = String(link.url || '').trim();
+  if (fromApi) {
+    if (/^https?:\/\//i.test(fromApi)) return fromApi;
+    const base = String(window.location.origin || '').replace(/\/+$/, '');
+    return `${base}${fromApi.startsWith('/') ? fromApi : `/${fromApi}`}`;
+  }
+  const pk = String(link.publicKey || '').trim();
+  if (!pk) return '';
+  return buildFormUrl(pk, link.formType);
+}
+
+const selectedRegistrationUrl = computed(() => resolveRegistrationUrl(selectedRegistrationLink.value));
+
+async function renderRegistrationQr() {
+  const url = selectedRegistrationUrl.value;
+  if (!url) { registrationQrDataUrl.value = ''; return; }
+  try {
+    registrationQrDataUrl.value = await QRCode.toDataURL(url, { width: 260, margin: 1 });
+  } catch {
+    registrationQrDataUrl.value = '';
+  }
+}
+
+async function selectRegistrationLink(link) {
+  selectedRegistrationLink.value = link;
+  await renderRegistrationQr();
+}
+
+async function openRegistrationQr(link = null) {
+  const links = registrationLinks.value;
+  if (!links.length) return;
+  selectedRegistrationLink.value = link || registration.value?.primary || links[0];
+  registrationQrOpen.value = true;
+  await nextTick();
+  await renderRegistrationQr();
+}
+
+function closeRegistrationQr() {
+  registrationQrOpen.value = false;
+  selectedRegistrationLink.value = null;
+  registrationQrDataUrl.value = '';
+}
+
+async function copyRegistrationUrl() {
+  const url = selectedRegistrationUrl.value;
+  if (!url) return;
+  try { await navigator.clipboard.writeText(url); } catch { /* ignore */ }
+}
+
 function initials(name) {
   if (!name) return '?';
   return name.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
@@ -580,6 +680,7 @@ async function loadEventDayContext() {
     allClients.value = data.clients || [];
     allStaff.value = data.staff || [];
     checkins.value = data.checkins || [];
+    registration.value = data.registration || { available: false, primary: null, links: [], externalUrl: null };
     phase.value = 'checkin';
   } catch (e) {
     loadError.value = e.response?.data?.error?.message || 'Could not load event details.';
@@ -1020,4 +1121,21 @@ watch(slug, () => { resetToUnlock(); });
   background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b;
   border-radius: 10px; padding: 10px 14px; font-size: 0.88rem;
 }
+.edk-walkin-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+}
+.edk-reg-qr-modal { text-align: center; max-width: 420px; }
+.edk-reg-link-tabs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 10px 0; }
+.edk-reg-link-tab--active { border-color: var(--primary, #0f766e); background: #f0fdfa; }
+.edk-reg-qr-wrap { display: flex; justify-content: center; margin: 10px 0; }
+.edk-reg-qr-img { width: 260px; height: 260px; border-radius: 12px; border: 1px solid var(--border, #e2e8f0); }
+.edk-reg-url-row { display: flex; gap: 8px; margin-bottom: 12px; }
 </style>

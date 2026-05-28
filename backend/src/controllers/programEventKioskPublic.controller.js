@@ -41,6 +41,9 @@ import {
   loadWaiverHistorySectionsFallbackForClientIds
 } from '../services/guardianWaivers.service.js';
 import {
+  loadCompanyEventRegistrationForKiosk
+} from '../utils/eventKioskRegistration.util.js';
+import {
   recordEventEmployeeClockIn,
   recordEventEmployeeClockOut
 } from '../services/skillBuildersEventKioskPunch.service.js';
@@ -523,7 +526,7 @@ export const getProgramEventKioskContext = async (req, res, next) => {
     // Event + branding
     const [evRows] = await pool.execute(
       `SELECT ce.id, ce.title, ce.starts_at, ce.ends_at, ce.timezone, ce.event_type,
-              ce.organization_id,
+              ce.organization_id, ce.registration_form_url,
               a.name AS agency_name, a.logo_url AS agency_logo, a.color_palette AS agency_colors,
               org.name AS org_name, org.logo_url AS org_logo, org.color_palette AS org_colors
        FROM company_events ce
@@ -625,6 +628,9 @@ export const getProgramEventKioskContext = async (req, res, next) => {
 
     const staffRows = await loadProgramEventStaff(eventId, agencyId);
     const checkinRows = await loadEventDayCheckins(eventId, today);
+    const registration = await loadCompanyEventRegistrationForKiosk(pool, eventId, {
+      registrationFormUrl: ev.registration_form_url
+    });
 
     // Today's release log (so the kiosk can dim already-released kids).
     let releases = [];
@@ -689,6 +695,7 @@ export const getProgramEventKioskContext = async (req, res, next) => {
         walkHomeAlone: !!r.walk_home_alone,
         signedAt: r.signed_at
       })),
+      registration,
       kioskDate: today
     });
   } catch (e) {

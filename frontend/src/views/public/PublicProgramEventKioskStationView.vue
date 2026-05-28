@@ -58,6 +58,25 @@
           autocomplete="off"
         />
         <button class="btn btn-secondary btn-sm" @click="loadContext">Refresh</button>
+        <button
+          v-if="registrationAvailable"
+          type="button"
+          class="btn btn-primary btn-sm pe-walkin-btn"
+          @click="openRegistrationQr()"
+        >
+          Walk-in registration
+        </button>
+      </div>
+
+      <div
+        v-if="registrationAvailable && mainMode === 'checkin' && personMode === 'client'"
+        class="pe-walkin-banner"
+      >
+        <div>
+          <strong>Walk-in today?</strong>
+          <span class="muted small"> Show parents the registration QR so they can enroll on their phone while on site.</span>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" @click="openRegistrationQr()">Show QR</button>
       </div>
 
       <!-- CHECK IN · CLIENT -->
@@ -429,15 +448,57 @@
         </footer>
       </div>
     </div>
+
+    <!-- Walk-in registration QR -->
+    <div v-if="registrationQrOpen" class="pe-kiosk-modal" @click.self="closeRegistrationQr">
+      <div class="pe-kiosk-modal-card pe-registration-qr-card">
+        <header class="pe-kiosk-modal-hdr">
+          <div>
+            <div class="pe-kiosk-modal-title">Register for {{ event.title || 'this program' }}</div>
+            <div class="muted small">Scan with a phone camera to open the enrollment form for this event.</div>
+          </div>
+          <button class="btn btn-text" type="button" @click="closeRegistrationQr">Close</button>
+        </header>
+
+        <div v-if="registrationLinks.length > 1" class="pe-reg-link-tabs">
+          <button
+            v-for="link in registrationLinks"
+            :key="link.id || link.url"
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :class="{ 'pe-reg-link-tab--active': selectedRegistrationLink?.url === link.url }"
+            @click="selectRegistrationLink(link)"
+          >
+            {{ link.title || 'Registration' }}
+          </button>
+        </div>
+
+        <div class="pe-reg-qr-wrap">
+          <img v-if="registrationQrDataUrl" :src="registrationQrDataUrl" alt="Registration QR code" class="pe-reg-qr-img" />
+          <div v-else class="muted small">Generating QR…</div>
+        </div>
+
+        <p class="pe-reg-form-title"><strong>{{ selectedRegistrationLink?.title || 'Registration form' }}</strong></p>
+        <div class="pe-reg-url-row">
+          <input class="input pe-reg-url-input" :value="selectedRegistrationUrl" readonly />
+          <button type="button" class="btn btn-secondary btn-sm" @click="copyRegistrationUrl">Copy link</button>
+        </div>
+        <p class="muted small pe-reg-hint">
+          After the parent finishes registration, refresh the roster — the child can check in once they appear on the participant list.
+        </p>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
+import QRCode from 'qrcode';
 import api from '../../services/api';
 import { useBrandingStore } from '../../store/branding';
 import { resolvePortalSlug } from '../../utils/orgScopedPath';
+import { buildFormUrl } from '../../utils/publicIntakeUrl';
 
 const route = useRoute();
 const brandingStore = useBrandingStore();
@@ -452,6 +513,7 @@ const clients = ref([]);
 const staff = ref([]);
 const checkins = ref([]);
 const releases = ref([]);
+const registration = ref({ available: false, primary: null, links: [], externalUrl: null });
 const kioskDay = ref({});
 const search = ref('');
 const clockNow = ref(formatNow());
@@ -499,6 +561,7 @@ async function loadContext() {
     staff.value = Array.isArray(res.data?.staff) ? res.data.staff : [];
     checkins.value = Array.isArray(res.data?.checkins) ? res.data.checkins : [];
     releases.value = Array.isArray(res.data?.releases) ? res.data.releases : [];
+    registration.value = res.data?.registration || { available: false, primary: null, links: [], externalUrl: null };
     kioskDay.value = res.data?.kioskDay || {};
   } catch (e) {
     loadError.value = e.response?.data?.error?.message || e.message || 'Could not load event';
@@ -602,6 +665,76 @@ function formatTime(iso) {
   if (!iso) return '';
   try { return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch { return ''; }
 }
+const registrationAvailable = computed(() => registration.value?.available === true);
+const registrationLinks = computed(() => {
+  const links = Array.isArray(registration.value?.links) ? registration.value.links : [];
+  if (links.length) return links;
+  const primary = registration.value?.primary;
+  return primary?.url ? [primary] : [];
+});
+
+const registrationQrOpen = ref(false);
+const selectedRegistrationLink = ref(null);
+const registrationQrDataUrl = ref('');
+
+function resolveRegistrationUrl(link) {
+  if (!link) return '';
+  const fromApi = String(link.url || '').trim();
+  if (fromApi) {
+    if (/^https?:\/\//i.test(fromApi)) return fromApi;
+    const base = String(window.location.origin || '').replace(/\/+$/, '');
+    return `${base}${fromApi.startsWith('/') ? fromApi : `/${fromApi}`}`;
+  }
+  const pk = String(link.publicKey || '').trim();
+  if (!pk) return '';
+  return buildFormUrl(pk, link.formType);
+}
+
+const selectedRegistrationUrl = computed(() => resolveRegistrationUrl(selectedRegistrationLink.value));
+
+async function renderRegistrationQr() {
+  const url = selectedRegistrationUrl.value;
+  if (!url) {
+    registrationQrDataUrl.value = '';
+    return;
+  }
+  try {
+    registrationQrDataUrl.value = await QRCode.toDataURL(url, { width: 280, margin: 1 });
+  } catch {
+    registrationQrDataUrl.value = '';
+  }
+}
+
+async function selectRegistrationLink(link) {
+  selectedRegistrationLink.value = link;
+  await renderRegistrationQr();
+}
+
+async function openRegistrationQr(link = null) {
+  const links = registrationLinks.value;
+  if (!links.length) return;
+  selectedRegistrationLink.value = link || registration.value?.primary || links[0];
+  registrationQrOpen.value = true;
+  await nextTick();
+  await renderRegistrationQr();
+}
+
+function closeRegistrationQr() {
+  registrationQrOpen.value = false;
+  selectedRegistrationLink.value = null;
+  registrationQrDataUrl.value = '';
+}
+
+async function copyRegistrationUrl() {
+  const url = selectedRegistrationUrl.value;
+  if (!url) return;
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch {
+    /* ignore */
+  }
+}
+
 function clientDisplayName(client) {
   if (!client) return '';
   return client.kioskDisplayName || formatKioskDisplayName(client.fullName);
@@ -1010,8 +1143,29 @@ onBeforeUnmount(() => {
   color: var(--primary, #0f766e);
 }
 
-.pe-kiosk-toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
-.pe-kiosk-search { flex: 1; }
+.pe-kiosk-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.pe-kiosk-search { flex: 1; min-width: 160px; }
+.pe-walkin-btn { white-space: nowrap; }
+.pe-walkin-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+}
+.pe-registration-qr-card { width: min(420px, 100%); text-align: center; }
+.pe-reg-link-tabs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 12px; }
+.pe-reg-link-tab--active { border-color: var(--primary, #0f766e); background: #f0fdfa; }
+.pe-reg-qr-wrap { display: flex; justify-content: center; margin: 8px 0 12px; }
+.pe-reg-qr-img { width: 280px; height: 280px; border-radius: 12px; border: 1px solid var(--border, #e2e8f0); }
+.pe-reg-form-title { margin: 0 0 8px; }
+.pe-reg-url-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.pe-reg-url-input { flex: 1; font-size: 12px; }
+.pe-reg-hint { text-align: left; margin: 0; }
 .pe-panel-lead { margin: 0 0 10px; font-size: 13px; }
 
 .pe-roster { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
