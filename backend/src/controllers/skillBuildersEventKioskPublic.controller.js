@@ -12,6 +12,7 @@ import {
   parseWaiverSectionsJson,
   stripKioskClientDedupeKeys
 } from '../utils/kioskWaiverDisplay.util.js';
+import { loadIntakeWaiverSectionsFallbackForClientIds } from '../services/guardianWaivers.service.js';
 
 const TOKEN_TYPE = 'skill_builders_event_kiosk';
 
@@ -499,6 +500,10 @@ export const getEventDayKioskContext = async (req, res, next) => {
       waiversByClient.set(cid, list);
     }
 
+    const intakeWaiverFallback = clientIds.length
+      ? await loadIntakeWaiverSectionsFallbackForClientIds(clientIds)
+      : new Map();
+
     const clientList = [];
     for (const r of clients || []) {
       const cid = Number(r.id);
@@ -517,6 +522,12 @@ export const getEventDayKioskContext = async (req, res, next) => {
           w.updated_at
         );
       }
+
+      const intakeRow = intakeWaiverFallback.get(cid);
+      if (intakeRow) {
+        mergeWaiverSectionsIntoKioskClient(entry, intakeRow.sections, intakeRow.updatedAt, { fillMissingOnly: true });
+      }
+
       stripKioskClientDedupeKeys(entry);
 
       const linkedGuardians = guardiansByClient.get(cid) || [];

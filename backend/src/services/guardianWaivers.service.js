@@ -1,6 +1,8 @@
 import pool from '../config/database.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import User from '../models/User.model.js';
+import { decryptIntakeSubmissionRows } from './intakeResponsesEncryption.service.js';
+import { extractProfileSectionsFromIntakeData } from '../utils/kioskWaiverDisplay.util.js';
 import {
   GUARDIAN_WAIVER_ESIGN_KEY,
   GUARDIAN_WAIVER_SECTION_KEYS,
@@ -541,4 +543,73 @@ export async function listWaiverAuditForClient(clientId) {
     ids
   );
   return { profiles, history };
+}
+
+function parseIntakeDataColumn(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'object') return raw;
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Load guardian waiver sections captured on intake submissions when
+ * guardian_client_waiver_profiles is empty or incomplete.
+ *
+ * @param {number[]} clientIds
+ * @returns {Promise<Map<number, { sections: object, updatedAt: string|null }>>}
+ */
+export async function loadIntakeWaiverSectionsFallbackForClientIds(clientIds) {
+  const ids = [...new Set((clientIds || []).map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0))];
+  const out = new Map();
+  if (!ids.length) return out;
+
+  const ph = ids.map(() => '?').join(',');
+  let rows = [];
+  try {
+    [rows] = await pool.execute(
+      `SELECT s.id, s.client_id, s.intake_data, s.submitted_at,
+              s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id,
+              isc.client_id AS isc_client_id
+       FROM intake_submissions s
+       LEFT JOIN intake_submission_clients isc ON isc.intake_submission_id = s.id
+       WHERE (s.client_id IN (${ph}) OR isc.client_id IN (${ph}))
+       ORDER BY s.submitted_at DESC, s.id DESC`,
+      [...ids, ...ids]
+    );
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return out;
+    throw err;
+  }
+
+  decryptIntakeSubmissionRows(rows || []);
+
+  for (const row of rows || []) {
+    const intakeData = parseIntakeDataColumn(row.intake_data);
+    if (!intakeData) continue;
+
+    const linkedClientIds = new Set(
+      [row.client_id, row.isc_client_id]
+        .map((id) => Number(id))
+        .filter((id) => ids.includes(id))
+    );
+
+    for (const clientId of linkedClientIds) {
+      if (out.has(clientId)) continue;
+      const sections = extractProfileSectionsFromIntakeData(intakeData, clientId);
+      if (!sections) continue;
+      out.set(clientId, {
+        sections,
+        updatedAt: row.submitted_at || null
+      });
+    }
+  }
+
+  return out;
 }

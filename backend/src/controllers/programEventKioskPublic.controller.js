@@ -32,6 +32,7 @@ import {
   parseWaiverSectionsJson,
   stripKioskClientDedupeKeys
 } from '../utils/kioskWaiverDisplay.util.js';
+import { loadIntakeWaiverSectionsFallbackForClientIds } from '../services/guardianWaivers.service.js';
 
 const parsePositiveInt = (raw) => {
   const n = Number.parseInt(String(raw || ''), 10);
@@ -438,6 +439,13 @@ export const getProgramEventKioskContext = async (req, res, next) => {
         parseWaiverSectionsJson(w.sections_json),
         w.updated_at
       );
+    }
+
+    const intakeWaiverFallback = await loadIntakeWaiverSectionsFallbackForClientIds(clientIds);
+    for (const [clientId, { sections, updatedAt }] of intakeWaiverFallback) {
+      const entry = clientMap.get(Number(clientId));
+      if (!entry) continue;
+      mergeWaiverSectionsIntoKioskClient(entry, sections, updatedAt, { fillMissingOnly: true });
     }
 
     for (const c of clientMap.values()) {
