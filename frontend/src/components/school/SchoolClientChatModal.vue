@@ -858,6 +858,11 @@ const continuationServicesSummary = (raw) => {
     if (data.notContinuingAction === 'continuing_office_virtual') return 'Not continuing · office/virtual';
     return 'Not continuing in school';
   }
+  if (data.plan === 'unable_to_contact_parent') {
+    if (data.unableToContactRecommendation === 'recommend_continue') return 'No contact · recommend continue';
+    if (data.unableToContactRecommendation === 'recommend_terminate') return 'No contact · recommend terminate';
+    return 'No contact · needs recommendation';
+  }
   if (data.plan !== 'continue_school') return '—';
   if (data.schoolChoice === 'current_school') {
     if (data.currentSchoolAction === 'continuing_with_me') return 'Current school · with me';

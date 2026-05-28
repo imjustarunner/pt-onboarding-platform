@@ -36,28 +36,29 @@
               <option value="">—</option>
               <option value="continue_school">Continuing for in-school services in the fall</option>
               <option value="not_continue_school">Not continuing for in-school services in the fall</option>
+              <option value="unable_to_contact_parent">Not able to contact parent/guardian</option>
             </select>
 
             <div v-if="form.continuation.plan === 'continue_school'" class="nested-fields">
               <div class="choice-row">
                 <label class="choice-card">
                   <input v-model="form.continuation.schoolChoice" type="radio" value="current_school" />
-                  <span>Current school</span>
+                  <span class="choice-card-label">Current school</span>
                 </label>
                 <label class="choice-card">
                   <input v-model="form.continuation.schoolChoice" type="radio" value="new_school" />
-                  <span>New school</span>
+                  <span class="choice-card-label">New school</span>
                 </label>
               </div>
 
               <div v-if="form.continuation.schoolChoice === 'current_school'" class="nested-fields">
                 <label class="choice-card">
                   <input v-model="form.continuation.currentSchoolAction" type="radio" value="continuing_with_me" />
-                  <span>Continuing with me</span>
+                  <span class="choice-card-label">Continuing with me</span>
                 </label>
                 <label class="choice-card">
                   <input v-model="form.continuation.currentSchoolAction" type="radio" value="requesting_transfer" />
-                  <span>Requesting transfer</span>
+                  <span class="choice-card-label">Requesting transfer</span>
                 </label>
               </div>
 
@@ -89,7 +90,7 @@
                       type="radio"
                       value="continue_at_new_school_if_possible"
                     />
-                    <span>I would like to continue to see them at their new school if possible</span>
+                    <span class="choice-card-label">I would like to continue to see them at their new school if possible</span>
                   </label>
                   <label class="choice-card">
                     <input
@@ -97,7 +98,7 @@
                       type="radio"
                       value="pursue_in_office_support"
                     />
-                    <span>I will pursue in-office support at the client's request</span>
+                    <span class="choice-card-label">I will pursue in-office support at the client's request</span>
                   </label>
                 </div>
               </div>
@@ -110,7 +111,7 @@
                   type="radio"
                   value="transferring_terminating_client"
                 />
-                <span>Transferring/terminating the client</span>
+                <span class="choice-card-label">Transferring/terminating the client</span>
               </label>
               <label class="choice-card">
                 <input
@@ -118,8 +119,38 @@
                   type="radio"
                   value="continuing_office_virtual"
                 />
-                <span>Continuing as an in-office/virtual client</span>
+                <span class="choice-card-label">Continuing as an in-office/virtual client</span>
               </label>
+            </div>
+
+            <div
+              v-if="form.continuation.plan === 'unable_to_contact_parent'"
+              class="sub-prompt-overlay"
+              role="dialog"
+              aria-labelledby="unable-contact-prompt-title"
+            >
+              <div class="sub-prompt">
+                <h4 id="unable-contact-prompt-title">Not able to contact parent/guardian</h4>
+                <p class="sub-prompt-lead">Select a recommendation:</p>
+                <div class="choice-row">
+                  <label class="choice-card">
+                    <input
+                      v-model="form.continuation.unableToContactRecommendation"
+                      type="radio"
+                      value="recommend_continue"
+                    />
+                    <span class="choice-card-label">Recommend Continue</span>
+                  </label>
+                  <label class="choice-card">
+                    <input
+                      v-model="form.continuation.unableToContactRecommendation"
+                      type="radio"
+                      value="recommend_terminate"
+                    />
+                    <span class="choice-card-label">Recommend Terminate</span>
+                  </label>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -152,7 +183,8 @@ const emptyContinuation = () => ({
   newSchoolOrganizationId: '',
   newSchoolName: '',
   newSchoolAction: '',
-  notContinuingAction: ''
+  notContinuingAction: '',
+  unableToContactRecommendation: ''
 });
 
 const form = ref({
@@ -196,7 +228,8 @@ const parseContinuationServices = (value) => {
     newSchoolOrganizationId: data.newSchoolOrganizationId ? String(data.newSchoolOrganizationId) : '',
     newSchoolName: String(data.newSchoolName || ''),
     newSchoolAction: String(data.newSchoolAction || ''),
-    notContinuingAction: String(data.notContinuingAction || '')
+    notContinuingAction: String(data.notContinuingAction || ''),
+    unableToContactRecommendation: String(data.unableToContactRecommendation || '')
   };
 };
 
@@ -261,6 +294,8 @@ const continuationPayload = () => {
     }
   } else if (c.plan === 'not_continue_school') {
     payload.notContinuingAction = c.notContinuingAction || '';
+  } else if (c.plan === 'unable_to_contact_parent') {
+    payload.unableToContactRecommendation = c.unableToContactRecommendation || '';
   }
   return payload;
 };
@@ -300,6 +335,7 @@ watch(
       form.value.continuation.newSchoolAction = '';
     }
     if (plan !== 'not_continue_school') form.value.continuation.notContinuingAction = '';
+    if (plan !== 'unable_to_contact_parent') form.value.continuation.unableToContactRecommendation = '';
   }
 );
 
@@ -366,7 +402,7 @@ watch(
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
-.form-group label {
+.form-group > label:not(.choice-card) {
   display: block;
   font-size: 12px;
   font-weight: 700;
@@ -398,15 +434,44 @@ watch(
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: white;
-  color: var(--text-primary) !important;
+  background: #fff;
+  color: #1d2633 !important;
   font-size: 13px !important;
   font-weight: 700 !important;
+  line-height: 1.3;
+  cursor: pointer;
+}
+.choice-card-label {
+  color: #1d2633;
+  font-size: 13px;
+  font-weight: 700;
   line-height: 1.3;
 }
 .choice-card input {
   margin-top: 2px;
   flex-shrink: 0;
+}
+.sub-prompt-overlay {
+  position: relative;
+  margin-top: 10px;
+}
+.sub-prompt {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+.sub-prompt h4 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1d2633;
+}
+.sub-prompt-lead {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--text-secondary, #64748b);
 }
 .input-with-today {
   display: flex;

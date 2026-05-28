@@ -210,6 +210,7 @@ function hasCompletedContinuationServices(raw) {
   const data = parseJsonMaybe(raw);
   if (!data || typeof data !== 'object') return false;
   if (data.plan === 'not_continue_school') return !!data.notContinuingAction;
+  if (data.plan === 'unable_to_contact_parent') return !!data.unableToContactRecommendation;
   if (data.plan !== 'continue_school') return false;
   if (data.schoolChoice === 'current_school') return !!data.currentSchoolAction;
   if (data.schoolChoice === 'new_school') {

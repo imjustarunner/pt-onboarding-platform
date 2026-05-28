@@ -1194,6 +1194,7 @@ const hasContinuationServices = (client) => {
   const data = parseContinuationServices(client);
   if (!data) return false;
   if (data.plan === 'not_continue_school') return !!data.notContinuingAction;
+  if (data.plan === 'unable_to_contact_parent') return !!data.unableToContactRecommendation;
   if (data.plan !== 'continue_school') return false;
   if (data.schoolChoice === 'current_school') return !!data.currentSchoolAction;
   if (data.schoolChoice === 'new_school') {
@@ -1211,6 +1212,11 @@ const continuationServicesSummary = (client) => {
     if (data.notContinuingAction === 'transferring_terminating_client') return 'Not continuing · transfer/terminate';
     if (data.notContinuingAction === 'continuing_office_virtual') return 'Office/virtual';
     return 'Not continuing · needs detail';
+  }
+  if (data.plan === 'unable_to_contact_parent') {
+    if (data.unableToContactRecommendation === 'recommend_continue') return 'No contact · recommend continue';
+    if (data.unableToContactRecommendation === 'recommend_terminate') return 'No contact · recommend terminate';
+    return 'No contact · needs recommendation';
   }
   if (data.plan !== 'continue_school') return 'Needs response';
   if (data.schoolChoice === 'current_school') {

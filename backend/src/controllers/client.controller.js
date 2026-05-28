@@ -258,11 +258,12 @@ function mergeGuardianIntakeWithFallback(intake, fallback) {
   return merged;
 }
 
-const CONTINUATION_SERVICES_PLANS = new Set(['continue_school', 'not_continue_school']);
+const CONTINUATION_SERVICES_PLANS = new Set(['continue_school', 'not_continue_school', 'unable_to_contact_parent']);
 const CONTINUATION_SCHOOL_CHOICES = new Set(['current_school', 'new_school']);
 const CONTINUATION_CURRENT_SCHOOL_ACTIONS = new Set(['continuing_with_me', 'requesting_transfer']);
 const CONTINUATION_NEW_SCHOOL_ACTIONS = new Set(['continue_at_new_school_if_possible', 'pursue_in_office_support']);
 const CONTINUATION_NOT_CONTINUING_ACTIONS = new Set(['transferring_terminating_client', 'continuing_office_virtual']);
+const CONTINUATION_UNABLE_TO_CONTACT_RECOMMENDATIONS = new Set(['recommend_continue', 'recommend_terminate']);
 
 function normalizeOptionalText(value, maxLength = 255) {
   const text = String(value || '').trim();
@@ -312,12 +313,18 @@ function normalizeContinuationServicesPayload(raw) {
         normalized.newSchoolAction = newSchoolAction;
       }
     }
-  } else {
+  } else if (plan === 'not_continue_school') {
     const notContinuingAction = String(raw.notContinuingAction || '').trim();
     if (!CONTINUATION_NOT_CONTINUING_ACTIONS.has(notContinuingAction)) {
       throw new Error('Select the fall plan for not continuing in-school services');
     }
     normalized.notContinuingAction = notContinuingAction;
+  } else {
+    const unableToContactRecommendation = String(raw.unableToContactRecommendation || '').trim();
+    if (!CONTINUATION_UNABLE_TO_CONTACT_RECOMMENDATIONS.has(unableToContactRecommendation)) {
+      throw new Error('Select Recommend Continue or Recommend Terminate');
+    }
+    normalized.unableToContactRecommendation = unableToContactRecommendation;
   }
 
   return normalized;
