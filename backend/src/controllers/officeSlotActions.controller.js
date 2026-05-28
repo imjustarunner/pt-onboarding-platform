@@ -2736,12 +2736,20 @@ export const staffAssignOpenSlot = async (req, res, next) => {
               recurrenceGroupId,
               assignedProviderId: assignedUserId,
               bookedProviderId: null,
-              createdByUserId: req.user.id
+              createdByUserId: req.user.id,
+              replaceCancelled: true
             });
             if (event?.id) createdEvents.push(event);
           }
         }
       }
+
+      await materializeOfficeWeeks({
+        officeLocationId,
+        startDateYmd: date,
+        createdByUserId: req.user.id,
+        weeks: 4
+      });
 
       return res.json({
         ok: true,
@@ -2795,13 +2803,21 @@ export const staffAssignOpenSlot = async (req, res, next) => {
           bookingPlanId: null,
           assignedProviderId: assignedUserId,
           bookedProviderId: null,
-          createdByUserId: req.user.id
+          createdByUserId: req.user.id,
+          replaceCancelled: true
         });
         if (event?.id) createdEvents.push(event);
       }
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
+
+    await materializeOfficeWeeks({
+      officeLocationId,
+      startDateYmd: date,
+      createdByUserId: req.user.id,
+      weeks: 1
+    });
 
     res.json({
       ok: true,

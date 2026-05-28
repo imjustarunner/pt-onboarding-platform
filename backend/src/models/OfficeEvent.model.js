@@ -141,7 +141,12 @@ class OfficeEvent {
   static async findByRoomAndStart(roomId, startAt) {
     const normalizedStartAt = normalizeMySqlDateTime(startAt);
     const [rows] = await pool.execute(
-      `SELECT * FROM office_events WHERE room_id = ? AND start_at = ? LIMIT 1`,
+      `SELECT *
+       FROM office_events
+       WHERE room_id = ?
+         AND start_at = ?
+       ORDER BY CASE WHEN UPPER(COALESCE(status, '')) = 'CANCELLED' THEN 1 ELSE 0 END ASC, id DESC
+       LIMIT 1`,
       [roomId, normalizedStartAt]
     );
     return rows?.[0] || null;
@@ -158,7 +163,8 @@ class OfficeEvent {
     recurrenceGroupId = null,
     assignedProviderId = null,
     bookedProviderId = null,
-    createdByUserId
+    createdByUserId,
+    replaceCancelled = false
   }) {
     const normalizedStartAt = normalizeMySqlDateTime(startAt);
     const normalizedEndAt = normalizeMySqlDateTime(endAt);
@@ -172,26 +178,47 @@ class OfficeEvent {
       if (existingCancelled) {
         const incomingStandingId = Number(standingAssignmentId || 0) || null;
         const existingStandingId = Number(existing.standing_assignment_id || 0) || null;
-        // Allow a newly approved request (new standing assignment id) to create a fresh row
-        // even when a prior occurrence at the same slot was cancelled.
-        if (incomingStandingId && incomingStandingId !== existingStandingId) {
-          return await this.create({
-            officeLocationId,
-            roomId,
-            startAt: normalizedStartAt,
-            endAt: normalizedEndAt,
-            status: legacyStatus,
-            slotState,
-            standingAssignmentId,
-            bookingPlanId,
-            assignedProviderId,
-            bookedProviderId,
-            source: 'ADMIN_OVERRIDE',
-            recurrenceGroupId,
-            notes: null,
-            createdByUserId,
-            approvedByUserId: null
-          });
+        const incomingProviderId = Number(assignedProviderId || 0) || null;
+        const existingProviderId = Number(
+          existing.assigned_provider_id || existing.booked_provider_id || 0
+        ) || null;
+        const shouldReactivateCancelledSlot = replaceCancelled
+          || (incomingStandingId && incomingStandingId !== existingStandingId)
+          || (incomingProviderId && incomingProviderId !== existingProviderId);
+
+        if (shouldReactivateCancelledSlot) {
+          await pool.execute(
+            `UPDATE office_events
+             SET office_location_id = ?,
+                 room_id = ?,
+                 start_at = ?,
+                 end_at = ?,
+                 status = ?,
+                 slot_state = ?,
+                 standing_assignment_id = ?,
+                 booking_plan_id = ?,
+                 recurrence_group_id = ?,
+                 assigned_provider_id = ?,
+                 booked_provider_id = ?,
+                 client_id = NULL,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [
+              officeLocationId,
+              roomId,
+              normalizedStartAt,
+              normalizedEndAt,
+              legacyStatus,
+              slotState,
+              standingAssignmentId,
+              bookingPlanId,
+              recurrenceGroupId,
+              assignedProviderId,
+              bookedProviderId,
+              existing.id
+            ]
+          );
+          return await this.findById(existing.id);
         }
         return await this.findById(existing.id);
       }
