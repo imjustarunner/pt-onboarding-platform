@@ -486,7 +486,7 @@
         <header class="pe-kiosk-modal-hdr">
           <div>
             <div class="pe-kiosk-modal-title">Release {{ clientDisplayName(activeClient) }}</div>
-            <div class="muted small">Select pickup or walk-home, sign, and take a release photo.</div>
+            <div class="muted small">Tap an approved pickup or walk-home option, then sign and take a release photo.</div>
           </div>
           <button class="btn btn-text" @click="closeCheckout">Close</button>
         </header>
@@ -504,6 +504,10 @@
         </div>
 
         <template v-if="!activeClient?.checkoutBlocked">
+          <div v-if="checkoutBlockReason === checkoutSelectReason" class="pe-checkout-select-hint">
+            {{ checkoutSelectReason }}
+          </div>
+
           <h4 class="pe-kiosk-modal-h4">Who is picking up?</h4>
 
           <p v-if="guardianPickupOptions(activeClient).length" class="pe-kiosk-modal-sub muted small">Guardians</p>
@@ -512,12 +516,16 @@
               v-for="(p, idx) in guardianPickupOptions(activeClient)"
               :key="`cg-${idx}`"
               class="pe-kiosk-pickup-row"
-              :class="{ 'pe-kiosk-pickup-row--sel': releaseMode === 'pickup' && selectedPickupKey === pickupKey(p) }"
+              :class="{
+                'pe-kiosk-pickup-row--sel': releaseMode === 'pickup' && selectedPickupKey === pickupKey(p),
+                'pe-kiosk-pickup-row--hint': !releaseMode
+              }"
               @click="selectPickup(p)"
             >
               <div>
                 <strong>{{ p.name }}</strong>
                 <span class="muted small"> (Guardian)</span>
+                <span v-if="!releaseMode" class="pe-kiosk-pickup-tap muted small"> · Tap to select</span>
               </div>
               <div class="muted small">{{ p.phone || '' }}</div>
             </li>
@@ -529,12 +537,16 @@
               v-for="(p, idx) in otherPickupOptions(activeClient)"
               :key="`cp-${idx}`"
               class="pe-kiosk-pickup-row"
-              :class="{ 'pe-kiosk-pickup-row--sel': releaseMode === 'pickup' && selectedPickupKey === pickupKey(p) }"
+              :class="{
+                'pe-kiosk-pickup-row--sel': releaseMode === 'pickup' && selectedPickupKey === pickupKey(p),
+                'pe-kiosk-pickup-row--hint': !releaseMode
+              }"
               @click="selectPickup(p)"
             >
               <div>
                 <strong>{{ p.name }}</strong>
                 <span v-if="p.relationship" class="muted small"> ({{ p.relationship }})</span>
+                <span v-if="!releaseMode" class="pe-kiosk-pickup-tap muted small"> · Tap to select</span>
               </div>
               <div class="muted small">{{ p.phone || '' }}</div>
             </li>
@@ -548,12 +560,16 @@
             <button
               type="button"
               class="pe-kiosk-pickup-row pe-kiosk-walk-option"
-              :class="{ 'pe-kiosk-pickup-row--sel': releaseMode === 'walk_home_staff' }"
+              :class="{
+                'pe-kiosk-pickup-row--sel': releaseMode === 'walk_home_staff',
+                'pe-kiosk-pickup-row--hint': !releaseMode
+              }"
               @click="selectWalkHomeStaff"
             >
               <div>
                 <strong>Walk home alone</strong>
                 <span class="muted small"> — staff attestation (employee signs below)</span>
+                <span v-if="!releaseMode" class="pe-kiosk-pickup-tap muted small"> · Tap to select</span>
               </div>
               <div v-if="activeClient.walkHome.allowedWindow" class="muted small">
                 Window: {{ activeClient.walkHome.allowedWindow }}
@@ -563,12 +579,16 @@
               v-if="activeClient?.canSelfWalkHome"
               type="button"
               class="pe-kiosk-pickup-row pe-kiosk-walk-option"
-              :class="{ 'pe-kiosk-pickup-row--sel': releaseMode === 'walk_home_self' }"
+              :class="{
+                'pe-kiosk-pickup-row--sel': releaseMode === 'walk_home_self',
+                'pe-kiosk-pickup-row--hint': !releaseMode
+              }"
               @click="selectWalkHomeSelf"
             >
               <div>
                 <strong>Walk home alone</strong>
                 <span class="muted small"> — client self-release (age {{ activeClient.ageYears }}+, client signs below)</span>
+                <span v-if="!releaseMode" class="pe-kiosk-pickup-tap muted small"> · Tap to select</span>
               </div>
             </button>
           </div>
@@ -602,6 +622,9 @@
         </div>
 
         <footer class="pe-kiosk-modal-footer">
+          <p v-if="checkoutBlockReason && checkoutBlockReason !== checkoutSelectReason" class="pe-checkout-footer-hint">
+            {{ checkoutBlockReason }}
+          </p>
           <button class="btn btn-secondary" type="button" @click="closeCheckout">Cancel</button>
           <button class="btn btn-primary" type="button" :disabled="submitting || !canSubmitCheckout" @click="submitCheckout">
             {{ submitting ? 'Recording…' : 'Record release' }}
@@ -1327,6 +1350,17 @@ function openCheckout(client) {
       sigCtx.fillRect(0, 0, c.width, c.height);
     }
     if (!photoPreview.value) startCamera();
+
+    const pickups = [
+      ...guardianPickupOptions(client),
+      ...otherPickupOptions(client)
+    ];
+    const hasWalk = client?.walkHome?.allowedToWalkHome === true;
+    if (pickups.length === 1 && !hasWalk) {
+      selectPickup(pickups[0]);
+    } else if (!pickups.length && hasWalk) {
+      selectWalkHomeStaff();
+    }
   });
 }
 function closeCheckout() {
@@ -1387,11 +1421,32 @@ function snapPhoto() {
 }
 function clearPhoto() { photoPreview.value = ''; }
 
-const canSubmitCheckout = computed(() => {
-  if (!activeClient.value || activeClient.value.checkoutBlocked || !sigDirty || !photoPreview.value) return false;
-  if (releaseMode.value === 'pickup') return !!selectedPickupKey.value;
-  return releaseMode.value === 'walk_home_staff' || releaseMode.value === 'walk_home_self';
+const checkoutSelectReason = computed(() => {
+  const client = activeClient.value;
+  if (!client || client.checkoutBlocked) return '';
+  const pickupCount = guardianPickupOptions(client).length + otherPickupOptions(client).length;
+  const hasWalk = client?.walkHome?.allowedToWalkHome === true;
+  if (pickupCount && hasWalk) {
+    return 'Select who is picking up, or tap walk-home authorization below.';
+  }
+  if (pickupCount) return 'Tap the person who is picking up to select them.';
+  if (hasWalk) return 'Tap walk-home authorization below to select release type.';
+  return 'Select a release option to continue.';
 });
+
+const checkoutBlockReason = computed(() => {
+  const client = activeClient.value;
+  if (!client || client.checkoutBlocked) return '';
+  if (!releaseMode.value) return checkoutSelectReason.value;
+  if (!sigDirty) return 'Draw a signature above to continue.';
+  if (!photoPreview.value) return 'Take a release photo above to continue.';
+  if (releaseMode.value === 'pickup' && !selectedPickupKey.value) {
+    return 'Tap the person who is picking up to select them.';
+  }
+  return '';
+});
+
+const canSubmitCheckout = computed(() => !checkoutBlockReason.value);
 
 async function submitCheckout() {
   if (!canSubmitCheckout.value || submitting.value) return;
@@ -1687,6 +1742,24 @@ onBeforeUnmount(() => {
 .pe-kiosk-pickup-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
 .pe-kiosk-pickup-row { border: 1px solid var(--border, #e2e8f0); border-radius: 8px; padding: 10px 12px; cursor: pointer; }
 .pe-kiosk-pickup-row--sel { border-color: var(--primary, #0f766e); background: #f0fdfa; }
+.pe-kiosk-pickup-row--hint { border-style: dashed; cursor: pointer; }
+.pe-kiosk-pickup-tap { font-style: italic; }
+.pe-checkout-select-hint {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 13px;
+}
+.pe-checkout-footer-hint {
+  flex: 1 1 100%;
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: #b45309;
+}
+.pe-kiosk-modal-footer { flex-wrap: wrap; }
 .pe-kiosk-walk-row { display: flex; gap: 8px; align-items: flex-start; padding: 8px; border: 1px solid var(--border); border-radius: 8px; }
 .pe-kiosk-sig-wrap { display: flex; flex-direction: column; gap: 6px; }
 .pe-kiosk-sig-canvas { width: 100%; height: 140px; border: 1px solid var(--border); border-radius: 8px; touch-action: none; }
