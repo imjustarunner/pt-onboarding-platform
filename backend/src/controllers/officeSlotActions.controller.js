@@ -343,6 +343,156 @@ async function buildStandingSlotConflictDetail({ officeLocationId, roomId, weekd
   };
 }
 
+async function countFutureNonCancelledEventsForStandingAssignment(standingAssignmentId, fromDateYmd) {
+  const sid = Number(standingAssignmentId || 0);
+  if (!sid) return 0;
+  const rangeStart = mysqlDateTimeForDateHour(fromDateYmd, 0) || `${fromDateYmd} 00:00:00`;
+  const [rows] = await pool.execute(
+    `SELECT COUNT(*) AS cnt
+     FROM office_events
+     WHERE standing_assignment_id = ?
+       AND start_at >= ?
+       AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
+    [sid, rangeStart]
+  );
+  return Number(rows?.[0]?.cnt || 0);
+}
+
+async function deactivateStandingAssignmentIfReleased(standingAssignmentId, fromDateYmd) {
+  const sid = Number(standingAssignmentId || 0);
+  if (!sid) return false;
+  const assignment = await OfficeStandingAssignment.findById(sid);
+  if (!assignment?.id || !assignment.is_active) return false;
+  const futureCount = await countFutureNonCancelledEventsForStandingAssignment(sid, fromDateYmd);
+  if (futureCount > 0) return false;
+  await OfficeBookingPlan.deactivateByAssignmentId(sid);
+  await OfficeStandingAssignment.update(sid, { is_active: false });
+  return true;
+}
+
+async function deactivateStandingAssignmentsByIds(assignmentIds = []) {
+  const ids = Array.from(new Set((assignmentIds || []).map((id) => Number(id)).filter((n) => Number.isInteger(n) && n > 0)));
+  for (const sid of ids) {
+    // eslint-disable-next-line no-await-in-loop
+    await OfficeBookingPlan.deactivateByAssignmentId(sid);
+    // eslint-disable-next-line no-await-in-loop
+    await OfficeStandingAssignment.update(sid, { is_active: false });
+  }
+  return ids.length;
+}
+
+async function resolveStandingAssignmentIdsForEvent(ev, officeLocationId, { applyToSet = false } = {}) {
+  let standingAssignmentId = Number(ev?.standing_assignment_id || 0) || null;
+  let recurrenceGroupId = ev?.recurrence_group_id || null;
+  const startAt = mysqlDateTimeFromValue(ev?.start_at);
+  const startDateYmd = String(startAt || '').slice(0, 10);
+
+  if (!standingAssignmentId) {
+    const bookingPlanId = Number(ev?.booking_plan_id || 0) || null;
+    if (bookingPlanId) {
+      const [rows] = await pool.execute(
+        `SELECT standing_assignment_id AS id
+         FROM office_booking_plans
+         WHERE id = ?
+           AND standing_assignment_id IS NOT NULL
+         LIMIT 1`,
+        [bookingPlanId]
+      );
+      standingAssignmentId = Number(rows?.[0]?.id || 0) || null;
+    }
+  }
+  if (!standingAssignmentId) {
+    const providerIdFallback = Number(ev?.assigned_provider_id || ev?.booked_provider_id || 0) || null;
+    const roomIdFallback = Number(ev?.room_id || 0) || null;
+    const wh = weekdayHourFromSqlDateTime(startAt);
+    if (providerIdFallback && roomIdFallback && wh) {
+      const [rows] = await pool.execute(
+        `SELECT id, recurrence_group_id
+         FROM office_standing_assignments
+         WHERE office_location_id = ?
+           AND room_id = ?
+           AND provider_id = ?
+           AND weekday = ?
+           AND hour = ?
+         ORDER BY is_active DESC, id DESC
+         LIMIT 1`,
+        [officeLocationId, roomIdFallback, providerIdFallback, wh.weekdayIndex, wh.hour]
+      );
+      if (rows?.[0]) {
+        standingAssignmentId = Number(rows[0].id || 0) || null;
+        if (!recurrenceGroupId && rows[0].recurrence_group_id) recurrenceGroupId = rows[0].recurrence_group_id;
+      }
+    }
+  }
+  if (!recurrenceGroupId && standingAssignmentId) {
+    const [rows] = await pool.execute(
+      `SELECT recurrence_group_id
+       FROM office_standing_assignments
+       WHERE id = ?
+       LIMIT 1`,
+      [standingAssignmentId]
+    );
+    recurrenceGroupId = rows?.[0]?.recurrence_group_id || null;
+  }
+
+  let targetAssignmentIds = [];
+  if (standingAssignmentId) {
+    if (applyToSet && recurrenceGroupId) {
+      try {
+        const [rows] = await pool.execute(
+          `SELECT id
+           FROM office_standing_assignments
+           WHERE recurrence_group_id = ?
+             AND office_location_id = ?`,
+          [recurrenceGroupId, officeLocationId]
+        );
+        targetAssignmentIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+      } catch (e) {
+        if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+        targetAssignmentIds = [standingAssignmentId];
+      }
+    } else {
+      targetAssignmentIds = [standingAssignmentId];
+    }
+  }
+
+  if (!targetAssignmentIds.length && recurrenceGroupId && applyToSet) {
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT standing_assignment_id AS id
+       FROM office_events
+       WHERE recurrence_group_id = ?
+         AND standing_assignment_id IS NOT NULL`,
+      [recurrenceGroupId]
+    );
+    targetAssignmentIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+  }
+
+  if (!targetAssignmentIds.length) {
+    const roomId = Number(ev?.room_id || 0) || null;
+    const wh = weekdayHourFromSqlDateTime(startAt);
+    if (roomId && wh) {
+      const [rows] = await pool.execute(
+        `SELECT id
+         FROM office_standing_assignments
+         WHERE office_location_id = ?
+           AND room_id = ?
+           AND weekday = ?
+           AND hour = ?
+           AND is_active = TRUE`,
+        [officeLocationId, roomId, wh.weekdayIndex, wh.hour]
+      );
+      targetAssignmentIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+    }
+  }
+
+  return {
+    standingAssignmentId,
+    recurrenceGroupId,
+    targetAssignmentIds,
+    startDateYmd
+  };
+}
+
 async function cancelFutureEventsForStandingAssignment(standingAssignmentId, fromDateYmd) {
   const sid = Number(standingAssignmentId || 0);
   if (!sid) return [];
@@ -1409,6 +1559,13 @@ export const cancelEvent = async (req, res, next) => {
       await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
       await cancelGoogleForOfficeEventIds([eid]);
       const legacyAssignmentRowsRemoved = await removeLegacyAssignmentOverlap();
+      const resolved = await resolveStandingAssignmentIdsForEvent(ev, officeLocationId, { applyToSet: false });
+      const releasedStandingAssignmentIds = [];
+      for (const sid of resolved.targetAssignmentIds) {
+        // eslint-disable-next-line no-await-in-loop
+        const released = await deactivateStandingAssignmentIfReleased(sid, resolved.startDateYmd || startDateYmd);
+        if (released) releasedStandingAssignmentIds.push(sid);
+      }
       await logDeleteAuditAction({
         officeLocationId,
         actorUserId: req.user?.id,
@@ -1417,60 +1574,44 @@ export const cancelEvent = async (req, res, next) => {
         metadata: {
           officeEventId: eid,
           scope: 'occurrence',
-          legacyAssignmentRowsRemoved
+          legacyAssignmentRowsRemoved,
+          releasedStandingAssignmentIds
         }
       });
-      return res.json({ ok: true, scope: 'occurrence', event: updated, legacyAssignmentRowsRemoved });
+      return res.json({
+        ok: true,
+        scope: 'occurrence',
+        event: updated,
+        legacyAssignmentRowsRemoved,
+        releasedStandingAssignmentIds
+      });
     }
 
-    let standingAssignmentId = Number(ev.standing_assignment_id || 0) || null;
-    let recurrenceGroupId = ev.recurrence_group_id || null;
-    if (!standingAssignmentId) {
-      const bookingPlanId = Number(ev.booking_plan_id || 0) || null;
-      if (bookingPlanId) {
-        const [rows] = await pool.execute(
-          `SELECT standing_assignment_id AS id
-           FROM office_booking_plans
-           WHERE id = ?
-             AND standing_assignment_id IS NOT NULL
-           LIMIT 1`,
-          [bookingPlanId]
-        );
-        standingAssignmentId = Number(rows?.[0]?.id || 0) || null;
+    const resolved = await resolveStandingAssignmentIdsForEvent(ev, officeLocationId, { applyToSet });
+    let standingAssignmentId = resolved.standingAssignmentId;
+    let recurrenceGroupId = resolved.recurrenceGroupId;
+    let targetAssignmentIds = resolved.targetAssignmentIds;
+
+    // If no linkage exists, downgrade non-occurrence scopes to single occurrence.
+    if (!targetAssignmentIds.length && !recurrenceGroupId) {
+      const updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
+      await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
+      await cancelGoogleForOfficeEventIds([eid]);
+      const legacyAssignmentRowsRemoved = await removeLegacyAssignmentOverlap();
+      const releasedStandingAssignmentIds = [];
+      for (const sid of resolved.targetAssignmentIds) {
+        // eslint-disable-next-line no-await-in-loop
+        const released = await deactivateStandingAssignmentIfReleased(sid, startDateYmd);
+        if (released) releasedStandingAssignmentIds.push(sid);
       }
-    }
-    if (!standingAssignmentId) {
-      const providerIdFallback = Number(ev.assigned_provider_id || ev.booked_provider_id || 0) || null;
-      const roomIdFallback = Number(ev.room_id || 0) || null;
-      const wh = weekdayHourFromSqlDateTime(startAt);
-      if (providerIdFallback && roomIdFallback && wh) {
-        const [rows] = await pool.execute(
-          `SELECT id, recurrence_group_id
-           FROM office_standing_assignments
-           WHERE office_location_id = ?
-             AND room_id = ?
-             AND provider_id = ?
-             AND weekday = ?
-             AND hour = ?
-           ORDER BY is_active DESC, id DESC
-           LIMIT 1`,
-          [officeLocationId, roomIdFallback, providerIdFallback, wh.weekdayIndex, wh.hour]
-        );
-        if (rows?.[0]) {
-          standingAssignmentId = Number(rows[0].id || 0) || null;
-          if (!recurrenceGroupId && rows[0].recurrence_group_id) recurrenceGroupId = rows[0].recurrence_group_id;
-        }
-      }
-    }
-    if (!recurrenceGroupId && standingAssignmentId) {
-      const [rows] = await pool.execute(
-        `SELECT recurrence_group_id
-         FROM office_standing_assignments
-         WHERE id = ?
-         LIMIT 1`,
-        [standingAssignmentId]
-      );
-      recurrenceGroupId = rows?.[0]?.recurrence_group_id || null;
+      return res.json({
+        ok: true,
+        scope: 'occurrence',
+        event: updated,
+        downgradedFromScopedCancel: true,
+        legacyAssignmentRowsRemoved,
+        releasedStandingAssignmentIds
+      });
     }
 
     let rangeStart = startAt;
@@ -1484,90 +1625,6 @@ export const cancelEvent = async (req, res, next) => {
       rangeStart = startAt;
       const untilNextDay = addDaysYmd(untilDateRaw, 1);
       rangeEndExclusive = untilNextDay ? `${untilNextDay} 00:00:00` : null;
-    }
-
-    let targetAssignmentIds = [];
-    if (standingAssignmentId) {
-      if (applyToSet) {
-        try {
-          const [rows] = await pool.execute(
-            `SELECT id
-             FROM office_standing_assignments
-             WHERE recurrence_group_id = (
-               SELECT recurrence_group_id
-               FROM office_standing_assignments
-               WHERE id = ?
-               LIMIT 1
-             )
-               AND office_location_id = ?`,
-            [standingAssignmentId, officeLocationId]
-          );
-          targetAssignmentIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
-        } catch (e) {
-          if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-          targetAssignmentIds = [standingAssignmentId];
-        }
-      } else {
-        targetAssignmentIds = [standingAssignmentId];
-      }
-    }
-    if (!targetAssignmentIds.length && recurrenceGroupId && applyToSet) {
-      const [rows] = await pool.execute(
-        `SELECT DISTINCT standing_assignment_id AS id
-         FROM office_events
-         WHERE recurrence_group_id = ?
-           AND standing_assignment_id IS NOT NULL`,
-        [recurrenceGroupId]
-      );
-      targetAssignmentIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
-    }
-    if (!targetAssignmentIds.length && applyToSet) {
-      const bookingPlanId = Number(ev.booking_plan_id || 0) || null;
-      if (bookingPlanId) {
-        const [rows] = await pool.execute(
-          `SELECT standing_assignment_id AS id
-           FROM office_booking_plans
-           WHERE id = ?
-             AND standing_assignment_id IS NOT NULL
-           LIMIT 1`,
-          [bookingPlanId]
-        );
-        targetAssignmentIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
-      }
-    }
-    if (!targetAssignmentIds.length && applyToSet) {
-      const providerId = Number(ev.assigned_provider_id || ev.booked_provider_id || 0) || null;
-      const roomId = Number(ev.room_id || 0) || null;
-      const wh = weekdayHourFromSqlDateTime(startAt);
-      if (providerId && roomId && wh) {
-        const [rows] = await pool.execute(
-          `SELECT id
-           FROM office_standing_assignments
-           WHERE office_location_id = ?
-             AND room_id = ?
-             AND provider_id = ?
-             AND weekday = ?
-             AND hour = ?
-           ORDER BY is_active DESC, id DESC`,
-          [officeLocationId, roomId, providerId, wh.weekdayIndex, wh.hour]
-        );
-        targetAssignmentIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
-      }
-    }
-
-    // If no linkage exists, downgrade non-occurrence scopes to single occurrence.
-    if (!targetAssignmentIds.length && !recurrenceGroupId) {
-      const updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
-      await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
-      await cancelGoogleForOfficeEventIds([eid]);
-      const legacyAssignmentRowsRemoved = await removeLegacyAssignmentOverlap();
-      return res.json({
-        ok: true,
-        scope: 'occurrence',
-        event: updated,
-        downgradedFromScopedCancel: true,
-        legacyAssignmentRowsRemoved
-      });
     }
 
     const where = [];
@@ -1622,12 +1679,19 @@ export const cancelEvent = async (req, res, next) => {
     }
 
     // Only deactivate standing assignment(s) when cancelling all future.
-    if (scope === 'future' && targetAssignmentIds.length) {
-      for (const sid of targetAssignmentIds) {
-        // eslint-disable-next-line no-await-in-loop
-        await OfficeBookingPlan.deactivateByAssignmentId(sid);
-        // eslint-disable-next-line no-await-in-loop
-        await OfficeStandingAssignment.update(sid, { is_active: false });
+    if (scope === 'future') {
+      if (!targetAssignmentIds.length && eventIds.length) {
+        const [sidRows] = await pool.execute(
+          `SELECT DISTINCT standing_assignment_id AS id
+           FROM office_events
+           WHERE id IN (${eventIds.map(() => '?').join(',')})
+             AND standing_assignment_id IS NOT NULL`,
+          eventIds
+        );
+        targetAssignmentIds = (sidRows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+      }
+      if (targetAssignmentIds.length) {
+        await deactivateStandingAssignmentsByIds(targetAssignmentIds);
       }
     }
 
@@ -1960,11 +2024,15 @@ export const cancelAssignment = async (req, res, next) => {
     }
 
     if (scope === 'future') {
-      for (const id of targetAssignmentIds) {
+      await deactivateStandingAssignmentsByIds(targetAssignmentIds);
+    }
+
+    const releasedStandingAssignmentIds = [];
+    if (scope === 'occurrence') {
+      for (const sid of targetAssignmentIds) {
         // eslint-disable-next-line no-await-in-loop
-        await OfficeBookingPlan.deactivateByAssignmentId(id);
-        // eslint-disable-next-line no-await-in-loop
-        await OfficeStandingAssignment.update(id, { is_active: false });
+        const released = await deactivateStandingAssignmentIfReleased(sid, slotDate);
+        if (released) releasedStandingAssignmentIds.push(sid);
       }
     }
 
@@ -1978,7 +2046,8 @@ export const cancelAssignment = async (req, res, next) => {
       scope,
       applyToSet,
       cancelledEventCount: eventIds.length,
-      targetedStandingAssignmentIds: targetAssignmentIds
+      targetedStandingAssignmentIds: targetAssignmentIds,
+      releasedStandingAssignmentIds
     });
   } catch (e) {
     next(e);
@@ -2534,7 +2603,22 @@ export const staffAssignOpenSlot = async (req, res, next) => {
         [roomId, endAt, startAt]
       );
       if ((aRows || []).length) {
-        return res.status(409).json({ error: { message: 'That office is already assigned during this time.' } });
+        const legacyAssignmentId = Number(aRows[0]?.id || 0);
+        const [activeEventRows] = await pool.execute(
+          `SELECT 1
+           FROM office_events
+           WHERE room_id = ?
+             AND start_at < ?
+             AND end_at > ?
+             AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
+           LIMIT 1`,
+          [roomId, endAt, startAt]
+        );
+        if (!(activeEventRows || []).length && legacyAssignmentId) {
+          await pool.execute(`DELETE FROM office_room_assignments WHERE id = ?`, [legacyAssignmentId]);
+        } else {
+          return res.status(409).json({ error: { message: 'That office is already assigned during this time.' } });
+        }
       }
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
@@ -2580,6 +2664,11 @@ export const staffAssignOpenSlot = async (req, res, next) => {
             hour: h
           });
           if (existingStanding?.id) {
+            // eslint-disable-next-line no-await-in-loop
+            const released = await deactivateStandingAssignmentIfReleased(existingStanding.id, date);
+            if (released) {
+              continue;
+            }
             const conflictDetail = await buildStandingSlotConflictDetail({
               officeLocationId,
               roomId,

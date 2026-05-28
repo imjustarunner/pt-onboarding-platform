@@ -1764,20 +1764,25 @@ const bulkAssignSelected = async () => {
 
 const bulkDeleteSelected = async () => {
   if (!officeId.value || !selectedAssignedSlots.value.length) return;
-  const ok = window.confirm(`Delete ${selectedAssignedSlots.value.length} selected assigned slot(s)?`);
+  const ok = window.confirm(`Delete ${selectedAssignedSlots.value.length} selected assigned slot(s)? Recurring assignments will be removed from today forward.`);
   if (!ok) return;
   let okCount = 0;
   try {
     saving.value = true;
     error.value = '';
     for (const s of selectedAssignedSlots.value) {
+      const recurring = Boolean(s.standingAssignmentId)
+        || ['WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(String(s.frequency || s.frequencyLabel || '').toUpperCase());
+      const scope = recurring ? 'future' : 'occurrence';
+      const applyToSet = recurring;
       if (s.eventId) {
         // eslint-disable-next-line no-await-in-loop
-        await api.post(`/office-slots/${officeId.value}/events/${s.eventId}/cancel`, { scope: 'occurrence' });
+        await api.post(`/office-slots/${officeId.value}/events/${s.eventId}/cancel`, { scope, applyToSet });
       } else if (s.standingAssignmentId) {
         // eslint-disable-next-line no-await-in-loop
         await api.post(`/office-slots/${officeId.value}/assignments/${s.standingAssignmentId}/cancel`, {
-          scope: 'occurrence',
+          scope,
+          applyToSet,
           date: s.date,
           hour: s.hour
         });
@@ -2309,7 +2314,7 @@ const createLearningSessionFromModal = async () => {
 };
 
 const cancelEventAction = async () => {
-  if (!officeId.value || !modalSlot.value?.eventId) return;
+  if (!officeId.value || (!modalSlot.value?.eventId && !modalSlot.value?.standingAssignmentId)) return;
   const selected = String(cancelScope.value || 'occurrence');
   let scope = 'occurrence';
   let applyToSet = false;
