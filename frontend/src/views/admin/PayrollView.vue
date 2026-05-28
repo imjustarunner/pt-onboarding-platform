@@ -3211,6 +3211,13 @@
                           <button
                             class="btn btn-secondary btn-sm"
                             type="button"
+                            @click="openTimeClaimReview(c)"
+                          >
+                            Review
+                          </button>
+                          <button
+                            class="btn btn-secondary btn-sm"
+                            type="button"
                             @click="unapproveTimeClaim(c)"
                             :disabled="movingTimeClaimId === c.id || isTargetPeriodLocked(c.target_payroll_period_id)"
                           >
@@ -5706,7 +5713,7 @@
     <!-- Time Claim Review Modal -->
     <teleport to="body">
       <div v-if="showTimeClaimReviewModal" class="modal-backdrop" @click.self="showTimeClaimReviewModal = false">
-        <div class="modal" style="max-width: 600px;">
+        <div class="modal" style="width: min(820px, 100%);">
           <div class="modal-header">
             <div>
               <div class="modal-title">Time Claim Details</div>
@@ -5718,40 +5725,95 @@
           </div>
           <div v-if="reviewedTimeClaim" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
 
+            <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr;">
+              <div class="field"><label>Claim ID</label><div>{{ reviewedTimeClaim.id || '—' }}</div></div>
+              <div class="field"><label>Status</label><div>{{ String(reviewedTimeClaim.status || '—').toUpperCase() }}</div></div>
+              <div class="field"><label>Claim date</label><div>{{ fmtClaimDate(reviewedTimeClaim.claim_date) }}</div></div>
+            </div>
+            <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr;">
+              <div class="field"><label>Requested time</label><div>{{ timeRequestedLabel(reviewedTimeClaim) }}</div></div>
+              <div class="field"><label>Suggested pay period</label><div>{{ timeClaimPeriodLabel(reviewedTimeClaim.suggested_payroll_period_id) }}</div></div>
+              <div class="field"><label>Target pay period</label><div>{{ timeClaimPeriodLabel(timeClaimReviewTargetPeriodId(reviewedTimeClaim)) }}</div></div>
+            </div>
+            <div
+              v-if="String(reviewedTimeClaim.status || '').toLowerCase() === 'approved'"
+              class="field-row"
+              style="grid-template-columns: 1fr 1fr 1fr;"
+            >
+              <div class="field">
+                <label>Bucket</label>
+                <div>{{ String(reviewedTimeClaim.bucket || 'indirect').toLowerCase() === 'direct' ? 'Direct' : 'Indirect' }}</div>
+              </div>
+              <div class="field"><label>Hours / credits</label><div>{{ fmtNum(timeClaimHours(reviewedTimeClaim)) }}</div></div>
+              <div class="field"><label>Applied amount</label><div>{{ fmtMoney(Number(reviewedTimeClaim.applied_amount || 0)) }}</div></div>
+            </div>
+
             <!-- service_correction -->
             <template v-if="reviewedTimeClaim.claim_type === 'service_correction'">
               <div class="field-row" style="grid-template-columns: 1fr 1fr;">
                 <div class="field"><label>Client Initials</label><div>{{ reviewedTimeClaim.payload?.clientInitials || '—' }}</div></div>
                 <div class="field"><label>Duration</label><div>{{ reviewedTimeClaim.payload?.duration || '—' }}</div></div>
               </div>
-              <div class="field"><label>Original Service</label><div>{{ reviewedTimeClaim.payload?.originalService || '—' }}</div></div>
-              <div class="field"><label>Corrected Service</label><div>{{ reviewedTimeClaim.payload?.correctedService || '—' }}</div></div>
+              <div class="field-row" style="grid-template-columns: 1fr 1fr;">
+                <div class="field"><label>Original Service</label><div>{{ reviewedTimeClaim.payload?.originalService || '—' }}</div></div>
+                <div class="field"><label>Corrected Service</label><div>{{ reviewedTimeClaim.payload?.correctedService || '—' }}</div></div>
+              </div>
               <div class="field"><label>Reason</label><div style="white-space: pre-wrap;">{{ reviewedTimeClaim.payload?.reason || '—' }}</div></div>
+              <div class="field"><label>Attestation</label><div>{{ timeClaimBoolLabel(reviewedTimeClaim.payload?.attestation) }}</div></div>
             </template>
 
             <!-- overtime_evaluation -->
             <template v-else-if="reviewedTimeClaim.claim_type === 'overtime_evaluation'">
-              <div class="field"><label>Dates &amp; Hours</label><div style="white-space: pre-wrap;">{{ reviewedTimeClaim.payload?.datesAndHours || '—' }}</div></div>
               <div class="field-row" style="grid-template-columns: 1fr 1fr;">
+                <div class="field"><label>Worked Over 12h?</label><div>{{ timeClaimBoolLabel(reviewedTimeClaim.payload?.workedOver12Hours) }}</div></div>
                 <div class="field"><label>Estimated Workweek Hours</label><div>{{ reviewedTimeClaim.payload?.estimatedWorkweekHours ?? '—' }}</div></div>
+              </div>
+              <div class="field">
+                <label>Hours worked each day</label>
+                <div class="field-row" style="grid-template-columns: repeat(7, 1fr); gap: 8px; margin-top: 6px;">
+                  <div v-for="d in timeClaimOvertimeDayLabels" :key="d.key" class="field" style="margin: 0;">
+                    <label style="font-size: 0.8em;">{{ d.label }}</label>
+                    <div>{{ reviewedTimeClaim.payload?.daysHours?.[d.key] ?? '—' }}</div>
+                  </div>
+                </div>
+              </div>
+              <div class="field"><label>Dates &amp; Hours (submitted text)</label><div style="white-space: pre-wrap;">{{ reviewedTimeClaim.payload?.datesAndHours || '—' }}</div></div>
+              <div class="field-row" style="grid-template-columns: 1fr 1fr;">
+                <div class="field"><label>Overtime Approved?</label><div>{{ timeClaimBoolLabel(reviewedTimeClaim.payload?.overtimeApproved) }}</div></div>
                 <div class="field"><label>Approved By</label><div>{{ reviewedTimeClaim.payload?.approvedBy || '—' }}</div></div>
               </div>
-              <div class="field"><label>Notes for Payroll</label><div style="white-space: pre-wrap;">{{ reviewedTimeClaim.payload?.notesForPayroll || '—' }}</div></div>
-              <div class="field-row" style="grid-template-columns: 1fr 1fr;">
-                <div class="field"><label>Worked Over 12h?</label><div>{{ reviewedTimeClaim.payload?.workedOver12Hours ? 'Yes' : 'No' }}</div></div>
-                <div class="field"><label>Overtime Approved?</label><div>{{ reviewedTimeClaim.payload?.overtimeApproved ? 'Yes' : 'No' }}</div></div>
+              <div class="field">
+                <label>All direct service recorded in Therapy Notes?</label>
+                <div>{{ timeClaimBoolLabel(reviewedTimeClaim.payload?.allDirectServiceRecorded) }}</div>
               </div>
+              <div class="field"><label>Notes for Payroll</label><div style="white-space: pre-wrap;">{{ reviewedTimeClaim.payload?.notesForPayroll || '—' }}</div></div>
+              <div class="field"><label>Attestation</label><div>{{ timeClaimBoolLabel(reviewedTimeClaim.payload?.attestation) }}</div></div>
             </template>
 
             <!-- meeting_training / mentor_cpa_meeting -->
             <template v-else-if="reviewedTimeClaim.claim_type === 'meeting_training' || reviewedTimeClaim.claim_type === 'mentor_cpa_meeting'">
               <div class="field-row" style="grid-template-columns: 1fr 1fr;">
                 <div class="field"><label>Attendance Type</label><div>{{ reviewedTimeClaim.payload?.meetingType || '—' }}</div></div>
-                <div class="field"><label>Total Minutes</label><div>{{ reviewedTimeClaim.payload?.totalMinutes ?? '—' }}</div></div>
+                <div class="field"><label>Platform</label><div>{{ reviewedTimeClaim.payload?.platform || '—' }}</div></div>
               </div>
-              <div class="field-row" style="grid-template-columns: 1fr 1fr;">
+              <div
+                v-if="reviewedTimeClaim.claim_type === 'mentor_cpa_meeting' || reviewedTimeClaim.payload?.mentorRole"
+                class="field"
+              >
+                <label>Meeting with</label>
+                <div>{{ timeClaimMentorRoleLabel(reviewedTimeClaim.payload?.mentorRole) }}</div>
+              </div>
+              <div
+                v-if="String(reviewedTimeClaim.payload?.meetingType || '').trim() === 'Not listed'"
+                class="field"
+              >
+                <label>Other meeting not listed</label>
+                <div>{{ reviewedTimeClaim.payload?.otherMeeting || '—' }}</div>
+              </div>
+              <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr;">
                 <div class="field"><label>Start Time</label><div>{{ reviewedTimeClaim.payload?.startTime || '—' }}</div></div>
                 <div class="field"><label>End Time</label><div>{{ reviewedTimeClaim.payload?.endTime || '—' }}</div></div>
+                <div class="field"><label>Total Minutes</label><div>{{ reviewedTimeClaim.payload?.totalMinutes ?? '—' }}</div></div>
               </div>
               <template v-if="String(reviewedTimeClaim.payload?.meetingType || '').trim() === 'Outreach'">
                 <div class="field-row" style="grid-template-columns: 1fr 1fr;">
@@ -5759,31 +5821,67 @@
                   <div class="field"><label>Locations Visited</label><div style="white-space: pre-wrap;">{{ reviewedTimeClaim.payload?.outreachLocations || '—' }}</div></div>
                 </div>
               </template>
-              <div class="field" v-if="reviewedTimeClaim.payload?.googleMeetLink">
-                <label>Google Meet Link</label>
-                <div><a :href="reviewedTimeClaim.payload.googleMeetLink" target="_blank" rel="noopener noreferrer">{{ reviewedTimeClaim.payload.googleMeetLink }}</a></div>
+              <div class="field">
+                <label>Event Summary</label>
+                <div style="white-space: pre-wrap;">{{ reviewedTimeClaim.payload?.summary || reviewedTimeClaim.payload?.description || '—' }}</div>
               </div>
-              <div class="field" v-if="reviewedTimeClaim.payload?.description">
-                <label>Description</label>
-                <div style="white-space: pre-wrap;">{{ reviewedTimeClaim.payload.description }}</div>
+              <div class="field"><label>Attestation</label><div>{{ timeClaimBoolLabel(reviewedTimeClaim.payload?.attestation) }}</div></div>
+              <div class="card" style="margin-top: 4px;">
+                <h4 style="margin: 0 0 8px 0;">Google Meet / transcript</h4>
+                <div class="field">
+                  <label>Google Meet Link</label>
+                  <div v-if="reviewedTimeClaim.payload?.googleMeetLink">
+                    <a :href="reviewedTimeClaim.payload.googleMeetLink" target="_blank" rel="noopener noreferrer">{{ reviewedTimeClaim.payload.googleMeetLink }}</a>
+                  </div>
+                  <div v-else class="muted">—</div>
+                </div>
+                <div class="field-row" style="grid-template-columns: 1fr 1fr;">
+                  <div class="field"><label>Google Event ID</label><div>{{ reviewedTimeClaim.payload?.googleEventId || '—' }}</div></div>
+                  <div class="field"><label>Host Email</label><div>{{ reviewedTimeClaim.payload?.googleHostEmail || '—' }}</div></div>
+                </div>
+                <div class="field">
+                  <label>Transcript URL</label>
+                  <div v-if="reviewedTimeClaim.payload?.transcriptUrl">
+                    <a :href="reviewedTimeClaim.payload.transcriptUrl" target="_blank" rel="noopener noreferrer">Open transcript</a>
+                  </div>
+                  <div v-else class="muted">—</div>
+                </div>
+                <div v-if="reviewedTimeClaim.payload?.transcriptText" class="field">
+                  <label>Transcript Text</label>
+                  <details>
+                    <summary>View transcript</summary>
+                    <pre style="white-space: pre-wrap; margin-top: 8px; max-height: 240px; overflow: auto;">{{ reviewedTimeClaim.payload.transcriptText }}</pre>
+                  </details>
+                </div>
               </div>
             </template>
 
             <!-- excess_holiday -->
             <template v-else-if="reviewedTimeClaim.claim_type === 'excess_holiday'">
               <div v-if="(reviewedTimeClaim.payload?.items || []).length">
-                <label style="font-weight: 600; font-size: 0.85em; color: #888; text-transform: uppercase; letter-spacing: 0.05em;">Time Items</label>
-                <div v-for="(it, idx) in reviewedTimeClaim.payload.items" :key="idx" style="margin-top: 6px; padding: 8px; background: #f8f9fa; border-radius: 6px; font-size: 0.92em;">
-                  <span v-if="it.directMinutes">Direct: {{ it.directMinutes }} min</span>
-                  <span v-if="it.directMinutes && it.indirectMinutes"> · </span>
-                  <span v-if="it.indirectMinutes">Indirect: {{ it.indirectMinutes }} min</span>
-                  <span v-if="it.description"> — {{ it.description }}</span>
+                <label style="font-weight: 600; font-size: 0.85em; color: #888; text-transform: uppercase; letter-spacing: 0.05em;">Service code entries</label>
+                <div
+                  v-for="(it, idx) in reviewedTimeClaim.payload.items"
+                  :key="idx"
+                  style="margin-top: 8px; padding: 10px 12px; background: #f8f9fa; border-radius: 6px;"
+                >
+                  <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr;">
+                    <div class="field"><label>CPT Code</label><div>{{ it.serviceCode || '—' }}</div></div>
+                    <div class="field"><label>Units</label><div>{{ it.units ?? '—' }}</div></div>
+                    <div class="field"><label>Description</label><div>{{ it.description || '—' }}</div></div>
+                  </div>
+                  <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 6px;">
+                    <div class="field"><label>Actual direct (mins)</label><div>{{ timeClaimExcessDirectMinutes(it) }}</div></div>
+                    <div class="field"><label>Actual indirect (mins)</label><div>{{ timeClaimExcessIndirectMinutes(it) }}</div></div>
+                  </div>
                 </div>
               </div>
               <div v-else class="field-row" style="grid-template-columns: 1fr 1fr;">
-                <div class="field"><label>Direct Minutes</label><div>{{ reviewedTimeClaim.payload?.directMinutes ?? '—' }}</div></div>
-                <div class="field"><label>Indirect Minutes</label><div>{{ reviewedTimeClaim.payload?.indirectMinutes ?? '—' }}</div></div>
+                <div class="field"><label>Direct Minutes (legacy)</label><div>{{ reviewedTimeClaim.payload?.directMinutes ?? reviewedTimeClaim.payload?.actualDirectMinutes ?? '—' }}</div></div>
+                <div class="field"><label>Indirect Minutes (legacy)</label><div>{{ reviewedTimeClaim.payload?.indirectMinutes ?? reviewedTimeClaim.payload?.actualIndirectMinutes ?? '—' }}</div></div>
               </div>
+              <div class="field"><label>Reason for extended time</label><div style="white-space: pre-wrap;">{{ reviewedTimeClaim.payload?.reason || '—' }}</div></div>
+              <div class="field"><label>Attestation</label><div>{{ timeClaimBoolLabel(reviewedTimeClaim.payload?.attestation) }}</div></div>
             </template>
 
             <!-- holiday_pay -->
@@ -5792,30 +5890,41 @@
                 <div class="field"><label>Holiday Date</label><div>{{ fmtClaimDate(reviewedTimeClaim.payload?.holidayDate) }}</div></div>
                 <div class="field"><label>Hours Worked</label><div>{{ reviewedTimeClaim.payload?.hoursWorked ?? '—' }}</div></div>
               </div>
+              <div class="field"><label>Attestation</label><div>{{ timeClaimBoolLabel(reviewedTimeClaim.payload?.attestation) }}</div></div>
             </template>
 
             <!-- jury_duty -->
             <template v-else-if="reviewedTimeClaim.claim_type === 'jury_duty'">
-              <div class="field"><label>Court Date</label><div>{{ fmtClaimDate(reviewedTimeClaim.payload?.courtDate) }}</div></div>
-              <div class="field"><label>Description</label><div style="white-space: pre-wrap;">{{ reviewedTimeClaim.payload?.description || '—' }}</div></div>
-              <div class="field" v-if="reviewedTimeClaim.payload?.proofFilePath">
-                <label>Court Summons</label>
-                <div><a :href="receiptUrl({ receipt_file_path: reviewedTimeClaim.payload.proofFilePath })" target="_blank" rel="noopener noreferrer">View Uploaded Summons</a></div>
+              <div class="field-row" style="grid-template-columns: 1fr 1fr;">
+                <div class="field"><label>Court Date</label><div>{{ fmtClaimDate(reviewedTimeClaim.payload?.courtDate) }}</div></div>
+                <div class="field"><label>Uploaded file name</label><div>{{ reviewedTimeClaim.payload?.proofOriginalName || '—' }}</div></div>
               </div>
+              <div class="field"><label>Description</label><div style="white-space: pre-wrap;">{{ reviewedTimeClaim.payload?.description || '—' }}</div></div>
+              <div class="field">
+                <label>Court Summons</label>
+                <div v-if="reviewedTimeClaim.payload?.proofFilePath">
+                  <a :href="receiptUrl({ receipt_file_path: reviewedTimeClaim.payload.proofFilePath })" target="_blank" rel="noopener noreferrer">View uploaded summons</a>
+                </div>
+                <div v-else class="muted">—</div>
+              </div>
+              <div class="field"><label>Attestation</label><div>{{ timeClaimBoolLabel(reviewedTimeClaim.payload?.attestation) }}</div></div>
             </template>
 
             <!-- fallback: show raw payload -->
             <template v-else>
               <div class="field" v-for="(val, key) in reviewedTimeClaim.payload" :key="key">
                 <label>{{ key }}</label>
-                <div style="white-space: pre-wrap;">{{ val }}</div>
+                <div style="white-space: pre-wrap;">{{ timeClaimPayloadText(val) }}</div>
               </div>
             </template>
 
-            <!-- Submitted by & notes -->
             <div class="field-row" style="grid-template-columns: 1fr 1fr; border-top: 1px solid #eee; padding-top: 12px; margin-top: 4px;">
               <div class="field"><label>Submitted by</label><div>{{ submitterLabel(reviewedTimeClaim) }}</div></div>
               <div class="field"><label>Submitted on</label><div>{{ submittedAtYmd(reviewedTimeClaim) }}</div></div>
+            </div>
+            <div v-if="reviewedTimeClaim.rejection_reason" class="field" style="border-top: 1px solid #eee; padding-top: 12px;">
+              <label>Admin note / send-back reason</label>
+              <div style="white-space: pre-wrap; color: #c05600;">{{ reviewedTimeClaim.rejection_reason }}</div>
             </div>
           </div>
           <div style="padding: 12px 16px; border-top: 1px solid #eee; display: flex; justify-content: flex-end;">
@@ -7681,6 +7790,64 @@ const timeRequestedLabel = (c) => {
   if (!(mins > 0)) return '—';
   const hrs = Math.round((mins / 60) * 100) / 100;
   return `${mins} min (${hrs} h)`;
+};
+
+const timeClaimOvertimeDayLabels = [
+  { key: 'mon', label: 'Mon' },
+  { key: 'tue', label: 'Tue' },
+  { key: 'wed', label: 'Wed' },
+  { key: 'thu', label: 'Thu' },
+  { key: 'fri', label: 'Fri' },
+  { key: 'sat', label: 'Sat' },
+  { key: 'sun', label: 'Sun' }
+];
+
+const timeClaimBoolLabel = (v) => {
+  if (v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true') return 'Yes';
+  if (v === false || v === 0 || v === '0' || String(v).toLowerCase() === 'false') return 'No';
+  return '—';
+};
+
+const timeClaimMentorRoleLabel = (role) => {
+  const r = String(role || '').trim().toLowerCase();
+  if (r === 'intern_mentor') return 'Intern Mentor';
+  if (r === 'clinical_practice_assistant') return 'Clinical Practice Assistant (CPA)';
+  return role || '—';
+};
+
+const timeClaimPeriodLabel = (periodId) => {
+  const id = Number(periodId || 0);
+  if (!id) return '—';
+  const p = (periods.value || []).find((row) => Number(row?.id || 0) === id) || null;
+  return p ? periodRangeLabel(p) : `Pay period #${id}`;
+};
+
+const timeClaimExcessDirectMinutes = (it) => {
+  const n = Number(it?.actualDirectMinutes ?? it?.directMinutes ?? 0);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const timeClaimExcessIndirectMinutes = (it) => {
+  const n = Number(it?.actualIndirectMinutes ?? it?.indirectMinutes ?? 0);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const timeClaimPayloadText = (val) => {
+  if (val === null || val === undefined || val === '') return '—';
+  if (typeof val === 'object') {
+    try {
+      return JSON.stringify(val, null, 2);
+    } catch {
+      return String(val);
+    }
+  }
+  return String(val);
+};
+
+const timeClaimReviewTargetPeriodId = (c) => {
+  const fromDraft = Number(timeTargetPeriodByClaimId.value?.[c?.id] || 0);
+  if (fromDraft) return fromDraft;
+  return Number(c?.target_payroll_period_id || 0);
 };
 
 const defaultBucketForTimeClaim = (c) => {
