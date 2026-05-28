@@ -26,6 +26,8 @@ import {
 } from '../services/skillBuilderAvailabilityBlocks.service.js';
 import { computeSkillBuilderProgramCreditMinutesPerWeek } from '../services/skillBuilderProgramCredit.service.js';
 import { loadCompanyEventDirectoryCounts } from '../services/companyEventDirectoryCounts.service.js';
+import { isUserAssignedToCompanyEvent } from '../services/companyEventAccess.service.js';
+import { fetchMyEventPortalWorkSchedule } from '../services/eventPortalWorkSchedule.service.js';
 import {
   fetchCompanyEventDetailForEdit,
   persistCompanyEventUpdate
@@ -449,7 +451,28 @@ export const listMyAssignedSkillBuilderEvents = async (req, res, next) => {
     }
     const coord = await getSkillBuilderCoordinatorAccess(userId);
     const elig = await getSkillBuilderEligibility(userId);
-    if (!coord && !elig) return res.status(403).json({ error: { message: 'Skill Builders access required' } });
+    const [assignedProbe] = await pool.execute(
+      `SELECT 1 AS ok FROM (
+         SELECT sgp.provider_user_id
+         FROM skills_group_providers sgp
+         INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id AND sg.agency_id = ?
+         WHERE sgp.provider_user_id = ?
+         UNION
+         SELECT cepa.provider_user_id
+         FROM company_event_provider_assignments cepa
+         INNER JOIN company_events ce ON ce.id = cepa.company_event_id AND ce.agency_id = ?
+         WHERE cepa.provider_user_id = ?
+         UNION
+         SELECT cesp.provider_user_id
+         FROM company_event_session_providers cesp
+         WHERE cesp.agency_id = ? AND cesp.provider_user_id = ?
+       ) roster LIMIT 1`,
+      [agencyId, userId, agencyId, userId, agencyId, userId]
+    ).catch(() => [[]]);
+    const hasAssignment = !!assignedProbe?.[0]?.ok;
+    if (!coord && !elig && !hasAssignment) {
+      return res.status(403).json({ error: { message: 'Skill Builders access required' } });
+    }
 
     const [rows] = await pool.execute(
       `SELECT ce.*,
@@ -458,17 +481,50 @@ export const listMyAssignedSkillBuilderEvents = async (req, res, next) => {
               school.id AS school_organization_id,
               school.name AS school_name,
               LOWER(TRIM(prog.slug)) AS program_portal_slug
-       FROM skills_group_providers sgp
-       INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id AND sg.agency_id = ?
-       INNER JOIN company_events ce ON ce.id = sg.company_event_id AND ce.agency_id = sg.agency_id
-       INNER JOIN agencies school ON school.id = sg.organization_id
+       FROM (
+         SELECT DISTINCT sg.company_event_id AS event_id
+         FROM skills_group_providers sgp
+         INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id AND sg.agency_id = ?
+         WHERE sgp.provider_user_id = ?
+         UNION
+         SELECT DISTINCT cepa.company_event_id AS event_id
+         FROM company_event_provider_assignments cepa
+         INNER JOIN company_events ce0 ON ce0.id = cepa.company_event_id AND ce0.agency_id = ?
+         WHERE cepa.provider_user_id = ?
+         UNION
+         SELECT DISTINCT cesp.company_event_id AS event_id
+         FROM company_event_session_providers cesp
+         WHERE cesp.agency_id = ? AND cesp.provider_user_id = ?
+       ) assigned
+       INNER JOIN company_events ce ON ce.id = assigned.event_id AND ce.agency_id = ?
+       LEFT JOIN skills_groups sg ON sg.company_event_id = ce.id AND sg.agency_id = ce.agency_id
+       LEFT JOIN agencies school ON school.id = sg.organization_id
        LEFT JOIN agencies prog ON prog.id = ce.organization_id
-       WHERE sgp.provider_user_id = ?
-         AND (ce.is_active = TRUE OR ce.is_active IS NULL)
+       WHERE (ce.is_active = TRUE OR ce.is_active IS NULL)
        ORDER BY ce.starts_at DESC, ce.id DESC
        LIMIT 200`,
-      [agencyId, userId]
-    );
+      [agencyId, userId, agencyId, userId, agencyId, userId, agencyId]
+    ).catch(async () => {
+      const [fallback] = await pool.execute(
+        `SELECT ce.*,
+                sg.id AS skills_group_id,
+                sg.name AS skills_group_name,
+                school.id AS school_organization_id,
+                school.name AS school_name,
+                LOWER(TRIM(prog.slug)) AS program_portal_slug
+         FROM skills_group_providers sgp
+         INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id AND sg.agency_id = ?
+         INNER JOIN company_events ce ON ce.id = sg.company_event_id AND ce.agency_id = sg.agency_id
+         INNER JOIN agencies school ON school.id = sg.organization_id
+         LEFT JOIN agencies prog ON prog.id = ce.organization_id
+         WHERE sgp.provider_user_id = ?
+           AND (ce.is_active = TRUE OR ce.is_active IS NULL)
+         ORDER BY ce.starts_at DESC, ce.id DESC
+         LIMIT 200`,
+        [agencyId, userId]
+      );
+      return fallback;
+    });
     const eventIds = [...new Set((rows || []).map((r) => Number(r.id)).filter((id) => Number.isFinite(id) && id > 0))];
     const countsByEventId = new Map();
     if (eventIds.length) {
@@ -812,6 +868,28 @@ export const getMySkillBuilderWorkSchedule = async (req, res, next) => {
   }
 };
 
+/** GET /api/skill-builders/events/:eventId/me/work-schedule?agencyId= — this event only (availability + bookings). */
+export const getMyEventPortalWorkSchedule = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const userId = parsePositiveInt(req.user?.id);
+    if (!agencyId || !eventId || !userId) {
+      return res.status(400).json({ error: { message: 'agencyId and event id are required' } });
+    }
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+
+    const payload = await fetchMyEventPortalWorkSchedule({ agencyId, eventId, userId });
+    if (payload.error) {
+      return res.status(payload.error.status).json({ error: { message: payload.error.message } });
+    }
+    res.json(payload);
+  } catch (e) {
+    next(e);
+  }
+};
+
 /** GET /api/skill-builders/events/:eventId/providers/:providerUserId/work-schedule?agencyId=&weekStart= */
 export const getSkillBuilderEventProviderWorkSchedule = async (req, res, next) => {
   try {
@@ -983,30 +1061,9 @@ async function assertEventAccess({ req, agencyId, eventId }) {
   const coord = await getSkillBuilderCoordinatorAccess(userId);
   if (coord && Number(ev.agency_id) === billingAgencyId) return { ok: true, row: ev };
 
-  const [sgp] = await pool.execute(
-    `SELECT 1 FROM skills_group_providers sgp
-     INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id
-     WHERE sg.company_event_id = ? AND sgp.provider_user_id = ?
-     LIMIT 1`,
-    [eid, userId]
-  );
-  if (sgp?.[0]) return { ok: true, row: ev };
-
-  const [epa] = await pool.execute(
-    `SELECT 1 FROM company_event_provider_assignments
-     WHERE company_event_id = ? AND provider_user_id = ?
-     LIMIT 1`,
-    [eid, userId]
-  );
-  if (epa?.[0]) return { ok: true, row: ev };
-
-  const [csp] = await pool.execute(
-    `SELECT 1 FROM company_event_session_providers
-     WHERE company_event_id = ? AND provider_user_id = ? AND assignment_status = 'finalized'
-     LIMIT 1`,
-    [eid, userId]
-  );
-  if (csp?.[0]) return { ok: true, row: ev };
+  if (await isUserAssignedToCompanyEvent(userId, eid, billingAgencyId)) {
+    return { ok: true, row: ev };
+  }
 
   return { error: { status: 403, message: 'Not assigned to this event' } };
 }
@@ -1515,13 +1572,9 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
       canPresentVirtual = vr === 'presenter' || vr === 'co_presenter';
     }
     if (userId && !isAssignedProvider) {
-      const [finalizedRows] = await pool.execute(
-        `SELECT 1 AS ok FROM company_event_session_providers
-         WHERE company_event_id = ? AND provider_user_id = ? AND assignment_status = 'finalized'
-         LIMIT 1`,
-        [eventId, userId]
-      );
-      if (finalizedRows?.[0]?.ok) isAssignedProvider = true;
+      if (await isUserAssignedToCompanyEvent(userId, eventId, billingAgencyId)) {
+        isAssignedProvider = true;
+      }
     }
 
     let meetings = [];

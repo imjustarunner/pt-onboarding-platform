@@ -43,6 +43,8 @@ import {
   removeClientAgencyAffiliation,
   listClientProviderAssignments,
   listClientEventAssignments,
+  listClientEventRegistrationSwitchOptions,
+  switchClientEventRegistrationHandler,
   upsertClientProviderAssignment,
   removeClientProviderAssignment,
   deleteClient
@@ -180,6 +182,8 @@ router.delete('/:id/agency-affiliations/:agencyId', removeClientAgencyAffiliatio
 // Multi-provider assignments (admin/staff/support/super_admin)
 router.get('/:id/provider-assignments', listClientProviderAssignments);
 router.get('/:id/event-assignments', listClientEventAssignments);
+router.get('/:id/event-registration-switch-options', listClientEventRegistrationSwitchOptions);
+router.post('/:id/switch-event-registration', switchClientEventRegistrationHandler);
 router.post('/:id/provider-assignments', upsertClientProviderAssignment);
 router.delete('/:id/provider-assignments/:assignmentId', removeClientProviderAssignment);
 

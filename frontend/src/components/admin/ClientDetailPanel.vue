@@ -1878,6 +1878,7 @@
                           <th>Organization</th>
                           <th>Dates</th>
                           <th>Provider active</th>
+                          <th v-if="canEditAccount">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1886,6 +1887,16 @@
                           <td>{{ eventAssignmentOrgLabel(ev) }}</td>
                           <td>{{ eventAssignmentDateRange(ev) }}</td>
                           <td>{{ ev.active_for_providers ? 'Yes' : 'No' }}</td>
+                          <td v-if="canEditAccount">
+                            <button
+                              v-if="ev.company_event_id"
+                              type="button"
+                              class="btn btn-secondary btn-xs"
+                              @click="openSwitchRegistration(ev)"
+                            >
+                              Switch registration
+                            </button>
+                          </td>
                         </tr>
                       </tbody>
                     </table>
@@ -1920,6 +1931,50 @@
                 >
                   No event assignments found for this client.
                 </div>
+              </div>
+            </div>
+
+            <div v-if="switchRegistrationOpen" class="modal-overlay" style="z-index: 10001;" @click.self="closeSwitchRegistration">
+              <div class="modal-card" style="max-width: 520px; padding: 18px;" @click.stop>
+                <h4 style="margin: 0 0 8px;">Switch registration</h4>
+                <p class="hint" style="margin: 0 0 14px;">
+                  Move this client from
+                  <strong>{{ switchRegistrationSourceTitle }}</strong>
+                  to another session in the same program. Intake and workflow progress can be kept.
+                </p>
+                <div v-if="switchRegistrationLoading" class="hint">Loading available events…</div>
+                <div v-else-if="switchRegistrationError" class="error" style="text-align:left;">{{ switchRegistrationError }}</div>
+                <template v-else>
+                  <label for="switch-reg-target" style="display:block; font-size:12px; font-weight:700; margin-bottom:6px;">New event</label>
+                  <select
+                    id="switch-reg-target"
+                    v-model="switchRegistrationTargetId"
+                    class="input"
+                    style="width: 100%; margin-bottom: 12px;"
+                  >
+                    <option value="">Select an event…</option>
+                    <option v-for="opt in switchRegistrationOptions" :key="`sw-${opt.id}`" :value="String(opt.id)">
+                      {{ switchRegistrationOptionLabel(opt) }}
+                    </option>
+                  </select>
+                  <label class="check-left" style="display:flex; align-items:center; gap:8px; margin-bottom: 14px;">
+                    <input v-model="switchRegistrationPreserveWorkflow" type="checkbox" />
+                    <span>Keep intake &amp; workflow progress</span>
+                  </label>
+                  <div style="display:flex; gap:8px; justify-content:flex-end;">
+                    <button type="button" class="btn btn-secondary btn-sm" :disabled="switchRegistrationSaving" @click="closeSwitchRegistration">
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-sm"
+                      :disabled="switchRegistrationSaving || !switchRegistrationTargetId"
+                      @click="submitSwitchRegistration"
+                    >
+                      {{ switchRegistrationSaving ? 'Switching…' : 'Switch registration' }}
+                    </button>
+                  </div>
+                </template>
               </div>
             </div>
           </div>
@@ -2814,6 +2869,15 @@ const providerAssignmentsLoading = ref(false);
 const eventAssignments = ref([]);
 const eventAssignmentsLoading = ref(false);
 const eventAssignmentsError = ref('');
+const switchRegistrationOpen = ref(false);
+const switchRegistrationLoading = ref(false);
+const switchRegistrationSaving = ref(false);
+const switchRegistrationError = ref('');
+const switchRegistrationSourceEventId = ref(0);
+const switchRegistrationSourceTitle = ref('');
+const switchRegistrationTargetId = ref('');
+const switchRegistrationPreserveWorkflow = ref(true);
+const switchRegistrationOptions = ref([]);
 const providerOptions = ref([]);
 const addProviderUserId = ref('');
 const addProviderDay = ref('');
@@ -4108,6 +4172,96 @@ const eventAssignmentDateRange = (ev) => {
   if (validA) return f(a);
   return f(b);
 };
+
+function switchRegistrationOptionLabel(opt) {
+  const title = String(opt?.title || `Event ${opt?.id || ''}`).trim();
+  const a = opt?.startsAt ? new Date(opt.startsAt) : null;
+  const b = opt?.endsAt ? new Date(opt.endsAt) : null;
+  const validA = a && Number.isFinite(a.getTime());
+  const validB = b && Number.isFinite(b.getTime());
+  if (validA && validB) {
+    return `${title} (${a.toLocaleDateString()} – ${b.toLocaleDateString()})`;
+  }
+  if (validA) return `${title} (${a.toLocaleDateString()})`;
+  return title;
+}
+
+function closeSwitchRegistration() {
+  switchRegistrationOpen.value = false;
+  switchRegistrationLoading.value = false;
+  switchRegistrationSaving.value = false;
+  switchRegistrationError.value = '';
+  switchRegistrationSourceEventId.value = 0;
+  switchRegistrationSourceTitle.value = '';
+  switchRegistrationTargetId.value = '';
+  switchRegistrationPreserveWorkflow.value = true;
+  switchRegistrationOptions.value = [];
+}
+
+async function openSwitchRegistration(ev) {
+  if (!canEditAccount.value) return;
+  const fromId = Number(ev?.company_event_id || 0);
+  if (!fromId) return;
+  const agencyId = Number(props.client?.agency_id || 0);
+  if (!agencyId) {
+    switchRegistrationError.value = 'Missing agency for this client';
+    switchRegistrationOpen.value = true;
+    return;
+  }
+  switchRegistrationSourceEventId.value = fromId;
+  switchRegistrationSourceTitle.value = eventAssignmentTitle(ev);
+  switchRegistrationTargetId.value = '';
+  switchRegistrationPreserveWorkflow.value = true;
+  switchRegistrationOptions.value = [];
+  switchRegistrationError.value = '';
+  switchRegistrationOpen.value = true;
+  switchRegistrationLoading.value = true;
+  try {
+    const r = await api.get(`/clients/${props.client.id}/event-registration-switch-options`, {
+      params: { agencyId, fromCompanyEventId: fromId },
+      skipGlobalLoading: true
+    });
+    switchRegistrationOptions.value = Array.isArray(r.data?.events) ? r.data.events : [];
+    if (!switchRegistrationOptions.value.length) {
+      switchRegistrationError.value = 'No other upcoming events found in this program.';
+    }
+  } catch (e) {
+    switchRegistrationError.value = e.response?.data?.error?.message || 'Failed to load events';
+  } finally {
+    switchRegistrationLoading.value = false;
+  }
+}
+
+async function submitSwitchRegistration() {
+  if (!canEditAccount.value) return;
+  const fromId = Number(switchRegistrationSourceEventId.value || 0);
+  const toId = Number(switchRegistrationTargetId.value || 0);
+  const agencyId = Number(props.client?.agency_id || 0);
+  if (!fromId || !toId || !agencyId) return;
+  const target = switchRegistrationOptions.value.find((o) => Number(o.id) === toId);
+  const targetTitle = target ? String(target.title || '').trim() : `event ${toId}`;
+  const ok = window.confirm(
+    `Move this client from "${switchRegistrationSourceTitle.value}" to "${targetTitle}"?`
+  );
+  if (!ok) return;
+  switchRegistrationSaving.value = true;
+  switchRegistrationError.value = '';
+  try {
+    await api.post(`/clients/${props.client.id}/switch-event-registration`, {
+      agencyId,
+      fromCompanyEventId: fromId,
+      toCompanyEventId: toId,
+      preserveWorkflow: switchRegistrationPreserveWorkflow.value
+    });
+    closeSwitchRegistration();
+    await fetchEventAssignments();
+    emit('updated', { keepOpen: true });
+  } catch (e) {
+    switchRegistrationError.value = e.response?.data?.error?.message || 'Failed to switch registration';
+  } finally {
+    switchRegistrationSaving.value = false;
+  }
+}
 
 const addProviderAssignment = async () => {
   if (!canEditAccount.value) return;

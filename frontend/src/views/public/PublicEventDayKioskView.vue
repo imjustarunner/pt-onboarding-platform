@@ -292,24 +292,19 @@
           <h4 class="edk-waiver-section-title">Allergies &amp; Medical</h4>
           <div v-if="!selectedClient?.waiver?.allergies" class="edk-waiver-none">No waiver data</div>
           <template v-else>
-            <div v-if="selectedClient.waiver.allergies.hasAllergies" class="edk-waiver-flag edk-flag-warn">
-              <strong>Allergies:</strong> {{ selectedClient.waiver.allergies.allergyDetails || 'Yes (see notes)' }}
+            <div v-if="waiverAllergyText(selectedClient.waiver.allergies)" class="edk-waiver-flag edk-flag-warn">
+              <strong>Allergies / medical:</strong> {{ waiverAllergyText(selectedClient.waiver.allergies) }}
             </div>
-            <div v-else class="edk-waiver-ok">No known allergies</div>
-            <div v-if="selectedClient.waiver.allergies.specialAccommodations" class="edk-waiver-note">
-              <strong>Accommodations:</strong> {{ selectedClient.waiver.allergies.specialAccommodations }}
-            </div>
+            <div v-else-if="selectedClient.waiver.allergies.applyNone" class="edk-waiver-ok">No medical info reported</div>
+            <div v-else class="edk-waiver-ok">No known allergies listed</div>
             <div v-if="selectedClient.waiver.allergies.noSnacks" class="edk-waiver-flag edk-flag-warn">
               <strong>Snacks:</strong> No snacks for this child
             </div>
-            <div v-else-if="selectedClient.waiver.allergies.approvedSnacksList?.length" class="edk-waiver-note">
-              <strong>Approved snacks:</strong> {{ selectedClient.waiver.allergies.approvedSnacksList.join(', ') }}
+            <div v-else-if="waiverApprovedSnacksSummary(selectedClient.waiver.allergies)" class="edk-waiver-note">
+              <strong>Approved snacks:</strong> {{ waiverApprovedSnacksSummary(selectedClient.waiver.allergies) }}
             </div>
-            <div v-else-if="selectedClient.waiver.allergies.approvedSnacks" class="edk-waiver-note">
-              <strong>Snack notes:</strong> {{ selectedClient.waiver.allergies.approvedSnacks }}
-            </div>
-            <div v-if="selectedClient.waiver.allergies.medicationNotes" class="edk-waiver-note">
-              <strong>Medication:</strong> {{ selectedClient.waiver.allergies.medicationNotes }}
+            <div v-if="selectedClient.waiver.allergies.notes" class="edk-waiver-note">
+              <strong>Medical notes:</strong> {{ selectedClient.waiver.allergies.notes }}
             </div>
           </template>
         </section>
@@ -317,8 +312,16 @@
         <!-- Meals -->
         <section v-if="eventContext.mealsAvailable && selectedClient?.waiver?.meals" class="edk-waiver-section">
           <h4 class="edk-waiver-section-title">Meal Preferences</h4>
-          <div v-if="selectedClient.waiver.meals.mealChoice" class="edk-waiver-note">{{ selectedClient.waiver.meals.mealChoice }}</div>
-          <div v-else-if="selectedClient.waiver.meals.mealNotes" class="edk-waiver-note">{{ selectedClient.waiver.meals.mealNotes }}</div>
+          <div v-if="selectedClient.waiver.meals.allowedMeals" class="edk-waiver-note">
+            <strong>Allowed:</strong> {{ selectedClient.waiver.meals.allowedMeals }}
+          </div>
+          <div v-if="selectedClient.waiver.meals.restrictedMeals" class="edk-waiver-note">
+            <strong>Restricted:</strong> {{ selectedClient.waiver.meals.restrictedMeals }}
+          </div>
+          <div v-else-if="selectedClient.waiver.meals.mealChoice" class="edk-waiver-note">{{ selectedClient.waiver.meals.mealChoice }}</div>
+          <div v-else-if="selectedClient.waiver.meals.mealNotes || selectedClient.waiver.meals.notes" class="edk-waiver-note">
+            {{ selectedClient.waiver.meals.mealNotes || selectedClient.waiver.meals.notes }}
+          </div>
           <div v-else class="edk-waiver-none">No preference noted</div>
         </section>
 
@@ -493,6 +496,22 @@ function initials(name) {
 function fmtDate(dt) {
   if (!dt) return '';
   try { return new Date(dt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); } catch { return dt; }
+}
+
+function waiverAllergyText(allergies) {
+  if (!allergies || typeof allergies !== 'object') return '';
+  const text = String(allergies.allergies || '').trim();
+  if (text && text.toLowerCase() !== 'none') return text;
+  return '';
+}
+
+function waiverApprovedSnacksSummary(allergies) {
+  if (!allergies || typeof allergies !== 'object') return '';
+  const list = Array.isArray(allergies.approvedSnacksList) && allergies.approvedSnacksList.length
+    ? allergies.approvedSnacksList.join(', ')
+    : '';
+  const freeText = String(allergies.approvedSnacks || '').trim();
+  return [list, freeText].filter(Boolean).join('; ');
 }
 
 function baseUrl(eId) {

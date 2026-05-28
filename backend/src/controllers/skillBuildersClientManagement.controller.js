@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { isUserAssignedToCompanyEvent } from '../services/companyEventAccess.service.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
 import { isSkillsClientFlag } from '../utils/skillsClientFlag.js';
@@ -89,6 +90,9 @@ async function assertEventAccessForUser({ req, agencyId, eventId }) {
     [eventId, userId]
   );
   if (sgp?.[0]) return { ok: true, row: ev };
+  if (await isUserAssignedToCompanyEvent(userId, eventId, agencyId)) {
+    return { ok: true, row: ev };
+  }
   return { error: { status: 403, message: 'Not assigned to this event' } };
 }
 

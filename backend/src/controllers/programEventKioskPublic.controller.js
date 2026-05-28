@@ -26,6 +26,12 @@ import {
   verifyKioskBearerForProgramEvent,
   assertKioskTokenMatchesSlugAndEvent
 } from './skillBuildersEventKioskPublic.controller.js';
+import {
+  emptyKioskClientWaiverFields,
+  mergeWaiverSectionsIntoKioskClient,
+  parseWaiverSectionsJson,
+  stripKioskClientDedupeKeys
+} from '../utils/kioskWaiverDisplay.util.js';
 
 const parsePositiveInt = (raw) => {
   const n = Number.parseInt(String(raw || ''), 10);
@@ -51,23 +57,64 @@ function kioskIp(req) {
   return String(req.ip || req.headers?.['x-forwarded-for'] || '').split(',')[0].trim() || null;
 }
 
-async function loadProgramEventStaff(eventId) {
+/** Same rule as the event portal Participants tab — not still-in-queue registrants. */
+const KIOSK_PARTICIPANT_ACTIVE_PREDICATE = `(cec.intake_outcome IS NULL OR cec.intake_outcome <> 'denied')`;
+const KIOSK_PARTICIPANT_GRADUATED_PREDICATE =
+  `(COALESCE(cec.treatment_plan_complete, 0) = 1 AND ${KIOSK_PARTICIPANT_ACTIVE_PREDICATE})`;
+
+function isUnknownWorkflowColumnError(err) {
+  const msg = String(err?.message || '');
+  return msg.includes('Unknown column') &&
+    (msg.includes('treatment_plan_complete') ||
+      msg.includes('intake_outcome') ||
+      msg.includes('intake_complete'));
+}
+
+async function loadKioskParticipantEnrollmentRows(eventId) {
+  const baseSelect = `
+    SELECT cec.client_id, c.full_name, c.initials, c.identifier_code
+    FROM company_event_clients cec
+    INNER JOIN clients c ON c.id = cec.client_id`;
+
   try {
     const [rows] = await pool.execute(
-      `SELECT DISTINCT u.id, u.first_name, u.last_name
-       FROM (
-         SELECT cepa.provider_user_id AS uid
-         FROM company_event_provider_assignments cepa
-         WHERE cepa.company_event_id = ?
-         UNION
-         SELECT cesp.provider_user_id AS uid
-         FROM company_event_session_providers cesp
-         WHERE cesp.company_event_id = ?
-       ) roster
-       INNER JOIN users u ON u.id = roster.uid
-       WHERE u.status = 'active'
-       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
-      [eventId, eventId]
+      `${baseSelect}
+       WHERE cec.company_event_id = ?
+         AND (cec.is_active = TRUE OR cec.is_active IS NULL)
+         AND ${KIOSK_PARTICIPANT_GRADUATED_PREDICATE}
+       ORDER BY c.full_name ASC, c.id ASC`,
+      [eventId]
+    );
+    return rows || [];
+  } catch (err) {
+    if (!isUnknownWorkflowColumnError(err)) throw err;
+    const [rows] = await pool.execute(
+      `${baseSelect}
+       WHERE cec.company_event_id = ?
+         AND (cec.is_active = TRUE OR cec.is_active IS NULL)
+       ORDER BY c.full_name ASC, c.id ASC`,
+      [eventId]
+    );
+    return rows || [];
+  }
+}
+
+async function loadGuardiansForClientIds(clientIds) {
+  const ids = [...new Set((clientIds || []).map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0))];
+  if (!ids.length) return [];
+  const ph = ids.map(() => '?').join(',');
+  try {
+    const [rows] = await pool.execute(
+      `SELECT cg.client_id, cg.guardian_user_id,
+              CONCAT(gu.first_name, ' ', gu.last_name) AS guardian_name,
+              gu.email AS guardian_email,
+              gu.phone_number AS guardian_phone
+       FROM client_guardians cg
+       INNER JOIN users gu ON gu.id = cg.guardian_user_id
+       WHERE cg.client_id IN (${ph})
+         AND (cg.access_enabled = 1 OR cg.access_enabled IS NULL)
+       ORDER BY cg.client_id ASC, cg.id ASC`,
+      ids
     );
     return rows || [];
   } catch (err) {
@@ -76,8 +123,106 @@ async function loadProgramEventStaff(eventId) {
   }
 }
 
-async function assertProgramEventStaff(eventId, userId) {
-  const staff = await loadProgramEventStaff(eventId);
+async function loadWaiverProfilesForClientIds(clientIds) {
+  const ids = [...new Set((clientIds || []).map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0))];
+  if (!ids.length) return [];
+  const ph = ids.map(() => '?').join(',');
+  try {
+    const [rows] = await pool.execute(
+      `SELECT client_id, guardian_user_id, sections_json, updated_at
+       FROM guardian_client_waiver_profiles
+       WHERE client_id IN (${ph})
+       ORDER BY client_id ASC, updated_at ASC, id ASC`,
+      ids
+    );
+    return rows || [];
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return [];
+    throw err;
+  }
+}
+
+async function assertClientIsKioskParticipant(eventId, clientId) {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 AS ok
+       FROM company_event_clients cec
+       WHERE cec.company_event_id = ? AND cec.client_id = ?
+         AND (cec.is_active = TRUE OR cec.is_active IS NULL)
+         AND ${KIOSK_PARTICIPANT_GRADUATED_PREDICATE}
+       LIMIT 1`,
+      [eventId, clientId]
+    );
+    return !!rows?.[0]?.ok;
+  } catch (err) {
+    if (!isUnknownWorkflowColumnError(err)) throw err;
+    const [rows] = await pool.execute(
+      `SELECT 1 AS ok FROM company_event_clients
+       WHERE company_event_id = ? AND client_id = ? LIMIT 1`,
+      [eventId, clientId]
+    );
+    return !!rows?.[0]?.ok;
+  }
+}
+
+/** Match agency roster queries — onboarded staff use ACTIVE_EMPLOYEE, not lowercase active. */
+const KIOSK_STAFF_ACTIVE_USER_SQL =
+  `(u.status = 'ACTIVE_EMPLOYEE' OR LOWER(COALESCE(u.status, '')) = 'active')`;
+
+function buildProgramEventStaffRosterSubquery({ includeSkillsGroups = false } = {}) {
+  const parts = [
+    `SELECT cepa.provider_user_id AS uid
+     FROM company_event_provider_assignments cepa
+     WHERE cepa.company_event_id = ?`,
+    `SELECT cesp.provider_user_id AS uid
+     FROM company_event_session_providers cesp
+     WHERE cesp.company_event_id = ?`
+  ];
+  if (includeSkillsGroups) {
+    parts.push(
+      `SELECT sgp.provider_user_id AS uid
+       FROM skills_groups sg
+       INNER JOIN skills_group_providers sgp ON sgp.skills_group_id = sg.id
+       WHERE sg.company_event_id = ? AND sg.agency_id = ?`
+    );
+  }
+  return parts.join(' UNION ');
+}
+
+async function loadProgramEventStaff(eventId, agencyId) {
+  const baseSelect = (includeSkillsGroups) =>
+    `SELECT DISTINCT u.id, u.first_name, u.last_name
+     FROM (${buildProgramEventStaffRosterSubquery({ includeSkillsGroups })}) roster
+     INNER JOIN users u ON u.id = roster.uid
+     WHERE ${KIOSK_STAFF_ACTIVE_USER_SQL}
+     ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`;
+
+  const paramsFor = (includeSkillsGroups) =>
+    includeSkillsGroups ? [eventId, eventId, eventId, agencyId] : [eventId, eventId];
+
+  try {
+    const includeSkillsGroups = !!agencyId;
+    const [rows] = await pool.execute(
+      baseSelect(includeSkillsGroups),
+      paramsFor(includeSkillsGroups)
+    );
+    return rows || [];
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') {
+      try {
+        const [rows] = await pool.execute(baseSelect(false), paramsFor(false));
+        return rows || [];
+      } catch (inner) {
+        if (inner?.code === 'ER_NO_SUCH_TABLE') return [];
+        throw inner;
+      }
+    }
+    throw err;
+  }
+}
+
+async function assertProgramEventStaff(eventId, agencyId, userId) {
+  const staff = await loadProgramEventStaff(eventId, agencyId);
   return staff.some((s) => Number(s.id) === Number(userId));
 }
 
@@ -202,7 +347,7 @@ async function assertKioskRecordingAllowed(agencyId, eventId, res) {
  * Returns everything the program-event kiosk needs to render the
  * roster + checkout sheet for a single client tap:
  *   - event branding (agency + organization)
- *   - today's enrolled clients (from company_event_clients)
+ *   - today's confirmed participants (graduated registrants on company_event_clients)
  *   - per-client approved-pickup list (from guardian_client_waiver_profiles)
  *   - per-client emergency contacts
  *   - per-client walk-home authorization (from the new waiver section)
@@ -234,32 +379,11 @@ export const getProgramEventKioskContext = async (req, res, next) => {
 
     const kioskDay = await resolveKioskDayContext(ev);
 
-    // Roster: pull every active enrollment + the linked guardian's waiver
-    // profile so we can surface authorized pickups + walk-home auth at
-    // checkout time. We dedupe by client_id (a client may have multiple
-    // active guardian links; the kiosk shows the union of pickups).
+    // Roster: participants only (same as event portal Participants tab — not
+    // registrants still working through intake/treatment plan).
     let clientRows = [];
     try {
-      const [rows] = await pool.execute(
-        `SELECT cec.client_id,
-                c.full_name, c.initials, c.identifier_code,
-                cg.guardian_user_id,
-                CONCAT(gu.first_name, ' ', gu.last_name) AS guardian_name,
-                gu.email AS guardian_email,
-                gu.phone_number AS guardian_phone,
-                gwp.sections_json,
-                gwp.updated_at AS waiver_updated_at
-         FROM company_event_clients cec
-         INNER JOIN clients c ON c.id = cec.client_id
-         LEFT JOIN client_guardians cg ON cg.client_id = c.id AND (cg.access_enabled = 1 OR cg.access_enabled IS NULL)
-         LEFT JOIN users gu ON gu.id = cg.guardian_user_id
-         LEFT JOIN guardian_client_waiver_profiles gwp
-                ON gwp.client_id = c.id AND gwp.guardian_user_id = cg.guardian_user_id
-         WHERE cec.company_event_id = ?
-         ORDER BY c.full_name ASC, c.id ASC, cg.id ASC`,
-        [eventId]
-      );
-      clientRows = rows || [];
+      clientRows = await loadKioskParticipantEnrollmentRows(eventId);
     } catch (err) {
       // company_event_clients may not exist on older databases; surface
       // a friendly "run the migration" message rather than 500ing.
@@ -275,82 +399,54 @@ export const getProgramEventKioskContext = async (req, res, next) => {
     for (const r of clientRows) {
       const cid = Number(r.client_id);
       if (!cid) continue;
-      let entry = clientMap.get(cid);
-      if (!entry) {
-        entry = {
+      if (!clientMap.has(cid)) {
+        clientMap.set(cid, {
           id: cid,
           fullName: r.full_name || r.initials || `Client ${cid}`,
           initials: r.initials || '',
           identifierCode: r.identifier_code || '',
           guardians: [],
-          authorizedPickups: [],
-          emergencyContacts: [],
-          walkHome: null,
-          waiverUpdatedAt: null
-        };
-        clientMap.set(cid, entry);
-      }
-      if (r.guardian_user_id) {
-        entry.guardians.push({
-          userId: Number(r.guardian_user_id),
-          name: r.guardian_name ? String(r.guardian_name).trim() : null,
-          email: r.guardian_email || null,
-          phone: r.guardian_phone || null
+          ...emptyKioskClientWaiverFields()
         });
-      }
-      const sections = safeJsonParse(r.sections_json, {}) || {};
-      const pickups = sections.pickup_authorization?.payload?.authorizedPickups || [];
-      for (const p of pickups) {
-        const name = String(p?.name || '').trim();
-        if (!name) continue;
-        // Dedupe by name+phone so multiple guardians listing the same
-        // grandparent don't render the row twice.
-        const dedupeKey = `${name}|${String(p?.phone || '').trim()}`.toLowerCase();
-        if (entry.authorizedPickups.some((x) => x._k === dedupeKey)) continue;
-        entry.authorizedPickups.push({
-          _k: dedupeKey,
-          name,
-          relationship: String(p?.relationship || '').trim() || null,
-          phone: String(p?.phone || '').trim() || null,
-          governmentIdRequired: !!p?.governmentIdRequired
-        });
-      }
-      const emergency = sections.emergency_contacts?.payload?.contacts || [];
-      for (const e of emergency) {
-        const name = String(e?.name || '').trim();
-        if (!name) continue;
-        const dedupeKey = `${name}|${String(e?.phone || '').trim()}`.toLowerCase();
-        if (entry.emergencyContacts.some((x) => x._k === dedupeKey)) continue;
-        entry.emergencyContacts.push({
-          _k: dedupeKey,
-          name,
-          relationship: String(e?.relationship || '').trim() || null,
-          phone: String(e?.phone || '').trim() || null
-        });
-      }
-      const walkHome = sections.walk_home_authorization?.payload || null;
-      if (walkHome && entry.walkHome === null) {
-        entry.walkHome = {
-          allowedToWalkHome: walkHome.allowedToWalkHome === true,
-          allowedWindow: String(walkHome.allowedWindow || '').trim() || null,
-          route: String(walkHome.route || '').trim() || null,
-          conditions: String(walkHome.conditions || '').trim() || null
-        };
-      }
-      if (r.waiver_updated_at && (!entry.waiverUpdatedAt || new Date(r.waiver_updated_at) > new Date(entry.waiverUpdatedAt))) {
-        entry.waiverUpdatedAt = r.waiver_updated_at;
       }
     }
 
-    // Strip dedupe keys before returning.
+    const clientIds = [...clientMap.keys()];
+    const [guardianRows, waiverRows] = await Promise.all([
+      loadGuardiansForClientIds(clientIds),
+      loadWaiverProfilesForClientIds(clientIds)
+    ]);
+
+    for (const g of guardianRows) {
+      const entry = clientMap.get(Number(g.client_id));
+      if (!entry || !g.guardian_user_id) continue;
+      const userId = Number(g.guardian_user_id);
+      if (entry.guardians.some((x) => x.userId === userId)) continue;
+      entry.guardians.push({
+        userId,
+        name: g.guardian_name ? String(g.guardian_name).trim() : null,
+        email: g.guardian_email || null,
+        phone: g.guardian_phone || null
+      });
+    }
+
+    for (const w of waiverRows) {
+      const entry = clientMap.get(Number(w.client_id));
+      if (!entry) continue;
+      mergeWaiverSectionsIntoKioskClient(
+        entry,
+        parseWaiverSectionsJson(w.sections_json),
+        w.updated_at
+      );
+    }
+
     for (const c of clientMap.values()) {
-      c.authorizedPickups = c.authorizedPickups.map(({ _k, ...rest }) => rest);
-      c.emergencyContacts = c.emergencyContacts.map(({ _k, ...rest }) => rest);
+      stripKioskClientDedupeKeys(c);
     }
 
     const today = kioskDay.todayYmd;
 
-    const staffRows = await loadProgramEventStaff(eventId);
+    const staffRows = await loadProgramEventStaff(eventId, agencyId);
     const checkinRows = await loadEventDayCheckins(eventId, today);
 
     // Today's release log (so the kiosk can dim already-released kids).
@@ -476,15 +572,10 @@ export const submitProgramEventCheckout = async (req, res, next) => {
     const sourceMethod = String(req.body?.signerSourceMethod || 'fresh_kiosk_signature');
     const notes = String(req.body?.notes || '').trim().slice(0, 500) || null;
 
-    // Confirm the client is actually enrolled in this event before
-    // logging a release for them — prevents a malicious kiosk request
-    // from inserting release rows for unrelated kids.
-    const [enrollRows] = await pool.execute(
-      `SELECT 1 FROM company_event_clients WHERE company_event_id = ? AND client_id = ? LIMIT 1`,
-      [eventId, clientId]
-    ).catch(() => [[]]);
-    if (!enrollRows?.length) {
-      return res.status(403).json({ error: { message: 'Client is not enrolled in this event' } });
+    // Confirm the client is a confirmed participant before logging a release.
+    const isParticipant = await assertClientIsKioskParticipant(eventId, clientId);
+    if (!isParticipant) {
+      return res.status(403).json({ error: { message: 'Client is not a confirmed participant for this event' } });
     }
 
     // Optional release photo: encrypt, upload to GCS, stash wrapping
@@ -624,12 +715,9 @@ export const programEventClientCheckin = async (req, res, next) => {
     if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
     const today = kioskDay.todayYmd;
 
-    const [enrollRows] = await pool.execute(
-      `SELECT 1 FROM company_event_clients WHERE company_event_id = ? AND client_id = ? LIMIT 1`,
-      [m.eventId, clientId]
-    ).catch(() => [[]]);
-    if (!enrollRows?.length) {
-      return res.status(403).json({ error: { message: 'Client is not enrolled in this event' } });
+    const isParticipant = await assertClientIsKioskParticipant(m.eventId, clientId);
+    if (!isParticipant) {
+      return res.status(403).json({ error: { message: 'Client is not a confirmed participant for this event' } });
     }
 
     try {
@@ -665,7 +753,7 @@ export const programEventEmployeeCheckin = async (req, res, next) => {
 
     const userId = parsePositiveInt(req.body?.userId);
     if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
-    if (!(await assertProgramEventStaff(m.eventId, userId))) {
+    if (!(await assertProgramEventStaff(m.eventId, m.agencyId, userId))) {
       return res.status(403).json({ error: { message: 'Employee is not assigned to this event' } });
     }
 
@@ -690,6 +778,27 @@ export const programEventEmployeeCheckin = async (req, res, next) => {
   }
 };
 
+async function findProgramEventStaffByPin(eventId, agencyId, pinHash) {
+  const baseSql = (includeSkillsGroups) =>
+    `SELECT DISTINCT u.id, u.first_name, u.last_name
+     FROM users u
+     JOIN user_preferences up ON up.user_id = u.id AND up.kiosk_pin_hash = ?
+     JOIN (${buildProgramEventStaffRosterSubquery({ includeSkillsGroups })}) roster ON roster.uid = u.id
+     WHERE ${KIOSK_STAFF_ACTIVE_USER_SQL}`;
+
+  try {
+    const [rows] = await pool.execute(
+      baseSql(!!agencyId),
+      agencyId ? [pinHash, eventId, eventId, eventId, agencyId] : [pinHash, eventId, eventId]
+    );
+    return rows || [];
+  } catch (err) {
+    if (err?.code !== 'ER_NO_SUCH_TABLE') throw err;
+    const [rows] = await pool.execute(baseSql(false), [pinHash, eventId, eventId]).catch(() => [[]]);
+    return rows || [];
+  }
+}
+
 /** POST …/checkin/employee-pin — identify employee by 4-digit kiosk PIN */
 export const programEventEmployeeCheckinByPin = async (req, res, next) => {
   try {
@@ -705,22 +814,7 @@ export const programEventEmployeeCheckinByPin = async (req, res, next) => {
     if (!pin) return res.status(400).json({ error: { message: 'Enter your 4-digit personal kiosk PIN' } });
     const pinHash = KioskModel.hashPin(pin);
 
-    const [rows] = await pool.execute(
-      `SELECT DISTINCT u.id, u.first_name, u.last_name
-       FROM users u
-       JOIN user_preferences up ON up.user_id = u.id AND up.kiosk_pin_hash = ?
-       JOIN (
-         SELECT cepa.provider_user_id AS uid
-         FROM company_event_provider_assignments cepa
-         WHERE cepa.company_event_id = ?
-         UNION
-         SELECT cesp.provider_user_id AS uid
-         FROM company_event_session_providers cesp
-         WHERE cesp.company_event_id = ?
-       ) roster ON roster.uid = u.id
-       WHERE u.status = 'active'`,
-      [pinHash, m.eventId, m.eventId]
-    ).catch(() => [[]]);
+    const rows = await findProgramEventStaffByPin(m.eventId, m.agencyId, pinHash);
 
     if (!rows?.length) {
       return res.status(404).json({ error: { message: 'No employee on this event roster matches that PIN' } });

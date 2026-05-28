@@ -29,6 +29,10 @@ import {
   decryptIntakeSubmissionRows,
   isIntakeResponsesEncryptionConfigured
 } from '../services/intakeResponsesEncryption.service.js';
+import {
+  listSwitchTargetEvents,
+  switchClientEventRegistration
+} from '../services/companyEventRegistrationSwitch.service.js';
 
 const INSURANCE_CARD_SLOTS = new Set(['primary_front', 'primary_back', 'secondary_front', 'secondary_back']);
 
@@ -6428,6 +6432,87 @@ export const listClientEventAssignments = async (req, res, next) => {
       if (missing) return res.json([]);
       throw e;
     }
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/clients/:id/event-registration-switch-options?fromCompanyEventId=&agencyId=
+ */
+export const listClientEventRegistrationSwitchOptions = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const userId = req.user.id;
+    const role = req.user.role;
+    if (!isBackofficeRole(role)) return res.status(403).json({ error: { message: 'Admin access required' } });
+
+    const access = await ensureAgencyAccessToClient({ userId, role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const agencyId = parseInt(req.query?.agencyId, 10) || parseInt(access.client?.agency_id, 10);
+    const fromCompanyEventId = parseInt(req.query?.fromCompanyEventId, 10);
+    if (!agencyId || !fromCompanyEventId) {
+      return res.status(400).json({ error: { message: 'agencyId and fromCompanyEventId are required' } });
+    }
+
+    const result = await listSwitchTargetEvents({ agencyId, fromEventId: fromCompanyEventId });
+    if (!result.ok) {
+      return res.status(result.error === 'Source event not found' ? 404 : 400).json({ error: { message: result.error } });
+    }
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/clients/:id/switch-event-registration
+ * body: { agencyId, fromCompanyEventId, toCompanyEventId, preserveWorkflow? }
+ */
+export const switchClientEventRegistrationHandler = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const userId = req.user.id;
+    const role = req.user.role;
+    if (!isBackofficeRole(role)) return res.status(403).json({ error: { message: 'Admin access required' } });
+
+    const access = await ensureAgencyAccessToClient({ userId, role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const agencyId = parseInt(req.body?.agencyId, 10) || parseInt(access.client?.agency_id, 10);
+    const fromCompanyEventId = parseInt(req.body?.fromCompanyEventId, 10);
+    const toCompanyEventId = parseInt(req.body?.toCompanyEventId, 10);
+    const preserveWorkflow = req.body?.preserveWorkflow !== false && req.body?.preserveWorkflow !== 0;
+
+    if (!agencyId || !fromCompanyEventId || !toCompanyEventId) {
+      return res.status(400).json({
+        error: { message: 'agencyId, fromCompanyEventId, and toCompanyEventId are required' }
+      });
+    }
+
+    const result = await switchClientEventRegistration({
+      agencyId,
+      clientId,
+      fromEventId: fromCompanyEventId,
+      toEventId: toCompanyEventId,
+      actorUserId: userId,
+      preserveWorkflow
+    });
+
+    if (!result.ok) {
+      const status =
+        result.error === 'Source event not found' || result.error === 'Target event not found'
+          ? 404
+          : 400;
+      return res.status(status).json({ error: { message: result.error } });
+    }
+
+    res.json(result);
   } catch (e) {
     next(e);
   }

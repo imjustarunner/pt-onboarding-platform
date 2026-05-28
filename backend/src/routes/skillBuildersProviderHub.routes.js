@@ -8,6 +8,7 @@ import {
   applyToSkillBuilderEvent,
   listMySkillBuilderEventClients,
   getMySkillBuilderWorkSchedule,
+  getMyEventPortalWorkSchedule,
   getSkillBuilderEventDetail,
   listSkillBuilderEventSessions,
   listSkillBuilderProgramSessions,
@@ -211,6 +212,7 @@ router.put('/events/:eventId/sessions/:sessionId/providers', putSkillBuilderEven
 router.put('/events/:eventId/sessions/:sessionId/client-attendance', putSkillBuilderClientSessionAttendance);
 router.get('/events/:eventId/attendance/providers', listSkillBuilderEventProviderAttendance);
 router.get('/events/:eventId/attendance/clients', listSkillBuilderEventClientAttendance);
+router.get('/events/:eventId/me/work-schedule', getMyEventPortalWorkSchedule);
 router.get('/events/:eventId/detail', getSkillBuilderEventDetail);
 router.get('/events/:eventId/providers/:providerUserId/work-schedule', getSkillBuilderEventProviderWorkSchedule);
 router.put('/events/:eventId/providers/:providerUserId/work-schedule', putSkillBuilderEventProviderWorkSchedule);

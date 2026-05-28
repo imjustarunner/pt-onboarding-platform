@@ -1,7 +1,11 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
-import { userHasAgencyOrAffiliatedOrgAccessForRequest } from '../utils/userAgencyAffiliationAccess.js';
 import { syncClientStatusForEvent } from '../services/eventClientStatusSync.service.js';
+import {
+  canManageProgramEvent,
+  canViewProgramEvent,
+  userHasAgencyAccessForRequest
+} from '../services/companyEventAccess.service.js';
 
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw || ''), 10);
@@ -21,38 +25,62 @@ function ageFromDateOfBirth(dob) {
   return age >= 0 && age < 130 ? age : null;
 }
 
-async function userHasAgencyAccess(req, agencyId) {
-  if (!agencyId) return false;
-  if (String(req.user?.role || '').toLowerCase() === 'super_admin') return true;
-  return userHasAgencyOrAffiliatedOrgAccessForRequest(req, agencyId);
+function formatGroupAssignmentLabel(assignment) {
+  const label = String(assignment?.label || '').trim() || (assignment?.groupId ? `Group ${assignment.groupId}` : 'Group');
+  const parts = [label];
+  if (assignment?.sessionDate) {
+    const d = new Date(assignment.sessionDate);
+    if (Number.isFinite(d.getTime())) {
+      parts.push(
+        d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+      );
+    }
+  } else if (assignment?.sessionLabel) {
+    parts.push(String(assignment.sessionLabel).trim());
+  }
+  return parts.join(' · ');
 }
 
-async function getProgramCoordinatorAccess(userId) {
+async function loadGroupAssignmentsByClientId(eventId, agencyId) {
+  const map = new Map();
+  if (!eventId || !agencyId) return map;
   try {
     const [rows] = await pool.execute(
-      `SELECT has_skill_builder_coordinator_access FROM users WHERE id = ? LIMIT 1`,
-      [userId]
+      `SELECT cega.client_id,
+              ceg.id AS group_id,
+              ceg.label AS group_label,
+              ceg.session_date_id,
+              cesd.session_date,
+              cesd.label AS session_label
+       FROM company_event_client_group_assignments cega
+       INNER JOIN company_event_session_groups ceg ON ceg.id = cega.group_id
+       LEFT JOIN company_event_session_dates cesd ON cesd.id = cega.session_date_id
+       WHERE cega.company_event_id = ? AND cega.agency_id = ?
+       ORDER BY cesd.session_date ASC, ceg.label ASC, ceg.id ASC`,
+      [eventId, agencyId]
     );
-    const v = rows?.[0]?.has_skill_builder_coordinator_access;
-    return v === true || v === 1 || v === '1';
-  } catch (e) {
-    if (e?.code === 'ER_BAD_FIELD_ERROR' || e?.code === 'ER_NO_SUCH_TABLE') return false;
-    throw e;
+    for (const r of rows || []) {
+      const cid = Number(r.client_id);
+      if (!cid) continue;
+      if (!map.has(cid)) map.set(cid, []);
+      map.get(cid).push({
+        groupId: Number(r.group_id),
+        label: String(r.group_label || '').trim() || `Group ${r.group_id}`,
+        sessionDateId: r.session_date_id != null ? Number(r.session_date_id) : null,
+        sessionDate: r.session_date || null,
+        sessionLabel: r.session_label ? String(r.session_label).trim() : null
+      });
+    }
+  } catch {
+    // Staffing tables are optional on older deployments.
   }
+  return map;
 }
 
-async function canManageProgramEvent(req, agencyId) {
-  if (!(await userHasAgencyAccess(req, agencyId))) return false;
-  const role = String(req.user?.role || '').toLowerCase();
-  if (role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff') return true;
-  return getProgramCoordinatorAccess(parsePositiveInt(req.user?.id));
+async function userHasAgencyAccess(req, agencyId) {
+  return userHasAgencyAccessForRequest(req, agencyId);
 }
 
-/**
- * Eloping / extra-support flags come from the family's intake. Coordinators can
- * see and act on them, but **only admins / super-admins can de-select** them
- * (they're a safety signal — clearing them by accident would be bad).
- */
 function isAgencyAdmin(req) {
   const role = String(req.user?.role || '').toLowerCase();
   return role === 'super_admin' || role === 'admin';
@@ -128,7 +156,7 @@ export const listCompanyEventClients = async (req, res, next) => {
     if (!eventId || !agencyId) {
       return res.status(400).json({ error: { message: 'eventId and agencyId are required' } });
     }
-    if (!(await canManageProgramEvent(req, agencyId))) {
+    if (!(await canViewProgramEvent(req, agencyId, eventId))) {
       return res.status(403).json({ error: { message: 'Not authorized for this event' } });
     }
 
@@ -305,6 +333,8 @@ export const listCompanyEventClients = async (req, res, next) => {
       rows = r || [];
     }
 
+    const groupAssignmentsByClientId = await loadGroupAssignmentsByClientId(eventId, agencyId);
+
     res.json({
       ok: true,
       counts,
@@ -313,13 +343,22 @@ export const listCompanyEventClients = async (req, res, next) => {
       // The viewer-capability flag lets the participants UI know whether to render
       // editable eloping/extra-support checkboxes (admin-only).
       viewerIsAdmin: includeWorkflow ? isAgencyAdmin(req) : undefined,
-      clients: (rows || []).map((r) => ({
-        clientId: Number(r.clientId),
+      clients: (rows || []).map((r) => {
+        const clientId = Number(r.clientId);
+        const groupAssignments = groupAssignmentsByClientId.get(clientId) || [];
+        const groupDisplay = groupAssignments.length
+          ? groupAssignments.map((g) => formatGroupAssignmentLabel(g)).join('; ')
+          : null;
+        return {
+        clientId,
         initials: r.initials || null,
         fullName: r.fullName || null,
         identifierCode: r.identifierCode || null,
         grade: r.grade || null,
+        dateOfBirth: r.date_of_birth ? String(r.date_of_birth).slice(0, 10) : null,
         ageYears: ageFromDateOfBirth(r.date_of_birth),
+        groupAssignments,
+        groupDisplay,
         status: r.status || null,
         documentStatus: r.documentStatus || null,
         isActive: r.isActive === true || r.isActive === 1,
@@ -354,7 +393,8 @@ export const listCompanyEventClients = async (req, res, next) => {
           r.confirmation_by_first_name || r.confirmation_by_last_name
             ? `${r.confirmation_by_first_name || ''} ${r.confirmation_by_last_name || ''}`.trim()
             : null
-      }))
+      };
+      })
     });
   } catch (e) {
     next(e);

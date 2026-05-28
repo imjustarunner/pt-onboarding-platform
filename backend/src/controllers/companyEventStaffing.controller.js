@@ -1,5 +1,9 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import {
+  canManageProgramEvent,
+  canViewProgramEvent
+} from '../services/companyEventAccess.service.js';
 import { userHasAgencyOrAffiliatedOrgAccessForRequest } from '../utils/userAgencyAffiliationAccess.js';
 
 const parsePositiveInt = (raw) => {
@@ -27,11 +31,9 @@ async function getProgramCoordinatorAccess(userId) {
   }
 }
 
-async function canManageProgramEvent(req, agencyId) {
-  if (!(await userHasAgencyAccess(req, agencyId))) return false;
-  const role = String(req.user?.role || '').toLowerCase();
-  if (role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff') return true;
-  return getProgramCoordinatorAccess(parsePositiveInt(req.user?.id));
+async function canViewProgramEventStaffing(req, agencyId, eventId) {
+  if (!(await canViewProgramEvent(req, agencyId, eventId))) return false;
+  return true;
 }
 
 async function canRequestShifts(req, agencyId) {
@@ -225,8 +227,8 @@ export const getCompanyEventSessionStaffingSummary = async (req, res, next) => {
     if (!eventId || !agencyId) {
       return res.status(400).json({ error: { message: 'eventId and agencyId are required' } });
     }
-    if (!(await canRequestShifts(req, agencyId))) {
-      return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
+    if (!(await canViewProgramEventStaffing(req, agencyId, eventId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this event' } });
     }
 
     const event = await loadEventForAgency(eventId, agencyId);
@@ -291,7 +293,7 @@ export const listCompanyEventSessionGroups = async (req, res, next) => {
     if (!eventId || !agencyId) {
       return res.status(400).json({ error: { message: 'eventId and agencyId are required' } });
     }
-    if (!(await canRequestShifts(req, agencyId))) {
+    if (!(await canViewProgramEventStaffing(req, agencyId, eventId))) {
       return res.status(403).json({ error: { message: 'Not authorized for this event' } });
     }
     const event = await loadEventForAgency(eventId, agencyId);
@@ -349,7 +351,7 @@ export const listCompanyEventSessionClientGroupAssignments = async (req, res, ne
     if (!eventId || !agencyId || !sessionDateId) {
       return res.status(400).json({ error: { message: 'eventId, agencyId, and sessionDateId are required' } });
     }
-    if (!(await canManageProgramEvent(req, agencyId))) {
+    if (!(await canViewProgramEventStaffing(req, agencyId, eventId))) {
       return res.status(403).json({ error: { message: 'Insufficient role to view assignments' } });
     }
     const event = await loadEventForAgency(eventId, agencyId);

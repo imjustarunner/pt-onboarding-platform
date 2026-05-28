@@ -21,7 +21,7 @@ export function validatePayerForEligibility(payerType, row) {
  * Enroll clients into a Skill Builders company_event (skills_group_clients).
  * Same rules as guardian portal enrollment (school affiliation, registration flags).
  */
-export async function enrollClientsInCompanyEvent({ agencyId, eventId, clientIds, payerType }) {
+export async function enrollClientsInCompanyEvent({ agencyId, eventId, clientIds, payerType, skipRegistrationCheck = false }) {
   const aid = Number(agencyId);
   const eid = Number(eventId);
   const ids = (Array.isArray(clientIds) ? clientIds : [])
@@ -42,7 +42,9 @@ export async function enrollClientsInCompanyEvent({ agencyId, eventId, clientIds
     return { ok: false, results, error: 'Event not found' };
   }
   if (!(ev.registration_eligible === 1 || ev.registration_eligible === true)) {
-    return { ok: false, results, error: 'This event is not open for registration' };
+    if (!skipRegistrationCheck) {
+      return { ok: false, results, error: 'This event is not open for registration' };
+    }
   }
   const payerCheck = validatePayerForEligibility(payerType, ev);
   if (!payerCheck.ok) {

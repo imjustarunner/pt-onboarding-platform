@@ -7806,6 +7806,7 @@ const formatRangeFromRaw = (startAt, endAt) => {
 
 const SCHEDULE_EVENT_KIND_LABELS = {
   SKILL_BUILDERS_PROGRAM: 'Skill Builders program',
+  COMPANY_EVENT_BOOKING: 'Program event',
   TEAM_MEETING: 'Team meeting',
   HUDDLE: 'Huddle',
   PERSONAL_EVENT: 'Personal',
@@ -7898,6 +7899,12 @@ const buildScheduleEventDetailText = (ev) => {
     } else {
       lines.push('No providers on this roster or per-session assignment.');
     }
+  }
+  if (kind === 'COMPANY_EVENT_BOOKING') {
+    const statusLabel = String(ev?.assignmentStatusLabel || ev?.assignmentStatus || '').trim();
+    if (statusLabel) lines.push(`Assignment: ${statusLabel}`);
+    const loc = String(ev?.locationLabel || '').trim();
+    if (loc) lines.push(`Location: ${loc}`);
   }
   return lines.join('\n');
 };

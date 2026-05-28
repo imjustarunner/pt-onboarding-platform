@@ -3818,14 +3818,15 @@ export const getUserScheduleSummary = async (req, res, next) => {
       scheduleEvents = [];
     }
 
-    // 4d) Skill Builders — materialized program sessions for rostered providers (compare schedule / week view)
+    // 4d) Skill Builders — materialized sessions this provider is booked on (per-session assignment)
     try {
       const sbParams = [agencyId, providerId, windowEnd, windowStart];
       const sbSqlBase = `SELECT s.id, s.starts_at, s.ends_at, sg.id AS skills_group_id, ce.title AS event_title, sg.name AS skills_group_name
          FROM skill_builders_event_sessions s
          INNER JOIN skills_groups sg ON sg.id = s.skills_group_id AND sg.agency_id = ?
          INNER JOIN company_events ce ON ce.id = s.company_event_id
-         INNER JOIN skills_group_providers sgp ON sgp.skills_group_id = sg.id AND sgp.provider_user_id = ?
+         INNER JOIN skill_builders_event_session_providers sbesp
+           ON sbesp.session_id = s.id AND sbesp.provider_user_id = ?
          WHERE s.starts_at < ? AND s.ends_at > ?
          ORDER BY s.starts_at ASC, s.id ASC
          LIMIT 400`;
@@ -3837,7 +3838,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
            FROM skill_builders_event_sessions s
            INNER JOIN skills_groups sg ON sg.id = s.skills_group_id AND sg.agency_id = ?
            INNER JOIN company_events ce ON ce.id = s.company_event_id
-           INNER JOIN skills_group_providers sgp ON sgp.skills_group_id = sg.id AND sgp.provider_user_id = ?
+           INNER JOIN skill_builders_event_session_providers sbesp
+             ON sbesp.session_id = s.id AND sbesp.provider_user_id = ?
            WHERE s.starts_at < ? AND s.ends_at > ?
            ORDER BY s.starts_at ASC, s.id ASC
            LIMIT 400`,
@@ -3949,6 +3951,111 @@ export const getUserScheduleSummary = async (req, res, next) => {
             ? sbRosterByGroup.get(skillsGroupId) || []
             : []
         });
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    // 4e) Program / company event session bookings (facilitator staffing assignments)
+    try {
+      const ceParams = [providerId, agencyId, windowEnd, windowStart, weekStart, weekEnd];
+      const [ceRows] = await pool.execute(
+        `SELECT cesd.id AS session_date_id,
+                cesd.session_date,
+                cesd.starts_at,
+                cesd.ends_at,
+                cesd.timezone,
+                cesd.location_label,
+                ce.id AS company_event_id,
+                ce.title AS event_title,
+                cesp.assignment_status
+         FROM company_event_session_providers cesp
+         INNER JOIN company_event_session_dates cesd ON cesd.id = cesp.session_date_id
+         INNER JOIN company_events ce ON ce.id = cesp.company_event_id
+         WHERE cesp.provider_user_id = ?
+           AND cesp.agency_id = ?
+           AND (
+             (cesd.starts_at IS NOT NULL AND cesd.ends_at IS NOT NULL AND cesd.starts_at < ? AND cesd.ends_at > ?)
+             OR (cesd.session_date >= ? AND cesd.session_date < ?)
+           )
+         ORDER BY COALESCE(cesd.starts_at, CONCAT(cesd.session_date, ' 00:00:00')) ASC, cesd.id ASC
+         LIMIT 400`,
+        ceParams
+      );
+      const assignmentStatusLabel = (status) => {
+        const s = String(status || 'draft').toLowerCase();
+        if (s === 'finalized') return 'Confirmed';
+        if (s === 'tentative') return 'Tentative';
+        if (s === 'draft') return 'Draft';
+        return s;
+      };
+      for (const r of ceRows || []) {
+        const evTitle = String(r.event_title || '').trim() || 'Program event';
+        const status = String(r.assignment_status || 'draft');
+        const statusLabel = assignmentStatusLabel(status);
+        const title = statusLabel === 'Confirmed' ? evTitle : `${evTitle} (${statusLabel})`;
+        const sessionDateId = Number(r.session_date_id);
+        const startRaw = r.starts_at;
+        const endRaw = r.ends_at;
+        const dateOnly = r.session_date ? String(r.session_date).slice(0, 10) : null;
+        if (startRaw && endRaw) {
+          const startAtOut = toIsoUtcForSchedule(startRaw) || toMysqlDateTimeWall(startRaw) || startRaw;
+          const endAtOut = toIsoUtcForSchedule(endRaw) || toMysqlDateTimeWall(endRaw) || endRaw;
+          if (!startAtOut || !endAtOut) continue;
+          scheduleEvents.push({
+            id: sessionDateId,
+            agencyId: Number(agencyId),
+            kind: 'COMPANY_EVENT_BOOKING',
+            title,
+            isPrivate: false,
+            allDay: false,
+            startAt: startAtOut,
+            endAt: endAtOut,
+            startDate: null,
+            endDate: null,
+            reasonCode: null,
+            recurrenceSeriesId: null,
+            recurrenceFrequency: null,
+            recurrencePolicy: null,
+            recurrenceIndex: null,
+            googleEventId: null,
+            htmlLink: null,
+            meetLink: null,
+            appJoinUrl: null,
+            companyEventId: Number(r.company_event_id) || null,
+            assignmentStatus: status,
+            assignmentStatusLabel: statusLabel,
+            locationLabel: r.location_label ? String(r.location_label).trim() : null,
+            timezone: r.timezone ? String(r.timezone).trim() : null
+          });
+        } else if (dateOnly) {
+          scheduleEvents.push({
+            id: sessionDateId,
+            agencyId: Number(agencyId),
+            kind: 'COMPANY_EVENT_BOOKING',
+            title,
+            isPrivate: false,
+            allDay: true,
+            startAt: null,
+            endAt: null,
+            startDate: dateOnly,
+            endDate: addDaysYmd(dateOnly, 1),
+            reasonCode: null,
+            recurrenceSeriesId: null,
+            recurrenceFrequency: null,
+            recurrencePolicy: null,
+            recurrenceIndex: null,
+            googleEventId: null,
+            htmlLink: null,
+            meetLink: null,
+            appJoinUrl: null,
+            companyEventId: Number(r.company_event_id) || null,
+            assignmentStatus: status,
+            assignmentStatusLabel: statusLabel,
+            locationLabel: r.location_label ? String(r.location_label).trim() : null,
+            timezone: r.timezone ? String(r.timezone).trim() : null
+          });
+        }
       }
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;

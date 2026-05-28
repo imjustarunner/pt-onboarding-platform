@@ -6,8 +6,18 @@ import {
   recordSkillBuilderEventClockIn,
   recordSkillBuilderEventClockOut
 } from '../services/skillBuildersEventKioskPunch.service.js';
+import {
+  emptyKioskClientWaiverFields,
+  mergeWaiverSectionsIntoKioskClient,
+  parseWaiverSectionsJson,
+  stripKioskClientDedupeKeys
+} from '../utils/kioskWaiverDisplay.util.js';
 
 const TOKEN_TYPE = 'skill_builders_event_kiosk';
+
+/** Onboarded staff use ACTIVE_EMPLOYEE; legacy rows may use lowercase active. */
+const KIOSK_STAFF_ACTIVE_USER_SQL =
+  `(u.status = 'ACTIVE_EMPLOYEE' OR LOWER(COALESCE(u.status, '')) = 'active')`;
 
 // Identifies whether a kiosk session is bound to a Skill Builders event
 // (legacy default) or a generic non–Skill Builders program event. The
@@ -322,7 +332,7 @@ export const identifySkillBuildersEventKioskStaff = async (req, res, next) => {
        JOIN skills_group_providers sgp ON sgp.provider_user_id = u.id
        JOIN skills_groups sg ON sg.id = sgp.skills_group_id
        WHERE sg.company_event_id = ? AND sg.agency_id = ?
-         AND u.status = 'active'`,
+         AND ${KIOSK_STAFF_ACTIVE_USER_SQL}`,
       [pinHash, m.eventId, m.agencyId]
     );
 
@@ -412,52 +422,119 @@ export const getEventDayKioskContext = async (req, res, next) => {
     const parseJsonSafe = (raw) => { try { const p = raw ? JSON.parse(raw) : null; return Array.isArray(p) ? p : []; } catch { return []; } };
     const parseColorPalette = (raw) => { try { return raw ? JSON.parse(raw) : null; } catch { return null; } };
 
-    // Client roster with waiver summary — join guardian waiver profiles per client
+    // Client roster — skills-group enrollments plus program-event enrollments.
     const [clients] = await pool.execute(
-      `SELECT DISTINCT c.id, c.full_name, c.initials, c.identifier_code,
-              gwp.sections_json AS waiver_sections,
-              gwp.updated_at AS waiver_updated_at,
-              gu.id AS guardian_user_id,
-              CONCAT(gu.first_name, ' ', gu.last_name) AS guardian_name,
-              gu.email AS guardian_email
-       FROM skills_group_clients sgc
-       INNER JOIN clients c ON c.id = sgc.client_id
-       INNER JOIN skills_groups sg ON sg.id = sgc.skills_group_id
-       LEFT JOIN client_guardians cg ON cg.client_id = c.id AND cg.access_enabled = 1
-       LEFT JOIN users gu ON gu.id = cg.guardian_user_id
-       LEFT JOIN guardian_client_waiver_profiles gwp
-              ON gwp.client_id = c.id AND gwp.guardian_user_id = cg.guardian_user_id
-       WHERE sg.company_event_id = ? AND sg.agency_id = ?
+      `SELECT DISTINCT c.id, c.full_name, c.initials, c.identifier_code
+       FROM (
+         SELECT sgc.client_id
+         FROM skills_group_clients sgc
+         INNER JOIN skills_groups sg ON sg.id = sgc.skills_group_id
+         WHERE sg.company_event_id = ? AND sg.agency_id = ?
+         UNION
+         SELECT cec.client_id
+         FROM company_event_clients cec
+         WHERE cec.company_event_id = ?
+           AND (cec.is_active = TRUE OR cec.is_active IS NULL)
+       ) roster
+       INNER JOIN clients c ON c.id = roster.client_id
        ORDER BY c.full_name ASC, c.id ASC
        LIMIT 500`,
-      [eventId, agencyId]
-    );
+      [eventId, agencyId, eventId]
+    ).catch(async () => {
+      const [fallback] = await pool.execute(
+        `SELECT DISTINCT c.id, c.full_name, c.initials, c.identifier_code
+         FROM skills_group_clients sgc
+         INNER JOIN clients c ON c.id = sgc.client_id
+         INNER JOIN skills_groups sg ON sg.id = sgc.skills_group_id
+         WHERE sg.company_event_id = ? AND sg.agency_id = ?
+         ORDER BY c.full_name ASC, c.id ASC
+         LIMIT 500`,
+        [eventId, agencyId]
+      );
+      return fallback;
+    });
 
-    const seenClients = new Set();
+    const clientIds = (clients || []).map((r) => Number(r.id)).filter((n) => n > 0);
+    let guardianRows = [];
+    let waiverRows = [];
+    if (clientIds.length) {
+      const ph = clientIds.map(() => '?').join(',');
+      [[guardianRows], [waiverRows]] = await Promise.all([
+        pool.execute(
+          `SELECT cg.client_id, cg.guardian_user_id,
+                  CONCAT(gu.first_name, ' ', gu.last_name) AS guardian_name,
+                  gu.email AS guardian_email
+           FROM client_guardians cg
+           INNER JOIN users gu ON gu.id = cg.guardian_user_id
+           WHERE cg.client_id IN (${ph})
+             AND (cg.access_enabled = 1 OR cg.access_enabled IS NULL)
+           ORDER BY cg.client_id ASC, cg.id ASC`,
+          clientIds
+        ).catch(() => [[]]),
+        pool.execute(
+          `SELECT client_id, sections_json, updated_at
+           FROM guardian_client_waiver_profiles
+           WHERE client_id IN (${ph})
+           ORDER BY client_id ASC, updated_at ASC, id ASC`,
+          clientIds
+        ).catch(() => [[]])
+      ]);
+    }
+
+    const guardiansByClient = new Map();
+    for (const g of guardianRows || []) {
+      const cid = Number(g.client_id);
+      if (!cid) continue;
+      const list = guardiansByClient.get(cid) || [];
+      list.push(g);
+      guardiansByClient.set(cid, list);
+    }
+
+    const waiversByClient = new Map();
+    for (const w of waiverRows || []) {
+      const cid = Number(w.client_id);
+      if (!cid) continue;
+      const list = waiversByClient.get(cid) || [];
+      list.push(w);
+      waiversByClient.set(cid, list);
+    }
+
     const clientList = [];
     for (const r of clients || []) {
-      if (seenClients.has(r.id)) continue;
-      seenClients.add(r.id);
-      let sections = {};
-      try { sections = r.waiver_sections ? JSON.parse(r.waiver_sections) : {}; } catch { sections = {}; }
-      const emergencyContacts = sections.emergency_contacts?.payload?.contacts || [];
-      const pickupAuth = sections.pickup_authorization?.payload?.authorizedPickups || [];
-      const allergies = sections.allergies_snacks?.payload || null;
-      const meals = sections.meal_preferences?.payload || null;
-      clientList.push({
-        id: Number(r.id),
-        fullName: r.full_name || r.initials || `Client ${r.id}`,
+      const cid = Number(r.id);
+      if (!cid) continue;
+      const entry = {
+        id: cid,
+        fullName: r.full_name || r.initials || `Client ${cid}`,
         initials: r.initials || '',
         identifierCode: r.identifier_code || '',
-        guardianUserId: r.guardian_user_id || null,
-        guardianName: r.guardian_name ? String(r.guardian_name).trim() : null,
-        guardianEmail: r.guardian_email || null,
-        waiverUpdatedAt: r.waiver_updated_at || null,
+        ...emptyKioskClientWaiverFields()
+      };
+      for (const w of waiversByClient.get(cid) || []) {
+        mergeWaiverSectionsIntoKioskClient(
+          entry,
+          parseWaiverSectionsJson(w.sections_json),
+          w.updated_at
+        );
+      }
+      stripKioskClientDedupeKeys(entry);
+
+      const linkedGuardians = guardiansByClient.get(cid) || [];
+      const primaryGuardian = linkedGuardians[0] || null;
+      clientList.push({
+        id: entry.id,
+        fullName: entry.fullName,
+        initials: entry.initials,
+        identifierCode: entry.identifierCode,
+        guardianUserId: primaryGuardian ? Number(primaryGuardian.guardian_user_id) : null,
+        guardianName: primaryGuardian?.guardian_name ? String(primaryGuardian.guardian_name).trim() : null,
+        guardianEmail: primaryGuardian?.guardian_email || null,
+        waiverUpdatedAt: entry.waiverUpdatedAt,
         waiver: {
-          emergencyContacts,
-          pickupAuth,
-          allergies,
-          meals
+          emergencyContacts: entry.emergencyContacts,
+          pickupAuth: entry.authorizedPickups,
+          allergies: entry.allergies,
+          meals: entry.meals
         }
       });
     }
@@ -469,7 +546,7 @@ export const getEventDayKioskContext = async (req, res, next) => {
        INNER JOIN users u ON u.id = sgp.provider_user_id
        INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id
        WHERE sg.company_event_id = ? AND sg.agency_id = ?
-         AND u.status = 'active'
+         AND ${KIOSK_STAFF_ACTIVE_USER_SQL}
        ORDER BY u.last_name ASC, u.first_name ASC`,
       [eventId, agencyId]
     );
@@ -636,7 +713,7 @@ export const eventDayEmployeeIdentifyCheckin = async (req, res, next) => {
        JOIN user_preferences up ON up.user_id = u.id AND up.kiosk_pin_hash = ?
        JOIN skills_group_providers sgp ON sgp.provider_user_id = u.id
        JOIN skills_groups sg ON sg.id = sgp.skills_group_id
-       WHERE sg.company_event_id = ? AND sg.agency_id = ? AND u.status = 'active'`,
+       WHERE sg.company_event_id = ? AND sg.agency_id = ? AND ${KIOSK_STAFF_ACTIVE_USER_SQL}`,
       [pinHash, m.eventId, m.agencyId]
     );
 

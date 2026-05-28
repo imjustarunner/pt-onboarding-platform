@@ -697,7 +697,7 @@
             </SkillBuildersEventDashboardSection>
 
             <SkillBuildersEventDashboardSection
-              v-if="!detail.skillsGroup && viewerCaps.canManageCompanyEvent"
+              v-if="canViewParticipantsTab"
               v-show="railActive === 'participants'"
               rail-mode
               section-id="participants"
@@ -706,7 +706,12 @@
               :badge="`${participantCounts.participants}`"
             >
               <p class="muted small sbep-card-lead">
-                Participants enrolled in this program event. Add/remove enrollments directly here.
+                <template v-if="viewerCaps.canManageCompanyEvent">
+                  Participants enrolled in this program event. Add/remove enrollments directly here.
+                </template>
+                <template v-else>
+                  Participants enrolled in this program event (read-only).
+                </template>
               </p>
 
               <!-- Per-group participant breakdown — only renders when there is more
@@ -800,7 +805,7 @@
               >
                 Showing <strong>participants</strong> — clients whose intake was accepted and treatment plan is complete.
               </p>
-              <div v-if="eventBillingAgencyId" class="sbep-add-client-block">
+              <div v-if="viewerCaps.canManageCompanyEvent && eventBillingAgencyId" class="sbep-add-client-block">
                 <p class="sbep-subh">Add participant</p>
                 <div class="sbep-add-client-row">
                   <input
@@ -841,7 +846,32 @@
               <p v-if="genericParticipantsLoading" class="muted small">Loading participants…</p>
               <p v-else-if="genericParticipantsError" class="error-box sbep-add-client-err">{{ genericParticipantsError }}</p>
               <div v-else-if="genericParticipants.length" class="sbep-roster-summary-block">
-                <p class="sbep-subh sbep-roster-summary-heading">Enrolled participants</p>
+                <p class="sbep-subh sbep-roster-summary-heading">
+                  {{ participantStatusFilter === 'participants' ? 'Enrolled participants' : 'Roster' }}
+                </p>
+                <div class="sbep-participant-summary-table sbep-roster-table-wrap" style="margin-bottom: 14px;">
+                  <table class="sbep-roster-table sbep-roster-table--participants">
+                    <thead>
+                      <tr>
+                        <th>Participant</th>
+                        <th>Age</th>
+                        <th>Grade</th>
+                        <th>Group</th>
+                        <th v-if="!viewerCaps.canManageCompanyEvent">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="c in genericParticipants" :key="`psum-${c.clientId}`">
+                        <td>{{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}</td>
+                        <td>{{ participantAgeDisplay(c) }}</td>
+                        <td>{{ c.grade || '—' }}</td>
+                        <td>{{ participantGroupDisplay(c) }}</td>
+                        <td v-if="!viewerCaps.canManageCompanyEvent">{{ participantStatusLabel(c) }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <template v-if="viewerCaps.canManageCompanyEvent">
                 <p v-if="participantProvidersError" class="error-box sbep-add-client-err">{{ participantProvidersError }}</p>
                 <div v-if="staffingEnabled" class="sbep-staffing-wrap">
                   <div class="sbep-staffing-top">
@@ -949,7 +979,7 @@
                                     <template v-else>{{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}</template>
                                   </td>
                                   <td>{{ c.grade || '—' }}</td>
-                                  <td>{{ c.ageYears != null ? c.ageYears : '—' }}</td>
+                                  <td>{{ participantAgeDisplay(c) }}</td>
                                   <td style="min-width: 220px;">
                                     <select
                                       class="input sbep-provider-select"
@@ -1079,7 +1109,7 @@
                                     <template v-else>{{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}</template>
                                   </td>
                                   <td>{{ c.grade || '—' }}</td>
-                                  <td>{{ c.ageYears != null ? c.ageYears : '—' }}</td>
+                                  <td>{{ participantAgeDisplay(c) }}</td>
                                   <td style="min-width: 220px;">
                                     <select
                                       class="input sbep-provider-select"
@@ -1238,6 +1268,7 @@
                         <th>Registered</th>
                         <th>Grade</th>
                         <th>Age</th>
+                        <th>Group</th>
                         <th>Provider</th>
                         <th>Intake</th>
                         <th>Treatment plan</th>
@@ -1265,7 +1296,8 @@
                           {{ formatRegisteredDate(c.enrolledAt) }}
                         </td>
                         <td>{{ c.grade || '—' }}</td>
-                        <td>{{ c.ageYears != null ? c.ageYears : '—' }}</td>
+                        <td>{{ participantAgeDisplay(c) }}</td>
+                        <td>{{ participantGroupDisplay(c) }}</td>
                         <td style="min-width: 200px;">
                           <select
                             class="input sbep-provider-select"
@@ -1389,6 +1421,7 @@
                         <th>Participant</th>
                         <th>Age</th>
                         <th>Grade</th>
+                        <th>Group</th>
                         <th class="sbep-flag-th" title="Eloping risk reported on intake">
                           <span aria-hidden="true">🚸</span> Eloping
                         </th>
@@ -1416,8 +1449,9 @@
                           </router-link>
                           <template v-else>{{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}</template>
                         </td>
-                        <td>{{ c.ageYears != null ? c.ageYears : '—' }}</td>
+                        <td>{{ participantAgeDisplay(c) }}</td>
                         <td>{{ c.grade || '—' }}</td>
+                        <td>{{ participantGroupDisplay(c) }}</td>
                         <td class="sbep-flag-cell">
                           <button
                             v-if="c.elopingFlag"
@@ -1555,6 +1589,7 @@
                         <th>Participant</th>
                         <th>Grade</th>
                         <th>Age</th>
+                        <th>Group</th>
                         <th>Intake</th>
                         <th>Treatment plan</th>
                         <th>Confirm</th>
@@ -1580,7 +1615,8 @@
                           <template v-else>{{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}</template>
                         </td>
                         <td>{{ c.grade || '—' }}</td>
-                        <td>{{ c.ageYears != null ? c.ageYears : '—' }}</td>
+                        <td>{{ participantAgeDisplay(c) }}</td>
+                        <td>{{ participantGroupDisplay(c) }}</td>
                         <td>
                           <button
                             type="button"
@@ -1660,6 +1696,7 @@
                     </tbody>
                   </table>
                 </div>
+                </template>
               </div>
               <p v-else class="muted small">
                 <template v-if="participantStatusFilter === 'registrants' && participantCounts.all > 0">
@@ -2057,12 +2094,10 @@
               title="My work schedule"
               icon-url=""
             >
-              <p class="muted small sbep-card-lead">Your Skill Builder availability, group meetings, and assigned program events.</p>
-              <SkillBuildersWorkSchedulePanel
+              <p class="muted small sbep-card-lead">Your availability and booked dates for this event only.</p>
+              <EventPortalMyWorkSchedulePanel
                 :agency-id="eventBillingAgencyId"
-                :highlight-event-id="eventId"
-                :program-session-summaries="sessionsForWorkSchedulePanel"
-                mode="provider"
+                :event-id="eventId"
               />
             </SkillBuildersEventDashboardSection>
 
@@ -2349,7 +2384,7 @@ import api from '../../services/api';
 import { eventCategorySingularLabel, isSkillBuildersEventType } from '../../utils/eventTypeLabels';
 import SkillBuildersEventPortalLayout from '../../components/skillBuilders/SkillBuildersEventPortalLayout.vue';
 import SkillBuildersEventDashboardSection from '../../components/skillBuilders/SkillBuildersEventDashboardSection.vue';
-import SkillBuildersWorkSchedulePanel from '../../components/availability/SkillBuildersWorkSchedulePanel.vue';
+import EventPortalMyWorkSchedulePanel from '../../components/availability/EventPortalMyWorkSchedulePanel.vue';
 import SkillBuildersSessionCurriculumMaterials from '../../components/skillBuilders/SkillBuildersSessionCurriculumMaterials.vue';
 import SkillBuildersEventEditModal from '../../components/skillBuilders/SkillBuildersEventEditModal.vue';
 import SkillBuildersEventProvidersGrid from '../../components/skillBuilders/SkillBuildersEventProvidersGrid.vue';
@@ -2662,6 +2697,13 @@ const viewerCaps = computed(() => {
   };
 });
 
+/** Assigned facilitators may browse roster/materials; only coordinators edit event config. */
+const canViewParticipantsTab = computed(
+  () =>
+    !detail.value?.skillsGroup &&
+    (viewerCaps.value.canManageCompanyEvent || viewerCaps.value.isAssignedProvider)
+);
+
 /** Opens coordinator Skill Builders hub → Program documents (library upload + attach by date/session). */
 const programDocumentsLibraryRoute = computed(() => {
   const s = organizationSlug.value;
@@ -2753,7 +2795,7 @@ function sectionTeaser(sectionId) {
     materials: 'Documents, PDFs, and the shared program library.',
     registrations: 'Enrollment, capacity, and registration-aware actions.',
     'work-schedule': 'Assign providers to dates and roles for this event.',
-    'my-work': 'Your personal assignments and dates.',
+    'my-work': 'Your availability and booked dates for this event.',
     attendance: 'Clock activity, hours, and attendance review.',
     kiosk: 'Shared kiosk clock in/out for this event.',
     learning: 'Learning class tools, goals, and insights when linked.',
@@ -2821,7 +2863,7 @@ const eventRailItems = computed(() => {
 
   const nCli = (d.clients || []).length;
   push('clients', 'Client Management', 'Clients', !!d.skillsGroup && nCli > 0);
-  push('participants', 'Participants', 'Participants', !d.skillsGroup && !!v.canManageCompanyEvent);
+  push('participants', 'Participants', 'Participants', canViewParticipantsTab.value);
 
   const role = String(authStore.user?.role || '').toLowerCase();
   const isGuardianPortalUser = role === 'guardian' || role === 'client_guardian';
@@ -3166,22 +3208,6 @@ function removeSessionStaff(sessionId, pid) {
 }
 
 const kioskSessionChoices = computed(() => sessions.value.slice(0, 120));
-
-/** Upcoming materialized sessions for this event (Phase 3 — work schedule context). */
-const sessionsForWorkSchedulePanel = computed(() => {
-  if (!detail.value?.skillsGroup || !sessions.value.length) return [];
-  const today = ymdToday();
-  return sessions.value
-    .filter((s) => String(s.sessionDate || '') >= today)
-    .slice(0, 24)
-    .map((s) => ({
-      sessionDate: s.sessionDate,
-      weekday: s.weekday,
-      startTime: s.startTime,
-      endTime: s.endTime,
-      assignedSummary: formatSessionAssignedStaff(s)
-    }));
-});
 
 function formatSessionAssignedStaff(s) {
   const ap = s?.assignedProviders;
@@ -3949,6 +3975,58 @@ function participantGroupId(clientId) {
   if (!cid) return null;
   const map = staffingSessionAssignments.value || {};
   return Object.prototype.hasOwnProperty.call(map, cid) ? map[cid] : null;
+}
+
+function participantAgeDisplay(c) {
+  if (c?.ageYears != null && Number.isFinite(Number(c.ageYears))) return String(c.ageYears);
+  const dob = c?.dateOfBirth ? String(c.dateOfBirth).slice(0, 10) : '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dob)) {
+    const birth = new Date(`${dob}T12:00:00Z`);
+    if (Number.isFinite(birth.getTime())) {
+      const today = new Date();
+      let age = today.getUTCFullYear() - birth.getUTCFullYear();
+      const m = today.getUTCMonth() - birth.getUTCMonth();
+      if (m < 0 || (m === 0 && today.getUTCDate() < birth.getUTCDate())) age -= 1;
+      if (age >= 0 && age < 130) return String(age);
+    }
+  }
+  return '—';
+}
+
+function participantGroupDisplay(c) {
+  const cid = Number(c?.clientId || 0);
+  const gid = participantGroupId(cid);
+  if (gid && Array.isArray(staffingSessionGroups.value) && staffingSessionGroups.value.length) {
+    const g = staffingSessionGroups.value.find((x) => Number(x.id) === Number(gid));
+    if (g) return groupDisplayLabel(g);
+  }
+  const fromApi = String(c?.groupDisplay || '').trim();
+  if (fromApi) return fromApi;
+  const assignments = Array.isArray(c?.groupAssignments) ? c.groupAssignments : [];
+  if (assignments.length) {
+    return assignments
+      .map((g) => {
+        const label = String(g?.label || '').trim() || (g?.groupId ? `Group ${g.groupId}` : 'Group');
+        const parts = [label];
+        if (g?.sessionDate) {
+          const d = new Date(g.sessionDate);
+          if (Number.isFinite(d.getTime())) {
+            parts.push(d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
+          }
+        } else if (g?.sessionLabel) {
+          parts.push(String(g.sessionLabel).trim());
+        }
+        return parts.join(' · ');
+      })
+      .join('; ');
+  }
+  return '—';
+}
+
+function participantStatusLabel(c) {
+  if (c?.intakeOutcome === 'denied') return 'Denied';
+  if (c?.treatmentPlanComplete) return 'Participant';
+  return 'Registrant';
 }
 
 function groupDisplayLabel(g) {

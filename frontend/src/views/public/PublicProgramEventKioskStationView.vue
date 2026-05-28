@@ -171,7 +171,7 @@
       <!-- RESOURCE -->
       <div v-else class="pe-panel">
         <p class="pe-panel-lead muted">
-          {{ kioskActive ? 'Checked-in clients · tap for emergency & waiver info' : 'Enrolled clients · tap to preview emergency & waiver info' }}
+          {{ kioskActive ? 'Checked-in participants · tap for emergency & waiver info' : 'Confirmed participants · tap to preview emergency & waiver info' }}
         </p>
         <ul class="pe-roster pe-roster--grid">
           <li
@@ -186,9 +186,13 @@
               {{ c.emergencyContacts.length }} emergency contact{{ c.emergencyContacts.length !== 1 ? 's' : '' }}
             </span>
             <span v-else class="pe-tag pe-tag--warn">No emergency contacts</span>
+            <span v-if="clientHasAllergyInfo(c)" class="pe-tag pe-tag--warn">Allergies / medical</span>
+            <span v-if="c.authorizedPickups?.length" class="pe-tag">
+              {{ c.authorizedPickups.length }} pickup{{ c.authorizedPickups.length !== 1 ? 's' : '' }}
+            </span>
           </li>
           <li v-if="!filteredResourceClients.length" class="pe-empty muted">
-            {{ search ? 'No matches.' : (kioskActive ? 'No clients checked in yet.' : 'No enrolled clients yet.') }}
+            {{ search ? 'No matches.' : (kioskActive ? 'No participants checked in yet.' : 'No confirmed participants yet.') }}
           </li>
         </ul>
       </div>
@@ -214,6 +218,9 @@
           <div>
             <div class="pe-kiosk-modal-title">{{ resourceClient?.fullName }}</div>
             <div v-if="resourceClient?.identifierCode" class="muted small">ID {{ resourceClient.identifierCode }}</div>
+            <div v-if="resourceClient?.waiverUpdatedAt" class="muted small">
+              Waiver updated {{ formatWaiverDate(resourceClient.waiverUpdatedAt) }}
+            </div>
           </div>
           <button class="btn btn-text" @click="closeResource">Close</button>
         </header>
@@ -255,6 +262,40 @@
           <span v-if="resourceClient.walkHome.conditions"> {{ resourceClient.walkHome.conditions }}</span>
         </p>
         <p v-else class="muted small">Not authorized.</p>
+
+        <h4 class="pe-kiosk-modal-h4">Allergies &amp; medical</h4>
+        <div v-if="resourceClient?.allergies" class="pe-allergy-block">
+          <p v-if="allergySummary(resourceClient.allergies)" class="small pe-allergy-warn">
+            <strong>Allergies / restrictions:</strong> {{ allergySummary(resourceClient.allergies) }}
+          </p>
+          <p v-else-if="resourceClient.allergies.applyNone" class="muted small">No medical info reported.</p>
+          <p v-if="resourceClient.allergies.noSnacks" class="small pe-allergy-warn">
+            <strong>Snacks:</strong> Do not give snacks to this child.
+          </p>
+          <p v-else-if="approvedSnacksSummary(resourceClient.allergies)" class="small">
+            <strong>Approved snacks:</strong> {{ approvedSnacksSummary(resourceClient.allergies) }}
+          </p>
+          <p v-if="resourceClient.allergies.notes" class="small">
+            <strong>Medical notes:</strong> {{ resourceClient.allergies.notes }}
+          </p>
+        </div>
+        <p v-else class="muted small">None on file.</p>
+
+        <h4 v-if="resourceClient?.meals" class="pe-kiosk-modal-h4">Meal preferences</h4>
+        <div v-if="resourceClient?.meals" class="pe-meal-block">
+          <p v-if="resourceClient.meals.allowedMeals" class="small">
+            <strong>Allowed:</strong> {{ resourceClient.meals.allowedMeals }}
+          </p>
+          <p v-if="resourceClient.meals.restrictedMeals" class="small pe-allergy-warn">
+            <strong>Restricted:</strong> {{ resourceClient.meals.restrictedMeals }}
+          </p>
+          <p v-if="resourceClient.meals.mealChoice" class="small">
+            <strong>Choice:</strong> {{ resourceClient.meals.mealChoice }}
+          </p>
+          <p v-if="resourceClient.meals.mealNotes || resourceClient.meals.notes" class="small">
+            <strong>Notes:</strong> {{ resourceClient.meals.mealNotes || resourceClient.meals.notes }}
+          </p>
+        </div>
       </div>
     </div>
 
@@ -270,6 +311,11 @@
         </header>
 
         <div v-if="checkoutError" class="error-box pe-kiosk-modal-err">{{ checkoutError }}</div>
+
+        <div v-if="clientHasAllergyInfo(activeClient)" class="pe-checkout-allergy-banner">
+          <strong>Allergies / medical:</strong>
+          {{ allergySummary(activeClient.allergies) || approvedSnacksSummary(activeClient.allergies) || activeClient.allergies.notes || 'See resource tab for details' }}
+        </div>
 
         <h4 class="pe-kiosk-modal-h4">Approved pickups</h4>
         <ul v-if="(activeClient?.authorizedPickups || []).length" class="pe-kiosk-pickup-list">
@@ -510,6 +556,42 @@ function formatTime(iso) {
 }
 function initials(name) {
   return String(name || '?').split(' ').filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
+}
+
+function formatWaiverDate(iso) {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  } catch {
+    return String(iso);
+  }
+}
+
+function allergySummary(allergies) {
+  if (!allergies || typeof allergies !== 'object') return '';
+  const text = String(allergies.allergies || '').trim();
+  if (text && text.toLowerCase() !== 'none') return text;
+  return '';
+}
+
+function approvedSnacksSummary(allergies) {
+  if (!allergies || typeof allergies !== 'object') return '';
+  const list = Array.isArray(allergies.approvedSnacksList) && allergies.approvedSnacksList.length
+    ? allergies.approvedSnacksList.join(', ')
+    : '';
+  const freeText = String(allergies.approvedSnacks || '').trim();
+  return [list, freeText].filter(Boolean).join('; ');
+}
+
+function clientHasAllergyInfo(client) {
+  const a = client?.allergies;
+  if (!a || typeof a !== 'object') return false;
+  return !!(
+    allergySummary(a)
+    || a.noSnacks
+    || approvedSnacksSummary(a)
+    || String(a.notes || '').trim()
+  );
 }
 
 async function checkinClient(c) {
@@ -960,7 +1042,18 @@ onBeforeUnmount(() => {
   max-height: 92vh; overflow-y: auto; padding: 20px;
   box-shadow: 0 20px 60px rgba(15, 23, 42, 0.25);
 }
-.pe-resource-card { width: min(480px, 100%); }
+.pe-resource-card { width: min(480px, 100%); max-height: min(88vh, 720px); overflow-y: auto; }
+.pe-allergy-warn { color: #b45309; }
+.pe-allergy-block, .pe-meal-block { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.pe-checkout-allergy-banner {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  margin-bottom: 12px;
+  color: #92400e;
+}
 .pe-kiosk-modal-hdr { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
 .pe-kiosk-modal-title { font-size: 1.1rem; font-weight: 700; }
 .pe-kiosk-modal-h4 { margin: 14px 0 8px; font-size: 0.85rem; font-weight: 700; color: var(--text-secondary, #475569); text-transform: uppercase; letter-spacing: 0.04em; }
