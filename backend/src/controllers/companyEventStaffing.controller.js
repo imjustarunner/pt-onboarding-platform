@@ -5,6 +5,10 @@ import {
   canViewProgramEvent
 } from '../services/companyEventAccess.service.js';
 import { userHasAgencyOrAffiliatedOrgAccessForRequest } from '../utils/userAgencyAffiliationAccess.js';
+import {
+  syncCompanySessionProviderBySlotBestEffort,
+  cancelCompanySessionProvidersBeforeDelete
+} from '../services/providerAssignmentGoogleSync.service.js';
 
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw ?? ''), 10);
@@ -761,6 +765,7 @@ export const approveCompanyEventSessionRequest = async (req, res, next) => {
     );
 
     await conn.commit();
+    syncCompanySessionProviderBySlotBestEffort({ sessionDateId, providerUserId }).catch(() => {});
     res.json({ ok: true });
   } catch (e) {
     if (conn) {
@@ -812,6 +817,12 @@ export const denyCompanyEventSessionRequest = async (req, res, next) => {
        WHERE id = ?`,
       [userId, requestId]
     );
+    await cancelCompanySessionProvidersBeforeDelete({
+      companyEventId: eventId,
+      agencyId,
+      sessionDateId,
+      providerUserId
+    });
     await conn.execute(
       `DELETE FROM company_event_session_providers
        WHERE company_event_id = ? AND agency_id = ? AND session_date_id = ? AND provider_user_id = ?`,

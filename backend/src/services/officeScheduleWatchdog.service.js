@@ -9,6 +9,7 @@ import {
   refreshAllLocationsFromEhr,
   downgradeBookedWithoutExternalOverlap
 } from './officeScheduleEhrSync.service.js';
+import { retryFailedProviderAssignmentGoogleSync } from './providerAssignmentGoogleSync.service.js';
 
 export class OfficeScheduleWatchdogService {
   static async syncBookedToGoogle({ horizonDays = 28 } = {}) {
@@ -56,41 +57,8 @@ export class OfficeScheduleWatchdogService {
       }
     }
 
-    // Sync booked occurrences in the window.
-    const startAt = `${today} 00:00:00`;
-    const endAt = `${end} 23:59:59`;
-    let events = [];
-    try {
-      const [rows] = await pool.execute(
-        `SELECT id
-         FROM office_events
-         WHERE slot_state = 'ASSIGNED_BOOKED'
-           AND start_at >= ?
-           AND start_at <= ?
-           AND booked_provider_id IS NOT NULL
-           AND (google_provider_event_id IS NULL OR google_sync_status = 'FAILED')`,
-        [startAt, endAt]
-      );
-      events = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
-    } catch (e) {
-      if (e?.code === 'ER_BAD_FIELD_ERROR') {
-        return { ok: false, reason: 'google_columns_missing' };
-      }
-      if (e?.code === 'ER_NO_SUCH_TABLE') return { ok: false, reason: 'office_tables_missing' };
-      throw e;
-    }
-
-    let synced = 0;
-    let failed = 0;
-    for (const id of events) {
-      const r = await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId: id });
-      if (r?.ok) synced += 1;
-      else failed += 1;
-      // light rate-limit (avoid hammering Google)
-      await new Promise((resolve) => setTimeout(resolve, 120));
-    }
-
-    return { ok: true, horizonDays: Number(horizonDays || 28), candidates: events.length, synced, failed };
+    // Sync assigned/booked office slots and program staffing in the window.
+    return retryFailedProviderAssignmentGoogleSync({ horizonDays: Number(horizonDays || 28) });
   }
 
   static async emitSixWeekBookingConfirmReminders() {

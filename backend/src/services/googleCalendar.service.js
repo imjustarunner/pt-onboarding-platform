@@ -452,6 +452,7 @@ export class GoogleCalendarService {
       `SELECT
          e.id,
          e.slot_state,
+         e.status,
          e.start_at,
          e.end_at,
          e.office_location_id,
@@ -466,7 +467,10 @@ export class GoogleCalendarService {
        FROM office_events e
        JOIN office_locations ol ON ol.id = e.office_location_id
        JOIN office_rooms r ON r.id = e.room_id
-       LEFT JOIN users u ON u.id = e.booked_provider_id
+       LEFT JOIN users u ON u.id = CASE
+         WHEN UPPER(COALESCE(e.slot_state, '')) = 'ASSIGNED_BOOKED' THEN e.booked_provider_id
+         ELSE e.assigned_provider_id
+       END
        WHERE e.id = ?
        LIMIT 1`,
       [eid]
@@ -483,9 +487,10 @@ export class GoogleCalendarService {
 
     const missing = [];
     if (!this.isConfigured()) missing.push('service_account');
-    if (slotState !== 'ASSIGNED_BOOKED') missing.push('slot_state_not_assigned_booked');
+    if (!['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE'].includes(slotState)) missing.push('slot_state_not_syncable');
+    if (String(row.status || '').toUpperCase() === 'CANCELLED') missing.push('event_cancelled');
     if (!providerEmail) missing.push('provider_email');
-    if (!roomResourceEmail) missing.push('room_google_resource_email');
+    if (slotState === 'ASSIGNED_BOOKED' && !roomResourceEmail) missing.push('room_google_resource_email');
     if (!start) missing.push('start_at');
     if (!end) missing.push('end_at');
 
@@ -495,6 +500,7 @@ export class GoogleCalendarService {
       room_number: row.room_number,
       name: row.room_name
     });
+    const summarySuffix = slotState === 'ASSIGNED_BOOKED' ? 'Booked' : 'Assigned';
 
     return {
       ok: missing.length === 0,
@@ -502,7 +508,7 @@ export class GoogleCalendarService {
       missing,
       wouldWrite: missing.length === 0,
       preview: {
-        summary: `${buildingName} • ${officeLabel} — Booked`,
+        summary: `${buildingName} • ${officeLabel} — ${summarySuffix}`,
         providerEmail: providerEmail || null,
         roomResourceEmail: roomResourceEmail || null,
         timeZone,
@@ -510,6 +516,108 @@ export class GoogleCalendarService {
         end
       }
     };
+  }
+
+  static async upsertProviderPrimaryCalendarEvent({
+    subjectEmail,
+    existingGoogleEventId = null,
+    summary,
+    description = null,
+    location = null,
+    startAt = null,
+    endAt = null,
+    timeZone = 'America/New_York',
+    allDay = false,
+    startDate = null,
+    endDate = null,
+    attendees = [],
+    extendedProperties = {}
+  } = {}) {
+    const subject = String(subjectEmail || '').trim().toLowerCase();
+    if (!subject) return { ok: false, reason: 'missing_subject_email' };
+    if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
+    const normalizedSummary = String(summary || '').trim();
+    if (!normalizedSummary) return { ok: false, reason: 'missing_summary' };
+
+    const requestBody = {
+      summary: normalizedSummary,
+      ...(description ? { description: String(description) } : {}),
+      ...(location ? { location: String(location) } : {}),
+      ...(Object.keys(extendedProperties || {}).length
+        ? { extendedProperties: { private: extendedProperties } }
+        : {})
+    };
+
+    if (allDay) {
+      const sDate = String(startDate || '').slice(0, 10);
+      const eDate = String(endDate || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(sDate) || !/^\d{4}-\d{2}-\d{2}$/.test(eDate)) {
+        return { ok: false, reason: 'missing_start_end' };
+      }
+      requestBody.start = { date: sDate };
+      requestBody.end = { date: eDate };
+    } else {
+      const start = toRfc3339Local(startAt);
+      const end = toRfc3339Local(endAt);
+      if (!start || !end) return { ok: false, reason: 'missing_start_end' };
+      requestBody.start = { dateTime: start, timeZone };
+      requestBody.end = { dateTime: end, timeZone };
+    }
+
+    const attendeeEmails = Array.from(new Set((Array.isArray(attendees) ? attendees : [])
+      .map((v) => String(v || '').trim().toLowerCase())
+      .filter(Boolean)))
+      .filter((email) => email !== subject);
+    if (attendeeEmails.length) {
+      requestBody.attendees = attendeeEmails.map((email) => ({ email }));
+    }
+
+    const cal = this.buildCalendarClientForSubject(subject);
+    const calendarId = 'primary';
+    let googleEventId = String(existingGoogleEventId || '').trim() || null;
+
+    try {
+      if (googleEventId) {
+        const upd = await cal.events.patch({
+          calendarId,
+          eventId: googleEventId,
+          requestBody,
+          sendUpdates: 'all'
+        });
+        googleEventId = upd.data?.id || googleEventId;
+      } else {
+        const ins = await cal.events.insert({
+          calendarId,
+          requestBody,
+          sendUpdates: 'all'
+        });
+        googleEventId = ins.data?.id || null;
+      }
+      return { ok: true, googleEventId, calendarId: subject, htmlLink: null };
+    } catch (e) {
+      logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.upsertProviderPrimaryCalendarEvent' });
+      return { ok: false, reason: 'google_api_error', error: String(e?.message || e) };
+    }
+  }
+
+  static async cancelProviderPrimaryCalendarEvent({ subjectEmail, googleEventId }) {
+    const subject = String(subjectEmail || '').trim().toLowerCase();
+    const eventId = String(googleEventId || '').trim();
+    if (!subject) return { ok: false, reason: 'missing_subject_email' };
+    if (!eventId) return { ok: true, skipped: true, reason: 'no_google_event_linked' };
+    if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
+
+    const cal = this.buildCalendarClientForSubject(subject);
+    const calendarId = 'primary';
+    try {
+      await cal.events.delete({ calendarId, eventId, sendUpdates: 'all' });
+      return { ok: true };
+    } catch (e) {
+      const code = Number(e?.code || e?.response?.status || 0);
+      if (code === 404) return { ok: true, skipped: true, reason: 'already_deleted_remote' };
+      logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.cancelProviderPrimaryCalendarEvent' });
+      return { ok: false, reason: 'google_api_error', error: String(e?.message || e) };
+    }
   }
 
   static async upsertBookedOfficeEvent({ officeEventId }) {
@@ -532,7 +640,10 @@ export class GoogleCalendarService {
        FROM office_events e
        JOIN office_locations ol ON ol.id = e.office_location_id
        JOIN office_rooms r ON r.id = e.room_id
-       LEFT JOIN users u ON u.id = e.booked_provider_id
+       LEFT JOIN users u ON u.id = CASE
+         WHEN UPPER(COALESCE(e.slot_state, '')) = 'ASSIGNED_BOOKED' THEN e.booked_provider_id
+         ELSE e.assigned_provider_id
+       END
        WHERE e.id = ?
        LIMIT 1`,
       [eid]
@@ -541,8 +652,11 @@ export class GoogleCalendarService {
     if (!row) return { ok: false, reason: 'event_not_found' };
 
     const slotState = String(row.slot_state || '').toUpperCase();
-    if (slotState !== 'ASSIGNED_BOOKED') {
-      return { ok: false, reason: 'not_assigned_booked' };
+    if (!['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE'].includes(slotState)) {
+      return { ok: false, reason: 'not_syncable_slot_state' };
+    }
+    if (String(row.status || '').toUpperCase() === 'CANCELLED') {
+      return { ok: false, reason: 'event_cancelled' };
     }
 
     const providerEmail = String(row.provider_email || '').trim().toLowerCase();
@@ -550,7 +664,7 @@ export class GoogleCalendarService {
       await pool.execute(
         `UPDATE office_events
          SET google_sync_status = 'FAILED',
-             google_sync_error = 'Missing booked provider email',
+             google_sync_error = 'Missing assigned provider email',
              google_synced_at = NULL
          WHERE id = ?`,
         [eid]
@@ -559,7 +673,7 @@ export class GoogleCalendarService {
     }
 
     const roomResourceEmail = String(row.room_google_resource_email || '').trim().toLowerCase();
-    if (!roomResourceEmail) {
+    if (slotState === 'ASSIGNED_BOOKED' && !roomResourceEmail) {
       await pool.execute(
         `UPDATE office_events
          SET google_sync_status = 'FAILED',
@@ -577,7 +691,8 @@ export class GoogleCalendarService {
       room_number: row.room_number,
       name: row.room_name
     });
-    const summary = `${buildingName} • ${officeLabel} — Booked`;
+    const summarySuffix = slotState === 'ASSIGNED_BOOKED' ? 'Booked' : 'Assigned';
+    const summary = `${buildingName} • ${officeLabel} — ${summarySuffix}`;
 
     const timeZone = String(row.building_timezone || '').trim() || 'America/New_York';
     const start = toRfc3339Local(row.start_at);
@@ -594,26 +709,7 @@ export class GoogleCalendarService {
       return { ok: false, reason: 'missing_start_end' };
     }
 
-    const cal = this.buildCalendarClientForSubject(providerEmail);
-    const calendarId = 'primary';
-
-    const requestBody = {
-      summary,
-      start: { dateTime: start, timeZone },
-      end: { dateTime: end, timeZone },
-      attendees: [{ email: roomResourceEmail }],
-      extendedProperties: {
-        private: {
-          pt_office_event_id: String(eid),
-          pt_building_id: String(row.office_location_id),
-          pt_office_id: String(row.room_id),
-          pt_slot_state: 'ASSIGNED_BOOKED'
-        }
-      }
-    };
-
-    const existingGoogleEventId = String(row.google_provider_event_id || '').trim();
-    let googleEventId = existingGoogleEventId || null;
+    const attendees = roomResourceEmail ? [roomResourceEmail] : [];
 
     try {
       await pool.execute(
@@ -623,23 +719,41 @@ export class GoogleCalendarService {
          WHERE id = ?`,
         [eid]
       );
+    } catch {
+      // best-effort status flag
+    }
 
-      if (googleEventId) {
-        const upd = await cal.events.patch({
-          calendarId,
-          eventId: googleEventId,
-          requestBody
-        });
-        googleEventId = upd.data?.id || googleEventId;
-      } else {
-        const ins = await cal.events.insert({
-          calendarId,
-          requestBody,
-          sendUpdates: 'all'
-        });
-        googleEventId = ins.data?.id || null;
+    const syncResult = await this.upsertProviderPrimaryCalendarEvent({
+      subjectEmail: providerEmail,
+      existingGoogleEventId: row.google_provider_event_id,
+      summary,
+      startAt: row.start_at,
+      endAt: row.end_at,
+      timeZone,
+      attendees,
+      extendedProperties: {
+        pt_office_event_id: String(eid),
+        pt_building_id: String(row.office_location_id),
+        pt_office_id: String(row.room_id),
+        pt_slot_state: slotState
       }
+    });
 
+    if (!syncResult?.ok) {
+      const msg = String(syncResult?.error || syncResult?.reason || 'google_api_error').slice(0, 4000);
+      await pool.execute(
+        `UPDATE office_events
+         SET google_sync_status = 'FAILED',
+             google_sync_error = ?,
+             google_synced_at = NULL
+         WHERE id = ?`,
+        [msg, eid]
+      );
+      return syncResult;
+    }
+
+    const googleEventId = syncResult.googleEventId || null;
+    try {
       await pool.execute(
         `UPDATE office_events
          SET google_provider_event_id = ?,
@@ -649,10 +763,9 @@ export class GoogleCalendarService {
              google_sync_error = NULL,
              google_synced_at = NOW()
          WHERE id = ?`,
-        [googleEventId, providerEmail, roomResourceEmail, eid]
+        [googleEventId, providerEmail, roomResourceEmail || null, eid]
       );
-
-      return { ok: true, googleEventId, providerEmail, roomResourceEmail };
+      return { ok: true, googleEventId, providerEmail, roomResourceEmail: roomResourceEmail || null };
     } catch (e) {
       const msg = String(e?.message || e).slice(0, 4000);
       await pool.execute(
@@ -663,7 +776,7 @@ export class GoogleCalendarService {
          WHERE id = ?`,
         [msg, eid]
       );
-      return { ok: false, reason: 'google_api_error', error: msg };
+      return { ok: false, reason: 'db_update_failed', error: msg };
     }
   }
 
@@ -841,6 +954,331 @@ export class GoogleCalendarService {
       logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.cancelSupervisionSessionGoogleEvent' });
       return { ok: false, reason: 'google_api_error', error: String(e?.message || e) };
     }
+  }
+
+  static companyEventAssignmentSummary({ eventTitle, assignmentStatus }) {
+    const title = String(eventTitle || '').trim() || 'Program event';
+    const status = String(assignmentStatus || 'draft').toLowerCase();
+    if (status === 'finalized') return title;
+    if (status === 'tentative') return `${title} (Tentative)`;
+    if (status === 'draft') return `${title} (Draft)`;
+    return title;
+  }
+
+  static async upsertCompanyEventSessionProviderGoogle({ sessionProviderId }) {
+    const id = parseInt(sessionProviderId, 10);
+    if (!id) return { ok: false, reason: 'invalid_session_provider_id' };
+    if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
+
+    const [rows] = await pool.execute(
+      `SELECT
+         cesp.id,
+         cesp.assignment_status,
+         cesp.google_provider_event_id,
+         cesd.starts_at,
+         cesd.ends_at,
+         cesd.session_date,
+         cesd.timezone,
+         cesd.location_label,
+         ce.title AS event_title,
+         u.email AS provider_email
+       FROM company_event_session_providers cesp
+       INNER JOIN company_event_session_dates cesd ON cesd.id = cesp.session_date_id
+       INNER JOIN company_events ce ON ce.id = cesp.company_event_id
+       INNER JOIN users u ON u.id = cesp.provider_user_id
+       WHERE cesp.id = ?
+       LIMIT 1`,
+      [id]
+    );
+    const row = rows?.[0] || null;
+    if (!row) return { ok: false, reason: 'assignment_not_found' };
+
+    const providerEmail = String(row.provider_email || '').trim().toLowerCase();
+    if (!providerEmail) {
+      await pool.execute(
+        `UPDATE company_event_session_providers
+         SET google_sync_status = 'FAILED', google_sync_error = 'Missing provider email', google_synced_at = NULL
+         WHERE id = ?`,
+        [id]
+      );
+      return { ok: false, reason: 'missing_provider_email' };
+    }
+
+    const summary = this.companyEventAssignmentSummary({
+      eventTitle: row.event_title,
+      assignmentStatus: row.assignment_status
+    });
+    const timeZone = String(row.timezone || '').trim() || 'America/New_York';
+    const location = String(row.location_label || '').trim() || null;
+    const startRaw = row.starts_at;
+    const endRaw = row.ends_at;
+    const sessionDate = row.session_date ? String(row.session_date).slice(0, 10) : null;
+
+    let syncPayload;
+    if (startRaw && endRaw) {
+      syncPayload = {
+        subjectEmail: providerEmail,
+        existingGoogleEventId: row.google_provider_event_id,
+        summary,
+        location,
+        startAt: startRaw,
+        endAt: endRaw,
+        timeZone,
+        extendedProperties: {
+          pt_kind: 'COMPANY_EVENT_SESSION',
+          pt_company_event_session_provider_id: String(id)
+        }
+      };
+    } else if (sessionDate && /^\d{4}-\d{2}-\d{2}$/.test(sessionDate)) {
+      const nextDay = new Date(`${sessionDate}T12:00:00`);
+      nextDay.setDate(nextDay.getDate() + 1);
+      const endDate = `${nextDay.getFullYear()}-${String(nextDay.getMonth() + 1).padStart(2, '0')}-${String(nextDay.getDate()).padStart(2, '0')}`;
+      syncPayload = {
+        subjectEmail: providerEmail,
+        existingGoogleEventId: row.google_provider_event_id,
+        summary,
+        location,
+        allDay: true,
+        startDate: sessionDate,
+        endDate,
+        extendedProperties: {
+          pt_kind: 'COMPANY_EVENT_SESSION',
+          pt_company_event_session_provider_id: String(id)
+        }
+      };
+    } else {
+      await pool.execute(
+        `UPDATE company_event_session_providers
+         SET google_sync_status = 'FAILED', google_sync_error = 'Missing session start/end', google_synced_at = NULL
+         WHERE id = ?`,
+        [id]
+      );
+      return { ok: false, reason: 'missing_start_end' };
+    }
+
+    await pool.execute(
+      `UPDATE company_event_session_providers SET google_sync_status = 'PENDING', google_sync_error = NULL WHERE id = ?`,
+      [id]
+    );
+
+    const syncResult = await this.upsertProviderPrimaryCalendarEvent(syncPayload);
+    if (!syncResult?.ok) {
+      const msg = String(syncResult?.error || syncResult?.reason || 'google_api_error').slice(0, 4000);
+      await pool.execute(
+        `UPDATE company_event_session_providers
+         SET google_sync_status = 'FAILED', google_sync_error = ?, google_synced_at = NULL
+         WHERE id = ?`,
+        [msg, id]
+      );
+      return syncResult;
+    }
+
+    await pool.execute(
+      `UPDATE company_event_session_providers
+       SET google_provider_event_id = ?,
+           google_provider_calendar_id = ?,
+           google_sync_status = 'SYNCED',
+           google_sync_error = NULL,
+           google_synced_at = NOW()
+       WHERE id = ?`,
+      [syncResult.googleEventId, providerEmail, id]
+    );
+    return { ok: true, googleEventId: syncResult.googleEventId, providerEmail };
+  }
+
+  static async cancelCompanyEventSessionProviderGoogle({ sessionProviderId }) {
+    const id = parseInt(sessionProviderId, 10);
+    if (!id) return { ok: false, reason: 'invalid_session_provider_id' };
+
+    const [rows] = await pool.execute(
+      `SELECT google_provider_event_id, google_provider_calendar_id
+       FROM company_event_session_providers
+       WHERE id = ?
+       LIMIT 1`,
+      [id]
+    );
+    const row = rows?.[0] || null;
+    if (!row) return { ok: false, reason: 'assignment_not_found' };
+
+    const googleEventId = String(row.google_provider_event_id || '').trim();
+    const providerEmail = String(row.google_provider_calendar_id || '').trim().toLowerCase();
+    if (!googleEventId || !providerEmail) {
+      await pool.execute(
+        `UPDATE company_event_session_providers
+         SET google_sync_status = 'SYNCED', google_sync_error = NULL, google_synced_at = NOW(), google_provider_event_id = NULL
+         WHERE id = ?`,
+        [id]
+      );
+      return { ok: true, skipped: true, reason: 'no_google_event_linked' };
+    }
+
+    const cancelResult = await this.cancelProviderPrimaryCalendarEvent({ subjectEmail: providerEmail, googleEventId });
+    if (!cancelResult?.ok) {
+      const msg = String(cancelResult?.error || cancelResult?.reason || 'google_api_error').slice(0, 4000);
+      await pool.execute(
+        `UPDATE company_event_session_providers
+         SET google_sync_status = 'FAILED', google_sync_error = ?, google_synced_at = NULL
+         WHERE id = ?`,
+        [msg, id]
+      );
+      return cancelResult;
+    }
+
+    await pool.execute(
+      `UPDATE company_event_session_providers
+       SET google_provider_event_id = NULL,
+           google_provider_calendar_id = NULL,
+           google_sync_status = 'SYNCED',
+           google_sync_error = NULL,
+           google_synced_at = NOW()
+       WHERE id = ?`,
+      [id]
+    );
+    return { ok: true };
+  }
+
+  static async upsertSkillBuildersSessionProviderGoogle({ sessionProviderId }) {
+    const id = parseInt(sessionProviderId, 10);
+    if (!id) return { ok: false, reason: 'invalid_session_provider_id' };
+    if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
+
+    const [rows] = await pool.execute(
+      `SELECT
+         sbesp.id,
+         sbesp.google_provider_event_id,
+         s.starts_at,
+         s.ends_at,
+         ce.title AS event_title,
+         sg.name AS skills_group_name,
+         u.email AS provider_email
+       FROM skill_builders_event_session_providers sbesp
+       INNER JOIN skill_builders_event_sessions s ON s.id = sbesp.session_id
+       INNER JOIN skills_groups sg ON sg.id = s.skills_group_id
+       INNER JOIN company_events ce ON ce.id = s.company_event_id
+       INNER JOIN users u ON u.id = sbesp.provider_user_id
+       WHERE sbesp.id = ?
+       LIMIT 1`,
+      [id]
+    );
+    const row = rows?.[0] || null;
+    if (!row) return { ok: false, reason: 'assignment_not_found' };
+
+    const providerEmail = String(row.provider_email || '').trim().toLowerCase();
+    if (!providerEmail) {
+      await pool.execute(
+        `UPDATE skill_builders_event_session_providers
+         SET google_sync_status = 'FAILED', google_sync_error = 'Missing provider email', google_synced_at = NULL
+         WHERE id = ?`,
+        [id]
+      );
+      return { ok: false, reason: 'missing_provider_email' };
+    }
+
+    const sgName = String(row.skills_group_name || '').trim();
+    const evTitle = String(row.event_title || '').trim();
+    const summary = [sgName, evTitle].filter(Boolean).join(' · ') || 'Skill Builders program';
+
+    if (!row.starts_at || !row.ends_at) {
+      await pool.execute(
+        `UPDATE skill_builders_event_session_providers
+         SET google_sync_status = 'FAILED', google_sync_error = 'Missing session start/end', google_synced_at = NULL
+         WHERE id = ?`,
+        [id]
+      );
+      return { ok: false, reason: 'missing_start_end' };
+    }
+
+    await pool.execute(
+      `UPDATE skill_builders_event_session_providers SET google_sync_status = 'PENDING', google_sync_error = NULL WHERE id = ?`,
+      [id]
+    );
+
+    const syncResult = await this.upsertProviderPrimaryCalendarEvent({
+      subjectEmail: providerEmail,
+      existingGoogleEventId: row.google_provider_event_id,
+      summary,
+      startAt: row.starts_at,
+      endAt: row.ends_at,
+      timeZone: 'America/New_York',
+      extendedProperties: {
+        pt_kind: 'SKILL_BUILDERS_SESSION',
+        pt_skill_builders_session_provider_id: String(id)
+      }
+    });
+
+    if (!syncResult?.ok) {
+      const msg = String(syncResult?.error || syncResult?.reason || 'google_api_error').slice(0, 4000);
+      await pool.execute(
+        `UPDATE skill_builders_event_session_providers
+         SET google_sync_status = 'FAILED', google_sync_error = ?, google_synced_at = NULL
+         WHERE id = ?`,
+        [msg, id]
+      );
+      return syncResult;
+    }
+
+    await pool.execute(
+      `UPDATE skill_builders_event_session_providers
+       SET google_provider_event_id = ?,
+           google_provider_calendar_id = ?,
+           google_sync_status = 'SYNCED',
+           google_sync_error = NULL,
+           google_synced_at = NOW()
+       WHERE id = ?`,
+      [syncResult.googleEventId, providerEmail, id]
+    );
+    return { ok: true, googleEventId: syncResult.googleEventId, providerEmail };
+  }
+
+  static async cancelSkillBuildersSessionProviderGoogle({ sessionProviderId }) {
+    const id = parseInt(sessionProviderId, 10);
+    if (!id) return { ok: false, reason: 'invalid_session_provider_id' };
+
+    const [rows] = await pool.execute(
+      `SELECT google_provider_event_id, google_provider_calendar_id
+       FROM skill_builders_event_session_providers
+       WHERE id = ?
+       LIMIT 1`,
+      [id]
+    );
+    const row = rows?.[0] || null;
+    if (!row) return { ok: false, reason: 'assignment_not_found' };
+
+    const googleEventId = String(row.google_provider_event_id || '').trim();
+    const providerEmail = String(row.google_provider_calendar_id || '').trim().toLowerCase();
+    if (!googleEventId || !providerEmail) {
+      await pool.execute(
+        `UPDATE skill_builders_event_session_providers
+         SET google_sync_status = 'SYNCED', google_sync_error = NULL, google_synced_at = NOW(), google_provider_event_id = NULL
+         WHERE id = ?`,
+        [id]
+      );
+      return { ok: true, skipped: true, reason: 'no_google_event_linked' };
+    }
+
+    const cancelResult = await this.cancelProviderPrimaryCalendarEvent({ subjectEmail: providerEmail, googleEventId });
+    if (!cancelResult?.ok) {
+      const msg = String(cancelResult?.error || cancelResult?.reason || 'google_api_error').slice(0, 4000);
+      await pool.execute(
+        `UPDATE skill_builders_event_session_providers
+         SET google_sync_status = 'FAILED', google_sync_error = ?, google_synced_at = NULL
+         WHERE id = ?`,
+        [msg, id]
+      );
+      return cancelResult;
+    }
+
+    await pool.execute(
+      `UPDATE skill_builders_event_session_providers
+       SET google_provider_event_id = NULL,
+           google_provider_calendar_id = NULL,
+           google_sync_status = 'SYNCED',
+           google_sync_error = NULL,
+           google_synced_at = NOW()
+       WHERE id = ?`,
+      [id]
+    );
+    return { ok: true };
   }
 
   static async cancelBookedOfficeEvent({ officeEventId }) {

@@ -14,6 +14,10 @@ import { parseJsonMaybe, makeGoogleCalendarUrl, computeNextOccurrence } from '..
 import { replaceSkillsGroupMeetings } from '../services/skillsGroupMeetingsWrite.service.js';
 import { materializeSkillBuildersEventSessions } from '../services/skillBuildersEventSessions.service.js';
 import {
+  resyncSkillBuildersSessionProvidersBestEffort,
+  cancelSkillBuildersSessionProvidersForSessionBestEffort
+} from '../services/providerAssignmentGoogleSync.service.js';
+import {
   materializeSessionsForEvent,
   listProgramSessionsForEvent
 } from '../services/companyEventSessionDates.service.js';
@@ -2275,6 +2279,7 @@ export const putSkillBuilderEventSessionProviders = async (req, res, next) => {
     }
 
     conn = await pool.getConnection();
+    await cancelSkillBuildersSessionProvidersForSessionBestEffort(sessionId);
     await conn.beginTransaction();
     await conn.execute(`DELETE FROM skill_builders_event_session_providers WHERE session_id = ?`, [sessionId]);
     for (const pid of normalized) {
@@ -2285,6 +2290,8 @@ export const putSkillBuilderEventSessionProviders = async (req, res, next) => {
       );
     }
     await conn.commit();
+
+    resyncSkillBuildersSessionProvidersBestEffort(sessionId).catch(() => {});
 
     const [outRows] = await pool.execute(
       `SELECT u.id AS user_id, u.first_name, u.last_name

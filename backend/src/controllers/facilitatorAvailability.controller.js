@@ -4,6 +4,14 @@ import { listAgencyIdsInTenantTree } from '../utils/meDashboardTenantScope.js';
 import config from '../config/config.js';
 import https from 'https';
 import { toDateOnlyString } from '../utils/mysqlDateTime.utils.js';
+import {
+  syncCompanySessionProviderBestEffort,
+  syncCompanySessionProviderBySlotBestEffort,
+  syncCompanySessionProvidersBestEffort,
+  cancelCompanySessionProviderBestEffort,
+  cancelCompanySessionProvidersBeforeDelete,
+  cancelCompanySessionProvidersForEventBestEffort
+} from '../services/providerAssignmentGoogleSync.service.js';
 
 /** One row per calendar date for admin display (availability is per-date, not per-location). */
 const AVAIL_RANK = { slot: 0, available: 0, waitlist: 1, oncall: 2, unavailable: 3 };
@@ -1037,7 +1045,7 @@ async function transitionAssignmentStatus(conn, {
     }
   }
 
-  return { updatedCount: (rows || []).length, notifiedCount: notifyUserIds.length };
+  return { updatedCount: (rows || []).length, notifiedCount: notifyUserIds.length, affectedAssignmentIds: (rows || []).map((r) => Number(r.id)) };
 }
 
 // ─── Admin: staffing workspace (main interface) ───────────────────────────────
@@ -1545,6 +1553,7 @@ export const assignFacilitator = async (req, res, next) => {
       });
 
       await conn.commit();
+      syncCompanySessionProviderBySlotBestEffort({ sessionDateId: sdId, providerUserId }).catch(() => {});
       res.json({ ok: true, overCapacity });
     } catch (e) {
       await conn.rollback();
@@ -1583,6 +1592,13 @@ export const unassignFacilitator = async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
+
+      await cancelCompanySessionProvidersBeforeDelete({
+        companyEventId: eventId,
+        agencyId,
+        sessionDateId: sdId,
+        providerUserId
+      });
 
       await conn.execute(
         `DELETE FROM company_event_session_providers
@@ -1698,6 +1714,12 @@ export const assignFacilitatorToEvent = async (req, res, next) => {
         assignedDates += 1;
       }
       await conn.commit();
+      for (const sd of dateInfo.assignable) {
+        syncCompanySessionProviderBySlotBestEffort({
+          sessionDateId: sd.sessionDateId,
+          providerUserId
+        }).catch(() => {});
+      }
       res.json({
         ok: true,
         assignedDates,
@@ -1736,6 +1758,11 @@ export const unassignFacilitatorFromEvent = async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
+      await cancelCompanySessionProvidersForEventBestEffort({
+        companyEventId: eventId,
+        agencyId,
+        providerUserId
+      });
       const [result] = await conn.execute(
         `DELETE FROM company_event_session_providers
          WHERE company_event_id = ? AND agency_id = ? AND provider_user_id = ?`,
@@ -1806,13 +1833,22 @@ export const updateAssignment = async (req, res, next) => {
 
       const reassignUserId = parseId(req.body?.reassignUserId);
       if (reassignUserId && reassignUserId !== Number(row.provider_user_id)) {
+        await cancelCompanySessionProviderBestEffort(sessionProviderId);
         await conn.execute(
-          `UPDATE company_event_session_providers SET provider_user_id = ? WHERE id = ?`,
+          `UPDATE company_event_session_providers
+           SET provider_user_id = ?,
+               google_provider_event_id = NULL,
+               google_provider_calendar_id = NULL,
+               google_sync_status = NULL,
+               google_sync_error = NULL,
+               google_synced_at = NULL
+           WHERE id = ?`,
           [reassignUserId, sessionProviderId]
         );
       }
 
       await conn.commit();
+      syncCompanySessionProviderBestEffort(sessionProviderId).catch(() => {});
       res.json({ ok: true });
     } catch (e) {
       await conn.rollback();
@@ -1855,6 +1891,7 @@ export const publishSchedule = async (req, res, next) => {
         publisherUserId: req.user.id
       });
       await conn.commit();
+      syncCompanySessionProvidersBestEffort(result.affectedAssignmentIds).catch(() => {});
       res.json({ ok: true, ...result });
     } catch (e) {
       await conn.rollback();

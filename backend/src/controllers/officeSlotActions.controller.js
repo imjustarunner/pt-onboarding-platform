@@ -11,6 +11,7 @@ import ProviderInPersonSlotAvailability from '../models/ProviderInPersonSlotAvai
 import User from '../models/User.model.js';
 import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
+import { syncOfficeEventsToGoogleBestEffort } from '../services/providerAssignmentGoogleSync.service.js';
 import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.service.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 import { validateSchedulingSelection } from '../services/schedulingTaxonomy.service.js';
@@ -2886,6 +2887,9 @@ export const staffAssignOpenSlot = async (req, res, next) => {
         weeks: 4
       });
 
+      const createdEventIds = createdEvents.map((e) => Number(e?.id || 0)).filter((n) => n > 0);
+      syncOfficeEventsToGoogleBestEffort(createdEventIds).catch(() => {});
+
       return res.json({
         ok: true,
         lifecycle: 'canonical_open_slots_assign',
@@ -2953,6 +2957,9 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       createdByUserId: req.user.id,
       weeks: 1
     });
+
+    const createdEventIds = createdEvents.map((e) => Number(e?.id || 0)).filter((n) => n > 0);
+    syncOfficeEventsToGoogleBestEffort(createdEventIds).catch(() => {});
 
     res.json({
       ok: true,
