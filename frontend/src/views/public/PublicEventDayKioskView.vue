@@ -1004,10 +1004,6 @@ async function confirmCheckin() {
   }
 }
 
-async function checkinClient(client) {
-  await openCheckin(client);
-}
-
 async function checkoutClient(client) {
   if (checkingOutClientId.value) return;
   checkingOutClientId.value = client.id;

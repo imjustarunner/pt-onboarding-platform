@@ -1208,10 +1208,6 @@ async function confirmCheckin() {
   }
 }
 
-async function checkinClient(c) {
-  await openCheckin(c);
-}
-
 async function checkinEmployee(s) {
   if (!kioskActive.value) return;
   checkingInUserId.value = s.id;
