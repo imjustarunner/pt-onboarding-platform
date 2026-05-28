@@ -27,12 +27,23 @@ import {
   assertKioskTokenMatchesSlugAndEvent
 } from './skillBuildersEventKioskPublic.controller.js';
 import {
+  ageFromDateOfBirth,
+  clientCheckoutBlocked,
+  clientHasWalkHomeAuthorization,
   emptyKioskClientWaiverFields,
+  finalizeKioskClientWaiverEntry,
+  formatKioskClientDisplayName,
   mergeWaiverSectionsIntoKioskClient,
-  parseWaiverSectionsJson,
-  stripKioskClientDedupeKeys
+  parseWaiverSectionsJson
 } from '../utils/kioskWaiverDisplay.util.js';
-import { loadIntakeWaiverSectionsFallbackForClientIds } from '../services/guardianWaivers.service.js';
+import {
+  loadIntakeWaiverSectionsFallbackForClientIds,
+  loadWaiverHistorySectionsFallbackForClientIds
+} from '../services/guardianWaivers.service.js';
+import {
+  recordEventEmployeeClockIn,
+  recordEventEmployeeClockOut
+} from '../services/skillBuildersEventKioskPunch.service.js';
 
 const parsePositiveInt = (raw) => {
   const n = Number.parseInt(String(raw || ''), 10);
@@ -72,31 +83,46 @@ function isUnknownWorkflowColumnError(err) {
 }
 
 async function loadKioskParticipantEnrollmentRows(eventId) {
+  const baseSelectWithDob = `
+    SELECT cec.client_id, c.full_name, c.initials, c.identifier_code, c.date_of_birth
+    FROM company_event_clients cec
+    INNER JOIN clients c ON c.id = cec.client_id`;
   const baseSelect = `
     SELECT cec.client_id, c.full_name, c.initials, c.identifier_code
     FROM company_event_clients cec
     INNER JOIN clients c ON c.id = cec.client_id`;
 
+  const runQuery = async (selectSql) => {
+    try {
+      const [rows] = await pool.execute(
+        `${selectSql}
+         WHERE cec.company_event_id = ?
+           AND (cec.is_active = TRUE OR cec.is_active IS NULL)
+           AND ${KIOSK_PARTICIPANT_GRADUATED_PREDICATE}
+         ORDER BY c.full_name ASC, c.id ASC`,
+        [eventId]
+      );
+      return rows || [];
+    } catch (err) {
+      if (!isUnknownWorkflowColumnError(err)) throw err;
+      const [rows] = await pool.execute(
+        `${selectSql}
+         WHERE cec.company_event_id = ?
+           AND (cec.is_active = TRUE OR cec.is_active IS NULL)
+         ORDER BY c.full_name ASC, c.id ASC`,
+        [eventId]
+      );
+      return rows || [];
+    }
+  };
+
   try {
-    const [rows] = await pool.execute(
-      `${baseSelect}
-       WHERE cec.company_event_id = ?
-         AND (cec.is_active = TRUE OR cec.is_active IS NULL)
-         AND ${KIOSK_PARTICIPANT_GRADUATED_PREDICATE}
-       ORDER BY c.full_name ASC, c.id ASC`,
-      [eventId]
-    );
-    return rows || [];
+    return await runQuery(baseSelectWithDob);
   } catch (err) {
-    if (!isUnknownWorkflowColumnError(err)) throw err;
-    const [rows] = await pool.execute(
-      `${baseSelect}
-       WHERE cec.company_event_id = ?
-         AND (cec.is_active = TRUE OR cec.is_active IS NULL)
-       ORDER BY c.full_name ASC, c.id ASC`,
-      [eventId]
-    );
-    return rows || [];
+    if (err?.code !== 'ER_BAD_FIELD_ERROR' && !String(err?.message || '').includes('date_of_birth')) {
+      throw err;
+    }
+    return runQuery(baseSelect);
   }
 }
 
@@ -141,6 +167,81 @@ async function loadWaiverProfilesForClientIds(clientIds) {
     if (err?.code === 'ER_NO_SUCH_TABLE') return [];
     throw err;
   }
+}
+
+async function buildKioskClientReleaseEntry(clientId) {
+  const cid = Number(clientId);
+  if (!cid) return null;
+
+  let dateOfBirth = null;
+  try {
+    const [rows] = await pool.execute(
+      'SELECT full_name, date_of_birth FROM clients WHERE id = ? LIMIT 1',
+      [cid]
+    );
+    dateOfBirth = rows?.[0]?.date_of_birth ? String(rows[0].date_of_birth).slice(0, 10) : null;
+  } catch (err) {
+    if (err?.code !== 'ER_BAD_FIELD_ERROR' && !String(err?.message || '').includes('date_of_birth')) {
+      throw err;
+    }
+    await pool.execute('SELECT full_name FROM clients WHERE id = ? LIMIT 1', [cid]).catch(() => [[]]);
+  }
+
+  const entry = {
+    id: cid,
+    dateOfBirth,
+    ageYears: ageFromDateOfBirth(dateOfBirth),
+    guardians: [],
+    ...emptyKioskClientWaiverFields()
+  };
+
+  const [guardianRows, waiverRows, intakeFallback, historyFallback] = await Promise.all([
+    loadGuardiansForClientIds([cid]),
+    loadWaiverProfilesForClientIds([cid]),
+    loadIntakeWaiverSectionsFallbackForClientIds([cid]),
+    loadWaiverHistorySectionsFallbackForClientIds([cid])
+  ]);
+
+  for (const g of guardianRows) {
+    if (Number(g.client_id) !== cid || !g.guardian_user_id) continue;
+    entry.guardians.push({
+      userId: Number(g.guardian_user_id),
+      name: g.guardian_name ? String(g.guardian_name).trim() : null,
+      email: g.guardian_email || null,
+      phone: g.guardian_phone || null
+    });
+  }
+
+  for (const w of waiverRows) {
+    if (Number(w.client_id) !== cid) continue;
+    mergeWaiverSectionsIntoKioskClient(entry, parseWaiverSectionsJson(w.sections_json), w.updated_at);
+  }
+
+  const intakeRow = intakeFallback.get(cid);
+  if (intakeRow) {
+    mergeWaiverSectionsIntoKioskClient(entry, intakeRow.sections, intakeRow.updatedAt, { fillMissingOnly: true });
+  }
+
+  const historyRow = historyFallback.get(cid);
+  if (historyRow) {
+    mergeWaiverSectionsIntoKioskClient(entry, historyRow.sections, historyRow.updatedAt, { fillMissingOnly: true });
+  }
+
+  finalizeKioskClientWaiverEntry(entry, entry.guardians);
+  return entry;
+}
+
+function pickupMatchesReleaseOption(entry, { releasedToName, releasedToPhone }) {
+  const name = String(releasedToName || '').trim().toLowerCase();
+  const phone = String(releasedToPhone || '').replace(/\D/g, '');
+  if (!name) return false;
+  return (entry.authorizedPickups || []).some((p) => {
+    const pName = String(p?.name || '').trim().toLowerCase();
+    const pPhone = String(p?.phone || '').replace(/\D/g, '');
+    if (pName !== name) return false;
+    if (phone && pPhone && phone !== pPhone) return false;
+    return true;
+  });
 }
 
 async function assertClientIsKioskParticipant(eventId, clientId) {
@@ -225,6 +326,62 @@ async function loadProgramEventStaff(eventId, agencyId) {
 async function assertProgramEventStaff(eventId, agencyId, userId) {
   const staff = await loadProgramEventStaff(eventId, agencyId);
   return staff.some((s) => Number(s.id) === Number(userId));
+}
+
+async function insertEmployeeEventDayCheckin({ eventId, agencyId, userId, kioskDate, ip }) {
+  await pool.execute(
+    `INSERT INTO event_day_kiosk_checkins
+       (company_event_id, agency_id, user_id, person_type, action, checked_in_at, kiosk_date, ip_address)
+     VALUES (?, ?, ?, 'employee', 'check_in', NOW(), ?, ?)`,
+    [eventId, agencyId, userId, kioskDate, ip]
+  );
+}
+
+async function syncEmployeeStationCheckin({ agencyId, eventId, userId, kioskDate, ip }) {
+  try {
+    await insertEmployeeEventDayCheckin({ eventId, agencyId, userId, kioskDate, ip });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') {
+      return { ok: false, tableMissing: true };
+    }
+    throw err;
+  }
+
+  const punch = await recordEventEmployeeClockIn(pool, {
+    agencyId,
+    eventId,
+    userId,
+    kioskDateYmd: kioskDate,
+    source: 'event_station'
+  });
+  if (punch.error && punch.error.status !== 409) {
+    return { ok: false, error: punch.error };
+  }
+  return {
+    ok: true,
+    punchId: punch.punchId || null,
+    alreadyClockedIn: punch.error?.status === 409
+  };
+}
+
+async function syncEmployeeStationCheckout({ agencyId, eventId, userId, kioskDate }) {
+  await pool.execute(
+    `UPDATE event_day_kiosk_checkins
+     SET action = 'check_out', checked_out_at = NOW(), updated_at = NOW()
+     WHERE company_event_id = ? AND user_id = ? AND kiosk_date = ? AND person_type = 'employee'`,
+    [eventId, userId, kioskDate]
+  ).catch(() => null);
+
+  const punch = await recordEventEmployeeClockOut(pool, {
+    agencyId,
+    eventId,
+    userId,
+    source: 'event_station'
+  });
+  if (punch.error) {
+    return { ok: false, error: punch.error };
+  }
+  return { ok: true, ...punch };
 }
 
 async function loadEventDayCheckins(eventId, today) {
@@ -404,8 +561,11 @@ export const getProgramEventKioskContext = async (req, res, next) => {
         clientMap.set(cid, {
           id: cid,
           fullName: r.full_name || r.initials || `Client ${cid}`,
+          kioskDisplayName: formatKioskClientDisplayName(r.full_name || r.initials || `Client ${cid}`),
           initials: r.initials || '',
           identifierCode: r.identifier_code || '',
+          dateOfBirth: r.date_of_birth ? String(r.date_of_birth).slice(0, 10) : null,
+          ageYears: ageFromDateOfBirth(r.date_of_birth),
           guardians: [],
           ...emptyKioskClientWaiverFields()
         });
@@ -413,9 +573,11 @@ export const getProgramEventKioskContext = async (req, res, next) => {
     }
 
     const clientIds = [...clientMap.keys()];
-    const [guardianRows, waiverRows] = await Promise.all([
+    const [guardianRows, waiverRows, intakeWaiverFallback, historyWaiverFallback] = await Promise.all([
       loadGuardiansForClientIds(clientIds),
-      loadWaiverProfilesForClientIds(clientIds)
+      loadWaiverProfilesForClientIds(clientIds),
+      loadIntakeWaiverSectionsFallbackForClientIds(clientIds),
+      loadWaiverHistorySectionsFallbackForClientIds(clientIds)
     ]);
 
     for (const g of guardianRows) {
@@ -441,15 +603,22 @@ export const getProgramEventKioskContext = async (req, res, next) => {
       );
     }
 
-    const intakeWaiverFallback = await loadIntakeWaiverSectionsFallbackForClientIds(clientIds);
     for (const [clientId, { sections, updatedAt }] of intakeWaiverFallback) {
       const entry = clientMap.get(Number(clientId));
       if (!entry) continue;
       mergeWaiverSectionsIntoKioskClient(entry, sections, updatedAt, { fillMissingOnly: true });
     }
 
+    for (const [clientId, { sections, updatedAt }] of historyWaiverFallback) {
+      const entry = clientMap.get(Number(clientId));
+      if (!entry) continue;
+      mergeWaiverSectionsIntoKioskClient(entry, sections, updatedAt, { fillMissingOnly: true });
+    }
+
     for (const c of clientMap.values()) {
-      stripKioskClientDedupeKeys(c);
+      finalizeKioskClientWaiverEntry(c, c.guardians);
+      c.checkoutBlocked = clientCheckoutBlocked(c);
+      c.canSelfWalkHome = clientHasWalkHomeAuthorization(c) && Number(c.ageYears) >= 12;
     }
 
     const today = kioskDay.todayYmd;
@@ -536,14 +705,15 @@ export const getProgramEventKioskContext = async (req, res, next) => {
  *   - releasedToRelationship: optional
  *   - releasedToPhone: optional
  *   - walkHomeAlone: boolean
+ *   - walkHomeSelfRelease: boolean (client age 12+ signs for walk-home)
  *   - signerSignatureData: required data URL (real e-signature)
- *   - signerSourceMethod: 'fresh_kiosk_signature' | 'reused_pickup_signature'
- *   - photoBase64: optional release photo (data URL or base64-only)
+ *   - signerSourceMethod: 'fresh_kiosk_signature' | 'walk_home_self' | 'reused_pickup_signature'
+ *   - photoBase64: required release photo (data URL or base64-only)
  *   - photoContentType: e.g. 'image/jpeg'
  *   - notes: optional
  *
  * Signature audit fields (signed_at server-stamped, signed_ip, signed_user_agent)
- * are recorded automatically. The optional photo is encrypted at rest in
+ * are recorded automatically. The release photo is encrypted at rest in
  * GCS using the same KMS-wrapped AES-256-GCM scheme as insurance card
  * images, so only the storage key + wrapping metadata land in MySQL.
  */
@@ -561,33 +731,61 @@ export const submitProgramEventCheckout = async (req, res, next) => {
     const clientId = parsePositiveInt(req.body?.clientId);
     if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
 
-    // Require an actual signature artifact. We keep this strict so a
-    // glitchy kiosk app can't accidentally submit blank releases.
     const signature = String(req.body?.signerSignatureData || '').trim();
     if (signature.length < 50) {
       return res.status(400).json({ error: { message: 'Signature is required to record this release' } });
     }
 
+    const photoRaw = String(req.body?.photoBase64 || '').trim();
+    if (!photoRaw) {
+      return res.status(400).json({ error: { message: 'Release photo is required.' } });
+    }
+
     const walkHomeAlone = req.body?.walkHomeAlone === true;
+    const walkHomeSelfRelease = req.body?.walkHomeSelfRelease === true;
     const releasedToName = walkHomeAlone
-      ? 'Walk home alone'
+      ? (walkHomeSelfRelease ? 'Walk home alone (client self-release)' : 'Walk home alone')
       : String(req.body?.releasedToName || '').trim();
     if (!releasedToName) {
-      return res.status(400).json({ error: { message: 'Tap the row of the person picking up, or confirm walk-home authorization.' } });
+      return res.status(400).json({ error: { message: 'Select who is picking up, or confirm walk-home authorization.' } });
     }
     const releasedToRelationship = String(req.body?.releasedToRelationship || '').trim() || null;
     const releasedToPhone = String(req.body?.releasedToPhone || '').trim() || null;
-    const sourceMethod = String(req.body?.signerSourceMethod || 'fresh_kiosk_signature');
+    const sourceMethod = walkHomeSelfRelease
+      ? 'walk_home_self'
+      : String(req.body?.signerSourceMethod || 'fresh_kiosk_signature');
     const notes = String(req.body?.notes || '').trim().slice(0, 500) || null;
 
-    // Confirm the client is a confirmed participant before logging a release.
     const isParticipant = await assertClientIsKioskParticipant(eventId, clientId);
     if (!isParticipant) {
       return res.status(403).json({ error: { message: 'Client is not a confirmed participant for this event' } });
     }
 
-    // Optional release photo: encrypt, upload to GCS, stash wrapping
-    // metadata so we can decrypt later from the admin client profile.
+    const releaseEntry = await buildKioskClientReleaseEntry(clientId);
+    if (!releaseEntry) {
+      return res.status(404).json({ error: { message: 'Client not found' } });
+    }
+
+    if (clientCheckoutBlocked(releaseEntry)) {
+      return res.status(409).json({
+        error: {
+          message: 'No authorized pickups or walk-home authorization on file. Update the guardian waiver before releasing this client.',
+          code: 'RELEASE_NOT_AUTHORIZED'
+        }
+      });
+    }
+
+    if (walkHomeAlone) {
+      if (!clientHasWalkHomeAuthorization(releaseEntry)) {
+        return res.status(400).json({ error: { message: 'Walk-home authorization is not on file for this client.' } });
+      }
+      if (walkHomeSelfRelease && Number(releaseEntry.ageYears) < 12) {
+        return res.status(400).json({ error: { message: 'Client self-release for walk-home requires age 12 or older.' } });
+      }
+    } else if (!pickupMatchesReleaseOption(releaseEntry, { releasedToName, releasedToPhone })) {
+      return res.status(400).json({ error: { message: 'Selected pickup person is not on the approved list for this client.' } });
+    }
+
     let photoFields = {
       photo_storage_key: null,
       photo_content_type: null,
@@ -597,64 +795,59 @@ export const submitProgramEventCheckout = async (req, res, next) => {
       photo_encryption_auth_tag_b64: null,
       photo_encryption_aad: null
     };
-    const photoRaw = String(req.body?.photoBase64 || '').trim();
-    if (photoRaw) {
-      try {
-        // Accept either a data URL or raw base64.
-        const dataUrlMatch = photoRaw.match(/^data:([^;]+);base64,(.+)$/);
-        const contentType = dataUrlMatch?.[1] || String(req.body?.photoContentType || 'image/jpeg');
-        const base64 = dataUrlMatch?.[2] || photoRaw;
-        const photoBuffer = Buffer.from(base64, 'base64');
-        if (photoBuffer.length > 5 * 1024 * 1024) {
-          return res.status(413).json({ error: { message: 'Release photo is too large (max 5 MB).' } });
-        }
-        const aad = `program-event-release/${agencyId}/${eventId}/${clientId}`;
-        let enc;
-        try {
-          enc = await DocumentEncryptionService.encryptBuffer(photoBuffer, { aad });
-        } catch (encErr) {
-          // KMS not configured? Skip the photo gracefully so the release
-          // still records — the signature alone is the legal artifact.
-          console.warn('[program-event-kiosk] release photo encryption failed; skipping photo', encErr?.message);
-          enc = null;
-        }
-        if (enc) {
-          const ext = contentType === 'image/png' ? 'png'
-            : contentType === 'image/webp' ? 'webp'
-            : 'jpg';
-          const key = `program-event-releases/${agencyId}/${eventId}/${clientId}/${Date.now()}.${ext}`;
-          const bucket = await StorageService.getGCSBucket();
-          await bucket.file(key).save(enc.encryptedBuffer, {
-            contentType,
-            metadata: {
-              metadata: {
-                isEncrypted: '1',
-                encryptionKeyId: enc.encryptionKeyId,
-                encryptionWrappedKey: enc.encryptionWrappedKeyB64,
-                encryptionIv: enc.encryptionIvB64,
-                encryptionAuthTag: enc.encryptionAuthTagB64,
-                encryptionAad: aad,
-                agencyId: String(agencyId),
-                eventId: String(eventId),
-                clientId: String(clientId)
-              }
-            }
-          });
-          photoFields = {
-            photo_storage_key: key,
-            photo_content_type: contentType,
-            photo_encryption_key_id: enc.encryptionKeyId,
-            photo_encryption_wrapped_key_b64: enc.encryptionWrappedKeyB64,
-            photo_encryption_iv_b64: enc.encryptionIvB64,
-            photo_encryption_auth_tag_b64: enc.encryptionAuthTagB64,
-            photo_encryption_aad: aad
-          };
-        }
-      } catch (photoErr) {
-        // Photo upload is optional — log and continue rather than block
-        // the release record itself.
-        console.warn('[program-event-kiosk] release photo upload failed; recording release without photo', photoErr?.message);
+    try {
+      const dataUrlMatch = photoRaw.match(/^data:([^;]+);base64,(.+)$/);
+      const contentType = dataUrlMatch?.[1] || String(req.body?.photoContentType || 'image/jpeg');
+      const base64 = dataUrlMatch?.[2] || photoRaw;
+      const photoBuffer = Buffer.from(base64, 'base64');
+      if (photoBuffer.length > 5 * 1024 * 1024) {
+        return res.status(413).json({ error: { message: 'Release photo is too large (max 5 MB).' } });
       }
+      const aad = `program-event-release/${agencyId}/${eventId}/${clientId}`;
+      let enc;
+      try {
+        enc = await DocumentEncryptionService.encryptBuffer(photoBuffer, { aad });
+      } catch (encErr) {
+        console.warn('[program-event-kiosk] release photo encryption failed', encErr?.message);
+        return res.status(503).json({ error: { message: 'Could not secure the release photo. Try again or contact support.' } });
+      }
+      const ext = contentType === 'image/png' ? 'png'
+        : contentType === 'image/webp' ? 'webp'
+        : 'jpg';
+      const key = `program-event-releases/${agencyId}/${eventId}/${clientId}/${Date.now()}.${ext}`;
+      const bucket = await StorageService.getGCSBucket();
+      await bucket.file(key).save(enc.encryptedBuffer, {
+        contentType,
+        metadata: {
+          metadata: {
+            isEncrypted: '1',
+            encryptionKeyId: enc.encryptionKeyId,
+            encryptionWrappedKey: enc.encryptionWrappedKeyB64,
+            encryptionIv: enc.encryptionIvB64,
+            encryptionAuthTag: enc.encryptionAuthTagB64,
+            encryptionAad: aad,
+            agencyId: String(agencyId),
+            eventId: String(eventId),
+            clientId: String(clientId)
+          }
+        }
+      });
+      photoFields = {
+        photo_storage_key: key,
+        photo_content_type: contentType,
+        photo_encryption_key_id: enc.encryptionKeyId,
+        photo_encryption_wrapped_key_b64: enc.encryptionWrappedKeyB64,
+        photo_encryption_iv_b64: enc.encryptionIvB64,
+        photo_encryption_auth_tag_b64: enc.encryptionAuthTagB64,
+        photo_encryption_aad: aad
+      };
+    } catch (photoErr) {
+      console.warn('[program-event-kiosk] release photo upload failed', photoErr?.message);
+      return res.status(503).json({ error: { message: 'Release photo upload failed. Please try again.' } });
+    }
+
+    if (!photoFields.photo_storage_key) {
+      return res.status(503).json({ error: { message: 'Release photo could not be saved.' } });
     }
 
     // Server-stamp the audit trio.
@@ -766,21 +959,27 @@ export const programEventEmployeeCheckin = async (req, res, next) => {
     }
 
     const today = kioskDay.todayYmd;
-    try {
-      await pool.execute(
-        `INSERT INTO event_day_kiosk_checkins
-           (company_event_id, agency_id, user_id, person_type, action, checked_in_at, kiosk_date, ip_address)
-         VALUES (?, ?, ?, 'employee', 'check_in', NOW(), ?, ?)`,
-        [m.eventId, m.agencyId, userId, today, kioskIp(req)]
-      );
-    } catch (err) {
-      if (err?.code === 'ER_NO_SUCH_TABLE') {
-        return res.status(503).json({ error: { message: 'Run migration 615 for event-day check-ins' } });
-      }
-      throw err;
+    const result = await syncEmployeeStationCheckin({
+      agencyId: m.agencyId,
+      eventId: m.eventId,
+      userId,
+      kioskDate: today,
+      ip: kioskIp(req)
+    });
+    if (result.tableMissing) {
+      return res.status(503).json({ error: { message: 'Run migration 615 for event-day check-ins' } });
+    }
+    if (!result.ok) {
+      return res.status(result.error.status).json({ error: { message: result.error.message } });
     }
 
-    res.status(201).json({ ok: true, userId, checkedInAt: new Date().toISOString() });
+    res.status(201).json({
+      ok: true,
+      userId,
+      checkedInAt: new Date().toISOString(),
+      punchId: result.punchId,
+      alreadyClockedIn: !!result.alreadyClockedIn
+    });
   } catch (e) {
     next(e);
   }
@@ -833,18 +1032,27 @@ export const programEventEmployeeCheckinByPin = async (req, res, next) => {
 
     const user = rows[0];
     const today = kioskDay.todayYmd;
-    await pool.execute(
-      `INSERT INTO event_day_kiosk_checkins
-         (company_event_id, agency_id, user_id, person_type, action, checked_in_at, kiosk_date, ip_address)
-       VALUES (?, ?, ?, 'employee', 'check_in', NOW(), ?, ?)`,
-      [m.eventId, m.agencyId, user.id, today, kioskIp(req)]
-    ).catch(() => null);
+    const result = await syncEmployeeStationCheckin({
+      agencyId: m.agencyId,
+      eventId: m.eventId,
+      userId: Number(user.id),
+      kioskDate: today,
+      ip: kioskIp(req)
+    });
+    if (result.tableMissing) {
+      return res.status(503).json({ error: { message: 'Run migration 615 for event-day check-ins' } });
+    }
+    if (!result.ok) {
+      return res.status(result.error.status).json({ error: { message: result.error.message } });
+    }
 
     res.status(201).json({
       ok: true,
       userId: Number(user.id),
       displayName: `${user.first_name || ''} ${user.last_name || ''}`.trim(),
-      checkedInAt: new Date().toISOString()
+      checkedInAt: new Date().toISOString(),
+      punchId: result.punchId,
+      alreadyClockedIn: !!result.alreadyClockedIn
     });
   } catch (e) {
     next(e);
@@ -866,14 +1074,26 @@ export const programEventEmployeeCheckout = async (req, res, next) => {
     if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
     const today = kioskDay.todayYmd;
 
-    await pool.execute(
-      `UPDATE event_day_kiosk_checkins
-       SET action = 'check_out', checked_out_at = NOW(), updated_at = NOW()
-       WHERE company_event_id = ? AND user_id = ? AND kiosk_date = ? AND person_type = 'employee'`,
-      [m.eventId, userId, today]
-    ).catch(() => null);
+    const result = await syncEmployeeStationCheckout({
+      agencyId: m.agencyId,
+      eventId: m.eventId,
+      userId,
+      kioskDate: today
+    });
+    if (!result.ok) {
+      return res.status(result.error.status).json({ error: { message: result.error.message } });
+    }
 
-    res.json({ ok: true, userId, checkedOutAt: new Date().toISOString() });
+    res.json({
+      ok: true,
+      userId,
+      checkedOutAt: new Date().toISOString(),
+      directHours: result.directHours,
+      indirectHours: result.indirectHours,
+      workedHours: result.workedHours,
+      directClaimId: result.directClaimId,
+      indirectClaimId: result.indirectClaimId
+    });
   } catch (e) {
     next(e);
   }

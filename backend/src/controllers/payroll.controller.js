@@ -18919,3 +18919,72 @@ export const syncMeetingAttendance = async (req, res, next) => {
     next(e);
   }
 };
+
+export const listEventTimeSubmissions = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    const status = req.query.status ? String(req.query.status) : 'submitted';
+    const suggestedPeriodId = req.query.suggestedPeriodId ? parseInt(req.query.suggestedPeriodId, 10) : null;
+    const companyEventId = req.query.companyEventId ? parseInt(req.query.companyEventId, 10) : null;
+
+    const { listEventTimeSubmissionsForAgency } = await import('../services/eventPayrollSubmissions.service.js');
+    const submissions = await listEventTimeSubmissionsForAgency({
+      agencyId,
+      status,
+      suggestedPeriodId,
+      companyEventId
+    });
+    res.json({ ok: true, submissions });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const patchEventTimeSubmission = async (req, res, next) => {
+  try {
+    const punchInId = parseInt(req.params.punchInId, 10);
+    const agencyId = req.body?.agencyId ? parseInt(req.body.agencyId, 10) : null;
+    if (!punchInId) return res.status(400).json({ error: { message: 'punchInId is required' } });
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    const { updateEventTimeSubmission } = await import('../services/eventPayrollSubmissions.service.js');
+    const result = await updateEventTimeSubmission({
+      agencyId,
+      punchInId,
+      clockInAt: req.body?.clockInAt || null,
+      clockOutAt: req.body?.clockOutAt || null,
+      directHoursCap: req.body?.directHoursCap
+    });
+    if (result.error) {
+      return res.status(result.error.status).json({ error: { message: result.error.message } });
+    }
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listMyEventTime = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    if (!isAdminRole(req.user.role)) {
+      const ok = await userHasAgencyAccess({ userId, agencyId });
+      if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const limit = req.query.limit ? parseInt(req.query.limit, 10) : 50;
+    const { listMyEventTimeSessions } = await import('../services/eventPayrollSubmissions.service.js');
+    const sessions = await listMyEventTimeSessions({ agencyId, userId, limit });
+    res.json({ ok: true, sessions });
+  } catch (e) {
+    next(e);
+  }
+};

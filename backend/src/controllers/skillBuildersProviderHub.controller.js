@@ -39,8 +39,10 @@ import {
 import { ProviderAvailabilityService } from '../services/providerAvailability.service.js';
 import {
   recordSkillBuilderEventClockIn,
-  recordSkillBuilderEventClockOut
+  recordSkillBuilderEventClockOut,
+  listPairedEventProviderAttendance
 } from '../services/skillBuildersEventKioskPunch.service.js';
+import { buildEventProviderAttendanceCsv } from '../services/eventPayrollSubmissions.service.js';
 import { fetchSkillBuildersGroupProvidersForPortal } from '../services/skillBuildersEventProviders.service.js';
 import multer from 'multer';
 import StorageService from '../services/storage.service.js';
@@ -2419,28 +2421,67 @@ export const listSkillBuilderEventProviderAttendance = async (req, res, next) =>
     if (!staffLike && !coord) {
       filterUserId = uid;
     }
-    const [rows] = await pool.execute(
-      `SELECT id, user_id, punch_type, punched_at, session_id, client_id, payroll_time_claim_id
-       FROM skill_builders_event_kiosk_punches
-       WHERE company_event_id = ?
-       ${filterUserId ? 'AND user_id = ?' : ''}
-       ORDER BY punched_at ASC, id ASC`,
-      filterUserId ? [eventId, filterUserId] : [eventId]
-    );
-    const punches = (rows || []).map((r) => ({
-      id: Number(r.id),
-      userId: Number(r.user_id),
-      punchType: r.punch_type,
-      punchedAt: r.punched_at,
-      sessionId: r.session_id != null ? Number(r.session_id) : null,
-      clientId: r.client_id != null ? Number(r.client_id) : null,
-      payrollTimeClaimId: r.payroll_time_claim_id != null ? Number(r.payroll_time_claim_id) : null
-    }));
-    res.json({ ok: true, punches });
+
+    const paired = await listPairedEventProviderAttendance(eventId, {
+      userId: filterUserId || null,
+      agencyId
+    });
+
+    const punches = [];
+    for (const row of paired) {
+      if (row.clockInAt) {
+        punches.push({
+          id: row.punchInId,
+          userId: row.userId,
+          punchType: 'clock_in',
+          punchedAt: row.clockInAt,
+          sessionId: row.sessionId,
+          payrollTimeClaimId: row.directClaimId
+        });
+      }
+      if (row.clockOutAt) {
+        punches.push({
+          id: row.punchOutId,
+          userId: row.userId,
+          punchType: 'clock_out',
+          punchedAt: row.clockOutAt,
+          sessionId: row.sessionId,
+          payrollTimeClaimId: row.directClaimId,
+          payrollIndirectClaimId: row.indirectClaimId
+        });
+      }
+    }
+
+    res.json({ ok: true, punches, paired, sessions: paired });
   } catch (e) {
     if (e?.code === 'ER_NO_SUCH_TABLE') {
-      return res.json({ ok: true, punches: [] });
+      return res.json({ ok: true, punches: [], paired: [], sessions: [] });
     }
+    next(e);
+  }
+};
+
+/** GET /api/skill-builders/events/:eventId/attendance/providers/export.csv?agencyId= */
+export const exportSkillBuilderEventProviderAttendanceCsv = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'agencyId and event id required' } });
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+
+    const uid = parsePositiveInt(req.user?.id);
+    const staffLike = await isAgencyStaffLikeForSkillBuilders(req, agencyId);
+    const coord = await getSkillBuilderCoordinatorAccess(uid);
+    const filterUserId = (!staffLike && !coord) ? uid : parsePositiveInt(req.query.userId);
+
+    const csv = await buildEventProviderAttendanceCsv(eventId, agencyId, {
+      userId: filterUserId || null
+    });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="event-${eventId}-provider-time.csv"`);
+    res.send(csv);
+  } catch (e) {
     next(e);
   }
 };

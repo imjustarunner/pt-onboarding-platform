@@ -36,6 +36,7 @@ import {
   generateVirtualRoomsForProgramSessions,
   runProgramSessionReminderCron,
   listSkillBuilderEventProviderAttendance,
+  exportSkillBuilderEventProviderAttendanceCsv,
   listSkillBuilderEventClientAttendance,
   putSkillBuilderClientSessionAttendance,
   postSkillBuilderSessionCurriculum,
@@ -210,6 +211,7 @@ router.patch('/events/:eventId/activity-options/:optionId', patchSkillBuilderAct
 router.delete('/events/:eventId/activity-options/:optionId', deleteSkillBuilderActivityOption);
 router.put('/events/:eventId/sessions/:sessionId/providers', putSkillBuilderEventSessionProviders);
 router.put('/events/:eventId/sessions/:sessionId/client-attendance', putSkillBuilderClientSessionAttendance);
+router.get('/events/:eventId/attendance/providers/export.csv', exportSkillBuilderEventProviderAttendanceCsv);
 router.get('/events/:eventId/attendance/providers', listSkillBuilderEventProviderAttendance);
 router.get('/events/:eventId/attendance/clients', listSkillBuilderEventClientAttendance);
 router.get('/events/:eventId/me/work-schedule', getMyEventPortalWorkSchedule);

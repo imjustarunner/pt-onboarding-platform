@@ -112,7 +112,129 @@ function intakeSectionHasPayload(key, payload) {
   if (payload.declineEmergencyContacts === true || payload.declinePickupAuthorization === true) {
     return false;
   }
+  if (key === 'walk_home_authorization' && payload.allowedToWalkHome === true) {
+    return true;
+  }
   return legacySectionHasPayload(payload, key);
+}
+
+/** Privacy-friendly roster label: first name + last initial (e.g. "Azula O."). */
+export function formatKioskClientDisplayName(fullName) {
+  const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'Client';
+  if (parts.length === 1) return parts[0];
+  const first = parts[0];
+  const lastInitial = parts[parts.length - 1][0]?.toUpperCase() || '';
+  return lastInitial ? `${first} ${lastInitial}.` : first;
+}
+
+/** Whole years from a date-of-birth string/date. */
+export function ageFromDateOfBirth(dob) {
+  if (!dob) return null;
+  const d = new Date(dob);
+  if (!Number.isFinite(d.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - d.getFullYear();
+  const monthDelta = today.getMonth() - d.getMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && today.getDate() < d.getDate())) age -= 1;
+  return age >= 0 ? age : null;
+}
+
+function mergeWalkHomePayload(entry, walkHomePayload, fillMissingOnly) {
+  if (!walkHomePayload) return;
+  const allowed = walkHomePayload.allowedToWalkHome === true;
+  const next = {
+    allowedToWalkHome: allowed,
+    allowedWindow: String(walkHomePayload.allowedWindow || '').trim() || null,
+    route: String(walkHomePayload.route || '').trim() || null,
+    conditions: String(walkHomePayload.conditions || '').trim() || null,
+    onFile: true
+  };
+  if (allowed) {
+    entry.walkHome = next;
+    return;
+  }
+  if (!entry.walkHome) {
+    entry.walkHome = next;
+    return;
+  }
+  if (!fillMissingOnly && !entry.walkHome.allowedToWalkHome) {
+    entry.walkHome = { ...entry.walkHome, onFile: true };
+  }
+}
+
+/** Include linked guardians and emergency contacts flagged for pickup. */
+export function mergeGuardiansIntoKioskPickups(entry, guardians = []) {
+  for (const g of guardians || []) {
+    const name = String(g?.name || '').trim();
+    if (!name) continue;
+    const dedupeKey = `guardian|${Number(g.userId) || name}|${String(g.phone || '').trim()}`.toLowerCase();
+    dedupeContact(entry.authorizedPickups, {
+      name,
+      relationship: String(g.relationship || '').trim() || 'Guardian',
+      phone: String(g.phone || '').trim() || null,
+      source: 'guardian',
+      userId: g.userId ? Number(g.userId) : null
+    }, dedupeKey);
+  }
+
+  for (const e of entry.emergencyContacts || []) {
+    if (!e.canPickup) continue;
+    const name = String(e?.name || '').trim();
+    if (!name) continue;
+    const dedupeKey = `emergency|${name}|${String(e?.phone || '').trim()}`.toLowerCase();
+    dedupeContact(entry.authorizedPickups, {
+      name,
+      relationship: String(e.relationship || '').trim() || 'Emergency contact',
+      phone: String(e.phone || '').trim() || null,
+      source: 'emergency_contact'
+    }, dedupeKey);
+  }
+}
+
+/**
+ * Build profile-shaped sections from waiver history rows (latest create/update per key).
+ * @param {Array<{ section_key: string, payload_json: unknown, created_at?: string }>} rows
+ */
+export function buildSectionsFromWaiverHistoryRows(rows) {
+  const latestByKey = new Map();
+  for (const row of rows || []) {
+    const key = String(row?.section_key || '').trim();
+    if (!key || latestByKey.has(key)) continue;
+    let payload = row.payload_json;
+    if (typeof payload === 'string') {
+      try {
+        payload = JSON.parse(payload);
+      } catch {
+        payload = null;
+      }
+    }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) continue;
+    latestByKey.set(key, {
+      status: 'active',
+      payload,
+      updated_at: row.created_at || null
+    });
+  }
+  return Object.fromEntries(latestByKey);
+}
+
+export function clientHasWalkHomeAuthorization(entry) {
+  return entry?.walkHome?.allowedToWalkHome === true;
+}
+
+export function clientHasReleasePickupOptions(entry) {
+  return Array.isArray(entry?.authorizedPickups) && entry.authorizedPickups.length > 0;
+}
+
+export function clientCheckoutBlocked(entry) {
+  return !clientHasReleasePickupOptions(entry) && !clientHasWalkHomeAuthorization(entry);
+}
+
+/** Guardians + waiver pickups + strip internal keys. */
+export function finalizeKioskClientWaiverEntry(entry, guardians = []) {
+  mergeGuardiansIntoKioskPickups(entry, guardians);
+  stripKioskClientDedupeKeys(entry);
 }
 
 /**
@@ -183,13 +305,8 @@ export function mergeWaiverSectionsIntoKioskClient(entry, sections, profileUpdat
   }
 
   const walkHomePayload = readActiveSectionPayload(sections, 'walk_home_authorization');
-  if (walkHomePayload && (!fillMissingOnly || !entry.walkHome)) {
-    entry.walkHome = {
-      allowedToWalkHome: walkHomePayload.allowedToWalkHome === true,
-      allowedWindow: String(walkHomePayload.allowedWindow || '').trim() || null,
-      route: String(walkHomePayload.route || '').trim() || null,
-      conditions: String(walkHomePayload.conditions || '').trim() || null
-    };
+  if (walkHomePayload && (!fillMissingOnly || !entry.walkHome || !entry.walkHome.allowedToWalkHome)) {
+    mergeWalkHomePayload(entry, walkHomePayload, fillMissingOnly);
   }
 
   const allergiesPayload = readActiveSectionPayload(sections, 'allergies_snacks');

@@ -119,6 +119,9 @@ import {
   ,deleteMyTimeClaim
   ,listTimeClaims
   ,patchTimeClaim
+  ,listEventTimeSubmissions
+  ,patchEventTimeSubmission
+  ,listMyEventTime
   ,listHolidayBonusClaims
   ,patchHolidayBonusClaim
   ,createOfficeLocationForPayroll
@@ -279,6 +282,7 @@ router.delete('/me/company-card-expenses/:id', deleteMyCompanyCardExpense);
 router.post('/me/time-claims', ...createMyTimeClaim);
 router.post('/users/:userId/time-claims', createUserTimeClaim);
 router.get('/me/time-claims', listMyTimeClaims);
+router.get('/me/event-time', listMyEventTime);
 router.delete('/me/time-claims/:id', deleteMyTimeClaim);
 router.get('/me/assigned-schools', listMyAssignedSchoolsForPayroll);
 router.get('/users/:userId/assigned-schools', listUserAssignedSchoolsForPayroll);
@@ -338,6 +342,8 @@ router.get('/expenses', listExpenses);
 router.get('/expenses/export.csv', downloadExpensesCsv);
 router.post('/expenses/:type/:id/drive', uploadExpenseReceiptToDrive);
 router.get('/time-claims', listTimeClaims);
+router.get('/event-time-submissions', listEventTimeSubmissions);
+router.patch('/event-time-submissions/:punchInId', patchEventTimeSubmission);
 router.patch('/time-claims/:id', patchTimeClaim);
 router.get('/holiday-bonus-claims', listHolidayBonusClaims);
 router.patch('/holiday-bonus-claims/:id', patchHolidayBonusClaim);

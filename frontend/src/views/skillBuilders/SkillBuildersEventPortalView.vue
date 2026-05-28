@@ -2109,15 +2109,44 @@
               title="Provider attendance"
               icon-url=""
             >
-              <p v-if="viewerCaps.isAssignedProvider" class="muted small sbep-card-lead">Your kiosk punches for this event.</p>
-              <p v-else class="muted small sbep-card-lead">Provider punches recorded for this event.</p>
-              <ul v-if="providerAttendance.length" class="sbep-att-list">
-                <li v-for="(p, idx) in providerAttendance" :key="`pa-${idx}`">
-                  {{ p.punchType }} · {{ formatPostTime(p.punchedAt) }}
-                  <span v-if="p.sessionId" class="muted"> · session #{{ p.sessionId }}</span>
-                </li>
-              </ul>
-              <p v-else class="muted">No punches recorded yet.</p>
+              <p v-if="viewerCaps.isAssignedProvider" class="muted small sbep-card-lead">Your event kiosk clock in/out and payroll hour split.</p>
+              <p v-else class="muted small sbep-card-lead">Provider event time recorded from the event station kiosk.</p>
+              <div class="actions" style="margin-bottom: 10px;">
+                <button class="btn btn-secondary btn-sm" type="button" @click="exportEventClockCsv">
+                  Download CSV
+                </button>
+              </div>
+              <div v-if="providerAttendancePaired.length" class="table-wrap">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Provider</th>
+                      <th>Clock in</th>
+                      <th>Clock out</th>
+                      <th class="right">Worked</th>
+                      <th class="right">Direct</th>
+                      <th class="right">Indirect</th>
+                      <th>Payroll status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(row, idx) in providerAttendancePaired" :key="`pa-${idx}`">
+                      <td>{{ row.providerName || providerNameById(row.userId) }}</td>
+                      <td>{{ formatPostTime(row.clockInAt) }}</td>
+                      <td>{{ row.clockOutAt ? formatPostTime(row.clockOutAt) : '—' }}</td>
+                      <td class="right">{{ row.workedHours ?? '—' }}</td>
+                      <td class="right">{{ row.directHours ?? '—' }}</td>
+                      <td class="right">{{ row.indirectHours ?? '—' }}</td>
+                      <td>
+                        <span v-if="row.directClaimStatus">D: {{ row.directClaimStatus }}</span>
+                        <span v-if="row.indirectClaimStatus"> · I: {{ row.indirectClaimStatus }}</span>
+                        <span v-if="!row.directClaimStatus && !row.indirectClaimStatus" class="muted">Open</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p v-else class="muted">No event time recorded yet.</p>
             </SkillBuildersEventDashboardSection>
 
             <SkillBuildersEventDashboardSection
@@ -4373,6 +4402,7 @@ const chatDraft = ref('');
 const chatSending = ref(false);
 
 const providerAttendance = ref([]);
+const providerAttendancePaired = ref([]);
 const clientAttendance = ref([]);
 const clientAttSessionId = ref(0);
 /** Selected roster client ids for manual attendance (checkbox group) */
@@ -4563,30 +4593,20 @@ function sessionDateLabelForPunch(sessionId) {
 }
 
 function exportEventClockCsv() {
-  const title = detail.value?.event?.title || eventNounFallback.value;
-  const rows = [
-    ['Event', 'UserId', 'Provider', 'PunchType', 'PunchedAt', 'SessionId', 'SessionDate', 'PayrollClaimId']
-  ];
-  for (const p of providerAttendance.value || []) {
-    rows.push([
-      title,
-      p.userId,
-      providerNameById(p.userId),
-      p.punchType,
-      p.punchedAt ? new Date(p.punchedAt).toISOString() : '',
-      p.sessionId ?? '',
-      sessionDateLabelForPunch(p.sessionId),
-      p.payrollTimeClaimId ?? ''
-    ]);
-  }
-  const csv = rows.map((r) => r.map(csvEscape).join(',')).join('\n');
-  const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `skill-builders-event-${eventId.value}-clock-punches.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  if (!eventBillingAgencyId.value || !eventId.value) return;
+  api.get(`/skill-builders/events/${eventId.value}/attendance/providers/export.csv`, {
+    params: { agencyId: eventBillingAgencyId.value },
+    responseType: 'blob',
+    skipGlobalLoading: true
+  }).then((resp) => {
+    const blob = new Blob([resp.data], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `skill-builders-event-${eventId.value}-provider-time.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }).catch(() => {});
 }
 
 function absoluteUrl(path) {
@@ -4700,9 +4720,13 @@ async function loadAttendance() {
       })
     ]);
     providerAttendance.value = Array.isArray(pr.data?.punches) ? pr.data.punches : [];
+    providerAttendancePaired.value = Array.isArray(pr.data?.paired)
+      ? pr.data.paired
+      : (Array.isArray(pr.data?.sessions) ? pr.data.sessions : []);
     clientAttendance.value = Array.isArray(cr.data?.attendance) ? cr.data.attendance : [];
   } catch {
     providerAttendance.value = [];
+    providerAttendancePaired.value = [];
     clientAttendance.value = [];
   }
 }

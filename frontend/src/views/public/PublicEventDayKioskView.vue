@@ -73,7 +73,7 @@
             <div v-if="!pendingClients.length" class="edk-empty">All clients checked in!</div>
             <ul v-else class="edk-person-list">
               <li v-for="c in pendingClients" :key="c.id" class="edk-person-row">
-                <span class="edk-person-name">{{ c.fullName }}</span>
+                <span class="edk-person-name">{{ clientDisplayName(c) }}</span>
                 <button
                   class="btn btn-primary edk-check-btn"
                   :disabled="checkingInClientId === c.id"
@@ -145,7 +145,7 @@
             @click="viewClientWaiver(c)"
           >
             <div class="edk-client-initials">{{ initials(c.fullName) }}</div>
-            <div class="edk-client-name">{{ c.fullName }}</div>
+            <div class="edk-client-name">{{ clientDisplayName(c) }}</div>
             <div v-if="c.waiver?.emergencyContacts?.length" class="edk-client-badge">
               {{ c.waiver.emergencyContacts.length }} emergency contact{{ c.waiver.emergencyContacts.length !== 1 ? 's' : '' }}
             </div>
@@ -170,7 +170,7 @@
             <div v-if="!checkedInClients.length" class="edk-empty">All clients checked out!</div>
             <ul v-else class="edk-person-list">
               <li v-for="c in checkedInClients" :key="c.id" class="edk-person-row">
-                <span class="edk-person-name">{{ c.fullName }}</span>
+                <span class="edk-person-name">{{ clientDisplayName(c) }}</span>
                 <button
                   class="btn btn-primary edk-check-btn"
                   :disabled="checkingOutClientId === c.id"
@@ -254,7 +254,7 @@
         <div class="edk-waiver-header">
           <div class="edk-waiver-initials">{{ initials(selectedClient?.fullName) }}</div>
           <div>
-            <h3 class="edk-modal-title">{{ selectedClient?.fullName }}</h3>
+            <h3 class="edk-modal-title">{{ clientDisplayName(selectedClient) }}</h3>
             <p class="muted small" v-if="selectedClient?.guardianName">Guardian: {{ selectedClient.guardianName }}{{ selectedClient.guardianEmail ? ` · ${selectedClient.guardianEmail}` : '' }}</p>
             <p class="muted small" v-if="selectedClient?.waiverUpdatedAt">Waiver updated: {{ fmtDate(selectedClient.waiverUpdatedAt) }}</p>
           </div>
@@ -285,6 +285,16 @@
               <span v-if="p.phone" class="edk-phone"> {{ p.phone }}</span>
             </li>
           </ul>
+        </section>
+
+        <!-- Walk-home -->
+        <section class="edk-waiver-section">
+          <h4 class="edk-waiver-section-title">Walk-home authorization</h4>
+          <div v-if="selectedClient?.waiver?.walkHome?.allowedToWalkHome" class="edk-waiver-ok">
+            Authorized to walk home alone.
+            <span v-if="selectedClient.waiver.walkHome.allowedWindow"> Window: {{ selectedClient.waiver.walkHome.allowedWindow }}.</span>
+          </div>
+          <div v-else class="edk-waiver-none">Not authorized</div>
         </section>
 
         <!-- Allergies & Medical -->
@@ -488,6 +498,16 @@ const todayFormatted = computed(() => {
 });
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+function clientDisplayName(client) {
+  if (!client) return '';
+  if (client.kioskDisplayName) return client.kioskDisplayName;
+  const parts = String(client.fullName || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'Client';
+  if (parts.length === 1) return parts[0];
+  const lastInitial = parts[parts.length - 1][0]?.toUpperCase() || '';
+  return lastInitial ? `${parts[0]} ${lastInitial}.` : parts[0];
+}
+
 function initials(name) {
   if (!name) return '?';
   return name.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');

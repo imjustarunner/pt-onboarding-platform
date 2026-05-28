@@ -66,7 +66,7 @@
         <ul class="pe-roster">
           <li v-for="c in filteredPendingClients" :key="c.id" class="pe-row">
             <div class="pe-row-main">
-              <strong>{{ c.fullName }}</strong>
+              <strong>{{ clientDisplayName(c) }}</strong>
               <span v-if="c.identifierCode" class="muted small"> · {{ c.identifierCode }}</span>
             </div>
             <button
@@ -135,11 +135,12 @@
             :class="{ 'pe-card--released': releasedToday(c.id), 'pe-card--disabled': !kioskActive }"
             @click="kioskActive && !releasedToday(c.id) && openCheckout(c)"
           >
-            <strong>{{ c.fullName }}</strong>
+            <strong>{{ clientDisplayName(c) }}</strong>
             <span v-if="c.identifierCode" class="muted small"> · {{ c.identifierCode }}</span>
             <span v-if="releasedToday(c.id)" class="pe-tag pe-tag--out">
               Released · {{ formatTime(releasedToday(c.id).signedAt) }}
             </span>
+            <span v-else-if="c.checkoutBlocked" class="pe-tag pe-tag--warn">Release info missing</span>
             <span v-else class="pe-tag">Tap to release</span>
           </li>
           <li v-if="!filteredCheckoutClients.length" class="pe-empty muted">
@@ -180,8 +181,8 @@
             class="pe-card pe-card--resource"
             @click="openResource(c)"
           >
-            <div class="pe-card-initials">{{ initials(c.fullName) }}</div>
-            <strong>{{ c.fullName }}</strong>
+            <div class="pe-card-initials">{{ initials(c.fullName || c.kioskDisplayName) }}</div>
+            <strong>{{ clientDisplayName(c) }}</strong>
             <span v-if="c.emergencyContacts?.length" class="pe-tag">
               {{ c.emergencyContacts.length }} emergency contact{{ c.emergencyContacts.length !== 1 ? 's' : '' }}
             </span>
@@ -216,7 +217,7 @@
       <div class="pe-kiosk-modal-card pe-resource-card">
         <header class="pe-kiosk-modal-hdr">
           <div>
-            <div class="pe-kiosk-modal-title">{{ resourceClient?.fullName }}</div>
+            <div class="pe-kiosk-modal-title">{{ clientDisplayName(resourceClient) }}</div>
             <div v-if="resourceClient?.identifierCode" class="muted small">ID {{ resourceClient.identifierCode }}</div>
             <div v-if="resourceClient?.waiverUpdatedAt" class="muted small">
               Waiver updated {{ formatWaiverDate(resourceClient.waiverUpdatedAt) }}
@@ -235,19 +236,19 @@
         </ul>
         <p v-else class="muted small">None on file.</p>
 
-        <h4 class="pe-kiosk-modal-h4">Guardians</h4>
-        <ul v-if="resourceClient?.guardians?.length" class="pe-info-list">
-          <li v-for="g in resourceClient.guardians" :key="g.userId">
-            <strong>{{ g.name || 'Guardian' }}</strong>
-            <div v-if="g.phone" class="muted small">{{ g.phone }}</div>
-            <div v-if="g.email" class="muted small">{{ g.email }}</div>
+        <h4 class="pe-kiosk-modal-h4">Guardians (approved pickup)</h4>
+        <ul v-if="guardianPickupOptions(resourceClient).length" class="pe-info-list">
+          <li v-for="(p, i) in guardianPickupOptions(resourceClient)" :key="`rg-${i}`">
+            <strong>{{ p.name }}</strong>
+            <span class="muted small"> · Guardian</span>
+            <div v-if="p.phone" class="muted small">{{ p.phone }}</div>
           </li>
         </ul>
         <p v-else class="muted small">None linked.</p>
 
-        <h4 class="pe-kiosk-modal-h4">Authorized pickups</h4>
-        <ul v-if="resourceClient?.authorizedPickups?.length" class="pe-info-list">
-          <li v-for="(p, i) in resourceClient.authorizedPickups" :key="i">
+        <h4 class="pe-kiosk-modal-h4">Other authorized pickups</h4>
+        <ul v-if="otherPickupOptions(resourceClient).length" class="pe-info-list">
+          <li v-for="(p, i) in otherPickupOptions(resourceClient)" :key="`rp-${i}`">
             <strong>{{ p.name }}</strong>
             <span v-if="p.relationship" class="muted small"> · {{ p.relationship }}</span>
             <div v-if="p.phone" class="muted small">{{ p.phone }}</div>
@@ -304,50 +305,97 @@
       <div class="pe-kiosk-modal-card">
         <header class="pe-kiosk-modal-hdr">
           <div>
-            <div class="pe-kiosk-modal-title">Release {{ activeClient?.fullName }}</div>
-            <div class="muted small">Tap pickup row, sign, and optionally snap a photo.</div>
+            <div class="pe-kiosk-modal-title">Release {{ clientDisplayName(activeClient) }}</div>
+            <div class="muted small">Select pickup or walk-home, sign, and take a release photo.</div>
           </div>
           <button class="btn btn-text" @click="closeCheckout">Close</button>
         </header>
 
         <div v-if="checkoutError" class="error-box pe-kiosk-modal-err">{{ checkoutError }}</div>
 
+        <div v-if="activeClient?.checkoutBlocked" class="pe-checkout-issue-banner">
+          <strong>Release blocked:</strong>
+          No authorized pickups or walk-home authorization on file. Update the guardian waiver before this client can be released.
+        </div>
+
         <div v-if="clientHasAllergyInfo(activeClient)" class="pe-checkout-allergy-banner">
           <strong>Allergies / medical:</strong>
           {{ allergySummary(activeClient.allergies) || approvedSnacksSummary(activeClient.allergies) || activeClient.allergies.notes || 'See resource tab for details' }}
         </div>
 
-        <h4 class="pe-kiosk-modal-h4">Approved pickups</h4>
-        <ul v-if="(activeClient?.authorizedPickups || []).length" class="pe-kiosk-pickup-list">
-          <li
-            v-for="(p, idx) in activeClient.authorizedPickups"
-            :key="idx"
-            class="pe-kiosk-pickup-row"
-            :class="{ 'pe-kiosk-pickup-row--sel': selectedPickupKey === pickupKey(p) }"
-            @click="selectPickup(p)"
-          >
-            <div>
-              <strong>{{ p.name }}</strong>
-              <span v-if="p.relationship" class="muted small"> ({{ p.relationship }})</span>
-            </div>
-            <div class="muted small">{{ p.phone || '' }}</div>
-          </li>
-        </ul>
-        <div v-else class="muted small">No authorized pickups on file.</div>
+        <template v-if="!activeClient?.checkoutBlocked">
+          <h4 class="pe-kiosk-modal-h4">Who is picking up?</h4>
 
-        <h4 class="pe-kiosk-modal-h4">Walk-home authorization</h4>
-        <div v-if="activeClient?.walkHome?.allowedToWalkHome">
-          <label class="pe-kiosk-walk-row">
-            <input type="checkbox" v-model="walkHomeAlone" />
-            <span>
-              <strong>Authorized to walk home alone.</strong>
-              <span v-if="activeClient.walkHome.allowedWindow"> Window: {{ activeClient.walkHome.allowedWindow }}.</span>
-            </span>
-          </label>
-        </div>
-        <div v-else class="muted small">Walk-home authorization is NOT on file.</div>
+          <p v-if="guardianPickupOptions(activeClient).length" class="pe-kiosk-modal-sub muted small">Guardians</p>
+          <ul v-if="guardianPickupOptions(activeClient).length" class="pe-kiosk-pickup-list">
+            <li
+              v-for="(p, idx) in guardianPickupOptions(activeClient)"
+              :key="`cg-${idx}`"
+              class="pe-kiosk-pickup-row"
+              :class="{ 'pe-kiosk-pickup-row--sel': releaseMode === 'pickup' && selectedPickupKey === pickupKey(p) }"
+              @click="selectPickup(p)"
+            >
+              <div>
+                <strong>{{ p.name }}</strong>
+                <span class="muted small"> (Guardian)</span>
+              </div>
+              <div class="muted small">{{ p.phone || '' }}</div>
+            </li>
+          </ul>
 
-        <h4 class="pe-kiosk-modal-h4">Signature</h4>
+          <p v-if="otherPickupOptions(activeClient).length" class="pe-kiosk-modal-sub muted small">Approved pickups</p>
+          <ul v-if="otherPickupOptions(activeClient).length" class="pe-kiosk-pickup-list">
+            <li
+              v-for="(p, idx) in otherPickupOptions(activeClient)"
+              :key="`cp-${idx}`"
+              class="pe-kiosk-pickup-row"
+              :class="{ 'pe-kiosk-pickup-row--sel': releaseMode === 'pickup' && selectedPickupKey === pickupKey(p) }"
+              @click="selectPickup(p)"
+            >
+              <div>
+                <strong>{{ p.name }}</strong>
+                <span v-if="p.relationship" class="muted small"> ({{ p.relationship }})</span>
+              </div>
+              <div class="muted small">{{ p.phone || '' }}</div>
+            </li>
+          </ul>
+          <div v-if="!guardianPickupOptions(activeClient).length && !otherPickupOptions(activeClient).length" class="muted small">
+            No pickup contacts on file — use walk-home authorization below if on file.
+          </div>
+
+          <h4 class="pe-kiosk-modal-h4">Walk-home authorization</h4>
+          <div v-if="activeClient?.walkHome?.allowedToWalkHome" class="pe-kiosk-walk-options">
+            <button
+              type="button"
+              class="pe-kiosk-pickup-row pe-kiosk-walk-option"
+              :class="{ 'pe-kiosk-pickup-row--sel': releaseMode === 'walk_home_staff' }"
+              @click="selectWalkHomeStaff"
+            >
+              <div>
+                <strong>Walk home alone</strong>
+                <span class="muted small"> — staff attestation (employee signs below)</span>
+              </div>
+              <div v-if="activeClient.walkHome.allowedWindow" class="muted small">
+                Window: {{ activeClient.walkHome.allowedWindow }}
+              </div>
+            </button>
+            <button
+              v-if="activeClient?.canSelfWalkHome"
+              type="button"
+              class="pe-kiosk-pickup-row pe-kiosk-walk-option"
+              :class="{ 'pe-kiosk-pickup-row--sel': releaseMode === 'walk_home_self' }"
+              @click="selectWalkHomeSelf"
+            >
+              <div>
+                <strong>Walk home alone</strong>
+                <span class="muted small"> — client self-release (age {{ activeClient.ageYears }}+, client signs below)</span>
+              </div>
+            </button>
+          </div>
+          <div v-else class="muted small pe-checkout-warn">Walk-home authorization is NOT on file.</div>
+        </template>
+
+        <h4 class="pe-kiosk-modal-h4">{{ releaseMode === 'walk_home_self' ? 'Client signature' : 'Signature' }}</h4>
         <div class="pe-kiosk-sig-wrap">
           <canvas
             ref="sigCanvas"
@@ -362,7 +410,7 @@
           </div>
         </div>
 
-        <h4 class="pe-kiosk-modal-h4">Release photo (optional)</h4>
+        <h4 class="pe-kiosk-modal-h4">Release photo <span class="pe-required">(required)</span></h4>
         <div class="pe-kiosk-photo-wrap">
           <video v-if="photoStreamActive" ref="photoVideo" class="pe-kiosk-photo-video" autoplay playsinline muted />
           <img v-else-if="photoPreview" :src="photoPreview" class="pe-kiosk-photo-preview" alt="Release photo" />
@@ -514,19 +562,19 @@ function filterList(list, fields) {
 }
 
 const filteredPendingClients = computed(() =>
-  filterList(pendingClients.value, ['fullName', 'initials', 'identifierCode'])
+  filterList(pendingClients.value, ['fullName', 'kioskDisplayName', 'initials', 'identifierCode'])
 );
 const filteredPendingStaff = computed(() =>
   filterList(pendingStaff.value, ['displayName', 'firstName', 'lastName'])
 );
 const filteredCheckoutClients = computed(() =>
-  filterList(activeCheckedInClients.value, ['fullName', 'initials', 'identifierCode'])
+  filterList(activeCheckedInClients.value, ['fullName', 'kioskDisplayName', 'initials', 'identifierCode'])
 );
 const filteredActiveStaff = computed(() =>
   filterList(activeCheckedInStaff.value, ['displayName', 'firstName', 'lastName'])
 );
 const filteredResourceClients = computed(() =>
-  filterList(kioskActive.value ? activeCheckedInClients.value : clients.value, ['fullName', 'initials', 'identifierCode'])
+  filterList(kioskActive.value ? activeCheckedInClients.value : clients.value, ['fullName', 'kioskDisplayName', 'initials', 'identifierCode'])
 );
 
 const searchPlaceholder = computed(() => {
@@ -554,6 +602,27 @@ function formatTime(iso) {
   if (!iso) return '';
   try { return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch { return ''; }
 }
+function clientDisplayName(client) {
+  if (!client) return '';
+  return client.kioskDisplayName || formatKioskDisplayName(client.fullName);
+}
+
+function formatKioskDisplayName(fullName) {
+  const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'Client';
+  if (parts.length === 1) return parts[0];
+  const lastInitial = parts[parts.length - 1][0]?.toUpperCase() || '';
+  return lastInitial ? `${parts[0]} ${lastInitial}.` : parts[0];
+}
+
+function guardianPickupOptions(client) {
+  return (client?.authorizedPickups || []).filter((p) => p.source === 'guardian');
+}
+
+function otherPickupOptions(client) {
+  return (client?.authorizedPickups || []).filter((p) => p.source !== 'guardian');
+}
+
 function initials(name) {
   return String(name || '?').split(' ').filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
 }
@@ -704,7 +773,7 @@ function closeResource() {
 const checkoutOpen = ref(false);
 const activeClient = ref(null);
 const selectedPickupKey = ref('');
-const walkHomeAlone = ref(false);
+const releaseMode = ref('');
 const checkoutError = ref('');
 const submitting = ref(false);
 const sigCanvas = ref(null);
@@ -718,17 +787,25 @@ const photoStreamActive = computed(() => !!photoStream.value);
 const photoPreview = ref('');
 
 function pickupKey(p) {
-  return `${String(p?.name || '').trim()}|${String(p?.phone || '').trim()}`.toLowerCase();
+  return `${String(p?.source || 'pickup')}|${String(p?.name || '').trim()}|${String(p?.phone || '').trim()}`.toLowerCase();
 }
 function selectPickup(p) {
   selectedPickupKey.value = pickupKey(p);
-  walkHomeAlone.value = false;
+  releaseMode.value = 'pickup';
+}
+function selectWalkHomeStaff() {
+  selectedPickupKey.value = '';
+  releaseMode.value = 'walk_home_staff';
+}
+function selectWalkHomeSelf() {
+  selectedPickupKey.value = '';
+  releaseMode.value = 'walk_home_self';
 }
 function openCheckout(client) {
   if (!kioskActive.value) return;
   activeClient.value = client;
   selectedPickupKey.value = '';
-  walkHomeAlone.value = false;
+  releaseMode.value = '';
   checkoutError.value = '';
   sigDirty = false;
   photoPreview.value = '';
@@ -746,6 +823,7 @@ function openCheckout(client) {
       sigCtx.fillStyle = '#fff';
       sigCtx.fillRect(0, 0, c.width, c.height);
     }
+    if (!photoPreview.value) startCamera();
   });
 }
 function closeCheckout() {
@@ -807,8 +885,9 @@ function snapPhoto() {
 function clearPhoto() { photoPreview.value = ''; }
 
 const canSubmitCheckout = computed(() => {
-  if (!activeClient.value || !sigDirty) return false;
-  return !!selectedPickupKey.value || walkHomeAlone.value;
+  if (!activeClient.value || activeClient.value.checkoutBlocked || !sigDirty || !photoPreview.value) return false;
+  if (releaseMode.value === 'pickup') return !!selectedPickupKey.value;
+  return releaseMode.value === 'walk_home_staff' || releaseMode.value === 'walk_home_self';
 });
 
 async function submitCheckout() {
@@ -816,12 +895,14 @@ async function submitCheckout() {
   submitting.value = true;
   checkoutError.value = '';
   try {
-    let releasedToName = 'Walk home alone';
+    const walkHomeAlone = releaseMode.value === 'walk_home_staff' || releaseMode.value === 'walk_home_self';
+    const walkHomeSelfRelease = releaseMode.value === 'walk_home_self';
+    let releasedToName = walkHomeSelfRelease ? 'Walk home alone (client self-release)' : 'Walk home alone';
     let releasedToRelationship = null;
     let releasedToPhone = null;
-    if (!walkHomeAlone.value) {
+    if (releaseMode.value === 'pickup') {
       const pickup = (activeClient.value.authorizedPickups || []).find((p) => pickupKey(p) === selectedPickupKey.value);
-      if (!pickup) { checkoutError.value = 'Select a pickup or walk-home.'; submitting.value = false; return; }
+      if (!pickup) { checkoutError.value = 'Select who is picking up.'; submitting.value = false; return; }
       releasedToName = pickup.name;
       releasedToRelationship = pickup.relationship;
       releasedToPhone = pickup.phone;
@@ -832,9 +913,10 @@ async function submitCheckout() {
       releasedToName,
       releasedToRelationship,
       releasedToPhone,
-      walkHomeAlone: walkHomeAlone.value,
+      walkHomeAlone,
+      walkHomeSelfRelease,
       signerSignatureData: sigData,
-      signerSourceMethod: 'fresh_kiosk_signature',
+      signerSourceMethod: walkHomeSelfRelease ? 'walk_home_self' : 'fresh_kiosk_signature',
       photoBase64: photoPreview.value || null,
       photoContentType: photoPreview.value ? 'image/jpeg' : null
     }, { headers: authHeaders(), skipGlobalLoading: true, skipAuthRedirect: true });
@@ -843,7 +925,7 @@ async function submitCheckout() {
         id: res.data.releaseId,
         clientId: activeClient.value.id,
         releasedToName,
-        walkHomeAlone: walkHomeAlone.value,
+        walkHomeAlone,
         signedAt: res.data.signedAt
       });
       closeCheckout();
@@ -1054,6 +1136,24 @@ onBeforeUnmount(() => {
   margin-bottom: 12px;
   color: #92400e;
 }
+.pe-checkout-issue-banner {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  margin-bottom: 12px;
+  color: #991b1b;
+}
+.pe-checkout-warn { color: #b45309; }
+.pe-kiosk-modal-sub { margin: 8px 0 4px; }
+.pe-kiosk-walk-options { display: grid; gap: 6px; }
+.pe-kiosk-walk-option {
+  width: 100%;
+  text-align: left;
+  background: #fff;
+}
+.pe-required { color: #b45309; font-weight: 600; text-transform: none; letter-spacing: 0; }
 .pe-kiosk-modal-hdr { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
 .pe-kiosk-modal-title { font-size: 1.1rem; font-weight: 700; }
 .pe-kiosk-modal-h4 { margin: 14px 0 8px; font-size: 0.85rem; font-weight: 700; color: var(--text-secondary, #475569); text-transform: uppercase; letter-spacing: 0.04em; }

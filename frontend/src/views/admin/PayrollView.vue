@@ -2691,6 +2691,70 @@
             </div>
 
             <div class="card" style="margin-top: 12px;">
+              <h3 class="card-title" style="margin: 0 0 6px 0;">Event time (Pending)</h3>
+              <div class="hint">
+                Skill Builders / program event kiosk check-in/out with direct and indirect hour split. Approve each bucket separately or edit clock times before approving.
+              </div>
+              <div v-if="eventTimeError" class="warn-box" style="margin-top: 8px;">{{ eventTimeError }}</div>
+              <div v-if="eventTimeLoading" class="muted" style="margin-top: 8px;">Loading event time submissions…</div>
+              <div v-else-if="!eventTimeSubmissions.length" class="muted" style="margin-top: 8px;">No pending event time submissions.</div>
+              <div v-else class="table-wrap" style="margin-top: 10px;">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Provider</th>
+                      <th>Event</th>
+                      <th>Clock in</th>
+                      <th>Clock out</th>
+                      <th class="right">Worked</th>
+                      <th class="right">Direct</th>
+                      <th class="right">Indirect</th>
+                      <th>Direct claim</th>
+                      <th>Indirect claim</th>
+                      <th class="right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="s in eventTimeSubmissions" :key="s.punchInId">
+                      <td>{{ s.providerName || nameForUserId(s.userId) }}</td>
+                      <td>{{ s.eventTitle || '—' }}</td>
+                      <td>{{ formatEventTimeIso(s.clockInAt) }}</td>
+                      <td>{{ formatEventTimeIso(s.clockOutAt) }}</td>
+                      <td class="right">{{ s.workedHours ?? '—' }}</td>
+                      <td class="right">{{ s.directHours ?? '—' }}</td>
+                      <td class="right">{{ s.indirectHours ?? '—' }}</td>
+                      <td>{{ s.directClaim?.status || '—' }}</td>
+                      <td>{{ s.indirectClaim?.status || '—' }}</td>
+                      <td class="right">
+                        <button
+                          class="btn btn-secondary btn-sm"
+                          type="button"
+                          :disabled="eventTimeSavingId === s.punchInId"
+                          @click="approveEventTimeSubmission(s, 'direct')"
+                        >
+                          Approve direct
+                        </button>
+                        <button
+                          class="btn btn-secondary btn-sm"
+                          type="button"
+                          :disabled="eventTimeSavingId === s.punchInId"
+                          @click="approveEventTimeSubmission(s, 'indirect')"
+                        >
+                          Approve indirect
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
+                <button class="btn btn-secondary" @click="loadEventTimeSubmissions" :disabled="eventTimeLoading || !agencyId">
+                  Refresh event time queue
+                </button>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top: 12px;">
               <h3 class="card-title" style="margin: 0 0 6px 0;">Holiday Bonus (Pending)</h3>
               <div class="hint">
                 System-generated approvals when payable services occur on configured agency holiday dates. Approve/reject to include/exclude Holiday Bonus in payroll.
@@ -6238,6 +6302,10 @@ const pendingReimbursementMode = ref('period'); // 'period' | 'all'
 
 const pendingTimeClaims = ref([]);
 const pendingTimeLoading = ref(false);
+const eventTimeSubmissions = ref([]);
+const eventTimeLoading = ref(false);
+const eventTimeError = ref('');
+const eventTimeSavingId = ref(null);
 const pendingTimeError = ref('');
 const approvingTimeClaimId = ref(null);
 
@@ -7560,6 +7628,14 @@ const timeClaimNeedsLateOverrideWarning = (c) => {
 
 const timeClaimMinutes = (c) => {
   const payload = timeClaimPayload(c);
+  const claimType = String(c?.claim_type || c?.claimType || '').toLowerCase();
+  if (claimType === 'skill_builder_event') {
+    const role = String(c?.bucket || payload?.bucketRole || '').toLowerCase();
+    const hrs = role === 'direct'
+      ? Number(payload?.directHours || 0)
+      : (role === 'indirect' ? Number(payload?.indirectHours || 0) : Number(payload?.workedHours || 0));
+    if (Number.isFinite(hrs) && hrs > 0) return Math.round(hrs * 60);
+  }
   const explicit = Number(payload?.totalMinutes);
   if (Number.isFinite(explicit) && explicit > 0) return explicit;
   const items = Array.isArray(payload?.items) ? payload.items : [];
@@ -7608,7 +7684,11 @@ const timeRequestedLabel = (c) => {
 };
 
 const defaultBucketForTimeClaim = (c) => {
+  const bucket = String(c?.bucket || '').toLowerCase();
+  if (bucket === 'direct' || bucket === 'indirect') return bucket;
   const payload = timeClaimPayload(c);
+  const role = String(payload?.bucketRole || '').toLowerCase();
+  if (role === 'direct' || role === 'indirect') return role;
   const items = Array.isArray(payload?.items) ? payload.items : [];
   if (items.length) {
     let totalDirect = 0;
@@ -7928,8 +8008,60 @@ const loadAllPendingTimeClaims = async () => {
 };
 
 const reloadPendingTimeClaims = async () => {
-  if (pendingTimeMode.value === 'all') return await loadAllPendingTimeClaims();
-  return await loadPendingTimeClaims();
+  if (pendingTimeMode.value === 'all') await loadAllPendingTimeClaims();
+  else await loadPendingTimeClaims();
+  await loadEventTimeSubmissions();
+};
+
+const formatEventTimeIso = (iso) => {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return String(iso);
+  }
+};
+
+const loadEventTimeSubmissions = async () => {
+  if (!agencyId.value) return;
+  try {
+    eventTimeLoading.value = true;
+    eventTimeError.value = '';
+    const resp = await api.get('/payroll/event-time-submissions', {
+      params: {
+        agencyId: agencyId.value,
+        status: 'submitted',
+        suggestedPeriodId: selectedPeriodId.value || undefined
+      }
+    });
+    eventTimeSubmissions.value = Array.isArray(resp.data?.submissions) ? resp.data.submissions : [];
+  } catch (e) {
+    eventTimeError.value = e.response?.data?.error?.message || e.message || 'Failed to load event time submissions';
+    eventTimeSubmissions.value = [];
+  } finally {
+    eventTimeLoading.value = false;
+  }
+};
+
+const approveEventTimeSubmission = async (submission, bucket) => {
+  if (!agencyId.value || !selectedPeriodId.value || !submission) return;
+  const claim = bucket === 'direct' ? submission.directClaim : submission.indirectClaim;
+  if (!claim?.id) return;
+  eventTimeSavingId.value = submission.punchInId;
+  try {
+    await api.patch(`/payroll/time-claims/${claim.id}`, {
+      action: 'approve',
+      targetPayrollPeriodId: selectedPeriodId.value,
+      bucket,
+      creditsHours: bucket === 'direct' ? submission.directHours : submission.indirectHours
+    });
+    await loadEventTimeSubmissions();
+    await reloadPendingTimeClaims();
+  } catch (e) {
+    eventTimeError.value = e.response?.data?.error?.message || e.message || 'Failed to approve event time claim';
+  } finally {
+    eventTimeSavingId.value = null;
+  }
 };
 
 const loadPendingHolidayBonusClaims = async () => {

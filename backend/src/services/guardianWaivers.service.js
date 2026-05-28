@@ -2,7 +2,7 @@ import pool from '../config/database.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import User from '../models/User.model.js';
 import { decryptIntakeSubmissionRows } from './intakeResponsesEncryption.service.js';
-import { extractProfileSectionsFromIntakeData } from '../utils/kioskWaiverDisplay.util.js';
+import { extractProfileSectionsFromIntakeData, buildSectionsFromWaiverHistoryRows } from '../utils/kioskWaiverDisplay.util.js';
 import {
   GUARDIAN_WAIVER_ESIGN_KEY,
   GUARDIAN_WAIVER_SECTION_KEYS,
@@ -609,6 +609,65 @@ export async function loadIntakeWaiverSectionsFallbackForClientIds(clientIds) {
         updatedAt: row.submitted_at || null
       });
     }
+  }
+
+  return out;
+}
+
+const KIOSK_WAIVER_HISTORY_KEYS = [
+  'pickup_authorization',
+  'walk_home_authorization',
+  'emergency_contacts',
+  'allergies_snacks',
+  'meal_preferences'
+];
+
+/**
+ * Latest signed waiver section payloads from history when profiles are empty/incomplete.
+ * @param {number[]} clientIds
+ * @returns {Promise<Map<number, { sections: object, updatedAt: string|null }>>}
+ */
+export async function loadWaiverHistorySectionsFallbackForClientIds(clientIds) {
+  const ids = [...new Set((clientIds || []).map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0))];
+  const out = new Map();
+  if (!ids.length) return out;
+
+  const ph = ids.map(() => '?').join(',');
+  const keyPh = KIOSK_WAIVER_HISTORY_KEYS.map(() => '?').join(',');
+  let rows = [];
+  try {
+    [rows] = await pool.execute(
+      `SELECT p.client_id, h.section_key, h.payload_json, h.created_at
+       FROM guardian_client_waiver_history h
+       INNER JOIN guardian_client_waiver_profiles p ON p.id = h.profile_id
+       WHERE p.client_id IN (${ph})
+         AND h.section_key IN (${keyPh})
+         AND h.action IN ('create', 'update')
+         AND h.payload_json IS NOT NULL
+       ORDER BY p.client_id ASC, h.section_key ASC, h.created_at DESC, h.id DESC`,
+      [...ids, ...KIOSK_WAIVER_HISTORY_KEYS]
+    );
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return out;
+    throw err;
+  }
+
+  const rowsByClient = new Map();
+  for (const row of rows || []) {
+    const cid = Number(row.client_id);
+    if (!cid) continue;
+    const list = rowsByClient.get(cid) || [];
+    list.push(row);
+    rowsByClient.set(cid, list);
+  }
+
+  for (const [clientId, clientRows] of rowsByClient) {
+    const sections = buildSectionsFromWaiverHistoryRows(clientRows);
+    if (!Object.keys(sections).length) continue;
+    out.set(clientId, {
+      sections,
+      updatedAt: clientRows[0]?.created_at || null
+    });
   }
 
   return out;

@@ -557,6 +557,50 @@
       </div>
         <div v-else class="muted" style="margin-top: 10px;">No time claims yet.</div>
       </details>
+
+      <details class="card claim-card">
+        <summary class="claim-summary">
+          <div>
+            <div class="claim-title">Event time</div>
+            <div class="muted">Kiosk check-in/out at program events with direct and indirect hours.</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" @click.stop="loadEventTimeSessions" type="button" :disabled="eventTimeLoading">
+            {{ eventTimeLoading ? 'Loading…' : 'Refresh' }}
+          </button>
+        </summary>
+        <div v-if="eventTimeError" class="warn-box" style="margin-top: 10px;">{{ eventTimeError }}</div>
+        <div v-if="eventTimeSessions.length" class="table-wrap" style="margin-top: 10px;">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Event</th>
+                <th>Clock in</th>
+                <th>Clock out</th>
+                <th class="right">Worked</th>
+                <th class="right">Direct</th>
+                <th class="right">Indirect</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(s, idx) in eventTimeSessions" :key="`et-${idx}`">
+                <td>{{ s.eventTitle || '—' }}</td>
+                <td>{{ fmtShortDateTime(s.clockInAt) }}</td>
+                <td>{{ s.clockOutAt ? fmtShortDateTime(s.clockOutAt) : '—' }}</td>
+                <td class="right">{{ s.workedHours ?? '—' }}</td>
+                <td class="right">{{ s.directHours ?? '—' }}</td>
+                <td class="right">{{ s.indirectHours ?? '—' }}</td>
+                <td>
+                  <span v-if="s.directClaimStatus">D: {{ s.directClaimStatus }}</span>
+                  <span v-if="s.indirectClaimStatus"> · I: {{ s.indirectClaimStatus }}</span>
+                  <span v-if="!s.directClaimStatus && !s.indirectClaimStatus" class="muted">Open</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="muted" style="margin-top: 10px;">No event time recorded yet.</div>
+      </details>
     </div>
 
     <div class="controls" v-if="!loading">
@@ -2337,6 +2381,9 @@ const submitTimeClaimError = ref('');
 const timeClaims = ref([]);
 const timeClaimsLoading = ref(false);
 const timeClaimsError = ref('');
+const eventTimeSessions = ref([]);
+const eventTimeLoading = ref(false);
+const eventTimeError = ref('');
 const mileageForm = ref({
   claimType: 'school_travel',
   driveDate: '',
@@ -3726,6 +3773,35 @@ const loadTimeClaims = async () => {
   }
 };
 
+const loadEventTimeSessions = async () => {
+  if (!agencyId.value) return;
+  try {
+    eventTimeLoading.value = true;
+    eventTimeError.value = '';
+    const resp = await api.get('/payroll/me/event-time', { params: { agencyId: agencyId.value } });
+    eventTimeSessions.value = Array.isArray(resp.data?.sessions) ? resp.data.sessions : [];
+  } catch (e) {
+    eventTimeError.value = e.response?.data?.error?.message || e.message || 'Failed to load event time';
+    eventTimeSessions.value = [];
+  } finally {
+    eventTimeLoading.value = false;
+  }
+};
+
+const fmtShortDateTime = (iso) => {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  } catch {
+    return String(iso);
+  }
+};
+
 const timeClaimTypeLabel = (c) => {
   const t = String(c?.claim_type || '').toLowerCase();
   if (t === 'meeting_training') return 'Meeting/Training/Outreach';
@@ -3735,6 +3811,7 @@ const timeClaimTypeLabel = (c) => {
   if (t === 'overtime_evaluation') return 'Overtime eval';
   if (t === 'holiday_pay') return 'Holiday pay';
   if (t === 'jury_duty') return 'Jury Duty';
+  if (t === 'skill_builder_event') return 'Event time';
   return t ? t.replace(/_/g, ' ') : 'Time';
 };
 
@@ -4664,6 +4741,7 @@ watch(agencyId, async () => {
   await loadReimbursementClaims();
   await loadCompanyCardExpenses();
   await loadTimeClaims();
+  await loadEventTimeSessions();
 });
 
 watch(

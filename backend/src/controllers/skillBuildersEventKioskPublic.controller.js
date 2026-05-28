@@ -4,15 +4,21 @@ import config from '../config/config.js';
 import KioskModel from '../models/Kiosk.model.js';
 import {
   recordSkillBuilderEventClockIn,
-  recordSkillBuilderEventClockOut
+  recordSkillBuilderEventClockOut,
+  recordEventEmployeeClockIn,
+  recordEventEmployeeClockOut
 } from '../services/skillBuildersEventKioskPunch.service.js';
 import {
   emptyKioskClientWaiverFields,
+  finalizeKioskClientWaiverEntry,
+  formatKioskClientDisplayName,
   mergeWaiverSectionsIntoKioskClient,
-  parseWaiverSectionsJson,
-  stripKioskClientDedupeKeys
+  parseWaiverSectionsJson
 } from '../utils/kioskWaiverDisplay.util.js';
-import { loadIntakeWaiverSectionsFallbackForClientIds } from '../services/guardianWaivers.service.js';
+import {
+  loadIntakeWaiverSectionsFallbackForClientIds,
+  loadWaiverHistorySectionsFallbackForClientIds
+} from '../services/guardianWaivers.service.js';
 
 const TOKEN_TYPE = 'skill_builders_event_kiosk';
 
@@ -503,6 +509,9 @@ export const getEventDayKioskContext = async (req, res, next) => {
     const intakeWaiverFallback = clientIds.length
       ? await loadIntakeWaiverSectionsFallbackForClientIds(clientIds)
       : new Map();
+    const historyWaiverFallback = clientIds.length
+      ? await loadWaiverHistorySectionsFallbackForClientIds(clientIds)
+      : new Map();
 
     const clientList = [];
     for (const r of clients || []) {
@@ -511,6 +520,7 @@ export const getEventDayKioskContext = async (req, res, next) => {
       const entry = {
         id: cid,
         fullName: r.full_name || r.initials || `Client ${cid}`,
+        kioskDisplayName: formatKioskClientDisplayName(r.full_name || r.initials || `Client ${cid}`),
         initials: r.initials || '',
         identifierCode: r.identifier_code || '',
         ...emptyKioskClientWaiverFields()
@@ -528,22 +538,38 @@ export const getEventDayKioskContext = async (req, res, next) => {
         mergeWaiverSectionsIntoKioskClient(entry, intakeRow.sections, intakeRow.updatedAt, { fillMissingOnly: true });
       }
 
-      stripKioskClientDedupeKeys(entry);
+      const historyRow = historyWaiverFallback.get(cid);
+      if (historyRow) {
+        mergeWaiverSectionsIntoKioskClient(entry, historyRow.sections, historyRow.updatedAt, { fillMissingOnly: true });
+      }
 
       const linkedGuardians = guardiansByClient.get(cid) || [];
+      const guardianList = linkedGuardians.map((g) => ({
+        userId: Number(g.guardian_user_id),
+        name: g.guardian_name ? String(g.guardian_name).trim() : null,
+        email: g.guardian_email || null,
+        phone: g.guardian_phone || null
+      }));
+      finalizeKioskClientWaiverEntry(entry, guardianList);
+
       const primaryGuardian = linkedGuardians[0] || null;
       clientList.push({
         id: entry.id,
         fullName: entry.fullName,
+        kioskDisplayName: entry.kioskDisplayName || formatKioskClientDisplayName(entry.fullName),
         initials: entry.initials,
         identifierCode: entry.identifierCode,
         guardianUserId: primaryGuardian ? Number(primaryGuardian.guardian_user_id) : null,
         guardianName: primaryGuardian?.guardian_name ? String(primaryGuardian.guardian_name).trim() : null,
         guardianEmail: primaryGuardian?.guardian_email || null,
+        guardians: guardianList,
         waiverUpdatedAt: entry.waiverUpdatedAt,
+        walkHome: entry.walkHome,
+        authorizedPickups: entry.authorizedPickups,
         waiver: {
           emergencyContacts: entry.emergencyContacts,
           pickupAuth: entry.authorizedPickups,
+          walkHome: entry.walkHome,
           allergies: entry.allergies,
           meals: entry.meals
         }
@@ -703,6 +729,52 @@ export const eventDayClientCheckout = async (req, res, next) => {
   }
 };
 
+async function syncEmployeeStationCheckin({ agencyId, eventId, userId, kioskDate, ip }) {
+  await pool.execute(
+    `INSERT INTO event_day_kiosk_checkins
+       (company_event_id, agency_id, user_id, person_type, action, checked_in_at, kiosk_date, ip_address)
+     VALUES (?, ?, ?, 'employee', 'check_in', NOW(), ?, ?)
+     ON DUPLICATE KEY UPDATE checked_in_at = NOW(), action = 'check_in', updated_at = NOW()`,
+    [eventId, agencyId, userId, kioskDate, ip]
+  ).catch(() => null);
+
+  const punch = await recordEventEmployeeClockIn(pool, {
+    agencyId,
+    eventId,
+    userId,
+    kioskDateYmd: kioskDate,
+    source: 'event_station'
+  });
+  if (punch.error && punch.error.status !== 409) {
+    return { ok: false, error: punch.error };
+  }
+  return {
+    ok: true,
+    punchId: punch.punchId || null,
+    alreadyClockedIn: punch.error?.status === 409
+  };
+}
+
+async function syncEmployeeStationCheckout({ agencyId, eventId, userId, kioskDate }) {
+  await pool.execute(
+    `UPDATE event_day_kiosk_checkins
+     SET action = 'check_out', checked_out_at = NOW(), updated_at = NOW()
+     WHERE company_event_id = ? AND user_id = ? AND kiosk_date = ? AND person_type = 'employee'`,
+    [eventId, userId, kioskDate]
+  ).catch(() => null);
+
+  const punch = await recordEventEmployeeClockOut(pool, {
+    agencyId,
+    eventId,
+    userId,
+    source: 'event_station'
+  });
+  if (punch.error) {
+    return { ok: false, error: punch.error };
+  }
+  return { ok: true, ...punch };
+}
+
 /**
  * POST /api/public/skill-builders/agency/:slug/kiosk/events/:eventId/event-day/employee-identify-checkin
  * Identify an employee by 4-digit personal PIN and check them in.
@@ -734,19 +806,24 @@ export const eventDayEmployeeIdentifyCheckin = async (req, res, next) => {
     const user = rows[0];
     const today = new Date().toISOString().slice(0, 10);
 
-    await pool.execute(
-      `INSERT INTO event_day_kiosk_checkins
-         (company_event_id, agency_id, user_id, person_type, action, checked_in_at, kiosk_date, ip_address)
-       VALUES (?, ?, ?, 'employee', 'check_in', NOW(), ?, ?)
-       ON DUPLICATE KEY UPDATE checked_in_at = NOW(), action = 'check_in', updated_at = NOW()`,
-      [m.eventId, m.agencyId, user.id, today, req.ip || null]
-    ).catch(() => null);
+    const result = await syncEmployeeStationCheckin({
+      agencyId: m.agencyId,
+      eventId: m.eventId,
+      userId: Number(user.id),
+      kioskDate: today,
+      ip: req.ip || null
+    });
+    if (!result.ok) {
+      return res.status(result.error.status).json({ error: { message: result.error.message } });
+    }
 
     res.status(201).json({
       ok: true,
       userId: Number(user.id),
       displayName: `${user.first_name || ''} ${user.last_name || ''}`.trim(),
-      checkedInAt: new Date().toISOString()
+      checkedInAt: new Date().toISOString(),
+      punchId: result.punchId,
+      alreadyClockedIn: !!result.alreadyClockedIn
     });
   } catch (e) {
     next(e);
@@ -768,15 +845,24 @@ export const eventDayEmployeeCheckinById = async (req, res, next) => {
     if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
     const today = new Date().toISOString().slice(0, 10);
 
-    await pool.execute(
-      `INSERT INTO event_day_kiosk_checkins
-         (company_event_id, agency_id, user_id, person_type, action, checked_in_at, kiosk_date, ip_address)
-       VALUES (?, ?, ?, 'employee', 'check_in', NOW(), ?, ?)
-       ON DUPLICATE KEY UPDATE checked_in_at = NOW(), action = 'check_in', updated_at = NOW()`,
-      [m.eventId, m.agencyId, userId, today, req.ip || null]
-    ).catch(() => null);
+    const result = await syncEmployeeStationCheckin({
+      agencyId: m.agencyId,
+      eventId: m.eventId,
+      userId,
+      kioskDate: today,
+      ip: req.ip || null
+    });
+    if (!result.ok) {
+      return res.status(result.error.status).json({ error: { message: result.error.message } });
+    }
 
-    res.status(201).json({ ok: true, userId, checkedInAt: new Date().toISOString() });
+    res.status(201).json({
+      ok: true,
+      userId,
+      checkedInAt: new Date().toISOString(),
+      punchId: result.punchId,
+      alreadyClockedIn: !!result.alreadyClockedIn
+    });
   } catch (e) {
     next(e);
   }
@@ -797,14 +883,26 @@ export const eventDayEmployeeCheckout = async (req, res, next) => {
     if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
     const today = new Date().toISOString().slice(0, 10);
 
-    await pool.execute(
-      `UPDATE event_day_kiosk_checkins
-       SET action = 'check_out', checked_out_at = NOW(), updated_at = NOW()
-       WHERE company_event_id = ? AND user_id = ? AND kiosk_date = ? AND person_type = 'employee'`,
-      [m.eventId, userId, today]
-    ).catch(() => null);
+    const result = await syncEmployeeStationCheckout({
+      agencyId: m.agencyId,
+      eventId: m.eventId,
+      userId,
+      kioskDate: today
+    });
+    if (!result.ok) {
+      return res.status(result.error.status).json({ error: { message: result.error.message } });
+    }
 
-    res.json({ ok: true, userId, checkedOutAt: new Date().toISOString() });
+    res.json({
+      ok: true,
+      userId,
+      checkedOutAt: new Date().toISOString(),
+      directHours: result.directHours,
+      indirectHours: result.indirectHours,
+      workedHours: result.workedHours,
+      directClaimId: result.directClaimId,
+      indirectClaimId: result.indirectClaimId
+    });
   } catch (e) {
     next(e);
   }
