@@ -164,12 +164,13 @@ class OfficeEvent {
     assignedProviderId = null,
     bookedProviderId = null,
     createdByUserId,
-    replaceCancelled = false
+    replaceCancelled = false,
+    notes = null
   }) {
     const normalizedStartAt = normalizeMySqlDateTime(startAt);
     const normalizedEndAt = normalizeMySqlDateTime(endAt);
     // Keep legacy `status` aligned for older code paths.
-    const legacyStatus = slotState === 'ASSIGNED_BOOKED' ? 'BOOKED' : 'RELEASED';
+    const legacyStatus = (slotState === 'ASSIGNED_BOOKED' || slotState === 'COMPANY_HOLD') ? 'BOOKED' : 'RELEASED';
 
     const existing = await this.findByRoomAndStart(roomId, normalizedStartAt);
     if (existing?.id) {
@@ -201,6 +202,7 @@ class OfficeEvent {
                  assigned_provider_id = ?,
                  booked_provider_id = ?,
                  client_id = NULL,
+                 notes = COALESCE(?, notes),
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = ?`,
             [
@@ -215,6 +217,7 @@ class OfficeEvent {
               recurrenceGroupId,
               assignedProviderId,
               bookedProviderId,
+              notes,
               existing.id
             ]
           );
@@ -285,7 +288,7 @@ class OfficeEvent {
       bookedProviderId,
       source: 'ADMIN_OVERRIDE',
       recurrenceGroupId,
-      notes: null,
+      notes,
       createdByUserId,
       approvedByUserId: null
     });

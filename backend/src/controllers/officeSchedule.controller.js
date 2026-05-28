@@ -324,14 +324,18 @@ function weekdayHourInTz(dateLike, timeZone) {
 }
 
 async function isRoomOpenAt({ officeLocationId, roomId, startAt, endAt, officeTimeZone }) {
-  // Block only on BOOKED/ASSIGNED_BOOKED events. RELEASED and CANCELLED do not block.
+  // Block on BOOKED/ASSIGNED_BOOKED events and company holds. RELEASED and CANCELLED do not block.
   const [eventRows] = await pool.execute(
     `SELECT 1
      FROM office_events
      WHERE room_id = ?
        AND start_at < ?
        AND end_at > ?
-       AND (UPPER(COALESCE(status, '')) = 'BOOKED' OR UPPER(COALESCE(slot_state, '')) = 'ASSIGNED_BOOKED')
+       AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
+       AND (
+         UPPER(COALESCE(status, '')) = 'BOOKED'
+         OR UPPER(COALESCE(slot_state, '')) IN ('ASSIGNED_BOOKED', 'COMPANY_HOLD')
+       )
      LIMIT 1`,
     [roomId, endAt, startAt]
   );
@@ -721,6 +725,7 @@ export const getWeeklyGrid = async (req, res, next) => {
         const rank = (x) => {
           const st = x?.slot_state || null;
           if (st === 'ASSIGNED_BOOKED' || x?.status === 'BOOKED') return 3;
+          if (st === 'COMPANY_HOLD') return 2;
           if (st === 'ASSIGNED_TEMPORARY') return 2;
           if (st === 'ASSIGNED_AVAILABLE' || x?.status === 'RELEASED') return 1;
           return 0;
@@ -790,6 +795,44 @@ export const getWeeklyGrid = async (req, res, next) => {
           if (e) {
             const statusUpper = String(e.status || '').toUpperCase();
             const slotStateUpper = String(e.slot_state || '').toUpperCase();
+            if (slotStateUpper === 'COMPANY_HOLD') {
+              const holdTitle = String(e.notes || '').trim() || 'Company hold';
+              slots.push({
+                roomId: room.id,
+                date,
+                hour,
+                state: 'company_hold',
+                displayStatus: 'COMPANY HOLD',
+                holdTitle,
+                eventId: e.id,
+                learningSessionId: null,
+                learningLinked: false,
+                standingAssignmentId: null,
+                bookingPlanId: null,
+                recurrenceGroupId: e.recurrence_group_id || null,
+                providerId: null,
+                providerInitials: null,
+                assignedProviderId: null,
+                bookedProviderId: null,
+                assignedProviderName: null,
+                assignedProviderFullName: null,
+                bookedProviderName: null,
+                bookedProviderFullName: null,
+                appointmentType: null,
+                appointmentSubtype: null,
+                serviceCode: null,
+                modality: null,
+                statusOutcome: null,
+                cancellationReason: null,
+                clientId: null,
+                clinicalSessionId: null,
+                noteContextId: null,
+                billingContextId: null,
+                virtualIntakeEnabled: false,
+                inPersonIntakeEnabled: false
+              });
+              continue;
+            }
             const st = statusUpper === 'BOOKED'
               ? 'ASSIGNED_BOOKED'
               : (slotStateUpper || 'ASSIGNED_AVAILABLE');

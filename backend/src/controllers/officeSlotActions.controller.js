@@ -244,6 +244,32 @@ function generateRecurrenceGroupId(prefix = 'OFFICE_SET') {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function daysBetweenYmd(startYmd, endYmd) {
+  const start = String(startYmd || '').slice(0, 10);
+  const end = String(endYmd || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) return 0;
+  const s = Date.UTC(Number(start.slice(0, 4)), Number(start.slice(5, 7)) - 1, Number(start.slice(8, 10)));
+  const e = Date.UTC(Number(end.slice(0, 4)), Number(end.slice(5, 7)) - 1, Number(end.slice(8, 10)));
+  return Math.round((e - s) / 86400000);
+}
+
+function collectCompanyHoldDates({ startDateYmd, recurrenceFrequency, weekdays, untilDateYmd }) {
+  if (recurrenceFrequency === 'ONCE') return [startDateYmd];
+  const until = untilDateYmd || addDaysYmd(startDateYmd, 364);
+  const dates = [];
+  for (let d = startDateYmd; d <= until; d = addDaysYmd(d, 1)) {
+    const wd = weekdayIndexFromYmd(d);
+    if (!weekdays.includes(wd)) continue;
+    if (recurrenceFrequency === 'BIWEEKLY') {
+      const weekDiff = Math.floor(daysBetweenYmd(startDateYmd, d) / 7);
+      if (weekDiff % 2 !== 0) continue;
+    }
+    dates.push(d);
+    if (dates.length >= 104) break;
+  }
+  return dates;
+}
+
 function formatHourLabel(hour) {
   const h = Number(hour);
   if (!Number.isFinite(h)) return '';
@@ -2562,8 +2588,11 @@ export const staffAssignOpenSlot = async (req, res, next) => {
     const temporaryWeeks = Number.isInteger(temporaryWeeksRaw) && temporaryWeeksRaw > 0 ? Math.min(temporaryWeeksRaw, 12) : 0;
     const recurrenceWeekdays = uniqueWeekdays(req.body?.weekdays, date);
     const recurringUntilDate = normalizeRecurringUntilDate(date, req.body?.recurringUntilDate);
-    if (!roomId || !assignedUserId) {
-      return res.status(400).json({ error: { message: 'roomId and assignedUserId are required' } });
+    const assignmentMode = String(req.body?.assignmentMode || 'PROVIDER').trim().toUpperCase();
+    const holdTitle = String(req.body?.title || req.body?.holdTitle || 'Company hold').trim().slice(0, 255) || 'Company hold';
+
+    if (!roomId) {
+      return res.status(400).json({ error: { message: 'roomId is required' } });
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return res.status(400).json({ error: { message: 'date must be YYYY-MM-DD' } });
@@ -2585,11 +2614,117 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Room not found for this office' } });
     }
 
+    const startHour = Number(hour);
+    const finalHour = Number(endHour !== null ? endHour : hour + 1);
+    const startAt = mysqlDateTimeForDateHour(date, hour);
+    const endAt = mysqlDateTimeForDateHour(date, finalHour);
+
+    if (assignmentMode === 'COMPANY_HOLD') {
+      if (recurrenceFrequency !== 'ONCE' && !recurrenceWeekdays.length) {
+        return res.status(400).json({ error: { message: 'At least one weekday is required for recurring company hold' } });
+      }
+
+      try {
+        const [aRows] = await pool.execute(
+          `SELECT id
+           FROM office_room_assignments
+           WHERE room_id = ?
+             AND start_at < ?
+             AND (end_at IS NULL OR end_at > ?)
+           LIMIT 1`,
+          [roomId, endAt, startAt]
+        );
+        if ((aRows || []).length) {
+          return res.status(409).json({ error: { message: 'That office is already assigned during this time.' } });
+        }
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      }
+      try {
+        const [eRows] = await pool.execute(
+          `SELECT id, slot_state, notes
+           FROM office_events
+           WHERE room_id = ?
+             AND start_at < ?
+             AND end_at > ?
+             AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
+           LIMIT 1`,
+          [roomId, endAt, startAt]
+        );
+        if ((eRows || []).length) {
+          const blockerState = String(eRows[0]?.slot_state || '').toUpperCase();
+          if (blockerState !== 'COMPANY_HOLD') {
+            return res.status(409).json({
+              error: {
+                message: 'That office has an existing schedule event during this time.'
+              }
+            });
+          }
+        }
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      }
+
+      const recurrenceGroupId = recurrenceFrequency !== 'ONCE' ? generateRecurrenceGroupId('COMPANY_HOLD') : null;
+      const holdDates = collectCompanyHoldDates({
+        startDateYmd: date,
+        recurrenceFrequency,
+        weekdays: recurrenceWeekdays,
+        untilDateYmd: recurringUntilDate
+      });
+      const createdEvents = [];
+      for (const holdDate of holdDates) {
+        for (let h = startHour; h < finalHour; h++) {
+          const slotStartAt = mysqlDateTimeForDateHour(holdDate, h);
+          const slotEndAt = mysqlDateTimeForDateHour(holdDate, h + 1);
+          // eslint-disable-next-line no-await-in-loop
+          const event = await OfficeEvent.upsertSlotState({
+            officeLocationId,
+            roomId,
+            startAt: slotStartAt,
+            endAt: slotEndAt,
+            slotState: 'COMPANY_HOLD',
+            standingAssignmentId: null,
+            bookingPlanId: null,
+            recurrenceGroupId,
+            assignedProviderId: null,
+            bookedProviderId: null,
+            createdByUserId: req.user.id,
+            replaceCancelled: true,
+            notes: holdTitle
+          });
+          if (event?.id && String(event.status || '').toUpperCase() !== 'CANCELLED') {
+            createdEvents.push(event);
+          }
+        }
+      }
+
+      return res.json({
+        ok: true,
+        lifecycle: 'company_hold',
+        assignmentMode: 'COMPANY_HOLD',
+        title: holdTitle,
+        recurrenceFrequency,
+        recurringUntilDate,
+        recurrenceGroupId,
+        events: createdEvents,
+        diagnostics: {
+          officeLocationId,
+          roomId,
+          date,
+          startHour,
+          endHour: finalHour,
+          createdEventIds: createdEvents.map((e) => Number(e?.id || 0)).filter((n) => n > 0)
+        }
+      });
+    }
+
+    if (!assignedUserId) {
+      return res.status(400).json({ error: { message: 'assignedUserId is required for provider assignment' } });
+    }
+
     const user = await User.findById(assignedUserId);
     if (!user) return res.status(404).json({ error: { message: 'Assigned user not found' } });
-
-    const startAt = mysqlDateTimeForDateHour(date, hour);
-    const endAt = mysqlDateTimeForDateHour(date, (endHour !== null ? endHour : (hour + 1)));
 
     // Avoid double-booking a room. Block if ANY assignment/event overlaps the requested window.
     try {

@@ -42,6 +42,7 @@
         <div class="legend-item"><span class="dot assigned_available"></span> Assigned available</div>
         <div class="legend-item"><span class="dot assigned_temporary"></span> Assigned temporary</div>
         <div class="legend-item"><span class="dot assigned_booked"></span> Assigned booked</div>
+        <div class="legend-item"><span class="dot company_hold"></span> Company hold</div>
         <div class="legend-item"><span class="dot intake-ip"></span> In-person intake</div>
         <div class="legend-item"><span class="dot intake-v"></span> Virtual intake</div>
         <div class="legend-item"><span class="dot own-slot"></span> Your schedule</div>
@@ -290,7 +291,11 @@
           <div v-if="modalSlot.bookingActiveUntilDate"><strong>Until:</strong> {{ modalSlot.bookingActiveUntilDate }}</div>
           <div v-if="modalSlot.bookingOccurrenceCount"><strong>Booked occurrences:</strong> {{ modalSlot.bookingOccurrenceCount }}</div>
         </div>
-        <div class="slot-details" v-if="modalSlot">
+        <div class="slot-details" v-if="modalSlot && modalSlot.state === 'company_hold'">
+          <div><strong>Company hold:</strong> {{ modalSlot.holdTitle || 'Company hold' }}</div>
+          <div><strong>Event ID:</strong> {{ modalSlot.eventId || 'n/a' }}</div>
+        </div>
+        <div class="slot-details" v-else-if="modalSlot && modalSlot.state !== 'open'">
           <div><strong>Assigned to:</strong> {{ providerDisplayName(modalSlot.assignedProviderFullName || modalSlot.assignedProviderName || modalSlot.bookedProviderFullName || modalSlot.bookedProviderName, modalSlot.providerInitials, 'Unassigned') }}</div>
           <div v-if="modalSlot.bookedProviderFullName || modalSlot.bookedProviderName"><strong>Booked for:</strong> {{ providerDisplayName(modalSlot.bookedProviderFullName || modalSlot.bookedProviderName, modalSlot.providerInitials, 'Unassigned') }}</div>
           <div><strong>Event ID:</strong> {{ modalSlot.eventId || 'n/a' }}</div>
@@ -313,17 +318,34 @@
           <div v-if="canManageSchedule" class="section">
             <div class="section-title">Staff/admin action</div>
             <div class="muted" style="margin-bottom: 8px;">
-              Assigning creates a one-time building room assignment for the selected time range.
+              Block time for the company (no person attached) or assign the room to a specific provider.
+            </div>
+
+            <div class="row" style="margin-bottom: 10px;">
+              <label class="check">
+                <input type="radio" v-model="assignMode" value="company_hold" :disabled="saving" />
+                <span>Company hold</span>
+              </label>
+              <label class="check">
+                <input type="radio" v-model="assignMode" value="provider" :disabled="saving" />
+                <span>Assign to person</span>
+              </label>
             </div>
 
             <div class="row">
-              <label style="font-weight: 700;">Person</label>
-              <PersonSearchSelect
-                v-model="selectedProviderId"
-                :options="providers"
-                placeholder="Type name to search…"
-                :disabled="saving"
-              />
+              <template v-if="assignMode === 'company_hold'">
+                <label style="font-weight: 700;">Label</label>
+                <input v-model="companyHoldTitle" class="input" type="text" maxlength="255" placeholder="Company hold" :disabled="saving" />
+              </template>
+              <template v-else>
+                <label style="font-weight: 700;">Person</label>
+                <PersonSearchSelect
+                  v-model="selectedProviderId"
+                  :options="providers"
+                  placeholder="Type name to search…"
+                  :disabled="saving"
+                />
+              </template>
               <label style="font-weight: 700;">End</label>
               <select v-model.number="assignEndHour" class="select" :disabled="!modalSlot">
                 <option v-for="h in assignEndHourOptions" :key="`end-${h}`" :value="h">
@@ -336,11 +358,11 @@
                 <option value="WEEKLY">Weekly</option>
                 <option value="BIWEEKLY">Biweekly</option>
               </select>
-              <label class="check" style="align-self: center;">
+              <label class="check" style="align-self: center;" v-if="assignMode === 'provider'">
                 <input type="checkbox" v-model="assignTemporary4Weeks" :disabled="assignRecurrenceFreq === 'ONCE'" />
                 <span>Temporary 4-week hold</span>
               </label>
-              <div v-if="assignTemporary4Weeks && assignRecurrenceFreq !== 'ONCE'" class="muted" style="max-width: 320px;">
+              <div v-if="assignMode === 'provider' && assignTemporary4Weeks && assignRecurrenceFreq !== 'ONCE'" class="muted" style="max-width: 320px;">
                 Temporary hold while trying to place a client. If booked during hold, this converts to regular assigned office.
               </div>
               <label v-if="assignRecurrenceFreq !== 'ONCE'" style="font-weight: 700;">Recurring until</label>
@@ -368,7 +390,7 @@
                 :disabled="saving || !canAssignSubmit"
                 :title="assignDisabledReason || ''"
               >
-                Assign
+                {{ assignMode === 'company_hold' ? (saving ? 'Blocking…' : 'Block slot') : (saving ? 'Assigning…' : 'Assign') }}
               </button>
             </div>
 
@@ -430,6 +452,24 @@
             Building room slots are not assignable for your role.
           </div>
         </div>
+
+        <template v-else-if="modalSlot?.state === 'company_hold'">
+          <div class="section">
+            <div class="section-title">Company hold</div>
+            <div class="muted" style="margin-bottom: 8px;">
+              This time is blocked for company use and is not assigned to a provider.
+            </div>
+            <div class="row">
+              <select v-model="cancelScope" class="select" :disabled="saving || !modalSlot?.eventId">
+                <option value="occurrence">This occurrence only</option>
+                <option value="future_set" :disabled="!modalSlot?.recurrenceGroupId">This and all future recurring</option>
+              </select>
+              <button class="btn btn-danger" @click="cancelEventAction" :disabled="saving || !modalSlot?.eventId">
+                Remove hold
+              </button>
+            </div>
+          </div>
+        </template>
 
         <template v-else>
           <div class="section" v-if="canToggleVirtualIntake">
@@ -898,6 +938,7 @@ const stateLabel = (state) => {
   if (s === 'assigned_available') return 'Assigned available';
   if (s === 'assigned_temporary') return 'Assigned temporary';
   if (s === 'assigned_booked') return 'Booked';
+  if (s === 'company_hold') return 'Company hold';
   return s || 'Unknown';
 };
 
@@ -914,6 +955,9 @@ const slotInitials = (roomId, date, hour) => {
 const slotDisplayLabel = (roomId, date, hour) => {
   const s = getSlot(roomId, date, hour);
   if (!s) return '';
+  if (String(s?.state || '') === 'company_hold') {
+    return String(s?.holdTitle || 'Company hold').trim();
+  }
   const full =
     String(s?.bookedProviderFullName || s?.bookedProviderName || s?.assignedProviderFullName || s?.assignedProviderName || '').trim();
   if (full) return full;
@@ -931,7 +975,7 @@ const slotTitle = (roomId, date, hour) => {
     s?.providerInitials,
     ''
   );
-  return `${date} ${formatHour(hour)} — ${s.state}${providerLabel ? ` • ${providerLabel}` : ''}${inPersonLabel}${virtualLabel}${ownLabel}`;
+  return `${date} ${formatHour(hour)} — ${stateLabel(s.state)}${s.state === 'company_hold' ? '' : (providerLabel ? ` • ${providerLabel}` : '')}${inPersonLabel}${virtualLabel}${ownLabel}`;
 };
 
 const slotHasVirtualIntake = (roomId, date, hour) => {
@@ -987,7 +1031,10 @@ const selectedSlots = computed(() => {
   return out;
 });
 const selectedOpenSlots = computed(() => selectedSlots.value.filter((s) => String(s?.state || '') === 'open'));
-const selectedAssignedSlots = computed(() => selectedSlots.value.filter((s) => String(s?.state || '') !== 'open'));
+const selectedAssignedSlots = computed(() => selectedSlots.value.filter((s) => {
+  const state = String(s?.state || '');
+  return state !== 'open';
+}));
 
 const addDaysYmd = (ymd, days) => {
   const m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -1285,6 +1332,8 @@ const outcomeCancellationReason = ref('');
 
 const providers = ref([]);
 const selectedProviderId = ref(0);
+const assignMode = ref('company_hold');
+const companyHoldTitle = ref('Company hold');
 const learningClients = ref([]);
 const learningServices = ref([]);
 const selectedLearningClientId = ref(0);
@@ -1335,7 +1384,14 @@ const canSubmitRescheduleConflict = computed(() => {
   return true;
 });
 const canAssignSubmit = computed(() => {
-  if (!selectedProviderId.value || !modalSlot.value?.roomId) return false;
+  if (!modalSlot.value?.roomId) return false;
+  if (assignMode.value === 'company_hold') {
+    if (assignRecurrenceFreq.value !== 'ONCE') {
+      return Array.isArray(assignWeekdays.value) && assignWeekdays.value.length > 0;
+    }
+    return true;
+  }
+  if (!selectedProviderId.value) return false;
   if (assignRecurrenceFreq.value === 'ONCE') return true;
   return Array.isArray(assignWeekdays.value) && assignWeekdays.value.length > 0;
 });
@@ -1425,6 +1481,12 @@ const assignDisabledReason = computed(() => {
   if (saving.value) return 'Saving...';
   if (!officeId.value) return 'Select an office first.';
   if (!modalSlot.value?.roomId) return 'Select an open slot.';
+  if (assignMode.value === 'company_hold') {
+    if (assignRecurrenceFreq.value !== 'ONCE' && (!Array.isArray(assignWeekdays.value) || !assignWeekdays.value.length)) {
+      return 'Select at least one weekday for recurring company hold.';
+    }
+    return '';
+  }
   if (!selectedProviderId.value) return 'Select a provider before assigning.';
   if (assignRecurrenceFreq.value !== 'ONCE' && (!Array.isArray(assignWeekdays.value) || !assignWeekdays.value.length)) {
     return 'Select at least one weekday for recurring assignment.';
@@ -1578,6 +1640,8 @@ const closeModal = () => {
   selectedOutcome.value = '';
   outcomeCancellationReason.value = '';
   selectedProviderId.value = 0;
+  assignMode.value = 'company_hold';
+  companyHoldTitle.value = 'Company hold';
   assignEndHour.value = 8;
   assignRecurrenceFreq.value = 'ONCE';
   assignTemporary4Weeks.value = false;
@@ -1934,7 +1998,11 @@ const openNoteAidForModalSlot = (launchIntent = 'note') => {
 };
 
 const assignOpenSlot = async () => {
-  if (!officeId.value || !modalSlot.value?.roomId || !selectedProviderId.value) {
+  if (!officeId.value || !modalSlot.value?.roomId) {
+    error.value = assignDisabledReason.value || 'Select a slot before continuing.';
+    return;
+  }
+  if (assignMode.value === 'provider' && !selectedProviderId.value) {
     error.value = assignDisabledReason.value || 'Select provider/slot before assigning.';
     return;
   }
@@ -1951,13 +2019,15 @@ const assignOpenSlot = async () => {
       date: modalSlot.value.date,
       hour: modalSlot.value.hour,
       endHour: assignEndHour.value,
-      assignedUserId: selectedProviderId.value,
+      assignedUserId: assignMode.value === 'provider' ? selectedProviderId.value : undefined,
+      assignmentMode: assignMode.value === 'company_hold' ? 'COMPANY_HOLD' : 'PROVIDER',
+      title: assignMode.value === 'company_hold' ? String(companyHoldTitle.value || '').trim() || 'Company hold' : undefined,
       recurrenceFrequency: assignRecurrenceFreq.value,
       recurringUntilDate: assignRecurrenceFreq.value === 'ONCE' ? null : assignRecurringUntilDate.value,
         weekdays: assignRecurrenceFreq.value === 'ONCE' ? [] : assignWeekdays.value,
-        temporaryWeeks: assignTemporary4Weeks.value && assignRecurrenceFreq.value !== 'ONCE' ? 4 : 0
+        temporaryWeeks: assignMode.value === 'provider' && assignTemporary4Weeks.value && assignRecurrenceFreq.value !== 'ONCE' ? 4 : 0
     });
-    setSuccessToast('Slot assigned successfully.');
+    setSuccessToast(assignMode.value === 'company_hold' ? 'Company hold saved.' : 'Slot assigned successfully.');
     await loadGrid();
     closeModal();
   } catch (e) {
@@ -2552,6 +2622,7 @@ input[type='date'] {
 }
 .dot { width: 9px; height: 9px; border-radius: 999px; display: inline-block; }
 .dot.open { background: #94a3b8; box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.16); }
+.dot.company_hold { background: #6366f1; box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.18); }
 .dot.assigned_available { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.18); }
 .dot.assigned_temporary { background: #2563eb; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.16); }
 .dot.assigned_booked { background: #ef4444; box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.16); }
@@ -2848,6 +2919,11 @@ input[type='date'] {
 .slot.open {
   background: linear-gradient(160deg, rgba(248, 250, 252, 0.88), rgba(241, 245, 249, 0.6));
   border-color: rgba(148, 163, 184, 0.4);
+}
+.slot.company_hold {
+  background: rgba(99, 102, 241, 0.16);
+  border-color: rgba(99, 102, 241, 0.42);
+  color: #312e81;
 }
 .slot.assigned_available {
   background: linear-gradient(165deg, rgba(255, 247, 220, 0.92), rgba(253, 230, 138, 0.44));
