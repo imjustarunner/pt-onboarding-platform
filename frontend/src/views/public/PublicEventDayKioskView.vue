@@ -139,10 +139,10 @@
                   <button
                     type="button"
                     class="btn edk-btn-checkin"
-                    :disabled="(checkinOpen && checkinClient?.id === c.id) || checkinSubmitting"
+                    :disabled="checkinOpen && checkinClient?.id === c.id"
                     @click="openCheckin(c)"
                   >
-                    {{ (checkinOpen && checkinClient?.id === c.id) || checkinSubmitting ? '…' : 'Check in' }}
+                    {{ checkinOpen && checkinClient?.id === c.id ? '…' : 'Check in' }}
                   </button>
                 </div>
               </div>
@@ -366,181 +366,19 @@
       </div>
     </div>
 
-    <!-- ── CHECK-IN PICKUP / WAIVER MODAL ─────────────────────────────────── -->
-    <div v-if="checkinOpen" class="edk-modal-overlay" @click.self="closeCheckin">
-      <div class="edk-modal edk-waiver-modal">
-        <div class="edk-waiver-header">
-          <div>
-            <h3 class="edk-modal-title">Check in {{ clientDisplayName(checkinClient) }}</h3>
-            <p class="muted small">Review approved pickups and emergency contacts. Add either if needed.</p>
-          </div>
-        </div>
-        <div v-if="checkinError" class="error-box">{{ checkinError }}</div>
-        <div v-if="checkinSheetLoading" class="muted small">Loading pickup info…</div>
-        <template v-else-if="checkinSheet">
-          <div v-if="checkinSheet.guardians?.length > 1" class="edk-checkin-guardian">
-            <label class="edk-emp-pin-lbl">Signing as guardian</label>
-            <select v-model="checkinGuardianUserId" class="input" @change="loadCheckinSheet">
-              <option v-for="g in checkinSheet.guardians" :key="g.userId" :value="g.userId">
-                {{ g.name || `Guardian #${g.userId}` }}
-              </option>
-            </select>
-          </div>
-          <p v-else-if="checkinSheet.guardians?.length === 1" class="muted small">
-            Signing as <strong>{{ checkinSheet.guardians[0].name || 'guardian' }}</strong>
-          </p>
-
-          <section class="edk-waiver-section">
-            <h4 class="edk-waiver-section-title">Approved drivers &amp; authorized pickups</h4>
-            <p v-if="sheetHasPickups" class="muted small edk-checkin-review-lead">
-              Review who may pick up {{ clientDisplayName(checkinClient) }} today. Confirm the list is correct or add someone.
-            </p>
-            <div v-if="!sheetHasPickups" class="edk-waiver-none">None on file yet</div>
-            <ul v-else class="edk-waiver-contact-list">
-              <li v-for="(p, i) in sheetGuardianPickups" :key="`sg-${i}`" class="edk-waiver-contact">
-                <strong>{{ p.name }}</strong>
-                <span class="muted"> · Guardian</span>
-                <span v-if="p.phone" class="edk-phone"> {{ p.phone }}</span>
-              </li>
-              <li v-for="(p, i) in sheetOtherPickups" :key="`so-${i}`" class="edk-waiver-contact">
-                <strong>{{ p.name }}</strong>
-                <span v-if="p.relationship" class="muted"> · {{ p.relationship }}</span>
-                <span v-if="p.phone" class="edk-phone"> {{ p.phone }}</span>
-              </li>
-            </ul>
-          </section>
-
-          <div v-if="sheetHasPickups" class="edk-checkin-confirm-block">
-            <label class="edk-checkin-check-row">
-              <input v-model="checkinPickupConfirmed" type="checkbox" />
-              <span>I confirm the authorized pickup people listed above are correct.</span>
-            </label>
-          </div>
-
-          <div v-else-if="checkinSheet.waiversEnabled" class="edk-checkin-waiver-banner">
-            <strong>No authorized pickup on file</strong>
-            <p class="muted small">Add an approved driver or pickup person before check-in.</p>
-            <div class="edk-checkin-pickup-actions">
-              <button
-                v-if="!checkinSheet.gate?.esignActive"
-                type="button"
-                class="btn btn-secondary btn-sm"
-                :disabled="!checkinGuardianUserId"
-                @click="openCheckinWaiverEdit('esignature_consent')"
-              >
-                Sign e-signature consent first
-              </button>
-              <button
-                v-else
-                type="button"
-                class="btn btn-primary btn-sm"
-                :disabled="!checkinGuardianUserId"
-                @click="openCheckinWaiverEdit('pickup_authorization')"
-              >
-                Add pickup person &amp; sign
-              </button>
-            </div>
-            <p v-if="!checkinGuardianUserId" class="muted small">Select or link a guardian to add pickup authorization.</p>
-          </div>
-
-          <div
-            v-if="checkinSheet.waiversEnabled && checkinSheet.gate?.pickupRequired && !checkinSheet.gate?.pickupSatisfied && sheetHasPickups"
-            class="edk-checkin-waiver-banner"
-          >
-            <strong>Pickup authorization signature required</strong>
-            <p class="muted small">Sign the pickup waiver to confirm who may pick up this child.</p>
-            <button
-              v-if="checkinSheet.gate?.needsEsignBeforePickup"
-              type="button"
-              class="btn btn-secondary btn-sm"
-              :disabled="!checkinGuardianUserId"
-              @click="openCheckinWaiverEdit('esignature_consent')"
-            >
-              Sign e-signature consent first
-            </button>
-            <button
-              v-else
-              type="button"
-              class="btn btn-primary btn-sm"
-              :disabled="!checkinGuardianUserId"
-              @click="openCheckinWaiverEdit('pickup_authorization')"
-            >
-              Sign pickup authorization
-            </button>
-          </div>
-
-          <div v-if="canAddPickupAtCheckin && sheetHasPickups" class="edk-checkin-pickup-actions">
-            <button type="button" class="btn btn-secondary btn-sm" @click="openCheckinWaiverEdit('pickup_authorization')">
-              Add another pickup person
-            </button>
-          </div>
-
-          <section class="edk-waiver-section">
-            <h4 class="edk-waiver-section-title">Emergency Contacts</h4>
-            <div v-if="!checkinSheet.emergencyContacts?.length" class="edk-waiver-none">None on file</div>
-            <ul v-else class="edk-waiver-contact-list">
-              <li v-for="(ec, i) in checkinSheet.emergencyContacts" :key="`ec-${i}`" class="edk-waiver-contact">
-                <strong>{{ ec.name || '—' }}</strong>
-                <span v-if="ec.relationship" class="muted"> · {{ ec.relationship }}</span>
-                <span v-if="ec.phone" class="edk-phone"> {{ ec.phone }}</span>
-              </li>
-            </ul>
-          </section>
-
-          <div
-            v-if="checkinNeedsEmergencyPrompt && checkinSheet.waiversEnabled"
-            class="edk-checkin-waiver-banner"
-          >
-            <strong>No emergency contact on file</strong>
-            <p class="muted small">Would you like to add one before check-in?</p>
-            <div class="edk-checkin-emergency-actions">
-              <button
-                v-if="!checkinSheet.gate?.esignActive"
-                type="button"
-                class="btn btn-secondary btn-sm"
-                :disabled="!checkinGuardianUserId"
-                @click="openCheckinWaiverEdit('esignature_consent')"
-              >
-                Sign e-signature consent first
-              </button>
-              <button
-                v-else
-                type="button"
-                class="btn btn-primary btn-sm"
-                :disabled="!checkinGuardianUserId"
-                @click="openCheckinWaiverEdit('emergency_contacts')"
-              >
-                Add emergency contact
-              </button>
-              <button type="button" class="btn btn-text btn-sm" @click="dismissEmergencyContactPrompt">
-                Continue without adding
-              </button>
-            </div>
-            <p v-if="!checkinGuardianUserId" class="muted small">Select or link a guardian to add emergency contacts.</p>
-          </div>
-          <div
-            v-else-if="checkinSheet.emergencyContacts?.length && checkinSheet.waiversEnabled && checkinGuardianUserId && checkinSheet.gate?.esignActive"
-            class="edk-checkin-update-row"
-          >
-            <button type="button" class="btn btn-secondary btn-sm" @click="openCheckinWaiverEdit('emergency_contacts')">
-              Update emergency contacts
-            </button>
-          </div>
-
-          <div class="edk-modal-actions">
-            <button type="button" class="btn btn-secondary" @click="closeCheckin">Cancel</button>
-            <button
-              type="button"
-              class="btn btn-primary"
-              :disabled="!canCompleteCheckin || checkinSubmitting"
-              @click="confirmCheckin"
-            >
-              {{ checkinSubmitting ? '…' : 'Complete check-in' }}
-            </button>
-          </div>
-        </template>
-      </div>
-    </div>
+    <EventKioskCheckinWizard
+      :open="checkinOpen"
+      :client="checkinClient"
+      :sheet-url="checkinSheetUrl"
+      :waiver-url="checkinWaiverUrl"
+      :checkin-url="checkinPostUrl"
+      :auth-headers="authHeaders"
+      :snack-options="eventContext.snackOptions || []"
+      :display-name="clientDisplayName"
+      @close="closeCheckin"
+      @checked-in="onCheckinComplete"
+      @sheet-updated="applyCheckinSheetToClient"
+    />
 
     <div v-if="absentOpen" class="edk-modal-overlay" @click.self="closeAbsentModal">
       <div class="edk-modal edk-waiver-modal">
@@ -588,31 +426,6 @@
             @click="confirmAbsent"
           >
             {{ absentSubmitting ? 'Saving…' : 'Mark absent today' }}
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="checkinWaiverEditOpen" class="edk-modal-overlay" @click.self="closeCheckinWaiverEdit">
-      <div class="edk-modal edk-waiver-modal">
-        <h3 class="edk-modal-title">{{ checkinWaiverTitle }}</h3>
-        <component :is="checkinWaiverFieldComponent" v-if="checkinWaiverFieldComponent" v-model="checkinWaiverDraft" />
-        <div class="edk-checkin-waiver-checks">
-          <label class="edk-checkin-check-row">
-            <input v-model="checkinWaiverConsent" type="checkbox" />
-            <span>I have read this section and consent to sign.</span>
-          </label>
-          <label class="edk-checkin-check-row">
-            <input v-model="checkinWaiverIntent" type="checkbox" />
-            <span>I intend my electronic signature to have the same effect as a handwritten signature.</span>
-          </label>
-        </div>
-        <SignaturePad compact @signed="(d) => (checkinWaiverSig = d)" />
-        <div v-if="checkinWaiverError" class="error-box">{{ checkinWaiverError }}</div>
-        <div class="edk-modal-actions">
-          <button type="button" class="btn btn-secondary" @click="closeCheckinWaiverEdit">Cancel</button>
-          <button type="button" class="btn btn-primary" :disabled="checkinWaiverSaving" @click="saveCheckinWaiverEdit">
-            {{ checkinWaiverSaving ? 'Saving…' : 'Save & continue' }}
           </button>
         </div>
       </div>
@@ -768,11 +581,8 @@ import { useRoute } from 'vue-router';
 import QRCode from 'qrcode';
 import api from '../../services/api';
 import { buildFormUrl } from '../../utils/publicIntakeUrl';
-import SignaturePad from '../../components/SignaturePad.vue';
-import GwvFieldsEsign from '../guardian/waivers/GwvFieldsEsign.vue';
-import GwvFieldsPickup from '../guardian/waivers/GwvFieldsPickup.vue';
-import GwvFieldsEmergency from '../guardian/waivers/GwvFieldsEmergency.vue';
 import EventKioskLateContactFlow from '../../components/eventKiosk/EventKioskLateContactFlow.vue';
+import EventKioskCheckinWizard from '../../components/eventKiosk/EventKioskCheckinWizard.vue';
 
 const route = useRoute();
 const slug = computed(() => String(route.params.organizationSlug || '').trim().toLowerCase());
@@ -1162,134 +972,34 @@ function resetToUnlock() {
 // ── Client check-in / check-out ────────────────────────────────────────────
 const checkinOpen = ref(false);
 const checkinClient = ref(null);
-const checkinSheet = ref(null);
-const checkinSheetLoading = ref(false);
-const checkinGuardianUserId = ref(null);
-const checkinError = ref('');
-const checkinSubmitting = ref(false);
-const checkinEmergencyPromptDismissed = ref(false);
-const checkinPickupConfirmed = ref(false);
 
-const CHECKIN_WAIVER_FIELDS = {
-  esignature_consent: GwvFieldsEsign,
-  pickup_authorization: GwvFieldsPickup,
-  emergency_contacts: GwvFieldsEmergency
-};
-const CHECKIN_WAIVER_TITLES = {
-  esignature_consent: 'E-signature consent',
-  pickup_authorization: 'Authorized pickups',
-  emergency_contacts: 'Emergency contacts'
-};
-const checkinWaiverEditOpen = ref(false);
-const checkinWaiverEditKey = ref('');
-const checkinWaiverDraft = ref({});
-const checkinWaiverConsent = ref(false);
-const checkinWaiverIntent = ref(false);
-const checkinWaiverSig = ref('');
-const checkinWaiverSaving = ref(false);
-const checkinWaiverError = ref('');
-
-const checkinWaiverFieldComponent = computed(() => CHECKIN_WAIVER_FIELDS[checkinWaiverEditKey.value] || null);
-const checkinWaiverTitle = computed(() => CHECKIN_WAIVER_TITLES[checkinWaiverEditKey.value] || 'Waiver section');
-const sheetGuardianPickups = computed(() => (checkinSheet.value?.authorizedPickups || []).filter((p) => p.source === 'guardian'));
-const sheetOtherPickups = computed(() => (checkinSheet.value?.authorizedPickups || []).filter((p) => p.source !== 'guardian'));
-const sheetHasPickups = computed(() => (checkinSheet.value?.authorizedPickups || []).length > 0);
-const canAddPickupAtCheckin = computed(() => {
-  if (!checkinSheet.value?.waiversEnabled || !checkinGuardianUserId.value) return false;
-  return !!checkinSheet.value?.gate?.esignActive;
-});
-const checkinNeedsEmergencyPrompt = computed(() => {
-  if (checkinEmergencyPromptDismissed.value) return false;
-  return !(checkinSheet.value?.emergencyContacts?.length);
+const checkinSheetUrl = computed(() => {
+  const cid = checkinClient.value?.id;
+  const eid = eventId.value;
+  if (!cid || !eid) return '';
+  return `${baseUrl(eid)}/event-day/client/${cid}/checkin-sheet`;
 });
 
-function dismissEmergencyContactPrompt() {
-  checkinEmergencyPromptDismissed.value = true;
-}
-
-function isValidEmergencyPhone(phone) {
-  const d = String(phone || '').replace(/\D+/g, '');
-  if (d.length === 10) return true;
-  if (d.length === 11 && d.startsWith('1')) return true;
-  return false;
-}
-
-const canCompleteCheckin = computed(() => {
-  if (!checkinSheet.value || checkinSheetLoading.value) return false;
-  const waivers = checkinSheet.value.waiversEnabled;
-  const gate = checkinSheet.value.gate || {};
-  if (sheetHasPickups.value && !checkinPickupConfirmed.value) return false;
-  if (waivers) {
-    if (gate.pickupRequired && !gate.pickupSatisfied) return false;
-    if (gate.pickupRequired && !checkinGuardianUserId.value) return false;
-    if (!sheetHasPickups.value && !gate.pickupSatisfied) return false;
-  }
-  return true;
+const checkinWaiverUrl = computed(() => {
+  const eid = eventId.value;
+  if (!eid) return '';
+  return `${baseUrl(eid)}/event-day/client/waiver-section`;
 });
 
-function defaultCheckinWaiverPayload(key) {
-  if (key === 'esignature_consent') return { consented: false, understoodElectronicRecords: false };
-  if (key === 'pickup_authorization') {
-    const existing = checkinSheet.value?.pickupSection;
-    if (existing && typeof existing === 'object') return JSON.parse(JSON.stringify(existing));
-    const merged = (checkinSheet.value?.authorizedPickups || [])
-      .filter((p) => String(p?.name || '').trim())
-      .map((p) => ({
-        name: String(p.name).trim(),
-        relationship: String(p.relationship || (p.source === 'guardian' ? 'Guardian' : '')).trim(),
-        phone: String(p.phone || '').trim()
-      }));
-    if (merged.length) return { authorizedPickups: merged };
-    return { authorizedPickups: [{ name: '', relationship: '', phone: '' }] };
-  }
-  if (key === 'emergency_contacts') {
-    const existing = checkinSheet.value?.emergencySection;
-    if (existing && typeof existing === 'object') return JSON.parse(JSON.stringify(existing));
-    return { contacts: [{ name: '', phone: '', relationship: '' }] };
-  }
-  return {};
-}
+const checkinPostUrl = computed(() => {
+  const eid = eventId.value;
+  if (!eid) return '';
+  return `${baseUrl(eid)}/event-day/client-checkin`;
+});
 
-async function openCheckin(client) {
+function openCheckin(client) {
   checkinClient.value = client;
-  checkinError.value = '';
-  checkinSheet.value = null;
-  checkinGuardianUserId.value = null;
-  checkinEmergencyPromptDismissed.value = false;
-  checkinPickupConfirmed.value = false;
   checkinOpen.value = true;
-  await loadCheckinSheet();
 }
 
 function closeCheckin() {
   checkinOpen.value = false;
   checkinClient.value = null;
-  checkinSheet.value = null;
-  checkinError.value = '';
-  checkinGuardianUserId.value = null;
-  closeCheckinWaiverEdit();
-}
-
-async function loadCheckinSheet() {
-  if (!checkinClient.value?.id || !eventId.value) return;
-  checkinSheetLoading.value = true;
-  checkinError.value = '';
-  try {
-    const params = {};
-    if (checkinGuardianUserId.value) params.guardianUserId = checkinGuardianUserId.value;
-    const res = await api.get(
-      `${baseUrl(eventId.value)}/event-day/client/${checkinClient.value.id}/checkin-sheet`,
-      { params, headers: authHeaders(), skipGlobalLoading: true, skipAuthRedirect: true }
-    );
-    checkinSheet.value = res.data;
-    if (!checkinGuardianUserId.value && res.data?.guardianUserId) checkinGuardianUserId.value = res.data.guardianUserId;
-    else if (!checkinGuardianUserId.value && res.data?.guardians?.length) checkinGuardianUserId.value = res.data.guardians[0].userId;
-    applyCheckinSheetToClient(res.data);
-  } catch (e) {
-    checkinError.value = e.response?.data?.error?.message || 'Could not load pickup info';
-  } finally {
-    checkinSheetLoading.value = false;
-  }
 }
 
 function applyCheckinSheetToClient(sheet) {
@@ -1304,132 +1014,21 @@ function applyCheckinSheetToClient(sheet) {
       ...(prev.waiver || {}),
       emergencyContacts: sheet.emergencyContacts || prev.waiver?.emergencyContacts || [],
       pickupAuth: sheet.authorizedPickups || prev.waiver?.pickupAuth || [],
-      walkHome: sheet.walkHome || prev.waiver?.walkHome || null
+      walkHome: sheet.walkHome || prev.waiver?.walkHome || null,
+      allergies: sheet.allergies || prev.waiver?.allergies || null
     }
   };
 }
 
-function openCheckinWaiverEdit(key) {
-  checkinWaiverEditKey.value = key;
-  checkinWaiverDraft.value = defaultCheckinWaiverPayload(key);
-  checkinWaiverConsent.value = false;
-  checkinWaiverIntent.value = false;
-  checkinWaiverSig.value = '';
-  checkinWaiverError.value = '';
-  checkinWaiverEditOpen.value = true;
-}
-
-function closeCheckinWaiverEdit() {
-  checkinWaiverEditOpen.value = false;
-  checkinWaiverEditKey.value = '';
-  checkinWaiverError.value = '';
-}
-
-async function saveCheckinWaiverEdit() {
-  const key = checkinWaiverEditKey.value;
-  if (!key || !checkinWaiverConsent.value || !checkinWaiverIntent.value) {
-    checkinWaiverError.value = 'Check both boxes and sign to save.';
-    return;
-  }
-  const sig = String(checkinWaiverSig.value || '').trim();
-  if (sig.length < 80) {
-    checkinWaiverError.value = 'Signature is required.';
-    return;
-  }
-  if (key === 'esignature_consent') {
-    const p = checkinWaiverDraft.value || {};
-    if (!p.consented || !p.understoodElectronicRecords) {
-      checkinWaiverError.value = 'Complete e-sign consent checkboxes in the form.';
-      return;
-    }
-  }
-  if (key === 'pickup_authorization') {
-    const p = checkinWaiverDraft.value || {};
-    if (!p.declinePickupAuthorization) {
-      const rows = Array.isArray(p.authorizedPickups) ? p.authorizedPickups : [];
-      const hasValid = rows.some(
-        (r) => String(r?.name || '').trim() && isValidEmergencyPhone(r?.phone)
-      );
-      if (!hasValid) {
-        checkinWaiverError.value = 'Add at least one pickup person with name and a 10-digit phone, or check the opt-out box.';
-        return;
-      }
-    }
-  }
-  if (key === 'emergency_contacts') {
-    const p = checkinWaiverDraft.value || {};
-    if (!p.declineEmergencyContacts) {
-      const rows = Array.isArray(p.contacts) ? p.contacts : [];
-      const hasValid = rows.some(
-        (r) => String(r?.name || '').trim() && isValidEmergencyPhone(r?.phone)
-      );
-      if (!hasValid) {
-        checkinWaiverError.value = 'Add at least one emergency contact with name and a 10-digit phone, or check the opt-out box.';
-        return;
-      }
-    }
-  }
-  const gid = checkinGuardianUserId.value;
-  const cid = checkinClient.value?.id;
-  if (!gid || !cid) {
-    checkinWaiverError.value = 'Select a guardian to sign.';
-    return;
-  }
-  const status = checkinSheet.value?.sectionStatus?.[key];
-  const action = status === 'active' ? 'update' : 'create';
-  checkinWaiverSaving.value = true;
-  checkinWaiverError.value = '';
-  try {
-    const res = await api.post(
-      `${baseUrl(eventId.value)}/event-day/client/waiver-section`,
-      {
-        clientId: cid,
-        guardianUserId: gid,
-        sectionKey: key,
-        payload: checkinWaiverDraft.value,
-        signatureData: sig,
-        consentAcknowledged: true,
-        intentToSign: true,
-        action
-      },
-      { headers: authHeaders(), skipGlobalLoading: true, skipAuthRedirect: true }
-    );
-    checkinSheet.value = res.data?.sheet || checkinSheet.value;
-    if (res.data?.sheet) {
-      applyCheckinSheetToClient(res.data.sheet);
-      if (key === 'pickup_authorization') checkinPickupConfirmed.value = false;
-    }
-    closeCheckinWaiverEdit();
-  } catch (e) {
-    checkinWaiverError.value = e.response?.data?.error?.message || 'Save failed';
-  } finally {
-    checkinWaiverSaving.value = false;
-  }
-}
-
-async function confirmCheckin() {
-  if (!checkinClient.value || !canCompleteCheckin.value) return;
-  checkinSubmitting.value = true;
-  checkinError.value = '';
-  try {
-    await api.post(
-      `${baseUrl(eventId.value)}/event-day/client-checkin`,
-      { clientId: checkinClient.value.id },
-      { headers: authHeaders(), skipGlobalLoading: true, skipAuthRedirect: true }
-    );
-    checkins.value.push({
-      clientId: checkinClient.value.id,
-      userId: null,
-      personType: 'client',
-      action: 'check_in',
-      checkedInAt: new Date().toISOString()
-    });
-    closeCheckin();
-  } catch (e) {
-    checkinError.value = e.response?.data?.error?.message || 'Check-in failed';
-  } finally {
-    checkinSubmitting.value = false;
-  }
+function onCheckinComplete({ clientId }) {
+  checkins.value.push({
+    clientId,
+    userId: null,
+    personType: 'client',
+    action: 'check_in',
+    checkedInAt: new Date().toISOString()
+  });
+  closeCheckin();
 }
 
 const absentOpen = ref(false);

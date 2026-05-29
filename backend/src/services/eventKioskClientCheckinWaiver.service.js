@@ -210,6 +210,8 @@ export async function getEventKioskClientCheckinSheet({ companyEventId, clientId
 
   const pickupPayload = gid ? pickupPayloadFromSections(gate.sections) : null;
   const emergencyPayload = gid ? emergencyPayloadFromSections(gate.sections) : null;
+  const walkHomePayload = gid ? readActiveSectionPayload(gate.sections, 'walk_home_authorization') : null;
+  const allergiesPayload = gid ? readActiveSectionPayload(gate.sections, 'allergies_snacks') : null;
   const emergencyContacts = entry.emergencyContacts || [];
 
   const pickupRequired = gate.enabled && gate.pickupRequired;
@@ -226,6 +228,7 @@ export async function getEventKioskClientCheckinSheet({ companyEventId, clientId
     hasEmergencyContacts: emergencyContacts.length > 0,
     hasPickupOptions: clientHasReleasePickupOptions(entry),
     walkHome: entry.walkHome,
+    allergies: entry.allergies || null,
     canCheckIn: !gate.enabled || pickupSatisfied,
     gate: {
       pickupRequired,
@@ -246,11 +249,34 @@ export async function getEventKioskClientCheckinSheet({ companyEventId, clientId
           declineEmergencyContacts: !!emergencyPayload.declineEmergencyContacts
         }
       : null,
+    walkHomeSection: walkHomePayload && typeof walkHomePayload === 'object'
+      ? {
+          allowedToWalkHome: walkHomePayload.allowedToWalkHome === true,
+          allowedWindow: String(walkHomePayload.allowedWindow || '').trim() || null,
+          route: String(walkHomePayload.route || '').trim() || null,
+          conditions: String(walkHomePayload.conditions || '').trim() || null,
+          attestation: !!walkHomePayload.attestation
+        }
+      : null,
+    allergiesSection: allergiesPayload && typeof allergiesPayload === 'object'
+      ? {
+          allergies: String(allergiesPayload.allergies || '').trim(),
+          approvedSnacks: String(allergiesPayload.approvedSnacks || '').trim(),
+          approvedSnacksList: Array.isArray(allergiesPayload.approvedSnacksList)
+            ? allergiesPayload.approvedSnacksList
+            : [],
+          noSnacks: !!allergiesPayload.noSnacks,
+          notes: String(allergiesPayload.notes || '').trim(),
+          applyNone: allergiesPayload.applyNone === true
+        }
+      : null,
     sectionStatus: gid
       ? {
           esignature_consent: gate.sections?.esignature_consent?.status || null,
           pickup_authorization: gate.sections?.pickup_authorization?.status || null,
-          emergency_contacts: gate.sections?.emergency_contacts?.status || null
+          emergency_contacts: gate.sections?.emergency_contacts?.status || null,
+          walk_home_authorization: gate.sections?.walk_home_authorization?.status || null,
+          allergies_snacks: gate.sections?.allergies_snacks?.status || null
         }
       : null
   };

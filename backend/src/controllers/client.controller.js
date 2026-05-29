@@ -24,6 +24,7 @@ import crypto from 'crypto';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 import { isSkillsClientFlag } from '../utils/skillsClientFlag.js';
 import { bumpGradeCanonical, normalizeGradeForSave } from '../utils/clientGrade.js';
+import { syncClientGradeFromIntakeIfMissing } from '../utils/intakeGrade.util.js';
 import {
   decryptIntakePayload,
   decryptIntakeSubmissionRows,
@@ -737,6 +738,20 @@ export const getArchivedClients = async (req, res, next) => {
  * Get client by ID
  * GET /api/clients/:id
  */
+const enrichClientGradeFromIntakeIfMissing = async (client) => {
+  if (!client?.id || String(client.grade || '').trim()) return client;
+  try {
+    const synced = await syncClientGradeFromIntakeIfMissing(client.id);
+    if (synced) client.grade = synced;
+  } catch (e) {
+    console.warn('[getClientById] grade intake sync failed', {
+      clientId: client.id,
+      message: e?.message || String(e || '')
+    });
+  }
+  return client;
+};
+
 export const getClientById = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -779,6 +794,7 @@ export const getClientById = async (req, res, next) => {
         }
       }
       logClientAccess(req, client.id, 'view_client').catch(() => {});
+      await enrichClientGradeFromIntakeIfMissing(client);
       return res.json(client);
     }
 
@@ -889,6 +905,7 @@ export const getClientById = async (req, res, next) => {
       }
     }
     logClientAccess(req, client.id, 'view_client').catch(() => {});
+    await enrichClientGradeFromIntakeIfMissing(client);
     // PII gating: strip full/first/last names for school_staff even when they
     // happen to also have agency access (defense-in-depth).
     res.json(redactClientNamesForRole(client, userRole));

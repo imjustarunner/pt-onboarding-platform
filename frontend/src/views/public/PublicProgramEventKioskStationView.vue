@@ -154,10 +154,10 @@
                 <button
                   type="button"
                   class="btn pe-btn-checkin"
-                  :disabled="!kioskActive || (checkinOpen && checkinClient?.id === c.id) || checkinSubmitting"
+                  :disabled="!kioskActive || (checkinOpen && checkinClient?.id === c.id)"
                   @click="openCheckin(c)"
                 >
-                  {{ (checkinOpen && checkinClient?.id === c.id) || checkinSubmitting ? '…' : 'Check in' }}
+                  {{ checkinOpen && checkinClient?.id === c.id ? '…' : 'Check in' }}
                 </button>
               </div>
             </div>
@@ -235,28 +235,56 @@
       <!-- CHECK OUT · CLIENT (release flow) -->
       <div v-else-if="mainMode === 'checkout' && personMode === 'client'" class="pe-panel">
         <p class="pe-panel-lead muted">
-          {{ kioskActive ? 'Tap a checked-in client to release with signature' : 'Release is available on event days only' }}
+          {{ kioskActive ? 'Tap a checked-in client to check out, or view checkout details' : 'Checkout is available on event days only' }}
         </p>
-        <ul class="pe-roster pe-roster--grid">
-          <li
-            v-for="c in filteredCheckoutClients"
-            :key="c.id"
-            class="pe-card"
-            :class="{ 'pe-card--released': releasedToday(c.id), 'pe-card--disabled': !kioskActive }"
-            @click="kioskActive && !releasedToday(c.id) && openCheckout(c)"
-          >
-            <strong>{{ clientDisplayName(c) }}</strong>
-            <span v-if="c.identifierCode" class="muted small"> · {{ c.identifierCode }}</span>
-            <span v-if="releasedToday(c.id)" class="pe-tag pe-tag--out">
-              Released · {{ formatTime(releasedToday(c.id).signedAt) }}
-            </span>
-            <span v-else-if="c.checkoutBlocked" class="pe-tag pe-tag--warn">Release info missing</span>
-            <span v-else class="pe-tag">Tap to release</span>
-          </li>
-          <li v-if="!filteredCheckoutClients.length" class="pe-empty muted">
-            {{ search ? 'No matches.' : 'No checked-in clients waiting for release.' }}
-          </li>
-        </ul>
+
+        <template v-if="filteredCheckoutPending.length">
+          <h3 class="pe-roster-section-title">Waiting to check out</h3>
+          <ul class="pe-roster pe-roster--grid">
+            <li
+              v-for="c in filteredCheckoutPending"
+              :key="`pending-${c.id}`"
+              class="pe-card"
+              :class="{ 'pe-card--disabled': !kioskActive }"
+              @click="kioskActive && openCheckout(c)"
+            >
+              <strong>{{ clientDisplayName(c) }}</strong>
+              <span v-if="c.identifierCode" class="muted small"> · {{ c.identifierCode }}</span>
+              <span v-if="checkinRecordForClient(c.id)?.checkedInAt" class="muted small">
+                Checked in {{ formatTime(checkinRecordForClient(c.id).checkedInAt) }}
+              </span>
+              <span v-if="c.checkoutBlocked" class="pe-tag pe-tag--warn">Release info missing</span>
+              <span v-else class="pe-tag pe-tag--action">Check out</span>
+            </li>
+          </ul>
+        </template>
+
+        <template v-if="filteredCheckoutDone.length">
+          <h3 class="pe-roster-section-title">Checked out</h3>
+          <ul class="pe-roster pe-roster--grid">
+            <li
+              v-for="c in filteredCheckoutDone"
+              :key="`done-${c.id}`"
+              class="pe-card pe-card--released"
+              :class="{ 'pe-card--disabled': !kioskActive }"
+              @click="openCheckoutDetail(c)"
+            >
+              <strong>{{ clientDisplayName(c) }}</strong>
+              <span v-if="c.identifierCode" class="muted small"> · {{ c.identifierCode }}</span>
+              <span class="pe-tag pe-tag--out">
+                Checked out {{ formatTime(releasedToday(c.id).signedAt) }}
+              </span>
+              <span class="muted small">
+                To {{ releaseRecipientLabel(releasedToday(c.id)) }}
+              </span>
+              <span class="pe-tag pe-tag--view">View details</span>
+            </li>
+          </ul>
+        </template>
+
+        <p v-if="!filteredCheckoutPending.length && !filteredCheckoutDone.length" class="pe-empty muted">
+          {{ search ? 'No matches.' : 'No clients checked in today.' }}
+        </p>
       </div>
 
       <!-- CHECK OUT · EMPLOYEE -->
@@ -282,37 +310,69 @@
       <!-- RESOURCE -->
       <div v-else class="pe-panel">
         <p class="pe-panel-lead muted">
-          {{ kioskActive ? 'Checked-in participants · tap for emergency & waiver info' : 'Confirmed participants · tap to preview emergency & waiver info' }}
+          All participants · tap for emergency & waiver info
         </p>
-        <ul class="pe-roster pe-roster--grid">
-          <li
-            v-for="c in filteredResourceClients"
-            :key="c.id"
-            class="pe-card pe-card--resource"
-            @click="openResource(c)"
-          >
-            <div class="pe-card-initials">{{ initials(c.fullName || c.kioskDisplayName) }}</div>
-            <strong>{{ clientDisplayName(c) }}</strong>
-            <span v-if="c.emergencyContacts?.length" class="pe-tag">
-              {{ c.emergencyContacts.length }} emergency contact{{ c.emergencyContacts.length !== 1 ? 's' : '' }}
-            </span>
-            <span v-else class="pe-tag pe-tag--warn">No emergency contacts</span>
-            <span v-if="allergySummary(c.allergies)" class="pe-tag pe-tag--warn">
-              Allergies: {{ allergySummary(c.allergies) }}
-            </span>
-            <span v-if="c.allergies?.noSnacks" class="pe-tag pe-tag--warn">No snacks</span>
-            <span v-else-if="approvedSnacksSummary(c.allergies)" class="pe-tag">
-              Snacks: {{ approvedSnacksSummary(c.allergies) }}
-            </span>
-            <span v-else-if="clientHasAllergyInfo(c) && c.allergies?.applyNone" class="pe-tag">No medical info</span>
-            <span v-if="c.authorizedPickups?.length" class="pe-tag">
-              {{ c.authorizedPickups.length }} pickup{{ c.authorizedPickups.length !== 1 ? 's' : '' }}
-            </span>
-          </li>
-          <li v-if="!filteredResourceClients.length" class="pe-empty muted">
-            {{ search ? 'No matches.' : (kioskActive ? 'No participants checked in yet.' : 'No confirmed participants yet.') }}
-          </li>
-        </ul>
+
+        <template v-if="filteredResourceCheckedIn.length">
+          <h3 class="pe-roster-section-title">Checked in</h3>
+          <ul class="pe-roster pe-roster--grid">
+            <li
+              v-for="c in filteredResourceCheckedIn"
+              :key="`in-${c.id}`"
+              class="pe-card pe-card--resource"
+              @click="openResource(c)"
+            >
+              <div class="pe-card-initials">{{ initials(c.fullName || c.kioskDisplayName) }}</div>
+              <strong>{{ clientDisplayName(c) }}</strong>
+              <span v-if="checkinRecordForClient(c.id)?.checkedInAt" class="pe-tag pe-tag--in">
+                In since {{ formatTime(checkinRecordForClient(c.id).checkedInAt) }}
+              </span>
+              <span v-if="c.emergencyContacts?.length" class="pe-tag">
+                {{ c.emergencyContacts.length }} emergency contact{{ c.emergencyContacts.length !== 1 ? 's' : '' }}
+              </span>
+              <span v-else class="pe-tag pe-tag--warn">No emergency contacts</span>
+              <span v-if="allergySummary(c.allergies)" class="pe-tag pe-tag--warn">
+                Allergies: {{ allergySummary(c.allergies) }}
+              </span>
+              <span v-if="c.allergies?.noSnacks" class="pe-tag pe-tag--warn">No snacks</span>
+              <span v-else-if="approvedSnacksSummary(c.allergies)" class="pe-tag">
+                Snacks: {{ approvedSnacksSummary(c.allergies) }}
+              </span>
+              <span v-else-if="clientHasAllergyInfo(c) && c.allergies?.applyNone" class="pe-tag">No medical info</span>
+              <span v-if="c.authorizedPickups?.length" class="pe-tag">
+                {{ c.authorizedPickups.length }} pickup{{ c.authorizedPickups.length !== 1 ? 's' : '' }}
+              </span>
+            </li>
+          </ul>
+        </template>
+
+        <template v-if="filteredResourceNotCheckedIn.length">
+          <h3 class="pe-roster-section-title">Not checked in yet</h3>
+          <ul class="pe-roster pe-roster--grid">
+            <li
+              v-for="c in filteredResourceNotCheckedIn"
+              :key="`out-${c.id}`"
+              class="pe-card pe-card--resource pe-card--muted"
+              @click="openResource(c)"
+            >
+              <div class="pe-card-initials">{{ initials(c.fullName || c.kioskDisplayName) }}</div>
+              <strong>{{ clientDisplayName(c) }}</strong>
+              <span v-if="personAbsentToday('client', c.id)" class="pe-tag pe-tag--warn">Absent today</span>
+              <span v-else class="pe-tag">Not checked in</span>
+              <span v-if="c.emergencyContacts?.length" class="pe-tag">
+                {{ c.emergencyContacts.length }} emergency contact{{ c.emergencyContacts.length !== 1 ? 's' : '' }}
+              </span>
+              <span v-else class="pe-tag pe-tag--warn">No emergency contacts</span>
+              <span v-if="allergySummary(c.allergies)" class="pe-tag pe-tag--warn">
+                Allergies: {{ allergySummary(c.allergies) }}
+              </span>
+            </li>
+          </ul>
+        </template>
+
+        <p v-if="!filteredResourceCheckedIn.length && !filteredResourceNotCheckedIn.length" class="pe-empty muted">
+          {{ search ? 'No matches.' : 'No confirmed participants yet.' }}
+        </p>
       </div>
     </section>
 
@@ -432,206 +492,18 @@
       </div>
     </div>
 
-    <!-- Check-in modal: approved pickups + waiver signing -->
-    <div v-if="checkinOpen" class="pe-kiosk-modal" @click.self="closeCheckin">
-      <div class="pe-kiosk-modal-card">
-        <header class="pe-kiosk-modal-hdr">
-          <div>
-            <div class="pe-kiosk-modal-title">Check in {{ clientDisplayName(checkinClient) }}</div>
-            <div class="muted small">Review who is approved for pickup. Add emergency contacts or pickup authorization if needed.</div>
-          </div>
-          <button class="btn btn-text" @click="closeCheckin">Close</button>
-        </header>
-
-        <div v-if="checkinError" class="error-box pe-kiosk-modal-err">{{ checkinError }}</div>
-        <div v-if="checkinSheetLoading" class="muted small">Loading pickup info…</div>
-
-        <template v-else-if="checkinSheet">
-          <div v-if="checkinSheet.guardians?.length > 1" class="pe-checkin-guardian-pick">
-            <label class="pe-checkin-lbl">Signing as guardian</label>
-            <select
-              v-model="checkinGuardianUserId"
-              class="input"
-              @change="loadCheckinSheet"
-            >
-              <option v-for="g in checkinSheet.guardians" :key="g.userId" :value="g.userId">
-                {{ g.name || `Guardian #${g.userId}` }}
-              </option>
-            </select>
-          </div>
-          <p v-else-if="checkinSheet.guardians?.length === 1" class="muted small">
-            Signing as <strong>{{ checkinSheet.guardians[0].name || 'guardian' }}</strong>
-          </p>
-          <p v-else-if="checkinSheet.waiversEnabled && checkinSheet.gate?.pickupRequired" class="pe-checkout-issue-banner">
-            No guardian linked on file — ask staff before signing pickup authorization.
-          </p>
-
-          <h4 class="pe-kiosk-modal-h4">Approved drivers &amp; authorized pickups</h4>
-          <p v-if="sheetHasPickups" class="muted small pe-checkin-review-lead">
-            Review who may pick up {{ clientDisplayName(checkinClient) }} today. Confirm the list is correct or add someone.
-          </p>
-          <p v-if="sheetGuardianPickups.length" class="pe-kiosk-modal-sub muted small">Guardians</p>
-          <ul v-if="sheetGuardianPickups.length" class="pe-info-list">
-            <li v-for="(p, i) in sheetGuardianPickups" :key="`sg-${i}`">
-              <strong>{{ p.name }}</strong>
-              <span class="muted small"> · Guardian</span>
-              <div v-if="p.phone" class="muted small">{{ p.phone }}</div>
-            </li>
-          </ul>
-          <p v-if="sheetOtherPickups.length" class="pe-kiosk-modal-sub muted small">Other authorized pickups</p>
-          <ul v-if="sheetOtherPickups.length" class="pe-info-list">
-            <li v-for="(p, i) in sheetOtherPickups" :key="`so-${i}`">
-              <strong>{{ p.name }}</strong>
-              <span v-if="p.relationship" class="muted small"> · {{ p.relationship }}</span>
-              <div v-if="p.phone" class="muted small">{{ p.phone }}</div>
-            </li>
-          </ul>
-          <p v-if="!sheetHasPickups" class="muted small">
-            No authorized pickup people on file yet.
-          </p>
-
-          <div v-if="sheetHasPickups" class="pe-checkin-confirm-block">
-            <label class="pe-checkin-check-row">
-              <input v-model="checkinPickupConfirmed" type="checkbox" />
-              <span>I confirm the authorized pickup people listed above are correct.</span>
-            </label>
-          </div>
-
-          <div
-            v-else-if="checkinSheet.waiversEnabled"
-            class="pe-checkin-waiver-banner"
-          >
-            <strong>No authorized pickup on file</strong>
-            <p class="small">Add an approved driver or pickup person before check-in.</p>
-            <div class="pe-checkin-pickup-actions">
-              <button
-                v-if="!checkinSheet.gate?.esignActive"
-                type="button"
-                class="btn btn-secondary btn-sm"
-                :disabled="!checkinGuardianUserId"
-                @click="openCheckinWaiverEdit('esignature_consent')"
-              >
-                Sign e-signature consent first
-              </button>
-              <button
-                v-else
-                type="button"
-                class="btn btn-primary btn-sm"
-                :disabled="!checkinGuardianUserId"
-                @click="openCheckinWaiverEdit('pickup_authorization')"
-              >
-                Add pickup person &amp; sign
-              </button>
-            </div>
-            <p v-if="!checkinGuardianUserId" class="muted small">Select or link a guardian to add pickup authorization.</p>
-          </div>
-
-          <div
-            v-if="checkinSheet.waiversEnabled && checkinSheet.gate?.pickupRequired && !checkinSheet.gate?.pickupSatisfied && sheetHasPickups"
-            class="pe-checkin-waiver-banner"
-          >
-            <strong>Pickup authorization signature required</strong>
-            <p class="small">
-              Sign the pickup waiver to confirm who may pick up {{ clientDisplayName(checkinClient) }}.
-            </p>
-            <button
-              v-if="checkinSheet.gate?.needsEsignBeforePickup"
-              type="button"
-              class="btn btn-secondary btn-sm"
-              :disabled="!checkinGuardianUserId"
-              @click="openCheckinWaiverEdit('esignature_consent')"
-            >
-              Sign e-signature consent first
-            </button>
-            <button
-              v-else
-              type="button"
-              class="btn btn-primary btn-sm"
-              :disabled="!checkinGuardianUserId"
-              @click="openCheckinWaiverEdit('pickup_authorization')"
-            >
-              Sign pickup authorization
-            </button>
-          </div>
-
-          <div v-if="canAddPickupAtCheckin && sheetHasPickups" class="pe-checkin-pickup-actions">
-            <button
-              type="button"
-              class="btn btn-secondary btn-sm"
-              @click="openCheckinWaiverEdit('pickup_authorization')"
-            >
-              Add another pickup person
-            </button>
-          </div>
-
-          <h4 class="pe-kiosk-modal-h4">Emergency contacts</h4>
-          <ul v-if="checkinSheet.emergencyContacts?.length" class="pe-info-list">
-            <li v-for="(e, i) in checkinSheet.emergencyContacts" :key="`ec-${i}`">
-              <strong>{{ e.name }}</strong>
-              <span v-if="e.relationship" class="muted small"> · {{ e.relationship }}</span>
-              <div v-if="e.phone" class="muted small">{{ e.phone }}</div>
-            </li>
-          </ul>
-          <p v-else class="muted small">None on file.</p>
-
-          <div
-            v-if="checkinNeedsEmergencyPrompt && checkinSheet.waiversEnabled"
-            class="pe-checkin-waiver-banner pe-checkin-emergency-banner"
-          >
-            <strong>No emergency contact on file</strong>
-            <p class="small">Would you like to add one before check-in?</p>
-            <div class="pe-checkin-emergency-actions">
-              <button
-                v-if="!checkinSheet.gate?.esignActive"
-                type="button"
-                class="btn btn-secondary btn-sm"
-                :disabled="!checkinGuardianUserId"
-                @click="openCheckinWaiverEdit('esignature_consent')"
-              >
-                Sign e-signature consent first
-              </button>
-              <button
-                v-else
-                type="button"
-                class="btn btn-primary btn-sm"
-                :disabled="!checkinGuardianUserId"
-                @click="openCheckinWaiverEdit('emergency_contacts')"
-              >
-                Add emergency contact
-              </button>
-              <button type="button" class="btn btn-text btn-sm" @click="dismissEmergencyContactPrompt">
-                Continue without adding
-              </button>
-            </div>
-            <p v-if="!checkinGuardianUserId" class="muted small">Select or link a guardian to add emergency contacts.</p>
-          </div>
-          <div
-            v-else-if="checkinSheet.emergencyContacts?.length && checkinSheet.waiversEnabled && checkinGuardianUserId && checkinSheet.gate?.esignActive"
-            class="pe-checkin-update-row"
-          >
-            <button
-              type="button"
-              class="btn btn-secondary btn-sm"
-              @click="openCheckinWaiverEdit('emergency_contacts')"
-            >
-              Update emergency contacts
-            </button>
-          </div>
-
-          <div class="pe-checkin-actions">
-            <button type="button" class="btn btn-secondary" @click="closeCheckin">Cancel</button>
-            <button
-              type="button"
-              class="btn btn-primary"
-              :disabled="!canCompleteCheckin || checkinSubmitting"
-              @click="confirmCheckin"
-            >
-              {{ checkinSubmitting ? 'Checking in…' : 'Complete check-in' }}
-            </button>
-          </div>
-        </template>
-      </div>
-    </div>
+    <EventKioskCheckinWizard
+      :open="checkinOpen"
+      :client="checkinClient"
+      :sheet-url="checkinSheetUrl"
+      :waiver-url="`${apiBase()}/checkin/client/waiver-section`"
+      :checkin-url="`${apiBase()}/checkin/client`"
+      :auth-headers="authHeaders"
+      :display-name="clientDisplayName"
+      @close="closeCheckin"
+      @checked-in="onCheckinComplete"
+      @sheet-updated="applyCheckinSheetToClient"
+    />
 
     <!-- Mark absent modal -->
     <div v-if="absentOpen" class="pe-kiosk-modal" @click.self="closeAbsentModal">
@@ -685,45 +557,43 @@
       </div>
     </div>
 
-    <!-- Waiver section editor (pickup / e-sign at check-in) -->
-    <div v-if="checkinWaiverEditOpen" class="pe-kiosk-modal pe-kiosk-modal--stack" @click.self="closeCheckinWaiverEdit">
-      <div class="pe-kiosk-modal-card">
+    <!-- Checkout detail (already checked out) -->
+    <div v-if="checkoutDetailOpen" class="pe-kiosk-modal" @click.self="closeCheckoutDetail">
+      <div class="pe-kiosk-modal-card pe-checkout-detail-card">
         <header class="pe-kiosk-modal-hdr">
-          <div class="pe-kiosk-modal-title">{{ checkinWaiverTitle }}</div>
-          <button class="btn btn-text" @click="closeCheckinWaiverEdit">Close</button>
+          <div>
+            <div class="pe-kiosk-modal-title">{{ clientDisplayName(checkoutDetailClient) }}</div>
+            <div class="muted small">Checkout record for today</div>
+          </div>
+          <button class="btn btn-text" type="button" @click="closeCheckoutDetail">Close</button>
         </header>
-        <component
-          :is="checkinWaiverFieldComponent"
-          v-if="checkinWaiverFieldComponent"
-          v-model="checkinWaiverDraft"
-        />
-        <div class="pe-checkin-waiver-checks">
-          <label class="pe-checkin-check-row">
-            <input v-model="checkinWaiverConsent" type="checkbox" />
-            <span>I have read this section and consent to sign.</span>
-          </label>
-          <label class="pe-checkin-check-row">
-            <input v-model="checkinWaiverIntent" type="checkbox" />
-            <span>I intend my electronic signature to have the same effect as a handwritten signature.</span>
-          </label>
-        </div>
-        <SignaturePad compact @signed="(d) => (checkinWaiverSig = d)" />
-        <div v-if="checkinWaiverError" class="error-box pe-kiosk-modal-err">{{ checkinWaiverError }}</div>
-        <div class="pe-checkin-actions">
-          <button type="button" class="btn btn-secondary" @click="closeCheckinWaiverEdit">Cancel</button>
-          <button
-            type="button"
-            class="btn btn-primary"
-            :disabled="checkinWaiverSaving"
-            @click="saveCheckinWaiverEdit"
-          >
-            {{ checkinWaiverSaving ? 'Saving…' : 'Save & continue' }}
-          </button>
-        </div>
+
+        <dl v-if="checkoutDetailClient && releasedToday(checkoutDetailClient.id)" class="pe-checkout-detail">
+          <div class="pe-checkout-detail-row">
+            <dt>Checked in</dt>
+            <dd>{{ formatDateTime(checkinRecordForClient(checkoutDetailClient.id)?.checkedInAt) }}</dd>
+          </div>
+          <div class="pe-checkout-detail-row">
+            <dt>Checked out</dt>
+            <dd>{{ formatDateTime(releasedToday(checkoutDetailClient.id).signedAt) }}</dd>
+          </div>
+          <div class="pe-checkout-detail-row">
+            <dt>Time on site</dt>
+            <dd>{{ checkoutDuration(checkoutDetailClient.id) }}</dd>
+          </div>
+          <div class="pe-checkout-detail-row">
+            <dt>Released to</dt>
+            <dd>{{ releaseRecipientLabel(releasedToday(checkoutDetailClient.id)) }}</dd>
+          </div>
+          <div v-if="releasedToday(checkoutDetailClient.id).walkHomeAlone" class="pe-checkout-detail-row">
+            <dt>Release type</dt>
+            <dd>Walk home alone</dd>
+          </div>
+        </dl>
       </div>
     </div>
 
-    <!-- Checkout / release modal (unchanged flow) -->
+    <!-- Checkout / release modal -->
     <div v-if="checkoutOpen" class="pe-kiosk-modal" @click.self="closeCheckout">
       <div class="pe-kiosk-modal-card">
         <header class="pe-kiosk-modal-hdr">
@@ -927,10 +797,8 @@ import { useBrandingStore } from '../../store/branding';
 import { resolvePortalSlug } from '../../utils/orgScopedPath';
 import { buildFormUrl } from '../../utils/publicIntakeUrl';
 import SignaturePad from '../../components/SignaturePad.vue';
-import GwvFieldsEsign from '../guardian/waivers/GwvFieldsEsign.vue';
-import GwvFieldsPickup from '../guardian/waivers/GwvFieldsPickup.vue';
-import GwvFieldsEmergency from '../guardian/waivers/GwvFieldsEmergency.vue';
 import EventKioskLateContactFlow from '../../components/eventKiosk/EventKioskLateContactFlow.vue';
+import EventKioskCheckinWizard from '../../components/eventKiosk/EventKioskCheckinWizard.vue';
 
 const route = useRoute();
 const brandingStore = useBrandingStore();
@@ -1108,9 +976,6 @@ const pendingClients = computed(() =>
 const absentClients = computed(() =>
   clients.value.filter((c) => personAbsentToday('client', c.id))
 );
-const activeCheckedInClients = computed(() =>
-  clients.value.filter((c) => personCheckedIn('client', c.id) && !releasedToday(c.id))
-);
 const pendingStaff = computed(() =>
   staff.value.filter((s) => !personCheckedIn('employee', s.id))
 );
@@ -1136,17 +1001,35 @@ const filteredPendingStaff = computed(() =>
   filterList(pendingStaff.value, ['displayName', 'firstName', 'lastName'])
 );
 const filteredCheckoutClients = computed(() =>
-  filterList(activeCheckedInClients.value, ['fullName', 'kioskDisplayName', 'initials', 'identifierCode'])
+  filterList(
+    clients.value.filter((c) => personCheckedIn('client', c.id)),
+    ['fullName', 'kioskDisplayName', 'initials', 'identifierCode']
+  )
+);
+const filteredCheckoutPending = computed(() =>
+  filteredCheckoutClients.value.filter((c) => !releasedToday(c.id))
+);
+const filteredCheckoutDone = computed(() =>
+  filteredCheckoutClients.value.filter((c) => releasedToday(c.id))
 );
 const filteredActiveStaff = computed(() =>
   filterList(activeCheckedInStaff.value, ['displayName', 'firstName', 'lastName'])
 );
-const filteredResourceClients = computed(() =>
-  filterList(kioskActive.value ? activeCheckedInClients.value : clients.value, ['fullName', 'kioskDisplayName', 'initials', 'identifierCode'])
+const resourceCheckedInClients = computed(() =>
+  clients.value.filter((c) => personCheckedIn('client', c.id) && !releasedToday(c.id))
+);
+const resourceNotCheckedInClients = computed(() =>
+  clients.value.filter((c) => !personCheckedIn('client', c.id))
+);
+const filteredResourceCheckedIn = computed(() =>
+  filterList(resourceCheckedInClients.value, ['fullName', 'kioskDisplayName', 'initials', 'identifierCode'])
+);
+const filteredResourceNotCheckedIn = computed(() =>
+  filterList(resourceNotCheckedInClients.value, ['fullName', 'kioskDisplayName', 'initials', 'identifierCode'])
 );
 
 const searchPlaceholder = computed(() => {
-  if (mainMode.value === 'resource') return 'Search checked-in clients…';
+  if (mainMode.value === 'resource') return 'Search participants…';
   if (personMode.value === 'employee') return 'Search employees…';
   return 'Search clients…';
 });
@@ -1163,12 +1046,52 @@ const brandStyle = computed(() => {
 function releasedToday(clientId) {
   return releases.value.find((r) => Number(r.clientId) === Number(clientId)) || null;
 }
+function checkinRecordForClient(clientId) {
+  return checkins.value.find(
+    (c) => c.personType === 'client' && c.action === 'check_in' && Number(c.clientId) === Number(clientId)
+  ) || null;
+}
 function formatNow() {
   try { return new Date().toLocaleTimeString(); } catch { return ''; }
 }
 function formatTime(iso) {
   if (!iso) return '';
   try { return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch { return ''; }
+}
+function formatDateTime(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString([], {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  } catch {
+    return '—';
+  }
+}
+function formatDuration(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  const totalMin = Math.floor(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h > 0 && m > 0) return `${h} hr ${m} min`;
+  if (h > 0) return `${h} hr`;
+  return `${m} min`;
+}
+function checkoutDuration(clientId) {
+  const checkin = checkinRecordForClient(clientId);
+  const release = releasedToday(clientId);
+  if (!checkin?.checkedInAt || !release?.signedAt) return '—';
+  return formatDuration(new Date(release.signedAt) - new Date(checkin.checkedInAt));
+}
+function releaseRecipientLabel(release) {
+  if (!release) return '—';
+  let label = release.releasedToName || '—';
+  if (release.releasedToRelationship) label += ` (${release.releasedToRelationship})`;
+  return label;
 }
 const registrationAvailable = computed(() => registration.value?.available === true);
 const registrationLinks = computed(() => {
@@ -1301,162 +1224,24 @@ function clientHasAllergyInfo(client) {
   );
 }
 
+const checkinOpen = ref(false);
+const checkinClient = ref(null);
+
+const checkinSheetUrl = computed(() => {
+  const cid = checkinClient.value?.id;
+  if (!cid) return '';
+  return `${apiBase()}/checkin/client/${cid}/sheet`;
+});
+
 async function openCheckin(c) {
   if (!kioskActive.value) return;
   checkinClient.value = c;
-  checkinError.value = '';
-  checkinSheet.value = null;
-  checkinGuardianUserId.value = null;
-  checkinEmergencyPromptDismissed.value = false;
-  checkinPickupConfirmed.value = false;
   checkinOpen.value = true;
-  await loadCheckinSheet();
 }
 
 function closeCheckin() {
   checkinOpen.value = false;
   checkinClient.value = null;
-  checkinSheet.value = null;
-  checkinError.value = '';
-  checkinGuardianUserId.value = null;
-  closeCheckinWaiverEdit();
-}
-
-const checkinOpen = ref(false);
-const checkinClient = ref(null);
-const checkinSheet = ref(null);
-const checkinSheetLoading = ref(false);
-const checkinGuardianUserId = ref(null);
-const checkinError = ref('');
-const checkinSubmitting = ref(false);
-const checkinEmergencyPromptDismissed = ref(false);
-const checkinPickupConfirmed = ref(false);
-
-const CHECKIN_WAIVER_FIELDS = {
-  esignature_consent: GwvFieldsEsign,
-  pickup_authorization: GwvFieldsPickup,
-  emergency_contacts: GwvFieldsEmergency
-};
-const CHECKIN_WAIVER_TITLES = {
-  esignature_consent: 'E-signature consent',
-  pickup_authorization: 'Authorized pickups',
-  emergency_contacts: 'Emergency contacts'
-};
-
-const checkinWaiverEditOpen = ref(false);
-const checkinWaiverEditKey = ref('');
-const checkinWaiverDraft = ref({});
-const checkinWaiverConsent = ref(false);
-const checkinWaiverIntent = ref(false);
-const checkinWaiverSig = ref('');
-const checkinWaiverSaving = ref(false);
-const checkinWaiverError = ref('');
-
-const checkinWaiverFieldComponent = computed(() => CHECKIN_WAIVER_FIELDS[checkinWaiverEditKey.value] || null);
-const checkinWaiverTitle = computed(() => CHECKIN_WAIVER_TITLES[checkinWaiverEditKey.value] || 'Waiver section');
-
-const sheetGuardianPickups = computed(() =>
-  (checkinSheet.value?.authorizedPickups || []).filter((p) => p.source === 'guardian')
-);
-const sheetOtherPickups = computed(() =>
-  (checkinSheet.value?.authorizedPickups || []).filter((p) => p.source !== 'guardian')
-);
-
-const sheetHasPickups = computed(() => {
-  const list = checkinSheet.value?.authorizedPickups || [];
-  return list.length > 0;
-});
-
-const canAddPickupAtCheckin = computed(() => {
-  if (!checkinSheet.value?.waiversEnabled || !checkinGuardianUserId.value) return false;
-  return !!checkinSheet.value?.gate?.esignActive;
-});
-
-const checkinNeedsEmergencyPrompt = computed(() => {
-  if (checkinEmergencyPromptDismissed.value) return false;
-  return !(checkinSheet.value?.emergencyContacts?.length);
-});
-
-function dismissEmergencyContactPrompt() {
-  checkinEmergencyPromptDismissed.value = true;
-}
-
-function isValidEmergencyPhone(phone) {
-  const d = String(phone || '').replace(/\D+/g, '');
-  if (d.length === 10) return true;
-  if (d.length === 11 && d.startsWith('1')) return true;
-  return false;
-}
-
-const canCompleteCheckin = computed(() => {
-  if (!checkinSheet.value || checkinSheetLoading.value) return false;
-  const waivers = checkinSheet.value.waiversEnabled;
-  const gate = checkinSheet.value.gate || {};
-  if (sheetHasPickups.value && !checkinPickupConfirmed.value) return false;
-  if (waivers) {
-    if (gate.pickupRequired && !gate.pickupSatisfied) return false;
-    if (gate.pickupRequired && !checkinGuardianUserId.value) return false;
-    if (!sheetHasPickups.value && !gate.pickupSatisfied) return false;
-  }
-  return true;
-});
-
-function defaultCheckinWaiverPayload(key) {
-  if (key === 'esignature_consent') {
-    return { consented: false, understoodElectronicRecords: false };
-  }
-  if (key === 'pickup_authorization') {
-    const existing = checkinSheet.value?.pickupSection;
-    if (existing && typeof existing === 'object') {
-      return JSON.parse(JSON.stringify(existing));
-    }
-    const merged = (checkinSheet.value?.authorizedPickups || [])
-      .filter((p) => String(p?.name || '').trim())
-      .map((p) => ({
-        name: String(p.name).trim(),
-        relationship: String(p.relationship || (p.source === 'guardian' ? 'Guardian' : '')).trim(),
-        phone: String(p.phone || '').trim()
-      }));
-    if (merged.length) {
-      return { authorizedPickups: merged };
-    }
-    return { authorizedPickups: [{ name: '', relationship: '', phone: '' }] };
-  }
-  if (key === 'emergency_contacts') {
-    const existing = checkinSheet.value?.emergencySection;
-    if (existing && typeof existing === 'object') {
-      return JSON.parse(JSON.stringify(existing));
-    }
-    return { contacts: [{ name: '', phone: '', relationship: '' }] };
-  }
-  return {};
-}
-
-async function loadCheckinSheet() {
-  if (!checkinClient.value?.id) return;
-  checkinSheetLoading.value = true;
-  checkinError.value = '';
-  try {
-    const params = {};
-    if (checkinGuardianUserId.value) params.guardianUserId = checkinGuardianUserId.value;
-    const res = await api.get(`${apiBase()}/checkin/client/${checkinClient.value.id}/sheet`, {
-      params,
-      headers: authHeaders(),
-      skipGlobalLoading: true,
-      skipAuthRedirect: true
-    });
-    checkinSheet.value = res.data;
-    if (!checkinGuardianUserId.value && res.data?.guardianUserId) {
-      checkinGuardianUserId.value = res.data.guardianUserId;
-    } else if (!checkinGuardianUserId.value && res.data?.guardians?.length) {
-      checkinGuardianUserId.value = res.data.guardians[0].userId;
-    }
-    applyCheckinSheetToClient(res.data);
-  } catch (e) {
-    checkinError.value = e.response?.data?.error?.message || 'Could not load pickup info';
-  } finally {
-    checkinSheetLoading.value = false;
-  }
 }
 
 function applyCheckinSheetToClient(sheet) {
@@ -1468,131 +1253,20 @@ function applyCheckinSheetToClient(sheet) {
     authorizedPickups: sheet.authorizedPickups || clients.value[idx].authorizedPickups,
     emergencyContacts: sheet.emergencyContacts || clients.value[idx].emergencyContacts,
     walkHome: sheet.walkHome || clients.value[idx].walkHome,
+    allergies: sheet.allergies || clients.value[idx].allergies,
     guardians: sheet.guardians || clients.value[idx].guardians
   };
 }
 
-function openCheckinWaiverEdit(key) {
-  checkinWaiverEditKey.value = key;
-  checkinWaiverDraft.value = defaultCheckinWaiverPayload(key);
-  checkinWaiverConsent.value = false;
-  checkinWaiverIntent.value = false;
-  checkinWaiverSig.value = '';
-  checkinWaiverError.value = '';
-  checkinWaiverEditOpen.value = true;
-}
-
-function closeCheckinWaiverEdit() {
-  checkinWaiverEditOpen.value = false;
-  checkinWaiverEditKey.value = '';
-  checkinWaiverError.value = '';
-}
-
-async function saveCheckinWaiverEdit() {
-  const key = checkinWaiverEditKey.value;
-  if (!key || !checkinWaiverConsent.value || !checkinWaiverIntent.value) {
-    checkinWaiverError.value = 'Check both boxes and sign to save.';
-    return;
-  }
-  const sig = String(checkinWaiverSig.value || '').trim();
-  if (sig.length < 80) {
-    checkinWaiverError.value = 'Signature is required.';
-    return;
-  }
-  if (key === 'esignature_consent') {
-    const p = checkinWaiverDraft.value || {};
-    if (!p.consented || !p.understoodElectronicRecords) {
-      checkinWaiverError.value = 'Complete e-sign consent checkboxes in the form.';
-      return;
-    }
-  }
-  if (key === 'pickup_authorization') {
-    const p = checkinWaiverDraft.value || {};
-    if (!p.declinePickupAuthorization) {
-      const rows = Array.isArray(p.authorizedPickups) ? p.authorizedPickups : [];
-      const hasValid = rows.some(
-        (r) => String(r?.name || '').trim() && isValidEmergencyPhone(r?.phone)
-      );
-      if (!hasValid) {
-        checkinWaiverError.value = 'Add at least one pickup person with name and a 10-digit phone, or check the opt-out box.';
-        return;
-      }
-    }
-  }
-  if (key === 'emergency_contacts') {
-    const p = checkinWaiverDraft.value || {};
-    if (!p.declineEmergencyContacts) {
-      const rows = Array.isArray(p.contacts) ? p.contacts : [];
-      const hasValid = rows.some(
-        (r) => String(r?.name || '').trim() && isValidEmergencyPhone(r?.phone)
-      );
-      if (!hasValid) {
-        checkinWaiverError.value = 'Add at least one emergency contact with name and a 10-digit phone, or check the opt-out box.';
-        return;
-      }
-    }
-  }
-  const gid = checkinGuardianUserId.value;
-  const cid = checkinClient.value?.id;
-  if (!gid || !cid) {
-    checkinWaiverError.value = 'Select a guardian to sign.';
-    return;
-  }
-  const status = checkinSheet.value?.sectionStatus?.[key];
-  const action = status === 'active' ? 'update' : 'create';
-  checkinWaiverSaving.value = true;
-  checkinWaiverError.value = '';
-  try {
-    const res = await api.post(`${apiBase()}/checkin/client/waiver-section`, {
-      clientId: cid,
-      guardianUserId: gid,
-      sectionKey: key,
-      payload: checkinWaiverDraft.value,
-      signatureData: sig,
-      consentAcknowledged: true,
-      intentToSign: true,
-      action
-    }, {
-      headers: authHeaders(),
-      skipGlobalLoading: true,
-      skipAuthRedirect: true
-    });
-    checkinSheet.value = res.data?.sheet || checkinSheet.value;
-    if (res.data?.sheet) {
-      applyCheckinSheetToClient(res.data.sheet);
-      if (key === 'pickup_authorization') checkinPickupConfirmed.value = false;
-    }
-    closeCheckinWaiverEdit();
-  } catch (e) {
-    checkinWaiverError.value = e.response?.data?.error?.message || 'Save failed';
-  } finally {
-    checkinWaiverSaving.value = false;
-  }
-}
-
-async function confirmCheckin() {
-  if (!checkinClient.value || !canCompleteCheckin.value) return;
-  checkinSubmitting.value = true;
-  checkinError.value = '';
-  try {
-    await api.post(`${apiBase()}/checkin/client`, { clientId: checkinClient.value.id }, {
-      headers: authHeaders(),
-      skipGlobalLoading: true,
-      skipAuthRedirect: true
-    });
-    checkins.value.push({
-      clientId: checkinClient.value.id,
-      userId: null,
-      personType: 'client',
-      action: 'check_in',
-      checkedInAt: new Date().toISOString()
-    });
-    closeCheckin();
-  } catch (e) {
-    checkinError.value = e.response?.data?.error?.message || 'Check-in failed';
-  } finally {
-    checkinSubmitting.value = false;
-  }
+function onCheckinComplete({ clientId }) {
+  checkins.value.push({
+    clientId,
+    userId: null,
+    personType: 'client',
+    action: 'check_in',
+    checkedInAt: new Date().toISOString()
+  });
+  closeCheckin();
 }
 
 const absentOpen = ref(false);
@@ -1738,6 +1412,8 @@ function closeResource() {
 
 // Checkout modal (release)
 const checkoutOpen = ref(false);
+const checkoutDetailOpen = ref(false);
+const checkoutDetailClient = ref(null);
 const activeClient = ref(null);
 const selectedPickupKey = ref('');
 const releaseMode = ref('');
@@ -1808,6 +1484,14 @@ function closeCheckout() {
   stopCamera();
   checkoutOpen.value = false;
   activeClient.value = null;
+}
+function openCheckoutDetail(client) {
+  checkoutDetailClient.value = client;
+  checkoutDetailOpen.value = true;
+}
+function closeCheckoutDetail() {
+  checkoutDetailOpen.value = false;
+  checkoutDetailClient.value = null;
 }
 function clearSig() {
   if (!sigCanvas.value || !sigCtx) return;
@@ -1943,6 +1627,7 @@ async function submitCheckout() {
         id: res.data.releaseId,
         clientId: activeClient.value.id,
         releasedToName,
+        releasedToRelationship,
         walkHomeAlone,
         signedAt: res.data.signedAt
       });
@@ -2156,6 +1841,15 @@ onBeforeUnmount(() => {
 .pe-reg-url-input { flex: 1; font-size: 12px; }
 .pe-reg-hint { text-align: left; margin: 0; }
 .pe-panel-lead { margin: 0 0 12px; font-size: 13px; color: var(--pe-muted); }
+.pe-roster-section-title {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pe-roster-section-title:not(:first-child) { margin-top: 20px; }
 
 .pe-roster-head {
   display: flex;
@@ -2244,7 +1938,9 @@ onBeforeUnmount(() => {
   transition: border-color 0.15s, transform 0.15s;
 }
 .pe-card:hover { border-color: var(--primary, #0f766e); transform: translateY(-1px); }
-.pe-card--released { opacity: 0.55; cursor: default; transform: none; }
+.pe-card--released { opacity: 0.92; border-color: #fde68a; background: #fffbeb; }
+.pe-card--released:hover { border-color: #f59e0b; }
+.pe-card--muted { opacity: 0.88; }
 .pe-card--disabled { cursor: default; opacity: 0.85; }
 .pe-card--disabled:hover { transform: none; border-color: var(--border, #e2e8f0); }
 .pe-card--resource { align-items: center; text-align: center; padding: 18px 12px; }
@@ -2265,8 +1961,17 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 .pe-tag--out { background: #fef3c7; color: #92400e; }
+.pe-tag--in { background: #dcfce7; color: #166534; }
+.pe-tag--action { background: #dbeafe; color: #1d4ed8; }
+.pe-tag--view { background: #f1f5f9; color: #475569; }
 .pe-tag--warn { background: #fee2e2; color: #991b1b; }
 .pe-empty { padding: 32px; text-align: center; }
+
+.pe-checkout-detail { margin: 0; display: flex; flex-direction: column; gap: 14px; }
+.pe-checkout-detail-row { display: grid; grid-template-columns: 120px 1fr; gap: 8px 16px; align-items: baseline; }
+.pe-checkout-detail-row dt { margin: 0; font-size: 12px; font-weight: 700; color: var(--pe-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.pe-checkout-detail-row dd { margin: 0; font-size: 15px; color: #0f172a; }
+.pe-checkout-detail-card { max-width: 480px; }
 
 .pe-pin-box {
   background: var(--pe-surface);

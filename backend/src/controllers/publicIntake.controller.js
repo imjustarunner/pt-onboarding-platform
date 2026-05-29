@@ -41,6 +41,7 @@ import GuardianPaymentCard from '../models/GuardianPaymentCard.model.js';
 import QuickBooksPaymentsService from '../services/quickbooksPayments.service.js';
 import StripePaymentsService, { isStripeConfigured, getStripePublishableKey } from '../services/stripePayments.service.js';
 import { normalizeGradeForSave } from '../utils/clientGrade.js';
+import { extractGradeFromIntakeData } from '../utils/intakeGrade.util.js';
 import { getIntakePdfStrings } from '../services/intakeLocaleLabels.js';
 import {
   resolveIntakeFieldLabel,
@@ -1035,7 +1036,12 @@ const parseIntakeYesNo = (val) => {
  *  this, multi-child submissions stamped every sibling with the same (often
  *  empty) submission-level data and lost per-child grade/DOB/address/sex.
  */
-const buildMergedDemographicsForPersist = (submission = {}, perClientResponses = null) => {
+const buildMergedDemographicsForPersist = ({
+  submission = {},
+  perClientResponses = null,
+  intakeData = null,
+  clientIndex = 0
+} = {}) => {
   const base = submission?.demographicsInfo && typeof submission.demographicsInfo === 'object'
     ? { ...submission.demographicsInfo }
     : {};
@@ -1054,13 +1060,17 @@ const buildMergedDemographicsForPersist = (submission = {}, perClientResponses =
     if (typeof v === 'string' && !v.trim()) return fallback;
     return v;
   };
+  const gradeFromIntake = intakeData
+    ? extractGradeFromIntakeData({ intakeData, clientIndex })
+    : null;
   const merged = {
     ...base,
     preferredLanguage: pickPerChild(
       'client_preferred_language',
       clinical.client_preferred_language || base.preferredLanguage
     ),
-    grade: pickPerChild('client_grade', clinical.client_grade || base.grade),
+    grade: gradeFromIntake
+      || pickPerChild('client_grade', clinical.client_grade || base.grade),
     // guardian_preferred_language is conceptually submission-level, but some
     // forms (notably per-child clinical question steps) serialize it inside
     // each `responses.clients[i]` bag. Prefer the per-child value when present
@@ -1244,15 +1254,20 @@ const persistChildIntakeData = async ({
 
   // 1) + 2) Demographics. Per-child responses (intakeData.responses.clients[i])
   // take priority over submission-level fields; without that merge, siblings
-  // got each other's grade/DOB/address (or nothing).
+  // got each other's grade/DOB/address (or nothing). Normalize flat-shape
+  // submissions first so grade answers on the submission bag or mixed into
+  // intakeData.clients[i] are not missed at persist time.
   try {
-    const perChildResponses = Array.isArray(intakeData?.responses?.clients)
-      ? (intakeData.responses.clients[clientIndex] || null)
+    const normalizedIntakeData = normalizeIntakeDataShape(intakeData);
+    const perChildResponses = Array.isArray(normalizedIntakeData?.responses?.clients)
+      ? (normalizedIntakeData.responses.clients[clientIndex] || null)
       : null;
-    const demographicsInfo = buildMergedDemographicsForPersist(
-      intakeData?.responses?.submission || {},
-      perChildResponses
-    );
+    const demographicsInfo = buildMergedDemographicsForPersist({
+      submission: normalizedIntakeData?.responses?.submission || {},
+      perClientResponses: perChildResponses,
+      intakeData: normalizedIntakeData,
+      clientIndex
+    });
     if (demographicsInfo) {
       await persistClientDemographicsIfProvided({ clientId: cid, demographicsInfo });
       result.demographicsPersisted = true;
