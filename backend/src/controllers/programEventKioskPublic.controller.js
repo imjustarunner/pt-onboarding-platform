@@ -340,9 +340,10 @@ async function syncEmployeeStationCheckout({ agencyId, eventId, userId, kioskDat
 }
 
 async function loadEventDayCheckins(eventId, today) {
+  const baseCols = 'id, client_id, user_id, person_type, action, checked_in_at, checked_out_at, absence_reason';
   try {
     const [rows] = await pool.execute(
-      `SELECT id, client_id, user_id, person_type, action, checked_in_at, checked_out_at, absence_reason
+      `SELECT ${baseCols}, checked_in_by_name, checked_in_by_relationship
        FROM event_day_kiosk_checkins
        WHERE company_event_id = ? AND kiosk_date = ?`,
       [eventId, today]
@@ -350,6 +351,21 @@ async function loadEventDayCheckins(eventId, today) {
     return rows || [];
   } catch (err) {
     if (err?.code === 'ER_NO_SUCH_TABLE') return [];
+    // Migration 828 (attribution columns) not applied yet — read legacy columns.
+    if (err?.code === 'ER_BAD_FIELD_ERROR') {
+      try {
+        const [rows] = await pool.execute(
+          `SELECT ${baseCols}
+           FROM event_day_kiosk_checkins
+           WHERE company_event_id = ? AND kiosk_date = ?`,
+          [eventId, today]
+        );
+        return rows || [];
+      } catch (inner) {
+        if (inner?.code === 'ER_NO_SUCH_TABLE') return [];
+        throw inner;
+      }
+    }
     throw err;
   }
 }
@@ -363,7 +379,9 @@ function mapCheckinRows(rows) {
     action: c.action,
     checkedInAt: c.checked_in_at,
     checkedOutAt: c.checked_out_at,
-    absenceReason: c.absence_reason || null
+    absenceReason: c.absence_reason || null,
+    checkedInByName: c.checked_in_by_name || null,
+    checkedInByRelationship: c.checked_in_by_relationship || null
   }));
 }
 
@@ -1051,21 +1069,49 @@ export const programEventClientCheckin = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Client is not a confirmed participant for this event' } });
     }
 
+    const checkedInByName = String(req.body?.checkedInByName || '').trim().slice(0, 160) || null;
+    const checkedInByRelationship = String(req.body?.checkedInByRelationship || '').trim().slice(0, 80) || null;
+    const checkedInByUserId = parsePositiveInt(req.body?.checkedInByUserId) || null;
+    const checkinSignature = String(req.body?.checkinSignatureData || '').trim() || null;
+
+    const insertWithAttribution = () => pool.execute(
+      `INSERT INTO event_day_kiosk_checkins
+         (company_event_id, agency_id, client_id, person_type, action, checked_in_at, kiosk_date, ip_address,
+          checked_in_by_name, checked_in_by_relationship, checked_in_by_user_id, checkin_signature_data)
+       VALUES (?, ?, ?, 'client', 'check_in', NOW(), ?, ?, ?, ?, ?, ?)`,
+      [
+        m.eventId, m.agencyId, clientId, today, kioskIp(req),
+        checkedInByName, checkedInByRelationship, checkedInByUserId, checkinSignature
+      ]
+    );
+    const insertLegacy = () => pool.execute(
+      `INSERT INTO event_day_kiosk_checkins
+         (company_event_id, agency_id, client_id, person_type, action, checked_in_at, kiosk_date, ip_address)
+       VALUES (?, ?, ?, 'client', 'check_in', NOW(), ?, ?)`,
+      [m.eventId, m.agencyId, clientId, today, kioskIp(req)]
+    );
+
     try {
-      await pool.execute(
-        `INSERT INTO event_day_kiosk_checkins
-           (company_event_id, agency_id, client_id, person_type, action, checked_in_at, kiosk_date, ip_address)
-         VALUES (?, ?, ?, 'client', 'check_in', NOW(), ?, ?)`,
-        [m.eventId, m.agencyId, clientId, today, kioskIp(req)]
-      );
+      await insertWithAttribution();
     } catch (err) {
       if (err?.code === 'ER_NO_SUCH_TABLE') {
         return res.status(503).json({ error: { message: 'Run migration 615 for event-day check-ins' } });
       }
-      throw err;
+      // Migration 828 (attribution columns) not applied yet — fall back gracefully.
+      if (err?.code === 'ER_BAD_FIELD_ERROR') {
+        await insertLegacy();
+      } else {
+        throw err;
+      }
     }
 
-    res.status(201).json({ ok: true, clientId, checkedInAt: new Date().toISOString() });
+    res.status(201).json({
+      ok: true,
+      clientId,
+      checkedInAt: new Date().toISOString(),
+      checkedInByName,
+      checkedInByRelationship
+    });
   } catch (e) {
     next(e);
   }

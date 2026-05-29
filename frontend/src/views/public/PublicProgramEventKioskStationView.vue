@@ -573,6 +573,18 @@
             <dt>Checked in</dt>
             <dd>{{ formatDateTime(checkinRecordForClient(checkoutDetailClient.id)?.checkedInAt) }}</dd>
           </div>
+          <div v-if="checkinRecordForClient(checkoutDetailClient.id)?.checkedInByName" class="pe-checkout-detail-row">
+            <dt>Checked in by</dt>
+            <dd>
+              {{ checkinRecordForClient(checkoutDetailClient.id).checkedInByName }}
+              <span
+                v-if="checkinRecordForClient(checkoutDetailClient.id).checkedInByRelationship"
+                class="muted"
+              >
+                ({{ checkinRecordForClient(checkoutDetailClient.id).checkedInByRelationship }})
+              </span>
+            </dd>
+          </div>
           <div class="pe-checkout-detail-row">
             <dt>Checked out</dt>
             <dd>{{ formatDateTime(releasedToday(checkoutDetailClient.id).signedAt) }}</dd>
@@ -1258,13 +1270,15 @@ function applyCheckinSheetToClient(sheet) {
   };
 }
 
-function onCheckinComplete({ clientId }) {
+function onCheckinComplete({ clientId, checkedInByName = null, checkedInByRelationship = null }) {
   checkins.value.push({
     clientId,
     userId: null,
     personType: 'client',
     action: 'check_in',
-    checkedInAt: new Date().toISOString()
+    checkedInAt: new Date().toISOString(),
+    checkedInByName,
+    checkedInByRelationship
   });
   closeCheckin();
 }

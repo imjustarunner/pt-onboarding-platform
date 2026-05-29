@@ -26,7 +26,7 @@
 
       <template v-else-if="sheet">
         <!-- Step: Emergency contacts -->
-        <section v-if="currentStepId === 'emergency'" class="ek-checkin-step">
+        <section v-else-if="currentStepId === 'emergency'" class="ek-checkin-step">
           <h4 class="ek-checkin-h4">Emergency contacts</h4>
           <ul v-if="sheet.emergencyContacts?.length" class="ek-checkin-list">
             <li v-for="(e, i) in sheet.emergencyContacts" :key="`ec-${i}`">
@@ -36,16 +36,14 @@
             </li>
           </ul>
           <p v-else class="muted small">None on file.</p>
-          <div v-if="sheet.waiversEnabled && canEditWaivers" class="ek-checkin-step-actions">
-            <button type="button" class="btn btn-secondary btn-sm" @click="openWaiverEdit('emergency_contacts')">
-              Add or change
+          <div v-if="canEditWaivers" class="ek-checkin-step-actions">
+            <button type="button" class="btn btn-secondary btn-sm" @click="requestWaiverEdit('emergency_contacts')">
+              {{ sheet.emergencyContacts?.length ? 'Add or change' : 'Add emergency contact' }}
             </button>
           </div>
-          <div v-else-if="sheet.waiversEnabled && guardianUserId && needsEsignFirst" class="ek-checkin-step-actions">
-            <button type="button" class="btn btn-secondary btn-sm" @click="openWaiverEdit('esignature_consent')">
-              Sign e-signature consent first
-            </button>
-          </div>
+          <p v-else-if="sheet.waiversEnabled && !attributionGuardianId" class="muted small ek-checkin-step-actions">
+            A linked guardian is required to add or change this — staff can help.
+          </p>
         </section>
 
         <!-- Step: Authorized pickups -->
@@ -78,24 +76,18 @@
             <strong>Pickup authorization required</strong>
             <p class="small">Add or sign pickup authorization before continuing.</p>
           </div>
-          <div v-if="sheet.waiversEnabled && canEditWaivers" class="ek-checkin-step-actions">
+          <div v-if="canEditWaivers" class="ek-checkin-step-actions">
             <button
-              v-if="needsEsignFirst"
               type="button"
               class="btn btn-secondary btn-sm"
-              @click="openWaiverEdit('esignature_consent')"
-            >
-              Sign e-signature consent first
-            </button>
-            <button
-              v-else
-              type="button"
-              class="btn btn-secondary btn-sm"
-              @click="openWaiverEdit('pickup_authorization')"
+              @click="requestWaiverEdit('pickup_authorization')"
             >
               {{ sheetHasPickups ? 'Add or change' : 'Add pickup person & sign' }}
             </button>
           </div>
+          <p v-else-if="sheet.waiversEnabled && !attributionGuardianId" class="muted small ek-checkin-step-actions">
+            A linked guardian is required to add or change this — staff can help.
+          </p>
         </section>
 
         <!-- Step: Walk-home -->
@@ -110,43 +102,61 @@
             <p v-if="sheet.walkHome.conditions" class="small muted">{{ sheet.walkHome.conditions }}</p>
           </div>
           <p v-else class="muted small">Not authorized to walk home alone from this program.</p>
-          <div v-if="sheet.waiversEnabled && canEditWaivers" class="ek-checkin-step-actions">
-            <button type="button" class="btn btn-secondary btn-sm" @click="openWaiverEdit('walk_home_authorization')">
+          <div v-if="canEditWaivers" class="ek-checkin-step-actions">
+            <button type="button" class="btn btn-secondary btn-sm" @click="requestWaiverEdit('walk_home_authorization')">
               Add or change
             </button>
           </div>
-          <div v-else-if="sheet.waiversEnabled && guardianUserId && needsEsignFirst" class="ek-checkin-step-actions">
-            <button type="button" class="btn btn-secondary btn-sm" @click="openWaiverEdit('esignature_consent')">
-              Sign e-signature consent first
-            </button>
-          </div>
+          <p v-else-if="sheet.waiversEnabled && !attributionGuardianId" class="muted small ek-checkin-step-actions">
+            A linked guardian is required to add or change this — staff can help.
+          </p>
         </section>
 
-        <!-- Step: Who is checking in -->
-        <section v-else-if="currentStepId === 'checker'" class="ek-checkin-step">
-          <h4 class="ek-checkin-h4">Who is checking in?</h4>
-          <p class="muted small">Confirm who is dropping off {{ clientLabel }} today.</p>
-          <div v-if="sheet.guardians?.length > 1" class="ek-checkin-field">
-            <label class="ek-checkin-lbl">I am</label>
-            <select v-model="guardianUserId" class="input" @change="onGuardianPickerChange">
-              <option v-for="g in sheet.guardians" :key="g.userId" :value="g.userId">
-                {{ g.name || `Guardian #${g.userId}` }}
-              </option>
-            </select>
+        <!-- Step: Who is checking in (identity first) -->
+        <section v-if="currentStepId === 'checker'" class="ek-checkin-step">
+          <h4 class="ek-checkin-h4">Who is checking in {{ clientLabel }}?</h4>
+          <p class="muted small">Tap your name below. If you're not listed, choose "Someone else".</p>
+
+          <ul class="ek-checker-list">
+            <li
+              v-for="opt in checkerOptions"
+              :key="opt.key"
+              class="ek-checker-opt"
+              :class="{ 'ek-checker-opt--sel': checkerSelectedKey === opt.key }"
+              @click="selectChecker(opt)"
+            >
+              <div>
+                <strong>{{ opt.name }}</strong>
+                <span class="muted small"> · {{ opt.relationship }}</span>
+              </div>
+              <span v-if="checkerSelectedKey === opt.key" class="ek-checker-tick">✓</span>
+            </li>
+            <li
+              class="ek-checker-opt"
+              :class="{ 'ek-checker-opt--sel': checkerSelectedKey === 'other' }"
+              @click="selectSomeoneElse"
+            >
+              <div>
+                <strong>Someone else</strong>
+                <span class="muted small"> · Not listed above</span>
+              </div>
+              <span v-if="checkerSelectedKey === 'other'" class="ek-checker-tick">✓</span>
+            </li>
+          </ul>
+
+          <div v-if="checkerKind === 'other'" class="ek-checker-other">
+            <div class="ek-checkin-field">
+              <label class="ek-checkin-lbl">Your name</label>
+              <input v-model="otherCheckerName" class="input" type="text" placeholder="First and last name" />
+            </div>
+            <div class="ek-checkin-field">
+              <label class="ek-checkin-lbl">Relationship to {{ clientLabel }} (optional)</label>
+              <input v-model="otherCheckerRelationship" class="input" type="text" placeholder="e.g. Aunt, Family friend" />
+            </div>
+            <label class="ek-checkin-lbl">Sign to check in</label>
+            <SignaturePad compact @signed="(d) => (otherCheckerSig = d)" />
+            <p class="muted small">No photo required.</p>
           </div>
-          <p v-else-if="sheet.guardians?.length === 1" class="muted small">
-            Checking in as <strong>{{ sheet.guardians[0].name || 'guardian' }}</strong>
-          </p>
-          <p v-else class="ek-checkin-banner small">
-            No guardian linked on file — staff may need to verify identity manually.
-          </p>
-          <label class="ek-checkin-check-row">
-            <input v-model="checkerConfirmed" type="checkbox" />
-            <span>
-              I confirm I am the person checking in {{ clientLabel }} today
-              <template v-if="checkerDisplayName"> ({{ checkerDisplayName }})</template>.
-            </span>
-          </label>
         </section>
 
         <!-- Step: Allergies & snacks (one page) -->
@@ -171,16 +181,14 @@
             </div>
           </template>
           <p v-else class="muted small">No allergy or snack information on file.</p>
-          <div v-if="sheet.waiversEnabled && canEditWaivers" class="ek-checkin-step-actions">
-            <button type="button" class="btn btn-secondary btn-sm" @click="openWaiverEdit('allergies_snacks')">
+          <div v-if="canEditWaivers" class="ek-checkin-step-actions">
+            <button type="button" class="btn btn-secondary btn-sm" @click="requestWaiverEdit('allergies_snacks')">
               Add or change
             </button>
           </div>
-          <div v-else-if="sheet.waiversEnabled && guardianUserId && needsEsignFirst" class="ek-checkin-step-actions">
-            <button type="button" class="btn btn-secondary btn-sm" @click="openWaiverEdit('esignature_consent')">
-              Sign e-signature consent first
-            </button>
-          </div>
+          <p v-else-if="sheet.waiversEnabled && !attributionGuardianId" class="muted small ek-checkin-step-actions">
+            A linked guardian is required to add or change this — staff can help.
+          </p>
           <label class="ek-checkin-check-row">
             <input v-model="allergiesConfirmed" type="checkbox" />
             <span>Allergies and snack information above is correct.</span>
@@ -272,10 +280,10 @@ const props = defineProps({
 const emit = defineEmits(['close', 'checked-in', 'sheet-updated']);
 
 const steps = [
+  { id: 'checker', title: 'Who is checking in?', subtitle: 'Tell us who is dropping off today.' },
   { id: 'emergency', title: 'Emergency contacts', subtitle: 'Confirm or update emergency contacts.' },
   { id: 'pickup', title: 'Authorized pickups', subtitle: 'Confirm who may pick up your child.' },
   { id: 'walk_home', title: 'Walk-home authorization', subtitle: 'Confirm walk-home rules for this program.' },
-  { id: 'checker', title: 'Who is checking in?', subtitle: 'Confirm who is dropping off today.' },
   { id: 'allergies', title: 'Allergies & snacks', subtitle: 'Review allergies and approved snacks on one page.' }
 ];
 
@@ -300,11 +308,17 @@ const error = ref('');
 const submitting = ref(false);
 const stepIndex = ref(0);
 const guardianUserId = ref(null);
-const checkerConfirmed = ref(false);
 const allergiesConfirmed = ref(false);
+
+const checkerSelectedKey = ref('');
+const checkerKind = ref('');
+const otherCheckerName = ref('');
+const otherCheckerRelationship = ref('');
+const otherCheckerSig = ref('');
 
 const waiverEditOpen = ref(false);
 const waiverEditKey = ref('');
+const pendingWaiverKey = ref('');
 const waiverDraft = ref({});
 const waiverConsent = ref(false);
 const waiverIntent = ref(false);
@@ -325,8 +339,11 @@ const sheetOtherPickups = computed(() =>
 );
 const sheetHasPickups = computed(() => (sheet.value?.authorizedPickups || []).length > 0);
 
-const canEditWaivers = computed(() => !!guardianUserId.value && !!sheet.value?.gate?.esignActive);
-const needsEsignFirst = computed(() => sheet.value?.gate?.needsEsignBeforePickup);
+const attributionGuardianId = computed(() =>
+  guardianUserId.value || sheet.value?.guardians?.[0]?.userId || null
+);
+const esignActive = computed(() => !sheet.value?.waiversEnabled || !!sheet.value?.gate?.esignActive);
+const canEditWaivers = computed(() => !!sheet.value?.waiversEnabled && !!attributionGuardianId.value);
 const pickupGateBlocked = computed(() => {
   const gate = sheet.value?.gate || {};
   if (!sheet.value?.waiversEnabled) return false;
@@ -335,10 +352,39 @@ const pickupGateBlocked = computed(() => {
   return false;
 });
 
-const checkerDisplayName = computed(() => {
-  const gid = Number(guardianUserId.value || 0);
-  const g = (sheet.value?.guardians || []).find((x) => Number(x.userId) === gid);
-  return g?.name || '';
+const checkerOptions = computed(() => {
+  const opts = [];
+  for (const g of sheet.value?.guardians || []) {
+    if (!g?.userId) continue;
+    opts.push({
+      key: `g-${g.userId}`,
+      kind: 'guardian',
+      userId: Number(g.userId),
+      name: g.name || `Guardian #${g.userId}`,
+      relationship: 'Guardian'
+    });
+  }
+  (sheet.value?.authorizedPickups || []).forEach((p, i) => {
+    if (p.source === 'guardian') return;
+    const name = String(p?.name || '').trim();
+    if (!name) return;
+    opts.push({
+      key: `p-${i}-${name}`,
+      kind: 'pickup',
+      userId: null,
+      name,
+      relationship: p.relationship || 'Approved pickup'
+    });
+  });
+  return opts;
+});
+
+const checkerValid = computed(() => {
+  if (!checkerSelectedKey.value) return false;
+  if (checkerKind.value === 'other') {
+    return !!otherCheckerName.value.trim() && !!otherCheckerSig.value;
+  }
+  return true;
 });
 
 const allergyText = computed(() => {
@@ -365,12 +411,13 @@ const waiverTitle = computed(() => WAIVER_TITLES[waiverEditKey.value] || 'Waiver
 
 const canAdvanceStep = computed(() => {
   const id = currentStepId.value;
+  if (id === 'checker' && !checkerValid.value) return false;
   if (id === 'pickup' && pickupGateBlocked.value) return false;
-  if (id === 'checker' && !checkerConfirmed.value) return false;
   return true;
 });
 
 const advanceLabel = computed(() => {
+  if (currentStepId.value === 'checker') return 'Continue';
   if (currentStepId.value === 'emergency' && !sheet.value?.emergencyContacts?.length) {
     return 'Continue without emergency contact';
   }
@@ -379,8 +426,8 @@ const advanceLabel = computed(() => {
 
 const canComplete = computed(() => {
   if (!sheet.value || sheetLoading.value) return false;
+  if (!checkerValid.value) return false;
   if (!allergiesConfirmed.value) return false;
-  if (!checkerConfirmed.value) return false;
   const gate = sheet.value.gate || {};
   if (sheet.value.waiversEnabled) {
     if (gate.pickupRequired && !gate.pickupSatisfied) return false;
@@ -396,12 +443,31 @@ function emitClose() {
 
 function resetWizard() {
   stepIndex.value = 0;
-  checkerConfirmed.value = false;
   allergiesConfirmed.value = false;
+  checkerSelectedKey.value = '';
+  checkerKind.value = '';
+  otherCheckerName.value = '';
+  otherCheckerRelationship.value = '';
+  otherCheckerSig.value = '';
   error.value = '';
   sheet.value = null;
   guardianUserId.value = null;
+  pendingWaiverKey.value = '';
   closeWaiverEdit();
+}
+
+function selectChecker(opt) {
+  checkerSelectedKey.value = opt.key;
+  checkerKind.value = opt.kind;
+  if (opt.kind === 'guardian' && opt.userId && Number(guardianUserId.value) !== Number(opt.userId)) {
+    guardianUserId.value = opt.userId;
+    reloadSheet();
+  }
+}
+
+function selectSomeoneElse() {
+  checkerSelectedKey.value = 'other';
+  checkerKind.value = 'other';
 }
 
 function nextStep() {
@@ -445,11 +511,6 @@ async function reloadSheet() {
   } finally {
     sheetLoading.value = false;
   }
-}
-
-function onGuardianPickerChange() {
-  checkerConfirmed.value = false;
-  reloadSheet();
 }
 
 function defaultWaiverPayload(key) {
@@ -505,6 +566,19 @@ function defaultWaiverPayload(key) {
     return { allergies: '', approvedSnacks: '', notes: '' };
   }
   return {};
+}
+
+function requestWaiverEdit(key) {
+  // Backend requires an active e-signature consent before any other section
+  // can be saved. If consent isn't on file yet, capture it first and then
+  // continue straight to the section the guardian wanted to edit.
+  if (key !== 'esignature_consent' && !esignActive.value) {
+    pendingWaiverKey.value = key;
+    openWaiverEdit('esignature_consent');
+    return;
+  }
+  pendingWaiverKey.value = '';
+  openWaiverEdit(key);
 }
 
 function openWaiverEdit(key) {
@@ -606,7 +680,13 @@ async function saveWaiverEdit() {
     });
     sheet.value = res.data?.sheet || sheet.value;
     if (res.data?.sheet) emit('sheet-updated', res.data.sheet);
-    closeWaiverEdit();
+    if (key === 'esignature_consent' && pendingWaiverKey.value) {
+      const next = pendingWaiverKey.value;
+      pendingWaiverKey.value = '';
+      openWaiverEdit(next);
+    } else {
+      closeWaiverEdit();
+    }
   } catch (e) {
     waiverError.value = e.response?.data?.error?.message || 'Save failed';
   } finally {
@@ -614,17 +694,40 @@ async function saveWaiverEdit() {
   }
 }
 
+function buildCheckerPayload() {
+  if (checkerKind.value === 'other') {
+    return {
+      checkedInByName: otherCheckerName.value.trim(),
+      checkedInByRelationship: otherCheckerRelationship.value.trim() || null,
+      checkedInByUserId: null,
+      checkinSignatureData: otherCheckerSig.value || null
+    };
+  }
+  const opt = checkerOptions.value.find((o) => o.key === checkerSelectedKey.value);
+  return {
+    checkedInByName: opt?.name || null,
+    checkedInByRelationship: opt?.relationship || null,
+    checkedInByUserId: opt?.kind === 'guardian' ? opt.userId : null,
+    checkinSignatureData: null
+  };
+}
+
 async function completeCheckin() {
   if (!props.client?.id || !canComplete.value) return;
   submitting.value = true;
   error.value = '';
+  const checker = buildCheckerPayload();
   try {
-    await api.post(props.checkinUrl, { clientId: props.client.id }, {
+    await api.post(props.checkinUrl, { clientId: props.client.id, ...checker }, {
       headers: props.authHeaders(),
       skipGlobalLoading: true,
       skipAuthRedirect: true
     });
-    emit('checked-in', { clientId: props.client.id });
+    emit('checked-in', {
+      clientId: props.client.id,
+      checkedInByName: checker.checkedInByName,
+      checkedInByRelationship: checker.checkedInByRelationship
+    });
     emitClose();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Check-in failed';
@@ -714,6 +817,41 @@ watch(
 }
 .ek-checkin-step-actions {
   margin-top: 12px;
+}
+.ek-checker-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ek-checker-opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.ek-checker-opt:hover {
+  border-color: #94a3b8;
+}
+.ek-checker-opt--sel {
+  border-color: #166534;
+  background: #ecfdf5;
+}
+.ek-checker-tick {
+  color: #166534;
+  font-weight: 800;
+}
+.ek-checker-other {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed #e2e8f0;
 }
 .ek-checkin-banner {
   margin-top: 12px;

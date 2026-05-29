@@ -1020,13 +1020,15 @@ function applyCheckinSheetToClient(sheet) {
   };
 }
 
-function onCheckinComplete({ clientId }) {
+function onCheckinComplete({ clientId, checkedInByName = null, checkedInByRelationship = null }) {
   checkins.value.push({
     clientId,
     userId: null,
     personType: 'client',
     action: 'check_in',
-    checkedInAt: new Date().toISOString()
+    checkedInAt: new Date().toISOString(),
+    checkedInByName,
+    checkedInByRelationship
   });
   closeCheckin();
 }
