@@ -219,6 +219,68 @@ export async function listEventKioskAttendanceForPortal(eventId, agencyId, { kio
   };
 }
 
+/**
+ * Clear all kiosk attendance records and per-date planning statuses for one event day.
+ * Removes client/employee check-ins, release log rows, and attendance-planning notes.
+ */
+export async function resetCompanyEventDayAttendance(eventId, agencyId, sessionDate) {
+  const eid = Number(eventId);
+  const aid = Number(agencyId);
+  const ymd = normalizeYmd(sessionDate);
+  if (!eid || !aid || !ymd) {
+    throw Object.assign(new Error('eventId, agencyId, and a valid sessionDate are required'), { status: 400 });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    let checkinsDeleted = 0;
+    let releasesDeleted = 0;
+    let statusesDeleted = 0;
+
+    try {
+      const [r1] = await conn.execute(
+        `DELETE FROM event_day_kiosk_checkins
+         WHERE company_event_id = ? AND agency_id = ? AND kiosk_date = ?`,
+        [eid, aid, ymd]
+      );
+      checkinsDeleted = r1.affectedRows || 0;
+    } catch (err) {
+      if (err?.code !== 'ER_NO_SUCH_TABLE') throw err;
+    }
+
+    try {
+      const [r2] = await conn.execute(
+        `DELETE FROM company_event_releases
+         WHERE company_event_id = ? AND agency_id = ? AND DATE(signed_at) = ?`,
+        [eid, aid, ymd]
+      );
+      releasesDeleted = r2.affectedRows || 0;
+    } catch (err) {
+      if (err?.code !== 'ER_NO_SUCH_TABLE') throw err;
+    }
+
+    try {
+      const [r3] = await conn.execute(
+        `DELETE FROM company_event_client_date_status
+         WHERE company_event_id = ? AND agency_id = ? AND session_date = ?`,
+        [eid, aid, ymd]
+      );
+      statusesDeleted = r3.affectedRows || 0;
+    } catch (err) {
+      if (err?.code !== 'ER_NO_SUCH_TABLE') throw err;
+    }
+
+    await conn.commit();
+    return { sessionDate: ymd, checkinsDeleted, releasesDeleted, statusesDeleted };
+  } catch (err) {
+    await conn.rollback().catch(() => null);
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
 export async function loadEventReleasePhotoForPortal(releaseId, eventId, agencyId) {
   const rid = Number(releaseId);
   const eid = Number(eventId);

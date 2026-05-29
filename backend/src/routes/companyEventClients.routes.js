@@ -9,7 +9,8 @@ import {
   removeCompanyEventClient,
   patchCompanyEventClientWorkflow,
   listCompanyEventAttendanceStatus,
-  putCompanyEventClientAttendanceStatus
+  putCompanyEventClientAttendanceStatus,
+  resetCompanyEventDayAttendanceHandler
 } from '../controllers/companyEventClients.controller.js';
 
 const router = express.Router();
@@ -24,6 +25,7 @@ router.post('/:eventId/clients', addCompanyEventClient);
 router.patch('/:eventId/clients/:clientId', updateCompanyEventClientNotes);
 router.patch('/:eventId/clients/:clientId/workflow', patchCompanyEventClientWorkflow);
 router.put('/:eventId/clients/:clientId/attendance-status', putCompanyEventClientAttendanceStatus);
+router.post('/:eventId/attendance-reset', resetCompanyEventDayAttendanceHandler);
 router.delete('/:eventId/clients/:clientId', removeCompanyEventClient);
 
 export default router;

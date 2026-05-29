@@ -2138,19 +2138,31 @@
               <div v-if="viewerCaps.canManageCompanyEvent" class="sbep-plan-block">
                 <h3 class="sbep-att-subhead">Attendance planning</h3>
                 <p class="muted small">
-                  Set what to expect for an upcoming day — planned absences, late arrivals, or removing someone who isn't returning.
+                  Set what to expect for today or an upcoming day — planned absences, late arrivals, or removing someone who isn't returning.
                   These notes show on the day kiosk so staff know who to expect.
                 </p>
 
                 <div v-if="planError" class="error-box sbep-add-client-err">{{ planError }}</div>
+                <div v-if="attendanceResetMessage" class="success-box sbep-add-client-err">{{ attendanceResetMessage }}</div>
 
-                <div v-if="planSessionDates.length" class="sbep-att-filter-row">
+                <div v-if="planSessionDates.length" class="sbep-att-filter-row sbep-plan-toolbar">
                   <label class="sbep-label">Day</label>
                   <select v-model="planDate" class="input sbep-kiosk-field">
                     <option v-for="d in planSessionDates" :key="`pd-${d}`" :value="d">{{ formatKioskAttDate(d) }}</option>
                   </select>
+                  <button
+                    v-if="planDate"
+                    type="button"
+                    class="btn btn-secondary btn-sm sbep-plan-reset"
+                    :disabled="attendanceResetLoading"
+                    @click="confirmResetAttendanceDay(planDate)"
+                  >
+                    {{ attendanceResetLoading ? 'Resetting…' : 'Reset this day' }}
+                  </button>
                 </div>
-                <p v-else-if="!planLoading" class="muted small">No upcoming session dates to plan for.</p>
+                <p v-else-if="!planLoading" class="muted small">
+                  No session dates to plan for. Confirm this event has a start/end date and recurrence configured.
+                </p>
 
                 <div v-if="planDate && planParticipants.length" class="table-wrap">
                   <table class="table sbep-plan-table">
@@ -2225,6 +2237,15 @@
                   <option value="">All days</option>
                   <option v-for="d in kioskAttendanceDates" :key="d" :value="d">{{ formatKioskAttDate(d) }}</option>
                 </select>
+                <button
+                  v-if="viewerCaps.canManageCompanyEvent && kioskAttDateFilter"
+                  type="button"
+                  class="btn btn-secondary btn-sm sbep-plan-reset"
+                  :disabled="attendanceResetLoading"
+                  @click="confirmResetAttendanceDay(kioskAttDateFilter)"
+                >
+                  {{ attendanceResetLoading ? 'Resetting…' : 'Reset this day' }}
+                </button>
               </div>
 
               <h3 class="sbep-att-subhead">Client check-in &amp; release</h3>
@@ -5064,6 +5085,8 @@ const planDrafts = ref({});
 const planLoading = ref(false);
 const planError = ref('');
 const planSavingClientId = ref(0);
+const attendanceResetLoading = ref(false);
+const attendanceResetMessage = ref('');
 
 const planParticipants = computed(() =>
   (genericParticipants.value || []).map((c) => ({
@@ -5103,7 +5126,7 @@ async function loadAttendancePlan() {
       params: { agencyId: eventBillingAgencyId.value },
       skipGlobalLoading: true
     });
-    const today = todayYmd();
+    const today = String(res.data?.todayYmd || todayYmd()).slice(0, 10);
     const dates = Array.isArray(res.data?.sessionDates) ? res.data.sessionDates : [];
     planSessionDates.value = dates
       .map((d) => String(d.sessionDate).slice(0, 10))
@@ -5150,6 +5173,35 @@ async function savePlanRow(client) {
     planError.value = e.response?.data?.error?.message || e.message || 'Could not save status';
   } finally {
     planSavingClientId.value = 0;
+  }
+}
+
+async function confirmResetAttendanceDay(sessionDate) {
+  const ymd = String(sessionDate || '').slice(0, 10);
+  if (!ymd || !eventBillingAgencyId.value || !eventId.value) return;
+  if (!window.confirm(
+    `Reset all attendance for ${formatKioskAttDate(ymd)}?\n\nThis clears kiosk check-ins, releases, and planning notes for that day. This cannot be undone.`
+  )) return;
+
+  attendanceResetLoading.value = true;
+  planError.value = '';
+  attendanceResetMessage.value = '';
+  try {
+    const res = await api.post(
+      `/company-events/${eventId.value}/attendance-reset`,
+      { agencyId: eventBillingAgencyId.value, sessionDate: ymd },
+      { skipGlobalLoading: true }
+    );
+    const n = (res.data?.checkinsDeleted || 0) + (res.data?.releasesDeleted || 0) + (res.data?.statusesDeleted || 0);
+    attendanceResetMessage.value = n
+      ? `Reset ${formatKioskAttDate(ymd)} (${n} record${n === 1 ? '' : 's'} cleared).`
+      : `Reset ${formatKioskAttDate(ymd)} (nothing to clear).`;
+    await loadAttendancePlan();
+    await loadKioskAttendance();
+  } catch (e) {
+    planError.value = e.response?.data?.error?.message || e.message || 'Could not reset attendance for this day';
+  } finally {
+    attendanceResetLoading.value = false;
   }
 }
 

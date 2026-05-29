@@ -8,11 +8,16 @@ import {
   canViewProgramEvent,
   userHasAgencyAccessForRequest
 } from '../services/companyEventAccess.service.js';
-import { listProgramSessionsForEvent } from '../services/companyEventSessionDates.service.js';
+import {
+  listProgramSessionsForEvent,
+  materializeSessionsForEvent
+} from '../services/companyEventSessionDates.service.js';
 import {
   listCompanyEventDateStatuses,
   setCompanyEventClientDateStatus
 } from '../services/companyEventClientDateStatus.service.js';
+import { resetCompanyEventDayAttendance } from '../services/eventKioskAttendance.service.js';
+import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw || ''), 10);
@@ -190,7 +195,7 @@ function isAgencyAdmin(req) {
 
 async function loadEventForAgency(eventId, agencyId) {
   const [rows] = await pool.execute(
-    `SELECT id, agency_id, organization_id, event_type
+    `SELECT id, agency_id, organization_id, event_type, timezone, starts_at, ends_at
      FROM company_events
      WHERE id = ? AND agency_id = ?
      LIMIT 1`,
@@ -1061,16 +1066,22 @@ export const listCompanyEventAttendanceStatus = async (req, res, next) => {
     const event = await loadEventForAgency(eventId, agencyId);
     if (!event) return res.status(404).json({ error: { message: 'Event not found' } });
 
+    // Materialize from recurrence/settings so planning dates exist even when rows
+    // were never written (same flow as the portal sessions list).
+    await materializeSessionsForEvent(pool, { companyEventId: eventId });
+
     const sessions = await listProgramSessionsForEvent({ companyEventId: eventId });
+    const tz = String(event.timezone || 'America/Denver').trim() || 'America/Denver';
+    const todayYmd = utcDateToZonedYmd(new Date(), tz);
     const sessionDates = sessions.map((s) => ({
       sessionDate: String(s.session_date).slice(0, 10),
       startsAt: s.starts_at,
       endsAt: s.ends_at,
-      timezone: s.timezone || null
+      timezone: s.timezone || tz || null
     }));
     const statuses = await listCompanyEventDateStatuses({ companyEventId: eventId, sessionDate });
 
-    res.json({ ok: true, sessionDates, statuses });
+    res.json({ ok: true, sessionDates, statuses, timezone: tz, todayYmd });
   } catch (e) {
     next(e);
   }
@@ -1127,6 +1138,40 @@ export const putCompanyEventClientAttendanceStatus = async (req, res, next) => {
       if (err?.status) {
         return res.status(err.status).json({ error: { message: err.message } });
       }
+      throw err;
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /company-events/:eventId/attendance-reset
+ * Body: { agencyId, sessionDate }
+ * Clears kiosk check-ins, releases, and per-date planning statuses for one day.
+ */
+export const resetCompanyEventDayAttendanceHandler = async (req, res, next) => {
+  try {
+    const eventId = parsePositiveInt(req.params.eventId);
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const sessionDate = String(req.body?.sessionDate || '').trim();
+    if (!eventId || !agencyId) {
+      return res.status(400).json({ error: { message: 'eventId and agencyId are required' } });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(sessionDate)) {
+      return res.status(400).json({ error: { message: 'A valid sessionDate (YYYY-MM-DD) is required' } });
+    }
+    if (!(await canManageProgramEvent(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this event' } });
+    }
+    const event = await loadEventForAgency(eventId, agencyId);
+    if (!event) return res.status(404).json({ error: { message: 'Event not found' } });
+
+    try {
+      const result = await resetCompanyEventDayAttendance(eventId, agencyId, sessionDate);
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      if (err?.status) return res.status(err.status).json({ error: { message: err.message } });
       throw err;
     }
   } catch (e) {
