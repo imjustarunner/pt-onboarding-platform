@@ -86,12 +86,12 @@ function resolveEnrollmentWorkflow({ clientRow, registerAsParticipant = false })
   const tpReady = isTruthyDbFlag(clientRow?.skill_builders_treatment_plan_complete);
   const docStatus = String(clientRow?.document_status || '').trim().toUpperCase();
   const docsComplete = ['COMPLETE', 'COMPLETED', 'UPLOADED', 'RECEIVED', 'APPROVED'].includes(docStatus);
-  const asParticipant = !!registerAsParticipant || tpReady || (intakeReady && docsComplete);
-  const intakeComplete = asParticipant || intakeReady;
+  const placeOnParticipantsTab = !!registerAsParticipant || tpReady || (intakeReady && docsComplete);
+  const intakeComplete = placeOnParticipantsTab || intakeReady;
   return {
     intakeComplete,
     intakeOutcome: intakeComplete ? 'accepted' : null,
-    treatmentPlanComplete: asParticipant
+    treatmentPlanComplete: tpReady
   };
 }
 
@@ -219,11 +219,12 @@ async function ensureClientAgencyProgramAffiliation(clientId, agencyId, organiza
  * Registrant vs participant rule (workflow-based, derived in SQL — single source of truth).
  *
  * Workflow stages on a registration:
- *   1. Registered → Provider assigned → Intake (Accept | Deny) → Treatment plan complete
- *   2. Once **TP is complete** the row is fully worked and graduates to **Participants**.
- *   3. Until then it remains a **Registrant** (the coordinator queue).
+ *   1. Registered → Provider assigned → Intake (Accept | Deny)
+ *   2. Once intake is **Accepted**, the client appears on **Participants** (even if TP is still in progress).
+ *   3. Until intake is accepted they remain a **Registrant** (coordinator queue).
+ *   4. Participants with intake accepted but TP not complete are shown as pending (UI highlights in yellow).
  *
- * A "Denied" intake stays in the registrant view (TP isn't eligible) so coordinators can
+ * A "Denied" intake stays in the registrants view (TP isn't eligible) so coordinators can
  * track who didn't make it; they can be removed manually if desired.
  */
 // "Denied" intakes are still rendered in the registrants table (greyed/strikethrough)
@@ -232,8 +233,9 @@ async function ensureClientAgencyProgramAffiliation(clientId, agencyId, organiza
 // anywhere anymore."
 const DENIED_PREDICATE = `(cec.intake_outcome = 'denied')`;
 const ACTIVE_PREDICATE = `(cec.intake_outcome IS NULL OR cec.intake_outcome <> 'denied')`;
-const REGISTRANT_PREDICATE = `(COALESCE(cec.treatment_plan_complete, 0) = 0 AND ${ACTIVE_PREDICATE})`;
-const PARTICIPANT_PREDICATE = `(COALESCE(cec.treatment_plan_complete, 0) = 1 AND ${ACTIVE_PREDICATE})`;
+const INTAKE_ACCEPTED_PREDICATE = `(cec.intake_outcome = 'accepted')`;
+const REGISTRANT_PREDICATE = `(${ACTIVE_PREDICATE} AND NOT ${INTAKE_ACCEPTED_PREDICATE})`;
+const PARTICIPANT_PREDICATE = `(${INTAKE_ACCEPTED_PREDICATE} AND ${ACTIVE_PREDICATE})`;
 
 const normalizeStatusFilter = (raw) => {
   const v = String(raw || '').trim().toLowerCase();
@@ -476,6 +478,9 @@ export const listCompanyEventClients = async (req, res, next) => {
             ? `${r.intake_by_first_name || ''} ${r.intake_by_last_name || ''}`.trim()
             : null,
         treatmentPlanComplete: r.treatment_plan_complete === 1 || r.treatment_plan_complete === true,
+        treatmentPlanPending:
+          String(r.intake_outcome || '').toLowerCase() === 'accepted' &&
+          !(r.treatment_plan_complete === 1 || r.treatment_plan_complete === true),
         treatmentPlanCompletedAt: r.treatment_plan_completed_at || null,
         treatmentPlanCompletedByName:
           r.tp_by_first_name || r.tp_by_last_name
@@ -599,7 +604,7 @@ export const addCompanyEventClient = async (req, res, next) => {
       ok: true,
       eventId,
       clientId,
-      registeredAsParticipant: workflow.treatmentPlanComplete,
+      registeredAsParticipant: workflow.intakeOutcome === 'accepted',
       intakeComplete: workflow.intakeComplete
     });
   } catch (e) {

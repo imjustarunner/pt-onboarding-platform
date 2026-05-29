@@ -103,8 +103,8 @@ async function loadClientsByEventId(agencyId, eventIds) {
       }
       const bucket = result.get(eid);
       const init = clientInitials(r);
-      const isParticipant = Number(r.treatment_plan_complete || 0) === 1;
-      if (isParticipant) bucket.participants.push(init);
+      const intakeAccepted = String(r.intake_outcome || '').toLowerCase() === 'accepted';
+      if (intakeAccepted) bucket.participants.push(init);
       else bucket.registrants.push(init);
     }
   } catch {

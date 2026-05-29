@@ -721,7 +721,7 @@
                 </p>
                 <label v-if="!detail.skillsGroup" class="sbep-add-client-option">
                   <input v-model="rosterRegisterAsParticipant" type="checkbox" />
-                  Enroll as participant (intake accepted &amp; treatment plan complete)
+                  Enroll as participant (intake accepted — treatment plan can follow)
                 </label>
                 <div class="sbep-add-client-row">
                   <input
@@ -802,7 +802,7 @@
                   <span class="sbep-applicants-label">
                     {{ participantCounts.registrants === 1 ? 'Active applicant' : 'Active applicants' }}
                   </span>
-                  <span class="sbep-applicants-help">Working through intake/TP — view registrants →</span>
+                  <span class="sbep-applicants-help">Awaiting intake acceptance — view registrants →</span>
                 </button>
 
                 <div class="sbep-status-filter" role="tablist" aria-label="Filter by workflow status">
@@ -847,16 +847,16 @@
                 v-if="participantStatusFilter === 'registrants'"
                 class="muted small sbep-status-hint"
               >
-                Showing <strong>registrants</strong> — clients still moving through the workflow.
-                Assign a provider, mark intake <strong>Accepted</strong> or <strong>Denied</strong>, then complete the treatment plan to graduate them to
-                <strong>Participants</strong>. Only program coordinators, admins, and the assigned provider for each row should
-                act on this list.
+                Showing <strong>registrants</strong> — clients still moving through intake (provider assignment and accept/deny).
+                Once intake is <strong>Accepted</strong>, they move to
+                <strong>Participants</strong> even if the treatment plan is still in progress.
               </p>
               <p
                 v-else-if="participantStatusFilter === 'participants'"
                 class="muted small sbep-status-hint"
               >
-                Showing <strong>participants</strong> — clients whose intake was accepted and treatment plan is complete.
+                Showing <strong>participants</strong> — clients whose intake was accepted.
+                Rows highlighted in yellow still need a treatment plan; they can be staffed and grouped while that is completed.
               </p>
 
               <p v-if="genericParticipantsLoading" class="muted small">Loading participants…</p>
@@ -982,7 +982,7 @@
                                 <tr
                                   v-for="c in staffingParticipantGroups.unassigned"
                                   :key="`gp-un-${c.clientId}`"
-                                  :class="{ 'sbep-row-mine': isMyParticipant(c) }"
+                                  :class="{ 'sbep-row-mine': isMyParticipant(c), 'sbep-row-tp-pending': isParticipantTpPending(c) }"
                                 >
                                   <td>
                                     <router-link
@@ -993,6 +993,7 @@
                                       {{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}
                                     </router-link>
                                     <template v-else>{{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}</template>
+                                    <span v-if="isParticipantTpPending(c)" class="sbep-tp-due-badge">Treatment plan due</span>
                                   </td>
                                   <td>{{ c.grade || '—' }}</td>
                                   <td>{{ participantAgeDisplay(c) }}</td>
@@ -1112,7 +1113,7 @@
                                 <tr
                                   v-for="c in g.participants"
                                   :key="`gp-g-${g.id}-${c.clientId}`"
-                                  :class="{ 'sbep-row-mine': isMyParticipant(c) }"
+                                  :class="{ 'sbep-row-mine': isMyParticipant(c), 'sbep-row-tp-pending': isParticipantTpPending(c) }"
                                 >
                                   <td>
                                     <router-link
@@ -1123,6 +1124,7 @@
                                       {{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}
                                     </router-link>
                                     <template v-else>{{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}</template>
+                                    <span v-if="isParticipantTpPending(c)" class="sbep-tp-due-badge">Treatment plan due</span>
                                   </td>
                                   <td>{{ c.grade || '—' }}</td>
                                   <td>{{ participantAgeDisplay(c) }}</td>
@@ -1388,9 +1390,6 @@
                             <template v-else-if="c.treatmentPlanComplete">Complete</template>
                             <template v-else>Needed</template>
                           </button>
-                          <p v-if="c.intakeOutcome === 'accepted' && !c.treatmentPlanComplete" class="muted small sbep-tp-hint">
-                            Click when ready — moves them to Participants.
-                          </p>
                         </td>
                         <td style="min-width: 220px;">
                           <input
@@ -1453,7 +1452,7 @@
                       <tr
                         v-for="c in genericParticipants"
                         :key="`part-${c.clientId}`"
-                        :class="{ 'sbep-row-mine': isMyParticipant(c) }"
+                        :class="{ 'sbep-row-mine': isMyParticipant(c), 'sbep-row-tp-pending': isParticipantTpPending(c) }"
                       >
                         <td>
                           <router-link
@@ -1464,6 +1463,7 @@
                             {{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}
                           </router-link>
                           <template v-else>{{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}</template>
+                          <span v-if="isParticipantTpPending(c)" class="sbep-tp-due-badge">Treatment plan due</span>
                         </td>
                         <td>{{ participantAgeDisplay(c) }}</td>
                         <td>{{ c.grade || '—' }}</td>
@@ -1618,7 +1618,7 @@
                       <tr
                         v-for="c in genericParticipants"
                         :key="`gp-${c.clientId}`"
-                        :class="{ 'sbep-row-mine': isMyParticipant(c) }"
+                        :class="{ 'sbep-row-mine': isMyParticipant(c), 'sbep-row-tp-pending': isParticipantTpPending(c) }"
                       >
                         <td>
                           <router-link
@@ -1716,14 +1716,14 @@
               </div>
               <p v-else class="muted small">
                 <template v-if="participantStatusFilter === 'registrants' && participantCounts.all > 0">
-                  No active registrants — all enrolled clients have completed treatment plans.
+                  No active registrants — all enrolled clients have accepted intake.
                 </template>
                 <template v-else-if="participantStatusFilter === 'participants' && participantCounts.all > 0">
-                  No clients have graduated to participants yet. Walk a client through the
+                  No participants yet. Accept intake on the
                   <button type="button" class="btn btn-link btn-sm sbep-reg-jump-btn" @click="setParticipantStatusFilter('registrants')">
                     Registrants ({{ participantCounts.registrants }})
                   </button>
-                  workflow (provider → Accept intake → complete treatment plan) to graduate them here.
+                  list to move clients here.
                 </template>
                 <template v-else>No participants enrolled yet.</template>
               </p>
@@ -4104,9 +4104,14 @@ function participantGroupDisplay(c) {
   return '—';
 }
 
+function isParticipantTpPending(c) {
+  return c?.intakeOutcome === 'accepted' && !c?.treatmentPlanComplete;
+}
+
 function participantStatusLabel(c) {
   if (c?.intakeOutcome === 'denied') return 'Denied';
-  if (c?.treatmentPlanComplete) return 'Participant';
+  if (c?.intakeOutcome === 'accepted' && !c?.treatmentPlanComplete) return 'Participant — TP due';
+  if (c?.intakeOutcome === 'accepted') return 'Participant';
   return 'Registrant';
 }
 
@@ -6670,6 +6675,29 @@ watch(
   line-height: 1.3;
   color: var(--text-secondary, #94a3b8);
   max-width: 140px;
+}
+.sbep-row-tp-pending {
+  background: #fffbeb;
+}
+.sbep-row-tp-pending td {
+  border-color: #fde68a;
+}
+.sbep-row-tp-pending.sbep-row-mine {
+  background: #fef3c7;
+}
+.sbep-tp-due-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  vertical-align: middle;
+  white-space: nowrap;
 }
 
 /* ===== Compact participants table (graduated workflow) ===== */

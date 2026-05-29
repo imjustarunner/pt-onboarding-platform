@@ -4104,7 +4104,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
              WHERE cec.agency_id = ?
                AND cec.company_event_id IN (${ph})
                AND (cec.is_active = TRUE OR cec.is_active IS NULL)
-               AND COALESCE(cec.treatment_plan_complete, 0) = 1
+               AND cec.intake_outcome = 'accepted'
                AND (cec.intake_outcome IS NULL OR cec.intake_outcome <> 'denied')`,
             [agencyId, ...ceCompanyEventIds]
           );

@@ -1302,7 +1302,7 @@ const sigCanvas = ref(null);
 let sigCtx = null;
 let drawing = false;
 let lastPoint = null;
-let sigDirty = false;
+const sigDirty = ref(false);
 const photoVideo = ref(null);
 const photoStream = ref(null);
 const photoStreamActive = computed(() => !!photoStream.value);
@@ -1329,7 +1329,7 @@ function openCheckout(client) {
   selectedPickupKey.value = '';
   releaseMode.value = '';
   checkoutError.value = '';
-  sigDirty = false;
+  sigDirty.value = false;
   photoPreview.value = '';
   checkoutOpen.value = true;
   nextTick(() => {
@@ -1368,16 +1368,27 @@ function clearSig() {
   if (!sigCanvas.value || !sigCtx) return;
   sigCtx.fillStyle = '#fff';
   sigCtx.fillRect(0, 0, sigCanvas.value.width, sigCanvas.value.height);
-  sigDirty = false;
+  sigDirty.value = false;
 }
 function sigStart(e) {
-  if (!sigCtx) return;
+  if (!sigCtx || !sigCanvas.value) return;
+  e.preventDefault();
+  try {
+    sigCanvas.value.setPointerCapture(e.pointerId);
+  } catch {
+    /* optional */
+  }
   drawing = true;
   const rect = sigCanvas.value.getBoundingClientRect();
   lastPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  sigCtx.beginPath();
+  sigCtx.arc(lastPoint.x, lastPoint.y, 1.2, 0, Math.PI * 2);
+  sigCtx.fill();
+  sigDirty.value = true;
 }
 function sigMove(e) {
-  if (!drawing || !sigCtx) return;
+  if (!drawing || !sigCtx || !sigCanvas.value) return;
+  e.preventDefault();
   const rect = sigCanvas.value.getBoundingClientRect();
   const p = { x: e.clientX - rect.left, y: e.clientY - rect.top };
   sigCtx.beginPath();
@@ -1385,9 +1396,17 @@ function sigMove(e) {
   sigCtx.lineTo(p.x, p.y);
   sigCtx.stroke();
   lastPoint = p;
-  sigDirty = true;
+  sigDirty.value = true;
 }
-function sigEnd() { drawing = false; lastPoint = null; }
+function sigEnd(e) {
+  drawing = false;
+  lastPoint = null;
+  try {
+    sigCanvas.value?.releasePointerCapture?.(e?.pointerId);
+  } catch {
+    /* optional */
+  }
+}
 
 async function startCamera() {
   try {
@@ -1434,7 +1453,7 @@ const checkoutBlockReason = computed(() => {
   const client = activeClient.value;
   if (!client || client.checkoutBlocked) return '';
   if (!releaseMode.value) return checkoutSelectReason.value;
-  if (!sigDirty) return 'Draw a signature above to continue.';
+  if (!sigDirty.value) return 'Draw a signature above to continue.';
   if (!photoPreview.value) return 'Take a release photo above to continue.';
   if (releaseMode.value === 'pickup' && !selectedPickupKey.value) {
     return 'Tap the person who is picking up to select them.';
