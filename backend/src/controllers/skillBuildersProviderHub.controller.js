@@ -30,6 +30,10 @@ import {
 import { computeSkillBuilderProgramCreditMinutesPerWeek } from '../services/skillBuilderProgramCredit.service.js';
 import { loadCompanyEventDirectoryCounts, loadCompanyEventDirectoryStaff } from '../services/companyEventDirectoryCounts.service.js';
 import { isUserAssignedToCompanyEvent, isUserAssignedToAnyCompanyEventInAgency } from '../services/companyEventAccess.service.js';
+import {
+  ensureCompanyEventClientEnrollment,
+  syncSkillsGroupClientsToCompanyEventClients
+} from '../services/companyEventClientEnrollmentSync.service.js';
 import { fetchMyEventPortalWorkSchedule } from '../services/eventPortalWorkSchedule.service.js';
 import {
   fetchCompanyEventDetailForEdit,
@@ -1527,16 +1531,18 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
     const coord = await getSkillBuilderCoordinatorAccess(userId);
     const rosterRestrict = !staffLike && !coord;
 
-    const docCompleteClause = `
-         AND COALESCE(c.skill_builders_intake_complete, 0) = 1
-         AND COALESCE(c.skill_builders_treatment_plan_complete, 0) = 1`;
+    try {
+      await syncSkillsGroupClientsToCompanyEventClients(eventId, billingAgencyId);
+    } catch {
+      // Mirror is best-effort; roster still loads from skills_group_clients.
+    }
+
     const clientSql = rosterRestrict
       ? `SELECT c.id, c.initials, c.identifier_code
          FROM skills_group_clients sgc
          JOIN clients c ON c.id = sgc.client_id
          WHERE sgc.skills_group_id = ?
            AND (sgc.active_for_providers = 1 OR sgc.active_for_providers IS TRUE)
-           ${docCompleteClause}
          ORDER BY c.initials ASC
          LIMIT 200`
       : `SELECT c.id, c.initials, c.identifier_code, c.document_status, c.paperwork_status_id,
@@ -1545,7 +1551,6 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
          JOIN clients c ON c.id = sgc.client_id
          LEFT JOIN paperwork_statuses ps ON ps.id = c.paperwork_status_id
          WHERE sgc.skills_group_id = ?
-           ${docCompleteClause}
          ORDER BY c.initials ASC
          LIMIT 200`;
     const [clientRows] = await pool.execute(clientSql, [sg?.id || 0]);
@@ -3023,6 +3028,12 @@ export const quickEnrollClientToSkillBuilderEvent = async (req, res, next) => {
        ON DUPLICATE KEY UPDATE skills_group_id = skills_group_id`,
       [sg.id, clientId]
     );
+    await ensureCompanyEventClientEnrollment({
+      eventId,
+      agencyId,
+      clientId,
+      actorUserId: userId
+    });
     res.json({ ok: true });
   } catch (e) {
     next(e);
@@ -4721,10 +4732,6 @@ export const getSkillBuilderSessionClinicalNotesBoard = async (req, res, next) =
     const coord = await getSkillBuilderCoordinatorAccess(userId);
     const rosterRestrict = !staffLike && !coord;
 
-    const docCompleteClause = `
-         AND COALESCE(c.skill_builders_intake_complete, 0) = 1
-         AND COALESCE(c.skill_builders_treatment_plan_complete, 0) = 1`;
-
     let rosterRows = [];
     if (sgId) {
       const rosterSql = rosterRestrict
@@ -4733,14 +4740,12 @@ export const getSkillBuilderSessionClinicalNotesBoard = async (req, res, next) =
            JOIN clients c ON c.id = sgc.client_id
            WHERE sgc.skills_group_id = ?
              AND (sgc.active_for_providers = 1 OR sgc.active_for_providers IS TRUE)
-             ${docCompleteClause}
            ORDER BY c.initials ASC
            LIMIT 200`
         : `SELECT c.id, c.initials, c.identifier_code
            FROM skills_group_clients sgc
            JOIN clients c ON c.id = sgc.client_id
            WHERE sgc.skills_group_id = ?
-             ${docCompleteClause}
            ORDER BY c.initials ASC
            LIMIT 200`;
       const [rR] = await pool.execute(rosterSql, [sgId]);

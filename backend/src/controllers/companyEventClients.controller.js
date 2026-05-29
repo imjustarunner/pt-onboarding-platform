@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import { syncClientStatusForEvent } from '../services/eventClientStatusSync.service.js';
+import { syncSkillsGroupClientsToCompanyEventClients } from '../services/companyEventClientEnrollmentSync.service.js';
 import {
   canManageProgramEvent,
   canViewProgramEvent,
@@ -273,6 +274,12 @@ export const listCompanyEventClients = async (req, res, next) => {
 
     const event = await loadEventForAgency(eventId, agencyId);
     if (!event) return res.status(404).json({ error: { message: 'Event not found' } });
+
+    try {
+      await syncSkillsGroupClientsToCompanyEventClients(eventId, agencyId);
+    } catch {
+      // Optional skills-group mirror — list should still work for direct company_event_clients rows.
+    }
 
     // Workflow-derived counts so the UI can pulse the registrants chip and show totals
     // without a second round-trip. The `all` count intentionally excludes denied intakes

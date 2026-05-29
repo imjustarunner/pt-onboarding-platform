@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { ensureCompanyEventClientEnrollment } from './companyEventClientEnrollmentSync.service.js';
 
 export function validatePayerForEligibility(payerType, row) {
   const pt = String(payerType || '').trim().toLowerCase();
@@ -137,6 +138,7 @@ export async function enrollClientsInCompanyEvent({ agencyId, eventId, clientIds
          ON DUPLICATE KEY UPDATE skills_group_id = skills_group_id`,
         [sg.id, clientId]
       );
+      await ensureCompanyEventClientEnrollment({ eventId: eid, agencyId: aid, clientId });
       results.push({ clientId, ok: true });
     } catch (err) {
       results.push({ clientId, ok: false, error: err?.message || 'Enroll failed' });

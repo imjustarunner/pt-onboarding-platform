@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import { isUserAssignedToCompanyEvent } from '../services/companyEventAccess.service.js';
+import { ensureCompanyEventClientEnrollment } from '../services/companyEventClientEnrollmentSync.service.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
 import { isSkillsClientFlag } from '../utils/skillsClientFlag.js';
@@ -452,6 +453,12 @@ export const coordinatorAssignClientToEvent = async (req, res, next) => {
        ON DUPLICATE KEY UPDATE skills_group_id = skills_group_id`,
       [sg.id, clientId]
     );
+    await ensureCompanyEventClientEnrollment({
+      eventId,
+      agencyId,
+      clientId,
+      actorUserId: parsePositiveInt(req.user?.id)
+    });
 
     res.json({ ok: true, skillsGroupId: Number(sg.id) });
   } catch (e) {

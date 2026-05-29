@@ -2760,9 +2760,7 @@ const viewerCaps = computed(() => {
 
 /** Assigned facilitators may browse roster/materials; only coordinators edit event config. */
 const canViewParticipantsTab = computed(
-  () =>
-    !detail.value?.skillsGroup &&
-    (viewerCaps.value.canManageCompanyEvent || viewerCaps.value.isAssignedProvider)
+  () => viewerCaps.value.canManageCompanyEvent || viewerCaps.value.isAssignedProvider
 );
 
 /** Opens coordinator Skill Builders hub → Program documents (library upload + attach by date/session). */
@@ -3763,10 +3761,8 @@ async function addClientToRoster(c) {
     rosterAddResults.value = rosterAddResults.value.filter((r) => r.clientId !== c.clientId);
     rosterAddQuery.value = '';
     if (detail.value?.skillsGroup) await loadDetail();
-    else {
-      await loadGenericParticipants();
-      await loadScheduleParticipants();
-    }
+    await loadGenericParticipants();
+    await loadScheduleParticipants();
   } catch (e) {
     rosterAddError.value = e.response?.data?.error?.message || e.message || 'Could not add client';
   } finally {
@@ -3777,7 +3773,7 @@ async function addClientToRoster(c) {
 async function loadGenericParticipants() {
   const aid = eventBillingAgencyId.value;
   const eid = eventId.value;
-  if (!aid || !eid || detail.value?.skillsGroup) {
+  if (!aid || !eid) {
     genericParticipants.value = [];
     genericParticipantsError.value = '';
     genericParticipantsLoading.value = false;
@@ -3815,7 +3811,7 @@ async function loadGenericParticipants() {
 async function loadScheduleParticipants() {
   const aid = eventBillingAgencyId.value;
   const eid = eventId.value;
-  if (!aid || !eid || detail.value?.skillsGroup) {
+  if (!aid || !eid) {
     scheduleParticipants.value = [];
     scheduleParticipantsError.value = '';
     scheduleParticipantsLoading.value = false;
@@ -4367,6 +4363,9 @@ async function setParticipantIntakeOutcome(row, outcome) {
     if (!window.confirm('This client already has a completed treatment plan. Reset intake anyway?')) return;
   }
   await patchParticipantWorkflow(row, { intakeOutcome: norm });
+  if (norm === 'accepted') {
+    setParticipantStatusFilter('participants');
+  }
 }
 
 async function toggleParticipantTreatmentPlan(row) {
