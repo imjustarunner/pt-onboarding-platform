@@ -41,6 +41,15 @@ import {
   loadWaiverHistorySectionsFallbackForClientIds
 } from '../services/guardianWaivers.service.js';
 import {
+  EVENT_DAY_KIOSK_ABSENCE_REASONS,
+  loadClientConfirmationStatusByEvent,
+  markEventDayClientAbsent
+} from '../services/eventDayKioskAbsent.service.js';
+import {
+  loadLateContactsForEventDay,
+  upsertEventDayLateContact
+} from '../services/eventDayKioskLateContact.service.js';
+import {
   buildKioskClientWaiverEntry,
   getEventKioskClientCheckinSheet,
   saveEventKioskClientWaiverSection
@@ -333,7 +342,7 @@ async function syncEmployeeStationCheckout({ agencyId, eventId, userId, kioskDat
 async function loadEventDayCheckins(eventId, today) {
   try {
     const [rows] = await pool.execute(
-      `SELECT id, client_id, user_id, person_type, action, checked_in_at, checked_out_at
+      `SELECT id, client_id, user_id, person_type, action, checked_in_at, checked_out_at, absence_reason
        FROM event_day_kiosk_checkins
        WHERE company_event_id = ? AND kiosk_date = ?`,
       [eventId, today]
@@ -353,7 +362,8 @@ function mapCheckinRows(rows) {
     personType: c.person_type,
     action: c.action,
     checkedInAt: c.checked_in_at,
-    checkedOutAt: c.checked_out_at
+    checkedOutAt: c.checked_out_at,
+    absenceReason: c.absence_reason || null
   }));
 }
 
@@ -519,6 +529,14 @@ export const getProgramEventKioskContext = async (req, res, next) => {
     }
 
     const clientIds = [...clientMap.keys()];
+    const confirmationByClient = await loadClientConfirmationStatusByEvent(eventId, clientIds);
+    for (const [cid, entry] of clientMap) {
+      const conf = confirmationByClient.get(Number(cid));
+      entry.confirmationStatus = conf?.confirmationStatus || 'pending';
+      entry.confirmationSetAt = conf?.confirmationSetAt || null;
+      entry.confirmationSetMethod = conf?.confirmationSetMethod || null;
+    }
+
     const [guardianRows, waiverRows, intakeWaiverFallback, historyWaiverFallback] = await Promise.all([
       loadGuardiansForClientIds(clientIds),
       loadWaiverProfilesForClientIds(clientIds),
@@ -571,6 +589,7 @@ export const getProgramEventKioskContext = async (req, res, next) => {
 
     const staffRows = await loadProgramEventStaff(eventId, agencyId);
     const checkinRows = await loadEventDayCheckins(eventId, today);
+    const lateContacts = await loadLateContactsForEventDay(eventId, today);
     const registration = await loadCompanyEventRegistrationForKiosk(pool, eventId, {
       registrationFormUrl: ev.registration_form_url
     });
@@ -622,6 +641,7 @@ export const getProgramEventKioskContext = async (req, res, next) => {
         displayName: `${s.first_name || ''} ${s.last_name || ''}`.trim()
       })),
       checkins: mapCheckinRows(checkinRows),
+      lateContacts,
       kioskDay: {
         timezone: kioskDay.timezone,
         todayYmd: kioskDay.todayYmd,
@@ -639,8 +659,89 @@ export const getProgramEventKioskContext = async (req, res, next) => {
         signedAt: r.signed_at
       })),
       registration,
-      kioskDate: today
+      kioskDate: today,
+      absenceReasons: EVENT_DAY_KIOSK_ABSENCE_REASONS
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/public/program-event/agency/:slug/kiosk/events/:eventId/checkin/client/absent
+ * Record absent for today when family confirmed they are not attending.
+ */
+export const programEventClientAbsent = async (req, res, next) => {
+  try {
+    const ctx = verifyKioskBearerForProgramEvent(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertKioskTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const kioskDay = await assertKioskRecordingAllowed(m.agencyId, m.eventId, res);
+    if (!kioskDay) return;
+
+    const clientId = parsePositiveInt(req.body?.clientId);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+
+    const result = await markEventDayClientAbsent({
+      eventId: m.eventId,
+      agencyId: m.agencyId,
+      clientId,
+      kioskDate: kioskDay.todayYmd,
+      reasonCode: req.body?.reasonCode,
+      reasonNotes: req.body?.reasonNotes,
+      ipAddress: kioskIp(req)
+    });
+    if (result.error) {
+      return res.status(result.error.status).json({
+        error: { message: result.error.message, code: result.error.code || undefined }
+      });
+    }
+
+    res.status(201).json(result);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** POST …/checkin/late-contact — log late-arrival family outreach */
+export const programEventLateContact = async (req, res, next) => {
+  try {
+    const ctx = verifyKioskBearerForProgramEvent(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertKioskTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const kioskDay = await assertKioskRecordingAllowed(m.agencyId, m.eventId, res);
+    if (!kioskDay) return;
+
+    const clientId = parsePositiveInt(req.body?.clientId);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+
+    const result = await upsertEventDayLateContact({
+      eventId: m.eventId,
+      agencyId: m.agencyId,
+      clientId,
+      kioskDate: kioskDay.todayYmd,
+      staffUserId: parsePositiveInt(req.body?.staffUserId) || null,
+      contactTarget: req.body?.contactTarget || null,
+      contactMethod: req.body?.contactMethod || null,
+      phoneOutcome: req.body?.phoneOutcome || null,
+      replyStatus: req.body?.replyStatus || null,
+      attendanceOutcome: req.body?.attendanceOutcome || null,
+      absenceReason: req.body?.absenceReason || null,
+      markContacted: req.body?.markContacted === true,
+      reopenPending: req.body?.reopenPending === true,
+      ipAddress: kioskIp(req)
+    });
+    if (result.error) {
+      return res.status(result.error.status).json({
+        error: { message: result.error.message, code: result.error.code || undefined }
+      });
+    }
+
+    res.json(result);
   } catch (e) {
     next(e);
   }

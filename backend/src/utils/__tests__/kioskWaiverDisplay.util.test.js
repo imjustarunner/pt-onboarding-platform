@@ -7,6 +7,7 @@ import {
   formatKioskClientDisplayName,
   mergeGuardiansIntoKioskPickups,
   mergeWaiverSectionsIntoKioskClient,
+  normalizeIntakeDataShape,
   readActiveSectionPayload,
   clientCheckoutBlocked,
   buildSectionsFromWaiverHistoryRows
@@ -199,6 +200,97 @@ test('extractProfileSectionsFromIntakeData accepts legacy flat section rows', ()
     }
   }, 999);
   assert.ok(sections?.emergency_contacts?.payload?.contacts?.[0]?.name, 'Flat Contact');
+});
+
+test('extractProfileSectionsFromIntakeData reads flat submission guardian waiver intake', () => {
+  const intakeData = {
+    clients: [{ firstName: 'Marcus', lastName: 'V' }],
+    submission: {
+      guardianWaiverIntake: {
+        clients: [{
+          sections: {
+            allergies_snacks: {
+              payload: {
+                allergies: 'none',
+                approvedSnacks: 'just no dairy snacks, I will also pack him snacks (:',
+                notes: 'none'
+              },
+              signatureData: 'data:image/png;base64,' + 'x'.repeat(80)
+            },
+            emergency_contacts: {
+              payload: {
+                contacts: [{ name: 'Kaitlin', relationship: 'mom', phone: '9739053624' }]
+              },
+              signatureData: 'data:image/png;base64,' + 'y'.repeat(80)
+            }
+          }
+        }]
+      }
+    }
+  };
+  const sections = extractProfileSectionsFromIntakeData(intakeData, 303152);
+  assert.equal(
+    sections.allergies_snacks.payload.approvedSnacks,
+    'just no dairy snacks, I will also pack him snacks (:'
+  );
+  assert.equal(sections.emergency_contacts.payload.contacts[0].name, 'Kaitlin');
+});
+
+test('extractProfileSectionsFromIntakeData uses submission client order for multi-child intakes', () => {
+  const intakeData = {
+    clients: [{ firstName: 'Older' }, { firstName: 'Marcus', lastName: 'V' }],
+    submission: {
+      guardianWaiverIntake: {
+        clients: [
+          {
+            sections: {
+              allergies_snacks: {
+                payload: { approvedSnacks: 'Older child snacks' }
+              }
+            }
+          },
+          {
+            sections: {
+              allergies_snacks: {
+                payload: { approvedSnacks: 'just no dairy snacks' }
+              }
+            }
+          }
+        ]
+      }
+    }
+  };
+  const younger = extractProfileSectionsFromIntakeData(intakeData, 303152, { preferredIndex: 1 });
+  assert.equal(younger.allergies_snacks.payload.approvedSnacks, 'just no dairy snacks');
+});
+
+test('normalizeIntakeDataShape nests flat submission guardian waiver bundle', () => {
+  const normalized = normalizeIntakeDataShape({
+    submission: { guardianWaiverIntake: { clients: [{ sections: {} }] } }
+  });
+  assert.ok(normalized.responses.submission.guardianWaiverIntake);
+});
+
+test('mergeWaiverSectionsIntoKioskClient applies intake allergies after normalize shape', () => {
+  const entry = { ...emptyKioskClientWaiverFields() };
+  const sections = extractProfileSectionsFromIntakeData({
+    submission: {
+      guardianWaiverIntake: {
+        clients: [{
+          sections: {
+            allergies_snacks: {
+              payload: {
+                allergies: 'none',
+                approvedSnacks: 'fruit and crackers only'
+              }
+            }
+          }
+        }]
+      }
+    }
+  }, 999);
+  mergeWaiverSectionsIntoKioskClient(entry, sections, null, { fillMissingOnly: true });
+  assert.equal(entry.allergies.approvedSnacks, 'fruit and crackers only');
 });
 
 test('buildSectionsFromWaiverHistoryRows keeps latest payload per section key', () => {

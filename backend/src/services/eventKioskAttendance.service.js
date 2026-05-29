@@ -39,6 +39,7 @@ export async function listEventKioskAttendanceForPortal(eventId, agencyId, { kio
     const [rows] = await pool.execute(
       `SELECT edk.id, edk.client_id, edk.user_id, edk.person_type, edk.action,
               edk.checked_in_at, edk.checked_out_at, edk.kiosk_date, edk.ip_address,
+              edk.absence_reason,
               c.full_name AS client_full_name, c.initials AS client_initials, c.identifier_code,
               u.first_name AS user_first_name, u.last_name AS user_last_name, u.profile_photo_path
        FROM event_day_kiosk_checkins edk
@@ -104,10 +105,19 @@ export async function listEventKioskAttendanceForPortal(eventId, agencyId, { kio
         kioskDate: day,
         checkInAt: null,
         checkOutAt: null,
+        absentAt: null,
+        absenceReason: null,
+        attendanceStatus: null,
         release: null
       });
     }
     const row = clientMap.get(key);
+    if (String(r.action) === 'absent') {
+      row.absentAt = r.checked_in_at || row.absentAt;
+      row.absenceReason = r.absence_reason || row.absenceReason;
+      row.attendanceStatus = 'absent';
+      continue;
+    }
     if (r.checked_in_at && (!row.checkInAt || new Date(r.checked_in_at) < new Date(row.checkInAt))) {
       row.checkInAt = r.checked_in_at;
     }
@@ -133,6 +143,9 @@ export async function listEventKioskAttendanceForPortal(eventId, agencyId, { kio
         kioskDate: day,
         checkInAt: null,
         checkOutAt: null,
+        absentAt: null,
+        absenceReason: null,
+        attendanceStatus: null,
         release: null
       });
     }

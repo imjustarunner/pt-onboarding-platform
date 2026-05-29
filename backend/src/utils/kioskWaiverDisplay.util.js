@@ -119,12 +119,60 @@ function resolveGuardianWaiverIntakeBundle(intakeData) {
   );
 }
 
-function resolveClientIndexInIntake(intakeData, clientId) {
+/**
+ * Normalize flat intake_data (submission/guardian/clients at top level) into the
+ * nested responses.* shape kiosk + intake readers expect.
+ */
+export function normalizeIntakeDataShape(intakeData) {
+  if (!intakeData || typeof intakeData !== 'object') return intakeData;
+  const flatSubmission = (intakeData.submission && typeof intakeData.submission === 'object' && !Array.isArray(intakeData.submission))
+    ? intakeData.submission
+    : null;
+  const flatGuardianResp = (intakeData.guardianResponses && typeof intakeData.guardianResponses === 'object')
+    ? intakeData.guardianResponses
+    : null;
+  const existingResponses = (intakeData.responses && typeof intakeData.responses === 'object')
+    ? intakeData.responses
+    : null;
+
+  const mergedSubmission = (existingResponses?.submission && typeof existingResponses.submission === 'object')
+    ? { ...(flatSubmission || {}), ...existingResponses.submission }
+    : (flatSubmission || {});
+
+  const mergedGuardianResponses = (existingResponses?.guardian && typeof existingResponses.guardian === 'object')
+    ? { ...(flatGuardianResp || {}), ...existingResponses.guardian }
+    : (flatGuardianResp || {});
+
+  let mergedClientResponses = null;
+  if (Array.isArray(existingResponses?.clients) && existingResponses.clients.length) {
+    mergedClientResponses = existingResponses.clients;
+  } else if (Array.isArray(intakeData.clients)) {
+    mergedClientResponses = intakeData.clients.map((c) => (c && typeof c === 'object' ? c : {}));
+  }
+
+  return {
+    ...intakeData,
+    responses: {
+      ...(existingResponses || {}),
+      submission: mergedSubmission,
+      guardian: mergedGuardianResponses,
+      clients: mergedClientResponses || (existingResponses?.clients || [])
+    }
+  };
+}
+
+function resolveClientIndexInIntake(intakeData, clientId, options = {}) {
   const cid = Number(clientId);
   if (!cid) return -1;
 
   const bundle = resolveGuardianWaiverIntakeBundle(intakeData);
   const bundleClients = Array.isArray(bundle?.clients) ? bundle.clients : [];
+
+  const preferredIndex = Number(options.preferredIndex);
+  if (Number.isInteger(preferredIndex) && preferredIndex >= 0 && preferredIndex < bundleClients.length) {
+    return preferredIndex;
+  }
+
   for (let i = 0; i < bundleClients.length; i += 1) {
     const row = bundleClients[i];
     const id = Number(row?.id || row?.clientId || row?.client_id || 0);
@@ -138,7 +186,9 @@ function resolveClientIndexInIntake(intakeData, clientId) {
   for (let i = 0; i < candidates.length; i += 1) {
     const row = candidates[i];
     const id = Number(row?.id || row?.clientId || row?.client_id || 0);
-    if (id === cid) return i;
+    if (id === cid) {
+      return Math.min(i, Math.max(bundleClients.length - 1, 0));
+    }
   }
 
   if (Number(intakeData?.clientId || intakeData?.client_id || 0) === cid) return 0;
@@ -281,11 +331,12 @@ export function finalizeKioskClientWaiverEntry(entry, guardians = []) {
  * Build profile-shaped waiver sections from a finalized intake submission.
  * Used when guardian_client_waiver_profiles was never populated.
  */
-export function extractProfileSectionsFromIntakeData(intakeData, clientId) {
-  const bundle = resolveGuardianWaiverIntakeBundle(intakeData);
+export function extractProfileSectionsFromIntakeData(intakeData, clientId, options = {}) {
+  const normalized = normalizeIntakeDataShape(intakeData);
+  const bundle = resolveGuardianWaiverIntakeBundle(normalized);
   if (!bundle) return null;
 
-  const idx = resolveClientIndexInIntake(intakeData, clientId);
+  const idx = resolveClientIndexInIntake(normalized, clientId, options);
   if (idx < 0) return null;
 
   const row = Array.isArray(bundle.clients) ? bundle.clients[idx] : null;

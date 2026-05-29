@@ -21,6 +21,15 @@ import {
 } from '../services/guardianWaivers.service.js';
 import { loadCompanyEventRegistrationForKiosk } from '../utils/eventKioskRegistration.util.js';
 import {
+  EVENT_DAY_KIOSK_ABSENCE_REASONS,
+  loadClientConfirmationStatusByEvent,
+  markEventDayClientAbsent
+} from '../services/eventDayKioskAbsent.service.js';
+import {
+  loadLateContactsForEventDay,
+  upsertEventDayLateContact
+} from '../services/eventDayKioskLateContact.service.js';
+import {
   getEventKioskClientCheckinSheet,
   saveEventKioskClientWaiverSection
 } from '../services/eventKioskClientCheckinWaiver.service.js';
@@ -476,7 +485,8 @@ export const getEventDayKioskContext = async (req, res, next) => {
         pool.execute(
           `SELECT cg.client_id, cg.guardian_user_id,
                   CONCAT(gu.first_name, ' ', gu.last_name) AS guardian_name,
-                  gu.email AS guardian_email
+                  gu.email AS guardian_email,
+                  gu.phone_number AS guardian_phone
            FROM client_guardians cg
            INNER JOIN users gu ON gu.id = cg.guardian_user_id
            WHERE cg.client_id IN (${ph})
@@ -517,6 +527,9 @@ export const getEventDayKioskContext = async (req, res, next) => {
       : new Map();
     const historyWaiverFallback = clientIds.length
       ? await loadWaiverHistorySectionsFallbackForClientIds(clientIds)
+      : new Map();
+    const confirmationByClient = clientIds.length
+      ? await loadClientConfirmationStatusByEvent(eventId, clientIds)
       : new Map();
 
     const clientList = [];
@@ -559,16 +572,21 @@ export const getEventDayKioskContext = async (req, res, next) => {
       finalizeKioskClientWaiverEntry(entry, guardianList);
 
       const primaryGuardian = linkedGuardians[0] || null;
+      const conf = confirmationByClient.get(cid);
       clientList.push({
         id: entry.id,
         fullName: entry.fullName,
         kioskDisplayName: entry.kioskDisplayName || formatKioskClientDisplayName(entry.fullName),
         initials: entry.initials,
         identifierCode: entry.identifierCode,
+        confirmationStatus: conf?.confirmationStatus || 'pending',
+        confirmationSetAt: conf?.confirmationSetAt || null,
+        confirmationSetMethod: conf?.confirmationSetMethod || null,
         guardianUserId: primaryGuardian ? Number(primaryGuardian.guardian_user_id) : null,
         guardianName: primaryGuardian?.guardian_name ? String(primaryGuardian.guardian_name).trim() : null,
         guardianEmail: primaryGuardian?.guardian_email || null,
         guardians: guardianList,
+        emergencyContacts: entry.emergencyContacts,
         waiverUpdatedAt: entry.waiverUpdatedAt,
         walkHome: entry.walkHome,
         authorizedPickups: entry.authorizedPickups,
@@ -596,11 +614,13 @@ export const getEventDayKioskContext = async (req, res, next) => {
 
     // Today's check-in status (so the kiosk knows who is already checked in)
     const [checkins] = await pool.execute(
-      `SELECT id, client_id, user_id, person_type, action, checked_in_at, checked_out_at
+      `SELECT id, client_id, user_id, person_type, action, checked_in_at, checked_out_at, absence_reason
        FROM event_day_kiosk_checkins
        WHERE company_event_id = ? AND kiosk_date = ?`,
       [eventId, today]
     ).catch(() => [[]]);
+
+    const lateContacts = await loadLateContactsForEventDay(eventId, today);
 
     const registration = await loadCompanyEventRegistrationForKiosk(pool, eventId, {
       registrationFormUrl: ev.registration_form_url
@@ -640,10 +660,13 @@ export const getEventDayKioskContext = async (req, res, next) => {
         personType: c.person_type,
         action: c.action,
         checkedInAt: c.checked_in_at,
-        checkedOutAt: c.checked_out_at
+        checkedOutAt: c.checked_out_at,
+        absenceReason: c.absence_reason || null
       })),
+      lateContacts,
       registration,
-      kioskDate: today
+      kioskDate: today,
+      absenceReasons: EVENT_DAY_KIOSK_ABSENCE_REASONS
     });
   } catch (e) {
     next(e);
@@ -707,6 +730,84 @@ export const eventDayClientCheckin = async (req, res, next) => {
     });
 
     res.status(201).json({ ok: true, id: Number(result?.insertId || 0), clientId, checkedInAt: new Date().toISOString() });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/public/skill-builders/agency/:slug/kiosk/events/:eventId/event-day/client-absent
+ * Record absent for today when family confirmed they are not attending.
+ */
+export const eventDayClientAbsent = async (req, res, next) => {
+  try {
+    const ctx = verifySkillBuildersEventKioskBearer(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const clientId = parsePositiveInt(req.body?.clientId);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+    const today = new Date().toISOString().slice(0, 10);
+
+    const result = await markEventDayClientAbsent({
+      eventId: m.eventId,
+      agencyId: m.agencyId,
+      clientId,
+      kioskDate: today,
+      reasonCode: req.body?.reasonCode,
+      reasonNotes: req.body?.reasonNotes,
+      ipAddress: req.ip || null
+    });
+    if (result.error) {
+      return res.status(result.error.status).json({
+        error: { message: result.error.message, code: result.error.code || undefined }
+      });
+    }
+
+    res.status(201).json(result);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/public/skill-builders/agency/:slug/kiosk/events/:eventId/event-day/client-late-contact
+ */
+export const eventDayClientLateContact = async (req, res, next) => {
+  try {
+    const ctx = verifySkillBuildersEventKioskBearer(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const clientId = parsePositiveInt(req.body?.clientId);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+    const today = new Date().toISOString().slice(0, 10);
+
+    const result = await upsertEventDayLateContact({
+      eventId: m.eventId,
+      agencyId: m.agencyId,
+      clientId,
+      kioskDate: today,
+      staffUserId: parsePositiveInt(req.body?.staffUserId) || null,
+      contactTarget: req.body?.contactTarget || null,
+      contactMethod: req.body?.contactMethod || null,
+      phoneOutcome: req.body?.phoneOutcome || null,
+      replyStatus: req.body?.replyStatus || null,
+      attendanceOutcome: req.body?.attendanceOutcome || null,
+      absenceReason: req.body?.absenceReason || null,
+      markContacted: req.body?.markContacted === true,
+      reopenPending: req.body?.reopenPending === true,
+      ipAddress: req.ip || null
+    });
+    if (result.error) {
+      return res.status(result.error.status).json({
+        error: { message: result.error.message, code: result.error.code || undefined }
+      });
+    }
+
+    res.json(result);
   } catch (e) {
     next(e);
   }

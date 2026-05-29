@@ -8,7 +8,10 @@
           <div class="pe-kiosk-evt">{{ event.title || 'Program event' }}</div>
         </div>
       </div>
-      <div class="pe-kiosk-clock">{{ clockNow }}</div>
+      <div class="pe-kiosk-clock">
+        <div class="pe-kiosk-clock-time">{{ clockTime }}</div>
+        <div class="pe-kiosk-clock-date">{{ clockDate }}</div>
+      </div>
     </header>
 
     <section v-if="loading" class="pe-kiosk-load">
@@ -22,12 +25,15 @@
 
     <section v-else class="pe-kiosk-body">
       <div v-if="!kioskActive" class="pe-preview-banner" role="status">
-        <strong>Preview mode</strong>
-        <span>
+        <span class="pe-preview-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><circle cx="12" cy="16" r=".75" fill="currentColor" stroke="none"/></svg>
+        </span>
+        <div class="pe-preview-copy">
+          <strong>Preview mode.</strong>
           Today is not a scheduled event day — you can browse the roster and resource info, but check-in and check-out are
           disabled.
           <template v-if="nextEventDateLabel"> Next session: {{ nextEventDateLabel }}.</template>
-        </span>
+        </div>
       </div>
 
       <!-- Person type toggle (check in / check out only) -->
@@ -38,7 +44,10 @@
           :class="{ active: personMode === 'client' }"
           @click="personMode = 'client'"
         >
-          Client {{ mainMode === 'checkin' ? 'check-in' : 'check-out' }}
+          <svg class="pe-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          Client {{ mainMode === 'checkin' ? 'Check-In' : 'Check-Out' }}
         </button>
         <button
           type="button"
@@ -46,25 +55,41 @@
           :class="{ active: personMode === 'employee' }"
           @click="personMode = 'employee'"
         >
-          Employee {{ mainMode === 'checkin' ? 'check-in' : 'check-out' }}
+          <svg class="pe-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+          </svg>
+          Employee {{ mainMode === 'checkin' ? 'Check-In' : 'Check-Out' }}
         </button>
       </div>
 
       <div class="pe-kiosk-toolbar">
-        <input
-          v-model="search"
-          class="input pe-kiosk-search"
-          :placeholder="searchPlaceholder"
-          autocomplete="off"
-        />
-        <button class="btn btn-secondary btn-sm" @click="loadContext">Refresh</button>
+        <label class="pe-search-wrap">
+          <svg class="pe-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>
+          </svg>
+          <input
+            v-model="search"
+            class="input pe-kiosk-search"
+            :placeholder="searchPlaceholder"
+            autocomplete="off"
+          />
+        </label>
+        <button type="button" class="pe-icon-btn" aria-label="Refresh roster" @click="loadContext">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>
+          </svg>
+          <span>Refresh</span>
+        </button>
         <button
           v-if="registrationAvailable"
           type="button"
-          class="btn btn-primary btn-sm pe-walkin-btn"
+          class="btn btn-primary pe-walkin-btn"
           @click="openRegistrationQr()"
         >
-          Walk-in registration
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/>
+          </svg>
+          Walk-In Registration
         </button>
       </div>
 
@@ -72,34 +97,94 @@
         v-if="registrationAvailable && mainMode === 'checkin' && personMode === 'client'"
         class="pe-walkin-banner"
       >
-        <div>
+        <span class="pe-walkin-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h.01"/><path d="M18 14h.01"/><path d="M14 18h.01"/><path d="M18 18h.01"/>
+          </svg>
+        </span>
+        <div class="pe-walkin-copy">
           <strong>Walk-in today?</strong>
           <span class="muted small"> Show parents the registration QR so they can enroll on their phone while on site.</span>
         </div>
-        <button type="button" class="btn btn-secondary btn-sm" @click="openRegistrationQr()">Show QR</button>
+        <button type="button" class="btn btn-primary btn-sm pe-walkin-qr-btn" @click="openRegistrationQr()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h.01"/><path d="M18 14h.01"/><path d="M14 18h.01"/><path d="M18 18h.01"/>
+          </svg>
+          Show QR
+        </button>
       </div>
 
       <!-- CHECK IN · CLIENT -->
       <div v-if="mainMode === 'checkin' && personMode === 'client'" class="pe-panel">
-        <p class="pe-panel-lead muted">{{ pendingClients.length }} not checked in yet</p>
+        <div class="pe-roster-head">
+          <svg class="pe-roster-head-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+          </svg>
+          <span>
+            {{ pendingClients.length }} waiting to check in
+            <template v-if="absentClients.length"> · {{ absentClients.length }} absent</template>
+          </span>
+        </div>
         <ul class="pe-roster">
           <li v-for="c in filteredPendingClients" :key="c.id" class="pe-row">
-            <div class="pe-row-main">
-              <strong>{{ clientDisplayName(c) }}</strong>
-              <span v-if="c.identifierCode" class="muted small"> · {{ c.identifierCode }}</span>
+            <div class="pe-row-top">
+              <div class="pe-row-avatar" aria-hidden="true">
+                <span v-if="initials(c.fullName || c.kioskDisplayName)">{{ initials(c.fullName || c.kioskDisplayName) }}</span>
+                <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                </svg>
+              </div>
+              <div class="pe-row-main">
+                <div class="pe-row-name">
+                  <strong>{{ clientDisplayName(c) }}</strong>
+                  <span v-if="c.identifierCode" class="pe-row-id"> · {{ c.identifierCode }}</span>
+                </div>
+                <span v-if="c.confirmationStatus === 'no'" class="pe-tag pe-tag--warn">Not attending</span>
+              </div>
+              <div class="pe-row-actions">
+                <button
+                  v-if="canMarkAbsent(c)"
+                  type="button"
+                  class="btn btn-secondary btn-sm pe-btn-ghost"
+                  :disabled="!kioskActive || absentSubmitting"
+                  @click="openAbsentModal(c)"
+                >
+                  Mark absent
+                </button>
+                <button
+                  type="button"
+                  class="btn pe-btn-checkin"
+                  :disabled="!kioskActive || (checkinOpen && checkinClient?.id === c.id) || checkinSubmitting"
+                  @click="openCheckin(c)"
+                >
+                  {{ (checkinOpen && checkinClient?.id === c.id) || checkinSubmitting ? '…' : 'Check in' }}
+                </button>
+              </div>
             </div>
-            <button
-              class="btn btn-primary btn-sm"
-              :disabled="!kioskActive || (checkinOpen && checkinClient?.id === c.id) || checkinSubmitting"
-              @click="openCheckin(c)"
-            >
-              {{ (checkinOpen && checkinClient?.id === c.id) || checkinSubmitting ? '…' : 'Check in' }}
-            </button>
+            <EventKioskLateContactFlow
+              v-if="showLateContactForClient(c)"
+              :client="c"
+              :staff="staff"
+              :log="lateContactForClient(c.id)"
+              :disabled="!kioskActive"
+              :save-url="`${apiBase()}/checkin/late-contact`"
+              :auth-headers="authHeaders()"
+              @updated="onLateContactUpdated"
+            />
           </li>
           <li v-if="!filteredPendingClients.length" class="pe-empty muted">
-            {{ search ? 'No matches.' : 'All clients are checked in.' }}
+            {{ search ? 'No matches.' : absentClients.length ? 'Everyone pending is checked in or marked absent.' : 'All clients are checked in.' }}
           </li>
         </ul>
+        <div v-if="filteredAbsentClients.length" class="pe-absent-block">
+          <h3 class="pe-absent-title">Absent today</h3>
+          <ul class="pe-info-list">
+            <li v-for="c in filteredAbsentClients" :key="`abs-${c.id}`">
+              <strong>{{ clientDisplayName(c) }}</strong>
+              <div v-if="absenceReasonForClient(c.id)" class="muted small">{{ absenceReasonForClient(c.id) }}</div>
+            </li>
+          </ul>
+        </div>
       </div>
 
       <!-- CHECK IN · EMPLOYEE -->
@@ -126,14 +211,20 @@
         </div>
         <ul class="pe-roster">
           <li v-for="s in filteredPendingStaff" :key="s.id" class="pe-row">
-            <div class="pe-row-main"><strong>{{ s.displayName }}</strong></div>
-            <button
-              class="btn btn-secondary btn-sm"
-              :disabled="!kioskActive || checkingInUserId === s.id"
-              @click="checkinEmployee(s)"
-            >
-              {{ checkingInUserId === s.id ? '…' : 'Check in' }}
-            </button>
+            <div class="pe-row-top">
+              <div class="pe-row-avatar" aria-hidden="true">{{ initials(s.displayName) }}</div>
+              <div class="pe-row-main">
+                <div class="pe-row-name"><strong>{{ s.displayName }}</strong></div>
+              </div>
+              <button
+                type="button"
+                class="btn pe-btn-checkin"
+                :disabled="!kioskActive || checkingInUserId === s.id"
+                @click="checkinEmployee(s)"
+              >
+                {{ checkingInUserId === s.id ? '…' : 'Check in' }}
+              </button>
+            </div>
           </li>
           <li v-if="!filteredPendingStaff.length" class="pe-empty muted">
             {{ search ? 'No matches.' : 'All employees are checked in.' }}
@@ -228,13 +319,22 @@
     <!-- Bottom nav -->
     <nav v-if="!loading && !loadError" class="pe-bottom-nav" aria-label="Kiosk mode">
       <button type="button" class="pe-nav-btn" :class="{ active: mainMode === 'checkin' }" @click="mainMode = 'checkin'">
-        Check in
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m22 4-10 10.01-3-3"/>
+        </svg>
+        Check In
       </button>
       <button type="button" class="pe-nav-btn" :class="{ active: mainMode === 'checkout' }" @click="mainMode = 'checkout'">
-        Check out
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/>
+        </svg>
+        Check Out
       </button>
       <button type="button" class="pe-nav-btn" :class="{ active: mainMode === 'resource' }" @click="mainMode = 'resource'">
-        Resource
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+        </svg>
+        Resources
       </button>
     </nav>
 
@@ -533,6 +633,58 @@
       </div>
     </div>
 
+    <!-- Mark absent modal -->
+    <div v-if="absentOpen" class="pe-kiosk-modal" @click.self="closeAbsentModal">
+      <div class="pe-kiosk-modal-card">
+        <header class="pe-kiosk-modal-hdr">
+          <div>
+            <div class="pe-kiosk-modal-title">Mark {{ clientDisplayName(absentClient) }} absent today</div>
+            <div class="muted small">Family confirmed they are not attending this session.</div>
+          </div>
+          <button class="btn btn-text" @click="closeAbsentModal">Close</button>
+        </header>
+
+        <div v-if="absentError" class="error-box pe-kiosk-modal-err">{{ absentError }}</div>
+
+        <label class="pe-checkin-lbl">Reason</label>
+        <select v-model="absentReasonCode" class="input">
+          <option v-for="r in absenceReasonOptions" :key="r.code" :value="r.code">{{ r.label }}</option>
+        </select>
+
+        <label v-if="absentReasonCode === 'other'" class="pe-checkin-lbl">Details</label>
+        <textarea
+          v-if="absentReasonCode === 'other'"
+          v-model="absentReasonNotes"
+          class="input pe-absent-notes"
+          rows="3"
+          maxlength="400"
+          placeholder="Briefly describe why they are absent today"
+        />
+
+        <label v-else class="pe-checkin-lbl pe-checkin-lbl--optional">Additional notes (optional)</label>
+        <textarea
+          v-if="absentReasonCode !== 'other'"
+          v-model="absentReasonNotes"
+          class="input pe-absent-notes"
+          rows="2"
+          maxlength="400"
+          placeholder="Optional context for staff"
+        />
+
+        <div class="pe-checkin-actions">
+          <button type="button" class="btn btn-secondary" @click="closeAbsentModal">Cancel</button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            :disabled="!canSubmitAbsent || absentSubmitting"
+            @click="confirmAbsent"
+          >
+            {{ absentSubmitting ? 'Saving…' : 'Mark absent today' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Waiver section editor (pickup / e-sign at check-in) -->
     <div v-if="checkinWaiverEditOpen" class="pe-kiosk-modal pe-kiosk-modal--stack" @click.self="closeCheckinWaiverEdit">
       <div class="pe-kiosk-modal-card">
@@ -778,6 +930,7 @@ import SignaturePad from '../../components/SignaturePad.vue';
 import GwvFieldsEsign from '../guardian/waivers/GwvFieldsEsign.vue';
 import GwvFieldsPickup from '../guardian/waivers/GwvFieldsPickup.vue';
 import GwvFieldsEmergency from '../guardian/waivers/GwvFieldsEmergency.vue';
+import EventKioskLateContactFlow from '../../components/eventKiosk/EventKioskLateContactFlow.vue';
 
 const route = useRoute();
 const brandingStore = useBrandingStore();
@@ -793,10 +946,24 @@ const staff = ref([]);
 const checkins = ref([]);
 const releases = ref([]);
 const registration = ref({ available: false, primary: null, links: [], externalUrl: null });
+const absenceReasonOptions = ref([]);
+const lateContacts = ref([]);
 const kioskDay = ref({});
 const search = ref('');
-const clockNow = ref(formatNow());
+const clockTime = ref('');
+const clockDate = ref('');
 let clockTimer = null;
+
+function tickClock() {
+  try {
+    const now = new Date();
+    clockTime.value = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    clockDate.value = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  } catch {
+    clockTime.value = '';
+    clockDate.value = '';
+  }
+}
 
 const mainMode = ref('checkin');
 const personMode = ref('client');
@@ -841,6 +1008,8 @@ async function loadContext() {
     checkins.value = Array.isArray(res.data?.checkins) ? res.data.checkins : [];
     releases.value = Array.isArray(res.data?.releases) ? res.data.releases : [];
     registration.value = res.data?.registration || { available: false, primary: null, links: [], externalUrl: null };
+    absenceReasonOptions.value = Array.isArray(res.data?.absenceReasons) ? res.data.absenceReasons : defaultAbsenceReasons();
+    lateContacts.value = Array.isArray(res.data?.lateContacts) ? res.data.lateContacts : [];
     kioskDay.value = res.data?.kioskDay || {};
   } catch (e) {
     loadError.value = e.response?.data?.error?.message || e.message || 'Could not load event';
@@ -874,6 +1043,57 @@ function personCheckedIn(personType, id) {
         || (personType === 'employee' && Number(c.userId) === Number(id)))
   );
 }
+function personAbsentToday(personType, id) {
+  return checkins.value.some(
+    (c) => c.personType === personType && c.action === 'absent'
+      && ((personType === 'client' && Number(c.clientId) === Number(id))
+        || (personType === 'employee' && Number(c.userId) === Number(id)))
+  );
+}
+function absenceReasonForClient(clientId) {
+  const row = checkins.value.find(
+    (c) => c.personType === 'client' && c.action === 'absent' && Number(c.clientId) === Number(clientId)
+  );
+  return row?.absenceReason || '';
+}
+function defaultAbsenceReasons() {
+  return [
+    { code: 'family_confirmed', label: 'Family confirmed not attending' },
+    { code: 'sick', label: 'Sick / not feeling well' },
+    { code: 'schedule_conflict', label: 'Schedule conflict' },
+    { code: 'travel', label: 'Travel / vacation' },
+    { code: 'other', label: 'Other' }
+  ];
+}
+function canMarkAbsent(client) {
+  return client?.confirmationStatus === 'no' && !personAbsentToday('client', client.id);
+}
+function lateContactForClient(clientId) {
+  return lateContacts.value.find((row) => Number(row.clientId) === Number(clientId)) || null;
+}
+function showLateContactForClient(client) {
+  if (personCheckedIn('client', client.id) || personAbsentToday('client', client.id)) return false;
+  const log = lateContactForClient(client.id);
+  if (log?.attendanceOutcome === 'not_attending' && log?.resolvedAt) return false;
+  return true;
+}
+function onLateContactUpdated(log, absent) {
+  if (!log?.clientId) return;
+  const cid = Number(log.clientId);
+  const idx = lateContacts.value.findIndex((row) => Number(row.clientId) === cid);
+  if (idx >= 0) lateContacts.value[idx] = log;
+  else lateContacts.value.push(log);
+  if (absent?.ok) {
+    checkins.value.push({
+      clientId: cid,
+      userId: null,
+      personType: 'client',
+      action: 'absent',
+      checkedInAt: absent.recordedAt || new Date().toISOString(),
+      absenceReason: absent.absenceReason || log.absenceReason || ''
+    });
+  }
+}
 function personCheckedOut(personType, id) {
   return checkins.value.some(
     (c) => c.personType === personType && c.action === 'check_out'
@@ -883,7 +1103,10 @@ function personCheckedOut(personType, id) {
 }
 
 const pendingClients = computed(() =>
-  clients.value.filter((c) => !personCheckedIn('client', c.id))
+  clients.value.filter((c) => !personCheckedIn('client', c.id) && !personAbsentToday('client', c.id))
+);
+const absentClients = computed(() =>
+  clients.value.filter((c) => personAbsentToday('client', c.id))
 );
 const activeCheckedInClients = computed(() =>
   clients.value.filter((c) => personCheckedIn('client', c.id) && !releasedToday(c.id))
@@ -905,6 +1128,9 @@ function filterList(list, fields) {
 
 const filteredPendingClients = computed(() =>
   filterList(pendingClients.value, ['fullName', 'kioskDisplayName', 'initials', 'identifierCode'])
+);
+const filteredAbsentClients = computed(() =>
+  filterList(absentClients.value, ['fullName', 'kioskDisplayName', 'initials', 'identifierCode'])
 );
 const filteredPendingStaff = computed(() =>
   filterList(pendingStaff.value, ['displayName', 'firstName', 'lastName'])
@@ -1369,6 +1595,64 @@ async function confirmCheckin() {
   }
 }
 
+const absentOpen = ref(false);
+const absentClient = ref(null);
+const absentReasonCode = ref('family_confirmed');
+const absentReasonNotes = ref('');
+const absentSubmitting = ref(false);
+const absentError = ref('');
+
+const canSubmitAbsent = computed(() => {
+  if (!absentReasonCode.value) return false;
+  if (absentReasonCode.value === 'other') return absentReasonNotes.value.trim().length >= 2;
+  return true;
+});
+
+function openAbsentModal(client) {
+  if (!canMarkAbsent(client)) return;
+  absentClient.value = client;
+  absentReasonCode.value = 'family_confirmed';
+  absentReasonNotes.value = '';
+  absentError.value = '';
+  absentOpen.value = true;
+}
+
+function closeAbsentModal() {
+  absentOpen.value = false;
+  absentClient.value = null;
+  absentError.value = '';
+}
+
+async function confirmAbsent() {
+  if (!absentClient.value || !canSubmitAbsent.value) return;
+  absentSubmitting.value = true;
+  absentError.value = '';
+  try {
+    const res = await api.post(`${apiBase()}/checkin/client/absent`, {
+      clientId: absentClient.value.id,
+      reasonCode: absentReasonCode.value,
+      reasonNotes: absentReasonNotes.value.trim() || undefined
+    }, {
+      headers: authHeaders(),
+      skipGlobalLoading: true,
+      skipAuthRedirect: true
+    });
+    checkins.value.push({
+      clientId: absentClient.value.id,
+      userId: null,
+      personType: 'client',
+      action: 'absent',
+      checkedInAt: res.data?.recordedAt || new Date().toISOString(),
+      absenceReason: res.data?.absenceReason || ''
+    });
+    closeAbsentModal();
+  } catch (e) {
+    absentError.value = e.response?.data?.error?.message || 'Could not mark absent';
+  } finally {
+    absentSubmitting.value = false;
+  }
+}
+
 async function checkinEmployee(s) {
   if (!kioskActive.value) return;
   checkingInUserId.value = s.id;
@@ -1673,7 +1957,8 @@ async function submitCheckout() {
 
 onMounted(() => {
   loadContext();
-  clockTimer = setInterval(() => { clockNow.value = formatNow(); }, 1000);
+  tickClock();
+  clockTimer = setInterval(tickClock, 1000);
 });
 onBeforeUnmount(() => {
   stopCamera();
@@ -1683,93 +1968,207 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .pe-kiosk {
+  --pe-primary: var(--primary, #1b5e4b);
+  --pe-primary-dark: #164a3c;
+  --pe-surface: #ffffff;
+  --pe-bg: #eef2f0;
+  --pe-border: #d8e0dc;
+  --pe-muted: #64748b;
   min-height: 100vh;
-  background: var(--bg, #f1f5f9);
+  background: var(--pe-bg);
   display: flex;
   flex-direction: column;
-  padding-bottom: 72px;
+  padding-bottom: 92px;
+  color: #1e293b;
 }
 .pe-kiosk-hdr {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 20px;
-  background: #fff;
-  border-bottom: 1px solid var(--border, #e2e8f0);
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  padding: 16px 20px;
+  background: var(--pe-surface);
+  border-bottom: 1px solid var(--pe-border);
 }
-.pe-kiosk-brand { display: flex; align-items: center; gap: 12px; }
-.pe-kiosk-logo { width: 44px; height: 44px; object-fit: contain; border-radius: 8px; }
-.pe-kiosk-org { font-weight: 800; font-size: 1.05rem; color: var(--primary, #0f766e); }
-.pe-kiosk-evt { font-size: 13px; color: var(--text-secondary, #64748b); }
-.pe-kiosk-clock { font-size: 14px; font-variant-numeric: tabular-nums; color: var(--text-secondary, #64748b); }
+.pe-kiosk-brand { display: flex; align-items: center; gap: 14px; }
+.pe-kiosk-logo { width: 48px; height: 48px; object-fit: contain; border-radius: 10px; }
+.pe-kiosk-org { font-weight: 800; font-size: 1.15rem; color: var(--pe-primary); line-height: 1.2; }
+.pe-kiosk-evt { font-size: 13px; color: var(--pe-muted); margin-top: 2px; }
+.pe-kiosk-clock { text-align: right; line-height: 1.25; }
+.pe-kiosk-clock-time { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; color: #334155; }
+.pe-kiosk-clock-date { font-size: 12px; color: var(--pe-muted); margin-top: 2px; }
 .pe-kiosk-load { padding: 40px; text-align: center; flex: 1; }
-.pe-kiosk-body { flex: 1; padding: 16px 16px 8px; max-width: 960px; width: 100%; margin: 0 auto; }
+.pe-kiosk-body { flex: 1; padding: 16px 18px 12px; max-width: 920px; width: 100%; margin: 0 auto; }
 
 .pe-preview-banner {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px 14px;
-  margin-bottom: 14px;
-  border-radius: 12px;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border-radius: 14px;
   background: #fffbeb;
   border: 1px solid #fde68a;
   color: #92400e;
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 1.5;
 }
-.pe-preview-banner strong { font-size: 14px; }
+.pe-preview-icon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #fef3c7;
+  color: #b45309;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pe-preview-icon svg { width: 16px; height: 16px; }
+.pe-preview-copy strong { font-weight: 800; }
 
 .pe-person-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 14px;
+  gap: 10px;
+  margin-bottom: 16px;
 }
 .pe-person-tab {
-  border: 1px solid var(--border, #e2e8f0);
-  background: #fff;
-  border-radius: 10px;
-  padding: 12px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--pe-border);
+  background: var(--pe-surface);
+  border-radius: 14px;
+  padding: 14px 12px;
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
-  color: var(--text-secondary, #64748b);
-  text-transform: capitalize;
+  color: var(--pe-muted);
 }
+.pe-tab-icon { width: 18px; height: 18px; flex-shrink: 0; }
 .pe-person-tab.active {
-  border-color: var(--primary, #0f766e);
-  background: color-mix(in srgb, var(--primary, #0f766e) 10%, white);
-  color: var(--primary, #0f766e);
+  border-color: var(--pe-primary);
+  background: var(--pe-primary);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(27, 94, 75, 0.22);
 }
 
-.pe-kiosk-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
-.pe-kiosk-search { flex: 1; min-width: 160px; }
-.pe-walkin-btn { white-space: nowrap; }
+.pe-kiosk-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.pe-search-wrap {
+  flex: 1;
+  min-width: 200px;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.pe-search-icon {
+  position: absolute;
+  left: 14px;
+  width: 18px;
+  height: 18px;
+  color: #94a3b8;
+  pointer-events: none;
+}
+.pe-kiosk-search {
+  width: 100%;
+  padding-left: 42px;
+  border-radius: 12px;
+  border: 1px solid var(--pe-border);
+  background: var(--pe-surface);
+  min-height: 44px;
+}
+.pe-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--pe-border);
+  background: var(--pe-surface);
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  min-height: 44px;
+}
+.pe-icon-btn svg { width: 16px; height: 16px; }
+.pe-walkin-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  border-radius: 12px;
+  min-height: 44px;
+  padding: 10px 16px;
+  background: var(--pe-primary);
+  border-color: var(--pe-primary);
+}
+.pe-walkin-btn svg { width: 16px; height: 16px; }
+
 .pe-walkin-banner {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  margin-bottom: 14px;
-  border-radius: 12px;
-  border: 1px solid #bfdbfe;
-  background: #eff6ff;
+  gap: 14px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border-radius: 14px;
+  border: 1px solid var(--pe-border);
+  background: #f4f7f5;
 }
+.pe-walkin-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--pe-surface);
+  border: 1px solid var(--pe-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--pe-primary);
+}
+.pe-walkin-icon svg { width: 20px; height: 20px; }
+.pe-walkin-copy { flex: 1; min-width: 0; line-height: 1.45; }
+.pe-walkin-qr-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--pe-primary);
+  border-color: var(--pe-primary);
+  flex-shrink: 0;
+}
+.pe-walkin-qr-btn svg { width: 14px; height: 14px; }
+
 .pe-registration-qr-card { width: min(420px, 100%); text-align: center; }
 .pe-reg-link-tabs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 12px; }
-.pe-reg-link-tab--active { border-color: var(--primary, #0f766e); background: #f0fdfa; }
+.pe-reg-link-tab--active { border-color: var(--pe-primary); background: #f0fdfa; }
 .pe-reg-qr-wrap { display: flex; justify-content: center; margin: 8px 0 12px; }
-.pe-reg-qr-img { width: 280px; height: 280px; border-radius: 12px; border: 1px solid var(--border, #e2e8f0); }
+.pe-reg-qr-img { width: 280px; height: 280px; border-radius: 12px; border: 1px solid var(--pe-border); }
 .pe-reg-form-title { margin: 0 0 8px; }
 .pe-reg-url-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
 .pe-reg-url-input { flex: 1; font-size: 12px; }
 .pe-reg-hint { text-align: left; margin: 0; }
-.pe-panel-lead { margin: 0 0 10px; font-size: 13px; }
+.pe-panel-lead { margin: 0 0 12px; font-size: 13px; color: var(--pe-muted); }
 
-.pe-roster { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.pe-roster-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #475569;
+}
+.pe-roster-head-icon { width: 18px; height: 18px; color: var(--pe-primary); }
+
+.pe-roster { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .pe-roster--grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -1777,15 +2176,62 @@ onBeforeUnmount(() => {
 }
 .pe-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  background: #fff;
-  border: 1px solid var(--border, #e2e8f0);
-  border-radius: 12px;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--pe-surface);
+  border: 1px solid var(--pe-border);
+  border-radius: 14px;
   padding: 12px 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
-.pe-row-main { flex: 1; min-width: 0; }
+.pe-row-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.pe-row-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--pe-primary) 12%, white);
+  color: var(--pe-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+.pe-row-avatar svg { width: 22px; height: 22px; }
+.pe-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.pe-row-name { line-height: 1.3; }
+.pe-row-name strong { font-size: 0.98rem; color: #0f172a; }
+.pe-row-id { color: var(--pe-muted); font-weight: 500; font-size: 0.92rem; }
+.pe-row-actions { display: flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+.pe-btn-checkin {
+  background: var(--pe-surface);
+  border: 1.5px solid var(--pe-primary);
+  color: var(--pe-primary);
+  font-weight: 700;
+  font-size: 13px;
+  border-radius: 10px;
+  padding: 8px 16px;
+  min-width: 92px;
+}
+.pe-btn-checkin:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--pe-primary) 8%, white);
+}
+.pe-btn-checkin:disabled { opacity: 0.55; }
+.pe-btn-ghost {
+  border-radius: 10px;
+  font-size: 12px;
+}
+.pe-roster .ek-late { margin-top: 0; border-color: var(--pe-border); background: #f8faf9; }
+.pe-absent-block { margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--pe-border); }
+.pe-absent-title { margin: 0 0 8px; font-size: 14px; }
+.pe-absent-notes { margin-top: 6px; resize: vertical; }
+.pe-checkin-lbl--optional { margin-top: 12px; }
 .pe-card {
   background: #fff;
   border: 1px solid var(--border, #e2e8f0);
@@ -1823,11 +2269,11 @@ onBeforeUnmount(() => {
 .pe-empty { padding: 32px; text-align: center; }
 
 .pe-pin-box {
-  background: #fff;
-  border: 1px solid var(--border, #e2e8f0);
-  border-radius: 12px;
-  padding: 12px 14px;
-  margin-bottom: 12px;
+  background: var(--pe-surface);
+  border: 1px solid var(--pe-border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
 }
 .pe-pin-lbl { font-size: 12px; font-weight: 600; color: var(--text-secondary, #64748b); }
 .pe-pin-row { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
@@ -1846,27 +2292,35 @@ onBeforeUnmount(() => {
   right: 0;
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-  gap: 6px;
-  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
-  background: #fff;
-  border-top: 1px solid var(--border, #e2e8f0);
-  box-shadow: 0 -4px 20px rgba(15, 23, 42, 0.08);
+  gap: 10px;
+  padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: var(--pe-surface);
+  border-top: 1px solid var(--pe-border);
+  box-shadow: 0 -6px 24px rgba(15, 23, 42, 0.06);
   z-index: 50;
 }
 .pe-nav-btn {
-  border: 1px solid var(--border, #e2e8f0);
-  background: #f8fafc;
-  border-radius: 10px;
-  padding: 10px 6px;
-  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 1px solid var(--pe-border);
+  background: var(--pe-surface);
+  border-radius: 14px;
+  padding: 12px 8px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
-  color: var(--text-secondary, #475569);
+  color: var(--pe-muted);
+  min-height: 64px;
 }
+.pe-nav-btn svg { width: 20px; height: 20px; }
 .pe-nav-btn.active {
-  background: var(--primary, #0f766e);
-  border-color: var(--primary, #0f766e);
+  background: var(--pe-primary);
+  border-color: var(--pe-primary);
   color: #fff;
+  box-shadow: 0 4px 14px rgba(27, 94, 75, 0.25);
 }
 
 .pe-kiosk-modal {

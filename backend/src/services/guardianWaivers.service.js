@@ -2,7 +2,7 @@ import pool from '../config/database.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import User from '../models/User.model.js';
 import { decryptIntakeSubmissionRows } from './intakeResponsesEncryption.service.js';
-import { extractProfileSectionsFromIntakeData, buildSectionsFromWaiverHistoryRows } from '../utils/kioskWaiverDisplay.util.js';
+import { extractProfileSectionsFromIntakeData, buildSectionsFromWaiverHistoryRows, normalizeIntakeDataShape } from '../utils/kioskWaiverDisplay.util.js';
 import {
   GUARDIAN_WAIVER_ESIGN_KEY,
   GUARDIAN_WAIVER_SECTION_KEYS,
@@ -590,8 +590,32 @@ export async function loadIntakeWaiverSectionsFallbackForClientIds(clientIds) {
 
   decryptIntakeSubmissionRows(rows || []);
 
+  const submissionClientOrderCache = new Map();
+  const loadSubmissionClientOrder = async (submissionId) => {
+    const sid = Number(submissionId);
+    if (!sid) return [];
+    if (submissionClientOrderCache.has(sid)) return submissionClientOrderCache.get(sid);
+    let order = [];
+    try {
+      const [iscRows] = await pool.execute(
+        `SELECT client_id
+         FROM intake_submission_clients
+         WHERE intake_submission_id = ?
+         ORDER BY id ASC`,
+        [sid]
+      );
+      order = (iscRows || [])
+        .map((r) => Number(r.client_id))
+        .filter((id) => Number.isFinite(id) && id > 0);
+    } catch (err) {
+      if (err?.code !== 'ER_NO_SUCH_TABLE') throw err;
+    }
+    submissionClientOrderCache.set(sid, order);
+    return order;
+  };
+
   for (const row of rows || []) {
-    const intakeData = parseIntakeDataColumn(row.intake_data);
+    const intakeData = normalizeIntakeDataShape(parseIntakeDataColumn(row.intake_data));
     if (!intakeData) continue;
 
     const linkedClientIds = new Set(
@@ -600,8 +624,13 @@ export async function loadIntakeWaiverSectionsFallbackForClientIds(clientIds) {
         .filter((id) => ids.includes(id))
     );
 
+    const submissionOrder = await loadSubmissionClientOrder(row.id);
+
     for (const clientId of linkedClientIds) {
-      const sections = extractProfileSectionsFromIntakeData(intakeData, clientId);
+      const preferredIndex = submissionOrder.indexOf(clientId);
+      const sections = extractProfileSectionsFromIntakeData(intakeData, clientId, {
+        preferredIndex: preferredIndex >= 0 ? preferredIndex : undefined
+      });
       if (!sections) continue;
 
       const existing = out.get(clientId);

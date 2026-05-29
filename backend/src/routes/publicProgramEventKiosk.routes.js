@@ -12,6 +12,8 @@ import {
   postProgramEventClientWaiverSection,
   submitProgramEventCheckout,
   programEventClientCheckin,
+  programEventClientAbsent,
+  programEventLateContact,
   programEventEmployeeCheckin,
   programEventEmployeeCheckinByPin,
   programEventEmployeeCheckout
@@ -24,6 +26,8 @@ router.post('/agency/:slug/kiosk/events/:eventId/checkout', submitProgramEventCh
 router.get('/agency/:slug/kiosk/events/:eventId/checkin/client/:clientId/sheet', getProgramEventClientCheckinSheet);
 router.post('/agency/:slug/kiosk/events/:eventId/checkin/client/waiver-section', postProgramEventClientWaiverSection);
 router.post('/agency/:slug/kiosk/events/:eventId/checkin/client', programEventClientCheckin);
+router.post('/agency/:slug/kiosk/events/:eventId/checkin/client/absent', programEventClientAbsent);
+router.post('/agency/:slug/kiosk/events/:eventId/checkin/late-contact', programEventLateContact);
 router.post('/agency/:slug/kiosk/events/:eventId/checkin/employee', programEventEmployeeCheckin);
 router.post('/agency/:slug/kiosk/events/:eventId/checkin/employee-pin', programEventEmployeeCheckinByPin);
 router.post('/agency/:slug/kiosk/events/:eventId/checkout/employee', programEventEmployeeCheckout);

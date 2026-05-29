@@ -14,6 +14,8 @@ import {
 } from '../controllers/skillBuildersPublic.controller.js';
 import {
   eventDayClientCheckin,
+  eventDayClientAbsent,
+  eventDayClientLateContact,
   eventDayClientCheckout,
   eventDayEmployeeCheckinById,
   eventDayEmployeeCheckout,
@@ -62,6 +64,8 @@ router.get('/agency/:slug/kiosk/events/:eventId/event-day/client/:clientId/check
 router.post('/agency/:slug/kiosk/events/:eventId/event-day/client/waiver-section', postEventDayClientWaiverSection);
 router.post('/agency/:slug/kiosk/events/:eventId/event-day/gate-pin', verifyEventDayGatePin);
 router.post('/agency/:slug/kiosk/events/:eventId/event-day/client-checkin', eventDayClientCheckin);
+router.post('/agency/:slug/kiosk/events/:eventId/event-day/client-absent', eventDayClientAbsent);
+router.post('/agency/:slug/kiosk/events/:eventId/event-day/client-late-contact', eventDayClientLateContact);
 router.post('/agency/:slug/kiosk/events/:eventId/event-day/client-checkout', eventDayClientCheckout);
 router.post('/agency/:slug/kiosk/events/:eventId/event-day/employee-identify-checkin', eventDayEmployeeIdentifyCheckin);
 router.post('/agency/:slug/kiosk/events/:eventId/event-day/employee-checkin', eventDayEmployeeCheckinById);

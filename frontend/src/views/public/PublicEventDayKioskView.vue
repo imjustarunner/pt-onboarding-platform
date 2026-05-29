@@ -46,84 +46,166 @@
     <template v-else>
       <!-- Branded header -->
       <header class="edk-header">
-        <div class="edk-header-inner">
+        <div class="edk-header-brand">
           <img v-if="branding.orgLogo || branding.agencyLogo" :src="branding.orgLogo || branding.agencyLogo" class="edk-header-logo" alt="Logo" />
-          <div class="edk-header-text">
+          <div>
             <div class="edk-header-org">{{ branding.orgName || branding.agencyName }}</div>
             <div class="edk-header-event">{{ eventContext.title }}</div>
           </div>
-          <div class="edk-header-date">{{ todayFormatted }}</div>
         </div>
-        <!-- Phase badge -->
-        <div class="edk-phase-badge" :class="phaseBadgeClass">
-          <span v-if="phase === 'checkin'">Check-In</span>
-          <span v-else-if="phase === 'active'">Session Active</span>
-          <span v-else-if="phase === 'checkout'">Check-Out</span>
-          <span v-else-if="phase === 'done'">Complete</span>
+        <div class="edk-header-right">
+          <div class="edk-header-clock">
+            <div class="edk-header-clock-time">{{ clockTime }}</div>
+            <div class="edk-header-clock-date">{{ clockDate }}</div>
+          </div>
+          <div class="edk-phase-badge" :class="phaseBadgeClass">
+            <span v-if="phase === 'checkin'">Check-In</span>
+            <span v-else-if="phase === 'active'">Session Active</span>
+            <span v-else-if="phase === 'checkout'">Check-Out</span>
+            <span v-else-if="phase === 'done'">Complete</span>
+          </div>
         </div>
       </header>
 
       <!-- ── CHECK-IN PHASE ──────────────────────────────────────────────── -->
       <div v-if="phase === 'checkin'" class="edk-body">
         <div v-if="registrationAvailable" class="edk-walkin-banner">
-          <div>
+          <span class="edk-walkin-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h.01"/><path d="M18 14h.01"/><path d="M14 18h.01"/><path d="M18 18h.01"/>
+            </svg>
+          </span>
+          <div class="edk-walkin-copy">
             <strong>Walk-in today?</strong>
             <span class="muted small"> Show parents the registration QR to enroll on site.</span>
           </div>
-          <button type="button" class="btn btn-secondary btn-sm" @click="openRegistrationQr()">Show QR</button>
+          <button type="button" class="btn btn-primary btn-sm edk-walkin-qr-btn" @click="openRegistrationQr()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h.01"/><path d="M18 14h.01"/><path d="M14 18h.01"/><path d="M18 18h.01"/>
+            </svg>
+            Show QR
+          </button>
         </div>
-        <div class="edk-columns">
-          <!-- Client check-in -->
-          <div class="edk-panel">
-            <h2 class="edk-panel-title">Client Check-In</h2>
-            <p class="edk-panel-sub muted">{{ pendingClients.length }} remaining</p>
-            <div v-if="!pendingClients.length" class="edk-empty">All clients checked in!</div>
-            <ul v-else class="edk-person-list">
-              <li v-for="c in pendingClients" :key="c.id" class="edk-person-row">
-                <span class="edk-person-name">{{ clientDisplayName(c) }}</span>
-                <button
-                  class="btn btn-primary edk-check-btn"
-                  :disabled="(checkinOpen && checkinClient?.id === c.id) || checkinSubmitting"
-                  @click="openCheckin(c)"
-                >
-                  {{ (checkinOpen && checkinClient?.id === c.id) || checkinSubmitting ? '…' : 'Check In' }}
-                </button>
+
+        <div class="edk-person-tabs">
+          <button type="button" class="edk-person-tab" :class="{ active: personMode === 'client' }" @click="personMode = 'client'">
+            <svg class="edk-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            Client Check-In
+          </button>
+          <button type="button" class="edk-person-tab" :class="{ active: personMode === 'employee' }" @click="personMode = 'employee'">
+            <svg class="edk-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+            </svg>
+            Employee Check-In
+          </button>
+        </div>
+
+        <div v-if="personMode === 'client'" class="edk-panel">
+          <div class="edk-roster-head">
+            <svg class="edk-roster-head-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+            </svg>
+            <span>
+              {{ pendingClients.length }} waiting to check in
+              <template v-if="absentClients.length"> · {{ absentClients.length }} absent</template>
+            </span>
+          </div>
+          <div v-if="!pendingClients.length" class="edk-empty">
+            {{ absentClients.length ? 'Everyone pending is checked in or marked absent.' : 'All clients checked in!' }}
+          </div>
+          <ul v-else class="edk-person-list">
+            <li v-for="c in pendingClients" :key="c.id" class="edk-person-row edk-person-row--stack">
+              <div class="edk-person-row-top">
+                <div class="edk-row-avatar" aria-hidden="true">{{ initials(c.fullName) || '?' }}</div>
+                <div class="edk-person-main">
+                  <div class="edk-person-name-line">
+                    <span class="edk-person-name">{{ clientDisplayName(c) }}</span>
+                    <span v-if="c.identifierCode" class="edk-person-id"> · {{ c.identifierCode }}</span>
+                  </div>
+                  <span v-if="c.confirmationStatus === 'no'" class="edk-absent-tag">Not attending</span>
+                </div>
+                <div class="edk-person-actions">
+                  <button
+                    v-if="canMarkAbsent(c)"
+                    type="button"
+                    class="btn btn-secondary btn-sm edk-btn-ghost"
+                    :disabled="absentSubmitting"
+                    @click="openAbsentModal(c)"
+                  >
+                    Mark absent
+                  </button>
+                  <button
+                    type="button"
+                    class="btn edk-btn-checkin"
+                    :disabled="(checkinOpen && checkinClient?.id === c.id) || checkinSubmitting"
+                    @click="openCheckin(c)"
+                  >
+                    {{ (checkinOpen && checkinClient?.id === c.id) || checkinSubmitting ? '…' : 'Check in' }}
+                  </button>
+                </div>
+              </div>
+              <EventKioskLateContactFlow
+                v-if="showLateContactForClient(c)"
+                :client="normalizeLateContactClient(c)"
+                :staff="allStaff"
+                :log="lateContactForClient(c.id)"
+                :save-url="`${baseUrl(eventId)}/event-day/client-late-contact`"
+                :auth-headers="authHeaders()"
+                @updated="onLateContactUpdated"
+              />
+            </li>
+          </ul>
+          <div v-if="absentClients.length" class="edk-absent-block">
+            <h3 class="edk-absent-title">Absent today</h3>
+            <ul class="edk-absent-list">
+              <li v-for="c in absentClients" :key="`abs-${c.id}`">
+                <strong>{{ clientDisplayName(c) }}</strong>
+                <span v-if="absenceReasonForClient(c.id)" class="muted small"> · {{ absenceReasonForClient(c.id) }}</span>
               </li>
             </ul>
           </div>
+        </div>
 
-          <!-- Employee check-in -->
-          <div class="edk-panel">
-            <h2 class="edk-panel-title">Employee Check-In</h2>
-            <p class="edk-panel-sub muted">{{ pendingStaff.length }} remaining</p>
-            <div v-if="!pendingStaff.length" class="edk-empty">All employees checked in!</div>
-            <ul v-else class="edk-person-list">
-              <li v-for="s in pendingStaff" :key="s.id" class="edk-person-row">
-                <span class="edk-person-name">{{ s.displayName }}</span>
-                <button class="btn btn-secondary edk-check-btn" @click="promptEmployeeCheckin(s)">
+        <div v-else class="edk-panel">
+          <div class="edk-roster-head">
+            <svg class="edk-roster-head-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+            </svg>
+            <span>{{ pendingStaff.length }} waiting to check in</span>
+          </div>
+          <div v-if="!pendingStaff.length" class="edk-empty">All employees checked in!</div>
+          <ul v-else class="edk-person-list">
+            <li v-for="s in pendingStaff" :key="s.id" class="edk-person-row">
+              <div class="edk-person-row-top">
+                <div class="edk-row-avatar" aria-hidden="true">{{ initials(s.displayName) }}</div>
+                <div class="edk-person-main">
+                  <span class="edk-person-name">{{ s.displayName }}</span>
+                </div>
+                <button type="button" class="btn edk-btn-checkin" @click="promptEmployeeCheckin(s)">
                   Tap to check in
                 </button>
-              </li>
-            </ul>
-            <!-- Employee PIN check-in -->
-            <div class="edk-emp-pin-box">
-              <p class="edk-emp-pin-lbl">Or enter 4-digit personal PIN:</p>
-              <div class="edk-pin-row">
-                <input
-                  v-model="empPin"
-                  class="input edk-pin-sm"
-                  type="password"
-                  inputmode="numeric"
-                  maxlength="4"
-                  placeholder="PIN"
-                  :disabled="empPinBusy"
-                />
-                <button class="btn btn-primary" :disabled="empPinBusy || empPin.length !== 4" @click="checkinByPin">
-                  {{ empPinBusy ? '…' : 'Go' }}
-                </button>
               </div>
-              <p v-if="empPinError" class="edk-err-sm">{{ empPinError }}</p>
+            </li>
+          </ul>
+          <div class="edk-emp-pin-box">
+            <p class="edk-emp-pin-lbl">Or enter 4-digit personal PIN:</p>
+            <div class="edk-pin-row">
+              <input
+                v-model="empPin"
+                class="input edk-pin-sm"
+                type="password"
+                inputmode="numeric"
+                maxlength="4"
+                placeholder="PIN"
+                :disabled="empPinBusy"
+              />
+              <button class="btn btn-primary" :disabled="empPinBusy || empPin.length !== 4" @click="checkinByPin">
+                {{ empPinBusy ? '…' : 'Go' }}
+              </button>
             </div>
+            <p v-if="empPinError" class="edk-err-sm">{{ empPinError }}</p>
           </div>
         </div>
 
@@ -173,44 +255,69 @@
 
       <!-- ── CHECK-OUT PHASE ─────────────────────────────────────────────── -->
       <div v-if="phase === 'checkout'" class="edk-body">
-        <div class="edk-columns">
-          <!-- Client check-out -->
-          <div class="edk-panel">
-            <h2 class="edk-panel-title">Client Check-Out</h2>
-            <p class="edk-panel-sub muted">{{ checkedInClients.length }} remaining</p>
-            <div v-if="!checkedInClients.length" class="edk-empty">All clients checked out!</div>
-            <ul v-else class="edk-person-list">
-              <li v-for="c in checkedInClients" :key="c.id" class="edk-person-row">
-                <span class="edk-person-name">{{ clientDisplayName(c) }}</span>
+        <div class="edk-person-tabs">
+          <button type="button" class="edk-person-tab" :class="{ active: personMode === 'client' }" @click="personMode = 'client'">
+            <svg class="edk-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+            </svg>
+            Client Check-Out
+          </button>
+          <button type="button" class="edk-person-tab" :class="{ active: personMode === 'employee' }" @click="personMode = 'employee'">
+            <svg class="edk-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+            </svg>
+            Employee Check-Out
+          </button>
+        </div>
+
+        <div v-if="personMode === 'client'" class="edk-panel">
+          <div class="edk-roster-head">
+            <span>{{ checkedInClients.length }} waiting to check out</span>
+          </div>
+          <div v-if="!checkedInClients.length" class="edk-empty">All clients checked out!</div>
+          <ul v-else class="edk-person-list">
+            <li v-for="c in checkedInClients" :key="c.id" class="edk-person-row">
+              <div class="edk-person-row-top">
+                <div class="edk-row-avatar" aria-hidden="true">{{ initials(c.fullName) }}</div>
+                <div class="edk-person-main">
+                  <span class="edk-person-name">{{ clientDisplayName(c) }}</span>
+                </div>
                 <button
-                  class="btn btn-primary edk-check-btn"
+                  type="button"
+                  class="btn edk-btn-checkin"
                   :disabled="checkingOutClientId === c.id"
                   @click="checkoutClient(c)"
                 >
-                  {{ checkingOutClientId === c.id ? '…' : 'Check Out' }}
+                  {{ checkingOutClientId === c.id ? '…' : 'Check out' }}
                 </button>
-              </li>
-            </ul>
-          </div>
+              </div>
+            </li>
+          </ul>
+        </div>
 
-          <!-- Employee check-out -->
-          <div class="edk-panel">
-            <h2 class="edk-panel-title">Employee Check-Out</h2>
-            <p class="edk-panel-sub muted">{{ checkedInStaff.length }} remaining</p>
-            <div v-if="!checkedInStaff.length" class="edk-empty">All employees checked out!</div>
-            <ul v-else class="edk-person-list">
-              <li v-for="s in checkedInStaff" :key="s.id" class="edk-person-row">
-                <span class="edk-person-name">{{ s.displayName }}</span>
+        <div v-else class="edk-panel">
+          <div class="edk-roster-head">
+            <span>{{ checkedInStaff.length }} waiting to check out</span>
+          </div>
+          <div v-if="!checkedInStaff.length" class="edk-empty">All employees checked out!</div>
+          <ul v-else class="edk-person-list">
+            <li v-for="s in checkedInStaff" :key="s.id" class="edk-person-row">
+              <div class="edk-person-row-top">
+                <div class="edk-row-avatar" aria-hidden="true">{{ initials(s.displayName) }}</div>
+                <div class="edk-person-main">
+                  <span class="edk-person-name">{{ s.displayName }}</span>
+                </div>
                 <button
-                  class="btn btn-secondary edk-check-btn"
+                  type="button"
+                  class="btn edk-btn-checkin"
                   :disabled="checkingOutUserId === s.id"
                   @click="checkoutEmployee(s)"
                 >
-                  {{ checkingOutUserId === s.id ? '…' : 'Check Out' }}
+                  {{ checkingOutUserId === s.id ? '…' : 'Check out' }}
                 </button>
-              </li>
-            </ul>
-          </div>
+              </div>
+            </li>
+          </ul>
         </div>
 
         <div class="edk-footer-action">
@@ -435,6 +542,57 @@
       </div>
     </div>
 
+    <div v-if="absentOpen" class="edk-modal-overlay" @click.self="closeAbsentModal">
+      <div class="edk-modal edk-waiver-modal">
+        <header class="edk-waiver-hdr">
+          <div>
+            <h3 class="edk-modal-title">Mark {{ clientDisplayName(absentClient) }} absent today</h3>
+            <p class="muted small">Family confirmed they are not attending this session.</p>
+          </div>
+          <button class="btn btn-text" @click="closeAbsentModal">Close</button>
+        </header>
+
+        <div v-if="absentError" class="error-box">{{ absentError }}</div>
+
+        <label class="edk-field-lbl">Reason</label>
+        <select v-model="absentReasonCode" class="input">
+          <option v-for="r in absenceReasonOptions" :key="r.code" :value="r.code">{{ r.label }}</option>
+        </select>
+
+        <label v-if="absentReasonCode === 'other'" class="edk-field-lbl">Details</label>
+        <textarea
+          v-if="absentReasonCode === 'other'"
+          v-model="absentReasonNotes"
+          class="input"
+          rows="3"
+          maxlength="400"
+          placeholder="Briefly describe why they are absent today"
+        />
+
+        <label v-else class="edk-field-lbl">Additional notes (optional)</label>
+        <textarea
+          v-if="absentReasonCode !== 'other'"
+          v-model="absentReasonNotes"
+          class="input"
+          rows="2"
+          maxlength="400"
+          placeholder="Optional context for staff"
+        />
+
+        <div class="edk-modal-actions">
+          <button type="button" class="btn btn-secondary" @click="closeAbsentModal">Cancel</button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            :disabled="!canSubmitAbsent || absentSubmitting"
+            @click="confirmAbsent"
+          >
+            {{ absentSubmitting ? 'Saving…' : 'Mark absent today' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="checkinWaiverEditOpen" class="edk-modal-overlay" @click.self="closeCheckinWaiverEdit">
       <div class="edk-modal edk-waiver-modal">
         <h3 class="edk-modal-title">{{ checkinWaiverTitle }}</h3>
@@ -614,12 +772,14 @@ import SignaturePad from '../../components/SignaturePad.vue';
 import GwvFieldsEsign from '../guardian/waivers/GwvFieldsEsign.vue';
 import GwvFieldsPickup from '../guardian/waivers/GwvFieldsPickup.vue';
 import GwvFieldsEmergency from '../guardian/waivers/GwvFieldsEmergency.vue';
+import EventKioskLateContactFlow from '../../components/eventKiosk/EventKioskLateContactFlow.vue';
 
 const route = useRoute();
 const slug = computed(() => String(route.params.organizationSlug || '').trim().toLowerCase());
 
 // ── State ──────────────────────────────────────────────────────────────────
 const phase = ref('unlock'); // unlock | loading | load-error | checkin | active | checkout | done
+const personMode = ref('client'); // client | employee
 const token = ref('');
 const eventId = ref(null);
 
@@ -629,6 +789,8 @@ const allClients = ref([]);
 const allStaff = ref([]);
 const checkins = ref([]); // from server
 const registration = ref({ available: false, primary: null, links: [], externalUrl: null });
+const absenceReasonOptions = ref([]);
+const lateContacts = ref([]);
 
 const loadError = ref('');
 
@@ -714,9 +876,69 @@ const checkedOutUserIds = computed(() => {
     checkins.value.filter((c) => c.personType === 'employee' && c.action === 'check_out').map((c) => c.userId)
   );
 });
+const absentClientIds = computed(() => {
+  return new Set(
+    checkins.value.filter((c) => c.personType === 'client' && c.action === 'absent').map((c) => c.clientId)
+  );
+});
+
+function defaultAbsenceReasons() {
+  return [
+    { code: 'family_confirmed', label: 'Family confirmed not attending' },
+    { code: 'sick', label: 'Sick / not feeling well' },
+    { code: 'schedule_conflict', label: 'Schedule conflict' },
+    { code: 'travel', label: 'Travel / vacation' },
+    { code: 'other', label: 'Other' }
+  ];
+}
+function canMarkAbsent(client) {
+  return client?.confirmationStatus === 'no' && !absentClientIds.value.has(client.id);
+}
+function normalizeLateContactClient(client) {
+  return {
+    ...client,
+    emergencyContacts: client.emergencyContacts || client.waiver?.emergencyContacts || [],
+    guardians: client.guardians || []
+  };
+}
+function lateContactForClient(clientId) {
+  return lateContacts.value.find((row) => Number(row.clientId) === Number(clientId)) || null;
+}
+function showLateContactForClient(client) {
+  if (checkedInClientIds.value.has(client.id) || absentClientIds.value.has(client.id)) return false;
+  const log = lateContactForClient(client.id);
+  if (log?.attendanceOutcome === 'not_attending' && log?.resolvedAt) return false;
+  return true;
+}
+function onLateContactUpdated(log, absent) {
+  if (!log?.clientId) return;
+  const cid = Number(log.clientId);
+  const idx = lateContacts.value.findIndex((row) => Number(row.clientId) === cid);
+  if (idx >= 0) lateContacts.value[idx] = log;
+  else lateContacts.value.push(log);
+  if (absent?.ok) {
+    checkins.value.push({
+      clientId: cid,
+      userId: null,
+      personType: 'client',
+      action: 'absent',
+      checkedInAt: absent.recordedAt || new Date().toISOString(),
+      absenceReason: absent.absenceReason || log.absenceReason || ''
+    });
+  }
+}
+function absenceReasonForClient(clientId) {
+  const row = checkins.value.find(
+    (c) => c.personType === 'client' && c.action === 'absent' && Number(c.clientId) === Number(clientId)
+  );
+  return row?.absenceReason || '';
+}
 
 const pendingClients = computed(() =>
-  allClients.value.filter((c) => !checkedInClientIds.value.has(c.id))
+  allClients.value.filter((c) => !checkedInClientIds.value.has(c.id) && !absentClientIds.value.has(c.id))
+);
+const absentClients = computed(() =>
+  allClients.value.filter((c) => absentClientIds.value.has(c.id))
 );
 const checkedInClients = computed(() =>
   allClients.value.filter(
@@ -752,6 +974,21 @@ const brandStyle = computed(() => {
 const todayFormatted = computed(() => {
   return new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 });
+
+const clockTime = ref('');
+const clockDate = ref('');
+let clockTimer = null;
+
+function tickClock() {
+  try {
+    const now = new Date();
+    clockTime.value = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    clockDate.value = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  } catch {
+    clockTime.value = '';
+    clockDate.value = '';
+  }
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function clientDisplayName(client) {
@@ -899,6 +1136,8 @@ async function loadEventDayContext() {
     allStaff.value = data.staff || [];
     checkins.value = data.checkins || [];
     registration.value = data.registration || { available: false, primary: null, links: [], externalUrl: null };
+    absenceReasonOptions.value = Array.isArray(data.absenceReasons) ? data.absenceReasons : defaultAbsenceReasons();
+    lateContacts.value = Array.isArray(data.lateContacts) ? data.lateContacts : [];
     phase.value = 'checkin';
   } catch (e) {
     loadError.value = e.response?.data?.error?.message || 'Could not load event details.';
@@ -1193,6 +1432,63 @@ async function confirmCheckin() {
   }
 }
 
+const absentOpen = ref(false);
+const absentClient = ref(null);
+const absentReasonCode = ref('family_confirmed');
+const absentReasonNotes = ref('');
+const absentSubmitting = ref(false);
+const absentError = ref('');
+const canSubmitAbsent = computed(() => {
+  if (!absentReasonCode.value) return false;
+  if (absentReasonCode.value === 'other') return absentReasonNotes.value.trim().length >= 2;
+  return true;
+});
+
+function openAbsentModal(client) {
+  if (!canMarkAbsent(client)) return;
+  absentClient.value = client;
+  absentReasonCode.value = 'family_confirmed';
+  absentReasonNotes.value = '';
+  absentError.value = '';
+  absentOpen.value = true;
+}
+
+function closeAbsentModal() {
+  absentOpen.value = false;
+  absentClient.value = null;
+  absentError.value = '';
+}
+
+async function confirmAbsent() {
+  if (!absentClient.value || !canSubmitAbsent.value) return;
+  absentSubmitting.value = true;
+  absentError.value = '';
+  try {
+    const res = await api.post(
+      `${baseUrl(eventId.value)}/event-day/client-absent`,
+      {
+        clientId: absentClient.value.id,
+        reasonCode: absentReasonCode.value,
+        reasonNotes: absentReasonNotes.value.trim() || undefined
+      },
+      { headers: authHeaders(), skipGlobalLoading: true, skipAuthRedirect: true }
+    );
+    checkins.value.push({
+      clientId: absentClient.value.id,
+      userId: null,
+      personType: 'client',
+      action: 'absent',
+      checkedInAt: res.data?.recordedAt || new Date().toISOString(),
+      absenceReason: res.data?.absenceReason || ''
+    });
+    closeAbsentModal();
+  } catch (e) {
+    absentError.value = e.response?.data?.error?.message || 'Could not mark absent';
+  } finally {
+    absentSubmitting.value = false;
+  }
+}
+
 async function checkoutClient(client) {
   if (checkingOutClientId.value) return;
   checkingOutClientId.value = client.id;
@@ -1342,6 +1638,8 @@ function startCountdown() {
 
 // ── Lifecycle ──────────────────────────────────────────────────────────────
 onMounted(async () => {
+  tickClock();
+  clockTimer = setInterval(tickClock, 1000);
   const s = readSession();
   if (s?.token && s?.eventId) {
     token.value = s.token;
@@ -1352,6 +1650,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (countdownTimer) clearInterval(countdownTimer);
+  if (clockTimer) clearInterval(clockTimer);
 });
 
 watch(slug, () => { resetToUnlock(); });
@@ -1359,9 +1658,14 @@ watch(slug, () => { resetToUnlock(); });
 
 <style scoped>
 .edk-root {
+  --edk-primary: var(--primary, #1b5e4b);
+  --edk-surface: #ffffff;
+  --edk-bg: #eef2f0;
+  --edk-border: #d8e0dc;
+  --edk-muted: #64748b;
   min-height: 100dvh;
-  background: var(--bg, #f8fafc);
-  color: var(--text, #1e293b);
+  background: var(--edk-bg);
+  color: #1e293b;
   font-family: inherit;
   display: flex;
   flex-direction: column;
@@ -1394,7 +1698,7 @@ watch(slug, () => { resetToUnlock(); });
 .edk-logo { max-height: 64px; max-width: 200px; object-fit: contain; }
 
 /* ── Text ── */
-.edk-title { font-size: 1.5rem; font-weight: 800; margin: 0 0 8px; color: var(--primary, #0f766e); }
+.edk-title { font-size: 1.5rem; font-weight: 800; margin: 0 0 8px; color: var(--edk-primary); }
 .edk-lead { margin: 0 0 24px; font-size: 0.95rem; }
 .edk-lbl { display: block; font-weight: 600; margin-bottom: 6px; font-size: 0.88rem; text-align: left; }
 
@@ -1405,48 +1709,128 @@ watch(slug, () => { resetToUnlock(); });
 
 /* ── Header ── */
 .edk-header {
-  background: var(--primary, #0f766e);
-  color: #fff;
-  padding: 12px 20px;
-  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--edk-surface);
+  color: #1e293b;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--edk-border);
 }
-.edk-header-inner { display: flex; align-items: center; gap: 12px; }
-.edk-header-logo { height: 40px; width: auto; object-fit: contain; border-radius: 6px; background: #fff; padding: 2px 4px; }
-.edk-header-text { flex: 1; }
-.edk-header-org { font-size: 0.78rem; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.06em; }
-.edk-header-event { font-size: 1.1rem; font-weight: 700; }
-.edk-header-date { font-size: 0.82rem; opacity: 0.8; white-space: nowrap; }
+.edk-header-brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.edk-header-logo { height: 48px; width: auto; max-width: 120px; object-fit: contain; border-radius: 10px; }
+.edk-header-org { font-size: 1.15rem; font-weight: 800; color: var(--edk-primary); line-height: 1.2; }
+.edk-header-event { font-size: 13px; color: var(--edk-muted); margin-top: 2px; }
+.edk-header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex-shrink: 0; }
+.edk-header-clock { text-align: right; line-height: 1.25; }
+.edk-header-clock-time { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; color: #334155; }
+.edk-header-clock-date { font-size: 12px; color: var(--edk-muted); margin-top: 2px; }
 
 /* Phase badge */
 .edk-phase-badge {
   display: inline-block;
-  margin-top: 8px;
-  padding: 3px 12px;
-  border-radius: 20px;
-  font-size: 0.78rem;
-  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  background: rgba(255,255,255,0.18);
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid var(--edk-border);
 }
-.edk-badge-checkin { background: rgba(255,255,255,0.22); }
-.edk-badge-active { background: rgba(16,185,129,0.35); }
-.edk-badge-checkout { background: rgba(245,158,11,0.35); }
-.edk-badge-done { background: rgba(99,102,241,0.35); }
+.edk-badge-checkin { background: color-mix(in srgb, var(--edk-primary) 10%, white); color: var(--edk-primary); border-color: color-mix(in srgb, var(--edk-primary) 25%, white); }
+.edk-badge-active { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+.edk-badge-checkout { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+.edk-badge-done { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
 
 /* ── Body ── */
-.edk-body { flex: 1; padding: 24px 20px; max-width: 1200px; margin: 0 auto; width: 100%; }
+.edk-body { flex: 1; padding: 16px 18px 24px; max-width: 920px; margin: 0 auto; width: 100%; }
 
-/* ── Two-column layout ── */
+.edk-walkin-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border-radius: 14px;
+  border: 1px solid var(--edk-border);
+  background: #f4f7f5;
+}
+.edk-walkin-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--edk-surface);
+  border: 1px solid var(--edk-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--edk-primary);
+}
+.edk-walkin-icon svg { width: 20px; height: 20px; }
+.edk-walkin-copy { flex: 1; min-width: 0; line-height: 1.45; }
+.edk-walkin-qr-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--edk-primary);
+  border-color: var(--edk-primary);
+  flex-shrink: 0;
+}
+.edk-walkin-qr-btn svg { width: 14px; height: 14px; }
+
+.edk-person-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.edk-person-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--edk-border);
+  background: var(--edk-surface);
+  border-radius: 14px;
+  padding: 14px 12px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  color: var(--edk-muted);
+}
+.edk-tab-icon { width: 18px; height: 18px; flex-shrink: 0; }
+.edk-person-tab.active {
+  border-color: var(--edk-primary);
+  background: var(--edk-primary);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(27, 94, 75, 0.22);
+}
+
+.edk-roster-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #475569;
+}
+.edk-roster-head-icon { width: 18px; height: 18px; color: var(--edk-primary); }
+
+/* ── Two-column layout (legacy) ── */
 .edk-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 @media (max-width: 680px) { .edk-columns { grid-template-columns: 1fr; } }
 
 /* ── Panel ── */
 .edk-panel {
-  background: var(--surface, #fff);
-  border: 1px solid var(--border, #e2e8f0);
-  border-radius: 16px;
-  padding: 20px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1455,23 +1839,84 @@ watch(slug, () => { resetToUnlock(); });
 .edk-panel-sub { margin: -8px 0 0; font-size: 0.82rem; }
 
 /* ── Person list ── */
-.edk-person-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.edk-person-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .edk-person-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 12px 14px;
+  border: 1px solid var(--edk-border);
+  border-radius: 14px;
+  background: var(--edk-surface);
+  gap: 10px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.edk-person-row-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
-  border: 1px solid var(--border, #e2e8f0);
-  border-radius: 10px;
-  background: var(--bg, #f8fafc);
-  gap: 10px;
+  gap: 12px;
+  width: 100%;
 }
-.edk-person-name { font-weight: 600; font-size: 0.95rem; flex: 1; }
+.edk-row-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--edk-primary) 12%, white);
+  color: var(--edk-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+.edk-person-row--stack .ek-late { margin-top: 0; border-color: var(--edk-border); background: #f8faf9; }
+.edk-person-main { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.edk-person-name-line { line-height: 1.3; }
+.edk-person-name { font-weight: 700; font-size: 0.98rem; color: #0f172a; }
+.edk-person-id { color: var(--edk-muted); font-weight: 500; font-size: 0.92rem; }
+.edk-person-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.edk-btn-checkin {
+  background: var(--edk-surface);
+  border: 1.5px solid var(--edk-primary);
+  color: var(--edk-primary);
+  font-weight: 700;
+  font-size: 13px;
+  border-radius: 10px;
+  padding: 8px 16px;
+  min-width: 92px;
+}
+.edk-btn-checkin:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--edk-primary) 8%, white);
+}
+.edk-btn-checkin:disabled { opacity: 0.55; }
+.edk-btn-ghost { border-radius: 10px; font-size: 12px; }
+.edk-absent-tag {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+}
+.edk-absent-block { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--edk-border); }
+.edk-absent-title { margin: 0 0 8px; font-size: 0.95rem; }
+.edk-absent-list { margin: 0; padding-left: 18px; }
+.edk-field-lbl { display: block; margin: 12px 0 6px; font-size: 0.85rem; font-weight: 700; }
 .edk-check-btn { min-width: 90px; padding: 6px 14px; font-size: 0.85rem; }
-.edk-empty { color: var(--muted, #64748b); font-size: 0.9rem; padding: 12px 0; text-align: center; }
+.edk-empty { color: var(--edk-muted); font-size: 0.9rem; padding: 12px 0; text-align: center; }
 
 /* ── Employee PIN box ── */
-.edk-emp-pin-box { border-top: 1px dashed var(--border, #e2e8f0); padding-top: 14px; margin-top: 4px; }
+.edk-emp-pin-box {
+  border: 1px solid var(--edk-border);
+  border-radius: 14px;
+  background: var(--edk-surface);
+  padding: 14px 16px;
+  margin-top: 8px;
+}
 .edk-emp-pin-lbl { font-size: 0.83rem; font-weight: 600; margin: 0 0 8px; color: var(--muted, #64748b); }
 .edk-pin-row { display: flex; gap: 8px; }
 .edk-pin-sm { width: 90px; text-align: center; letter-spacing: 0.2em; }
@@ -1490,9 +1935,9 @@ watch(slug, () => { resetToUnlock(); });
   gap: 14px;
 }
 .edk-client-tile {
-  background: var(--surface, #fff);
-  border: 1px solid var(--border, #e2e8f0);
-  border-radius: 16px;
+  background: var(--edk-surface);
+  border: 1px solid var(--edk-border);
+  border-radius: 14px;
   padding: 18px 14px;
   cursor: pointer;
   text-align: center;
