@@ -3170,7 +3170,10 @@ router.beforeEach(async (to, from, next) => {
         tenantAvailableAgencyFeaturesOverrideJson:
           agencySb.tenant_available_agency_features_json ?? agencySb.tenantAvailableAgencyFeaturesJson
       });
-      if (!sbAllowed && !hasSkillBuildersToolingBypass(authStore.user)) {
+      // Event portal: assigned providers reach it from the program dashboard / top nav.
+      // Per-event access is enforced by the API; do not bounce back to /dashboard (same program portal).
+      const isEventPortalRoute = to.name === 'SkillBuildersEventPortal';
+      if (!sbAllowed && !hasSkillBuildersToolingBypass(authStore.user) && !isEventPortalRoute) {
         next(getSlugAwarePath('/dashboard', to, authStore));
         return;
       }

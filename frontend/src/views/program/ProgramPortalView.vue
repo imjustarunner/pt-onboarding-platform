@@ -436,12 +436,14 @@ const relativeTime = (iso) => {
 };
 
 const openEventPortal = (eventId) => {
-  if (!eventId) return;
-  const slug = orgSlug.value;
+  const id = Number(eventId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  const ev = events.value.find((e) => Number(e.companyEventId) === id);
+  const slug = String(ev?.programPortalSlug || orgSlug.value || '').trim().toLowerCase();
   if (slug) {
-    router.push(`/${slug}/skill-builders/event/${eventId}`);
+    router.push(`/${slug}/skill-builders/event/${id}`);
   } else {
-    router.push(`/skill-builders/event/${eventId}`);
+    router.push(`/skill-builders/event/${id}`);
   }
 };
 
