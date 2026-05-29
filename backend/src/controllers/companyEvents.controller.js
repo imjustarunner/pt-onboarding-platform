@@ -1561,8 +1561,25 @@ export const listProgramCompanyEventsForCoordinator = async (req, res, next) => 
         const ph = eventIds.map(() => '?').join(',');
         const [crow] = await pool.execute(
           `SELECT company_event_id,
-                  SUM(CASE WHEN COALESCE(treatment_plan_complete, 0) = 0 AND (intake_outcome IS NULL OR intake_outcome <> 'denied') THEN 1 ELSE 0 END) AS registrants_count,
-                  SUM(CASE WHEN COALESCE(treatment_plan_complete, 0) = 1 AND (intake_outcome IS NULL OR intake_outcome <> 'denied') THEN 1 ELSE 0 END) AS participants_count
+                  SUM(CASE WHEN (intake_outcome IS NULL OR intake_outcome <> 'denied')
+                    AND (
+                      NOT (
+                        intake_outcome = 'accepted'
+                        OR (COALESCE(intake_complete, 0) = 1 AND (intake_outcome IS NULL OR TRIM(intake_outcome) = ''))
+                      )
+                      OR (
+                        (
+                          intake_outcome = 'accepted'
+                          OR (COALESCE(intake_complete, 0) = 1 AND (intake_outcome IS NULL OR TRIM(intake_outcome) = ''))
+                        )
+                        AND COALESCE(treatment_plan_complete, 0) = 0
+                      )
+                    ) THEN 1 ELSE 0 END) AS registrants_count,
+                  SUM(CASE WHEN (
+                      intake_outcome = 'accepted'
+                      OR (COALESCE(intake_complete, 0) = 1 AND (intake_outcome IS NULL OR TRIM(intake_outcome) = ''))
+                    )
+                    AND (intake_outcome IS NULL OR intake_outcome <> 'denied') THEN 1 ELSE 0 END) AS participants_count
            FROM company_event_clients
            WHERE agency_id = ? AND company_event_id IN (${ph})
            GROUP BY company_event_id`,

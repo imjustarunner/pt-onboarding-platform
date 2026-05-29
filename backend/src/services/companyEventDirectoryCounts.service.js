@@ -1,9 +1,15 @@
 import pool from '../config/database.js';
 
-const REGISTRANT_PREDICATE =
-  "((cec.intake_outcome IS NULL OR cec.intake_outcome <> 'accepted') AND (cec.intake_outcome IS NULL OR cec.intake_outcome <> 'denied'))";
-const PARTICIPANT_PREDICATE =
-  "(cec.intake_outcome = 'accepted' AND (cec.intake_outcome IS NULL OR cec.intake_outcome <> 'denied'))";
+const ACTIVE_PREDICATE = "(cec.intake_outcome IS NULL OR cec.intake_outcome <> 'denied')";
+const INTAKE_ACCEPTED_PREDICATE = `(
+  cec.intake_outcome = 'accepted'
+  OR (
+    COALESCE(cec.intake_complete, 0) = 1
+    AND (cec.intake_outcome IS NULL OR TRIM(cec.intake_outcome) = '')
+  )
+)`;
+const REGISTRANT_PREDICATE = `(${ACTIVE_PREDICATE} AND (NOT ${INTAKE_ACCEPTED_PREDICATE} OR (${INTAKE_ACCEPTED_PREDICATE} AND COALESCE(cec.treatment_plan_complete, 0) = 0)))`;
+const PARTICIPANT_PREDICATE = `(${INTAKE_ACCEPTED_PREDICATE} AND ${ACTIVE_PREDICATE})`;
 
 const emptyCounts = () => ({
   registrantsCount: 0,

@@ -848,8 +848,8 @@
                 class="muted small sbep-status-hint"
               >
                 Showing <strong>registrants</strong> — clients still moving through intake (provider assignment and accept/deny).
-                Once intake is <strong>Accepted</strong>, they move to
-                <strong>Participants</strong> even if the treatment plan is still in progress.
+                Once intake is <strong>Accepted</strong>, they also appear under
+                <strong>Participants</strong> and stay here until the treatment plan is complete.
               </p>
               <p
                 v-else-if="participantStatusFilter === 'participants'"
@@ -1298,7 +1298,11 @@
                       <tr
                         v-for="c in genericParticipants"
                         :key="`reg-${c.clientId}`"
-                        :class="{ 'sbep-row-mine': isMyParticipant(c), 'sbep-row-denied': c.intakeOutcome === 'denied' }"
+                        :class="{
+                          'sbep-row-mine': isMyParticipant(c),
+                          'sbep-row-denied': c.intakeOutcome === 'denied',
+                          'sbep-row-tp-pending': isParticipantTpPending(c)
+                        }"
                       >
                         <td>
                           <router-link
@@ -1309,6 +1313,7 @@
                             {{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}
                           </router-link>
                           <template v-else>{{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}</template>
+                          <span v-if="isParticipantTpPending(c)" class="sbep-tp-due-badge">Treatment plan due</span>
                         </td>
                         <td class="sbep-registrants-date" :title="formatRegisteredTooltip(c.enrolledAt)">
                           {{ formatRegisteredDate(c.enrolledAt) }}
@@ -1330,13 +1335,13 @@
                           </select>
                         </td>
                         <td class="sbep-registrants-intake-cell">
-                          <template v-if="!c.intakeOutcome">
+                          <template v-if="!isIntakeAccepted(c) && c.intakeOutcome !== 'denied'">
                             <div class="sbep-registrants-intake-actions">
                               <button
                                 type="button"
                                 class="sbep-outcome-btn sbep-outcome-btn--accept"
                                 :disabled="participantWorkflowSavingClientId === c.clientId"
-                                title="Mark intake Accepted — client moves into the treatment-plan stage"
+                                title="Mark intake Accepted — client appears on Participants and stays here until treatment plan is complete"
                                 @click="setParticipantIntakeOutcome(c, 'accepted')"
                               >
                                 Accept
@@ -1377,16 +1382,16 @@
                             type="button"
                             class="sbep-workflow-btn"
                             :class="{ 'is-complete': c.treatmentPlanComplete }"
-                            :disabled="participantWorkflowSavingClientId === c.clientId || c.intakeOutcome !== 'accepted'"
+                            :disabled="participantWorkflowSavingClientId === c.clientId || !isIntakeAccepted(c)"
                             :title="c.intakeOutcome === 'denied'
                               ? 'Treatment plan not applicable — intake was Denied'
-                              : c.intakeOutcome !== 'accepted'
+                              : !isIntakeAccepted(c)
                                 ? 'Accept intake first to enable treatment plan'
                                 : formatWorkflowTooltip(c.treatmentPlanComplete ? 'Treatment plan complete' : 'Treatment plan needed', c.treatmentPlanCompletedAt, c.treatmentPlanCompletedByName)"
                             @click="toggleParticipantTreatmentPlan(c)"
                           >
                             <template v-if="c.intakeOutcome === 'denied'">N/A</template>
-                            <template v-else-if="c.intakeOutcome !== 'accepted'">Locked</template>
+                            <template v-else-if="!isIntakeAccepted(c)">Locked</template>
                             <template v-else-if="c.treatmentPlanComplete">Complete</template>
                             <template v-else>Needed</template>
                           </button>
@@ -4104,14 +4109,20 @@ function participantGroupDisplay(c) {
   return '—';
 }
 
+function isIntakeAccepted(c) {
+  const outcome = String(c?.intakeOutcome || '').trim().toLowerCase();
+  if (outcome === 'accepted') return true;
+  return !outcome && !!c?.intakeComplete;
+}
+
 function isParticipantTpPending(c) {
-  return c?.intakeOutcome === 'accepted' && !c?.treatmentPlanComplete;
+  return isIntakeAccepted(c) && !c?.treatmentPlanComplete;
 }
 
 function participantStatusLabel(c) {
   if (c?.intakeOutcome === 'denied') return 'Denied';
-  if (c?.intakeOutcome === 'accepted' && !c?.treatmentPlanComplete) return 'Participant — TP due';
-  if (c?.intakeOutcome === 'accepted') return 'Participant';
+  if (isParticipantTpPending(c)) return 'Participant — TP due';
+  if (isIntakeAccepted(c)) return 'Participant';
   return 'Registrant';
 }
 

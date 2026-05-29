@@ -222,7 +222,8 @@ async function ensureClientAgencyProgramAffiliation(clientId, agencyId, organiza
  *   1. Registered → Provider assigned → Intake (Accept | Deny)
  *   2. Once intake is **Accepted**, the client appears on **Participants** (even if TP is still in progress).
  *   3. Until intake is accepted they remain a **Registrant** (coordinator queue).
- *   4. Participants with intake accepted but TP not complete are shown as pending (UI highlights in yellow).
+ *   4. Accepted clients with TP still pending also stay on **Registrants** until TP is complete.
+ *   5. Participants with intake accepted but TP not complete are shown as pending (UI highlights in yellow).
  *
  * A "Denied" intake stays in the registrants view (TP isn't eligible) so coordinators can
  * track who didn't make it; they can be removed manually if desired.
@@ -233,9 +234,22 @@ async function ensureClientAgencyProgramAffiliation(clientId, agencyId, organiza
 // anywhere anymore."
 const DENIED_PREDICATE = `(cec.intake_outcome = 'denied')`;
 const ACTIVE_PREDICATE = `(cec.intake_outcome IS NULL OR cec.intake_outcome <> 'denied')`;
-const INTAKE_ACCEPTED_PREDICATE = `(cec.intake_outcome = 'accepted')`;
-const REGISTRANT_PREDICATE = `(${ACTIVE_PREDICATE} AND NOT ${INTAKE_ACCEPTED_PREDICATE})`;
+const INTAKE_ACCEPTED_PREDICATE = `(
+  cec.intake_outcome = 'accepted'
+  OR (
+    COALESCE(cec.intake_complete, 0) = 1
+    AND (cec.intake_outcome IS NULL OR TRIM(cec.intake_outcome) = '')
+  )
+)`;
+const REGISTRANT_PREDICATE = `(${ACTIVE_PREDICATE} AND (NOT ${INTAKE_ACCEPTED_PREDICATE} OR (${INTAKE_ACCEPTED_PREDICATE} AND COALESCE(cec.treatment_plan_complete, 0) = 0)))`;
 const PARTICIPANT_PREDICATE = `(${INTAKE_ACCEPTED_PREDICATE} AND ${ACTIVE_PREDICATE})`;
+
+function rowIntakeAccepted(row) {
+  const outcome = String(row?.intake_outcome || '').trim().toLowerCase();
+  if (outcome === 'accepted') return true;
+  const intakeComplete = row?.intake_complete === 1 || row?.intake_complete === true;
+  return intakeComplete && !outcome;
+}
 
 const normalizeStatusFilter = (raw) => {
   const v = String(raw || '').trim().toLowerCase();
@@ -479,7 +493,7 @@ export const listCompanyEventClients = async (req, res, next) => {
             : null,
         treatmentPlanComplete: r.treatment_plan_complete === 1 || r.treatment_plan_complete === true,
         treatmentPlanPending:
-          String(r.intake_outcome || '').toLowerCase() === 'accepted' &&
+          rowIntakeAccepted(r) &&
           !(r.treatment_plan_complete === 1 || r.treatment_plan_complete === true),
         treatmentPlanCompletedAt: r.treatment_plan_completed_at || null,
         treatmentPlanCompletedByName:

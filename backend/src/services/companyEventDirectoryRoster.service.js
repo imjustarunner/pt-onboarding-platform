@@ -86,6 +86,7 @@ async function loadClientsByEventId(agencyId, eventIds) {
       `SELECT cec.company_event_id,
               c.initials,
               c.identifier_code,
+              COALESCE(cec.intake_complete, 0) AS intake_complete,
               COALESCE(cec.treatment_plan_complete, 0) AS treatment_plan_complete,
               cec.intake_outcome
        FROM company_event_clients cec
@@ -103,9 +104,12 @@ async function loadClientsByEventId(agencyId, eventIds) {
       }
       const bucket = result.get(eid);
       const init = clientInitials(r);
-      const intakeAccepted = String(r.intake_outcome || '').toLowerCase() === 'accepted';
+      const outcome = String(r.intake_outcome || '').trim().toLowerCase();
+      const intakeComplete = Number(r.intake_complete) === 1;
+      const intakeAccepted = outcome === 'accepted' || (intakeComplete && !outcome);
+      const tpComplete = Number(r.treatment_plan_complete) === 1;
       if (intakeAccepted) bucket.participants.push(init);
-      else bucket.registrants.push(init);
+      if (!intakeAccepted || !tpComplete) bucket.registrants.push(init);
     }
   } catch {
     // optional workflow columns
