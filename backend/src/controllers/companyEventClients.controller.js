@@ -233,13 +233,16 @@ async function ensureClientAgencyProgramAffiliation(clientId, agencyId, organiza
 // so coordinators can see who didn't make it, but they're excluded from EVERY count
 // per product spec: "Denied should be marked as grey across the way and not counted
 // anywhere anymore."
-const DENIED_PREDICATE = `(cec.intake_outcome = 'denied')`;
-const ACTIVE_PREDICATE = `(cec.intake_outcome IS NULL OR cec.intake_outcome <> 'denied')`;
+// NOTE: every comparison must be NULL-safe. A bare `intake_outcome = 'accepted'`
+// yields NULL (not FALSE) when intake_outcome IS NULL, and `WHERE ... AND (NULL)`
+// silently drops the row — which previously made every plain registrant vanish.
+const DENIED_PREDICATE = `(COALESCE(cec.intake_outcome, '') = 'denied')`;
+const ACTIVE_PREDICATE = `(COALESCE(cec.intake_outcome, '') <> 'denied')`;
 const INTAKE_ACCEPTED_PREDICATE = `(
-  cec.intake_outcome = 'accepted'
+  COALESCE(cec.intake_outcome, '') = 'accepted'
   OR (
     COALESCE(cec.intake_complete, 0) = 1
-    AND (cec.intake_outcome IS NULL OR TRIM(cec.intake_outcome) = '')
+    AND COALESCE(cec.intake_outcome, '') = ''
   )
 )`;
 const REGISTRANT_PREDICATE = `(${ACTIVE_PREDICATE} AND (NOT ${INTAKE_ACCEPTED_PREDICATE} OR (${INTAKE_ACCEPTED_PREDICATE} AND COALESCE(cec.treatment_plan_complete, 0) = 0)))`;

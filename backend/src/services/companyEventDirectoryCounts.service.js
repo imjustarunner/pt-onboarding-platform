@@ -1,11 +1,13 @@
 import pool from '../config/database.js';
 
-const ACTIVE_PREDICATE = "(cec.intake_outcome IS NULL OR cec.intake_outcome <> 'denied')";
+// NULL-safe: a bare `intake_outcome = 'accepted'` yields NULL (not FALSE) when the
+// column IS NULL, which undercounts plain registrants. COALESCE keeps it boolean.
+const ACTIVE_PREDICATE = "(COALESCE(cec.intake_outcome, '') <> 'denied')";
 const INTAKE_ACCEPTED_PREDICATE = `(
-  cec.intake_outcome = 'accepted'
+  COALESCE(cec.intake_outcome, '') = 'accepted'
   OR (
     COALESCE(cec.intake_complete, 0) = 1
-    AND (cec.intake_outcome IS NULL OR TRIM(cec.intake_outcome) = '')
+    AND COALESCE(cec.intake_outcome, '') = ''
   )
 )`;
 const REGISTRANT_PREDICATE = `(${ACTIVE_PREDICATE} AND (NOT ${INTAKE_ACCEPTED_PREDICATE} OR (${INTAKE_ACCEPTED_PREDICATE} AND COALESCE(cec.treatment_plan_complete, 0) = 0)))`;
