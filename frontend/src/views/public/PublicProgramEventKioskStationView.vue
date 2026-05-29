@@ -338,7 +338,7 @@
         <header class="pe-kiosk-modal-hdr">
           <div>
             <div class="pe-kiosk-modal-title">Check in {{ clientDisplayName(checkinClient) }}</div>
-            <div class="muted small">Review who is approved for pickup. Add and sign pickup authorization if needed.</div>
+            <div class="muted small">Review who is approved for pickup. Add emergency contacts or pickup authorization if needed.</div>
           </div>
           <button class="btn btn-text" @click="closeCheckin">Close</button>
         </header>
@@ -366,7 +366,10 @@
             No guardian linked on file — ask staff before signing pickup authorization.
           </p>
 
-          <h4 class="pe-kiosk-modal-h4">Approved for pickup</h4>
+          <h4 class="pe-kiosk-modal-h4">Approved drivers &amp; authorized pickups</h4>
+          <p v-if="sheetHasPickups" class="muted small pe-checkin-review-lead">
+            Review who may pick up {{ clientDisplayName(checkinClient) }} today. Confirm the list is correct or add someone.
+          </p>
           <p v-if="sheetGuardianPickups.length" class="pe-kiosk-modal-sub muted small">Guardians</p>
           <ul v-if="sheetGuardianPickups.length" class="pe-info-list">
             <li v-for="(p, i) in sheetGuardianPickups" :key="`sg-${i}`">
@@ -383,27 +386,53 @@
               <div v-if="p.phone" class="muted small">{{ p.phone }}</div>
             </li>
           </ul>
-          <p v-if="!sheetGuardianPickups.length && !sheetOtherPickups.length" class="muted small">
-            No pickup contacts on file yet.
+          <p v-if="!sheetHasPickups" class="muted small">
+            No authorized pickup people on file yet.
           </p>
 
-          <h4 class="pe-kiosk-modal-h4">Emergency contacts</h4>
-          <ul v-if="checkinSheet.emergencyContacts?.length" class="pe-info-list">
-            <li v-for="(e, i) in checkinSheet.emergencyContacts" :key="`ec-${i}`">
-              <strong>{{ e.name }}</strong>
-              <span v-if="e.relationship" class="muted small"> · {{ e.relationship }}</span>
-              <div v-if="e.phone" class="muted small">{{ e.phone }}</div>
-            </li>
-          </ul>
-          <p v-else class="muted small">None on file.</p>
+          <div v-if="sheetHasPickups" class="pe-checkin-confirm-block">
+            <label class="pe-checkin-check-row">
+              <input v-model="checkinPickupConfirmed" type="checkbox" />
+              <span>I confirm the authorized pickup people listed above are correct.</span>
+            </label>
+          </div>
 
           <div
-            v-if="checkinSheet.waiversEnabled && checkinSheet.gate?.pickupRequired && !checkinSheet.gate?.pickupSatisfied"
+            v-else-if="checkinSheet.waiversEnabled"
             class="pe-checkin-waiver-banner"
           >
-            <strong>Pickup authorization required</strong>
+            <strong>No authorized pickup on file</strong>
+            <p class="small">Add an approved driver or pickup person before check-in.</p>
+            <div class="pe-checkin-pickup-actions">
+              <button
+                v-if="!checkinSheet.gate?.esignActive"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="!checkinGuardianUserId"
+                @click="openCheckinWaiverEdit('esignature_consent')"
+              >
+                Sign e-signature consent first
+              </button>
+              <button
+                v-else
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="!checkinGuardianUserId"
+                @click="openCheckinWaiverEdit('pickup_authorization')"
+              >
+                Add pickup person &amp; sign
+              </button>
+            </div>
+            <p v-if="!checkinGuardianUserId" class="muted small">Select or link a guardian to add pickup authorization.</p>
+          </div>
+
+          <div
+            v-if="checkinSheet.waiversEnabled && checkinSheet.gate?.pickupRequired && !checkinSheet.gate?.pickupSatisfied && sheetHasPickups"
+            class="pe-checkin-waiver-banner"
+          >
+            <strong>Pickup authorization signature required</strong>
             <p class="small">
-              Sign the pickup waiver to list who may pick up {{ clientDisplayName(checkinClient) }} today.
+              Sign the pickup waiver to confirm who may pick up {{ clientDisplayName(checkinClient) }}.
             </p>
             <button
               v-if="checkinSheet.gate?.needsEsignBeforePickup"
@@ -421,22 +450,71 @@
               :disabled="!checkinGuardianUserId"
               @click="openCheckinWaiverEdit('pickup_authorization')"
             >
-              Add pickup person &amp; sign
+              Sign pickup authorization
             </button>
           </div>
-          <div v-else-if="checkinSheet.waiversEnabled && checkinSheet.gate?.pickupSatisfied" class="pe-checkin-ok-banner">
-            Pickup authorization on file — ready to check in.
-          </div>
-          <div
-            v-if="checkinSheet.waiversEnabled && checkinGuardianUserId && checkinSheet.gate?.esignActive && !(checkinSheet.gate?.pickupRequired && !checkinSheet.gate?.pickupSatisfied)"
-            class="pe-checkin-update-row"
-          >
+
+          <div v-if="canAddPickupAtCheckin && sheetHasPickups" class="pe-checkin-pickup-actions">
             <button
               type="button"
               class="btn btn-secondary btn-sm"
               @click="openCheckinWaiverEdit('pickup_authorization')"
             >
-              Update pickup list
+              Add another pickup person
+            </button>
+          </div>
+
+          <h4 class="pe-kiosk-modal-h4">Emergency contacts</h4>
+          <ul v-if="checkinSheet.emergencyContacts?.length" class="pe-info-list">
+            <li v-for="(e, i) in checkinSheet.emergencyContacts" :key="`ec-${i}`">
+              <strong>{{ e.name }}</strong>
+              <span v-if="e.relationship" class="muted small"> · {{ e.relationship }}</span>
+              <div v-if="e.phone" class="muted small">{{ e.phone }}</div>
+            </li>
+          </ul>
+          <p v-else class="muted small">None on file.</p>
+
+          <div
+            v-if="checkinNeedsEmergencyPrompt && checkinSheet.waiversEnabled"
+            class="pe-checkin-waiver-banner pe-checkin-emergency-banner"
+          >
+            <strong>No emergency contact on file</strong>
+            <p class="small">Would you like to add one before check-in?</p>
+            <div class="pe-checkin-emergency-actions">
+              <button
+                v-if="!checkinSheet.gate?.esignActive"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="!checkinGuardianUserId"
+                @click="openCheckinWaiverEdit('esignature_consent')"
+              >
+                Sign e-signature consent first
+              </button>
+              <button
+                v-else
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="!checkinGuardianUserId"
+                @click="openCheckinWaiverEdit('emergency_contacts')"
+              >
+                Add emergency contact
+              </button>
+              <button type="button" class="btn btn-text btn-sm" @click="dismissEmergencyContactPrompt">
+                Continue without adding
+              </button>
+            </div>
+            <p v-if="!checkinGuardianUserId" class="muted small">Select or link a guardian to add emergency contacts.</p>
+          </div>
+          <div
+            v-else-if="checkinSheet.emergencyContacts?.length && checkinSheet.waiversEnabled && checkinGuardianUserId && checkinSheet.gate?.esignActive"
+            class="pe-checkin-update-row"
+          >
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              @click="openCheckinWaiverEdit('emergency_contacts')"
+            >
+              Update emergency contacts
             </button>
           </div>
 
@@ -699,6 +777,7 @@ import { buildFormUrl } from '../../utils/publicIntakeUrl';
 import SignaturePad from '../../components/SignaturePad.vue';
 import GwvFieldsEsign from '../guardian/waivers/GwvFieldsEsign.vue';
 import GwvFieldsPickup from '../guardian/waivers/GwvFieldsPickup.vue';
+import GwvFieldsEmergency from '../guardian/waivers/GwvFieldsEmergency.vue';
 
 const route = useRoute();
 const brandingStore = useBrandingStore();
@@ -1002,6 +1081,8 @@ async function openCheckin(c) {
   checkinError.value = '';
   checkinSheet.value = null;
   checkinGuardianUserId.value = null;
+  checkinEmergencyPromptDismissed.value = false;
+  checkinPickupConfirmed.value = false;
   checkinOpen.value = true;
   await loadCheckinSheet();
 }
@@ -1022,14 +1103,18 @@ const checkinSheetLoading = ref(false);
 const checkinGuardianUserId = ref(null);
 const checkinError = ref('');
 const checkinSubmitting = ref(false);
+const checkinEmergencyPromptDismissed = ref(false);
+const checkinPickupConfirmed = ref(false);
 
 const CHECKIN_WAIVER_FIELDS = {
   esignature_consent: GwvFieldsEsign,
-  pickup_authorization: GwvFieldsPickup
+  pickup_authorization: GwvFieldsPickup,
+  emergency_contacts: GwvFieldsEmergency
 };
 const CHECKIN_WAIVER_TITLES = {
   esignature_consent: 'E-signature consent',
-  pickup_authorization: 'Authorized pickups'
+  pickup_authorization: 'Authorized pickups',
+  emergency_contacts: 'Emergency contacts'
 };
 
 const checkinWaiverEditOpen = ref(false);
@@ -1051,13 +1136,41 @@ const sheetOtherPickups = computed(() =>
   (checkinSheet.value?.authorizedPickups || []).filter((p) => p.source !== 'guardian')
 );
 
+const sheetHasPickups = computed(() => {
+  const list = checkinSheet.value?.authorizedPickups || [];
+  return list.length > 0;
+});
+
+const canAddPickupAtCheckin = computed(() => {
+  if (!checkinSheet.value?.waiversEnabled || !checkinGuardianUserId.value) return false;
+  return !!checkinSheet.value?.gate?.esignActive;
+});
+
+const checkinNeedsEmergencyPrompt = computed(() => {
+  if (checkinEmergencyPromptDismissed.value) return false;
+  return !(checkinSheet.value?.emergencyContacts?.length);
+});
+
+function dismissEmergencyContactPrompt() {
+  checkinEmergencyPromptDismissed.value = true;
+}
+
+function isValidEmergencyPhone(phone) {
+  const d = String(phone || '').replace(/\D+/g, '');
+  if (d.length === 10) return true;
+  if (d.length === 11 && d.startsWith('1')) return true;
+  return false;
+}
+
 const canCompleteCheckin = computed(() => {
   if (!checkinSheet.value || checkinSheetLoading.value) return false;
-  if (checkinSheet.value.waiversEnabled && checkinSheet.value.gate?.pickupRequired && !checkinSheet.value.gate?.pickupSatisfied) {
-    return false;
-  }
-  if (checkinSheet.value.waiversEnabled && checkinSheet.value.gate?.pickupRequired && !checkinGuardianUserId.value) {
-    return false;
+  const waivers = checkinSheet.value.waiversEnabled;
+  const gate = checkinSheet.value.gate || {};
+  if (sheetHasPickups.value && !checkinPickupConfirmed.value) return false;
+  if (waivers) {
+    if (gate.pickupRequired && !gate.pickupSatisfied) return false;
+    if (gate.pickupRequired && !checkinGuardianUserId.value) return false;
+    if (!sheetHasPickups.value && !gate.pickupSatisfied) return false;
   }
   return true;
 });
@@ -1071,7 +1184,24 @@ function defaultCheckinWaiverPayload(key) {
     if (existing && typeof existing === 'object') {
       return JSON.parse(JSON.stringify(existing));
     }
+    const merged = (checkinSheet.value?.authorizedPickups || [])
+      .filter((p) => String(p?.name || '').trim())
+      .map((p) => ({
+        name: String(p.name).trim(),
+        relationship: String(p.relationship || (p.source === 'guardian' ? 'Guardian' : '')).trim(),
+        phone: String(p.phone || '').trim()
+      }));
+    if (merged.length) {
+      return { authorizedPickups: merged };
+    }
     return { authorizedPickups: [{ name: '', relationship: '', phone: '' }] };
+  }
+  if (key === 'emergency_contacts') {
+    const existing = checkinSheet.value?.emergencySection;
+    if (existing && typeof existing === 'object') {
+      return JSON.parse(JSON.stringify(existing));
+    }
+    return { contacts: [{ name: '', phone: '', relationship: '' }] };
   }
   return {};
 }
@@ -1154,9 +1284,24 @@ async function saveCheckinWaiverEdit() {
     const p = checkinWaiverDraft.value || {};
     if (!p.declinePickupAuthorization) {
       const rows = Array.isArray(p.authorizedPickups) ? p.authorizedPickups : [];
-      const hasPerson = rows.some((r) => String(r?.name || '').trim());
-      if (!hasPerson) {
-        checkinWaiverError.value = 'Add at least one pickup person or check the opt-out box.';
+      const hasValid = rows.some(
+        (r) => String(r?.name || '').trim() && isValidEmergencyPhone(r?.phone)
+      );
+      if (!hasValid) {
+        checkinWaiverError.value = 'Add at least one pickup person with name and a 10-digit phone, or check the opt-out box.';
+        return;
+      }
+    }
+  }
+  if (key === 'emergency_contacts') {
+    const p = checkinWaiverDraft.value || {};
+    if (!p.declineEmergencyContacts) {
+      const rows = Array.isArray(p.contacts) ? p.contacts : [];
+      const hasValid = rows.some(
+        (r) => String(r?.name || '').trim() && isValidEmergencyPhone(r?.phone)
+      );
+      if (!hasValid) {
+        checkinWaiverError.value = 'Add at least one emergency contact with name and a 10-digit phone, or check the opt-out box.';
         return;
       }
     }
@@ -1187,7 +1332,10 @@ async function saveCheckinWaiverEdit() {
       skipAuthRedirect: true
     });
     checkinSheet.value = res.data?.sheet || checkinSheet.value;
-    if (res.data?.sheet) applyCheckinSheetToClient(res.data.sheet);
+    if (res.data?.sheet) {
+      applyCheckinSheetToClient(res.data.sheet);
+      if (key === 'pickup_authorization') checkinPickupConfirmed.value = false;
+    }
     closeCheckinWaiverEdit();
   } catch (e) {
     checkinWaiverError.value = e.response?.data?.error?.message || 'Save failed';
@@ -1815,6 +1963,27 @@ onBeforeUnmount(() => {
 }
 .pe-checkin-actions { margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .pe-checkin-update-row { margin-top: 10px; }
+.pe-checkin-emergency-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.pe-checkin-confirm-block {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid var(--border, #e2e8f0);
+}
+.pe-checkin-review-lead { margin: 0 0 8px; }
+.pe-checkin-pickup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
 .pe-checkin-waiver-checks { display: grid; gap: 8px; margin: 12px 0; }
 .pe-checkin-check-row { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; }
 .muted { color: var(--text-secondary, #64748b); }

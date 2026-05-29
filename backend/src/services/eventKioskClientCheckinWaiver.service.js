@@ -187,6 +187,12 @@ function pickupPayloadFromSections(sections) {
   return payload;
 }
 
+function emergencyPayloadFromSections(sections) {
+  const payload = readActiveSectionPayload(sections, 'emergency_contacts');
+  if (!payload || payload.declineEmergencyContacts) return null;
+  return payload;
+}
+
 /** Check-in sheet: approved pickups + waiver status for guardian signing at the kiosk. */
 export async function getEventKioskClientCheckinSheet({ companyEventId, clientId, guardianUserId = null }) {
   const cid = Number(clientId);
@@ -203,6 +209,8 @@ export async function getEventKioskClientCheckinSheet({ companyEventId, clientId
   });
 
   const pickupPayload = gid ? pickupPayloadFromSections(gate.sections) : null;
+  const emergencyPayload = gid ? emergencyPayloadFromSections(gate.sections) : null;
+  const emergencyContacts = entry.emergencyContacts || [];
 
   const pickupRequired = gate.enabled && gate.pickupRequired;
   const pickupSatisfied = !pickupRequired || gate.pickupSatisfied;
@@ -214,7 +222,8 @@ export async function getEventKioskClientCheckinSheet({ companyEventId, clientId
     waiversEnabled: gate.enabled,
     guardians,
     authorizedPickups: entry.authorizedPickups || [],
-    emergencyContacts: entry.emergencyContacts || [],
+    emergencyContacts,
+    hasEmergencyContacts: emergencyContacts.length > 0,
     hasPickupOptions: clientHasReleasePickupOptions(entry),
     walkHome: entry.walkHome,
     canCheckIn: !gate.enabled || pickupSatisfied,
@@ -231,10 +240,17 @@ export async function getEventKioskClientCheckinSheet({ companyEventId, clientId
           declinePickupAuthorization: !!pickupPayload.declinePickupAuthorization
         }
       : null,
+    emergencySection: emergencyPayload
+      ? {
+          contacts: Array.isArray(emergencyPayload.contacts) ? emergencyPayload.contacts : [],
+          declineEmergencyContacts: !!emergencyPayload.declineEmergencyContacts
+        }
+      : null,
     sectionStatus: gid
       ? {
           esignature_consent: gate.sections?.esignature_consent?.status || null,
-          pickup_authorization: gate.sections?.pickup_authorization?.status || null
+          pickup_authorization: gate.sections?.pickup_authorization?.status || null,
+          emergency_contacts: gate.sections?.emergency_contacts?.status || null
         }
       : null
   };
