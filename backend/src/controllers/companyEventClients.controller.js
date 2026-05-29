@@ -8,6 +8,11 @@ import {
   canViewProgramEvent,
   userHasAgencyAccessForRequest
 } from '../services/companyEventAccess.service.js';
+import { listProgramSessionsForEvent } from '../services/companyEventSessionDates.service.js';
+import {
+  listCompanyEventDateStatuses,
+  setCompanyEventClientDateStatus
+} from '../services/companyEventClientDateStatus.service.js';
 
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw || ''), 10);
@@ -1028,6 +1033,101 @@ export const patchCompanyEventClientWorkflow = async (req, res, next) => {
       throw err;
     } finally {
       conn.release();
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /company-events/:eventId/attendance-status?agencyId=&sessionDate=
+ * Returns the event's materialized session dates plus per-client statuses
+ * (planned absence / late / removed-from-future). Used by the portal Attendance
+ * planning panel. Scoped to one date when sessionDate is provided.
+ */
+export const listCompanyEventAttendanceStatus = async (req, res, next) => {
+  try {
+    const eventId = parsePositiveInt(req.params.eventId);
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const sessionDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.sessionDate || ''))
+      ? String(req.query.sessionDate)
+      : null;
+    if (!eventId || !agencyId) {
+      return res.status(400).json({ error: { message: 'eventId and agencyId are required' } });
+    }
+    if (!(await canViewProgramEvent(req, agencyId, eventId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this event' } });
+    }
+    const event = await loadEventForAgency(eventId, agencyId);
+    if (!event) return res.status(404).json({ error: { message: 'Event not found' } });
+
+    const sessions = await listProgramSessionsForEvent({ companyEventId: eventId });
+    const sessionDates = sessions.map((s) => ({
+      sessionDate: String(s.session_date).slice(0, 10),
+      startsAt: s.starts_at,
+      endsAt: s.ends_at,
+      timezone: s.timezone || null
+    }));
+    const statuses = await listCompanyEventDateStatuses({ companyEventId: eventId, sessionDate });
+
+    res.json({ ok: true, sessionDates, statuses });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * PUT /company-events/:eventId/clients/:clientId/attendance-status
+ * Body: { agencyId, sessionDate, status, expectedArrivalTime, note, applyToFuture }
+ * status: 'planned_absence' | 'late' | 'removed' | null (clears).
+ * applyToFuture: when true, writes/clears for the date + all later session dates
+ *   (used by "remove from future dates").
+ */
+export const putCompanyEventClientAttendanceStatus = async (req, res, next) => {
+  try {
+    const eventId = parsePositiveInt(req.params.eventId);
+    const clientId = parsePositiveInt(req.params.clientId);
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const sessionDate = String(req.body?.sessionDate || '').trim();
+    if (!eventId || !clientId || !agencyId) {
+      return res.status(400).json({ error: { message: 'eventId, clientId, and agencyId are required' } });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(sessionDate)) {
+      return res.status(400).json({ error: { message: 'A valid sessionDate (YYYY-MM-DD) is required' } });
+    }
+    if (!(await canManageProgramEvent(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this event' } });
+    }
+    const event = await loadEventForAgency(eventId, agencyId);
+    if (!event) return res.status(404).json({ error: { message: 'Event not found' } });
+
+    const [enrolled] = await pool.execute(
+      `SELECT 1 AS ok FROM company_event_clients
+       WHERE company_event_id = ? AND agency_id = ? AND client_id = ? LIMIT 1`,
+      [eventId, agencyId, clientId]
+    );
+    if (!enrolled?.[0]?.ok) {
+      return res.status(404).json({ error: { message: 'Client is not enrolled in this event' } });
+    }
+
+    try {
+      const statuses = await setCompanyEventClientDateStatus({
+        companyEventId: eventId,
+        agencyId,
+        clientId,
+        sessionDate,
+        status: req.body?.status ?? null,
+        expectedArrivalTime: req.body?.expectedArrivalTime ?? null,
+        note: req.body?.note ?? null,
+        applyToFuture: req.body?.applyToFuture === true,
+        setByUserId: parsePositiveInt(req.user?.id)
+      });
+      res.json({ ok: true, statuses });
+    } catch (err) {
+      if (err?.status) {
+        return res.status(err.status).json({ error: { message: err.message } });
+      }
+      throw err;
     }
   } catch (e) {
     next(e);

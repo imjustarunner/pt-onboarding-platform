@@ -50,6 +50,10 @@ import {
   upsertEventDayLateContact
 } from '../services/eventDayKioskLateContact.service.js';
 import {
+  loadCompanyEventDateStatusMap,
+  recordKioskAttendanceIntent
+} from '../services/companyEventClientDateStatus.service.js';
+import {
   buildKioskClientWaiverEntry,
   getEventKioskClientCheckinSheet,
   saveEventKioskClientWaiverSection
@@ -605,6 +609,21 @@ export const getProgramEventKioskContext = async (req, res, next) => {
 
     const today = kioskDay.todayYmd;
 
+    // Per-date attendance status set from the event portal (planned absence,
+    // late arrival + time, removed-from-future) so the kiosk knows what to
+    // expect for today.
+    const dateStatusMap = await loadCompanyEventDateStatusMap({ companyEventId: eventId, sessionDate: today });
+    for (const [cid, entry] of clientMap) {
+      const st = dateStatusMap.get(Number(cid));
+      entry.dateStatus = st
+        ? {
+            status: st.status,
+            expectedArrivalTime: st.expectedArrivalTime || null,
+            note: st.note || null
+          }
+        : null;
+    }
+
     const staffRows = await loadProgramEventStaff(eventId, agencyId);
     const checkinRows = await loadEventDayCheckins(eventId, today);
     const lateContacts = await loadLateContactsForEventDay(eventId, today);
@@ -965,6 +984,69 @@ export const submitProgramEventCheckout = async (req, res, next) => {
       photoCaptured: !!photoFields.photo_storage_key,
       signedAt: new Date().toISOString()
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST …/attendance-intent — record a family's upcoming-attendance answer at checkout.
+ * Body: { clientId, entries: [{ sessionDate, attending }], reason }
+ * Writes planned_absence rows for dates the family says they won't attend and
+ * clears planned_absence for dates they confirm. Limited to this event's
+ * materialized session dates that fall today or later.
+ */
+export const recordProgramEventAttendanceIntent = async (req, res, next) => {
+  try {
+    const ctx = verifyKioskBearerForProgramEvent(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertKioskTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const clientId = parsePositiveInt(req.body?.clientId);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+
+    const isParticipant = await assertClientIsKioskParticipant(m.eventId, clientId);
+    if (!isParticipant) {
+      return res.status(403).json({ error: { message: 'Client is not a confirmed participant for this event' } });
+    }
+
+    // Constrain to this event's known session dates (today or later) so a bad
+    // payload can't write arbitrary dates.
+    const [dateRows] = await pool.execute(
+      `SELECT session_date FROM company_event_session_dates WHERE company_event_id = ?`,
+      [m.eventId]
+    ).catch(() => [[]]);
+    const validDates = new Set(
+      (dateRows || []).map((r) => normalizeDbDateToYmd(r.session_date)).filter(Boolean)
+    );
+
+    const rawEntries = Array.isArray(req.body?.entries) ? req.body.entries : [];
+    const entries = rawEntries
+      .map((e) => ({
+        sessionDate: String(e?.sessionDate || '').trim(),
+        attending: e?.attending === true
+      }))
+      .filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.sessionDate) && (!validDates.size || validDates.has(e.sessionDate)));
+
+    if (!entries.length) {
+      return res.status(400).json({ error: { message: 'No valid session dates provided' } });
+    }
+
+    try {
+      await recordKioskAttendanceIntent({
+        companyEventId: m.eventId,
+        agencyId: m.agencyId,
+        clientId,
+        entries,
+        reason: req.body?.reason ?? null
+      });
+    } catch (err) {
+      if (err?.status) return res.status(err.status).json({ error: { message: err.message } });
+      throw err;
+    }
+
+    res.status(201).json({ ok: true, clientId });
   } catch (e) {
     next(e);
   }

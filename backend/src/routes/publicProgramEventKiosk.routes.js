@@ -11,6 +11,7 @@ import {
   getProgramEventClientCheckinSheet,
   postProgramEventClientWaiverSection,
   submitProgramEventCheckout,
+  recordProgramEventAttendanceIntent,
   programEventClientCheckin,
   programEventClientAbsent,
   programEventLateContact,
@@ -23,6 +24,7 @@ const router = express.Router();
 
 router.get('/agency/:slug/kiosk/events/:eventId/context', getProgramEventKioskContext);
 router.post('/agency/:slug/kiosk/events/:eventId/checkout', submitProgramEventCheckout);
+router.post('/agency/:slug/kiosk/events/:eventId/attendance-intent', recordProgramEventAttendanceIntent);
 router.get('/agency/:slug/kiosk/events/:eventId/checkin/client/:clientId/sheet', getProgramEventClientCheckinSheet);
 router.post('/agency/:slug/kiosk/events/:eventId/checkin/client/waiver-section', postProgramEventClientWaiverSection);
 router.post('/agency/:slug/kiosk/events/:eventId/checkin/client', programEventClientCheckin);

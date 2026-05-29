@@ -2134,6 +2134,91 @@
                 Kiosk check-in and release activity for this event, plus provider payroll clock time.
               </p>
 
+              <!-- Attendance planning: set what to expect on an upcoming day; shows on the kiosk -->
+              <div v-if="viewerCaps.canManageCompanyEvent" class="sbep-plan-block">
+                <h3 class="sbep-att-subhead">Attendance planning</h3>
+                <p class="muted small">
+                  Set what to expect for an upcoming day — planned absences, late arrivals, or removing someone who isn't returning.
+                  These notes show on the day kiosk so staff know who to expect.
+                </p>
+
+                <div v-if="planError" class="error-box sbep-add-client-err">{{ planError }}</div>
+
+                <div v-if="planSessionDates.length" class="sbep-att-filter-row">
+                  <label class="sbep-label">Day</label>
+                  <select v-model="planDate" class="input sbep-kiosk-field">
+                    <option v-for="d in planSessionDates" :key="`pd-${d}`" :value="d">{{ formatKioskAttDate(d) }}</option>
+                  </select>
+                </div>
+                <p v-else-if="!planLoading" class="muted small">No upcoming session dates to plan for.</p>
+
+                <div v-if="planDate && planParticipants.length" class="table-wrap">
+                  <table class="table sbep-plan-table">
+                    <thead>
+                      <tr>
+                        <th>Client</th>
+                        <th>Status</th>
+                        <th>Late arrival time</th>
+                        <th>Note (shown on kiosk)</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="p in planParticipants" :key="`plan-${p.clientId}`">
+                        <td>{{ p.name }}</td>
+                        <td>
+                          <select
+                            v-if="planDrafts[p.clientId]"
+                            v-model="planDrafts[p.clientId].status"
+                            class="input sbep-plan-select"
+                          >
+                            <option value="">Expected as usual</option>
+                            <option value="planned_absence">Planned absence (this day)</option>
+                            <option value="late">Late arrival</option>
+                            <option value="removed">Remove from future dates</option>
+                          </select>
+                        </td>
+                        <td>
+                          <input
+                            v-if="planDrafts[p.clientId] && planDrafts[p.clientId].status === 'late'"
+                            v-model="planDrafts[p.clientId].time"
+                            class="input sbep-plan-time"
+                            type="text"
+                            placeholder="e.g. 9:30 AM"
+                          />
+                          <span v-else class="muted small">—</span>
+                        </td>
+                        <td>
+                          <input
+                            v-if="planDrafts[p.clientId]"
+                            v-model="planDrafts[p.clientId].note"
+                            class="input"
+                            type="text"
+                            maxlength="500"
+                            placeholder="Optional note"
+                          />
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            class="btn btn-secondary btn-sm"
+                            :disabled="planSavingClientId === p.clientId"
+                            @click="savePlanRow(p)"
+                          >
+                            {{ planSavingClientId === p.clientId ? 'Saving…' : 'Save' }}
+                          </button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <p class="muted small">
+                    "Remove from future dates" marks the client as not returning from the selected day onward — they're listed
+                    separately on the kiosk so staff don't expect them. Set the status back to "Expected as usual" to undo.
+                  </p>
+                </div>
+                <p v-else-if="planDate && !planParticipants.length" class="muted small">No enrolled participants to plan for yet.</p>
+              </div>
+
               <div v-if="kioskAttendanceDates.length" class="sbep-att-filter-row">
                 <label class="sbep-label">Event day</label>
                 <select v-model="kioskAttDateFilter" class="input sbep-kiosk-field" @change="loadKioskAttendance">
@@ -4971,6 +5056,106 @@ async function loadKioskAttendance() {
   }
 }
 
+// --- Attendance planning (per-date status shown on the kiosk) ---
+const planDate = ref('');
+const planSessionDates = ref([]);
+const planAllStatuses = ref([]);
+const planDrafts = ref({});
+const planLoading = ref(false);
+const planError = ref('');
+const planSavingClientId = ref(0);
+
+const planParticipants = computed(() =>
+  (genericParticipants.value || []).map((c) => ({
+    clientId: Number(c.clientId),
+    name: c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}`,
+    identifierCode: c.identifierCode || null
+  }))
+);
+
+function planStatusForClient(clientId, ymd) {
+  return planAllStatuses.value.find(
+    (s) => Number(s.clientId) === Number(clientId) && String(s.sessionDate).slice(0, 10) === ymd
+  ) || null;
+}
+
+function rebuildPlanDrafts() {
+  const ymd = planDate.value;
+  const next = {};
+  for (const p of planParticipants.value) {
+    const existing = ymd ? planStatusForClient(p.clientId, ymd) : null;
+    next[p.clientId] = {
+      status: existing?.status || '',
+      time: existing?.expectedArrivalTime || '',
+      note: existing?.note || ''
+    };
+  }
+  planDrafts.value = next;
+}
+
+async function loadAttendancePlan() {
+  if (!eventBillingAgencyId.value || !eventId.value) return;
+  if (!viewerCaps.value.canManageCompanyEvent) return;
+  planLoading.value = true;
+  planError.value = '';
+  try {
+    const res = await api.get(`/company-events/${eventId.value}/attendance-status`, {
+      params: { agencyId: eventBillingAgencyId.value },
+      skipGlobalLoading: true
+    });
+    const today = todayYmd();
+    const dates = Array.isArray(res.data?.sessionDates) ? res.data.sessionDates : [];
+    planSessionDates.value = dates
+      .map((d) => String(d.sessionDate).slice(0, 10))
+      .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= today);
+    planAllStatuses.value = Array.isArray(res.data?.statuses) ? res.data.statuses : [];
+    if (!planDate.value || !planSessionDates.value.includes(planDate.value)) {
+      planDate.value = planSessionDates.value[0] || '';
+    }
+    rebuildPlanDrafts();
+  } catch (e) {
+    planError.value = e.response?.data?.error?.message || e.message || 'Could not load attendance planning';
+    planSessionDates.value = [];
+    planAllStatuses.value = [];
+  } finally {
+    planLoading.value = false;
+  }
+}
+
+async function savePlanRow(client) {
+  if (!eventBillingAgencyId.value || !eventId.value || !planDate.value) return;
+  const draft = planDrafts.value[client.clientId] || { status: '', time: '', note: '' };
+  const status = draft.status || null;
+  // "removed" spans future dates; clearing a previously-removed client should
+  // also clear those future rows so the undo is complete.
+  const wasRemoved = planStatusForClient(client.clientId, planDate.value)?.status === 'removed';
+  const applyToFuture = status === 'removed' || (status === null && wasRemoved);
+  planSavingClientId.value = client.clientId;
+  planError.value = '';
+  try {
+    await api.put(
+      `/company-events/${eventId.value}/clients/${client.clientId}/attendance-status`,
+      {
+        agencyId: eventBillingAgencyId.value,
+        sessionDate: planDate.value,
+        status,
+        expectedArrivalTime: status === 'late' ? (draft.time || null) : null,
+        note: draft.note || null,
+        applyToFuture
+      },
+      { skipGlobalLoading: true }
+    );
+    await loadAttendancePlan();
+  } catch (e) {
+    planError.value = e.response?.data?.error?.message || e.message || 'Could not save status';
+  } finally {
+    planSavingClientId.value = 0;
+  }
+}
+
+watch(planDate, () => rebuildPlanDrafts());
+watch(genericParticipants, () => rebuildPlanDrafts());
+
 function formatKioskAttDate(ymd) {
   const s = String(ymd || '').trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s || '—';
@@ -5177,6 +5362,7 @@ async function loadDetail() {
       loadStaffingSessionRequests()
     ]);
     await loadAttendance();
+    await loadAttendancePlan();
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load';
     detail.value = null;
@@ -7492,6 +7678,17 @@ watch(
 .sbep-att-filter-row .sbep-label {
   margin: 0;
 }
+.sbep-plan-block {
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+.sbep-plan-table th,
+.sbep-plan-table td {
+  vertical-align: middle;
+}
+.sbep-plan-select { min-width: 200px; }
+.sbep-plan-time { max-width: 130px; }
 .sbep-att-person {
   display: flex;
   align-items: center;

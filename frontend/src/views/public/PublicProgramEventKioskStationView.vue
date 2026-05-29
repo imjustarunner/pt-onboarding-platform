@@ -126,7 +126,12 @@
           </span>
         </div>
         <ul class="pe-roster">
-          <li v-for="c in filteredPendingClients" :key="c.id" class="pe-row">
+          <li
+            v-for="c in filteredPendingClients"
+            :key="c.id"
+            class="pe-row"
+            :class="{ 'pe-row--late': isLateArrival(c) }"
+          >
             <div class="pe-row-top">
               <div class="pe-row-avatar" aria-hidden="true">
                 <span v-if="initials(c.fullName || c.kioskDisplayName)">{{ initials(c.fullName || c.kioskDisplayName) }}</span>
@@ -139,6 +144,10 @@
                   <strong>{{ clientDisplayName(c) }}</strong>
                   <span v-if="c.identifierCode" class="pe-row-id"> · {{ c.identifierCode }}</span>
                 </div>
+                <span v-if="isLateArrival(c)" class="pe-tag pe-tag--late">
+                  ⏰ Arriving late<template v-if="c.dateStatus.expectedArrivalTime"> · {{ c.dateStatus.expectedArrivalTime }}</template>
+                </span>
+                <div v-if="isLateArrival(c) && c.dateStatus.note" class="muted small pe-late-note">{{ c.dateStatus.note }}</div>
                 <span v-if="c.confirmationStatus === 'no'" class="pe-tag pe-tag--warn">Not attending</span>
               </div>
               <div class="pe-row-actions">
@@ -182,6 +191,27 @@
             <li v-for="c in filteredAbsentClients" :key="`abs-${c.id}`">
               <strong>{{ clientDisplayName(c) }}</strong>
               <div v-if="absenceReasonForClient(c.id)" class="muted small">{{ absenceReasonForClient(c.id) }}</div>
+            </li>
+          </ul>
+        </div>
+        <div v-if="filteredPlannedAbsenceClients.length" class="pe-absent-block">
+          <h3 class="pe-absent-title">Planned absence today</h3>
+          <ul class="pe-info-list">
+            <li v-for="c in filteredPlannedAbsenceClients" :key="`pa-${c.id}`">
+              <strong>{{ clientDisplayName(c) }}</strong>
+              <span class="pe-tag pe-tag--out">Planned absence</span>
+              <div v-if="c.dateStatus?.note" class="muted small">{{ c.dateStatus.note }}</div>
+            </li>
+          </ul>
+        </div>
+        <div v-if="filteredRemovedClients.length" class="pe-absent-block pe-removed-block">
+          <h3 class="pe-absent-title">Not returning to the group</h3>
+          <p class="muted small">These participants have been removed from this date forward — they are not expected.</p>
+          <ul class="pe-info-list">
+            <li v-for="c in filteredRemovedClients" :key="`rm-${c.id}`">
+              <strong>{{ clientDisplayName(c) }}</strong>
+              <span class="pe-tag pe-tag--warn">Removed</span>
+              <div v-if="c.dateStatus?.note" class="muted small">{{ c.dateStatus.note }}</div>
             </li>
           </ul>
         </div>
@@ -610,12 +640,19 @@
       <div class="pe-kiosk-modal-card">
         <header class="pe-kiosk-modal-hdr">
           <div>
-            <div class="pe-kiosk-modal-title">Release {{ clientDisplayName(activeClient) }}</div>
-            <div class="muted small">Tap an approved pickup or walk-home option, then sign and take a release photo.</div>
+            <div class="pe-kiosk-modal-title">
+              <template v-if="checkoutPhase === 'attendance'">Next session</template>
+              <template v-else>Release {{ clientDisplayName(activeClient) }}</template>
+            </div>
+            <div class="muted small">
+              <template v-if="checkoutPhase === 'attendance'">{{ clientDisplayName(activeClient) }} is checked out — confirm upcoming attendance.</template>
+              <template v-else>Tap an approved pickup or walk-home option, then sign and take a release photo.</template>
+            </div>
           </div>
           <button class="btn btn-text" @click="closeCheckout">Close</button>
         </header>
 
+        <template v-if="checkoutPhase === 'release'">
         <div v-if="checkoutError" class="error-box pe-kiosk-modal-err">{{ checkoutError }}</div>
 
         <div v-if="activeClient?.checkoutBlocked" class="pe-checkout-issue-banner">
@@ -755,6 +792,73 @@
             {{ submitting ? 'Recording…' : 'Record release' }}
           </button>
         </footer>
+        </template>
+
+        <!-- Phase: confirm next-session attendance -->
+        <template v-else-if="checkoutPhase === 'attendance'">
+          <div v-if="attendanceError" class="error-box pe-kiosk-modal-err">{{ attendanceError }}</div>
+
+          <div class="pe-attend-q">
+            <h4 class="pe-kiosk-modal-h4">
+              Will {{ clientDisplayName(activeClient) }} be attending {{ formatYmdLabel(attendanceNextDate) }}?
+            </h4>
+            <div class="pe-attend-yesno">
+              <button
+                type="button"
+                class="btn"
+                :class="attendanceAnswer === 'yes' ? 'btn-primary' : 'btn-secondary'"
+                @click="attendanceAnswer = 'yes'"
+              >
+                Yes, see you then
+              </button>
+              <button
+                type="button"
+                class="btn"
+                :class="attendanceAnswer === 'no' ? 'btn-primary' : 'btn-secondary'"
+                @click="attendanceAnswer = 'no'"
+              >
+                No / not sure
+              </button>
+            </div>
+          </div>
+
+          <div v-if="attendanceAnswer === 'no'" class="pe-attend-no">
+            <label class="pe-checkin-lbl">Reason (optional)</label>
+            <textarea
+              v-model="attendanceReason"
+              class="input pe-absent-notes"
+              rows="2"
+              maxlength="400"
+              placeholder="Let staff know why, or when they'll be back"
+            />
+
+            <template v-if="attendanceRemainingDates.length">
+              <label class="pe-checkin-lbl">Which remaining days will they attend?</label>
+              <p class="muted small">Leave a day unchecked to mark it a planned absence. You can update this anytime.</p>
+              <ul class="pe-attend-date-list">
+                <li v-for="d in attendanceRemainingDates" :key="`ad-${d}`" class="pe-attend-date-row">
+                  <label class="pe-attend-date-lbl">
+                    <input v-model="attendanceDateSelections[d]" type="checkbox" />
+                    <span>{{ formatYmdLabel(d) }}</span>
+                  </label>
+                </li>
+              </ul>
+            </template>
+            <p v-else class="muted small">{{ formatYmdLabel(attendanceNextDate) }} is the last scheduled day.</p>
+          </div>
+
+          <footer class="pe-kiosk-modal-footer">
+            <button class="btn btn-text" type="button" @click="closeCheckout">Skip</button>
+            <button
+              class="btn btn-primary"
+              type="button"
+              :disabled="!attendanceAnswer || attendanceSaving"
+              @click="submitAttendanceIntent"
+            >
+              {{ attendanceSaving ? 'Saving…' : 'Done' }}
+            </button>
+          </footer>
+        </template>
       </div>
     </div>
 
@@ -948,6 +1052,20 @@ function defaultAbsenceReasons() {
 function canMarkAbsent(client) {
   return client?.confirmationStatus === 'no' && !personAbsentToday('client', client.id);
 }
+function dateStatusOf(client) {
+  return client?.dateStatus?.status || null;
+}
+function isLateArrival(client) {
+  return dateStatusOf(client) === 'late'
+    && !personCheckedIn('client', client.id)
+    && !personAbsentToday('client', client.id);
+}
+function isPlannedAbsence(client) {
+  return dateStatusOf(client) === 'planned_absence';
+}
+function isRemovedFromGroup(client) {
+  return dateStatusOf(client) === 'removed';
+}
 function lateContactForClient(clientId) {
   return lateContacts.value.find((row) => Number(row.clientId) === Number(clientId)) || null;
 }
@@ -983,10 +1101,21 @@ function personCheckedOut(personType, id) {
 }
 
 const pendingClients = computed(() =>
-  clients.value.filter((c) => !personCheckedIn('client', c.id) && !personAbsentToday('client', c.id))
+  clients.value.filter((c) =>
+    !personCheckedIn('client', c.id)
+    && !personAbsentToday('client', c.id)
+    && !isPlannedAbsence(c)
+    && !isRemovedFromGroup(c)
+  )
 );
 const absentClients = computed(() =>
   clients.value.filter((c) => personAbsentToday('client', c.id))
+);
+const plannedAbsenceClients = computed(() =>
+  clients.value.filter((c) => isPlannedAbsence(c) && !personCheckedIn('client', c.id) && !personAbsentToday('client', c.id))
+);
+const removedClients = computed(() =>
+  clients.value.filter((c) => isRemovedFromGroup(c) && !personCheckedIn('client', c.id))
 );
 const pendingStaff = computed(() =>
   staff.value.filter((s) => !personCheckedIn('employee', s.id))
@@ -1008,6 +1137,12 @@ const filteredPendingClients = computed(() =>
 );
 const filteredAbsentClients = computed(() =>
   filterList(absentClients.value, ['fullName', 'kioskDisplayName', 'initials', 'identifierCode'])
+);
+const filteredPlannedAbsenceClients = computed(() =>
+  filterList(plannedAbsenceClients.value, ['fullName', 'kioskDisplayName', 'initials', 'identifierCode'])
+);
+const filteredRemovedClients = computed(() =>
+  filterList(removedClients.value, ['fullName', 'kioskDisplayName', 'initials', 'identifierCode'])
 );
 const filteredPendingStaff = computed(() =>
   filterList(pendingStaff.value, ['displayName', 'firstName', 'lastName'])
@@ -1426,6 +1561,7 @@ function closeResource() {
 
 // Checkout modal (release)
 const checkoutOpen = ref(false);
+const checkoutPhase = ref('release');
 const checkoutDetailOpen = ref(false);
 const checkoutDetailClient = ref(null);
 const activeClient = ref(null);
@@ -1433,6 +1569,70 @@ const selectedPickupKey = ref('');
 const releaseMode = ref('');
 const checkoutError = ref('');
 const submitting = ref(false);
+
+// Next-session attendance confirmation (shown after a release is recorded)
+const attendanceAnswer = ref('');
+const attendanceReason = ref('');
+const attendanceDateSelections = ref({});
+const attendanceSaving = ref(false);
+const attendanceError = ref('');
+
+const attendanceNextDate = computed(() => {
+  const today = kioskDay.value?.todayYmd || '';
+  const dates = Array.isArray(kioskDay.value?.sessionDates) ? kioskDay.value.sessionDates : [];
+  return dates.find((d) => d > today) || '';
+});
+const attendanceRemainingDates = computed(() => {
+  const next = attendanceNextDate.value;
+  if (!next) return [];
+  const dates = Array.isArray(kioskDay.value?.sessionDates) ? kioskDay.value.sessionDates : [];
+  return dates.filter((d) => d > next);
+});
+
+function resetAttendanceIntent() {
+  attendanceAnswer.value = '';
+  attendanceReason.value = '';
+  attendanceError.value = '';
+  attendanceSaving.value = false;
+  const sel = {};
+  for (const d of attendanceRemainingDates.value) sel[d] = true;
+  attendanceDateSelections.value = sel;
+}
+
+async function submitAttendanceIntent() {
+  if (!attendanceAnswer.value || attendanceSaving.value) return;
+  const next = attendanceNextDate.value;
+  if (!next) { closeCheckout(); return; }
+  attendanceSaving.value = true;
+  attendanceError.value = '';
+  try {
+    if (attendanceAnswer.value === 'yes') {
+      const entries = [{ sessionDate: next, attending: true }];
+      await api.post(`${apiBase()}/attendance-intent`, {
+        clientId: activeClient.value.id,
+        entries
+      }, { headers: authHeaders(), skipGlobalLoading: true, skipAuthRedirect: true });
+    } else {
+      const entries = [
+        { sessionDate: next, attending: false },
+        ...attendanceRemainingDates.value.map((d) => ({
+          sessionDate: d,
+          attending: attendanceDateSelections.value[d] !== false
+        }))
+      ];
+      await api.post(`${apiBase()}/attendance-intent`, {
+        clientId: activeClient.value.id,
+        entries,
+        reason: attendanceReason.value || null
+      }, { headers: authHeaders(), skipGlobalLoading: true, skipAuthRedirect: true });
+    }
+    closeCheckout();
+  } catch (e) {
+    attendanceError.value = e.response?.data?.error?.message || 'Could not save attendance';
+  } finally {
+    attendanceSaving.value = false;
+  }
+}
 const sigCanvas = ref(null);
 let sigCtx = null;
 let drawing = false;
@@ -1461,6 +1661,7 @@ function selectWalkHomeSelf() {
 function openCheckout(client) {
   if (!kioskActive.value) return;
   activeClient.value = client;
+  checkoutPhase.value = 'release';
   selectedPickupKey.value = '';
   releaseMode.value = '';
   checkoutError.value = '';
@@ -1497,6 +1698,7 @@ function openCheckout(client) {
 function closeCheckout() {
   stopCamera();
   checkoutOpen.value = false;
+  checkoutPhase.value = 'release';
   activeClient.value = null;
 }
 function openCheckoutDetail(client) {
@@ -1645,7 +1847,13 @@ async function submitCheckout() {
         walkHomeAlone,
         signedAt: res.data.signedAt
       });
-      closeCheckout();
+      stopCamera();
+      if (attendanceNextDate.value) {
+        resetAttendanceIntent();
+        checkoutPhase.value = 'attendance';
+      } else {
+        closeCheckout();
+      }
     }
   } catch (e) {
     checkoutError.value = e.response?.data?.error?.message || 'Could not record release';
@@ -1937,7 +2145,15 @@ onBeforeUnmount(() => {
 }
 .pe-roster .ek-late { margin-top: 0; border-color: var(--pe-border); background: #f8faf9; }
 .pe-absent-block { margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--pe-border); }
+.pe-removed-block { border-top-color: #fca5a5; }
 .pe-absent-title { margin: 0 0 8px; font-size: 14px; }
+.pe-row--late {
+  border-color: #f59e0b;
+  background: #fffbeb;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.18);
+}
+.pe-tag--late { background: #fef3c7; color: #b45309; }
+.pe-late-note { margin-top: 2px; }
 .pe-absent-notes { margin-top: 6px; resize: vertical; }
 .pe-checkin-lbl--optional { margin-top: 12px; }
 .pe-card {
@@ -2114,6 +2330,15 @@ onBeforeUnmount(() => {
 .pe-kiosk-sig-canvas { width: 100%; height: 140px; border: 1px solid var(--border); border-radius: 8px; touch-action: none; }
 .pe-kiosk-photo-video, .pe-kiosk-photo-preview { width: 100%; max-width: 280px; border-radius: 8px; }
 .pe-kiosk-modal-footer { margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px; }
+.pe-attend-q { margin-top: 8px; }
+.pe-kiosk-modal-h4 { margin: 0 0 12px; font-size: 18px; font-weight: 700; }
+.pe-attend-yesno { display: flex; gap: 10px; }
+.pe-attend-yesno .btn { flex: 1; padding: 14px; font-size: 16px; }
+.pe-attend-no { margin-top: 18px; }
+.pe-attend-date-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.pe-attend-date-row { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
+.pe-attend-date-lbl { display: flex; align-items: center; gap: 10px; font-size: 15px; cursor: pointer; }
+.pe-attend-date-lbl input { width: 18px; height: 18px; }
 .pe-kiosk-modal--stack { z-index: 60; }
 .pe-checkin-guardian-pick { margin-bottom: 12px; }
 .pe-checkin-lbl { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
