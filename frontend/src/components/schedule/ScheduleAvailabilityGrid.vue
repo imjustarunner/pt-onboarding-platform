@@ -1450,6 +1450,48 @@
                 <div class="stack-details-label">{{ item.label }}</div>
                 <div v-if="item.subLabel" class="stack-details-sub">{{ item.subLabel }}</div>
                 <div v-if="item.detailText" class="stack-details-detail">{{ item.detailText }}</div>
+                <div
+                  v-if="item.eventKind === 'COMPANY_EVENT_BOOKING'"
+                  class="stack-details-company-event"
+                >
+                  <div v-if="item.kioskEventPinSet" class="stack-details-kiosk-pin">
+                    <span class="stack-details-kiosk-label">Kiosk passcode</span>
+                    <button
+                      v-if="!kioskPinRevealedByItemId[item.id]"
+                      type="button"
+                      class="btn btn-secondary btn-xs"
+                      @click.stop="revealKioskPin(item.id)"
+                    >
+                      Reveal passcode
+                    </button>
+                    <code v-else class="stack-details-kiosk-code">{{ item.kioskEventPinCode || '—' }}</code>
+                    <span v-if="!kioskPinRevealedByItemId[item.id]" class="muted stack-details-kiosk-hint">
+                      Confidential — tap to show
+                    </span>
+                  </div>
+                  <div v-if="eventCoworkersForItem(item).length" class="stack-details-coworkers">
+                    <div class="stack-details-section-label">Working this session</div>
+                    <ul class="stack-details-coworker-list">
+                      <li v-for="p in eventCoworkersForItem(item)" :key="`cow-${item.id}-${p.userId}`">
+                        {{ formatCoworkerLine(p) }}
+                      </li>
+                    </ul>
+                  </div>
+                  <div v-else class="stack-details-coworkers muted">
+                    No other providers listed for this session yet.
+                  </div>
+                  <div class="stack-details-participants">
+                    <div class="stack-details-section-label">Participants</div>
+                    <span v-if="Number(item.participantCount || 0) > 0">
+                      {{ item.participantCount }}
+                      {{ item.participantCount === 1 ? 'participant' : 'participants' }}
+                      <template v-if="formatParticipantAgesSummary(item.participantAges)">
+                        · {{ formatParticipantAgesSummary(item.participantAges) }}
+                      </template>
+                    </span>
+                    <span v-else class="muted">No enrolled participants yet.</span>
+                  </div>
+                </div>
               </div>
               <div v-if="item.therapyNoteAid" class="stack-details-actions" style="margin-top: 8px;">
                 <button type="button" class="btn btn-primary btn-sm" @click.stop="openTherapyNoteAid(item)">
@@ -7495,7 +7537,8 @@ const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
         meetLink: String(targetEvent?.meetLink || '').trim() || '',
         eventId: Number(targetEvent?.id || 0) || null,
         eventKind: targetKind,
-        recurrenceSeriesId: String(targetEvent?.recurrenceSeriesId || '').trim() || ''
+        recurrenceSeriesId: String(targetEvent?.recurrenceSeriesId || '').trim() || '',
+        ...scheduleEventStackExtras(targetEvent)
       }]
     });
     return;
@@ -7568,6 +7611,13 @@ const clearGevtClickTimer = () => {
 const showStackDetailsModal = ref(false);
 const stackDetailsTitle = ref('');
 const stackDetailsItems = ref([]);
+const kioskPinRevealedByItemId = ref({});
+
+function revealKioskPin(itemId) {
+  const key = String(itemId || '').trim();
+  if (!key) return;
+  kioskPinRevealedByItemId.value = { ...kioskPinRevealedByItemId.value, [key]: true };
+}
 const deletingScheduleEventId = ref(0);
 const deletingScheduleEventScope = ref('');
 const teamMeetingActivityExpandedById = ref({});
@@ -7578,6 +7628,7 @@ const closeStackDetailsModal = () => {
   showStackDetailsModal.value = false;
   stackDetailsTitle.value = '';
   stackDetailsItems.value = [];
+  kioskPinRevealedByItemId.value = {};
   teamMeetingActivityExpandedById.value = {};
 };
 const formatActivityTime = (createdAt) => {
@@ -7849,6 +7900,47 @@ const formatSessionProviderName = (p) => {
   return uid > 0 ? `User ${uid}` : 'Unknown';
 };
 
+const scheduleEventStackExtras = (ev) => {
+  const kind = String(ev?.kind || '').trim().toUpperCase();
+  if (kind !== 'COMPANY_EVENT_BOOKING') return {};
+  return {
+    companyEventId: Number(ev?.companyEventId || 0) || null,
+    sessionDateId: Number(ev?.sessionDateId || ev?.id || 0) || null,
+    kioskEventPinSet: !!ev?.kioskEventPinSet,
+    kioskEventPinCode: ev?.kioskEventPinCode ? String(ev.kioskEventPinCode) : null,
+    sessionProviders: Array.isArray(ev?.sessionProviders) ? ev.sessionProviders : [],
+    eventRosterProviders: Array.isArray(ev?.eventRosterProviders) ? ev.eventRosterProviders : [],
+    participantCount: Number(ev?.participantCount || 0),
+    participantAges: Array.isArray(ev?.participantAges) ? ev.participantAges : []
+  };
+};
+
+const formatParticipantAgesSummary = (ages) => {
+  const list = (Array.isArray(ages) ? ages : [])
+    .map((a) => Number(a))
+    .filter((a) => Number.isFinite(a) && a >= 0);
+  if (!list.length) return '';
+  const uniq = [...new Set(list)].sort((a, b) => a - b);
+  if (uniq.length === 1) return `age ${uniq[0]}`;
+  const min = uniq[0];
+  const max = uniq[uniq.length - 1];
+  if (max - min <= 4 && uniq.length <= 8) return `ages ${uniq.join(', ')}`;
+  return `ages ${min}–${max}`;
+};
+
+const eventCoworkersForItem = (item) => {
+  const session = Array.isArray(item?.sessionProviders) ? item.sessionProviders : [];
+  const roster = Array.isArray(item?.eventRosterProviders) ? item.eventRosterProviders : [];
+  return session.length ? session : roster;
+};
+
+const formatCoworkerLine = (p) => {
+  const name = formatSessionProviderName(p);
+  const myId = Number(authStore.user?.id || props.userId || 0);
+  const uid = Number(p?.userId || 0);
+  return uid > 0 && myId > 0 && uid === myId ? `${name} (you)` : name;
+};
+
 /** Resolve schedule row when numeric ids can collide (e.g. Skill Builders session id vs user schedule_event id). */
 const findScheduleEventByIdAndKind = (eventId, eventKind) => {
   const rows = Array.isArray(summary.value?.scheduleEvents) ? summary.value.scheduleEvents : [];
@@ -7917,6 +8009,26 @@ const buildScheduleEventDetailText = (ev) => {
     if (statusLabel) lines.push(`Assignment: ${statusLabel}`);
     const loc = String(ev?.locationLabel || '').trim();
     if (loc) lines.push(`Location: ${loc}`);
+    const coworkers = Array.isArray(ev?.sessionProviders) && ev.sessionProviders.length
+      ? ev.sessionProviders
+      : Array.isArray(ev?.eventRosterProviders)
+        ? ev.eventRosterProviders
+        : [];
+    if (coworkers.length) {
+      lines.push('Working this session:');
+      for (const p of coworkers) {
+        lines.push(`• ${formatCoworkerLine(p)}`);
+      }
+    }
+    const pCount = Number(ev?.participantCount || 0);
+    if (pCount > 0) {
+      const agePart = formatParticipantAgesSummary(ev?.participantAges);
+      lines.push(
+        agePart
+          ? `${pCount} ${pCount === 1 ? 'participant' : 'participants'} · ${agePart}`
+          : `${pCount} ${pCount === 1 ? 'participant' : 'participants'}`
+      );
+    }
   }
   return lines.join('\n');
 };
@@ -7996,7 +8108,8 @@ const buildStackDetailsForBlock = (block, dayName, hour, minute = 0) => {
         meetLink: String(ev?.meetLink || '').trim() || '',
         eventId: Number(ev?.id || 0) || null,
         eventKind: String(ev?.kind || '').trim().toUpperCase() || '',
-        recurrenceSeriesId: String(ev?.recurrenceSeriesId || '').trim() || ''
+        recurrenceSeriesId: String(ev?.recurrenceSeriesId || '').trim() || '',
+        ...scheduleEventStackExtras(ev)
       }))
     };
   }
@@ -8717,6 +8830,52 @@ defineExpose({ resetToOpenFinder });
   line-height: 1.45;
   color: var(--text-secondary);
   white-space: pre-wrap;
+}
+.stack-details-company-event {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border, #e5e7eb);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.stack-details-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.stack-details-kiosk-pin {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.stack-details-kiosk-label {
+  font-weight: 600;
+  font-size: 13px;
+}
+.stack-details-kiosk-code {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--bg-secondary, #f3f4f6);
+}
+.stack-details-kiosk-hint {
+  font-size: 12px;
+}
+.stack-details-coworker-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.stack-details-participants {
+  font-size: 13px;
 }
 .stack-details-open-btn {
   align-self: flex-start;

@@ -3982,6 +3982,147 @@ export const getUserScheduleSummary = async (req, res, next) => {
          LIMIT 400`,
         ceParams
       );
+
+      const ceSessionDateIds = [
+        ...new Set(
+          (ceRows || [])
+            .map((row) => Number(row.session_date_id))
+            .filter((id) => Number.isFinite(id) && id > 0)
+        )
+      ];
+      const ceCompanyEventIds = [
+        ...new Set(
+          (ceRows || [])
+            .map((row) => Number(row.company_event_id))
+            .filter((id) => Number.isFinite(id) && id > 0)
+        )
+      ];
+
+      /** @type {Map<number, { kioskEventPinSet: boolean, kioskEventPinCode: string|null }>} */
+      const ceKioskByEventId = new Map();
+      if (ceCompanyEventIds.length) {
+        try {
+          const ph = ceCompanyEventIds.map(() => '?').join(',');
+          const [kioskRows] = await pool.execute(
+            `SELECT id, kiosk_event_pin_hash, kiosk_event_pin_code
+             FROM company_events
+             WHERE agency_id = ? AND id IN (${ph})`,
+            [agencyId, ...ceCompanyEventIds]
+          );
+          for (const kr of kioskRows || []) {
+            const eid = Number(kr.id);
+            const pinSet = !!(kr.kiosk_event_pin_hash && String(kr.kiosk_event_pin_hash).trim());
+            ceKioskByEventId.set(eid, {
+              kioskEventPinSet: pinSet,
+              kioskEventPinCode:
+                pinSet && kr.kiosk_event_pin_code ? String(kr.kiosk_event_pin_code).trim() : null
+            });
+          }
+        } catch (e) {
+          if (!(e?.code === 'ER_BAD_FIELD_ERROR' && String(e?.sqlMessage || '').includes('kiosk_event_pin'))) {
+            throw e;
+          }
+        }
+      }
+
+      /** @type {Map<number, { userId: number, firstName: string, lastName: string }[]>} */
+      const ceProvidersBySessionDateId = new Map();
+      if (ceSessionDateIds.length) {
+        try {
+          const ph = ceSessionDateIds.map(() => '?').join(',');
+          const [provRows] = await pool.execute(
+            `SELECT cesp.session_date_id, u.id AS user_id, u.first_name, u.last_name
+             FROM company_event_session_providers cesp
+             INNER JOIN users u ON u.id = cesp.provider_user_id
+             WHERE cesp.agency_id = ? AND cesp.session_date_id IN (${ph})
+             ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+            [agencyId, ...ceSessionDateIds]
+          );
+          for (const pr of provRows || []) {
+            const sid = Number(pr.session_date_id);
+            if (!ceProvidersBySessionDateId.has(sid)) ceProvidersBySessionDateId.set(sid, []);
+            ceProvidersBySessionDateId.get(sid).push({
+              userId: Number(pr.user_id),
+              firstName: String(pr.first_name || '').trim(),
+              lastName: String(pr.last_name || '').trim()
+            });
+          }
+        } catch (e) {
+          if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+        }
+      }
+
+      /** @type {Map<number, { userId: number, firstName: string, lastName: string }[]>} */
+      const ceEventRosterByEventId = new Map();
+      if (ceCompanyEventIds.length) {
+        try {
+          const ph = ceCompanyEventIds.map(() => '?').join(',');
+          const [rosterRows] = await pool.execute(
+            `SELECT cepa.company_event_id, u.id AS user_id, u.first_name, u.last_name
+             FROM company_event_provider_assignments cepa
+             INNER JOIN users u ON u.id = cepa.provider_user_id
+             WHERE cepa.company_event_id IN (${ph})
+             ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+            ceCompanyEventIds
+          );
+          for (const rr of rosterRows || []) {
+            const eid = Number(rr.company_event_id);
+            if (!ceEventRosterByEventId.has(eid)) ceEventRosterByEventId.set(eid, []);
+            ceEventRosterByEventId.get(eid).push({
+              userId: Number(rr.user_id),
+              firstName: String(rr.first_name || '').trim(),
+              lastName: String(rr.last_name || '').trim()
+            });
+          }
+        } catch (e) {
+          if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+        }
+      }
+
+      const ageFromDateOfBirth = (dob) => {
+        if (!dob) return null;
+        const s = String(dob).slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+        const birth = new Date(`${s}T12:00:00Z`);
+        if (!Number.isFinite(birth.getTime())) return null;
+        const today = new Date();
+        let age = today.getUTCFullYear() - birth.getUTCFullYear();
+        const m = today.getUTCMonth() - birth.getUTCMonth();
+        if (m < 0 || (m === 0 && today.getUTCDate() < birth.getUTCDate())) age -= 1;
+        return age >= 0 && age < 130 ? age : null;
+      };
+
+      /** @type {Map<number, { count: number, ages: number[] }>} */
+      const ceParticipantsByEventId = new Map();
+      if (ceCompanyEventIds.length) {
+        try {
+          const ph = ceCompanyEventIds.map(() => '?').join(',');
+          const [partRows] = await pool.execute(
+            `SELECT cec.company_event_id, c.date_of_birth
+             FROM company_event_clients cec
+             INNER JOIN clients c ON c.id = cec.client_id AND c.agency_id = cec.agency_id
+             WHERE cec.agency_id = ?
+               AND cec.company_event_id IN (${ph})
+               AND (cec.is_active = TRUE OR cec.is_active IS NULL)
+               AND COALESCE(cec.treatment_plan_complete, 0) = 1
+               AND (cec.intake_outcome IS NULL OR cec.intake_outcome <> 'denied')`,
+            [agencyId, ...ceCompanyEventIds]
+          );
+          for (const pr of partRows || []) {
+            const eid = Number(pr.company_event_id);
+            if (!ceParticipantsByEventId.has(eid)) {
+              ceParticipantsByEventId.set(eid, { count: 0, ages: [] });
+            }
+            const bucket = ceParticipantsByEventId.get(eid);
+            bucket.count += 1;
+            const age = ageFromDateOfBirth(pr.date_of_birth);
+            if (age != null) bucket.ages.push(age);
+          }
+        } catch (e) {
+          if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+        }
+      }
+
       const assignmentStatusLabel = (status) => {
         const s = String(status || 'draft').toLowerCase();
         if (s === 'finalized') return 'Confirmed';
@@ -3995,6 +4136,26 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const statusLabel = assignmentStatusLabel(status);
         const title = statusLabel === 'Confirmed' ? evTitle : `${evTitle} (${statusLabel})`;
         const sessionDateId = Number(r.session_date_id);
+        const companyEventId = Number(r.company_event_id) || null;
+        const kiosk = companyEventId ? ceKioskByEventId.get(companyEventId) || {} : {};
+        const participants = companyEventId
+          ? ceParticipantsByEventId.get(companyEventId) || { count: 0, ages: [] }
+          : { count: 0, ages: [] };
+        const sessionProviders = ceProvidersBySessionDateId.get(sessionDateId) || [];
+        const eventRosterProviders =
+          companyEventId && Number.isFinite(companyEventId)
+            ? ceEventRosterByEventId.get(companyEventId) || []
+            : [];
+        const bookingExtras = {
+          companyEventId,
+          sessionDateId,
+          kioskEventPinSet: !!kiosk.kioskEventPinSet,
+          kioskEventPinCode: kiosk.kioskEventPinCode || null,
+          sessionProviders,
+          eventRosterProviders,
+          participantCount: participants.count,
+          participantAges: [...participants.ages].sort((a, b) => a - b)
+        };
         const startRaw = r.starts_at;
         const endRaw = r.ends_at;
         const dateOnly = r.session_date ? String(r.session_date).slice(0, 10) : null;
@@ -4022,11 +4183,11 @@ export const getUserScheduleSummary = async (req, res, next) => {
             htmlLink: null,
             meetLink: null,
             appJoinUrl: null,
-            companyEventId: Number(r.company_event_id) || null,
             assignmentStatus: status,
             assignmentStatusLabel: statusLabel,
             locationLabel: r.location_label ? String(r.location_label).trim() : null,
-            timezone: r.timezone ? String(r.timezone).trim() : null
+            timezone: r.timezone ? String(r.timezone).trim() : null,
+            ...bookingExtras
           });
         } else if (dateOnly) {
           scheduleEvents.push({
@@ -4049,11 +4210,11 @@ export const getUserScheduleSummary = async (req, res, next) => {
             htmlLink: null,
             meetLink: null,
             appJoinUrl: null,
-            companyEventId: Number(r.company_event_id) || null,
             assignmentStatus: status,
             assignmentStatusLabel: statusLabel,
             locationLabel: r.location_label ? String(r.location_label).trim() : null,
-            timezone: r.timezone ? String(r.timezone).trim() : null
+            timezone: r.timezone ? String(r.timezone).trim() : null,
+            ...bookingExtras
           });
         }
       }
