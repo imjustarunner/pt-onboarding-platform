@@ -175,19 +175,31 @@
     </template>
 
     <div v-else-if="isPendingWait && !editingPending" class="ek-late-block ek-late-pending">
-      <p class="small">
-        Waiting on a reply
-        <span v-if="log?.contactName"> · contacted {{ log.contactName }}</span>
-        <span v-if="log?.contactMethod"> · {{ log.contactMethod }}</span>
-      </p>
+      <dl v-if="logDetailRows.length" class="ek-late-detail">
+        <div v-for="(r, i) in logDetailRows" :key="`pd-${i}`" class="ek-late-detail-row">
+          <dt>{{ r.label }}</dt>
+          <dd>{{ r.value }}</dd>
+        </div>
+      </dl>
       <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled || saving" @click="reopenPending">
         Update reply / attendance
       </button>
     </div>
 
-    <div v-else-if="isResolved" class="ek-late-block ek-late-summary muted small">
-      <span v-if="log?.attendanceOutcome === 'attending'">Marked attending — check in when they arrive.</span>
-      <span v-else-if="log?.attendanceOutcome === 'not_attending'">Marked not attending{{ log?.absenceReason ? `: ${log.absenceReason}` : '' }}.</span>
+    <div v-else-if="isResolved" class="ek-late-block ek-late-summary">
+      <dl v-if="logDetailRows.length" class="ek-late-detail">
+        <div v-for="(r, i) in logDetailRows" :key="`rd-${i}`" class="ek-late-detail-row">
+          <dt>{{ r.label }}</dt>
+          <dd>{{ r.value }}</dd>
+        </div>
+      </dl>
+      <p v-else class="muted small">
+        <span v-if="log?.attendanceOutcome === 'attending'">Marked attending — check in when they arrive.</span>
+        <span v-else-if="log?.attendanceOutcome === 'not_attending'">Marked not attending{{ log?.absenceReason ? `: ${log.absenceReason}` : '' }}.</span>
+      </p>
+      <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled || saving" @click="reopenPending">
+        Edit / update outreach
+      </button>
     </div>
 
     <p v-if="error" class="ek-late-err">{{ error }}</p>
@@ -229,6 +241,50 @@ const methodOptions = [
 ];
 
 const staffList = computed(() => (Array.isArray(props.staff) ? props.staff : []));
+
+const METHOD_LABELS = { text: 'Text', email: 'Email', phone: 'Phone' };
+const REPLY_LABELS = { reply: 'Replied', no_reply: 'No reply', auto_reply: 'Auto-reply (pending)' };
+const OUTCOME_LABELS = { attending: 'Attending', not_attending: 'Not attending', pending: 'Pending · waiting' };
+
+const loggedStaffName = computed(() => {
+  const id = Number(props.log?.staffUserId || 0);
+  if (!id) return '';
+  const s = staffList.value.find((x) => Number(x.id) === id);
+  if (!s) return '';
+  return s.displayName || `${s.firstName || ''} ${s.lastName || ''}`.trim();
+});
+
+function fmtLogTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return '';
+  return d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+const logDetailRows = computed(() => {
+  const log = props.log;
+  if (!log) return [];
+  const rows = [];
+  if (loggedStaffName.value) rows.push({ label: 'Staff who reached out', value: loggedStaffName.value });
+  const t = log.contactTarget || {};
+  if (t.name) {
+    const extra = [t.relationship, t.phone || t.email].filter(Boolean).join(' · ');
+    rows.push({ label: 'Family contact', value: extra ? `${t.name} (${extra})` : t.name });
+  }
+  if (log.contactMethod) {
+    let v = METHOD_LABELS[log.contactMethod] || log.contactMethod;
+    if (log.contactMethod === 'phone' && log.phoneOutcome) {
+      v += log.phoneOutcome === 'successful' ? ' · answered' : ' · no answer';
+    }
+    rows.push({ label: 'How they reached out', value: v });
+  }
+  if (log.replyStatus) rows.push({ label: 'Reply', value: REPLY_LABELS[log.replyStatus] || log.replyStatus });
+  if (log.attendanceOutcome) rows.push({ label: 'Outcome', value: OUTCOME_LABELS[log.attendanceOutcome] || log.attendanceOutcome });
+  if (log.absenceReason) rows.push({ label: 'Absence reason', value: log.absenceReason });
+  if (log.contactedAt) rows.push({ label: 'Contacted at', value: fmtLogTime(log.contactedAt) });
+  if (log.resolvedAt) rows.push({ label: 'Resolved at', value: fmtLogTime(log.resolvedAt) });
+  return rows;
+});
 
 const contactOptions = computed(() => {
   const options = [];
@@ -519,4 +575,14 @@ async function reopenPending() {
 .ek-absence-input { width: 100%; margin-bottom: 8px; resize: vertical; }
 .ek-late-err { color: #b91c1c; font-size: 12px; margin: 8px 0 0; }
 .ek-late-summary, .ek-late-pending { padding-top: 4px; }
+.ek-late-detail { margin: 0 0 10px; display: flex; flex-direction: column; gap: 6px; }
+.ek-late-detail-row { display: flex; flex-direction: column; gap: 1px; }
+.ek-late-detail-row dt {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #94a3b8;
+}
+.ek-late-detail-row dd { margin: 0; font-size: 13px; color: #334155; }
 </style>

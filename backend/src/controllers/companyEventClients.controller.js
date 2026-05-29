@@ -1,6 +1,9 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
-import { syncClientGradeFromIntakeIfMissing } from '../utils/intakeGrade.util.js';
+import {
+  syncClientGradeFromIntakeIfMissing,
+  syncClientDobFromIntakeIfMissing
+} from '../utils/intakeGrade.util.js';
 import { syncClientStatusForEvent } from '../services/eventClientStatusSync.service.js';
 import { syncSkillsGroupClientsToCompanyEventClients } from '../services/companyEventClientEnrollmentSync.service.js';
 import {
@@ -468,19 +471,28 @@ export const listCompanyEventClients = async (req, res, next) => {
     const groupAssignmentsByClientId = await loadGroupAssignmentsByClientId(eventId, agencyId);
 
     const gradeByClientId = new Map();
+    const dobByClientId = new Map();
     await Promise.all(
-      (rows || [])
-        .filter((r) => !String(r.grade || '').trim())
-        .map(async (r) => {
-          const clientId = Number(r.clientId);
-          if (!clientId) return;
+      (rows || []).map(async (r) => {
+        const clientId = Number(r.clientId);
+        if (!clientId) return;
+        if (!String(r.grade || '').trim()) {
           try {
             const synced = await syncClientGradeFromIntakeIfMissing(clientId);
             if (synced) gradeByClientId.set(clientId, synced);
           } catch {
             // best-effort — list should still render without grade
           }
-        })
+        }
+        if (!r.date_of_birth) {
+          try {
+            const syncedDob = await syncClientDobFromIntakeIfMissing(clientId);
+            if (syncedDob) dobByClientId.set(clientId, syncedDob);
+          } catch {
+            // best-effort — list should still render without DOB/age
+          }
+        }
+      })
     );
 
     res.json({
@@ -503,8 +515,8 @@ export const listCompanyEventClients = async (req, res, next) => {
         fullName: r.fullName || null,
         identifierCode: r.identifierCode || null,
         grade: gradeByClientId.get(clientId) || r.grade || null,
-        dateOfBirth: r.date_of_birth ? String(r.date_of_birth).slice(0, 10) : null,
-        ageYears: ageFromDateOfBirth(r.date_of_birth),
+        dateOfBirth: (r.date_of_birth ? String(r.date_of_birth).slice(0, 10) : null) || dobByClientId.get(clientId) || null,
+        ageYears: ageFromDateOfBirth(r.date_of_birth || dobByClientId.get(clientId) || null),
         groupAssignments,
         groupDisplay,
         status: r.status || null,
