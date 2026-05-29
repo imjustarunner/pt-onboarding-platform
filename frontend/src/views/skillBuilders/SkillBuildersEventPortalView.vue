@@ -2123,15 +2123,113 @@
             </SkillBuildersEventDashboardSection>
 
             <SkillBuildersEventDashboardSection
-              v-if="viewerCaps.isAssignedProvider || viewerCaps.canManageTeamSchedules"
+              v-if="viewerCaps.isAssignedProvider || viewerCaps.canManageTeamSchedules || viewerCaps.canManageCompanyEvent"
               v-show="railActive === 'attendance'"
               rail-mode
               section-id="attendance"
-              title="Provider attendance"
+              title="Attendance"
               icon-url=""
             >
-              <p v-if="viewerCaps.isAssignedProvider" class="muted small sbep-card-lead">Your event kiosk clock in/out and payroll hour split.</p>
-              <p v-else class="muted small sbep-card-lead">Provider event time recorded from the event station kiosk.</p>
+              <p class="muted small sbep-card-lead">
+                Kiosk check-in and release activity for this event, plus provider payroll clock time.
+              </p>
+
+              <div v-if="kioskAttendanceDates.length" class="sbep-att-filter-row">
+                <label class="sbep-label">Event day</label>
+                <select v-model="kioskAttDateFilter" class="input sbep-kiosk-field" @change="loadKioskAttendance">
+                  <option value="">All days</option>
+                  <option v-for="d in kioskAttendanceDates" :key="d" :value="d">{{ formatKioskAttDate(d) }}</option>
+                </select>
+              </div>
+
+              <h3 class="sbep-att-subhead">Client check-in &amp; release</h3>
+              <p class="muted small">Who checked in at the kiosk and who picked them up at release (with photo when captured).</p>
+              <div v-if="kioskClientRows.length" class="table-wrap">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Client</th>
+                      <th>Date</th>
+                      <th>Check-in</th>
+                      <th>Released to</th>
+                      <th>Release time</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="row in kioskClientRows" :key="`kc-${row.clientId}-${row.kioskDate}`">
+                      <td class="sbep-att-person">
+                        <UserAvatar
+                          size="sm"
+                          :first-name="kioskClientAvatarNames(row).firstName"
+                          :last-name="kioskClientAvatarNames(row).lastName"
+                        />
+                        <span>{{ row.clientName }}</span>
+                      </td>
+                      <td>{{ formatKioskAttDate(row.kioskDate) }}</td>
+                      <td>{{ row.checkInAt ? formatPostTime(row.checkInAt) : '—' }}</td>
+                      <td>
+                        <template v-if="row.release">
+                          <strong>{{ row.release.releasedToName }}</strong>
+                          <span v-if="row.release.releasedToRelationship" class="muted small"> · {{ row.release.releasedToRelationship }}</span>
+                          <span v-if="row.release.walkHomeAlone" class="muted small"> · Walk home</span>
+                        </template>
+                        <span v-else class="muted">Not released yet</span>
+                      </td>
+                      <td>{{ row.release?.signedAt ? formatPostTime(row.release.signedAt) : '—' }}</td>
+                      <td>
+                        <button
+                          v-if="row.release"
+                          type="button"
+                          class="btn btn-link btn-sm"
+                          @click="openKioskReleaseDetail(row)"
+                        >
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p v-else class="muted">No client kiosk check-ins recorded yet.</p>
+
+              <h3 class="sbep-att-subhead">Employee kiosk check-in</h3>
+              <p class="muted small">Staff arrivals and departures recorded at the event station kiosk.</p>
+              <div v-if="kioskEmployeeRowsFiltered.length" class="table-wrap">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Employee</th>
+                      <th>Date</th>
+                      <th>Check-in</th>
+                      <th>Check-out</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="row in kioskEmployeeRowsFiltered" :key="`ke-${row.userId}-${row.kioskDate}`">
+                      <td class="sbep-att-person">
+                        <UserAvatar
+                          size="sm"
+                          :photo-path="row.profilePhotoUrl"
+                          :first-name="row.firstName || ''"
+                          :last-name="row.lastName || ''"
+                        />
+                        <span>{{ row.displayName }}</span>
+                      </td>
+                      <td>{{ formatKioskAttDate(row.kioskDate) }}</td>
+                      <td>{{ row.checkInAt ? formatPostTime(row.checkInAt) : '—' }}</td>
+                      <td>{{ row.checkOutAt ? formatPostTime(row.checkOutAt) : '—' }}</td>
+                      <td>{{ row.status === 'checked_out' ? 'Checked out' : 'On site' }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p v-else class="muted">No employee kiosk check-ins recorded yet.</p>
+
+              <h3 class="sbep-att-subhead">Provider payroll hours</h3>
+              <p v-if="viewerCaps.isAssignedProvider" class="muted small">Your event kiosk clock in/out and payroll hour split.</p>
+              <p v-else class="muted small">Provider event time recorded from the event station kiosk.</p>
               <div class="actions" style="margin-bottom: 10px;">
                 <button class="btn btn-secondary btn-sm" type="button" @click="exportEventClockCsv">
                   Download CSV
@@ -2169,6 +2267,43 @@
               </div>
               <p v-else class="muted">No event time recorded yet.</p>
             </SkillBuildersEventDashboardSection>
+
+            <div v-if="kioskReleaseDetailOpen" class="sbep-modal-overlay" @click.self="closeKioskReleaseDetail">
+              <div class="sbep-modal-card sbep-release-detail">
+                <header class="sbep-modal-hdr">
+                  <div>
+                    <h3 class="sbep-modal-title">Release — {{ kioskReleaseDetailRow?.clientName }}</h3>
+                    <p v-if="kioskReleaseDetailRow?.kioskDate" class="muted small">{{ formatKioskAttDate(kioskReleaseDetailRow.kioskDate) }}</p>
+                  </div>
+                  <button type="button" class="btn btn-text" @click="closeKioskReleaseDetail">Close</button>
+                </header>
+                <template v-if="kioskReleaseDetailRow?.release">
+                  <dl class="sbep-release-dl">
+                    <dt>Check-in</dt>
+                    <dd>{{ kioskReleaseDetailRow.checkInAt ? formatPostTime(kioskReleaseDetailRow.checkInAt) : '—' }}</dd>
+                    <dt>Released to</dt>
+                    <dd>
+                      <strong>{{ kioskReleaseDetailRow.release.releasedToName }}</strong>
+                      <span v-if="kioskReleaseDetailRow.release.releasedToRelationship"> · {{ kioskReleaseDetailRow.release.releasedToRelationship }}</span>
+                    </dd>
+                    <dt>Phone</dt>
+                    <dd>{{ kioskReleaseDetailRow.release.releasedToPhone || '—' }}</dd>
+                    <dt>Release signed</dt>
+                    <dd>{{ formatPostTime(kioskReleaseDetailRow.release.signedAt) }}</dd>
+                    <dt>Method</dt>
+                    <dd>{{ kioskReleaseDetailRow.release.walkHomeAlone ? 'Walk home' : (kioskReleaseDetailRow.release.signerSourceMethod || 'Pickup') }}</dd>
+                    <dt v-if="kioskReleaseDetailRow.release.notes">Notes</dt>
+                    <dd v-if="kioskReleaseDetailRow.release.notes">{{ kioskReleaseDetailRow.release.notes }}</dd>
+                  </dl>
+                  <div v-if="kioskReleaseDetailRow.release.hasPhoto" class="sbep-release-photo-wrap">
+                    <p class="sbep-label">Release photo</p>
+                    <div v-if="kioskReleasePhotoLoading" class="muted small">Loading photo…</div>
+                    <div v-else-if="kioskReleasePhotoError" class="error-box">{{ kioskReleasePhotoError }}</div>
+                    <img v-else-if="kioskReleasePhotoUrl" :src="kioskReleasePhotoUrl" alt="Release photo" class="sbep-release-photo" />
+                  </div>
+                </template>
+              </div>
+            </div>
 
             <SkillBuildersEventDashboardSection
               v-if="detail.showKioskClockActions"
@@ -2439,6 +2574,7 @@ import SkillBuildersSessionCurriculumMaterials from '../../components/skillBuild
 import SkillBuildersEventEditModal from '../../components/skillBuilders/SkillBuildersEventEditModal.vue';
 import SkillBuildersEventProvidersGrid from '../../components/skillBuilders/SkillBuildersEventProvidersGrid.vue';
 import SkillBuildersClinicalNotesHubPanel from '../../components/skillBuilders/SkillBuildersClinicalNotesHubPanel.vue';
+import UserAvatar from '../../components/common/UserAvatar.vue';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 
 const route = useRoute();
@@ -2946,8 +3082,8 @@ const eventRailItems = computed(() => {
   if (v.isAssignedProvider && eventBillingAgencyId.value) {
     push('my-work', 'My work schedule', 'My work', true);
   }
-  if (v.isAssignedProvider || v.canManageTeamSchedules) {
-    push('attendance', 'Provider attendance', 'Attendance', true);
+  if (v.isAssignedProvider || v.canManageTeamSchedules || v.canManageCompanyEvent) {
+    push('attendance', 'Attendance', 'Attendance', true);
   }
   if (d.showKioskClockActions) {
     push('kiosk', 'Kiosk / time', 'Kiosk', true);
@@ -4471,6 +4607,15 @@ const chatSending = ref(false);
 const providerAttendance = ref([]);
 const providerAttendancePaired = ref([]);
 const clientAttendance = ref([]);
+const kioskAttendanceClients = ref([]);
+const kioskAttendanceEmployees = ref([]);
+const kioskAttendanceDates = ref([]);
+const kioskAttDateFilter = ref('');
+const kioskReleaseDetailOpen = ref(false);
+const kioskReleaseDetailRow = ref(null);
+const kioskReleasePhotoUrl = ref('');
+const kioskReleasePhotoLoading = ref(false);
+const kioskReleasePhotoError = ref('');
 const clientAttSessionId = ref(0);
 /** Selected roster client ids for manual attendance (checkbox group) */
 const clientAttSelectedClientIds = ref([]);
@@ -4509,6 +4654,17 @@ const learningGoalForm = reactive({
 });
 
 const clientAttSelectedCount = computed(() => clientAttSelectedClientIds.value.length);
+const kioskClientRows = computed(() => kioskAttendanceClients.value || []);
+const kioskEmployeeRowsFiltered = computed(() => {
+  const rows = kioskAttendanceEmployees.value || [];
+  const caps = viewerCaps.value;
+  if (caps.canManageCompanyEvent || caps.canManageTeamSchedules) return rows;
+  if (caps.isAssignedProvider) {
+    const mine = Number(authStore.user?.id || 0);
+    if (mine > 0) return rows.filter((r) => Number(r.userId) === mine);
+  }
+  return rows;
+});
 const canManageLearningGoals = computed(
   () => viewerCaps.value.isAssignedProvider || viewerCaps.value.canManageTeamSchedules || viewerCaps.value.canManageCompanyEvent
 );
@@ -4796,6 +4952,91 @@ async function loadAttendance() {
     providerAttendancePaired.value = [];
     clientAttendance.value = [];
   }
+  await loadKioskAttendance();
+}
+
+async function loadKioskAttendance() {
+  if (!eventBillingAgencyId.value || !eventId.value) return;
+  try {
+    const params = { agencyId: eventBillingAgencyId.value, skipGlobalLoading: true };
+    if (kioskAttDateFilter.value) params.kioskDate = kioskAttDateFilter.value;
+    const res = await api.get(`/skill-builders/events/${eventId.value}/attendance/kiosk`, { params });
+    kioskAttendanceClients.value = Array.isArray(res.data?.clientRows) ? res.data.clientRows : [];
+    kioskAttendanceEmployees.value = Array.isArray(res.data?.employeeRows) ? res.data.employeeRows : [];
+    kioskAttendanceDates.value = Array.isArray(res.data?.dates) ? res.data.dates : [];
+  } catch {
+    kioskAttendanceClients.value = [];
+    kioskAttendanceEmployees.value = [];
+    kioskAttendanceDates.value = [];
+  }
+}
+
+function formatKioskAttDate(ymd) {
+  const s = String(ymd || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s || '—';
+  try {
+    const [y, m, d] = s.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return s;
+  }
+}
+
+function kioskClientAvatarNames(row) {
+  const name = String(row?.clientName || '').trim();
+  if (name) {
+    const parts = name.split(/\s+/);
+    return { firstName: parts[0] || '?', lastName: parts.slice(1).join(' ') || '' };
+  }
+  const initials = String(row?.clientInitials || '?').trim();
+  return { firstName: initials.slice(0, 1) || '?', lastName: initials.slice(1) || '' };
+}
+
+function revokeKioskReleasePhotoUrl() {
+  if (kioskReleasePhotoUrl.value) {
+    try {
+      URL.revokeObjectURL(kioskReleasePhotoUrl.value);
+    } catch {
+      // ignore
+    }
+    kioskReleasePhotoUrl.value = '';
+  }
+}
+
+async function openKioskReleaseDetail(row) {
+  revokeKioskReleasePhotoUrl();
+  kioskReleaseDetailRow.value = row || null;
+  kioskReleaseDetailOpen.value = true;
+  kioskReleasePhotoError.value = '';
+  kioskReleasePhotoLoading.value = false;
+  const releaseId = Number(row?.release?.id || 0);
+  if (!releaseId || !row?.release?.hasPhoto || !eventBillingAgencyId.value || !eventId.value) return;
+  kioskReleasePhotoLoading.value = true;
+  try {
+    const res = await api.get(
+      `/skill-builders/events/${eventId.value}/attendance/kiosk/releases/${releaseId}/photo`,
+      {
+        params: { agencyId: eventBillingAgencyId.value },
+        responseType: 'blob',
+        skipGlobalLoading: true
+      }
+    );
+    const contentType = res?.headers?.['content-type'] || 'image/jpeg';
+    const blob = new Blob([res.data], { type: contentType });
+    kioskReleasePhotoUrl.value = URL.createObjectURL(blob);
+  } catch (e) {
+    kioskReleasePhotoError.value = e.response?.data?.error?.message || e.message || 'Could not load release photo';
+  } finally {
+    kioskReleasePhotoLoading.value = false;
+  }
+}
+
+function closeKioskReleaseDetail() {
+  kioskReleaseDetailOpen.value = false;
+  kioskReleaseDetailRow.value = null;
+  revokeKioskReleasePhotoUrl();
+  kioskReleasePhotoError.value = '';
+  kioskReleasePhotoLoading.value = false;
 }
 
 function clientLabelForRow(c) {
@@ -7231,5 +7472,92 @@ watch(
   margin-top: 20px;
   padding-top: 14px;
   border-top: 1px dashed var(--border, #e2e8f0);
+}
+.sbep-att-subhead {
+  margin: 22px 0 6px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+}
+.sbep-att-subhead:first-of-type {
+  margin-top: 0;
+}
+.sbep-att-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.sbep-att-filter-row .sbep-label {
+  margin: 0;
+}
+.sbep-att-person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 160px;
+}
+.sbep-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.45);
+}
+.sbep-modal-card {
+  width: min(560px, 100%);
+  max-height: min(90vh, 820px);
+  overflow: auto;
+  border-radius: 16px;
+  border: 1px solid var(--border, #e2e8f0);
+  background: #fff;
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
+}
+.sbep-modal-hdr {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+.sbep-modal-title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.sbep-release-detail {
+  padding-bottom: 18px;
+}
+.sbep-release-dl {
+  display: grid;
+  grid-template-columns: minmax(110px, 38%) 1fr;
+  gap: 8px 12px;
+  margin: 0;
+  padding: 16px 18px 0;
+}
+.sbep-release-dl dt {
+  margin: 0;
+  font-weight: 700;
+  color: #64748b;
+  font-size: 0.82rem;
+}
+.sbep-release-dl dd {
+  margin: 0;
+}
+.sbep-release-photo-wrap {
+  padding: 14px 18px 0;
+}
+.sbep-release-photo {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  border-radius: 12px;
+  border: 1px solid var(--border, #e2e8f0);
+  background: #f8fafc;
 }
 </style>

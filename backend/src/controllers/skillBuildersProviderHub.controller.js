@@ -46,6 +46,10 @@ import {
   listPairedEventProviderAttendance
 } from '../services/skillBuildersEventKioskPunch.service.js';
 import { buildEventProviderAttendanceCsv } from '../services/eventPayrollSubmissions.service.js';
+import {
+  listEventKioskAttendanceForPortal,
+  loadEventReleasePhotoForPortal
+} from '../services/eventKioskAttendance.service.js';
 import { fetchSkillBuildersGroupProvidersForPortal } from '../services/skillBuildersEventProviders.service.js';
 import multer from 'multer';
 import StorageService from '../services/storage.service.js';
@@ -2624,6 +2628,50 @@ export const listSkillBuilderEventClientAttendance = async (req, res, next) => {
     if (e?.code === 'ER_NO_SUCH_TABLE') {
       return res.json({ ok: true, attendance: [] });
     }
+    next(e);
+  }
+};
+
+/** GET /api/skill-builders/events/:eventId/attendance/kiosk?agencyId=&kioskDate= optional */
+export const listSkillBuilderEventKioskAttendance = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'agencyId and event id required' } });
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+
+    const kioskDate = req.query.kioskDate ? String(req.query.kioskDate).slice(0, 10) : null;
+    const data = await listEventKioskAttendanceForPortal(eventId, agencyId, { kioskDate });
+    res.json({ ok: true, ...data });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.json({ ok: true, clientRows: [], employeeRows: [], dates: [] });
+    }
+    next(e);
+  }
+};
+
+/** GET /api/skill-builders/events/:eventId/attendance/kiosk/releases/:releaseId/photo?agencyId= */
+export const getSkillBuilderEventReleasePhoto = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const releaseId = parsePositiveInt(req.params.releaseId);
+    if (!agencyId || !eventId || !releaseId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, and release id required' } });
+    }
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+
+    const photo = await loadEventReleasePhotoForPortal(releaseId, eventId, agencyId);
+    if (!photo?.buffer) return res.status(404).json({ error: { message: 'Release photo not found' } });
+
+    res.setHeader('Content-Type', photo.contentType);
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(photo.buffer);
+  } catch (e) {
     next(e);
   }
 };

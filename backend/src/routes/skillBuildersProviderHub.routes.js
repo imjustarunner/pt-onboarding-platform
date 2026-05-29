@@ -38,6 +38,8 @@ import {
   listSkillBuilderEventProviderAttendance,
   exportSkillBuilderEventProviderAttendanceCsv,
   listSkillBuilderEventClientAttendance,
+  listSkillBuilderEventKioskAttendance,
+  getSkillBuilderEventReleasePhoto,
   putSkillBuilderClientSessionAttendance,
   postSkillBuilderSessionCurriculum,
   getSkillBuilderSessionCurriculumFile,
@@ -214,6 +216,8 @@ router.put('/events/:eventId/sessions/:sessionId/client-attendance', putSkillBui
 router.get('/events/:eventId/attendance/providers/export.csv', exportSkillBuilderEventProviderAttendanceCsv);
 router.get('/events/:eventId/attendance/providers', listSkillBuilderEventProviderAttendance);
 router.get('/events/:eventId/attendance/clients', listSkillBuilderEventClientAttendance);
+router.get('/events/:eventId/attendance/kiosk/releases/:releaseId/photo', getSkillBuilderEventReleasePhoto);
+router.get('/events/:eventId/attendance/kiosk', listSkillBuilderEventKioskAttendance);
 router.get('/events/:eventId/me/work-schedule', getMyEventPortalWorkSchedule);
 router.get('/events/:eventId/detail', getSkillBuilderEventDetail);
 router.get('/events/:eventId/providers/:providerUserId/work-schedule', getSkillBuilderEventProviderWorkSchedule);
