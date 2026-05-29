@@ -26,7 +26,7 @@
 
       <template v-else-if="sheet">
         <!-- Step: Emergency contacts -->
-        <section v-else-if="currentStepId === 'emergency'" class="ek-checkin-step">
+        <section v-if="currentStepId === 'emergency'" class="ek-checkin-step">
           <h4 class="ek-checkin-h4">Emergency contacts</h4>
           <ul v-if="sheet.emergencyContacts?.length" class="ek-checkin-list">
             <li v-for="(e, i) in sheet.emergencyContacts" :key="`ec-${i}`">
