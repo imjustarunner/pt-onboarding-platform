@@ -62,16 +62,46 @@ function dedupeContact(list, item, dedupeKey) {
   list.push({ _k: dedupeKey, ...item });
 }
 
-function hasAllergiesContent(allergies) {
-  if (!allergies) return false;
-  return !!(
-    allergies.allergies
-    || allergies.approvedSnacks
-    || (allergies.approvedSnacksList && allergies.approvedSnacksList.length)
-    || allergies.notes
-    || allergies.noSnacks
-    || allergies.applyNone
-  );
+function normalizeAllergiesPayload(allergiesPayload) {
+  if (!allergiesPayload) return null;
+  return {
+    allergies: String(allergiesPayload.allergies || '').trim(),
+    approvedSnacks: String(allergiesPayload.approvedSnacks || '').trim(),
+    approvedSnacksList: Array.isArray(allergiesPayload.approvedSnacksList)
+      ? allergiesPayload.approvedSnacksList.map((s) => String(s || '').trim()).filter(Boolean)
+      : [],
+    noSnacks: !!allergiesPayload.noSnacks,
+    notes: String(allergiesPayload.notes || '').trim(),
+    applyNone: allergiesPayload.applyNone === true
+  };
+}
+
+function mergeAllergiesPayloadIntoEntry(entry, allergiesPayload, fillMissingOnly) {
+  const incoming = normalizeAllergiesPayload(allergiesPayload);
+  if (!incoming) return;
+
+  if (!fillMissingOnly || !entry.allergies) {
+    entry.allergies = incoming;
+    return;
+  }
+
+  const cur = entry.allergies;
+  if (!String(cur.allergies || '').trim() && incoming.allergies) {
+    cur.allergies = incoming.allergies;
+  }
+  if (!String(cur.approvedSnacks || '').trim() && incoming.approvedSnacks) {
+    cur.approvedSnacks = incoming.approvedSnacks;
+  }
+  if (incoming.approvedSnacksList.length) {
+    const merged = new Set([
+      ...(Array.isArray(cur.approvedSnacksList) ? cur.approvedSnacksList : []),
+      ...incoming.approvedSnacksList
+    ]);
+    cur.approvedSnacksList = [...merged];
+  }
+  if (!cur.noSnacks && incoming.noSnacks) cur.noSnacks = true;
+  if (!String(cur.notes || '').trim() && incoming.notes) cur.notes = incoming.notes;
+  if (!cur.applyNone && incoming.applyNone) cur.applyNone = true;
 }
 
 function hasMealsContent(meals) {
@@ -324,17 +354,8 @@ export function mergeWaiverSectionsIntoKioskClient(entry, sections, profileUpdat
   }
 
   const allergiesPayload = readActiveSectionPayload(sections, 'allergies_snacks');
-  if (allergiesPayload && (!fillMissingOnly || !hasAllergiesContent(entry.allergies))) {
-    entry.allergies = {
-      allergies: String(allergiesPayload.allergies || '').trim(),
-      approvedSnacks: String(allergiesPayload.approvedSnacks || '').trim(),
-      approvedSnacksList: Array.isArray(allergiesPayload.approvedSnacksList)
-        ? allergiesPayload.approvedSnacksList.map((s) => String(s || '').trim()).filter(Boolean)
-        : [],
-      noSnacks: !!allergiesPayload.noSnacks,
-      notes: String(allergiesPayload.notes || '').trim(),
-      applyNone: allergiesPayload.applyNone === true
-    };
+  if (allergiesPayload) {
+    mergeAllergiesPayloadIntoEntry(entry, allergiesPayload, fillMissingOnly);
   }
 
   const mealsPayload = readActiveSectionPayload(sections, 'meal_preferences');

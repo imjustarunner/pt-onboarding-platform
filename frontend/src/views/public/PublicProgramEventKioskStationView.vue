@@ -206,7 +206,14 @@
               {{ c.emergencyContacts.length }} emergency contact{{ c.emergencyContacts.length !== 1 ? 's' : '' }}
             </span>
             <span v-else class="pe-tag pe-tag--warn">No emergency contacts</span>
-            <span v-if="clientHasAllergyInfo(c)" class="pe-tag pe-tag--warn">Allergies / medical</span>
+            <span v-if="allergySummary(c.allergies)" class="pe-tag pe-tag--warn">
+              Allergies: {{ allergySummary(c.allergies) }}
+            </span>
+            <span v-if="c.allergies?.noSnacks" class="pe-tag pe-tag--warn">No snacks</span>
+            <span v-else-if="approvedSnacksSummary(c.allergies)" class="pe-tag">
+              Snacks: {{ approvedSnacksSummary(c.allergies) }}
+            </span>
+            <span v-else-if="clientHasAllergyInfo(c) && c.allergies?.applyNone" class="pe-tag">No medical info</span>
             <span v-if="c.authorizedPickups?.length" class="pe-tag">
               {{ c.authorizedPickups.length }} pickup{{ c.authorizedPickups.length !== 1 ? 's' : '' }}
             </span>
@@ -289,15 +296,21 @@
             <strong>Allergies / restrictions:</strong> {{ allergySummary(resourceClient.allergies) }}
           </p>
           <p v-else-if="resourceClient.allergies.applyNone" class="muted small">No medical info reported.</p>
-          <p v-if="resourceClient.allergies.noSnacks" class="small pe-allergy-warn">
-            <strong>Snacks:</strong> Do not give snacks to this child.
-          </p>
-          <p v-else-if="approvedSnacksSummary(resourceClient.allergies)" class="small">
-            <strong>Approved snacks:</strong> {{ approvedSnacksSummary(resourceClient.allergies) }}
-          </p>
           <p v-if="resourceClient.allergies.notes" class="small">
             <strong>Medical notes:</strong> {{ resourceClient.allergies.notes }}
           </p>
+        </div>
+        <p v-else class="muted small">None on file.</p>
+
+        <h4 class="pe-kiosk-modal-h4">Approved snacks</h4>
+        <div v-if="resourceClient?.allergies" class="pe-allergy-block">
+          <p v-if="resourceClient.allergies.noSnacks" class="small pe-allergy-warn">
+            <strong>Do not give snacks</strong> to this child.
+          </p>
+          <p v-else-if="approvedSnacksSummary(resourceClient.allergies)" class="small">
+            {{ approvedSnacksSummary(resourceClient.allergies) }}
+          </p>
+          <p v-else class="muted small">No approved snack preferences on file.</p>
         </div>
         <p v-else class="muted small">None on file.</p>
 

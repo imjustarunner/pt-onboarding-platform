@@ -157,6 +157,10 @@
               {{ c.waiver.emergencyContacts.length }} emergency contact{{ c.waiver.emergencyContacts.length !== 1 ? 's' : '' }}
             </div>
             <div v-else class="edk-client-badge edk-badge-warn">No emergency contacts</div>
+            <div v-if="c.waiver?.allergies?.noSnacks" class="edk-client-badge edk-badge-warn">No snacks</div>
+            <div v-else-if="waiverApprovedSnacksSummary(c.waiver?.allergies)" class="edk-client-badge">
+              Snacks: {{ waiverApprovedSnacksSummary(c.waiver.allergies) }}
+            </div>
           </button>
         </div>
 
@@ -440,15 +444,24 @@
             </div>
             <div v-else-if="selectedClient.waiver.allergies.applyNone" class="edk-waiver-ok">No medical info reported</div>
             <div v-else class="edk-waiver-ok">No known allergies listed</div>
-            <div v-if="selectedClient.waiver.allergies.noSnacks" class="edk-waiver-flag edk-flag-warn">
-              <strong>Snacks:</strong> No snacks for this child
-            </div>
-            <div v-else-if="waiverApprovedSnacksSummary(selectedClient.waiver.allergies)" class="edk-waiver-note">
-              <strong>Approved snacks:</strong> {{ waiverApprovedSnacksSummary(selectedClient.waiver.allergies) }}
-            </div>
             <div v-if="selectedClient.waiver.allergies.notes" class="edk-waiver-note">
               <strong>Medical notes:</strong> {{ selectedClient.waiver.allergies.notes }}
             </div>
+          </template>
+        </section>
+
+        <!-- Approved snacks -->
+        <section class="edk-waiver-section">
+          <h4 class="edk-waiver-section-title">Approved snacks</h4>
+          <div v-if="!selectedClient?.waiver?.allergies" class="edk-waiver-none">No waiver data</div>
+          <template v-else>
+            <div v-if="selectedClient.waiver.allergies.noSnacks" class="edk-waiver-flag edk-flag-warn">
+              <strong>Do not give snacks</strong> to this child
+            </div>
+            <div v-else-if="waiverApprovedSnacksSummary(selectedClient.waiver.allergies)" class="edk-waiver-note">
+              {{ waiverApprovedSnacksSummary(selectedClient.waiver.allergies) }}
+            </div>
+            <div v-else class="edk-waiver-none">No approved snack preferences on file</div>
           </template>
         </section>
 

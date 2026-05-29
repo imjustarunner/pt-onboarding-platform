@@ -156,6 +156,32 @@ test('mergeWaiverSectionsIntoKioskClient unions emergency contacts when fillMiss
   assert.ok(entry.emergencyContacts.some((c) => c.name === 'Registration Contact'));
 });
 
+test('mergeWaiverSectionsIntoKioskClient merges approved snacks when fillMissingOnly and profile has allergies only', () => {
+  const entry = {
+    ...emptyKioskClientWaiverFields(),
+    allergies: {
+      allergies: 'Peanuts',
+      approvedSnacks: '',
+      approvedSnacksList: [],
+      noSnacks: false,
+      notes: '',
+      applyNone: false
+    }
+  };
+  mergeWaiverSectionsIntoKioskClient(entry, {
+    allergies_snacks: {
+      status: 'active',
+      payload: {
+        allergies: 'Peanuts',
+        approvedSnacksList: ['Fruit', 'Crackers'],
+        approvedSnacks: ''
+      }
+    }
+  }, null, { fillMissingOnly: true });
+  assert.equal(entry.allergies.allergies, 'Peanuts');
+  assert.deepEqual(entry.allergies.approvedSnacksList, ['Fruit', 'Crackers']);
+});
+
 test('extractProfileSectionsFromIntakeData accepts legacy flat section rows', () => {
   const sections = extractProfileSectionsFromIntakeData({
     responses: {
