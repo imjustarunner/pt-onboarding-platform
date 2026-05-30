@@ -164,7 +164,7 @@
                       <span class="pch-portal-card-emoji">{{ t.emoji }}</span>
                     </div>
                     <div class="pch-portal-card-body">
-                      <div class="pch-portal-card-name">{{ t.title }}</div>
+                      <div class="pch-portal-card-name" :title="t.title">{{ t.title }}</div>
                       <div class="pch-portal-card-type">{{ t.typeLabel }}</div>
                       <div v-if="t.subtitle" class="pch-portal-card-sub muted">{{ t.subtitle }}</div>
                       <div v-if="t.kind === 'event'" class="pch-portal-card-stats">

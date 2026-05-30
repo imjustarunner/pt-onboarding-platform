@@ -130,9 +130,8 @@
             v-for="c in filteredPendingClients"
             :key="c.id"
             class="pe-row"
-            :class="{ 'pe-row--late': isLateArrival(c) }"
           >
-            <div class="pe-row-top">
+            <div class="pe-row-top pe-row-top--client">
               <div class="pe-row-avatar" aria-hidden="true">
                 <span v-if="initials(c.fullName || c.kioskDisplayName)">{{ initials(c.fullName || c.kioskDisplayName) }}</span>
                 <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -140,16 +139,32 @@
                 </svg>
               </div>
               <div class="pe-row-main">
-                <div class="pe-row-name">
-                  <strong>{{ clientDisplayName(c) }}</strong>
-                  <span v-if="c.identifierCode" class="pe-row-id"> · {{ c.identifierCode }}</span>
-                </div>
+                <button
+                  type="button"
+                  class="pe-row-name-btn"
+                  :disabled="!kioskActive || (checkinOpen && checkinClient?.id === c.id)"
+                  @click="openCheckin(c)"
+                >
+                  {{ clientDisplayName(c) }}
+                </button>
+              </div>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm pe-btn-ghost pe-btn-info"
+                @click="toggleClientInfo(c.id)"
+              >
+                {{ clientInfoOpen(c.id) ? 'Hide info' : 'Additional info' }}
+              </button>
+            </div>
+            <div v-if="clientInfoOpen(c.id)" class="pe-row-extra">
+              <div class="pe-row-extra-tags">
+                <span v-if="c.identifierCode" class="pe-row-id">ID: {{ c.identifierCode }}</span>
                 <span v-if="isLateArrival(c)" class="pe-tag pe-tag--late">
                   ⏰ Arriving late<template v-if="c.dateStatus.expectedArrivalTime"> · {{ c.dateStatus.expectedArrivalTime }}</template>
                 </span>
-                <div v-if="isLateArrival(c) && c.dateStatus.note" class="muted small pe-late-note">{{ c.dateStatus.note }}</div>
                 <span v-if="c.confirmationStatus === 'no'" class="pe-tag pe-tag--warn">Not attending</span>
               </div>
+              <div v-if="isLateArrival(c) && c.dateStatus.note" class="muted small pe-late-note">{{ c.dateStatus.note }}</div>
               <div class="pe-row-actions">
                 <button
                   v-if="canMarkAbsent(c)"
@@ -160,26 +175,18 @@
                 >
                   Mark absent
                 </button>
-                <button
-                  type="button"
-                  class="btn pe-btn-checkin"
-                  :disabled="!kioskActive || (checkinOpen && checkinClient?.id === c.id)"
-                  @click="openCheckin(c)"
-                >
-                  {{ checkinOpen && checkinClient?.id === c.id ? '…' : 'Check in' }}
-                </button>
               </div>
+              <EventKioskLateContactFlow
+                v-if="showLateContactForClient(c)"
+                :client="c"
+                :staff="staff"
+                :log="lateContactForClient(c.id)"
+                :disabled="!kioskActive"
+                :save-url="`${apiBase()}/checkin/late-contact`"
+                :auth-headers="authHeaders()"
+                @updated="onLateContactUpdated"
+              />
             </div>
-            <EventKioskLateContactFlow
-              v-if="showLateContactForClient(c)"
-              :client="c"
-              :staff="staff"
-              :log="lateContactForClient(c.id)"
-              :disabled="!kioskActive"
-              :save-url="`${apiBase()}/checkin/late-contact`"
-              :auth-headers="authHeaders()"
-              @updated="onLateContactUpdated"
-            />
           </li>
           <li v-if="!filteredPendingClients.length" class="pe-empty muted">
             {{ search ? 'No matches.' : absentClients.length ? 'Everyone pending is checked in or marked absent.' : 'All clients are checked in.' }}
@@ -1373,6 +1380,19 @@ function clientHasAllergyInfo(client) {
 
 const checkinOpen = ref(false);
 const checkinClient = ref(null);
+const expandedClientInfoById = ref({});
+
+function clientInfoOpen(clientId) {
+  return !!expandedClientInfoById.value[Number(clientId)];
+}
+
+function toggleClientInfo(clientId) {
+  const id = Number(clientId);
+  expandedClientInfoById.value = {
+    ...expandedClientInfoById.value,
+    [id]: !expandedClientInfoById.value[id]
+  };
+}
 
 const checkinSheetUrl = computed(() => {
   const cid = checkinClient.value?.id;
@@ -2123,8 +2143,42 @@ onBeforeUnmount(() => {
 .pe-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .pe-row-name { line-height: 1.3; }
 .pe-row-name strong { font-size: 0.98rem; color: #0f172a; }
+.pe-row-name-btn {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.25;
+  cursor: pointer;
+}
+.pe-row-name-btn:hover:not(:disabled) {
+  color: var(--pe-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.pe-row-name-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 .pe-row-id { color: var(--pe-muted); font-weight: 500; font-size: 0.92rem; }
 .pe-row-actions { display: flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+.pe-row-extra {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
+}
+.pe-row-extra-tags {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
 .pe-btn-checkin {
   background: var(--pe-surface);
   border: 1.5px solid var(--pe-primary);
@@ -2142,6 +2196,9 @@ onBeforeUnmount(() => {
 .pe-btn-ghost {
   border-radius: 10px;
   font-size: 12px;
+}
+.pe-btn-info {
+  flex-shrink: 0;
 }
 .pe-roster .ek-late { margin-top: 0; border-color: var(--pe-border); background: #f8faf9; }
 .pe-absent-block { margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--pe-border); }
