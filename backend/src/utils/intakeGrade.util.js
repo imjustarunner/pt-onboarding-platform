@@ -194,12 +194,13 @@ export async function syncClientGradeFromIntakeIfMissing(clientId, dbPool = pool
   try {
     const [rows] = await dbPool.execute(
       `SELECT DISTINCT s.id, s.intake_data,
-              s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id
+              s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id,
+              COALESCE(s.submitted_at, s.updated_at, s.created_at) AS sort_ts
        FROM intake_submissions s
        LEFT JOIN intake_submission_clients isc ON isc.intake_submission_id = s.id
        WHERE (s.client_id = ? OR isc.client_id = ?)
          AND (s.intake_data IS NOT NULL OR s.payload_encrypted IS NOT NULL)
-       ORDER BY COALESCE(s.submitted_at, s.updated_at, s.created_at) DESC, s.id DESC
+       ORDER BY sort_ts DESC, s.id DESC
        LIMIT 5`,
       [cid, cid]
     );
@@ -273,12 +274,13 @@ export async function syncClientDobFromIntakeIfMissing(clientId, dbPool = pool) 
   try {
     const [rows] = await dbPool.execute(
       `SELECT DISTINCT s.id, s.intake_data,
-              s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id
+              s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id,
+              COALESCE(s.submitted_at, s.updated_at, s.created_at) AS sort_ts
        FROM intake_submissions s
        LEFT JOIN intake_submission_clients isc ON isc.intake_submission_id = s.id
        WHERE (s.client_id = ? OR isc.client_id = ?)
          AND (s.intake_data IS NOT NULL OR s.payload_encrypted IS NOT NULL)
-       ORDER BY COALESCE(s.submitted_at, s.updated_at, s.created_at) DESC, s.id DESC
+       ORDER BY sort_ts DESC, s.id DESC
        LIMIT 5`,
       [cid, cid]
     );
@@ -313,7 +315,7 @@ export async function syncClientDobFromIntakeIfMissing(clientId, dbPool = pool) 
     if (!dob) continue;
 
     await dbPool.execute(
-      `UPDATE clients SET date_of_birth = ? WHERE id = ? AND (date_of_birth IS NULL OR date_of_birth = '')`,
+      `UPDATE clients SET date_of_birth = ? WHERE id = ? AND date_of_birth IS NULL`,
       [dob, cid]
     );
     return dob;
