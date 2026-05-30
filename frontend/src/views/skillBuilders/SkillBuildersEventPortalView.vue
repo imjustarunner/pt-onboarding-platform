@@ -5132,8 +5132,11 @@ const planSavingClientId = ref(0);
 const attendanceResetLoading = ref(false);
 const attendanceResetMessage = ref('');
 
+/** Participants loaded specifically for attendance planning (always status=participants). */
+const planParticipantsList = ref([]);
+
 const planParticipants = computed(() =>
-  (genericParticipants.value || []).map((c) => ({
+  planParticipantsList.value.map((c) => ({
     clientId: Number(c.clientId),
     name: c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}`,
     identifierCode: c.identifierCode || null
@@ -5166,16 +5169,25 @@ async function loadAttendancePlan() {
   planLoading.value = true;
   planError.value = '';
   try {
-    const res = await api.get(`/company-events/${eventId.value}/attendance-status`, {
-      params: { agencyId: eventBillingAgencyId.value },
-      skipGlobalLoading: true
-    });
-    const today = String(res.data?.todayYmd || todayYmd()).slice(0, 10);
-    const dates = Array.isArray(res.data?.sessionDates) ? res.data.sessionDates : [];
+    const [statusRes, participantRes] = await Promise.all([
+      api.get(`/company-events/${eventId.value}/attendance-status`, {
+        params: { agencyId: eventBillingAgencyId.value },
+        skipGlobalLoading: true
+      }),
+      api.get(`/company-events/${eventId.value}/clients`, {
+        params: { agencyId: eventBillingAgencyId.value, status: 'participants' },
+        skipGlobalLoading: true
+      })
+    ]);
+    planParticipantsList.value = Array.isArray(participantRes.data?.clients)
+      ? participantRes.data.clients
+      : [];
+    const today = String(statusRes.data?.todayYmd || todayYmd()).slice(0, 10);
+    const dates = Array.isArray(statusRes.data?.sessionDates) ? statusRes.data.sessionDates : [];
     planSessionDates.value = dates
       .map((d) => String(d.sessionDate).slice(0, 10))
       .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= today);
-    planAllStatuses.value = Array.isArray(res.data?.statuses) ? res.data.statuses : [];
+    planAllStatuses.value = Array.isArray(statusRes.data?.statuses) ? statusRes.data.statuses : [];
     if (!planDate.value || !planSessionDates.value.includes(planDate.value)) {
       planDate.value = planSessionDates.value[0] || '';
     }
@@ -5184,6 +5196,7 @@ async function loadAttendancePlan() {
     planError.value = e.response?.data?.error?.message || e.message || 'Could not load attendance planning';
     planSessionDates.value = [];
     planAllStatuses.value = [];
+    planParticipantsList.value = [];
   } finally {
     planLoading.value = false;
   }
