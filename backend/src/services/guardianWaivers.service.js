@@ -149,7 +149,11 @@ export async function upsertGuardianWaiverSection({
   conn: externalConn,
   /** @type {'strict' | 'relationship_exists'} */
   linkCheckMode = 'strict',
-  skipAdultGuard = false
+  skipAdultGuard = false,
+  /** Allow kiosk-direct saves for safety sections even when formal waivers are not enabled for the agency. */
+  bypassWaiversEnabledCheck = false,
+  /** Skip the esign-consent-must-be-active requirement (for kiosk-direct safety section saves). */
+  skipEsignConsentCheck = false
 }) {
   const sig = normalizeSignatureData(signatureData);
   if (!sig) throw Object.assign(new Error('Signature is required'), { status: 400 });
@@ -171,8 +175,10 @@ export async function upsertGuardianWaiverSection({
     await assertGuardianLinkedToClient(gid, cid);
   }
 
-  const enabled = await isWaiversEnabledForClient(cid);
-  if (!enabled) throw Object.assign(new Error('Guardian waivers are not enabled for this agency'), { status: 403 });
+  if (!bypassWaiversEnabledCheck) {
+    const enabled = await isWaiversEnabledForClient(cid);
+    if (!enabled) throw Object.assign(new Error('Guardian waivers are not enabled for this agency'), { status: 403 });
+  }
 
   const act = String(action || '').toLowerCase();
   if (act !== 'create' && act !== 'update' && act !== 'revoke') {
@@ -182,23 +188,30 @@ export async function upsertGuardianWaiverSection({
   const run = async (conn) => {
     const profile = await ensureProfileRow(conn, gid, cid);
     const sections = parseSectionsJson(profile.sections_json);
-    assertCanModifySection(sectionKey, sections, act);
+    if (!skipEsignConsentCheck) {
+      assertCanModifySection(sectionKey, sections, act);
+    }
 
     const existingRow = sections[sectionKey];
-    if (act === 'create' && existingRow?.status === 'active') {
+    // When bypassing the esign gate, treat an existing active section as an update
+    // so the guardian can overwrite contacts without a prior esign on file.
+    const resolvedAct = (skipEsignConsentCheck && act === 'create' && existingRow?.status === 'active')
+      ? 'update'
+      : act;
+    if (resolvedAct === 'create' && existingRow?.status === 'active') {
       throw Object.assign(new Error('Section already active; use update'), { status: 409, code: 'SECTION_ALREADY_ACTIVE' });
     }
-    if ((act === 'update' || act === 'revoke') && !existingRow) {
+    if ((resolvedAct === 'update' || resolvedAct === 'revoke') && !existingRow) {
       throw Object.assign(new Error('Section does not exist yet; use create'), { status: 409, code: 'SECTION_NOT_INITIALIZED' });
     }
-    if (act === 'update' && existingRow?.status === 'revoked') {
+    if (resolvedAct === 'update' && existingRow?.status === 'revoked') {
       throw Object.assign(new Error('Section is revoked; use create to re-activate'), { status: 409, code: 'SECTION_REVOKED_USE_CREATE' });
     }
-    if (act === 'revoke' && existingRow?.status !== 'active') {
+    if (resolvedAct === 'revoke' && existingRow?.status !== 'active') {
       throw Object.assign(new Error('Section is not active; nothing to revoke'), { status: 409, code: 'SECTION_NOT_ACTIVE' });
     }
 
-    if (act === 'revoke') {
+    if (resolvedAct === 'revoke') {
       // still require esign active for revoking non-esign sections (assertCanModifySection)
     } else {
       if (payload == null || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -210,21 +223,21 @@ export async function upsertGuardianWaiverSection({
       `INSERT INTO guardian_client_waiver_attestations
         (profile_id, section_key, action, signature_data, consent_acknowledged_at, intent_to_sign_at, ip_address, user_agent)
        VALUES (?, ?, ?, ?, NOW(), NOW(), ?, ?)`,
-      [profile.id, sectionKey, act, sig, ipAddress || null, userAgent || null]
+      [profile.id, sectionKey, resolvedAct, sig, ipAddress || null, userAgent || null]
     );
     const attestationId = attRes.insertId;
 
-    const payloadSnapshot = act === 'revoke' ? null : payload;
+    const payloadSnapshot = resolvedAct === 'revoke' ? null : payload;
     await conn.execute(
       `INSERT INTO guardian_client_waiver_history (profile_id, section_key, action, payload_json, attestation_id)
        VALUES (?, ?, ?, ?, ?)`,
-      [profile.id, sectionKey, act, payloadSnapshot ? JSON.stringify(payloadSnapshot) : null, attestationId]
+      [profile.id, sectionKey, resolvedAct, payloadSnapshot ? JSON.stringify(payloadSnapshot) : null, attestationId]
     );
 
     const nextSections = { ...sections };
     nextSections[sectionKey] = {
-      status: act === 'revoke' ? 'revoked' : 'active',
-      payload: act === 'revoke' ? null : payload,
+      status: resolvedAct === 'revoke' ? 'revoked' : 'active',
+      payload: resolvedAct === 'revoke' ? null : payload,
       updated_at: new Date().toISOString(),
       last_attestation_id: attestationId
     };

@@ -355,11 +355,13 @@ export async function saveEventKioskClientWaiverSection({
   ipAddress,
   userAgent
 }) {
-  // Allow guardians to sign emergency contacts and walk-home sections at the kiosk
+  // Allow guardians to sign emergency contacts, walk-home, and allergies sections at the kiosk
   // regardless of whether the formal waiver gate is enabled for this event.
-  // Formal pickup authorization still respects the enabled flag via the gate.
+  // Formal pickup authorization and esign consent still respect the enabled flag.
   const nonGatedSections = ['emergency_contacts', 'walk_home_authorization', 'allergies_snacks'];
-  if (!nonGatedSections.includes(sectionKey)) {
+  const bypassEnabled = nonGatedSections.includes(sectionKey);
+
+  if (!bypassEnabled) {
     const enabled = await isWaiversEnabledForClient(clientId);
     if (!enabled) {
       throw Object.assign(new Error('Guardian waivers are not enabled for this agency'), { status: 403 });
@@ -377,7 +379,9 @@ export async function saveEventKioskClientWaiverSection({
     intentToSign,
     ipAddress,
     userAgent,
-    linkCheckMode: 'relationship_exists'
+    linkCheckMode: 'relationship_exists',
+    bypassWaiversEnabledCheck: bypassEnabled,
+    skipEsignConsentCheck: bypassEnabled
   });
 
   const sheet = await getEventKioskClientCheckinSheet({
