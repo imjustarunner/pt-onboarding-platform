@@ -46,7 +46,15 @@ function pickDobFromBag(bag) {
 
 /** Coerce a variety of date inputs to a YYYY-MM-DD string, or null. */
 export function normalizeDobToYmd(raw) {
-  const s = String(raw || '').trim();
+  if (raw == null || raw === '') return null;
+  if (raw instanceof Date) {
+    if (!Number.isFinite(raw.getTime())) return null;
+    const y = raw.getFullYear();
+    const mo = String(raw.getMonth() + 1).padStart(2, '0');
+    const d = String(raw.getDate()).padStart(2, '0');
+    return `${y}-${mo}-${d}`;
+  }
+  const s = String(raw).trim();
   if (!s) return null;
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
@@ -58,8 +66,40 @@ export function normalizeDobToYmd(raw) {
   }
   const parsed = new Date(s);
   if (Number.isFinite(parsed.getTime())) {
-    const y = parsed.getUTCFullYear();
-    if (y > 1900 && y < 2100) return parsed.toISOString().slice(0, 10);
+    const y = parsed.getFullYear();
+    if (y > 1900 && y < 2100) {
+      const mo = String(parsed.getMonth() + 1).padStart(2, '0');
+      const d = String(parsed.getDate()).padStart(2, '0');
+      return `${y}-${mo}-${d}`;
+    }
+  }
+  return null;
+}
+
+/** Whole years from a date-of-birth value (Date, ISO string, or MM/DD/YYYY). */
+export function ageFromDateOfBirth(dob) {
+  const ymd = normalizeDobToYmd(dob);
+  if (!ymd) return null;
+  const [y, mo, d] = ymd.split('-').map(Number);
+  const birth = new Date(y, mo - 1, d);
+  if (!Number.isFinite(birth.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age -= 1;
+  return age >= 0 && age < 130 ? age : null;
+}
+
+function findDateLikeInObject(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  for (const [key, value] of Object.entries(obj)) {
+    if (value == null || value === '') continue;
+    if (typeof value === 'object') continue;
+    const k = String(key).toLowerCase();
+    if (/(date_?of_?birth|birth_?date|birthdate|^dob$|client_dob|client_date_of_birth|dateofbirth)/.test(k)) {
+      const norm = normalizeDobToYmd(value);
+      if (norm) return norm;
+    }
   }
   return null;
 }
@@ -127,6 +167,10 @@ export function extractDobFromIntakeData({ intakeData, clientIndex = 0 }) {
     || pickDobFromBag(clinical)
     || pickDobFromBag(demo)
     || pickDobFromBag(submission)
+    || findDateLikeInObject(perClient)
+    || findDateLikeInObject(clinical)
+    || findDateLikeInObject(demo)
+    || findDateLikeInObject(submission)
   );
   return normalizeDobToYmd(raw);
 }

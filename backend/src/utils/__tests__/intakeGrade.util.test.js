@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 
 import {
   extractGradeFromIntakeData,
+  extractDobFromIntakeData,
+  normalizeDobToYmd,
+  ageFromDateOfBirth,
   GRADE_INTAKE_KEYS
 } from '../intakeGrade.util.js';
 
@@ -70,4 +73,29 @@ test('extractGradeFromIntakeData normalizes flat intake_data shape', () => {
 
 test('GRADE_INTAKE_KEYS includes client_grade alias', () => {
   assert.ok(GRADE_INTAKE_KEYS.includes('client_grade'));
+});
+
+test('normalizeDobToYmd handles mysql2 Date objects', () => {
+  const dob = new Date(2015, 2, 15); // local Mar 15, 2015
+  assert.equal(normalizeDobToYmd(dob), '2015-03-15');
+});
+
+test('ageFromDateOfBirth computes from mysql2 Date objects', () => {
+  const dob = new Date(2015, 2, 15);
+  const age = ageFromDateOfBirth(dob);
+  assert.ok(Number.isFinite(age));
+  assert.ok(age >= 10 && age <= 12);
+});
+
+test('extractDobFromIntakeData reads per-child client_dob', () => {
+  const dob = extractDobFromIntakeData({
+    intakeData: {
+      responses: {
+        submission: {},
+        clients: [{ client_dob: '03/15/2015' }]
+      }
+    },
+    clientIndex: 0
+  });
+  assert.equal(dob, '2015-03-15');
 });

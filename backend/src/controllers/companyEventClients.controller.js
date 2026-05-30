@@ -2,7 +2,9 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import {
   syncClientGradeFromIntakeIfMissing,
-  syncClientDobFromIntakeIfMissing
+  syncClientDobFromIntakeIfMissing,
+  normalizeDobToYmd,
+  ageFromDateOfBirth
 } from '../utils/intakeGrade.util.js';
 import { syncClientStatusForEvent } from '../services/eventClientStatusSync.service.js';
 import { syncSkillsGroupClientsToCompanyEventClients } from '../services/companyEventClientEnrollmentSync.service.js';
@@ -26,19 +28,6 @@ const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw || ''), 10);
   return Number.isFinite(value) && value > 0 ? value : null;
 };
-
-function ageFromDateOfBirth(dob) {
-  if (!dob) return null;
-  const s = String(dob).slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
-  const birth = new Date(`${s}T12:00:00Z`);
-  if (!Number.isFinite(birth.getTime())) return null;
-  const today = new Date();
-  let age = today.getUTCFullYear() - birth.getUTCFullYear();
-  const m = today.getUTCMonth() - birth.getUTCMonth();
-  if (m < 0 || (m === 0 && today.getUTCDate() < birth.getUTCDate())) age -= 1;
-  return age >= 0 && age < 130 ? age : null;
-}
 
 function formatGroupAssignmentLabel(assignment) {
   const label = String(assignment?.label || '').trim() || (assignment?.groupId ? `Group ${assignment.groupId}` : 'Group');
@@ -484,7 +473,7 @@ export const listCompanyEventClients = async (req, res, next) => {
             // best-effort — list should still render without grade
           }
         }
-        if (!r.date_of_birth) {
+        if (!normalizeDobToYmd(r.date_of_birth)) {
           try {
             const syncedDob = await syncClientDobFromIntakeIfMissing(clientId);
             if (syncedDob) dobByClientId.set(clientId, syncedDob);
@@ -509,14 +498,15 @@ export const listCompanyEventClients = async (req, res, next) => {
         const groupDisplay = groupAssignments.length
           ? groupAssignments.map((g) => formatGroupAssignmentLabel(g)).join('; ')
           : null;
+        const resolvedDob = normalizeDobToYmd(r.date_of_birth) || dobByClientId.get(clientId) || null;
         return {
         clientId,
         initials: r.initials || null,
         fullName: r.fullName || null,
         identifierCode: r.identifierCode || null,
         grade: gradeByClientId.get(clientId) || r.grade || null,
-        dateOfBirth: (r.date_of_birth ? String(r.date_of_birth).slice(0, 10) : null) || dobByClientId.get(clientId) || null,
-        ageYears: ageFromDateOfBirth(r.date_of_birth || dobByClientId.get(clientId) || null),
+        dateOfBirth: resolvedDob,
+        ageYears: ageFromDateOfBirth(resolvedDob),
         groupAssignments,
         groupDisplay,
         status: r.status || null,
