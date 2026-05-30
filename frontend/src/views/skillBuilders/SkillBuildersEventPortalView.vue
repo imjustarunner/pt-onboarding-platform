@@ -878,7 +878,13 @@
                     </thead>
                     <tbody>
                       <tr v-for="c in genericParticipants" :key="`psum-${c.clientId}`">
-                        <td>{{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}</td>
+                        <td>
+                          <button
+                            type="button"
+                            class="sbep-client-name-btn"
+                            @click="openParticipantProfile(c)"
+                          >{{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}</button>
+                        </td>
                         <td>{{ participantAgeDisplay(c) }}</td>
                         <td>{{ c.grade || '—' }}</td>
                         <td>{{ participantGroupDisplay(c) }}</td>
@@ -2664,6 +2670,21 @@
       </template>
     </div>
   </div>
+
+  <Teleport to="body">
+    <div v-if="participantProfileLoading" class="sbep-profile-loading-overlay" role="status">
+      <div class="sbep-profile-loading-card">Loading client…</div>
+    </div>
+    <ClientDetailPanel
+      v-if="participantProfileClient"
+      :key="`portal-client-${participantProfileClient.id}`"
+      :client="participantProfileClient"
+      :current-client-index="-1"
+      :navigation-count="0"
+      @close="closeParticipantProfile"
+      @updated="closeParticipantProfile"
+    />
+  </Teleport>
 </template>
 
 <script setup>
@@ -2682,6 +2703,7 @@ import SkillBuildersEventProvidersGrid from '../../components/skillBuilders/Skil
 import SkillBuildersClinicalNotesHubPanel from '../../components/skillBuilders/SkillBuildersClinicalNotesHubPanel.vue';
 import UserAvatar from '../../components/common/UserAvatar.vue';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
+import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -2702,6 +2724,28 @@ const participantProvidersLoading = ref(false);
 const participantProvidersError = ref('');
 const participantWorkflowSavingClientId = ref(0);
 const participantNotesSavingClientId = ref(0);
+
+const participantProfileLoading = ref(false);
+const participantProfileClient = ref(null);
+
+async function openParticipantProfile(c) {
+  const id = Number(c?.clientId || c?.id || 0);
+  if (!id) return;
+  participantProfileClient.value = null;
+  participantProfileLoading.value = true;
+  try {
+    const r = await api.get(`/clients/${id}`, { skipGlobalLoading: true });
+    if (r.data?.id) participantProfileClient.value = { ...r.data };
+  } catch {
+    // fail silently — user can navigate directly if needed
+  } finally {
+    participantProfileLoading.value = false;
+  }
+}
+
+function closeParticipantProfile() {
+  participantProfileClient.value = null;
+}
 /** Workflow-status filter for the participants section: 'registrants' | 'participants'. */
 const participantStatusFilter = ref('registrants');
 const rosterRegisterAsParticipant = ref(false);
@@ -7808,5 +7852,39 @@ watch(
   border-radius: 12px;
   border: 1px solid var(--border, #e2e8f0);
   background: #f8fafc;
+}
+.sbep-client-name-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--primary, #2563eb);
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 0.15s;
+}
+.sbep-client-name-btn:hover {
+  text-decoration-color: currentColor;
+}
+.sbep-profile-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.25);
+}
+.sbep-profile-loading-card {
+  background: #fff;
+  border-radius: 10px;
+  padding: 20px 32px;
+  font-size: 15px;
+  color: #555;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.14);
 }
 </style>
