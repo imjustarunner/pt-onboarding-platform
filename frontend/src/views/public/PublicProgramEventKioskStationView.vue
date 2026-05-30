@@ -116,6 +116,14 @@
 
       <!-- CHECK IN · CLIENT -->
       <div v-if="mainMode === 'checkin' && personMode === 'client'" class="pe-panel">
+        <!-- Prominent tap-to-check-in instruction -->
+        <div class="pe-checkin-banner">
+          <div class="pe-checkin-banner-icon" aria-hidden="true">👇</div>
+          <div>
+            <strong>Tap your child's name below to check in.</strong>
+            <p class="pe-checkin-banner-sub">Find your child in the list and tap their name to begin the check-in process.</p>
+          </div>
+        </div>
         <div class="pe-roster-head">
           <svg class="pe-roster-head-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
@@ -146,6 +154,7 @@
                   @click="openCheckin(c)"
                 >
                   {{ clientDisplayName(c) }}
+                  <span class="pe-row-name-cta">Tap to check in →</span>
                 </button>
               </div>
               <button
@@ -2144,27 +2153,61 @@ onBeforeUnmount(() => {
 .pe-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .pe-row-name { line-height: 1.3; }
 .pe-row-name strong { font-size: 0.98rem; color: #0f172a; }
+.pe-checkin-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: #ecfdf5;
+  border: 2px solid #16a34a;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.pe-checkin-banner-icon {
+  font-size: 2rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.pe-checkin-banner strong {
+  font-size: 1.05rem;
+  color: #14532d;
+}
+.pe-checkin-banner-sub {
+  margin: 4px 0 0;
+  font-size: 0.9rem;
+  color: #166534;
+}
 .pe-row-name-btn {
   width: 100%;
   text-align: left;
-  background: transparent;
-  border: 0;
-  padding: 0;
+  background: #f0fdf4;
+  border: 2px solid #86efac;
+  border-radius: 10px;
+  padding: 10px 14px;
   margin: 0;
-  font-size: 1rem;
+  font-size: 1.05rem;
   font-weight: 800;
-  color: #0f172a;
+  color: #14532d;
   line-height: 1.25;
   cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
 }
 .pe-row-name-btn:hover:not(:disabled) {
-  color: var(--pe-primary);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  background: #dcfce7;
+  border-color: #16a34a;
+  color: #14532d;
 }
 .pe-row-name-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
+}
+.pe-row-name-cta {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #16a34a;
+  letter-spacing: 0.01em;
 }
 .pe-row-id { color: var(--pe-muted); font-weight: 500; font-size: 0.92rem; }
 .pe-row-actions { display: flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }

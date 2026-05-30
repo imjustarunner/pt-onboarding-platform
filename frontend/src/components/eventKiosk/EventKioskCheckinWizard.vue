@@ -36,13 +36,13 @@
             </li>
           </ul>
           <p v-else class="muted small">None on file.</p>
-          <div v-if="canEditWaivers" class="ek-checkin-step-actions">
+          <div v-if="checkerIsGuardian" class="ek-checkin-step-actions">
             <button type="button" class="btn btn-secondary btn-sm" @click="requestWaiverEdit('emergency_contacts')">
               {{ sheet.emergencyContacts?.length ? 'Add or change' : 'Add emergency contact' }}
             </button>
           </div>
-          <p v-else-if="sheet.waiversEnabled && !attributionGuardianId" class="muted small ek-checkin-step-actions">
-            A linked guardian is required to add or change this — staff can help.
+          <p v-else class="muted small ek-checkin-step-actions">
+            Sign in as the account guardian to add or update emergency contacts.
           </p>
         </section>
 
@@ -121,32 +121,33 @@
             <p v-if="sheet.walkHome.conditions" class="small muted">{{ sheet.walkHome.conditions }}</p>
           </div>
           <p v-else class="muted small">Not authorized to walk home alone from this program.</p>
-          <div v-if="canEditWaivers" class="ek-checkin-step-actions">
+          <div v-if="checkerIsGuardian" class="ek-checkin-step-actions">
             <button type="button" class="btn btn-secondary btn-sm" @click="requestWaiverEdit('walk_home_authorization')">
               Add or change
             </button>
           </div>
-          <p v-else-if="sheet.waiversEnabled && !attributionGuardianId" class="muted small ek-checkin-step-actions">
-            A linked guardian is required to add or change this — staff can help.
+          <p v-else class="muted small ek-checkin-step-actions">
+            Sign in as the account guardian to update walk-home authorization.
           </p>
         </section>
 
         <!-- Step: Who is checking in (identity first) -->
         <section v-if="currentStepId === 'checker'" class="ek-checkin-step">
           <h4 class="ek-checkin-h4">Who is checking in {{ clientLabel }}?</h4>
-          <p class="muted small">Tap your name below. If you're not listed, choose "Someone else".</p>
+          <p class="muted small">Tap your name. Guardians can update child information on the following steps.</p>
 
           <ul class="ek-checker-list">
             <li
               v-for="opt in checkerOptions"
               :key="opt.key"
               class="ek-checker-opt"
-              :class="{ 'ek-checker-opt--sel': checkerSelectedKey === opt.key }"
+              :class="{ 'ek-checker-opt--sel': checkerSelectedKey === opt.key, 'ek-checker-opt--guardian': opt.kind === 'guardian' }"
               @click="selectChecker(opt)"
             >
               <div>
                 <strong>{{ opt.name }}</strong>
                 <span class="muted small"> · {{ opt.relationship }}</span>
+                <span v-if="opt.kind === 'guardian'" class="ek-guardian-badge">Main guardian</span>
               </div>
               <span v-if="checkerSelectedKey === opt.key" class="ek-checker-tick">✓</span>
             </li>
@@ -162,6 +163,17 @@
               <span v-if="checkerSelectedKey === 'other'" class="ek-checker-tick">✓</span>
             </li>
           </ul>
+
+          <!-- Guardian identity confirmation -->
+          <div v-if="checkerKind === 'guardian'" class="ek-guardian-confirm">
+            <label class="ek-checkin-check-row">
+              <input v-model="guardianIdentityConfirmed" type="checkbox" />
+              <span>I confirm that I am <strong>{{ selectedCheckerName }}</strong> and I am authorized to update this child's information.</span>
+            </label>
+            <p class="muted small ek-guardian-confirm-note">
+              As the account guardian, you can update emergency contacts, walk-home authorization, and other details on the following steps.
+            </p>
+          </div>
 
           <div v-if="checkerKind === 'other'" class="ek-checker-other">
             <div class="ek-checkin-field">
@@ -333,6 +345,7 @@ const allergiesConfirmed = ref(false);
 
 const checkerSelectedKey = ref('');
 const checkerKind = ref('');
+const guardianIdentityConfirmed = ref(false);
 const otherCheckerName = ref('');
 const otherCheckerRelationship = ref('');
 const otherCheckerSig = ref('');
@@ -370,7 +383,15 @@ const attributionGuardianId = computed(() =>
   guardianUserId.value || sheet.value?.guardians?.[0]?.userId || null
 );
 const esignActive = computed(() => !sheet.value?.waiversEnabled || !!sheet.value?.gate?.esignActive);
-const canEditWaivers = computed(() => !!sheet.value?.waiversEnabled && !!attributionGuardianId.value);
+/** True only when the checking-in person selected themselves as a guardian AND confirmed their identity. */
+const checkerIsGuardian = computed(() =>
+  checkerKind.value === 'guardian' && guardianIdentityConfirmed.value
+);
+const canEditWaivers = computed(() => checkerIsGuardian.value && !!attributionGuardianId.value);
+const selectedCheckerName = computed(() => {
+  const opt = checkerOptions.value.find((o) => o.key === checkerSelectedKey.value);
+  return opt?.name || '';
+});
 const pickupGateBlocked = computed(() => {
   const gate = sheet.value?.gate || {};
   if (!sheet.value?.waiversEnabled) return false;
@@ -409,6 +430,7 @@ const checkerOptions = computed(() => {
 
 const checkerValid = computed(() => {
   if (!checkerSelectedKey.value) return false;
+  if (checkerKind.value === 'guardian') return guardianIdentityConfirmed.value;
   if (checkerKind.value === 'other') {
     return !!otherCheckerName.value.trim() && !!otherCheckerSig.value;
   }
@@ -474,6 +496,7 @@ function resetWizard() {
   allergiesConfirmed.value = false;
   checkerSelectedKey.value = '';
   checkerKind.value = '';
+  guardianIdentityConfirmed.value = false;
   otherCheckerName.value = '';
   otherCheckerRelationship.value = '';
   otherCheckerSig.value = '';
@@ -543,6 +566,7 @@ async function saveInlinePickups() {
 function selectChecker(opt) {
   checkerSelectedKey.value = opt.key;
   checkerKind.value = opt.kind;
+  guardianIdentityConfirmed.value = false;
   if (opt.kind === 'guardian' && opt.userId && Number(guardianUserId.value) !== Number(opt.userId)) {
     guardianUserId.value = opt.userId;
     reloadSheet();
@@ -552,6 +576,7 @@ function selectChecker(opt) {
 function selectSomeoneElse() {
   checkerSelectedKey.value = 'other';
   checkerKind.value = 'other';
+  guardianIdentityConfirmed.value = false;
 }
 
 function nextStep() {
@@ -928,9 +953,34 @@ watch(
   border-color: #166534;
   background: #ecfdf5;
 }
+.ek-checker-opt--guardian {
+  border-color: #c7d2fe;
+}
 .ek-checker-tick {
   color: #166534;
   font-weight: 800;
+}
+.ek-guardian-badge {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: #e0e7ff;
+  color: #3730a3;
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.ek-guardian-confirm {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+}
+.ek-guardian-confirm-note {
+  margin-top: 8px;
 }
 .ek-checker-other {
   margin-top: 14px;
