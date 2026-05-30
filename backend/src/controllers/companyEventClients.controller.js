@@ -1076,11 +1076,11 @@ export const listCompanyEventAttendanceStatus = async (req, res, next) => {
     const tz = String(event.timezone || 'America/Denver').trim() || 'America/Denver';
     const todayYmd = utcDateToZonedYmd(new Date(), tz);
     const sessionDates = sessions.map((s) => ({
-      sessionDate: String(s.session_date).slice(0, 10),
+      sessionDate: normalizeDobToYmd(s.session_date),
       startsAt: s.starts_at,
       endsAt: s.ends_at,
       timezone: s.timezone || tz || null
-    }));
+    })).filter((s) => s.sessionDate);
     const statuses = await listCompanyEventDateStatuses({ companyEventId: eventId, sessionDate });
 
     res.json({ ok: true, sessionDates, statuses, timezone: tz, todayYmd });
