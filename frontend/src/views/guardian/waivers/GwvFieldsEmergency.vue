@@ -1,5 +1,8 @@
 <template>
   <div class="gwv-f">
+    <p v-if="modelValue.contacts?.some(c => c.name)" class="gwv-edit-note">
+      Edit any contact below, or add/remove entries. Saving will replace the current list.
+    </p>
     <label class="gwv-optout" :class="{ 'gwv-optout--pulse': pulse }">
       <input
         type="checkbox"
@@ -155,6 +158,14 @@ function removeRow(i) {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.gwv-edit-note {
+  font-size: 13px;
+  color: #64748b;
+  background: #f1f5f9;
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin: 0;
 }
 .gwv-row-block {
   display: flex;

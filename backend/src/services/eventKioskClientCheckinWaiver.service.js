@@ -272,7 +272,11 @@ export async function getEventKioskClientCheckinSheet({ companyEventId, clientId
   const emergencyPayload = gid ? emergencyPayloadFromSections(gate.sections) : null;
   const walkHomePayload = gid ? readActiveSectionPayload(gate.sections, 'walk_home_authorization') : null;
   const allergiesPayload = gid ? readActiveSectionPayload(gate.sections, 'allergies_snacks') : null;
-  const emergencyContacts = entry.emergencyContacts || [];
+  // If the guardian has signed an emergency contacts section, those contacts take full
+  // precedence over intake data so we never show duplicates from both sources.
+  const emergencyContacts = (emergencyPayload && Array.isArray(emergencyPayload.contacts) && emergencyPayload.contacts.length)
+    ? emergencyPayload.contacts
+    : (entry.emergencyContacts || []);
 
   const pickupRequired = gate.enabled && gate.pickupRequired;
   const pickupSatisfied = !pickupRequired || gate.pickupSatisfied;

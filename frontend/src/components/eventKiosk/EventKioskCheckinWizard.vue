@@ -38,7 +38,7 @@
           <p v-else class="muted small">None on file.</p>
           <div v-if="checkerIsGuardian" class="ek-checkin-step-actions">
             <button type="button" class="btn btn-secondary btn-sm" @click="requestWaiverEdit('emergency_contacts')">
-              {{ sheet.emergencyContacts?.length ? 'Add or change' : 'Add emergency contact' }}
+              {{ sheet.emergencyContacts?.length ? 'Edit contacts' : 'Add emergency contact' }}
             </button>
           </div>
           <p v-else class="muted small ek-checkin-step-actions">
