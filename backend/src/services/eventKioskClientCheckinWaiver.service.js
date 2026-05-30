@@ -65,6 +65,54 @@ async function loadWaiverProfilesForClientIds(clientIds) {
   }
 }
 
+async function loadKioskPickupsForClientIds(clientIds) {
+  const ids = [...new Set((clientIds || []).map(Number).filter((n) => n > 0))];
+  if (!ids.length) return [];
+  const ph = ids.map(() => '?').join(',');
+  try {
+    const [rows] = await pool.execute(
+      `SELECT client_id, name, relationship, phone
+       FROM client_kiosk_pickups
+       WHERE client_id IN (${ph})
+       ORDER BY client_id ASC, added_at ASC`,
+      ids
+    );
+    return rows || [];
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return [];
+    throw err;
+  }
+}
+
+/**
+ * Save kiosk-added pickup contacts for a client.
+ * Replaces all existing kiosk pickups for this client, then inserts the new list.
+ * No guardian or signature required — kiosk-level operational data.
+ */
+export async function saveKioskPickupsForClient({ clientId, companyEventId = null, pickups = [], addedByName = null }) {
+  const cid = Number(clientId);
+  if (!cid) throw Object.assign(new Error('clientId is required'), { status: 400 });
+  const eid = Number(companyEventId) || null;
+  const clean = (pickups || [])
+    .map((p) => ({
+      name: String(p?.name || '').trim(),
+      relationship: String(p?.relationship || '').trim() || null,
+      phone: String(p?.phone || '').trim() || null
+    }))
+    .filter((p) => p.name);
+
+  await pool.execute('DELETE FROM client_kiosk_pickups WHERE client_id = ?', [cid]);
+  for (const p of clean) {
+    await pool.execute(
+      `INSERT INTO client_kiosk_pickups
+         (client_id, company_event_id, name, relationship, phone, added_by_name)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [cid, eid, p.name, p.relationship, p.phone, addedByName || null]
+    );
+  }
+  return clean;
+}
+
 /** Shared waiver merge for kiosk check-in, check-out, and release validation. */
 export async function buildKioskClientWaiverEntry(clientId) {
   const cid = Number(clientId);
@@ -92,11 +140,12 @@ export async function buildKioskClientWaiverEntry(clientId) {
     ...emptyKioskClientWaiverFields()
   };
 
-  const [guardianRows, waiverRows, intakeFallback, historyFallback] = await Promise.all([
+  const [guardianRows, waiverRows, intakeFallback, historyFallback, kioskPickupRows] = await Promise.all([
     loadGuardiansForClientIds([cid]),
     loadWaiverProfilesForClientIds([cid]),
     loadIntakeWaiverSectionsFallbackForClientIds([cid]),
-    loadWaiverHistorySectionsFallbackForClientIds([cid])
+    loadWaiverHistorySectionsFallbackForClientIds([cid]),
+    loadKioskPickupsForClientIds([cid])
   ]);
 
   for (const g of guardianRows) {
@@ -122,6 +171,17 @@ export async function buildKioskClientWaiverEntry(clientId) {
   const historyRow = historyFallback.get(cid);
   if (historyRow) {
     mergeWaiverSectionsIntoKioskClient(entry, historyRow.sections, historyRow.updatedAt, { fillMissingOnly: true });
+  }
+
+  // Merge kiosk-added pickups — always show them, fill missing slots only
+  for (const kp of kioskPickupRows) {
+    if (Number(kp.client_id) !== cid) continue;
+    mergeWaiverSectionsIntoKioskClient(entry, {
+      pickup_authorization: {
+        status: 'active',
+        payload: { authorizedPickups: [{ name: kp.name, relationship: kp.relationship || '', phone: kp.phone || '' }] }
+      }
+    }, new Date().toISOString(), { fillMissingOnly: false });
   }
 
   finalizeKioskClientWaiverEntry(entry, entry.guardians);

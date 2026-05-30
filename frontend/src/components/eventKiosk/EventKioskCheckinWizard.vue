@@ -49,8 +49,8 @@
         <!-- Step: Authorized pickups -->
         <section v-else-if="currentStepId === 'pickup'" class="ek-checkin-step">
           <h4 class="ek-checkin-h4">Authorized drivers &amp; pickups</h4>
-          <p v-if="sheetHasPickups" class="muted small">
-            Review who may pick up {{ clientLabel }} today.
+          <p class="muted small">
+            {{ sheetHasPickups ? `Review who may pick up ${clientLabel} today.` : `No authorized pickup people on file yet.` }}
           </p>
           <p v-if="sheetGuardianPickups.length" class="ek-checkin-sub muted small">Guardians</p>
           <ul v-if="sheetGuardianPickups.length" class="ek-checkin-list">
@@ -68,26 +68,45 @@
               <div v-if="p.phone" class="muted small">{{ p.phone }}</div>
             </li>
           </ul>
-          <p v-if="!sheetHasPickups" class="muted small">No authorized pickup people on file yet.</p>
-          <div
-            v-if="sheet.waiversEnabled && pickupGateBlocked"
-            class="ek-checkin-banner"
-          >
-            <strong>Pickup authorization required</strong>
-            <p class="small">Add or sign pickup authorization before continuing.</p>
+
+          <!-- Inline add/edit pickup people (no signature required) -->
+          <div class="ek-pickup-inline">
+            <div class="ek-pickup-inline-hdr">
+              <span class="small muted">{{ inlinePickups.length ? 'Edit or add pickup contacts' : 'Add pickup contacts' }}</span>
+              <button v-if="!inlinePickupOpen" type="button" class="btn btn-secondary btn-sm" @click="openInlinePickups">
+                {{ sheetHasPickups ? 'Add / edit' : 'Add person' }}
+              </button>
+            </div>
+            <div v-if="inlinePickupOpen" class="ek-pickup-inline-form">
+              <div v-for="(row, idx) in inlinePickups" :key="`ip-${idx}`" class="ek-pickup-inline-row">
+                <input v-model="row.name" class="input" type="text" placeholder="Full name" />
+                <input v-model="row.relationship" class="input" type="text" placeholder="Relationship (e.g. Aunt)" />
+                <input v-model="row.phone" class="input" type="tel" inputmode="tel" placeholder="Phone (10 digits)" />
+                <button type="button" class="btn btn-secondary btn-sm" @click="inlinePickups.splice(idx, 1)">Remove</button>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" @click="inlinePickups.push({ name: '', relationship: '', phone: '' })">
+                + Add another person
+              </button>
+              <div v-if="inlinePickupError" class="error-box ek-checkin-err">{{ inlinePickupError }}</div>
+              <div class="ek-pickup-inline-actions">
+                <button type="button" class="btn btn-secondary btn-sm" @click="closeInlinePickups">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" :disabled="inlinePickupSaving" @click="saveInlinePickups">
+                  {{ inlinePickupSaving ? 'Saving…' : 'Save contacts' }}
+                </button>
+              </div>
+            </div>
           </div>
+
+          <!-- Formal waiver signing (guardian flow) -->
           <div v-if="canEditWaivers" class="ek-checkin-step-actions">
             <button
               type="button"
               class="btn btn-secondary btn-sm"
               @click="requestWaiverEdit('pickup_authorization')"
             >
-              {{ sheetHasPickups ? 'Add or change' : 'Add pickup person & sign' }}
+              Sign formal pickup authorization
             </button>
           </div>
-          <p v-else-if="sheet.waiversEnabled && !attributionGuardianId" class="muted small ek-checkin-step-actions">
-            A linked guardian is required to add or change this — staff can help.
-          </p>
         </section>
 
         <!-- Step: Walk-home -->
@@ -271,6 +290,8 @@ const props = defineProps({
   client: { type: Object, default: null },
   sheetUrl: { type: String, required: true },
   waiverUrl: { type: String, required: true },
+  /** Endpoint for saving kiosk-direct pickup contacts (no signature required). */
+  pickupsUrl: { type: String, default: '' },
   checkinUrl: { type: String, required: true },
   authHeaders: { type: Function, default: () => ({}) },
   snackOptions: { type: Array, default: () => [] },
@@ -326,6 +347,12 @@ const waiverSig = ref('');
 const waiverSaving = ref(false);
 const waiverError = ref('');
 
+// Inline (no-signature) pickup editing
+const inlinePickupOpen = ref(false);
+const inlinePickups = ref([]);
+const inlinePickupSaving = ref(false);
+const inlinePickupError = ref('');
+
 const clientLabel = computed(() => props.displayName(props.client));
 const currentStepId = computed(() => steps[stepIndex.value]?.id || 'emergency');
 const currentStepMeta = computed(() => steps[stepIndex.value] || steps[0]);
@@ -347,8 +374,9 @@ const canEditWaivers = computed(() => !!sheet.value?.waiversEnabled && !!attribu
 const pickupGateBlocked = computed(() => {
   const gate = sheet.value?.gate || {};
   if (!sheet.value?.waiversEnabled) return false;
-  if (gate.pickupRequired && !gate.pickupSatisfied) return true;
-  if (!sheetHasPickups.value && gate.pickupRequired) return true;
+  // Only block if pickup authorization is required AND there are no pickups on file at all.
+  // Pickups populated from intake, signed waivers, or kiosk-direct saves all satisfy this check.
+  if (gate.pickupRequired && !sheetHasPickups.value) return true;
   return false;
 });
 
@@ -454,6 +482,62 @@ function resetWizard() {
   guardianUserId.value = null;
   pendingWaiverKey.value = '';
   closeWaiverEdit();
+  closeInlinePickups();
+}
+
+function openInlinePickups() {
+  // Pre-populate with existing non-guardian pickups so the family can edit them
+  inlinePickups.value = (sheet.value?.authorizedPickups || [])
+    .filter((p) => p.source !== 'guardian')
+    .map((p) => ({ name: p.name || '', relationship: p.relationship || '', phone: p.phone || '' }));
+  if (!inlinePickups.value.length) {
+    inlinePickups.value = [{ name: '', relationship: '', phone: '' }];
+  }
+  inlinePickupError.value = '';
+  inlinePickupOpen.value = true;
+}
+
+function closeInlinePickups() {
+  inlinePickupOpen.value = false;
+  inlinePickups.value = [];
+  inlinePickupError.value = '';
+}
+
+async function saveInlinePickups() {
+  const rows = inlinePickups.value.filter((r) => String(r.name || '').trim());
+  if (!rows.length) {
+    inlinePickupError.value = 'Enter at least one person\'s name.';
+    return;
+  }
+  if (!props.pickupsUrl) {
+    inlinePickupError.value = 'Save URL not configured.';
+    return;
+  }
+  inlinePickupSaving.value = true;
+  inlinePickupError.value = '';
+  try {
+    const checkerName = checkerKind.value === 'other'
+      ? otherCheckerName.value.trim()
+      : (checkerOptions.value.find((o) => o.key === checkerSelectedKey.value)?.name || null);
+    const res = await api.post(props.pickupsUrl, {
+      pickups: rows,
+      addedByName: checkerName || null,
+      guardianUserId: guardianUserId.value || null
+    }, {
+      headers: props.authHeaders(),
+      skipGlobalLoading: true,
+      skipAuthRedirect: true
+    });
+    if (res.data?.sheet) {
+      sheet.value = res.data.sheet;
+      emit('sheet-updated', res.data.sheet);
+    }
+    closeInlinePickups();
+  } catch (e) {
+    inlinePickupError.value = e.response?.data?.error?.message || 'Could not save pickup contacts.';
+  } finally {
+    inlinePickupSaving.value = false;
+  }
 }
 
 function selectChecker(opt) {
@@ -913,4 +997,35 @@ watch(
 }
 .muted { color: #64748b; }
 .small { font-size: 13px; }
+.ek-pickup-inline {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed #e2e8f0;
+}
+.ek-pickup-inline-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ek-pickup-inline-form {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ek-pickup-inline-row {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 1fr 1fr;
+}
+.ek-pickup-inline-row input:first-child {
+  grid-column: 1 / -1;
+}
+.ek-pickup-inline-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
 </style>

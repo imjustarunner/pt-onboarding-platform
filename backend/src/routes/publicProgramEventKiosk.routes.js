@@ -17,7 +17,8 @@ import {
   programEventLateContact,
   programEventEmployeeCheckin,
   programEventEmployeeCheckinByPin,
-  programEventEmployeeCheckout
+  programEventEmployeeCheckout,
+  programEventClientSaveKioskPickups
 } from '../controllers/programEventKioskPublic.controller.js';
 
 const router = express.Router();
@@ -29,6 +30,7 @@ router.get('/agency/:slug/kiosk/events/:eventId/checkin/client/:clientId/sheet',
 router.post('/agency/:slug/kiosk/events/:eventId/checkin/client/waiver-section', postProgramEventClientWaiverSection);
 router.post('/agency/:slug/kiosk/events/:eventId/checkin/client', programEventClientCheckin);
 router.post('/agency/:slug/kiosk/events/:eventId/checkin/client/absent', programEventClientAbsent);
+router.post('/agency/:slug/kiosk/events/:eventId/checkin/client/:clientId/pickups', programEventClientSaveKioskPickups);
 router.post('/agency/:slug/kiosk/events/:eventId/checkin/late-contact', programEventLateContact);
 router.post('/agency/:slug/kiosk/events/:eventId/checkin/employee', programEventEmployeeCheckin);
 router.post('/agency/:slug/kiosk/events/:eventId/checkin/employee-pin', programEventEmployeeCheckinByPin);

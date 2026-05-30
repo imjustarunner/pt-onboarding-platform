@@ -534,6 +534,7 @@
       :client="checkinClient"
       :sheet-url="checkinSheetUrl"
       :waiver-url="`${apiBase()}/checkin/client/waiver-section`"
+      :pickups-url="checkinClient ? `${apiBase()}/checkin/client/${checkinClient.id}/pickups` : ''"
       :checkin-url="`${apiBase()}/checkin/client`"
       :auth-headers="authHeaders"
       :display-name="clientDisplayName"

@@ -56,7 +56,8 @@ import {
 import {
   buildKioskClientWaiverEntry,
   getEventKioskClientCheckinSheet,
-  saveEventKioskClientWaiverSection
+  saveEventKioskClientWaiverSection,
+  saveKioskPickupsForClient
 } from '../services/eventKioskClientCheckinWaiver.service.js';
 import {
   loadCompanyEventRegistrationForKiosk
@@ -1352,6 +1353,50 @@ export const programEventEmployeeCheckout = async (req, res, next) => {
       directClaimId: result.directClaimId,
       indirectClaimId: result.indirectClaimId
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST …/checkin/client/:clientId/pickups
+ * Save kiosk-added authorized pickup contacts for a client.
+ * No guardian e-signature required — operational kiosk-level data that
+ * feeds directly into the client's pickup list and the event check-in sheet.
+ */
+export const programEventClientSaveKioskPickups = async (req, res, next) => {
+  try {
+    const ctx = verifyKioskBearerForProgramEvent(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertKioskTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const clientId = parsePositiveInt(req.params.clientId);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+
+    const isParticipant = await assertClientIsKioskParticipant(m.eventId, clientId);
+    if (!isParticipant) {
+      return res.status(403).json({ error: { message: 'Client is not a participant for this event' } });
+    }
+
+    const pickups = Array.isArray(req.body?.pickups) ? req.body.pickups : [];
+    const addedByName = String(req.body?.addedByName || '').trim().slice(0, 255) || null;
+
+    const saved = await saveKioskPickupsForClient({
+      clientId,
+      companyEventId: m.eventId,
+      pickups,
+      addedByName
+    });
+
+    // Return a refreshed sheet so the wizard can update its state
+    const sheet = await getEventKioskClientCheckinSheet({
+      companyEventId: m.eventId,
+      clientId,
+      guardianUserId: parsePositiveInt(req.body?.guardianUserId) || null
+    });
+
+    res.json({ ok: true, saved, sheet });
   } catch (e) {
     next(e);
   }
