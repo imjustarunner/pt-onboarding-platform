@@ -642,9 +642,19 @@ function defaultWaiverPayload(key) {
     return { authorizedPickups: [{ name: '', relationship: '', phone: '' }] };
   }
   if (key === 'emergency_contacts') {
+    // Prefer a formally saved section (has full structure); fall back to intake-sourced
+    // contacts so the guardian can edit/correct them rather than starting from scratch.
     const existing = sheet.value?.emergencySection;
     if (existing && typeof existing === 'object') {
       return JSON.parse(JSON.stringify(existing));
+    }
+    const intakeContacts = (sheet.value?.emergencyContacts || []).map((c) => ({
+      name: String(c?.name || '').trim(),
+      phone: String(c?.phone || '').trim(),
+      relationship: String(c?.relationship || '').trim()
+    })).filter((c) => c.name);
+    if (intakeContacts.length) {
+      return { contacts: intakeContacts };
     }
     return { contacts: [{ name: '', phone: '', relationship: '' }] };
   }
