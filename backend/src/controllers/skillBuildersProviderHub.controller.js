@@ -72,6 +72,14 @@ import {
   upsertCurriculumRecord
 } from '../services/skillBuildersSessionClinical.service.js';
 import {
+  generateDailySummary,
+  getDailySummary,
+  getObservationPresets,
+  listObservationEntries,
+  enrichObservationEntriesWithActivityLabels,
+  buildObservationContextForClinical
+} from '../services/skillBuildersSessionObservations.service.js';
+import {
   buildFilledClassDocumentPdf,
   loadClassDocumentResponseRow,
   mapProgramDocumentRowToApi,
@@ -5039,13 +5047,32 @@ export const postSkillBuilderSessionClinicalNoteGenerate = async (req, res, next
       ? String(req.body.revisionInstruction).trim().slice(0, 1500)
       : '';
 
+    let staffObservationsText = null;
+    if (req.body?.includeSessionObservations === true) {
+      const [sessRows] = await pool.execute(
+        `SELECT session_date FROM skill_builders_event_sessions WHERE id = ? AND company_event_id = ? LIMIT 1`,
+        [sessionId, eventId]
+      );
+      const sessionDateYmd = sessRows?.[0]?.session_date
+        ? String(sessRows[0].session_date).slice(0, 10)
+        : null;
+      if (sessionDateYmd) {
+        staffObservationsText = await buildObservationContextForClinical({
+          companyEventId: eventId,
+          clientId,
+          sessionDateYmd
+        });
+      }
+    }
+
     const { outputObj, plainText } = await generateH2014SessionClinicalNote({
       agencyId,
       curriculumText,
       clinicianSummaryText,
       programLabel,
       revisionInstruction,
-      activityLabels: activityLabels.length ? activityLabels : null
+      activityLabels: activityLabels.length ? activityLabels : null,
+      staffObservationsText: staffObservationsText || null
     });
 
     const id = await upsertClinicalNote({
@@ -5871,6 +5898,109 @@ export const getProgramPortalDashboardSummary = async (req, res, next) => {
       events,
       recentApplicants
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** GET /api/skill-builders/events/:eventId/observations/presets?agencyId= */
+export const getSkillBuilderObservationPresets = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'agencyId and event id required' } });
+    const access = await assertClinicalSkillBuildersAccess(req, agencyId, eventId);
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    res.json({ ok: true, presets: getObservationPresets() });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** GET /api/skill-builders/events/:eventId/observations?agencyId=&date=&clientId= */
+export const listSkillBuilderSessionObservations = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const sessionDate = String(req.query.date || req.query.sessionDate || '').trim().slice(0, 10);
+    const clientId = parsePositiveInt(req.query.clientId);
+    if (!agencyId || !eventId || !sessionDate) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, and date required' } });
+    }
+    const access = await assertClinicalSkillBuildersAccess(req, agencyId, eventId);
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+
+    const staffLike = await isAgencyStaffLikeForSkillBuilders(req, agencyId);
+    const uid = parsePositiveInt(req.user?.id);
+    const authorUserIdFilter = staffLike ? null : uid;
+
+    const entries = await listObservationEntries({
+      agencyId,
+      companyEventId: eventId,
+      sessionDateYmd: sessionDate,
+      clientId: clientId || null,
+      authorUserIdFilter
+    });
+
+    const enriched = await enrichObservationEntriesWithActivityLabels(entries);
+
+    res.json({ ok: true, entries: enriched, sessionDate });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return res.json({ ok: true, entries: [], sessionDate: req.query.date });
+    next(e);
+  }
+};
+
+/** GET /api/skill-builders/events/:eventId/observations/clients/:clientId/daily-summary */
+export const getSkillBuilderObservationDailySummary = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const clientId = parsePositiveInt(req.params.clientId);
+    const sessionDate = String(req.query.date || req.query.sessionDate || '').trim().slice(0, 10);
+    if (!agencyId || !eventId || !clientId || !sessionDate) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, client id, and date required' } });
+    }
+    const access = await assertClinicalSkillBuildersAccess(req, agencyId, eventId);
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+
+    const summary = await getDailySummary({ companyEventId: eventId, clientId, sessionDateYmd: sessionDate });
+    res.json({ ok: true, summary, sessionDate });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return res.json({ ok: true, summary: null, sessionDate: req.query.date });
+    next(e);
+  }
+};
+
+/** POST /api/skill-builders/events/:eventId/observations/clients/:clientId/daily-summary/generate */
+export const postSkillBuilderObservationDailySummaryGenerate = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId || req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const clientId = parsePositiveInt(req.params.clientId);
+    const sessionDate = String(req.body?.date || req.body?.sessionDate || req.query.date || '').trim().slice(0, 10);
+    if (!agencyId || !eventId || !clientId || !sessionDate) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, client id, and date required' } });
+    }
+    const access = await assertClinicalSkillBuildersAccess(req, agencyId, eventId);
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+
+    const [cRows] = await pool.execute(
+      `SELECT first_name, last_name FROM clients WHERE id = ? LIMIT 1`,
+      [clientId]
+    );
+    const clientDisplayName = `${cRows?.[0]?.first_name || ''} ${cRows?.[0]?.last_name || ''}`.trim() || 'Client';
+
+    const summary = await generateDailySummary({
+      agencyId,
+      companyEventId: eventId,
+      clientId,
+      sessionDateYmd: sessionDate,
+      generatedByUserId: req.user.id,
+      clientDisplayName
+    });
+
+    res.json({ ok: true, summary, sessionDate });
   } catch (e) {
     next(e);
   }

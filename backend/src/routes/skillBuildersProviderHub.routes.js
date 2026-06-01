@@ -85,7 +85,11 @@ import {
   listSkillBuilderProgramDocumentActivityOptions,
   postSkillBuilderProgramDocumentActivityOption,
   patchSkillBuilderProgramDocumentActivityOption,
-  deleteSkillBuilderProgramDocumentActivityOption
+  deleteSkillBuilderProgramDocumentActivityOption,
+  getSkillBuilderObservationPresets,
+  listSkillBuilderSessionObservations,
+  getSkillBuilderObservationDailySummary,
+  postSkillBuilderObservationDailySummaryGenerate
 } from '../controllers/skillBuildersProviderHub.controller.js';
 import {
   listMasterSkillBuilderClients,
@@ -211,6 +215,16 @@ router.get('/events/:eventId/activity-options', listSkillBuilderActivityOptionsF
 router.post('/events/:eventId/activity-options', postSkillBuilderActivityOption);
 router.patch('/events/:eventId/activity-options/:optionId', patchSkillBuilderActivityOption);
 router.delete('/events/:eventId/activity-options/:optionId', deleteSkillBuilderActivityOption);
+router.get('/events/:eventId/observations/presets', getSkillBuilderObservationPresets);
+router.get('/events/:eventId/observations', listSkillBuilderSessionObservations);
+router.get(
+  '/events/:eventId/observations/clients/:clientId/daily-summary',
+  getSkillBuilderObservationDailySummary
+);
+router.post(
+  '/events/:eventId/observations/clients/:clientId/daily-summary/generate',
+  postSkillBuilderObservationDailySummaryGenerate
+);
 router.put('/events/:eventId/sessions/:sessionId/providers', putSkillBuilderEventSessionProviders);
 router.put('/events/:eventId/sessions/:sessionId/client-attendance', putSkillBuilderClientSessionAttendance);
 router.get('/events/:eventId/attendance/providers/export.csv', exportSkillBuilderEventProviderAttendanceCsv);

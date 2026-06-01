@@ -233,7 +233,8 @@ export async function generateH2014SessionClinicalNote({
   clinicianSummaryText,
   programLabel,
   revisionInstruction,
-  activityLabels = null
+  activityLabels = null,
+  staffObservationsText = null
 }) {
   const na = await requireNoteAidEnabledForAgency(agencyId);
   if (!na.ok) {
@@ -266,6 +267,9 @@ export async function generateH2014SessionClinicalNote({
     '',
     'Curriculum of the day (reference; do not copy verbatim unless appropriate for the note):',
     cur || '(No curriculum text extracted — rely on clinician summary and knowledge base.)',
+    staffObservationsText
+      ? ['', String(staffObservationsText).trim()].join('\n')
+      : '',
     '',
     'Clinician observations and session summary (behaviors, demeanor, success, challenges):',
     summary

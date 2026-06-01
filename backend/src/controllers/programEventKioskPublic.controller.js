@@ -66,6 +66,12 @@ import {
   recordEventEmployeeClockIn,
   recordEventEmployeeClockOut
 } from '../services/skillBuildersEventKioskPunch.service.js';
+import {
+  assertEmployeeCheckedInForEventDay,
+  createObservationEntry,
+  getObservationPresets,
+  loadActivityOptionsForKioskObservation
+} from '../services/skillBuildersSessionObservations.service.js';
 
 const parsePositiveInt = (raw) => {
   const n = Number.parseInt(String(raw || ''), 10);
@@ -1397,6 +1403,92 @@ export const programEventClientSaveKioskPickups = async (req, res, next) => {
     });
 
     res.json({ ok: true, saved, sheet });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** GET …/observation-config — presets + activity options only (no observation PHI). */
+export const getProgramEventObservationConfig = async (req, res, next) => {
+  try {
+    const ctx = verifyKioskBearerForProgramEvent(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertKioskTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const [evRows] = await pool.execute(
+      `SELECT ce.id, ce.timezone FROM company_events ce WHERE ce.id = ? AND ce.agency_id = ? LIMIT 1`,
+      [m.eventId, m.agencyId]
+    );
+    const ev = evRows?.[0];
+    if (!ev) return res.status(404).json({ error: { message: 'Event not found' } });
+
+    const kioskDay = await resolveKioskDayContext(ev);
+    const activityOptions = await loadActivityOptionsForKioskObservation({
+      agencyId: m.agencyId,
+      eventId: m.eventId,
+      sessionDateYmd: kioskDay.todayYmd
+    });
+
+    res.json({
+      ok: true,
+      presets: getObservationPresets(),
+      activityOptions,
+      sessionDate: kioskDay.todayYmd
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** POST …/observations — write-only session observation log from kiosk Resources tab. */
+export const postProgramEventObservation = async (req, res, next) => {
+  try {
+    const ctx = verifyKioskBearerForProgramEvent(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertKioskTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const kioskDay = await assertKioskRecordingAllowed(m.agencyId, m.eventId, res);
+    if (!kioskDay) return;
+
+    const clientId = parsePositiveInt(req.body?.clientId);
+    const authorUserId = parsePositiveInt(req.body?.authorUserId);
+    if (!clientId || !authorUserId) {
+      return res.status(400).json({ error: { message: 'clientId and authorUserId are required' } });
+    }
+
+    const isParticipant = await assertClientIsKioskParticipant(m.eventId, clientId);
+    if (!isParticipant) {
+      return res.status(403).json({ error: { message: 'Client is not a participant for this event' } });
+    }
+
+    const onStaff = await assertProgramEventStaff(m.eventId, m.agencyId, authorUserId);
+    if (!onStaff) {
+      return res.status(403).json({ error: { message: 'Employee is not assigned to this event' } });
+    }
+
+    const checkedIn = await assertEmployeeCheckedInForEventDay({
+      eventId: m.eventId,
+      userId: authorUserId,
+      kioskDateYmd: kioskDay.todayYmd
+    });
+    if (!checkedIn) {
+      return res.status(403).json({ error: { message: 'Employee must be checked in before logging observations' } });
+    }
+
+    const sessionDate = normalizeDbDateToYmd(req.body?.sessionDate) || kioskDay.todayYmd;
+
+    await createObservationEntry({
+      agencyId: m.agencyId,
+      companyEventId: m.eventId,
+      clientId,
+      authorUserId,
+      sessionDateYmd: sessionDate,
+      payload: req.body?.payload
+    });
+
+    res.status(201).json({ ok: true });
   } catch (e) {
     next(e);
   }

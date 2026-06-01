@@ -535,6 +535,23 @@
             <strong>Notes:</strong> {{ resourceClient.meals.mealNotes || resourceClient.meals.notes }}
           </p>
         </div>
+
+        <div class="pe-resource-obs-actions">
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="!kioskActive || !activeCheckedInStaff.length"
+            @click="openObservation(resourceClient)"
+          >
+            Log session observation
+          </button>
+          <p v-if="!activeCheckedInStaff.length" class="muted small">
+            An employee must check in before logging observations.
+          </p>
+          <p v-else class="muted small">
+            Private staff log — not shown on this kiosk after saving.
+          </p>
+        </div>
       </div>
     </div>
 
@@ -550,6 +567,17 @@
       @close="closeCheckin"
       @checked-in="onCheckinComplete"
       @sheet-updated="applyCheckinSheetToClient"
+    />
+
+    <EventKioskSessionObservationWizard
+      :open="observationOpen"
+      :client="observationClient"
+      :checked-in-staff="activeCheckedInStaff"
+      :config-url="`${apiBase()}/observation-config`"
+      :save-url="`${apiBase()}/observations`"
+      :auth-headers="authHeaders"
+      :display-name="clientDisplayName"
+      @close="closeObservation"
     />
 
     <!-- Mark absent modal -->
@@ -932,6 +960,7 @@ import { buildFormUrl } from '../../utils/publicIntakeUrl';
 import SignaturePad from '../../components/SignaturePad.vue';
 import EventKioskLateContactFlow from '../../components/eventKiosk/EventKioskLateContactFlow.vue';
 import EventKioskCheckinWizard from '../../components/eventKiosk/EventKioskCheckinWizard.vue';
+import EventKioskSessionObservationWizard from '../../components/eventKiosk/EventKioskSessionObservationWizard.vue';
 
 const route = useRoute();
 const brandingStore = useBrandingStore();
@@ -1587,6 +1616,17 @@ function openResource(c) {
 function closeResource() {
   resourceOpen.value = false;
   resourceClient.value = null;
+}
+
+const observationOpen = ref(false);
+const observationClient = ref(null);
+function openObservation(c) {
+  observationClient.value = c;
+  observationOpen.value = true;
+}
+function closeObservation() {
+  observationOpen.value = false;
+  observationClient.value = null;
 }
 
 // Checkout modal (release)
@@ -2370,6 +2410,14 @@ onBeforeUnmount(() => {
   box-shadow: 0 20px 60px rgba(15, 23, 42, 0.25);
 }
 .pe-resource-card { width: min(480px, 100%); max-height: min(88vh, 720px); overflow-y: auto; }
+.pe-resource-obs-actions {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed #cbd5e1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 .pe-allergy-warn { color: #b45309; }
 .pe-allergy-block, .pe-meal-block { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 .pe-checkout-allergy-banner {

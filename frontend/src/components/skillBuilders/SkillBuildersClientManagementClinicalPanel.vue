@@ -205,6 +205,11 @@
             />
           </div>
 
+          <label class="sbep-check-row">
+            <input v-model="includeSessionObservations" type="checkbox" />
+            <span>Include today's session observations from the kiosk (when available)</span>
+          </label>
+
           <div v-if="plainNoteWithoutSections" class="sbep-field sbep-plain-fallback">
             <label class="sbep-label" for="sbep-plain-note">Current note (plain text)</label>
             <textarea
@@ -319,6 +324,7 @@ const generatedText = ref('');
 const lastOutputSections = ref({});
 const activityOptions = ref([]);
 const selectedActivityIds = ref([]);
+const includeSessionObservations = ref(true);
 const deleteConfirmOpen = ref(false);
 const deleteConfirmInput = ref('');
 const editingSectionKey = ref(null);
@@ -706,7 +712,8 @@ async function runH2014Generate({ revisionInstruction = '' } = {}) {
     const body = {
       agencyId: props.agencyId,
       clinicianSummaryText: summary,
-      activityIds: selectedActivityIds.value.length ? selectedActivityIds.value.map((x) => Number(x)) : undefined
+      activityIds: selectedActivityIds.value.length ? selectedActivityIds.value.map((x) => Number(x)) : undefined,
+      includeSessionObservations: includeSessionObservations.value === true
     };
     const ri = String(revisionInstruction || '').trim();
     if (ri) body.revisionInstruction = ri;
@@ -1097,6 +1104,14 @@ onUnmounted(() => {
   opacity: 0;
   pointer-events: none;
 }
+.sbep-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.92rem;
+  margin: 0 0 12px;
+}
+.sbep-check-row input { margin-top: 3px; }
 .sbep-clinical-activities {
   margin: 0 0 12px;
   padding: 12px 14px;

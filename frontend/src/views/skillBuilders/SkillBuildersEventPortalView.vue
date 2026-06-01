@@ -1787,6 +1787,28 @@
             </SkillBuildersEventDashboardSection>
 
             <SkillBuildersEventDashboardSection
+              v-if="detail.skillsGroup && clinicalNotesEnabled"
+              v-show="railActive === 'session_observations'"
+              rail-mode
+              section-id="session_observations"
+              title="Session observations"
+              icon-url=""
+            >
+              <p class="muted small sbep-card-lead">
+                Structured logs captured at the kiosk Resources tab (encrypted). Review entries and generate AI daily summaries
+                for Clinical Aid.
+              </p>
+              <SkillBuildersSessionObservationsPanel
+                v-if="eventBillingAgencyId && eventId"
+                :agency-id="eventBillingAgencyId"
+                :event-id="eventId"
+                :clients="detail?.clients || []"
+                :sessions="sessions"
+                :client-label-for-row="clientLabelForRow"
+              />
+            </SkillBuildersEventDashboardSection>
+
+            <SkillBuildersEventDashboardSection
               v-if="detail.event?.registrationEligible"
               v-show="railActive === 'registrations'"
               rail-mode
@@ -2701,6 +2723,7 @@ import SkillBuildersSessionCurriculumMaterials from '../../components/skillBuild
 import SkillBuildersEventEditModal from '../../components/skillBuilders/SkillBuildersEventEditModal.vue';
 import SkillBuildersEventProvidersGrid from '../../components/skillBuilders/SkillBuildersEventProvidersGrid.vue';
 import SkillBuildersClinicalNotesHubPanel from '../../components/skillBuilders/SkillBuildersClinicalNotesHubPanel.vue';
+import SkillBuildersSessionObservationsPanel from '../../components/skillBuilders/SkillBuildersSessionObservationsPanel.vue';
 import UserAvatar from '../../components/common/UserAvatar.vue';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
@@ -3137,6 +3160,7 @@ function sectionTeaser(sectionId) {
     clients: 'Program roster, attendance, and coordinator tools.',
     participants: 'Participant list for non–skills-group program events.',
     clinical_notes: 'Session notes, H2014-style tools, and copy aids.',
+    session_observations: 'Kiosk session logs and AI daily summaries.',
     materials: 'Documents, PDFs, and the shared program library.',
     registrations: 'Enrollment, capacity, and registration-aware actions.',
     'work-schedule': 'Assign providers to dates and roles for this event.',
@@ -3218,6 +3242,7 @@ const eventRailItems = computed(() => {
     !!d.skillsGroup &&
     !!(v.isAssignedProvider || v.canManageTeamSchedules || v.canManageCompanyEvent);
   push('clinical_notes', 'Clinical Aid', 'Aid', showClinicalAidCard);
+  push('session_observations', 'Session observations', 'Observations', showClinicalAidCard);
 
   push('materials', 'Materials', 'Materials', true);
 
