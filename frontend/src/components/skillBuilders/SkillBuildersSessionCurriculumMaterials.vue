@@ -138,37 +138,24 @@
                 </template>
               </td>
             </tr>
-            <!-- Activity / session notes paste row -->
+            <!-- Activity / session notes paste row (always visible) -->
             <tr class="sbep-mat-paste-row">
               <td colspan="5" class="sbep-mat-paste-cell">
-                <button
-                  type="button"
-                  class="btn btn-link btn-sm sbep-mat-paste-toggle"
-                  @click="togglePaste(s.id)"
-                >
-                  <span class="sbep-mat-paste-caret">{{ pasteExpanded[s.id] ? '▾' : '▸' }}</span>
+                <div class="sbep-mat-paste-label">
                   Activity / session notes
-                  <span v-if="pasteText[s.id]" class="sbep-mat-paste-dot" title="Notes saved" />
-                </button>
-                <div v-if="pasteExpanded[s.id]" class="sbep-mat-paste-body">
-                  <p class="muted small sbep-mat-paste-hint">
-                    Paste or type activity / session notes here. Saved automatically. Used in Clinical note generation.
-                  </p>
-                  <textarea
-                    v-model="pasteText[s.id]"
-                    class="input sbep-mat-paste-textarea"
-                    rows="6"
-                    maxlength="50000"
-                    placeholder="Paste or type activity details, session notes, or any context used when generating the H2014 clinical note…"
-                    :disabled="pasteSaving[s.id]"
-                    @blur="savePasteText(s.id)"
-                  />
-                  <div class="sbep-mat-paste-footer">
-                    <span v-if="pasteSaving[s.id]" class="muted small">Saving…</span>
-                    <span v-else-if="pasteSaved[s.id]" class="sbep-mat-paste-saved small">Saved</span>
-                    <span v-else class="muted small">{{ (pasteText[s.id] || '').length }} / 50 000 chars</span>
-                  </div>
+                  <span class="muted small sbep-mat-paste-hint-inline">— pasted text used in Clinical note generation</span>
+                  <span v-if="pasteSaved[s.id]" class="sbep-mat-paste-saved small">Saved</span>
+                  <span v-else-if="pasteSaving[s.id]" class="muted small">Saving…</span>
                 </div>
+                <textarea
+                  v-model="pasteText[s.id]"
+                  class="input sbep-mat-paste-textarea"
+                  rows="5"
+                  maxlength="50000"
+                  placeholder="Paste or type what's happening this session — activities, agenda, curriculum content. Auto-saved when you leave this field."
+                  :disabled="pasteSaving[s.id]"
+                  @blur="savePasteText(s.id)"
+                />
               </td>
             </tr>
           </template>
@@ -292,7 +279,6 @@ async function attachFromLibrary(sessionId) {
 }
 
 /** Paste-area state keyed by session id */
-const pasteExpanded = reactive({});
 const pasteText = reactive({});
 const pasteSaving = reactive({});
 const pasteSaved = reactive({});
@@ -308,10 +294,6 @@ watch(
   },
   { immediate: true, deep: false }
 );
-
-function togglePaste(sessionId) {
-  pasteExpanded[sessionId] = !pasteExpanded[sessionId];
-}
 
 async function savePasteText(sessionId) {
   if (!props.agencyId || !props.eventId) return;
@@ -505,41 +487,24 @@ async function removePdf(sessionId) {
 }
 .sbep-mat-paste-row td {
   border-bottom: 2px solid var(--border, #e2e8f0);
-  padding: 0;
+  padding: 8px 10px 10px;
+  background: #f8fafc;
 }
 .sbep-mat-paste-cell {
-  padding: 0 !important;
+  padding: 8px 10px 10px !important;
+  background: #f8fafc;
 }
-.sbep-mat-paste-toggle {
+.sbep-mat-paste-label {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 6px 10px;
-  color: var(--text-secondary, #64748b);
+  gap: 6px;
   font-size: 0.82rem;
-  font-weight: 500;
-  width: 100%;
-  text-align: left;
+  font-weight: 600;
+  color: var(--text-secondary, #64748b);
+  margin-bottom: 6px;
 }
-.sbep-mat-paste-toggle:hover {
-  color: var(--text, #1e293b);
-}
-.sbep-mat-paste-caret {
-  font-size: 0.75rem;
-}
-.sbep-mat-paste-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--color-success, #16a34a);
-  margin-left: 2px;
-}
-.sbep-mat-paste-body {
-  padding: 0 10px 10px;
-}
-.sbep-mat-paste-hint {
-  margin: 0 0 6px;
+.sbep-mat-paste-hint-inline {
+  font-weight: 400;
 }
 .sbep-mat-paste-textarea {
   width: 100%;
@@ -550,13 +515,11 @@ async function removePdf(sessionId) {
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 6px;
   padding: 8px 10px;
-}
-.sbep-mat-paste-footer {
-  margin-top: 4px;
-  min-height: 1.2em;
+  background: #fff;
 }
 .sbep-mat-paste-saved {
   color: var(--color-success, #16a34a);
   font-size: 0.8rem;
+  font-weight: 600;
 }
 </style>

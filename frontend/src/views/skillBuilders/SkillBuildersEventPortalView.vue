@@ -1761,7 +1761,7 @@
             </SkillBuildersEventDashboardSection>
 
             <SkillBuildersEventDashboardSection
-              v-if="detail.skillsGroup && clinicalNotesEnabled"
+              v-if="clinicalNotesEnabled"
               v-show="railActive === 'clinical'"
               rail-mode
               section-id="clinical"
@@ -3210,7 +3210,6 @@ const eventRailItems = computed(() => {
   const showClinicalAidCard =
     !isGuardianPortalUser &&
     clinicalNotesEnabled.value &&
-    !!d.skillsGroup &&
     !!(v.isAssignedProvider || v.canManageTeamSchedules || v.canManageCompanyEvent);
   push('clinical', 'Clinical', 'Clinical', showClinicalAidCard);
 
