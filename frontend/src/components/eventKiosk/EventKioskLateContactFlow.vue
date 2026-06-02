@@ -74,6 +74,12 @@
 
         <div v-if="contactMethod === 'phone' && !phoneOutcome" class="ek-late-block">
           <div class="ek-late-label">Phone call</div>
+          <p v-if="selectedContact?.phone" class="muted small ek-late-dial-hint">
+            {{ selectedContact.phone }}
+            <button type="button" class="btn btn-link btn-sm ek-late-dial-btn" @click="openMethodLink('phone')">
+              Call this number
+            </button>
+          </p>
           <div class="ek-push-row">
             <button
               type="button"
@@ -320,6 +326,9 @@ const contactOptions = computed(() => {
 });
 
 function syncFromLog(log) {
+  if (!log) {
+    editingPending.value = false;
+  }
   selectedStaffId.value = log?.staffUserId ? Number(log.staffUserId) : null;
   const target = log?.contactTarget || {};
   if (target.type && target.ref) {
@@ -351,7 +360,7 @@ function syncFromLog(log) {
   attendanceOutcome.value = log?.attendanceOutcome || '';
   absenceReasonDraft.value = log?.absenceReason || '';
   awaitingAbsenceReason.value = false;
-  editingPending.value = false;
+  if (log?.resolvedAt) editingPending.value = false;
 }
 
 watch(() => props.log, (log) => syncFromLog(log), { immediate: true });
@@ -463,7 +472,6 @@ async function markContacted() {
 }
 
 async function selectMethod(method) {
-  openMethodLink(method);
   contactMethod.value = method;
   phoneOutcome.value = method === 'phone' ? '' : '';
   await savePatch({ contactMethod: method, phoneOutcome: method === 'phone' ? null : undefined });
@@ -573,6 +581,8 @@ async function reopenPending() {
   box-shadow: 0 0 0 1px var(--primary, #0f766e);
 }
 .ek-absence-input { width: 100%; margin-bottom: 8px; resize: vertical; }
+.ek-late-dial-hint { margin: 0 0 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ek-late-dial-btn { padding: 0; min-height: auto; font-size: 12px; }
 .ek-late-err { color: #b91c1c; font-size: 12px; margin: 8px 0 0; }
 .ek-late-summary, .ek-late-pending { padding-top: 4px; }
 .ek-late-detail { margin: 0 0 10px; display: flex; flex-direction: column; gap: 6px; }
