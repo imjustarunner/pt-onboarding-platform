@@ -6027,12 +6027,10 @@ export const getSkillBuilderClinicalDay = async (req, res, next) => {
       checkedOutAt: r.checked_out_at || null
     }));
 
-    // Observation entries for all clients on this date
-    const allObs = session
-      ? await enrichObservationEntriesWithActivityLabels(
-          await listObservationEntries({ agencyId, companyEventId: eventId, sessionDateYmd: date })
-        )
-      : [];
+    // Observation entries for all clients on this date — load regardless of whether a session row exists
+    const allObs = await enrichObservationEntriesWithActivityLabels(
+      await listObservationEntries({ agencyId, companyEventId: eventId, sessionDateYmd: date })
+    );
 
     // Clinical note status per client (if session exists)
     let clinicalNoteStatuses = [];
