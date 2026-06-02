@@ -235,7 +235,7 @@ export async function listObservationEntries({
            e.session_id AS sessionId, e.session_date AS sessionDate, e.payload_enc,
            e.created_at AS createdAt,
            u.first_name AS authorFirstName, u.last_name AS authorLastName,
-           c.first_name AS clientFirstName, c.last_name AS clientLastName
+           c.full_name AS clientFullName, c.initials AS clientInitials, c.identifier_code AS clientIdentifierCode
     FROM skill_builders_session_observation_entries e
     INNER JOIN users u ON u.id = e.author_user_id
     INNER JOIN clients c ON c.id = e.client_id
@@ -256,7 +256,7 @@ export async function listObservationEntries({
     return (rows || []).map((row) => {
       const payload = decryptPayloadRow(row);
       const authorName = `${row.authorFirstName || ''} ${row.authorLastName || ''}`.trim();
-      const clientName = `${row.clientFirstName || ''} ${row.clientLastName || ''}`.trim();
+      const clientName = row.clientFullName || row.clientInitials || row.clientIdentifierCode || '';
       return {
         id: Number(row.id),
         clientId: Number(row.clientId),
