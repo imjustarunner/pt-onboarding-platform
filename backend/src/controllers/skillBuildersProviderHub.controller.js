@@ -5998,7 +5998,10 @@ export const getSkillBuilderClinicalDay = async (req, res, next) => {
     const access = await assertClinicalSkillBuildersAccess(req, agencyId, eventId);
     if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
 
-    // Find the session for this event/date
+    // Find the session for this event/date — try skill_builders_event_sessions first, then program sessions
+    let session = null;
+    let sessionId = null;
+
     const [sessRows] = await pool.execute(
       `SELECT id, session_date, curriculum_notes_text
        FROM skill_builders_event_sessions
@@ -6014,10 +6017,26 @@ export const getSkillBuilderClinicalDay = async (req, res, next) => {
           [eventId, date]
         );
       }
-      throw e;
+      return [[]];
     });
-    const session = sessRows?.[0] || null;
-    const sessionId = session ? Number(session.id) : null;
+
+    if (sessRows?.[0]) {
+      session = sessRows[0];
+      sessionId = Number(session.id);
+    } else {
+      // Fall back to company_event_session_dates (program events without skills groups)
+      const [progRows] = await pool.execute(
+        `SELECT id, session_date, curriculum_notes_text
+         FROM company_event_session_dates
+         WHERE company_event_id = ? AND session_date = ?
+         LIMIT 1`,
+        [eventId, date]
+      ).catch(() => [[]]);
+      if (progRows?.[0]) {
+        session = progRows[0];
+        sessionId = Number(session.id);
+      }
+    }
 
     // Clients who checked in via kiosk on this date
     const [checkinRows] = await pool.execute(
@@ -6096,19 +6115,44 @@ export const patchSkillBuilderSessionCurriculumText = async (req, res, next) => 
     if (!(await canManageTeamSchedulesForAgency(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Program coordinator or agency staff required' } });
     }
-    // Verify session belongs to event
+
+    // Try skill_builders_event_sessions first (skills-group events)
     const [sRows] = await pool.execute(
       `SELECT id FROM skill_builders_event_sessions WHERE id = ? AND company_event_id = ? LIMIT 1`,
       [sessionId, eventId]
-    );
-    if (!sRows?.length) return res.status(404).json({ error: { message: 'Session not found for this event' } });
+    ).catch(() => [[]]);
 
-    await pool.execute(
-      `UPDATE skill_builders_event_sessions SET curriculum_notes_text = ? WHERE id = ?`,
-      [text || null, sessionId]
-    );
-    res.json({ ok: true, sessionId, text });
+    if (sRows?.length) {
+      await pool.execute(
+        `UPDATE skill_builders_event_sessions SET curriculum_notes_text = ? WHERE id = ?`,
+        [text || null, sessionId]
+      );
+      return res.json({ ok: true, sessionId, text });
+    }
+
+    // Fall back to company_event_session_dates (program events)
+    const [pRows] = await pool.execute(
+      `SELECT id FROM company_event_session_dates WHERE id = ? AND company_event_id = ? LIMIT 1`,
+      [sessionId, eventId]
+    ).catch(() => [[]]);
+
+    if (pRows?.length) {
+      await pool.execute(
+        `UPDATE company_event_session_dates SET curriculum_notes_text = ? WHERE id = ?`,
+        [text || null, sessionId]
+      ).catch(async (e) => {
+        // Column may not exist yet if migration hasn't run
+        if (e?.code === 'ER_BAD_FIELD_ERROR') {
+          throw Object.assign(new Error('Run migration 837 to add curriculum_notes_text to program sessions'), { status: 503 });
+        }
+        throw e;
+      });
+      return res.json({ ok: true, sessionId, text });
+    }
+
+    return res.status(404).json({ error: { message: 'Session not found for this event' } });
   } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
 };
