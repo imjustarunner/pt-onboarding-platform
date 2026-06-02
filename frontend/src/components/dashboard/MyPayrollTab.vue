@@ -5148,6 +5148,8 @@ select {
 .periods {
   margin-top: 10px;
   max-width: 980px;
+  overflow-x: auto;
+  min-width: 0;
 }
 .periods-head {
   display: grid;

@@ -2,7 +2,7 @@
 # Multi-stage build for optimized production image
 
 # Stage 1: Build
-FROM us-docker.pkg.dev/docker-hub-mirror/library/node:22-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app/frontend
 
@@ -59,7 +59,7 @@ RUN npm run build || ( \
     exit 1 )
 
 # Stage 2: Production
-FROM us-docker.pkg.dev/docker-hub-mirror/library/nginx:alpine
+FROM nginx:alpine
 
 # Copy built files from builder stage
 COPY --from=builder /app/frontend/dist /usr/share/nginx/html

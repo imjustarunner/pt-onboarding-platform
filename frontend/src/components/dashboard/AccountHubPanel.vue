@@ -465,5 +465,7 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
 
 .acct-hub__main-body {
   padding: 18px 20px 24px;
+  overflow-x: auto;
+  min-width: 0;
 }
 </style>

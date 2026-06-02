@@ -186,6 +186,8 @@ const fmtNum = (n) => {
   --hub-muted: #6b7280;
   font-family: var(--font-body, 'Inter', system-ui, sans-serif);
   color: #111827;
+  overflow-x: hidden;
+  min-width: 0;
 }
 
 .pay-hub__header {
@@ -453,12 +455,18 @@ const fmtNum = (n) => {
 
 .pay-hub__body {
   display: grid;
-  grid-template-columns: 1fr 300px;
-  gap: 24px;
+  grid-template-columns: 1fr 280px;
+  gap: 20px;
   align-items: start;
+  min-width: 0;
 }
 
-@media (max-width: 1024px) {
+.pay-hub__main {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+@media (max-width: 860px) {
   .pay-hub__body {
     grid-template-columns: 1fr;
   }
