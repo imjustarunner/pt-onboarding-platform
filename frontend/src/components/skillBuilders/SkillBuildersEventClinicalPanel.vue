@@ -115,15 +115,15 @@
             <div class="sbclin-generate-form">
               <label class="sbclin-field-full">
                 <span class="sbclin-lbl">
-                  Clinician summary
-                  <span class="sbclin-lbl-req">*</span>
+                  Additional clinician notes
+                  <span class="sbclin-lbl-optional muted"> — optional when observations are logged</span>
                 </span>
                 <textarea
                   v-model="clinicianSummary[client.clientId]"
                   class="input sbclin-summary-textarea"
-                  rows="4"
+                  rows="3"
                   maxlength="4000"
-                  placeholder="Describe the client's participation, progress, and any notable observations for this session…"
+                  placeholder="Add any extra context not captured in the observation entries (optional). The note will use observations + activity notes if this is left blank."
                 />
               </label>
             </div>
@@ -136,7 +136,7 @@
               <button
                 type="button"
                 class="btn btn-primary btn-sm"
-                :disabled="generating[client.clientId] || !clinicianSummary[client.clientId]?.trim()"
+                :disabled="generating[client.clientId]"
                 @click="generateNote(client)"
               >
                 {{ generating[client.clientId] ? 'Generating…' : client.hasClinicalNote ? 'Regenerate H2014 note' : 'Generate H2014 note' }}
@@ -310,17 +310,14 @@ async function generateNote(client) {
     return;
   }
   const summary = String(clinicianSummary[client.clientId] || '').trim();
-  if (!summary) {
-    window.alert('Please enter a clinician summary before generating a note.');
-    return;
-  }
   generating[client.clientId] = true;
   generateError[client.clientId] = '';
   try {
     const body = {
       agencyId: props.agencyId,
-      clinicianSummaryText: summary,
+      clinicianSummaryText: summary || undefined,
       includeSessionObservations: true,
+      sessionDate: selectedDate.value,
       curriculumPaste: dayData.value?.curriculumNotesText || undefined
     };
     const res = await api.post(
@@ -380,6 +377,10 @@ reload();
 .sbclin-lbl-req {
   color: #dc2626;
   margin-left: 2px;
+}
+.sbclin-lbl-optional {
+  font-weight: 400;
+  font-size: 0.78rem;
 }
 .sbclin-err {
   margin-bottom: 12px;

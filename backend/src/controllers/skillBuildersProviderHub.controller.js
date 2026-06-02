@@ -5044,22 +5044,25 @@ export const postSkillBuilderSessionClinicalNoteGenerate = async (req, res, next
     if (paste) curriculumText = paste;
 
     const clinicianSummaryText = String(req.body?.clinicianSummaryText || '').trim();
-    if (!clinicianSummaryText) {
-      return res.status(400).json({ error: { message: 'clinicianSummaryText is required' } });
-    }
     const revisionInstruction = req.body?.revisionInstruction
       ? String(req.body.revisionInstruction).trim().slice(0, 1500)
       : '';
 
     let staffObservationsText = null;
     if (req.body?.includeSessionObservations === true) {
-      const [sessRows] = await pool.execute(
-        `SELECT session_date FROM skill_builders_event_sessions WHERE id = ? AND company_event_id = ? LIMIT 1`,
-        [sessionId, eventId]
-      );
-      const sessionDateYmd = sessRows?.[0]?.session_date
-        ? String(sessRows[0].session_date).slice(0, 10)
-        : null;
+      // Try to get session date from skill_builders_event_sessions; fall back to req.body.sessionDate
+      let sessionDateYmd = req.body?.sessionDate ? String(req.body.sessionDate).trim().slice(0, 10) : null;
+      if (!sessionDateYmd) {
+        try {
+          const [sessRows] = await pool.execute(
+            `SELECT session_date FROM skill_builders_event_sessions WHERE id = ? AND company_event_id = ? LIMIT 1`,
+            [sessionId, eventId]
+          );
+          sessionDateYmd = sessRows?.[0]?.session_date ? String(sessRows[0].session_date).slice(0, 10) : null;
+        } catch {
+          // best-effort
+        }
+      }
       if (sessionDateYmd) {
         staffObservationsText = await buildObservationContextForClinical({
           companyEventId: eventId,
@@ -5067,6 +5070,13 @@ export const postSkillBuilderSessionClinicalNoteGenerate = async (req, res, next
           sessionDateYmd
         });
       }
+    }
+
+    // clinicianSummaryText is optional when observations are included — observations drive the note
+    if (!clinicianSummaryText && !staffObservationsText && !curriculumText) {
+      return res.status(400).json({
+        error: { message: 'Please provide a clinician summary, or include session observations / activity notes to generate the note.' }
+      });
     }
 
     const { outputObj, plainText } = await generateH2014SessionClinicalNote({
