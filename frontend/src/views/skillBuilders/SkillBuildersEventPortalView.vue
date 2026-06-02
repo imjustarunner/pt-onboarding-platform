@@ -1771,8 +1771,25 @@
               <p class="muted small sbep-card-lead">
                 Daily attendance, observation entries, and H2014 clinical note generation — all in one place.
               </p>
+
+              <!-- PHI acknowledgement gate -->
+              <div v-if="!clinicalAckAccepted" class="sbep-clinical-ack-overlay">
+                <div class="sbep-clinical-ack-card">
+                  <div class="sbep-clinical-ack-icon">🔒</div>
+                  <h3 class="sbep-clinical-ack-title">Protected Health Information</h3>
+                  <p class="sbep-clinical-ack-body">
+                    This section contains client observation notes and AI-generated clinical documentation.
+                    Access is recorded and may be audited.
+                    By continuing you confirm you are authorized to view this information for this program.
+                  </p>
+                  <button type="button" class="btn btn-primary sbep-clinical-ack-btn" @click="acceptClinicalAck">
+                    I understand — continue to Clinical
+                  </button>
+                </div>
+              </div>
+
               <SkillBuildersEventClinicalPanel
-                v-if="eventBillingAgencyId && eventId"
+                v-else-if="eventBillingAgencyId && eventId"
                 :agency-id="eventBillingAgencyId"
                 :event-id="eventId"
               />
@@ -3020,6 +3037,31 @@ const clinicalNotesContextEventTitle = computed(() => {
   return String(d?.event?.title || d?.skillsGroup?.name || '').trim();
 });
 
+// --- Clinical PHI acknowledgement + access logging ---
+const clinicalAckAccepted = ref(false);
+
+async function acceptClinicalAck() {
+  clinicalAckAccepted.value = true;
+  // Fire-and-forget access log
+  try {
+    if (eventBillingAgencyId.value && eventId.value) {
+      await api.post(
+        `/skill-builders/events/${eventId.value}/clinical-access-log`,
+        { agencyId: eventBillingAgencyId.value },
+        { skipGlobalLoading: true }
+      );
+    }
+  } catch {
+    /* best-effort */
+  }
+}
+
+// Reset acknowledgement whenever the event changes so it re-prompts per event
+watch(
+  () => eventId.value,
+  () => { clinicalAckAccepted.value = false; }
+);
+
 const viewerCaps = computed(() => {
   const v = detail.value?.viewerCapabilities;
   if (v && typeof v === 'object') {
@@ -3206,11 +3248,8 @@ const eventRailItems = computed(() => {
   push('participants', 'Participants', 'Participants', canViewParticipantsTab.value);
 
   const role = String(authStore.user?.role || '').toLowerCase();
-  const isGuardianPortalUser = role === 'guardian' || role === 'client_guardian';
-  const showClinicalAidCard =
-    !isGuardianPortalUser &&
-    clinicalNotesEnabled.value &&
-    !!(v.isAssignedProvider || v.canManageTeamSchedules || v.canManageCompanyEvent);
+  const excludedFromClinical = ['guardian', 'client_guardian', 'client', 'guest'].includes(role);
+  const showClinicalAidCard = !excludedFromClinical && clinicalNotesEnabled.value;
   push('clinical', 'Clinical', 'Clinical', showClinicalAidCard);
 
   push('materials', 'Materials', 'Materials', true);
@@ -6329,6 +6368,39 @@ watch(
 .sbep-card-lead {
   margin: 0 0 12px;
   line-height: 1.45;
+}
+.sbep-clinical-ack-overlay {
+  display: flex;
+  justify-content: center;
+  padding: 24px 0 16px;
+}
+.sbep-clinical-ack-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 28px 28px 24px;
+  max-width: 440px;
+  text-align: center;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+}
+.sbep-clinical-ack-icon {
+  font-size: 2rem;
+  margin-bottom: 10px;
+}
+.sbep-clinical-ack-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0 0 12px;
+  color: #1e293b;
+}
+.sbep-clinical-ack-body {
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: #475569;
+  margin: 0 0 20px;
+}
+.sbep-clinical-ack-btn {
+  width: 100%;
 }
 .sbep-section-intro {
   display: flex;

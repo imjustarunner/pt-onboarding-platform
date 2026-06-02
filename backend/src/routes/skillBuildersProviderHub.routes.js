@@ -91,7 +91,8 @@ import {
   getSkillBuilderObservationDailySummary,
   postSkillBuilderObservationDailySummaryGenerate,
   getSkillBuilderClinicalDay,
-  patchSkillBuilderSessionCurriculumText
+  patchSkillBuilderSessionCurriculumText,
+  postSkillBuilderClinicalAccessLog
 } from '../controllers/skillBuildersProviderHub.controller.js';
 import {
   listMasterSkillBuilderClients,
@@ -218,6 +219,7 @@ router.post('/events/:eventId/activity-options', postSkillBuilderActivityOption)
 router.patch('/events/:eventId/activity-options/:optionId', patchSkillBuilderActivityOption);
 router.delete('/events/:eventId/activity-options/:optionId', deleteSkillBuilderActivityOption);
 router.get('/events/:eventId/clinical-day', getSkillBuilderClinicalDay);
+router.post('/events/:eventId/clinical-access-log', postSkillBuilderClinicalAccessLog);
 router.patch('/events/:eventId/sessions/:sessionId/curriculum-text', patchSkillBuilderSessionCurriculumText);
 router.get('/events/:eventId/observations/presets', getSkillBuilderObservationPresets);
 router.get('/events/:eventId/observations', listSkillBuilderSessionObservations);

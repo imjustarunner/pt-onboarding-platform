@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { logClientAccess } from '../services/clientAccessLog.service.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import { userHasAgencyOrAffiliatedOrgAccessForRequest } from '../utils/userAgencyAffiliationAccess.js';
@@ -6098,6 +6099,45 @@ export const patchSkillBuilderSessionCurriculumText = async (req, res, next) => 
     res.json({ ok: true, sessionId, text });
   } catch (e) {
     next(e);
+  }
+};
+
+/** POST /api/skill-builders/events/:eventId/clinical-access-log
+ *  Called by the frontend whenever a user opens the Clinical section.
+ *  Logs user + event + client IDs viewed to client_access_logs for audit trail.
+ */
+export const postSkillBuilderClinicalAccessLog = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    if (!agencyId || !eventId) {
+      return res.status(400).json({ error: { message: 'agencyId and event id required' } });
+    }
+    // Log one entry per client ID if provided, otherwise log a generic event-level access
+    const clientIds = Array.isArray(req.body?.clientIds)
+      ? req.body.clientIds.map((id) => parsePositiveInt(id)).filter(Boolean)
+      : [];
+
+    if (clientIds.length) {
+      await Promise.all(clientIds.map((cid) => logClientAccess(req, cid, 'clinical_section_view')));
+    } else {
+      // Log against a placeholder: store event-level access in user_activity_log style via pool directly
+      await pool.execute(
+        `INSERT INTO client_access_logs (client_id, user_id, user_role, action, route, method, ip_address, user_agent)
+         VALUES (NULL, ?, ?, 'clinical_section_open', ?, 'POST', ?, ?)`,
+        [
+          req.user?.id ?? null,
+          req.user?.role ?? null,
+          req.originalUrl?.slice(0, 255) ?? null,
+          (req.headers?.['x-forwarded-for'] || req.ip || '').toString().split(',')[0].trim().slice(0, 64) || null,
+          (req.headers?.['user-agent'] || '').toString().slice(0, 255) || null
+        ]
+      ).catch(() => {/* best-effort */});
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    // Best-effort — don't block the user if logging fails
+    res.json({ ok: true });
   }
 };
 
