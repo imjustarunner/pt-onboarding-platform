@@ -36,7 +36,7 @@
         <section v-if="showDrivingDistanceCta && canUseNearest" class="pel-nearest-inline pel-nearest-inline--above-list">
           <div class="pel-nearest-inner">
             <div class="pel-nearest-icon" aria-hidden="true">📍</div>
-            <h2 class="pel-nearest-heading">Enter your address to see which event is closest to your home</h2>
+            <h2 class="pel-nearest-heading">{{ t('public.enterYourAddressHeading') }}</h2>
             <p class="pel-nearest-sub muted">{{ nearestInlineSubtext }}</p>
             <div class="pel-nearest-controls">
               <input
@@ -46,22 +46,22 @@
                 type="text"
                 inputmode="text"
                 autocomplete="street-address"
-                placeholder="Street, city, state ZIP"
-                aria-label="Your home address"
+                :placeholder="t('public.streetCityZipPlaceholder')"
+                :aria-label="t('public.yourHomeAddress')"
                 @keydown.enter.prevent="runNearest"
               />
               <button type="button" class="pel-btn pel-btn-primary" :disabled="nearestLoading" @click="runNearest">
-                {{ nearestLoading ? 'Calculating…' : 'Find' }}
+                {{ nearestLoading ? t('public.calculating') : t('public.find') }}
               </button>
             </div>
             <p v-if="originSummary" class="pel-drive-summary pel-drive-summary--inline">
-              Sorted by driving distance from <strong>{{ originSummary }}</strong>.
-              <button type="button" class="pel-linkish" @click="clearNearest">Use date order</button>
+              {{ t('public.sortedByDrivingDistance', { address: originSummary }) }}
+              <button type="button" class="pel-linkish" @click="clearNearest">{{ t('public.useDateOrder') }}</button>
             </p>
             <p v-if="nearestError" class="pel-finder-err">{{ nearestError }}</p>
 
             <div v-if="originSummary && addressSortChipGroups.length && !hubSlugNorm" class="pel-sort-chips">
-              <p class="pel-sort-chips-label">Sort by</p>
+              <p class="pel-sort-chips-label">{{ t('public.sortBy') }}</p>
               <div class="pel-sort-chips-row">
                 <button
                   type="button"
@@ -69,7 +69,7 @@
                   :class="{ 'pel-sort-chip--active': !addressSortMode }"
                   @click="clearAddressSort"
                 >
-                  Closest drive
+                  {{ t('public.closestDrive') }}
                 </button>
                 <button
                   v-for="g in addressSortChipGroups"
@@ -109,7 +109,7 @@
           "
           class="pel-hub-filter-bar"
         >
-          <p class="pel-hub-filter-lead muted">Filter locations by agency and session.</p>
+          <p class="pel-hub-filter-lead muted">{{ t('public.filterByAgencySession') }}</p>
           <div class="pel-hub-filter-row" role="group" aria-label="Agency and session filters">
             <button
               v-for="p in distinctHubPartners"
@@ -148,7 +148,7 @@
                 <span v-else-if="opt.label !== (opt.sessionLabel || '')">{{ opt.label }}</span>
               </span>
               <span class="pel-session-card-foot">
-                {{ opt.count }} location{{ opt.count === 1 ? '' : 's' }}
+              {{ opt.count }} {{ opt.count === 1 ? t('public.location') : t('public.locations') }}
                 <span v-if="hasNearestResults && opt.closestMi != null"> · {{ opt.closestMi }} mi</span>
               </span>
             </button>
@@ -156,12 +156,12 @@
 
           <div v-if="hubAgencyFilterId != null || sessionLabelFilter" class="pel-filter-active-row">
             <span v-if="hubAgencyFilterId != null" class="pel-filter-pill">
-              Agency filter on
-              <button type="button" class="pel-linkish" @click="clearAgencyFilter">Show all agencies</button>
+              {{ t('public.agencyFilterOn') }}
+              <button type="button" class="pel-linkish" @click="clearAgencyFilter">{{ t('public.showAllAgencies') }}</button>
             </span>
             <span v-if="sessionLabelFilter" class="pel-filter-pill">
               {{ sessionLabelFilter }}<span v-if="sessionDateRangeFilter"> · {{ sessionDateRangeFilter }}</span>
-              <button type="button" class="pel-linkish" @click="clearSessionFilter">Clear session filter</button>
+              <button type="button" class="pel-linkish" @click="clearSessionFilter">{{ t('public.clearSessionFilter') }}</button>
             </span>
           </div>
         </div>
@@ -171,7 +171,7 @@
             <div class="pel-group-head">
               <h2 class="pel-group-title">{{ group.label }}</h2>
               <span class="pel-group-count"
-                >{{ group.events.length }} location{{ group.events.length === 1 ? '' : 's' }}</span
+                >{{ group.events.length }} {{ group.events.length === 1 ? t('public.location') : t('public.locations') }}</span
               >
             </div>
             <TransitionGroup name="pel-card" tag="ul" class="pel-list pel-list--group">
@@ -715,10 +715,7 @@ function sessionGroupLabel(ev) {
   const label = String(ev?.publicSessionLabel || '').trim();
   const range = String(ev?.publicSessionDateRange || '').trim();
   const key = [label, range].filter(Boolean).join(' · ');
-  return key || 'Other sessions';
-}
-
-function sessionGroupKey(ev) {
+  return key || t('public.otherSessions');
   const label = String(ev?.publicSessionLabel || '').trim();
   const range = String(ev?.publicSessionDateRange || '').trim();
   const key = [label, range].filter(Boolean).join(' · ');
@@ -875,7 +872,7 @@ function sessionKeyParts(ev) {
   const label = String(ev?.publicSessionLabel || '').trim();
   const range = String(ev?.publicSessionDateRange || '').trim();
   const key = [label, range].filter(Boolean).join(' · ');
-  return { key: key || 'other', label: key || 'Other sessions', sessionLabel: label || '', sessionDateRange: range || '' };
+  return { key: key || 'other', label: key || t('public.otherSessions'), sessionLabel: label || '', sessionDateRange: range || '' };
 }
 
 function metersToMiRounded(meters) {
@@ -987,9 +984,9 @@ const nearestInlineSubtext = computed(() => {
   const o = String(props.nearestModalHint || '').trim();
   if (o) return o.split('\n')[0].replace(/<[^>]+>/g, '').trim().slice(0, 220);
   if (hubSlugNorm.value) {
-    return 'We use Google Maps driving routes to sort programs by shortest drive to each listed site or venue.';
+    return t('public.nearestSubtextHub');
   }
-  return 'We use Google Maps driving routes to each in-person venue and sort events by shortest drive.';
+  return t('public.nearestSubtextGeneral');
 });
 
 const canUseNearest = computed(() => {
@@ -1406,7 +1403,7 @@ function formatDistanceMi(meters) {
 async function runNearest() {
   const addr = String(addressInput.value || '').trim();
   if (!addr) {
-    nearestError.value = 'Enter your address.';
+    nearestError.value = t('public.enterYourAddressError');
     return;
   }
   let url;

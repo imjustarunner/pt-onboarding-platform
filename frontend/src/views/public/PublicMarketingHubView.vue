@@ -1439,17 +1439,18 @@ function buildNavigatorSessionRowsFromEligible(eligible) {
     const fe = g.first;
     const lab = String(fe.publicSessionLabel || '').trim();
     const dr = String(fe.publicSessionDateRange || '').trim();
-    const displayTitle = lab || t('public.sessionNumber', { n: idx + 1 });
-    let displaySubtitle = dr;
+    const displayTitle = localizeSessionLabel(lab, idx);
+    let displaySubtitle = localizeSessionDateRange(dr);
     if (!displaySubtitle && fe.startsAt) {
       try {
+        const locale = hubIsSpanish.value ? 'es' : undefined;
         const s = new Date(fe.startsAt);
         const e = fe.endsAt ? new Date(fe.endsAt) : null;
         if (!Number.isNaN(s.getTime())) {
           displaySubtitle =
             e && !Number.isNaN(e.getTime())
-              ? `${s.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${e.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
-              : s.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+              ? `${s.toLocaleDateString(locale, { month: 'short', day: 'numeric' })} – ${e.toLocaleDateString(locale, { month: 'short', day: 'numeric' })}`
+              : s.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' });
         }
       } catch {
         /* ignore */
@@ -1464,6 +1465,34 @@ function buildNavigatorSessionRowsFromEligible(eligible) {
       startsAt: fe.startsAt
     };
   });
+}
+
+const SESSION_MONTH_MAP_ES = {
+  January: 'enero', February: 'febrero', March: 'marzo', April: 'abril',
+  May: 'mayo', June: 'junio', July: 'julio', August: 'agosto',
+  September: 'septiembre', October: 'octubre', November: 'noviembre', December: 'diciembre',
+  Jan: 'ene', Feb: 'feb', Mar: 'mar', Apr: 'abr',
+  Jun: 'jun', Jul: 'jul', Aug: 'ago', Sep: 'sep', Sept: 'sep',
+  Oct: 'oct', Nov: 'nov', Dec: 'dic'
+};
+
+function localizeSessionLabel(lab, idx) {
+  if (!lab) return t('public.sessionNumber', { n: idx + 1 });
+  if (!hubIsSpanish.value) return lab;
+  const m = lab.match(/^Session\s+(\d+)$/i);
+  if (m) return t('public.sessionNumber', { n: Number(m[1]) });
+  return lab;
+}
+
+function localizeSessionDateRange(dr) {
+  if (!dr || !hubIsSpanish.value) return dr;
+  let out = dr;
+  for (const [en, es] of Object.entries(SESSION_MONTH_MAP_ES)) {
+    out = out.replace(new RegExp(`\\b${en}\\b`, 'g'), es);
+  }
+  out = out.replace(/\b(\d+)(st|nd|rd|th)\b/g, '$1');
+  out = out.replace(/\bto\b/gi, 'al');
+  return out;
 }
 
 function sessionGroupKey(ev) {
