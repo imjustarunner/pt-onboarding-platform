@@ -62,6 +62,15 @@ export const agentLimiter = rateLimit({
   keyGenerator: (req) => `agent:${req.user?.id || req.ip}`,
 });
 
+export const trainingBuilderLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: isDevelopment ? 30 : 8,
+  message: { error: { message: 'Too many training builder requests, please try again later' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `training-builder:${req.user?.id || req.ip}`,
+});
+
 export const publicIntakeLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: isDevelopment ? 300 : 200,

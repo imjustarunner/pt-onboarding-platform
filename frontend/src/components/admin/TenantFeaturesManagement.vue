@@ -399,6 +399,7 @@ const BILLING_FEATURE_FLAG_KEY_OVERRIDES = {
   officeSchedulingPublishing: 'shiftProgramsEnabled',
   payrollWorkspace: 'payrollEnabled',
   onboardingTraining: 'onboardingTrainingEnabled',
+  trainingAiModuleBuilder: 'trainingAiBuilderEnabled',
   schoolPortals: 'schoolPortalsEnabled',
   skillBuildersSchoolProgram: 'skillBuildersSchoolProgramEnabled'
 };

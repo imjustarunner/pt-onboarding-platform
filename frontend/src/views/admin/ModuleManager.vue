@@ -49,10 +49,28 @@
         >
           Create Training Focus
         </button>
+        <button
+          v-if="canCreateEdit && trainingAiEnabledForSelectedAgency"
+          type="button"
+          class="btn btn-secondary"
+          @click="showTrainingKbModal = true"
+          title="Upload workplace handbook and policies for AI training builder"
+        >
+          Training Reference Docs
+        </button>
+        <button
+          v-if="canCreateEdit && trainingAiEnabledForSelectedAgency"
+          type="button"
+          class="btn btn-primary"
+          @click="openAiWizard"
+          title="Upload sources and generate a module draft with Gemini"
+        >
+          Build with AI
+        </button>
         <button 
           v-if="canCreateEdit" 
           @click="showCreateModal = true" 
-          class="btn btn-primary"
+          class="btn btn-secondary"
         >
           Create New Module
         </button>
@@ -64,6 +82,21 @@
     </div>
     <div v-else-if="syncFormSpecMessage" class="muted" style="margin-top: 10px;">
       {{ syncFormSpecMessage }}
+    </div>
+
+    <div
+      v-if="canCreateEdit && !trainingAiEnabledForSelectedAgency"
+      class="training-ai-hint"
+      role="status"
+    >
+      <template v-if="!selectedAgencyIdForTrainingAi">
+        <strong>Training AI Builder:</strong> Select an <strong>agency</strong> in the filter above to enable Build with AI and Training Reference Docs.
+      </template>
+      <template v-else>
+        <strong>Training AI Builder is off</strong> for this agency. Enable
+        <strong>Training AI Module Builder</strong> in Agency Management → Features (or Tenant → Features billing list), save, then refresh this page.
+        Onboarding &amp; Training alone does not turn this on.
+      </template>
     </div>
     
     <!-- Filters for Hierarchy View (Training Focus View) -->
@@ -287,7 +320,7 @@
             </div>
           </div>
           <div v-if="expandedFocuses.includes(focus.id)" class="focus-modules">
-            <div v-if="loadingModules[focus.id]" class="loading-modules">Loading modules...</div>
+            <div v-if="loadingModules[focus.id] || loadingFocusSteps[focus.id]" class="loading-modules">Loading training path…</div>
             <div
               v-else-if="focusModuleLoadErrors[focus.id]"
               class="error-message"
@@ -295,121 +328,25 @@
             >
               {{ focusModuleLoadErrors[focus.id] }}
             </div>
-            <div v-else-if="focusModules[focus.id] && focusModules[focus.id].length === 0" class="no-modules">
-              <p>No modules in this training focus</p>
-            </div>
-            <div v-else-if="focusModules[focus.id] && statusFilter === 'active' && focusModules[focus.id].some(m => !(m.is_active === true || m.is_active === 1))" class="inactive-modules-note" style="padding: 8px; margin-bottom: 12px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; font-size: 13px; color: #856404;">
-              <strong>Note:</strong> This training focus has {{ focusModules[focus.id].filter(m => !(m.is_active === true || m.is_active === 1)).length }} inactive module(s) that are not shown. Change the status filter to "All" to see all modules.
-            </div>
-            <div v-if="focusChecklistItems[focus.id]?.direct?.length > 0" class="focus-checklist-items" style="margin-bottom: 16px; padding: 12px; background: #f8f9fa; border-radius: 8px;">
-              <h4 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 600;">Training Focus Checklist Items ({{ focusChecklistItems[focus.id]?.direct?.length }}):</h4>
-              <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-                <span 
-                  v-for="item in focusChecklistItems[focus.id]?.direct" 
-                  :key="item.id"
-                  class="badge badge-info"
-                  style="font-size: 12px;"
-                >
-                  {{ item.item_label }}
-                </span>
-              </div>
-            </div>
-            <div class="modules-list">
-              <div 
-                v-for="module in getFilteredFocusModules(focus.id)" 
-                :key="module.id"
-                class="module-item"
-              >
-                <img 
-                  v-if="module.icon_id && getIconUrl(module)" 
-                  :src="getIconUrl(module)" 
-                  :alt="module.icon_name || 'Module icon'"
-                  class="module-icon-left"
-                />
-                <div class="module-info">
-                  <div class="module-header-row">
-                    <h4>{{ module.title }}</h4>
-                    <div class="module-meta">
-                      <span :class="['badge', module.is_active ? 'badge-success' : 'badge-secondary']">
-                        {{ module.is_active ? 'Active' : 'Inactive' }}
-                      </span>
-                      <span class="module-order">Order: {{ module.track_order !== undefined ? module.track_order : module.order_index }}</span>
-                    </div>
-                  </div>
-                  <p v-if="module.description" class="module-description">{{ module.description }}</p>
-                  <div v-if="focusChecklistItems[focus.id]?.byModule[module.id]?.length > 0" class="module-checklist-items" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);">
-                    <small style="color: var(--text-secondary); font-weight: 500;">Checklist Items ({{ focusChecklistItems[focus.id]?.byModule[module.id]?.length }}):</small>
-                    <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">
-                      <span 
-                        v-for="item in focusChecklistItems[focus.id]?.byModule[module.id]" 
-                        :key="item.id"
-                        class="badge badge-info"
-                        style="font-size: 11px;"
-                      >
-                        {{ item.item_label }}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <div class="module-actions">
-                  <button 
-                    v-if="canCreateEdit" 
-                    @click.stop="editModule(module)" 
-                    class="btn btn-primary btn-sm"
-                  >
-                    Edit
-                  </button>
-                  <div v-if="canCreateEdit" class="content-dropdown" :ref="el => setDropdownRef(el, module.id)">
-                    <button 
-                      @click.stop="toggleContentMenu(module.id, $event)" 
-                      class="btn btn-secondary btn-sm"
-                    >
-                      Content ▼
-                    </button>
-                    <div 
-                      v-if="showContentMenu === module.id" 
-                      class="dropdown-menu"
-                      :class="{ 'dropdown-up': dropdownPosition[module.id] === 'up' }"
-                    >
-                      <button @click.stop="manageContent(module)" class="dropdown-item">
-                        ✏️ Edit Content
-                      </button>
-                      <button @click.stop="previewModule(module)" class="dropdown-item">
-                        👁️ Preview
-                      </button>
-                    </div>
-                  </div>
-                  <button @click.stop="assignModule(module)" class="btn btn-success btn-sm">Assign</button>
-                  <button 
-                    @click.stop="assignModuleAsPublic(module)" 
-                    :class="['btn', 'btn-sm', isModuleOnDemand(module.id) ? 'btn-danger' : 'btn-info']"
-                  >
-                    {{ isModuleOnDemand(module.id) ? 'Remove as On-Demand' : 'Assign as On-Demand' }}
-                  </button>
-                  <button
-                    v-if="canCreateEdit"
-                    @click.stop="duplicateModule(module)"
-                    class="btn btn-secondary btn-sm"
-                  >
-                    Duplicate
-                  </button>
-                  <button
-                    v-if="canCreateEdit"
-                    @click.stop="toggleModuleActive(module)"
-                    :class="['btn', 'btn-sm', isModuleActive(module) ? 'btn-warning' : 'btn-success']"
-                  >
-                    {{ isModuleActive(module) ? 'Deactivate' : 'Activate' }}
-                  </button>
-                  <button 
-                    v-if="canCreateEdit" 
-                    @click.stop="archiveModule(module.id)" 
-                    class="btn btn-warning btn-sm"
-                  >
-                    Archive
-                  </button>
-                </div>
-              </div>
-            </div>
+            <template v-else>
+              <TrainingFocusAddStepMenu
+                v-if="canCreateEdit"
+                :available-modules="getAvailableModulesForFocus(focus)"
+                :available-checklist-items="getAvailableChecklistForFocusSteps(focus)"
+                :available-documents="getAvailableDocumentsForFocusSteps(focus)"
+                @add-step="(payload) => addFocusStep(focus, payload)"
+                @create-module="createModuleForFocusInline(focus)"
+                @focus-settings="editTrainingFocus(focus)"
+              />
+              <TrainingFocusStepList
+                :steps="focusSteps[focus.id] || []"
+                :loading="loadingFocusSteps[focus.id]"
+                :can-edit="canCreateEdit"
+                @move="(stepId, dir) => moveFocusStep(focus, stepId, dir)"
+                @remove="(stepId) => removeFocusStep(focus, stepId)"
+                @edit-module="editModuleFromStep"
+              />
+            </template>
           </div>
         </div>
       </div>
@@ -918,6 +855,25 @@
       @close="showTrackCopyDialog = false; trainingFocusToCopy = null; copyTrainingFocusToAgencyMode = false"
       @copied="handleTrainingFocusCopied"
     />
+
+    <TrainingKnowledgeBaseSettings
+      :open="showTrainingKbModal"
+      :agency-id="selectedAgencyIdForTrainingAi"
+      :training-ai-enabled="trainingAiEnabledForSelectedAgency"
+      @close="showTrainingKbModal = false"
+      @updated="refreshTrainingKbDocCount"
+    />
+
+    <TrainingModuleAiWizard
+      :open="showAiWizard"
+      :agency-id="selectedAgencyIdForTrainingAi"
+      :training-ai-enabled="trainingAiEnabledForSelectedAgency"
+      :training-focuses="trainingFocusesForSelectedAgency"
+      :kb-doc-count="trainingKbDocCount"
+      @close="showAiWizard = false"
+      @open-kb-settings="showTrainingKbModal = true; showAiWizard = false"
+      @applied="handleAiModuleApplied"
+    />
   </div>
 </template>
 
@@ -935,6 +891,10 @@ import AssignPublicTrainingDialog from '../../components/admin/AssignPublicTrain
 import TrainingFocusAssignmentDialog from '../../components/admin/TrainingFocusAssignmentDialog.vue';
 import IconSelector from '../../components/admin/IconSelector.vue';
 import TrackCopyDialog from '../../components/admin/TrackCopyDialog.vue';
+import TrainingKnowledgeBaseSettings from '../../components/admin/TrainingKnowledgeBaseSettings.vue';
+import TrainingModuleAiWizard from '../../components/admin/TrainingModuleAiWizard.vue';
+import TrainingFocusStepList from '../../components/admin/TrainingFocusStepList.vue';
+import TrainingFocusAddStepMenu from '../../components/admin/TrainingFocusAddStepMenu.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -950,6 +910,10 @@ const syncFormSpecError = ref('');
 const syncFormSpecMessage = ref('');
 const specFileInput = ref(null);
 const uploadingSpec = ref(false);
+
+const showTrainingKbModal = ref(false);
+const showAiWizard = ref(false);
+const trainingKbDocCount = ref(0);
 
 const runFormSpecSync = async () => {
   try {
@@ -1078,9 +1042,92 @@ const statusFilter = ref('active'); // 'active', 'inactive', 'all'
 const viewMode = ref(route.query.view === 'table' ? 'table' : 'hierarchy'); // 'table' or 'hierarchy'
 const expandedFocuses = ref([]);
 const focusModules = ref({}); // { focusId: [modules] }
+const focusSteps = ref({}); // { focusId: [steps] }
+const loadingFocusSteps = ref({});
+const documentTemplates = ref([]);
+const inlineLinkModuleByFocus = ref({}); // { focusId: moduleId }
 const loadingModules = ref({}); // { focusId: boolean }
 const focusModuleLoadErrors = ref({}); // { focusId: string|null }
 const filterAgencyIdForFocus = ref(''); // Agency filter for hierarchy view
+
+const parseTrainingFeatureFlags = (raw) => {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw || {};
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw) || {}; } catch { return {}; }
+  }
+  return {};
+};
+
+const isTrainingAiFlagOn = (flags) => {
+  const v = flags?.trainingAiBuilderEnabled;
+  const s = String(v ?? '').trim().toLowerCase();
+  return v === true || v === 1 || s === 'true' || s === '1' || s === 'yes' || s === 'on';
+};
+
+const selectedAgencyIdForTrainingAi = computed(() => {
+  const fromFilter = filterAgencyId.value || filterAgencyIdForFocus.value;
+  if (fromFilter) {
+    const n = parseInt(fromFilter, 10);
+    if (Number.isInteger(n) && n > 0) return n;
+  }
+  if (singleAgencyId.value) return singleAgencyId.value;
+  return null;
+});
+
+const trainingAiEnabledForSelectedAgency = computed(() => {
+  const agencyId = selectedAgencyIdForTrainingAi.value;
+  if (!agencyId) return false;
+  const agency = (agencies.value || []).find((a) => Number(a.id) === Number(agencyId));
+  return isTrainingAiFlagOn(parseTrainingFeatureFlags(agency?.feature_flags));
+});
+
+const trainingFocusesForSelectedAgency = computed(() => {
+  const agencyId = selectedAgencyIdForTrainingAi.value;
+  if (!agencyId) return trainingFocuses.value || [];
+  return (trainingFocuses.value || []).filter(
+    (f) => !f.agency_id || Number(f.agency_id) === Number(agencyId)
+  );
+});
+
+const refreshTrainingKbDocCount = async () => {
+  const agencyId = selectedAgencyIdForTrainingAi.value;
+  if (!agencyId || !trainingAiEnabledForSelectedAgency.value) {
+    trainingKbDocCount.value = 0;
+    return;
+  }
+  try {
+    const res = await api.get('/training-builder/kb/documents', { params: { agencyId } });
+    trainingKbDocCount.value = Array.isArray(res?.data?.documents) ? res.data.documents.length : 0;
+  } catch {
+    trainingKbDocCount.value = 0;
+  }
+};
+
+const openAiWizard = () => {
+  if (!selectedAgencyIdForTrainingAi.value) {
+    alert('Select an agency using the agency filter above before using Build with AI.');
+    return;
+  }
+  if (!trainingAiEnabledForSelectedAgency.value) {
+    alert('Enable Training AI Module Builder for this organization in Agency Management → Features.');
+    return;
+  }
+  showAiWizard.value = true;
+  refreshTrainingKbDocCount();
+};
+
+const handleAiModuleApplied = async () => {
+  await fetchModules();
+  expandedFocuses.value.forEach((focusId) => {
+    if (focusModules.value[focusId]) loadModulesForFocus(focusId);
+  });
+};
+
+watch(selectedAgencyIdForTrainingAi, () => {
+  refreshTrainingKbDocCount();
+});
+
 const showOnDemandOnly = ref(false); // Toggle for showing only on-demand training focuses
 const showOnDemandModulesOnly = ref(false); // Toggle for showing only on-demand modules in table view
 const moduleSearchQuery = ref(''); // Search query for module view
@@ -1263,7 +1310,7 @@ const loadModulesForFocus = async (focusId) => {
 
     focusModules.value[focusId] = loadedModules;
     
-    // Load checklist items for this training focus
+    await loadStepsForFocus(focusId);
     await fetchChecklistItemsForFocus(focusId);
   } catch (err) {
     console.error(`Failed to load modules for training focus ${focusId}:`, err);
@@ -1279,6 +1326,82 @@ const loadModulesForFocus = async (focusId) => {
   } finally {
     loadingModules.value[focusId] = false;
   }
+};
+
+const loadStepsForFocus = async (focusId) => {
+  try {
+    loadingFocusSteps.value[focusId] = true;
+    const response = await api.get(`/training-focuses/${focusId}/steps`);
+    focusSteps.value[focusId] = response.data?.steps || [];
+  } catch (err) {
+    console.error(`Failed to load steps for focus ${focusId}:`, err);
+    focusSteps.value[focusId] = [];
+  } finally {
+    loadingFocusSteps.value[focusId] = false;
+  }
+};
+
+const fetchDocumentTemplates = async () => {
+  try {
+    const response = await api.get('/document-templates', { params: { includeInactive: false } });
+    documentTemplates.value = Array.isArray(response.data) ? response.data : (response.data?.templates || []);
+  } catch {
+    documentTemplates.value = [];
+  }
+};
+
+const getAvailableChecklistForFocusSteps = (focus) => {
+  const usedIds = new Set((focusSteps.value[focus.id] || []).filter((s) => s.stepType === 'checklist_item').map((s) => s.referenceId));
+  return (allChecklistItems.value || []).filter((item) => !item.training_focus_id && !item.module_id && !usedIds.has(item.id));
+};
+
+const getAvailableDocumentsForFocusSteps = (focus) => {
+  const usedIds = new Set((focusSteps.value[focus.id] || []).filter((s) => s.stepType === 'document').map((s) => s.referenceId));
+  return (documentTemplates.value || []).filter((doc) => !usedIds.has(doc.id));
+};
+
+const addFocusStep = async (focus, payload) => {
+  try {
+    await api.post(`/training-focuses/${focus.id}/steps`, payload);
+    await loadStepsForFocus(focus.id);
+    await loadModulesForFocus(focus.id);
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to add step');
+  }
+};
+
+const removeFocusStep = async (focus, stepId) => {
+  if (!confirm('Remove this step from the training focus?')) return;
+  try {
+    await api.delete(`/training-focuses/${focus.id}/steps/${stepId}`);
+    await loadStepsForFocus(focus.id);
+    await loadModulesForFocus(focus.id);
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to remove step');
+  }
+};
+
+const moveFocusStep = async (focus, stepId, direction) => {
+  const steps = [...(focusSteps.value[focus.id] || [])];
+  const idx = steps.findIndex((s) => s.id === stepId);
+  if (idx < 0) return;
+  const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+  if (swapIdx < 0 || swapIdx >= steps.length) return;
+  [steps[idx], steps[swapIdx]] = [steps[swapIdx], steps[idx]];
+  try {
+    await api.put(`/training-focuses/${focus.id}/steps/reorder`, {
+      stepIds: steps.map((s) => s.id)
+    });
+    focusSteps.value[focus.id] = steps;
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to reorder steps');
+    await loadStepsForFocus(focus.id);
+  }
+};
+
+const editModuleFromStep = (moduleId) => {
+  const mod = (modules.value || []).find((m) => m.id === moduleId);
+  if (mod) editModule(mod);
 };
 
 const fetchChecklistItemsForFocus = async (focusId) => {
@@ -2536,6 +2659,56 @@ const closeTrainingFocusModal = () => {
   trainingFocusError.value = '';
 };
 
+const getAvailableModulesForFocus = (focus) => {
+  const focusId = focus?.id;
+  if (!focusId) return [];
+  const currentIds = new Set((focusModules.value[focusId] || []).map((m) => m.id));
+  return (modules.value || []).filter((m) => {
+    if (!m?.id || currentIds.has(m.id)) return false;
+    if (m.track_id && Number(m.track_id) !== Number(focusId)) return false;
+    return true;
+  });
+};
+
+const linkModuleToFocusInline = async (focus) => {
+  const moduleId = parseInt(inlineLinkModuleByFocus.value[focus.id], 10);
+  if (!moduleId || !focus?.id) return;
+  try {
+    const focusId = focus.id;
+    const existing = Array.isArray(focusModules.value[focusId]) ? focusModules.value[focusId] : [];
+    const maxOrder = existing.reduce((max, m) => {
+      const order =
+        m.track_order !== undefined && m.track_order !== null
+          ? Number(m.track_order)
+          : Number(m.order_index || 0);
+      return Number.isFinite(order) ? Math.max(max, order) : max;
+    }, -1);
+    await api.post(`/training-focuses/${focusId}/modules`, {
+      moduleId,
+      orderIndex: maxOrder + 1
+    });
+    inlineLinkModuleByFocus.value[focus.id] = '';
+    await fetchModules();
+    await loadModulesForFocus(focusId);
+    if (!expandedFocuses.value.includes(focusId)) {
+      expandedFocuses.value.push(focusId);
+    }
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to link module');
+  }
+};
+
+const createModuleForFocusInline = (focus) => {
+  if (!focus?.id) return;
+  moduleForm.value.trackId = focus.id;
+  moduleForm.value.agencyId =
+    focus.agency_id ||
+    (filterAgencyIdForFocus.value ? parseInt(filterAgencyIdForFocus.value, 10) : null) ||
+    singleAgencyId.value ||
+    moduleForm.value.agencyId;
+  showCreateModal.value = true;
+};
+
 const createModuleForTrainingFocus = async () => {
   // If we're creating a new training focus, save it first
   if (!editingTrainingFocus.value && showCreateTrainingFocusModal.value) {
@@ -2759,6 +2932,7 @@ onMounted(async () => {
     await fetchAgencies();
     await fetchTrainingFocuses();
     await fetchAllChecklistItems(); // Load all checklist items for lookup
+    await fetchDocumentTemplates();
     fetchModules();
     await applyDefaultAgencyContext();
     // Only fetch on-demand assignments if user has agencies
@@ -2809,6 +2983,17 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.training-ai-hint {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  color: #1e3a5f;
+  line-height: 1.45;
+}
+
 .module-section-row td {
   background: #f8fafc;
   border-top: 2px solid var(--border);
@@ -3162,6 +3347,21 @@ th {
 .no-modules {
   padding: 20px;
   text-align: center;
+  color: var(--text-secondary);
+}
+
+.no-modules-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  align-items: center;
+  margin-top: 14px;
+}
+
+.no-modules-hint {
+  margin-top: 10px;
+  font-size: 0.9rem;
   color: var(--text-secondary);
 }
 

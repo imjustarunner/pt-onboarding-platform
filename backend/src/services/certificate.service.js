@@ -295,7 +295,25 @@ class CertificateService {
    * Check and generate training focus certificate if all modules are complete
    */
   static async checkAndGenerateTrainingFocusCertificate(userId, trackId) {
-    // Get all modules in the track
+    const TrainingFocusStep = (await import('../models/TrainingFocusStep.model.js')).default;
+    const steps = await TrainingFocusStep.findByFocusId(trackId);
+    if (steps.length > 0) {
+      const UserTrainingFocusStepProgress = (await import('../models/UserTrainingFocusProgress.model.js')).UserTrainingFocusStepProgress;
+      const userAgencies = await User.getAgencies(userId);
+      for (const agency of userAgencies) {
+        const stepProgress = await UserTrainingFocusStepProgress.findByFocus(userId, agency.id, trackId);
+        const completedIds = new Set(stepProgress.filter((sp) => sp.status === 'completed').map((sp) => sp.stepId));
+        const allComplete = steps.every((s) => completedIds.has(s.id));
+        if (allComplete) {
+          const existingCert = await Certificate.findByReference('training_focus', trackId, userId);
+          if (existingCert) return existingCert;
+          return await this.generateCertificate('training_focus', trackId, userId, null, agency.id);
+        }
+      }
+      return null;
+    }
+
+    // Legacy: module-only certificate
     const modules = await TrainingTrack.getModules(trackId);
     if (modules.length === 0) {
       return null; // No modules, no certificate

@@ -97,6 +97,12 @@ const DEFAULT_FEATURE_CATALOG = {
     'Onboarding packages, checklist templates, intake forms, and related tenant workflows.',
     { featureFlagKey: 'onboardingTrainingEnabled' }
   ),
+  trainingAiModuleBuilder: createFeatureCatalogEntry(
+    'trainingAiModuleBuilder',
+    'Training AI Module Builder',
+    'Gemini-assisted training modules from handbook uploads and source documents (Module Manager).',
+    { featureFlagKey: 'trainingAiBuilderEnabled' }
+  ),
   schoolPortals: createFeatureCatalogEntry(
     'schoolPortals',
     'School portals & school overview',

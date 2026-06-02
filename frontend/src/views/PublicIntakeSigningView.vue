@@ -4105,7 +4105,7 @@ const shouldHideDocumentField = (field) => {
   return false;
 };
 const displayedFieldDefinitions = computed(() =>
-  visibleFieldDefinitions.value.filter((def) => !shouldHideDocumentField(def))
+  visibleFieldDefinitions.value.filter((def) => !shouldHideDocumentField(def) && def?.type !== 'signature')
 );
 const currentFieldValues = computed(() => {
   const id = currentDoc.value?.id;

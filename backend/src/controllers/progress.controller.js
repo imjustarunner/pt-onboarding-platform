@@ -79,6 +79,43 @@ export const completeModule = async (req, res, next) => {
       console.error('Failed to mark associated task as complete:', taskError);
     }
 
+    // Sync training focus step progress when module completes via legacy flow
+    try {
+      const { focusId, agencyId, stepId } = req.body;
+      const TrainingFocusProgressService = (await import('../services/trainingFocusProgress.service.js')).default;
+      const TrainingFocusStep = (await import('../models/TrainingFocusStep.model.js')).default;
+      const UserTrack = (await import('../models/UserTrack.model.js')).default;
+      const User = (await import('../models/User.model.js')).default;
+
+      if (focusId && agencyId && stepId) {
+        const assignment = await UserTrack.getUserTrack(userId, parseInt(focusId, 10), parseInt(agencyId, 10));
+        if (assignment) {
+          await TrainingFocusProgressService.completeStep(
+            userId,
+            parseInt(focusId, 10),
+            parseInt(agencyId, 10),
+            parseInt(stepId, 10)
+          );
+        }
+      } else {
+        const userAgencies = await User.getAgencies(userId);
+        for (const agency of userAgencies) {
+          const tracks = await UserTrack.getUserTracks(userId, agency.id);
+          for (const ut of tracks || []) {
+            const focusSteps = await TrainingFocusStep.findByFocusId(ut.track_id);
+            const moduleStep = focusSteps.find(
+              (s) => s.stepType === 'module' && Number(s.referenceId) === Number(moduleId)
+            );
+            if (moduleStep) {
+              await TrainingFocusProgressService.completeStep(userId, ut.track_id, agency.id, moduleStep.id);
+            }
+          }
+        }
+      }
+    } catch (stepSyncErr) {
+      console.error('Failed to sync training focus step on module complete:', stepSyncErr);
+    }
+
     // Auto-generate certificates
     try {
       const CertificateService = (await import('../services/certificate.service.js')).default;

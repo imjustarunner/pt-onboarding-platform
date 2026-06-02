@@ -765,14 +765,6 @@ export const signDocument = async (req, res, next) => {
       } else if (templateType === 'pdf') {
         templatePath = userDocument.personalized_file_path || template.file_path || null;
       }
-      
-      signatureCoords = {
-        x: template.signature_x,
-        y: template.signature_y,
-        width: template.signature_width,
-        height: template.signature_height,
-        page: template.signature_page
-      };
     } else {
       // Check for user-specific document
       const UserSpecificDocument = (await import('../models/UserSpecificDocument.model.js')).default;
@@ -786,14 +778,6 @@ export const signDocument = async (req, res, next) => {
         } else if (templateType === 'pdf') {
           templatePath = userSpecificDocument.file_path || null;
         }
-        
-        signatureCoords = {
-          x: userSpecificDocument.signature_x,
-          y: userSpecificDocument.signature_y,
-          width: userSpecificDocument.signature_width,
-          height: userSpecificDocument.signature_height,
-          page: userSpecificDocument.signature_page
-        };
       } else {
         // Fallback to template (for backward compatibility)
         console.log(`signDocument: Falling back to template ${signedDoc.document_template_id}`);
@@ -810,14 +794,6 @@ export const signDocument = async (req, res, next) => {
           // Use relative path - StorageService will handle GCS vs local
           templatePath = template.file_path || null;
         }
-        
-        signatureCoords = {
-          x: template.signature_x,
-          y: template.signature_y,
-          width: template.signature_width,
-          height: template.signature_height,
-          page: template.signature_page
-        };
       }
     }
 
@@ -902,9 +878,15 @@ export const signDocument = async (req, res, next) => {
     const normalizedFieldDefs = Array.isArray(parsedFieldDefs) ? parsedFieldDefs : [];
     const normalizedFieldValues = fieldValues && typeof fieldValues === 'object' ? fieldValues : {};
 
+    signatureCoords = DocumentSigningService.resolveSignatureCoords(
+      template || userSpecificDocument || {},
+      normalizedFieldDefs
+    );
+
     const missingFields = [];
     for (const def of normalizedFieldDefs) {
       if (!def || !def.required) continue;
+      if (String(def.type || '').toLowerCase() === 'signature') continue;
       if (!isFieldVisible(def, normalizedFieldValues)) continue;
       if (def.type === 'date' && def.autoToday) continue;
       const val = normalizedFieldValues[def.id];

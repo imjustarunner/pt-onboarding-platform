@@ -298,40 +298,33 @@
           </div>
           <div class="form-group">
             <label>PDF Document</label>
-            <p v-if="editingTemplate.document_action_type !== 'review'" class="info-text">
+            <p v-if="editForm.documentActionType !== 'review'" class="info-text">
               To upload a new version of this PDF, use the "Upload New Version" button.
             </p>
             <p class="info-text">Current file: {{ editingTemplate.file_path || 'N/A' }}</p>
             
-            <!-- Signature Coordinate Picker -->
             <div
-              v-if="editingTemplate.template_type === 'pdf' && editingTemplate.file_path && editingTemplate.document_action_type !== 'review'"
+              v-if="editingTemplate.template_type === 'pdf' && editPdfUrl"
               class="signature-coordinate-section"
             >
-              <h4 style="margin-top: 24px; margin-bottom: 12px;">Signature Position</h4>
-              <p class="info-text" style="margin-bottom: 16px;">
-                Click on the PDF below to set where the signature should be placed. 
-                You can also manually adjust the coordinates.
+              <p v-if="editForm.documentActionType === 'signature'" class="info-text" style="margin-bottom: 12px;">
+                Place the signature and any fill-in fields on the PDF. Click <strong>+ Signature</strong>, then <strong>Set position</strong>, then click on the PDF where the signer should sign.
               </p>
-              <PDFSignatureCoordinatePicker
-                v-if="editPdfUrl"
-                :pdf-url="editPdfUrl"
-                v-model="editForm.signatureCoordinates"
-              />
-              <div v-else class="pdf-error">
-                <p>PDF preview is not available.</p>
-                <p v-if="editingTemplate?.file_path" class="file-info">
-                  File: {{ editingTemplate.file_path }}
-                </p>
-              </div>
-            </div>
-
-            <div v-if="editingTemplate.template_type === 'pdf' && editPdfUrl" class="signature-coordinate-section">
-              <h4 style="margin-top: 24px; margin-bottom: 12px;">Custom Fields (Optional)</h4>
-              <PDFFieldDefinitionBuilder
+              <p v-else class="info-text" style="margin-bottom: 12px;">
+                Optional fill-in fields for review/acknowledgment documents (no signature required).
+              </p>
+              <DocumentFieldLayoutEditor
                 :pdf-url="editPdfUrl"
                 v-model="editForm.fieldDefinitions"
+                :allow-signature="editForm.documentActionType === 'signature'"
+                :title="editForm.documentActionType === 'signature' ? 'Document fields' : 'Optional acknowledgment fields'"
               />
+            </div>
+            <div v-else-if="editingTemplate.template_type === 'pdf' && !editPdfUrl" class="pdf-error">
+              <p>PDF preview is not available.</p>
+              <p v-if="editingTemplate?.file_path" class="file-info">
+                File: {{ editingTemplate.file_path }}
+              </p>
             </div>
           </div>
           <div class="form-group">
@@ -438,8 +431,8 @@ import DocumentTemplateCard from '../../components/documents/DocumentTemplateCar
 import DocumentUploadDialog from '../../components/documents/DocumentUploadDialog.vue';
 import DocumentAssignmentDialog from '../../components/documents/DocumentAssignmentDialog.vue';
 import DocumentVersionHistory from '../../components/documents/DocumentVersionHistory.vue';
-import PDFSignatureCoordinatePicker from '../../components/documents/PDFSignatureCoordinatePicker.vue';
-import PDFFieldDefinitionBuilder from '../../components/documents/PDFFieldDefinitionBuilder.vue';
+import DocumentFieldLayoutEditor from '../../components/documents/DocumentFieldLayoutEditor.vue';
+import { normalizeDocumentFieldLayout, extractSignatureCoordsFromFields } from '../../utils/documentFieldLayout.js';
 import PDFPreview from '../../components/documents/PDFPreview.vue';
 import IconSelector from '../../components/admin/IconSelector.vue';
 import api from '../../services/api';
@@ -743,13 +736,6 @@ const editForm = ref({
   organizationId: null,
   saveAsNewVersion: false,
   fieldDefinitions: [],
-  signatureCoordinates: {
-    x: null,
-    y: null,
-    width: 200,
-    height: 60,
-    page: null
-  }
 });
 const showUploadNewVersionModal = ref(false);
 const templateForNewVersion = ref(null);
@@ -839,14 +825,13 @@ const handleEdit = (template) => {
     agencyId: template.agency_id !== undefined && template.agency_id !== null ? template.agency_id : null,
     organizationId: template.organization_id !== undefined && template.organization_id !== null ? template.organization_id : null,
     saveAsNewVersion: false,
-    fieldDefinitions: parsedFieldDefinitions,
-    signatureCoordinates: {
+    fieldDefinitions: normalizeDocumentFieldLayout(parsedFieldDefinitions, {
       x: template.signature_x !== undefined && template.signature_x !== null ? template.signature_x : null,
       y: template.signature_y !== undefined && template.signature_y !== null ? template.signature_y : null,
       width: template.signature_width !== undefined && template.signature_width !== null ? template.signature_width : 200,
       height: template.signature_height !== undefined && template.signature_height !== null ? template.signature_height : 60,
       page: template.signature_page !== undefined && template.signature_page !== null ? template.signature_page : null
-    }
+    }),
   };
   console.log('Edit form iconId set to:', editForm.value.iconId);
   showEditModal.value = true;
@@ -881,22 +866,24 @@ const handleDuplicate = async (template) => {
         agencyId: newTemplate.agency_id !== undefined && newTemplate.agency_id !== null ? newTemplate.agency_id : null,
         organizationId: newTemplate.organization_id !== undefined && newTemplate.organization_id !== null ? newTemplate.organization_id : null,
         saveAsNewVersion: false,
-        fieldDefinitions: (() => {
-        const raw = newTemplate.field_definitions;
-        if (!raw) return [];
-        try {
-          return typeof raw === 'string' ? JSON.parse(raw) : raw;
-        } catch {
-          return [];
-        }
-      })(),
-        signatureCoordinates: {
-          x: newTemplate.signature_x !== undefined && newTemplate.signature_x !== null ? newTemplate.signature_x : null,
-          y: newTemplate.signature_y !== undefined && newTemplate.signature_y !== null ? newTemplate.signature_y : null,
-          width: newTemplate.signature_width !== undefined && newTemplate.signature_width !== null ? newTemplate.signature_width : 200,
-          height: newTemplate.signature_height !== undefined && newTemplate.signature_height !== null ? newTemplate.signature_height : 60,
-          page: newTemplate.signature_page !== undefined && newTemplate.signature_page !== null ? newTemplate.signature_page : null
-        }
+        fieldDefinitions: normalizeDocumentFieldLayout(
+          (() => {
+            const raw = newTemplate.field_definitions;
+            if (!raw) return [];
+            try {
+              return typeof raw === 'string' ? JSON.parse(raw) : raw;
+            } catch {
+              return [];
+            }
+          })(),
+          {
+            x: newTemplate.signature_x ?? null,
+            y: newTemplate.signature_y ?? null,
+            width: newTemplate.signature_width ?? 200,
+            height: newTemplate.signature_height ?? 60,
+            page: newTemplate.signature_page ?? null
+          }
+        )
       };
       showEditModal.value = true;
       fetchEditLetterheads();
@@ -966,39 +953,22 @@ const saveEdit = async () => {
     // Always include agencyId (can be null for platform)
     updateData.agencyId = editForm.value.agencyId !== undefined ? (editForm.value.agencyId !== null && editForm.value.agencyId !== '' ? editForm.value.agencyId : null) : null;
     
-    // Always include signature coordinates if signatureCoordinates exists in the form
-    // This allows updating or clearing coordinates
-    // Ensure they are numbers, not strings, and handle null/undefined properly
-    if (editForm.value.signatureCoordinates !== undefined && editForm.value.signatureCoordinates !== null) {
-      // Only include coordinates if at least one coordinate is set, or if we want to clear them
-      // If all coordinates are null/undefined, we might want to preserve existing, but for now let's always send them
-      const coords = editForm.value.signatureCoordinates;
-      
-      // Helper function to parse and validate numbers
+    // Sync legacy signature_* columns from unified field layout (includes signature field type)
+    const coords = extractSignatureCoordsFromFields(editForm.value.fieldDefinitions || []);
+    if (editForm.value.documentActionType === 'signature') {
       const parseCoord = (value, isInt = false) => {
-        if (value === null || value === undefined || value === '' || value === 'null') {
-          return null;
-        }
+        if (value === null || value === undefined || value === '') return null;
         if (typeof value === 'string') {
-          const parsed = isInt ? parseInt(value) : parseFloat(value);
-          return isNaN(parsed) ? null : parsed;
+          const parsed = isInt ? parseInt(value, 10) : parseFloat(value);
+          return Number.isNaN(parsed) ? null : parsed;
         }
         return typeof value === 'number' ? value : null;
       };
-      
       updateData.signatureX = parseCoord(coords.x);
       updateData.signatureY = parseCoord(coords.y);
       updateData.signatureWidth = parseCoord(coords.width);
       updateData.signatureHeight = parseCoord(coords.height);
       updateData.signaturePage = parseCoord(coords.page, true);
-      
-      console.log('📝 Parsed signature coordinates:', {
-        x: updateData.signatureX,
-        y: updateData.signatureY,
-        width: updateData.signatureWidth,
-        height: updateData.signatureHeight,
-        page: updateData.signaturePage
-      });
     }
 
     if (editForm.value.fieldDefinitions !== undefined) {

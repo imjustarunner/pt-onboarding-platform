@@ -2,21 +2,32 @@
   <div class="pdf-field-builder">
     <div class="builder-sidebar">
       <div class="sidebar-header">
-        <h4>Custom Fields</h4>
-        <button type="button" class="btn btn-sm btn-primary" @click="addField">
-          + Add Field
+        <h4>{{ title }}</h4>
+      </div>
+      <div class="quick-add-row">
+        <button
+          v-if="allowSignature && !hasSignatureField"
+          type="button"
+          class="btn btn-sm btn-primary"
+          @click="addSignatureField"
+        >
+          + Signature
         </button>
+        <button type="button" class="btn btn-sm btn-secondary" @click="addField('text')">+ Text</button>
+        <button type="button" class="btn btn-sm btn-secondary" @click="addField('date')">+ Date</button>
+        <button type="button" class="btn btn-sm btn-secondary" @click="addField('initials')">+ Initials</button>
+        <button type="button" class="btn btn-sm btn-secondary" @click="addField('checkbox')">+ Checkbox</button>
       </div>
 
       <div v-if="fields.length === 0" class="empty">
-        No custom fields added yet.
+        Add fields above, then click “Set position” and click on the PDF to place each one.
       </div>
 
       <div
         v-for="(field, idx) in fields"
         :key="field.id"
         class="field-card"
-        :class="{ active: field.id === activeFieldId }"
+        :class="{ active: field.id === activeFieldId, 'field-signature': field.type === 'signature' }"
       >
         <div class="field-card-header">
           <span class="field-index">#{{ idx + 1 }}</span>
@@ -42,10 +53,16 @@
           </div>
         </div>
         <div class="field-row">
-          <input v-model="field.label" type="text" placeholder="Field label" />
+          <input
+            v-model="field.label"
+            type="text"
+            placeholder="Field label"
+            :disabled="field.type === 'signature'"
+          />
         </div>
         <div class="field-row">
-          <select v-model="field.type" @change="handleTypeChange(field)">
+          <select v-model="field.type" @change="handleTypeChange(field)" :disabled="field.type === 'signature'">
+            <option v-if="allowSignature" value="signature">Signature</option>
             <option value="text">Text</option>
             <option value="date">Date</option>
             <option value="ssn">SSN</option>
@@ -54,10 +71,11 @@
             <option value="select">Select (single)</option>
             <option value="radio">Radio (single)</option>
           </select>
-          <label class="checkbox">
+          <label v-if="field.type !== 'signature'" class="checkbox">
             <input v-model="field.required" type="checkbox" />
             Required
           </label>
+          <span v-else class="signature-note">Drawn at sign time</span>
         </div>
         <div v-if="field.type === 'date'" class="field-row">
           <label class="checkbox">
@@ -157,6 +175,7 @@
             v-for="marker in markersOnPage"
             :key="marker.id"
             class="field-preview"
+            :class="{ 'field-preview-signature': marker.type === 'signature' }"
             :style="fieldStyles[marker.id] || { display: 'none' }"
           >
             <span class="field-label">{{ marker.label || 'Field' }}</span>
@@ -178,7 +197,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dis
 
 const props = defineProps({
   pdfUrl: { type: String, required: true },
-  modelValue: { type: Array, default: () => [] }
+  modelValue: { type: Array, default: () => [] },
+  allowSignature: { type: Boolean, default: true },
+  title: { type: String, default: 'Document fields' }
 });
 
 const emit = defineEmits(['update:modelValue']);
@@ -199,6 +220,8 @@ let pdfDoc = null;
 let rendering = false;
 let syncingFromParent = false;
 let syncingToParent = false;
+
+const hasSignatureField = computed(() => fields.value.some((f) => f.type === 'signature'));
 
 const normalizeOption = (opt = {}) => ({
   id: opt.id || `opt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -249,11 +272,12 @@ const markersOnPage = computed(() => {
     } else if (field.x !== null && field.y !== null) {
       markers.push({
         id: field.id,
+        type: field.type,
         label: field.label || field.type,
         x: field.x,
         y: field.y,
-        width: field.width ?? 120,
-        height: field.height ?? 24,
+        width: field.width ?? (field.type === 'signature' ? 200 : 120),
+        height: field.height ?? (field.type === 'signature' ? 60 : 24),
         page: field.page ?? null
       });
     }
@@ -293,12 +317,20 @@ watch(
   { deep: true }
 );
 
-const addField = () => {
-  const field = normalizeField({});
+const addField = (type = 'text') => {
+  if (type === 'signature' && hasSignatureField.value) return;
+  const field = normalizeField({ type, label: type === 'signature' ? 'Signature' : '' });
+  if (type === 'signature') {
+    field.required = true;
+    field.width = 200;
+    field.height = 60;
+  }
   fields.value.push(field);
   activeFieldId.value = field.id;
   activeOption.value = { fieldId: null, optionId: null };
 };
+
+const addSignatureField = () => addField('signature');
 
 const moveField = (fromIdx, toIdx) => {
   if (fromIdx === toIdx) return;
@@ -369,6 +401,11 @@ const handleTypeChange = (field) => {
   } else if (field.type === 'initials') {
     if (!field.width) field.width = 60;
     if (!field.height) field.height = 24;
+  } else if (field.type === 'signature') {
+    field.label = field.label || 'Signature';
+    field.required = true;
+    if (!field.width) field.width = 200;
+    if (!field.height) field.height = 60;
   } else if (field.type === 'date') {
     if (!field.width) field.width = 90;
     if (!field.height) field.height = 24;
@@ -531,6 +568,33 @@ onMounted(() => {
   border-radius: 8px;
   padding: 12px;
   background: #fff;
+}
+
+.field-card.field-signature {
+  border-color: #16a34a;
+  background: #f0fdf4;
+}
+
+.quick-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.signature-note {
+  font-size: 11px;
+  color: #166534;
+  white-space: nowrap;
+}
+
+.field-preview-signature {
+  border-color: #16a34a;
+  background: rgba(22, 163, 74, 0.1);
+}
+
+.field-preview-signature .field-label {
+  color: #166534;
 }
 
 .sidebar-header {

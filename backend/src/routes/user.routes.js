@@ -13,7 +13,7 @@ import {
   moderateRemovePhoto,
   listFlaggedPhotos
 } from '../controllers/userPhotos.controller.js';
-import { getUserTrainingFocuses } from '../controllers/track.controller.js';
+import { getUserTrainingFocuses, getTrainingFocusPath } from '../controllers/track.controller.js';
 import {
   getUserProviderPublicProfile,
   upsertUserProviderPublicProfile,
@@ -103,6 +103,7 @@ router.get('/:id/completion-package', authenticate, downloadCompletionPackage);
 router.get('/:id/onboarding-checklist', authenticate, getOnboardingChecklist);
 router.post('/:id/onboarding-checklist/:itemId/complete', authenticate, markChecklistItemComplete);
 router.get('/:id/training-focuses', authenticate, getUserTrainingFocuses);
+router.get('/:id/training-focuses/:focusId/path', authenticate, getTrainingFocusPath);
 router.post('/:id/mark-complete', authenticate, requireBackofficeAdmin, markUserComplete);
 router.post('/:id/mark-terminated', authenticate, requireBackofficeAdmin, markUserTerminated);
 router.post('/:id/mark-active', authenticate, requireBackofficeAdmin, markUserActive);

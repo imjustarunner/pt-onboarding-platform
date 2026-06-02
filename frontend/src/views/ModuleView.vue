@@ -49,8 +49,19 @@
         </div>
         
         <div class="content-main">
+          <FocusStepTimeTracker
+            v-if="focusStepContext && currentContent && !route.query.preview"
+            :focus-id="focusStepContext.focusId"
+            :step-id="focusStepContext.stepId"
+            :agency-id="focusStepContext.agencyId"
+            :module-id="module.id"
+            :enabled="hasStarted"
+            :disable-idle-timeout="String(currentContent?.content_type || '').toLowerCase() === 'video'"
+            @time-update="handleTimeUpdate"
+            @session-seconds="handleSessionSeconds"
+          />
           <TimeTracker
-            v-if="currentContent && !route.query.preview"
+            v-else-if="currentContent && !route.query.preview"
             :module-id="module.id"
             :enabled="hasStarted"
             @time-update="handleTimeUpdate"
@@ -189,10 +200,14 @@
             </div>
             <!-- Text Content (Documents, Rich Text, Intro, Response) -->
             <div v-else-if="currentContent.content_type === 'text'" class="text-content-viewer">
-              <!-- Intro Screen (has title/description, no fileUrl, no content, no prompt) -->
-              <div v-if="currentContent.content_data?.title && !currentContent.content_data?.fileUrl && !currentContent.content_data?.content && !currentContent.content_data?.prompt" class="intro-screen">
-                <h2>{{ currentContent.content_data.title }}</h2>
-                <div v-if="currentContent.content_data.description" class="intro-description" v-html="formatDescription(currentContent.content_data.description)"></div>
+              <!-- Intro Screen (title/description only — no lesson body) -->
+              <div v-if="isCurrentIntroPage" class="intro-screen">
+                <h2 v-if="currentContent.content_data?.title">{{ currentContent.content_data.title }}</h2>
+                <div
+                  v-if="currentContent.content_data?.description"
+                  class="intro-description"
+                  v-html="formatDescription(currentContent.content_data.description)"
+                ></div>
               </div>
               <!-- Response Page (has prompt) -->
               <div v-else-if="currentContent.content_data?.prompt" class="response-page">
@@ -253,8 +268,13 @@
                   Open Document
                 </a>
               </div>
-              <!-- Rich Text (has content) -->
-              <div v-else-if="currentContent.content_data?.content" class="rich-text-viewer" v-html="currentContent.content_data.content"></div>
+              <!-- Rich Text / AI lesson body (content or textContent) -->
+              <div v-else-if="currentTextBodyHtml" class="rich-text-viewer">
+                <h3 v-if="currentContent.content_data?.title && !isCurrentIntroPage" class="lesson-title">
+                  {{ currentContent.content_data.title }}
+                </h3>
+                <div v-html="currentTextBodyHtml"></div>
+              </div>
               <!-- Google Form (has formUrl) -->
               <div v-else-if="currentContent.content_data?.formUrl" class="google-form-viewer">
                 <h3 v-if="currentContent.content_data?.title">{{ currentContent.content_data.title }}</h3>
@@ -264,20 +284,22 @@
                   style="width: 100%; height: 800px; border: 1px solid #ddd; border-radius: 8px;"
                 ></iframe>
               </div>
+              <p v-else class="text-content-empty">This page has no displayable content yet.</p>
             </div>
-                <QuizForm
-                  v-else-if="currentContent.content_type === 'quiz'"
-                  :module-id="module.id"
-                  :content="currentContent.content_data"
-                  @quiz-completed="handleQuizCompleted"
-                  :disabled="isCompleted"
-                />
+            <QuizForm
+              v-else-if="currentContent.content_type === 'quiz'"
+              :module-id="module.id"
+              :content="currentQuizContent"
+              @quiz-completed="handleQuizCompleted"
+              :disabled="isCompleted"
+            />
             <AcknowledgmentForm
               v-else-if="currentContent.content_type === 'acknowledgment'"
               :module-id="module.id"
               :content="currentContent.content_data"
               @acknowledged="handleAcknowledged"
             />
+            <p v-else class="text-content-empty">Unsupported content type for preview.</p>
           </div>
           
               <div class="content-navigation" v-if="!isCompleted">
@@ -365,10 +387,17 @@ import SlideViewer from '../components/SlideViewer.vue';
 import QuizForm from '../components/QuizForm.vue';
 import SignaturePad from '../components/SignaturePad.vue';
 import TimeTracker from '../components/TimeTracker.vue';
+import FocusStepTimeTracker from '../components/FocusStepTimeTracker.vue';
 import AcknowledgmentForm from '../components/AcknowledgmentForm.vue';
 import PoweredByFooter from '../components/PoweredByFooter.vue';
 import { getDashboardRoute } from '../utils/router';
 import { useAuthStore } from '../store/auth';
+import {
+  parseModuleContentData,
+  isIntroTextContent,
+  getTextBodyHtml,
+  normalizeQuizDataForLearner
+} from '../utils/trainingContentNormalize.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -388,6 +417,20 @@ const quizResults = ref(null);
 const hasStarted = ref(false);
 const starting = ref(false);
 
+const focusStepContext = computed(() => {
+  const focusId = route.query.focusId;
+  const stepId = route.query.stepId;
+  const agencyId = route.query.agencyId;
+  if (focusId && stepId && agencyId) {
+    return {
+      focusId: parseInt(focusId, 10),
+      stepId: parseInt(stepId, 10),
+      agencyId: parseInt(agencyId, 10)
+    };
+  }
+  return null;
+});
+
 // Form-module runtime
 const formDefinition = ref(null); // { pages, fields }
 const formValues = ref({}); // { [fieldDefinitionId]: value }
@@ -398,6 +441,24 @@ const fileUploading = ref({});
 const fileUploadError = ref({});
 
 const currentContent = computed(() => content.value[currentContentIndex.value]);
+
+const isCurrentIntroPage = computed(() => {
+  if (currentContent.value?.content_type !== 'text') return false;
+  return isIntroTextContent(currentContent.value?.content_data);
+});
+
+const currentTextBodyHtml = computed(() => {
+  if (currentContent.value?.content_type !== 'text') return '';
+  if (isCurrentIntroPage.value) return '';
+  return getTextBodyHtml(currentContent.value?.content_data);
+});
+
+const currentQuizContent = computed(() => {
+  if (currentContent.value?.content_type !== 'quiz') return {};
+  const raw = currentContent.value?.content_data || {};
+  const data = typeof raw === 'string' ? parseModuleContentData(raw) : raw;
+  return normalizeQuizDataForLearner(data);
+});
 
 const hasForm = computed(() => {
   return content.value.some((item) => item.content_type === 'form');
@@ -607,7 +668,10 @@ const fetchModule = async () => {
     ]);
     
     module.value = moduleRes.data;
-    content.value = contentRes.data;
+    content.value = (contentRes.data || []).map((item) => ({
+      ...item,
+      content_data: parseModuleContentData(item.content_data)
+    }));
     
     // Initialize response answers
     responseAnswers.value = {};
@@ -816,7 +880,12 @@ const completeModule = async () => {
       if (!ok) return;
     }
 
-    await api.post('/progress/complete', { moduleId: module.value.id });
+    await api.post('/progress/complete', {
+      moduleId: module.value.id,
+      focusId: focusStepContext.value?.focusId,
+      agencyId: focusStepContext.value?.agencyId,
+      stepId: focusStepContext.value?.stepId
+    });
     progress.value = { ...progress.value, status: 'completed' };
     
     // Fetch quiz results after completion
@@ -938,8 +1007,14 @@ const getContentIcon = (type) => {
 };
 
 const getContentTitle = (item) => {
-  if (item.content_data?.title) return item.content_data.title;
-  return `${item.content_type.charAt(0).toUpperCase() + item.content_type.slice(1)} ${item.order_index + 1}`;
+  const data = parseModuleContentData(item?.content_data);
+  if (data?.title) return data.title;
+  if (item.content_type === 'text' && isIntroTextContent(data) && data.description) {
+    const plain = String(data.description).replace(/<[^>]+>/g, '').trim();
+    if (plain) return plain.slice(0, 48) + (plain.length > 48 ? '…' : '');
+  }
+  if (item.content_type === 'quiz') return data?.title || 'Quiz';
+  return `${item.content_type.charAt(0).toUpperCase() + item.content_type.slice(1)} ${(item.order_index ?? 0) + 1}`;
 };
 
 onMounted(() => {
@@ -962,6 +1037,25 @@ onMounted(() => {
   color: var(--text-secondary);
   font-size: 18px;
   line-height: 1.7;
+}
+
+.intro-screen {
+  padding: 8px 0;
+}
+
+.lesson-title {
+  margin: 0 0 16px;
+  color: var(--text-primary);
+}
+
+.text-content-empty {
+  color: var(--text-secondary);
+  font-style: italic;
+  padding: 24px 0;
+}
+
+.rich-text-viewer {
+  line-height: 1.6;
 }
 
 .module-start-splash {

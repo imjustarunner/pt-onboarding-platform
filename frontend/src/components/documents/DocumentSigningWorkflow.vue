@@ -7,6 +7,13 @@
         <div v-if="errorDetails.code">Error Code: {{ errorDetails.code }}</div>
       </div>
     </div>
+    <FocusStepTimeTracker
+      v-if="focusStepContext && currentStep < 4"
+      :focus-id="focusStepContext.focusId"
+      :step-id="focusStepContext.stepId"
+      :agency-id="focusStepContext.agencyId"
+      :enabled="true"
+    />
     <div v-if="currentStep === 1" class="step step-consent">
       <h2>Electronic Signature Consent</h2>
       <div class="consent-content">
@@ -225,6 +232,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import SignaturePad from '../SignaturePad.vue';
 import PDFPreview from './PDFPreview.vue';
+import FocusStepTimeTracker from '../FocusStepTimeTracker.vue';
 import { useDocumentsStore } from '../../store/documents';
 import { useAuthStore } from '../../store/auth';
 import { getDashboardRoute } from '../../utils/router';
@@ -270,6 +278,24 @@ const activeFieldIndex = ref(0);
 const SIGNING_DRAFT_TTL_MS = 60 * 60 * 1000;
 const draftStorageKey = computed(() => `document-signing-draft:${taskId}`);
 
+const focusStepContext = computed(() => {
+  let meta = task.value?.metadata;
+  if (typeof meta === 'string') {
+    try { meta = JSON.parse(meta); } catch { meta = null; }
+  }
+  const focusId = meta?.trackId;
+  const stepId = meta?.stepId;
+  const agencyId = task.value?.assigned_to_agency_id;
+  if (focusId && stepId && agencyId) {
+    return {
+      focusId: parseInt(focusId, 10),
+      stepId: parseInt(stepId, 10),
+      agencyId: parseInt(agencyId, 10)
+    };
+  }
+  return null;
+});
+
 const isFieldVisible = (def, values) => {
   const showIf = def?.showIf;
   if (!showIf || !showIf.fieldId) return true;
@@ -285,7 +311,7 @@ const isFieldVisible = (def, values) => {
 };
 
 const visibleFieldDefinitions = computed(() =>
-  fieldDefinitions.value.filter((def) => isFieldVisible(def, fieldValues.value))
+  fieldDefinitions.value.filter((def) => isFieldVisible(def, fieldValues.value) && def.type !== 'signature')
 );
 
 const formatFieldType = (type) => {
@@ -775,6 +801,16 @@ const appendRefreshNonce = (url) => {
 };
 
 const completeAndExitAfterFinalize = async () => {
+  if (focusStepContext.value) {
+    try {
+      await api.post(
+        `/training-focuses/${focusStepContext.value.focusId}/steps/${focusStepContext.value.stepId}/complete`,
+        { agencyId: focusStepContext.value.agencyId }
+      );
+    } catch (e) {
+      console.warn('Failed to sync training focus step on document complete:', e);
+    }
+  }
   clearSigningDraft();
   if (!shouldAutoExitOnFinalize.value) {
     currentStep.value = 4;

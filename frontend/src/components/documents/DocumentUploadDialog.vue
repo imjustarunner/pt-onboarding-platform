@@ -74,20 +74,14 @@
           <small v-if="selectedFile">Selected: {{ selectedFile.name }} ({{ formatFileSize(selectedFile.size) }})</small>
         </div>
 
-        <!-- Signature Coordinate Picker -->
-        <div v-if="formData.documentActionType === 'signature' && selectedFile && pdfUrl" class="form-group signature-coordinate-section">
-          <PDFSignatureCoordinatePicker
-            :key="pdfUrl"
-            :pdf-url="pdfUrl"
-            v-model="signatureCoordinates"
-          />
-        </div>
-
-        <div v-if="selectedFile && pdfUrl" class="form-group signature-coordinate-section">
-          <h4 style="margin-top: 24px;">Custom Field Placement (Optional)</h4>
-          <PDFFieldDefinitionBuilder
+        <div v-if="hasPdfPlacementUi" class="form-group signature-coordinate-section">
+          <p class="info-text" style="margin-bottom: 12px;">
+            Place the signature and any fill-in fields on the PDF. Signature is one field type alongside text, dates, and checkboxes.
+          </p>
+          <DocumentFieldLayoutEditor
             :pdf-url="pdfUrl"
             v-model="fieldDefinitions"
+            :allow-signature="formData.documentActionType === 'signature'"
           />
         </div>
 
@@ -166,8 +160,8 @@ import { useDocumentsStore } from '../../store/documents';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import IconSelector from '../admin/IconSelector.vue';
-import PDFSignatureCoordinatePicker from './PDFSignatureCoordinatePicker.vue';
-import PDFFieldDefinitionBuilder from './PDFFieldDefinitionBuilder.vue';
+import DocumentFieldLayoutEditor from './DocumentFieldLayoutEditor.vue';
+import { extractSignatureCoordsFromFields, normalizeDocumentFieldLayout } from '../../utils/documentFieldLayout.js';
 import TemplateVariablesList from './TemplateVariablesList.vue';
 import api from '../../services/api';
 
@@ -204,13 +198,6 @@ const availableAgencies = ref([]);
 const affiliatedOrganizations = ref([]);
 const loadingAffiliatedOrganizations = ref(false);
 const pdfUrl = ref(null);
-const signatureCoordinates = ref({
-  x: null,
-  y: null,
-  width: 200,
-  height: 60,
-  page: null
-});
 const fieldDefinitions = ref([]);
 const hasPdfPlacementUi = computed(() => Boolean(selectedFile.value && pdfUrl.value));
 const parseFieldDefinitions = (raw) => {
@@ -221,7 +208,16 @@ const parseFieldDefinitions = (raw) => {
     return [];
   }
 };
-fieldDefinitions.value = parseFieldDefinitions(props.existingTemplate?.field_definitions);
+fieldDefinitions.value = normalizeDocumentFieldLayout(
+  parseFieldDefinitions(props.existingTemplate?.field_definitions),
+  {
+    x: props.existingTemplate?.signature_x ?? null,
+    y: props.existingTemplate?.signature_y ?? null,
+    width: props.existingTemplate?.signature_width ?? 200,
+    height: props.existingTemplate?.signature_height ?? 60,
+    page: props.existingTemplate?.signature_page ?? null
+  }
+);
 
 const userRole = computed(() => authStore.user?.role);
 const canUsePlatformScope = computed(() => userRole.value === 'super_admin');
@@ -369,11 +365,12 @@ const handleUpload = async () => {
     return;
   }
 
+  const signatureCoords = extractSignatureCoordsFromFields(fieldDefinitions.value);
   if (
     formData.value.documentActionType === 'signature' &&
-    (signatureCoordinates.value.x === null || signatureCoordinates.value.y === null)
+    (signatureCoords.x === null || signatureCoords.y === null)
   ) {
-    error.value = 'Please click the PDF to set the signature position before uploading.';
+    error.value = 'Add a Signature field and click the PDF to set its position before uploading.';
     return;
   }
 
@@ -408,15 +405,13 @@ const handleUpload = async () => {
     }
     }
 
-    // Add signature coordinates if signature is selected and coordinates are set
-    if (formData.value.documentActionType === 'signature' && signatureCoordinates.value.x !== null && signatureCoordinates.value.y !== null) {
-      console.log('Uploading signature coordinates:', signatureCoordinates.value);
-      formDataToSend.append('signatureX', signatureCoordinates.value.x.toString());
-      formDataToSend.append('signatureY', signatureCoordinates.value.y.toString());
-      formDataToSend.append('signatureWidth', signatureCoordinates.value.width.toString());
-      formDataToSend.append('signatureHeight', signatureCoordinates.value.height.toString());
-      if (signatureCoordinates.value.page !== null) {
-        formDataToSend.append('signaturePage', signatureCoordinates.value.page.toString());
+    if (formData.value.documentActionType === 'signature' && signatureCoords.x !== null && signatureCoords.y !== null) {
+      formDataToSend.append('signatureX', String(signatureCoords.x));
+      formDataToSend.append('signatureY', String(signatureCoords.y));
+      formDataToSend.append('signatureWidth', String(signatureCoords.width ?? 200));
+      formDataToSend.append('signatureHeight', String(signatureCoords.height ?? 60));
+      if (signatureCoords.page !== null && signatureCoords.page !== undefined) {
+        formDataToSend.append('signaturePage', String(signatureCoords.page));
       }
     }
 
@@ -442,7 +437,6 @@ const handleUpload = async () => {
       URL.revokeObjectURL(pdfUrl.value);
       pdfUrl.value = null;
     }
-    signatureCoordinates.value = { x: null, y: null, width: 200, height: 60, page: null };
     fieldDefinitions.value = [];
     if (fileInput.value) {
       fileInput.value.value = '';

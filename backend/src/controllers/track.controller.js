@@ -4,6 +4,9 @@ import User from '../models/User.model.js';
 import UserTrack from '../models/UserTrack.model.js';
 import Task from '../models/Task.model.js';
 import ProgressCalculationService from '../services/progressCalculation.service.js';
+import TrainingFocusStepsService from '../services/trainingFocusSteps.service.js';
+import TrainingFocusProgressService from '../services/trainingFocusProgress.service.js';
+import { UserTrainingFocusProgress } from '../models/UserTrainingFocusProgress.model.js';
 import { validationResult } from 'express-validator';
 
 export const getAllTracks = async (req, res, next) => {
@@ -246,6 +249,17 @@ export const addModuleToTrack = async (req, res, next) => {
     const { moduleId, orderIndex } = req.body;
     
     await TrainingTrack.addModule(id, moduleId, orderIndex);
+    try {
+      await TrainingFocusStepsService.addStep(parseInt(id, 10), {
+        stepType: 'module',
+        referenceId: parseInt(moduleId, 10),
+        orderIndex
+      });
+    } catch (stepErr) {
+      if (stepErr.statusCode !== 400) {
+        console.warn('Could not sync module to training focus steps:', stepErr.message);
+      }
+    }
     const track = await TrainingTrack.findById(id);
     const modules = await TrainingTrack.getModules(id);
     track.modules = modules;
@@ -262,6 +276,16 @@ export const removeModuleFromTrack = async (req, res, next) => {
     const moduleId = req.params.moduleId || req.body?.moduleId;
     
     await TrainingTrack.removeModule(id, moduleId);
+    try {
+      const TrainingFocusStep = (await import('../models/TrainingFocusStep.model.js')).default;
+      const steps = await TrainingFocusStep.findByFocusId(parseInt(id, 10));
+      const step = steps.find((s) => s.stepType === 'module' && Number(s.referenceId) === Number(moduleId));
+      if (step) {
+        await TrainingFocusStepsService.removeStep(parseInt(id, 10), step.id);
+      }
+    } catch {
+      // best-effort
+    }
     res.json({ message: 'Module removed from training focus' });
   } catch (error) {
     next(error);
@@ -597,14 +621,28 @@ export const assignTrainingFocus = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Training Focus not found' } });
     }
 
-    // Get all modules in the training focus
-    const modules = await TrainingTrack.getModules(id);
+    // Get ordered steps (fallback to legacy modules if no steps yet)
+    const TrainingFocusStep = (await import('../models/TrainingFocusStep.model.js')).default;
+    let steps = await TrainingFocusStep.findByFocusId(parseInt(id));
+    if (!steps.length) {
+      const modules = await TrainingTrack.getModules(id);
+      steps = modules.map((m, idx) => ({
+        id: null,
+        stepType: 'module',
+        referenceId: m.id,
+        orderIndex: m.track_order ?? m.order_index ?? idx,
+        title: m.title,
+        documentActionType: null,
+        dueDateDays: null
+      }));
+    }
 
     // Import required services
     const TaskAssignmentService = (await import('../services/taskAssignment.service.js')).default;
     const Module = (await import('../models/Module.model.js')).default;
+    const DocumentTemplate = (await import('../models/DocumentTemplate.model.js')).default;
     const UserChecklistAssignment = (await import('../models/UserChecklistAssignment.model.js')).default;
-    const CustomChecklistItem = (await import('../models/CustomChecklistItem.model.js')).default;
+    const { UserTrainingFocusProgress } = await import('../models/UserTrainingFocusProgress.model.js');
 
     // Assign training focus to each user
     const assignments = [];
@@ -614,64 +652,94 @@ export const assignTrainingFocus = async (req, res, next) => {
     for (const userId of userIds) {
       // Assign the training focus (creates user_tracks entry)
       await UserTrack.assignUserToTrack(userId, parseInt(id), parseInt(agencyId), assignedByUserId);
+      await UserTrainingFocusProgress.ensure(parseInt(userId), parseInt(id), parseInt(agencyId));
       
-      // Create tasks for all modules in the training focus
       const moduleTasks = [];
-
-      // Idempotency: if tasks already exist for this training focus assignment, don't create duplicates.
-      // If dueDate is explicitly provided in the request, update existing tasks' due dates instead.
       const existingTasks = await Task.findTrainingTrackTasksForUser({
         userId: parseInt(userId),
         agencyId: parseInt(agencyId),
         trackId: parseInt(id)
       });
-      const existingByModuleId = new Map(
-        (existingTasks || []).map((t) => [Number(t.reference_id), t])
+      const existingByRef = new Map(
+        (existingTasks || []).map((t) => [`training:${Number(t.reference_id)}`, t])
       );
+      const existingDocTasks = await Task.findByUser(parseInt(userId), { taskType: 'document' });
+      for (const t of existingDocTasks || []) {
+        let meta = t.metadata;
+        if (typeof meta === 'string') {
+          try { meta = JSON.parse(meta); } catch { meta = {}; }
+        }
+        if (Number(meta?.trackId) === Number(id)) {
+          existingByRef.set(`document:${Number(t.reference_id)}`, t);
+        }
+      }
       const existingTaskIdsToUpdate = [];
       let userTasksUpdated = 0;
 
-      for (const module of modules) {
+      for (const step of steps) {
         try {
-          const moduleData = await Module.findById(module.id);
-          if (moduleData) {
-            const existing = existingByModuleId.get(Number(module.id));
+          const stepOrder = step.orderIndex ?? 0;
+          const stepDueDate = hasDueDateField
+            ? dueDate || null
+            : step.dueDateDays
+              ? new Date(Date.now() + step.dueDateDays * 86400000).toISOString().slice(0, 10)
+              : null;
+
+          if (step.stepType === 'module') {
+            const moduleData = await Module.findById(step.referenceId);
+            if (!moduleData) continue;
+            const key = `training:${step.referenceId}`;
+            const existing = existingByRef.get(key) || existingByRef.get(`training:${Number(step.referenceId)}`);
             if (existing) {
-              if (hasDueDateField) {
-                existingTaskIdsToUpdate.push(existing.id);
-              }
+              if (hasDueDateField) existingTaskIdsToUpdate.push(existing.id);
             } else {
               const task = await TaskAssignmentService.assignTrainingTask({
                 title: `Complete ${moduleData.title}`,
                 description: moduleData.description || 'Please complete this training module.',
-                referenceId: module.id,
+                referenceId: step.referenceId,
                 assignedByUserId,
                 assignedToUserId: parseInt(userId),
                 assignedToAgencyId: parseInt(agencyId),
-                dueDate: hasDueDateField ? (dueDate || null) : null,
+                dueDate: stepDueDate,
                 metadata: {
                   trackId: parseInt(id),
                   trackName: trainingFocus.name,
-                  moduleOrder: module.track_order || module.order_index
+                  stepId: step.id,
+                  stepOrder
                 }
               });
               moduleTasks.push(task);
               totalTasksCreated++;
             }
-            
-            // Assign checklist items nested under this module
-            const moduleChecklistItems = await CustomChecklistItem.findByModule(module.id);
-            for (const checklistItem of moduleChecklistItems) {
-              try {
-                await UserChecklistAssignment.assignToUser(parseInt(userId), checklistItem.id, assignedByUserId);
-              } catch (checklistError) {
-                console.error(`Failed to assign checklist item ${checklistItem.id} for module ${module.id}:`, checklistError);
-              }
+          } else if (step.stepType === 'document') {
+            const tpl = await DocumentTemplate.findById(step.referenceId);
+            if (!tpl) continue;
+            const key = `document:${step.referenceId}`;
+            const existing = existingByRef.get(key);
+            if (!existing) {
+              await TaskAssignmentService.assignDocumentTask({
+                title: tpl.name || 'Sign document',
+                description: tpl.description || '',
+                documentTemplateId: step.referenceId,
+                documentActionType: step.documentActionType || 'signature',
+                assignedByUserId,
+                assignedToUserId: parseInt(userId),
+                assignedToAgencyId: parseInt(agencyId),
+                dueDate: stepDueDate,
+                metadata: {
+                  trackId: parseInt(id),
+                  trackName: trainingFocus.name,
+                  stepId: step.id,
+                  stepOrder
+                }
+              });
+              totalTasksCreated++;
             }
+          } else if (step.stepType === 'checklist_item') {
+            await UserChecklistAssignment.assignToUser(parseInt(userId), step.referenceId, assignedByUserId);
           }
-        } catch (moduleError) {
-          console.error(`Failed to create task for module ${module.id}:`, moduleError);
-          // Continue with other modules even if one fails
+        } catch (stepError) {
+          console.error(`Failed to assign step ${step.stepType}:${step.referenceId}:`, stepError);
         }
       }
 
@@ -681,21 +749,11 @@ export const assignTrainingFocus = async (req, res, next) => {
         totalTasksUpdated += updated;
       }
       
-      // Assign checklist items nested under this training focus (not under specific modules)
-      const focusChecklistItems = await CustomChecklistItem.findByTrainingFocus(parseInt(id));
-      for (const checklistItem of focusChecklistItems) {
-        try {
-          await UserChecklistAssignment.assignToUser(parseInt(userId), checklistItem.id, assignedByUserId);
-        } catch (checklistError) {
-          console.error(`Failed to assign checklist item ${checklistItem.id} for training focus ${id}:`, checklistError);
-        }
-      }
-      
       assignments.push({
         userId,
         trainingFocusId: parseInt(id),
         agencyId: parseInt(agencyId),
-        modulesCount: modules.length,
+        stepsCount: steps.length,
         tasksCreated: moduleTasks.length,
         tasksUpdated: userTasksUpdated
       });
@@ -704,7 +762,7 @@ export const assignTrainingFocus = async (req, res, next) => {
     res.status(201).json({
       message: 'Training Focus assigned successfully',
       assignments,
-      modulesAssigned: modules.length,
+      stepsAssigned: steps.length,
       totalTasksCreated,
       totalTasksUpdated
     });
@@ -734,26 +792,51 @@ export const unassignTrainingFocusFromUser = async (req, res, next) => {
     // Remove track assignment
     await UserTrack.removeUserFromTrack(userId, trackId, agencyId);
 
-    // Remove training tasks created for this training focus (metadata.trackId + assigned_to_agency_id)
+    // Remove training + document tasks created for this training focus
     const tasks = await Task.findTrainingTrackTasksForUser({ userId, agencyId, trackId });
-    const taskIds = (tasks || []).map((t) => t.id).filter(Boolean);
+    const docTasks = await Task.findByUser(userId, { taskType: 'document' });
+    const docTaskIds = (docTasks || [])
+      .filter((t) => {
+        let meta = t.metadata;
+        if (typeof meta === 'string') {
+          try { meta = JSON.parse(meta); } catch { meta = {}; }
+        }
+        return Number(meta?.trackId) === Number(trackId) && Number(t.assigned_to_agency_id) === Number(agencyId);
+      })
+      .map((t) => t.id);
+    const taskIds = [...(tasks || []).map((t) => t.id), ...docTaskIds].filter(Boolean);
     await Task.deleteByIds(taskIds);
 
-    // Also remove checklist items nested under this training focus and its modules for this user.
+    // Remove checklist step assignments for this focus
     try {
       const UserChecklistAssignment = (await import('../models/UserChecklistAssignment.model.js')).default;
-      const CustomChecklistItem = (await import('../models/CustomChecklistItem.model.js')).default;
-      const modules = await TrainingTrack.getModules(trackId);
-      const focusItems = await CustomChecklistItem.findByTrainingFocus(trackId);
-      const moduleItems = [];
-      for (const m of modules || []) {
-        const rows = await CustomChecklistItem.findByModule(m.id);
-        moduleItems.push(...(rows || []));
-      }
-      const allItemIds = Array.from(new Set([...(focusItems || []).map((x) => x.id), ...moduleItems.map((x) => x.id)]));
-      for (const itemId of allItemIds) {
+      const TrainingFocusStep = (await import('../models/TrainingFocusStep.model.js')).default;
+      const steps = await TrainingFocusStep.findByFocusId(trackId);
+      const checklistIds = steps.filter((s) => s.stepType === 'checklist_item').map((s) => s.referenceId);
+      for (const itemId of checklistIds) {
         await UserChecklistAssignment.removeFromUser(userId, itemId, req.user.id);
       }
+    } catch {
+      // best-effort
+    }
+
+    // Clear focus progress rows
+    try {
+      const pool = (await import('../config/database.js')).default;
+      const TrainingFocusStep = (await import('../models/TrainingFocusStep.model.js')).default;
+      const steps = await TrainingFocusStep.findByFocusId(trackId);
+      const stepIds = steps.map((s) => s.id);
+      if (stepIds.length) {
+        const ph = stepIds.map(() => '?').join(',');
+        await pool.execute(
+          `DELETE FROM user_training_focus_step_progress WHERE user_id = ? AND agency_id = ? AND step_id IN (${ph})`,
+          [userId, agencyId, ...stepIds]
+        );
+      }
+      await pool.execute(
+        'DELETE FROM user_training_focus_progress WHERE user_id = ? AND training_focus_id = ? AND agency_id = ?',
+        [userId, trackId, agencyId]
+      );
     } catch {
       // best-effort
     }
@@ -790,10 +873,10 @@ export const getUserTrainingFocuses = async (req, res, next) => {
         const track = await TrainingTrack.findById(userTrack.track_id);
         if (!track) continue;
         
-        // Get modules in this track
+        // Step-based path (preferred) + legacy module details
+        const path = await TrainingFocusProgressService.getPath(parseInt(userId), userTrack.track_id, agency.id);
         const modules = await TrainingTrack.getModules(userTrack.track_id);
         
-        // Get progress for each module
         const moduleDetails = [];
         for (const module of modules) {
           const moduleProgress = await ProgressCalculationService.calculateModuleProgress(parseInt(userId), module.id);
@@ -801,9 +884,8 @@ export const getUserTrainingFocuses = async (req, res, next) => {
           const isIncomplete = moduleProgress.status !== 'completed';
           if (isIncomplete) incompleteModuleCount++;
           
-          // Get task due date for this module
-          const Task = (await import('../models/Task.model.js')).default;
-          const tasks = await Task.findByUser(parseInt(userId), { taskType: 'training' });
+          const TaskModel = (await import('../models/Task.model.js')).default;
+          const tasks = await TaskModel.findByUser(parseInt(userId), { taskType: 'training' });
           const moduleTask = tasks.find(t => t.reference_id === module.id && t.assigned_to_agency_id === agency.id);
           
           moduleDetails.push({
@@ -824,7 +906,6 @@ export const getUserTrainingFocuses = async (req, res, next) => {
           });
         }
         
-        // Calculate track completion
         const trackProgress = await ProgressCalculationService.calculateTrackProgress(
           parseInt(userId),
           userTrack.track_id,
@@ -841,6 +922,11 @@ export const getUserTrainingFocuses = async (req, res, next) => {
           status: trackProgress.status,
           modulesCompleted: trackProgress.modulesCompleted,
           modulesTotal: trackProgress.modulesTotal,
+          stepsCompleted: trackProgress.stepsCompleted ?? trackProgress.modulesCompleted,
+          stepsTotal: trackProgress.stepsTotal ?? trackProgress.modulesTotal,
+          currentStepId: path.currentStepId,
+          totalTimeSpentSeconds: path.totalTimeSpentSeconds || trackProgress.totalTimeSpentSeconds || 0,
+          steps: path.steps,
           modules: moduleDetails
         });
       }
@@ -873,6 +959,144 @@ export const getTrainingFocusCompletion = async (req, res, next) => {
 
     res.json(progress);
   } catch (error) {
+    next(error);
+  }
+};
+
+export const getTrainingFocusSteps = async (req, res, next) => {
+  try {
+    const focusId = parseInt(req.params.id, 10);
+    const steps = await TrainingFocusStepsService.listSteps(focusId);
+    res.json({ steps });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const addTrainingFocusStep = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+    const focusId = parseInt(req.params.id, 10);
+    const step = await TrainingFocusStepsService.addStep(focusId, req.body);
+    res.status(201).json({ step });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ error: { message: error.message } });
+    }
+    next(error);
+  }
+};
+
+export const reorderTrainingFocusSteps = async (req, res, next) => {
+  try {
+    const focusId = parseInt(req.params.id, 10);
+    const { stepIds } = req.body;
+    if (!Array.isArray(stepIds)) {
+      return res.status(400).json({ error: { message: 'stepIds array is required' } });
+    }
+    const steps = await TrainingFocusStepsService.reorderSteps(focusId, stepIds);
+    res.json({ steps });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const removeTrainingFocusStep = async (req, res, next) => {
+  try {
+    const focusId = parseInt(req.params.id, 10);
+    const stepId = parseInt(req.params.stepId, 10);
+    await TrainingFocusStepsService.removeStep(focusId, stepId);
+    res.json({ ok: true });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ error: { message: error.message } });
+    }
+    next(error);
+  }
+};
+
+export const getTrainingFocusPath = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.userId || req.params.id, 10);
+    const focusId = parseInt(req.params.focusId, 10);
+    const agencyId = parseInt(req.query.agencyId, 10);
+
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+
+    if (userId !== req.user.id && !['admin', 'super_admin', 'support'].includes(req.user.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const path = await TrainingFocusProgressService.getPath(userId, focusId, agencyId);
+    res.json(path);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const startTrainingFocusStep = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const focusId = parseInt(req.params.id, 10);
+    const stepId = parseInt(req.params.stepId, 10);
+    const agencyId = parseInt(req.body.agencyId, 10);
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+    const path = await TrainingFocusProgressService.startStep(userId, focusId, agencyId, stepId);
+    res.json(path);
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ error: { message: error.message } });
+    }
+    next(error);
+  }
+};
+
+export const completeTrainingFocusStep = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const focusId = parseInt(req.params.id, 10);
+    const stepId = parseInt(req.params.stepId, 10);
+    const agencyId = parseInt(req.body.agencyId, 10);
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+    const path = await TrainingFocusProgressService.completeStep(userId, focusId, agencyId, stepId);
+    res.json(path);
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ error: { message: error.message } });
+    }
+    next(error);
+  }
+};
+
+export const logTrainingFocusStepTime = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const focusId = parseInt(req.params.id, 10);
+    const stepId = parseInt(req.params.stepId, 10);
+    const agencyId = parseInt(req.body.agencyId, 10);
+    const { sessionStart, sessionEnd, durationSeconds } = req.body;
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+    const result = await TrainingFocusProgressService.logStepTime(userId, focusId, agencyId, stepId, {
+      sessionStart,
+      sessionEnd,
+      durationSeconds
+    });
+    res.json(result);
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ error: { message: error.message } });
+    }
     next(error);
   }
 };

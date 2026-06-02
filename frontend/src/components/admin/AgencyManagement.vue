@@ -1342,6 +1342,12 @@
             </div>
             <small class="hint">Enables the Note Aid page (AI note helpers). Requires GEMINI_API_KEY in backend.</small>
 
+            <div v-if="isFeatureAvailable('trainingAiBuilderEnabled') || userRole === 'super_admin'" class="toggle-row" style="margin-top: 10px;">
+              <span>Enable Training AI Module Builder</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.trainingAiBuilderEnabled" compact />
+            </div>
+            <small class="hint">AI-assisted training modules from handbook uploads and source documents. After enabling, open Module Manager, select this agency in the filter, then use Build with AI.</small>
+
             <div class="toggle-row" style="margin-top: 10px;">
               <span>Enable standards-aligned learning</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.standardsLearningEnabled" compact />
@@ -4095,6 +4101,7 @@ const TENANT_FEATURE_PROFILES = {
       kudosEnabled: false,
       aiProviderSearchEnabled: false,
       noteAidEnabled: false,
+      trainingAiBuilderEnabled: false,
       standardsLearningEnabled: false,
       groupClassSessionsEnabled: false,
       guardianWaiversEnabled: false,
@@ -6416,6 +6423,8 @@ const defaultAgencyForm = () => ({
     // Default OFF until explicitly enabled (requires GEMINI_API_KEY in backend).
     noteAidEnabled: false,
 
+    trainingAiBuilderEnabled: false,
+
     // Standards/goals/progress experience (off by default)
     standardsLearningEnabled: false,
 
@@ -7832,6 +7841,7 @@ const editAgency = async (agency) => {
       bookClubEnabled: featureFlags.bookClubEnabled === true,
       aiProviderSearchEnabled: featureFlags.aiProviderSearchEnabled === true,
       noteAidEnabled: featureFlags.noteAidEnabled === true,
+      trainingAiBuilderEnabled: featureFlags.trainingAiBuilderEnabled === true,
       standardsLearningEnabled: featureFlags.standardsLearningEnabled === true,
       groupClassSessionsEnabled: featureFlags.groupClassSessionsEnabled === true,
       guardianWaiversEnabled: featureFlags.guardianWaiversEnabled === true,

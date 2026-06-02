@@ -199,6 +199,7 @@ const FLAG_KEY_TO_BILLING_CATALOG = {
   noteAidEnabled: 'geminiNoteAid',
   payrollEnabled: 'payrollWorkspace',
   onboardingTrainingEnabled: 'onboardingTraining',
+  trainingAiBuilderEnabled: 'trainingAiModuleBuilder',
   shiftProgramsEnabled: 'officeSchedulingPublishing',
   publicProviderFinderEnabled: 'publicAvailability',
   schoolPortalsEnabled: 'schoolPortals',

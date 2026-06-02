@@ -67,58 +67,51 @@
               <div class="progress-bar">
                 <div class="progress-fill" :style="{ width: focus.completionPercent + '%' }"></div>
               </div>
-              <span class="progress-text">{{ focus.modulesCompleted }} / {{ focus.modulesTotal }} modules</span>
+              <span class="progress-text">{{ focus.stepsCompleted ?? focus.modulesCompleted }} / {{ focus.stepsTotal ?? focus.modulesTotal }} steps</span>
+              <span v-if="focus.totalTimeSpentSeconds > 0" class="progress-text" style="display:block;margin-top:4px;">
+                Time: {{ formatDuration(Math.floor(focus.totalTimeSpentSeconds / 60)) }}
+              </span>
             </div>
           </div>
           
           <div class="modules-section">
-            <h4>Modules</h4>
+            <h4>Training path</h4>
+            <p class="path-hint">Complete each step in order. Your progress is saved automatically.</p>
             <div class="modules-list">
               <div
-                v-for="module in getSortedModules(focus.modules)"
-                :key="module.id"
+                v-for="(step, index) in getFocusSteps(focus)"
+                :key="step.id || `${step.stepType}-${step.referenceId}`"
                 class="module-item"
-                :class="{ completed: module.status === 'completed' }"
-                @click="goToModule(module.id)"
+                :class="{
+                  completed: step.lockState === 'completed' || step.status === 'completed',
+                  locked: step.lockState === 'locked',
+                  current: step.lockState === 'current'
+                }"
+                @click="openStep(focus, step)"
               >
                 <div class="module-status-icon">
-                  <span v-if="module.status === 'completed'" class="checkmark">✓</span>
-                  <span v-else-if="module.status === 'in_progress'" class="in-progress">●</span>
+                  <span v-if="step.lockState === 'completed' || step.status === 'completed'" class="checkmark">✓</span>
+                  <span v-else-if="step.lockState === 'current'" class="in-progress">●</span>
+                  <span v-else-if="step.lockState === 'locked'" class="locked-icon">🔒</span>
                   <span v-else class="not-started">○</span>
                 </div>
                 <div class="module-info">
-                  <span class="module-title">{{ module.title }}</span>
-                  <span class="module-status">{{ getStatusLabel(module.status) }}</span>
-                  <div v-if="module.status === 'completed'" class="module-completion-details">
-                    <span v-if="module.timeSpentMinutes > 0" class="completion-time">
-                      Time: {{ formatDuration(module.timeSpentMinutes) }}
-                    </span>
-                    <span v-if="module.completedAt" class="completion-date">
-                      Completed: {{ formatDate(module.completedAt) }}
-                    </span>
-                    <span v-if="module.dueDate" class="completion-date">
-                      Due: {{ formatDate(module.dueDate) }}
-                    </span>
-                    <span v-if="module.quizCorrectCount !== null && module.quizTotalQuestions" class="quiz-score">
-                      Quiz: {{ module.quizCorrectCount }}/{{ module.quizTotalQuestions }} 
-                      ({{ module.quizScore }}%)
-                      <span v-if="module.quizPassed !== null" :class="['quiz-status', module.quizPassed ? 'passed' : 'failed']">
-                        {{ module.quizPassed ? '✓' : '✗' }}
-                      </span>
-                    </span>
-                    <button 
-                      @click.stop="downloadModuleCertificate(module.id)" 
-                      class="btn-certificate-download"
-                      :disabled="downloadingCertificates.has(module.id)"
-                    >
-                      {{ downloadingCertificates.has(module.id) ? 'Downloading...' : '📄 Download Certificate' }}
-                    </button>
-                  </div>
-                  <span v-else-if="module.dueDate" class="module-due-date">Due: {{ formatDate(module.dueDate) }}</span>
+                  <span class="step-type-label">{{ stepTypeLabel(step.stepType) }}</span>
+                  <span class="module-title">{{ step.title }}</span>
+                  <span class="module-status">{{ getStepStatusLabel(step) }}</span>
+                  <span v-if="step.timeSpentSeconds > 0" class="completion-time">
+                    Time: {{ formatDuration(Math.floor(step.timeSpentSeconds / 60)) }}
+                  </span>
+                  <button
+                    v-if="step.stepType === 'checklist_item' && step.lockState === 'current'"
+                    type="button"
+                    class="btn-checklist-complete"
+                    @click.stop="completeChecklistStep(focus, step)"
+                  >
+                    Mark complete
+                  </button>
                 </div>
-                <div class="module-time" v-if="module.timeSpentMinutes > 0 && module.status !== 'completed'">
-                  {{ formatDuration(module.timeSpentMinutes) }}
-                </div>
+                <span class="step-number">{{ index + 1 }}</span>
               </div>
             </div>
           </div>
@@ -163,8 +156,8 @@ const sortedFocuses = computed(() => {
     case 'unfinished':
       // Sort focuses with incomplete modules first
       return focusList.sort((a, b) => {
-        const aIncomplete = a.modules.filter(m => m.status !== 'completed').length;
-        const bIncomplete = b.modules.filter(m => m.status !== 'completed').length;
+        const aIncomplete = getFocusSteps(a).filter((s) => s.status !== 'completed' && s.lockState !== 'completed').length;
+        const bIncomplete = getFocusSteps(b).filter((s) => s.status !== 'completed' && s.lockState !== 'completed').length;
         
         // Focuses with more incomplete modules first
         if (aIncomplete !== bIncomplete) {
@@ -204,9 +197,9 @@ const getSortedModules = (modules) => {
 };
 
 const updateFilteredFocuses = () => {
-  // Calculate incomplete module count for current agency only
   const incompleteCount = focuses.value.reduce((count, focus) => {
-    return count + focus.modules.filter(m => m.status !== 'completed').length;
+    const steps = getFocusSteps(focus);
+    return count + steps.filter((s) => s.status !== 'completed' && s.lockState !== 'completed').length;
   }, 0);
   
   // Add incomplete individual module tasks
@@ -342,6 +335,79 @@ const fetchTrainingFocuses = async () => {
     error.value = err.response?.data?.error?.message || 'Failed to load training focuses';
   } finally {
     loading.value = false;
+  }
+};
+
+const getFocusSteps = (focus) => {
+  if (Array.isArray(focus.steps) && focus.steps.length > 0) {
+    return focus.steps;
+  }
+  return (focus.modules || []).map((m, idx) => ({
+    id: null,
+    stepType: 'module',
+    referenceId: m.id,
+    title: m.title,
+    status: m.status,
+    lockState: m.status === 'completed' ? 'completed' : idx === 0 ? 'current' : 'locked',
+    timeSpentSeconds: (m.timeSpentSeconds || m.timeSpentMinutes * 60) || 0
+  }));
+};
+
+const stepTypeLabel = (type) => {
+  if (type === 'module') return 'Module';
+  if (type === 'checklist_item') return 'Checklist';
+  if (type === 'document') return 'Document';
+  return 'Step';
+};
+
+const getStepStatusLabel = (step) => {
+  if (step.lockState === 'locked') return 'Locked — complete previous steps first';
+  if (step.status === 'completed' || step.lockState === 'completed') return 'Completed';
+  if (step.lockState === 'current') return 'Current step';
+  return getStatusLabel(step.status);
+};
+
+const openStep = async (focus, step) => {
+  if (step.lockState === 'locked') return;
+  const agencyId = focus.agencyId;
+  const userId = authStore.user?.id;
+  if (!userId || !agencyId) return;
+
+  if (step.id) {
+    try {
+      await api.post(`/training-focuses/${focus.id}/steps/${step.id}/start`, { agencyId });
+    } catch (e) {
+      console.warn('Could not start step:', e);
+    }
+  }
+
+  if (step.stepType === 'module') {
+    const query = step.id
+      ? { focusId: focus.id, agencyId, stepId: step.id }
+      : {};
+    router.push({ path: `/module/${step.referenceId}`, query });
+    return;
+  }
+  if (step.stepType === 'document' && step.taskId) {
+    router.push(`/tasks/documents/${step.taskId}/sign`);
+    return;
+  }
+  if (step.stepType === 'checklist_item' && step.lockState === 'current') {
+    await completeChecklistStep(focus, step);
+  }
+};
+
+const completeChecklistStep = async (focus, step) => {
+  const userId = authStore.user?.id;
+  if (!userId || !step.id) return;
+  try {
+    await api.post(`/users/${userId}/custom-checklist/${step.referenceId}/complete`);
+    await api.post(`/training-focuses/${focus.id}/steps/${step.id}/complete`, {
+      agencyId: focus.agencyId
+    });
+    await fetchTrainingFocuses();
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to complete checklist step');
   }
 };
 
@@ -604,6 +670,51 @@ onMounted(async () => {
 .individual-modules-section h2 {
   color: var(--text-primary);
   margin-bottom: 16px;
+}
+
+.module-item.locked {
+  opacity: 0.65;
+  cursor: not-allowed;
+  background: #f3f4f6;
+}
+
+.module-item.current {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(45, 106, 79, 0.15);
+}
+
+.locked-icon {
+  font-size: 12px;
+}
+
+.step-type-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.step-number {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.path-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 12px 0;
+}
+
+.btn-checklist-complete {
+  margin-top: 8px;
+  padding: 6px 12px;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
 }
 
 .empty-state {

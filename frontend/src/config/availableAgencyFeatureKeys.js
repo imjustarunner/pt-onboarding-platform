@@ -16,6 +16,7 @@ export const AVAILABLE_AGENCY_FEATURE_KEYS = [
     defaultAvailable: false
   },
   { key: 'noteAidEnabled', label: 'Note Aid' },
+  { key: 'trainingAiBuilderEnabled', label: 'Training AI Module Builder' },
   { key: 'clinicalNoteGeneratorEnabled', label: 'Clinical Note Generator' },
   { key: 'publicProviderFinderEnabled', label: 'Public Provider Finder' },
   { key: 'aiProviderSearchEnabled', label: 'AI Provider Search' },

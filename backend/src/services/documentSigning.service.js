@@ -26,6 +26,44 @@ let _puppeteerLastFailure = 0;
 const CIRCUIT_RESET_MS = 5 * 60 * 1000; // re-try Puppeteer every 5 minutes
 
 class DocumentSigningService {
+  static resolveSignatureCoords(template = {}, fieldDefinitions = null) {
+    let defs = fieldDefinitions;
+    if (!Array.isArray(defs)) {
+      const raw = template?.field_definitions;
+      if (Array.isArray(raw)) defs = raw;
+      else if (typeof raw === 'string') {
+        try {
+          defs = JSON.parse(raw);
+        } catch {
+          defs = [];
+        }
+      } else {
+        defs = [];
+      }
+    }
+
+    const sigField = (defs || []).find(
+      (f) => String(f?.type || '').toLowerCase() === 'signature' && f?.x != null && f?.y != null
+    );
+    if (sigField) {
+      return {
+        x: sigField.x,
+        y: sigField.y,
+        width: sigField.width ?? 200,
+        height: sigField.height ?? 60,
+        page: sigField.page ?? null
+      };
+    }
+
+    return {
+      x: template?.signature_x ?? null,
+      y: template?.signature_y ?? null,
+      width: template?.signature_width ?? 200,
+      height: template?.signature_height ?? 60,
+      page: template?.signature_page ?? null
+    };
+  }
+
   /**
    * Generate finalized PDF with signature and audit certificate
    */
@@ -725,6 +763,7 @@ class DocumentSigningService {
     for (const def of fieldDefinitions) {
       if (!isFieldVisible(def)) continue;
       if (!def) continue;
+      if (String(def.type || '').toLowerCase() === 'signature') continue;
       if (def.type !== 'radio' && (def.x === null || def.y === null)) continue;
       const pageIndex = def.page ? Math.max(0, Math.min(def.page - 1, pages.length - 1)) : pages.length - 1;
       const page = pages[pageIndex];

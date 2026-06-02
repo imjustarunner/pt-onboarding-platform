@@ -1,6 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { getAllTracks, getTrackById, createTrack, updateTrack, addModuleToTrack, removeModuleFromTrack, archiveTrack, restoreTrack, deleteTrack, getArchivedTracks, duplicateTrack, copyTrackToAgency, getTrackTemplates, createTrackTemplate, getTrackCopyPreview, getTrainingFocusModules, assignTrainingFocus, unassignTrainingFocusFromUser, getTrainingFocusCompletion } from '../controllers/track.controller.js';
+import { getAllTracks, getTrackById, createTrack, updateTrack, addModuleToTrack, removeModuleFromTrack, archiveTrack, restoreTrack, deleteTrack, getArchivedTracks, duplicateTrack, copyTrackToAgency, getTrackTemplates, createTrackTemplate, getTrackCopyPreview, getTrainingFocusModules, assignTrainingFocus, unassignTrainingFocusFromUser, getTrainingFocusCompletion, getTrainingFocusSteps, addTrainingFocusStep, reorderTrainingFocusSteps, removeTrainingFocusStep, startTrainingFocusStep, completeTrainingFocusStep, logTrainingFocusStepTime, getTrainingFocusPath } from '../controllers/track.controller.js';
 import { authenticate, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -26,6 +26,20 @@ router.get('/templates', authenticate, requireSuperAdmin, getTrackTemplates);
 router.get('/archived', authenticate, requireBackofficeAdmin, getArchivedTracks); // Must come before /:id
 router.get('/:id', authenticate, getTrackById);
 router.get('/:id/modules', authenticate, getTrainingFocusModules);
+router.get('/:id/steps', authenticate, getTrainingFocusSteps);
+router.post('/:id/steps', authenticate, requireBackofficeAdmin, [
+  body('stepType').isIn(['module', 'checklist_item', 'document']),
+  body('referenceId').isInt({ min: 1 }),
+  body('orderIndex').optional().isInt({ min: 0 }),
+  body('documentActionType').optional().isIn(['signature', 'review']),
+  body('dueDateDays').optional().isInt({ min: 0 }),
+  body('titleOverride').optional().trim()
+], addTrainingFocusStep);
+router.put('/:id/steps/reorder', authenticate, requireBackofficeAdmin, reorderTrainingFocusSteps);
+router.delete('/:id/steps/:stepId', authenticate, requireBackofficeAdmin, removeTrainingFocusStep);
+router.post('/:id/steps/:stepId/start', authenticate, startTrainingFocusStep);
+router.post('/:id/steps/:stepId/complete', authenticate, completeTrainingFocusStep);
+router.post('/:id/steps/:stepId/time', authenticate, logTrainingFocusStepTime);
 router.get('/:id/completion/:userId', authenticate, getTrainingFocusCompletion);
 router.get('/:id/copy-preview', authenticate, requireBackofficeAdmin, getTrackCopyPreview);
 router.post('/', authenticate, requireBackofficeAdmin, validateTrack, createTrack);

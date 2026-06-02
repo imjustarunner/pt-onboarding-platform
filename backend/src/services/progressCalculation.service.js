@@ -12,8 +12,28 @@ class ProgressCalculationService {
    * @returns {Promise<Object>} - { completionPercent, status, modulesCompleted, modulesTotal }
    */
   static async calculateTrackProgress(userId, trackId, agencyId) {
-    // Alias for backward compatibility - this calculates Training Focus progress
-    // Get all modules in the track
+    try {
+      const TrainingFocusProgressService = (await import('./trainingFocusProgress.service.js')).default;
+      const TrainingFocusStep = (await import('../models/TrainingFocusStep.model.js')).default;
+      const steps = await TrainingFocusStep.findByFocusId(trackId);
+      if (steps.length > 0) {
+        const stepProgress = await TrainingFocusProgressService.calculateStepBasedProgress(userId, trackId, agencyId);
+        return {
+          completionPercent: stepProgress.completionPercent,
+          status: stepProgress.status,
+          modulesCompleted: stepProgress.stepsCompleted,
+          modulesTotal: stepProgress.stepsTotal,
+          stepsCompleted: stepProgress.stepsCompleted,
+          stepsTotal: stepProgress.stepsTotal,
+          totalTimeSpentSeconds: stepProgress.totalTimeSpentSeconds,
+          totalTimeSpentMinutes: stepProgress.totalTimeSpentMinutes
+        };
+      }
+    } catch {
+      // fall through to legacy module-only calculation
+    }
+
+    // Legacy: module-only progress when no steps defined
     const modules = await TrainingTrack.getModules(trackId);
     
     if (modules.length === 0) {
@@ -109,6 +129,39 @@ class ProgressCalculationService {
    * @returns {Promise<Object>} - { totalMinutes, totalSeconds, byModule }
    */
   static async getTimeSpent(userId, trackId, agencyId) {
+    try {
+      const TrainingFocusStep = (await import('../models/TrainingFocusStep.model.js')).default;
+      const { UserTrainingFocusProgress, UserTrainingFocusStepProgress } = await import('../models/UserTrainingFocusProgress.model.js');
+      const steps = await TrainingFocusStep.findByFocusId(trackId);
+      if (steps.length > 0) {
+        const focusProgress = await UserTrainingFocusProgress.find(userId, trackId, agencyId);
+        const stepProgressList = await UserTrainingFocusStepProgress.findByFocus(userId, agencyId, trackId);
+        const stepProgressById = new Map(stepProgressList.map((sp) => [sp.stepId, sp]));
+        const byStep = steps.map((step) => ({
+          stepId: step.id,
+          stepType: step.stepType,
+          title: step.title,
+          referenceId: step.referenceId,
+          seconds: stepProgressById.get(step.id)?.timeSpentSeconds || 0,
+          minutes: Math.floor((stepProgressById.get(step.id)?.timeSpentSeconds || 0) / 60)
+        }));
+        const totalSeconds = focusProgress?.totalTimeSpentSeconds || byStep.reduce((sum, s) => sum + s.seconds, 0);
+        return {
+          totalMinutes: Math.floor(totalSeconds / 60),
+          totalSeconds,
+          byModule: byStep.filter((s) => s.stepType === 'module').map((s) => ({
+            moduleId: s.referenceId,
+            moduleTitle: s.title,
+            minutes: s.minutes,
+            seconds: s.seconds
+          })),
+          byStep
+        };
+      }
+    } catch {
+      // fall through
+    }
+
     const modules = await TrainingTrack.getModules(trackId);
     const byModule = [];
     let totalSeconds = 0;

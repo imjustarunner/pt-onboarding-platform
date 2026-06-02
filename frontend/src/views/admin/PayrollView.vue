@@ -5790,6 +5790,21 @@
               <div class="field"><label>Attestation</label><div>{{ timeClaimBoolLabel(reviewedTimeClaim.payload?.attestation) }}</div></div>
             </template>
 
+            <!-- training_focus_completion -->
+            <template v-else-if="reviewedTimeClaim.claim_type === 'training_focus_completion'">
+              <div class="field"><label>Training Focus</label><div>{{ reviewedTimeClaim.payload?.trainingFocusName || '—' }}</div></div>
+              <div class="field-row" style="grid-template-columns: 1fr 1fr;">
+                <div class="field"><label>Total Minutes</label><div>{{ reviewedTimeClaim.payload?.totalMinutes ?? '—' }}</div></div>
+                <div class="field"><label>Completed</label><div>{{ reviewedTimeClaim.payload?.completedAt ? String(reviewedTimeClaim.payload.completedAt).slice(0, 10) : '—' }}</div></div>
+              </div>
+              <div v-if="Array.isArray(reviewedTimeClaim.payload?.stepBreakdown) && reviewedTimeClaim.payload.stepBreakdown.length" class="card" style="margin-top: 8px;">
+                <h4 style="margin: 0 0 8px 0;">Step breakdown</h4>
+                <div v-for="step in reviewedTimeClaim.payload.stepBreakdown" :key="step.stepId" style="font-size: 13px; margin-bottom: 6px;">
+                  {{ step.title }} ({{ step.stepType }}) — {{ Math.floor((step.timeSpentSeconds || 0) / 60) }} min
+                </div>
+              </div>
+            </template>
+
             <!-- meeting_training / mentor_cpa_meeting -->
             <template v-else-if="reviewedTimeClaim.claim_type === 'meeting_training' || reviewedTimeClaim.claim_type === 'mentor_cpa_meeting'">
               <div class="field-row" style="grid-template-columns: 1fr 1fr;">
@@ -7712,6 +7727,7 @@ const splitSummary = (c) => {
 const timeTypeLabel = (c) => {
   const t = String(c?.claim_type || '').toLowerCase();
   if (t === 'meeting_training') return 'Meeting/Training/Outreach';
+  if (t === 'training_focus_completion') return 'Training Focus Completion';
   if (t === 'mentor_cpa_meeting') return 'Mentor/CPA Meeting';
   if (t === 'excess_holiday') return 'Excess time';
   if (t === 'service_correction') return 'Service correction';

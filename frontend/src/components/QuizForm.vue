@@ -42,11 +42,11 @@
             <input
               type="radio"
               :name="`question-${index}`"
-              :value="option"
+              :value="optionDisplayText(option)"
               v-model="answers[index]"
               required
             />
-            <span>{{ option }}</span>
+            <span>{{ optionDisplayText(option) }}</span>
           </label>
         </div>
         
@@ -93,6 +93,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import api from '../services/api';
+import { optionDisplayText } from '../utils/trainingContentNormalize.js';
 
 const props = defineProps({
   moduleId: {
@@ -154,10 +155,12 @@ const initializeShuffledQuestions = () => {
       const correctOriginalIndex = typeof q.correctAnswer === 'number' ? q.correctAnswer : 0;
       const correctNewIndex = shuffledIndices.indexOf(correctOriginalIndex);
       
+      const shuffledOptions = shuffledIndices.map((i) => optionDisplayText(q.options[i]));
+      const correctText = optionDisplayText(q.options[correctOriginalIndex]);
       return {
         ...q,
-        options: shuffledIndices.map(i => q.options[i]),
-        correctAnswer: correctNewIndex, // Update to new position
+        options: shuffledOptions,
+        correctAnswer: correctText,
         originalIndex: originalIndex
       };
     }
@@ -187,10 +190,12 @@ const submitQuiz = async () => {
       const userAnswer = answers.value[displayIndex];
       
       if (question.type === 'multiple_choice') {
-        // Compare selected option index
-        const selectedIndex = question.options.findIndex(opt => opt === userAnswer);
-        const correctIndex = typeof question.correctAnswer === 'number' ? question.correctAnswer : 0;
-        if (selectedIndex === correctIndex) {
+        const correctText = optionDisplayText(
+          typeof question.correctAnswer === 'number'
+            ? question.options?.[question.correctAnswer]
+            : question.correctAnswer
+        );
+        if (userAnswer && correctText && String(userAnswer).trim() === String(correctText).trim()) {
           correctCount++;
         }
       } else if (question.type === 'true_false') {

@@ -11,10 +11,33 @@
         </div>
       </div>
       <div class="header-actions">
+        <button
+          v-if="trainingAiEnabled && moduleAgencyId"
+          type="button"
+          class="btn btn-secondary"
+          @click="showAiWizard = true"
+        >
+          Add content with AI
+        </button>
         <button @click="saveAll" class="btn btn-primary" :disabled="saving">
           {{ saving ? 'Saving...' : 'Save & Finish' }}
         </button>
       </div>
+    </div>
+
+    <div
+      v-if="!trainingAiEnabled && moduleAgencyId"
+      class="training-ai-editor-hint"
+      role="status"
+    >
+      Training AI Module Builder is off for this module's agency. Enable it in Agency Management → Features, then refresh.
+    </div>
+    <div
+      v-else-if="trainingAiEnabled && !moduleAgencyId"
+      class="training-ai-editor-hint"
+      role="status"
+    >
+      This module has no agency assigned. Assign the module to an agency (Module Manager) to use Add content with AI.
     </div>
 
     <!-- Simple Step-by-Step Editor -->
@@ -62,10 +85,20 @@
       <div class="editor-area">
         <div v-if="contentPages.length === 0" class="empty-state">
           <h2>Start Building Your Content</h2>
-          <p>Add your first page to get started</p>
-          <button @click="showAddPageMenu = true" class="btn btn-primary">
-            Add First Page
-          </button>
+          <p>Add your first page manually, or generate intro, lesson, and quiz pages with AI.</p>
+          <div class="empty-state-actions">
+            <button
+              v-if="trainingAiEnabled && moduleAgencyId"
+              type="button"
+              class="btn btn-primary"
+              @click="showAiWizard = true"
+            >
+              Generate with AI
+            </button>
+            <button @click="showAddPageMenu = true" class="btn btn-secondary">
+              Add First Page
+            </button>
+          </div>
         </div>
 
         <div v-else class="page-editor">
@@ -513,7 +546,7 @@
                   <div v-for="(option, oIndex) in question.options" :key="oIndex" class="preview-option">
                     <input type="radio" :name="`preview-q-${qIndex}`" disabled />
                     <span>{{ (typeof option === 'object' ? option.text : option) || 'Empty option' }}</span>
-                    <span v-if="Number(question.correctAnswer) === oIndex" class="correct-badge">✓</span>
+                    <span v-if="isQuizOptionCorrect(question, option, oIndex)" class="correct-badge">✓</span>
                   </div>
                 </div>
                 <div v-else-if="question.type === 'true_false'">
@@ -629,13 +662,27 @@
         <button @click="showAddPageMenu = false" class="btn btn-secondary">Cancel</button>
       </div>
     </div>
+
+    <TrainingModuleAiWizard
+      :open="showAiWizard"
+      mode="append"
+      :agency-id="moduleAgencyId"
+      :training-ai-enabled="trainingAiEnabled"
+      :initial-title="module?.title || ''"
+      :initial-description="module?.description || ''"
+      :kb-doc-count="trainingKbDocCount"
+      @close="showAiWizard = false"
+      @append-draft="handleAppendAiDraft"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import TrainingModuleAiWizard from '../../components/admin/TrainingModuleAiWizard.vue';
+import { normalizeQuizDataForEditor, isQuizOptionCorrect } from '../../utils/trainingContentNormalize.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -656,6 +703,76 @@ const showFieldKeys = ref(false);
 const newCategoryLabel = ref('');
 const newCategoryKey = ref('');
 const creatingCategory = ref(false);
+const showAiWizard = ref(false);
+const trainingAiEnabled = ref(false);
+const trainingKbDocCount = ref(0);
+const agenciesCache = ref([]);
+
+const moduleAgencyId = computed(() => {
+  const id = module.value?.agency_id;
+  return id != null && Number.isFinite(Number(id)) ? Number(id) : null;
+});
+
+const parseFeatureFlags = (raw) => {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw || {};
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw) || {}; } catch { return {}; }
+  }
+  return {};
+};
+
+const refreshTrainingAiAccess = () => {
+  const agencyId = moduleAgencyId.value;
+  if (!agencyId) {
+    trainingAiEnabled.value = false;
+    trainingKbDocCount.value = 0;
+    return;
+  }
+  const agency = (agenciesCache.value || []).find((a) => Number(a.id) === agencyId);
+  const flags = parseFeatureFlags(agency?.feature_flags);
+  const v = flags?.trainingAiBuilderEnabled;
+  const s = String(v ?? '').trim().toLowerCase();
+  trainingAiEnabled.value = v === true || v === 1 || s === 'true' || s === '1' || s === 'yes' || s === 'on';
+};
+
+const refreshTrainingKbDocCount = async () => {
+  if (!moduleAgencyId.value || !trainingAiEnabled.value) {
+    trainingKbDocCount.value = 0;
+    return;
+  }
+  try {
+    const res = await api.get('/training-builder/kb/documents', {
+      params: { agencyId: moduleAgencyId.value }
+    });
+    trainingKbDocCount.value = Array.isArray(res?.data?.documents) ? res.data.documents.length : 0;
+  } catch {
+    trainingKbDocCount.value = 0;
+  }
+};
+
+const normalizeAiPageForEditor = (page) => {
+  const type = page?.type || 'intro';
+  const data = { ...(page?.data || {}) };
+  if (type === 'document' && !data.source) {
+    data.source = data.textContent || data.content ? 'text' : 'google';
+  }
+  if (type === 'quiz') {
+    return { id: null, type, data: normalizeQuizDataForEditor(data) };
+  }
+  return { id: null, type, data };
+};
+
+const handleAppendAiDraft = ({ draft }) => {
+  const pages = Array.isArray(draft?.pages) ? draft.pages : [];
+  if (!pages.length) return;
+  const start = contentPages.value.length;
+  for (const page of pages) {
+    contentPages.value.push(normalizeAiPageForEditor(page));
+  }
+  currentPageIndex.value = start;
+  showAiWizard.value = false;
+};
 
 const currentPage = computed(() => {
   return contentPages.value[currentPageIndex.value] || null;
@@ -702,6 +819,8 @@ const fetchModule = async () => {
     }
     const response = await api.get(`/modules/${moduleId}`);
     module.value = response.data;
+    refreshTrainingAiAccess();
+    await refreshTrainingKbDocCount();
   } catch (err) {
     // Handle 404 (module doesn't exist yet) gracefully - this is expected for new modules
     if (err.response?.status === 404) {
@@ -751,7 +870,7 @@ const fetchContent = async () => {
       } else if (item.content_type === 'text') {
         if (data.googleUrl || data.googleSlidesUrl) {
           pageType = data.googleSlidesUrl ? 'slides' : 'document';
-        } else if (data.textContent) {
+        } else if (data.textContent || data.content) {
           pageType = 'document';
         } else if (data.prompt) {
           pageType = 'response';
@@ -760,31 +879,27 @@ const fetchContent = async () => {
         }
       }
       
-      return {
-        id: item.id,
-        type: pageType,
-        data: {
-          title: data.title || '',
-          description: data.description || '',
-          videoUrl: data.videoUrl || '',
-          googleUrl: data.googleUrl || data.fileUrl || '',
-          googleSlidesUrl: data.googleSlidesUrl || '',
-          textContent: data.textContent || data.content || '',
-          prompt: data.prompt || '',
-          responseType: data.responseType || 'text',
-          categoryKey: data.categoryKey || '',
-          fieldDefinitionIds: Array.isArray(data.fieldDefinitionIds) ? data.fieldDefinitionIds : [],
-          requireAll: data.requireAll === true,
-          questions: (data.questions || []).map(q => ({
-            ...q,
-            correctAnswer: q.correctAnswer !== undefined ? q.correctAnswer : (q.type === 'multiple_choice' ? 0 : (q.type === 'true_false' ? 'true' : '')),
-            options: q.options || []
-          })),
-          randomizeAnswers: data.randomizeAnswers || false,
-          formUrl: data.formUrl || '',
-          source: data.googleUrl ? 'google' : 'text'
-        }
+      const baseData = {
+        title: data.title || '',
+        description: data.description || '',
+        videoUrl: data.videoUrl || '',
+        googleUrl: data.googleUrl || data.fileUrl || '',
+        googleSlidesUrl: data.googleSlidesUrl || '',
+        textContent: data.textContent || data.content || '',
+        prompt: data.prompt || '',
+        responseType: data.responseType || 'text',
+        categoryKey: data.categoryKey || '',
+        fieldDefinitionIds: Array.isArray(data.fieldDefinitionIds) ? data.fieldDefinitionIds : [],
+        requireAll: data.requireAll === true,
+        formUrl: data.formUrl || '',
+        source: data.googleUrl || data.fileUrl ? 'google' : (data.textContent || data.content ? 'text' : 'google')
       };
+
+      if (pageType === 'quiz') {
+        return { id: item.id, type: pageType, data: normalizeQuizDataForEditor(data) };
+      }
+
+      return { id: item.id, type: pageType, data: { ...baseData, randomizeAnswers: data.randomizeAnswers || false } };
     });
     
     if (contentPages.value.length === 0) {
@@ -1086,8 +1201,8 @@ const convertPageToBackend = (page) => {
   switch (page.type) {
     case 'intro':
       contentData = {
-        title: page.data.title,
-        description: page.data.description
+        title: page.data.title || '',
+        description: page.data.description || ''
       };
       break;
     case 'document':
@@ -1098,9 +1213,11 @@ const convertPageToBackend = (page) => {
           googleUrl: page.data.googleUrl
         };
       } else {
+        const body = page.data.textContent || page.data.content || '';
         contentData = {
           title: page.data.title,
-          content: page.data.textContent
+          content: body,
+          textContent: body
         };
       }
       break;
@@ -1179,7 +1296,24 @@ const openPreview = () => {
   showPreviewModal.value = true;
 };
 
+const loadAgenciesForTrainingAi = async () => {
+  try {
+    const res = await api.get('/agencies');
+    agenciesCache.value = Array.isArray(res?.data) ? res.data : [];
+  } catch {
+    agenciesCache.value = [];
+  }
+  refreshTrainingAiAccess();
+  await refreshTrainingKbDocCount();
+};
+
+watch(moduleAgencyId, async () => {
+  refreshTrainingAiAccess();
+  await refreshTrainingKbDocCount();
+});
+
 onMounted(async () => {
+  await loadAgenciesForTrainingAi();
   await fetchModule();
   await fetchContent();
   await fetchFormBuilderData();
@@ -1191,6 +1325,16 @@ onMounted(async () => {
   min-height: 100vh;
   background: #f5f7fa;
   padding: 20px;
+}
+
+.training-ai-editor-hint {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  color: #1e3a5f;
 }
 
 .editor-header {
@@ -1368,6 +1512,14 @@ onMounted(async () => {
 .empty-state h2 {
   margin: 0 0 12px 0;
   color: #2c3e50;
+}
+
+.empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 20px;
 }
 
 .page-editor {

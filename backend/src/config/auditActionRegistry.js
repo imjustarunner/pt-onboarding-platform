@@ -108,6 +108,8 @@ const AUDIT_ACTION_REGISTRY = {
   note_aid_execute: { label: 'Note Aid used', category: 'AI & Tools' },
   agent_assist: { label: 'Focus Assistant used', category: 'AI & Tools' },
   agent_tool_execute: { label: 'Focus Assistant tool executed', category: 'AI & Tools' },
+  training_module_draft_generated: { label: 'Training module AI draft generated', category: 'AI & Tools' },
+  training_module_draft_applied: { label: 'Training module AI draft applied', category: 'AI & Tools' },
   assigned: { label: 'Task assigned to user', category: 'Tasks' },
   updated: { label: 'Task updated', category: 'Tasks' },
   completed: { label: 'Task completed', category: 'Tasks' },
