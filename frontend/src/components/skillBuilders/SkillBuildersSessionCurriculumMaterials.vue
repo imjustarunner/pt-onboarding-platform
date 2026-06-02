@@ -56,87 +56,122 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="s in sessions" :key="`mat-curr-${s.id}`">
-            <td class="sbep-mat-curr-session">{{ formatSessionLabel(s) }}</td>
-            <td>
-              <span v-if="s.hasCurriculum || s.curriculumFileName" class="sbep-mat-curr-meta">
-                {{ s.curriculumFileName || 'PDF on file' }}
-                <span v-if="s.curriculumExtractStatus" class="muted small"> · {{ s.curriculumExtractStatus }}</span>
-              </span>
-              <span v-else class="muted">—</span>
-            </td>
-            <td class="sbep-mat-curr-lib">
-              <template v-if="canManage">
-                <div v-if="libraryLoading" class="muted small">Loading…</div>
-                <div v-else-if="libraryDocs.length" class="sbep-mat-curr-lib-row">
-                  <select v-model="attachPick[s.id]" class="input input-sm sbep-mat-lib-select">
-                    <option value="">Choose PDF…</option>
-                    <option v-for="d in libraryDocs" :key="`lib-${d.id}`" :value="d.id">{{ libraryDocLabel(d) }}</option>
-                  </select>
+          <template v-for="s in sessions" :key="`mat-curr-${s.id}`">
+            <tr>
+              <td class="sbep-mat-curr-session">{{ formatSessionLabel(s) }}</td>
+              <td>
+                <span v-if="s.hasCurriculum || s.curriculumFileName" class="sbep-mat-curr-meta">
+                  {{ s.curriculumFileName || 'PDF on file' }}
+                  <span v-if="s.curriculumExtractStatus" class="muted small"> · {{ s.curriculumExtractStatus }}</span>
+                </span>
+                <span v-else class="muted">—</span>
+              </td>
+              <td class="sbep-mat-curr-lib">
+                <template v-if="canManage">
+                  <div v-if="libraryLoading" class="muted small">Loading…</div>
+                  <div v-else-if="libraryDocs.length" class="sbep-mat-curr-lib-row">
+                    <select v-model="attachPick[s.id]" class="input input-sm sbep-mat-lib-select">
+                      <option value="">Choose PDF…</option>
+                      <option v-for="d in libraryDocs" :key="`lib-${d.id}`" :value="d.id">{{ libraryDocLabel(d) }}</option>
+                    </select>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="attachBusyId === s.id || !attachPick[s.id]"
+                      @click="attachFromLibrary(s.id)"
+                    >
+                      {{ attachBusyId === s.id ? '…' : 'Attach' }}
+                    </button>
+                  </div>
+                  <span v-else class="muted small">Upload a PDF to the library above, or open the program document library.</span>
+                </template>
+                <span v-else class="muted small">—</span>
+              </td>
+              <td class="sbep-mat-curr-activities">
+                <button type="button" class="btn btn-secondary btn-sm" @click="openActivitiesModal(s)">View activities</button>
+              </td>
+              <td class="sbep-mat-curr-actions">
+                <input
+                  :ref="(el) => setFileInputRef(s.id, el)"
+                  type="file"
+                  accept="application/pdf"
+                  class="sbep-hidden-file"
+                  @change="(ev) => onPickFile(s.id, ev)"
+                />
+                <template v-if="canManage">
                   <button
                     type="button"
                     class="btn btn-secondary btn-sm"
-                    :disabled="attachBusyId === s.id || !attachPick[s.id]"
-                    @click="attachFromLibrary(s.id)"
+                    :disabled="uploadingId === s.id"
+                    @click="triggerPick(s.id)"
                   >
-                    {{ attachBusyId === s.id ? '…' : 'Attach' }}
+                    {{ uploadingId === s.id ? 'Uploading…' : s.hasCurriculum ? 'Replace PDF' : 'Upload PDF' }}
                   </button>
+                  <button
+                    v-if="s.hasCurriculum || s.curriculumFileName"
+                    type="button"
+                    class="btn btn-link btn-sm"
+                    @click="openPdf(s.id)"
+                  >
+                    Open
+                  </button>
+                  <button
+                    v-if="s.hasCurriculum || s.curriculumFileName"
+                    type="button"
+                    class="btn btn-link btn-sm sbep-mat-curr-remove"
+                    :disabled="uploadingId === s.id"
+                    @click="removePdf(s.id)"
+                  >
+                    Remove
+                  </button>
+                </template>
+                <template v-else>
+                  <button
+                    v-if="s.hasCurriculum || s.curriculumFileName"
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    @click="openPdf(s.id)"
+                  >
+                    Open PDF
+                  </button>
+                  <span v-else class="muted small">No file</span>
+                </template>
+              </td>
+            </tr>
+            <!-- Activity / session notes paste row -->
+            <tr class="sbep-mat-paste-row">
+              <td colspan="5" class="sbep-mat-paste-cell">
+                <button
+                  type="button"
+                  class="btn btn-link btn-sm sbep-mat-paste-toggle"
+                  @click="togglePaste(s.id)"
+                >
+                  <span class="sbep-mat-paste-caret">{{ pasteExpanded[s.id] ? '▾' : '▸' }}</span>
+                  Activity / session notes
+                  <span v-if="pasteText[s.id]" class="sbep-mat-paste-dot" title="Notes saved" />
+                </button>
+                <div v-if="pasteExpanded[s.id]" class="sbep-mat-paste-body">
+                  <p class="muted small sbep-mat-paste-hint">
+                    Paste or type activity / session notes here. Saved automatically. Used in Clinical note generation.
+                  </p>
+                  <textarea
+                    v-model="pasteText[s.id]"
+                    class="input sbep-mat-paste-textarea"
+                    rows="6"
+                    maxlength="50000"
+                    placeholder="Paste or type activity details, session notes, or any context used when generating the H2014 clinical note…"
+                    :disabled="pasteSaving[s.id]"
+                    @blur="savePasteText(s.id)"
+                  />
+                  <div class="sbep-mat-paste-footer">
+                    <span v-if="pasteSaving[s.id]" class="muted small">Saving…</span>
+                    <span v-else-if="pasteSaved[s.id]" class="sbep-mat-paste-saved small">Saved</span>
+                    <span v-else class="muted small">{{ (pasteText[s.id] || '').length }} / 50 000 chars</span>
+                  </div>
                 </div>
-                <span v-else class="muted small">Upload a PDF to the library above, or open the program document library.</span>
-              </template>
-              <span v-else class="muted small">—</span>
-            </td>
-            <td class="sbep-mat-curr-activities">
-              <button type="button" class="btn btn-secondary btn-sm" @click="openActivitiesModal(s)">View activities</button>
-            </td>
-            <td class="sbep-mat-curr-actions">
-              <input
-                :ref="(el) => setFileInputRef(s.id, el)"
-                type="file"
-                accept="application/pdf"
-                class="sbep-hidden-file"
-                @change="(ev) => onPickFile(s.id, ev)"
-              />
-              <template v-if="canManage">
-                <button
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  :disabled="uploadingId === s.id"
-                  @click="triggerPick(s.id)"
-                >
-                  {{ uploadingId === s.id ? 'Uploading…' : s.hasCurriculum ? 'Replace PDF' : 'Upload PDF' }}
-                </button>
-                <button
-                  v-if="s.hasCurriculum || s.curriculumFileName"
-                  type="button"
-                  class="btn btn-link btn-sm"
-                  @click="openPdf(s.id)"
-                >
-                  Open
-                </button>
-                <button
-                  v-if="s.hasCurriculum || s.curriculumFileName"
-                  type="button"
-                  class="btn btn-link btn-sm sbep-mat-curr-remove"
-                  :disabled="uploadingId === s.id"
-                  @click="removePdf(s.id)"
-                >
-                  Remove
-                </button>
-              </template>
-              <template v-else>
-                <button
-                  v-if="s.hasCurriculum || s.curriculumFileName"
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  @click="openPdf(s.id)"
-                >
-                  Open PDF
-                </button>
-                <span v-else class="muted small">No file</span>
-              </template>
-            </td>
-          </tr>
+              </td>
+            </tr>
+          </template>
         </tbody>
       </table>
     </div>
@@ -253,6 +288,48 @@ async function attachFromLibrary(sessionId) {
     window.alert(e.response?.data?.error?.message || e.message || 'Attach failed');
   } finally {
     attachBusyId.value = null;
+  }
+}
+
+/** Paste-area state keyed by session id */
+const pasteExpanded = reactive({});
+const pasteText = reactive({});
+const pasteSaving = reactive({});
+const pasteSaved = reactive({});
+
+watch(
+  () => props.sessions,
+  (sessions) => {
+    for (const s of sessions || []) {
+      if (pasteText[s.id] === undefined) {
+        pasteText[s.id] = s.curriculumNotesText ?? s.curriculum_notes_text ?? '';
+      }
+    }
+  },
+  { immediate: true, deep: false }
+);
+
+function togglePaste(sessionId) {
+  pasteExpanded[sessionId] = !pasteExpanded[sessionId];
+}
+
+async function savePasteText(sessionId) {
+  if (!props.agencyId || !props.eventId) return;
+  const text = String(pasteText[sessionId] ?? '');
+  pasteSaving[sessionId] = true;
+  pasteSaved[sessionId] = false;
+  try {
+    await api.patch(
+      `/skill-builders/events/${props.eventId}/sessions/${sessionId}/curriculum-text`,
+      { agencyId: props.agencyId, text },
+      { skipGlobalLoading: true }
+    );
+    pasteSaved[sessionId] = true;
+    setTimeout(() => { pasteSaved[sessionId] = false; }, 2500);
+  } catch (e) {
+    window.alert(e.response?.data?.error?.message || e.message || 'Save failed');
+  } finally {
+    pasteSaving[sessionId] = false;
   }
 }
 
@@ -425,5 +502,61 @@ async function removePdf(sessionId) {
 }
 .sbep-mat-curr-meta {
   font-size: 0.86rem;
+}
+.sbep-mat-paste-row td {
+  border-bottom: 2px solid var(--border, #e2e8f0);
+  padding: 0;
+}
+.sbep-mat-paste-cell {
+  padding: 0 !important;
+}
+.sbep-mat-paste-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  color: var(--text-secondary, #64748b);
+  font-size: 0.82rem;
+  font-weight: 500;
+  width: 100%;
+  text-align: left;
+}
+.sbep-mat-paste-toggle:hover {
+  color: var(--text, #1e293b);
+}
+.sbep-mat-paste-caret {
+  font-size: 0.75rem;
+}
+.sbep-mat-paste-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-success, #16a34a);
+  margin-left: 2px;
+}
+.sbep-mat-paste-body {
+  padding: 0 10px 10px;
+}
+.sbep-mat-paste-hint {
+  margin: 0 0 6px;
+}
+.sbep-mat-paste-textarea {
+  width: 100%;
+  max-width: 100%;
+  resize: vertical;
+  font-size: 0.84rem;
+  font-family: inherit;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.sbep-mat-paste-footer {
+  margin-top: 4px;
+  min-height: 1.2em;
+}
+.sbep-mat-paste-saved {
+  color: var(--color-success, #16a34a);
+  font-size: 0.8rem;
 }
 </style>

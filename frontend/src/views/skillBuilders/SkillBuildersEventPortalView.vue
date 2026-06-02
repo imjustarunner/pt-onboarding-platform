@@ -504,8 +504,8 @@
               :badge="`${detail.clients?.length || 0}`"
             >
               <p class="muted small sbep-card-lead">
-                Clients on this program roster — mark attendance here. H2014 session notes and copy-aid notes live under
-                <strong>Clinical Aid</strong> (same list style as the program hub Notes tab).
+                Clients on this program roster — mark attendance here. Clinical notes and daily observations live under
+                <strong>Clinical</strong>.
               </p>
 
               <!-- Coordinator: add client to roster inline -->
@@ -1762,49 +1762,19 @@
 
             <SkillBuildersEventDashboardSection
               v-if="detail.skillsGroup && clinicalNotesEnabled"
-              v-show="railActive === 'clinical_notes'"
+              v-show="railActive === 'clinical'"
               rail-mode
-              section-id="clinical_notes"
-              title="Clinical Aid"
+              section-id="clinical"
+              title="Clinical"
               icon-url=""
             >
               <p class="muted small sbep-card-lead">
-                H2014 copy-aid notes for this event (encrypted; expire after 14 days — warning in the last 2 days). Matches the
-                program hub <strong>Notes</strong> tab.
+                Daily attendance, observation entries, and H2014 clinical note generation — all in one place.
               </p>
-              <SkillBuildersClinicalNotesHubPanel
+              <SkillBuildersEventClinicalPanel
                 v-if="eventBillingAgencyId && eventId"
                 :agency-id="eventBillingAgencyId"
                 :event-id="eventId"
-                :event-title="clinicalNotesContextEventTitle"
-                :sessions="sessions"
-                :clients="detail?.clients || []"
-                :viewer-caps="viewerCaps"
-                :format-session-label="formatSessionKioskLabel"
-                :client-label-for-row="clientLabelForRow"
-                @refresh-sessions="loadSessions"
-              />
-            </SkillBuildersEventDashboardSection>
-
-            <SkillBuildersEventDashboardSection
-              v-if="detail.skillsGroup && clinicalNotesEnabled"
-              v-show="railActive === 'session_observations'"
-              rail-mode
-              section-id="session_observations"
-              title="Session observations"
-              icon-url=""
-            >
-              <p class="muted small sbep-card-lead">
-                Structured logs captured at the kiosk Resources tab (encrypted). Review entries and generate AI daily summaries
-                for Clinical Aid.
-              </p>
-              <SkillBuildersSessionObservationsPanel
-                v-if="eventBillingAgencyId && eventId"
-                :agency-id="eventBillingAgencyId"
-                :event-id="eventId"
-                :clients="detail?.clients || []"
-                :sessions="sessions"
-                :client-label-for-row="clientLabelForRow"
               />
             </SkillBuildersEventDashboardSection>
 
@@ -2724,6 +2694,7 @@ import SkillBuildersEventEditModal from '../../components/skillBuilders/SkillBui
 import SkillBuildersEventProvidersGrid from '../../components/skillBuilders/SkillBuildersEventProvidersGrid.vue';
 import SkillBuildersClinicalNotesHubPanel from '../../components/skillBuilders/SkillBuildersClinicalNotesHubPanel.vue';
 import SkillBuildersSessionObservationsPanel from '../../components/skillBuilders/SkillBuildersSessionObservationsPanel.vue';
+import SkillBuildersEventClinicalPanel from '../../components/skillBuilders/SkillBuildersEventClinicalPanel.vue';
 import UserAvatar from '../../components/common/UserAvatar.vue';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
@@ -3116,7 +3087,8 @@ const optimisticSection = ref('');
 watch(
   () => String(route.query.section || '').trim(),
   (sec) => {
-    if (sec === 'clinical_notes') optimisticSection.value = 'clinical_notes';
+    // Redirect legacy deep-links for the two old sections to the unified clinical section
+    if (sec === 'clinical_notes' || sec === 'session_observations') optimisticSection.value = 'clinical';
   },
   { immediate: true }
 );
@@ -3159,8 +3131,7 @@ function sectionTeaser(sectionId) {
     providers: 'Staff roster and directory-style cards for this event.',
     clients: 'Program roster, attendance, and coordinator tools.',
     participants: 'Participant list for non–skills-group program events.',
-    clinical_notes: 'Session notes, H2014-style tools, and copy aids.',
-    session_observations: 'Kiosk session logs and AI daily summaries.',
+    clinical: 'Daily attendance, observations, and H2014 note generation.',
     materials: 'Documents, PDFs, and the shared program library.',
     registrations: 'Enrollment, capacity, and registration-aware actions.',
     'work-schedule': 'Assign providers to dates and roles for this event.',
@@ -3241,8 +3212,7 @@ const eventRailItems = computed(() => {
     clinicalNotesEnabled.value &&
     !!d.skillsGroup &&
     !!(v.isAssignedProvider || v.canManageTeamSchedules || v.canManageCompanyEvent);
-  push('clinical_notes', 'Clinical Aid', 'Aid', showClinicalAidCard);
-  push('session_observations', 'Session observations', 'Observations', showClinicalAidCard);
+  push('clinical', 'Clinical', 'Clinical', showClinicalAidCard);
 
   push('materials', 'Materials', 'Materials', true);
 

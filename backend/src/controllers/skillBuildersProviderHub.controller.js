@@ -5972,6 +5972,137 @@ export const getSkillBuilderObservationDailySummary = async (req, res, next) => 
   }
 };
 
+/** GET /api/skill-builders/events/:eventId/clinical-day?agencyId=&date=YYYY-MM-DD */
+export const getSkillBuilderClinicalDay = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const date = String(req.query.date || '').trim().slice(0, 10);
+    if (!agencyId || !eventId || !date) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, and date required' } });
+    }
+    const access = await assertClinicalSkillBuildersAccess(req, agencyId, eventId);
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+
+    // Find the session for this event/date
+    const [sessRows] = await pool.execute(
+      `SELECT id, session_date, curriculum_notes_text
+       FROM skill_builders_event_sessions
+       WHERE company_event_id = ? AND session_date = ?
+       LIMIT 1`,
+      [eventId, date]
+    ).catch((e) => {
+      if (e?.code === 'ER_BAD_FIELD_ERROR') {
+        return pool.execute(
+          `SELECT id, session_date FROM skill_builders_event_sessions
+           WHERE company_event_id = ? AND session_date = ?
+           LIMIT 1`,
+          [eventId, date]
+        );
+      }
+      throw e;
+    });
+    const session = sessRows?.[0] || null;
+    const sessionId = session ? Number(session.id) : null;
+
+    // Clients who checked in via kiosk on this date
+    const [checkinRows] = await pool.execute(
+      `SELECT edk.client_id, edk.checked_in_at, edk.checked_out_at,
+              c.first_name, c.last_name
+       FROM event_day_kiosk_checkins edk
+       INNER JOIN clients c ON c.id = edk.client_id
+       WHERE edk.company_event_id = ? AND edk.kiosk_date = ?
+         AND edk.client_id IS NOT NULL AND edk.action = 'check_in'`,
+      [eventId, date]
+    ).catch((e) => {
+      if (e?.code === 'ER_NO_SUCH_TABLE') return [[]];
+      throw e;
+    });
+
+    const presentClients = (checkinRows || []).map((r) => ({
+      clientId: Number(r.client_id),
+      firstName: r.first_name || '',
+      lastName: r.last_name || '',
+      displayName: `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+      checkedInAt: r.checked_in_at,
+      checkedOutAt: r.checked_out_at || null
+    }));
+
+    // Observation entries for all clients on this date
+    const allObs = session
+      ? await enrichObservationEntriesWithActivityLabels(
+          await listObservationEntries({ agencyId, companyEventId: eventId, sessionDateYmd: date })
+        )
+      : [];
+
+    // Clinical note status per client (if session exists)
+    let clinicalNoteStatuses = [];
+    if (sessionId) {
+      clinicalNoteStatuses = await listClinicalNotesForSession({ sessionId, companyEventId: eventId });
+    }
+    const noteStatusByClient = new Map(
+      clinicalNoteStatuses.map((n) => [Number(n.client_id), n.client_note_status || 'completed'])
+    );
+
+    // Build per-client result
+    const clientIds = [...new Set(presentClients.map((c) => c.clientId))];
+    const clients = clientIds.map((cid) => {
+      const ci = presentClients.find((c) => c.clientId === cid);
+      const observations = allObs.filter((o) => o.clientId === cid);
+      const noteStatus = noteStatusByClient.get(cid) ?? null;
+      return {
+        ...ci,
+        observations,
+        clinicalNoteStatus: noteStatus,
+        hasClinicalNote: noteStatus !== null
+      };
+    });
+
+    res.json({
+      ok: true,
+      date,
+      sessionId,
+      curriculumNotesText: session?.curriculum_notes_text || '',
+      clients
+    });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.json({ ok: true, date: req.query.date, sessionId: null, curriculumNotesText: '', clients: [] });
+    }
+    next(e);
+  }
+};
+
+/** PATCH /api/skill-builders/events/:eventId/sessions/:sessionId/curriculum-text */
+export const patchSkillBuilderSessionCurriculumText = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    if (!agencyId || !eventId || !sessionId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, and session id required' } });
+    }
+    const text = req.body?.text != null ? String(req.body.text).slice(0, 50000) : '';
+    if (!(await canManageTeamSchedulesForAgency(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Program coordinator or agency staff required' } });
+    }
+    // Verify session belongs to event
+    const [sRows] = await pool.execute(
+      `SELECT id FROM skill_builders_event_sessions WHERE id = ? AND company_event_id = ? LIMIT 1`,
+      [sessionId, eventId]
+    );
+    if (!sRows?.length) return res.status(404).json({ error: { message: 'Session not found for this event' } });
+
+    await pool.execute(
+      `UPDATE skill_builders_event_sessions SET curriculum_notes_text = ? WHERE id = ?`,
+      [text || null, sessionId]
+    );
+    res.json({ ok: true, sessionId, text });
+  } catch (e) {
+    next(e);
+  }
+};
+
 /** POST /api/skill-builders/events/:eventId/observations/clients/:clientId/daily-summary/generate */
 export const postSkillBuilderObservationDailySummaryGenerate = async (req, res, next) => {
   try {
