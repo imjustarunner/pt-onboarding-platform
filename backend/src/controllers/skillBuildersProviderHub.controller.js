@@ -6008,7 +6008,7 @@ export const getSkillBuilderClinicalDay = async (req, res, next) => {
     // Clients who checked in via kiosk on this date
     const [checkinRows] = await pool.execute(
       `SELECT edk.client_id, edk.checked_in_at, edk.checked_out_at,
-              c.first_name, c.last_name
+              c.full_name, c.initials, c.identifier_code
        FROM event_day_kiosk_checkins edk
        INNER JOIN clients c ON c.id = edk.client_id
        WHERE edk.company_event_id = ? AND edk.kiosk_date = ?
@@ -6021,9 +6021,7 @@ export const getSkillBuilderClinicalDay = async (req, res, next) => {
 
     const presentClients = (checkinRows || []).map((r) => ({
       clientId: Number(r.client_id),
-      firstName: r.first_name || '',
-      lastName: r.last_name || '',
-      displayName: `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+      displayName: r.full_name || r.initials || r.identifier_code || `Client ${r.client_id}`,
       checkedInAt: r.checked_in_at,
       checkedOutAt: r.checked_out_at || null
     }));
