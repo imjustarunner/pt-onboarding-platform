@@ -66,6 +66,7 @@ import {
   recordEventEmployeeClockIn,
   recordEventEmployeeClockOut
 } from '../services/skillBuildersEventKioskPunch.service.js';
+import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import {
   assertEmployeeCheckedInForEventDay,
   createObservationEntry,
@@ -259,7 +260,7 @@ function buildProgramEventStaffRosterSubquery({ includeSkillsGroups = false } = 
 
 async function loadProgramEventStaff(eventId, agencyId) {
   const baseSelect = (includeSkillsGroups) =>
-    `SELECT DISTINCT u.id, u.first_name, u.last_name
+    `SELECT DISTINCT u.id, u.first_name, u.last_name, u.profile_photo_path
      FROM (${buildProgramEventStaffRosterSubquery({ includeSkillsGroups })}) roster
      INNER JOIN users u ON u.id = roster.uid
      WHERE ${KIOSK_STAFF_ACTIVE_USER_SQL}
@@ -682,7 +683,8 @@ export const getProgramEventKioskContext = async (req, res, next) => {
         id: Number(s.id),
         firstName: s.first_name || '',
         lastName: s.last_name || '',
-        displayName: `${s.first_name || ''} ${s.last_name || ''}`.trim()
+        displayName: `${s.first_name || ''} ${s.last_name || ''}`.trim(),
+        profilePhotoUrl: publicUploadsUrlFromStoredPath(s.profile_photo_path || null)
       })),
       checkins: mapCheckinRows(checkinRows),
       lateContacts,

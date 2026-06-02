@@ -33,6 +33,7 @@ import {
   getEventKioskClientCheckinSheet,
   saveEventKioskClientWaiverSection
 } from '../services/eventKioskClientCheckinWaiver.service.js';
+import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 
 const TOKEN_TYPE = 'skill_builders_event_kiosk';
 
@@ -602,7 +603,7 @@ export const getEventDayKioskContext = async (req, res, next) => {
 
     // Staff list (providers on this event)
     const [staff] = await pool.execute(
-      `SELECT DISTINCT u.id, u.first_name, u.last_name
+      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.profile_photo_path
        FROM skills_group_providers sgp
        INNER JOIN users u ON u.id = sgp.provider_user_id
        INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id
@@ -651,7 +652,8 @@ export const getEventDayKioskContext = async (req, res, next) => {
         id: Number(s.id),
         firstName: s.first_name || '',
         lastName: s.last_name || '',
-        displayName: `${s.first_name || ''} ${s.last_name || ''}`.trim()
+        displayName: `${s.first_name || ''} ${s.last_name || ''}`.trim(),
+        profilePhotoUrl: publicUploadsUrlFromStoredPath(s.profile_photo_path || null)
       })),
       checkins: (checkins || []).map((c) => ({
         id: Number(c.id),

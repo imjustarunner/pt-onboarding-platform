@@ -176,17 +176,19 @@
             <span>{{ pendingStaff.length }} waiting to check in</span>
           </div>
           <div v-if="!pendingStaff.length" class="edk-empty">All employees checked in!</div>
-          <ul v-else class="edk-person-list">
-            <li v-for="s in pendingStaff" :key="s.id" class="edk-person-row">
-              <div class="edk-person-row-top">
-                <div class="edk-row-avatar" aria-hidden="true">{{ initials(s.displayName) }}</div>
-                <div class="edk-person-main">
-                  <span class="edk-person-name">{{ s.displayName }}</span>
-                </div>
-                <button type="button" class="btn edk-btn-checkin" @click="promptEmployeeCheckin(s)">
-                  Tap to check in
-                </button>
-              </div>
+          <ul v-else class="edk-person-list edk-emp-grid">
+            <li v-for="s in pendingStaff" :key="s.id" class="edk-emp-card-wrap">
+              <button type="button" class="edk-emp-checkin-card" @click="promptEmployeeCheckin(s)">
+                <UserAvatar
+                  :photo-path="s.profilePhotoUrl"
+                  :first-name="s.firstName"
+                  :last-name="s.lastName"
+                  size="xl"
+                  extra-class="edk-emp-photo"
+                />
+                <span class="edk-emp-name">{{ s.displayName }}</span>
+                <span class="edk-emp-cta">Tap to check in</span>
+              </button>
             </li>
           </ul>
           <div class="edk-emp-pin-box">
@@ -301,21 +303,25 @@
           </div>
           <div v-if="!checkedInStaff.length" class="edk-empty">All employees checked out!</div>
           <ul v-else class="edk-person-list">
-            <li v-for="s in checkedInStaff" :key="s.id" class="edk-person-row">
-              <div class="edk-person-row-top">
-                <div class="edk-row-avatar" aria-hidden="true">{{ initials(s.displayName) }}</div>
-                <div class="edk-person-main">
-                  <span class="edk-person-name">{{ s.displayName }}</span>
-                </div>
-                <button
-                  type="button"
-                  class="btn edk-btn-checkin"
-                  :disabled="checkingOutUserId === s.id"
-                  @click="checkoutEmployee(s)"
-                >
-                  {{ checkingOutUserId === s.id ? '…' : 'Check out' }}
-                </button>
+            <li v-for="s in checkedInStaff" :key="s.id" class="edk-person-row edk-person-row--emp">
+              <UserAvatar
+                :photo-path="s.profilePhotoUrl"
+                :first-name="s.firstName"
+                :last-name="s.lastName"
+                size="lg"
+                extra-class="edk-emp-photo"
+              />
+              <div class="edk-person-main">
+                <span class="edk-person-name">{{ s.displayName }}</span>
               </div>
+              <button
+                type="button"
+                class="btn edk-btn-checkin"
+                :disabled="checkingOutUserId === s.id"
+                @click="checkoutEmployee(s)"
+              >
+                {{ checkingOutUserId === s.id ? '…' : 'Check out' }}
+              </button>
             </li>
           </ul>
         </div>
@@ -534,6 +540,14 @@
     <!-- ── EMPLOYEE CHECKIN CONFIRM MODAL ─────────────────────────────────── -->
     <div v-if="empConfirmModal" class="edk-modal-overlay edk-modal-overlay--fullscreen">
       <div class="edk-modal edk-modal--fullscreen edk-modal--confirm">
+        <UserAvatar
+          v-if="empConfirmPerson"
+          :photo-path="empConfirmPerson.profilePhotoUrl"
+          :first-name="empConfirmPerson.firstName"
+          :last-name="empConfirmPerson.lastName"
+          size="xl"
+          extra-class="edk-emp-confirm-photo"
+        />
         <h3 class="edk-modal-title">Confirm check-in</h3>
         <p class="edk-emp-confirm-name">{{ empConfirmPerson?.displayName }}</p>
         <p class="muted small">Tap below to check in this employee for today.</p>
@@ -584,6 +598,7 @@ import api from '../../services/api';
 import { buildFormUrl } from '../../utils/publicIntakeUrl';
 import EventKioskLateContactFlow from '../../components/eventKiosk/EventKioskLateContactFlow.vue';
 import EventKioskCheckinWizard from '../../components/eventKiosk/EventKioskCheckinWizard.vue';
+import UserAvatar from '../../components/common/UserAvatar.vue';
 
 const route = useRoute();
 const slug = computed(() => String(route.params.organizationSlug || '').trim().toLowerCase());
@@ -1474,6 +1489,54 @@ watch(slug, () => { resetToUnlock(); });
   flex-shrink: 0;
 }
 .edk-person-row--stack .ek-late { margin-top: 0; border-color: var(--edk-border); background: #f8faf9; }
+.edk-emp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 12px;
+}
+.edk-emp-card-wrap { list-style: none; }
+.edk-emp-checkin-card {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 18px 14px 16px;
+  background: #eff6ff;
+  border: 2px solid #93c5fd;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.edk-emp-checkin-card:hover {
+  background: #dbeafe;
+  border-color: #3b82f6;
+  transform: translateY(-1px);
+}
+.edk-emp-name {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #1e3a8a;
+  line-height: 1.25;
+}
+.edk-emp-cta {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #2563eb;
+}
+.edk-person-row--emp {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.edk-emp-photo :deep(.avatar),
+.edk-emp-confirm-photo :deep(.avatar) {
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+}
+.edk-emp-confirm-photo :deep(.avatar) {
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+}
 .edk-person-main { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
 .edk-person-name-line { line-height: 1.3; }
 .edk-person-name { font-weight: 700; font-size: 0.98rem; color: #0f172a; }

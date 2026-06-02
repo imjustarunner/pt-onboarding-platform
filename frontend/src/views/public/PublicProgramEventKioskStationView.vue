@@ -255,22 +255,24 @@
           </div>
           <p v-if="empPinError" class="pe-inline-err">{{ empPinError }}</p>
         </div>
-        <ul class="pe-roster">
-          <li v-for="s in filteredPendingStaff" :key="s.id" class="pe-row">
-            <div class="pe-row-top">
-              <div class="pe-row-avatar" aria-hidden="true">{{ initials(s.displayName) }}</div>
-              <div class="pe-row-main">
-                <button
-                  type="button"
-                  class="pe-row-name-btn pe-row-name-btn--staff"
-                  :disabled="!kioskActive || checkingInUserId === s.id"
-                  @click="openEmployeeCheckin(s)"
-                >
-                  {{ s.displayName }}
-                  <span class="pe-row-name-cta">Tap to check in →</span>
-                </button>
-              </div>
-            </div>
+        <ul class="pe-roster pe-roster--emp">
+          <li v-for="s in filteredPendingStaff" :key="s.id" class="pe-row pe-row--emp">
+            <button
+              type="button"
+              class="pe-emp-checkin-card"
+              :disabled="!kioskActive || checkingInUserId === s.id"
+              @click="openEmployeeCheckin(s)"
+            >
+              <UserAvatar
+                :photo-path="s.profilePhotoUrl"
+                :first-name="s.firstName"
+                :last-name="s.lastName"
+                size="xl"
+                extra-class="pe-emp-photo"
+              />
+              <span class="pe-emp-name">{{ s.displayName }}</span>
+              <span class="pe-row-name-cta">Tap to check in →</span>
+            </button>
           </li>
           <li v-if="!filteredPendingStaff.length" class="pe-empty muted">
             {{ search ? 'No matches.' : 'All employees are checked in.' }}
@@ -336,9 +338,18 @@
       <!-- CHECK OUT · EMPLOYEE -->
       <div v-else-if="mainMode === 'checkout' && personMode === 'employee'" class="pe-panel">
         <p class="pe-panel-lead muted">{{ activeCheckedInStaff.length }} checked in</p>
-        <ul class="pe-roster">
-          <li v-for="s in filteredActiveStaff" :key="s.id" class="pe-row">
-            <div class="pe-row-main"><strong>{{ s.displayName }}</strong></div>
+        <ul class="pe-roster pe-roster--emp">
+          <li v-for="s in filteredActiveStaff" :key="s.id" class="pe-row pe-row--emp pe-row--emp-checkout">
+            <UserAvatar
+              :photo-path="s.profilePhotoUrl"
+              :first-name="s.firstName"
+              :last-name="s.lastName"
+              size="lg"
+              extra-class="pe-emp-photo"
+            />
+            <div class="pe-row-main">
+              <strong>{{ s.displayName }}</strong>
+            </div>
             <button
               class="btn btn-secondary btn-sm"
               :disabled="!kioskActive || checkingOutUserId === s.id"
@@ -572,6 +583,14 @@
     <!-- Employee check-in confirm (fullscreen) -->
     <div v-if="empConfirmOpen" class="pe-kiosk-modal pe-kiosk-modal--fullscreen">
       <div class="pe-kiosk-modal-card pe-kiosk-modal-card--fullscreen pe-emp-confirm">
+        <UserAvatar
+          v-if="empConfirmPerson"
+          :photo-path="empConfirmPerson.profilePhotoUrl"
+          :first-name="empConfirmPerson.firstName"
+          :last-name="empConfirmPerson.lastName"
+          size="xl"
+          extra-class="pe-emp-confirm-photo"
+        />
         <h3 class="pe-kiosk-modal-title">Confirm check-in</h3>
         <p class="pe-emp-confirm-name">{{ empConfirmPerson?.displayName }}</p>
         <p class="muted small">Tap below to check in this employee for today.</p>
@@ -982,6 +1001,7 @@ import SignaturePad from '../../components/SignaturePad.vue';
 import EventKioskLateContactFlow from '../../components/eventKiosk/EventKioskLateContactFlow.vue';
 import EventKioskCheckinWizard from '../../components/eventKiosk/EventKioskCheckinWizard.vue';
 import EventKioskSessionObservationWizard from '../../components/eventKiosk/EventKioskSessionObservationWizard.vue';
+import UserAvatar from '../../components/common/UserAvatar.vue';
 
 const route = useRoute();
 const brandingStore = useBrandingStore();
@@ -2289,6 +2309,63 @@ onBeforeUnmount(() => {
   background: #dbeafe;
   border-color: #3b82f6;
   color: #1e3a8a;
+}
+.pe-roster--emp {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 12px;
+}
+.pe-row--emp {
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+.pe-emp-checkin-card {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 18px 14px 16px;
+  background: #eff6ff;
+  border: 2px solid #93c5fd;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.pe-emp-checkin-card:hover:not(:disabled) {
+  background: #dbeafe;
+  border-color: #3b82f6;
+  transform: translateY(-1px);
+}
+.pe-emp-checkin-card:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.pe-emp-name {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #1e3a8a;
+  line-height: 1.25;
+}
+.pe-emp-checkin-card .pe-row-name-cta {
+  color: #2563eb;
+}
+.pe-row--emp-checkout {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid var(--pe-border);
+  border-radius: 12px;
+}
+.pe-emp-photo :deep(.avatar) {
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+}
+.pe-emp-confirm-photo :deep(.avatar) {
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
 }
 .pe-emp-confirm {
   display: flex;
