@@ -1,0 +1,34 @@
+---
+description: Modern hub panel UI (Documents, Payroll, Training) — layout, tokens, and patterns
+globs: frontend/src/components/**/*Hub*.vue,frontend/src/components/dashboard/MyPayrollTab.vue,frontend/src/components/dashboard/MyAccountTab.vue,frontend/src/components/dashboard/ScheduleHubPanel.vue,frontend/src/components/dashboard/SubmitPanelTab.vue,frontend/src/components/dashboard/DocumentsTab.vue,frontend/src/utils/*UiHelpers.js,frontend/src/config/*Display*.js
+alwaysApply: false
+---
+
+# Modern Hub Panel UI
+
+When building or redesigning dashboard tabs (Documents, Payroll, Training, etc.), follow **`docs/MODERN_HUB_PANEL_UI_GUIDE.md`**.
+
+## Must match Documents / Payroll hub
+
+- Gray canvas on parent: `.card-content--{tab}` → `#f3f4f6`
+- White cards, `border-radius: 10px`, subtle shadow, `1px #e5e7eb` borders
+- Primary CTA: forest green `#166534` (`--hub-green` / `--dh-green`)
+- Page flow: **header → 4 stat cards → filter bar → action-required banner → main + 300px sidebar**
+- Grouped **collapsible sections** with unique `theme` per section (accent border, icon tile, pill tags)
+- Section progress when applicable (`n/m complete`)
+- Logic in `*UiHelpers.js` + `*DisplaySections.js`; panel component is presentation-only
+
+## Naming
+
+- Documents: `doc-hub__` · `DocumentsHubPanel.vue`
+- Payroll: `pay-hub__` · `PayrollHubPanel.vue` + `PayrollHubSection.vue`
+- Training (future): `train-hub__` · `TrainingHubPanel.vue`
+- Submit: `submit-hub__` · `SubmitHubPanel.vue` + `SubmitPanelTab.vue`
+- My Account: `acct-hub__` · `AccountHubPanel.vue` + `MyAccountTab.vue`
+- My Schedule: `sched-hub__` · `ScheduleHubPanel.vue` + `scheduleDisplayViews.js`
+
+## Do not
+
+- Put API calls inside hub panel components
+- Hardcode section colors in templates (use config `theme` + CSS variables)
+- Use a different primary button color per tab

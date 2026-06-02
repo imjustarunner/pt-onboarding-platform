@@ -309,7 +309,11 @@ export const getUserTasks = async (req, res, next) => {
     const userId = req.user.id;
     const { taskType, status } = req.query;
 
-    const tasks = await Task.findByUser(userId, { taskType, status });
+    let tasks = await Task.findByUser(userId, { taskType, status });
+    if (!taskType || taskType === 'document') {
+      const { enrichDocumentTasks } = await import('../services/documentTaskEnrichment.service.js');
+      tasks = await enrichDocumentTasks(tasks);
+    }
     res.json(tasks);
   } catch (error) {
     next(error);
@@ -805,7 +809,11 @@ export const getAllTasks = async (req, res, next) => {
     if (assignedToUserId) filters.assignedToUserId = assignedToUserId;
     if (assignedToAgencyId) filters.assignedToAgencyId = assignedToAgencyId;
     
-    const tasks = await Task.getAll(filters);
+    let tasks = await Task.getAll(filters);
+    if (!taskType || taskType === 'document') {
+      const { enrichDocumentTasks } = await import('../services/documentTaskEnrichment.service.js');
+      tasks = await enrichDocumentTasks(tasks);
+    }
     console.log(`getAllTasks: Returning ${tasks.length} tasks`);
     res.json(tasks);
   } catch (error) {

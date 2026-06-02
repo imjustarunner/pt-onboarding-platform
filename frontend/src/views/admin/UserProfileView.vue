@@ -2522,6 +2522,8 @@
           :userId="userId"
           :highlight-task-id="route.query.taskId ? parseInt(route.query.taskId) : null"
           :viewOnly="!canEditUser"
+          :user-display-name="userDisplayNameForDocs"
+          :user-role-label="userRoleLabelForDocs"
         />
 
         <UserAdminDocsTab
@@ -2942,6 +2944,23 @@ const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
 const userId = computed(() => parseInt(route.params.userId));
+
+const userDisplayNameForDocs = computed(() => {
+  const u = user.value;
+  if (!u) return '';
+  const preferred = String(u.preferred_name || '').trim();
+  const full = `${u.first_name || ''} ${u.last_name || ''}`.trim();
+  return preferred || full || u.email || '';
+});
+
+const userRoleLabelForDocs = computed(() => {
+  const role = String(user.value?.role || '').trim();
+  if (!role) return '';
+  return role
+    .split('_')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+});
 
 const canShowSkillBuildersSchoolProgramUserFields = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();

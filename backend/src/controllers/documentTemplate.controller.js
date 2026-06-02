@@ -7,6 +7,7 @@ import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { validationResult } from 'express-validator';
 import StorageService from '../services/storage.service.js';
+import { normalizeEmployeeDisplayCategory } from '../config/documentDisplayCategories.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -61,7 +62,8 @@ export const uploadTemplate = async (req, res, next) => {
       signatureWidth,
       signatureHeight,
       signaturePage,
-      fieldDefinitions
+      fieldDefinitions,
+      employeeDisplayCategory,
     } = req.body;
 
     const createdByUserId = req.user?.id;
@@ -74,6 +76,11 @@ export const uploadTemplate = async (req, res, next) => {
       return res.status(400).json({
         error: { message: 'documentActionType is required and must be "signature" or "review"' }
       });
+    }
+
+    const parsedDisplayCategory = normalizeEmployeeDisplayCategory(employeeDisplayCategory);
+    if (parsedDisplayCategory.error) {
+      return res.status(400).json({ error: { message: parsedDisplayCategory.error } });
     }
 
     const parsedAgencyId = parseNullablePositiveInt(agencyId);
@@ -180,7 +187,8 @@ export const uploadTemplate = async (req, res, next) => {
       signatureWidth: signatureWidth !== undefined && signatureWidth !== '' ? parseFloat(signatureWidth) : null,
       signatureHeight: signatureHeight !== undefined && signatureHeight !== '' ? parseFloat(signatureHeight) : null,
       signaturePage: signaturePage !== undefined && signaturePage !== '' ? parseInt(signaturePage) : null,
-      fieldDefinitions: parsedFieldDefinitions
+      fieldDefinitions: parsedFieldDefinitions,
+      employeeDisplayCategory: parsedDisplayCategory.value,
     });
 
     return res.status(201).json(template);
@@ -219,7 +227,8 @@ export const createTemplate = async (req, res, next) => {
       documentType,
       documentActionType,
       iconId,
-      fieldDefinitions
+      fieldDefinitions,
+      employeeDisplayCategory,
       // isUserSpecific, userId intentionally ignored here (templates are not user-specific)
     } = req.body;
 
@@ -233,6 +242,11 @@ export const createTemplate = async (req, res, next) => {
       return res.status(400).json({
         error: { message: 'documentActionType is required and must be "signature" or "review"' }
       });
+    }
+
+    const parsedDisplayCategory = normalizeEmployeeDisplayCategory(employeeDisplayCategory);
+    if (parsedDisplayCategory.error) {
+      return res.status(400).json({ error: { message: parsedDisplayCategory.error } });
     }
     
     const parsedLayoutType = layoutType ? String(layoutType).trim().toLowerCase() : 'standard';
@@ -354,7 +368,8 @@ export const createTemplate = async (req, res, next) => {
       isUserSpecific: false,
       userId: null,
       iconId: parsedIconId,
-      fieldDefinitions: parsedFieldDefinitions
+      fieldDefinitions: parsedFieldDefinitions,
+      employeeDisplayCategory: parsedDisplayCategory.value,
     });
 
     return res.status(201).json(template);
@@ -596,7 +611,8 @@ export const updateTemplate = async (req, res, next) => {
       signatureWidth,
       signatureHeight,
       signaturePage,
-      fieldDefinitions
+      fieldDefinitions,
+      employeeDisplayCategory,
     } = sanitizedInputBody;
 
     // Check permissions: Support can only edit their own documents
@@ -640,6 +656,13 @@ export const updateTemplate = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'documentActionType must be "signature" or "review"' } });
       }
       updateData.documentActionType = da || 'signature';
+    }
+    if (employeeDisplayCategory !== undefined) {
+      const parsed = normalizeEmployeeDisplayCategory(employeeDisplayCategory);
+      if (parsed.error) {
+        return res.status(400).json({ error: { message: parsed.error } });
+      }
+      updateData.employeeDisplayCategory = parsed.value;
     }
     if (htmlContent !== undefined) updateData.htmlContent = htmlContent !== null && htmlContent !== '' ? htmlContent : null;
 
@@ -1038,6 +1061,7 @@ export const duplicateTemplate = async (req, res, next) => {
       createdByUserId,
       documentType: sourceTemplate.document_type ?? 'administrative',
       documentActionType: sourceTemplate.document_action_type ?? 'signature',
+      employeeDisplayCategory: sourceTemplate.employee_display_category ?? null,
       isUserSpecific: false,
       userId: null,
       iconId: sourceTemplate.icon_id ?? null,

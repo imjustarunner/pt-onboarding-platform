@@ -56,7 +56,8 @@ class UserPreferences {
           'tutorial_progress',
           'school_portal_notifications_progress',
           'review_prompt_state',
-          'toast_preferences'
+          'toast_preferences',
+          'documents_category_order_json'
         ];
 
         for (const field of allowedFields) {
@@ -72,7 +73,8 @@ class UserPreferences {
               field === 'tutorial_progress' ||
               field === 'school_portal_notifications_progress' ||
               field === 'review_prompt_state' ||
-              field === 'toast_preferences'
+              field === 'toast_preferences' ||
+              field === 'documents_category_order_json'
             ) {
               values.push(JSON.stringify(preferences[field]));
             } else {
@@ -119,7 +121,8 @@ class UserPreferences {
           'tutorial_progress',
           'school_portal_notifications_progress',
           'review_prompt_state',
-          'toast_preferences'
+          'toast_preferences',
+          'documents_category_order_json'
         ];
 
         for (const field of allowedFields) {
@@ -136,7 +139,8 @@ class UserPreferences {
               field === 'tutorial_progress' ||
               field === 'school_portal_notifications_progress' ||
               field === 'review_prompt_state' ||
-              field === 'toast_preferences'
+              field === 'toast_preferences' ||
+              field === 'documents_category_order_json'
             ) {
               values.push(JSON.stringify(preferences[field]));
             } else {

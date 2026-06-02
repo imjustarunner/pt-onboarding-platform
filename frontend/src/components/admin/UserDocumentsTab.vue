@@ -1,146 +1,37 @@
 <template>
   <div class="user-documents-tab">
-    <div class="header-section">
-      <h2>Document Assignments</h2>
-      <div class="header-actions">
-        <button @click="fetchDocumentTasks()" class="btn btn-secondary btn-sm" :disabled="loading" title="Refresh document list">
-          {{ loading ? 'Refreshing...' : '🔄 Refresh' }}
-        </button>
+    <DocumentsHubPanel
+      title="User Documents"
+      subtitle="Manage document assignments, signatures, and compliance records for this user."
+      mode="admin"
+      :tasks="documentTasks"
+      :loading="loading"
+      :error="error"
+      :view-only="viewOnly"
+      :highlight-task-id="highlightTaskId"
+      :user-display-name="displayUserName"
+      :user-role-label="userRoleLabel"
+      @refresh="fetchDocumentTasks"
+      @action="onHubAction"
+      @menu-action="onHubMenuAction"
+    >
+      <template #header-actions>
+        <button type="button" class="doc-hub__btn doc-hub__btn--ghost" :disabled="loading" @click="fetchDocumentTasks()">Refresh</button>
         <template v-if="!viewOnly">
-          <button @click="downloadAllCompleted" class="btn btn-secondary btn-sm" :disabled="downloadingAll || completedDocumentsCount === 0">
-            {{ downloadingAll ? 'Downloading...' : `Download All (${completedDocumentsCount})` }}
-          </button>
-          <button @click="showUploadDialog = true" class="btn btn-primary btn-sm">
-            Upload & Assign
-          </button>
-          <button @click="showAssignDialog = true" class="btn btn-secondary btn-sm">
-            Assign from Library
-          </button>
+          <button type="button" class="doc-hub__btn doc-hub__btn--ghost" :disabled="downloadingAll || completedDocumentsCount === 0" @click="downloadAllCompleted">Download All ({{ completedDocumentsCount }})</button>
+          <button type="button" class="doc-hub__btn doc-hub__btn--primary" @click="showUploadDialog = true">Upload Document</button>
+          <button type="button" class="doc-hub__btn doc-hub__btn--ghost" @click="showAssignDialog = true">Assign from Library</button>
         </template>
-      </div>
-    </div>
-
-    
-    <div v-if="loading" class="loading">Loading documents...</div>
-    <div v-if="error && !loading" class="error" style="margin-bottom: 16px; padding: 12px; background: #fee; border: 1px solid #fcc; border-radius: 4px;">
-      <strong>Error:</strong> {{ error }}
-    </div>
-    <div v-if="!loading && !error && documentTasks.length === 0" class="empty-state" style="padding: 40px; text-align: center; color: #666;">
-      <p style="font-size: 16px;">No documents assigned to this user.</p>
-      <p style="font-size: 14px; color: #999; margin-top: 8px;">User ID: {{ userId }}</p>
-    </div>
-    <div v-if="!loading && documentTasks.length > 0" class="documents-list">
-      <table class="documents-table">
-        <thead>
-          <tr>
-            <th>Document</th>
-            <th>Status</th>
-            <th>Due Date</th>
-            <th>Signed At</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr 
-            v-for="task in documentTasks" 
-            :key="task.id"
-            :class="{ 'highlighted-task': highlightTaskId === task.id }"
-            :ref="highlightTaskId === task.id ? 'highlightedTaskRow' : null"
-          >
-            <td>
-              <strong>{{ task.title }}</strong>
-              <br>
-              <small class="text-muted">{{ task.description || 'No description' }}</small>
-              <br>
-              <span v-if="task.document_action_type" :class="['badge', task.document_action_type === 'signature' ? 'badge-info' : 'badge-secondary']" style="margin-top: 4px; font-size: 11px;">
-                {{ task.document_action_type === 'signature' ? 'Signature Required' : 'Review Only' }}
-              </span>
-            </td>
-            <td>
-              <span :class="['badge', getStatusBadgeClass(task)]">
-                {{ getStatusLabel(task) }}
-              </span>
-            </td>
-            <td>
-              <span v-if="task.due_date">{{ formatDate(task.due_date) }}</span>
-              <span v-else class="text-muted">No due date</span>
-            </td>
-            <td>
-              <span v-if="task.completed_at">{{ formatDate(task.completed_at) }}</span>
-              <span v-else class="text-muted">Not signed</span>
-            </td>
-            <td>
-              <div v-if="!viewOnly" class="action-buttons">
-                <button
-                  v-if="task.status !== 'completed'"
-                  @click="viewDocument(task.id)"
-                  class="btn btn-sm btn-primary"
-                >
-                  {{ task.document_action_type === 'review' ? 'View & Review' : 'View & Sign' }}
-                </button>
-                <button
-                  v-if="task.status === 'completed' && task.document_action_type === 'signature'"
-                  @click="viewSignedDocument(task.id)"
-                  class="btn btn-sm btn-primary"
-                >
-                  View
-                </button>
-                <button
-                  v-if="signedDocument(task.id) && task.document_action_type === 'signature'"
-                  @click="downloadSigned(task.id)"
-                  class="btn btn-sm btn-secondary"
-                >
-                  Download
-                </button>
-                <button
-                  v-if="signedDocument(task.id) && task.document_action_type === 'signature'"
-                  @click="viewAuditTrail(task.id)"
-                  class="btn btn-sm btn-secondary"
-                >
-                  Audit Trail
-                </button>
-                <button
-                  v-if="task.status === 'completed' && task.document_action_type === 'review'"
-                  @click="viewAcknowledgment(task.id)"
-                  class="btn btn-sm btn-secondary"
-                >
-                  View Acknowledgment
-                </button>
-                <button
-                  @click="editDueDate(task)"
-                  class="btn btn-sm btn-secondary"
-                  title="Edit due date"
-                >
-                  Edit Due Date
-                </button>
-                <button
-                  @click="resetDocument(task.id)"
-                  class="btn btn-sm btn-danger"
-                >
-                  Reset
-                </button>
-                <button
-                  @click="removeTask(task.id)"
-                  class="btn btn-sm btn-danger"
-                  style="margin-left: 6px;"
-                  title="Remove this assignment from the user's record"
-                >
-                  Remove
-                </button>
-                <button
-                  v-if="task.status !== 'completed'"
-                  @click="markComplete(task.id)"
-                  class="btn btn-sm btn-primary"
-                >
-                  Mark Complete
-                </button>
-              </div>
-              <span v-else class="text-muted" style="font-size: 12px;">View Only</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+      </template>
+      <template #empty>
+        <h3>No documents assigned</h3>
+        <p>This user does not have any document assignments yet.</p>
+        <div v-if="!viewOnly" class="ud-empty-actions">
+          <button type="button" class="doc-hub__btn doc-hub__btn--primary" @click="showUploadDialog = true">Upload Document</button>
+          <button type="button" class="doc-hub__btn doc-hub__btn--ghost" @click="showAssignDialog = true">Assign from Library</button>
+        </div>
+      </template>
+    </DocumentsHubPanel>
 
     <!-- Audit Trail Modal -->
     <DocumentAuditTrailViewer
@@ -308,6 +199,8 @@ import { useDocumentsStore } from '../../store/documents';
 import DocumentAuditTrailViewer from '../documents/DocumentAuditTrailViewer.vue';
 import DocumentAssignmentDialog from '../documents/DocumentAssignmentDialog.vue';
 import UserSpecificDocumentUploadDialog from '../documents/UserSpecificDocumentUploadDialog.vue';
+import DocumentsHubPanel from '../documents/DocumentsHubPanel.vue';
+import { computeDocumentStats } from '../../utils/documentUiHelpers';
 
 const props = defineProps({
   userId: {
@@ -321,6 +214,14 @@ const props = defineProps({
   viewOnly: {
     type: Boolean,
     default: false
+  },
+  userDisplayName: {
+    type: String,
+    default: ''
+  },
+  userRoleLabel: {
+    type: String,
+    default: ''
   }
 });
 
@@ -349,10 +250,33 @@ const showEditDueDateModal = ref(false);
 const editingTask = ref(null);
 const newDueDate = ref('');
 const savingDueDate = ref(false);
+const displayUserName = computed(
+  () => props.userDisplayName?.trim() || assignedUserName.value || ''
+);
 
-const completedDocumentsCount = computed(() => {
-  return documentTasks.value.filter(task => task.status === 'completed').length;
-});
+const completedDocumentsCount = computed(() => computeDocumentStats(documentTasks.value).completed);
+
+const onHubAction = ({ type, task }) => {
+  const id = task.id;
+  if (type === 'sign') viewDocument(id);
+  else if (type === 'view') {
+    if (task.status === 'completed' && task.document_action_type === 'signature') viewSignedDocument(id);
+    else if (task.status === 'completed') viewAcknowledgment(id);
+    else viewDocument(id);
+  } else if (type === 'download') {
+    if (task.document_action_type === 'signature') downloadSigned(id);
+    else downloadReviewDocument(id);
+  }
+};
+
+const onHubMenuAction = ({ type, task }) => {
+  const id = task.id;
+  if (type === 'edit-due') editDueDate(task);
+  else if (type === 'audit') viewAuditTrail(id);
+  else if (type === 'mark-complete') markComplete(id);
+  else if (type === 'reset') resetDocument(id);
+  else if (type === 'remove') removeTask(id);
+};
 
 // Computed property for filtered and sorted templates
 const filteredTemplates = computed(() => {
@@ -672,6 +596,27 @@ const viewSignedDocument = async (taskId) => {
     setTimeout(() => window.URL.revokeObjectURL(url), 100);
   } catch (err) {
     alert(err.response?.data?.error?.message || 'Failed to retrieve document');
+  }
+};
+
+const downloadReviewDocument = async (taskId) => {
+  try {
+    const task = documentTasks.value.find((t) => t.id === taskId);
+    const title = safeFilename(task?.title || 'document');
+    const assignee = safeFilename(assignedUserName.value || `user-${props.userId}`);
+    const dateLabel = formatDateForFilename(task?.completed_at || task?.updated_at);
+    const filename = `${title} - ${assignee} - ${dateLabel}.pdf`;
+    const response = await api.get(`/document-acknowledgment/${taskId}/view`, { responseType: 'blob' });
+    const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to download document');
   }
 };
 
@@ -1035,7 +980,7 @@ onMounted(() => {
     // If highlightTaskId is provided, scroll to it after tasks are loaded
     if (props.highlightTaskId) {
       setTimeout(() => {
-        const row = document.querySelector(`tr.highlighted-task`);
+        const row = document.querySelector('.doc-hub__row--highlight');
         if (row) {
           row.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
@@ -1050,7 +995,7 @@ onMounted(() => {
 watch(() => props.highlightTaskId, (newTaskId) => {
   if (newTaskId && documentTasks.value.length > 0) {
     setTimeout(() => {
-      const row = document.querySelector(`tr.highlighted-task`);
+      const row = document.querySelector('.doc-hub__row--highlight');
       if (row) {
         row.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
@@ -1069,118 +1014,26 @@ watch(() => props.userId, (newUserId, oldUserId) => {
 </script>
 
 <style scoped>
-.highlighted-task {
-  background-color: #fff3cd !important;
-  border: 2px solid #ffc107 !important;
-  animation: highlight-pulse 2s ease-in-out;
-}
-
-@keyframes highlight-pulse {
-  0%, 100% {
-    background-color: #fff3cd;
-  }
-  50% {
-    background-color: #ffe69c;
-  }
-}
-.documents-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: white;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.documents-table th,
-.documents-table td {
-  padding: 12px;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-}
-
-.documents-table th {
-  background: #f8f9fa;
-  font-weight: 600;
-  font-size: 12px;
-  text-transform: uppercase;
-}
-
-.action-buttons {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.action-buttons .btn-sm {
-  padding: 4px 10px;
-  font-size: 12px;
-  white-space: nowrap;
-  width: auto;
-  min-width: auto;
-  flex-shrink: 0;
-}
-
-.btn-danger {
-  background-color: #dc3545;
-  color: white;
-  border: none;
-}
-
-.btn-danger:hover {
-  background-color: #c82333;
-}
-
-.text-muted {
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.badge-danger {
-  background-color: #dc3545;
-  color: white;
-}
-
-.header-section {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-}
-
-.header-section h2 {
+.user-documents-tab {
   margin: 0;
+  padding: 0;
 }
-
-.header-actions {
+.ud-empty-actions {
   display: flex;
-  gap: 8px;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 16px;
   flex-wrap: wrap;
-  align-items: center;
 }
-
-.header-actions .btn-sm {
-  padding: 4px 10px;
-  font-size: 12px;
-  white-space: nowrap;
-  width: auto;
-  min-width: auto;
-  flex-shrink: 0;
-}
-
 .modal-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   background: rgba(0, 0, 0, 0.5);
   display: flex;
   justify-content: center;
   align-items: center;
   z-index: 1000;
 }
-
 .modal-content {
   background: white;
   padding: 32px;
@@ -1190,96 +1043,11 @@ watch(() => props.userId, (newUserId, oldUserId) => {
   max-height: 80vh;
   overflow-y: auto;
 }
-
-.template-list {
-  max-height: 400px;
-  overflow-y: auto;
-  margin: 16px 0;
+.modal-content.large {
+  max-width: 800px;
 }
-
-.template-item {
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  margin-bottom: 12px;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.template-item:hover {
-  background-color: #f8f9fa;
-}
-
-.template-item h3 {
-  margin: 0 0 8px 0;
-  color: var(--text-primary);
-}
-
-.template-item p {
-  margin: 0 0 8px 0;
-  color: var(--text-secondary);
-  font-size: 14px;
-}
-
-.template-badges {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-top: 8px;
-}
-
-.template-item .badge {
-  display: inline-block;
-  padding: 4px 8px;
-  background-color: var(--primary);
-  color: white;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.badge-primary {
-  background-color: #007bff;
-  color: white;
-}
-
-.form-group {
-  margin-bottom: 16px;
-}
-
-.form-group label {
-  display: block;
-  margin-bottom: 6px;
-  font-weight: 500;
-  font-size: 14px;
-  color: var(--text-primary);
-}
-
-.form-group input[readonly] {
-  background-color: #f5f5f5;
-  cursor: not-allowed;
-}
-
-.form-input {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 14px;
-  box-sizing: border-box;
-}
-
-.form-input:focus {
-  outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.1);
-}
-
-.form-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 24px;
-}
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; margin-bottom: 6px; font-weight: 500; font-size: 14px; }
+.form-input { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; box-sizing: border-box; }
+.form-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
 </style>
-

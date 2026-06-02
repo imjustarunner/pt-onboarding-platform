@@ -392,7 +392,10 @@
           class="card-content"
           :class="{
             'card-content-schedule': activeTab === 'my_schedule',
-            'card-content--sstc-account': isSummitStatsSurface && activeTab === 'my'
+            'card-content--schedule-hub': activeTab === 'my_schedule',
+            'card-content--sstc-account': isSummitStatsSurface && activeTab === 'my',
+            'card-content--account-hub': activeTab === 'my',
+            'card-content--documents': activeTab === 'documents'
           }"
         >
           <div v-if="!previewMode && activeTab === PROGRAM_WORKSPACE_TAB && inlineProgramHubState.mode" class="my-panel">
@@ -435,38 +438,37 @@
           <!-- My Schedule (full-width focus panel) -->
           <div
             v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && activeTab === 'my_schedule'"
-            class="my-panel my-schedule-panel"
+            class="my-panel my-schedule-panel my-panel--schedule-hub"
             data-tour="dash-my-schedule-panel"
           >
-            <div ref="myScheduleStageRef" class="my-schedule-stage">
-              <div class="section-header schedule-section-header">
-                <div class="schedule-heading-block">
-                  <h2 class="schedule-main-heading">{{ scheduleViewHeadline }}</h2>
-                  <p
-                    class="schedule-context-line"
-                    :class="{ 'schedule-context-line--other': scheduleViewContextIsOther }"
-                  >
-                    {{ scheduleViewContextLine }}
-                  </p>
-                </div>
-                <div class="schedule-header-actions">
-                  <button type="button" class="btn btn-secondary btn-sm" @click="toggleScheduleFullscreen">
-                    {{ scheduleFullscreenActive ? 'Exit full screen' : 'Show full screen' }}
-                  </button>
-                  <button type="button" class="btn btn-secondary btn-sm" @click="openScheduleInNewWindow">
-                    Show full screen in new window
-                  </button>
-                  <button
-                    v-if="isSkillBuilderEligible"
-                    type="button"
-                    class="btn btn-secondary btn-sm"
-                    @click="showSkillBuilderModal = true"
-                  >
-                    Skill Builder availability
-                  </button>
-                </div>
-              </div>
+            <ScheduleHubPanel
+              ref="scheduleHubPanelRef"
+              :active-view="scheduleViewMode"
+              :active-title="scheduleViewHeadline"
+              :context-line="scheduleViewContextLine"
+              :context-is-other="scheduleViewContextIsOther"
+              :views="scheduleHubViews"
+              :skill-builders-active="!skillBuildersSeriesCollapsed && seriesCompanyEvents.length > 0"
+              @select-view="onScheduleHubSelectView"
+            >
+              <template #header-actions>
+                <button type="button" class="btn btn-secondary btn-sm" @click="toggleScheduleFullscreen">
+                  {{ scheduleFullscreenActive ? 'Exit full screen' : 'Show full screen' }}
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" @click="openScheduleInNewWindow">
+                  Show full screen in new window
+                </button>
+                <button
+                  v-if="isSkillBuilderEligible"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="showSkillBuilderModal = true"
+                >
+                  Skill Builder availability
+                </button>
+              </template>
 
+              <template #skill-builders>
               <div
                 v-if="seriesCompanyEvents.length > 0"
                 class="sb-series-strip"
@@ -541,39 +543,13 @@
                   </article>
                 </div>
               </div>
-              <div
-                v-if="isSupervisor(authStore.user) || canPickEmployeeSchedule"
-                class="schedule-supervisor-toolbar"
-              >
-                <div class="schedule-view-toggle">
-                  <button
-                    type="button"
-                    class="btn btn-secondary btn-sm"
-                    :class="{ active: scheduleViewMode === 'self' }"
-                    @click="onMyScheduleClick"
-                  >
-                    My schedule
-                  </button>
-                  <button
-                    v-if="isSupervisor(authStore.user)"
-                    type="button"
-                    class="btn btn-secondary btn-sm"
-                    :class="{ active: scheduleViewMode === 'supervisee' }"
-                    @click="scheduleViewMode = 'supervisee'"
-                  >
-                    Supervisee schedules
-                  </button>
-                  <button
-                    v-if="canPickEmployeeSchedule"
-                    type="button"
-                    class="btn btn-secondary btn-sm"
-                    :class="{ active: scheduleViewMode === 'employees' }"
-                    @click="scheduleViewMode = 'employees'"
-                  >
-                    Employee schedules
-                  </button>
-                </div>
+              </template>
 
+              <template #toolbar>
+              <div
+                v-if="(isSupervisor(authStore.user) || canPickEmployeeSchedule) && scheduleViewMode !== 'self'"
+                class="schedule-supervisor-toolbar sched-hub-mode-toolbar"
+              >
                 <template v-if="scheduleViewMode === 'supervisee'">
                   <div class="schedule-inline-controls">
                     <select v-model="superviseeSortKey" class="input compact-input" title="Sort supervisees by">
@@ -702,6 +678,9 @@
                 </span>
                 <span v-else-if="employeeSchedulePickerLoading" class="muted schedule-view-as-hint">Loading directory…</span>
               </div>
+              </template>
+
+              <div ref="myScheduleStageRef" class="my-schedule-stage my-schedule-stage--hub">
               <div v-if="superviseesError" class="error" style="margin-top: 8px;">{{ superviseesError }}</div>
               <div v-if="!providerSurfacesEnabled" class="hint" style="margin-top: 8px;">
                 Scheduling is disabled for this organization.
@@ -742,7 +721,8 @@
                 @open-skill-builders-programs="goSkillBuildersProgramsPage"
                 @open-company-events-calendar="openCompanyEventsCalendar"
               />
-            </div>
+              </div>
+            </ScheduleHubPanel>
           </div>
 
           <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && activeTab === 'clients'" class="my-panel">
@@ -755,212 +735,20 @@
           <!-- Submit (right panel) -->
           <div
             v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && providerSurfacesEnabled && activeTab === 'submit'"
-            class="my-panel"
+            class="my-panel my-panel--submit-hub"
             data-tour="dash-submit-panel"
           >
-            <div class="section-header">
-              <h2 style="margin: 0;">Submit</h2>
-              <button v-if="submitPanelView !== 'root'" type="button" class="btn btn-secondary btn-sm" @click="submitPanelView = 'root'">
-                Back
-              </button>
-            </div>
-
-            <div v-if="submitPanelView === 'root'">
-              <div class="fields-grid" style="margin-top: 12px;">
-                <button v-if="inSchoolEnabled && hasAssignedSchools" type="button" class="dash-card dash-card-submit" @click="openInSchoolClaims">
-                  <div class="dash-card-title">In-School Claims</div>
-                  <div class="dash-card-desc">School Mileage and Med Cancel.</div>
-                  <div class="dash-card-meta">
-                    <span class="dash-card-cta">Open</span>
-                  </div>
-                </button>
-
-                <button type="button" class="dash-card dash-card-submit" @click="openAdditionalAvailability">
-                  <div class="dash-card-title">Additional Availability</div>
-                  <div class="dash-card-desc">Office or school availability + supervised 2-week confirmations.</div>
-                  <div class="dash-card-meta">
-                    <span class="dash-card-cta">Open</span>
-                  </div>
-                </button>
-
-                <button type="button" class="dash-card dash-card-submit" @click="openVirtualWorkingHours">
-                  <div class="dash-card-title">Virtual Working Hours</div>
-                  <div class="dash-card-desc">Set weekly virtual hours (not tied to a room/office).</div>
-                  <div class="dash-card-meta">
-                    <span class="dash-card-cta">Open</span>
-                  </div>
-                </button>
-
-                <button type="button" class="dash-card" @click="openRegularMileageModal">
-                  <div class="dash-card-title">Mileage</div>
-                  <div class="dash-card-desc">Submit other mileage.</div>
-                  <div class="dash-card-meta">
-                    <span class="dash-card-cta">Open</span>
-                  </div>
-                </button>
-
-                <button type="button" class="dash-card" @click="openReimbursementModal">
-                  <div class="dash-card-title">Reimbursement</div>
-                  <div class="dash-card-desc">Upload a receipt and submit for approval.</div>
-                  <div class="dash-card-meta">
-                    <span class="dash-card-cta">Open</span>
-                  </div>
-                </button>
-
-                <button type="button" class="dash-card" @click="openPtoModal">
-                  <div class="dash-card-title">PTO</div>
-                  <div class="dash-card-desc">Request Sick Leave or Training PTO.</div>
-                  <div class="dash-card-meta">
-                    <span class="dash-card-cta">Open</span>
-                  </div>
-                </button>
-
-                <button
-                  v-if="authStore.user?.companyCardEnabled"
-                  type="button"
-                  class="dash-card"
-                  @click="openCompanyCardModal"
-                >
-                  <div class="dash-card-title">Submit Expense (Company Card)</div>
-                  <div class="dash-card-desc">Submit company card purchases for tracking/review.</div>
-                  <div class="dash-card-meta">
-                    <span class="dash-card-cta">Open</span>
-                  </div>
-                </button>
-
-                <button
-                  v-if="authStore.user?.companyCarSubmitAccess || authStore.user?.companyCarManageAccess"
-                  type="button"
-                  class="dash-card"
-                  @click="openCompanyCarMileage"
-                >
-                  <div class="dash-card-title">Company Car Mileage</div>
-                  <div class="dash-card-desc">Log business vehicle trips and track mileage.</div>
-                  <div class="dash-card-meta">
-                    <span class="dash-card-cta">Open</span>
-                  </div>
-                </button>
-
-                <button
-                  v-if="canShowBudgetSubmitExpenses"
-                  type="button"
-                  class="dash-card dash-card-submit"
-                  @click="showBudgetSubmitExpensesModal = true"
-                >
-                  <div class="dash-card-title">Submit Budget Expenses</div>
-                  <div class="dash-card-desc">Submit expenses with department, account, category, and receipt OCR.</div>
-                  <div class="dash-card-meta">
-                    <span class="dash-card-cta">Open</span>
-                  </div>
-                </button>
-
-                <button type="button" class="dash-card" @click="openTimeClaims">
-                  <div class="dash-card-title">Time Claim</div>
-                  <div class="dash-card-desc">Attendance, holiday/excess time, service corrections.</div>
-                  <div class="dash-card-meta">
-                    <span class="dash-card-cta">Open</span>
-                  </div>
-                </button>
-              </div>
-            </div>
-
-            <div v-else-if="submitPanelView === 'time'">
-              <div class="hint" style="margin-top: 6px;">Time Claims</div>
-              <div class="submit-grid-2" style="margin-top: 12px;">
-                <button type="button" class="dash-card" @click="openTimeMeetingModal">
-                  <div class="dash-card-title">Meeting / Training / Outreach Attendance</div>
-                  <div class="dash-card-desc">Log meeting, training, or outreach minutes.</div>
-                  <div class="dash-card-meta">
-                    <span class="dash-card-cta">Open</span>
-                  </div>
-                </button>
-
-                <button
-                  v-if="timeClaimExcessEnabled"
-                  type="button"
-                  class="dash-card"
-                  @click="openTimeExcessModal"
-                >
-                  <div class="dash-card-title">Excess Time</div>
-                  <div class="dash-card-desc">Select service codes and enter direct/indirect minutes. Excess beyond included span is paid at your rates.</div>
-                  <div class="dash-card-meta">
-                    <span class="dash-card-cta">Open</span>
-                  </div>
-                </button>
-
-                <button
-                  v-if="timeClaimServiceCorrectionEnabled"
-                  type="button"
-                  class="dash-card"
-                  @click="openTimeCorrectionModal"
-                >
-                  <div class="dash-card-title">Service Correction</div>
-                  <div class="dash-card-desc">Request correction review for a service.</div>
-                  <div class="dash-card-meta">
-                    <span class="dash-card-cta">Open</span>
-                  </div>
-                </button>
-
-                <button type="button" class="dash-card" @click="openTimeOvertimeModal">
-                  <div class="dash-card-title">{{ isOfficeStaff ? 'Overtime & Holiday Pay' : 'Overtime Evaluation' }}</div>
-                  <div class="dash-card-desc">{{ isOfficeStaff ? 'Submit overtime evaluation details. Request holiday pay for working on approved holidays.' : 'Submit overtime evaluation details.' }}</div>
-                  <div class="dash-card-meta">
-                    <span class="dash-card-cta">Open</span>
-                  </div>
-                </button>
-              </div>
-            </div>
-
-            <div v-else-if="submitPanelView === 'in_school'">
-              <div class="hint" style="margin-top: 6px;">In-School Claims</div>
-              <div class="submit-grid-2" style="margin-top: 12px;">
-                <button v-if="hasAssignedSchools" type="button" class="dash-card" @click="openSchoolMileageModal">
-                  <div class="dash-card-title">School Mileage</div>
-                  <div class="dash-card-desc">Home ↔ School minus Home ↔ Office (auto).</div>
-                  <div class="dash-card-meta">
-                    <span class="dash-card-cta">Open</span>
-                  </div>
-                </button>
-
-                <button
-                  v-if="authStore.user?.medcancelEnabled && medcancelEnabledForAgency && hasAssignedSchools"
-                  type="button"
-                  class="dash-card"
-                  @click="openMedcancelModal"
-                >
-                  <div class="dash-card-title">Med Cancel</div>
-                  <div class="dash-card-desc">Missed Medicaid sessions.</div>
-                  <div class="dash-card-meta">
-                    <span class="dash-card-cta">Open</span>
-                  </div>
-                </button>
-              </div>
-            </div>
-
-            <div v-else-if="submitPanelView === 'availability'">
-              <div class="hint" style="margin-top: 6px;">Additional Availability</div>
-              <div v-if="!currentAgencyId" class="hint" style="margin-top: 12px;">Select an organization from the brand menu (top left) to continue.</div>
-              <AdditionalAvailabilitySubmit v-else :agency-id="Number(currentAgencyId)" />
-            </div>
-
-            <div v-else-if="submitPanelView === 'virtual_hours'">
-              <div class="hint" style="margin-top: 6px;">Virtual Working Hours</div>
-              <div v-if="!currentAgencyId" class="hint" style="margin-top: 12px;">Select an organization from the brand menu (top left) to continue.</div>
-              <VirtualWorkingHoursEditor v-else :agency-id="Number(currentAgencyId)" />
-            </div>
-
-            <div v-else-if="submitPanelView === 'company_car'">
-              <div v-if="!currentAgencyId" class="hint" style="margin-top: 12px;">Select an organization from the brand menu (top left) to continue.</div>
-              <CompanyCarTripsView
-                v-else
-                :agency-id="Number(currentAgencyId)"
-                :manage-access="!!authStore.user?.companyCarManageAccess"
-                :current-user-id="authStore.user?.id"
-              />
-            </div>
+            <SubmitPanelTab
+              v-model:view="submitPanelView"
+              :agency-id="currentAgencyId"
+              :current-user-id="authStore.user?.id"
+              :company-car-manage-access="!!authStore.user?.companyCarManageAccess"
+              :flags="submitPanelFlags"
+              @action="onSubmitPanelAction"
+            />
           </div>
 
-          <div v-if="!previewMode && isOnboardingComplete && activeTab === 'payroll'" class="my-panel">
+          <div v-if="!previewMode && isOnboardingComplete && activeTab === 'payroll'" class="my-panel my-panel--payroll-hub">
             <MyPayrollTab />
           </div>
 
@@ -1015,81 +803,16 @@
           <!-- My Account (nested inside dashboard) -->
           <div
             v-if="!previewMode && isOnboardingComplete && activeTab === 'my'"
-            class="my-panel"
+            class="my-panel my-panel--account-hub"
           >
-            <div class="my-subnav" data-tour="dash-my-subnav">
-              <button
-                type="button"
-                class="subtab"
-                :class="{ active: myTab === 'account' }"
-                @click="setMyTab('account')"
-              >
-                Account Info
-              </button>
-              <button
-                v-if="!isClubContext"
-                type="button"
-                class="subtab"
-                :class="{ active: myTab === 'credentials' }"
-                @click="setMyTab('credentials')"
-              >
-                My Credentials
-              </button>
-              <button
-                v-if="!isClubContext"
-                type="button"
-                class="subtab"
-                :class="{ active: myTab === 'payroll' }"
-                @click="setMyTab('payroll')"
-              >
-                My Payroll
-              </button>
-              <button
-                v-if="!isClubContext"
-                type="button"
-                class="subtab"
-                :class="{ active: myTab === 'compensation' }"
-                @click="setMyTab('compensation')"
-              >
-                My Compensation
-              </button>
-              <button
-                v-if="canSeeKudosWidget"
-                type="button"
-                class="subtab"
-                :class="{ active: myTab === 'kudos' }"
-                @click="setMyTab('kudos')"
-              >
-                My Kudos
-              </button>
-              <button
-                type="button"
-                class="subtab"
-                :class="{ active: myTab === 'preferences' }"
-                @click="setMyTab('preferences')"
-              >
-                My Preferences
-              </button>
-            </div>
-
-            <div v-show="myTab === 'account'">
-              <AccountInfoView />
-            </div>
-            <div v-if="!isClubContext" v-show="myTab === 'credentials'">
-              <CredentialsView />
-            </div>
-            <div v-if="!isClubContext" v-show="myTab === 'payroll'">
-              <MyPayrollTab />
-            </div>
-            <div v-if="!isClubContext" v-show="myTab === 'compensation'">
-              <MyCompensationTab />
-            </div>
-            <div v-show="myTab === 'kudos'">
-              <MyKudosTab :agency-id="Number(currentAgencyId)" />
-            </div>
-            <div v-if="myTab === 'preferences'">
-              <UserPreferencesHub v-if="authStore.user?.id" :user-id="authStore.user.id" />
-            </div>
+            <MyAccountTab
+              :active-section="myTab"
+              :is-club-context="isClubContext"
+              :can-see-kudos="canSeeKudosWidget"
+              :agency-id="currentAgencyId"
+              :user-id="authStore.user?.id"
+              @select-section="setMyTab"
+            />
           </div>
           
           <!-- Preview mode placeholder content -->
@@ -1322,19 +1045,16 @@ import ProviderTopSummaryCard from '../components/dashboard/ProviderTopSummaryCa
 import PendingCompletionButton from '../components/PendingCompletionButton.vue';
 import BrandingLogo from '../components/BrandingLogo.vue';
 import MySstcClubsCard from '../components/sstc/MySstcClubsCard.vue';
-import AdditionalAvailabilitySubmit from '../components/AdditionalAvailabilitySubmit.vue';
-import VirtualWorkingHoursEditor from '../components/availability/VirtualWorkingHoursEditor.vue';
 import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilityGrid.vue';
 import CompanyEventsCalendarModal from '../components/schedule/CompanyEventsCalendarModal.vue';
 import PersonSearchSelect from '../components/schedule/PersonSearchSelect.vue';
 import ScheduleMultiUserOverlayGrid from '../components/schedule/ScheduleMultiUserOverlayGrid.vue';
-import CredentialsView from './CredentialsView.vue';
-import AccountInfoView from './AccountInfoView.vue';
-import UserPreferencesHub from '../components/UserPreferencesHub.vue';
 import MyPayrollTab from '../components/dashboard/MyPayrollTab.vue';
-import MyKudosTab from '../components/dashboard/MyKudosTab.vue';
+import SubmitPanelTab from '../components/dashboard/SubmitPanelTab.vue';
+import MyAccountTab from '../components/dashboard/MyAccountTab.vue';
+import ScheduleHubPanel from '../components/dashboard/ScheduleHubPanel.vue';
+import { SCHEDULE_VIEWS } from '../config/scheduleDisplayViews.js';
 import ProgramShiftsTab from '../components/dashboard/ProgramShiftsTab.vue';
-import MyCompensationTab from '../components/dashboard/MyCompensationTab.vue';
 import OnDemandTrainingLibraryView from './OnDemandTrainingLibraryView.vue';
 import ChallengesTab from '../components/dashboard/ChallengesTab.vue';
 import ProviderClientsTab from '../components/dashboard/ProviderClientsTab.vue';
@@ -1346,7 +1066,6 @@ import SkillBuilderAvailabilityModal from '../components/availability/SkillBuild
 import ProgramHubModal from '../components/availability/ProgramHubModal.vue';
 import LastPaycheckModal from '../components/dashboard/LastPaycheckModal.vue';
 import BudgetSubmitExpensesModal from '../components/budget/BudgetSubmitExpensesModal.vue';
-import CompanyCarTripsView from '../components/companyCar/CompanyCarTripsView.vue';
 import SocialFeedsPanel from '../components/dashboard/SocialFeedsPanel.vue';
 import PresenceStatusWidget from '../components/dashboard/PresenceStatusWidget.vue';
 import StaffCard from '../components/dashboard/StaffCard.vue';
@@ -1681,8 +1400,12 @@ const closeLastPaycheckModal = () => {
 
 // Supervisor schedule picker (inside My Schedule card)
 const scheduleViewMode = ref('self'); // 'self' | 'supervisee' | 'employees'
+const scheduleHubPanelRef = ref(null);
 const myScheduleStageRef = ref(null);
 const scheduleGridRef = ref(null);
+
+const scheduleFullscreenRoot = () =>
+  scheduleHubPanelRef.value?.getStageElement?.() ?? myScheduleStageRef.value;
 
 /** When clicking "My schedule" tab: switch to self view and snap to Open finder (main page). */
 const onMyScheduleClick = () => {
@@ -1692,6 +1415,37 @@ const onMyScheduleClick = () => {
   }
   scheduleViewMode.value = 'self';
   nextTick(() => scheduleGridRef.value?.resetToOpenFinder?.());
+};
+
+const scheduleHubViews = computed(() => {
+  const sbCount = seriesCompanyEvents.value.length;
+  const flags = {
+    supervisee: isSupervisor(authStore.user),
+    employees: canPickEmployeeSchedule.value,
+    skillBuilders: sbCount > 0,
+  };
+  return SCHEDULE_VIEWS.filter((view) => {
+    if (!view.visibleKey) return true;
+    return Boolean(flags[view.visibleKey]);
+  }).map((view) => ({
+    ...view,
+    statValue: view.id === 'skill_builders' ? sbCount : null,
+  }));
+});
+
+const onScheduleHubSelectView = (viewId) => {
+  if (viewId === 'skill_builders') {
+    skillBuildersSeriesCollapsed.value = false;
+    return;
+  }
+  applyScheduleStageThemeIntent();
+  if (viewId === 'self') {
+    onMyScheduleClick();
+    return;
+  }
+  if (viewId === 'supervisee' || viewId === 'employees') {
+    scheduleViewMode.value = viewId;
+  }
 };
 const scheduleFullscreenActive = ref(false);
 const superviseesLoading = ref(false);
@@ -2362,13 +2116,13 @@ const loadPresenterAssignments = async () => {
 };
 
 const updateScheduleFullscreenState = () => {
-  const root = myScheduleStageRef.value;
+  const root = scheduleFullscreenRoot();
   const fs = document.fullscreenElement;
   scheduleFullscreenActive.value = !!(fs && root && (fs === root || root.contains(fs)));
 };
 
 const applyScheduleStageThemeIntent = () => {
-  const root = myScheduleStageRef.value;
+  const root = scheduleFullscreenRoot();
   if (!root) return;
   const appInDarkMode = document.documentElement.getAttribute('data-theme') === 'dark';
   if (appInDarkMode) {
@@ -2380,7 +2134,7 @@ const applyScheduleStageThemeIntent = () => {
 
 const toggleScheduleFullscreen = async () => {
   try {
-    const root = myScheduleStageRef.value;
+    const root = scheduleFullscreenRoot();
     if (!root) return;
     applyScheduleStageThemeIntent();
     if (document.fullscreenElement && (document.fullscreenElement === root || root.contains(document.fullscreenElement))) {
@@ -3916,7 +3670,71 @@ const syncFromQuery = () => {
   }
 };
 
-const submitPanelView = ref('root'); // 'root' | 'in_school' | 'time' | 'availability' | 'virtual_hours'
+const submitPanelView = ref('root'); // 'root' | 'in_school' | 'time' | 'availability' | 'virtual_hours' | 'company_car'
+
+const submitPanelFlags = computed(() => ({
+  companyCardEnabled: Boolean(authStore.user?.companyCardEnabled),
+  budgetExpenses: canShowBudgetSubmitExpenses.value,
+  companyCar: Boolean(authStore.user?.companyCarSubmitAccess || authStore.user?.companyCarManageAccess),
+  inSchoolGroup: inSchoolEnabled.value && hasAssignedSchools.value,
+  timeExcess: timeClaimExcessEnabled.value,
+  timeCorrection: timeClaimServiceCorrectionEnabled.value,
+  hasSchools: hasAssignedSchools.value,
+  medcancel: Boolean(authStore.user?.medcancelEnabled && medcancelEnabledForAgency.value && hasAssignedSchools.value),
+  overtimeTitle: isOfficeStaff.value ? 'Overtime & Holiday Pay' : 'Overtime Evaluation',
+  overtimeDesc: isOfficeStaff.value
+    ? 'Submit overtime evaluation details. Request holiday pay for working on approved holidays.'
+    : 'Submit overtime evaluation details.',
+}));
+
+const onSubmitPanelAction = (event) => {
+  switch (event) {
+    case 'mileage':
+      openRegularMileageModal();
+      break;
+    case 'reimbursement':
+      openReimbursementModal();
+      break;
+    case 'pto':
+      openPtoModal();
+      break;
+    case 'company-card':
+      openCompanyCardModal();
+      break;
+    case 'budget-expenses':
+      showBudgetSubmitExpensesModal.value = true;
+      break;
+    case 'company-car':
+      openCompanyCarMileage();
+      break;
+    case 'availability':
+      openAdditionalAvailability();
+      break;
+    case 'virtual-hours':
+      openVirtualWorkingHours();
+      break;
+    case 'time-meeting':
+      openTimeMeetingModal();
+      break;
+    case 'time-excess':
+      openTimeExcessModal();
+      break;
+    case 'time-correction':
+      openTimeCorrectionModal();
+      break;
+    case 'time-overtime':
+      openTimeOvertimeModal();
+      break;
+    case 'school-mileage':
+      openSchoolMileageModal();
+      break;
+    case 'medcancel':
+      openMedcancelModal();
+      break;
+    default:
+      break;
+  }
+};
 
 const handleDocumentPointerDown = (event) => {
   if (!openCardDescriptorId.value) return;
@@ -5073,7 +4891,15 @@ h1 {
 .dashboard-shell.schedule-focus .rail-card-row {
   width: 100%;
 }
-.card-content.card-content-schedule {
+.card-content.card-content-schedule,
+.card-content.card-content--schedule-hub {
+  background: #f3f4f6;
+  border: none;
+  box-shadow: none;
+  padding: 20px 24px 28px;
+}
+
+.my-panel.my-panel--schedule-hub {
   background: transparent;
   border: none;
   box-shadow: none;
@@ -5136,6 +4962,22 @@ h1 {
   box-shadow: var(--shadow);
   padding: 14px;
 }
+
+.my-schedule-stage--hub {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+.sched-hub-mode-toolbar {
+  margin-top: 0;
+  margin-bottom: 12px;
+  background: #f9fafb;
+  border-color: #e5e7eb;
+}
+
 .my-schedule-stage[data-schedule-force-light="1"] {
   --bg: #ffffff;
   --bg-alt: #f3f6fa;
@@ -5144,7 +4986,9 @@ h1 {
   --border: #e2e8f0;
 }
 .my-schedule-stage:fullscreen,
-.my-schedule-stage:-webkit-full-screen {
+.my-schedule-stage:-webkit-full-screen,
+.sched-hub__stage:fullscreen,
+.sched-hub__stage:-webkit-full-screen {
   width: 100%;
   height: 100%;
   max-width: none;
@@ -5156,7 +5000,9 @@ h1 {
   border-radius: 0;
 }
 .my-schedule-stage:fullscreen::backdrop,
-.my-schedule-stage:-webkit-full-screen::backdrop {
+.my-schedule-stage:-webkit-full-screen::backdrop,
+.sched-hub__stage:fullscreen::backdrop,
+.sched-hub__stage:-webkit-full-screen::backdrop {
   background: var(--bg-alt, #f3f6fa);
 }
 .schedule-supervisor-toolbar {
@@ -5848,6 +5694,29 @@ h1 {
   padding: 32px;
   box-shadow: var(--shadow);
   border: 1px solid var(--border);
+}
+
+.card-content.card-content--documents {
+  background: #f3f4f6;
+  padding: 20px 24px 28px;
+  border: none;
+  box-shadow: none;
+}
+
+.my-panel.my-panel--payroll-hub,
+.my-panel--payroll-hub,
+.my-panel.my-panel--submit-hub,
+.my-panel.my-panel--account-hub,
+.card-content.card-content--account-hub {
+  background: #f3f4f6;
+  padding: 20px 24px 28px;
+  border: none;
+  box-shadow: none;
+  border-radius: 12px;
+}
+
+.my-panel--account-hub :deep(.pay-hub) {
+  margin-top: 0;
 }
 
 /* Summit Stats desktop: match mobile /home card density — one soft page canvas + one raised panel for Account */

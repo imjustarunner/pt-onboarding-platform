@@ -1,25 +1,83 @@
 <template>
-  <div class="my-payroll">
-    <div class="header">
-      <h1>My Payroll</h1>
-      <p class="subtitle">View-only payroll history for the selected organization.</p>
-    </div>
+  <PayrollHubPanel
+    title="My Payroll"
+    subtitle="Pay history, submissions, and balances for the selected organization."
+    :loading="loading"
+    :error="error"
+    :stats="payrollHubStats"
+    :sidebar="payrollHubSidebar"
+    :action-items="payrollActionItems"
+    @refresh="refreshPayrollHub"
+    @action-item="onPayrollActionItem"
+  >
+    <template #filters>
+      <div v-if="!loading" class="pay-hub-filters">
+        <label class="pay-hub-filters__field">
+          <span>Sort pay periods</span>
+          <select v-model="sortOrder" class="pay-hub-filters__select">
+            <option value="desc">Newest → Oldest</option>
+            <option value="asc">Oldest → Newest</option>
+          </select>
+        </label>
+        <label class="pay-hub-filters__field pay-hub-filters__field--grow">
+          <span>Search</span>
+          <input v-model="periodSearch" type="search" placeholder="Search pay periods…" class="pay-hub-filters__input" />
+        </label>
+        <label class="pay-hub-filters__field">
+          <span>Show</span>
+          <select v-model="showCount" class="pay-hub-filters__select">
+            <option :value="25">Last 25</option>
+            <option :value="50">Last 50</option>
+            <option :value="100">Last 100</option>
+          </select>
+        </label>
+      </div>
+    </template>
 
-    <div v-if="submitSuccess" class="success" style="margin: 10px 0;">
+    <div v-if="submitSuccess" class="success" style="margin: 0 0 14px;">
       {{ submitSuccess }}
     </div>
 
-    <div class="claims-grid" style="margin: 10px 0;">
-      <details class="card claim-card" open>
-        <summary class="claim-summary">
-          <div>
-            <div class="claim-title">PTO Balances</div>
-            <div class="muted">Sick Leave and Training PTO (read-only).</div>
+    <PayrollHubSection section-id="pay_stubs" :open="true" :item-count="visiblePeriods.length" count-label="periods">
+      <div v-if="!loading" class="periods">
+        <div class="periods-head">
+          <div>Pay Period</div>
+          <div class="right">Tier</div>
+          <div class="right">Credits</div>
+          <div class="right">Pay</div>
+        </div>
+        <button
+          v-for="(p, idx) in visiblePeriods"
+          :key="p.payroll_period_id"
+          type="button"
+          class="period-row"
+          :class="[{ active: expandedId === p.payroll_period_id }, periodShadeClass(idx)]"
+          @click="toggle(p.payroll_period_id)"
+        >
+          <div class="period-main">
+            <div class="period-title">
+              <span class="title"><strong>{{ fmtDateRange(p.period_start, p.period_end) }}</strong></span>
+              <span class="chev">{{ expandedId === p.payroll_period_id ? '▼' : '▶' }}</span>
+            </div>
           </div>
-          <button class="btn btn-primary btn-sm" @click.stop="openPtoChooserModal" type="button">
-            Request PTO
+          <div class="right tier-cell">
+            {{ (p.breakdown && p.breakdown.__tier && p.breakdown.__tier.label) ? p.breakdown.__tier.label : '—' }}
+            <span v-if="p.grace_active" class="badge">Grace</span>
+          </div>
+          <div class="right">{{ fmtNum(p.tier_credits_final ?? p.tier_credits_current ?? 0) }}</div>
+          <div class="right">{{ fmtMoney(p.total_amount ?? 0) }}</div>
         </button>
-        </summary>
+        <div v-if="!visiblePeriods.length" class="muted" style="margin-top: 10px;">
+          No finalized payroll periods yet for this organization.
+        </div>
+      </div>
+    </PayrollHubSection>
+
+    <div class="pay-hub__sections">
+      <PayrollHubSection section-id="pto" :open="true" :item-count="(ptoRequests || []).length" count-label="requests">
+        <template #actions>
+          <button type="button" class="pay-hub__btn pay-hub__btn--primary pay-hub__btn--sm" @click.stop="openPtoChooserModal">Request PTO</button>
+        </template>
 
         <div v-if="ptoLoading" class="muted" style="margin-top: 10px;">Loading PTO…</div>
         <div v-else>
@@ -124,18 +182,14 @@
           </div>
           <div v-else class="muted" style="margin-top: 10px;">No PTO requests yet.</div>
         </div>
-      </details>
+      </PayrollHubSection>
 
-      <details class="card claim-card" open>
-        <summary class="claim-summary">
-          <div>
-            <div class="claim-title">Mileage</div>
-            <div class="muted">History of your submissions.</div>
-          </div>
-          <button class="btn btn-secondary btn-sm" @click.stop="loadMileageClaims" type="button" :disabled="mileageClaimsLoading">
-          {{ mileageClaimsLoading ? 'Loading…' : 'Refresh' }}
-        </button>
-        </summary>
+      <PayrollHubSection section-id="mileage" :open="true" :item-count="(mileageClaims || []).length" count-label="claims">
+        <template #actions>
+          <button type="button" class="pay-hub__btn pay-hub__btn--ghost pay-hub__btn--sm" @click.stop="loadMileageClaims" :disabled="mileageClaimsLoading">
+            {{ mileageClaimsLoading ? 'Loading…' : 'Refresh' }}
+          </button>
+        </template>
 
       <div v-if="mileageClaimsError" class="warn-box" style="margin-top: 10px;">{{ mileageClaimsError }}</div>
       <div v-if="(mileageClaims || []).length" class="table-wrap" style="margin-top: 10px;">
@@ -249,18 +303,20 @@
           </table>
         </div>
         <div v-else class="muted" style="margin-top: 10px;">No mileage submissions yet.</div>
-      </details>
+      </PayrollHubSection>
 
-      <details class="card claim-card" open v-if="authStore.user?.medcancelEnabled && medcancelEnabledForAgency">
-        <summary class="claim-summary">
-          <div>
-            <div class="claim-title">Missed Medicaid sessions (Med Cancel)</div>
-            <div class="muted">History of your submissions.</div>
-          </div>
-          <button class="btn btn-secondary btn-sm" @click.stop="loadMedcancelClaims" type="button" :disabled="medcancelClaimsLoading">
+      <PayrollHubSection
+        v-if="authStore.user?.medcancelEnabled && medcancelEnabledForAgency"
+        section-id="medcancel"
+        :open="true"
+        :item-count="(medcancelClaims || []).length"
+        count-label="claims"
+      >
+        <template #actions>
+          <button type="button" class="pay-hub__btn pay-hub__btn--ghost pay-hub__btn--sm" @click.stop="loadMedcancelClaims" :disabled="medcancelClaimsLoading">
             {{ medcancelClaimsLoading ? 'Loading…' : 'Refresh' }}
           </button>
-        </summary>
+        </template>
 
         <div v-if="medcancelClaimsError" class="warn-box" style="margin-top: 10px;">{{ medcancelClaimsError }}</div>
         <div v-if="(medcancelClaims || []).length" class="table-wrap" style="margin-top: 10px;">
@@ -316,18 +372,14 @@
           </table>
         </div>
         <div v-else class="muted" style="margin-top: 10px;">No Med Cancel submissions yet.</div>
-      </details>
+      </PayrollHubSection>
 
-      <details class="card claim-card" open>
-        <summary class="claim-summary">
-          <div>
-            <div class="claim-title">Reimbursements</div>
-            <div class="muted">Upload receipts and track approval.</div>
-          </div>
-          <button class="btn btn-secondary btn-sm" @click.stop="loadReimbursementClaims" type="button" :disabled="reimbursementClaimsLoading">
+      <PayrollHubSection section-id="reimbursements" :open="true" :item-count="(reimbursementClaims || []).length" count-label="claims">
+        <template #actions>
+          <button type="button" class="pay-hub__btn pay-hub__btn--ghost pay-hub__btn--sm" @click.stop="loadReimbursementClaims" :disabled="reimbursementClaimsLoading">
             {{ reimbursementClaimsLoading ? 'Loading…' : 'Refresh' }}
           </button>
-        </summary>
+        </template>
 
         <div v-if="reimbursementClaimsError" class="warn-box" style="margin-top: 10px;">{{ reimbursementClaimsError }}</div>
         <div v-if="(reimbursementClaims || []).length" class="table-wrap" style="margin-top: 10px;">
@@ -386,18 +438,20 @@
           </table>
         </div>
         <div v-else class="muted" style="margin-top: 10px;">No reimbursements yet.</div>
-      </details>
+      </PayrollHubSection>
 
-      <details v-if="authStore.user?.companyCardEnabled" class="card claim-card" open>
-        <summary class="claim-summary">
-          <div>
-            <div class="claim-title">Company Card Expenses</div>
-            <div class="muted">Submit company card purchases for tracking/review.</div>
-          </div>
-          <button class="btn btn-secondary btn-sm" @click.stop="loadCompanyCardExpenses" type="button" :disabled="companyCardExpensesLoading">
+      <PayrollHubSection
+        v-if="authStore.user?.companyCardEnabled"
+        section-id="company_card"
+        :open="true"
+        :item-count="(companyCardExpenses || []).length"
+        count-label="claims"
+      >
+        <template #actions>
+          <button type="button" class="pay-hub__btn pay-hub__btn--ghost pay-hub__btn--sm" @click.stop="loadCompanyCardExpenses" :disabled="companyCardExpensesLoading">
             {{ companyCardExpensesLoading ? 'Loading…' : 'Refresh' }}
           </button>
-        </summary>
+        </template>
 
         <div v-if="companyCardExpensesError" class="warn-box" style="margin-top: 10px;">{{ companyCardExpensesError }}</div>
         <div v-if="(companyCardExpenses || []).length" class="table-wrap" style="margin-top: 10px;">
@@ -456,23 +510,15 @@
           </table>
         </div>
         <div v-else class="muted" style="margin-top: 10px;">No company card expenses yet.</div>
-      </details>
+      </PayrollHubSection>
 
-      <details class="card claim-card" open>
-        <summary class="claim-summary">
-          <div>
-            <div class="claim-title">Time Claims</div>
-            <div class="muted">Attendance, holiday/excess time, service corrections.</div>
-          </div>
-          <div style="display: flex; gap: 8px; align-items: center;">
-            <button class="btn btn-secondary btn-sm" @click.stop="openJuryDutyModal" type="button">
-              + Jury Duty
-            </button>
-            <button class="btn btn-secondary btn-sm" @click.stop="loadTimeClaims" type="button" :disabled="timeClaimsLoading">
-              {{ timeClaimsLoading ? 'Loading…' : 'Refresh' }}
-            </button>
-          </div>
-        </summary>
+      <PayrollHubSection section-id="time_claims" :open="true" :item-count="(timeClaims || []).length" count-label="claims">
+        <template #actions>
+          <button type="button" class="pay-hub__btn pay-hub__btn--ghost pay-hub__btn--sm" @click.stop="openJuryDutyModal">+ Jury Duty</button>
+          <button type="button" class="pay-hub__btn pay-hub__btn--ghost pay-hub__btn--sm" @click.stop="loadTimeClaims" :disabled="timeClaimsLoading">
+            {{ timeClaimsLoading ? 'Loading…' : 'Refresh' }}
+          </button>
+        </template>
 
         <div v-if="timeClaimsError" class="warn-box" style="margin-top: 10px;">{{ timeClaimsError }}</div>
         <div v-if="(timeClaims || []).length" class="table-wrap" style="margin-top: 10px;">
@@ -556,18 +602,14 @@
         </table>
       </div>
         <div v-else class="muted" style="margin-top: 10px;">No time claims yet.</div>
-      </details>
+      </PayrollHubSection>
 
-      <details class="card claim-card">
-        <summary class="claim-summary">
-          <div>
-            <div class="claim-title">Event time</div>
-            <div class="muted">Kiosk check-in/out at program events with direct and indirect hours.</div>
-          </div>
-          <button class="btn btn-secondary btn-sm" @click.stop="loadEventTimeSessions" type="button" :disabled="eventTimeLoading">
+      <PayrollHubSection section-id="event_time" :open="false" :item-count="eventTimeSessions.length" count-label="sessions">
+        <template #actions>
+          <button type="button" class="pay-hub__btn pay-hub__btn--ghost pay-hub__btn--sm" @click.stop="loadEventTimeSessions" :disabled="eventTimeLoading">
             {{ eventTimeLoading ? 'Loading…' : 'Refresh' }}
           </button>
-        </summary>
+        </template>
         <div v-if="eventTimeError" class="warn-box" style="margin-top: 10px;">{{ eventTimeError }}</div>
         <div v-if="eventTimeSessions.length" class="table-wrap" style="margin-top: 10px;">
           <table class="table">
@@ -600,73 +642,10 @@
           </table>
         </div>
         <div v-else class="muted" style="margin-top: 10px;">No event time recorded yet.</div>
-      </details>
+      </PayrollHubSection>
     </div>
 
-    <div class="controls" v-if="!loading">
-      <label class="control">
-        <span class="label">Sort by pay period</span>
-        <select v-model="sortOrder">
-          <option value="desc">Newest → Oldest</option>
-          <option value="asc">Oldest → Newest</option>
-        </select>
-      </label>
-      <label class="control" style="flex: 1;">
-        <span class="label">Search</span>
-        <input
-          v-model="periodSearch"
-          type="text"
-          placeholder="Search pay periods…"
-          style="min-width: 220px;"
-        />
-      </label>
-      <label class="control">
-        <span class="label">Show</span>
-        <select v-model="showCount">
-          <option :value="25">Last 25</option>
-          <option :value="50">Last 50</option>
-          <option :value="100">Last 100</option>
-        </select>
-      </label>
-    </div>
-
-    <div v-if="error" class="error-box">{{ error }}</div>
-    <div v-if="loading" class="muted">Loading payroll…</div>
-
-    <div v-else class="periods">
-      <div class="periods-head">
-        <div>Pay Period</div>
-        <div class="right">Tier</div>
-        <div class="right">Credits</div>
-        <div class="right">Pay</div>
-      </div>
-      <button
-        v-for="(p, idx) in visiblePeriods"
-        :key="p.payroll_period_id"
-        type="button"
-        class="period-row"
-        :class="[{ active: expandedId === p.payroll_period_id }, periodShadeClass(idx)]"
-        @click="toggle(p.payroll_period_id)"
-      >
-        <div class="period-main">
-          <div class="period-title">
-            <span class="title"><strong>{{ fmtDateRange(p.period_start, p.period_end) }}</strong></span>
-            <span class="chev">{{ expandedId === p.payroll_period_id ? '▼' : '▶' }}</span>
-          </div>
-        </div>
-        <div class="right tier-cell">
-          {{ (p.breakdown && p.breakdown.__tier && p.breakdown.__tier.label) ? p.breakdown.__tier.label : '—' }}
-              <span v-if="p.grace_active" class="badge">Grace</span>
-        </div>
-        <div class="right">{{ fmtNum(p.tier_credits_final ?? p.tier_credits_current ?? 0) }}</div>
-        <div class="right">{{ fmtMoney(p.total_amount ?? 0) }}</div>
-      </button>
-      <div v-if="!visiblePeriods.length" class="muted" style="margin-top: 10px;">
-        No finalized payroll periods yet for this organization.
-      </div>
-    </div>
-
-    <div v-if="expandedId" class="details card">
+    <div v-if="expandedId" class="details card pay-stub-breakdown">
       <h2 class="card-title">Breakdown</h2>
       <div v-if="expanded">
         <div
@@ -909,7 +888,7 @@
         </div>
       </div>
     </div>
-  </div>
+  </PayrollHubPanel>
 
   <!-- Mileage submission modal (Teleport to body so it's always visible) -->
   <Teleport to="body">
@@ -2194,6 +2173,9 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import PayrollHubPanel from './PayrollHubPanel.vue';
+import PayrollHubSection from './PayrollHubSection.vue';
+import { computePayrollHubStats, getPayrollActionRequired } from '../../utils/payrollUiHelpers';
 
 const props = defineProps({
   /** When set, open mileage modal immediately on mount (e.g. from Submit panel). */
@@ -2279,6 +2261,90 @@ const isOfficeStaff = computed(() => {
 const periods = ref([]);
 const loading = ref(false);
 const error = ref('');
+
+const payrollHubStats = computed(() =>
+  computePayrollHubStats({
+    periods: periods.value,
+    ptoBalances: ptoBalances.value,
+    ptoRequests: ptoRequests.value,
+    mileageClaims: mileageClaims.value,
+    reimbursementClaims: reimbursementClaims.value,
+    companyCardExpenses: companyCardExpenses.value,
+    timeClaims: timeClaims.value,
+    medcancelClaims: medcancelClaims.value,
+  })
+);
+
+const payrollHubSidebar = computed(() => ({
+  ptoSickHours: ptoBalances.value.sickHours || 0,
+  ptoTrainingHours: ptoBalances.value.trainingHours || 0,
+  ptoTrainingEligible:
+    ptoPolicy.value?.trainingPtoEnabled === true && Boolean(ptoAccount.value?.training_pto_eligible),
+}));
+
+const payrollActionItems = computed(() =>
+  getPayrollActionRequired({
+    ptoRequests: ptoRequests.value,
+    mileageClaims: mileageClaims.value,
+    reimbursementClaims: reimbursementClaims.value,
+    companyCardExpenses: companyCardExpenses.value,
+    timeClaims: timeClaims.value,
+    medcancelClaims: medcancelClaims.value,
+  })
+);
+
+const refreshPayrollHub = async () => {
+  await load();
+  await loadMileageClaims();
+  await loadMileageSchools();
+  await loadMileageAssignedOffices();
+  if (authStore.user?.medcancelEnabled && medcancelEnabledForAgency.value) {
+    await loadMedcancelPolicy();
+    await loadMedcancelClaims();
+  }
+  await loadPto();
+  await loadPtoRequests();
+  await loadReimbursementClaims();
+  await loadCompanyCardExpenses();
+  await loadTimeClaims();
+  await loadEventTimeSessions();
+};
+
+const onPayrollActionItem = (item) => {
+  if (!item?.type) return;
+  document.getElementById(`payroll-section-${item.type}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const id = Number(String(item.key || '').split(':')[1]);
+  if (!id) return;
+  if (item.type === 'pto') {
+    const row = (ptoRequests.value || []).find((r) => Number(r.id) === id);
+    if (row) openEditPtoRequest(row);
+    return;
+  }
+  if (item.type === 'mileage') {
+    const row = (mileageClaims.value || []).find((r) => Number(r.id) === id);
+    if (row) openEditMileageClaim(row);
+    return;
+  }
+  if (item.type === 'reimbursement') {
+    const row = (reimbursementClaims.value || []).find((r) => Number(r.id) === id);
+    if (row) openEditReimbursementModal(row);
+    return;
+  }
+  if (item.type === 'company_card') {
+    const row = (companyCardExpenses.value || []).find((r) => Number(r.id) === id);
+    if (row) openEditCompanyCardExpenseModal(row);
+    return;
+  }
+  if (item.type === 'time_claims') {
+    const row = (timeClaims.value || []).find((r) => Number(r.id) === id);
+    if (row) openEditTimeClaim(row);
+    return;
+  }
+  if (item.type === 'medcancel') {
+    const row = (medcancelClaims.value || []).find((r) => Number(r.id) === id);
+    if (row) openEditMedcancelClaim(row);
+  }
+};
 
 const showMileageModal = ref(false);
 const submittingMileage = ref(false);
@@ -5206,6 +5272,59 @@ select {
   padding: 10px 12px;
   border-radius: 10px;
   margin: 10px 0;
+}
+
+.pay-hub-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  margin-bottom: 14px;
+}
+
+.pay-hub-filters__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.pay-hub-filters__field--grow {
+  flex: 1;
+  min-width: 200px;
+}
+
+.pay-hub-filters__select,
+.pay-hub-filters__input {
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 14px;
+  background: #fff;
+}
+
+.pay-stub-breakdown {
+  margin-top: 16px;
+}
+
+:deep(.pay-hub__btn--primary) {
+  background: #166534;
+  color: #fff;
+  border: none;
+}
+:deep(.pay-hub__btn--primary:hover) {
+  background: #14532d;
+}
+:deep(.pay-hub__btn--ghost) {
+  background: #fff;
+  color: #374151;
+  border: 1px solid #e5e7eb;
 }
 
 .modal-backdrop {

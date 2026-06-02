@@ -1,0 +1,149 @@
+/**
+ * My Account dashboard — section nav (hub panel UI).
+ */
+
+export const ACCOUNT_SECTIONS = [
+  {
+    id: 'account',
+    title: 'Account info',
+    navLabel: 'Account Info',
+    description: 'Profile, contact details, and security.',
+    tag: 'Profile',
+    tagSecondary: 'Personal',
+    statLabel: 'Profile',
+    statHint: 'Photo & contact',
+    icon: 'user',
+    theme: {
+      accent: '#166534',
+      icon: '#166534',
+      iconBg: '#dcfce7',
+      tagBg: '#ecfdf5',
+      tagColor: '#166534',
+      tagMutedBg: '#f0fdf4',
+      tagMutedColor: '#15803d',
+    },
+  },
+  {
+    id: 'credentials',
+    title: 'My credentials',
+    navLabel: 'My Credentials',
+    description: 'Licenses, certifications, and expirations.',
+    tag: 'Compliance',
+    tagSecondary: 'Licenses',
+    statLabel: 'Credentials',
+    statHint: 'Licenses & certs',
+    icon: 'shield',
+    visibleKey: 'workforce',
+    theme: {
+      accent: '#2563eb',
+      icon: '#1d4ed8',
+      iconBg: '#dbeafe',
+      tagBg: '#eff6ff',
+      tagColor: '#1e40af',
+      tagMutedBg: '#e0e7ff',
+      tagMutedColor: '#4338ca',
+    },
+  },
+  {
+    id: 'payroll',
+    title: 'My payroll',
+    navLabel: 'My Payroll',
+    description: 'Pay stubs, PTO, mileage, and claim history.',
+    tag: 'Payroll',
+    tagSecondary: 'History',
+    statLabel: 'Payroll',
+    statHint: 'Stubs & claims',
+    icon: 'wallet',
+    visibleKey: 'workforce',
+    theme: {
+      accent: '#0d9488',
+      icon: '#0f766e',
+      iconBg: '#ccfbf1',
+      tagBg: '#f0fdfa',
+      tagColor: '#115e59',
+      tagMutedBg: '#e0f2fe',
+      tagMutedColor: '#0369a1',
+    },
+  },
+  {
+    id: 'compensation',
+    title: 'My compensation',
+    navLabel: 'My Compensation',
+    description: 'Rates, agreements, and pay structure.',
+    tag: 'Compensation',
+    tagSecondary: 'Rates',
+    statLabel: 'Compensation',
+    statHint: 'Rates & agreements',
+    icon: 'chart',
+    visibleKey: 'workforce',
+    theme: {
+      accent: '#9333ea',
+      icon: '#7e22ce',
+      iconBg: '#f3e8ff',
+      tagBg: '#faf5ff',
+      tagColor: '#6b21a8',
+      tagMutedBg: '#ede9fe',
+      tagMutedColor: '#5b21b6',
+    },
+  },
+  {
+    id: 'kudos',
+    title: 'My kudos',
+    navLabel: 'My Kudos',
+    description: 'Recognition received from your organization.',
+    tag: 'Recognition',
+    tagSecondary: 'Team',
+    statLabel: 'Kudos',
+    statHint: 'Recognition',
+    icon: 'star',
+    visibleKey: 'kudos',
+    theme: {
+      accent: '#d97706',
+      icon: '#b45309',
+      iconBg: '#fef3c7',
+      tagBg: '#fffbeb',
+      tagColor: '#92400e',
+      tagMutedBg: '#ffedd5',
+      tagMutedColor: '#c2410c',
+    },
+  },
+  {
+    id: 'preferences',
+    title: 'My preferences',
+    navLabel: 'My Preferences',
+    description: 'Notifications, integrations, and app settings.',
+    tag: 'Settings',
+    tagSecondary: 'Notifications',
+    statLabel: 'Preferences',
+    statHint: 'Alerts & settings',
+    icon: 'settings',
+    theme: {
+      accent: '#64748b',
+      icon: '#475569',
+      iconBg: '#f1f5f9',
+      tagBg: '#f8fafc',
+      tagColor: '#334155',
+      tagMutedBg: '#e2e8f0',
+      tagMutedColor: '#475569',
+    },
+  },
+];
+
+const BY_ID = Object.fromEntries(ACCOUNT_SECTIONS.map((s) => [s.id, s]));
+
+export function getAccountSectionMeta(sectionId) {
+  return BY_ID[sectionId] || ACCOUNT_SECTIONS[0];
+}
+
+export function getAccountSectionThemeStyle(sectionId) {
+  const t = getAccountSectionMeta(sectionId).theme;
+  return {
+    '--cat-accent': t.accent,
+    '--cat-icon': t.icon,
+    '--cat-icon-bg': t.iconBg,
+    '--cat-tag-bg': t.tagBg,
+    '--cat-tag-color': t.tagColor,
+    '--cat-tag-muted-bg': t.tagMutedBg,
+    '--cat-tag-muted-color': t.tagMutedColor,
+  };
+}

@@ -321,6 +321,20 @@ export const updateUserPreferences = async (req, res, next) => {
       updates.daily_digest_enabled = updates.daily_digest_enabled === true || updates.daily_digest_enabled === 1 || updates.daily_digest_enabled === '1';
     }
 
+    if ('documents_category_order_json' in updates || 'documentsCategoryOrder' in updates) {
+      const raw = updates.documents_category_order_json ?? updates.documentsCategoryOrder;
+      delete updates.documentsCategoryOrder;
+      if (raw === null || raw === undefined) {
+        updates.documents_category_order_json = null;
+      } else if (!Array.isArray(raw)) {
+        return res.status(400).json({
+          error: { message: 'documents_category_order_json must be an array of category ids' },
+        });
+      } else {
+        updates.documents_category_order_json = sanitizeDocumentsCategoryOrder(raw);
+      }
+    }
+
     if ('session_lock_enabled' in updates) {
       updates.session_lock_enabled = updates.session_lock_enabled === true || updates.session_lock_enabled === 1 || updates.session_lock_enabled === '1';
     }

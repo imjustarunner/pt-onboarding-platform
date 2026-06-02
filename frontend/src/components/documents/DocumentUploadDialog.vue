@@ -57,6 +57,20 @@
           <small>This cannot be changed when assigning the document. Select how users will interact with this document.</small>
         </div>
 
+        <div v-if="!existingTemplate" class="form-group">
+          <label>Employee hub category</label>
+          <select v-model="formData.employeeDisplayCategory">
+            <option
+              v-for="opt in employeeDisplayCategoryOptions"
+              :key="opt.value || 'auto'"
+              :value="opt.value"
+            >
+              {{ opt.label }}
+            </option>
+          </select>
+          <small>Which section employees see this in on My Documents.</small>
+        </div>
+
         <div class="form-group">
           <label>Icon</label>
           <IconSelector v-model="formData.iconId" label="Select Document Icon" />
@@ -164,6 +178,9 @@ import DocumentFieldLayoutEditor from './DocumentFieldLayoutEditor.vue';
 import { extractSignatureCoordsFromFields, normalizeDocumentFieldLayout } from '../../utils/documentFieldLayout.js';
 import TemplateVariablesList from './TemplateVariablesList.vue';
 import api from '../../services/api';
+import { EMPLOYEE_DISPLAY_CATEGORY_OPTIONS } from '../../config/documentDisplayCategories';
+
+const employeeDisplayCategoryOptions = EMPLOYEE_DISPLAY_CATEGORY_OPTIONS;
 
 const props = defineProps({
   existingTemplate: {
@@ -183,6 +200,7 @@ const formData = ref({
   description: props.existingTemplate?.description || '',
   documentType: props.existingTemplate?.document_type || 'administrative',
   documentActionType: props.existingTemplate?.document_action_type || 'signature',
+  employeeDisplayCategory: props.existingTemplate?.employee_display_category || '',
   scope: props.existingTemplate?.agency_id === null ? 'platform' : 'org',
   agencyId: props.existingTemplate?.agency_id ?? '',
   assignToOrganization: !!props.existingTemplate?.organization_id,
@@ -384,6 +402,9 @@ const handleUpload = async () => {
     formDataToSend.append('description', formData.value.description || '');
     formDataToSend.append('documentType', formData.value.documentType);
     formDataToSend.append('documentActionType', formData.value.documentActionType);
+    if (formData.value.employeeDisplayCategory) {
+      formDataToSend.append('employeeDisplayCategory', formData.value.employeeDisplayCategory);
+    }
     if (formData.value.iconId) {
       formDataToSend.append('iconId', formData.value.iconId.toString());
     }
@@ -425,6 +446,7 @@ const handleUpload = async () => {
       description: '',
       documentType: 'administrative',
       documentActionType: 'signature',
+      employeeDisplayCategory: '',
       scope: canUsePlatformScope.value ? 'platform' : 'org',
       agencyId: '',
       assignToOrganization: false,

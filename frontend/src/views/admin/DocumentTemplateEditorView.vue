@@ -59,6 +59,19 @@
               </div>
             </div>
             <div class="form-group">
+              <label>Employee hub category</label>
+              <select v-model="form.employeeDisplayCategory">
+                <option
+                  v-for="opt in employeeDisplayCategoryOptions"
+                  :key="opt.value || 'auto'"
+                  :value="opt.value"
+                >
+                  {{ opt.label }}
+                </option>
+              </select>
+              <small>Controls which section this document appears in on My Documents. Leave automatic to infer from document type.</small>
+            </div>
+            <div class="form-group">
               <label>Template Name *</label>
               <input v-model="form.name" type="text" required />
             </div>
@@ -244,6 +257,9 @@ import HtmlDocumentBuilder from '../../components/documents/HtmlDocumentBuilder.
 import TemplateVariablesList from '../../components/documents/TemplateVariablesList.vue';
 import IconSelector from '../../components/admin/IconSelector.vue';
 import api from '../../services/api';
+import { EMPLOYEE_DISPLAY_CATEGORY_OPTIONS } from '../../config/documentDisplayCategories';
+
+const employeeDisplayCategoryOptions = EMPLOYEE_DISPLAY_CATEGORY_OPTIONS;
 
 const route = useRoute();
 const router = useRouter();
@@ -278,6 +294,7 @@ const form = ref({
   htmlContent: '',
   documentType: 'administrative',
   documentActionType: 'signature',
+  employeeDisplayCategory: '',
   layoutType: 'standard',
   letterheadTemplateId: null,
   letterHeaderHtml: '',
@@ -443,6 +460,7 @@ const loadTemplate = async () => {
       htmlContent: template.html_content !== undefined && template.html_content !== null ? template.html_content : '',
       documentType: template.document_type || 'administrative',
       documentActionType: template.document_action_type || 'signature',
+      employeeDisplayCategory: template.employee_display_category || '',
       layoutType: template.layout_type || 'standard',
       letterheadTemplateId: template.letterhead_template_id ?? null,
       letterHeaderHtml: template.letter_header_html || '',
@@ -486,6 +504,7 @@ const saveTemplate = async () => {
         iconId: form.value.iconId || null,
         documentType: form.value.documentType,
         documentActionType: form.value.documentActionType,
+        employeeDisplayCategory: form.value.employeeDisplayCategory || null,
         layoutType: form.value.layoutType,
         letterheadTemplateId: form.value.layoutType === 'letter' ? form.value.letterheadTemplateId : null,
         letterHeaderHtml: form.value.layoutType === 'letter' ? (form.value.letterHeaderHtml || null) : null,
@@ -526,6 +545,7 @@ const saveTemplate = async () => {
             : null);
     updateData.documentType = form.value.documentType;
     updateData.documentActionType = form.value.documentActionType;
+    updateData.employeeDisplayCategory = form.value.employeeDisplayCategory || null;
     updateData.languageCode = form.value.languageCode || null;
     if (form.value.saveAsNewVersion) {
       updateData.createNewVersion = true;

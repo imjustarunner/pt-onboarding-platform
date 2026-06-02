@@ -297,6 +297,19 @@
             </select>
           </div>
           <div class="form-group">
+            <label>Employee hub category</label>
+            <select v-model="editForm.employeeDisplayCategory" class="form-control">
+              <option
+                v-for="opt in employeeDisplayCategoryOptions"
+                :key="opt.value || 'auto'"
+                :value="opt.value"
+              >
+                {{ opt.label }}
+              </option>
+            </select>
+            <small>Section shown on the employee My Documents page. Automatic uses document type.</small>
+          </div>
+          <div class="form-group">
             <label>PDF Document</label>
             <p v-if="editForm.documentActionType !== 'review'" class="info-text">
               To upload a new version of this PDF, use the "Upload New Version" button.
@@ -437,6 +450,9 @@ import PDFPreview from '../../components/documents/PDFPreview.vue';
 import IconSelector from '../../components/admin/IconSelector.vue';
 import api from '../../services/api';
 import { getBackendBaseUrl, toUploadsUrl } from '../../utils/uploadsUrl';
+import { EMPLOYEE_DISPLAY_CATEGORY_OPTIONS } from '../../config/documentDisplayCategories';
+
+const employeeDisplayCategoryOptions = EMPLOYEE_DISPLAY_CATEGORY_OPTIONS;
 
 const router = useRouter();
 const route = useRoute();
@@ -725,6 +741,7 @@ const editForm = ref({
   languageCode: '',
   documentType: 'administrative',
   documentActionType: 'signature',
+  employeeDisplayCategory: '',
   htmlContent: '',
   layoutType: 'standard',
   letterheadTemplateId: null,
@@ -815,6 +832,7 @@ const handleEdit = (template) => {
     languageCode: template.language_code || '',
     documentType: template.document_type || 'administrative',
     documentActionType: template.document_action_type || 'signature',
+    employeeDisplayCategory: template.employee_display_category || '',
     htmlContent: template.html_content !== undefined && template.html_content !== null ? template.html_content : '',
     layoutType: template.layout_type || 'standard',
     letterheadTemplateId: template.letterhead_template_id ?? null,
@@ -856,6 +874,7 @@ const handleDuplicate = async (template) => {
         description: newTemplate.description || '',
         documentType: newTemplate.document_type || 'administrative',
         documentActionType: newTemplate.document_action_type || 'signature',
+        employeeDisplayCategory: newTemplate.employee_display_category || '',
         htmlContent: newTemplate.html_content || '',
         layoutType: newTemplate.layout_type || 'standard',
         letterheadTemplateId: newTemplate.letterhead_template_id ?? null,
@@ -928,6 +947,7 @@ const saveEdit = async () => {
     // Always include documentType and documentActionType
     updateData.documentType = editForm.value.documentType || 'administrative';
     updateData.documentActionType = editForm.value.documentActionType || 'signature';
+    updateData.employeeDisplayCategory = editForm.value.employeeDisplayCategory || null;
     updateData.languageCode = editForm.value.languageCode || null;
     
     // Always include isActive (boolean)
