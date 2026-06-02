@@ -978,7 +978,7 @@
           </p>
           <div class="sb-skillbuilders-sessions-row">
             <button
-              v-for="(s, si) in skillbuildersSessionRows"
+              v-for="(s, si) in skillbuildersSessionRowsDisplay"
               :key="`sb-sess-${s.groupKey}-${si}`"
               type="button"
               class="sb-skillbuilders-session-chip"
@@ -1439,18 +1439,16 @@ function buildNavigatorSessionRowsFromEligible(eligible) {
     const fe = g.first;
     const lab = String(fe.publicSessionLabel || '').trim();
     const dr = String(fe.publicSessionDateRange || '').trim();
-    const displayTitle = localizeSessionLabel(lab, idx);
-    let displaySubtitle = localizeSessionDateRange(dr);
-    if (!displaySubtitle && fe.startsAt) {
+    let fallbackSubtitle = '';
+    if (!dr && fe.startsAt) {
       try {
-        const locale = hubIsSpanish.value ? 'es' : undefined;
         const s = new Date(fe.startsAt);
         const e = fe.endsAt ? new Date(fe.endsAt) : null;
         if (!Number.isNaN(s.getTime())) {
-          displaySubtitle =
+          fallbackSubtitle =
             e && !Number.isNaN(e.getTime())
-              ? `${s.toLocaleDateString(locale, { month: 'short', day: 'numeric' })} – ${e.toLocaleDateString(locale, { month: 'short', day: 'numeric' })}`
-              : s.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' });
+              ? `${s.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${e.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+              : s.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
         }
       } catch {
         /* ignore */
@@ -1460,8 +1458,7 @@ function buildNavigatorSessionRowsFromEligible(eligible) {
       groupKey: g.key,
       publicSessionLabel: lab,
       publicSessionDateRange: dr,
-      displayTitle,
-      displaySubtitle: displaySubtitle || '',
+      fallbackSubtitle,
       startsAt: fe.startsAt
     };
   });
@@ -2287,6 +2284,26 @@ const skillbuildersSessionRows = computed(() => {
   const pool = eventsForListing.value || [];
   if (!pool.length) return [];
   return buildNavigatorSessionRowsFromEligible(pool);
+});
+
+/** Locale-aware display rows — depends on hubIsSpanish but NOT used by any session-selection watchers. */
+const skillbuildersSessionRowsDisplay = computed(() => {
+  const es = hubIsSpanish.value;
+  return skillbuildersSessionRows.value.map((row, idx) => {
+    const displayTitle = localizeSessionLabel(row.publicSessionLabel, idx);
+    const rawSubtitle = row.publicSessionDateRange || row.fallbackSubtitle || '';
+    let displaySubtitle = es ? localizeSessionDateRange(rawSubtitle) : rawSubtitle;
+    if (!displaySubtitle && row.startsAt) {
+      try {
+        const locale = es ? 'es' : undefined;
+        const s = new Date(row.startsAt);
+        if (!Number.isNaN(s.getTime())) {
+          displaySubtitle = s.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+      } catch { /* ignore */ }
+    }
+    return { ...row, displayTitle, displaySubtitle };
+  });
 });
 
 const skillbuildersAwaitingSessionChoice = computed(() => {
