@@ -1761,7 +1761,6 @@
             </SkillBuildersEventDashboardSection>
 
             <SkillBuildersEventDashboardSection
-              v-if="clinicalNotesEnabled"
               v-show="railActive === 'clinical'"
               rail-mode
               section-id="clinical"
@@ -1792,6 +1791,7 @@
                 v-else-if="eventBillingAgencyId && eventId"
                 :agency-id="eventBillingAgencyId"
                 :event-id="eventId"
+                :can-generate-notes="clinicalNotesEnabled"
               />
             </SkillBuildersEventDashboardSection>
 
@@ -3249,7 +3249,9 @@ const eventRailItems = computed(() => {
 
   const role = String(authStore.user?.role || '').toLowerCase();
   const excludedFromClinical = ['guardian', 'client_guardian', 'client', 'guest'].includes(role);
-  const showClinicalAidCard = !excludedFromClinical && clinicalNotesEnabled.value;
+  // Clinical tab: visible to all staff/admin/provider/superadmin — observations + attendance don't need a paid flag.
+  // H2014 note generation inside the panel is gated separately by clinicalNotesEnabled.
+  const showClinicalAidCard = !excludedFromClinical;
   push('clinical', 'Clinical', 'Clinical', showClinicalAidCard);
 
   push('materials', 'Materials', 'Materials', true);

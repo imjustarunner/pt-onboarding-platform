@@ -109,8 +109,8 @@
             </li>
           </ul>
 
-          <!-- Generate H2014 note -->
-          <div class="sbclin-generate-block">
+          <!-- Generate H2014 note (requires feature flag) -->
+          <div v-if="canGenerateNotes" class="sbclin-generate-block">
             <h5 class="sbclin-subh">Generate H2014 clinical note</h5>
             <div class="sbclin-generate-form">
               <label class="sbclin-field-full">
@@ -154,6 +154,9 @@
               <pre class="sbclin-note-text">{{ generatedNotes[client.clientId] }}</pre>
             </div>
           </div>
+          <div v-else class="sbclin-generate-locked">
+            <span class="muted small">H2014 note generation requires the Clinical Note Generator feature. Contact your administrator to enable it.</span>
+          </div>
         </div>
       </div>
     </div>
@@ -166,7 +169,9 @@ import api from '../../services/api';
 
 const props = defineProps({
   agencyId: { type: [Number, String], required: true },
-  eventId: { type: [Number, String], required: true }
+  eventId: { type: [Number, String], required: true },
+  /** Whether the agency has the H2014 note generation feature enabled. */
+  canGenerateNotes: { type: Boolean, default: false }
 });
 
 const selectedDate = ref('');
@@ -576,6 +581,13 @@ reload();
   font-weight: 700;
   padding: 2px 10px;
   border-radius: 999px;
+}
+.sbclin-generate-locked {
+  padding: 10px 14px;
+  background: #f8fafc;
+  border: 1px dashed #e2e8f0;
+  border-radius: 8px;
+  margin-top: 8px;
 }
 .sbclin-note-text {
   white-space: pre-wrap;
