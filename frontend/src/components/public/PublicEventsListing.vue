@@ -716,6 +716,9 @@ function sessionGroupLabel(ev) {
   const range = String(ev?.publicSessionDateRange || '').trim();
   const key = [label, range].filter(Boolean).join(' · ');
   return key || t('public.otherSessions');
+}
+
+function sessionGroupKey(ev) {
   const label = String(ev?.publicSessionLabel || '').trim();
   const range = String(ev?.publicSessionDateRange || '').trim();
   const key = [label, range].filter(Boolean).join(' · ');
