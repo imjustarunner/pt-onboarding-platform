@@ -330,7 +330,9 @@ async function generateNote(client) {
     // Refresh to show updated note status
     await loadClinicalDay();
   } catch (e) {
-    generateError[client.clientId] = e.response?.data?.error?.message || 'Note generation failed';
+    const errData = e.response?.data?.error;
+    const detail = errData?.details ? ` (${errData.details})` : '';
+    generateError[client.clientId] = (errData?.message || 'Note generation failed') + detail;
   } finally {
     generating[client.clientId] = false;
   }

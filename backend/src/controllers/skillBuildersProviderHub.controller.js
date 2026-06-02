@@ -5124,7 +5124,11 @@ export const postSkillBuilderSessionClinicalNoteGenerate = async (req, res, next
 
     res.json({ ok: true, id, note: decryptClinicalNoteRow(await getClinicalNoteBySessionClient({ sessionId, clientId, companyEventId: eventId })) });
   } catch (e) {
-    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+    if (e.status) {
+      const detail = e.details ? ` — ${e.details}` : '';
+      console.error(`[clinical-generate] error status=${e.status} message=${e.message}${detail}`);
+      return res.status(e.status).json({ error: { message: e.message, details: e.details || undefined } });
+    }
     next(e);
   }
 };

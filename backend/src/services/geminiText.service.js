@@ -66,9 +66,11 @@ export async function callGeminiText({ prompt, temperature = 0.2, maxOutputToken
 
     if (!resp.ok) {
       const t = await resp.text();
+      const details = String(t || '').slice(0, 1000);
+      console.error(`[Vertex] HTTP ${resp.status} latency=${latencyMs}ms model=${modelName} details=${details}`);
       const err = new Error('Vertex Gemini request failed');
       err.status = resp.status >= 400 && resp.status < 600 ? resp.status : 502;
-      err.details = String(t || '').slice(0, 1000);
+      err.details = details;
       err.latencyMs = latencyMs;
       throw err;
     }
