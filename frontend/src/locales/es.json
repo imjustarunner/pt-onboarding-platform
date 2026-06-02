@@ -70,7 +70,17 @@
     "bookmarkHint": "Marque esta página como favorita y vuelva a visitarla. ¿Preguntas? Use los enlaces que su distrito o proveedor compartió.",
     "noOpenPrograms": "No hay programas abiertos en este momento",
     "noSignups": "En este momento no aceptamos nuevas inscripciones en esta página. Las nuevas sesiones se publican aquí en cuanto se abran.",
-    "checkBackSoon": "Vuelva pronto, o regrese al sitio principal para otras formas de contactarnos."
+    "checkBackSoon": "Vuelva pronto, o regrese al sitio principal para otras formas de contactarnos.",
+    "stepNumber": "Paso {n}",
+    "selectSessionCallout": "Seleccione una sesión para ver lo que hay disponible.",
+    "sessionNumber": "Sesión {n}",
+    "changeMySelection": "Cambiar mi selección",
+    "chooseOptionSubtitle": "Elija una opción para ver los programas correctos.",
+    "atAGlance": "En resumen",
+    "moreResources": "Más recursos",
+    "providersApprox": "Proveedores (aprox.)",
+    "activeClients": "Clientes activos (no archivados)",
+    "mileageClaims": "Reclamos de millaje (últimos 365 días)"
   },
   "intake": {
     "welcome": "Bienvenido",

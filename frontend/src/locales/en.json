@@ -70,7 +70,17 @@
     "bookmarkHint": "Bookmark this page and check back. Questions? Use the links your district or provider shared.",
     "noOpenPrograms": "No open programs right now",
     "noSignups": "We are not accepting new sign-ups on this page at the moment. New sessions are added here as soon as they open.",
-    "checkBackSoon": "Check back soon, or return to the main site for other ways to reach us."
+    "checkBackSoon": "Check back soon, or return to the main site for other ways to reach us.",
+    "stepNumber": "Step {n}",
+    "selectSessionCallout": "Select a session to see what's available.",
+    "sessionNumber": "Session {n}",
+    "changeMySelection": "Change my selection",
+    "chooseOptionSubtitle": "Choose an option so we can show the right programs.",
+    "atAGlance": "At a glance",
+    "moreResources": "More resources",
+    "providersApprox": "Providers (approx.)",
+    "activeClients": "Active clients (non-archived)",
+    "mileageClaims": "Mileage claims (last 365 days)"
   },
   "intake": {
     "welcome": "Welcome",

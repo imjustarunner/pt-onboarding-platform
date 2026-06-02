@@ -272,7 +272,7 @@
                   <div class="pmh-hero-cinema-rule" aria-hidden="true" />
                   <ol class="pmh-hero-cinema-steps">
                     <li v-for="(step, si) in processSectionResolved.steps" :key="`cs-a-${si}`" class="pmh-hero-cinema-step">
-                      <span class="pmh-hero-cinema-n">Step {{ si + 1 }}</span>
+                      <span class="pmh-hero-cinema-n">{{ t('public.stepNumber', { n: si + 1 }) }}</span>
                       <span class="pmh-hero-cinema-t">{{ step }}</span>
                     </li>
                   </ol>
@@ -282,7 +282,7 @@
                   <div class="pmh-hero-cinema-rule" aria-hidden="true" />
                   <ol class="pmh-hero-cinema-steps">
                     <li v-for="(step, si) in processSectionResolved.steps" :key="`cs-b-${si}`" class="pmh-hero-cinema-step">
-                      <span class="pmh-hero-cinema-n">Step {{ si + 1 }}</span>
+                      <span class="pmh-hero-cinema-n">{{ t('public.stepNumber', { n: si + 1 }) }}</span>
                       <span class="pmh-hero-cinema-t">{{ step }}</span>
                     </li>
                   </ol>
@@ -854,7 +854,7 @@
               </div>
 
               <div v-if="offerExpandedExternalLinks.length" class="pmh-offer-external-links">
-                <h3 class="pmh-offer-external-title">More resources</h3>
+                <h3 class="pmh-offer-external-title">{{ t('public.moreResources') }}</h3>
                 <ul class="pmh-offer-external-list">
                   <li v-for="(lnk, li) in offerExpandedExternalLinks" :key="`oel-${li}`">
                     <a class="pmh-offer-external-a" :href="lnk.href" target="_blank" rel="noopener noreferrer">{{
@@ -932,7 +932,7 @@
           </div>
           <ol class="pmh-process-steps">
             <li v-for="(step, si) in processSectionResolved.steps" :key="`step-${si}`" class="pmh-process-step">
-              <span class="pmh-process-n">Step {{ si + 1 }}</span>
+              <span class="pmh-process-n">{{ t('public.stepNumber', { n: si + 1 }) }}</span>
               <span class="pmh-process-t">{{ step }}</span>
             </li>
           </ol>
@@ -990,7 +990,7 @@
             </button>
           </div>
           <p v-if="skillbuildersAwaitingSessionChoice" class="sb-skillbuilders-sessions-callout" role="status">
-            Select a session to see what’s available.
+            {{ t('public.selectSessionCallout') }}
           </p>
         </div>
         <PublicEventsListing
@@ -1020,19 +1020,19 @@
 
       <section v-if="metricsBlock && !hubSubFlowActive" class="pmh-section pmh-metrics">
         <div class="pmh-section-inner">
-          <h2 class="pmh-h2">At a glance</h2>
+          <h2 class="pmh-h2">{{ t('public.atAGlance') }}</h2>
           <p v-if="metricsBlock.disclaimer" class="pmh-muted pmh-disclaimer">{{ metricsBlock.disclaimer }}</p>
           <dl class="pmh-metrics-grid">
             <div v-if="metricsBlock.metrics.providerCount != null" class="pmh-metric">
-              <dt>Providers (approx.)</dt>
+              <dt>{{ t('public.providersApprox') }}</dt>
               <dd>{{ metricsBlock.metrics.providerCount }}</dd>
             </div>
             <div v-if="metricsBlock.metrics.activeClientCount != null" class="pmh-metric">
-              <dt>Active clients (non-archived)</dt>
+              <dt>{{ t('public.activeClients') }}</dt>
               <dd>{{ metricsBlock.metrics.activeClientCount }}</dd>
             </div>
             <div v-if="metricsBlock.metrics.mileageClaimsSubmittedLast365Days != null" class="pmh-metric">
-              <dt>Mileage claims (last 365 days)</dt>
+              <dt>{{ t('public.mileageClaims') }}</dt>
               <dd>{{ metricsBlock.metrics.mileageClaimsSubmittedLast365Days }}</dd>
             </div>
           </dl>
@@ -1439,7 +1439,7 @@ function buildNavigatorSessionRowsFromEligible(eligible) {
     const fe = g.first;
     const lab = String(fe.publicSessionLabel || '').trim();
     const dr = String(fe.publicSessionDateRange || '').trim();
-    const displayTitle = lab || `Session ${idx + 1}`;
+    const displayTitle = lab || t('public.sessionNumber', { n: idx + 1 });
     let displaySubtitle = dr;
     if (!displaySubtitle && fe.startsAt) {
       try {
@@ -2156,12 +2156,13 @@ const skillbuildersOfficeSources = computed(() => {
 
 const skillbuildersJourneyPaths = computed(() => {
   const c = skillbuildersJourneyCfg.value;
+  const es = hubIsSpanish.value;
   const rawPaths = Array.isArray(c.paths) ? c.paths : null;
   if (rawPaths && rawPaths.length) {
     const built = rawPaths
       .map((p, idx) => {
         const id = String(p?.id || '').trim() || `path_${idx}`;
-        const label = String(p?.label || '').trim();
+        const label = String((es && p?.label_es) || p?.label || '').trim();
         const variantRaw = String(p?.buttonVariant || '').trim().toLowerCase();
         const variant =
           variantRaw === 'primary' || variantRaw === 'secondary'
@@ -2179,14 +2180,20 @@ const skillbuildersJourneyPaths = computed(() => {
   return [
     {
       id: 'district',
-      label: String(c.districtTitle || 'My Dependent attends a D11 School').trim(),
+      label: String(
+        (es && (c.districtTitle_es || c.districtTitle)) || c.districtTitle ||
+        (es ? 'Mi dependiente asiste a una escuela D11' : 'My Dependent attends a D11 School')
+      ).trim(),
       buttonVariant: 'primary',
       /** D11 students are eligible for D11 programs AND office Skill Builders, so the district path is inclusive. */
       filter: { kind: 'districtOrOffice', includes: districtIncludes }
     },
     {
       id: 'office',
-      label: String(c.nonDistrictTitle || 'My Dependent is in another district').trim(),
+      label: String(
+        (es && (c.nonDistrictTitle_es || c.nonDistrictTitle)) || c.nonDistrictTitle ||
+        (es ? 'Mi dependiente está en otro distrito' : 'My Dependent is in another district')
+      ).trim(),
       buttonVariant: 'secondary',
       /** Other-district families only see office/standalone events — exclusive of D11-specific programs. */
       filter: { kind: 'officeSources' }
@@ -2198,10 +2205,20 @@ const skillbuildersValidPathIds = computed(() => new Set(skillbuildersJourneyPat
 
 const skillbuildersJourneyCopy = computed(() => {
   const c = skillbuildersJourneyCfg.value;
+  const es = hubIsSpanish.value;
   return {
-    subtitle: String(c.subtitle || 'Choose an option so we can show the right programs.').trim(),
-    gateAria: String(c.gateAriaLabel || 'Choose which Skill Builders programs apply').trim(),
-    changeLink: String(c.changeSelectionLabel || 'Change my selection').trim()
+    subtitle: String(
+      (es && (c.subtitle_es || c.subtitle)) || c.subtitle ||
+      (es ? t('public.chooseOptionSubtitle') : 'Choose an option so we can show the right programs.')
+    ).trim(),
+    gateAria: String(
+      (es && (c.gateAriaLabel_es || c.gateAriaLabel)) || c.gateAriaLabel ||
+      (es ? 'Elija los programas de Skill Builders que aplican' : 'Choose which Skill Builders programs apply')
+    ).trim(),
+    changeLink: String(
+      (es && (c.changeSelectionLabel_es || c.changeSelectionLabel)) || c.changeSelectionLabel ||
+      t('public.changeMySelection')
+    ).trim()
   };
 });
 
@@ -2676,6 +2693,22 @@ const DEFAULT_CTA_SECTION = {
   showPartnerPlaceholder: false
 };
 
+const DEFAULT_CTA_SECTION_ES = {
+  eyebrow: '¿Le interesa saber más?',
+  title: 'Elija la ubicación del programa de su preferencia',
+  subtitle: '',
+  body:
+    'Creemos en hacer la atención de salud mental accesible para todos, especialmente para quienes enfrentan las mayores barreras. Para cumplir con este compromiso, reservamos específicamente una parte de los cupos de nuestro programa para clientes con Medicaid. Todos los demás tipos de seguro se agrupan para los cupos disponibles restantes. Nuestro enfoque está diseñado para equilibrar la necesidad de brindar atención a quienes tienen menos acceso, mientras servimos a la comunidad en general dentro de nuestras limitaciones de recursos.',
+  disclaimer:
+    'La participación en estos programas está basada en elegibilidad. Completar el registro no garantiza la inscripción.',
+  primaryLabel: 'Elija la ubicación de su programa',
+  primaryHref: '#hub-programs',
+  partnerBadgeUrl: '',
+  showLimitedBadge: true,
+  limitedBadgeText: '¡Espacio limitado disponible!',
+  showPartnerPlaceholder: false
+};
+
 const DEFAULT_PROCESS_STEPS = [
   'Choose your site and session.',
   'Complete the digital registration form and intake documentation through the portal in advance of your assessment or intake visit.',
@@ -2689,6 +2722,21 @@ const DEFAULT_PROCESS_STEPS = [
 const DEFAULT_PROCESS_SECTION = {
   title: 'How do I sign up — what is the process?',
   steps: DEFAULT_PROCESS_STEPS
+};
+
+const DEFAULT_PROCESS_STEPS_ES = [
+  'Elija su sede y sesión.',
+  'Complete el formulario de registro digital y la documentación de admisión a través del portal antes de su evaluación o visita de admisión.',
+  'Reciba contacto de un miembro del personal para programar una cita de evaluación/admisión con un clínico licenciado; también puede recibir una invitación al portal.',
+  'Participe en la evaluación/admisión con un clínico licenciado.',
+  'Reciba notificación sobre elegibilidad para inscripción o referencias a organizaciones externas o recursos comunitarios.',
+  'Si es seleccionado, complete los documentos finales de registro y cualquier documentación adicional necesaria, ya sea en una fecha de inscripción presencial o enviando los documentos completados a su punto de contacto.',
+  '¡Reciba confirmación de asistencia con instrucciones finales!'
+];
+
+const DEFAULT_PROCESS_SECTION_ES = {
+  title: '¿Cómo me inscribo? — ¿Cuál es el proceso?',
+  steps: DEFAULT_PROCESS_STEPS_ES
 };
 
 const DEFAULT_WHAT_WE_OFFER_ITEMS = [
@@ -2718,6 +2766,33 @@ const DEFAULT_WHAT_WE_OFFER_ITEMS = [
   }
 ];
 
+const DEFAULT_WHAT_WE_OFFER_ITEMS_ES = [
+  {
+    title: 'Estrategias para disminuir la ansiedad',
+    body:
+      'Nuestro personal trabajará con su hijo para desarrollar habilidades específicas que reduzcan las barreras al cambio y disminuyan la gravedad de los síntomas para mejorar el funcionamiento a lo largo de la vida.',
+    imageUrl: ''
+  },
+  {
+    title: 'Desarrollo de apegos positivos',
+    body:
+      'Promoveremos apegos positivos, interacciones efectivas con cuidadores y figuras de autoridad, y autoconfianza a través del desarrollo y mantenimiento de relaciones sociales apropiadas y estilos de apego.',
+    imageUrl: ''
+  },
+  {
+    title: 'Apoyo emocional integral',
+    body:
+      'Estamos comprometidos a mejorar y promover intervenciones terapéuticas para abordar necesidades específicas y crear un ambiente abierto diseñado para disminuir el aislamiento y el retraimiento, mientras se promueven estrategias de afrontamiento saludables.',
+    imageUrl: ''
+  },
+  {
+    title: 'Habilidades para mejorar el control de impulsos',
+    body:
+      'Diseñamos, implementamos y practicamos el desarrollo de habilidades basadas en evidencia orientadas a aumentar la identificación y regulación emocional, mientras mejoramos las fortalezas y limitamos las interacciones interpersonales negativas.',
+    imageUrl: ''
+  }
+];
+
 const DEFAULT_WHAT_WE_OFFER = {
   title: 'What we offer',
   summary:
@@ -2727,6 +2802,17 @@ const DEFAULT_WHAT_WE_OFFER = {
   expandLabel: 'Show more info',
   collapseLabel: 'Show less',
   items: DEFAULT_WHAT_WE_OFFER_ITEMS
+};
+
+const DEFAULT_WHAT_WE_OFFER_ES = {
+  title: 'Lo que ofrecemos',
+  summary:
+    'Programas de desarrollo de habilidades de verano y temporada con actividades terapéuticas en grupos pequeños—enfocados en habilidades prácticas, apoyo emocional y estrategias para niños, adolescentes y familias.',
+  intro:
+    'Los programas combinan actividades terapéuticas y desarrollo de habilidades diseñadas para reducir barreras en la vida de niños y adolescentes—mejorando el funcionamiento social, la regulación emocional y la confianza en grupos apropiados para cada edad con personal capacitado.',
+  expandLabel: 'Mostrar más información',
+  collapseLabel: 'Mostrar menos',
+  items: DEFAULT_WHAT_WE_OFFER_ITEMS_ES
 };
 
 /**
@@ -2752,8 +2838,11 @@ const whatWeOfferResolved = computed(() => {
   const b = hubBranding.value;
   if (b.whatWeOfferSection === false) return null;
   const o = typeof b.whatWeOfferSection === 'object' && b.whatWeOfferSection ? b.whatWeOfferSection : {};
-  const rawItems = Array.isArray(o.items) ? o.items : null;
-  let items = DEFAULT_WHAT_WE_OFFER_ITEMS;
+  const es = hubIsSpanish.value;
+  const defaultBase = es ? DEFAULT_WHAT_WE_OFFER_ES : DEFAULT_WHAT_WE_OFFER;
+  const defaultItems = es ? DEFAULT_WHAT_WE_OFFER_ITEMS_ES : DEFAULT_WHAT_WE_OFFER_ITEMS;
+  const rawItems = Array.isArray(es && o.items_es ? o.items_es : o.items) ? (es && o.items_es ? o.items_es : o.items) : null;
+  let items = defaultItems;
   if (rawItems) {
     const mapped = rawItems
       .map((x) => ({
@@ -2767,14 +2856,34 @@ const whatWeOfferResolved = computed(() => {
   const galleryUrls = hubGalleryPoolUrls(Array.isArray(b.gallery) ? b.gallery : []);
   const blockImages = Array.isArray(o.offerBlockImages) ? o.offerBlockImages : [];
   const itemsResolved = offerItemsWithGalleryFallback(items, galleryUrls, blockImages);
-  return { ...DEFAULT_WHAT_WE_OFFER, ...o, items: itemsResolved };
+  const merged = { ...defaultBase, ...o };
+  if (es) {
+    if (o.title_es) merged.title = o.title_es;
+    if (o.summary_es) merged.summary = o.summary_es;
+    if (o.intro_es) merged.intro = o.intro_es;
+    if (o.expandLabel_es) merged.expandLabel = o.expandLabel_es;
+    if (o.collapseLabel_es) merged.collapseLabel = o.collapseLabel_es;
+  }
+  return { ...merged, items: itemsResolved };
 });
 
 const ctaSectionResolved = computed(() => {
   const b = hubBranding.value;
   if (b.ctaSection === false) return null;
   const o = typeof b.ctaSection === 'object' && b.ctaSection ? b.ctaSection : {};
-  return { ...DEFAULT_CTA_SECTION, ...o };
+  const es = hubIsSpanish.value;
+  const defaultBase = es ? DEFAULT_CTA_SECTION_ES : DEFAULT_CTA_SECTION;
+  const merged = { ...defaultBase, ...o };
+  if (es) {
+    if (o.eyebrow_es) merged.eyebrow = o.eyebrow_es;
+    if (o.title_es) merged.title = o.title_es;
+    if (o.subtitle_es) merged.subtitle = o.subtitle_es;
+    if (o.body_es) merged.body = o.body_es;
+    if (o.disclaimer_es) merged.disclaimer = o.disclaimer_es;
+    if (o.primaryLabel_es) merged.primaryLabel = o.primaryLabel_es;
+    if (o.limitedBadgeText_es) merged.limitedBadgeText = o.limitedBadgeText_es;
+  }
+  return merged;
 });
 
 /** Eligibility / Medicaid CTA inside expanded “What we offer” (default on when that section exists). */
@@ -2826,12 +2935,17 @@ const processSectionResolved = computed(() => {
   const b = hubBranding.value;
   if (b.processSection === false) return null;
   const o = typeof b.processSection === 'object' && b.processSection ? b.processSection : {};
-  const rawSteps = Array.isArray(o.steps) ? o.steps : null;
+  const es = hubIsSpanish.value;
+  const defaultSection = es ? DEFAULT_PROCESS_SECTION_ES : DEFAULT_PROCESS_SECTION;
+  const defaultSteps = es ? DEFAULT_PROCESS_STEPS_ES : DEFAULT_PROCESS_STEPS;
+  const rawStepsKey = es && Array.isArray(o.steps_es) && o.steps_es.length ? 'steps_es' : 'steps';
+  const rawSteps = Array.isArray(o[rawStepsKey]) ? o[rawStepsKey] : null;
   const steps =
     rawSteps && rawSteps.length
       ? rawSteps.map((s) => String(s).trim()).filter(Boolean)
-      : DEFAULT_PROCESS_STEPS;
-  return { ...DEFAULT_PROCESS_SECTION, ...o, steps };
+      : defaultSteps;
+  const title = (es && (o.title_es || o.title)) ? (o.title_es || o.title) : (o.title || defaultSection.title);
+  return { ...defaultSection, ...o, title, steps };
 });
 
 /** Hero video + process steps merged into one silent video backdrop with scrolling copy (no stacked image + video + process). */
