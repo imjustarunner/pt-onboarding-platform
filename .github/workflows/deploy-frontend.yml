@@ -37,7 +37,8 @@ jobs:
 
       - name: Configure Docker for Artifact Registry
         run: |
-          gcloud auth configure-docker us-west3-docker.pkg.dev us-docker.pkg.dev --quiet
+          set -euo pipefail
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
 
       - name: Build and push Docker image
         run: |
