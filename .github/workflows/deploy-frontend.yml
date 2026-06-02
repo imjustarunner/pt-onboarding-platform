@@ -36,7 +36,8 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker us-west3-docker.pkg.dev --quiet
+        run: |
+          gcloud auth configure-docker us-west3-docker.pkg.dev us-docker.pkg.dev --quiet
 
       - name: Build and push Docker image
         run: |
@@ -45,12 +46,17 @@ jobs:
           # This makes requests go to the same host (app.<client-domain>) and lets the backend
           # resolve the portal slug by Host header.
           # reCAPTCHA Enterprise keys are injected via build args below.
-          docker build \
-            --build-arg VITE_API_URL="/api" \
-            --build-arg VITE_RECAPTCHA_SITE_KEY="${{ secrets.RECAPTCHA_SITE_KEY }}" \
-            --build-arg VITE_RECAPTCHA_USE_ENTERPRISE="true" \
-            -t $IMAGE_NAME:$GITHUB_SHA \
-            -t $IMAGE_NAME:latest .
+          for attempt in 1 2 3; do
+            docker build \
+              --build-arg VITE_API_URL="/api" \
+              --build-arg VITE_RECAPTCHA_SITE_KEY="${{ secrets.RECAPTCHA_SITE_KEY }}" \
+              --build-arg VITE_RECAPTCHA_USE_ENTERPRISE="true" \
+              -t $IMAGE_NAME:$GITHUB_SHA \
+              -t $IMAGE_NAME:latest . && break
+            echo "docker build failed on attempt ${attempt}; retrying..."
+            if [ "${attempt}" -eq 3 ]; then exit 1; fi
+            sleep $((attempt * 20))
+          done
           docker push $IMAGE_NAME:$GITHUB_SHA
           docker push $IMAGE_NAME:latest
 
