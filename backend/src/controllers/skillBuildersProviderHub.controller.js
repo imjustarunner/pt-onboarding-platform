@@ -1715,6 +1715,8 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
     const canManageTeamSchedules = await canManageTeamSchedulesForAgency(req, billingAgencyId);
     const roleLower = String(req.user?.role || '').toLowerCase();
     const canPostEventDiscussion = roleLower !== 'school_staff';
+    const noteAidCheck = await requireNoteAidEnabledForAgency(billingAgencyId);
+    const clinicalNoteGeneratorEnabled = noteAidCheck.ok === true;
 
     res.json({
       ok: true,
@@ -1722,6 +1724,7 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
       programPortal,
       showKioskClockActions,
       canManageCompanyEvent,
+      clinicalNoteGeneratorEnabled,
       meetings,
       viewerCapabilities: {
         isAssignedProvider,

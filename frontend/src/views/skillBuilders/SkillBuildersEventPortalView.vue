@@ -3017,19 +3017,8 @@ const eventAboutText = computed(() => {
 
 const crumbProgramLabel = computed(() => detail.value?.programPortal?.name || '');
 
-const clinicalNotesEnabled = computed(() => {
-  const raw = agencyStore.currentAgency?.feature_flags;
-  let flags = {};
-  if (raw && typeof raw === 'object') flags = raw;
-  else if (typeof raw === 'string') {
-    try {
-      flags = JSON.parse(raw) || {};
-    } catch {
-      flags = {};
-    }
-  }
-  return !!(flags.noteAidEnabled || flags.clinicalNoteGeneratorEnabled);
-});
+// Read from event detail (billing agency) so it's always the correct agency regardless of current context
+const clinicalNotesEnabled = computed(() => !!detail.value?.clinicalNoteGeneratorEnabled);
 
 /** Shown in Clinical Aid hub + H2014 curriculum context (event title or skills group name). */
 const clinicalNotesContextEventTitle = computed(() => {
