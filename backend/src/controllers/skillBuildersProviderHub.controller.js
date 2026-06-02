@@ -5019,15 +5019,17 @@ export const putSkillBuilderSessionClinicalNoteManual = async (req, res, next) =
 /** POST /api/skill-builders/events/:eventId/sessions/:sessionId/clinical-notes/clients/:clientId/generate */
 export const postSkillBuilderSessionClinicalNoteGenerate = async (req, res, next) => {
   try {
-    const agencyId = parsePositiveInt(req.body?.agencyId);
     const eventId = parsePositiveInt(req.params.eventId);
     const sessionId = parsePositiveInt(req.params.sessionId);
     const clientId = parsePositiveInt(req.params.clientId);
-    if (!agencyId || !eventId || !sessionId || !clientId) {
-      return res.status(400).json({ error: { message: 'agencyId, event id, session id, and client id required' } });
+    if (!eventId || !sessionId || !clientId) {
+      return res.status(400).json({ error: { message: 'event id, session id, and client id required' } });
     }
-    const access = await assertClinicalSkillBuildersAccess(req, agencyId, eventId);
+    // Resolve agencyId from the event itself so a stale/wrong body value never causes a 404
+    const access = await assertClinicalSkillBuildersAccess(req, null, eventId);
     if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    const agencyId = Number(access.row?.agency_id || req.body?.agencyId || 0);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Could not resolve agency for this event' } });
     const na = await requireNoteAidEnabledForAgency(agencyId);
     if (!na.ok) return res.status(403).json({ error: { message: na.error } });
 
