@@ -1225,14 +1225,33 @@ function mapClassPresentationSessionToApi(series, session) {
 }
 
 async function clientOnEventRoster(clientId, eventId, agencyId) {
-  const [r] = await pool.execute(
+  // Skills-group events
+  const [sgr] = await pool.execute(
     `SELECT 1 FROM skills_group_clients sgc
      INNER JOIN skills_groups sg ON sg.id = sgc.skills_group_id
      WHERE sg.company_event_id = ? AND sg.agency_id = ? AND sgc.client_id = ?
      LIMIT 1`,
     [eventId, agencyId, clientId]
   );
-  return !!r?.[0];
+  if (sgr?.[0]) return true;
+
+  // Program events (company_event_clients) — also accept anyone who checked in via kiosk
+  const [cer] = await pool.execute(
+    `SELECT 1 FROM company_event_clients
+     WHERE company_event_id = ? AND agency_id = ? AND client_id = ? AND is_active = TRUE
+     LIMIT 1`,
+    [eventId, agencyId, clientId]
+  ).catch(() => [[]]);
+  if (cer?.[0]) return true;
+
+  // Fallback: accept if client has a kiosk check-in for this event (not yet on formal roster)
+  const [kiosk] = await pool.execute(
+    `SELECT 1 FROM event_day_kiosk_checkins
+     WHERE company_event_id = ? AND client_id = ?
+     LIMIT 1`,
+    [eventId, clientId]
+  ).catch(() => [[]]);
+  return !!kiosk?.[0];
 }
 
 const WEEKDAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
