@@ -1,23 +1,17 @@
 <template>
-  <div class="staff-card top-snapshot-wrap">
-    <div class="top-snapshot-head" @click="openModal">
-      <img
-        v-if="iconUrl"
-        :src="iconUrl"
-        alt=""
-        class="staff-card-icon"
-        aria-hidden="true"
-      />
-      <div class="top-snapshot-title">Your Team</div>
-      <span class="top-snapshot-toggle">Open</span>
-    </div>
-    <div v-if="!modalOpen" class="staff-card-preview" @click="openModal">
-      <div v-if="loading" class="staff-preview-loading">Loading…</div>
-      <div v-else class="staff-avatar-strip">
+  <button
+    type="button"
+    class="staff-pill"
+    :aria-label="`Your Team — ${coworkerCount} members`"
+    @click="openModal"
+  >
+    <div v-if="loading" class="staff-pill-loading">Loading team…</div>
+    <template v-else>
+      <div class="staff-pill-avatars">
         <div
           v-for="person in previewPeople"
           :key="person.id"
-          class="staff-avatar"
+          class="staff-pill-avatar"
           :title="person.displayName"
         >
           <img
@@ -26,20 +20,24 @@
             :alt="person.displayName"
             loading="lazy"
           />
-          <span v-else class="staff-avatar-initial">{{ avatarInitial(person) }}</span>
+          <span v-else class="staff-pill-initial">{{ avatarInitial(person) }}</span>
         </div>
-        <span v-if="coworkerCount > previewLimit" class="staff-more">+{{ coworkerCount - previewLimit }}</span>
       </div>
-    </div>
-    <CoworkerModal
-      v-if="modalOpen"
-      :agency-id="agencyId"
-      :coworkers="coworkers"
-      :management="management"
-      :peers="peers"
-      @close="modalOpen = false"
-    />
-  </div>
+      <div class="staff-pill-meta">
+        <span class="staff-pill-label">Your Team</span>
+        <span class="staff-pill-count">{{ coworkerCount }} member{{ coworkerCount === 1 ? '' : 's' }}</span>
+      </div>
+    </template>
+  </button>
+
+  <CoworkerModal
+    v-if="modalOpen"
+    :agency-id="agencyId"
+    :coworkers="coworkers"
+    :management="management"
+    :peers="peers"
+    @close="modalOpen = false"
+  />
 </template>
 
 <script setup>
@@ -110,65 +108,84 @@ watch(
 </script>
 
 <style scoped>
-.staff-card-icon {
-  width: 24px;
-  height: 24px;
-  object-fit: contain;
-  margin-right: 8px;
-  flex-shrink: 0;
-}
-
-.top-snapshot-head {
+/* Compact clickable pill */
+.staff-pill {
   display: flex;
   align-items: center;
-}
-
-.staff-card-preview {
+  gap: 10px;
+  background: #fff;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  padding: 8px 12px;
   cursor: pointer;
-  padding: 8px 0;
+  text-align: left;
+  width: 100%;
+  transition: background 0.15s, border-color 0.15s;
+}
+.staff-pill:hover {
+  background: #f9fafb;
+  border-color: #d1d5db;
 }
 
-.staff-preview-loading {
-  font-size: 13px;
-  color: var(--muted, #666);
+.staff-pill-loading {
+  font-size: 12px;
+  color: var(--muted, #9ca3af);
 }
 
-.staff-avatar-strip {
+/* Stacked overlapping avatars */
+.staff-pill-avatars {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
+  flex-direction: row;
 }
 
-.staff-avatar {
-  width: 36px;
-  height: 36px;
+.staff-pill-avatar {
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   overflow: hidden;
   background: var(--gray-200, #e5e7eb);
+  border: 2px solid #fff;
   flex-shrink: 0;
+  margin-left: -8px;
+}
+.staff-pill-avatar:first-child {
+  margin-left: 0;
 }
 
-.staff-avatar img {
+.staff-pill-avatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.staff-avatar-initial {
+.staff-pill-initial {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
   height: 100%;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 700;
   color: var(--gray-600, #4b5563);
 }
 
-.staff-more {
+/* Label + count */
+.staff-pill-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.staff-pill-label {
   font-size: 12px;
-  color: var(--muted, #666);
-  margin-left: 2px;
+  font-weight: 700;
+  color: var(--text-primary, #111827);
+  white-space: nowrap;
+}
+
+.staff-pill-count {
+  font-size: 11px;
+  color: var(--text-secondary, #6b7280);
+  white-space: nowrap;
 }
 </style>

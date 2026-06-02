@@ -71,6 +71,257 @@
           No finalized payroll periods yet for this organization.
         </div>
       </div>
+
+      <!-- Breakdown appears inline below the period list when a row is expanded -->
+      <div v-if="expandedId" class="details pay-stub-breakdown pay-stub-breakdown--inline">
+        <div class="pay-stub-breakdown__header">
+          <strong class="pay-stub-breakdown__title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-3px;margin-right:6px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            Pay Breakdown — {{ expanded ? fmtDateRange(expanded.period_start, expanded.period_end) : '' }}
+          </strong>
+          <button type="button" class="pay-stub-breakdown__close" @click="expandedId = null" aria-label="Close breakdown">×</button>
+        </div>
+        <div v-if="expanded">
+        <div
+          class="warn-box prior-notes-included"
+          v-if="expanded.breakdown && expanded.breakdown.__carryover && ((expanded.breakdown.__carryover.carryoverNotesTotal || expanded.breakdown.__carryover.oldDoneNotesNotesTotal || 0) > 0)"
+          style="margin-bottom: 10px;"
+        >
+          <div>
+            <strong>Prior notes included in this payroll:</strong>
+            {{ fmtNum(expanded.breakdown.__carryover.carryoverNotesTotal ?? expanded.breakdown.__carryover.oldDoneNotesNotesTotal ?? 0) }}
+            notes
+          </div>
+          <div class="muted">Reminder: complete prior-period notes by Sunday 11:59pm after the pay period ends to avoid compensation delays.</div>
+        </div>
+        <div
+          class="warn-box current-unpaid-notes"
+          v-if="expanded.breakdown && expanded.breakdown.__priorStillUnpaid && (expanded.breakdown.__priorStillUnpaid.totalUnits || 0) > 0"
+          style="margin-bottom: 10px; border: 1px solid #ffb5b5; background: #ffecec;"
+        >
+          <div>
+            <strong>Still unpaid from the prior pay period (not paid this period):</strong>
+            {{ fmtNum(expanded.breakdown.__priorStillUnpaid.totalUnits) }} units
+          </div>
+          <div class="muted" style="margin-top: 4px;" v-if="expanded.breakdown.__priorStillUnpaid.periodStart">
+            {{ expanded.breakdown.__priorStillUnpaid.periodStart }} → {{ expanded.breakdown.__priorStillUnpaid.periodEnd }}
+          </div>
+          <div class="muted" style="margin-top: 6px;" v-if="(expanded.breakdown.__priorStillUnpaid.lines || []).length">
+            <div><strong>Details:</strong></div>
+            <div v-for="(l, i) in (expanded.breakdown.__priorStillUnpaid.lines || [])" :key="`prior-unpaid:${l.serviceCode}:${i}`">
+              - {{ l.serviceCode }}: {{ fmtNum(l.unpaidUnits) }} units
+            </div>
+          </div>
+        </div>
+        <div
+          class="warn-box old-notes-alert"
+          v-if="twoPeriodsAgoUnpaid.total > 0"
+          style="margin-bottom: 10px;"
+        >
+          <div>
+            <strong>Reminder: unpaid notes from 2 pay periods ago</strong>
+          </div>
+          <div style="margin-top: 4px;">
+            <strong>{{ fmtDateRange(twoPeriodsAgo.period_start, twoPeriodsAgo.period_end) }}</strong>
+          </div>
+          <div style="margin-top: 6px;">
+            <strong>No Note:</strong> {{ fmtNum(twoPeriodsAgoUnpaid.noNote) }} notes
+            <span class="muted">•</span>
+            <strong>Draft:</strong> {{ fmtNum(twoPeriodsAgoUnpaid.draft) }} notes
+          </div>
+          <div class="muted" style="margin-top: 6px;">
+            Complete outstanding notes to be included in a future payroll.
+          </div>
+        </div>
+
+        <div class="warn-box current-unpaid-notes" v-if="expandedUnpaid.total > 0" style="margin-bottom: 10px;">
+          <div>
+            <strong>Unpaid notes in this pay period</strong>
+          </div>
+          <div style="margin-top: 6px;">
+            <strong>No Note:</strong> {{ fmtNum(expandedUnpaid.noNote) }} notes
+            <span class="muted">•</span>
+            <strong>Draft:</strong> {{ fmtNum(expandedUnpaid.draft) }} notes
+          </div>
+          <div class="muted" style="margin-top: 6px;">
+            These notes were not paid this period. Complete outstanding notes to be included in a future payroll.
+          </div>
+          <div class="muted" style="margin-top: 6px;">
+            Due to Therapy Notes, we are unable to differentiate a note that is incomplete for a session that did occur from a note that is incomplete for a session that did not occur.
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 10px;">
+          <h3 class="card-title" style="margin: 0 0 6px 0;">Pay Summary (Posted Payroll)</h3>
+        <div class="muted" v-if="!payTypeSummary.rows.length">No pay-type summary available.</div>
+        <div v-else class="paytype">
+          <div class="paytype-head">
+            <div>Pay Type</div>
+            <div class="right">Hours</div>
+            <div class="right">Rate</div>
+            <div class="right">Pay</div>
+          </div>
+          <div v-for="r in payTypeSummary.rows" :key="r.key" class="paytype-row">
+            <div class="code">{{ r.label }}</div>
+            <div class="right">{{ fmtNum(r.hours) }}</div>
+            <div class="right muted">{{ r.rateLabel }}</div>
+            <div class="right">{{ fmtMoney(r.amount) }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 10px;" v-if="hourlyRateSummary.effectiveRate !== null">
+          <h3 class="card-title" style="margin: 0 0 6px 0;">Hourly Rate</h3>
+          <div class="row"><strong>Effective hourly rate:</strong> {{ fmtMoney(hourlyRateSummary.effectiveRate) }}</div>
+          <div class="muted" style="margin-top: 6px;">
+            Effective hourly rate represents the total pay divided by earned credits/hours (which can vary by service mix, add-ons, and overrides).
+          </div>
+        </div>
+
+        <div class="warn-box" v-else-if="hourlyRateSummary.variableRatesNote" style="margin-top: 10px;">
+          <div><strong>Note about varying service rates</strong></div>
+          <div class="muted" style="margin-top: 6px;">
+            {{ hourlyRateSummary.variableRatesNote }}
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 10px;" v-if="expanded.breakdown && expanded.breakdown.__tier">
+          <h3 class="card-title" style="margin: 0 0 6px 0;">Benefit Tier</h3>
+          <div class="row"><strong>{{ expanded.breakdown.__tier.label }}</strong></div>
+          <div class="row"><strong>Status:</strong> {{ expanded.breakdown.__tier.status }}</div>
+        </div>
+
+        <div
+          class="card"
+          style="margin-top: 10px;"
+          v-if="expanded.breakdown && expanded.breakdown.__practiceSupportMeeting && Number(expanded.breakdown.__practiceSupportMeeting.amount || 0) > 0"
+        >
+          <h3 class="card-title" style="margin: 0 0 6px 0;">Practice Support Meeting</h3>
+          <div class="row">
+            <strong>Hours:</strong> {{ fmtNum(expanded.breakdown.__practiceSupportMeeting.units || 0) }}
+          </div>
+          <div class="row">
+            <strong>Pay:</strong> {{ fmtMoney(expanded.breakdown.__practiceSupportMeeting.amount || 0) }}
+          </div>
+          <div class="muted" style="margin-top: 6px;">
+            Paid at your supervision meeting rate.
+          </div>
+        </div>
+
+        <h3 class="card-title" style="margin-top: 12px;">Totals</h3>
+        <div class="row"><strong>Total Pay:</strong> {{ fmtMoney(expanded.total_amount ?? 0) }}</div>
+        <div class="row"><strong>Total Credits/Hours:</strong> {{ fmtNum(expanded.total_hours ?? 0) }}</div>
+        <div class="row"><strong>Tier Credits (Final):</strong> {{ fmtNum(expanded.tier_credits_final ?? expanded.tier_credits_current ?? 0) }}</div>
+        <div class="row" v-if="ytdTotals">
+          <strong>Year to date ({{ ytdTotals.year }}):</strong>
+          {{ fmtMoney(ytdTotals.totalPay) }} • {{ fmtNum(ytdTotals.totalHours) }} credits/hours
+        </div>
+
+        <div class="card" style="margin-top: 10px;">
+          <h3 class="card-title" style="margin: 0 0 6px 0;">Direct / Indirect Totals</h3>
+          <div class="di-grid">
+            <div class="di-head">Type</div>
+            <div class="di-head right">Hours</div>
+            <div class="di-head right">Pay</div>
+            <div class="di-head right">Rate</div>
+
+            <div><strong>Direct</strong></div>
+            <div class="right">{{ fmtNum(expanded.direct_hours ?? 0) }}</div>
+            <div class="right">{{ fmtMoney(payTotalsFromBreakdown(expanded.breakdown).directAmount ?? 0) }}</div>
+            <div class="right muted">
+              {{
+                (() => {
+                  const h = Number(expanded.direct_hours || 0);
+                  const amt = Number(payTotalsFromBreakdown(expanded.breakdown).directAmount || 0);
+                  return h > 0 ? fmtMoney(amt / h) : '—';
+                })()
+              }}
+          </div>
+
+            <div><strong>Indirect</strong></div>
+            <div class="right">{{ fmtNum(expanded.indirect_hours ?? 0) }}</div>
+            <div class="right">{{ fmtMoney(payTotalsFromBreakdown(expanded.breakdown).indirectAmount ?? 0) }}</div>
+            <div class="right muted">
+              {{
+                (() => {
+                  const h = Number(expanded.indirect_hours || 0);
+                  const amt = Number(payTotalsFromBreakdown(expanded.breakdown).indirectAmount || 0);
+                  return h > 0 ? fmtMoney(amt / h) : '—';
+                })()
+              }}
+            </div>
+          </div>
+        </div>
+
+        <h3 class="card-title" style="margin-top: 12px;">Service Codes</h3>
+        <div class="muted" v-if="!expanded.breakdown || !Object.keys(expanded.breakdown).length">No breakdown available.</div>
+        <div v-else class="codes">
+          <div class="codes-head">
+            <div>Code</div>
+            <div class="right">No Note</div>
+            <div class="right">Draft</div>
+            <div class="right">Finalized</div>
+            <div class="right">Credits/Hours</div>
+            <div class="right">Rate</div>
+            <div class="right">Amount</div>
+          </div>
+          <div v-for="l in expandedServiceLines" :key="l.code" class="code-row">
+            <div class="code">{{ l.code }}</div>
+            <div class="right muted">{{ fmtNum(l.noNoteUnits ?? 0) }}</div>
+            <div class="right muted">{{ fmtNum(l.draftUnits ?? 0) }}</div>
+            <div class="right">{{ fmtNum(l.finalizedUnits ?? l.units ?? 0) }}</div>
+            <div class="right muted">{{ fmtNum(l.hours ?? 0) }}</div>
+            <div class="right muted">{{ fmtMoney(l.rateAmount ?? 0) }}</div>
+            <div class="right">{{ fmtMoney(l.amount ?? 0) }}</div>
+          </div>
+          <div v-if="expanded.breakdown && expanded.breakdown.__adjustments" class="adjustments">
+            <h3 class="card-title" style="margin-top: 10px;">Additional Pay / Overrides</h3>
+
+            <div v-if="(expanded.breakdown.__adjustments.lines || []).length">
+              <div v-for="(l, i) in (expanded.breakdown.__adjustments.lines || [])" :key="`adj:${l.type}:${i}`" class="row">
+                <strong>{{ l.label }}:</strong>
+                {{ fmtMoney(l.amount ?? 0) }}
+                <span class="muted" v-if="l.meta && (l.meta.hours || l.meta.rate)">
+                  • {{ fmtNum(l.meta.hours ?? 0) }} hrs @ {{ fmtMoney(l.meta.rate ?? 0) }}
+                </span>
+                <span class="muted" v-if="l.taxable === false"> • non-taxable</span>
+                <span class="muted" v-else> • taxable</span>
+                <details v-if="l.meta && Array.isArray(l.meta.details) && l.meta.details.length" style="margin-top: 6px; width: 100%;">
+                  <summary class="muted" style="cursor: pointer;">View details</summary>
+                  <div class="muted" style="margin-top: 6px;">
+                    <div v-for="(d, j) in l.meta.details" :key="`adj-detail:${i}:${j}`">{{ d.label }}: {{ d.value }}</div>
+                  </div>
+                </details>
+              </div>
+            </div>
+            <div v-else>
+              <!-- Backward-compatible fallback (older runs without lines[]) -->
+              <div class="row"><strong>Mileage:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.mileageAmount ?? 0) }}</div>
+              <div class="row"><strong>Med Cancel:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.medcancelAmount ?? 0) }}</div>
+              <div class="row"><strong>Other taxable:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.otherTaxableAmount ?? 0) }}</div>
+              <div class="row"><strong>IMatter:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.imatterAmount ?? 0) }}</div>
+              <div class="row"><strong>Missed appointments:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.missedAppointmentsAmount ?? 0) }}</div>
+              <div class="row"><strong>Bonus:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.bonusAmount ?? 0) }}</div>
+              <div class="row"><strong>Reimbursement:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.reimbursementAmount ?? 0) }}</div>
+              <div class="row"><strong>Tuition reimbursement (tax-exempt):</strong> {{ fmtMoney(expanded.breakdown.__adjustments.tuitionReimbursementAmount ?? 0) }}</div>
+              <div class="row"><strong>Time claims:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.timeClaimsAmount ?? 0) }}</div>
+              <div class="row"><strong>Manual pay lines:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.manualPayLinesAmount ?? 0) }}</div>
+              <div
+                v-if="(expanded.breakdown.__adjustments.manualPayLines || expanded.breakdown.__manualPayLines || []).length"
+                class="muted"
+                style="margin-top: 6px;"
+              >
+                <div v-for="(ml, j) in (expanded.breakdown.__adjustments.manualPayLines || expanded.breakdown.__manualPayLines || [])" :key="`${ml.id || j}`">
+                  - {{ ml.label }}: {{ fmtMoney(ml.amount ?? 0) }}
+                </div>
+              </div>
+              <div class="row"><strong>PTO:</strong> {{ fmtNum(expanded.breakdown.__adjustments.ptoHours ?? 0) }} hrs @ {{ fmtMoney(expanded.breakdown.__adjustments.ptoRate ?? 0) }} = {{ fmtMoney(expanded.breakdown.__adjustments.ptoPay ?? 0) }}</div>
+              <div class="row"><strong>Salary override:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.salaryAmount ?? 0) }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
     </PayrollHubSection>
 
     <div class="pay-hub__sections">
@@ -645,249 +896,6 @@
       </PayrollHubSection>
     </div>
 
-    <div v-if="expandedId" class="details card pay-stub-breakdown">
-      <h2 class="card-title">Breakdown</h2>
-      <div v-if="expanded">
-        <div
-          class="warn-box prior-notes-included"
-          v-if="expanded.breakdown && expanded.breakdown.__carryover && ((expanded.breakdown.__carryover.carryoverNotesTotal || expanded.breakdown.__carryover.oldDoneNotesNotesTotal || 0) > 0)"
-          style="margin-bottom: 10px;"
-        >
-          <div>
-            <strong>Prior notes included in this payroll:</strong>
-            {{ fmtNum(expanded.breakdown.__carryover.carryoverNotesTotal ?? expanded.breakdown.__carryover.oldDoneNotesNotesTotal ?? 0) }}
-            notes
-          </div>
-          <div class="muted">Reminder: complete prior-period notes by Sunday 11:59pm after the pay period ends to avoid compensation delays.</div>
-        </div>
-        <div
-          class="warn-box current-unpaid-notes"
-          v-if="expanded.breakdown && expanded.breakdown.__priorStillUnpaid && (expanded.breakdown.__priorStillUnpaid.totalUnits || 0) > 0"
-          style="margin-bottom: 10px; border: 1px solid #ffb5b5; background: #ffecec;"
-        >
-          <div>
-            <strong>Still unpaid from the prior pay period (not paid this period):</strong>
-            {{ fmtNum(expanded.breakdown.__priorStillUnpaid.totalUnits) }} units
-          </div>
-          <div class="muted" style="margin-top: 4px;" v-if="expanded.breakdown.__priorStillUnpaid.periodStart">
-            {{ expanded.breakdown.__priorStillUnpaid.periodStart }} → {{ expanded.breakdown.__priorStillUnpaid.periodEnd }}
-          </div>
-          <div class="muted" style="margin-top: 6px;" v-if="(expanded.breakdown.__priorStillUnpaid.lines || []).length">
-            <div><strong>Details:</strong></div>
-            <div v-for="(l, i) in (expanded.breakdown.__priorStillUnpaid.lines || [])" :key="`prior-unpaid:${l.serviceCode}:${i}`">
-              - {{ l.serviceCode }}: {{ fmtNum(l.unpaidUnits) }} units
-            </div>
-          </div>
-        </div>
-        <div
-          class="warn-box old-notes-alert"
-          v-if="twoPeriodsAgoUnpaid.total > 0"
-          style="margin-bottom: 10px;"
-        >
-          <div>
-            <strong>Reminder: unpaid notes from 2 pay periods ago</strong>
-          </div>
-          <div style="margin-top: 4px;">
-            <strong>{{ fmtDateRange(twoPeriodsAgo.period_start, twoPeriodsAgo.period_end) }}</strong>
-          </div>
-          <div style="margin-top: 6px;">
-            <strong>No Note:</strong> {{ fmtNum(twoPeriodsAgoUnpaid.noNote) }} notes
-            <span class="muted">•</span>
-            <strong>Draft:</strong> {{ fmtNum(twoPeriodsAgoUnpaid.draft) }} notes
-          </div>
-          <div class="muted" style="margin-top: 6px;">
-            Complete outstanding notes to be included in a future payroll.
-          </div>
-        </div>
-
-        <div class="warn-box current-unpaid-notes" v-if="expandedUnpaid.total > 0" style="margin-bottom: 10px;">
-          <div>
-            <strong>Unpaid notes in this pay period</strong>
-          </div>
-          <div style="margin-top: 6px;">
-            <strong>No Note:</strong> {{ fmtNum(expandedUnpaid.noNote) }} notes
-            <span class="muted">•</span>
-            <strong>Draft:</strong> {{ fmtNum(expandedUnpaid.draft) }} notes
-          </div>
-          <div class="muted" style="margin-top: 6px;">
-            These notes were not paid this period. Complete outstanding notes to be included in a future payroll.
-          </div>
-          <div class="muted" style="margin-top: 6px;">
-            Due to Therapy Notes, we are unable to differentiate a note that is incomplete for a session that did occur from a note that is incomplete for a session that did not occur.
-          </div>
-        </div>
-
-        <div class="card" style="margin-top: 10px;">
-          <h3 class="card-title" style="margin: 0 0 6px 0;">Pay Summary (Posted Payroll)</h3>
-        <div class="muted" v-if="!payTypeSummary.rows.length">No pay-type summary available.</div>
-        <div v-else class="paytype">
-          <div class="paytype-head">
-            <div>Pay Type</div>
-            <div class="right">Hours</div>
-            <div class="right">Rate</div>
-            <div class="right">Pay</div>
-          </div>
-          <div v-for="r in payTypeSummary.rows" :key="r.key" class="paytype-row">
-            <div class="code">{{ r.label }}</div>
-            <div class="right">{{ fmtNum(r.hours) }}</div>
-            <div class="right muted">{{ r.rateLabel }}</div>
-            <div class="right">{{ fmtMoney(r.amount) }}</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="card" style="margin-top: 10px;" v-if="hourlyRateSummary.effectiveRate !== null">
-          <h3 class="card-title" style="margin: 0 0 6px 0;">Hourly Rate</h3>
-          <div class="row"><strong>Effective hourly rate:</strong> {{ fmtMoney(hourlyRateSummary.effectiveRate) }}</div>
-          <div class="muted" style="margin-top: 6px;">
-            Effective hourly rate represents the total pay divided by earned credits/hours (which can vary by service mix, add-ons, and overrides).
-          </div>
-        </div>
-
-        <div class="warn-box" v-else-if="hourlyRateSummary.variableRatesNote" style="margin-top: 10px;">
-          <div><strong>Note about varying service rates</strong></div>
-          <div class="muted" style="margin-top: 6px;">
-            {{ hourlyRateSummary.variableRatesNote }}
-          </div>
-        </div>
-
-        <div class="card" style="margin-top: 10px;" v-if="expanded.breakdown && expanded.breakdown.__tier">
-          <h3 class="card-title" style="margin: 0 0 6px 0;">Benefit Tier</h3>
-          <div class="row"><strong>{{ expanded.breakdown.__tier.label }}</strong></div>
-          <div class="row"><strong>Status:</strong> {{ expanded.breakdown.__tier.status }}</div>
-        </div>
-
-        <div
-          class="card"
-          style="margin-top: 10px;"
-          v-if="expanded.breakdown && expanded.breakdown.__practiceSupportMeeting && Number(expanded.breakdown.__practiceSupportMeeting.amount || 0) > 0"
-        >
-          <h3 class="card-title" style="margin: 0 0 6px 0;">Practice Support Meeting</h3>
-          <div class="row">
-            <strong>Hours:</strong> {{ fmtNum(expanded.breakdown.__practiceSupportMeeting.units || 0) }}
-          </div>
-          <div class="row">
-            <strong>Pay:</strong> {{ fmtMoney(expanded.breakdown.__practiceSupportMeeting.amount || 0) }}
-          </div>
-          <div class="muted" style="margin-top: 6px;">
-            Paid at your supervision meeting rate.
-          </div>
-        </div>
-
-        <h3 class="card-title" style="margin-top: 12px;">Totals</h3>
-        <div class="row"><strong>Total Pay:</strong> {{ fmtMoney(expanded.total_amount ?? 0) }}</div>
-        <div class="row"><strong>Total Credits/Hours:</strong> {{ fmtNum(expanded.total_hours ?? 0) }}</div>
-        <div class="row"><strong>Tier Credits (Final):</strong> {{ fmtNum(expanded.tier_credits_final ?? expanded.tier_credits_current ?? 0) }}</div>
-        <div class="row" v-if="ytdTotals">
-          <strong>Year to date ({{ ytdTotals.year }}):</strong>
-          {{ fmtMoney(ytdTotals.totalPay) }} • {{ fmtNum(ytdTotals.totalHours) }} credits/hours
-        </div>
-
-        <div class="card" style="margin-top: 10px;">
-          <h3 class="card-title" style="margin: 0 0 6px 0;">Direct / Indirect Totals</h3>
-          <div class="di-grid">
-            <div class="di-head">Type</div>
-            <div class="di-head right">Hours</div>
-            <div class="di-head right">Pay</div>
-            <div class="di-head right">Rate</div>
-
-            <div><strong>Direct</strong></div>
-            <div class="right">{{ fmtNum(expanded.direct_hours ?? 0) }}</div>
-            <div class="right">{{ fmtMoney(payTotalsFromBreakdown(expanded.breakdown).directAmount ?? 0) }}</div>
-            <div class="right muted">
-              {{
-                (() => {
-                  const h = Number(expanded.direct_hours || 0);
-                  const amt = Number(payTotalsFromBreakdown(expanded.breakdown).directAmount || 0);
-                  return h > 0 ? fmtMoney(amt / h) : '—';
-                })()
-              }}
-          </div>
-
-            <div><strong>Indirect</strong></div>
-            <div class="right">{{ fmtNum(expanded.indirect_hours ?? 0) }}</div>
-            <div class="right">{{ fmtMoney(payTotalsFromBreakdown(expanded.breakdown).indirectAmount ?? 0) }}</div>
-            <div class="right muted">
-              {{
-                (() => {
-                  const h = Number(expanded.indirect_hours || 0);
-                  const amt = Number(payTotalsFromBreakdown(expanded.breakdown).indirectAmount || 0);
-                  return h > 0 ? fmtMoney(amt / h) : '—';
-                })()
-              }}
-            </div>
-          </div>
-        </div>
-
-        <h3 class="card-title" style="margin-top: 12px;">Service Codes</h3>
-        <div class="muted" v-if="!expanded.breakdown || !Object.keys(expanded.breakdown).length">No breakdown available.</div>
-        <div v-else class="codes">
-          <div class="codes-head">
-            <div>Code</div>
-            <div class="right">No Note</div>
-            <div class="right">Draft</div>
-            <div class="right">Finalized</div>
-            <div class="right">Credits/Hours</div>
-            <div class="right">Rate</div>
-            <div class="right">Amount</div>
-          </div>
-          <div v-for="l in expandedServiceLines" :key="l.code" class="code-row">
-            <div class="code">{{ l.code }}</div>
-            <div class="right muted">{{ fmtNum(l.noNoteUnits ?? 0) }}</div>
-            <div class="right muted">{{ fmtNum(l.draftUnits ?? 0) }}</div>
-            <div class="right">{{ fmtNum(l.finalizedUnits ?? l.units ?? 0) }}</div>
-            <div class="right muted">{{ fmtNum(l.hours ?? 0) }}</div>
-            <div class="right muted">{{ fmtMoney(l.rateAmount ?? 0) }}</div>
-            <div class="right">{{ fmtMoney(l.amount ?? 0) }}</div>
-          </div>
-          <div v-if="expanded.breakdown && expanded.breakdown.__adjustments" class="adjustments">
-            <h3 class="card-title" style="margin-top: 10px;">Additional Pay / Overrides</h3>
-
-            <div v-if="(expanded.breakdown.__adjustments.lines || []).length">
-              <div v-for="(l, i) in (expanded.breakdown.__adjustments.lines || [])" :key="`adj:${l.type}:${i}`" class="row">
-                <strong>{{ l.label }}:</strong>
-                {{ fmtMoney(l.amount ?? 0) }}
-                <span class="muted" v-if="l.meta && (l.meta.hours || l.meta.rate)">
-                  • {{ fmtNum(l.meta.hours ?? 0) }} hrs @ {{ fmtMoney(l.meta.rate ?? 0) }}
-                </span>
-                <span class="muted" v-if="l.taxable === false"> • non-taxable</span>
-                <span class="muted" v-else> • taxable</span>
-                <details v-if="l.meta && Array.isArray(l.meta.details) && l.meta.details.length" style="margin-top: 6px; width: 100%;">
-                  <summary class="muted" style="cursor: pointer;">View details</summary>
-                  <div class="muted" style="margin-top: 6px;">
-                    <div v-for="(d, j) in l.meta.details" :key="`adj-detail:${i}:${j}`">{{ d.label }}: {{ d.value }}</div>
-                  </div>
-                </details>
-              </div>
-            </div>
-            <div v-else>
-              <!-- Backward-compatible fallback (older runs without lines[]) -->
-              <div class="row"><strong>Mileage:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.mileageAmount ?? 0) }}</div>
-              <div class="row"><strong>Med Cancel:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.medcancelAmount ?? 0) }}</div>
-              <div class="row"><strong>Other taxable:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.otherTaxableAmount ?? 0) }}</div>
-              <div class="row"><strong>IMatter:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.imatterAmount ?? 0) }}</div>
-              <div class="row"><strong>Missed appointments:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.missedAppointmentsAmount ?? 0) }}</div>
-              <div class="row"><strong>Bonus:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.bonusAmount ?? 0) }}</div>
-              <div class="row"><strong>Reimbursement:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.reimbursementAmount ?? 0) }}</div>
-              <div class="row"><strong>Tuition reimbursement (tax-exempt):</strong> {{ fmtMoney(expanded.breakdown.__adjustments.tuitionReimbursementAmount ?? 0) }}</div>
-              <div class="row"><strong>Time claims:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.timeClaimsAmount ?? 0) }}</div>
-              <div class="row"><strong>Manual pay lines:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.manualPayLinesAmount ?? 0) }}</div>
-              <div
-                v-if="(expanded.breakdown.__adjustments.manualPayLines || expanded.breakdown.__manualPayLines || []).length"
-                class="muted"
-                style="margin-top: 6px;"
-              >
-                <div v-for="(ml, j) in (expanded.breakdown.__adjustments.manualPayLines || expanded.breakdown.__manualPayLines || [])" :key="`${ml.id || j}`">
-                  - {{ ml.label }}: {{ fmtMoney(ml.amount ?? 0) }}
-                </div>
-              </div>
-              <div class="row"><strong>PTO:</strong> {{ fmtNum(expanded.breakdown.__adjustments.ptoHours ?? 0) }} hrs @ {{ fmtMoney(expanded.breakdown.__adjustments.ptoRate ?? 0) }} = {{ fmtMoney(expanded.breakdown.__adjustments.ptoPay ?? 0) }}</div>
-              <div class="row"><strong>Salary override:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.salaryAmount ?? 0) }}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
   </PayrollHubPanel>
 
   <!-- Mileage submission modal (Teleport to body so it's always visible) -->
@@ -5311,6 +5319,44 @@ select {
 
 .pay-stub-breakdown {
   margin-top: 16px;
+}
+
+.pay-stub-breakdown--inline {
+  margin-top: 14px;
+  border: 1px solid #d1fae5;
+  border-radius: 10px;
+  background: #f0fdf4;
+  padding: 14px 16px 16px;
+}
+
+.pay-stub-breakdown__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  gap: 10px;
+}
+
+.pay-stub-breakdown__title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #166534;
+}
+
+.pay-stub-breakdown__close {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  color: #166534;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.pay-stub-breakdown__close:hover {
+  background: #dcfce7;
 }
 
 :deep(.pay-hub__btn--primary) {

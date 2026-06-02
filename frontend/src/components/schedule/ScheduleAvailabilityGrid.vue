@@ -12,20 +12,42 @@
       </div>
       <div class="sched-toolbar-main">
         <div class="sched-toolbar-left" :class="{ 'sched-office-pulse': showOfficeReminderPulse && !hideOfficeAndCalendarIntegration }">
-          <div v-if="!hideOfficeAndCalendarIntegration" class="sched-view-switch" role="tablist" aria-label="Schedule view" data-tour="my-schedule-view-switch">
+          <div v-if="!hideOfficeAndCalendarIntegration" class="sched-office-toolbar-group">
             <button
-              v-for="opt in viewModeOptions"
-              :key="`view-${opt.id}`"
               type="button"
-              class="sched-seg"
-              role="tab"
-              :aria-selected="String(viewMode === opt.id)"
-              :class="{ on: viewMode === opt.id }"
-              :disabled="loading"
-              @click="viewMode = opt.id"
+              class="sched-office-cta"
+              :disabled="loading || officeGridLoading"
+              data-tour="my-schedule-request-office-cta"
+              @click="openQuickOfficeRoomRequest"
             >
-              {{ opt.label }}
+              <span class="sched-office-cta-icon" aria-hidden="true">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 21h18" />
+                  <path d="M5 21V7l8-4v18" />
+                  <path d="M19 21V11l-6-4" />
+                  <path d="M9 9v.01" /><path d="M9 13v.01" /><path d="M9 17v.01" />
+                </svg>
+              </span>
+              <span class="sched-office-cta-copy">
+                <span class="sched-office-cta-title">Request office or room</span>
+                <span class="sched-office-cta-sub">Submit a time for staff approval</span>
+              </span>
             </button>
+            <div class="sched-view-switch" role="tablist" aria-label="Schedule view" data-tour="my-schedule-view-switch">
+              <button
+                v-for="opt in viewModeOptions"
+                :key="`view-${opt.id}`"
+                type="button"
+                class="sched-seg"
+                role="tab"
+                :aria-selected="String(viewMode === opt.id)"
+                :class="{ on: viewMode === opt.id }"
+                :disabled="loading"
+                @click="viewMode = opt.id"
+              >
+                {{ opt.label }}
+              </button>
+            </div>
           </div>
           <button class="btn btn-secondary btn-sm sched-btn" type="button" @click="prevWeek" :disabled="loading">← Prev</button>
           <button class="btn btn-secondary btn-sm sched-btn" type="button" @click="nextWeek" :disabled="loading">Next →</button>
@@ -2166,6 +2188,38 @@ const showOfficeReminder = () => {
     officeReminderToast.value = '';
     setTimeout(() => { showOfficeReminderPulse.value = false; }, 400);
   }, 3000);
+};
+
+/** Primary CTA: open office/room request (keeps slide toggle for navigation). */
+const openQuickOfficeRoomRequest = async () => {
+  if (props.hideOfficeAndCalendarIntegration) return;
+  if (!canBookFromGrid.value) {
+    window.alert('You do not have permission to request office space on this schedule.');
+    return;
+  }
+  viewMode.value = 'office_layout';
+  await nextTick();
+  const offices = officeLocations.value || [];
+  if (!Number(selectedOfficeLocationId.value || 0) && offices.length === 1) {
+    selectedOfficeLocationId.value = Number(offices[0].id);
+  }
+  if (!Number(selectedOfficeLocationId.value || 0)) {
+    officeReminderToast.value = 'Choose an office from the Office dropdown (right), then tap Request again or pick a time on the board.';
+    setTimeout(() => { officeReminderToast.value = ''; }, 6000);
+    return;
+  }
+  const ymd = String(todayLocalYmd.value || weekStart.value || '').slice(0, 10);
+  const dayName = dayNameForDateYmd(ymd) || 'Monday';
+  const nowHour = new Date().getHours();
+  const hour = Math.max(7, Math.min(20, Number.isFinite(nowHour) ? nowHour : 9));
+  openSlotActionModal({
+    dayName,
+    hour,
+    dateYmd: ymd,
+    preserveSelectionRange: false,
+    initialRequestType: 'office_request_only',
+    actionSource: 'quick_office_cta'
+  });
 };
 
 const loadSelfScheduleAgencies = async () => {
@@ -8400,6 +8454,79 @@ defineExpose({ resetToOpenFinder });
 }
 .sched-icon-btn:hover { border-color: rgba(59, 130, 246, 0.35); }
 .sched-icon-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.sched-office-toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  min-width: 0;
+}
+
+.sched-office-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #166534 0%, #15803d 100%);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(22, 101, 52, 0.28);
+  transition: transform 0.12s, box-shadow 0.15s, filter 0.15s;
+  text-align: left;
+  max-width: 100%;
+}
+
+.sched-office-cta:hover:not(:disabled) {
+  filter: brightness(1.05);
+  box-shadow: 0 6px 18px rgba(22, 101, 52, 0.34);
+  transform: translateY(-1px);
+}
+
+.sched-office-cta:focus-visible {
+  outline: 2px solid #86efac;
+  outline-offset: 2px;
+}
+
+.sched-office-cta:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.sched-office-cta-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.18);
+  flex-shrink: 0;
+}
+
+.sched-office-cta-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sched-office-cta-title {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.sched-office-cta-sub {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.92;
+  line-height: 1.3;
+}
+
 .sched-view-switch {
   display: inline-flex;
   align-items: center;
@@ -8408,6 +8535,7 @@ defineExpose({ resetToOpenFinder });
   border-radius: 999px;
   padding: 2px;
   gap: 2px;
+  max-width: 100%;
 }
 .sched-seg {
   border: none;

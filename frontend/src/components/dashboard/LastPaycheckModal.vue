@@ -1,34 +1,39 @@
 <template>
-  <div class="modal-backdrop" @click.self="close">
-    <div class="modal" style="width: min(980px, 100%); max-height: 85vh; overflow: auto;">
-      <div class="modal-header">
-        <div>
-          <div class="modal-title">Last Paycheck</div>
-          <div v-if="period" class="hint">
-            {{ fmtDateRange(period.period_start, period.period_end) }}
-          </div>
-        </div>
-        <button class="btn btn-secondary btn-sm" type="button" @click="close">Close</button>
+  <Teleport to="body">
+    <div
+      v-if="loading || error || !period"
+      class="pay-stub-modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Last paycheck"
+      @click.self="close"
+    >
+      <div class="last-paycheck-loading-card">
+        <div v-if="loading" class="muted">Loading paycheck…</div>
+        <div v-else-if="error" class="warn-box">{{ error }}</div>
+        <div v-else class="muted">Pay period not found.</div>
+        <button type="button" class="btn btn-secondary btn-sm" style="margin-top: 12px;" @click="close">Close</button>
       </div>
-
-      <div v-if="loading" class="muted" style="margin-top: 10px;">Loading paycheck…</div>
-      <div v-else-if="error" class="warn-box" style="margin-top: 10px;">{{ error }}</div>
-      <div v-else-if="period" style="margin-top: 10px;">
-        <PayrollPeriodBreakdown :period="period" :all-periods="periods" :show-title="false" />
-      </div>
-      <div v-else class="muted" style="margin-top: 10px;">Pay period not found.</div>
     </div>
-  </div>
+  </Teleport>
+  <PayStubDetailModal
+    v-if="period"
+    :show="true"
+    :period="period"
+    :all-periods="periods"
+    @close="close"
+  />
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
-import PayrollPeriodBreakdown from './PayrollPeriodBreakdown.vue';
+import PayStubDetailModal from './PayStubDetailModal.vue';
+import { normalizePeriodId } from '../../utils/payStubBreakdown';
 
 const props = defineProps({
   agencyId: { type: Number, required: true },
-  payrollPeriodId: { type: Number, required: true }
+  payrollPeriodId: { type: Number, required: true },
 });
 
 const emit = defineEmits(['close']);
@@ -38,17 +43,14 @@ const error = ref('');
 const periods = ref([]);
 
 const period = computed(() => {
-  const pid = Number(props.payrollPeriodId || 0);
+  const pid = normalizePeriodId(props.payrollPeriodId);
   if (!pid) return null;
-  return (periods.value || []).find((p) => Number(p?.payroll_period_id || 0) === pid) || null;
+  return (
+    (periods.value || []).find(
+      (p) => normalizePeriodId(p?.payroll_period_id) === pid
+    ) || null
+  );
 });
-
-const fmtDateRange = (start, end) => {
-  const s = String(start || '').slice(0, 10);
-  const e = String(end || '').slice(0, 10);
-  if (s && e) return `${s} → ${e}`;
-  return s || e || '';
-};
 
 const load = async () => {
   const agencyId = Number(props.agencyId || 0);
@@ -70,48 +72,35 @@ const load = async () => {
 const close = () => emit('close');
 
 watch(() => [props.agencyId, props.payrollPeriodId], load, { immediate: true });
-onMounted(load);
 </script>
 
 <style scoped>
-.modal-backdrop {
+.pay-stub-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.35);
+  z-index: 1200;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 12px;
-  z-index: 6000;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.45);
 }
 
-.modal {
-  background: white;
-  border: 1px solid var(--border);
+.last-paycheck-loading-card {
+  background: #fff;
   border-radius: 12px;
-  padding: 14px;
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.18);
+  padding: 20px 24px;
+  min-width: min(360px, 100%);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.15);
 }
 
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: flex-start;
-}
-
-.modal-title {
-  font-weight: 800;
-}
-
-.hint {
-  color: var(--text-secondary);
-  font-size: 12px;
-  margin-top: 4px;
+.warn-box {
+  color: #b45309;
+  font-size: 14px;
 }
 
 .muted {
-  color: var(--text-secondary);
+  color: #6b7280;
+  font-size: 14px;
 }
 </style>
-

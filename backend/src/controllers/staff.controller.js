@@ -77,7 +77,10 @@ export const getCoworkers = async (req, res, next) => {
        WHERE ua.agency_id = ?
          AND u.id != ?
          AND (u.is_archived = FALSE OR u.is_archived IS NULL)
-         AND LOWER(COALESCE(u.role, '')) != 'school_staff'
+         AND LOWER(COALESCE(u.role, '')) NOT IN (
+               'client_guardian', 'guardian', 'school_staff',
+               'super_admin', 'parent', 'client'
+             )
          AND UPPER(COALESCE(u.status, '')) IN ('ACTIVE_EMPLOYEE', 'ONBOARDING')
        ORDER BY (sa_sup.id IS NOT NULL OR sa_sub.id IS NOT NULL) DESC,
                 u.first_name ASC, u.last_name ASC`,

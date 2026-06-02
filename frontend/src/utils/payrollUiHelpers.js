@@ -92,6 +92,16 @@ function pushAction(out, row, { type, title }) {
   });
 }
 
+/** Format a raw date string (ISO or YYYY-MM-DD) to "Mon D, YYYY". */
+function fmtActionDate(raw) {
+  if (!raw) return null;
+  // Take only the date portion to avoid timezone shifting
+  const ymd = String(raw).slice(0, 10);
+  const dt = new Date(ymd + 'T12:00:00');
+  if (isNaN(dt)) return String(raw).slice(0, 10);
+  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 /** Items for the action-required banner (deferred / rejected / pending approval). */
 export function getPayrollActionRequired({
   ptoRequests = [],
@@ -109,11 +119,11 @@ export function getPayrollActionRequired({
       title: `PTO — ${String(r.request_type || '').toLowerCase() === 'training' ? 'Training' : 'Sick'} (${Number(r.total_hours || 0)}h)`,
     });
   }
-  for (const r of mileageClaims) pushAction(out, r, { type: 'mileage', title: `Mileage — ${r.drive_date || 'claim'}` });
-  for (const r of reimbursementClaims) pushAction(out, r, { type: 'reimbursement', title: `Reimbursement — ${r.expense_date || 'claim'}` });
-  for (const r of companyCardExpenses) pushAction(out, r, { type: 'company_card', title: `Company card — ${r.expense_date || 'claim'}` });
-  for (const r of timeClaims) pushAction(out, r, { type: 'time_claims', title: `Time claim — ${r.claim_date || 'claim'}` });
-  for (const r of medcancelClaims) pushAction(out, r, { type: 'medcancel', title: `Med Cancel — ${r.claim_date || 'claim'}` });
+  for (const r of mileageClaims) pushAction(out, r, { type: 'mileage', title: `Mileage — ${fmtActionDate(r.drive_date) || 'claim'}` });
+  for (const r of reimbursementClaims) pushAction(out, r, { type: 'reimbursement', title: `Reimbursement — ${fmtActionDate(r.expense_date) || 'claim'}` });
+  for (const r of companyCardExpenses) pushAction(out, r, { type: 'company_card', title: `Company card — ${fmtActionDate(r.expense_date) || 'claim'}` });
+  for (const r of timeClaims) pushAction(out, r, { type: 'time_claims', title: `Time claim — ${fmtActionDate(r.claim_date) || 'claim'}` });
+  for (const r of medcancelClaims) pushAction(out, r, { type: 'medcancel', title: `Med Cancel — ${fmtActionDate(r.claim_date) || 'claim'}` });
 
   const priority = { rejected: 3, deferred: 2, submitted: 1 };
   out.sort((a, b) => (priority[String(b.status).toLowerCase()] || 0) - (priority[String(a.status).toLowerCase()] || 0));
