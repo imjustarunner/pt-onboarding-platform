@@ -2586,7 +2586,7 @@
 
             <div class="card" style="margin-top: 12px;">
               <h3 class="card-title" style="margin: 0 0 6px 0;">Time Claims (Pending)</h3>
-              <div class="hint">Meeting/training, excess time, service corrections, overtime evaluations, holiday pay, and other employee-submitted extra pay. Late submissions can still be added to this payroll if payroll chooses to approve with an override.</div>
+              <div class="hint">Meeting/training, excess time, service corrections, overtime evaluations, holiday pay, and other employee-submitted extra pay. Skill Builders event kiosk hours are reviewed in Event time (Pending) below. Late submissions can still be added to this payroll if payroll chooses to approve with an override.</div>
               <div v-if="pendingTimeError" class="warn-box" style="margin-top: 8px;">{{ pendingTimeError }}</div>
               <div v-if="pendingTimeLoading" class="muted" style="margin-top: 8px;">Loading pending submissions…</div>
               <div v-else-if="!pendingTimeClaims.length" class="muted" style="margin-top: 8px;">No pending time claims for this pay period.</div>
@@ -2693,7 +2693,7 @@
             <div class="card" style="margin-top: 12px;">
               <h3 class="card-title" style="margin: 0 0 6px 0;">Event time (Pending)</h3>
               <div class="hint">
-                Skill Builders / program event kiosk check-in/out with direct and indirect hour split. Approve each bucket separately or edit clock times before approving.
+                Skill Builders / program event kiosk check-in/out with direct and indirect hour split. Each session appears as two rows (direct + indirect). Edit clock times to recalculate hours before approving each bucket.
               </div>
               <div v-if="eventTimeError" class="warn-box" style="margin-top: 8px;">{{ eventTimeError }}</div>
               <div v-if="eventTimeLoading" class="muted" style="margin-top: 8px;">Loading event time submissions…</div>
@@ -2707,41 +2707,43 @@
                       <th>Clock in</th>
                       <th>Clock out</th>
                       <th class="right">Worked</th>
-                      <th class="right">Direct</th>
-                      <th class="right">Indirect</th>
-                      <th>Direct claim</th>
-                      <th>Indirect claim</th>
+                      <th>Bucket</th>
+                      <th class="right">Hours</th>
+                      <th>Status</th>
                       <th class="right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="s in eventTimeSubmissions" :key="s.punchInId">
-                      <td>{{ s.providerName || nameForUserId(s.userId) }}</td>
-                      <td>{{ s.eventTitle || '—' }}</td>
-                      <td>{{ formatEventTimeIso(s.clockInAt) }}</td>
-                      <td>{{ formatEventTimeIso(s.clockOutAt) }}</td>
-                      <td class="right">{{ s.workedHours ?? '—' }}</td>
-                      <td class="right">{{ s.directHours ?? '—' }}</td>
-                      <td class="right">{{ s.indirectHours ?? '—' }}</td>
-                      <td>{{ s.directClaim?.status || '—' }}</td>
-                      <td>{{ s.indirectClaim?.status || '—' }}</td>
+                    <tr v-for="row in eventTimeBucketRows" :key="row.rowKey">
+                      <td>{{ row.submission.providerName || nameForUserId(row.submission.userId) }}</td>
+                      <td>{{ row.submission.eventTitle || '—' }}</td>
+                      <td>{{ formatEventTimeIso(row.submission.clockInAt) }}</td>
+                      <td>{{ formatEventTimeIso(row.submission.clockOutAt) }}</td>
+                      <td class="right">{{ row.submission.workedHours ?? '—' }}</td>
+                      <td>{{ row.bucketLabel }}</td>
+                      <td class="right">{{ row.bucketHours ?? '—' }}</td>
+                      <td>{{ row.claim?.status || '—' }}</td>
                       <td class="right">
-                        <button
-                          class="btn btn-secondary btn-sm"
-                          type="button"
-                          :disabled="eventTimeSavingId === s.punchInId"
-                          @click="approveEventTimeSubmission(s, 'direct')"
-                        >
-                          Approve direct
-                        </button>
-                        <button
-                          class="btn btn-secondary btn-sm"
-                          type="button"
-                          :disabled="eventTimeSavingId === s.punchInId"
-                          @click="approveEventTimeSubmission(s, 'indirect')"
-                        >
-                          Approve indirect
-                        </button>
+                        <div class="actions" style="justify-content: flex-end; margin: 0; flex-wrap: wrap; gap: 6px;">
+                          <button
+                            v-if="row.bucket === 'direct'"
+                            class="btn btn-secondary btn-sm"
+                            type="button"
+                            :disabled="eventTimeSavingId === row.submission.punchInId"
+                            @click="openEventTimeEdit(row.submission)"
+                          >
+                            Edit times
+                          </button>
+                          <button
+                            v-if="row.canApprove"
+                            class="btn btn-primary btn-sm"
+                            type="button"
+                            :disabled="eventTimeSavingId === row.submission.punchInId || !selectedPeriodId"
+                            @click="approveEventTimeSubmission(row.submission, row.bucket)"
+                          >
+                            Approve {{ row.bucketLabel.toLowerCase() }}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   </tbody>
@@ -5710,6 +5712,55 @@
       </div>
     </teleport>
 
+    <!-- Event time edit modal -->
+    <teleport to="body">
+      <div v-if="eventTimeEditOpen" class="modal-backdrop" @click.self="closeEventTimeEdit">
+        <div class="modal" style="width: min(560px, 100%);">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">Edit event time</div>
+              <div class="hint" v-if="eventTimeEditSubmission">
+                {{ eventTimeEditSubmission.providerName || nameForUserId(eventTimeEditSubmission.userId) }}
+                · {{ eventTimeEditSubmission.eventTitle || 'Event' }}
+              </div>
+            </div>
+            <button class="btn btn-secondary btn-sm" type="button" @click="closeEventTimeEdit">Close</button>
+          </div>
+          <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+            <div v-if="eventTimeEditError" class="warn-box">{{ eventTimeEditError }}</div>
+            <label class="field">
+              <span>Clock in</span>
+              <input v-model="eventTimeEditClockIn" class="input" type="datetime-local" :disabled="eventTimeEditSaving">
+            </label>
+            <label class="field">
+              <span>Clock out</span>
+              <input v-model="eventTimeEditClockOut" class="input" type="datetime-local" :disabled="eventTimeEditSaving">
+            </label>
+            <label class="field">
+              <span>Direct hours cap (from event settings)</span>
+              <input
+                v-model="eventTimeEditDirectCap"
+                class="input"
+                type="number"
+                min="0"
+                step="0.01"
+                :disabled="eventTimeEditSaving"
+              >
+            </label>
+            <div v-if="eventTimeEditPreview" class="hint">
+              Worked {{ eventTimeEditPreview.workedHours }} h · Direct {{ eventTimeEditPreview.directHours }} h · Indirect {{ eventTimeEditPreview.indirectHours }} h
+            </div>
+            <div class="actions" style="justify-content: flex-end; margin: 0;">
+              <button class="btn btn-secondary" type="button" :disabled="eventTimeEditSaving" @click="closeEventTimeEdit">Cancel</button>
+              <button class="btn btn-primary" type="button" :disabled="eventTimeEditSaving || !eventTimeEditPreview" @click="saveEventTimeEdit">
+                {{ eventTimeEditSaving ? 'Saving…' : 'Save & recalculate' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </teleport>
+
     <!-- Time Claim Review Modal -->
     <teleport to="body">
       <div v-if="showTimeClaimReviewModal" class="modal-backdrop" @click.self="showTimeClaimReviewModal = false">
@@ -6430,6 +6481,13 @@ const eventTimeSubmissions = ref([]);
 const eventTimeLoading = ref(false);
 const eventTimeError = ref('');
 const eventTimeSavingId = ref(null);
+const eventTimeEditOpen = ref(false);
+const eventTimeEditSubmission = ref(null);
+const eventTimeEditClockIn = ref('');
+const eventTimeEditClockOut = ref('');
+const eventTimeEditDirectCap = ref('');
+const eventTimeEditSaving = ref(false);
+const eventTimeEditError = ref('');
 const pendingTimeError = ref('');
 const approvingTimeClaimId = ref(null);
 
@@ -7889,6 +7947,72 @@ const defaultBucketForTimeClaim = (c) => {
   return 'indirect';
 };
 
+const isSkillBuilderEventTimeClaim = (c) =>
+  String(c?.claim_type || c?.claimType || '').toLowerCase() === 'skill_builder_event';
+
+const eventTimeBucketRows = computed(() => {
+  const rows = [];
+  for (const s of eventTimeSubmissions.value || []) {
+    const pendingStatuses = new Set(['submitted', 'deferred']);
+    const canApproveBucket = (claim) =>
+      !!claim?.id && pendingStatuses.has(String(claim?.status || '').toLowerCase());
+    rows.push({
+      submission: s,
+      rowKey: `${s.punchInId}-direct`,
+      bucket: 'direct',
+      bucketLabel: 'Direct',
+      bucketHours: s.directHours,
+      claim: s.directClaim,
+      canApprove: canApproveBucket(s.directClaim)
+    });
+    rows.push({
+      submission: s,
+      rowKey: `${s.punchInId}-indirect`,
+      bucket: 'indirect',
+      bucketLabel: 'Indirect',
+      bucketHours: s.indirectHours,
+      claim: s.indirectClaim,
+      canApprove: canApproveBucket(s.indirectClaim)
+    });
+  }
+  return rows;
+});
+
+const isoToDatetimeLocalInput = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+const datetimeLocalInputToIso = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+};
+
+const eventTimeEditPreview = computed(() => {
+  const clockInAt = datetimeLocalInputToIso(eventTimeEditClockIn.value);
+  const clockOutAt = datetimeLocalInputToIso(eventTimeEditClockOut.value);
+  if (!clockInAt || !clockOutAt) return null;
+  const tIn = new Date(clockInAt);
+  const tOut = new Date(clockOutAt);
+  if (!Number.isFinite(tIn.getTime()) || !Number.isFinite(tOut.getTime()) || tOut <= tIn) return null;
+  const capRaw = Number(eventTimeEditDirectCap.value);
+  const cap = Number.isFinite(capRaw) && capRaw > 0 ? capRaw : 0;
+  const workedHours = Math.max(0, (tOut.getTime() - tIn.getTime()) / 3600000);
+  const directHours = Math.min(cap, workedHours);
+  const indirectHours = Math.max(0, workedHours - directHours);
+  const round2 = (n) => Math.round(n * 100) / 100;
+  return {
+    workedHours: round2(workedHours),
+    directHours: round2(directHours),
+    indirectHours: round2(indirectHours)
+  };
+});
+
 const loadApprovedHolidayBonusClaimsList = async () => {
   if (!agencyId.value || !selectedPeriodId.value) return;
   try {
@@ -8056,7 +8180,7 @@ const loadApprovedTimeClaimsList = async () => {
         targetPeriodId: selectedPeriodId.value
       }
     });
-    approvedTimeClaims.value = resp.data || [];
+    approvedTimeClaims.value = (resp.data || []).filter((r) => !isSkillBuilderEventTimeClaim(r));
     const next = { ...(approvedTimeMoveTargetByClaimId.value || {}) };
     for (const c of approvedTimeClaims.value || []) {
       if (!c?.id) continue;
@@ -8133,7 +8257,7 @@ const loadPendingTimeClaims = async () => {
     const resp = await api.get('/payroll/time-claims', {
       params: { agencyId: agencyId.value, status: 'submitted', targetPeriodId: selectedPeriodId.value }
     });
-    pendingTimeClaims.value = (resp.data || []).filter((r) => !!r && typeof r === 'object');
+    pendingTimeClaims.value = (resp.data || []).filter((r) => !!r && typeof r === 'object' && !isSkillBuilderEventTimeClaim(r));
     const next = { ...(timeTargetPeriodByClaimId.value || {}) };
     const bNext = { ...(timeBucketByClaimId.value || {}) };
     const hNext = { ...(timeCreditsHoursByClaimId.value || {}) };
@@ -8166,7 +8290,7 @@ const loadAllPendingTimeClaims = async () => {
     const resp = await api.get('/payroll/time-claims', {
       params: { agencyId: agencyId.value, status: 'submitted' }
     });
-    pendingTimeClaims.value = (resp.data || []).filter((r) => !!r && typeof r === 'object');
+    pendingTimeClaims.value = (resp.data || []).filter((r) => !!r && typeof r === 'object' && !isSkillBuilderEventTimeClaim(r));
     const next = { ...(timeTargetPeriodByClaimId.value || {}) };
     const bNext = { ...(timeBucketByClaimId.value || {}) };
     const hNext = { ...(timeCreditsHoursByClaimId.value || {}) };
@@ -8223,6 +8347,52 @@ const loadEventTimeSubmissions = async () => {
     eventTimeSubmissions.value = [];
   } finally {
     eventTimeLoading.value = false;
+  }
+};
+
+const openEventTimeEdit = (submission) => {
+  if (!submission?.punchInId) return;
+  eventTimeEditSubmission.value = submission;
+  eventTimeEditClockIn.value = isoToDatetimeLocalInput(submission.clockInAt);
+  eventTimeEditClockOut.value = isoToDatetimeLocalInput(submission.clockOutAt);
+  eventTimeEditDirectCap.value = submission.directHoursCap != null ? String(submission.directHoursCap) : '';
+  eventTimeEditError.value = '';
+  eventTimeEditOpen.value = true;
+};
+
+const closeEventTimeEdit = () => {
+  eventTimeEditOpen.value = false;
+  eventTimeEditSubmission.value = null;
+  eventTimeEditClockIn.value = '';
+  eventTimeEditClockOut.value = '';
+  eventTimeEditDirectCap.value = '';
+  eventTimeEditError.value = '';
+};
+
+const saveEventTimeEdit = async () => {
+  const submission = eventTimeEditSubmission.value;
+  if (!submission?.punchInId || !agencyId.value) return;
+  const clockInAt = datetimeLocalInputToIso(eventTimeEditClockIn.value);
+  const clockOutAt = datetimeLocalInputToIso(eventTimeEditClockOut.value);
+  if (!clockInAt || !clockOutAt) {
+    eventTimeEditError.value = 'Enter valid clock in and clock out times.';
+    return;
+  }
+  eventTimeEditSaving.value = true;
+  eventTimeEditError.value = '';
+  try {
+    await api.patch(`/payroll/event-time-submissions/${submission.punchInId}`, {
+      agencyId: agencyId.value,
+      clockInAt,
+      clockOutAt,
+      directHoursCap: eventTimeEditDirectCap.value !== '' ? Number(eventTimeEditDirectCap.value) : undefined
+    });
+    closeEventTimeEdit();
+    await loadEventTimeSubmissions();
+  } catch (e) {
+    eventTimeEditError.value = e.response?.data?.error?.message || e.message || 'Failed to save event time';
+  } finally {
+    eventTimeEditSaving.value = false;
   }
 };
 

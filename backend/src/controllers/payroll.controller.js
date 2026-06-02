@@ -16122,7 +16122,11 @@ export const listTimeClaims = async (req, res, next) => {
       userId
     });
     const hydrated = await hydrateTimeClaimListTranscripts(rows || []);
-    res.json(hydrated || []);
+    // Skill builder kiosk event time is reviewed in Event time (Pending), not Time Claims.
+    const filtered = (hydrated || []).filter(
+      (r) => String(r?.claim_type || '').toLowerCase() !== 'skill_builder_event'
+    );
+    res.json(filtered);
   } catch (e) {
     next(e);
   }

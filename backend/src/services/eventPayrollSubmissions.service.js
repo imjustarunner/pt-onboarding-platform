@@ -268,6 +268,78 @@ export async function updateEventTimeSubmission({
     );
   }
 
+  const pendingDirect = pending.find((c) =>
+    String(c.payload?.bucketRole || c.bucket || '').toLowerCase() === 'direct'
+    || String(c.bucket || '').toLowerCase() === 'direct'
+  );
+  const pendingIndirect = pending.find((c) =>
+    String(c.payload?.bucketRole || c.bucket || '').toLowerCase() === 'indirect'
+    || String(c.bucket || '').toLowerCase() === 'indirect'
+  );
+  const templateClaim = pending[0];
+  let directClaimId = pendingDirect?.id || null;
+  let indirectClaimId = pendingIndirect?.id || null;
+
+  if (split.directHours > 0 && !pendingDirect) {
+    const created = await PayrollTimeClaim.create({
+      agencyId,
+      userId: templateClaim.user_id || templateClaim.userId,
+      submittedByUserId: templateClaim.submitted_by_user_id || templateClaim.submittedByUserId || templateClaim.user_id,
+      status: 'submitted',
+      claimType: 'skill_builder_event',
+      claimDate: String(nextPayloadBase.clockOutAt || '').slice(0, 10) || templateClaim.claim_date,
+      suggestedPayrollPeriodId: templateClaim.suggested_payroll_period_id || templateClaim.suggestedPayrollPeriodId || null,
+      payload: { ...nextPayloadBase, bucketRole: 'direct', siblingClaimId: indirectClaimId }
+    });
+    await pool.execute(
+      `UPDATE payroll_time_claims SET bucket = 'direct', credits_hours = ? WHERE id = ?`,
+      [split.directHours, created.id]
+    );
+    directClaimId = created.id;
+  }
+
+  if (split.indirectHours > 0 && !pendingIndirect) {
+    const created = await PayrollTimeClaim.create({
+      agencyId,
+      userId: templateClaim.user_id || templateClaim.userId,
+      submittedByUserId: templateClaim.submitted_by_user_id || templateClaim.submittedByUserId || templateClaim.user_id,
+      status: 'submitted',
+      claimType: 'skill_builder_event',
+      claimDate: String(nextPayloadBase.clockOutAt || '').slice(0, 10) || templateClaim.claim_date,
+      suggestedPayrollPeriodId: templateClaim.suggested_payroll_period_id || templateClaim.suggestedPayrollPeriodId || null,
+      payload: { ...nextPayloadBase, bucketRole: 'indirect', siblingClaimId: directClaimId }
+    });
+    await pool.execute(
+      `UPDATE payroll_time_claims SET bucket = 'indirect', credits_hours = ? WHERE id = ?`,
+      [split.indirectHours, created.id]
+    );
+    indirectClaimId = created.id;
+  }
+
+  if (directClaimId && indirectClaimId) {
+    await PayrollTimeClaim.updatePayload({
+      id: directClaimId,
+      payload: { ...nextPayloadBase, bucketRole: 'direct', siblingClaimId: indirectClaimId }
+    });
+    await PayrollTimeClaim.updatePayload({
+      id: indirectClaimId,
+      payload: { ...nextPayloadBase, bucketRole: 'indirect', siblingClaimId: directClaimId }
+    });
+  }
+
+  if (punchOutId) {
+    try {
+      await pool.execute(
+        `UPDATE skill_builders_event_kiosk_punches
+         SET payroll_time_claim_id = ?, payroll_indirect_claim_id = ?
+         WHERE id IN (?, ?)`,
+        [directClaimId, indirectClaimId, punchInIdNum, punchOutId]
+      );
+    } catch (err) {
+      if (err?.code !== 'ER_BAD_FIELD_ERROR') throw err;
+    }
+  }
+
   return {
     ok: true,
     workedHours: split.workedHours,
