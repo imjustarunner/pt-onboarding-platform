@@ -1714,7 +1714,8 @@ import { isMedicaidInsurer } from '../utils/coloradoInsurances';
 import { useAuthStore } from '../store/auth';
 import {
   spanishQuestionLabelsEnabledFromLink,
-  storedSpanishFieldText
+  storedSpanishFieldText,
+  isActuallyTranslated
 } from '../utils/intakeFieldSpanish.js';
 
 const JOB_LANDING_ICON_PATHS = {
@@ -2196,8 +2197,9 @@ const txField = (field, prop = 'label') => {
 const txOption = (opt) => {
   if (!opt) return '';
   const stored = String(opt.labelEs || '').trim();
-  if (stored && intakeLocale.value === 'es' && spanishQuestionLabelsEnabled.value) return stored;
-  return tx(String(opt.label || opt.value || '').trim());
+  const en = String(opt.label || opt.value || '').trim();
+  if (stored && intakeLocale.value === 'es' && spanishQuestionLabelsEnabled.value && isActuallyTranslated(stored, en)) return stored;
+  return tx(en);
 };
 
 /**
@@ -2241,13 +2243,14 @@ async function fetchStringTranslations() {
     const fields = Array.isArray(link.value?.intake_fields) ? link.value.intake_fields : [];
     const useStored = spanishQuestionLabelsEnabled.value;
     for (const f of fields) {
-      if (f?.label && !(useStored && String(f.labelEs || '').trim())) addString(f.label);
-      if (f?.description && !(useStored && String(f.descriptionEs || '').trim())) addString(f.description);
-      if (f?.placeholder && !(useStored && String(f.placeholderEs || '').trim())) addString(f.placeholder);
-      if (f?.helperText && !(useStored && String(f.helperTextEs || '').trim())) addString(f.helperText);
+      if (f?.label && !(useStored && isActuallyTranslated(f.labelEs, f.label))) addString(f.label);
+      if (f?.description && !(useStored && isActuallyTranslated(f.descriptionEs, f.description))) addString(f.description);
+      if (f?.placeholder && !(useStored && isActuallyTranslated(f.placeholderEs, f.placeholder))) addString(f.placeholder);
+      if (f?.helperText && !(useStored && isActuallyTranslated(f.helperTextEs, f.helperText))) addString(f.helperText);
       if (Array.isArray(f?.options)) {
         for (const opt of f.options) {
-          if (opt?.label && !(useStored && String(opt.labelEs || '').trim())) addString(opt.label);
+          const optEn = String(opt?.label || opt?.value || '').trim();
+          if (opt?.label && !(useStored && isActuallyTranslated(opt.labelEs, optEn))) addString(opt.label);
           if (opt?.value && typeof opt.value === 'string') addString(opt.value);
         }
       }

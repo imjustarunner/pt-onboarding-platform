@@ -11,11 +11,31 @@ const ES_PROP = {
   description: 'descriptionEs'
 };
 
+/**
+ * Returns true only when `stored` is a real Spanish translation —
+ * i.e. it is non-empty AND different from the English source (case-insensitive).
+ * Guards against the case where the AI translation was run but returned the
+ * original English text and that got saved into the *Es field.
+ */
+export function isActuallyTranslated(stored, en) {
+  const s = String(stored || '').trim();
+  if (!s) return false;
+  const e = String(en || '').trim();
+  if (!e) return true; // No English to compare — treat stored value as valid.
+  return s.toLowerCase() !== e.toLowerCase();
+}
+
 /** Resolved Spanish override for a field property, or empty if none. */
 export function storedSpanishFieldText(field, prop = 'label', locale = 'en', enabled = false) {
   if (!field || locale !== 'es' || !enabled) return '';
   const key = ES_PROP[prop] || `${prop}Es`;
-  return String(field[key] || '').trim();
+  const stored = String(field[key] || '').trim();
+  if (!stored) return '';
+  // Derive the English source for this property so we can detect untranslated values.
+  const en = prop === 'label'
+    ? String(field.label || field.key || '').trim()
+    : String(field[prop] || '').trim();
+  return isActuallyTranslated(stored, en) ? stored : '';
 }
 
 /** English display text for a field property. */
