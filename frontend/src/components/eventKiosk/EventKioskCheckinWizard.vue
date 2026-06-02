@@ -1,6 +1,6 @@
 <template>
-  <div v-if="open" class="ek-checkin-overlay" @click.self="emitClose">
-    <div class="ek-checkin-card">
+  <div v-if="open" class="ek-checkin-overlay ek-checkin-overlay--fullscreen">
+    <div class="ek-checkin-card ek-checkin-card--fullscreen">
       <header class="ek-checkin-hdr">
         <div>
           <div class="ek-checkin-title">Check in {{ clientLabel }}</div>
@@ -252,8 +252,8 @@
     </div>
 
     <!-- Waiver section editor -->
-    <div v-if="waiverEditOpen" class="ek-checkin-overlay ek-checkin-overlay--stack" @click.self="closeWaiverEdit">
-      <div class="ek-checkin-card">
+    <div v-if="waiverEditOpen" class="ek-checkin-overlay ek-checkin-overlay--stack ek-checkin-overlay--fullscreen">
+      <div class="ek-checkin-card ek-checkin-card--fullscreen">
         <header class="ek-checkin-hdr">
           <div class="ek-checkin-title">{{ waiverTitle }}</div>
           <button type="button" class="btn btn-text" @click="closeWaiverEdit">Close</button>
@@ -877,6 +877,16 @@ watch(
   justify-content: center;
   padding: 16px;
 }
+.ek-checkin-overlay--fullscreen {
+  background: #fff;
+  padding:
+    max(16px, env(safe-area-inset-top, 0px))
+    max(24px, env(safe-area-inset-right, 0px))
+    max(16px, env(safe-area-inset-bottom, 0px))
+    max(24px, env(safe-area-inset-left, 0px));
+  justify-content: center;
+  align-items: stretch;
+}
 .ek-checkin-overlay--stack {
   z-index: 1300;
 }
@@ -888,6 +898,26 @@ watch(
   overflow: auto;
   padding: 18px 20px 16px;
   box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18);
+}
+.ek-checkin-card--fullscreen {
+  width: min(600px, 100%);
+  max-width: 600px;
+  height: 100%;
+  max-height: none;
+  margin: 0 auto;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 8px 4px 16px;
+  -webkit-overflow-scrolling: touch;
+}
+.ek-checkin-card--fullscreen .ek-checkin-step-label {
+  text-align: center;
+}
+.ek-checkin-card--fullscreen .ek-checkin-h4 {
+  text-align: center;
+}
+.ek-checkin-card--fullscreen .ek-checkin-footer {
+  justify-content: center;
 }
 .ek-checkin-hdr {
   display: flex;

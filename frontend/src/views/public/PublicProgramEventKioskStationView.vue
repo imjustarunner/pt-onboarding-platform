@@ -260,16 +260,16 @@
             <div class="pe-row-top">
               <div class="pe-row-avatar" aria-hidden="true">{{ initials(s.displayName) }}</div>
               <div class="pe-row-main">
-                <div class="pe-row-name"><strong>{{ s.displayName }}</strong></div>
+                <button
+                  type="button"
+                  class="pe-row-name-btn pe-row-name-btn--staff"
+                  :disabled="!kioskActive || checkingInUserId === s.id"
+                  @click="openEmployeeCheckin(s)"
+                >
+                  {{ s.displayName }}
+                  <span class="pe-row-name-cta">Tap to check in →</span>
+                </button>
               </div>
-              <button
-                type="button"
-                class="btn pe-btn-checkin"
-                :disabled="!kioskActive || checkingInUserId === s.id"
-                @click="checkinEmployee(s)"
-              >
-                {{ checkingInUserId === s.id ? '…' : 'Check in' }}
-              </button>
             </div>
           </li>
           <li v-if="!filteredPendingStaff.length" class="pe-empty muted">
@@ -569,6 +569,26 @@
       @sheet-updated="applyCheckinSheetToClient"
     />
 
+    <!-- Employee check-in confirm (fullscreen) -->
+    <div v-if="empConfirmOpen" class="pe-kiosk-modal pe-kiosk-modal--fullscreen">
+      <div class="pe-kiosk-modal-card pe-kiosk-modal-card--fullscreen pe-emp-confirm">
+        <h3 class="pe-kiosk-modal-title">Confirm check-in</h3>
+        <p class="pe-emp-confirm-name">{{ empConfirmPerson?.displayName }}</p>
+        <p class="muted small">Tap below to check in this employee for today.</p>
+        <footer class="pe-kiosk-modal-footer pe-emp-confirm-footer">
+          <button
+            type="button"
+            class="btn btn-primary btn-lg"
+            :disabled="!kioskActive || checkingInUserId === empConfirmPerson?.id"
+            @click="confirmEmployeeCheckin"
+          >
+            {{ checkingInUserId === empConfirmPerson?.id ? 'Checking in…' : 'Check in' }}
+          </button>
+          <button type="button" class="btn btn-secondary" @click="closeEmployeeCheckin">Cancel</button>
+        </footer>
+      </div>
+    </div>
+
     <EventKioskSessionObservationWizard
       :open="observationOpen"
       :client="observationClient"
@@ -681,8 +701,8 @@
     </div>
 
     <!-- Checkout / release modal -->
-    <div v-if="checkoutOpen" class="pe-kiosk-modal" @click.self="closeCheckout">
-      <div class="pe-kiosk-modal-card">
+    <div v-if="checkoutOpen" class="pe-kiosk-modal pe-kiosk-modal--fullscreen">
+      <div class="pe-kiosk-modal-card pe-kiosk-modal-card--fullscreen">
         <header class="pe-kiosk-modal-hdr">
           <div>
             <div class="pe-kiosk-modal-title">
@@ -1001,6 +1021,8 @@ const personMode = ref('client');
 const checkingInClientId = ref(null); // legacy; check-in uses modal flow
 const checkingInUserId = ref(null);
 const checkingOutUserId = ref(null);
+const empConfirmOpen = ref(false);
+const empConfirmPerson = ref(null);
 const empPin = ref('');
 const empPinBusy = ref(false);
 const empPinError = ref('');
@@ -2237,6 +2259,41 @@ onBeforeUnmount(() => {
   border-color: #16a34a;
   color: #14532d;
 }
+.pe-row-name-btn--staff {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1e3a8a;
+}
+.pe-row-name-btn--staff .pe-row-name-cta { color: #2563eb; }
+.pe-row-name-btn--staff:hover:not(:disabled) {
+  background: #dbeafe;
+  border-color: #3b82f6;
+  color: #1e3a8a;
+}
+.pe-emp-confirm {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+}
+.pe-emp-confirm-name {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 800;
+}
+.pe-emp-confirm-footer {
+  flex-direction: column;
+  width: 100%;
+  max-width: 360px;
+  margin-top: auto;
+}
+.pe-emp-confirm-footer .btn {
+  width: 100%;
+  padding: 14px;
+  font-size: 1rem;
+}
 .pe-row-name-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -2404,10 +2461,31 @@ onBeforeUnmount(() => {
   display: flex; align-items: center; justify-content: center;
   padding: 12px; z-index: 200;
 }
+.pe-kiosk-modal--fullscreen {
+  background: #fff;
+  padding:
+    max(16px, env(safe-area-inset-top, 0px))
+    max(24px, env(safe-area-inset-right, 0px))
+    max(16px, env(safe-area-inset-bottom, 0px))
+    max(24px, env(safe-area-inset-left, 0px));
+  justify-content: center;
+  align-items: stretch;
+}
 .pe-kiosk-modal-card {
   background: #fff; border-radius: 16px; width: min(620px, 100%);
   max-height: 92vh; overflow-y: auto; padding: 20px;
   box-shadow: 0 20px 60px rgba(15, 23, 42, 0.25);
+}
+.pe-kiosk-modal-card--fullscreen {
+  width: min(640px, 100%);
+  max-width: 640px;
+  height: 100%;
+  max-height: none;
+  margin: 0 auto;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 8px 4px 16px;
+  -webkit-overflow-scrolling: touch;
 }
 .pe-resource-card { width: min(480px, 100%); max-height: min(88vh, 720px); overflow-y: auto; }
 .pe-resource-obs-actions {

@@ -1,6 +1,6 @@
 <template>
-  <div v-if="open" class="ek-obs-overlay" @click.self="$emit('close')">
-    <div class="ek-obs-card">
+  <div v-if="open" class="ek-obs-overlay ek-obs-overlay--fullscreen">
+    <div class="ek-obs-card ek-obs-card--fullscreen">
       <header class="ek-obs-hdr">
         <div>
           <div class="ek-obs-title">Log session observation</div>
@@ -457,6 +457,16 @@ watch(
   justify-content: center;
   padding: 16px;
 }
+.ek-obs-overlay--fullscreen {
+  background: #fff;
+  padding:
+    max(16px, env(safe-area-inset-top, 0px))
+    max(24px, env(safe-area-inset-right, 0px))
+    max(16px, env(safe-area-inset-bottom, 0px))
+    max(24px, env(safe-area-inset-left, 0px));
+  justify-content: center;
+  align-items: stretch;
+}
 .ek-obs-card {
   background: #fff;
   border-radius: 14px;
@@ -464,6 +474,16 @@ watch(
   max-height: min(92vh, 780px);
   overflow-y: auto;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+}
+.ek-obs-card--fullscreen {
+  width: min(600px, 100%);
+  max-width: 600px;
+  height: 100%;
+  max-height: none;
+  margin: 0 auto;
+  border-radius: 0;
+  box-shadow: none;
+  -webkit-overflow-scrolling: touch;
 }
 .ek-obs-hdr {
   display: flex;

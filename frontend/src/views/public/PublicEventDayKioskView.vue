@@ -532,15 +532,16 @@
     </div>
 
     <!-- ── EMPLOYEE CHECKIN CONFIRM MODAL ─────────────────────────────────── -->
-    <div v-if="empConfirmModal" class="edk-modal-overlay" @click.self="empConfirmModal = false">
-      <div class="edk-modal">
-        <h3 class="edk-modal-title">Confirm Check-In</h3>
-        <p>Check in <strong>{{ empConfirmPerson?.displayName }}</strong>?</p>
-        <div class="edk-modal-actions">
-          <button class="btn btn-secondary" @click="empConfirmModal = false">Cancel</button>
-          <button class="btn btn-primary" :disabled="empConfirmBusy" @click="confirmEmployeeCheckin">
-            {{ empConfirmBusy ? '…' : 'Check In' }}
+    <div v-if="empConfirmModal" class="edk-modal-overlay edk-modal-overlay--fullscreen">
+      <div class="edk-modal edk-modal--fullscreen edk-modal--confirm">
+        <h3 class="edk-modal-title">Confirm check-in</h3>
+        <p class="edk-emp-confirm-name">{{ empConfirmPerson?.displayName }}</p>
+        <p class="muted small">Tap below to check in this employee for today.</p>
+        <div class="edk-modal-actions edk-modal-actions--stack">
+          <button class="btn btn-primary btn-lg" :disabled="empConfirmBusy" @click="confirmEmployeeCheckin">
+            {{ empConfirmBusy ? 'Checking in…' : 'Check in' }}
           </button>
+          <button class="btn btn-secondary" @click="empConfirmModal = false">Cancel</button>
         </div>
       </div>
     </div>
@@ -1595,6 +1596,16 @@ watch(slug, () => { resetToUnlock(); });
   z-index: 200;
   padding: 20px;
 }
+.edk-modal-overlay--fullscreen {
+  background: #fff;
+  padding:
+    max(16px, env(safe-area-inset-top, 0px))
+    max(24px, env(safe-area-inset-right, 0px))
+    max(16px, env(safe-area-inset-bottom, 0px))
+    max(24px, env(safe-area-inset-left, 0px));
+  justify-content: center;
+  align-items: stretch;
+}
 .edk-modal {
   background: var(--surface, #fff);
   border-radius: 20px;
@@ -1606,6 +1617,38 @@ watch(slug, () => { resetToUnlock(); });
   gap: 14px;
   max-height: 90dvh;
   overflow-y: auto;
+}
+.edk-modal--fullscreen {
+  width: min(600px, 100%);
+  max-width: 600px;
+  height: 100%;
+  max-height: none;
+  margin: 0 auto;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 16px 8px 24px;
+}
+.edk-modal--confirm {
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  gap: 20px;
+}
+.edk-emp-confirm-name {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 800;
+}
+.edk-modal-actions--stack {
+  flex-direction: column;
+  width: 100%;
+  max-width: 360px;
+  margin-top: auto;
+}
+.edk-modal-actions--stack .btn {
+  width: 100%;
+  padding: 14px;
+  font-size: 1rem;
 }
 .edk-modal-title { margin: 0; font-size: 1.1rem; font-weight: 800; }
 .edk-modal-pin { align-items: center; }
