@@ -575,6 +575,7 @@
         <h3 class="pe-kiosk-modal-title">Confirm check-in</h3>
         <p class="pe-emp-confirm-name">{{ empConfirmPerson?.displayName }}</p>
         <p class="muted small">Tap below to check in this employee for today.</p>
+        <p v-if="empPinError" class="error-box pe-kiosk-modal-err">{{ empPinError }}</p>
         <footer class="pe-kiosk-modal-footer pe-emp-confirm-footer">
           <button
             type="button"
@@ -1557,9 +1558,27 @@ async function confirmAbsent() {
   }
 }
 
-async function checkinEmployee(s) {
-  if (!kioskActive.value) return;
+function openEmployeeCheckin(s) {
+  if (!s?.id) return;
+  if (!kioskActive.value) {
+    empPinError.value = 'Check-in is only available on event days.';
+    return;
+  }
+  empPinError.value = '';
+  empConfirmPerson.value = s;
+  empConfirmOpen.value = true;
+}
+
+function closeEmployeeCheckin() {
+  empConfirmOpen.value = false;
+  empConfirmPerson.value = null;
+}
+
+async function confirmEmployeeCheckin() {
+  const s = empConfirmPerson.value;
+  if (!s?.id || !kioskActive.value) return;
   checkingInUserId.value = s.id;
+  empPinError.value = '';
   try {
     await api.post(`${apiBase()}/checkin/employee`, { userId: s.id }, {
       headers: authHeaders(),
@@ -1573,6 +1592,7 @@ async function checkinEmployee(s) {
       action: 'check_in',
       checkedInAt: new Date().toISOString()
     });
+    closeEmployeeCheckin();
   } catch (e) {
     empPinError.value = e.response?.data?.error?.message || 'Check-in failed';
   } finally {
@@ -2470,6 +2490,7 @@ onBeforeUnmount(() => {
     max(24px, env(safe-area-inset-left, 0px));
   justify-content: center;
   align-items: stretch;
+  z-index: 1200;
 }
 .pe-kiosk-modal-card {
   background: #fff; border-radius: 16px; width: min(620px, 100%);
