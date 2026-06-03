@@ -684,6 +684,7 @@ async function savePhotoPreference(selfValue, othersValue) {
         guardianSelfPhotoPreference: res.data?.guardianSelfPhotoPreference ?? (selfValue === true ? 1 : selfValue === false ? 0 : null),
         pickupPhotoPreference: res.data?.pickupPhotoPreference ?? (othersValue === true ? 1 : othersValue === false ? 0 : null)
       };
+      emit('sheet-updated', sheet.value);
     }
     // Advance past this step automatically
     if (stepIndex.value < steps.length - 1) stepIndex.value += 1;
@@ -989,7 +990,11 @@ async function completeCheckin() {
     emit('checked-in', {
       clientId: props.client.id,
       checkedInByName: checker.checkedInByName,
-      checkedInByRelationship: checker.checkedInByRelationship
+      checkedInByRelationship: checker.checkedInByRelationship,
+      guardianUserId: guardianUserId.value || null,
+      guardianName: checkerKind.value === 'guardian'
+        ? (checkerOptions.value.find((o) => o.key === checkerSelectedKey.value)?.name || null)
+        : null
     });
     emitClose();
   } catch (e) {

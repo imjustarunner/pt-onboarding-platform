@@ -580,6 +580,42 @@
       @sheet-updated="applyCheckinSheetToClient"
     />
 
+    <!-- Sibling check-in prompt -->
+    <div v-if="siblingPromptOpen" class="pe-kiosk-modal pe-kiosk-modal--fullscreen">
+      <div class="pe-kiosk-modal-card pe-kiosk-modal-card--fullscreen pe-sibling-prompt">
+        <header class="pe-kiosk-modal-hdr">
+          <div>
+            <div class="pe-kiosk-modal-title">Check in another child?</div>
+            <div class="muted small">{{ siblingPromptGuardianName }} has other children enrolled today.</div>
+          </div>
+          <button class="btn btn-text" @click="closeSiblingPrompt">Done</button>
+        </header>
+        <p class="pe-sibling-prompt-sub muted small">Tap a name to start check-in, or tap Done to finish.</p>
+        <div class="pe-sibling-prompt-list">
+          <button
+            v-for="c in siblingPromptClients"
+            :key="c.id"
+            type="button"
+            class="btn pe-sibling-prompt-btn"
+            @click="startSiblingCheckin(c)"
+          >
+            <UserAvatar
+              :photo-path="c.profilePhotoUrl"
+              :first-name="c.firstName || clientDisplayName(c).split(' ')[0]"
+              :last-name="c.lastName || ''"
+              size="lg"
+              extra-class="pe-sibling-avatar"
+            />
+            <span class="pe-sibling-name">{{ clientDisplayName(c) }}</span>
+            <span class="muted small pe-sibling-tag">Tap to check in</span>
+          </button>
+        </div>
+        <footer class="pe-kiosk-modal-footer">
+          <button class="btn btn-primary" type="button" @click="closeSiblingPrompt">All done</button>
+        </footer>
+      </div>
+    </div>
+
     <!-- Employee check-in confirm (fullscreen) -->
     <div v-if="empConfirmOpen" class="pe-kiosk-modal pe-kiosk-modal--fullscreen">
       <div class="pe-kiosk-modal-card pe-kiosk-modal-card--fullscreen pe-emp-confirm">
@@ -1507,7 +1543,7 @@ function applyCheckinSheetToClient(sheet) {
   if (!sheet?.clientId) return;
   const idx = clients.value.findIndex((c) => Number(c.id) === Number(sheet.clientId));
   if (idx === -1) return;
-  clients.value[idx] = {
+  const updated = {
     ...clients.value[idx],
     authorizedPickups: sheet.authorizedPickups || clients.value[idx].authorizedPickups,
     emergencyContacts: sheet.emergencyContacts || clients.value[idx].emergencyContacts,
@@ -1515,9 +1551,43 @@ function applyCheckinSheetToClient(sheet) {
     allergies: sheet.allergies || clients.value[idx].allergies,
     guardians: sheet.guardians || clients.value[idx].guardians
   };
+  // Sync photo preferences back so checkout camera logic sees the updated values
+  if (sheet.pickupPhotoPreference != null) updated.pickupPhotoPreference = sheet.pickupPhotoPreference;
+  if (sheet.guardianSelfPhotoPreference != null) updated.guardianSelfPhotoPreference = sheet.guardianSelfPhotoPreference;
+  clients.value[idx] = updated;
 }
 
-function onCheckinComplete({ clientId, checkedInByName = null, checkedInByRelationship = null }) {
+// Sibling check-in prompt — shown when a guardian checks in one child and has others enrolled
+const siblingPromptOpen = ref(false);
+const siblingPromptGuardianUserId = ref(null);
+const siblingPromptGuardianName = ref('');
+const siblingPromptClients = ref([]);
+
+function openSiblingPrompt(guardianUserId, guardianName) {
+  const notYetIn = clients.value.filter((c) => {
+    if (checkins.value.some((ci) => Number(ci.clientId) === Number(c.id) && ci.action === 'check_in')) return false;
+    return (c.guardians || []).some((g) => Number(g.userId) === Number(guardianUserId));
+  });
+  if (!notYetIn.length) return; // nothing to offer
+  siblingPromptGuardianUserId.value = guardianUserId;
+  siblingPromptGuardianName.value = guardianName || 'The guardian';
+  siblingPromptClients.value = notYetIn;
+  siblingPromptOpen.value = true;
+}
+
+function closeSiblingPrompt() {
+  siblingPromptOpen.value = false;
+  siblingPromptGuardianUserId.value = null;
+  siblingPromptGuardianName.value = '';
+  siblingPromptClients.value = [];
+}
+
+function startSiblingCheckin(client) {
+  closeSiblingPrompt();
+  openCheckin(client);
+}
+
+function onCheckinComplete({ clientId, checkedInByName = null, checkedInByRelationship = null, guardianUserId = null, guardianName = null }) {
   checkins.value.push({
     clientId,
     userId: null,
@@ -1528,6 +1598,10 @@ function onCheckinComplete({ clientId, checkedInByName = null, checkedInByRelati
     checkedInByRelationship
   });
   closeCheckin();
+  // Offer to check in any siblings under the same guardian
+  if (guardianUserId) {
+    openSiblingPrompt(guardianUserId, guardianName);
+  }
 }
 
 const absentOpen = ref(false);
@@ -2408,6 +2482,51 @@ onBeforeUnmount(() => {
 }
 .pe-emp-confirm-photo :deep(.avatar) {
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+}
+.pe-sibling-prompt {
+  display: flex;
+  flex-direction: column;
+}
+.pe-sibling-prompt-sub {
+  margin: 0 0 20px;
+  text-align: center;
+}
+.pe-sibling-prompt-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: center;
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0 16px;
+}
+.pe-sibling-prompt-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 28px;
+  border: 2px solid #e2e8f0;
+  border-radius: 16px;
+  background: #fff;
+  cursor: pointer;
+  min-width: 160px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.pe-sibling-prompt-btn:hover {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+.pe-sibling-name {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+.pe-sibling-tag {
+  font-size: 0.75rem;
+}
+.pe-sibling-avatar {
+  margin-bottom: 4px;
 }
 .pe-emp-confirm {
   display: flex;
