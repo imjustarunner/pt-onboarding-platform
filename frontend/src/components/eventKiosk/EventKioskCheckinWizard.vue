@@ -25,6 +25,44 @@
       <div v-if="sheetLoading" class="muted small">Loading…</div>
 
       <template v-else-if="sheet">
+        <!-- Step: Photo preference (shown once to confirmed guardians) -->
+        <section v-if="currentStepId === 'photo_preference'" class="ek-checkin-step ek-photo-pref-step">
+          <h4 class="ek-checkin-h4">Pickup verification photo</h4>
+          <p class="ek-photo-pref-desc">
+            Would you like us to take a quick front-facing photo each time someone picks up
+            <strong>{{ clientLabel }}</strong>? This helps verify the identity of the pickup person.
+          </p>
+          <p class="muted small ek-photo-pref-note">
+            Photos are encrypted and saved securely. You can change this preference later by contacting staff.
+          </p>
+          <div class="ek-photo-pref-btns">
+            <button
+              type="button"
+              class="btn ek-photo-pref-btn ek-photo-pref-btn--yes"
+              :disabled="photoPreferenceSaving"
+              @click="savePhotoPreference(true)"
+            >
+              <span class="ek-photo-pref-icon">📷</span>
+              <strong>Yes, take a photo</strong>
+              <span class="muted small">At every pickup</span>
+            </button>
+            <button
+              type="button"
+              class="btn ek-photo-pref-btn ek-photo-pref-btn--no"
+              :disabled="photoPreferenceSaving"
+              @click="savePhotoPreference(false)"
+            >
+              <span class="ek-photo-pref-icon">✕</span>
+              <strong>No thanks</strong>
+              <span class="muted small">Skip pickup photos</span>
+            </button>
+          </div>
+          <p v-if="photoPreferenceError" class="muted small ek-photo-pref-note" style="color:#dc2626;">
+            {{ photoPreferenceError }}
+          </p>
+          <p v-if="photoPreferenceSaving" class="muted small ek-photo-pref-note">Saving…</p>
+        </section>
+
         <!-- Step: Emergency contacts -->
         <section v-if="currentStepId === 'emergency'" class="ek-checkin-step">
           <h4 class="ek-checkin-h4">Emergency contacts</h4>
@@ -229,24 +267,26 @@
         <footer class="ek-checkin-footer">
           <button v-if="stepIndex > 0" type="button" class="btn btn-secondary" @click="prevStep">Back</button>
           <button type="button" class="btn btn-secondary" @click="emitClose">Cancel</button>
-          <button
-            v-if="!isLastStep"
-            type="button"
-            class="btn btn-primary"
-            :disabled="!canAdvanceStep"
-            @click="nextStep"
-          >
-            {{ advanceLabel }}
-          </button>
-          <button
-            v-else
-            type="button"
-            class="btn btn-primary"
-            :disabled="!canComplete || submitting"
-            @click="completeCheckin"
-          >
-            {{ submitting ? 'Checking in…' : 'Complete check-in' }}
-          </button>
+          <template v-if="currentStepId !== 'photo_preference'">
+            <button
+              v-if="!isLastStep"
+              type="button"
+              class="btn btn-primary"
+              :disabled="!canAdvanceStep"
+              @click="nextStep"
+            >
+              {{ advanceLabel }}
+            </button>
+            <button
+              v-else
+              type="button"
+              class="btn btn-primary"
+              :disabled="!canComplete || submitting"
+              @click="completeCheckin"
+            >
+              {{ submitting ? 'Checking in…' : 'Complete check-in' }}
+            </button>
+          </template>
         </footer>
       </template>
     </div>
@@ -314,6 +354,7 @@ const emit = defineEmits(['close', 'checked-in', 'sheet-updated']);
 
 const steps = [
   { id: 'checker', title: 'Who is checking in?', subtitle: 'Tell us who is dropping off today.' },
+  { id: 'photo_preference', title: 'Pickup photos', subtitle: 'One-time setup for pickup verification.' },
   { id: 'emergency', title: 'Emergency contacts', subtitle: 'Confirm or update emergency contacts.' },
   { id: 'pickup', title: 'Authorized pickups', subtitle: 'Confirm who may pick up your child.' },
   { id: 'walk_home', title: 'Walk-home authorization', subtitle: 'Confirm walk-home rules for this program.' },
@@ -359,6 +400,17 @@ const waiverIntent = ref(false);
 const waiverSig = ref('');
 const waiverSaving = ref(false);
 const waiverError = ref('');
+
+// Photo preference step
+const photoPreferenceSaving = ref(false);
+const photoPreferenceError = ref('');
+const photoPreferenceUrl = computed(() =>
+  props.sheetUrl ? props.sheetUrl.replace(/\/sheet(\?.*)?$/, '/photo-preference') : ''
+);
+/** Show this step only once (preference null) and only for confirmed guardians. */
+const showPhotoPreferenceStep = computed(() =>
+  sheet.value?.pickupPhotoPreference == null && checkerIsGuardian.value
+);
 
 // Inline (no-signature) pickup editing
 const inlinePickupOpen = ref(false);
@@ -504,6 +556,8 @@ function resetWizard() {
   sheet.value = null;
   guardianUserId.value = null;
   pendingWaiverKey.value = '';
+  photoPreferenceSaving.value = false;
+  photoPreferenceError.value = '';
   closeWaiverEdit();
   closeInlinePickups();
 }
@@ -563,6 +617,33 @@ async function saveInlinePickups() {
   }
 }
 
+async function savePhotoPreference(value) {
+  if (!photoPreferenceUrl.value || !props.client?.id) return;
+  photoPreferenceSaving.value = true;
+  photoPreferenceError.value = '';
+  try {
+    const res = await api.patch(photoPreferenceUrl.value, {
+      preference: value,
+      guardianUserId: guardianUserId.value || null
+    }, {
+      headers: props.authHeaders(),
+      skipGlobalLoading: true,
+      skipAuthRedirect: true
+    });
+    if (sheet.value) {
+      sheet.value = { ...sheet.value, pickupPhotoPreference: res.data?.pickupPhotoPreference ?? (value ? 1 : 0) };
+    }
+    // Advance past this step automatically
+    if (stepIndex.value < steps.length - 1) stepIndex.value += 1;
+  } catch (e) {
+    photoPreferenceError.value = e.response?.data?.error?.message || 'Could not save preference. You can set it next time.';
+    // Advance anyway — don't block check-in over a preference save failure
+    if (stepIndex.value < steps.length - 1) stepIndex.value += 1;
+  } finally {
+    photoPreferenceSaving.value = false;
+  }
+}
+
 function selectChecker(opt) {
   checkerSelectedKey.value = opt.key;
   checkerKind.value = opt.kind;
@@ -581,11 +662,22 @@ function selectSomeoneElse() {
 
 function nextStep() {
   if (!canAdvanceStep.value) return;
-  if (stepIndex.value < steps.length - 1) stepIndex.value += 1;
+  if (stepIndex.value < steps.length - 1) {
+    stepIndex.value += 1;
+    // Skip photo_preference when it's already been answered or checker isn't a guardian
+    if (steps[stepIndex.value]?.id === 'photo_preference' && !showPhotoPreferenceStep.value) {
+      stepIndex.value += 1;
+    }
+  }
 }
 
 function prevStep() {
-  if (stepIndex.value > 0) stepIndex.value -= 1;
+  if (stepIndex.value > 0) {
+    stepIndex.value -= 1;
+    if (steps[stepIndex.value]?.id === 'photo_preference' && !showPhotoPreferenceStep.value) {
+      stepIndex.value -= 1;
+    }
+  }
 }
 
 function isValidPhone(phone) {
@@ -1087,6 +1179,57 @@ watch(
 }
 .muted { color: #64748b; }
 .small { font-size: 13px; }
+.ek-photo-pref-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+}
+.ek-photo-pref-desc {
+  max-width: 420px;
+  line-height: 1.6;
+  margin: 0 auto 4px;
+}
+.ek-photo-pref-note {
+  margin: 0 auto;
+  max-width: 380px;
+}
+.ek-photo-pref-btns {
+  display: flex;
+  gap: 16px;
+  margin-top: 24px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.ek-photo-pref-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 22px 28px;
+  border: 2px solid #e2e8f0;
+  border-radius: 14px;
+  background: #fff;
+  cursor: pointer;
+  min-width: 140px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.ek-photo-pref-btn:hover:not(:disabled) {
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+.ek-photo-pref-btn--yes:hover:not(:disabled) {
+  border-color: #166534;
+  background: #ecfdf5;
+}
+.ek-photo-pref-btn--no:hover:not(:disabled) {
+  border-color: #64748b;
+}
+.ek-photo-pref-icon {
+  font-size: 1.8rem;
+  line-height: 1;
+}
 .ek-pickup-inline {
   margin-top: 14px;
   padding-top: 12px;

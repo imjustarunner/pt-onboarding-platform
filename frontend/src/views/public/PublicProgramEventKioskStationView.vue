@@ -731,6 +731,7 @@
             </div>
             <div class="muted small">
               <template v-if="checkoutPhase === 'attendance'">{{ clientDisplayName(activeClient) }} is checked out — confirm upcoming attendance.</template>
+              <template v-else-if="activeClient?.pickupPhotoPreference === 0">Tap an approved pickup or walk-home option, then sign to release.</template>
               <template v-else>Tap an approved pickup or walk-home option, then sign and take a release photo.</template>
             </div>
           </div>
@@ -857,15 +858,24 @@
           </div>
         </div>
 
-        <h4 class="pe-kiosk-modal-h4">Release photo <span class="pe-required">(required)</span></h4>
-        <div class="pe-kiosk-photo-wrap">
-          <video v-if="photoStreamActive" ref="photoVideo" class="pe-kiosk-photo-video" autoplay playsinline muted />
-          <img v-else-if="photoPreview" :src="photoPreview" class="pe-kiosk-photo-preview" alt="Release photo" />
-          <div class="pe-kiosk-photo-actions">
-            <button v-if="!photoStreamActive && !photoPreview" class="btn btn-secondary btn-sm" type="button" @click="startCamera">Camera</button>
-            <button v-if="photoStreamActive" class="btn btn-primary btn-sm" type="button" @click="snapPhoto">Snap</button>
-            <button v-if="photoPreview" class="btn btn-secondary btn-sm" type="button" @click="clearPhoto">Retake</button>
+        <template v-if="activeClient?.pickupPhotoPreference !== 0">
+          <h4 class="pe-kiosk-modal-h4">
+            Release photo
+            <span class="pe-required">(required)</span>
+            <span class="muted small" style="font-weight:400;margin-left:6px;">Front-facing</span>
+          </h4>
+          <div class="pe-kiosk-photo-wrap">
+            <video v-if="photoStreamActive" ref="photoVideo" class="pe-kiosk-photo-video" autoplay playsinline muted style="transform:scaleX(-1);" />
+            <img v-else-if="photoPreview" :src="photoPreview" class="pe-kiosk-photo-preview" alt="Release photo" />
+            <div class="pe-kiosk-photo-actions">
+              <button v-if="!photoStreamActive && !photoPreview" class="btn btn-secondary btn-sm" type="button" @click="startCamera">Camera</button>
+              <button v-if="photoStreamActive" class="btn btn-primary btn-sm" type="button" @click="snapPhoto">Snap</button>
+              <button v-if="photoPreview" class="btn btn-secondary btn-sm" type="button" @click="clearPhoto">Retake</button>
+            </div>
           </div>
+        </template>
+        <div v-else class="pe-kiosk-photo-skipped muted small">
+          Photo capture turned off by guardian preference.
         </div>
 
         <footer class="pe-kiosk-modal-footer">
@@ -1813,7 +1823,7 @@ function openCheckout(client) {
       sigCtx.fillStyle = '#fff';
       sigCtx.fillRect(0, 0, c.width, c.height);
     }
-    if (!photoPreview.value) startCamera();
+    if (!photoPreview.value && client?.pickupPhotoPreference !== 0) startCamera();
 
     const pickups = [
       ...guardianPickupOptions(client),
@@ -1887,7 +1897,7 @@ function sigEnd(e) {
 
 async function startCamera() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
     photoStream.value = stream;
     await nextTick();
     if (photoVideo.value) photoVideo.value.srcObject = stream;
@@ -1931,7 +1941,8 @@ const checkoutBlockReason = computed(() => {
   if (!client || client.checkoutBlocked) return '';
   if (!releaseMode.value) return checkoutSelectReason.value;
   if (!sigDirty.value) return 'Draw a signature above to continue.';
-  if (!photoPreview.value) return 'Take a release photo above to continue.';
+  const photoOptedOut = client?.pickupPhotoPreference === 0;
+  if (!photoPreview.value && !photoOptedOut) return 'Take a release photo above to continue.';
   if (releaseMode.value === 'pickup' && !selectedPickupKey.value) {
     return 'Tap the person who is picking up to select them.';
   }
@@ -1968,7 +1979,8 @@ async function submitCheckout() {
       signerSignatureData: sigData,
       signerSourceMethod: walkHomeSelfRelease ? 'walk_home_self' : 'fresh_kiosk_signature',
       photoBase64: photoPreview.value || null,
-      photoContentType: photoPreview.value ? 'image/jpeg' : null
+      photoContentType: photoPreview.value ? 'image/jpeg' : null,
+      consentingGuardianUserId: activeClient.value?.primaryGuardianUserId || null
     }, { headers: authHeaders(), skipGlobalLoading: true, skipAuthRedirect: true });
     if (res.data?.ok) {
       releases.value.unshift({
@@ -2654,6 +2666,7 @@ onBeforeUnmount(() => {
 .pe-kiosk-sig-wrap { display: flex; flex-direction: column; gap: 6px; }
 .pe-kiosk-sig-canvas { width: 100%; height: 140px; border: 1px solid var(--border); border-radius: 8px; touch-action: none; }
 .pe-kiosk-photo-video, .pe-kiosk-photo-preview { width: 100%; max-width: 280px; border-radius: 8px; }
+.pe-kiosk-photo-skipped { padding: 10px 0 4px; }
 .pe-kiosk-modal-footer { margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px; }
 .pe-attend-q { margin-top: 8px; }
 .pe-kiosk-modal-h4 { margin: 0 0 12px; font-size: 18px; font-weight: 700; }

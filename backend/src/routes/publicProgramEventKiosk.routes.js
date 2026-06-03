@@ -20,7 +20,8 @@ import {
   programEventEmployeeCheckout,
   programEventClientSaveKioskPickups,
   getProgramEventObservationConfig,
-  postProgramEventObservation
+  postProgramEventObservation,
+  patchProgramEventClientPhotoPreference
 } from '../controllers/programEventKioskPublic.controller.js';
 
 const router = express.Router();
@@ -33,6 +34,7 @@ router.post('/agency/:slug/kiosk/events/:eventId/checkin/client/waiver-section',
 router.post('/agency/:slug/kiosk/events/:eventId/checkin/client', programEventClientCheckin);
 router.post('/agency/:slug/kiosk/events/:eventId/checkin/client/absent', programEventClientAbsent);
 router.post('/agency/:slug/kiosk/events/:eventId/checkin/client/:clientId/pickups', programEventClientSaveKioskPickups);
+router.patch('/agency/:slug/kiosk/events/:eventId/checkin/client/:clientId/photo-preference', patchProgramEventClientPhotoPreference);
 router.post('/agency/:slug/kiosk/events/:eventId/checkin/late-contact', programEventLateContact);
 router.post('/agency/:slug/kiosk/events/:eventId/checkin/employee', programEventEmployeeCheckin);
 router.post('/agency/:slug/kiosk/events/:eventId/checkin/employee-pin', programEventEmployeeCheckinByPin);

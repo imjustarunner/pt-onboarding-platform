@@ -113,11 +113,11 @@ function isUnknownWorkflowColumnError(err) {
 
 async function loadKioskParticipantEnrollmentRows(eventId) {
   const baseSelectWithDob = `
-    SELECT cec.client_id, c.full_name, c.initials, c.identifier_code, c.date_of_birth
+    SELECT cec.client_id, c.full_name, c.initials, c.identifier_code, c.date_of_birth, c.pickup_photo_preference
     FROM company_event_clients cec
     INNER JOIN clients c ON c.id = cec.client_id`;
   const baseSelect = `
-    SELECT cec.client_id, c.full_name, c.initials, c.identifier_code
+    SELECT cec.client_id, c.full_name, c.initials, c.identifier_code, c.pickup_photo_preference
     FROM company_event_clients cec
     INNER JOIN clients c ON c.id = cec.client_id`;
 
@@ -552,6 +552,7 @@ export const getProgramEventKioskContext = async (req, res, next) => {
           identifierCode: r.identifier_code || '',
           dateOfBirth: r.date_of_birth ? String(r.date_of_birth).slice(0, 10) : null,
           ageYears: ageFromDateOfBirth(r.date_of_birth),
+          pickupPhotoPreference: r.pickup_photo_preference != null ? Number(r.pickup_photo_preference) : null,
           guardians: [],
           ...emptyKioskClientWaiverFields()
         });
@@ -613,6 +614,7 @@ export const getProgramEventKioskContext = async (req, res, next) => {
       finalizeKioskClientWaiverEntry(c, c.guardians);
       c.checkoutBlocked = clientCheckoutBlocked(c);
       c.canSelfWalkHome = clientHasWalkHomeAuthorization(c) && Number(c.ageYears) >= 12;
+      c.primaryGuardianUserId = c.guardians?.[0]?.userId || null;
     }
 
     const today = kioskDay.todayYmd;
@@ -834,7 +836,23 @@ export const submitProgramEventCheckout = async (req, res, next) => {
     }
 
     const photoRaw = String(req.body?.photoBase64 || '').trim();
-    if (!photoRaw) {
+    const consentingGuardianUserId = parsePositiveInt(req.body?.consentingGuardianUserId) || null;
+
+    // Look up the client's photo preference so we know whether a photo is mandatory.
+    let pickupPhotoPreference = null;
+    try {
+      const [prefRows] = await pool.execute(
+        'SELECT pickup_photo_preference FROM clients WHERE id = ? LIMIT 1',
+        [clientId]
+      );
+      pickupPhotoPreference = prefRows?.[0]?.pickup_photo_preference != null
+        ? Number(prefRows[0].pickup_photo_preference)
+        : null;
+    } catch {
+      // column not migrated yet — treat as null (photo required)
+    }
+    const photoOptedOut = pickupPhotoPreference === 0;
+    if (!photoRaw && !photoOptedOut) {
       return res.status(400).json({ error: { message: 'Release photo is required.' } });
     }
 
@@ -892,59 +910,61 @@ export const submitProgramEventCheckout = async (req, res, next) => {
       photo_encryption_auth_tag_b64: null,
       photo_encryption_aad: null
     };
-    try {
-      const dataUrlMatch = photoRaw.match(/^data:([^;]+);base64,(.+)$/);
-      const contentType = dataUrlMatch?.[1] || String(req.body?.photoContentType || 'image/jpeg');
-      const base64 = dataUrlMatch?.[2] || photoRaw;
-      const photoBuffer = Buffer.from(base64, 'base64');
-      if (photoBuffer.length > 5 * 1024 * 1024) {
-        return res.status(413).json({ error: { message: 'Release photo is too large (max 5 MB).' } });
-      }
-      const aad = `program-event-release/${agencyId}/${eventId}/${clientId}`;
-      let enc;
+    if (photoRaw) {
       try {
-        enc = await DocumentEncryptionService.encryptBuffer(photoBuffer, { aad });
-      } catch (encErr) {
-        console.warn('[program-event-kiosk] release photo encryption failed', encErr?.message);
-        return res.status(503).json({ error: { message: 'Could not secure the release photo. Try again or contact support.' } });
-      }
-      const ext = contentType === 'image/png' ? 'png'
-        : contentType === 'image/webp' ? 'webp'
-        : 'jpg';
-      const key = `program-event-releases/${agencyId}/${eventId}/${clientId}/${Date.now()}.${ext}`;
-      const bucket = await StorageService.getGCSBucket();
-      await bucket.file(key).save(enc.encryptedBuffer, {
-        contentType,
-        metadata: {
-          metadata: {
-            isEncrypted: '1',
-            encryptionKeyId: enc.encryptionKeyId,
-            encryptionWrappedKey: enc.encryptionWrappedKeyB64,
-            encryptionIv: enc.encryptionIvB64,
-            encryptionAuthTag: enc.encryptionAuthTagB64,
-            encryptionAad: aad,
-            agencyId: String(agencyId),
-            eventId: String(eventId),
-            clientId: String(clientId)
-          }
+        const dataUrlMatch = photoRaw.match(/^data:([^;]+);base64,(.+)$/);
+        const contentType = dataUrlMatch?.[1] || String(req.body?.photoContentType || 'image/jpeg');
+        const base64 = dataUrlMatch?.[2] || photoRaw;
+        const photoBuffer = Buffer.from(base64, 'base64');
+        if (photoBuffer.length > 5 * 1024 * 1024) {
+          return res.status(413).json({ error: { message: 'Release photo is too large (max 5 MB).' } });
         }
-      });
-      photoFields = {
-        photo_storage_key: key,
-        photo_content_type: contentType,
-        photo_encryption_key_id: enc.encryptionKeyId,
-        photo_encryption_wrapped_key_b64: enc.encryptionWrappedKeyB64,
-        photo_encryption_iv_b64: enc.encryptionIvB64,
-        photo_encryption_auth_tag_b64: enc.encryptionAuthTagB64,
-        photo_encryption_aad: aad
-      };
-    } catch (photoErr) {
-      console.warn('[program-event-kiosk] release photo upload failed', photoErr?.message);
-      return res.status(503).json({ error: { message: 'Release photo upload failed. Please try again.' } });
-    }
+        const aad = `program-event-release/${agencyId}/${eventId}/${clientId}`;
+        let enc;
+        try {
+          enc = await DocumentEncryptionService.encryptBuffer(photoBuffer, { aad });
+        } catch (encErr) {
+          console.warn('[program-event-kiosk] release photo encryption failed', encErr?.message);
+          return res.status(503).json({ error: { message: 'Could not secure the release photo. Try again or contact support.' } });
+        }
+        const ext = contentType === 'image/png' ? 'png'
+          : contentType === 'image/webp' ? 'webp'
+          : 'jpg';
+        const key = `program-event-releases/${agencyId}/${eventId}/${clientId}/${Date.now()}.${ext}`;
+        const bucket = await StorageService.getGCSBucket();
+        await bucket.file(key).save(enc.encryptedBuffer, {
+          contentType,
+          metadata: {
+            metadata: {
+              isEncrypted: '1',
+              encryptionKeyId: enc.encryptionKeyId,
+              encryptionWrappedKey: enc.encryptionWrappedKeyB64,
+              encryptionIv: enc.encryptionIvB64,
+              encryptionAuthTag: enc.encryptionAuthTagB64,
+              encryptionAad: aad,
+              agencyId: String(agencyId),
+              eventId: String(eventId),
+              clientId: String(clientId)
+            }
+          }
+        });
+        photoFields = {
+          photo_storage_key: key,
+          photo_content_type: contentType,
+          photo_encryption_key_id: enc.encryptionKeyId,
+          photo_encryption_wrapped_key_b64: enc.encryptionWrappedKeyB64,
+          photo_encryption_iv_b64: enc.encryptionIvB64,
+          photo_encryption_auth_tag_b64: enc.encryptionAuthTagB64,
+          photo_encryption_aad: aad
+        };
+      } catch (photoErr) {
+        console.warn('[program-event-kiosk] release photo upload failed', photoErr?.message);
+        return res.status(503).json({ error: { message: 'Release photo upload failed. Please try again.' } });
+      }
 
-    if (!photoFields.photo_storage_key) {
-      return res.status(503).json({ error: { message: 'Release photo could not be saved.' } });
+      if (!photoFields.photo_storage_key) {
+        return res.status(503).json({ error: { message: 'Release photo could not be saved.' } });
+      }
     }
 
     // Server-stamp the audit trio.
@@ -962,8 +982,9 @@ export const submitProgramEventCheckout = async (req, res, next) => {
             photo_storage_key, photo_content_type,
             photo_encryption_key_id, photo_encryption_wrapped_key_b64,
             photo_encryption_iv_b64, photo_encryption_auth_tag_b64, photo_encryption_aad,
+            consenting_guardian_user_id,
             notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           eventId, agencyId, clientId,
           releasedToName, releasedToRelationship, releasedToPhone, walkHomeAlone ? 1 : 0,
@@ -972,6 +993,7 @@ export const submitProgramEventCheckout = async (req, res, next) => {
           photoFields.photo_storage_key, photoFields.photo_content_type,
           photoFields.photo_encryption_key_id, photoFields.photo_encryption_wrapped_key_b64,
           photoFields.photo_encryption_iv_b64, photoFields.photo_encryption_auth_tag_b64, photoFields.photo_encryption_aad,
+          consentingGuardianUserId,
           notes
         ]
       );
@@ -993,6 +1015,58 @@ export const submitProgramEventCheckout = async (req, res, next) => {
       photoCaptured: !!photoFields.photo_storage_key,
       signedAt: new Date().toISOString()
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * PATCH …/checkin/client/:clientId/photo-preference
+ * Body: { preference: true | false, guardianUserId }
+ * Called once from the check-in wizard when the guardian answers the
+ * "Would you like photos taken at pickup?" prompt. Updates clients.pickup_photo_preference.
+ */
+export const patchProgramEventClientPhotoPreference = async (req, res, next) => {
+  try {
+    const ctx = verifyKioskBearerForProgramEvent(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertKioskTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const clientId = parsePositiveInt(req.params.clientId);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+
+    const preference = req.body?.preference;
+    if (preference !== true && preference !== false) {
+      return res.status(400).json({ error: { message: 'preference must be true or false' } });
+    }
+
+    const guardianUserId = parsePositiveInt(req.body?.guardianUserId);
+    if (guardianUserId) {
+      const [linkRows] = await pool.execute(
+        `SELECT 1 FROM client_guardians
+         WHERE client_id = ? AND guardian_user_id = ? AND (access_enabled = 1 OR access_enabled IS NULL)
+         LIMIT 1`,
+        [clientId, guardianUserId]
+      );
+      if (!linkRows?.[0]) {
+        return res.status(403).json({ error: { message: 'Guardian is not linked to this client' } });
+      }
+    }
+
+    try {
+      await pool.execute(
+        'UPDATE clients SET pickup_photo_preference = ? WHERE id = ?',
+        [preference ? 1 : 0, clientId]
+      );
+    } catch (err) {
+      if (err?.code === 'ER_BAD_FIELD_ERROR') {
+        return res.status(503).json({ error: { message: 'Photo preference column not migrated yet. Run migration 838.' } });
+      }
+      throw err;
+    }
+
+    res.json({ ok: true, clientId, pickupPhotoPreference: preference ? 1 : 0 });
   } catch (e) {
     next(e);
   }
