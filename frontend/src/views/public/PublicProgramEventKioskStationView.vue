@@ -731,7 +731,7 @@
             </div>
             <div class="muted small">
               <template v-if="checkoutPhase === 'attendance'">{{ clientDisplayName(activeClient) }} is checked out — confirm upcoming attendance.</template>
-              <template v-else-if="activeClient?.pickupPhotoPreference === 0">Tap an approved pickup or walk-home option, then sign to release.</template>
+              <template v-else-if="effectivePhotoPreference !== 1">Tap an approved pickup or walk-home option, then sign to release.</template>
               <template v-else>Tap an approved pickup or walk-home option, then sign and take a release photo.</template>
             </div>
           </div>
@@ -858,7 +858,7 @@
           </div>
         </div>
 
-        <template v-if="activeClient?.pickupPhotoPreference !== 0">
+        <template v-if="effectivePhotoPreference === 1">
           <h4 class="pe-kiosk-modal-h4">
             Release photo
             <span class="pe-required">(required)</span>
@@ -874,7 +874,7 @@
             </div>
           </div>
         </template>
-        <div v-else class="pe-kiosk-photo-skipped muted small">
+        <div v-else-if="effectivePhotoPreference === 0" class="pe-kiosk-photo-skipped muted small">
           Photo capture turned off by guardian preference.
         </div>
 
@@ -1823,7 +1823,8 @@ function openCheckout(client) {
       sigCtx.fillStyle = '#fff';
       sigCtx.fillRect(0, 0, c.width, c.height);
     }
-    if (!photoPreview.value && client?.pickupPhotoPreference !== 0) startCamera();
+    const mightNeedPhoto = client?.pickupPhotoPreference === 1 || client?.guardianSelfPhotoPreference === 1;
+    if (!photoPreview.value && mightNeedPhoto) startCamera();
 
     const pickups = [
       ...guardianPickupOptions(client),
@@ -1936,13 +1937,41 @@ const checkoutSelectReason = computed(() => {
   return 'Select a release option to continue.';
 });
 
+/**
+ * Returns 1 (photo required), 0 (opted out/skip), or null (skip — never answered).
+ * Picks guardian's own preference when a guardian is selected, others' preference otherwise.
+ */
+const effectivePhotoPreference = computed(() => {
+  const client = activeClient.value;
+  if (!client) return null;
+  const walkHome = releaseMode.value === 'walk_home_staff' || releaseMode.value === 'walk_home_self';
+  if (walkHome) return null; // no photo for walk-home
+
+  if (releaseMode.value === 'pickup' && selectedPickupKey.value) {
+    const pickup = (client.authorizedPickups || []).find((p) => pickupKey(p) === selectedPickupKey.value);
+    if (pickup?.source === 'guardian') {
+      return client.guardianSelfPhotoPreference != null ? Number(client.guardianSelfPhotoPreference) : null;
+    }
+    return client.pickupPhotoPreference != null ? Number(client.pickupPhotoPreference) : null;
+  }
+
+  // No pickup selected yet — show photo UI if either preference is explicitly 1
+  if (client.pickupPhotoPreference === 1 || client.guardianSelfPhotoPreference === 1) return 1;
+  return null; // null = skip until we know who's picking up
+});
+
+const selectedPickupIsGuardian = computed(() => {
+  if (releaseMode.value !== 'pickup' || !selectedPickupKey.value) return false;
+  const pickup = (activeClient.value?.authorizedPickups || []).find((p) => pickupKey(p) === selectedPickupKey.value);
+  return pickup?.source === 'guardian';
+});
+
 const checkoutBlockReason = computed(() => {
   const client = activeClient.value;
   if (!client || client.checkoutBlocked) return '';
   if (!releaseMode.value) return checkoutSelectReason.value;
   if (!sigDirty.value) return 'Draw a signature above to continue.';
-  const photoOptedOut = client?.pickupPhotoPreference === 0;
-  if (!photoPreview.value && !photoOptedOut) return 'Take a release photo above to continue.';
+  if (!photoPreview.value && effectivePhotoPreference.value === 1) return 'Take a release photo above to continue.';
   if (releaseMode.value === 'pickup' && !selectedPickupKey.value) {
     return 'Tap the person who is picking up to select them.';
   }
@@ -1980,7 +2009,8 @@ async function submitCheckout() {
       signerSourceMethod: walkHomeSelfRelease ? 'walk_home_self' : 'fresh_kiosk_signature',
       photoBase64: photoPreview.value || null,
       photoContentType: photoPreview.value ? 'image/jpeg' : null,
-      consentingGuardianUserId: activeClient.value?.primaryGuardianUserId || null
+      consentingGuardianUserId: activeClient.value?.primaryGuardianUserId || null,
+      pickupPersonIsGuardian: selectedPickupIsGuardian.value
     }, { headers: authHeaders(), skipGlobalLoading: true, skipAuthRedirect: true });
     if (res.data?.ok) {
       releases.value.unshift({

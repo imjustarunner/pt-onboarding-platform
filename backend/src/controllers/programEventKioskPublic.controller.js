@@ -113,11 +113,13 @@ function isUnknownWorkflowColumnError(err) {
 
 async function loadKioskParticipantEnrollmentRows(eventId) {
   const baseSelectWithDob = `
-    SELECT cec.client_id, c.full_name, c.initials, c.identifier_code, c.date_of_birth, c.pickup_photo_preference
+    SELECT cec.client_id, c.full_name, c.initials, c.identifier_code, c.date_of_birth,
+           c.pickup_photo_preference, c.guardian_self_photo_preference
     FROM company_event_clients cec
     INNER JOIN clients c ON c.id = cec.client_id`;
   const baseSelect = `
-    SELECT cec.client_id, c.full_name, c.initials, c.identifier_code, c.pickup_photo_preference
+    SELECT cec.client_id, c.full_name, c.initials, c.identifier_code,
+           c.pickup_photo_preference, c.guardian_self_photo_preference
     FROM company_event_clients cec
     INNER JOIN clients c ON c.id = cec.client_id`;
 
@@ -553,6 +555,7 @@ export const getProgramEventKioskContext = async (req, res, next) => {
           dateOfBirth: r.date_of_birth ? String(r.date_of_birth).slice(0, 10) : null,
           ageYears: ageFromDateOfBirth(r.date_of_birth),
           pickupPhotoPreference: r.pickup_photo_preference != null ? Number(r.pickup_photo_preference) : null,
+          guardianSelfPhotoPreference: r.guardian_self_photo_preference != null ? Number(r.guardian_self_photo_preference) : null,
           guardians: [],
           ...emptyKioskClientWaiverFields()
         });
@@ -838,21 +841,28 @@ export const submitProgramEventCheckout = async (req, res, next) => {
     const photoRaw = String(req.body?.photoBase64 || '').trim();
     const consentingGuardianUserId = parsePositiveInt(req.body?.consentingGuardianUserId) || null;
 
-    // Look up the client's photo preference so we know whether a photo is mandatory.
-    let pickupPhotoPreference = null;
+    const pickupPersonIsGuardian = req.body?.pickupPersonIsGuardian === true;
+
+    // Resolve the applicable photo preference for this pickup scenario.
+    // null (never asked) → skip photo; 1 → required; 0 → opted out (skip).
+    let effectivePhotoPreference = null;
     try {
       const [prefRows] = await pool.execute(
-        'SELECT pickup_photo_preference FROM clients WHERE id = ? LIMIT 1',
+        'SELECT pickup_photo_preference, guardian_self_photo_preference FROM clients WHERE id = ? LIMIT 1',
         [clientId]
       );
-      pickupPhotoPreference = prefRows?.[0]?.pickup_photo_preference != null
-        ? Number(prefRows[0].pickup_photo_preference)
-        : null;
+      if (prefRows?.[0]) {
+        const raw = pickupPersonIsGuardian
+          ? prefRows[0].guardian_self_photo_preference
+          : prefRows[0].pickup_photo_preference;
+        effectivePhotoPreference = raw != null ? Number(raw) : null;
+      }
     } catch {
-      // column not migrated yet — treat as null (photo required)
+      // columns not migrated yet — treat as null (skip)
     }
-    const photoOptedOut = pickupPhotoPreference === 0;
-    if (!photoRaw && !photoOptedOut) {
+    // null = skip photo; 1 = required; 0 = opted out (skip)
+    const photoRequired = effectivePhotoPreference === 1;
+    if (!photoRaw && photoRequired) {
       return res.status(400).json({ error: { message: 'Release photo is required.' } });
     }
 
@@ -1022,9 +1032,10 @@ export const submitProgramEventCheckout = async (req, res, next) => {
 
 /**
  * PATCH …/checkin/client/:clientId/photo-preference
- * Body: { preference: true | false, guardianUserId }
- * Called once from the check-in wizard when the guardian answers the
- * "Would you like photos taken at pickup?" prompt. Updates clients.pickup_photo_preference.
+ * Body: { selfPreference: true|false|null, othersPreference: true|false|null, guardianUserId }
+ *   selfPreference    — when the guardian themselves picks up (guardian_self_photo_preference)
+ *   othersPreference  — when anyone else picks up (pickup_photo_preference)
+ * null means "skip photo / not answered". Called from the check-in wizard photo_preference step.
  */
 export const patchProgramEventClientPhotoPreference = async (req, res, next) => {
   try {
@@ -1036,9 +1047,16 @@ export const patchProgramEventClientPhotoPreference = async (req, res, next) => 
     const clientId = parsePositiveInt(req.params.clientId);
     if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
 
-    const preference = req.body?.preference;
-    if (preference !== true && preference !== false) {
-      return res.status(400).json({ error: { message: 'preference must be true or false' } });
+    const toFlag = (v) => {
+      if (v === true || v === 1) return 1;
+      if (v === false || v === 0) return 0;
+      return null; // null = skip photo
+    };
+    const selfPref = toFlag(req.body?.selfPreference);
+    const othersPref = toFlag(req.body?.othersPreference);
+
+    if (selfPref === undefined && othersPref === undefined) {
+      return res.status(400).json({ error: { message: 'selfPreference or othersPreference is required' } });
     }
 
     const guardianUserId = parsePositiveInt(req.body?.guardianUserId);
@@ -1056,17 +1074,22 @@ export const patchProgramEventClientPhotoPreference = async (req, res, next) => 
 
     try {
       await pool.execute(
-        'UPDATE clients SET pickup_photo_preference = ? WHERE id = ?',
-        [preference ? 1 : 0, clientId]
+        'UPDATE clients SET guardian_self_photo_preference = ?, pickup_photo_preference = ? WHERE id = ?',
+        [selfPref, othersPref, clientId]
       );
     } catch (err) {
       if (err?.code === 'ER_BAD_FIELD_ERROR') {
-        return res.status(503).json({ error: { message: 'Photo preference column not migrated yet. Run migration 838.' } });
+        return res.status(503).json({ error: { message: 'Photo preference columns not migrated yet. Run migrations 838/840.' } });
       }
       throw err;
     }
 
-    res.json({ ok: true, clientId, pickupPhotoPreference: preference ? 1 : 0 });
+    res.json({
+      ok: true,
+      clientId,
+      guardianSelfPhotoPreference: selfPref,
+      pickupPhotoPreference: othersPref
+    });
   } catch (e) {
     next(e);
   }

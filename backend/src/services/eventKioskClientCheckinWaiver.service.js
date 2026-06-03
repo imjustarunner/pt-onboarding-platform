@@ -120,14 +120,18 @@ export async function buildKioskClientWaiverEntry(clientId) {
 
   let dateOfBirth = null;
   let pickupPhotoPreference = null;
+  let guardianSelfPhotoPreference = null;
   try {
     const [rows] = await pool.execute(
-      'SELECT full_name, date_of_birth, pickup_photo_preference FROM clients WHERE id = ? LIMIT 1',
+      'SELECT full_name, date_of_birth, pickup_photo_preference, guardian_self_photo_preference FROM clients WHERE id = ? LIMIT 1',
       [cid]
     );
     dateOfBirth = rows?.[0]?.date_of_birth ? String(rows[0].date_of_birth).slice(0, 10) : null;
     pickupPhotoPreference = rows?.[0]?.pickup_photo_preference != null
       ? Number(rows[0].pickup_photo_preference)
+      : null;
+    guardianSelfPhotoPreference = rows?.[0]?.guardian_self_photo_preference != null
+      ? Number(rows[0].guardian_self_photo_preference)
       : null;
   } catch (err) {
     if (err?.code !== 'ER_BAD_FIELD_ERROR' && !String(err?.message || '').includes('date_of_birth')) {
@@ -141,6 +145,7 @@ export async function buildKioskClientWaiverEntry(clientId) {
     dateOfBirth,
     ageYears: ageFromDateOfBirth(dateOfBirth),
     pickupPhotoPreference,
+    guardianSelfPhotoPreference,
     guardians: [],
     ...emptyKioskClientWaiverFields()
   };
@@ -291,6 +296,7 @@ export async function getEventKioskClientCheckinSheet({ companyEventId, clientId
     clientId: cid,
     guardianUserId: gid,
     pickupPhotoPreference: entry.pickupPhotoPreference,
+    guardianSelfPhotoPreference: entry.guardianSelfPhotoPreference,
     waiversEnabled: gate.enabled,
     guardians,
     authorizedPickups: entry.authorizedPickups || [],

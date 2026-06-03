@@ -27,40 +27,79 @@
       <template v-else-if="sheet">
         <!-- Step: Photo preference (shown once to confirmed guardians) -->
         <section v-if="currentStepId === 'photo_preference'" class="ek-checkin-step ek-photo-pref-step">
-          <h4 class="ek-checkin-h4">Pickup verification photo</h4>
+          <h4 class="ek-checkin-h4">Pickup verification photos</h4>
           <p class="ek-photo-pref-desc">
-            Would you like us to take a quick front-facing photo each time someone picks up
-            <strong>{{ clientLabel }}</strong>? This helps verify the identity of the pickup person.
+            Set your photo preferences for <strong>{{ clientLabel }}</strong>'s pickups.
+            Photos are taken with the front-facing camera, encrypted, and saved securely.
+            You can update these any time by contacting staff.
           </p>
-          <p class="muted small ek-photo-pref-note">
-            Photos are encrypted and saved securely. You can change this preference later by contacting staff.
-          </p>
-          <div class="ek-photo-pref-btns">
-            <button
-              type="button"
-              class="btn ek-photo-pref-btn ek-photo-pref-btn--yes"
-              :disabled="photoPreferenceSaving"
-              @click="savePhotoPreference(true)"
-            >
-              <span class="ek-photo-pref-icon">📷</span>
-              <strong>Yes, take a photo</strong>
-              <span class="muted small">At every pickup</span>
-            </button>
-            <button
-              type="button"
-              class="btn ek-photo-pref-btn ek-photo-pref-btn--no"
-              :disabled="photoPreferenceSaving"
-              @click="savePhotoPreference(false)"
-            >
-              <span class="ek-photo-pref-icon">✕</span>
-              <strong>No thanks</strong>
-              <span class="muted small">Skip pickup photos</span>
-            </button>
+
+          <!-- Guardian picking up themselves -->
+          <div class="ek-photo-pref-group">
+            <p class="ek-photo-pref-group-label">When <strong>you</strong> pick up {{ clientLabel }}:</p>
+            <div class="ek-photo-pref-btns">
+              <button
+                type="button"
+                class="btn ek-photo-pref-btn"
+                :class="selfPrefDraft === true ? 'ek-photo-pref-btn--selected' : 'ek-photo-pref-btn--yes'"
+                :disabled="photoPreferenceSaving"
+                @click="selfPrefDraft = true"
+              >
+                <span class="ek-photo-pref-icon">📷</span>
+                <strong>Take my photo</strong>
+              </button>
+              <button
+                type="button"
+                class="btn ek-photo-pref-btn"
+                :class="selfPrefDraft === false ? 'ek-photo-pref-btn--selected' : 'ek-photo-pref-btn--no'"
+                :disabled="photoPreferenceSaving"
+                @click="selfPrefDraft = false"
+              >
+                <span class="ek-photo-pref-icon">✕</span>
+                <strong>No photo for me</strong>
+              </button>
+            </div>
           </div>
+
+          <!-- Anyone else picking up -->
+          <div class="ek-photo-pref-group">
+            <p class="ek-photo-pref-group-label">When <strong>someone else</strong> picks up {{ clientLabel }}:</p>
+            <div class="ek-photo-pref-btns">
+              <button
+                type="button"
+                class="btn ek-photo-pref-btn"
+                :class="othersPrefDraft === true ? 'ek-photo-pref-btn--selected' : 'ek-photo-pref-btn--yes'"
+                :disabled="photoPreferenceSaving"
+                @click="othersPrefDraft = true"
+              >
+                <span class="ek-photo-pref-icon">📷</span>
+                <strong>Take their photo</strong>
+              </button>
+              <button
+                type="button"
+                class="btn ek-photo-pref-btn"
+                :class="othersPrefDraft === false ? 'ek-photo-pref-btn--selected' : 'ek-photo-pref-btn--no'"
+                :disabled="photoPreferenceSaving"
+                @click="othersPrefDraft = false"
+              >
+                <span class="ek-photo-pref-icon">✕</span>
+                <strong>No photo</strong>
+              </button>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            class="btn btn-primary ek-photo-pref-save"
+            :disabled="photoPreferenceSaving || selfPrefDraft === null || othersPrefDraft === null"
+            @click="savePhotoPreference(selfPrefDraft, othersPrefDraft)"
+          >
+            {{ photoPreferenceSaving ? 'Saving…' : 'Save preferences' }}
+          </button>
+
           <p v-if="photoPreferenceError" class="muted small ek-photo-pref-note" style="color:#dc2626;">
             {{ photoPreferenceError }}
           </p>
-          <p v-if="photoPreferenceSaving" class="muted small ek-photo-pref-note">Saving…</p>
         </section>
 
         <!-- Step: Emergency contacts -->
@@ -404,12 +443,18 @@ const waiverError = ref('');
 // Photo preference step
 const photoPreferenceSaving = ref(false);
 const photoPreferenceError = ref('');
+const selfPrefDraft = ref(null);   // true | false | null (null = not yet chosen)
+const othersPrefDraft = ref(null); // true | false | null
 const photoPreferenceUrl = computed(() =>
   props.sheetUrl ? props.sheetUrl.replace(/\/sheet(\?.*)?$/, '/photo-preference') : ''
 );
-/** Show this step only once (preference null) and only for confirmed guardians. */
+/**
+ * Show the photo preference step only for confirmed guardians
+ * and only when at least one preference hasn't been set yet.
+ */
 const showPhotoPreferenceStep = computed(() =>
-  sheet.value?.pickupPhotoPreference == null && checkerIsGuardian.value
+  checkerIsGuardian.value &&
+  (sheet.value?.pickupPhotoPreference == null || sheet.value?.guardianSelfPhotoPreference == null)
 );
 
 // Inline (no-signature) pickup editing
@@ -558,6 +603,8 @@ function resetWizard() {
   pendingWaiverKey.value = '';
   photoPreferenceSaving.value = false;
   photoPreferenceError.value = '';
+  selfPrefDraft.value = null;
+  othersPrefDraft.value = null;
   closeWaiverEdit();
   closeInlinePickups();
 }
@@ -617,13 +664,14 @@ async function saveInlinePickups() {
   }
 }
 
-async function savePhotoPreference(value) {
+async function savePhotoPreference(selfValue, othersValue) {
   if (!photoPreferenceUrl.value || !props.client?.id) return;
   photoPreferenceSaving.value = true;
   photoPreferenceError.value = '';
   try {
     const res = await api.patch(photoPreferenceUrl.value, {
-      preference: value,
+      selfPreference: selfValue,
+      othersPreference: othersValue,
       guardianUserId: guardianUserId.value || null
     }, {
       headers: props.authHeaders(),
@@ -631,7 +679,11 @@ async function savePhotoPreference(value) {
       skipAuthRedirect: true
     });
     if (sheet.value) {
-      sheet.value = { ...sheet.value, pickupPhotoPreference: res.data?.pickupPhotoPreference ?? (value ? 1 : 0) };
+      sheet.value = {
+        ...sheet.value,
+        guardianSelfPhotoPreference: res.data?.guardianSelfPhotoPreference ?? (selfValue === true ? 1 : selfValue === false ? 0 : null),
+        pickupPhotoPreference: res.data?.pickupPhotoPreference ?? (othersValue === true ? 1 : othersValue === false ? 0 : null)
+      };
     }
     // Advance past this step automatically
     if (stepIndex.value < steps.length - 1) stepIndex.value += 1;
@@ -1226,9 +1278,30 @@ watch(
 .ek-photo-pref-btn--no:hover:not(:disabled) {
   border-color: #64748b;
 }
+.ek-photo-pref-btn--selected {
+  border-color: #2563eb;
+  background: #eff6ff;
+  outline: 2px solid #2563eb;
+}
 .ek-photo-pref-icon {
   font-size: 1.8rem;
   line-height: 1;
+}
+.ek-photo-pref-group {
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  background: #f8fafc;
+  border-radius: 10px;
+}
+.ek-photo-pref-group-label {
+  margin: 0 0 10px;
+  font-size: 0.9rem;
+  color: #334155;
+}
+.ek-photo-pref-save {
+  margin-top: 8px;
+  width: 100%;
+  max-width: 320px;
 }
 .ek-pickup-inline {
   margin-top: 14px;
