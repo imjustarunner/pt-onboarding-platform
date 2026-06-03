@@ -205,11 +205,92 @@
         </div>
       </div>
     </div>
+
+    <!-- Public Listings section -->
+    <div class="section" style="margin-top: 16px;">
+      <div class="section-title">
+        <span style="font-weight: 600;">Public Listings</span>
+        <span style="color: var(--text-secondary); font-size: 13px; margin-left: 8px;">Controls which public-facing booking finders this provider appears in.</span>
+      </div>
+
+      <div v-if="listingsLoading" style="color: var(--text-secondary); font-size: 13px;">Loading…</div>
+      <div v-else-if="listingsError" style="color: #dc3545; font-size: 13px;">{{ listingsError }}</div>
+      <div v-else-if="(targetAgency?.slug || '').trim() === ''" style="color: var(--text-secondary); font-size: 13px;">No linked agency found — cannot manage listings.</div>
+      <div v-else>
+        <div class="fields-grid" style="margin-bottom: 16px;">
+          <div v-for="svc in SERVICE_TYPES" :key="svc.type" class="field-item">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input
+                type="checkbox"
+                :checked="enrollments[svc.type] === true"
+                @change="toggleEnrollment(svc.type, $event.target.checked)"
+                :disabled="listingsSaving"
+              />
+              <span style="font-size: 13px; font-weight: 600;">{{ svc.label }}</span>
+            </label>
+            <span style="font-size: 12px; color: var(--text-secondary);">{{ svc.description }}</span>
+          </div>
+        </div>
+
+        <!-- Tutoring profile form -->
+        <div v-if="enrollments['tutoring']" class="section" style="border-color: #dbeafe; background: #f8fbff;">
+          <div class="section-title">
+            <span style="font-weight: 600; font-size: 13px;">Tutoring Profile</span>
+          </div>
+          <div v-if="tutoringSaveSuccess" class="success" style="margin-bottom: 10px;">{{ tutoringSaveSuccess }}</div>
+          <div v-if="tutoringSaveError" class="error" style="margin-bottom: 10px;">{{ tutoringSaveError }}</div>
+          <div class="fields-grid">
+            <div class="field-item">
+              <label>Subject Areas</label>
+              <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;">
+                <label v-for="s in SUBJECT_OPTIONS" :key="s" style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
+                  <input type="checkbox" :checked="tutoringForm.subjectAreas.includes(s)" @change="toggleSubject(s)" />
+                  {{ s }}
+                </label>
+              </div>
+            </div>
+            <div class="field-item">
+              <label>Grade Levels</label>
+              <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;">
+                <label v-for="g in GRADE_OPTIONS" :key="g" style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
+                  <input type="checkbox" :checked="tutoringForm.gradeLevels.includes(g)" @change="toggleGrade(g)" />
+                  {{ g }}
+                </label>
+              </div>
+            </div>
+            <div class="field-item">
+              <label>Session Rate (per session)</label>
+              <input type="number" v-model="tutoringForm.sessionRateDollars" placeholder="e.g. 60" min="0" step="1" />
+              <span style="font-size: 11px; color: var(--text-secondary);">Enter dollar amount; leave empty to show "Contact office"</span>
+            </div>
+            <div class="field-item">
+              <label>Rate Note (optional)</label>
+              <input type="text" v-model="tutoringForm.sessionRateNote" placeholder="e.g. sliding scale available" />
+            </div>
+            <div class="field-item" style="grid-column: 1 / -1;">
+              <label>Public Bio</label>
+              <textarea v-model="tutoringForm.bio" rows="3" placeholder="Brief public-facing description of your tutoring experience and approach…" />
+            </div>
+            <div class="field-item">
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                <input type="checkbox" v-model="tutoringForm.acceptingNewStudents" />
+                <span>Accepting new students</span>
+              </label>
+            </div>
+          </div>
+          <div style="margin-top: 12px; display: flex; justify-content: flex-end;">
+            <button class="btn btn-primary" :disabled="tutoringSaving" @click="saveTutoringProfile">
+              {{ tutoringSaving ? 'Saving…' : 'Save Tutoring Profile' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 
@@ -921,6 +1002,136 @@ const installTemplate = async () => {
 };
 
 onMounted(refresh);
+
+// ---------------------------------------------------------------------------
+// Public Listings
+// ---------------------------------------------------------------------------
+const SERVICE_TYPES = [
+  { type: 'counseling', label: 'Counseling Finder', description: 'Appears on the public "Find a Counselor" page for this agency.' },
+  { type: 'tutoring', label: 'Tutoring Finder', description: 'Appears on the public "Find a Tutor" page. Requires a tutoring profile below.' }
+];
+
+const SUBJECT_OPTIONS = ['Math', 'Reading', 'Writing', 'Science', 'History', 'SAT/ACT Prep', 'Spanish', 'English', 'Study Skills', 'PSAT', 'AP Courses', 'College Prep', 'Other'];
+const GRADE_OPTIONS = ['K–2', '3–5', '6–8', '9–12', 'College'];
+
+const listingsLoading = ref(false);
+const listingsError = ref('');
+const listingsSaving = ref(false);
+
+// enrollment state: { counseling: true|false, tutoring: true|false }
+const enrollments = ref({ counseling: false, tutoring: false });
+
+// tutoring profile form
+const tutoringForm = ref({
+  subjectAreas: [],
+  gradeLevels: [],
+  sessionRateDollars: '',
+  sessionRateNote: '',
+  bio: '',
+  acceptingNewStudents: true
+});
+const tutoringSaving = ref(false);
+const tutoringSaveSuccess = ref('');
+const tutoringSaveError = ref('');
+
+async function loadListings() {
+  const slug = targetAgency.value?.slug;
+  if (!slug) return;
+  listingsLoading.value = true;
+  listingsError.value = '';
+  try {
+    const [cRes, tRes] = await Promise.all([
+      api.get(`/public/agency-services/${encodeURIComponent(slug)}/enrollment?serviceType=counseling`, { skipAuthRedirect: true }).catch(() => null),
+      api.get(`/public/agency-services/${encodeURIComponent(slug)}/enrollment?serviceType=tutoring`, { skipAuthRedirect: true }).catch(() => null)
+    ]);
+    const cEnrollments = cRes?.data?.enrollments || [];
+    const tEnrollments = tRes?.data?.enrollments || [];
+    const uid = Number(props.userId);
+    enrollments.value.counseling = cEnrollments.some((e) => Number(e.user_id) === uid && e.is_active);
+    enrollments.value.tutoring = tEnrollments.some((e) => Number(e.user_id) === uid && e.is_active);
+
+    // Load tutoring profile if enrolled
+    if (enrollments.value.tutoring) {
+      const profileRes = await api.get(`/public/agency-services/${encodeURIComponent(slug)}/tutoring-profiles/${props.userId}`, { skipAuthRedirect: true }).catch(() => null);
+      const p = profileRes?.data?.profile;
+      if (p) {
+        tutoringForm.value.subjectAreas = Array.isArray(p.subjectAreas) ? p.subjectAreas : [];
+        tutoringForm.value.gradeLevels = Array.isArray(p.gradeLevels) ? p.gradeLevels : [];
+        tutoringForm.value.sessionRateDollars = p.sessionRateCents ? String(Math.round(p.sessionRateCents / 100)) : '';
+        tutoringForm.value.sessionRateNote = p.sessionRateNote || '';
+        tutoringForm.value.bio = p.bio || '';
+        tutoringForm.value.acceptingNewStudents = p.acceptingNewStudents !== false;
+      }
+    }
+  } catch (e) {
+    listingsError.value = e.response?.data?.error?.message || 'Failed to load listing settings';
+  } finally {
+    listingsLoading.value = false;
+  }
+}
+
+async function toggleEnrollment(serviceType, isActive) {
+  const slug = targetAgency.value?.slug;
+  if (!slug) return;
+  listingsSaving.value = true;
+  try {
+    await api.post(`/public/agency-services/${encodeURIComponent(slug)}/enrollment`, {
+      userId: props.userId,
+      serviceType,
+      isActive
+    }, { skipAuthRedirect: true });
+    enrollments.value[serviceType] = isActive;
+    if (isActive && serviceType === 'tutoring') await loadListings();
+  } catch (e) {
+    listingsError.value = e.response?.data?.error?.message || 'Failed to update enrollment';
+  } finally {
+    listingsSaving.value = false;
+  }
+}
+
+function toggleSubject(s) {
+  const arr = tutoringForm.value.subjectAreas;
+  const idx = arr.indexOf(s);
+  if (idx >= 0) arr.splice(idx, 1);
+  else arr.push(s);
+}
+
+function toggleGrade(g) {
+  const arr = tutoringForm.value.gradeLevels;
+  const idx = arr.indexOf(g);
+  if (idx >= 0) arr.splice(idx, 1);
+  else arr.push(g);
+}
+
+async function saveTutoringProfile() {
+  const slug = targetAgency.value?.slug;
+  if (!slug) return;
+  tutoringSaving.value = true;
+  tutoringSaveSuccess.value = '';
+  tutoringSaveError.value = '';
+  try {
+    const rateDollars = parseFloat(tutoringForm.value.sessionRateDollars);
+    await api.put(`/public/agency-services/${encodeURIComponent(slug)}/tutoring-profiles/${props.userId}`, {
+      subjectAreas: tutoringForm.value.subjectAreas,
+      gradeLevels: tutoringForm.value.gradeLevels,
+      sessionRateCents: Number.isFinite(rateDollars) && rateDollars > 0 ? Math.round(rateDollars * 100) : null,
+      sessionRateNote: tutoringForm.value.sessionRateNote || null,
+      bio: tutoringForm.value.bio || null,
+      acceptingNewStudents: tutoringForm.value.acceptingNewStudents
+    }, { skipAuthRedirect: true });
+    tutoringSaveSuccess.value = 'Tutoring profile saved.';
+    setTimeout(() => (tutoringSaveSuccess.value = ''), 3000);
+  } catch (e) {
+    tutoringSaveError.value = e.response?.data?.error?.message || 'Failed to save tutoring profile';
+  } finally {
+    tutoringSaving.value = false;
+  }
+}
+
+// Load listings after user agencies are loaded
+watch(targetAgency, (agency) => {
+  if (agency?.slug) loadListings();
+});
 </script>
 
 <style scoped>

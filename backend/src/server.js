@@ -136,6 +136,7 @@ import hiringRoutes from './routes/hiring.routes.js';
 import agencyPageOverlaysRoutes from './routes/agencyPageOverlays.routes.js';
 import researchCandidateRoutes from './routes/researchCandidate.routes.js';
 import publicProviderAvailabilityRoutes from './routes/publicProviderAvailability.routes.js';
+import publicAgencyServicesRoutes from './routes/publicAgencyServices.routes.js';
 import publicSchoolsRoutes from './routes/publicSchools.routes.js';
 import skillBuildersProviderHubRoutes from './routes/skillBuildersProviderHub.routes.js';
 import publicSkillBuildersRoutes from './routes/publicSkillBuilders.routes.js';
@@ -593,6 +594,7 @@ app.get('/readyz', healthHandler);
 app.use('/api/health-check', healthCheckRoutes);
 
 // Public APIs (no auth). Mount early so they never get blocked by future auth gates.
+app.use('/api/public/agency-services', publicAgencyServicesRoutes);
 app.use('/api/public/provider-availability', publicProviderAvailabilityRoutes);
 app.use('/api/public/schools', publicSchoolsRoutes);
 app.use('/api/public/skill-builders', publicSkillBuildersRoutes);

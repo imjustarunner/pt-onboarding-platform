@@ -433,6 +433,25 @@ const routes = [
     component: () => import('../views/public/PublicEventDayKioskView.vue'),
     meta: { requiresGuest: false, organizationSlug: true }
   },
+  // Public services hub + finder pages (counseling, tutoring)
+  {
+    path: '/:organizationSlug/services',
+    name: 'PublicAgencyServicesHub',
+    component: () => import('../views/public/PublicAgencyServicesHubView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/find-counselor',
+    name: 'PublicCounselorFinder',
+    component: () => import('../views/public/PublicCounselorFinderView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/find-tutor',
+    name: 'PublicTutorFinder',
+    component: () => import('../views/public/PublicTutorFinderView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
   // Short public URL: /{agencySlug}/events (same data as /open-events/{agencySlug})
   {
     path: '/:organizationSlug/events',
@@ -1164,6 +1183,12 @@ const routes = [
     path: '/:organizationSlug/admin/settings',
     name: 'OrganizationSettings',
     component: () => import('../views/admin/SettingsView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/public-services',
+    name: 'OrganizationPublicServices',
+    component: () => import('../views/admin/PublicServicesAdminView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], organizationSlug: true }
   },
   {
