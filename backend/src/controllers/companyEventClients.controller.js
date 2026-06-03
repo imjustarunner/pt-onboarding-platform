@@ -11,8 +11,15 @@ import { syncSkillsGroupClientsToCompanyEventClients } from '../services/company
 import {
   canManageProgramEvent,
   canViewProgramEvent,
+  isUserAssignedToCompanyEvent,
   userHasAgencyAccessForRequest
 } from '../services/companyEventAccess.service.js';
+
+/** Match skill-builders provider directory — plain `provider` omits provider_plus / intern / CPA staff on event rosters. */
+const AGENCY_PROVIDER_LIKE_SQL = `(
+  LOWER(COALESCE(u.role, '')) IN ('provider', 'clinician', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'staff')
+  OR (u.has_provider_access = TRUE)
+)`;
 import {
   listProgramSessionsForEvent,
   materializeSessionsForEvent
@@ -722,39 +729,109 @@ export const removeCompanyEventClient = async (req, res, next) => {
   }
 };
 
+function mapProviderOptionRow(r) {
+  return {
+    id: Number(r.id),
+    firstName: r.first_name || null,
+    lastName: r.last_name || null,
+    email: r.email || null,
+    name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email || `User ${r.id}`
+  };
+}
+
+/** Providers eligible for client assignment: agency roster + anyone staffed on this event + anyone already assigned to a client. */
+async function loadCompanyEventProviderOptionsForEvent(eventId, agencyId) {
+  const byId = new Map();
+
+  const [agencyRows] = await pool.execute(
+    `SELECT u.id, u.first_name, u.last_name, u.email
+     FROM users u
+     INNER JOIN user_agencies ua ON ua.user_id = u.id
+     WHERE ua.agency_id = ?
+       AND (u.is_active IS NULL OR u.is_active = TRUE)
+       AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+       AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','INACTIVE_EMPLOYEE','PROSPECTIVE'))
+       AND ${AGENCY_PROVIDER_LIKE_SQL}
+     ORDER BY u.last_name ASC, u.first_name ASC`,
+    [agencyId]
+  );
+  for (const r of agencyRows || []) {
+    byId.set(Number(r.id), mapProviderOptionRow(r));
+  }
+
+  const mergeUserIds = async (userIds) => {
+    const ids = [...new Set((userIds || []).map((id) => Number(id)).filter((n) => n > 0))].filter((id) => !byId.has(id));
+    if (!ids.length) return;
+    const ph = ids.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT u.id, u.first_name, u.last_name, u.email
+       FROM users u
+       WHERE u.id IN (${ph})
+         AND (u.is_active IS NULL OR u.is_active = TRUE)
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)`,
+      ids
+    );
+    for (const r of rows || []) {
+      byId.set(Number(r.id), mapProviderOptionRow(r));
+    }
+  };
+
+  const eventProviderIds = [];
+  try {
+    const [assignRows] = await pool.execute(
+      `SELECT provider_user_id AS uid FROM company_event_provider_assignments WHERE company_event_id = ?
+       UNION
+       SELECT provider_user_id AS uid FROM company_event_session_providers WHERE company_event_id = ?`,
+      [eventId, eventId]
+    );
+    for (const r of assignRows || []) eventProviderIds.push(Number(r.uid));
+  } catch (e) {
+    if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+  }
+
+  try {
+    const [sgRows] = await pool.execute(
+      `SELECT sgp.provider_user_id AS uid
+       FROM skills_group_providers sgp
+       INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id
+       WHERE sg.company_event_id = ? AND sg.agency_id = ?`,
+      [eventId, agencyId]
+    );
+    for (const r of sgRows || []) eventProviderIds.push(Number(r.uid));
+  } catch (e) {
+    if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+  }
+
+  try {
+    const [cecRows] = await pool.execute(
+      `SELECT DISTINCT assigned_provider_user_id AS uid
+       FROM company_event_clients
+       WHERE company_event_id = ? AND agency_id = ? AND assigned_provider_user_id IS NOT NULL`,
+      [eventId, agencyId]
+    );
+    for (const r of cecRows || []) eventProviderIds.push(Number(r.uid));
+  } catch (e) {
+    if (e?.code !== 'ER_NO_SUCH_TABLE' && e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+  }
+
+  await mergeUserIds(eventProviderIds);
+
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export const listCompanyEventProviderOptions = async (req, res, next) => {
   try {
     const eventId = parsePositiveInt(req.params.eventId);
     const agencyId = parsePositiveInt(req.query.agencyId);
     if (!eventId || !agencyId) return res.status(400).json({ error: { message: 'eventId and agencyId are required' } });
-    if (!(await canManageProgramEvent(req, agencyId))) {
+    if (!(await canViewProgramEvent(req, agencyId, eventId))) {
       return res.status(403).json({ error: { message: 'Not authorized for this event' } });
     }
     const event = await loadEventForAgency(eventId, agencyId);
     if (!event) return res.status(404).json({ error: { message: 'Event not found' } });
 
-    const [rows] = await pool.execute(
-      `SELECT u.id, u.first_name, u.last_name, u.email
-       FROM users u
-       INNER JOIN user_agencies ua ON ua.user_id = u.id
-       WHERE ua.agency_id = ?
-         AND (u.is_active IS NULL OR u.is_active = TRUE)
-         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','INACTIVE_EMPLOYEE','PROSPECTIVE'))
-         AND (u.role IN ('provider') OR (u.has_provider_access = TRUE))
-       ORDER BY u.last_name ASC, u.first_name ASC`,
-      [agencyId]
-    );
-    res.json({
-      ok: true,
-      providers: (rows || []).map((r) => ({
-        id: Number(r.id),
-        firstName: r.first_name || null,
-        lastName: r.last_name || null,
-        email: r.email || null,
-        name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email || `User ${r.id}`
-      }))
-    });
+    const providers = await loadCompanyEventProviderOptionsForEvent(eventId, agencyId);
+    res.json({ ok: true, providers });
   } catch (e) {
     next(e);
   }
@@ -867,11 +944,16 @@ export const patchCompanyEventClientWorkflow = async (req, res, next) => {
          INNER JOIN user_agencies ua ON ua.user_id = u.id
          WHERE ua.agency_id = ?
            AND u.id = ?
-           AND (u.role IN ('provider') OR (u.has_provider_access = TRUE))
+           AND ${AGENCY_PROVIDER_LIKE_SQL}
          LIMIT 1`,
         [agencyId, providerUserId]
       );
-      if (!p?.[0]) return res.status(404).json({ error: { message: 'Provider not found for this agency' } });
+      const onEventRoster = p?.[0]
+        ? true
+        : await isUserAssignedToCompanyEvent(providerUserId, eventId, agencyId);
+      if (!onEventRoster) {
+        return res.status(404).json({ error: { message: 'Provider not found for this agency or event roster' } });
+      }
     }
 
     const conn = await pool.getConnection();

@@ -843,6 +843,42 @@
                 </div>
               </div>
 
+              <div
+                v-if="(detail.providers || []).length"
+                class="sbep-provider-breakdown sbep-event-roster-bar"
+                aria-label="Providers on this event roster"
+              >
+                <span class="sbep-provider-breakdown-label">On event roster</span>
+                <span
+                  v-for="p in detail.providers"
+                  :key="`ev-roster-${p.id}`"
+                  class="sbep-provider-chip sbep-provider-chip--roster"
+                >
+                  {{ providerListNames([p]) || `Provider ${p.id}` }}
+                  <strong>{{ providerAssignedClientCount(p.id) }}</strong>
+                </span>
+              </div>
+
+              <div
+                v-if="participantProviderBreakdown.length"
+                class="sbep-provider-breakdown"
+                aria-label="Clients by assigned provider"
+              >
+                <span class="sbep-provider-breakdown-label">By assignment</span>
+                <span
+                  v-for="row in participantProviderBreakdown"
+                  :key="row.key"
+                  class="sbep-provider-chip"
+                  :class="{ 'is-unassigned': row.key === 'unassigned', 'is-zero': row.count === 0 }"
+                >
+                  {{ row.name }}
+                  <strong>{{ row.count }}</strong>
+                </span>
+                <span class="sbep-provider-breakdown-total muted small">
+                  {{ genericParticipants.length }} shown
+                </span>
+              </div>
+
               <p
                 v-if="participantStatusFilter === 'registrants'"
                 class="muted small sbep-status-hint"
@@ -873,6 +909,7 @@
                         <th>Age</th>
                         <th>Grade</th>
                         <th>Group</th>
+                        <th>Provider</th>
                         <th v-if="!viewerCaps.canManageCompanyEvent">Status</th>
                       </tr>
                     </thead>
@@ -888,6 +925,11 @@
                         <td>{{ participantAgeDisplay(c) }}</td>
                         <td>{{ c.grade || '—' }}</td>
                         <td>{{ participantGroupDisplay(c) }}</td>
+                        <td class="muted small">
+                          <span v-if="isMyParticipant(c)" class="sbep-roster-assigned-mine">You</span>
+                          <span v-else-if="c.assignedProviderName">{{ c.assignedProviderName }}</span>
+                          <span v-else class="sbep-roster-missing">Unassigned</span>
+                        </td>
                         <td v-if="!viewerCaps.canManageCompanyEvent">{{ participantStatusLabel(c) }}</td>
                       </tr>
                     </tbody>
@@ -895,7 +937,7 @@
                 </div>
                 <template v-if="viewerCaps.canManageCompanyEvent">
                 <p v-if="participantProvidersError" class="error-box sbep-add-client-err">{{ participantProvidersError }}</p>
-                <div v-if="staffingEnabled" class="sbep-staffing-wrap">
+                <div v-if="staffingEnabled && participantStatusFilter === 'participants'" class="sbep-staffing-wrap">
                   <div class="sbep-staffing-top">
                     <div class="form-group sbep-staffing-session">
                       <label class="sbep-subh">Session</label>
@@ -1723,6 +1765,86 @@
                     </tbody>
                   </table>
                 </div>
+                </template>
+
+                <template v-else-if="viewerCaps.isAssignedProvider">
+                  <p class="muted small sbep-roster-mine-legend">
+                    Full roster for this event — clients highlighted are assigned to you.
+                  </p>
+                  <div v-if="participantStatusFilter === 'registrants'" class="sbep-roster-table-wrap sbep-registrants-wrap">
+                    <table class="sbep-roster-table sbep-roster-table--participants sbep-roster-table--registrants">
+                      <thead>
+                        <tr>
+                          <th>Participant</th>
+                          <th>Registered</th>
+                          <th>Grade</th>
+                          <th>Age</th>
+                          <th>Provider</th>
+                          <th>Intake</th>
+                          <th>Treatment plan</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr
+                          v-for="c in genericParticipants"
+                          :key="`prov-reg-${c.clientId}`"
+                          :class="{
+                            'sbep-row-mine': isMyParticipant(c),
+                            'sbep-row-denied': c.intakeOutcome === 'denied',
+                            'sbep-row-tp-pending': isParticipantTpPending(c)
+                          }"
+                        >
+                          <td>
+                            {{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}
+                            <span v-if="isParticipantTpPending(c)" class="sbep-tp-due-badge">Treatment plan due</span>
+                          </td>
+                          <td class="sbep-registrants-date">{{ formatRegisteredDate(c.enrolledAt) }}</td>
+                          <td>{{ c.grade || '—' }}</td>
+                          <td>{{ participantAgeDisplay(c) }}</td>
+                          <td class="muted small">
+                            <span v-if="isMyParticipant(c)" class="sbep-roster-assigned-mine">You</span>
+                            <span v-else-if="c.assignedProviderName">{{ c.assignedProviderName }}</span>
+                            <span v-else class="sbep-roster-missing">Unassigned</span>
+                          </td>
+                          <td>{{ intakeOutcomeLabel(c.intakeOutcome) || (c.intakeComplete ? 'Complete' : 'Needed') }}</td>
+                          <td>{{ c.treatmentPlanComplete ? 'Complete' : (isIntakeAccepted(c) ? 'Needed' : 'Locked') }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div v-else class="sbep-roster-table-wrap sbep-participants-wrap">
+                    <table class="sbep-roster-table sbep-roster-table--participants">
+                      <thead>
+                        <tr>
+                          <th>Participant</th>
+                          <th>Grade</th>
+                          <th>Age</th>
+                          <th>Provider</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr
+                          v-for="c in genericParticipants"
+                          :key="`prov-part-${c.clientId}`"
+                          :class="{ 'sbep-row-mine': isMyParticipant(c), 'sbep-row-tp-pending': isParticipantTpPending(c) }"
+                        >
+                          <td>
+                            {{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}
+                            <span v-if="isParticipantTpPending(c)" class="sbep-tp-due-badge">Treatment plan due</span>
+                          </td>
+                          <td>{{ c.grade || '—' }}</td>
+                          <td>{{ participantAgeDisplay(c) }}</td>
+                          <td class="muted small">
+                            <span v-if="isMyParticipant(c)" class="sbep-roster-assigned-mine">You</span>
+                            <span v-else-if="c.assignedProviderName">{{ c.assignedProviderName }}</span>
+                            <span v-else class="sbep-roster-missing">Unassigned</span>
+                          </td>
+                          <td>{{ participantStatusLabel(c) }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
                 </template>
               </div>
               <p v-else class="muted small">
@@ -4167,6 +4289,41 @@ const participantGroupBreakdown = computed(() => {
   return arr.filter((g) => Number(g?.count || 0) > 0);
 });
 
+/** Provider name + client count for the active registrants/participants filter — helps verify nobody is missing. */
+const participantProviderBreakdown = computed(() => {
+  const clients = Array.isArray(genericParticipants.value) ? genericParticipants.value : [];
+  const byKey = new Map();
+  for (const c of clients) {
+    const pid = Number(c?.assignedProviderUserId || 0);
+    const key = pid > 0 ? `p-${pid}` : 'unassigned';
+    const name =
+      pid > 0
+        ? String(c?.assignedProviderName || '').trim() || `Provider ${pid}`
+        : 'Unassigned';
+    if (!byKey.has(key)) {
+      byKey.set(key, { key, providerUserId: pid > 0 ? pid : null, name, count: 0 });
+    }
+    byKey.get(key).count += 1;
+  }
+  for (const p of detail.value?.providers || []) {
+    const pid = Number(p?.id || 0);
+    if (!pid) continue;
+    const key = `p-${pid}`;
+    if (byKey.has(key)) continue;
+    const name =
+      String(p?.name || '').trim()
+      || `${p?.firstName || ''} ${p?.lastName || ''}`.trim()
+      || `Provider ${pid}`;
+    byKey.set(key, { key, providerUserId: pid, name, count: 0 });
+  }
+  const rows = [...byKey.values()];
+  rows.sort((a, b) => {
+    if (a.key === 'unassigned') return 1;
+    if (b.key === 'unassigned') return -1;
+    return a.name.localeCompare(b.name);
+  });
+  return rows;
+});
 
 async function loadParticipantProviders() {
   const aid = eventBillingAgencyId.value;
@@ -4175,6 +4332,10 @@ async function loadParticipantProviders() {
     participantProviders.value = [];
     participantProvidersError.value = '';
     participantProvidersLoading.value = false;
+    return;
+  }
+  if (!viewerCaps.value.canManageCompanyEvent && !viewerCaps.value.isAssignedProvider) {
+    participantProviders.value = [];
     return;
   }
   if (participantProvidersLoading.value) return;
@@ -4497,6 +4658,12 @@ function providerListNames(providers) {
     .map((p) => p?.name || `${p?.firstName || ''} ${p?.lastName || ''}`.trim())
     .filter(Boolean)
     .join(', ');
+}
+
+function providerAssignedClientCount(providerUserId) {
+  const pid = Number(providerUserId || 0);
+  if (!pid) return 0;
+  return (genericParticipants.value || []).filter((c) => Number(c?.assignedProviderUserId || 0) === pid).length;
 }
 
 async function assignParticipantToGroup(row, rawGroupId) {
@@ -6983,6 +7150,57 @@ watch(
   gap: 16px;
   align-items: stretch;
   margin: 12px 0 8px;
+}
+.sbep-provider-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(248, 250, 252, 0.9);
+}
+.sbep-provider-breakdown-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(15, 23, 42, 0.55);
+  margin-right: 4px;
+}
+.sbep-provider-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  font-size: 0.82rem;
+  color: rgba(15, 23, 42, 0.85);
+}
+.sbep-provider-chip strong {
+  font-weight: 700;
+  color: rgba(15, 23, 42, 0.95);
+}
+.sbep-provider-chip.is-unassigned {
+  border-style: dashed;
+  color: rgba(15, 23, 42, 0.65);
+}
+.sbep-provider-chip.is-zero strong {
+  color: rgba(15, 23, 42, 0.45);
+}
+.sbep-provider-chip--roster {
+  border-color: rgba(37, 99, 235, 0.22);
+  background: rgba(239, 246, 255, 0.85);
+}
+.sbep-event-roster-bar {
+  margin-bottom: 8px;
+}
+.sbep-provider-breakdown-total {
+  margin-left: auto;
 }
 .sbep-applicants-card {
   display: inline-flex;

@@ -92,7 +92,7 @@ async function loadClientsByEventId(agencyId, eventIds) {
        FROM company_event_clients cec
        INNER JOIN clients c ON c.id = cec.client_id
        WHERE cec.agency_id = ? AND cec.company_event_id IN (${ph})
-         AND (cec.intake_outcome IS NULL OR cec.intake_outcome <> 'denied')
+         AND (COALESCE(cec.intake_outcome, '') <> 'denied')
        ORDER BY cec.company_event_id ASC, c.initials ASC, c.identifier_code ASC, c.id ASC`,
       [agencyId, ...ids]
     );
