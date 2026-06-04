@@ -2176,15 +2176,66 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
           );
           assignmentId = ins.insertId;
         } catch (insErr) {
-          if (insErr?.code === 'ER_BAD_FIELD_ERROR' || insErr?.errno === 1054) {
-            const [ins] = await conn.execute(
-              `INSERT INTO office_standing_assignments
-                (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency,
-                 availability_mode, available_since_date, temporary_until_date, last_two_week_confirmed_at, is_active, created_by_user_id)
-               VALUES (?, ?, ?, ?, ?, ?, 'AVAILABLE', ?, ?, NOW(), TRUE, ?)`,
-              [officeId, roomId, providerId, weekday, h, freq, requestStartDate, untilDate, req.user.id]
+          if (insErr?.code === 'ER_DUP_ENTRY' || insErr?.errno === 1062) {
+            // Race condition: a concurrent request inserted the same row between our
+            // SELECT and this INSERT.  Re-query for the now-existing row and update it.
+            const [dupRows] = await conn.execute(
+              `SELECT id FROM office_standing_assignments
+               WHERE room_id = ? AND provider_id = ? AND weekday = ? AND hour = ? AND assigned_frequency = ?
+               LIMIT 1`,
+              [roomId, providerId, weekday, h, freq]
             );
-            assignmentId = ins.insertId;
+            assignmentId = dupRows?.[0]?.id || null;
+            if (!assignmentId) throw insErr;
+            await conn.execute(
+              `UPDATE office_standing_assignments
+               SET office_location_id = ?,
+                   availability_mode = 'AVAILABLE',
+                   available_since_date = ?,
+                   temporary_until_date = ?,
+                   temporary_extension_count = 0,
+                   last_two_week_confirmed_at = NOW(),
+                   is_active = TRUE,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = ?`,
+              [officeId, requestStartDate, untilDate, assignmentId]
+            );
+          } else if (insErr?.code === 'ER_BAD_FIELD_ERROR' || insErr?.errno === 1054) {
+            try {
+              const [ins2] = await conn.execute(
+                `INSERT INTO office_standing_assignments
+                  (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency,
+                   availability_mode, available_since_date, temporary_until_date, last_two_week_confirmed_at, is_active, created_by_user_id)
+                 VALUES (?, ?, ?, ?, ?, ?, 'AVAILABLE', ?, ?, NOW(), TRUE, ?)`,
+                [officeId, roomId, providerId, weekday, h, freq, requestStartDate, untilDate, req.user.id]
+              );
+              assignmentId = ins2.insertId;
+            } catch (insErr2) {
+              if (insErr2?.code === 'ER_DUP_ENTRY' || insErr2?.errno === 1062) {
+                const [dupRows] = await conn.execute(
+                  `SELECT id FROM office_standing_assignments
+                   WHERE room_id = ? AND provider_id = ? AND weekday = ? AND hour = ? AND assigned_frequency = ?
+                   LIMIT 1`,
+                  [roomId, providerId, weekday, h, freq]
+                );
+                assignmentId = dupRows?.[0]?.id || null;
+                if (!assignmentId) throw insErr2;
+                await conn.execute(
+                  `UPDATE office_standing_assignments
+                   SET office_location_id = ?,
+                       availability_mode = 'AVAILABLE',
+                       available_since_date = ?,
+                       temporary_until_date = ?,
+                       last_two_week_confirmed_at = NOW(),
+                       is_active = TRUE,
+                       updated_at = CURRENT_TIMESTAMP
+                   WHERE id = ?`,
+                  [officeId, requestStartDate, untilDate, assignmentId]
+                );
+              } else {
+                throw insErr2;
+              }
+            }
           } else {
             throw insErr;
           }
@@ -2411,6 +2462,15 @@ export const unrequestAllMyAvailabilityRequests = async (req, res, next) => {
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
+    // Collect pending IDs before cancelling so we can resolve their notifications
+    let officeIdsSql = `SELECT id, agency_id FROM provider_office_availability_requests WHERE provider_id = ? AND status = 'PENDING'`;
+    const officeIdArgs = [providerId];
+    if (agencyId) {
+      officeIdsSql += ' AND agency_id = ?';
+      officeIdArgs.push(agencyId);
+    }
+    const [pendingOfficeRows] = await conn.execute(officeIdsSql, officeIdArgs);
+
     let officeSql = `
       UPDATE provider_office_availability_requests
       SET status = 'CANCELLED',
@@ -2426,6 +2486,14 @@ export const unrequestAllMyAvailabilityRequests = async (req, res, next) => {
       officeArgs.push(agencyId);
     }
     const [officeResult] = await conn.execute(officeSql, officeArgs);
+
+    let schoolIdsSql = `SELECT id, agency_id FROM provider_school_availability_requests WHERE provider_id = ? AND status = 'PENDING'`;
+    const schoolIdArgs = [providerId];
+    if (agencyId) {
+      schoolIdsSql += ' AND agency_id = ?';
+      schoolIdArgs.push(agencyId);
+    }
+    const [pendingSchoolRows] = await conn.execute(schoolIdsSql, schoolIdArgs);
 
     let schoolSql = `
       UPDATE provider_school_availability_requests
@@ -2444,6 +2512,25 @@ export const unrequestAllMyAvailabilityRequests = async (req, res, next) => {
     const [schoolResult] = await conn.execute(schoolSql, schoolArgs);
 
     await conn.commit();
+
+    // Resolve admin notifications for every cancelled request so they disappear from feeds
+    for (const row of (pendingOfficeRows || [])) {
+      try {
+        await Notification.markAllAsResolvedForFilter(row.agency_id, {
+          relatedEntityType: 'provider_office_availability_request',
+          relatedEntityId: row.id
+        });
+      } catch { /* non-blocking */ }
+    }
+    for (const row of (pendingSchoolRows || [])) {
+      try {
+        await Notification.markAllAsResolvedForFilter(row.agency_id, {
+          relatedEntityType: 'provider_school_availability_request',
+          relatedEntityId: row.id
+        });
+      } catch { /* non-blocking */ }
+    }
+
     res.json({
       ok: true,
       cancelledOfficeRequests: Number(officeResult?.affectedRows || 0),

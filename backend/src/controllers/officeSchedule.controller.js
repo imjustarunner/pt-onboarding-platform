@@ -2511,3 +2511,172 @@ export const createRoom = async (req, res, next) => {
   }
 };
 
+// ─── Slot-conflict resolver (booking reinstatement) ──────────────────────────
+
+export const getSlotConflicts = async (req, res, next) => {
+  try {
+    const userAgencies = await User.getAgencies(req.user.id);
+    const agencyIds = (userAgencies || []).map((a) => Number(a.id)).filter((n) => n > 0);
+    if (!agencyIds.length) return res.json({ conflicts: [] });
+
+    const placeholders = agencyIds.map(() => '?').join(',');
+
+    const [rows] = await pool.execute(
+      `SELECT
+         oe_rel.id                                             AS released_event_id,
+         oe_con.id                                             AS conflict_event_id,
+         oe_rel.room_id,
+         r.name                                                AS room_name,
+         r.label                                               AS room_label,
+         ol.name                                               AS office_name,
+         oe_rel.office_location_id,
+         oe_rel.start_at,
+         oe_rel.end_at,
+         oe_rel.assigned_provider_id                          AS original_provider_id,
+         CONCAT(u_orig.first_name, ' ', u_orig.last_name)     AS original_provider_name,
+         oe_con.assigned_provider_id                          AS current_provider_id,
+         CONCAT(u_cur.first_name, ' ', u_cur.last_name)       AS current_provider_name,
+         oe_con.slot_state                                     AS current_slot_state,
+         oe_rel.standing_assignment_id
+       FROM office_events oe_rel
+       JOIN office_standing_assignments osa
+         ON osa.id = oe_rel.standing_assignment_id AND osa.is_active = TRUE
+       JOIN office_location_agencies ola
+         ON ola.office_location_id = oe_rel.office_location_id AND ola.agency_id IN (${placeholders})
+       JOIN office_rooms r   ON r.id  = oe_rel.room_id
+       JOIN office_locations ol ON ol.id = oe_rel.office_location_id
+       LEFT JOIN users u_orig ON u_orig.id = oe_rel.assigned_provider_id
+       JOIN office_events oe_con
+         ON oe_con.room_id   = oe_rel.room_id
+         AND oe_con.start_at = oe_rel.start_at
+         AND oe_con.end_at   = oe_rel.end_at
+         AND oe_con.id      <> oe_rel.id
+         AND oe_con.slot_state IN ('ASSIGNED_BOOKED','ASSIGNED_AVAILABLE')
+         AND (oe_con.status IS NULL OR UPPER(oe_con.status) NOT IN ('CANCELLED','RELEASED'))
+       LEFT JOIN users u_cur ON u_cur.id = oe_con.assigned_provider_id
+       WHERE oe_rel.slot_state      = 'ASSIGNED_AVAILABLE'
+         AND oe_rel.status          = 'RELEASED'
+         AND oe_rel.booking_plan_id IS NULL
+         AND oe_rel.start_at       >= NOW()
+         AND oe_rel.updated_at     >= DATE_SUB(NOW(), INTERVAL 60 DAY)
+         AND EXISTS (
+           SELECT 1 FROM office_booking_plans bp2
+           LEFT JOIN office_booking_plans abp
+             ON abp.standing_assignment_id = bp2.standing_assignment_id AND abp.is_active = TRUE
+           WHERE bp2.standing_assignment_id = osa.id
+             AND bp2.is_active  = FALSE
+             AND bp2.updated_at >= DATE_SUB(NOW(), INTERVAL 60 DAY)
+             AND abp.id IS NULL
+         )
+       ORDER BY oe_rel.start_at ASC, ol.name ASC, r.label ASC`,
+      agencyIds
+    );
+
+    res.json({ conflicts: rows || [] });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const resolveSlotConflict = async (req, res, next) => {
+  const conn = await pool.getConnection();
+  try {
+    const { releasedEventId, conflictEventId, action } = req.body || {};
+    if (!releasedEventId || !conflictEventId || !['restore_original', 'keep_current'].includes(action)) {
+      return res.status(400).json({ error: { message: 'releasedEventId, conflictEventId, and action (restore_original|keep_current) are required' } });
+    }
+
+    const relId = Number(releasedEventId);
+    const conId = Number(conflictEventId);
+    if (!relId || !conId) return res.status(400).json({ error: { message: 'Invalid event IDs' } });
+
+    // Load released event and verify it still qualifies.
+    const [[relRows]] = await conn.execute(
+      `SELECT oe.*, osa.provider_id AS assignment_provider_id
+       FROM office_events oe
+       JOIN office_standing_assignments osa ON osa.id = oe.standing_assignment_id AND osa.is_active = TRUE
+       WHERE oe.id = ? AND oe.slot_state = 'ASSIGNED_AVAILABLE' AND oe.status = 'RELEASED' AND oe.booking_plan_id IS NULL
+       LIMIT 1`,
+      [relId]
+    );
+    if (!relRows) return res.status(404).json({ error: { message: 'Released event not found or already resolved' } });
+
+    // Verify agency access via office_location_agencies.
+    const userAgencies = await User.getAgencies(req.user.id);
+    const agencyIds = (userAgencies || []).map((a) => Number(a.id)).filter((n) => n > 0);
+    if (agencyIds.length) {
+      const placeholders = agencyIds.map(() => '?').join(',');
+      const [[agRows]] = await conn.execute(
+        `SELECT 1 FROM office_location_agencies WHERE office_location_id = ? AND agency_id IN (${placeholders}) LIMIT 1`,
+        [relRows.office_location_id, ...agencyIds]
+      );
+      if (!agRows) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    await conn.beginTransaction();
+
+    if (action === 'restore_original') {
+      // Re-activate or find the booking plan for the original assignment.
+      let [[planRow]] = await conn.execute(
+        `SELECT id FROM office_booking_plans
+         WHERE standing_assignment_id = ? AND is_active = TRUE
+         LIMIT 1`,
+        [relRows.standing_assignment_id]
+      );
+      if (!planRow) {
+        // Re-activate the most recently deactivated plan.
+        const [[latestPlan]] = await conn.execute(
+          `SELECT id FROM office_booking_plans
+           WHERE standing_assignment_id = ? AND is_active = FALSE
+           ORDER BY id DESC LIMIT 1`,
+          [relRows.standing_assignment_id]
+        );
+        if (latestPlan) {
+          await conn.execute(
+            `UPDATE office_booking_plans SET is_active = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            [latestPlan.id]
+          );
+          [[planRow]] = await conn.execute(`SELECT id FROM office_booking_plans WHERE id = ? LIMIT 1`, [latestPlan.id]);
+        }
+      }
+
+      const planId = planRow?.id || null;
+      const providerId = Number(relRows.assignment_provider_id || relRows.assigned_provider_id || 0);
+
+      // Restore the released event to BOOKED.
+      await conn.execute(
+        `UPDATE office_events
+         SET status = 'BOOKED', slot_state = 'ASSIGNED_BOOKED',
+             booked_provider_id = ?, booking_plan_id = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [providerId || null, planId, relId]
+      );
+
+      // Cancel the conflicting event.
+      await conn.execute(
+        `UPDATE office_events
+         SET status = 'CANCELLED', updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [conId]
+      );
+
+    } else {
+      // keep_current: mark the released event as CANCELLED so it no longer appears as a conflict.
+      await conn.execute(
+        `UPDATE office_events
+         SET status = 'CANCELLED', updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [relId]
+      );
+    }
+
+    await conn.commit();
+    res.json({ ok: true, action, releasedEventId: relId, conflictEventId: conId });
+  } catch (e) {
+    try { await conn.rollback(); } catch {}
+    next(e);
+  } finally {
+    conn.release();
+  }
+};
+

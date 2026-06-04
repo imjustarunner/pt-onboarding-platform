@@ -21,7 +21,9 @@ import {
   publicBoard,
   createLocation,
   updateLocation,
-  createRoom
+  createRoom,
+  getSlotConflicts,
+  resolveSlotConflict
 } from '../controllers/officeSchedule.controller.js';
 
 const router = express.Router();
@@ -64,6 +66,10 @@ router.post('/booking-requests/:id/deny', denyOfficeBookingRequest);
 router.post('/locations', createLocation);
 router.put('/locations/:id', updateLocation);
 router.post('/locations/:locationId/rooms', createRoom);
+
+// Booking conflict resolver (post-reinstatement triage)
+router.get('/admin/slot-conflicts', getSlotConflicts);
+router.post('/admin/slot-conflicts/resolve', resolveSlotConflict);
 
 export default router;
 

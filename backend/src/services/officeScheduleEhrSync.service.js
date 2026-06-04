@@ -442,6 +442,7 @@ export async function downgradeBookedWithoutExternalOverlap({ actorUserId = 1 } 
        JOIN office_rooms r ON r.id = e.room_id
        WHERE e.slot_state = 'ASSIGNED_BOOKED'
          AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+         AND e.start_at >= bp.booking_start_date
          AND e.start_at >= DATE_SUB(NOW(), INTERVAL 120 DAY)
          AND e.start_at < NOW()
        ORDER BY e.standing_assignment_id ASC, e.start_at DESC`
@@ -507,6 +508,15 @@ export async function downgradeBookedWithoutExternalOverlap({ actorUserId = 1 } 
     if (!busyPack.ok) continue;
 
     const busy = busyPack.busy || [];
+
+    // Guard: if the ICS feed returned no past-completed busy slots, the feed almost
+    // certainly only exports *upcoming* appointments (Therapy Notes does this).  We
+    // cannot reliably verify past bookings against such a feed, so skip the downgrade
+    // for this assignment rather than wrongly releasing legitimate bookings.
+    const now = Date.now();
+    const hasPastBusySlot = busy.some((b) => new Date(b.endAt).getTime() < now);
+    if (!hasPastBusySlot) continue;
+
     let bothMissing = true;
     for (const ev of lastTwo) {
       const eventStartMs = utcMsForWallMySqlDateTime(ev.start_at, providerTimeZone);
@@ -540,7 +550,8 @@ export async function downgradeBookedWithoutExternalOverlap({ actorUserId = 1 } 
        FROM office_events
        WHERE standing_assignment_id = ?
          AND slot_state = 'ASSIGNED_BOOKED'
-         AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
+         AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
+         AND start_at >= NOW()`,
       [standingAssignmentId]
     );
     const eventIds = (evRows || []).map((x) => Number(x.id)).filter((n) => Number.isInteger(n) && n > 0);
