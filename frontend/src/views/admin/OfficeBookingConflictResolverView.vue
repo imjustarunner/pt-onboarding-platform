@@ -33,12 +33,16 @@
       <!-- Legend -->
       <div class="legend card">
         <div class="legend-item">
-          <span class="badge badge-restored">Restored</span>
-          A provider whose booking was dropped during the scheduling gap — and was just reinstated — but someone else had already taken that slot.
+          <span class="badge badge-restored">Restored vs booked</span>
+          A provider's dropped booking was reinstated but someone else had already taken that slot.
+        </div>
+        <div class="legend-item">
+          <span class="badge badge-orphan">Orphaned</span>
+          A booking was dropped and the slot is now empty — no one else is there, but it still needs to be restored or dismissed.
         </div>
         <div class="legend-item">
           <span class="badge badge-double">Double-booked</span>
-          Two providers are both fully booked into the same room at the same time right now.
+          Two providers are both fully booked into the same room at the same time.
         </div>
       </div>
 
@@ -62,7 +66,8 @@
             >
               <td>
                 <span v-if="c.conflict_type === 'double_booked'" class="badge badge-double">Double-booked</span>
-                <span v-else class="badge badge-restored">Restored</span>
+                <span v-else-if="c.conflict_type === 'orphaned_released'" class="badge badge-orphan">Orphaned</span>
+                <span v-else class="badge badge-restored">Restored vs booked</span>
               </td>
 
               <td class="mono time-col">
@@ -99,6 +104,9 @@
                   </div>
                   <div class="pill-sub muted">Booked</div>
                 </template>
+                <template v-else-if="c.conflict_type === 'orphaned_released'">
+                  <div class="pill-sub muted" style="font-style:italic;">Slot is empty</div>
+                </template>
                 <template v-else>
                   <div class="provider-pill prov-b">
                     <span class="dot dot-b"></span>{{ c.current_provider_name || '—' }}
@@ -110,38 +118,32 @@
               <!-- Actions -->
               <td class="actions-col">
                 <div class="action-group" v-if="c.conflict_type === 'double_booked'">
-                  <button
-                    class="btn btn-sm btn-a"
-                    :disabled="actingKey === rowKey(c)"
-                    @click="resolveDouble(c, 'keep_a')"
-                    :title="`Keep ${c.provider_a_name}, remove ${c.provider_b_name}`"
-                  >
+                  <button class="btn btn-sm btn-a" :disabled="actingKey === rowKey(c)"
+                    @click="resolveDouble(c, 'keep_a')" :title="`Keep ${c.provider_a_name}, remove ${c.provider_b_name}`">
                     Keep {{ firstName(c.provider_a_name) }}
                   </button>
-                  <button
-                    class="btn btn-sm btn-b"
-                    :disabled="actingKey === rowKey(c)"
-                    @click="resolveDouble(c, 'keep_b')"
-                    :title="`Keep ${c.provider_b_name}, remove ${c.provider_a_name}`"
-                  >
+                  <button class="btn btn-sm btn-b" :disabled="actingKey === rowKey(c)"
+                    @click="resolveDouble(c, 'keep_b')" :title="`Keep ${c.provider_b_name}, remove ${c.provider_a_name}`">
                     Keep {{ firstName(c.provider_b_name) }}
                   </button>
                 </div>
+                <div class="action-group" v-else-if="c.conflict_type === 'orphaned_released'">
+                  <button class="btn btn-sm btn-a" :disabled="actingKey === rowKey(c)"
+                    @click="resolveOrphaned(c, 'restore')" :title="`Restore ${c.original_provider_name} into this slot`">
+                    Restore {{ firstName(c.original_provider_name) }}
+                  </button>
+                  <button class="btn btn-sm btn-dismiss" :disabled="actingKey === rowKey(c)"
+                    @click="resolveOrphaned(c, 'dismiss')" title="Leave slot open / free it up">
+                    Free up slot
+                  </button>
+                </div>
                 <div class="action-group" v-else>
-                  <button
-                    class="btn btn-sm btn-a"
-                    :disabled="actingKey === rowKey(c)"
-                    @click="resolveReleased(c, 'restore_original')"
-                    :title="`Restore ${c.original_provider_name}, remove ${c.current_provider_name}`"
-                  >
+                  <button class="btn btn-sm btn-a" :disabled="actingKey === rowKey(c)"
+                    @click="resolveReleased(c, 'restore_original')" :title="`Restore ${c.original_provider_name}, remove ${c.current_provider_name}`">
                     Keep {{ firstName(c.original_provider_name) }}
                   </button>
-                  <button
-                    class="btn btn-sm btn-b"
-                    :disabled="actingKey === rowKey(c)"
-                    @click="resolveReleased(c, 'keep_current')"
-                    :title="`Keep ${c.current_provider_name}, remove ${c.original_provider_name}`"
-                  >
+                  <button class="btn btn-sm btn-b" :disabled="actingKey === rowKey(c)"
+                    @click="resolveReleased(c, 'keep_current')" :title="`Keep ${c.current_provider_name}, remove ${c.original_provider_name}`">
                     Keep {{ firstName(c.current_provider_name) }}
                   </button>
                 </div>
@@ -190,6 +192,24 @@ const resolveDouble = async (c, action) => {
       conflictType: 'double_booked',
       eventAId: c.event_a_id,
       eventBId: c.event_b_id,
+      action
+    });
+    conflicts.value = conflicts.value.filter((x) => rowKey(x) !== key);
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to resolve conflict';
+  } finally {
+    actingKey.value = null;
+  }
+};
+
+const resolveOrphaned = async (c, action) => {
+  const key = rowKey(c);
+  try {
+    actingKey.value = key;
+    error.value = '';
+    await api.post('/office-schedule/admin/slot-conflicts/resolve', {
+      conflictType: 'orphaned_released',
+      releasedEventId: c.released_event_id,
       action
     });
     conflicts.value = conflicts.value.filter((x) => rowKey(x) !== key);
@@ -278,6 +298,7 @@ onMounted(load);
   font-size: 0.75rem; font-weight: 600; white-space: nowrap; flex-shrink: 0;
 }
 .badge-restored { background: #eff6ff; color: #2563eb; }
+.badge-orphan   { background: #fce7f3; color: #be185d; }
 .badge-double   { background: #fef3c7; color: #b45309; }
 
 .conflict-table-wrap { overflow-x: auto; padding: 0; }
@@ -320,5 +341,10 @@ onMounted(load);
   padding: 5px 10px; border-radius: 6px; font-size: 0.82rem; font-weight: 600; cursor: pointer;
 }
 .btn-b:hover:not(:disabled) { background: #dcfce7; }
-.btn-a:disabled, .btn-b:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-dismiss {
+  background: #f3f4f6; color: #374151; border: 1px solid #d1d5db;
+  padding: 5px 10px; border-radius: 6px; font-size: 0.82rem; font-weight: 600; cursor: pointer;
+}
+.btn-dismiss:hover:not(:disabled) { background: #e5e7eb; }
+.btn-a:disabled, .btn-b:disabled, .btn-dismiss:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>

@@ -2559,8 +2559,52 @@ export const getSlotConflicts = async (req, res, next) => {
          AND oe_rel.status          = 'RELEASED'
          AND oe_rel.booking_plan_id IS NULL
          AND oe_rel.start_at       >= NOW()
-         AND oe_rel.updated_at     >= DATE_SUB(NOW(), INTERVAL 90 DAY)
        ORDER BY oe_rel.start_at ASC, ol.name ASC, r.label ASC`,
+      agencyIds
+    );
+
+    // ── Type 3: orphaned released — future RELEASED slot with no one else there ─
+    // Provider's booking was dropped; the slot is empty now (no conflict with another
+    // booked provider) but still needs to be either restored or dismissed.
+    const [orphanedRows] = await pool.execute(
+      `SELECT
+         'orphaned_released'                                       AS conflict_type,
+         oe.id                                                     AS released_event_id,
+         NULL                                                      AS conflict_event_id,
+         oe.room_id,
+         r.name                                                    AS room_name,
+         r.label                                                   AS room_label,
+         ol.name                                                   AS office_name,
+         oe.office_location_id,
+         oe.start_at,
+         oe.end_at,
+         oe.assigned_provider_id                                   AS original_provider_id,
+         CONCAT(u_orig.first_name, ' ', u_orig.last_name)         AS original_provider_name,
+         NULL                                                      AS current_provider_id,
+         NULL                                                      AS current_provider_name,
+         oe.updated_at                                             AS released_at,
+         oe.standing_assignment_id
+       FROM office_events oe
+       JOIN office_standing_assignments osa
+         ON osa.id = oe.standing_assignment_id AND osa.is_active = TRUE
+       JOIN office_location_agencies ola
+         ON ola.office_location_id = oe.office_location_id AND ola.agency_id IN (${placeholders})
+       JOIN office_rooms r   ON r.id  = oe.room_id
+       JOIN office_locations ol ON ol.id = oe.office_location_id
+       LEFT JOIN users u_orig ON u_orig.id = oe.assigned_provider_id
+       WHERE oe.slot_state      = 'ASSIGNED_AVAILABLE'
+         AND oe.status          = 'RELEASED'
+         AND oe.booking_plan_id IS NULL
+         AND oe.start_at       >= NOW()
+         AND NOT EXISTS (
+           SELECT 1 FROM office_events oe2
+           WHERE oe2.room_id    = oe.room_id
+             AND oe2.start_at   = oe.start_at
+             AND oe2.id        <> oe.id
+             AND oe2.slot_state = 'ASSIGNED_BOOKED'
+             AND (oe2.status IS NULL OR UPPER(oe2.status) NOT IN ('CANCELLED','RELEASED'))
+         )
+       ORDER BY oe.start_at ASC, ol.name ASC, r.label ASC`,
       agencyIds
     );
 
@@ -2608,6 +2652,7 @@ export const getSlotConflicts = async (req, res, next) => {
 
     const conflicts = [
       ...(restoredRows || []),
+      ...(orphanedRows || []),
       ...(doubleRows || [])
     ].sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
 
@@ -2636,6 +2681,59 @@ export const resolveSlotConflict = async (req, res, next) => {
     };
 
     await conn.beginTransaction();
+
+    if (conflictType === 'orphaned_released') {
+      // ── Restore or dismiss an orphaned RELEASED slot (no one else in the slot) ─
+      const { releasedEventId } = req.body || {};
+      if (!releasedEventId || !['restore', 'dismiss'].includes(action)) {
+        await conn.rollback();
+        return res.status(400).json({ error: { message: 'releasedEventId and action (restore|dismiss) are required for orphaned_released' } });
+      }
+      const relId = Number(releasedEventId);
+      const [[relRow]] = await conn.execute(
+        `SELECT oe.*, osa.provider_id AS assignment_provider_id
+         FROM office_events oe
+         JOIN office_standing_assignments osa ON osa.id = oe.standing_assignment_id AND osa.is_active = TRUE
+         WHERE oe.id = ? AND oe.slot_state = 'ASSIGNED_AVAILABLE' AND oe.status = 'RELEASED'
+         LIMIT 1`,
+        [relId]
+      );
+      if (!relRow) { await conn.rollback(); return res.status(404).json({ error: { message: 'Released event not found or already resolved' } }); }
+      if (!(await checkAccess(relRow.office_location_id))) { await conn.rollback(); return res.status(403).json({ error: { message: 'Access denied' } }); }
+
+      if (action === 'restore') {
+        // Find or create an active booking plan for this assignment
+        let [[planRow]] = await conn.execute(
+          `SELECT id FROM office_booking_plans WHERE standing_assignment_id = ? AND is_active = TRUE LIMIT 1`,
+          [relRow.standing_assignment_id]
+        );
+        if (!planRow) {
+          const [[latestPlan]] = await conn.execute(
+            `SELECT id FROM office_booking_plans WHERE standing_assignment_id = ? ORDER BY id DESC LIMIT 1`,
+            [relRow.standing_assignment_id]
+          );
+          if (latestPlan) {
+            await conn.execute(`UPDATE office_booking_plans SET is_active = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [latestPlan.id]);
+            [[planRow]] = await conn.execute(`SELECT id FROM office_booking_plans WHERE id = ? LIMIT 1`, [latestPlan.id]);
+          }
+        }
+        const planId = planRow?.id || null;
+        const providerId = Number(relRow.assignment_provider_id || relRow.assigned_provider_id || 0);
+        await conn.execute(
+          `UPDATE office_events SET status = 'BOOKED', slot_state = 'ASSIGNED_BOOKED',
+           booked_provider_id = ?, booking_plan_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+          [providerId || null, planId, relId]
+        );
+      } else {
+        // dismiss: mark as cancelled — the slot becomes open
+        await conn.execute(
+          `UPDATE office_events SET status = 'CANCELLED', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+          [relId]
+        );
+      }
+      await conn.commit();
+      return res.json({ ok: true, conflictType, action, releasedEventId: relId });
+    }
 
     if (conflictType === 'double_booked') {
       // ── Two ASSIGNED_BOOKED events in same room+time. Pick which one to keep. ─
@@ -2729,10 +2827,16 @@ export const getScheduleAudit = async (req, res, next) => {
     const agencyIds = (userAgencies || []).map((a) => Number(a.id)).filter((n) => n > 0);
     if (!agencyIds.length) return res.json({ rows: [] });
 
-    const weeks = Math.min(Math.max(parseInt(req.query.weeks || '8', 10), 1), 26);
+    // fromDate defaults to 6 months ago; toDate defaults to 12 weeks ahead
+    const fromDate = req.query.fromDate
+      ? req.query.fromDate
+      : new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const toDate = req.query.toDate
+      ? req.query.toDate
+      : new Date(Date.now() + 84 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
     const placeholders = agencyIds.map(() => '?').join(',');
 
-    // All materialized events in the window
     const [eventRows] = await pool.execute(
       `SELECT
          oe.id                                                     AS event_id,
@@ -2744,6 +2848,7 @@ export const getScheduleAudit = async (req, res, next) => {
          oe.end_at,
          oe.slot_state,
          oe.status,
+         oe.updated_at                                             AS event_updated_at,
          oe.booking_plan_id,
          oe.standing_assignment_id,
          oe.assigned_provider_id,
@@ -2763,14 +2868,14 @@ export const getScheduleAudit = async (req, res, next) => {
        LEFT JOIN users ub ON ub.id = oe.booked_provider_id
        LEFT JOIN office_standing_assignments osa ON osa.id = oe.standing_assignment_id
        LEFT JOIN office_booking_plans bp ON bp.id = oe.booking_plan_id
-       WHERE oe.start_at >= NOW()
-         AND oe.start_at <  DATE_ADD(NOW(), INTERVAL ? WEEK)
+       WHERE oe.start_at >= ?
+         AND oe.start_at <= ?
          AND (oe.status IS NULL OR UPPER(oe.status) NOT IN ('CANCELLED'))
        ORDER BY oe.start_at ASC, ol.name ASC, r.room_number ASC, r.name ASC`,
-      [...agencyIds, weeks]
+      [...agencyIds, fromDate, toDate]
     );
 
-    res.json({ rows: eventRows || [], weeks });
+    res.json({ rows: eventRows || [], fromDate, toDate });
   } catch (e) {
     next(e);
   }

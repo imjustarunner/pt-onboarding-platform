@@ -5,15 +5,11 @@
       <div class="controls-left">
         <h2>Schedule audit</h2>
         <p class="subtitle">
-          Every office slot for the next
-          <select v-model="weeks" @change="load" class="weeks-select">
-            <option :value="2">2 weeks</option>
-            <option :value="4">4 weeks</option>
-            <option :value="8">8 weeks</option>
-            <option :value="12">12 weeks</option>
-            <option :value="26">26 weeks</option>
-          </select>
-          — showing all booked, available, and released slots.
+          From
+          <input type="date" v-model="fromDate" @change="load" class="date-input" />
+          to
+          <input type="date" v-model="toDate" @change="load" class="date-input" />
+          — all booked, available, and released slots. <em>Released = booking was dropped on that date.</em>
         </p>
       </div>
       <div class="controls-right">
@@ -29,7 +25,7 @@
       <!-- Print header (only visible when printing) -->
       <div class="print-header print-only">
         <h1>Office Schedule Audit</h1>
-        <p>Printed: {{ printedAt }} &nbsp;·&nbsp; Next {{ weeks }} weeks</p>
+        <p>Printed: {{ printedAt }} &nbsp;·&nbsp; {{ fromDate }} → {{ toDate }}</p>
       </div>
 
       <!-- Summary counts (always visible) -->
@@ -62,8 +58,9 @@
                 <th>Assigned to</th>
                 <th>Booked for</th>
                 <th>Frequency</th>
+                <th>Last updated<br><span class="th-sub">(≈ released on)</span></th>
                 <th>Plan</th>
-                <th>Assignment</th>
+                <th>Assign.</th>
                 <th class="flag-col">Flags</th>
               </tr>
             </thead>
@@ -84,6 +81,7 @@
                   {{ row.booked_provider_name || '—' }}
                 </td>
                 <td>{{ row.assigned_frequency || '—' }}</td>
+                <td class="mono small nowrap">{{ fmtDateTime(row.event_updated_at) }}</td>
                 <td class="mono small">{{ row.booking_plan_id || '—' }}</td>
                 <td class="mono small">{{ row.standing_assignment_id || '—' }}</td>
                 <td class="flag-col">
@@ -110,14 +108,20 @@ import api from '../../services/api';
 const loading = ref(true);
 const error   = ref('');
 const rows    = ref([]);
-const weeks   = ref(8);
 const printedAt = ref('');
+
+// Default: 6 months back → 12 weeks ahead
+const toISO = (d) => d.toISOString().slice(0, 10);
+const fromDate = ref(toISO(new Date(Date.now() - 180 * 24 * 60 * 60 * 1000)));
+const toDate   = ref(toISO(new Date(Date.now() + 84  * 24 * 60 * 60 * 1000)));
 
 const load = async () => {
   try {
     loading.value = true;
     error.value   = '';
-    const resp    = await api.get('/office-schedule/admin/schedule-audit', { params: { weeks: weeks.value } });
+    const resp    = await api.get('/office-schedule/admin/schedule-audit', {
+      params: { fromDate: fromDate.value, toDate: toDate.value }
+    });
     rows.value    = resp.data?.rows || [];
     printedAt.value = new Date().toLocaleString();
   } catch (e) {
@@ -185,9 +189,16 @@ const stateBadge = (r) => {
 };
 
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-const fmtDate = (d) => { try { const dt = new Date(d); return `${dt.getMonth()+1}/${dt.getDate()}/${dt.getFullYear()}`; } catch { return d; } };
-const fmtDay  = (d) => { try { return DAYS[new Date(d).getDay()]; } catch { return ''; } };
-const fmtTime = (d) => { try { return new Date(d).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); } catch { return d; } };
+const fmtDate     = (d) => { try { const dt = new Date(d); return `${dt.getMonth()+1}/${dt.getDate()}/${dt.getFullYear()}`; } catch { return d; } };
+const fmtDay      = (d) => { try { return DAYS[new Date(d).getDay()]; } catch { return ''; } };
+const fmtTime     = (d) => { try { return new Date(d).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); } catch { return d; } };
+const fmtDateTime = (d) => {
+  if (!d) return '—';
+  try {
+    const dt = new Date(d);
+    return `${dt.getMonth()+1}/${dt.getDate()}/${dt.getFullYear()} ${dt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+  } catch { return d; }
+};
 
 const print = () => {
   printedAt.value = new Date().toLocaleString();
@@ -207,7 +218,8 @@ onMounted(load);
 }
 .controls-left h2 { margin: 0 0 4px; font-size: 1.4rem; }
 .subtitle { margin: 0; color: var(--color-text-muted, #6b7280); font-size: 0.9rem; }
-.weeks-select { font-size: 0.88rem; padding: 2px 6px; border-radius: 4px; border: 1px solid #d1d5db; }
+.date-input { font-size: 0.88rem; padding: 2px 6px; border-radius: 4px; border: 1px solid #d1d5db; }
+.th-sub { font-size: 0.7rem; font-weight: 400; text-transform: none; letter-spacing: 0; }
 .controls-right { display: flex; gap: 8px; flex-shrink: 0; }
 
 .error-box {
