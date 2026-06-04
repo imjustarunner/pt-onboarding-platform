@@ -137,19 +137,22 @@ const load = async () => {
   }
 };
 
-// Build a map of room+time → list of booked provider names for that slot
+// Build a map of room+time → Map<providerId, providerName> for that slot.
+// Only entries with 2+ DIFFERENT providers are kept (same-provider duplicates are not real conflicts).
 const doubleBookedMap = computed(() => {
-  const map = {};
+  const raw = {};
   for (const r of rows.value) {
     if (r.slot_state === 'ASSIGNED_BOOKED' && r.booked_provider_id) {
       const key = `${r.room_name}|${r.start_at}`;
-      if (!map[key]) map[key] = [];
-      map[key].push({ id: r.booked_provider_id, name: r.booked_provider_name || `#${r.booked_provider_id}` });
+      if (!raw[key]) raw[key] = new Map();
+      raw[key].set(r.booked_provider_id, r.booked_provider_name || `#${r.booked_provider_id}`);
     }
   }
-  // Keep only keys with 2+ providers
-  Object.keys(map).forEach((k) => { if (map[k].length < 2) delete map[k]; });
-  return map;
+  const result = {};
+  for (const [key, providerMap] of Object.entries(raw)) {
+    if (providerMap.size >= 2) result[key] = providerMap;
+  }
+  return result;
 });
 
 const isDoubleBooked = (row) =>
@@ -159,8 +162,11 @@ const isDoubleBooked = (row) =>
 
 // Returns names of the OTHER provider(s) booked in the same slot
 const conflictingProviders = (row) => {
-  const providers = doubleBookedMap.value[`${row.room_name}|${row.start_at}`] || [];
-  return providers.filter((p) => p.id !== row.booked_provider_id).map((p) => p.name);
+  const providerMap = doubleBookedMap.value[`${row.room_name}|${row.start_at}`];
+  if (!providerMap) return [];
+  return [...providerMap.entries()]
+    .filter(([id]) => id !== row.booked_provider_id)
+    .map(([, name]) => name);
 };
 
 const doubleBookedCount = computed(() => Object.keys(doubleBookedMap.value).length);
