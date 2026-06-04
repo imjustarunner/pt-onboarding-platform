@@ -162,10 +162,19 @@ export const getUserInfo = async (req, res, next) => {
       // If we can’t compute assignments, still fall back to "hasValue".
     }
 
+    // These fields are always shown in Provider Info regardless of whether they have a value,
+    // so that staff/providers can always enter or correct them (e.g. after a value was cleared).
+    const ALWAYS_VISIBLE_FIELD_KEYS = new Set([
+      'date_of_birth',
+      'provider_birthdate',
+      'birthdate',
+    ]);
+
     const filtered = (summary || []).filter((f) => {
       if (f?.hasValue) return true;
       const k = String(f?.field_key || '').trim();
       if (!k) return false;
+      if (ALWAYS_VISIBLE_FIELD_KEYS.has(k)) return true;
       return assignedFieldKeys.has(k);
     });
 
