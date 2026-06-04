@@ -114,12 +114,14 @@ function isUnknownWorkflowColumnError(err) {
 async function loadKioskParticipantEnrollmentRows(eventId) {
   const baseSelectWithDob = `
     SELECT cec.client_id, c.full_name, c.initials, c.identifier_code, c.date_of_birth,
-           c.pickup_photo_preference, c.guardian_self_photo_preference
+           c.pickup_photo_preference, c.guardian_self_photo_preference,
+           c.preferred_language
     FROM company_event_clients cec
     INNER JOIN clients c ON c.id = cec.client_id`;
   const baseSelect = `
     SELECT cec.client_id, c.full_name, c.initials, c.identifier_code,
-           c.pickup_photo_preference, c.guardian_self_photo_preference
+           c.pickup_photo_preference, c.guardian_self_photo_preference,
+           c.preferred_language
     FROM company_event_clients cec
     INNER JOIN clients c ON c.id = cec.client_id`;
 
@@ -556,6 +558,7 @@ export const getProgramEventKioskContext = async (req, res, next) => {
           ageYears: ageFromDateOfBirth(r.date_of_birth),
           pickupPhotoPreference: r.pickup_photo_preference != null ? Number(r.pickup_photo_preference) : null,
           guardianSelfPhotoPreference: r.guardian_self_photo_preference != null ? Number(r.guardian_self_photo_preference) : null,
+          preferredLanguage: r.preferred_language || null,
           guardians: [],
           ...emptyKioskClientWaiverFields()
         });

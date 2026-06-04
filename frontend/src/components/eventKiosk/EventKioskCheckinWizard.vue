@@ -3,10 +3,10 @@
     <div class="ek-checkin-card ek-checkin-card--fullscreen">
       <header class="ek-checkin-hdr">
         <div>
-          <div class="ek-checkin-title">Check in {{ clientLabel }}</div>
+          <div class="ek-checkin-title">{{ t('kiosk.checkinTitle', { name: clientLabel }) }}</div>
           <div class="muted small">{{ currentStepMeta.subtitle }}</div>
         </div>
-        <button type="button" class="btn btn-text" @click="emitClose">Close</button>
+        <button type="button" class="btn btn-text" @click="emitClose">{{ t('kiosk.close') }}</button>
       </header>
 
       <div class="ek-checkin-progress" aria-hidden="true">
@@ -18,25 +18,21 @@
         />
       </div>
       <p class="ek-checkin-step-label muted small">
-        Step {{ stepIndex + 1 }} of {{ steps.length }} — {{ currentStepMeta.title }}
+        {{ t('kiosk.stepOf', { current: stepIndex + 1, total: steps.length, title: currentStepMeta.title }) }}
       </p>
 
       <div v-if="error" class="error-box ek-checkin-err">{{ error }}</div>
-      <div v-if="sheetLoading" class="muted small">Loading…</div>
+      <div v-if="sheetLoading" class="muted small">{{ t('kiosk.loading') }}</div>
 
       <template v-else-if="sheet">
         <!-- Step: Photo preference (shown once to confirmed guardians) -->
         <section v-if="currentStepId === 'photo_preference'" class="ek-checkin-step ek-photo-pref-step">
-          <h4 class="ek-checkin-h4">Pickup verification photos</h4>
-          <p class="ek-photo-pref-desc">
-            Set your photo preferences for <strong>{{ clientLabel }}</strong>'s pickups.
-            Photos are taken with the front-facing camera, encrypted, and saved securely.
-            You can update these any time by contacting staff.
-          </p>
+          <h4 class="ek-checkin-h4">{{ t('kiosk.photoPreference.heading') }}</h4>
+          <p class="ek-photo-pref-desc">{{ t('kiosk.photoPreference.desc', { name: clientLabel }) }}</p>
 
           <!-- Guardian picking up themselves -->
           <div class="ek-photo-pref-group">
-            <p class="ek-photo-pref-group-label">When <strong>you</strong> pick up {{ clientLabel }}:</p>
+            <p class="ek-photo-pref-group-label">{{ t('kiosk.photoPreference.whenYouPickup', { name: clientLabel }) }}</p>
             <div class="ek-photo-pref-btns">
               <button
                 type="button"
@@ -46,7 +42,7 @@
                 @click="selfPrefDraft = true"
               >
                 <span class="ek-photo-pref-icon">📷</span>
-                <strong>Take my photo</strong>
+                <strong>{{ t('kiosk.photoPreference.takeMyPhoto') }}</strong>
               </button>
               <button
                 type="button"
@@ -56,14 +52,14 @@
                 @click="selfPrefDraft = false"
               >
                 <span class="ek-photo-pref-icon">✕</span>
-                <strong>No photo for me</strong>
+                <strong>{{ t('kiosk.photoPreference.noPhotoForMe') }}</strong>
               </button>
             </div>
           </div>
 
           <!-- Anyone else picking up -->
           <div class="ek-photo-pref-group">
-            <p class="ek-photo-pref-group-label">When <strong>someone else</strong> picks up {{ clientLabel }}:</p>
+            <p class="ek-photo-pref-group-label">{{ t('kiosk.photoPreference.whenSomeoneElse', { name: clientLabel }) }}</p>
             <div class="ek-photo-pref-btns">
               <button
                 type="button"
@@ -73,7 +69,7 @@
                 @click="othersPrefDraft = true"
               >
                 <span class="ek-photo-pref-icon">📷</span>
-                <strong>Take their photo</strong>
+                <strong>{{ t('kiosk.photoPreference.takeTheirPhoto') }}</strong>
               </button>
               <button
                 type="button"
@@ -83,7 +79,7 @@
                 @click="othersPrefDraft = false"
               >
                 <span class="ek-photo-pref-icon">✕</span>
-                <strong>No photo</strong>
+                <strong>{{ t('kiosk.photoPreference.noPhoto') }}</strong>
               </button>
             </div>
           </div>
@@ -94,7 +90,7 @@
             :disabled="photoPreferenceSaving || selfPrefDraft === null || othersPrefDraft === null"
             @click="savePhotoPreference(selfPrefDraft, othersPrefDraft)"
           >
-            {{ photoPreferenceSaving ? 'Saving…' : 'Save preferences' }}
+            {{ photoPreferenceSaving ? t('kiosk.photoPreference.saving') : t('kiosk.photoPreference.savePreferences') }}
           </button>
 
           <p v-if="photoPreferenceError" class="muted small ek-photo-pref-note" style="color:#dc2626;">
@@ -104,7 +100,7 @@
 
         <!-- Step: Emergency contacts -->
         <section v-if="currentStepId === 'emergency'" class="ek-checkin-step">
-          <h4 class="ek-checkin-h4">Emergency contacts</h4>
+          <h4 class="ek-checkin-h4">{{ t('kiosk.emergency.heading') }}</h4>
           <ul v-if="sheet.emergencyContacts?.length" class="ek-checkin-list">
             <li v-for="(e, i) in sheet.emergencyContacts" :key="`ec-${i}`">
               <strong>{{ e.name }}</strong>
@@ -112,32 +108,30 @@
               <div v-if="e.phone" class="muted small">{{ e.phone }}</div>
             </li>
           </ul>
-          <p v-else class="muted small">None on file.</p>
+          <p v-else class="muted small">{{ t('kiosk.emergency.noneOnFile') }}</p>
           <div v-if="checkerIsGuardian" class="ek-checkin-step-actions">
             <button type="button" class="btn btn-secondary btn-sm" @click="requestWaiverEdit('emergency_contacts')">
-              {{ sheet.emergencyContacts?.length ? 'Edit contacts' : 'Add emergency contact' }}
+              {{ sheet.emergencyContacts?.length ? t('kiosk.emergency.editContacts') : t('kiosk.emergency.addContact') }}
             </button>
           </div>
-          <p v-else class="muted small ek-checkin-step-actions">
-            Sign in as the account guardian to add or update emergency contacts.
-          </p>
+          <p v-else class="muted small ek-checkin-step-actions">{{ t('kiosk.emergency.signInToEdit') }}</p>
         </section>
 
         <!-- Step: Authorized pickups -->
         <section v-else-if="currentStepId === 'pickup'" class="ek-checkin-step">
-          <h4 class="ek-checkin-h4">Authorized drivers &amp; pickups</h4>
+          <h4 class="ek-checkin-h4">{{ t('kiosk.pickup.heading') }}</h4>
           <p class="muted small">
-            {{ sheetHasPickups ? `Review who may pick up ${clientLabel} today.` : `No authorized pickup people on file yet.` }}
+            {{ sheetHasPickups ? t('kiosk.pickup.reviewToday', { name: clientLabel }) : t('kiosk.pickup.noneOnFile') }}
           </p>
-          <p v-if="sheetGuardianPickups.length" class="ek-checkin-sub muted small">Guardians</p>
+          <p v-if="sheetGuardianPickups.length" class="ek-checkin-sub muted small">{{ t('kiosk.pickup.guardians') }}</p>
           <ul v-if="sheetGuardianPickups.length" class="ek-checkin-list">
             <li v-for="(p, i) in sheetGuardianPickups" :key="`sg-${i}`">
               <strong>{{ p.name }}</strong>
-              <span class="muted small"> · Guardian</span>
+              <span class="muted small"> · {{ t('kiosk.pickup.guardian') }}</span>
               <div v-if="p.phone" class="muted small">{{ p.phone }}</div>
             </li>
           </ul>
-          <p v-if="sheetOtherPickups.length" class="ek-checkin-sub muted small">Other authorized pickups</p>
+          <p v-if="sheetOtherPickups.length" class="ek-checkin-sub muted small">{{ t('kiosk.pickup.otherPickups') }}</p>
           <ul v-if="sheetOtherPickups.length" class="ek-checkin-list">
             <li v-for="(p, i) in sheetOtherPickups" :key="`so-${i}`">
               <strong>{{ p.name }}</strong>
@@ -149,26 +143,26 @@
           <!-- Inline add/edit pickup people (no signature required) -->
           <div class="ek-pickup-inline">
             <div class="ek-pickup-inline-hdr">
-              <span class="small muted">{{ inlinePickups.length ? 'Edit or add pickup contacts' : 'Add pickup contacts' }}</span>
+              <span class="small muted">{{ inlinePickups.length ? t('kiosk.pickup.editOrAdd') : t('kiosk.pickup.addContacts') }}</span>
               <button v-if="!inlinePickupOpen" type="button" class="btn btn-secondary btn-sm" @click="openInlinePickups">
-                {{ sheetHasPickups ? 'Add / edit' : 'Add person' }}
+                {{ sheetHasPickups ? t('kiosk.pickup.addEdit') : t('kiosk.pickup.addPerson') }}
               </button>
             </div>
             <div v-if="inlinePickupOpen" class="ek-pickup-inline-form">
               <div v-for="(row, idx) in inlinePickups" :key="`ip-${idx}`" class="ek-pickup-inline-row">
-                <input v-model="row.name" class="input" type="text" placeholder="Full name" />
-                <input v-model="row.relationship" class="input" type="text" placeholder="Relationship (e.g. Aunt)" />
-                <input v-model="row.phone" class="input" type="tel" inputmode="tel" placeholder="Phone (10 digits)" />
-                <button type="button" class="btn btn-secondary btn-sm" @click="inlinePickups.splice(idx, 1)">Remove</button>
+                <input v-model="row.name" class="input" type="text" :placeholder="t('kiosk.pickup.fullName')" />
+                <input v-model="row.relationship" class="input" type="text" :placeholder="t('kiosk.pickup.relationship')" />
+                <input v-model="row.phone" class="input" type="tel" inputmode="tel" :placeholder="t('kiosk.pickup.phone')" />
+                <button type="button" class="btn btn-secondary btn-sm" @click="inlinePickups.splice(idx, 1)">{{ t('kiosk.pickup.remove') }}</button>
               </div>
               <button type="button" class="btn btn-secondary btn-sm" @click="inlinePickups.push({ name: '', relationship: '', phone: '' })">
-                + Add another person
+                {{ t('kiosk.pickup.addAnother') }}
               </button>
               <div v-if="inlinePickupError" class="error-box ek-checkin-err">{{ inlinePickupError }}</div>
               <div class="ek-pickup-inline-actions">
-                <button type="button" class="btn btn-secondary btn-sm" @click="closeInlinePickups">Cancel</button>
+                <button type="button" class="btn btn-secondary btn-sm" @click="closeInlinePickups">{{ t('kiosk.pickup.cancelEdit') }}</button>
                 <button type="button" class="btn btn-primary btn-sm" :disabled="inlinePickupSaving" @click="saveInlinePickups">
-                  {{ inlinePickupSaving ? 'Saving…' : 'Save contacts' }}
+                  {{ inlinePickupSaving ? t('kiosk.saving') : t('kiosk.pickup.saveContacts') }}
                 </button>
               </div>
             </div>
@@ -176,42 +170,37 @@
 
           <!-- Formal waiver signing (guardian flow) -->
           <div v-if="canEditWaivers" class="ek-checkin-step-actions">
-            <button
-              type="button"
-              class="btn btn-secondary btn-sm"
-              @click="requestWaiverEdit('pickup_authorization')"
-            >
-              Sign formal pickup authorization
+            <button type="button" class="btn btn-secondary btn-sm" @click="requestWaiverEdit('pickup_authorization')">
+              {{ t('kiosk.pickup.signFormal') }}
             </button>
           </div>
+          <p v-else-if="!checkerIsGuardian" class="muted small ek-checkin-step-actions">
+            {{ t('kiosk.pickup.linkGuardianRequired') }}
+          </p>
         </section>
 
         <!-- Step: Walk-home -->
         <section v-else-if="currentStepId === 'walk_home'" class="ek-checkin-step">
-          <h4 class="ek-checkin-h4">Walk-home authorization</h4>
+          <h4 class="ek-checkin-h4">{{ t('kiosk.walkHome.heading') }}</h4>
           <div v-if="sheet.walkHome?.allowedToWalkHome" class="ek-checkin-ok">
-            <strong>Authorized to walk home alone.</strong>
-            <p v-if="sheet.walkHome.allowedWindow" class="small muted">
-              Window: {{ sheet.walkHome.allowedWindow }}
-            </p>
-            <p v-if="sheet.walkHome.route" class="small muted">Route: {{ sheet.walkHome.route }}</p>
+            <strong>{{ t('kiosk.walkHome.authorizedAlone') }}</strong>
+            <p v-if="sheet.walkHome.allowedWindow" class="small muted">{{ t('kiosk.walkHome.window', { window: sheet.walkHome.allowedWindow }) }}</p>
+            <p v-if="sheet.walkHome.route" class="small muted">{{ t('kiosk.walkHome.route', { route: sheet.walkHome.route }) }}</p>
             <p v-if="sheet.walkHome.conditions" class="small muted">{{ sheet.walkHome.conditions }}</p>
           </div>
-          <p v-else class="muted small">Not authorized to walk home alone from this program.</p>
+          <p v-else class="muted small">{{ t('kiosk.walkHome.notAuthorized') }}</p>
           <div v-if="checkerIsGuardian" class="ek-checkin-step-actions">
             <button type="button" class="btn btn-secondary btn-sm" @click="requestWaiverEdit('walk_home_authorization')">
-              Add or change
+              {{ t('kiosk.walkHome.addOrChange') }}
             </button>
           </div>
-          <p v-else class="muted small ek-checkin-step-actions">
-            Sign in as the account guardian to update walk-home authorization.
-          </p>
+          <p v-else class="muted small ek-checkin-step-actions">{{ t('kiosk.walkHome.signInToEdit') }}</p>
         </section>
 
         <!-- Step: Who is checking in (identity first) -->
         <section v-if="currentStepId === 'checker'" class="ek-checkin-step">
-          <h4 class="ek-checkin-h4">Who is checking in {{ clientLabel }}?</h4>
-          <p class="muted small">Tap your name. Guardians can update child information on the following steps.</p>
+          <h4 class="ek-checkin-h4">{{ t('kiosk.checker.heading', { name: clientLabel }) }}</h4>
+          <p class="muted small">{{ t('kiosk.checker.tapYourName') }}</p>
 
           <ul class="ek-checker-list">
             <li
@@ -224,7 +213,7 @@
               <div>
                 <strong>{{ opt.name }}</strong>
                 <span class="muted small"> · {{ opt.relationship }}</span>
-                <span v-if="opt.kind === 'guardian'" class="ek-guardian-badge">Main guardian</span>
+                <span v-if="opt.kind === 'guardian'" class="ek-guardian-badge">{{ t('kiosk.checker.mainGuardian') }}</span>
               </div>
               <span v-if="checkerSelectedKey === opt.key" class="ek-checker-tick">✓</span>
             </li>
@@ -234,8 +223,8 @@
               @click="selectSomeoneElse"
             >
               <div>
-                <strong>Someone else</strong>
-                <span class="muted small"> · Not listed above</span>
+                <strong>{{ t('kiosk.checker.someoneElse') }}</strong>
+                <span class="muted small"> · {{ t('kiosk.checker.notListedAbove') }}</span>
               </div>
               <span v-if="checkerSelectedKey === 'other'" class="ek-checker-tick">✓</span>
             </li>
@@ -245,67 +234,65 @@
           <div v-if="checkerKind === 'guardian'" class="ek-guardian-confirm">
             <label class="ek-checkin-check-row">
               <input v-model="guardianIdentityConfirmed" type="checkbox" />
-              <span>I confirm that I am <strong>{{ selectedCheckerName }}</strong> and I am authorized to update this child's information.</span>
+              <span>{{ t('kiosk.checker.iConfirm', { name: selectedCheckerName }) }}</span>
             </label>
-            <p class="muted small ek-guardian-confirm-note">
-              As the account guardian, you can update emergency contacts, walk-home authorization, and other details on the following steps.
-            </p>
+            <p class="muted small ek-guardian-confirm-note">{{ t('kiosk.checker.asGuardianNote') }}</p>
           </div>
 
           <div v-if="checkerKind === 'other'" class="ek-checker-other">
             <div class="ek-checkin-field">
-              <label class="ek-checkin-lbl">Your name</label>
-              <input v-model="otherCheckerName" class="input" type="text" placeholder="First and last name" />
+              <label class="ek-checkin-lbl">{{ t('kiosk.checker.yourName') }}</label>
+              <input v-model="otherCheckerName" class="input" type="text" :placeholder="t('kiosk.checker.yourNamePlaceholder')" />
             </div>
             <div class="ek-checkin-field">
-              <label class="ek-checkin-lbl">Relationship to {{ clientLabel }} (optional)</label>
-              <input v-model="otherCheckerRelationship" class="input" type="text" placeholder="e.g. Aunt, Family friend" />
+              <label class="ek-checkin-lbl">{{ t('kiosk.checker.relationship', { name: clientLabel }) }}</label>
+              <input v-model="otherCheckerRelationship" class="input" type="text" :placeholder="t('kiosk.checker.relationshipPlaceholder')" />
             </div>
-            <label class="ek-checkin-lbl">Sign to check in</label>
+            <label class="ek-checkin-lbl">{{ t('kiosk.checker.signToCheckin') }}</label>
             <SignaturePad compact @signed="(d) => (otherCheckerSig = d)" />
-            <p class="muted small">No photo required.</p>
+            <p class="muted small">{{ t('kiosk.checker.noPhotoRequired') }}</p>
           </div>
         </section>
 
         <!-- Step: Allergies & snacks (one page) -->
         <section v-else-if="currentStepId === 'allergies'" class="ek-checkin-step">
-          <h4 class="ek-checkin-h4">Allergies &amp; approved snacks</h4>
+          <h4 class="ek-checkin-h4">{{ t('kiosk.allergies.heading') }}</h4>
           <template v-if="sheet.allergies">
             <div v-if="allergyText" class="ek-checkin-banner ek-checkin-banner--warn">
               <strong>Allergies / medical:</strong> {{ allergyText }}
             </div>
-            <p v-else-if="sheet.allergies.applyNone" class="muted small">No medical info reported.</p>
-            <p v-else class="muted small">No known allergies listed.</p>
+            <p v-else-if="sheet.allergies.applyNone" class="muted small">{{ t('kiosk.allergies.noMedical') }}</p>
+            <p v-else class="muted small">{{ t('kiosk.allergies.noKnown') }}</p>
             <p v-if="sheet.allergies.notes" class="small">
-              <strong>Notes:</strong> {{ sheet.allergies.notes }}
+              <strong>{{ t('kiosk.allergies.notes') }}</strong> {{ sheet.allergies.notes }}
             </p>
             <div class="ek-checkin-snack-block">
-              <strong>Approved snacks</strong>
+              <strong>{{ t('kiosk.allergies.approvedSnacks') }}</strong>
               <p v-if="sheet.allergies.noSnacks" class="ek-checkin-banner ek-checkin-banner--warn small">
-                Do not give snacks to this child.
+                {{ t('kiosk.allergies.doNotGiveSnacks') }}
               </p>
               <p v-else-if="snacksSummary" class="small">{{ snacksSummary }}</p>
-              <p v-else class="muted small">None on file.</p>
+              <p v-else class="muted small">{{ t('kiosk.allergies.noneOnFile') }}</p>
             </div>
           </template>
-          <p v-else class="muted small">No allergy or snack information on file.</p>
+          <p v-else class="muted small">{{ t('kiosk.allergies.noInfo') }}</p>
           <div v-if="canEditWaivers" class="ek-checkin-step-actions">
             <button type="button" class="btn btn-secondary btn-sm" @click="requestWaiverEdit('allergies_snacks')">
-              Add or change
+              {{ t('kiosk.allergies.addOrChange') }}
             </button>
           </div>
           <p v-else-if="sheet.waiversEnabled && !attributionGuardianId" class="muted small ek-checkin-step-actions">
-            A linked guardian is required to add or change this — staff can help.
+            {{ t('kiosk.allergies.signInToEdit') }}
           </p>
           <label class="ek-checkin-check-row">
             <input v-model="allergiesConfirmed" type="checkbox" />
-            <span>Allergies and snack information above is correct.</span>
+            <span>{{ t('kiosk.allergies.confirmCorrect') }}</span>
           </label>
         </section>
 
         <footer class="ek-checkin-footer">
-          <button v-if="stepIndex > 0" type="button" class="btn btn-secondary" @click="prevStep">Back</button>
-          <button type="button" class="btn btn-secondary" @click="emitClose">Cancel</button>
+          <button v-if="stepIndex > 0" type="button" class="btn btn-secondary" @click="prevStep">{{ t('kiosk.back') }}</button>
+          <button type="button" class="btn btn-secondary" @click="emitClose">{{ t('kiosk.cancel') }}</button>
           <template v-if="currentStepId !== 'photo_preference'">
             <button
               v-if="!isLastStep"
@@ -323,7 +310,7 @@
               :disabled="!canComplete || submitting"
               @click="completeCheckin"
             >
-              {{ submitting ? 'Checking in…' : 'Complete check-in' }}
+              {{ submitting ? t('kiosk.checkingIn') : t('kiosk.completeCheckin') }}
             </button>
           </template>
         </footer>
@@ -346,19 +333,19 @@
         <div class="ek-checkin-waiver-checks">
           <label class="ek-checkin-check-row">
             <input v-model="waiverConsent" type="checkbox" />
-            <span>I have read this section and consent to sign.</span>
+            <span>{{ t('kiosk.waiver.iHaveRead') }}</span>
           </label>
           <label class="ek-checkin-check-row">
             <input v-model="waiverIntent" type="checkbox" />
-            <span>I intend my electronic signature to have the same effect as a handwritten signature.</span>
+            <span>{{ t('kiosk.waiver.iIntend') }}</span>
           </label>
         </div>
         <SignaturePad compact @signed="(d) => (waiverSig = d)" />
         <div v-if="waiverError" class="error-box ek-checkin-err">{{ waiverError }}</div>
         <footer class="ek-checkin-footer">
-          <button type="button" class="btn btn-secondary" @click="closeWaiverEdit">Cancel</button>
+          <button type="button" class="btn btn-secondary" @click="closeWaiverEdit">{{ t('kiosk.waiver.cancel') }}</button>
           <button type="button" class="btn btn-primary" :disabled="waiverSaving" @click="saveWaiverEdit">
-            {{ waiverSaving ? 'Saving…' : 'Save & return' }}
+            {{ waiverSaving ? t('kiosk.saving') : t('kiosk.waiver.saveReturn') }}
           </button>
         </footer>
       </div>
@@ -368,6 +355,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import api from '../../services/api';
 import SignaturePad from '../SignaturePad.vue';
 import GwvFieldsEsign from '../../views/guardian/waivers/GwvFieldsEsign.vue';
@@ -375,6 +363,8 @@ import GwvFieldsPickup from '../../views/guardian/waivers/GwvFieldsPickup.vue';
 import GwvFieldsEmergency from '../../views/guardian/waivers/GwvFieldsEmergency.vue';
 import GwvFieldsWalkHome from '../../views/guardian/waivers/GwvFieldsWalkHome.vue';
 import GwvFieldsAllergies from '../../views/guardian/waivers/GwvFieldsAllergies.vue';
+
+const { t } = useI18n();
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -391,14 +381,12 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'checked-in', 'sheet-updated']);
 
-const steps = [
-  { id: 'checker', title: 'Who is checking in?', subtitle: 'Tell us who is dropping off today.' },
-  { id: 'photo_preference', title: 'Pickup photos', subtitle: 'One-time setup for pickup verification.' },
-  { id: 'emergency', title: 'Emergency contacts', subtitle: 'Confirm or update emergency contacts.' },
-  { id: 'pickup', title: 'Authorized pickups', subtitle: 'Confirm who may pick up your child.' },
-  { id: 'walk_home', title: 'Walk-home authorization', subtitle: 'Confirm walk-home rules for this program.' },
-  { id: 'allergies', title: 'Allergies & snacks', subtitle: 'Review allergies and approved snacks on one page.' }
-];
+const STEP_IDS = ['checker', 'photo_preference', 'emergency', 'pickup', 'walk_home', 'allergies'];
+const steps = computed(() => STEP_IDS.map((id) => ({
+  id,
+  title: t(`kiosk.steps.${id}.title`),
+  subtitle: t(`kiosk.steps.${id}.subtitle`)
+})));
 
 const WAIVER_FIELDS = {
   esignature_consent: GwvFieldsEsign,
@@ -407,13 +395,9 @@ const WAIVER_FIELDS = {
   walk_home_authorization: GwvFieldsWalkHome,
   allergies_snacks: GwvFieldsAllergies
 };
-const WAIVER_TITLES = {
-  esignature_consent: 'E-signature consent',
-  pickup_authorization: 'Authorized pickups',
-  emergency_contacts: 'Emergency contacts',
-  walk_home_authorization: 'Walk-home authorization',
-  allergies_snacks: 'Allergies & approved snacks'
-};
+const waiverTitle = computed(() =>
+  t(`kiosk.waiver.titles.${waiverEditKey.value}`, t(`kiosk.waiver.titles.${waiverEditKey.value}`))
+);
 
 const sheet = ref(null);
 const sheetLoading = ref(false);
@@ -464,9 +448,9 @@ const inlinePickupSaving = ref(false);
 const inlinePickupError = ref('');
 
 const clientLabel = computed(() => props.displayName(props.client));
-const currentStepId = computed(() => steps[stepIndex.value]?.id || 'emergency');
-const currentStepMeta = computed(() => steps[stepIndex.value] || steps[0]);
-const isLastStep = computed(() => stepIndex.value >= steps.length - 1);
+const currentStepId = computed(() => steps.value[stepIndex.value]?.id || 'emergency');
+const currentStepMeta = computed(() => steps.value[stepIndex.value] || steps.value[0]);
+const isLastStep = computed(() => stepIndex.value >= steps.value.length - 1);
 
 const sheetGuardianPickups = computed(() =>
   (sheet.value?.authorizedPickups || []).filter((p) => p.source === 'guardian')
@@ -554,7 +538,6 @@ const snacksSummary = computed(() => {
 });
 
 const waiverFieldComponent = computed(() => WAIVER_FIELDS[waiverEditKey.value] || null);
-const waiverTitle = computed(() => WAIVER_TITLES[waiverEditKey.value] || 'Waiver section');
 
 const canAdvanceStep = computed(() => {
   const id = currentStepId.value;
@@ -564,11 +547,11 @@ const canAdvanceStep = computed(() => {
 });
 
 const advanceLabel = computed(() => {
-  if (currentStepId.value === 'checker') return 'Continue';
+  if (currentStepId.value === 'checker') return t('kiosk.next');
   if (currentStepId.value === 'emergency' && !sheet.value?.emergencyContacts?.length) {
-    return 'Continue without emergency contact';
+    return t('kiosk.next');
   }
-  return 'Looks correct — continue';
+  return t('kiosk.next');
 });
 
 const canComplete = computed(() => {
@@ -687,11 +670,11 @@ async function savePhotoPreference(selfValue, othersValue) {
       emit('sheet-updated', sheet.value);
     }
     // Advance past this step automatically
-    if (stepIndex.value < steps.length - 1) stepIndex.value += 1;
+    if (stepIndex.value < steps.value.length - 1) stepIndex.value += 1;
   } catch (e) {
     photoPreferenceError.value = e.response?.data?.error?.message || 'Could not save preference. You can set it next time.';
     // Advance anyway — don't block check-in over a preference save failure
-    if (stepIndex.value < steps.length - 1) stepIndex.value += 1;
+    if (stepIndex.value < steps.value.length - 1) stepIndex.value += 1;
   } finally {
     photoPreferenceSaving.value = false;
   }
@@ -715,10 +698,10 @@ function selectSomeoneElse() {
 
 function nextStep() {
   if (!canAdvanceStep.value) return;
-  if (stepIndex.value < steps.length - 1) {
+  if (stepIndex.value < steps.value.length - 1) {
     stepIndex.value += 1;
     // Skip photo_preference when it's already been answered or checker isn't a guardian
-    if (steps[stepIndex.value]?.id === 'photo_preference' && !showPhotoPreferenceStep.value) {
+    if (steps.value[stepIndex.value]?.id === 'photo_preference' && !showPhotoPreferenceStep.value) {
       stepIndex.value += 1;
     }
   }
@@ -727,7 +710,7 @@ function nextStep() {
 function prevStep() {
   if (stepIndex.value > 0) {
     stepIndex.value -= 1;
-    if (steps[stepIndex.value]?.id === 'photo_preference' && !showPhotoPreferenceStep.value) {
+    if (steps.value[stepIndex.value]?.id === 'photo_preference' && !showPhotoPreferenceStep.value) {
       stepIndex.value -= 1;
     }
   }

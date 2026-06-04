@@ -8,9 +8,14 @@
           <div class="pe-kiosk-evt">{{ event.title || 'Program event' }}</div>
         </div>
       </div>
-      <div class="pe-kiosk-clock">
-        <div class="pe-kiosk-clock-time">{{ clockTime }}</div>
-        <div class="pe-kiosk-clock-date">{{ clockDate }}</div>
+      <div class="pe-kiosk-hdr-right">
+        <button class="btn pe-lang-toggle" type="button" @click="toggleKioskLocale">
+          🌐 {{ kioskLocale === 'es' ? t('kiosk.langToggleBack') : t('kiosk.langToggle') }}
+        </button>
+        <div class="pe-kiosk-clock">
+          <div class="pe-kiosk-clock-time">{{ clockTime }}</div>
+          <div class="pe-kiosk-clock-date">{{ clockDate }}</div>
+        </div>
       </div>
     </header>
 
@@ -595,14 +600,12 @@
       <div class="pe-kiosk-modal-card pe-kiosk-modal-card--fullscreen pe-sibling-prompt">
         <header class="pe-kiosk-modal-hdr">
           <div>
-            <div class="pe-kiosk-modal-title">Check in another child?</div>
-            <div class="muted small">{{ siblingPromptGuardianName }} has other children enrolled today.</div>
+            <div class="pe-kiosk-modal-title">{{ t('kiosk.sibling.checkinTitle') }}</div>
+            <div class="muted small">{{ t('kiosk.sibling.otherChildren', { name: siblingPromptGuardianName }) }}</div>
           </div>
-          <button class="btn btn-text" @click="closeSiblingPrompt">Done</button>
+          <button class="btn btn-text" @click="closeSiblingPrompt">{{ t('kiosk.done') }}</button>
         </header>
-        <p class="pe-sibling-prompt-sub muted small">
-          Tap <strong>Check in</strong> to use the same guardian info — or tap <strong>Edit info</strong> to go through the full check-in for that child.
-        </p>
+        <p class="pe-sibling-prompt-sub muted small">{{ t('kiosk.sibling.checkinSub') }}</p>
         <div v-if="siblingPromptError" class="error-box pe-kiosk-modal-err">{{ siblingPromptError }}</div>
         <div class="pe-sibling-card-list">
           <div
@@ -620,8 +623,8 @@
               />
               <div class="pe-sibling-card__name-block">
                 <span class="pe-sibling-card__name">{{ clientDisplayName(c) }}</span>
-                <span v-if="c.ageYears != null" class="pe-sibling-card__detail">Age {{ c.ageYears }}</span>
-              </div>
+              <span v-if="c.ageYears != null" class="pe-sibling-card__detail">{{ t('kiosk.sibling.age', { age: c.ageYears }) }}</span>
+            </div>
             </div>
             <!-- Info chips -->
             <div class="pe-sibling-card__chips">
@@ -642,7 +645,7 @@
                 :disabled="!!siblingPromptBusyId"
                 @click="closeSiblingPromptAndOpenCheckin(c)"
               >
-                Edit info
+                {{ t('kiosk.sibling.editInfo') }}
               </button>
               <button
                 type="button"
@@ -650,13 +653,13 @@
                 :disabled="!!siblingPromptBusyId"
                 @click="startSiblingCheckin(c)"
               >
-                {{ siblingPromptBusyId === c.id ? 'Checking in…' : 'Check in' }}
+                {{ siblingPromptBusyId === c.id ? t('kiosk.sibling.checkingIn') : t('kiosk.sibling.checkIn') }}
               </button>
             </div>
           </div>
         </div>
         <footer class="pe-kiosk-modal-footer">
-          <button class="btn btn-primary" type="button" @click="closeSiblingPrompt">All done</button>
+          <button class="btn btn-primary" type="button" @click="closeSiblingPrompt">{{ t('kiosk.sibling.allDone') }}</button>
         </footer>
       </div>
     </div>
@@ -666,15 +669,13 @@
       <div class="pe-kiosk-modal-card pe-kiosk-modal-card--fullscreen pe-sibling-prompt">
         <header class="pe-kiosk-modal-hdr">
           <div>
-            <div class="pe-kiosk-modal-title">Check out another child?</div>
-            <div class="muted small">
-              Released to {{ lastReleaseCtx?.releasedToName }} — other children are still checked in.
-            </div>
+            <div class="pe-kiosk-modal-title">{{ t('kiosk.sibling.checkoutTitle') }}</div>
+            <div class="muted small">{{ t('kiosk.sibling.samePickup', { name: lastReleaseCtx?.releasedToName }) }}</div>
           </div>
-          <button class="btn btn-text" @click="closeCheckoutSiblingPrompt">Done</button>
+          <button class="btn btn-text" @click="closeCheckoutSiblingPrompt">{{ t('kiosk.done') }}</button>
         </header>
         <p class="pe-sibling-prompt-sub muted small">
-          Tap a child to release them to the same person using the same signature{{ lastReleaseCtx?.photo ? ' and photo' : '' }}.
+          {{ t('kiosk.sibling.checkoutSub', { photo: lastReleaseCtx?.photo ? t('kiosk.sibling.checkoutSubPhoto') : '' }) }}
         </p>
         <div v-if="checkoutSiblingError" class="error-box pe-kiosk-modal-err">{{ checkoutSiblingError }}</div>
         <div class="pe-sibling-card-list">
@@ -708,7 +709,7 @@
                 :disabled="!!checkoutSiblingBusyId"
                 @click="checkoutSibling(c)"
               >
-                {{ checkoutSiblingBusyId === c.id ? 'Releasing…' : 'Check out' }}
+                {{ checkoutSiblingBusyId === c.id ? t('kiosk.sibling.releasing') : t('kiosk.sibling.checkOut') }}
               </button>
             </div>
           </div>
@@ -723,20 +724,18 @@
     <div v-if="voidCheckinOpen" class="pe-kiosk-modal pe-kiosk-modal--fullscreen">
       <div class="pe-kiosk-modal-card pe-void-modal">
         <header class="pe-kiosk-modal-hdr">
-          <div class="pe-kiosk-modal-title">Remove check-in?</div>
+          <div class="pe-kiosk-modal-title">{{ t('kiosk.removeCheckin.title') }}</div>
         </header>
         <p class="pe-void-modal__sub">
-          You are about to remove the check-in for
-          <strong>{{ voidCheckinClient ? clientDisplayName(voidCheckinClient) : '—' }}</strong>.
-          A staff member must confirm by typing their full name exactly as it appears in the system.
+          {{ t('kiosk.removeCheckin.desc', { name: voidCheckinClient ? clientDisplayName(voidCheckinClient) : '—' }) }}
         </p>
-        <label class="pe-void-modal__label" for="voidStaffName">Staff member name</label>
+        <label class="pe-void-modal__label" for="voidStaffName">{{ t('kiosk.removeCheckin.staffNameLabel') }}</label>
         <input
           id="voidStaffName"
           v-model="voidStaffName"
           class="pe-void-modal__input"
           type="text"
-          placeholder="e.g. Jane Smith"
+          :placeholder="t('kiosk.removeCheckin.staffNamePlaceholder')"
           autocomplete="off"
           :disabled="voidCheckinSaving"
           @keyup.enter="confirmVoidCheckin"
@@ -744,7 +743,7 @@
         <p v-if="voidCheckinError" class="error-box pe-kiosk-modal-err">{{ voidCheckinError }}</p>
         <footer class="pe-kiosk-modal-footer pe-void-modal__footer">
           <button class="btn btn-secondary" type="button" :disabled="voidCheckinSaving" @click="closeVoidCheckin">
-            Cancel
+            {{ t('kiosk.removeCheckin.cancel') }}
           </button>
           <button
             class="btn pe-void-modal__confirm-btn"
@@ -752,7 +751,7 @@
             :disabled="!voidStaffName.trim() || voidCheckinSaving"
             @click="confirmVoidCheckin"
           >
-            {{ voidCheckinSaving ? 'Removing…' : 'Remove check-in' }}
+            {{ voidCheckinSaving ? t('kiosk.removeCheckin.removing') : t('kiosk.removeCheckin.confirm') }}
           </button>
         </footer>
       </div>
@@ -1182,9 +1181,11 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute } from 'vue-router';
 import QRCode from 'qrcode';
 import api from '../../services/api';
+import { setPublicLocale } from '../../i18n';
 import { useBrandingStore } from '../../store/branding';
 import { resolvePortalSlug } from '../../utils/orgScopedPath';
 import { buildFormUrl } from '../../utils/publicIntakeUrl';
@@ -1193,6 +1194,31 @@ import EventKioskLateContactFlow from '../../components/eventKiosk/EventKioskLat
 import EventKioskCheckinWizard from '../../components/eventKiosk/EventKioskCheckinWizard.vue';
 import EventKioskSessionObservationWizard from '../../components/eventKiosk/EventKioskSessionObservationWizard.vue';
 import UserAvatar from '../../components/common/UserAvatar.vue';
+
+const { t, locale: i18nLocale } = useI18n();
+const kioskLocale = computed(() => i18nLocale.value);
+
+function toggleKioskLocale() {
+  setPublicLocale(kioskLocale.value === 'es' ? 'en' : 'es');
+}
+
+/** Auto-switch to the client's preferred language when opening their check-in.
+ *  Reverts to English when the wizard closes. */
+const priorLocale = ref(null);
+function applyClientLocale(client) {
+  const lang = String(client?.preferredLanguage || '').toLowerCase();
+  const target = lang.startsWith('es') || lang === 'spanish' ? 'es' : null;
+  if (target && kioskLocale.value !== target) {
+    priorLocale.value = kioskLocale.value;
+    setPublicLocale(target);
+  }
+}
+function revertClientLocale() {
+  if (priorLocale.value) {
+    setPublicLocale(priorLocale.value);
+    priorLocale.value = null;
+  }
+}
 
 const route = useRoute();
 const brandingStore = useBrandingStore();
@@ -1677,11 +1703,13 @@ async function openCheckin(c) {
   if (!kioskActive.value) return;
   checkinClient.value = c;
   checkinOpen.value = true;
+  applyClientLocale(c);
 }
 
 function closeCheckin() {
   checkinOpen.value = false;
   checkinClient.value = null;
+  revertClientLocale();
 }
 
 function applyCheckinSheetToClient(sheet) {
@@ -2597,6 +2625,20 @@ onBeforeUnmount(() => {
 .pe-kiosk-logo { width: 48px; height: 48px; object-fit: contain; border-radius: 10px; }
 .pe-kiosk-org { font-weight: 800; font-size: 1.15rem; color: var(--pe-primary); line-height: 1.2; }
 .pe-kiosk-evt { font-size: 13px; color: var(--pe-muted); margin-top: 2px; }
+.pe-kiosk-hdr-right { display: flex; align-items: center; gap: 14px; }
+.pe-lang-toggle {
+  padding: 7px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 20px;
+  background: #f8fafc;
+  color: #334155;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+.pe-lang-toggle:hover { background: #e2e8f0; border-color: #94a3b8; }
 .pe-kiosk-clock { text-align: right; line-height: 1.25; }
 .pe-kiosk-clock-time { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; color: #334155; }
 .pe-kiosk-clock-date { font-size: 12px; color: var(--pe-muted); margin-top: 2px; }
