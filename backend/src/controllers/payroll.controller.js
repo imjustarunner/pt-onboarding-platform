@@ -18962,7 +18962,6 @@ export const patchEventTimeSubmission = async (req, res, next) => {
       clockInAt: req.body?.clockInAt || null,
       clockOutAt: req.body?.clockOutAt || null,
       directHoursCap: req.body?.directHoursCap,
-      indirectHoursOverride: req.body?.indirectHoursOverride != null ? Number(req.body.indirectHoursOverride) : null,
       editedBy: { userId: req.user?.id || null, role: 'payroll' }
     });
     if (result.error) {

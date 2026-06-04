@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
 import { listPairedEventProviderAttendance } from './skillBuildersEventKioskPunch.service.js';
-import { computeEventDirectIndirectHours, roundEventPayrollHours as round2 } from '../utils/eventPayrollHours.util.js';
+import { computeEventDirectIndirectHours } from '../utils/eventPayrollHours.util.js';
 
 function parsePositiveInt(raw) {
   const n = Number.parseInt(String(raw || ''), 10);
@@ -46,7 +46,10 @@ function groupClaimsIntoSubmissions(claimRows, eventTitlesById) {
         indirectHours: payload.indirectHours != null ? Number(payload.indirectHours) : null,
         directHoursCap: payload.directHoursCap != null ? Number(payload.directHoursCap) : null,
         source: payload.source || null,
-        editHistory: Array.isArray(payload.editHistory) ? payload.editHistory : [],
+        wasEdited: payload.wasEdited === true,
+        lastEditedByRole: payload.lastEditedByRole || null,
+        lastEditedAt: payload.lastEditedAt || null,
+        originalValues: payload.originalValues || null,
         directClaim: null,
         indirectClaim: null
       });
@@ -204,7 +207,6 @@ export async function updateEventTimeSubmission({
   clockInAt,
   clockOutAt,
   directHoursCap,
-  indirectHoursOverride = null,
   editedBy = null,
   ownerUserId = null
 }) {
@@ -232,72 +234,38 @@ export async function updateEventTimeSubmission({
     ? Number(directHoursCap)
     : Number(basePayload.directHoursCap || 0);
 
-  // Snapshot the values before this edit so payroll can see what existed before.
-  const before = {
+  const resolvedClockIn = clockInAt || basePayload.clockInAt;
+  const resolvedClockOut = clockOutAt || basePayload.clockOutAt;
+
+  const split = computeEventDirectIndirectHours({
+    clockInAt: resolvedClockIn,
+    clockOutAt: resolvedClockOut,
+    directHoursCap: cap
+  });
+
+  // On the very first edit, stamp the original auto-submitted values once so
+  // payroll can always compare against what was auto-generated. Never overwrite.
+  const original = basePayload.originalValues ?? {
     clockInAt: basePayload.clockInAt || null,
     clockOutAt: basePayload.clockOutAt || null,
-    workedHours: basePayload.workedHours != null ? Number(basePayload.workedHours) : null,
     directHours: basePayload.directHours != null ? Number(basePayload.directHours) : null,
     indirectHours: basePayload.indirectHours != null ? Number(basePayload.indirectHours) : null
   };
 
-  const resolvedClockIn = clockInAt || basePayload.clockInAt;
-  let split;
-  let resolvedClockOut;
-  if (indirectHoursOverride != null && Number.isFinite(Number(indirectHoursOverride))) {
-    // Payroll override: direct stays at the event default cap, indirect is set
-    // directly, and clock-out is derived so the worked total stays consistent.
-    const directHours = round2(Math.max(0, cap));
-    const indirectHours = round2(Math.max(0, Number(indirectHoursOverride)));
-    const workedHours = round2(directHours + indirectHours);
-    split = { workedHours, directHours, indirectHours, directHoursCap: round2(cap) };
-    const tIn = resolvedClockIn ? new Date(resolvedClockIn) : null;
-    if (tIn && Number.isFinite(tIn.getTime())) {
-      resolvedClockOut = new Date(tIn.getTime() + workedHours * 3600000).toISOString();
-    } else {
-      resolvedClockOut = clockOutAt || basePayload.clockOutAt;
-    }
-  } else {
-    resolvedClockOut = clockOutAt || basePayload.clockOutAt;
-    split = computeEventDirectIndirectHours({
-      clockInAt: resolvedClockIn,
-      clockOutAt: resolvedClockOut,
-      directHoursCap: cap
-    });
-  }
-
-  const after = {
-    clockInAt: resolvedClockIn || null,
-    clockOutAt: resolvedClockOut || null,
-    workedHours: split.workedHours,
-    directHours: split.directHours,
-    indirectHours: split.indirectHours
-  };
-  const priorHistory = Array.isArray(basePayload.editHistory) ? basePayload.editHistory : [];
-  const editHistory = [
-    ...priorHistory,
-    {
-      at: new Date().toISOString(),
-      byUserId: editedBy?.userId != null ? Number(editedBy.userId) : null,
-      byRole: editedBy?.role || (ownerUserId != null ? 'employee' : 'payroll'),
-      before,
-      after
-    }
-  ].slice(-20);
-
-  // Map override clock values back onto the variables used downstream.
-  clockInAt = resolvedClockIn;
-  clockOutAt = resolvedClockOut;
+  const byRole = editedBy?.role ?? (ownerUserId != null ? 'employee' : 'payroll');
 
   const nextPayloadBase = {
     ...basePayload,
-    clockInAt: clockInAt || basePayload.clockInAt,
-    clockOutAt: clockOutAt || basePayload.clockOutAt,
+    clockInAt: resolvedClockIn || basePayload.clockInAt,
+    clockOutAt: resolvedClockOut || basePayload.clockOutAt,
     workedHours: split.workedHours,
     directHours: split.directHours,
     indirectHours: split.indirectHours,
     directHoursCap: split.directHoursCap,
-    editHistory
+    originalValues: original,
+    wasEdited: true,
+    lastEditedByRole: byRole,
+    lastEditedAt: new Date().toISOString()
   };
 
   const punchOutId = parsePositiveInt(basePayload.kioskPunchOutId);
