@@ -295,7 +295,7 @@ export async function listProgramSessionsForEvent({ companyEventId, fromDate = n
   if (!Number.isFinite(eventId) || eventId <= 0) return [];
   let sql = `
     SELECT id, company_event_id, session_date, starts_at, ends_at, timezone,
-           join_url, modality, location_label, location_address
+           join_url, modality, location_label, location_address, curriculum_notes_text
     FROM company_event_session_dates
     WHERE company_event_id = ?`;
   const params = [eventId];

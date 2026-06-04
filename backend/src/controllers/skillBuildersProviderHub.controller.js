@@ -1867,6 +1867,7 @@ export const listSkillBuilderEventSessions = async (req, res, next) => {
     let sql = `
       SELECT s.id, s.session_date, s.starts_at, s.ends_at, s.timezone,
              s.location_label, s.location_address, s.modality, s.join_url,
+             s.curriculum_notes_text,
              m.weekday, m.start_time, m.end_time
       FROM skill_builders_event_sessions s
       INNER JOIN skills_group_meetings m ON m.id = s.skills_group_meeting_id
@@ -2014,7 +2015,8 @@ export const listSkillBuilderEventSessions = async (req, res, next) => {
         hasCurriculum: !!cur,
         curriculumFileName: cur?.fileName || null,
         curriculumExtractStatus: cur?.extractStatus || null,
-        clinicalNoteCount: clinicalNoteCountBySession.get(id) || 0
+        clinicalNoteCount: clinicalNoteCountBySession.get(id) || 0,
+        curriculumNotesText: r.curriculum_notes_text != null ? String(r.curriculum_notes_text) : ''
       };
     });
     assignSkillBuilderSessionLabels(sessions);
@@ -2069,7 +2071,8 @@ export const listSkillBuilderProgramSessions = async (req, res, next) => {
         hasCurriculum: false,
         curriculumFileName: null,
         curriculumExtractStatus: null,
-        clinicalNoteCount: 0
+        clinicalNoteCount: 0,
+        curriculumNotesText: r.curriculum_notes_text != null ? String(r.curriculum_notes_text) : ''
       };
     });
     assignSkillBuilderSessionLabels(sessions);
