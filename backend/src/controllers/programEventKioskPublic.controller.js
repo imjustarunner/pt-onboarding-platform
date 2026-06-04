@@ -1540,6 +1540,58 @@ export const getProgramEventObservationConfig = async (req, res, next) => {
   }
 };
 
+/** POST …/checkin/client/:checkinId/void — staff-verified removal of an accidental check-in. */
+export const voidProgramEventClientCheckin = async (req, res, next) => {
+  try {
+    const ctx = verifyKioskBearerForProgramEvent(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertKioskTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const checkinId = parsePositiveInt(req.params.checkinId);
+    if (!checkinId) return res.status(400).json({ error: { message: 'checkinId is required' } });
+
+    const staffName = String(req.body?.staffName || '').trim();
+    if (!staffName) return res.status(400).json({ error: { message: 'staffName is required' } });
+
+    // Verify the typed name matches a staff member on this event's roster.
+    const staffRows = await loadProgramEventStaff(m.eventId, m.agencyId);
+    const normalise = (s) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+    const match = staffRows.find((s) => {
+      const full = `${s.first_name || ''} ${s.last_name || ''}`.trim();
+      return normalise(full) === normalise(staffName);
+    });
+    if (!match) {
+      return res.status(403).json({ error: { message: 'No staff member with that name is assigned to this event. Please check the spelling and try again.' } });
+    }
+
+    // Confirm the checkin row belongs to this event and is an active client check-in.
+    const [rows] = await pool.execute(
+      `SELECT id, action, company_event_id, person_type
+       FROM event_day_kiosk_checkins
+       WHERE id = ? AND company_event_id = ? AND person_type = 'client'
+       LIMIT 1`,
+      [checkinId, m.eventId]
+    );
+    const row = rows?.[0];
+    if (!row) return res.status(404).json({ error: { message: 'Check-in record not found' } });
+    if (row.action === 'voided') {
+      return res.status(409).json({ error: { message: 'This check-in has already been voided' } });
+    }
+
+    await pool.execute(
+      `UPDATE event_day_kiosk_checkins
+       SET action = 'voided', voided_at = NOW(), voided_by_name = ?
+       WHERE id = ?`,
+      [`${match.first_name || ''} ${match.last_name || ''}`.trim(), checkinId]
+    );
+
+    res.json({ ok: true, voidedByName: `${match.first_name || ''} ${match.last_name || ''}`.trim() });
+  } catch (e) {
+    next(e);
+  }
+};
+
 /** POST …/observations — write-only session observation log from kiosk Resources tab. */
 export const postProgramEventObservation = async (req, res, next) => {
   try {

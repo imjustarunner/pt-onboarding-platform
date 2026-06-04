@@ -292,7 +292,7 @@
             <li
               v-for="c in filteredCheckoutPending"
               :key="`pending-${c.id}`"
-              class="pe-card"
+              class="pe-card pe-card--with-remove"
               :class="{ 'pe-card--disabled': !kioskActive }"
               @click="kioskActive && openCheckout(c)"
             >
@@ -303,6 +303,16 @@
               </span>
               <span v-if="c.checkoutBlocked" class="pe-tag pe-tag--warn">Release info missing</span>
               <span v-else class="pe-tag pe-tag--action">Check out</span>
+              <!-- Staff-only: remove accidental check-in -->
+              <button
+                v-if="kioskActive"
+                class="btn pe-remove-checkin-btn"
+                type="button"
+                title="Remove accidental check-in"
+                @click.stop="openVoidCheckin(c)"
+              >
+                ✕ Remove check-in
+              </button>
             </li>
           </ul>
         </template>
@@ -705,6 +715,45 @@
         </div>
         <footer class="pe-kiosk-modal-footer">
           <button class="btn btn-primary" type="button" @click="closeCheckoutSiblingPrompt">All done</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Remove check-in (staff verification modal) -->
+    <div v-if="voidCheckinOpen" class="pe-kiosk-modal pe-kiosk-modal--fullscreen">
+      <div class="pe-kiosk-modal-card pe-void-modal">
+        <header class="pe-kiosk-modal-hdr">
+          <div class="pe-kiosk-modal-title">Remove check-in?</div>
+        </header>
+        <p class="pe-void-modal__sub">
+          You are about to remove the check-in for
+          <strong>{{ voidCheckinClient ? clientDisplayName(voidCheckinClient) : '—' }}</strong>.
+          A staff member must confirm by typing their full name exactly as it appears in the system.
+        </p>
+        <label class="pe-void-modal__label" for="voidStaffName">Staff member name</label>
+        <input
+          id="voidStaffName"
+          v-model="voidStaffName"
+          class="pe-void-modal__input"
+          type="text"
+          placeholder="e.g. Jane Smith"
+          autocomplete="off"
+          :disabled="voidCheckinSaving"
+          @keyup.enter="confirmVoidCheckin"
+        />
+        <p v-if="voidCheckinError" class="error-box pe-kiosk-modal-err">{{ voidCheckinError }}</p>
+        <footer class="pe-kiosk-modal-footer pe-void-modal__footer">
+          <button class="btn btn-secondary" type="button" :disabled="voidCheckinSaving" @click="closeVoidCheckin">
+            Cancel
+          </button>
+          <button
+            class="btn pe-void-modal__confirm-btn"
+            type="button"
+            :disabled="!voidStaffName.trim() || voidCheckinSaving"
+            @click="confirmVoidCheckin"
+          >
+            {{ voidCheckinSaving ? 'Removing…' : 'Remove check-in' }}
+          </button>
         </footer>
       </div>
     </div>
@@ -1656,6 +1705,50 @@ function applyCheckinSheetToClient(sheet) {
 // Sibling check-in prompt — shown when a guardian checks in one child and has others enrolled.
 // Siblings are checked in "express" style: the guardian/checker and photo preferences
 // from the first child are reused so the guardian doesn't re-answer everything.
+// ---- Void check-in (remove accidental check-in) ----
+const voidCheckinOpen = ref(false);
+const voidCheckinClient = ref(null);
+const voidStaffName = ref('');
+const voidCheckinSaving = ref(false);
+const voidCheckinError = ref('');
+
+function openVoidCheckin(client) {
+  voidCheckinClient.value = client;
+  voidStaffName.value = '';
+  voidCheckinError.value = '';
+  voidCheckinOpen.value = true;
+}
+function closeVoidCheckin() {
+  voidCheckinOpen.value = false;
+  voidCheckinClient.value = null;
+  voidStaffName.value = '';
+  voidCheckinError.value = '';
+  voidCheckinSaving.value = false;
+}
+async function confirmVoidCheckin() {
+  if (!voidCheckinClient.value || !voidStaffName.value.trim()) return;
+  const checkinRecord = checkinRecordForClient(voidCheckinClient.value.id);
+  if (!checkinRecord?.id) {
+    voidCheckinError.value = 'Check-in record not found. Please refresh the page.';
+    return;
+  }
+  voidCheckinSaving.value = true;
+  voidCheckinError.value = '';
+  try {
+    await api.post(
+      `${apiBase()}/checkin/client/${checkinRecord.id}/void`,
+      { staffName: voidStaffName.value.trim() },
+      { headers: authHeaders(), skipGlobalLoading: true, skipAuthRedirect: true }
+    );
+    // Remove from local state so the UI updates immediately
+    checkins.value = checkins.value.filter((r) => Number(r.id) !== Number(checkinRecord.id));
+    closeVoidCheckin();
+  } catch (e) {
+    voidCheckinError.value = e.response?.data?.error?.message || 'Could not remove check-in. Please try again.';
+    voidCheckinSaving.value = false;
+  }
+}
+
 const siblingPromptOpen = ref(false);
 const siblingPromptGuardianUserId = ref(null);
 const siblingPromptGuardianName = ref('');
@@ -3259,4 +3352,80 @@ onBeforeUnmount(() => {
 .pe-checkin-check-row { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; }
 .muted { color: var(--text-secondary, #64748b); }
 .small { font-size: 13px; }
+/* ---- Remove check-in button (on checked-in cards) ---- */
+.pe-card--with-remove {
+  position: relative;
+}
+.pe-remove-checkin-btn {
+  margin-top: 10px;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 8px;
+  cursor: pointer;
+  align-self: flex-start;
+  transition: background 0.15s, border-color 0.15s;
+}
+.pe-remove-checkin-btn:hover {
+  background: #fee2e2;
+  border-color: #ef4444;
+}
+
+/* ---- Void check-in modal ---- */
+.pe-void-modal {
+  max-width: 520px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 32px 28px 24px;
+}
+.pe-void-modal__sub {
+  font-size: 0.97rem;
+  color: #334155;
+  line-height: 1.5;
+  margin: 0;
+}
+.pe-void-modal__label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #374151;
+}
+.pe-void-modal__input {
+  width: 100%;
+  padding: 12px 14px;
+  font-size: 1.05rem;
+  border: 1.5px solid #d1d5db;
+  border-radius: 10px;
+  background: #f9fafb;
+  outline: none;
+  box-sizing: border-box;
+}
+.pe-void-modal__input:focus {
+  border-color: #2563eb;
+  background: #fff;
+}
+.pe-void-modal__footer {
+  justify-content: flex-end;
+}
+.pe-void-modal__confirm-btn {
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 12px 24px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.pe-void-modal__confirm-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.pe-void-modal__confirm-btn:not(:disabled):hover {
+  background: #b91c1c;
+}
 </style>
