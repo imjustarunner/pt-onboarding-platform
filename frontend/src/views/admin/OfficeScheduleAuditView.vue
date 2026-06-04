@@ -14,6 +14,9 @@
       </div>
       <div class="controls-right">
         <button class="btn btn-secondary" @click="load" :disabled="loading">Refresh</button>
+        <router-link v-if="doubleBookedCount > 0" to="/admin/booking-conflict-resolver" class="btn btn-warn">
+          ⚠ Resolve {{ doubleBookedCount }} double-booking{{ doubleBookedCount === 1 ? '' : 's' }}
+        </router-link>
         <button class="btn btn-primary" @click="print" :disabled="loading">Print / Save PDF</button>
       </div>
     </div>
@@ -85,7 +88,10 @@
                 <td class="mono small">{{ row.booking_plan_id || '—' }}</td>
                 <td class="mono small">{{ row.standing_assignment_id || '—' }}</td>
                 <td class="flag-col">
-                  <span v-if="isDoubleBooked(row)" class="flag flag-double" title="Another provider is also booked in this slot">⚠ Double</span>
+                  <span v-if="isDoubleBooked(row)" class="flag flag-double"
+                    :title="`Also booked: ${conflictingProviders(row).join(', ')}`">
+                    ⚠ Double w/ {{ conflictingProviders(row).join(', ') }}
+                  </span>
                   <span v-if="row.slot_state === 'ASSIGNED_AVAILABLE' && !row.booking_plan_id" class="flag flag-no-plan" title="No booking plan — slot will show as available">No plan</span>
                   <span v-if="row.slot_state === 'ASSIGNED_BOOKED' && !row.plan_active" class="flag flag-inactive-plan" title="Booking plan exists but is inactive">Plan inactive</span>
                   <span v-if="row.assigned_provider_id && row.booked_provider_id && row.booked_provider_id !== row.assigned_provider_id" class="flag flag-mismatch" title="Booked provider differs from assigned provider">Provider mismatch</span>
@@ -131,24 +137,33 @@ const load = async () => {
   }
 };
 
-// Build a set of room+time keys that have 2+ booked providers
-const doubleBookedKeys = computed(() => {
-  const counts = {};
+// Build a map of room+time → list of booked provider names for that slot
+const doubleBookedMap = computed(() => {
+  const map = {};
   for (const r of rows.value) {
     if (r.slot_state === 'ASSIGNED_BOOKED' && r.booked_provider_id) {
       const key = `${r.room_name}|${r.start_at}`;
-      counts[key] = (counts[key] || 0) + 1;
+      if (!map[key]) map[key] = [];
+      map[key].push({ id: r.booked_provider_id, name: r.booked_provider_name || `#${r.booked_provider_id}` });
     }
   }
-  return new Set(Object.keys(counts).filter((k) => counts[k] > 1));
+  // Keep only keys with 2+ providers
+  Object.keys(map).forEach((k) => { if (map[k].length < 2) delete map[k]; });
+  return map;
 });
 
 const isDoubleBooked = (row) =>
   row.slot_state === 'ASSIGNED_BOOKED' &&
   row.booked_provider_id &&
-  doubleBookedKeys.value.has(`${row.room_name}|${row.start_at}`);
+  !!doubleBookedMap.value[`${row.room_name}|${row.start_at}`];
 
-const doubleBookedCount = computed(() => doubleBookedKeys.value.size);
+// Returns names of the OTHER provider(s) booked in the same slot
+const conflictingProviders = (row) => {
+  const providers = doubleBookedMap.value[`${row.room_name}|${row.start_at}`] || [];
+  return providers.filter((p) => p.id !== row.booked_provider_id).map((p) => p.name);
+};
+
+const doubleBookedCount = computed(() => Object.keys(doubleBookedMap.value).length);
 
 // Group rows: location → room → sorted events
 const grouped = computed(() => {
@@ -219,6 +234,13 @@ onMounted(load);
 .controls-left h2 { margin: 0 0 4px; font-size: 1.4rem; }
 .subtitle { margin: 0; color: var(--color-text-muted, #6b7280); font-size: 0.9rem; }
 .date-input { font-size: 0.88rem; padding: 2px 6px; border-radius: 4px; border: 1px solid #d1d5db; }
+.btn-warn {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #fef3c7; color: #92400e; border: 1px solid #fbbf24;
+  padding: 6px 14px; border-radius: 6px; font-size: 0.88rem; font-weight: 600;
+  text-decoration: none; cursor: pointer; white-space: nowrap;
+}
+.btn-warn:hover { background: #fde68a; }
 .th-sub { font-size: 0.7rem; font-weight: 400; text-transform: none; letter-spacing: 0; }
 .controls-right { display: flex; gap: 8px; flex-shrink: 0; }
 
