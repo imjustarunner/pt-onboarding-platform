@@ -590,13 +590,17 @@
           </div>
           <button class="btn btn-text" @click="closeSiblingPrompt">Done</button>
         </header>
-        <p class="pe-sibling-prompt-sub muted small">Tap a name to start check-in, or tap Done to finish.</p>
+        <p class="pe-sibling-prompt-sub muted small">
+          Tap a child to check them in with the same guardian — no need to answer the questions again.
+        </p>
+        <div v-if="siblingPromptError" class="error-box pe-kiosk-modal-err">{{ siblingPromptError }}</div>
         <div class="pe-sibling-prompt-list">
           <button
             v-for="c in siblingPromptClients"
             :key="c.id"
             type="button"
             class="btn pe-sibling-prompt-btn"
+            :disabled="!!siblingPromptBusyId"
             @click="startSiblingCheckin(c)"
           >
             <UserAvatar
@@ -607,11 +611,57 @@
               extra-class="pe-sibling-avatar"
             />
             <span class="pe-sibling-name">{{ clientDisplayName(c) }}</span>
-            <span class="muted small pe-sibling-tag">Tap to check in</span>
+            <span class="muted small pe-sibling-tag">
+              {{ siblingPromptBusyId === c.id ? 'Checking in…' : 'Tap to check in' }}
+            </span>
           </button>
         </div>
         <footer class="pe-kiosk-modal-footer">
           <button class="btn btn-primary" type="button" @click="closeSiblingPrompt">All done</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Sibling checkout prompt -->
+    <div v-if="checkoutSiblingPromptOpen" class="pe-kiosk-modal pe-kiosk-modal--fullscreen">
+      <div class="pe-kiosk-modal-card pe-kiosk-modal-card--fullscreen pe-sibling-prompt">
+        <header class="pe-kiosk-modal-hdr">
+          <div>
+            <div class="pe-kiosk-modal-title">Check out another child?</div>
+            <div class="muted small">
+              Released to {{ lastReleaseCtx?.releasedToName }} — other children are still checked in.
+            </div>
+          </div>
+          <button class="btn btn-text" @click="closeCheckoutSiblingPrompt">Done</button>
+        </header>
+        <p class="pe-sibling-prompt-sub muted small">
+          Tap a child to release them to the same person using the same signature{{ lastReleaseCtx?.photo ? ' and photo' : '' }}.
+        </p>
+        <div v-if="checkoutSiblingError" class="error-box pe-kiosk-modal-err">{{ checkoutSiblingError }}</div>
+        <div class="pe-sibling-prompt-list">
+          <button
+            v-for="c in checkoutSiblingClients"
+            :key="c.id"
+            type="button"
+            class="btn pe-sibling-prompt-btn"
+            :disabled="!!checkoutSiblingBusyId"
+            @click="checkoutSibling(c)"
+          >
+            <UserAvatar
+              :photo-path="c.profilePhotoUrl"
+              :first-name="c.firstName || clientDisplayName(c).split(' ')[0]"
+              :last-name="c.lastName || ''"
+              size="lg"
+              extra-class="pe-sibling-avatar"
+            />
+            <span class="pe-sibling-name">{{ clientDisplayName(c) }}</span>
+            <span class="muted small pe-sibling-tag">
+              {{ checkoutSiblingBusyId === c.id ? 'Releasing…' : 'Tap to check out' }}
+            </span>
+          </button>
+        </div>
+        <footer class="pe-kiosk-modal-footer">
+          <button class="btn btn-primary" type="button" @click="closeCheckoutSiblingPrompt">All done</button>
         </footer>
       </div>
     </div>
@@ -894,7 +944,7 @@
           </div>
         </div>
 
-        <template v-if="effectivePhotoPreference === 1">
+        <template v-if="photoSectionVisible">
           <h4 class="pe-kiosk-modal-h4">
             Release photo
             <span class="pe-required">(required)</span>
@@ -910,7 +960,10 @@
             </div>
           </div>
         </template>
-        <div v-else-if="effectivePhotoPreference === 0" class="pe-kiosk-photo-skipped muted small">
+        <div v-else-if="effectivePhotoPreference === 1 && !releaseSelectionReady" class="pe-kiosk-photo-skipped muted small">
+          A front-facing photo will be requested after you select who is picking up and sign.
+        </div>
+        <div v-else-if="effectivePhotoPreference === 0 && releaseSelectionReady" class="pe-kiosk-photo-skipped muted small">
           Photo capture turned off by guardian preference.
         </div>
 
@@ -979,7 +1032,7 @@
           </div>
 
           <footer class="pe-kiosk-modal-footer">
-            <button class="btn btn-text" type="button" @click="closeCheckout">Skip</button>
+            <button class="btn btn-text" type="button" @click="finishCheckout">Skip</button>
             <button
               class="btn btn-primary"
               type="button"
@@ -1036,7 +1089,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import QRCode from 'qrcode';
 import api from '../../services/api';
@@ -1557,21 +1610,46 @@ function applyCheckinSheetToClient(sheet) {
   clients.value[idx] = updated;
 }
 
-// Sibling check-in prompt — shown when a guardian checks in one child and has others enrolled
+// Sibling check-in prompt — shown when a guardian checks in one child and has others enrolled.
+// Siblings are checked in "express" style: the guardian/checker and photo preferences
+// from the first child are reused so the guardian doesn't re-answer everything.
 const siblingPromptOpen = ref(false);
 const siblingPromptGuardianUserId = ref(null);
 const siblingPromptGuardianName = ref('');
 const siblingPromptClients = ref([]);
+const siblingPromptBusyId = ref(null);
+const siblingPromptError = ref('');
+// Checker + preference context carried over from the first child's check-in
+const siblingCheckinCtx = ref({
+  checkedInByName: null,
+  checkedInByRelationship: null,
+  checkedInByUserId: null,
+  pickupPhotoPreference: null,
+  guardianSelfPhotoPreference: null
+});
 
-function openSiblingPrompt(guardianUserId, guardianName) {
-  const notYetIn = clients.value.filter((c) => {
-    if (checkins.value.some((ci) => Number(ci.clientId) === Number(c.id) && ci.action === 'check_in')) return false;
+function pendingSiblingsFor(guardianUserId) {
+  return clients.value.filter((c) => {
+    if (checkinRecordForClient(c.id)) return false; // already checked in
     return (c.guardians || []).some((g) => Number(g.userId) === Number(guardianUserId));
   });
+}
+
+function openSiblingPrompt(guardianUserId, guardianName, sourceClientId) {
+  const notYetIn = pendingSiblingsFor(guardianUserId);
   if (!notYetIn.length) return; // nothing to offer
+  const src = clients.value.find((c) => Number(c.id) === Number(sourceClientId));
+  siblingCheckinCtx.value = {
+    checkedInByName: siblingCheckinCtx.value.checkedInByName,
+    checkedInByRelationship: siblingCheckinCtx.value.checkedInByRelationship,
+    checkedInByUserId: guardianUserId,
+    pickupPhotoPreference: src?.pickupPhotoPreference ?? null,
+    guardianSelfPhotoPreference: src?.guardianSelfPhotoPreference ?? null
+  };
   siblingPromptGuardianUserId.value = guardianUserId;
   siblingPromptGuardianName.value = guardianName || 'The guardian';
   siblingPromptClients.value = notYetIn;
+  siblingPromptError.value = '';
   siblingPromptOpen.value = true;
 }
 
@@ -1580,11 +1658,68 @@ function closeSiblingPrompt() {
   siblingPromptGuardianUserId.value = null;
   siblingPromptGuardianName.value = '';
   siblingPromptClients.value = [];
+  siblingPromptBusyId.value = null;
+  siblingPromptError.value = '';
 }
 
-function startSiblingCheckin(client) {
-  closeSiblingPrompt();
-  openCheckin(client);
+/** Express check-in: reuse the guardian/checker and carry over photo preferences. */
+async function startSiblingCheckin(client) {
+  if (siblingPromptBusyId.value) return;
+  siblingPromptBusyId.value = client.id;
+  siblingPromptError.value = '';
+  const ctx = siblingCheckinCtx.value;
+  try {
+    await api.post(`${apiBase()}/checkin/client`, {
+      clientId: client.id,
+      checkedInByName: ctx.checkedInByName,
+      checkedInByRelationship: ctx.checkedInByRelationship,
+      checkedInByUserId: ctx.checkedInByUserId,
+      checkinSignatureData: null
+    }, { headers: authHeaders(), skipGlobalLoading: true, skipAuthRedirect: true });
+
+    checkins.value.push({
+      clientId: client.id,
+      userId: null,
+      personType: 'client',
+      action: 'check_in',
+      checkedInAt: new Date().toISOString(),
+      checkedInByName: ctx.checkedInByName,
+      checkedInByRelationship: ctx.checkedInByRelationship
+    });
+
+    // Carry over the family's photo preferences if this sibling hasn't been asked.
+    const needsSelf = client.guardianSelfPhotoPreference == null && ctx.guardianSelfPhotoPreference != null;
+    const needsOthers = client.pickupPhotoPreference == null && ctx.pickupPhotoPreference != null;
+    if (needsSelf || needsOthers) {
+      const selfPref = client.guardianSelfPhotoPreference != null
+        ? client.guardianSelfPhotoPreference : ctx.guardianSelfPhotoPreference;
+      const othersPref = client.pickupPhotoPreference != null
+        ? client.pickupPhotoPreference : ctx.pickupPhotoPreference;
+      try {
+        await api.patch(`${apiBase()}/checkin/client/${client.id}/photo-preference`, {
+          selfPreference: selfPref,
+          othersPreference: othersPref,
+          guardianUserId: ctx.checkedInByUserId || null
+        }, { headers: authHeaders(), skipGlobalLoading: true, skipAuthRedirect: true });
+      } catch { /* non-fatal — preference can be set later */ }
+      const idx = clients.value.findIndex((c) => Number(c.id) === Number(client.id));
+      if (idx !== -1) {
+        clients.value[idx] = {
+          ...clients.value[idx],
+          guardianSelfPhotoPreference: selfPref,
+          pickupPhotoPreference: othersPref
+        };
+      }
+    }
+
+    // Drop this sibling from the list; close the prompt when none remain.
+    siblingPromptClients.value = siblingPromptClients.value.filter((c) => Number(c.id) !== Number(client.id));
+    if (!siblingPromptClients.value.length) closeSiblingPrompt();
+  } catch (e) {
+    siblingPromptError.value = e.response?.data?.error?.message || 'Could not check in this child.';
+  } finally {
+    siblingPromptBusyId.value = null;
+  }
 }
 
 function onCheckinComplete({ clientId, checkedInByName = null, checkedInByRelationship = null, guardianUserId = null, guardianName = null }) {
@@ -1598,9 +1733,15 @@ function onCheckinComplete({ clientId, checkedInByName = null, checkedInByRelati
     checkedInByRelationship
   });
   closeCheckin();
-  // Offer to check in any siblings under the same guardian
+  // Offer one-tap express check-in for any siblings under the same guardian
   if (guardianUserId) {
-    openSiblingPrompt(guardianUserId, guardianName);
+    siblingCheckinCtx.value = {
+      ...siblingCheckinCtx.value,
+      checkedInByName,
+      checkedInByRelationship,
+      checkedInByUserId: guardianUserId
+    };
+    openSiblingPrompt(guardianUserId, guardianName, clientId);
   }
 }
 
@@ -1818,7 +1959,7 @@ function resetAttendanceIntent() {
 async function submitAttendanceIntent() {
   if (!attendanceAnswer.value || attendanceSaving.value) return;
   const next = attendanceNextDate.value;
-  if (!next) { closeCheckout(); return; }
+  if (!next) { finishCheckout(); return; }
   attendanceSaving.value = true;
   attendanceError.value = '';
   try {
@@ -1842,7 +1983,7 @@ async function submitAttendanceIntent() {
         reason: attendanceReason.value || null
       }, { headers: authHeaders(), skipGlobalLoading: true, skipAuthRedirect: true });
     }
-    closeCheckout();
+    finishCheckout();
   } catch (e) {
     attendanceError.value = e.response?.data?.error?.message || 'Could not save attendance';
   } finally {
@@ -1897,9 +2038,8 @@ function openCheckout(client) {
       sigCtx.fillStyle = '#fff';
       sigCtx.fillRect(0, 0, c.width, c.height);
     }
-    const mightNeedPhoto = client?.pickupPhotoPreference === 1 || client?.guardianSelfPhotoPreference === 1;
-    if (!photoPreview.value && mightNeedPhoto) startCamera();
-
+    // Camera is NOT started here. It only activates at the very end of the flow
+    // (once a pickup is selected and the signature is drawn) via syncCamera().
     const pickups = [
       ...guardianPickupOptions(client),
       ...otherPickupOptions(client)
@@ -1917,6 +2057,7 @@ function closeCheckout() {
   checkoutOpen.value = false;
   checkoutPhase.value = 'release';
   activeClient.value = null;
+  photoPreview.value = '';
 }
 function openCheckoutDetail(client) {
   checkoutDetailClient.value = client;
@@ -1970,7 +2111,15 @@ function sigEnd(e) {
   }
 }
 
+let startingCamera = false;
 async function startCamera() {
+  if (photoStream.value || startingCamera) {
+    // Stream already running — just (re)attach it to the current video element.
+    await nextTick();
+    if (photoVideo.value && photoStream.value) photoVideo.value.srcObject = photoStream.value;
+    return;
+  }
+  startingCamera = true;
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
     photoStream.value = stream;
@@ -1978,12 +2127,30 @@ async function startCamera() {
     if (photoVideo.value) photoVideo.value.srcObject = stream;
   } catch (e) {
     checkoutError.value = 'Camera unavailable';
+  } finally {
+    startingCamera = false;
   }
 }
 function stopCamera() {
   if (photoStream.value) {
     photoStream.value.getTracks().forEach((t) => t.stop());
     photoStream.value = null;
+  }
+}
+/**
+ * Single source of truth for the camera. The camera only runs at the very end
+ * of the release flow: a pickup must be selected, the signature drawn, the
+ * effective photo preference must require a photo, and no photo captured yet.
+ */
+function syncCamera() {
+  const want = effectivePhotoPreference.value === 1
+    && releaseSelectionReady.value
+    && !photoPreview.value
+    && checkoutPhase.value === 'release';
+  if (want) {
+    startCamera();
+  } else {
+    stopCamera();
   }
 }
 function snapPhoto() {
@@ -1996,7 +2163,10 @@ function snapPhoto() {
   photoPreview.value = canvas.toDataURL('image/jpeg', 0.85);
   stopCamera();
 }
-function clearPhoto() { photoPreview.value = ''; }
+function clearPhoto() {
+  photoPreview.value = '';
+  syncCamera();
+}
 
 const checkoutSelectReason = computed(() => {
   const client = activeClient.value;
@@ -2039,6 +2209,32 @@ const selectedPickupIsGuardian = computed(() => {
   const pickup = (activeClient.value?.authorizedPickups || []).find((p) => pickupKey(p) === selectedPickupKey.value);
   return pickup?.source === 'guardian';
 });
+
+/** True once the release target is chosen and the signature has been drawn. */
+const releaseSelectionReady = computed(() => {
+  if (!releaseMode.value || !sigDirty.value) return false;
+  if (releaseMode.value === 'pickup') return !!selectedPickupKey.value;
+  return true; // walk-home modes need no pickup selection
+});
+
+/** Photo capture UI shows only at the end of the flow, when a photo is required. */
+const photoSectionVisible = computed(() =>
+  effectivePhotoPreference.value === 1 && (releaseSelectionReady.value || !!photoPreview.value)
+);
+
+// Changing the pickup person invalidates any photo already taken (it was of a
+// different person). Clear it and let syncCamera restart if still needed.
+watch(() => [releaseMode.value, selectedPickupKey.value], () => {
+  if (photoPreview.value) photoPreview.value = '';
+  syncCamera();
+});
+
+// Drive the camera purely from state so it (re)attaches cleanly when the
+// pickup person changes or the signature is completed.
+watch(
+  () => [effectivePhotoPreference.value, releaseSelectionReady.value, photoPreview.value, checkoutPhase.value],
+  () => syncCamera()
+);
 
 const checkoutBlockReason = computed(() => {
   const client = activeClient.value;
@@ -2096,17 +2292,130 @@ async function submitCheckout() {
         signedAt: res.data.signedAt
       });
       stopCamera();
+      // Stash this release so checked-in siblings can be released the same way
+      // (same pickup person, signature, and photo) without redoing everything.
+      lastReleaseCtx.value = (releaseMode.value === 'pickup')
+        ? {
+            clientId: activeClient.value.id,
+            guardianUserId: activeClient.value?.primaryGuardianUserId || null,
+            releasedToName,
+            releasedToRelationship,
+            releasedToPhone,
+            sigData,
+            photo: photoPreview.value || null,
+            pickupIsGuardian: selectedPickupIsGuardian.value
+          }
+        : null;
       if (attendanceNextDate.value) {
         resetAttendanceIntent();
         checkoutPhase.value = 'attendance';
       } else {
-        closeCheckout();
+        finishCheckout();
       }
     }
   } catch (e) {
     checkoutError.value = e.response?.data?.error?.message || 'Could not record release';
   } finally {
     submitting.value = false;
+  }
+}
+
+// ---- Grouped sibling checkout --------------------------------------------
+// After a child is released, offer to release any checked-in siblings under the
+// same guardian using the same pickup person, signature, and photo.
+const lastReleaseCtx = ref(null);
+const checkoutSiblingPromptOpen = ref(false);
+const checkoutSiblingClients = ref([]);
+const checkoutSiblingBusyId = ref(null);
+const checkoutSiblingError = ref('');
+
+function eligibleCheckoutSiblings(guardianUserId, excludeId) {
+  return clients.value.filter((c) => {
+    if (Number(c.id) === Number(excludeId)) return false;
+    if (!checkinRecordForClient(c.id)) return false; // must be checked in today
+    if (releasedToday(c.id)) return false;           // not already released
+    if (c.checkoutBlocked) return false;
+    return (c.guardians || []).some((g) => Number(g.userId) === Number(guardianUserId));
+  });
+}
+
+/** Close the checkout modal, then offer grouped sibling checkout if applicable. */
+function finishCheckout() {
+  const ctx = lastReleaseCtx.value;
+  closeCheckout();
+  if (ctx?.guardianUserId) {
+    const sibs = eligibleCheckoutSiblings(ctx.guardianUserId, ctx.clientId);
+    if (sibs.length) {
+      checkoutSiblingClients.value = sibs;
+      checkoutSiblingBusyId.value = null;
+      checkoutSiblingError.value = '';
+      checkoutSiblingPromptOpen.value = true;
+      return;
+    }
+  }
+  lastReleaseCtx.value = null;
+}
+
+function closeCheckoutSiblingPrompt() {
+  checkoutSiblingPromptOpen.value = false;
+  checkoutSiblingClients.value = [];
+  checkoutSiblingBusyId.value = null;
+  checkoutSiblingError.value = '';
+  lastReleaseCtx.value = null;
+}
+
+function siblingCheckoutNeedsPhoto(sib) {
+  const ctx = lastReleaseCtx.value;
+  if (!ctx) return false;
+  return ctx.pickupIsGuardian
+    ? Number(sib.guardianSelfPhotoPreference) === 1
+    : Number(sib.pickupPhotoPreference) === 1;
+}
+
+/** Express checkout: reuse the same pickup person, signature, and photo. */
+async function checkoutSibling(sib) {
+  if (checkoutSiblingBusyId.value) return;
+  const ctx = lastReleaseCtx.value;
+  if (!ctx) return;
+  const needsPhoto = siblingCheckoutNeedsPhoto(sib);
+  if (needsPhoto && !ctx.photo) {
+    checkoutSiblingError.value =
+      `${clientDisplayName(sib)} needs their own pickup photo — tap their card on the main screen to check out.`;
+    return;
+  }
+  checkoutSiblingBusyId.value = sib.id;
+  checkoutSiblingError.value = '';
+  try {
+    const res = await api.post(`${apiBase()}/checkout`, {
+      clientId: sib.id,
+      releasedToName: ctx.releasedToName,
+      releasedToRelationship: ctx.releasedToRelationship,
+      releasedToPhone: ctx.releasedToPhone,
+      walkHomeAlone: false,
+      walkHomeSelfRelease: false,
+      signerSignatureData: ctx.sigData,
+      signerSourceMethod: 'fresh_kiosk_signature',
+      photoBase64: needsPhoto ? ctx.photo : null,
+      photoContentType: needsPhoto ? 'image/jpeg' : null,
+      consentingGuardianUserId: sib.primaryGuardianUserId || ctx.guardianUserId || null,
+      pickupPersonIsGuardian: ctx.pickupIsGuardian
+    }, { headers: authHeaders(), skipGlobalLoading: true, skipAuthRedirect: true });
+    if (res.data?.ok) {
+      releases.value.unshift({
+        id: res.data.releaseId,
+        clientId: sib.id,
+        releasedToName: ctx.releasedToName,
+        releasedToRelationship: ctx.releasedToRelationship,
+        walkHomeAlone: false,
+        signedAt: res.data.signedAt
+      });
+      checkoutSiblingClients.value = checkoutSiblingClients.value.filter((c) => Number(c.id) !== Number(sib.id));
+      if (!checkoutSiblingClients.value.length) closeCheckoutSiblingPrompt();
+    }
+  } catch (e) {
+    checkoutSiblingError.value = e.response?.data?.error?.message || 'Could not record release.';
+  } finally {
+    checkoutSiblingBusyId.value = null;
   }
 }
 
