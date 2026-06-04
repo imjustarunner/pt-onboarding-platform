@@ -77,7 +77,9 @@
 
               <td>
                 <div class="office-name">{{ c.office_name }}</div>
-                <div class="room-label muted">{{ c.room_label || c.room_name }}</div>
+                <div class="room-label muted">
+                  {{ c.room_number ? `#${c.room_number} · ` : '' }}{{ c.room_label || c.room_name }}
+                </div>
               </td>
 
               <!-- Provider A -->
@@ -129,11 +131,13 @@
                 </div>
                 <div class="action-group" v-else-if="c.conflict_type === 'orphaned_released'">
                   <button class="btn btn-sm btn-a" :disabled="actingKey === rowKey(c)"
-                    @click="resolveOrphaned(c, 'restore')" :title="`Restore ${c.original_provider_name} into this slot`">
+                    @click="resolveOrphaned(c, 'restore')"
+                    :title="`Restore all future ${c.assigned_frequency ? c.assigned_frequency.toLowerCase() : 'recurring'} slots for ${c.original_provider_name}`">
                     Restore {{ firstName(c.original_provider_name) }}
+                    <span class="btn-freq">({{ c.assigned_frequency ? c.assigned_frequency.toLowerCase() : 'recurring' }})</span>
                   </button>
                   <button class="btn btn-sm btn-dismiss" :disabled="actingKey === rowKey(c)"
-                    @click="resolveOrphaned(c, 'dismiss')" title="Leave slot open / free it up">
+                    @click="resolveOrphaned(c, 'dismiss')" title="Free up this single slot only">
                     Free up slot
                   </button>
                 </div>
@@ -207,12 +211,22 @@ const resolveOrphaned = async (c, action) => {
   try {
     actingKey.value = key;
     error.value = '';
-    await api.post('/office-schedule/admin/slot-conflicts/resolve', {
+    const resp = await api.post('/office-schedule/admin/slot-conflicts/resolve', {
       conflictType: 'orphaned_released',
       releasedEventId: c.released_event_id,
       action
     });
-    conflicts.value = conflicts.value.filter((x) => rowKey(x) !== key);
+    if (action === 'restore') {
+      // Bulk restore cleared the whole recurring series — remove all rows for this assignment
+      const saId = resp.data?.standingAssignmentId;
+      conflicts.value = saId
+        ? conflicts.value.filter(
+            (x) => !(x.conflict_type === 'orphaned_released' && x.standing_assignment_id === saId)
+          )
+        : conflicts.value.filter((x) => rowKey(x) !== key);
+    } else {
+      conflicts.value = conflicts.value.filter((x) => rowKey(x) !== key);
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to resolve conflict';
   } finally {
@@ -347,4 +361,5 @@ onMounted(load);
 }
 .btn-dismiss:hover:not(:disabled) { background: #e5e7eb; }
 .btn-a:disabled, .btn-b:disabled, .btn-dismiss:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-freq { font-weight: 400; font-size: 0.75rem; opacity: 0.8; }
 </style>

@@ -2530,6 +2530,7 @@ export const getSlotConflicts = async (req, res, next) => {
          oe_rel.room_id,
          r.name                                                AS room_name,
          r.label                                               AS room_label,
+         r.room_number,
          ol.name                                               AS office_name,
          oe_rel.office_location_id,
          oe_rel.start_at,
@@ -2539,7 +2540,8 @@ export const getSlotConflicts = async (req, res, next) => {
          oe_con.assigned_provider_id                          AS current_provider_id,
          CONCAT(u_cur.first_name, ' ', u_cur.last_name)       AS current_provider_name,
          oe_con.slot_state                                     AS current_slot_state,
-         oe_rel.standing_assignment_id
+         oe_rel.standing_assignment_id,
+         osa.assigned_frequency
        FROM office_events oe_rel
        JOIN office_standing_assignments osa
          ON osa.id = oe_rel.standing_assignment_id AND osa.is_active = TRUE
@@ -2574,6 +2576,7 @@ export const getSlotConflicts = async (req, res, next) => {
          oe.room_id,
          r.name                                                    AS room_name,
          r.label                                                   AS room_label,
+         r.room_number,
          ol.name                                                   AS office_name,
          oe.office_location_id,
          oe.start_at,
@@ -2583,7 +2586,8 @@ export const getSlotConflicts = async (req, res, next) => {
          NULL                                                      AS current_provider_id,
          NULL                                                      AS current_provider_name,
          oe.updated_at                                             AS released_at,
-         oe.standing_assignment_id
+         oe.standing_assignment_id,
+         osa.assigned_frequency
        FROM office_events oe
        JOIN office_standing_assignments osa
          ON osa.id = oe.standing_assignment_id AND osa.is_active = TRUE
@@ -2617,6 +2621,7 @@ export const getSlotConflicts = async (req, res, next) => {
          oe_a.room_id,
          r.name                                                 AS room_name,
          r.label                                                AS room_label,
+         r.room_number,
          ol.name                                                AS office_name,
          oe_a.office_location_id,
          oe_a.start_at,
@@ -2719,20 +2724,34 @@ export const resolveSlotConflict = async (req, res, next) => {
         }
         const planId = planRow?.id || null;
         const providerId = Number(relRow.assignment_provider_id || relRow.assigned_provider_id || 0);
-        await conn.execute(
-          `UPDATE office_events SET status = 'BOOKED', slot_state = 'ASSIGNED_BOOKED',
-           booked_provider_id = ?, booking_plan_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-          [providerId || null, planId, relId]
+        // Restore the ENTIRE recurring series — all future orphaned events for this assignment
+        const [bulkResult] = await conn.execute(
+          `UPDATE office_events
+           SET status = 'BOOKED', slot_state = 'ASSIGNED_BOOKED',
+               booked_provider_id = ?, booking_plan_id = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE standing_assignment_id = ?
+             AND slot_state = 'ASSIGNED_AVAILABLE'
+             AND status = 'RELEASED'
+             AND booking_plan_id IS NULL
+             AND start_at >= NOW()`,
+          [providerId || null, planId, relRow.standing_assignment_id]
         );
+        await conn.commit();
+        return res.json({
+          ok: true, conflictType, action,
+          releasedEventId: relId,
+          standingAssignmentId: relRow.standing_assignment_id,
+          restoredCount: bulkResult?.affectedRows || 0
+        });
       } else {
-        // dismiss: mark as cancelled — the slot becomes open
+        // dismiss: mark as cancelled — the slot becomes open (single slot only)
         await conn.execute(
           `UPDATE office_events SET status = 'CANCELLED', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
           [relId]
         );
       }
       await conn.commit();
-      return res.json({ ok: true, conflictType, action, releasedEventId: relId });
+      return res.json({ ok: true, conflictType, action, releasedEventId: relId, standingAssignmentId: relRow.standing_assignment_id });
     }
 
     if (conflictType === 'double_booked') {
