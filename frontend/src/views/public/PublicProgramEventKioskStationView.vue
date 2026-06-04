@@ -591,30 +591,59 @@
           <button class="btn btn-text" @click="closeSiblingPrompt">Done</button>
         </header>
         <p class="pe-sibling-prompt-sub muted small">
-          Tap a child to check them in with the same guardian — no need to answer the questions again.
+          Tap <strong>Check in</strong> to use the same guardian info — or tap <strong>Edit info</strong> to go through the full check-in for that child.
         </p>
         <div v-if="siblingPromptError" class="error-box pe-kiosk-modal-err">{{ siblingPromptError }}</div>
-        <div class="pe-sibling-prompt-list">
-          <button
+        <div class="pe-sibling-card-list">
+          <div
             v-for="c in siblingPromptClients"
             :key="c.id"
-            type="button"
-            class="btn pe-sibling-prompt-btn"
-            :disabled="!!siblingPromptBusyId"
-            @click="startSiblingCheckin(c)"
+            class="pe-sibling-card"
           >
-            <UserAvatar
-              :photo-path="c.profilePhotoUrl"
-              :first-name="c.firstName || clientDisplayName(c).split(' ')[0]"
-              :last-name="c.lastName || ''"
-              size="lg"
-              extra-class="pe-sibling-avatar"
-            />
-            <span class="pe-sibling-name">{{ clientDisplayName(c) }}</span>
-            <span class="muted small pe-sibling-tag">
-              {{ siblingPromptBusyId === c.id ? 'Checking in…' : 'Tap to check in' }}
-            </span>
-          </button>
+            <!-- Avatar + name/age -->
+            <div class="pe-sibling-card__identity">
+              <UserAvatar
+                :photo-path="c.profilePhotoUrl"
+                :first-name="c.firstName || clientDisplayName(c).split(' ')[0]"
+                :last-name="c.lastName || ''"
+                size="md"
+              />
+              <div class="pe-sibling-card__name-block">
+                <span class="pe-sibling-card__name">{{ clientDisplayName(c) }}</span>
+                <span v-if="c.ageYears != null" class="pe-sibling-card__detail">Age {{ c.ageYears }}</span>
+              </div>
+            </div>
+            <!-- Info chips -->
+            <div class="pe-sibling-card__chips">
+              <span v-if="allergySummary(c.allergies)" class="pe-tag pe-tag--warn pe-sibling-card__chip">
+                ⚠ {{ allergySummary(c.allergies) }}
+              </span>
+              <span v-if="c.allergies?.noSnacks" class="pe-tag pe-tag--warn pe-sibling-card__chip">No snacks</span>
+              <span v-if="c.walkHome?.allowedToWalkHome" class="pe-tag pe-sibling-card__chip">Walk-home OK</span>
+              <span v-if="(c.authorizedPickups || []).length" class="pe-tag pe-sibling-card__chip">
+                {{ (c.authorizedPickups || []).length }} pickup{{ (c.authorizedPickups || []).length !== 1 ? 's' : '' }}
+              </span>
+            </div>
+            <!-- Actions -->
+            <div class="pe-sibling-card__actions">
+              <button
+                type="button"
+                class="btn btn-secondary pe-sibling-card__edit-btn"
+                :disabled="!!siblingPromptBusyId"
+                @click="closeSiblingPromptAndOpenCheckin(c)"
+              >
+                Edit info
+              </button>
+              <button
+                type="button"
+                class="btn btn-primary pe-sibling-card__checkin-btn"
+                :disabled="!!siblingPromptBusyId"
+                @click="startSiblingCheckin(c)"
+              >
+                {{ siblingPromptBusyId === c.id ? 'Checking in…' : 'Check in' }}
+              </button>
+            </div>
+          </div>
         </div>
         <footer class="pe-kiosk-modal-footer">
           <button class="btn btn-primary" type="button" @click="closeSiblingPrompt">All done</button>
@@ -638,27 +667,41 @@
           Tap a child to release them to the same person using the same signature{{ lastReleaseCtx?.photo ? ' and photo' : '' }}.
         </p>
         <div v-if="checkoutSiblingError" class="error-box pe-kiosk-modal-err">{{ checkoutSiblingError }}</div>
-        <div class="pe-sibling-prompt-list">
-          <button
+        <div class="pe-sibling-card-list">
+          <div
             v-for="c in checkoutSiblingClients"
             :key="c.id"
-            type="button"
-            class="btn pe-sibling-prompt-btn"
-            :disabled="!!checkoutSiblingBusyId"
-            @click="checkoutSibling(c)"
+            class="pe-sibling-card"
           >
-            <UserAvatar
-              :photo-path="c.profilePhotoUrl"
-              :first-name="c.firstName || clientDisplayName(c).split(' ')[0]"
-              :last-name="c.lastName || ''"
-              size="lg"
-              extra-class="pe-sibling-avatar"
-            />
-            <span class="pe-sibling-name">{{ clientDisplayName(c) }}</span>
-            <span class="muted small pe-sibling-tag">
-              {{ checkoutSiblingBusyId === c.id ? 'Releasing…' : 'Tap to check out' }}
-            </span>
-          </button>
+            <div class="pe-sibling-card__identity">
+              <UserAvatar
+                :photo-path="c.profilePhotoUrl"
+                :first-name="c.firstName || clientDisplayName(c).split(' ')[0]"
+                :last-name="c.lastName || ''"
+                size="md"
+              />
+              <div class="pe-sibling-card__name-block">
+                <span class="pe-sibling-card__name">{{ clientDisplayName(c) }}</span>
+                <span v-if="c.ageYears != null" class="pe-sibling-card__detail">Age {{ c.ageYears }}</span>
+              </div>
+            </div>
+            <div class="pe-sibling-card__chips">
+              <span v-if="allergySummary(c.allergies)" class="pe-tag pe-tag--warn pe-sibling-card__chip">
+                ⚠ {{ allergySummary(c.allergies) }}
+              </span>
+              <span v-if="c.allergies?.noSnacks" class="pe-tag pe-tag--warn pe-sibling-card__chip">No snacks</span>
+            </div>
+            <div class="pe-sibling-card__actions">
+              <button
+                type="button"
+                class="btn btn-primary pe-sibling-card__checkin-btn"
+                :disabled="!!checkoutSiblingBusyId"
+                @click="checkoutSibling(c)"
+              >
+                {{ checkoutSiblingBusyId === c.id ? 'Releasing…' : 'Check out' }}
+              </button>
+            </div>
+          </div>
         </div>
         <footer class="pe-kiosk-modal-footer">
           <button class="btn btn-primary" type="button" @click="closeCheckoutSiblingPrompt">All done</button>
@@ -1660,6 +1703,12 @@ function closeSiblingPrompt() {
   siblingPromptClients.value = [];
   siblingPromptBusyId.value = null;
   siblingPromptError.value = '';
+}
+
+/** Close the sibling prompt and open the full check-in wizard for this child. */
+function closeSiblingPromptAndOpenCheckin(client) {
+  closeSiblingPrompt();
+  openCheckin(client);
 }
 
 /** Express check-in: reuse the guardian/checker and carry over photo preferences. */
@@ -2797,45 +2846,73 @@ onBeforeUnmount(() => {
   flex-direction: column;
 }
 .pe-sibling-prompt-sub {
-  margin: 0 0 20px;
+  margin: 0 0 16px;
   text-align: center;
 }
-.pe-sibling-prompt-list {
+/* ---- Sibling card list (check-in + checkout) ---- */
+.pe-sibling-card-list {
   display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
   flex: 1;
   overflow-y: auto;
   padding: 4px 0 16px;
 }
-.pe-sibling-prompt-btn {
+.pe-sibling-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  background: #fff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 14px;
+  box-shadow: 0 1px 4px rgba(15,23,42,0.06);
+}
+.pe-sibling-card__identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+.pe-sibling-card__name-block {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 20px 28px;
-  border: 2px solid #e2e8f0;
-  border-radius: 16px;
-  background: #fff;
-  cursor: pointer;
-  min-width: 160px;
-  transition: border-color 0.15s, background 0.15s;
+  gap: 2px;
+  min-width: 0;
 }
-.pe-sibling-prompt-btn:hover {
-  border-color: #2563eb;
-  background: #eff6ff;
-}
-.pe-sibling-name {
-  font-size: 1.1rem;
-  font-weight: 600;
+.pe-sibling-card__name {
+  font-size: 1.05rem;
+  font-weight: 700;
   color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.pe-sibling-tag {
-  font-size: 0.75rem;
+.pe-sibling-card__detail {
+  font-size: 0.8rem;
+  color: #64748b;
 }
-.pe-sibling-avatar {
-  margin-bottom: 4px;
+.pe-sibling-card__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.pe-sibling-card__chip {
+  white-space: nowrap;
+}
+.pe-sibling-card__actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.pe-sibling-card__edit-btn {
+  white-space: nowrap;
+}
+.pe-sibling-card__checkin-btn {
+  white-space: nowrap;
+  min-width: 100px;
 }
 .pe-emp-confirm {
   display: flex;
