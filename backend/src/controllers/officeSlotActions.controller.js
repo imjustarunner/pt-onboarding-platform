@@ -290,10 +290,10 @@ function formatProviderName(user, fallbackId = null) {
 
 function formatClientName(row) {
   if (!row?.client_id) return null;
-  const last = String(row.client_last_name || '').trim();
-  const first = String(row.client_first_name || '').trim();
-  const full = [last, first].filter(Boolean).join(', ');
-  return full || `Client #${row.client_id}`;
+  const full = String(row.client_full_name || '').trim();
+  if (full) return full;
+  const initials = String(row.client_initials || '').trim();
+  return initials || `Client #${row.client_id}`;
 }
 
 async function buildStandingSlotConflictDetail({ officeLocationId, roomId, weekday, hour }) {
@@ -311,7 +311,7 @@ async function buildStandingSlotConflictDetail({ officeLocationId, roomId, weekd
 
   const [eventRows] = await pool.execute(
     `SELECT e.id, e.start_at, e.end_at, e.status, e.slot_state, e.client_id,
-            c.first_name AS client_first_name, c.last_name AS client_last_name
+            c.full_name AS client_full_name, c.initials AS client_initials
      FROM office_events e
      LEFT JOIN clients c ON c.id = e.client_id
      WHERE e.standing_assignment_id = ?
