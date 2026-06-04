@@ -1285,6 +1285,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: 'schedule_manager', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/schedule-audit',
+    name: 'OrganizationOfficeScheduleAudit',
+    component: () => import('../views/admin/OfficeScheduleAuditView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'schedule_manager', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/provider-availability',
     name: 'OrganizationProviderAvailabilityDashboard',
     component: () => import('../views/admin/ProviderAvailabilityDashboardView.vue'),
@@ -2058,6 +2064,12 @@ const routes = [
     path: '/admin/booking-conflict-resolver',
     name: 'OfficeBookingConflictResolver',
     component: () => import('../views/admin/OfficeBookingConflictResolverView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
+  },
+  {
+    path: '/admin/schedule-audit',
+    name: 'OfficeScheduleAudit',
+    component: () => import('../views/admin/OfficeScheduleAuditView.vue'),
     meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
   },
   {

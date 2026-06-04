@@ -9,7 +9,10 @@
           For each conflict, choose who keeps the room.
         </p>
       </div>
-      <button class="btn btn-secondary" @click="load" :disabled="loading">Refresh</button>
+      <div style="display:flex;gap:8px;flex-shrink:0;">
+        <router-link to="/admin/schedule-audit" class="btn btn-secondary">Full schedule audit</router-link>
+        <button class="btn btn-secondary" @click="load" :disabled="loading">Refresh</button>
+      </div>
     </div>
 
     <div v-if="error" class="error-box">{{ error }}</div>

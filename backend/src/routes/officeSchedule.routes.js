@@ -23,7 +23,8 @@ import {
   updateLocation,
   createRoom,
   getSlotConflicts,
-  resolveSlotConflict
+  resolveSlotConflict,
+  getScheduleAudit
 } from '../controllers/officeSchedule.controller.js';
 
 const router = express.Router();
@@ -70,6 +71,9 @@ router.post('/locations/:locationId/rooms', createRoom);
 // Booking conflict resolver (post-reinstatement triage)
 router.get('/admin/slot-conflicts', getSlotConflicts);
 router.post('/admin/slot-conflicts/resolve', resolveSlotConflict);
+
+// Full schedule audit / print report
+router.get('/admin/schedule-audit', getScheduleAudit);
 
 export default router;
 

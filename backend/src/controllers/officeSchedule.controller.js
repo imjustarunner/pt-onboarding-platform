@@ -2720,3 +2720,59 @@ export const resolveSlotConflict = async (req, res, next) => {
   }
 };
 
+// ── Schedule audit: full dump of all office events + standing assignments ──────
+// Returns every future event (and ASSIGNED_AVAILABLE) for the next `weeks` weeks
+// so an admin can review/print the entire schedule state manually.
+export const getScheduleAudit = async (req, res, next) => {
+  try {
+    const userAgencies = await User.getAgencies(req.user.id);
+    const agencyIds = (userAgencies || []).map((a) => Number(a.id)).filter((n) => n > 0);
+    if (!agencyIds.length) return res.json({ rows: [] });
+
+    const weeks = Math.min(Math.max(parseInt(req.query.weeks || '8', 10), 1), 26);
+    const placeholders = agencyIds.map(() => '?').join(',');
+
+    // All materialized events in the window
+    const [eventRows] = await pool.execute(
+      `SELECT
+         oe.id                                                     AS event_id,
+         ol.name                                                   AS office_name,
+         r.name                                                    AS room_name,
+         r.label                                                   AS room_label,
+         r.room_number,
+         oe.start_at,
+         oe.end_at,
+         oe.slot_state,
+         oe.status,
+         oe.booking_plan_id,
+         oe.standing_assignment_id,
+         oe.assigned_provider_id,
+         CONCAT(ua.first_name, ' ', ua.last_name)                 AS assigned_provider_name,
+         oe.booked_provider_id,
+         CONCAT(ub.first_name, ' ', ub.last_name)                 AS booked_provider_name,
+         osa.assigned_frequency,
+         osa.is_active                                             AS assignment_active,
+         bp.is_active                                              AS plan_active
+       FROM office_events oe
+       JOIN office_rooms r    ON r.id  = oe.room_id
+       JOIN office_locations ol ON ol.id = oe.office_location_id
+       JOIN office_location_agencies ola
+         ON ola.office_location_id = oe.office_location_id
+         AND ola.agency_id IN (${placeholders})
+       LEFT JOIN users ua ON ua.id = oe.assigned_provider_id
+       LEFT JOIN users ub ON ub.id = oe.booked_provider_id
+       LEFT JOIN office_standing_assignments osa ON osa.id = oe.standing_assignment_id
+       LEFT JOIN office_booking_plans bp ON bp.id = oe.booking_plan_id
+       WHERE oe.start_at >= NOW()
+         AND oe.start_at <  DATE_ADD(NOW(), INTERVAL ? WEEK)
+         AND (oe.status IS NULL OR UPPER(oe.status) NOT IN ('CANCELLED'))
+       ORDER BY oe.start_at ASC, ol.name ASC, r.room_number ASC, r.name ASC`,
+      [...agencyIds, weeks]
+    );
+
+    res.json({ rows: eventRows || [], weeks });
+  } catch (e) {
+    next(e);
+  }
+};
+
