@@ -122,6 +122,7 @@ import {
   ,listEventTimeSubmissions
   ,patchEventTimeSubmission
   ,listMyEventTime
+  ,patchMyEventTime
   ,listHolidayBonusClaims
   ,patchHolidayBonusClaim
   ,createOfficeLocationForPayroll
@@ -283,6 +284,7 @@ router.post('/me/time-claims', ...createMyTimeClaim);
 router.post('/users/:userId/time-claims', createUserTimeClaim);
 router.get('/me/time-claims', listMyTimeClaims);
 router.get('/me/event-time', listMyEventTime);
+router.patch('/me/event-time/:punchInId', patchMyEventTime);
 router.delete('/me/time-claims/:id', deleteMyTimeClaim);
 router.get('/me/assigned-schools', listMyAssignedSchoolsForPayroll);
 router.get('/users/:userId/assigned-schools', listUserAssignedSchoolsForPayroll);

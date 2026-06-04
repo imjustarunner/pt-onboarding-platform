@@ -51,13 +51,13 @@
           :key="p.payroll_period_id"
           type="button"
           class="period-row"
-          :class="[{ active: expandedId === p.payroll_period_id }, periodShadeClass(idx)]"
+          :class="[{ active: Number(expandedId) === Number(p.payroll_period_id) }, periodShadeClass(idx)]"
           @click="toggle(p.payroll_period_id)"
         >
           <div class="period-main">
             <div class="period-title">
               <span class="title"><strong>{{ fmtDateRange(p.period_start, p.period_end) }}</strong></span>
-              <span class="chev">{{ expandedId === p.payroll_period_id ? '▼' : '▶' }}</span>
+              <span class="chev">{{ Number(expandedId) === Number(p.payroll_period_id) ? '▼' : '▶' }}</span>
             </div>
           </div>
           <div class="right tier-cell">
@@ -873,6 +873,7 @@
                 <th class="right">Direct</th>
                 <th class="right">Indirect</th>
                 <th>Status</th>
+                <th class="right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -888,6 +889,17 @@
                   <span v-if="s.indirectClaimStatus"> · I: {{ s.indirectClaimStatus }}</span>
                   <span v-if="!s.directClaimStatus && !s.indirectClaimStatus" class="muted">Open</span>
                 </td>
+                <td class="right">
+                  <button
+                    v-if="eventTimeSessionEditable(s)"
+                    type="button"
+                    class="pay-hub__btn pay-hub__btn--ghost pay-hub__btn--sm"
+                    @click="openEventTimeEdit(s)"
+                  >
+                    Edit time
+                  </button>
+                  <span v-else class="muted small">Locked</span>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -897,6 +909,45 @@
     </div>
 
   </PayrollHubPanel>
+
+  <!-- Employee event-time edit modal -->
+  <Teleport to="body">
+    <div v-if="showEventTimeEditModal" class="modal-backdrop" @click.self="closeEventTimeEdit">
+      <div class="modal" style="width: min(520px, 100%);">
+        <div class="modal-header">
+          <div>
+            <div class="modal-title">Edit event time</div>
+            <div class="hint" v-if="eventTimeEditTarget">{{ eventTimeEditTarget.eventTitle || 'Event' }}</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeEventTimeEdit">Close</button>
+        </div>
+        <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+          <div class="warn-box">
+            Heads up: this time was filled in automatically when you clocked out. Any change you
+            make here is recorded and reviewed by payroll, who can see the original times.
+          </div>
+          <div v-if="eventTimeEditError" class="warn-box">{{ eventTimeEditError }}</div>
+          <label class="field">
+            <span>Clock in</span>
+            <input v-model="eventTimeEditClockIn" class="input" type="datetime-local" :disabled="eventTimeEditSaving">
+          </label>
+          <label class="field">
+            <span>Clock out</span>
+            <input v-model="eventTimeEditClockOut" class="input" type="datetime-local" :disabled="eventTimeEditSaving">
+          </label>
+          <div v-if="eventTimeEditPreview" class="hint">
+            Worked {{ eventTimeEditPreview.workedHours }} h · Direct {{ eventTimeEditPreview.directHours }} h (set by the event) · Indirect {{ eventTimeEditPreview.indirectHours }} h
+          </div>
+          <div class="actions" style="justify-content: flex-end; margin: 0;">
+            <button class="btn btn-secondary" type="button" :disabled="eventTimeEditSaving" @click="closeEventTimeEdit">Cancel</button>
+            <button class="btn btn-primary" type="button" :disabled="eventTimeEditSaving || !eventTimeEditPreview" @click="saveEventTimeEdit">
+              {{ eventTimeEditSaving ? 'Saving…' : 'Save & resubmit' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 
   <!-- Mileage submission modal (Teleport to body so it's always visible) -->
   <Teleport to="body">
@@ -2458,6 +2509,103 @@ const timeClaimsError = ref('');
 const eventTimeSessions = ref([]);
 const eventTimeLoading = ref(false);
 const eventTimeError = ref('');
+
+// Employee event-time edit modal
+const showEventTimeEditModal = ref(false);
+const eventTimeEditTarget = ref(null);
+const eventTimeEditClockIn = ref('');
+const eventTimeEditClockOut = ref('');
+const eventTimeEditCap = ref(0);
+const eventTimeEditSaving = ref(false);
+const eventTimeEditError = ref('');
+
+const etIsoToLocalInput = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+const etLocalInputToIso = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+};
+
+const EVENT_TIME_LOCKED_STATUSES = new Set(['approved', 'posted', 'paid', 'finalized']);
+const eventTimeSessionEditable = (s) => {
+  if (!s?.punchInId || !s.clockOutAt) return false;
+  const statuses = [s.directClaimStatus, s.indirectClaimStatus];
+  return !statuses.some((st) => EVENT_TIME_LOCKED_STATUSES.has(String(st || '').toLowerCase()));
+};
+
+const eventTimeEditPreview = computed(() => {
+  const clockInAt = etLocalInputToIso(eventTimeEditClockIn.value);
+  const clockOutAt = etLocalInputToIso(eventTimeEditClockOut.value);
+  if (!clockInAt || !clockOutAt) return null;
+  const tIn = new Date(clockInAt);
+  const tOut = new Date(clockOutAt);
+  if (!Number.isFinite(tIn.getTime()) || !Number.isFinite(tOut.getTime()) || tOut <= tIn) return null;
+  const cap = Number(eventTimeEditCap.value);
+  const capH = Number.isFinite(cap) && cap > 0 ? cap : 0;
+  const worked = Math.max(0, (tOut.getTime() - tIn.getTime()) / 3600000);
+  const direct = Math.min(capH, worked);
+  const indirect = Math.max(0, worked - direct);
+  const round2 = (n) => Math.round(n * 100) / 100;
+  return { workedHours: round2(worked), directHours: round2(direct), indirectHours: round2(indirect) };
+});
+
+const openEventTimeEdit = (session) => {
+  if (!session?.punchInId) return;
+  if (!eventTimeSessionEditable(session)) {
+    eventTimeError.value = 'This event time has already been approved by payroll and can no longer be edited.';
+    return;
+  }
+  eventTimeEditTarget.value = session;
+  eventTimeEditClockIn.value = etIsoToLocalInput(session.clockInAt);
+  eventTimeEditClockOut.value = etIsoToLocalInput(session.clockOutAt);
+  eventTimeEditCap.value = session.directHoursCap != null ? Number(session.directHoursCap) : 0;
+  eventTimeEditError.value = '';
+  showEventTimeEditModal.value = true;
+};
+
+const closeEventTimeEdit = () => {
+  showEventTimeEditModal.value = false;
+  eventTimeEditTarget.value = null;
+  eventTimeEditClockIn.value = '';
+  eventTimeEditClockOut.value = '';
+  eventTimeEditError.value = '';
+};
+
+const saveEventTimeEdit = async () => {
+  const session = eventTimeEditTarget.value;
+  if (!session?.punchInId || !agencyId.value) return;
+  const clockInAt = etLocalInputToIso(eventTimeEditClockIn.value);
+  const clockOutAt = etLocalInputToIso(eventTimeEditClockOut.value);
+  if (!clockInAt || !clockOutAt) {
+    eventTimeEditError.value = 'Enter valid clock in and clock out times.';
+    return;
+  }
+  eventTimeEditSaving.value = true;
+  eventTimeEditError.value = '';
+  try {
+    await api.patch(`/payroll/me/event-time/${session.punchInId}`, {
+      agencyId: agencyId.value,
+      clockInAt,
+      clockOutAt
+    });
+    closeEventTimeEdit();
+    submitSuccess.value = 'Event time updated. Payroll has been notified and can review your change.';
+    window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
+    await loadEventTimeSessions();
+    await loadTimeClaims();
+  } catch (e) {
+    eventTimeEditError.value = e.response?.data?.error?.message || e.message || 'Failed to update event time';
+  } finally {
+    eventTimeEditSaving.value = false;
+  }
+};
 const mileageForm = ref({
   claimType: 'school_travel',
   driveDate: '',
@@ -2709,7 +2857,7 @@ const medcancelAmountLabel = (c) => {
 };
 
 const expandedId = ref(null);
-const expanded = computed(() => periods.value.find((p) => p.payroll_period_id === expandedId.value) || null);
+const expanded = computed(() => periods.value.find((p) => Number(p.payroll_period_id) === Number(expandedId.value)) || null);
 const expandedUnpaid = computed(() => {
   const p = expanded.value;
   const c = p?.unpaidNotesCounts || null;
@@ -4137,6 +4285,31 @@ const openEditTimeClaim = (c) => {
   editingTimeClaimId.value = c.id; // track so we can auto-withdraw on successful resubmit
   const type = String(c.claim_type || '').toLowerCase();
   const payload = c.payload || {};
+  if (type === 'skill_builder_event') {
+    // Event time is auto-completed from the kiosk — never edited as a manual
+    // time claim. Open the dedicated event-time editor instead so we don't
+    // create a duplicate claim.
+    editingTimeClaimId.value = null;
+    const punchInId = Number(payload.kioskPunchInId);
+    const session = (eventTimeSessions.value || []).find((s) => Number(s.punchInId) === punchInId);
+    if (session) {
+      openEventTimeEdit(session);
+    } else {
+      // Fall back to a session-like object built from the claim payload.
+      openEventTimeEdit({
+        punchInId,
+        eventTitle: payload.eventTitle || 'Event',
+        clockInAt: payload.clockInAt,
+        clockOutAt: payload.clockOutAt,
+        directHoursCap: payload.directHoursCap,
+        directHours: payload.directHours,
+        indirectHours: payload.indirectHours,
+        directClaimStatus: c.status,
+        indirectClaimStatus: c.status
+      });
+    }
+    return;
+  }
   if (type === 'meeting_training' || type === 'mentor_cpa_meeting') {
     openTimeMeetingModal();
     timeMeetingForm.value = {
@@ -4791,7 +4964,9 @@ const load = async () => {
 };
 
 const toggle = (id) => {
-  expandedId.value = expandedId.value === id ? null : id;
+  const nid = Number(id);
+  const cur = Number(expandedId.value);
+  expandedId.value = (Number.isFinite(cur) && cur === nid) ? null : nid;
 };
 
 watch(agencyId, async () => {

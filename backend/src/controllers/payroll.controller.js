@@ -18961,7 +18961,48 @@ export const patchEventTimeSubmission = async (req, res, next) => {
       punchInId,
       clockInAt: req.body?.clockInAt || null,
       clockOutAt: req.body?.clockOutAt || null,
-      directHoursCap: req.body?.directHoursCap
+      directHoursCap: req.body?.directHoursCap,
+      indirectHoursOverride: req.body?.indirectHoursOverride != null ? Number(req.body.indirectHoursOverride) : null,
+      editedBy: { userId: req.user?.id || null, role: 'payroll' }
+    });
+    if (result.error) {
+      return res.status(result.error.status).json({ error: { message: result.error.message } });
+    }
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * PATCH /payroll/me/event-time/:punchInId
+ * Lets an employee adjust their own auto-completed event time (clock in/out).
+ * Direct hours stay at the event default; indirect recalculates from worked time.
+ * Every edit is recorded (before/after) for payroll review and the claim stays
+ * in "submitted" status so payroll re-reviews it.
+ */
+export const patchMyEventTime = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    const punchInId = parseInt(req.params.punchInId, 10);
+    const agencyId = req.body?.agencyId ? parseInt(req.body.agencyId, 10) : null;
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (!punchInId) return res.status(400).json({ error: { message: 'punchInId is required' } });
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    if (!isAdminRole(req.user.role)) {
+      const ok = await userHasAgencyAccess({ userId, agencyId });
+      if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const { updateEventTimeSubmission } = await import('../services/eventPayrollSubmissions.service.js');
+    const result = await updateEventTimeSubmission({
+      agencyId,
+      punchInId,
+      clockInAt: req.body?.clockInAt || null,
+      clockOutAt: req.body?.clockOutAt || null,
+      editedBy: { userId, role: 'employee' },
+      ownerUserId: userId
     });
     if (result.error) {
       return res.status(result.error.status).json({ error: { message: result.error.message } });

@@ -122,7 +122,22 @@ export function getPayrollActionRequired({
   for (const r of mileageClaims) pushAction(out, r, { type: 'mileage', title: `Mileage — ${fmtActionDate(r.drive_date) || 'claim'}` });
   for (const r of reimbursementClaims) pushAction(out, r, { type: 'reimbursement', title: `Reimbursement — ${fmtActionDate(r.expense_date) || 'claim'}` });
   for (const r of companyCardExpenses) pushAction(out, r, { type: 'company_card', title: `Company card — ${fmtActionDate(r.expense_date) || 'claim'}` });
-  for (const r of timeClaims) pushAction(out, r, { type: 'time_claims', title: `Time claim — ${fmtActionDate(r.claim_date) || 'claim'}` });
+  const seenEventPunches = new Set();
+  for (const r of timeClaims) {
+    const isEvent = String(r.claim_type || '').toLowerCase() === 'skill_builder_event';
+    if (isEvent) {
+      // Event time is two claims (direct + indirect) per session — show one item.
+      const payload = (r.payload && typeof r.payload === 'object') ? r.payload : {};
+      const punchKey = payload.kioskPunchInId != null ? String(payload.kioskPunchInId) : null;
+      if (punchKey) {
+        if (seenEventPunches.has(punchKey)) continue;
+        seenEventPunches.add(punchKey);
+      }
+      pushAction(out, r, { type: 'time_claims', title: `Event time — ${fmtActionDate(r.claim_date) || 'session'}` });
+    } else {
+      pushAction(out, r, { type: 'time_claims', title: `Time claim — ${fmtActionDate(r.claim_date) || 'claim'}` });
+    }
+  }
   for (const r of medcancelClaims) pushAction(out, r, { type: 'medcancel', title: `Med Cancel — ${fmtActionDate(r.claim_date) || 'claim'}` });
 
   const priority = { rejected: 3, deferred: 2, submitted: 1 };

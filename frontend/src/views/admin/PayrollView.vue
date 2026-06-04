@@ -2693,7 +2693,7 @@
             <div class="card" style="margin-top: 12px;">
               <h3 class="card-title" style="margin: 0 0 6px 0;">Event time (Pending)</h3>
               <div class="hint">
-                Skill Builders / program event kiosk check-in/out with direct and indirect hour split. Each session appears as two rows (direct + indirect). Edit clock times to recalculate hours before approving each bucket.
+                Skill Builders / program event kiosk check-in/out with direct and indirect hour split. Each session appears as two rows (direct + indirect). Direct hours are defaulted from the event settings and locked; edit the indirect hours if needed before approving each bucket. Edits are logged with the original values.
               </div>
               <div v-if="eventTimeError" class="warn-box" style="margin-top: 8px;">{{ eventTimeError }}</div>
               <div v-if="eventTimeLoading" class="muted" style="margin-top: 8px;">Loading event time submissions…</div>
@@ -2732,7 +2732,7 @@
                             :disabled="eventTimeSavingId === row.submission.punchInId"
                             @click="openEventTimeEdit(row.submission)"
                           >
-                            Edit times
+                            Edit indirect time
                           </button>
                           <button
                             v-if="row.canApprove"
@@ -5733,13 +5733,19 @@
               <input v-model="eventTimeEditClockIn" class="input" type="datetime-local" :disabled="eventTimeEditSaving">
             </label>
             <label class="field">
-              <span>Clock out</span>
-              <input v-model="eventTimeEditClockOut" class="input" type="datetime-local" :disabled="eventTimeEditSaving">
+              <span>Direct hours (defaulted from event — locked)</span>
+              <input
+                :value="eventTimeEditDirectCap"
+                class="input"
+                type="number"
+                readonly
+                disabled
+              >
             </label>
             <label class="field">
-              <span>Direct hours cap (from event settings)</span>
+              <span>Indirect hours</span>
               <input
-                v-model="eventTimeEditDirectCap"
+                v-model="eventTimeEditIndirect"
                 class="input"
                 type="number"
                 min="0"
@@ -5749,6 +5755,19 @@
             </label>
             <div v-if="eventTimeEditPreview" class="hint">
               Worked {{ eventTimeEditPreview.workedHours }} h · Direct {{ eventTimeEditPreview.directHours }} h · Indirect {{ eventTimeEditPreview.indirectHours }} h
+            </div>
+            <div
+              v-if="eventTimeEditOriginal"
+              class="hint"
+              style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:8px;"
+            >
+              <strong>Originally submitted:</strong>
+              Direct {{ eventTimeEditOriginal.directHours ?? '—' }} h ·
+              Indirect {{ eventTimeEditOriginal.indirectHours ?? '—' }} h
+              <span v-if="eventTimeEditSubmission?.editHistory?.length">
+                · edited {{ eventTimeEditSubmission.editHistory.length }}×
+                (last by {{ eventTimeEditSubmission.editHistory[eventTimeEditSubmission.editHistory.length - 1].byRole }})
+              </span>
             </div>
             <div class="actions" style="justify-content: flex-end; margin: 0;">
               <button class="btn btn-secondary" type="button" :disabled="eventTimeEditSaving" @click="closeEventTimeEdit">Cancel</button>
@@ -6486,6 +6505,7 @@ const eventTimeEditSubmission = ref(null);
 const eventTimeEditClockIn = ref('');
 const eventTimeEditClockOut = ref('');
 const eventTimeEditDirectCap = ref('');
+const eventTimeEditIndirect = ref('');
 const eventTimeEditSaving = ref(false);
 const eventTimeEditError = ref('');
 const pendingTimeError = ref('');
@@ -7993,18 +8013,27 @@ const datetimeLocalInputToIso = (value) => {
   return Number.isFinite(d.getTime()) ? d.toISOString() : null;
 };
 
+// Original (pre-edit) values surfaced from the submission's edit history.
+const eventTimeEditOriginal = computed(() => {
+  const sub = eventTimeEditSubmission.value;
+  const hist = Array.isArray(sub?.editHistory) ? sub.editHistory : [];
+  if (hist.length && hist[0]?.before) return hist[0].before;
+  if (!sub) return null;
+  // No edits yet — current values are the original.
+  return { directHours: sub.directHours, indirectHours: sub.indirectHours };
+});
+
+// Payroll edits indirect hours directly; direct stays at the event default.
 const eventTimeEditPreview = computed(() => {
   const clockInAt = datetimeLocalInputToIso(eventTimeEditClockIn.value);
-  const clockOutAt = datetimeLocalInputToIso(eventTimeEditClockOut.value);
-  if (!clockInAt || !clockOutAt) return null;
+  if (!clockInAt) return null;
   const tIn = new Date(clockInAt);
-  const tOut = new Date(clockOutAt);
-  if (!Number.isFinite(tIn.getTime()) || !Number.isFinite(tOut.getTime()) || tOut <= tIn) return null;
+  if (!Number.isFinite(tIn.getTime())) return null;
   const capRaw = Number(eventTimeEditDirectCap.value);
-  const cap = Number.isFinite(capRaw) && capRaw > 0 ? capRaw : 0;
-  const workedHours = Math.max(0, (tOut.getTime() - tIn.getTime()) / 3600000);
-  const directHours = Math.min(cap, workedHours);
-  const indirectHours = Math.max(0, workedHours - directHours);
+  const directHours = Number.isFinite(capRaw) && capRaw > 0 ? capRaw : 0;
+  const indRaw = Number(eventTimeEditIndirect.value);
+  const indirectHours = Number.isFinite(indRaw) && indRaw >= 0 ? indRaw : 0;
+  const workedHours = directHours + indirectHours;
   const round2 = (n) => Math.round(n * 100) / 100;
   return {
     workedHours: round2(workedHours),
@@ -8356,6 +8385,7 @@ const openEventTimeEdit = (submission) => {
   eventTimeEditClockIn.value = isoToDatetimeLocalInput(submission.clockInAt);
   eventTimeEditClockOut.value = isoToDatetimeLocalInput(submission.clockOutAt);
   eventTimeEditDirectCap.value = submission.directHoursCap != null ? String(submission.directHoursCap) : '';
+  eventTimeEditIndirect.value = submission.indirectHours != null ? String(submission.indirectHours) : '';
   eventTimeEditError.value = '';
   eventTimeEditOpen.value = true;
 };
@@ -8366,6 +8396,7 @@ const closeEventTimeEdit = () => {
   eventTimeEditClockIn.value = '';
   eventTimeEditClockOut.value = '';
   eventTimeEditDirectCap.value = '';
+  eventTimeEditIndirect.value = '';
   eventTimeEditError.value = '';
 };
 
@@ -8373,9 +8404,13 @@ const saveEventTimeEdit = async () => {
   const submission = eventTimeEditSubmission.value;
   if (!submission?.punchInId || !agencyId.value) return;
   const clockInAt = datetimeLocalInputToIso(eventTimeEditClockIn.value);
-  const clockOutAt = datetimeLocalInputToIso(eventTimeEditClockOut.value);
-  if (!clockInAt || !clockOutAt) {
-    eventTimeEditError.value = 'Enter valid clock in and clock out times.';
+  if (!clockInAt) {
+    eventTimeEditError.value = 'Enter a valid clock in time.';
+    return;
+  }
+  const indRaw = Number(eventTimeEditIndirect.value);
+  if (!Number.isFinite(indRaw) || indRaw < 0) {
+    eventTimeEditError.value = 'Enter a valid number of indirect hours.';
     return;
   }
   eventTimeEditSaving.value = true;
@@ -8384,8 +8419,7 @@ const saveEventTimeEdit = async () => {
     await api.patch(`/payroll/event-time-submissions/${submission.punchInId}`, {
       agencyId: agencyId.value,
       clockInAt,
-      clockOutAt,
-      directHoursCap: eventTimeEditDirectCap.value !== '' ? Number(eventTimeEditDirectCap.value) : undefined
+      indirectHoursOverride: indRaw
     });
     closeEventTimeEdit();
     await loadEventTimeSubmissions();
