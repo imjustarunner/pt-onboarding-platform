@@ -1727,21 +1727,19 @@ function closeVoidCheckin() {
 }
 async function confirmVoidCheckin() {
   if (!voidCheckinClient.value || !voidStaffName.value.trim()) return;
-  const checkinRecord = checkinRecordForClient(voidCheckinClient.value.id);
-  if (!checkinRecord?.id) {
-    voidCheckinError.value = 'Check-in record not found. Please refresh the page.';
-    return;
-  }
   voidCheckinSaving.value = true;
   voidCheckinError.value = '';
+  const clientId = voidCheckinClient.value.id;
   try {
     await api.post(
-      `${apiBase()}/checkin/client/${checkinRecord.id}/void`,
+      `${apiBase()}/checkin/client/${clientId}/void`,
       { staffName: voidStaffName.value.trim() },
       { headers: authHeaders(), skipGlobalLoading: true, skipAuthRedirect: true }
     );
-    // Remove from local state so the UI updates immediately
-    checkins.value = checkins.value.filter((r) => Number(r.id) !== Number(checkinRecord.id));
+    // Remove all check_in records for this client from local state
+    checkins.value = checkins.value.filter(
+      (r) => !(r.personType === 'client' && Number(r.clientId) === Number(clientId) && r.action === 'check_in')
+    );
     closeVoidCheckin();
   } catch (e) {
     voidCheckinError.value = e.response?.data?.error?.message || 'Could not remove check-in. Please try again.';

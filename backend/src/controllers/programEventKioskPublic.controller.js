@@ -1540,7 +1540,9 @@ export const getProgramEventObservationConfig = async (req, res, next) => {
   }
 };
 
-/** POST …/checkin/client/:checkinId/void — staff-verified removal of an accidental check-in. */
+/** POST …/checkin/client/:clientId/void — staff-verified removal of an accidental check-in.
+ *  Looks up the active check-in by clientId + event + today so callers don't need to
+ *  track the DB row id client-side. */
 export const voidProgramEventClientCheckin = async (req, res, next) => {
   try {
     const ctx = verifyKioskBearerForProgramEvent(req);
@@ -1548,8 +1550,8 @@ export const voidProgramEventClientCheckin = async (req, res, next) => {
     const m = await assertKioskTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
     if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
 
-    const checkinId = parsePositiveInt(req.params.checkinId);
-    if (!checkinId) return res.status(400).json({ error: { message: 'checkinId is required' } });
+    const clientId = parsePositiveInt(req.params.clientId);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
 
     const staffName = String(req.body?.staffName || '').trim();
     if (!staffName) return res.status(400).json({ error: { message: 'staffName is required' } });
@@ -1565,28 +1567,31 @@ export const voidProgramEventClientCheckin = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'No staff member with that name is assigned to this event. Please check the spelling and try again.' } });
     }
 
-    // Confirm the checkin row belongs to this event and is an active client check-in.
+    // Resolve today's kiosk date and find the active check-in row for this client.
+    const kioskDay = await assertKioskRecordingAllowed(m.agencyId, m.eventId, res);
+    if (!kioskDay) return;
+
     const [rows] = await pool.execute(
-      `SELECT id, action, company_event_id, person_type
+      `SELECT id, action
        FROM event_day_kiosk_checkins
-       WHERE id = ? AND company_event_id = ? AND person_type = 'client'
+       WHERE company_event_id = ? AND client_id = ? AND person_type = 'client'
+         AND kiosk_date = ? AND action = 'check_in'
+       ORDER BY checked_in_at DESC
        LIMIT 1`,
-      [checkinId, m.eventId]
+      [m.eventId, clientId, kioskDay.todayYmd]
     );
     const row = rows?.[0];
-    if (!row) return res.status(404).json({ error: { message: 'Check-in record not found' } });
-    if (row.action === 'voided') {
-      return res.status(409).json({ error: { message: 'This check-in has already been voided' } });
-    }
+    if (!row) return res.status(404).json({ error: { message: 'No active check-in found for this client today' } });
 
+    const voidedByName = `${match.first_name || ''} ${match.last_name || ''}`.trim();
     await pool.execute(
       `UPDATE event_day_kiosk_checkins
        SET action = 'voided', voided_at = NOW(), voided_by_name = ?
        WHERE id = ?`,
-      [`${match.first_name || ''} ${match.last_name || ''}`.trim(), checkinId]
+      [voidedByName, row.id]
     );
 
-    res.json({ ok: true, voidedByName: `${match.first_name || ''} ${match.last_name || ''}`.trim() });
+    res.json({ ok: true, voidedByName });
   } catch (e) {
     next(e);
   }
