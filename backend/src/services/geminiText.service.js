@@ -147,41 +147,17 @@ async function performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOu
   return { text: String(text), modelName, latencyMs, provider: 'api_key' };
 }
 
-export async function callGeminiText({ prompt, temperature = 0.2, maxOutputTokens = 800 }) {
-  const useVertex = shouldUseVertex();
-
-  if (useVertex) {
-    const projectId = getProjectId();
-    const location = String(process.env.VERTEX_AI_LOCATION || 'us-central1').trim() || 'us-central1';
-    const configuredModel =
-      String(process.env.GEMINI_MODEL || process.env.VERTEX_AI_MODEL || 'gemini-2.0-flash').trim() || 'gemini-2.0-flash';
-    const token = await getAccessToken();
-
-    const candidates = buildCandidateModels(configuredModel);
-    let lastErr = null;
-    for (const modelName of candidates) {
-      try {
-        return await performVertexCall({
-          modelName, projectId, location, token, prompt, temperature, maxOutputTokens
-        });
-      } catch (err) {
-        lastErr = err;
-        // Only fall through to another model when the failure looks model-related.
-        // Auth/quota/network errors won't be fixed by swapping the model name.
-        if (!isModelLevelError(err?.status)) throw err;
-        console.warn(`[Vertex] model "${modelName}" rejected (HTTP ${err?.status}); trying next candidate`);
-      }
-    }
-    throw lastErr || new Error('Vertex Gemini request failed for all candidate models');
-  }
-
+/**
+ * Attempt the public Generative Language API (GEMINI_API_KEY) path, trying the
+ * configured model then known-good fallbacks. Returns a result or throws.
+ */
+async function callViaApiKey({ prompt, temperature, maxOutputTokens }) {
   const apiKey = process.env.GEMINI_API_KEY || '';
   if (!apiKey) {
     const err = new Error('GEMINI_API_KEY is not configured');
     err.status = 503;
     throw err;
   }
-
   const configuredModel = String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim() || 'gemini-2.0-flash';
   const candidates = buildCandidateModels(configuredModel);
   let lastErr = null;
@@ -195,4 +171,50 @@ export async function callGeminiText({ prompt, temperature = 0.2, maxOutputToken
     }
   }
   throw lastErr || new Error('Gemini request failed for all candidate models');
+}
+
+export async function callGeminiText({ prompt, temperature = 0.2, maxOutputTokens = 800 }) {
+  const useVertex = shouldUseVertex();
+  const hasApiKey = !!(process.env.GEMINI_API_KEY || '').trim();
+
+  if (useVertex) {
+    const projectId = getProjectId();
+    const location = String(process.env.VERTEX_AI_LOCATION || 'us-central1').trim() || 'us-central1';
+    const configuredModel =
+      String(process.env.GEMINI_MODEL || process.env.VERTEX_AI_MODEL || 'gemini-2.0-flash').trim() || 'gemini-2.0-flash';
+
+    // Vertex can be unusable for a project even when GCP creds exist: the project
+    // may lack Gemini model access (403/404) or token minting can fail. In those
+    // cases, transparently fall back to the GEMINI_API_KEY path when available so
+    // every caller (translation, note writer, etc.) keeps working.
+    try {
+      const token = await getAccessToken();
+      const candidates = buildCandidateModels(configuredModel);
+      let lastErr = null;
+      for (const modelName of candidates) {
+        try {
+          return await performVertexCall({
+            modelName, projectId, location, token, prompt, temperature, maxOutputTokens
+          });
+        } catch (err) {
+          lastErr = err;
+          // Model-level errors (bad/denied model) → try next model. Anything else
+          // (auth/quota/network) won't be fixed by swapping models, so stop looping.
+          if (!isModelLevelError(err?.status)) throw err;
+          console.warn(`[Vertex] model "${modelName}" rejected (HTTP ${err?.status}); trying next candidate`);
+        }
+      }
+      throw lastErr || new Error('Vertex Gemini request failed for all candidate models');
+    } catch (vertexErr) {
+      if (hasApiKey) {
+        console.warn(
+          `[Vertex] unavailable (${vertexErr?.status || 'error'}: ${vertexErr?.message}); falling back to GEMINI_API_KEY path`
+        );
+        return callViaApiKey({ prompt, temperature, maxOutputTokens });
+      }
+      throw vertexErr;
+    }
+  }
+
+  return callViaApiKey({ prompt, temperature, maxOutputTokens });
 }
