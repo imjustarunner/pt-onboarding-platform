@@ -2781,10 +2781,16 @@ const clientTypeLabel = computed(() => CLIENT_TYPE_LABELS[effectiveClientType.va
 const isSchoolClientType = computed(() => effectiveClientType.value === 'school');
 const showSchoolSpecificOverviewFields = computed(() => isSchoolClientType.value);
 const organizationLabel = computed(() => (isSchoolClientType.value ? 'School' : 'Organization'));
-const clientTypeOptions = CLIENT_TYPE_ORDER.map((value) => ({
-  value,
-  label: CLIENT_TYPE_LABELS[value] || value
-}));
+const clientTypeOptions = computed(() => {
+  const all = CLIENT_TYPE_ORDER.map((value) => ({
+    value,
+    label: CLIENT_TYPE_LABELS[value] || value
+  }));
+  if (isSuperAdmin.value) return all;
+  const currentIndex = CLIENT_TYPE_ORDER.indexOf(effectiveClientType.value);
+  if (currentIndex < 0) return all;
+  return all.filter((opt) => CLIENT_TYPE_ORDER.indexOf(opt.value) >= currentIndex);
+});
 
 const canSeeClientFullName = computed(() => {
   // Backoffice roles only see full name. School staff and other portal roles stay on initials/code.
@@ -2823,7 +2829,9 @@ const statusPillClass = computed(() => {
   if (label.includes('hold') || label.includes('wait')) return 'cdp-pill--warning';
   return 'cdp-pill--neutral';
 });
-const canEditClientType = computed(() => isSuperAdmin.value);
+const canEditClientType = computed(
+  () => hasAgencyAccess.value && (isSuperAdmin.value || roleNorm.value === 'admin')
+);
 const clientTypeDraft = ref('basic_nonclinical');
 const savingClientType = ref(false);
 
@@ -3261,11 +3269,16 @@ const saveClientType = async () => {
   if (!nextType || nextType === effectiveClientType.value) return;
   try {
     savingClientType.value = true;
-    await api.post(`/clients/${props.client.id}/client-type`, {
+    const payload = {
       client_type: nextType,
-      reason: `Super admin changed client type to ${nextType}`,
-      allow_downgrade_override: true
-    });
+      reason: isSuperAdmin.value
+        ? `Super admin changed client type to ${nextType}`
+        : `Admin changed client type to ${nextType}`
+    };
+    if (isSuperAdmin.value) {
+      payload.allow_downgrade_override = true;
+    }
+    await api.post(`/clients/${props.client.id}/client-type`, payload);
     const refreshed = await api.get(`/clients/${props.client.id}`);
     emit('updated', { keepOpen: true, client: refreshed.data || null });
   } catch (e) {
