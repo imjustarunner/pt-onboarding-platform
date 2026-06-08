@@ -843,34 +843,38 @@ export const submitProgramEventCheckout = async (req, res, next) => {
 
     const photoRaw = String(req.body?.photoBase64 || '').trim();
     const consentingGuardianUserId = parsePositiveInt(req.body?.consentingGuardianUserId) || null;
-
     const pickupPersonIsGuardian = req.body?.pickupPersonIsGuardian === true;
 
+    // Walk-home releases never require a photo — resolve this first so the
+    // photo-preference check below can short-circuit for walk-home modes.
+    const walkHomeAlone = req.body?.walkHomeAlone === true;
+    const walkHomeSelfRelease = req.body?.walkHomeSelfRelease === true;
+
     // Resolve the applicable photo preference for this pickup scenario.
-    // null (never asked) → skip photo; 1 → required; 0 → opted out (skip).
+    // Walk-home releases skip the photo entirely regardless of preference.
+    // null (never asked) → skip; 1 → required; 0 → opted out (skip).
     let effectivePhotoPreference = null;
-    try {
-      const [prefRows] = await pool.execute(
-        'SELECT pickup_photo_preference, guardian_self_photo_preference FROM clients WHERE id = ? LIMIT 1',
-        [clientId]
-      );
-      if (prefRows?.[0]) {
-        const raw = pickupPersonIsGuardian
-          ? prefRows[0].guardian_self_photo_preference
-          : prefRows[0].pickup_photo_preference;
-        effectivePhotoPreference = raw != null ? Number(raw) : null;
+    if (!walkHomeAlone) {
+      try {
+        const [prefRows] = await pool.execute(
+          'SELECT pickup_photo_preference, guardian_self_photo_preference FROM clients WHERE id = ? LIMIT 1',
+          [clientId]
+        );
+        if (prefRows?.[0]) {
+          const raw = pickupPersonIsGuardian
+            ? prefRows[0].guardian_self_photo_preference
+            : prefRows[0].pickup_photo_preference;
+          effectivePhotoPreference = raw != null ? Number(raw) : null;
+        }
+      } catch {
+        // columns not migrated yet — treat as null (skip)
       }
-    } catch {
-      // columns not migrated yet — treat as null (skip)
     }
     // null = skip photo; 1 = required; 0 = opted out (skip)
     const photoRequired = effectivePhotoPreference === 1;
     if (!photoRaw && photoRequired) {
       return res.status(400).json({ error: { message: 'Release photo is required.' } });
     }
-
-    const walkHomeAlone = req.body?.walkHomeAlone === true;
-    const walkHomeSelfRelease = req.body?.walkHomeSelfRelease === true;
     const releasedToName = walkHomeAlone
       ? (walkHomeSelfRelease ? 'Walk home alone (client self-release)' : 'Walk home alone')
       : String(req.body?.releasedToName || '').trim();
