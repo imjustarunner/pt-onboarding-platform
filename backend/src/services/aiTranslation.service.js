@@ -207,7 +207,9 @@ export async function getOrCreateTranslation(args) {
   const original = String(args.originalText || '');
   const targetLang = String(args.targetLang || 'es').toLowerCase();
 
-  if (!sourceType || !field || !Number.isFinite(sourceId) || sourceId <= 0) return original;
+  // inline_string entries use sourceId=0 and are keyed uniquely by MD5 field hash — allow them through.
+  const isInlineString = sourceType === 'inline_string';
+  if (!sourceType || !field || !Number.isFinite(sourceId) || (sourceId <= 0 && !isInlineString)) return original;
   if (!original.trim()) return original;
   if (targetLang === 'en') return original;
 
