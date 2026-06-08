@@ -2218,6 +2218,7 @@ import PublicIntakeInsuranceStep from '../../components/public-intake/PublicInta
 import PublicIntakePaymentStep from '../../components/public-intake/PublicIntakePaymentStep.vue';
 import {
   collectSpanishTranslationTargets,
+  isActuallyTranslated,
   spanishExtrasForIntakeField
 } from '../../utils/intakeFieldSpanish.js';
 
@@ -3946,6 +3947,19 @@ const editLink = (link) => {
     } finally {
       // Always clear — isHydratingEdit was set synchronously at the start of editLink.
       isHydratingEdit.value = false;
+    }
+
+    // Auto-regenerate Spanish labels when the form has the toggle on but the
+    // stored labelEs values are still English copies (left over from a prior bug
+    // where the AI translator silently returned the original English text).
+    if (form.customMessages?.spanishQuestionLabelsEnabled) {
+      const { targets } = collectSpanishTranslationTargets(form.intakeSteps, getStepFields);
+      const hasStale = targets.some(
+        (t) => !isActuallyTranslated(t.field?.[t.prop], t.source)
+      );
+      if (hasStale) {
+        generateAllSpanishLabels();
+      }
     }
   });
 };
