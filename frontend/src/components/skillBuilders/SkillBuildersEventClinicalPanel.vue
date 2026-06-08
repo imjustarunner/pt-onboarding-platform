@@ -109,9 +109,77 @@
             </li>
           </ul>
 
+          <!-- Completed note: view button (anyone with clinical access) + per-section copy -->
+          <div v-if="client.hasClinicalNote || noteSectionsByClient[client.clientId]" class="sbclin-note-view">
+            <div v-if="!noteSectionsByClient[client.clientId]" class="sbclin-view-note-row">
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="noteLoading[client.clientId]"
+                @click="viewNote(client)"
+              >
+                {{ noteLoading[client.clientId] ? 'Loading…' : 'View completed note' }}
+              </button>
+              <span class="muted small">A clinical note is on file for this client.</span>
+            </div>
+
+            <p v-if="noteViewError[client.clientId]" class="error-box sbclin-gen-err">
+              {{ noteViewError[client.clientId] }}
+            </p>
+
+            <div v-if="noteSectionsByClient[client.clientId]" class="sbclin-note-output">
+              <div class="sbclin-note-output-hdr">
+                <span class="sbclin-note-saved-badge">{{ noteSavedLabel[client.clientId] || 'Note on file' }}</span>
+                <div class="sbclin-note-output-actions">
+                  <button type="button" class="btn btn-link btn-sm" @click="copyFullNote(client.clientId)">Copy all</button>
+                  <button type="button" class="btn btn-link btn-sm" @click="hideNote(client.clientId)">Hide</button>
+                </div>
+              </div>
+              <div
+                v-for="entry in noteSectionsByClient[client.clientId]"
+                :key="entry[0]"
+                class="sbclin-sec-card"
+              >
+                <div class="sbclin-sec-head">
+                  <span class="sbclin-sec-title">{{ entry[0] }}</span>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="!entry[1]"
+                    @click="copySection(entry[1])"
+                  >
+                    Copy
+                  </button>
+                </div>
+                <pre class="sbclin-sec-body">{{ entry[1] }}</pre>
+              </div>
+            </div>
+          </div>
+
           <!-- Generate H2014 note (requires feature flag) -->
           <div v-if="canGenerateNotes" class="sbclin-generate-block">
-            <h5 class="sbclin-subh">Generate H2014 clinical note</h5>
+            <h5 class="sbclin-subh">
+              {{ client.hasClinicalNote ? 'Regenerate H2014 clinical note' : 'Generate H2014 clinical note' }}
+            </h5>
+
+            <div v-if="activityOptions.length" class="sbclin-activities">
+              <span class="sbclin-lbl">Activities completed <span class="sbclin-lbl-req">*</span></span>
+              <p class="muted small sbclin-act-hint">
+                Pre-selected from logged observations — adjust as needed. Selected activities are written into the note.
+              </p>
+              <div class="sbclin-act-chips">
+                <label v-for="opt in activityOptions" :key="opt.id" class="sbclin-act-chip">
+                  <input
+                    type="checkbox"
+                    :value="Number(opt.id)"
+                    :checked="(selectedActivities[client.clientId] || []).includes(Number(opt.id))"
+                    @change="toggleActivity(client.clientId, Number(opt.id), $event.target.checked)"
+                  />
+                  <span>{{ opt.label }}</span>
+                </label>
+              </div>
+            </div>
+
             <div class="sbclin-generate-form">
               <label class="sbclin-field-full">
                 <span class="sbclin-lbl">
@@ -141,31 +209,28 @@
               >
                 {{ generating[client.clientId] ? 'Generating…' : client.hasClinicalNote ? 'Regenerate H2014 note' : 'Generate H2014 note' }}
               </button>
-              <span v-if="dayData.curriculumNotesText" class="muted small sbclin-paste-notice">
-                Activity notes from Materials will be included.
+              <span class="muted small sbclin-paste-notice">
+                Logged observations, selected activities, and session materials are included automatically.
               </span>
             </div>
-
-            <!-- Generated note output -->
-            <div v-if="generatedNotes[client.clientId]" class="sbclin-note-output">
-              <div class="sbclin-note-output-hdr">
-                <span class="sbclin-note-saved-badge">Note saved</span>
-              </div>
-              <pre class="sbclin-note-text">{{ generatedNotes[client.clientId] }}</pre>
-            </div>
           </div>
-          <div v-else class="sbclin-generate-locked">
+          <div v-else-if="!client.hasClinicalNote" class="sbclin-generate-locked">
             <span class="muted small">H2014 note generation requires the Clinical Note Generator feature. Contact your administrator to enable it.</span>
           </div>
         </div>
       </div>
     </div>
+
+    <Teleport to="body">
+      <div v-if="copyToastVisible" class="sbclin-copy-toast" role="status" aria-live="polite">Copied</div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { reactive, ref, watch } from 'vue';
+import { reactive, ref, watch, onUnmounted } from 'vue';
 import api from '../../services/api';
+import { splitH2014GroupOutputToSections, sectionsObjectToPlainText } from '../../utils/h2014GroupNoteSplit.js';
 
 const props = defineProps({
   agencyId: { type: [Number, String], required: true },
@@ -177,8 +242,9 @@ const props = defineProps({
 const selectedDate = ref('');
 const loading = ref(false);
 const loadError = ref('');
-const dayData = ref({ clients: [], sessionId: null, curriculumNotesText: '' });
+const dayData = ref({ clients: [], sessionId: null, curriculumNotesText: '', hasCurriculum: false });
 const presets = ref({});
+const activityOptions = ref([]);
 
 /** @type {Record<number, boolean>} */
 const expandedClients = reactive({});
@@ -188,8 +254,58 @@ const clinicianSummary = reactive({});
 const generating = reactive({});
 /** @type {Record<number, string>} */
 const generateError = reactive({});
+/** @type {Record<number, Array<[string, string]>>} Ordered [title, body] section pairs for the displayed note. */
+const noteSectionsByClient = reactive({});
+/** @type {Record<number, boolean>} */
+const noteLoading = reactive({});
 /** @type {Record<number, string>} */
-const generatedNotes = reactive({});
+const noteViewError = reactive({});
+/** @type {Record<number, string>} */
+const noteSavedLabel = reactive({});
+/** @type {Record<number, number[]>} Selected activity option IDs per client. */
+const selectedActivities = reactive({});
+
+const copyToastVisible = ref(false);
+let copyToastHideTimer = null;
+
+/** Stable order for the four H2014 group sections; any extra keys follow. */
+const H2014_GROUP_SECTION_ORDER = [
+  'Symptom Description and Subjective Report',
+  'Objective Content',
+  'Interventions Used',
+  'Plan'
+];
+
+function orderSections(sectionsObj) {
+  const o = sectionsObj && typeof sectionsObj === 'object' ? sectionsObj : {};
+  const raw = Object.entries(o).filter(([k, v]) => k && typeof v === 'string' && String(k).toLowerCase() !== 'meta');
+  const map = new Map(raw);
+  const ordered = [];
+  for (const key of H2014_GROUP_SECTION_ORDER) {
+    if (map.has(key)) {
+      ordered.push([key, map.get(key)]);
+      map.delete(key);
+    }
+  }
+  for (const [k, v] of map) ordered.push([k, v]);
+  return ordered;
+}
+
+function setNoteSectionsFromNote(clientId, note) {
+  const plain = String(note?.plainText || '');
+  let sec = note?.outputJson?.sections;
+  let sectionsObj = sec && typeof sec === 'object' ? { ...sec } : {};
+  const keys = Object.keys(sectionsObj).filter((k) => String(k).toLowerCase() !== 'meta');
+  if ((keys.length === 0 && plain.trim()) || (keys.length === 1 && keys[0] === 'Output')) {
+    const blob = keys.length === 1 ? String(sectionsObj.Output || '').trim() || plain.trim() : plain.trim();
+    const split = splitH2014GroupOutputToSections(blob);
+    if (Object.keys(split).filter((k) => String(k).toLowerCase() !== 'meta').length) {
+      sectionsObj = split;
+    }
+  }
+  const ordered = orderSections(sectionsObj);
+  noteSectionsByClient[clientId] = ordered.length ? ordered : (plain.trim() ? [['Note', plain.trim()]] : []);
+}
 
 function todayYmd() {
   const d = new Date();
@@ -277,6 +393,48 @@ async function loadPresets() {
   }
 }
 
+async function loadActivityOptions(sessionId) {
+  if (!props.agencyId || !props.eventId || !sessionId) {
+    activityOptions.value = [];
+    return;
+  }
+  try {
+    const res = await api.get(`/skill-builders/events/${props.eventId}/activity-options`, {
+      params: { agencyId: props.agencyId, sessionId },
+      skipGlobalLoading: true
+    });
+    const raw = Array.isArray(res.data?.options) ? res.data.options : [];
+    activityOptions.value = raw.filter((o) => o.isActive !== false);
+  } catch {
+    activityOptions.value = [];
+  }
+}
+
+/** Pre-select activity options whose label matches an activity logged in this client's observations. */
+function preselectActivitiesFromObservations(client) {
+  const cid = Number(client.clientId);
+  if (Array.isArray(selectedActivities[cid]) && selectedActivities[cid].length) return;
+  const loggedLabels = new Set();
+  for (const entry of client.observations || []) {
+    for (const lbl of activityLabels(entry)) {
+      loggedLabels.add(String(lbl || '').trim().toLowerCase());
+    }
+  }
+  const matched = activityOptions.value
+    .filter((o) => loggedLabels.has(String(o.label || '').trim().toLowerCase()))
+    .map((o) => Number(o.id));
+  selectedActivities[cid] = matched;
+}
+
+function toggleActivity(clientId, optionId, checked) {
+  const cid = Number(clientId);
+  const cur = Array.isArray(selectedActivities[cid]) ? [...selectedActivities[cid]] : [];
+  const idx = cur.indexOf(Number(optionId));
+  if (checked && idx === -1) cur.push(Number(optionId));
+  if (!checked && idx !== -1) cur.splice(idx, 1);
+  selectedActivities[cid] = cur;
+}
+
 async function loadClinicalDay() {
   if (!selectedDate.value) return;
   loading.value = true;
@@ -287,11 +445,81 @@ async function loadClinicalDay() {
       skipGlobalLoading: true
     });
     dayData.value = res.data || { clients: [], sessionId: null, curriculumNotesText: '' };
+    await loadActivityOptions(dayData.value?.sessionId);
+    for (const client of dayData.value?.clients || []) {
+      preselectActivitiesFromObservations(client);
+    }
   } catch (e) {
     loadError.value = e.response?.data?.error?.message || 'Could not load clinical day data';
     dayData.value = { clients: [], sessionId: null, curriculumNotesText: '' };
+    activityOptions.value = [];
   } finally {
     loading.value = false;
+  }
+}
+
+async function viewNote(client) {
+  const sessionId = dayData.value?.sessionId;
+  const cid = Number(client.clientId);
+  if (!sessionId) {
+    noteViewError[cid] = 'No session found for this date.';
+    return;
+  }
+  noteLoading[cid] = true;
+  noteViewError[cid] = '';
+  try {
+    const res = await api.get(
+      `/skill-builders/events/${props.eventId}/sessions/${sessionId}/clinical-notes/clients/${cid}`,
+      { params: { agencyId: props.agencyId }, skipGlobalLoading: true }
+    );
+    const note = res.data?.note;
+    setNoteSectionsFromNote(cid, note);
+    noteSavedLabel[cid] = 'Note on file';
+  } catch (e) {
+    noteViewError[cid] = e.response?.data?.error?.message || 'Could not load this note.';
+  } finally {
+    noteLoading[cid] = false;
+  }
+}
+
+function hideNote(clientId) {
+  delete noteSectionsByClient[Number(clientId)];
+}
+
+function showCopyToast() {
+  if (copyToastHideTimer) {
+    clearTimeout(copyToastHideTimer);
+    copyToastHideTimer = null;
+  }
+  copyToastVisible.value = true;
+  copyToastHideTimer = setTimeout(() => {
+    copyToastVisible.value = false;
+    copyToastHideTimer = null;
+  }, 1600);
+}
+
+async function copySection(text) {
+  const t = String(text || '');
+  if (!t) return;
+  try {
+    await navigator.clipboard.writeText(t);
+    showCopyToast();
+  } catch {
+    window.alert('Copy failed');
+  }
+}
+
+async function copyFullNote(clientId) {
+  const entries = noteSectionsByClient[Number(clientId)] || [];
+  const obj = {};
+  for (const [k, v] of entries) obj[k] = v;
+  const text = sectionsObjectToPlainText(obj);
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    showCopyToast();
+  } catch {
+    window.alert('Copy failed');
   }
 }
 
@@ -309,32 +537,42 @@ async function generateNote(client) {
     window.alert('No session found for this date. Please ensure sessions are configured for this event.');
     return;
   }
-  const summary = String(clinicianSummary[client.clientId] || '').trim();
-  generating[client.clientId] = true;
-  generateError[client.clientId] = '';
+  const cid = Number(client.clientId);
+  const summary = String(clinicianSummary[cid] || '').trim();
+  const activityIds = Array.isArray(selectedActivities[cid])
+    ? selectedActivities[cid].map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0)
+    : [];
+  if (activityOptions.value.length && !activityIds.length) {
+    generateError[cid] = 'Select at least one activity completed for this session.';
+    return;
+  }
+  generating[cid] = true;
+  generateError[cid] = '';
   try {
     const body = {
       agencyId: props.agencyId,
       clinicianSummaryText: summary || undefined,
       includeSessionObservations: true,
       sessionDate: selectedDate.value,
-      curriculumPaste: dayData.value?.curriculumNotesText || undefined
+      curriculumPaste: dayData.value?.curriculumNotesText || undefined,
+      activityIds: activityIds.length ? activityIds : undefined
     };
     const res = await api.post(
-      `/skill-builders/events/${props.eventId}/sessions/${sessionId}/clinical-notes/clients/${client.clientId}/generate`,
+      `/skill-builders/events/${props.eventId}/sessions/${sessionId}/clinical-notes/clients/${cid}/generate`,
       body,
       { skipGlobalLoading: true }
     );
     const note = res.data?.note;
-    generatedNotes[client.clientId] = String(note?.plainText || '').trim();
+    setNoteSectionsFromNote(cid, note);
+    noteSavedLabel[cid] = 'Note saved';
     // Refresh to show updated note status
     await loadClinicalDay();
   } catch (e) {
     const errData = e.response?.data?.error;
     const detail = errData?.details ? ` (${errData.details})` : '';
-    generateError[client.clientId] = (errData?.message || 'Note generation failed') + detail;
+    generateError[cid] = (errData?.message || 'Note generation failed') + detail;
   } finally {
-    generating[client.clientId] = false;
+    generating[cid] = false;
   }
 }
 
@@ -345,6 +583,10 @@ watch(
     reload();
   }
 );
+
+onUnmounted(() => {
+  if (copyToastHideTimer) clearTimeout(copyToastHideTimer);
+});
 
 // Initialize with today's date
 selectedDate.value = todayYmd();
@@ -604,5 +846,123 @@ reload();
   margin: 0;
   max-height: 400px;
   overflow-y: auto;
+}
+
+/* Completed-note viewer */
+.sbclin-note-view {
+  margin-top: 12px;
+}
+.sbclin-view-note-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+}
+.sbclin-note-output-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.sbclin-note-output-hdr {
+  justify-content: space-between;
+}
+
+/* Per-section cards with independent copy */
+.sbclin-sec-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  margin-bottom: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.sbclin-sec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+}
+.sbclin-sec-title {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: #166534;
+}
+.sbclin-sec-body {
+  margin: 0;
+  padding: 12px 14px;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  text-align: left;
+}
+
+/* Activity selection chips */
+.sbclin-activities {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+}
+.sbclin-act-hint {
+  margin: 2px 0 8px;
+}
+.sbclin-act-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sbclin-act-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.sbclin-act-chip input {
+  margin: 0;
+}
+
+/* Teleported copy toast */
+.sbclin-copy-toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10050;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: #0f172a;
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.28);
+  pointer-events: none;
+  animation: sbclin-copy-toast-pop 0.28s ease;
+}
+@keyframes sbclin-copy-toast-pop {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
 }
 </style>

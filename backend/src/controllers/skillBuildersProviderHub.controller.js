@@ -5065,7 +5065,19 @@ export const postSkillBuilderSessionClinicalNoteGenerate = async (req, res, next
 
     let curriculumText = await getDecryptedCurriculumTextForSession(sessionId);
     const paste = req.body?.curriculumPaste != null ? String(req.body.curriculumPaste).trim().slice(0, 50000) : '';
-    if (paste) curriculumText = paste;
+    if (paste) {
+      // Combine the uploaded materials PDF text with the coordinator's session/activity notes
+      // so both are referenced in the note (rather than the paste silently replacing the PDF).
+      curriculumText = curriculumText
+        ? [
+            'Session materials (uploaded curriculum PDF):',
+            curriculumText,
+            '',
+            'Additional activity / materials notes for this session:',
+            paste
+          ].join('\n')
+        : paste;
+    }
 
     const clinicianSummaryText = String(req.body?.clinicianSummaryText || '').trim();
     const revisionInstruction = req.body?.revisionInstruction
