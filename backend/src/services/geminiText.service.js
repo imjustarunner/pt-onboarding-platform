@@ -34,70 +34,77 @@ function shouldUseVertex() {
   return Boolean(getProjectId());
 }
 
-export async function callGeminiText({ prompt, temperature = 0.2, maxOutputTokens = 800 }) {
-  const useVertex = shouldUseVertex();
+// Known-good current models. Google has deprecated older aliases (gemini-pro,
+// gemini-1.5-*), so when a configured model name is rejected we retry with these
+// before giving up. This keeps shared callers (translation, agents, etc.) working
+// even if an env var still points at a sunset model.
+const VERTEX_FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-2.5-flash'];
 
-  if (useVertex) {
-    const projectId = getProjectId();
-    const location = String(process.env.VERTEX_AI_LOCATION || 'us-central1').trim() || 'us-central1';
-    const modelName = String(process.env.GEMINI_MODEL || process.env.VERTEX_AI_MODEL || 'gemini-2.0-flash').trim() ||
-      'gemini-2.0-flash';
-    const token = await getAccessToken();
+// HTTP statuses that indicate the *model* (not the request) is the problem, so a
+// retry with a different model name is worth attempting.
+function isModelLevelError(status) {
+  return status === 400 || status === 403 || status === 404;
+}
 
-    const url = `https://${encodeURIComponent(location)}-aiplatform.googleapis.com/v1/projects/${encodeURIComponent(
-      projectId
-    )}/locations/${encodeURIComponent(location)}/publishers/google/models/${encodeURIComponent(modelName)}:generateContent`;
+function buildCandidateModels(configured) {
+  const list = [];
+  const add = (m) => {
+    const name = String(m || '').trim();
+    if (name && !list.includes(name)) list.push(name);
+  };
+  add(configured);
+  VERTEX_FALLBACK_MODELS.forEach(add);
+  return list;
+}
 
-    const started = Date.now();
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json; charset=utf-8'
-      },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: String(prompt || '') }] }],
-        model: `projects/${projectId}/locations/${location}/publishers/google/models/${modelName}`,
-        generationConfig: { temperature, maxOutputTokens }
-      })
-    });
+async function performVertexCall({ modelName, projectId, location, token, prompt, temperature, maxOutputTokens }) {
+  const url = `https://${encodeURIComponent(location)}-aiplatform.googleapis.com/v1/projects/${encodeURIComponent(
+    projectId
+  )}/locations/${encodeURIComponent(location)}/publishers/google/models/${encodeURIComponent(modelName)}:generateContent`;
 
-    const latencyMs = Date.now() - started;
+  const started = Date.now();
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json; charset=utf-8'
+    },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: String(prompt || '') }] }],
+      model: `projects/${projectId}/locations/${location}/publishers/google/models/${modelName}`,
+      generationConfig: { temperature, maxOutputTokens }
+    })
+  });
 
-    if (!resp.ok) {
-      const t = await resp.text();
-      const details = String(t || '').slice(0, 1000);
-      console.error(`[Vertex] HTTP ${resp.status} latency=${latencyMs}ms model=${modelName} details=${details}`);
-      const err = new Error('Vertex Gemini request failed');
-      err.status = resp.status >= 400 && resp.status < 600 ? resp.status : 502;
-      err.details = details;
-      err.latencyMs = latencyMs;
-      throw err;
-    }
+  const latencyMs = Date.now() - started;
 
-    const data = await resp.json();
-    const parts = data?.candidates?.[0]?.content?.parts;
-    const text =
-      Array.isArray(parts) ? parts.map((p) => p?.text || '').filter(Boolean).join('') : parts?.text || '';
-
-    if (!text) {
-      const err = new Error('Vertex Gemini returned empty response');
-      err.status = 502;
-      err.latencyMs = latencyMs;
-      throw err;
-    }
-
-    return { text: String(text), modelName, latencyMs, provider: 'vertex' };
-  }
-
-  const apiKey = process.env.GEMINI_API_KEY || '';
-  if (!apiKey) {
-    const err = new Error('GEMINI_API_KEY is not configured');
-    err.status = 503;
+  if (!resp.ok) {
+    const t = await resp.text();
+    const details = String(t || '').slice(0, 1000);
+    console.error(`[Vertex] HTTP ${resp.status} latency=${latencyMs}ms model=${modelName} details=${details}`);
+    const err = new Error('Vertex Gemini request failed');
+    err.status = resp.status >= 400 && resp.status < 600 ? resp.status : 502;
+    err.details = details;
+    err.latencyMs = latencyMs;
     throw err;
   }
 
-  const modelName = String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim() || 'gemini-2.0-flash';
+  const data = await resp.json();
+  const parts = data?.candidates?.[0]?.content?.parts;
+  const text =
+    Array.isArray(parts) ? parts.map((p) => p?.text || '').filter(Boolean).join('') : parts?.text || '';
+
+  if (!text) {
+    const err = new Error('Vertex Gemini returned empty response');
+    err.status = 502;
+    err.latencyMs = latencyMs;
+    throw err;
+  }
+
+  return { text: String(text), modelName, latencyMs, provider: 'vertex' };
+}
+
+async function performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOutputTokens }) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
     modelName
   )}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -108,10 +115,7 @@ export async function callGeminiText({ prompt, temperature = 0.2, maxOutputToken
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: String(prompt || '') }] }],
-      generationConfig: {
-        temperature,
-        maxOutputTokens
-      }
+      generationConfig: { temperature, maxOutputTokens }
     })
   });
 
@@ -119,9 +123,11 @@ export async function callGeminiText({ prompt, temperature = 0.2, maxOutputToken
 
   if (!resp.ok) {
     const t = await resp.text();
+    const details = String(t || '').slice(0, 1000);
+    console.error(`[Gemini] HTTP ${resp.status} latency=${latencyMs}ms model=${modelName} details=${details}`);
     const err = new Error('Gemini request failed');
-    err.status = 502;
-    err.details = String(t || '').slice(0, 1000);
+    err.status = resp.status >= 400 && resp.status < 600 ? resp.status : 502;
+    err.details = details;
     err.latencyMs = latencyMs;
     throw err;
   }
@@ -139,4 +145,54 @@ export async function callGeminiText({ prompt, temperature = 0.2, maxOutputToken
   }
 
   return { text: String(text), modelName, latencyMs, provider: 'api_key' };
+}
+
+export async function callGeminiText({ prompt, temperature = 0.2, maxOutputTokens = 800 }) {
+  const useVertex = shouldUseVertex();
+
+  if (useVertex) {
+    const projectId = getProjectId();
+    const location = String(process.env.VERTEX_AI_LOCATION || 'us-central1').trim() || 'us-central1';
+    const configuredModel =
+      String(process.env.GEMINI_MODEL || process.env.VERTEX_AI_MODEL || 'gemini-2.0-flash').trim() || 'gemini-2.0-flash';
+    const token = await getAccessToken();
+
+    const candidates = buildCandidateModels(configuredModel);
+    let lastErr = null;
+    for (const modelName of candidates) {
+      try {
+        return await performVertexCall({
+          modelName, projectId, location, token, prompt, temperature, maxOutputTokens
+        });
+      } catch (err) {
+        lastErr = err;
+        // Only fall through to another model when the failure looks model-related.
+        // Auth/quota/network errors won't be fixed by swapping the model name.
+        if (!isModelLevelError(err?.status)) throw err;
+        console.warn(`[Vertex] model "${modelName}" rejected (HTTP ${err?.status}); trying next candidate`);
+      }
+    }
+    throw lastErr || new Error('Vertex Gemini request failed for all candidate models');
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY || '';
+  if (!apiKey) {
+    const err = new Error('GEMINI_API_KEY is not configured');
+    err.status = 503;
+    throw err;
+  }
+
+  const configuredModel = String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim() || 'gemini-2.0-flash';
+  const candidates = buildCandidateModels(configuredModel);
+  let lastErr = null;
+  for (const modelName of candidates) {
+    try {
+      return await performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOutputTokens });
+    } catch (err) {
+      lastErr = err;
+      if (!isModelLevelError(err?.status)) throw err;
+      console.warn(`[Gemini] model "${modelName}" rejected (HTTP ${err?.status}); trying next candidate`);
+    }
+  }
+  throw lastErr || new Error('Gemini request failed for all candidate models');
 }
