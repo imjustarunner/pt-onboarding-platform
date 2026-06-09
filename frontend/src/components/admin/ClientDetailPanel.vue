@@ -164,6 +164,19 @@
                 <h3>Identity &amp; Profile</h3>
               </header>
               <div class="ov-card-body">
+                <!-- Full name – editable for clinical/learning clients -->
+                <div v-if="isClinicalLikeClientType && canSeeClientFullName" class="ov-row">
+                  <div class="ov-row-label">Full Name</div>
+                  <div class="ov-row-value">
+                    <template v-if="editingOverview">
+                      <input v-model="overviewForm.full_name" class="inline-input" placeholder="First Last" />
+                    </template>
+                    <template v-else>
+                      <span v-if="client.full_name">{{ client.full_name }}</span>
+                      <span v-else class="muted">Not set</span>
+                    </template>
+                  </div>
+                </div>
                 <div class="ov-row">
                   <div class="ov-row-label">Initials</div>
                   <div class="ov-row-value">
@@ -2390,6 +2403,7 @@ const skillsValue = ref(false);
 const editingOverview = ref(false);
 const savingOverview = ref(false);
 const overviewForm = ref({
+  full_name: '',
   initials: '',
   organization_id: '',
   client_status_id: '',
@@ -3572,6 +3586,7 @@ const saveSkills = async () => {
 };
 
 const hydrateOverviewForm = () => {
+  overviewForm.value.full_name = String(props.client?.full_name || '');
   overviewForm.value.initials = String(props.client?.initials || '');
   overviewForm.value.organization_id = props.client?.organization_id ? String(props.client.organization_id) : '';
   overviewForm.value.client_status_id = props.client?.client_status_id ? String(props.client.client_status_id) : '';
@@ -3623,6 +3638,7 @@ const saveOverview = async () => {
   try {
     savingOverview.value = true;
     const payload = {
+      full_name: isClinicalLikeClientType.value ? (String(overviewForm.value.full_name || '').trim() || null) : undefined,
       initials: String(overviewForm.value.initials || '').trim() || null,
       organization_id: overviewForm.value.organization_id ? Number(overviewForm.value.organization_id) : null,
       client_status_id: overviewForm.value.client_status_id ? Number(overviewForm.value.client_status_id) : null,
@@ -5419,17 +5435,13 @@ watch(
 }
 
 .modal-tabs {
-  /* Prevent tab header overflow; allow horizontal scroll */
   overflow-x: auto;
   overflow-y: hidden;
   white-space: nowrap;
+  scrollbar-width: none;
 }
 .modal-tabs::-webkit-scrollbar {
-  height: 10px;
-}
-.modal-tabs::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,0.15);
-  border-radius: 999px;
+  display: none;
 }
 .tab-button {
   display: inline-flex;
@@ -5779,20 +5791,19 @@ watch(
   align-items: center;
   flex-wrap: nowrap;
   gap: 4px;
-  padding: 10px 18px;
+  padding: 10px 18px 10px;
   border-bottom: 1px solid var(--border);
   background: #fff;
   overflow-x: auto;
   overflow-y: hidden;
   white-space: nowrap;
-  scrollbar-width: thin;
+  /* Hide scrollbar on all browsers – content is still draggable/touch-scrollable */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
-.modal-tabs::-webkit-scrollbar { height: 6px; }
-.modal-tabs::-webkit-scrollbar-thumb {
-  background: rgba(15, 23, 42, 0.18);
-  border-radius: 999px;
+.modal-tabs::-webkit-scrollbar {
+  display: none;
 }
-.modal-tabs::-webkit-scrollbar-track { background: transparent; }
 
 .tab-button {
   display: inline-flex;
