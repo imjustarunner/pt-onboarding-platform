@@ -2697,7 +2697,9 @@
               </div>
               <div v-if="eventTimeError" class="warn-box" style="margin-top: 8px;">{{ eventTimeError }}</div>
               <div v-if="eventTimeLoading" class="muted" style="margin-top: 8px;">Loading event time submissions…</div>
-              <div v-else-if="!eventTimeSubmissions.length" class="muted" style="margin-top: 8px;">No pending event time submissions.</div>
+              <div v-else-if="!eventTimeSubmissions.length" class="muted" style="margin-top: 8px;">
+                {{ eventTimeShowApproved ? 'No event time submissions.' : 'No pending event time submissions.' }}
+              </div>
               <div v-else class="table-wrap" style="margin-top: 10px;">
                 <table class="table">
                   <thead>
@@ -2710,18 +2712,23 @@
                       <th>Bucket</th>
                       <th class="right">Hours</th>
                       <th>Status</th>
+                      <th>Pay period</th>
                       <th class="right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="row in eventTimeBucketRows" :key="row.rowKey">
+                    <tr
+                      v-for="row in eventTimeBucketRows"
+                      :key="row.rowKey"
+                      :class="{ 'pto-row-approved': row.claim?.status === 'approved', 'pto-row-rejected': row.claim?.status === 'rejected' }"
+                    >
                       <td>{{ row.submission.providerName || nameForUserId(row.submission.userId) }}</td>
                       <td>{{ row.submission.eventTitle || '—' }}</td>
                       <td>
                         {{ formatEventTimeIso(row.submission.clockInAt) }}
                         <span
                           v-if="row.bucket === 'direct' && row.lateMinutes > 0"
-                          :title="`Event started at ${row.submission.eventStartsAt ? new Date(row.submission.eventStartsAt).toLocaleTimeString() : '?'}`"
+                          :title="`Expected report time on this date`"
                           style="margin-left:4px;background:#fef3c7;color:#92400e;font-size:0.7rem;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap;"
                         >+{{ row.lateMinutes }}m late</span>
                       </td>
@@ -2730,17 +2737,20 @@
                       <td>{{ row.bucketLabel }}</td>
                       <td class="right">{{ row.bucketHours ?? '—' }}</td>
                       <td>
-                        {{ row.claim?.status || '—' }}
+                        <span :class="['pto-status-badge', `pto-status-${String(row.claim?.status || 'submitted').toLowerCase()}`]">
+                          {{ (row.claim?.status || 'submitted').charAt(0).toUpperCase() + (row.claim?.status || 'submitted').slice(1) }}
+                        </span>
                         <span
                           v-if="row.submission.wasEdited && row.bucket === 'direct'"
                           title="Values changed from auto-submitted"
                           style="margin-left:4px;color:#b45309;font-size:0.75rem;font-weight:600;"
                         >✎ Edited</span>
                       </td>
+                      <td class="muted" style="font-size: 12px;">{{ eventTimePeriodLabel(row.claim) }}</td>
                       <td class="right">
                         <div class="actions" style="justify-content: flex-end; margin: 0; flex-wrap: wrap; gap: 6px;">
                           <button
-                            v-if="row.bucket === 'direct'"
+                            v-if="row.bucket === 'direct' && row.canApprove"
                             class="btn btn-secondary btn-sm"
                             type="button"
                             :disabled="eventTimeSavingId === row.submission.punchInId"
@@ -2757,13 +2767,18 @@
                           >
                             Approve {{ row.bucketLabel.toLowerCase() }}
                           </button>
+                          <span v-if="!row.canApprove && row.claim?.status === 'approved'" class="muted" style="font-size: 12px;">Approved</span>
+                          <span v-else-if="!row.canApprove && row.claim?.status === 'rejected'" class="muted" style="font-size: 12px;">Rejected</span>
                         </div>
                       </td>
                     </tr>
                   </tbody>
                 </table>
               </div>
-              <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
+              <div class="actions" style="margin-top: 10px; justify-content: flex-end; gap: 8px;">
+                <button class="btn btn-secondary" @click="toggleEventTimeShowApproved" :disabled="eventTimeLoading || !agencyId">
+                  {{ eventTimeShowApproved ? 'Show pending only' : 'Show approved / history' }}
+                </button>
                 <button class="btn btn-secondary" @click="loadEventTimeSubmissions" :disabled="eventTimeLoading || !agencyId">
                   Refresh event time queue
                 </button>
@@ -6589,6 +6604,7 @@ const eventTimeSubmissions = ref([]);
 const eventTimeLoading = ref(false);
 const eventTimeError = ref('');
 const eventTimeSavingId = ref(null);
+const eventTimeShowApproved = ref(false); // when true, include approved/rejected history
 const eventTimeEditOpen = ref(false);
 const eventTimeEditSubmission = ref(null);
 const eventTimeEditClockIn = ref('');
@@ -8086,12 +8102,30 @@ const defaultBucketForTimeClaim = (c) => {
 const isSkillBuilderEventTimeClaim = (c) =>
   String(c?.claim_type || c?.claimType || '').toLowerCase() === 'skill_builder_event';
 
-const calcLateMinutes = (clockInAt, eventStartsAt) => {
-  if (!clockInAt || !eventStartsAt) return 0;
-  const start = new Date(eventStartsAt);
+const calcLateMinutes = (clockInAt, eventStartsAt, employeeReportTime) => {
+  if (!clockInAt) return 0;
   const cin = new Date(clockInAt);
-  if (!Number.isFinite(start.getTime()) || !Number.isFinite(cin.getTime())) return 0;
-  return Math.max(0, Math.round((cin.getTime() - start.getTime()) / 60000));
+  if (!Number.isFinite(cin.getTime())) return 0;
+
+  // Determine the expected time-of-day. Prefer the event's employee_report_time
+  // (a local "HH:MM:SS" value); otherwise use the time-of-day from starts_at.
+  let h = null, m = 0, s = 0;
+  if (employeeReportTime) {
+    const parts = String(employeeReportTime).split(':');
+    h = Number(parts[0]); m = Number(parts[1] || 0); s = Number(parts[2] || 0);
+  } else if (eventStartsAt) {
+    const start = new Date(eventStartsAt);
+    if (Number.isFinite(start.getTime())) {
+      h = start.getHours(); m = start.getMinutes(); s = start.getSeconds();
+    }
+  }
+  if (h === null || !Number.isFinite(h)) return 0;
+
+  // Compare against the expected time on the clock-in's OWN date. This avoids
+  // huge bogus values when a recurring event's starts_at is the series' first
+  // occurrence (days/weeks before the actual session).
+  const expected = new Date(cin.getFullYear(), cin.getMonth(), cin.getDate(), h, m, s, 0);
+  return Math.max(0, Math.round((cin.getTime() - expected.getTime()) / 60000));
 };
 
 const eventTimeBucketRows = computed(() => {
@@ -8100,7 +8134,7 @@ const eventTimeBucketRows = computed(() => {
     const pendingStatuses = new Set(['submitted', 'deferred']);
     const canApproveBucket = (claim) =>
       !!claim?.id && pendingStatuses.has(String(claim?.status || '').toLowerCase());
-    const lateMinutes = calcLateMinutes(s.clockInAt, s.eventStartsAt);
+    const lateMinutes = calcLateMinutes(s.clockInAt, s.eventStartsAt, s.eventEmployeeReportTime);
     rows.push({
       submission: s,
       rowKey: `${s.punchInId}-direct`,
@@ -8147,14 +8181,26 @@ const eventTimeEditOriginal = computed(() => {
   return sub.originalValues;
 });
 
-// Late arrival info for the edit modal — compares the event's scheduled start to the actual clock-in.
+// Late arrival info for the edit modal — compares the expected report time-of-day
+// (on the clock-in's own date) to the actual clock-in.
 const eventTimeEditLateArrival = computed(() => {
   const sub = eventTimeEditSubmission.value;
-  if (!sub?.eventStartsAt || !sub?.clockInAt) return null;
-  const start = new Date(sub.eventStartsAt);
+  if (!sub?.clockInAt) return null;
   const cin = new Date(sub.clockInAt);
-  if (!Number.isFinite(start.getTime()) || !Number.isFinite(cin.getTime())) return null;
-  const lateMs = cin.getTime() - start.getTime();
+  if (!Number.isFinite(cin.getTime())) return null;
+
+  let h = null, m = 0, s = 0;
+  if (sub.eventEmployeeReportTime) {
+    const parts = String(sub.eventEmployeeReportTime).split(':');
+    h = Number(parts[0]); m = Number(parts[1] || 0); s = Number(parts[2] || 0);
+  } else if (sub.eventStartsAt) {
+    const start = new Date(sub.eventStartsAt);
+    if (Number.isFinite(start.getTime())) { h = start.getHours(); m = start.getMinutes(); s = start.getSeconds(); }
+  }
+  if (h === null || !Number.isFinite(h)) return null;
+
+  const expected = new Date(cin.getFullYear(), cin.getMonth(), cin.getDate(), h, m, s, 0);
+  const lateMs = cin.getTime() - expected.getTime();
   if (lateMs <= 0) return null;
   const lateMinutes = Math.round(lateMs / 60000);
   const cap = Number(eventTimeEditDirectCap.value);
@@ -8163,7 +8209,7 @@ const eventTimeEditLateArrival = computed(() => {
     : null;
   return {
     lateMinutes,
-    eventStartDisplay: start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    eventStartDisplay: expected.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     adjustedCap
   };
 });
@@ -8519,7 +8565,7 @@ const loadEventTimeSubmissions = async () => {
     const resp = await api.get('/payroll/event-time-submissions', {
       params: {
         agencyId: agencyId.value,
-        status: 'submitted',
+        status: eventTimeShowApproved.value ? 'submitted,approved,rejected,deferred' : 'submitted',
         suggestedPeriodId: selectedPeriodId.value || undefined
       }
     });
@@ -8530,6 +8576,20 @@ const loadEventTimeSubmissions = async () => {
   } finally {
     eventTimeLoading.value = false;
   }
+};
+
+const toggleEventTimeShowApproved = async () => {
+  eventTimeShowApproved.value = !eventTimeShowApproved.value;
+  await loadEventTimeSubmissions();
+};
+
+// Label for the pay period an event-time claim is posted to (target) or suggested for.
+const eventTimePeriodLabel = (claim) => {
+  if (!claim) return '—';
+  const pid = claim.targetPayrollPeriodId || claim.suggestedPayrollPeriodId || null;
+  if (!pid) return '—';
+  const p = (periods.value || []).find((x) => Number(x.id) === Number(pid));
+  return p ? periodRangeLabel(p) : `#${pid}`;
 };
 
 const openEventTimeEdit = (submission) => {

@@ -94,14 +94,24 @@ export async function listEventTimeSubmissionsForAgency({
 
   const params = [aid, 'skill_builder_event'];
   let where = `c.agency_id = ? AND c.claim_type = ?`;
-  if (status) {
+  // Accept a single status or a comma-separated list (e.g. "submitted,approved").
+  const statusList = String(status || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (statusList.length === 1) {
     where += ' AND c.status = ?';
-    params.push(String(status));
+    params.push(statusList[0]);
+  } else if (statusList.length > 1) {
+    where += ` AND c.status IN (${statusList.map(() => '?').join(', ')})`;
+    params.push(...statusList);
   }
   const periodId = parsePositiveInt(suggestedPeriodId);
   if (periodId) {
-    where += ' AND c.suggested_payroll_period_id = ?';
-    params.push(periodId);
+    // Match either the originally suggested period or the target period it was
+    // approved into, so approved rows don't drop out of the period view.
+    where += ' AND (c.suggested_payroll_period_id = ? OR c.target_payroll_period_id = ?)';
+    params.push(periodId, periodId);
   }
   const eventId = parsePositiveInt(companyEventId);
   if (eventId) {
