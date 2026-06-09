@@ -1446,17 +1446,24 @@
               <ToggleSwitch v-model="agencyForm.featureFlags.payrollEnabled" compact />
             </div>
             <small v-if="isFeatureAvailable('payrollEnabled')" class="hint">When enabled, users with Payroll access can manage payroll for this organization.</small>
-            <div v-if="agencyForm.featureFlags.payrollEnabled" class="toggle-row" style="margin-top: 10px;">
-              <span>Allow tier rates for Other Mileage</span>
-              <ToggleSwitch v-model="agencyForm.featureFlags.otherMileageTierRatesEnabled" compact />
-            </div>
-            <div v-if="agencyForm.featureFlags.payrollEnabled" class="toggle-row" style="margin-top: 10px;">
-              <span>Enable percent-of-charge pay (billing)</span>
-              <ToggleSwitch v-model="agencyForm.featureFlags.percentOfChargePayEnabled" compact />
-            </div>
-            <small v-if="agencyForm.featureFlags.payrollEnabled" class="hint">
-              When off, Other Mileage uses the agency's flat Other Mileage rate even if Tier 1/2/3 rates are configured for School Mileage.
-            </small>
+
+            <template v-if="isFeatureAvailable('payrollEnabled')">
+              <div class="muted" style="margin-top: 12px; font-size: 0.85em; font-weight: 600;">Payroll options</div>
+              <div class="toggle-row" style="margin-top: 8px; margin-left: 12px;">
+                <span>Allow tier rates for Other Mileage</span>
+                <ToggleSwitch v-model="agencyForm.featureFlags.otherMileageTierRatesEnabled" compact />
+              </div>
+              <small class="hint" style="margin-left: 12px;">
+                When off, Other Mileage uses the agency's flat Other Mileage rate even if Tier 1/2/3 rates are configured for School Mileage.
+              </small>
+              <div class="toggle-row" style="margin-top: 10px; margin-left: 12px;">
+                <span>Enable percent-of-client-paid pay (billing)</span>
+                <ToggleSwitch v-model="agencyForm.featureFlags.percentOfChargePayEnabled" compact />
+              </div>
+              <small class="hint" style="margin-left: 12px;">
+                Pay providers a percentage of Patient Amount Paid from billing imports. Configure the default % and per service code on the Payroll tab.
+              </small>
+            </template>
 
             <div v-if="isFeatureAvailable('onboardingTrainingEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Onboarding &amp; Training</span>
@@ -3652,11 +3659,19 @@
             </div>
 
             <div class="settings-section-divider">
-              <h4>Percent-of-charge pay (billing)</h4>
+              <h4>Percent-of-client-paid pay (billing)</h4>
               <p class="section-description">
-                Pay providers a percentage of what the client actually paid on the billing report (Patient Amount Paid). Enable the feature flag above, set a default percent here, then choose per service code whether to use fixed rates or percent-of-charge.
+                Pay providers a percentage of what the client actually paid on the billing report (Patient Amount Paid). Set a default percent here, then choose per service code whether to use fixed rates or percent pay.
               </p>
             </div>
+
+            <div class="toggle-row" style="margin-top: 8px;">
+              <span>Enable percent-of-client-paid pay</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.percentOfChargePayEnabled" compact />
+            </div>
+            <small class="hint">
+              Save the agency after changing this toggle. You can also enable it under Features → Payroll options.
+            </small>
 
             <div v-if="percentagePayPolicyError" class="error-modal">
               <strong>Error:</strong> {{ percentagePayPolicyError }}
@@ -3686,7 +3701,7 @@
               </div>
             </div>
             <div v-if="!agencyForm.featureFlags.percentOfChargePayEnabled" class="filters-hint" style="margin-top: 8px;">
-              Turn on <strong>Enable percent-of-charge pay (billing)</strong> in Features to activate this pay method.
+              Turn on <strong>Enable percent-of-client-paid pay</strong> above (or under Features → Payroll options), then save the agency.
             </div>
 
             <div class="settings-section-divider" style="margin-top: 18px;">

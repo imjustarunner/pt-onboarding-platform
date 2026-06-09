@@ -307,6 +307,34 @@
           </article>
         </div>
       </div>
+
+      <div v-if="payrollWorkspaceEnabled" class="card payroll-options-card">
+        <div class="feature-panel-head">
+          <div>
+            <h3>Payroll options</h3>
+            <p class="muted">
+              Extra payroll settings for this {{ contextNoun }}. Save using the button on the feature panel above.
+              Set the default % and per service code under Settings → Company Profile → Payroll.
+            </p>
+          </div>
+        </div>
+
+        <div class="toggle-row">
+          <span>Allow tier rates for Other Mileage</span>
+          <ToggleSwitch v-model="payrollOptionsDraft.otherMileageTierRatesEnabled" compact />
+        </div>
+        <small class="hint">
+          When off, Other Mileage uses the agency's flat Other Mileage rate even if tier rates exist for School Mileage.
+        </small>
+
+        <div class="toggle-row" style="margin-top: 12px;">
+          <span>Enable percent-of-client-paid pay (billing)</span>
+          <ToggleSwitch v-model="payrollOptionsDraft.percentOfChargePayEnabled" compact />
+        </div>
+        <small class="hint">
+          Pay providers a percentage of Patient Amount Paid from billing imports.
+        </small>
+      </div>
     </template>
   </div>
 </template>
@@ -317,6 +345,7 @@ import api from '../../services/api';
 import { clearAdminApiCache } from '../../utils/adminApiCache.js';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import ToggleSwitch from '../ui/ToggleSwitch.vue';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -363,6 +392,19 @@ const agencyFeatureDrafts = ref([]);
 const estimate = ref(null);
 const agencyDetail = ref(null);
 const agencyFeatureFlags = ref({});
+const payrollOptionsDraft = ref({
+  otherMileageTierRatesEnabled: false,
+  percentOfChargePayEnabled: false
+});
+
+const payrollWorkspaceEnabled = computed(() => {
+  const flags = agencyFeatureFlags.value || {};
+  if (flags.payrollEnabled === true) return true;
+  const row = agencyFeatureDrafts.value.find(
+    (f) => f.key === 'payrollWorkspace' || f.featureFlagKey === 'payrollEnabled'
+  );
+  return row?.enabled === true || row?.included === true;
+});
 
 const money = (cents) => {
   const v = Number(cents || 0) / 100;
@@ -574,12 +616,24 @@ const buildAgencyFeatureFlagsPayload = (rows) => {
     if (!row?.featureFlagKey) continue;
     next[row.featureFlagKey] = row.enabled === true || row.included === true;
   }
+  next.otherMileageTierRatesEnabled = payrollOptionsDraft.value.otherMileageTierRatesEnabled === true;
+  next.percentOfChargePayEnabled = payrollOptionsDraft.value.percentOfChargePayEnabled === true;
   return next;
+};
+
+const syncPayrollOptionsDraft = (flags) => {
+  const parsed = flags && typeof flags === 'object' ? flags : {};
+  payrollOptionsDraft.value = {
+    otherMileageTierRatesEnabled: parsed.otherMileageTierRatesEnabled === true,
+    percentOfChargePayEnabled: parsed.percentOfChargePayEnabled === true
+  };
 };
 
 const applyAgencyDetail = (agency) => {
   agencyDetail.value = agency || null;
-  agencyFeatureFlags.value = parseFlags(agency?.feature_flags || agency?.featureFlags || {});
+  const flags = parseFlags(agency?.feature_flags || agency?.featureFlags || {});
+  agencyFeatureFlags.value = flags;
+  syncPayrollOptionsDraft(flags);
 };
 
 const loadAgencyDetail = async () => {
@@ -820,6 +874,25 @@ watch(currentAgencyId, () => {
 <style scoped>
 .tenant-features-management {
   padding: 0;
+}
+
+.payroll-options-card {
+  margin-top: 16px;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hint {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-muted, #666);
+  font-size: 0.85em;
+  line-height: 1.4;
 }
 
 .feature-summary-card {
