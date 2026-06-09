@@ -2820,11 +2820,51 @@
             </div>
 
             <div class="card" style="margin-top: 12px;">
-              <h3 class="card-title" style="margin: 0 0 6px 0;">PTO Requests</h3>
-              <div class="hint">Approve to deduct PTO balances and post PTO pay into payroll adjustments. Approved and denied requests remain visible below.</div>
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 6px;">
+                <div>
+                  <h3 class="card-title" style="margin: 0 0 4px 0;">PTO Requests</h3>
+                  <div class="hint">Approve to deduct PTO balances and post PTO pay into the selected pay period.</div>
+                </div>
+              </div>
+
+              <!-- Status filter chips -->
+              <div class="pto-filter-bar" style="margin-top: 8px;">
+                <button
+                  :class="['pto-chip', ptoStatusFilter.includes('submitted') ? 'pto-chip--active pto-chip--submitted' : '']"
+                  type="button"
+                  @click="togglePtoStatusFilter('submitted')"
+                >
+                  Pending<span v-if="ptoStatusCounts.submitted" class="pto-chip-count">{{ ptoStatusCounts.submitted }}</span>
+                </button>
+                <button
+                  :class="['pto-chip', ptoStatusFilter.includes('approved') ? 'pto-chip--active pto-chip--approved' : '']"
+                  type="button"
+                  @click="togglePtoStatusFilter('approved')"
+                >
+                  Approved<span v-if="ptoStatusCounts.approved" class="pto-chip-count">{{ ptoStatusCounts.approved }}</span>
+                </button>
+                <button
+                  :class="['pto-chip', ptoStatusFilter.includes('rejected') ? 'pto-chip--active pto-chip--rejected' : '']"
+                  type="button"
+                  @click="togglePtoStatusFilter('rejected')"
+                >
+                  Denied<span v-if="ptoStatusCounts.rejected" class="pto-chip-count">{{ ptoStatusCounts.rejected }}</span>
+                </button>
+                <button
+                  :class="['pto-chip', ptoStatusFilter.includes('deferred') ? 'pto-chip--active pto-chip--deferred' : '']"
+                  type="button"
+                  @click="togglePtoStatusFilter('deferred')"
+                  v-if="ptoStatusCounts.deferred"
+                >
+                  Sent back<span class="pto-chip-count">{{ ptoStatusCounts.deferred }}</span>
+                </button>
+              </div>
+
               <div v-if="pendingPtoError" class="warn-box" style="margin-top: 8px;">{{ pendingPtoError }}</div>
               <div v-if="pendingPtoLoading" class="muted" style="margin-top: 8px;">Loading requests…</div>
-              <div v-else-if="!pendingPtoRequests.length" class="muted" style="margin-top: 8px;">No PTO requests.</div>
+              <div v-else-if="!ptoVisibleRequests.length" class="muted" style="margin-top: 8px;">
+                No {{ ptoStatusFilter.length === 1 && ptoStatusFilter[0] === 'submitted' ? 'pending' : '' }} PTO requests.
+              </div>
               <div v-else class="table-wrap" style="margin-top: 10px;">
                 <table class="table">
                   <thead>
@@ -2839,12 +2879,12 @@
                       <th class="right">New balance</th>
                       <th>First date</th>
                       <th>Proof</th>
-                      <th class="right">Pay period</th>
+                      <th class="right">Post to pay period</th>
                       <th class="right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="r in pendingPtoRequests" :key="r.id" :class="{ 'pto-row-approved': r.status === 'approved', 'pto-row-rejected': r.status === 'rejected' }">
+                    <tr v-for="r in ptoVisibleRequests" :key="r.id" :class="{ 'pto-row-approved': r.status === 'approved', 'pto-row-rejected': r.status === 'rejected' }">
                       <td>{{ nameForUserId(r.user_id) }}</td>
                       <td>{{ String(r.created_at || '').slice(0, 10) }}</td>
                       <td>{{ submitterLabel(r) }}</td>
@@ -2881,9 +2921,16 @@
                         <span v-else class="muted">—</span>
                       </td>
                       <td class="right">
-                        <select v-if="r.status === 'submitted'" v-model="ptoTargetPeriodByRequestId[r.id]" :disabled="approvingPtoRequestId === r.id">
-                          <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
-                        </select>
+                        <template v-if="r.status === 'submitted'">
+                          <div class="muted" style="font-size: 11px; margin-bottom: 3px;">Select pay period to post to:</div>
+                          <select v-model="ptoTargetPeriodByRequestId[r.id]" :disabled="approvingPtoRequestId === r.id">
+                            <option :value="null" disabled>— choose period —</option>
+                            <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                          </select>
+                        </template>
+                        <span v-else-if="r.approved_period_start" class="muted" style="font-size: 12px;">
+                          {{ String(r.approved_period_start || '').slice(0,10) }} – {{ String(r.approved_period_end || '').slice(0,10) }}
+                        </span>
                         <span v-else class="muted">—</span>
                       </td>
                       <td class="right">
@@ -2903,7 +2950,7 @@
                           </button>
                         </div>
                         <span v-else class="muted" style="font-size: 12px;">
-                          {{ r.status === 'approved' ? `Approved ${String(r.approved_at || '').slice(0,10)}` : r.status === 'rejected' ? `Denied ${String(r.rejected_at || '').slice(0,10)}` : '' }}
+                          {{ r.status === 'approved' ? `Approved ${String(r.approved_at || '').slice(0,10)}` : r.status === 'rejected' ? `Denied ${String(r.rejected_at || '').slice(0,10)}` : r.status === 'deferred' ? 'Sent back' : '' }}
                         </span>
                       </td>
                     </tr>
@@ -6534,6 +6581,34 @@ const approvingPtoRequestId = ref(null);
 const ptoBalancesByUserId = ref({}); // userId -> { sickHours, trainingHours }
 const ptoTargetPeriodByRequestId = ref({});
 const pendingPtoMode = ref('period'); // 'period' | 'all'
+// Status filter chips — default to showing only pending (submitted) requests.
+const ptoStatusFilter = ref(['submitted']);
+const ptoAllRequests = ref([]); // full unfiltered list from last fetch
+
+const ptoVisibleRequests = computed(() => {
+  const all = ptoAllRequests.value || [];
+  if (!ptoStatusFilter.value.length) return all;
+  return all.filter((r) => ptoStatusFilter.value.includes(String(r.status || 'submitted').toLowerCase()));
+});
+
+const ptoStatusCounts = computed(() => {
+  const all = ptoAllRequests.value || [];
+  return {
+    submitted: all.filter((r) => String(r.status || '') === 'submitted').length,
+    approved: all.filter((r) => String(r.status || '') === 'approved').length,
+    rejected: all.filter((r) => String(r.status || '') === 'rejected').length,
+    deferred: all.filter((r) => String(r.status || '') === 'deferred').length,
+  };
+});
+
+const togglePtoStatusFilter = (status) => {
+  const cur = ptoStatusFilter.value;
+  if (cur.includes(status)) {
+    ptoStatusFilter.value = cur.filter((s) => s !== status);
+  } else {
+    ptoStatusFilter.value = [...cur, status];
+  }
+};
 
 const serviceCodeRules = ref([]);
 const serviceCodeRulesLoading = ref(false);
@@ -8576,6 +8651,7 @@ const fetchAllPendingPtoRequests = async () => {
       params: { agencyId: agencyId.value, status: 'submitted,approved,rejected,deferred' }
     });
     pendingPtoRequests.value = (resp.data || []).filter((r) => !!r && typeof r === 'object');
+    ptoAllRequests.value = pendingPtoRequests.value;
     const nextTarget = { ...(ptoTargetPeriodByRequestId.value || {}) };
     for (const r of pendingPtoRequests.value || []) {
       if (!nextTarget[r.id]) nextTarget[r.id] = ptoDefaultTargetPeriodId(r);
@@ -8606,6 +8682,7 @@ const fetchAllPendingPtoRequests = async () => {
   } catch (e) {
     pendingPtoError.value = e.response?.data?.error?.message || e.message || 'Failed to load pending PTO requests';
     pendingPtoRequests.value = [];
+    ptoAllRequests.value = [];
   } finally {
     pendingPtoLoading.value = false;
   }
@@ -8621,11 +8698,13 @@ const loadPendingPtoRequests = async () => {
   await fetchAllPendingPtoRequests();
   if (!selectedPeriodId.value) return;
   // Period filter only applies to submitted (pending) requests; approved/rejected always remain visible.
-  pendingPtoRequests.value = (pendingPtoRequests.value || []).filter((r) => {
+  const filtered = (ptoAllRequests.value || []).filter((r) => {
     const st = String(r.status || '').toLowerCase();
     if (st !== 'submitted') return true; // always show non-pending
     return isPtoRequestInSelectedPeriod(r);
   });
+  ptoAllRequests.value = filtered;
+  pendingPtoRequests.value = filtered;
 };
 
 const reloadPendingPtoRequests = async () => {
@@ -14761,6 +14840,49 @@ input[type='number'] {
   .field-row {
     grid-template-columns: 1fr;
   }
+}
+
+/* PTO request status filter chips */
+.pto-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pto-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1.5px solid #d1d5db;
+  background: #f9fafb;
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.pto-chip:hover { border-color: #9ca3af; background: #f3f4f6; }
+.pto-chip--active { border-color: transparent; color: #fff; }
+.pto-chip--active.pto-chip--submitted { background: #d97706; border-color: #d97706; }
+.pto-chip--active.pto-chip--approved  { background: #166534; border-color: #166534; }
+.pto-chip--active.pto-chip--rejected  { background: #b91c1c; border-color: #b91c1c; }
+.pto-chip--active.pto-chip--deferred  { background: #475569; border-color: #475569; }
+.pto-chip-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: rgba(0,0,0,0.18);
+  font-size: 11px;
+  font-weight: 700;
+}
+.pto-chip:not(.pto-chip--active) .pto-chip-count {
+  background: #e5e7eb;
+  color: #374151;
 }
 
 /* PTO request status badges */

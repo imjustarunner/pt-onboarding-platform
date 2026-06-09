@@ -569,6 +569,17 @@ export async function approvePtoRequestAndPostToPayroll({
     }
   }
 
+  // Store the primary period on the request for display purposes (first resolved period).
+  const primaryPeriodId = Array.from(byPeriod.keys())[0] || null;
+  if (primaryPeriodId) {
+    try {
+      await pool.execute(
+        `UPDATE payroll_pto_requests SET approved_payroll_period_id = ? WHERE id = ? LIMIT 1`,
+        [primaryPeriodId, requestId]
+      );
+    } catch { /* best-effort */ }
+  }
+
   return {
     ok: true,
     affectedPayrollPeriodIds: Array.from(byPeriod.keys()),
