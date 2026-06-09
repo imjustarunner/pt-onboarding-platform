@@ -2858,9 +2858,15 @@ const fetchPayrollPendingSubmissions = async () => {
     payrollPendingCount.value = Number(resp.data?.totalCount || 0);
     payrollPendingItems.value = Array.isArray(resp.data?.ptoSubmissions) ? resp.data.ptoSubmissions : [];
     payrollPendingTypeCounts.value = resp.data?.typeCounts || {};
-    // Show toast when count increases (new submissions arrived) and not dismissed this session.
-    if (payrollPendingCount.value > prevCount && !payrollPendingToastDismissed.value) {
-      payrollPendingToastVisible.value = true;
+    if (payrollPendingCount.value > 0) {
+      // Show toast whenever there are pending items (unless user dismissed it this session).
+      if (!payrollPendingToastDismissed.value) {
+        payrollPendingToastVisible.value = true;
+      }
+    } else {
+      // Queue cleared — hide toast and reset dismissed flag so it reappears with future submissions.
+      payrollPendingToastVisible.value = false;
+      payrollPendingToastDismissed.value = false;
     }
   } catch {
     // best-effort
