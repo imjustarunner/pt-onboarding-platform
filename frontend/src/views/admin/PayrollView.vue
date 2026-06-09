@@ -2717,7 +2717,14 @@
                     <tr v-for="row in eventTimeBucketRows" :key="row.rowKey">
                       <td>{{ row.submission.providerName || nameForUserId(row.submission.userId) }}</td>
                       <td>{{ row.submission.eventTitle || '—' }}</td>
-                      <td>{{ formatEventTimeIso(row.submission.clockInAt) }}</td>
+                      <td>
+                        {{ formatEventTimeIso(row.submission.clockInAt) }}
+                        <span
+                          v-if="row.bucket === 'direct' && row.lateMinutes > 0"
+                          :title="`Event started at ${row.submission.eventStartsAt ? new Date(row.submission.eventStartsAt).toLocaleTimeString() : '?'}`"
+                          style="margin-left:4px;background:#fef3c7;color:#92400e;font-size:0.7rem;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap;"
+                        >+{{ row.lateMinutes }}m late</span>
+                      </td>
                       <td>{{ formatEventTimeIso(row.submission.clockOutAt) }}</td>
                       <td class="right">{{ row.submission.workedHours ?? '—' }}</td>
                       <td>{{ row.bucketLabel }}</td>
@@ -2739,7 +2746,7 @@
                             :disabled="eventTimeSavingId === row.submission.punchInId"
                             @click="openEventTimeEdit(row.submission)"
                           >
-                            Edit indirect time
+                            Edit time
                           </button>
                           <button
                             v-if="row.canApprove"
@@ -5804,6 +5811,26 @@
               In {{ eventTimeEditOriginal.clockInAt ? new Date(eventTimeEditOriginal.clockInAt).toLocaleTimeString() : '—' }} ·
               Out {{ eventTimeEditOriginal.clockOutAt ? new Date(eventTimeEditOriginal.clockOutAt).toLocaleTimeString() : '—' }}
             </div>
+            <!-- Late arrival warning -->
+            <div
+              v-if="eventTimeEditLateArrival"
+              style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:10px;font-size:0.875rem;"
+            >
+              <strong>⏰ Late arrival detected</strong> — event started at {{ eventTimeEditLateArrival.eventStartDisplay }},
+              employee clocked in <strong>{{ eventTimeEditLateArrival.lateMinutes }} min late</strong>.
+              <span v-if="eventTimeEditLateArrival.adjustedCap != null">
+                Adjusted direct cap: <strong>{{ eventTimeEditLateArrival.adjustedCap }} h</strong>
+                (reduced from {{ eventTimeEditDirectCap }} h).
+              </span>
+              <div style="margin-top:6px;">
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  :disabled="eventTimeEditSaving"
+                  @click="applyLateArrivalDeduction"
+                >Apply late arrival deduction</button>
+              </div>
+            </div>
             <label class="field">
               <span>Clock in</span>
               <input v-model="eventTimeEditClockIn" class="input" type="datetime-local" :disabled="eventTimeEditSaving">
@@ -5812,9 +5839,22 @@
               <span>Clock out</span>
               <input v-model="eventTimeEditClockOut" class="input" type="datetime-local" :disabled="eventTimeEditSaving">
             </label>
-            <div class="hint" style="margin-top:-6px;">
-              Direct hours cap from event settings: {{ eventTimeEditDirectCap || '—' }} h. Hours are recalculated from the clock times.
-            </div>
+            <label class="field">
+              <span>Direct hours cap</span>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <input
+                  v-model="eventTimeEditDirectCap"
+                  class="input"
+                  type="number"
+                  min="0"
+                  step="0.25"
+                  style="width:100px;"
+                  :disabled="eventTimeEditSaving"
+                  placeholder="e.g. 3"
+                >
+                <span class="hint" style="margin:0;">h — defaulted from event settings; edit to override for this submission</span>
+              </div>
+            </label>
             <div v-if="eventTimeEditPreview" class="hint">
               Worked {{ eventTimeEditPreview.workedHours }} h · Direct {{ eventTimeEditPreview.directHours }} h · Indirect {{ eventTimeEditPreview.indirectHours }} h
             </div>
@@ -8046,12 +8086,21 @@ const defaultBucketForTimeClaim = (c) => {
 const isSkillBuilderEventTimeClaim = (c) =>
   String(c?.claim_type || c?.claimType || '').toLowerCase() === 'skill_builder_event';
 
+const calcLateMinutes = (clockInAt, eventStartsAt) => {
+  if (!clockInAt || !eventStartsAt) return 0;
+  const start = new Date(eventStartsAt);
+  const cin = new Date(clockInAt);
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(cin.getTime())) return 0;
+  return Math.max(0, Math.round((cin.getTime() - start.getTime()) / 60000));
+};
+
 const eventTimeBucketRows = computed(() => {
   const rows = [];
   for (const s of eventTimeSubmissions.value || []) {
     const pendingStatuses = new Set(['submitted', 'deferred']);
     const canApproveBucket = (claim) =>
       !!claim?.id && pendingStatuses.has(String(claim?.status || '').toLowerCase());
+    const lateMinutes = calcLateMinutes(s.clockInAt, s.eventStartsAt);
     rows.push({
       submission: s,
       rowKey: `${s.punchInId}-direct`,
@@ -8059,7 +8108,8 @@ const eventTimeBucketRows = computed(() => {
       bucketLabel: 'Direct',
       bucketHours: s.directHours,
       claim: s.directClaim,
-      canApprove: canApproveBucket(s.directClaim)
+      canApprove: canApproveBucket(s.directClaim),
+      lateMinutes
     });
     rows.push({
       submission: s,
@@ -8068,7 +8118,8 @@ const eventTimeBucketRows = computed(() => {
       bucketLabel: 'Indirect',
       bucketHours: s.indirectHours,
       claim: s.indirectClaim,
-      canApprove: canApproveBucket(s.indirectClaim)
+      canApprove: canApproveBucket(s.indirectClaim),
+      lateMinutes
     });
   }
   return rows;
@@ -8095,6 +8146,34 @@ const eventTimeEditOriginal = computed(() => {
   if (!sub?.wasEdited || !sub.originalValues) return null;
   return sub.originalValues;
 });
+
+// Late arrival info for the edit modal — compares the event's scheduled start to the actual clock-in.
+const eventTimeEditLateArrival = computed(() => {
+  const sub = eventTimeEditSubmission.value;
+  if (!sub?.eventStartsAt || !sub?.clockInAt) return null;
+  const start = new Date(sub.eventStartsAt);
+  const cin = new Date(sub.clockInAt);
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(cin.getTime())) return null;
+  const lateMs = cin.getTime() - start.getTime();
+  if (lateMs <= 0) return null;
+  const lateMinutes = Math.round(lateMs / 60000);
+  const cap = Number(eventTimeEditDirectCap.value);
+  const adjustedCap = Number.isFinite(cap) && cap > 0
+    ? Math.max(0, Math.round((cap - lateMinutes / 60) * 100) / 100)
+    : null;
+  return {
+    lateMinutes,
+    eventStartDisplay: start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    adjustedCap
+  };
+});
+
+const applyLateArrivalDeduction = () => {
+  const la = eventTimeEditLateArrival.value;
+  if (la?.adjustedCap != null) {
+    eventTimeEditDirectCap.value = String(la.adjustedCap);
+  }
+};
 
 const eventTimeEditPreview = computed(() => {
   const clockInAt = datetimeLocalInputToIso(eventTimeEditClockIn.value);
@@ -8484,10 +8563,12 @@ const saveEventTimeEdit = async () => {
   eventTimeEditSaving.value = true;
   eventTimeEditError.value = '';
   try {
+    const capRaw = Number(eventTimeEditDirectCap.value);
     await api.patch(`/payroll/event-time-submissions/${submission.punchInId}`, {
       agencyId: agencyId.value,
       clockInAt,
-      clockOutAt
+      clockOutAt,
+      ...(Number.isFinite(capRaw) && capRaw >= 0 ? { directHoursCap: capRaw } : {})
     });
     closeEventTimeEdit();
     await loadEventTimeSubmissions();

@@ -20,7 +20,7 @@ function parseClaimPayload(raw) {
   return typeof raw === 'object' ? raw : {};
 }
 
-function groupClaimsIntoSubmissions(claimRows, eventTitlesById) {
+function groupClaimsIntoSubmissions(claimRows, eventTitlesById, eventStartById = new Map()) {
   const byPunchIn = new Map();
 
   for (const row of claimRows || []) {
@@ -31,6 +31,7 @@ function groupClaimsIntoSubmissions(claimRows, eventTitlesById) {
     const key = punchInId;
     if (!byPunchIn.has(key)) {
       const eventId = parsePositiveInt(payload.companyEventId);
+      const evStart = eventId ? (eventStartById.get(eventId) || {}) : {};
       byPunchIn.set(key, {
         punchInId: key,
         punchOutId: parsePositiveInt(payload.kioskPunchOutId),
@@ -38,6 +39,8 @@ function groupClaimsIntoSubmissions(claimRows, eventTitlesById) {
         providerName: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
         companyEventId: eventId,
         eventTitle: eventId ? (eventTitlesById.get(eventId) || `Event #${eventId}`) : '',
+        eventStartsAt: evStart.startsAt || null,
+        eventEmployeeReportTime: evStart.employeeReportTime || null,
         companyEventSessionId: payload.companyEventSessionId != null ? Number(payload.companyEventSessionId) : null,
         clockInAt: payload.clockInAt || null,
         clockOutAt: payload.clockOutAt || null,
@@ -129,18 +132,26 @@ export async function listEventTimeSubmissionsForAgency({
   }
 
   const eventTitlesById = new Map();
+  const eventStartById = new Map();
   if (eventIds.size) {
     const ph = [...eventIds].map(() => '?').join(',');
     const [evRows] = await pool.execute(
-      `SELECT id, title FROM company_events WHERE id IN (${ph})`,
+      `SELECT id, title, starts_at, employee_report_time FROM company_events WHERE id IN (${ph})`,
       [...eventIds]
     );
     for (const ev of evRows || []) {
       eventTitlesById.set(Number(ev.id), ev.title || '');
+      // Prefer employee_report_time (the time staff are expected to arrive) over
+      // starts_at for late-arrival calculations, fall back to starts_at.
+      const reportTime = ev.employee_report_time ? String(ev.employee_report_time).slice(0, 8) : null;
+      eventStartById.set(Number(ev.id), {
+        startsAt: ev.starts_at ? new Date(ev.starts_at).toISOString() : null,
+        employeeReportTime: reportTime
+      });
     }
   }
 
-  return groupClaimsIntoSubmissions(rows, eventTitlesById);
+  return groupClaimsIntoSubmissions(rows, eventTitlesById, eventStartById);
 }
 
 export async function listMyEventTimeSessions({ agencyId, userId, limit = 50 }) {

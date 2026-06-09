@@ -16357,6 +16357,10 @@ export const patchTimeClaim = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'targetPayrollPeriodId is required' } });
       }
 
+      // Kiosk-generated event-time claims are auto-submitted by the system at clock-out,
+      // so the payroll admin has no control over submission timing. Skip the deadline
+      // hard-stop when the period hasn't been run yet (still open for editing).
+      const isKioskEventClaim = String(claim.claim_type || '').toLowerCase() === 'skill_builder_event';
       const ok = await enforceTargetPeriodDeadline({
         req,
         res,
@@ -16364,7 +16368,8 @@ export const patchTimeClaim = async (req, res, next) => {
         effectiveDateYmd: claim.claim_date,
         submittedAt: claim.created_at,
         targetPayrollPeriodId,
-        hardStopPolicy: 'in_school'
+        hardStopPolicy: 'in_school',
+        skipDeadlineIfPeriodNotRun: isKioskEventClaim
       });
       if (!ok.ok) return;
 
