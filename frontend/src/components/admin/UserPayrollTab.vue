@@ -205,8 +205,8 @@
         </div>
 
         <div v-if="editingRates" class="muted" style="margin-top: 8px;">
-          Tip: leaving a service-code rate blank will not create/change that override.
-          <span v-if="percentOfChargePayEnabled"> Percent-of-charge codes use a provider-specific pay %; blank uses the agency or service-code default.</span>
+          Tip: set a <strong>$</strong> rate, a <strong>%</strong> rate, or both per code — leave blank to not override.
+          <span v-if="percentOfChargePayEnabled"> Which value is used at pay time depends on the pay method set for that code in Agency → Payroll.</span>
         </div>
         <div v-if="editError" class="error-box" style="margin-top: 10px;">{{ editError }}</div>
 
@@ -326,8 +326,9 @@
               </div>
 
               <div class="rate-value" v-if="!editingRates">
-                <template v-if="r.isPercentPay">{{ ratePercentDisplay(r) }}</template>
-                <template v-else>{{ fmtMoney(r.rateAmount) }}</template>
+                <span v-if="r.rateAmount !== null" class="rate-val-dollar">{{ fmtMoney(r.rateAmount) }}</span>
+                <span v-if="r.isPercentPay" class="rate-val-pct">{{ ratePercentDisplay(r) }}</span>
+                <span v-if="r.rateAmount === null && !r.isPercentPay" class="muted">—</span>
               </div>
 
               <div class="rate-edit" v-else>
@@ -350,26 +351,31 @@
                   </svg>
                 </button>
 
-                <div v-if="r.isPercentPay" class="percent-edit-wrap">
-                  <input
-                    v-model="percentDraftByCode[r.serviceCode]"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max="100"
-                    class="mini-input"
-                    :placeholder="percentPlaceholder(r)"
-                  />
-                  <span class="percent-suffix">%</span>
+                <div class="rate-inputs-wrap">
+                  <div class="rate-input-row">
+                    <span class="rate-input-prefix">$</span>
+                    <input
+                      v-model="rateDraftByCode[r.serviceCode]"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      class="mini-input"
+                      placeholder="rate"
+                    />
+                  </div>
+                  <div v-if="percentOfChargePayEnabled" class="rate-input-row">
+                    <input
+                      v-model="percentDraftByCode[r.serviceCode]"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      class="mini-input"
+                      :placeholder="percentPlaceholder(r)"
+                    />
+                    <span class="percent-suffix">%</span>
+                  </div>
                 </div>
-                <input
-                  v-else
-                  v-model="rateDraftByCode[r.serviceCode]"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  class="mini-input"
-                />
               </div>
             </div>
           </div>
@@ -1090,8 +1096,7 @@ const fullRateRows = computed(() => {
 const visibleRateRows = computed(() => {
   return (fullRateRows.value || []).filter((r) => {
     if (!r.visible) return false;
-    if (r.isPercentPay) return true;
-    return r.rateAmount !== null;
+    return r.rateAmount !== null || r.payPercent !== null;
   });
 });
 
@@ -1225,11 +1230,14 @@ const beginEditRates = () => {
   editingRates.value = true;
 
   const next = {};
+  const nextPct = {};
   for (const row of fullRateRows.value || []) {
     const code = row.serviceCode;
     next[code] = row.rateAmount === null || row.rateAmount === undefined ? '' : String(row.rateAmount);
+    nextPct[code] = row.payPercent === null || row.payPercent === undefined ? '' : String(row.payPercent);
   }
   rateDraftByCode.value = next;
+  percentDraftByCode.value = nextPct;
 
   const rc = rateCard.value || {};
   rateCardDraft.value = {
@@ -1314,50 +1322,40 @@ const saveRates = async () => {
     for (const code of current.keys()) {
       if (!allowedCodes.has(code)) deletes.push(code);
     }
-    for (const [code, val] of Object.entries(rateDraftByCode.value || {})) {
-      const trimmedCode = String(code || '').trim();
-      if (!trimmedCode) continue;
-      if (!allowedCodes.has(trimmedCode)) continue;
-      const rowMeta = rowMetaByCode.get(trimmedCode);
-      if (rowMeta?.isPercentPay) continue;
-      const t = String(val ?? '').trim();
-      const prev = current.get(trimmedCode);
-      if (!t) {
-        // Empty = delete existing override so it disappears from the sheet.
-        if (prev) deletes.push(trimmedCode);
+
+    // Merge dollar and percent drafts per code — both fields are independent.
+    // For each allowed code, compute the desired (rateAmount, payPercent) pair and
+    // emit a change only when something actually differs from what's stored.
+    for (const code of allowedCodes) {
+      const dollarStr = String(rateDraftByCode.value?.[code] ?? '').trim();
+      const pctStr    = String(percentDraftByCode.value?.[code] ?? '').trim();
+
+      const newAmount  = dollarStr === '' ? null : Number(dollarStr);
+      const newPercent = pctStr    === '' ? null : toPercentOrNull(pctStr);
+
+      if (newAmount !== null && (!Number.isFinite(newAmount) || newAmount < 0))
+        throw new Error(`Rates must be non-negative numbers (${code})`);
+      if (newPercent !== null && (!Number.isFinite(newPercent) || newPercent < 0 || newPercent > 100))
+        throw new Error(`Pay percentages must be between 0 and 100 (${code})`);
+
+      const prev = current.get(code);
+
+      // Both empty → delete any existing override
+      if (newAmount === null && newPercent === null) {
+        if (prev) deletes.push(code);
         continue;
       }
-      const n = Number(t);
-      if (!Number.isFinite(n) || n < 0) throw new Error('Rates must be non-negative numbers');
-      if (!prev || Math.abs(prev.amount - n) > 0.000001 || prev.payPercent !== null) {
-        changes.push({ serviceCode: trimmedCode, rateAmount: n, payPercent: null });
-      }
-    }
-    for (const [code, val] of Object.entries(percentDraftByCode.value || {})) {
-      const trimmedCode = String(code || '').trim();
-      if (!trimmedCode) continue;
-      if (!allowedCodes.has(trimmedCode)) continue;
-      const rowMeta = rowMetaByCode.get(trimmedCode);
-      if (!rowMeta?.isPercentPay) continue;
-      const prev = current.get(trimmedCode);
-      const t = String(val ?? '').trim();
-      if (!t) {
-        if (prev?.payPercent !== null && prev?.payPercent !== undefined) {
-          if (!prev || (prev.amount || 0) <= 0) {
-            deletes.push(trimmedCode);
-          } else {
-            changes.push({ serviceCode: trimmedCode, rateAmount: prev.amount, payPercent: null });
-          }
-        }
-        continue;
-      }
-      const pct = toPercentOrNull(t);
-      if (prev && prev.payPercent !== null && Math.abs(prev.payPercent - pct) <= 0.000001) continue;
-      if (!prev || prev.payPercent === null || Math.abs((prev.payPercent ?? 0) - pct) > 0.000001) {
+
+      const prevAmount  = prev ? Number(prev.amount) : null;
+      const prevPercent = prev?.payPercent ?? null;
+      const amountChanged  = newAmount  !== null ? (!prev || Math.abs((prevAmount ?? 0) - newAmount)  > 0.000001) : (prevAmount  !== null && prevAmount  > 0);
+      const percentChanged = newPercent !== null ? (!prev || Math.abs((prevPercent ?? -1) - newPercent) > 0.000001) : (prevPercent !== null);
+
+      if (amountChanged || percentChanged) {
         changes.push({
-          serviceCode: trimmedCode,
-          rateAmount: prev?.amount ?? 0,
-          payPercent: pct
+          serviceCode: code,
+          rateAmount:  newAmount  ?? prev?.amount  ?? 0,
+          payPercent:  newPercent ?? null
         });
       }
     }
@@ -1713,6 +1711,33 @@ select option {
 .percent-suffix {
   font-size: 0.9em;
   color: #666;
+}
+
+.rate-inputs-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rate-input-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.rate-input-prefix {
+  font-size: 0.85em;
+  color: #666;
+  width: 10px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.rate-val-dollar {
+  display: block;
+  font-size: 0.92em;
+}
+.rate-val-pct {
+  display: block;
+  font-size: 0.85em;
+  color: #6b7280;
 }
 
 .mini-input {
