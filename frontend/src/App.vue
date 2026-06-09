@@ -3602,7 +3602,8 @@ function syncPayrollPendingPolling([authenticated, canSee, agencyId]) {
 }
 watch(
   [isAuthenticated, canSeePayrollManagement, currentAgencyId],
-  syncPayrollPendingPolling
+  syncPayrollPendingPolling,
+  { immediate: true }
 );
 
 watch(sessionSettingsKey, () => {
