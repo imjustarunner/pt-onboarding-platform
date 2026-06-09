@@ -100,6 +100,7 @@ import {
   ensurePtoAccount,
   getPtoBalances,
   applyStartingBalances,
+  setCurrentBalances,
   computePtoPolicyWarnings,
   approvePtoRequestAndPostToPayroll,
   runPtoAccrualForPostedPeriod
@@ -8389,13 +8390,9 @@ export const createPayrollManualPayLine = async (req, res, next) => {
     );
     if (!ua?.length) return res.status(400).json({ error: { message: 'Selected provider is not assigned to this organization' } });
 
-    // PTO adjustments require a PTO account with a start effective date set.
+    // Ensure the user has a PTO account before writing adjustments.
     if (lineType === 'pto') {
-      const acct = await PayrollPtoAccount.findForAgencyUser({ agencyId: period.agency_id, userId });
-      const startEff = ptoBucket === 'training' ? acct?.training_start_effective_date : acct?.sick_start_effective_date;
-      if (!acct || !startEff) {
-        return res.status(409).json({ error: { message: 'Cannot apply PTO adjustment until the user PTO start date is set in their profile.' } });
-      }
+      await ensurePtoAccount({ agencyId: period.agency_id, userId, updatedByUserId: req.user.id });
     }
 
     const id = await PayrollManualPayLine.create({
@@ -17141,7 +17138,12 @@ export const getUserPtoAccount = async (req, res, next) => {
     if (!(await requirePayrollAccess(req, res, agencyId))) return;
 
     const acct = await ensurePtoAccount({ agencyId, userId, updatedByUserId: req.user.id });
-    res.json({ ok: true, agencyId, userId, account: acct });
+    const { defaultPayRate } = await getAgencyPtoPolicy({ agencyId });
+    // Resolve effective PTO pay rate: per-user override if set, else agency default.
+    const effectivePtoPayRate = (acct?.pto_pay_rate !== null && acct?.pto_pay_rate !== undefined)
+      ? Number(acct.pto_pay_rate)
+      : Number(defaultPayRate || 0);
+    res.json({ ok: true, agencyId, userId, account: acct, effectivePtoPayRate, agencyDefaultPtoPayRate: Number(defaultPayRate || 0) });
   } catch (e) {
     next(e);
   }
@@ -17160,6 +17162,15 @@ export const upsertUserPtoAccount = async (req, res, next) => {
     const employmentType = ['hourly', 'fee_for_service', 'salaried'].includes(employmentTypeRaw) ? employmentTypeRaw : 'hourly';
     const trainingPtoEligible = body.trainingPtoEligible === true || body.trainingPtoEligible === 1 || body.trainingPtoEligible === '1';
 
+    // Parse per-user PTO pay rate: undefined = don't touch, null = clear, number = set.
+    let ptoPayRate;
+    if (body.ptoPayRate === null || body.ptoPayRate === '') {
+      ptoPayRate = null;
+    } else if (body.ptoPayRate !== undefined) {
+      const n = Number(body.ptoPayRate);
+      ptoPayRate = Number.isFinite(n) && n >= 0 ? n : undefined;
+    }
+
     const acct = await ensurePtoAccount({
       agencyId,
       userId,
@@ -17167,7 +17178,7 @@ export const upsertUserPtoAccount = async (req, res, next) => {
       defaults: { employmentType, trainingPtoEligible }
     });
 
-    // Update classification flags without touching balances.
+    // Update classification flags.
     await PayrollPtoAccount.upsert({
       agencyId,
       userId,
@@ -17182,18 +17193,20 @@ export const upsertUserPtoAccount = async (req, res, next) => {
       lastAccruedPayrollPeriodId: acct.last_accrued_payroll_period_id,
       lastSickRolloverYear: acct.last_sick_rollover_year,
       trainingForfeitedAt: acct.training_forfeited_at,
+      ptoPayRate,
       updatedByUserId: req.user.id
     });
 
-    // Starting balances + effective dates (optional)
-    const updated = await applyStartingBalances({
+    // Set current balances directly (writes ledger entries for audit).
+    const hasSick = body.sickBalanceHours !== undefined && body.sickBalanceHours !== null && body.sickBalanceHours !== '';
+    const hasTraining = body.trainingBalanceHours !== undefined && body.trainingBalanceHours !== null && body.trainingBalanceHours !== '';
+    const updated = await setCurrentBalances({
       agencyId,
       userId,
-      updatedByUserId: req.user.id,
-      sickStartHours: body.sickStartHours,
-      sickStartEffectiveDate: body.sickStartEffectiveDate,
-      trainingStartHours: body.trainingStartHours,
-      trainingStartEffectiveDate: body.trainingStartEffectiveDate
+      sickBalanceHours: hasSick ? body.sickBalanceHours : undefined,
+      trainingBalanceHours: hasTraining ? body.trainingBalanceHours : undefined,
+      ptoPayRate: undefined, // already handled above via upsert
+      updatedByUserId: req.user.id
     });
 
     res.json({ ok: true, agencyId, userId, account: updated });

@@ -359,6 +359,10 @@
                     {{ (ptoPolicy?.trainingPtoEnabled === true && ptoAccount?.training_pto_eligible) ? fmtNum(Math.max(0, (ptoBalances.trainingHours || 0) - ptoPendingTrainingHours)) : '—' }}
                   </td>
                 </tr>
+                <tr>
+                  <td>PTO Pay Rate</td>
+                  <td class="right" colspan="2">{{ fmtMoney(ptoEffectivePayRate) }}/hr</td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -2439,6 +2443,7 @@ const ptoLoading = ref(false);
 const ptoError = ref('');
 const ptoPolicy = ref(null);
 const ptoDefaultPayRate = ref(0);
+const ptoEffectivePayRate = ref(0);
 const ptoAccount = ref(null);
 const ptoBalances = ref({ sickHours: 0, trainingHours: 0 });
 const ptoRequests = ref([]);
@@ -4599,6 +4604,7 @@ const loadPto = async () => {
     const resp = await api.get('/payroll/me/pto-balances', { params: { agencyId: agencyId.value } });
     ptoPolicy.value = resp.data?.policy || null;
     ptoDefaultPayRate.value = Number(resp.data?.defaultPayRate || 0);
+    ptoEffectivePayRate.value = Number(resp.data?.effectivePtoPayRate ?? resp.data?.defaultPayRate ?? 0);
     ptoAccount.value = resp.data?.account || null;
     ptoBalances.value = {
       sickHours: Number(resp.data?.balances?.sickHours || 0),
@@ -4608,6 +4614,7 @@ const loadPto = async () => {
     ptoError.value = e.response?.data?.error?.message || e.message || 'Failed to load PTO';
     ptoPolicy.value = null;
     ptoDefaultPayRate.value = 0;
+    ptoEffectivePayRate.value = 0;
     ptoAccount.value = null;
     ptoBalances.value = { sickHours: 0, trainingHours: 0 };
   } finally {

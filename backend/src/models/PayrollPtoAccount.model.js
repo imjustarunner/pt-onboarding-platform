@@ -37,17 +37,44 @@ class PayrollPtoAccount {
     lastAccruedPayrollPeriodId,
     lastSickRolloverYear,
     trainingForfeitedAt,
+    ptoPayRate = undefined,
     updatedByUserId
   }) {
+    // ptoPayRate: undefined = don't touch the column; null = clear to NULL; number = set value.
+    const hasPtoRate = ptoPayRate !== undefined;
+    const ptoRateValue = ptoPayRate === null ? null : (Number.isFinite(Number(ptoPayRate)) ? Number(ptoPayRate) : null);
+
+    const extraInsertCol = hasPtoRate ? ', pto_pay_rate' : '';
+    const extraInsertPlaceholder = hasPtoRate ? ', ?' : '';
+    const extraUpdateClause = hasPtoRate ? ', pto_pay_rate = VALUES(pto_pay_rate)' : '';
+
+    const values = [
+      agencyId,
+      userId,
+      employmentType,
+      trainingPtoEligible ? 1 : 0,
+      sickStartHours,
+      sickStartEffectiveDate,
+      trainingStartHours,
+      trainingStartEffectiveDate,
+      sickBalanceHours,
+      trainingBalanceHours,
+      lastAccruedPayrollPeriodId,
+      lastSickRolloverYear,
+      trainingForfeitedAt,
+      updatedByUserId,
+    ];
+    if (hasPtoRate) values.splice(values.length - 1, 0, ptoRateValue);
+
     await pool.execute(
       `INSERT INTO payroll_pto_accounts
        (agency_id, user_id, employment_type, training_pto_eligible,
         sick_start_hours, sick_start_effective_date,
         training_start_hours, training_start_effective_date,
         sick_balance_hours, training_balance_hours,
-        last_accrued_payroll_period_id, last_sick_rollover_year, training_forfeited_at,
+        last_accrued_payroll_period_id, last_sick_rollover_year, training_forfeited_at${extraInsertCol},
         updated_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${extraInsertPlaceholder}, ?)
        ON DUPLICATE KEY UPDATE
          employment_type = VALUES(employment_type),
          training_pto_eligible = VALUES(training_pto_eligible),
@@ -59,25 +86,10 @@ class PayrollPtoAccount {
          training_balance_hours = VALUES(training_balance_hours),
          last_accrued_payroll_period_id = VALUES(last_accrued_payroll_period_id),
          last_sick_rollover_year = VALUES(last_sick_rollover_year),
-         training_forfeited_at = VALUES(training_forfeited_at),
+         training_forfeited_at = VALUES(training_forfeited_at)${extraUpdateClause},
          updated_by_user_id = VALUES(updated_by_user_id),
          updated_at = CURRENT_TIMESTAMP`,
-      [
-        agencyId,
-        userId,
-        employmentType,
-        trainingPtoEligible ? 1 : 0,
-        sickStartHours,
-        sickStartEffectiveDate,
-        trainingStartHours,
-        trainingStartEffectiveDate,
-        sickBalanceHours,
-        trainingBalanceHours,
-        lastAccruedPayrollPeriodId,
-        lastSickRolloverYear,
-        trainingForfeitedAt,
-        updatedByUserId
-      ]
+      values
     );
     return this.findForAgencyUser({ agencyId, userId });
   }

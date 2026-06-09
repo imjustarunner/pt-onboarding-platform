@@ -447,7 +447,7 @@
           <div class="settings-head">
             <div>
               <h3 class="card-title" style="margin: 0;">PTO (Sick + Training)</h3>
-              <div class="muted" style="margin-top: 4px;">Starting balances + eligibility.</div>
+              <div class="muted" style="margin-top: 4px;">Balances, eligibility, and PTO pay rate.</div>
             </div>
             <div class="actions">
               <button class="btn btn-secondary" type="button" @click="loadPtoAccount" :disabled="ptoLoading || !selectedAgencyId">Refresh</button>
@@ -480,36 +480,49 @@
               </label>
             </div>
 
+            <!-- Current balances (directly editable) -->
             <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
               <div class="field">
-                <label>Starting Sick (hours)</label>
-                <input v-model="ptoForm.sickStartHours" type="number" step="0.01" min="0" :disabled="!editingPto" />
+                <label>Current Sick balance (hours)</label>
+                <input
+                  v-if="editingPto"
+                  v-model.number="ptoForm.sickBalanceHours"
+                  type="number" step="0.01" min="0"
+                />
+                <input v-else :value="fmtNum(Number(ptoAccount?.sick_balance_hours || 0))" type="text" disabled />
               </div>
               <div class="field">
-                <label>Sick start date</label>
-                <input v-model="ptoForm.sickStartEffectiveDate" type="date" :disabled="!editingPto" />
+                <label>Current Training balance (hours)</label>
+                <input
+                  v-if="editingPto && agencyPtoPolicy?.trainingPtoEnabled === true && ptoAccount?.training_pto_eligible"
+                  v-model.number="ptoForm.trainingBalanceHours"
+                  type="number" step="0.01" min="0"
+                />
+                <input v-else :value="(agencyPtoPolicy?.trainingPtoEnabled === true && ptoAccount?.training_pto_eligible) ? fmtNum(Number(ptoAccount?.training_balance_hours || 0)) : '—'" type="text" disabled />
               </div>
             </div>
 
+            <!-- PTO pay rate -->
             <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
               <div class="field">
-                <label>Starting Training (hours)</label>
-                <input v-model="ptoForm.trainingStartHours" type="number" step="0.01" min="0" :disabled="!editingPto || agencyPtoPolicy?.trainingPtoEnabled !== true" />
+                <label>PTO pay rate ($/hr)</label>
+                <input
+                  v-if="editingPto"
+                  v-model.number="ptoForm.ptoPayRate"
+                  type="number" step="0.01" min="0"
+                  :placeholder="`Agency default: ${fmtMoney(Number(agencyDefaultPtoPayRate || 0))}`"
+                />
+                <div v-else>
+                  <span v-if="ptoAccount?.pto_pay_rate !== null && ptoAccount?.pto_pay_rate !== undefined">
+                    {{ fmtMoney(Number(ptoAccount.pto_pay_rate)) }}<span class="muted" style="font-size:12px; margin-left:6px;">(per-user override)</span>
+                  </span>
+                  <span v-else class="muted">{{ fmtMoney(Number(agencyDefaultPtoPayRate || 0)) }} <span style="font-size:12px;">(agency default)</span></span>
+                </div>
               </div>
-              <div class="field">
-                <label>Training start date</label>
-                <input v-model="ptoForm.trainingStartEffectiveDate" type="date" :disabled="!editingPto || agencyPtoPolicy?.trainingPtoEnabled !== true" />
-              </div>
-            </div>
-
-            <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
-              <div class="field">
-                <label>Current Sick balance</label>
-                <input :value="fmtNum(Number(ptoAccount?.sick_balance_hours || 0))" type="text" disabled />
-              </div>
-              <div class="field">
-                <label>Current Training balance</label>
-                <input :value="(agencyPtoPolicy?.trainingPtoEnabled === true && ptoAccount?.training_pto_eligible) ? fmtNum(Number(ptoAccount?.training_balance_hours || 0)) : '—'" type="text" disabled />
+              <div class="field" style="align-self: flex-end;">
+                <div class="muted" style="font-size: 12px; margin-top: 4px;">
+                  Leave blank to use the agency default. Clear the field to reset to agency default.
+                </div>
               </div>
             </div>
           </div>
@@ -644,13 +657,13 @@ const savingPto = ref(false);
 const ptoError = ref('');
 const ptoAccount = ref(null);
 const agencyPtoPolicy = ref(null);
+const agencyDefaultPtoPayRate = ref(0);
 const ptoForm = ref({
   employmentType: 'hourly',
   trainingEligible: false,
-  sickStartHours: 0,
-  sickStartEffectiveDate: '',
-  trainingStartHours: 0,
-  trainingStartEffectiveDate: ''
+  sickBalanceHours: 0,
+  trainingBalanceHours: 0,
+  ptoPayRate: ''
 });
 
 // Salary position (true salary)
@@ -1181,15 +1194,15 @@ const loadPtoAccount = async () => {
       api.get('/payroll/pto-policy', { params: { agencyId: selectedAgencyId.value } })
     ]);
     agencyPtoPolicy.value = polResp.data?.policy || null;
+    agencyDefaultPtoPayRate.value = Number(polResp.data?.defaultPayRate || 0);
     const acct = acctResp.data?.account || acctResp.data || null;
     ptoAccount.value = acct;
     ptoForm.value = {
       employmentType: String(acct?.employment_type || 'hourly'),
       trainingEligible: !!acct?.training_pto_eligible,
-      sickStartHours: Number(acct?.sick_start_hours || 0),
-      sickStartEffectiveDate: String(acct?.sick_start_effective_date || '').slice(0, 10),
-      trainingStartHours: Number(acct?.training_start_hours || 0),
-      trainingStartEffectiveDate: String(acct?.training_start_effective_date || '').slice(0, 10)
+      sickBalanceHours: Number(acct?.sick_balance_hours || 0),
+      trainingBalanceHours: Number(acct?.training_balance_hours || 0),
+      ptoPayRate: (acct?.pto_pay_rate !== null && acct?.pto_pay_rate !== undefined) ? Number(acct.pto_pay_rate) : ''
     };
   } catch (e) {
     ptoError.value = e.response?.data?.error?.message || e.message || 'Failed to load PTO account';
@@ -1206,14 +1219,16 @@ const savePtoAccount = async () => {
     if (!editingPto.value) return;
     savingPto.value = true;
     ptoError.value = '';
+    // ptoPayRate: '' or undefined → null (clear override); number → set
+    const rawRate = ptoForm.value.ptoPayRate;
+    const ptoPayRate = (rawRate === '' || rawRate === null || rawRate === undefined) ? null : Number(rawRate);
     await api.put(`/payroll/users/${props.userId}/pto-account`, {
       agencyId: selectedAgencyId.value,
       employmentType: ptoForm.value.employmentType,
       trainingPtoEligible: ptoForm.value.trainingEligible ? 1 : 0,
-      sickStartHours: Number(ptoForm.value.sickStartHours || 0),
-      sickStartEffectiveDate: ptoForm.value.sickStartEffectiveDate || null,
-      trainingStartHours: Number(ptoForm.value.trainingStartHours || 0),
-      trainingStartEffectiveDate: ptoForm.value.trainingStartEffectiveDate || null
+      sickBalanceHours: Number(ptoForm.value.sickBalanceHours || 0),
+      trainingBalanceHours: Number(ptoForm.value.trainingBalanceHours || 0),
+      ptoPayRate
     });
     await loadPtoAccount();
     editingPto.value = false;
