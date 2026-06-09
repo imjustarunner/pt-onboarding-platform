@@ -32,6 +32,7 @@ import {
   updateClientComplianceChecklist,
   getClientAccessLog,
   getClientClinicalResponses,
+  updateClientClinicalResponses,
   getClientInsuranceCard,
   getClientDemographics,
   logClientProfileView,
@@ -138,6 +139,7 @@ router.post('/:id/log-view', logClientProfileView);
 
 // Clinical responses from intake (provider/admin)
 router.get('/:id/clinical-responses', getClientClinicalResponses);
+router.put('/:id/clinical-responses', updateClientClinicalResponses);
 
 // Insurance card images from intake (provider/admin) — streamed (decrypts if encrypted)
 router.get('/:id/insurance-card', getClientInsuranceCard);

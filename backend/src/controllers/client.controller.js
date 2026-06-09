@@ -34,6 +34,8 @@ import {
   listSwitchTargetEvents,
   switchClientEventRegistration
 } from '../services/companyEventRegistrationSwitch.service.js';
+import AgencyIntakeFieldTemplate from '../models/AgencyIntakeFieldTemplate.model.js';
+import IntakeSubmission from '../models/IntakeSubmission.model.js';
 
 const INSURANCE_CARD_SLOTS = new Set(['primary_front', 'primary_back', 'secondary_front', 'secondary_back']);
 
@@ -4531,6 +4533,251 @@ const countClinicalSignals = ({ submissionData, clientResponses, intakeFields })
   return count;
 };
 
+const TRAUMA_TEMPLATE_KEYS = TRAUMA_INTAKE_KEYS.filter(([key]) => key !== 'neglect_additioanl');
+
+const CLINICAL_QUESTIONS_SECTION_TITLE = 'Clinical Questions';
+
+async function loadAgencyClinicalFieldDefs(agencyId) {
+  const fieldsByKey = new Map();
+  const aid = parseInt(agencyId, 10);
+  if (!aid) return fieldsByKey;
+
+  const addField = (field, sectionTitle = CLINICAL_QUESTIONS_SECTION_TITLE) => {
+    const key = String(field?.key || '').trim();
+    if (!key || fieldsByKey.has(key)) return;
+    fieldsByKey.set(key, {
+      key,
+      label: String(field?.label || key).trim() || key,
+      type: String(field?.type || 'text').trim() || 'text',
+      sectionTitle
+    });
+  };
+
+  try {
+    for (const templateType of ['clinical', 'clinical_template']) {
+      const templates = await AgencyIntakeFieldTemplate.listByAgency(aid, templateType);
+      for (const tmpl of templates || []) {
+        if (tmpl?.is_active === false || tmpl?.is_active === 0) continue;
+        const sectionTitle = String(tmpl?.name || CLINICAL_QUESTIONS_SECTION_TITLE).trim() || CLINICAL_QUESTIONS_SECTION_TITLE;
+        for (const field of (tmpl?.fields_json || [])) addField(field, sectionTitle);
+      }
+    }
+  } catch {
+    // best-effort
+  }
+
+  try {
+    const [linkRows] = await pool.execute(
+      `SELECT intake_steps, intake_fields
+       FROM intake_links
+       WHERE organization_id = ? AND is_active = 1
+       ORDER BY updated_at DESC, id DESC
+       LIMIT 25`,
+      [aid]
+    );
+    for (const row of linkRows || []) {
+      let steps = [];
+      let intakeFields = [];
+      try { steps = JSON.parse(row.intake_steps || '[]') || []; } catch { steps = []; }
+      try { intakeFields = JSON.parse(row.intake_fields || '[]') || []; } catch { intakeFields = []; }
+      for (const step of steps) {
+        if (String(step?.type || '').toLowerCase() !== 'clinical_questions') continue;
+        const sectionTitle = String(step?.label || CLINICAL_QUESTIONS_SECTION_TITLE).trim() || CLINICAL_QUESTIONS_SECTION_TITLE;
+        for (const field of (step?.fields || [])) addField(field, sectionTitle);
+      }
+      for (const field of intakeFields) {
+        const scope = String(field?.scope || '').toLowerCase();
+        const category = String(field?.category || inferCategory(field)).toLowerCase();
+        if (scope === 'clinical' || category === 'clinical') {
+          addField(field, CLINICAL_QUESTIONS_SECTION_TITLE);
+        }
+      }
+    }
+  } catch {
+    // best-effort
+  }
+
+  return fieldsByKey;
+}
+
+function buildStandardClinicalTemplateSections() {
+  return [
+    {
+      title: 'Trauma / Abuse History',
+      fields: TRAUMA_TEMPLATE_KEYS.map(([key, label]) => ({ key, label, value: '' }))
+    },
+    {
+      title: 'Counseling Goals',
+      fields: GOALS_INTAKE_KEYS.map(([key, label]) => ({ key, label, value: '' }))
+    },
+    {
+      title: 'Additional Notes & Medical',
+      fields: ADDITIONAL_INTAKE_KEYS.map(([key, label]) => ({ key, label, value: '' }))
+    }
+  ];
+}
+
+function mergeClinicalSectionsWithTemplate({ sections, templateFieldDefs, includeStandardSections = true }) {
+  const valueByKey = new Map();
+  for (const section of sections || []) {
+    for (const field of (section?.fields || [])) {
+      if (field?.key && hasVal(field.value)) valueByKey.set(String(field.key), String(field.value).trim());
+    }
+  }
+
+  const resultSections = (sections || []).map((section) => ({
+    ...section,
+    fields: (section?.fields || []).map((field) => ({
+      ...field,
+      value: hasVal(field?.value) ? String(field.value).trim() : (valueByKey.get(String(field.key)) || '')
+    }))
+  }));
+  const sectionByTitle = new Map(resultSections.map((section) => [section.title, section]));
+
+  if (includeStandardSections) {
+    for (const templateSection of buildStandardClinicalTemplateSections()) {
+      const existing = sectionByTitle.get(templateSection.title);
+      if (existing) {
+        const existingKeys = new Set((existing.fields || []).map((f) => f.key));
+        for (const field of templateSection.fields) {
+          if (existingKeys.has(field.key)) continue;
+          existing.fields.push({
+            ...field,
+            value: valueByKey.get(field.key) || ''
+          });
+        }
+      } else {
+        const mergedSection = {
+          title: templateSection.title,
+          fields: templateSection.fields.map((field) => ({
+            ...field,
+            value: valueByKey.get(field.key) || ''
+          }))
+        };
+        resultSections.push(mergedSection);
+        sectionByTitle.set(mergedSection.title, mergedSection);
+      }
+    }
+  }
+
+  const templateFields = Array.from((templateFieldDefs || new Map()).values()).map((def) => ({
+    key: def.key,
+    label: def.label,
+    type: def.type,
+    value: valueByKey.get(def.key) || ''
+  }));
+
+  if (templateFields.length) {
+    const grouped = new Map();
+    for (const def of (templateFieldDefs || new Map()).values()) {
+      const title = def.sectionTitle || CLINICAL_QUESTIONS_SECTION_TITLE;
+      if (!grouped.has(title)) grouped.set(title, []);
+      grouped.get(title).push({
+        key: def.key,
+        label: def.label,
+        type: def.type,
+        value: valueByKey.get(def.key) || ''
+      });
+    }
+    for (const [title, fields] of grouped.entries()) {
+      const existing = sectionByTitle.get(title);
+      if (existing) {
+        const existingKeys = new Set((existing.fields || []).map((f) => f.key));
+        for (const field of fields) {
+          if (existingKeys.has(field.key)) continue;
+          existing.fields.push(field);
+        }
+      } else {
+        const mergedSection = { title, fields };
+        resultSections.unshift(mergedSection);
+        sectionByTitle.set(title, mergedSection);
+      }
+    }
+  }
+
+  return resultSections.filter((section) => (section.fields || []).length > 0);
+}
+
+function isClinicalLikeClientType(clientType) {
+  return clientType === 'clinical' || clientType === 'learning';
+}
+
+function canEditClinicalResponsesRole(userRole) {
+  return ['super_admin', 'admin', 'support', 'staff'].includes(String(userRole || '').toLowerCase());
+}
+
+const EXPLICIT_SUBMISSION_CLINICAL_KEYS = new Set([
+  ...TRAUMA_INTAKE_KEYS.map(([key]) => key),
+  ...GOALS_INTAKE_KEYS.map(([key]) => key),
+  ...ADDITIONAL_INTAKE_KEYS.map(([key]) => key)
+]);
+
+function applyClinicalUpdatesToIntakeData(intakeData, updates = {}) {
+  const data = parseIntakeData(intakeData);
+  const next = (data && typeof data === 'object') ? { ...data } : {};
+  if (!next.responses || typeof next.responses !== 'object') next.responses = {};
+
+  const submission = {
+    ...(next.responses.submission && typeof next.responses.submission === 'object' ? next.responses.submission : {})
+  };
+  const clinicalResponses = {
+    ...(submission.clinicalResponses && typeof submission.clinicalResponses === 'object' ? submission.clinicalResponses : {})
+  };
+
+  for (const [rawKey, rawValue] of Object.entries(updates || {})) {
+    const key = String(rawKey || '').trim();
+    if (!key) continue;
+    const value = rawValue === null || rawValue === undefined ? '' : String(rawValue);
+    if (EXPLICIT_SUBMISSION_CLINICAL_KEYS.has(key) || /^psc[_-]?\d/i.test(key)) {
+      submission[key] = value;
+    } else {
+      clinicalResponses[key] = value;
+    }
+  }
+  submission.clinicalResponses = clinicalResponses;
+  next.responses.submission = submission;
+
+  const clients = Array.isArray(next.responses.clients) ? [...next.responses.clients] : [];
+  if (!clients.length) clients.push({});
+  const clientBag = { ...(clients[0] && typeof clients[0] === 'object' ? clients[0] : {}) };
+  for (const [rawKey, rawValue] of Object.entries(updates || {})) {
+    const key = String(rawKey || '').trim();
+    if (!key) continue;
+    clientBag[key] = rawValue === null || rawValue === undefined ? '' : String(rawValue);
+  }
+  clients[0] = clientBag;
+  next.responses.clients = clients;
+
+  return next;
+}
+
+async function findLatestSubmissionIdForClient(clientId) {
+  const [rows] = await pool.execute(
+    `SELECT DISTINCT s.id
+     FROM intake_submissions s
+     LEFT JOIN intake_submission_clients isc ON isc.intake_submission_id = s.id
+     WHERE (s.client_id = ? OR isc.client_id = ?)
+     ORDER BY s.submitted_at DESC, s.id DESC
+     LIMIT 1`,
+    [clientId, clientId]
+  );
+  return rows?.[0]?.id ? parseInt(rows[0].id, 10) : null;
+}
+
+async function resolveIntakeLinkIdForAgency(agencyId) {
+  const aid = parseInt(agencyId, 10);
+  if (!aid) return null;
+  const [rows] = await pool.execute(
+    `SELECT id
+     FROM intake_links
+     WHERE organization_id = ? AND is_active = 1
+     ORDER BY updated_at DESC, id DESC
+     LIMIT 1`,
+    [aid]
+  );
+  return rows?.[0]?.id ? parseInt(rows[0].id, 10) : null;
+}
+
 /**
  * Get clinical responses from the client's intake submission(s).
  *
@@ -4559,6 +4806,10 @@ export const getClientClinicalResponses = async (req, res, next) => {
 
     const access = await ensureAgencyAccessToClient({ userId: req.user.id, role: userRole, clientId });
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const clientEffectiveType = resolveEffectiveClientTypeForRules(access.client);
+    const templateMode = isClinicalLikeClientType(clientEffectiveType);
+    const clinicalEditable = templateMode && canEditClinicalResponsesRole(userRole);
 
     const debug = userRole === 'super_admin' && String(req.query?.debug || '') === '1';
     const debugInfo = debug
@@ -4625,10 +4876,21 @@ export const getClientClinicalResponses = async (req, res, next) => {
     }
 
     if (!submRows.length) {
+      let sections = [];
+      if (templateMode) {
+        const templateFieldDefs = await loadAgencyClinicalFieldDefs(access.client?.agency_id);
+        sections = mergeClinicalSectionsWithTemplate({
+          sections: [],
+          templateFieldDefs,
+          includeStandardSections: true
+        });
+      }
       return res.json({
-        sections: [],
+        sections,
         capturedAt: null,
         encryptionKeyMissing: !!req._clinicalEncryptionKeyMissing,
+        templateMode,
+        editable: clinicalEditable,
         ...(debug ? { _debug: debugInfo } : {})
       });
     }
@@ -5103,6 +5365,15 @@ export const getClientClinicalResponses = async (req, res, next) => {
       }
     }
 
+    if (templateMode) {
+      const templateFieldDefs = await loadAgencyClinicalFieldDefs(access.client?.agency_id);
+      sections = mergeClinicalSectionsWithTemplate({
+        sections,
+        templateFieldDefs,
+        includeStandardSections: true
+      });
+    }
+
     res.json({
       sections,
       capturedAt: sub.submitted_at || null,
@@ -5111,8 +5382,88 @@ export const getClientClinicalResponses = async (req, res, next) => {
       // environment. Lets the empty-state say "key missing — contact ops"
       // instead of the misleading "no answers on file yet".
       encryptionKeyMissing: !!req._clinicalEncryptionKeyMissing,
+      templateMode,
+      editable: clinicalEditable,
       ...(debug ? { _debug: debugInfo } : {})
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Upsert admin-entered clinical profile fields for clinical/learning clients.
+ * PUT /api/clients/:id/clinical-responses
+ */
+export const updateClientClinicalResponses = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const userRole = String(req.user?.role || '').toLowerCase();
+    if (!canEditClinicalResponsesRole(userRole)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const access = await ensureAgencyAccessToClient({ userId: req.user.id, role: userRole, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const clientEffectiveType = resolveEffectiveClientTypeForRules(access.client);
+    if (!isClinicalLikeClientType(clientEffectiveType)) {
+      return res.status(400).json({ error: { message: 'Clinical responses can only be edited for clinical or learning clients.' } });
+    }
+
+    const updates = req.body?.responses && typeof req.body.responses === 'object'
+      ? req.body.responses
+      : null;
+    if (!updates || !Object.keys(updates).length) {
+      return res.status(400).json({ error: { message: 'responses object is required' } });
+    }
+
+    let submissionId = await findLatestSubmissionIdForClient(clientId);
+    if (!submissionId) {
+      const intakeLinkId = await resolveIntakeLinkIdForAgency(access.client?.agency_id);
+      if (!intakeLinkId) {
+        return res.status(400).json({
+          error: { message: 'No active intake link is configured for this agency. Create an intake link before saving clinical profile data.' }
+        });
+      }
+      const created = await IntakeSubmission.create({
+        intakeLinkId,
+        status: 'admin_profile',
+        clientId,
+        intakeData: applyClinicalUpdatesToIntakeData({}, updates),
+        submittedAt: new Date(),
+        ipAddress: req.ip || null,
+        userAgent: String(req.headers['user-agent'] || '').slice(0, 512) || null
+      });
+      submissionId = created?.id || null;
+    } else {
+      const existing = await IntakeSubmission.findById(submissionId);
+      const nextIntakeData = applyClinicalUpdatesToIntakeData(existing?.intake_data, updates);
+      await IntakeSubmission.updateById(submissionId, {
+        intake_data: nextIntakeData,
+        submitted_at: existing?.submitted_at || new Date()
+      });
+    }
+
+    if (!submissionId) {
+      return res.status(500).json({ error: { message: 'Failed to save clinical responses' } });
+    }
+
+    await ClientStatusHistory.create({
+      client_id: clientId,
+      changed_by_user_id: req.user.id,
+      field_changed: 'clinical_responses',
+      from_value: null,
+      to_value: 'updated',
+      note: String(req.body?.reason || 'Admin updated clinical profile fields').slice(0, 500)
+    }).catch(() => {});
+
+    logClientAccess(req, clientId, 'update_clinical_responses').catch(() => {});
+
+    req.params.id = String(clientId);
+    return getClientClinicalResponses(req, res, next);
   } catch (e) {
     next(e);
   }

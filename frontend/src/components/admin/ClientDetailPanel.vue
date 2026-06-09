@@ -915,8 +915,13 @@
           <div v-else-if="!clinicalSections.length" class="empty-state">
             <p>No clinical responses on file yet.</p>
             <p class="muted" style="font-size: 13px; margin-top: 8px;">
-              Clinical data appears here automatically from completed intakes —
-              including PSC-17 scores, trauma indicators, goals, and any Clinical Questions step data.
+              <template v-if="isClinicalLikeClientType">
+                Clinical profile fields appear here for clinical and learning clients. Use Edit clinical info to add details manually.
+              </template>
+              <template v-else>
+                Clinical data appears here automatically from completed intakes —
+                including PSC-17 scores, trauma indicators, goals, and any Clinical Questions step data.
+              </template>
             </p>
             <div v-if="isSuperAdmin" style="margin-top: 12px;">
               <button
@@ -939,9 +944,40 @@
                 <span v-if="clinicalCapturedAt">
                   From intake completed {{ new Date(clinicalCapturedAt).toLocaleDateString() }}.
                 </span>
+                <span v-else-if="clinicalTemplateMode">
+                  Showing the clinical profile template for this client type.
+                </span>
                 Visible only to the assigned provider and admin staff.
               </div>
               <div class="tab-meta-bar-spacer" />
+              <div v-if="canEditClinicalResponses" class="form-actions" style="margin: 0;">
+                <button
+                  v-if="!clinicalEditing"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="startClinicalEdit"
+                >
+                  Edit clinical info
+                </button>
+                <template v-else>
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    :disabled="clinicalSaving"
+                    @click="saveClinicalResponses"
+                  >
+                    {{ clinicalSaving ? 'Saving…' : 'Save clinical info' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="clinicalSaving"
+                    @click="cancelClinicalEdit"
+                  >
+                    Cancel
+                  </button>
+                </template>
+              </div>
               <div class="muted" style="font-size: 12px;">
                 {{ clinicalTotalFieldCount }} responses across {{ clinicalSections.length }} {{ clinicalSections.length === 1 ? 'section' : 'sections' }}
               </div>
@@ -1065,14 +1101,22 @@
                     <div class="ov-row-label">{{ field.label }}</div>
                     <div class="ov-row-value" style="white-space: pre-wrap;">
                       <button
-                        v-if="isInsuranceCardField(field)"
+                        v-if="isInsuranceCardField(field) && !clinicalEditing"
                         type="button"
                         class="btn btn-secondary btn-sm"
                         @click="viewInsuranceCard(props.client.id, insuranceSlotFromFieldKey(field.key))"
                       >
                         View
                       </button>
-                      <span v-else>{{ field.value }}</span>
+                      <textarea
+                        v-else-if="clinicalEditing && canEditClinicalField(field)"
+                        v-model="clinicalEditForm[field.key]"
+                        class="inline-input"
+                        rows="3"
+                        style="width: 100%;"
+                        :placeholder="field.label"
+                      />
+                      <span v-else>{{ field.value || '—' }}</span>
                     </div>
                   </div>
                 </div>
@@ -2779,6 +2823,7 @@ const fallbackClientTypeFromOrg = computed(() => {
 const effectiveClientType = computed(() => explicitClientType.value || fallbackClientTypeFromOrg.value);
 const clientTypeLabel = computed(() => CLIENT_TYPE_LABELS[effectiveClientType.value] || effectiveClientType.value || 'Unknown');
 const isSchoolClientType = computed(() => effectiveClientType.value === 'school');
+const isClinicalLikeClientType = computed(() => ['clinical', 'learning'].includes(effectiveClientType.value));
 const showSchoolSpecificOverviewFields = computed(() => isSchoolClientType.value);
 const organizationLabel = computed(() => (isSchoolClientType.value ? 'School' : 'Organization'));
 const clientTypeOptions = computed(() => {
@@ -2879,8 +2924,11 @@ const tabs = computed(() => {
     const roiIdx = base.findIndex((t) => t.id === 'phi');
     base.splice(roiIdx < 0 ? base.length : roiIdx, 0, { id: 'school-roi', label: 'School ROI Access' });
   }
-  // Clinical tab: visible to providers, provider_plus, admin, super_admin
-  if (['provider', 'provider_plus', 'admin', 'super_admin'].includes(roleNorm.value)) {
+  // Clinical tab: visible for clinical/learning clients to providers and backoffice
+  if (
+    isClinicalLikeClientType.value
+    && ['provider', 'provider_plus', 'admin', 'super_admin', 'support', 'staff'].includes(roleNorm.value)
+  ) {
     const clinicalIdx = base.findIndex((t) => t.id === 'messages');
     base.splice(clinicalIdx < 0 ? base.length : clinicalIdx, 0, { id: 'clinical', label: 'Clinical' });
   }
@@ -3281,6 +3329,10 @@ const saveClientType = async () => {
     await api.post(`/clients/${props.client.id}/client-type`, payload);
     const refreshed = await api.get(`/clients/${props.client.id}`);
     emit('updated', { keepOpen: true, client: refreshed.data || null });
+    if (['clinical', 'learning'].includes(nextType)) {
+      activeTab.value = 'clinical';
+      await fetchClinicalResponses(true);
+    }
   } catch (e) {
     alert(e.response?.data?.error?.message || 'Failed to update client type');
     clientTypeDraft.value = effectiveClientType.value || 'basic_nonclinical';
@@ -4563,8 +4615,8 @@ watch(() => activeTab.value, (newTab) => {
     fetchPaperworkStatuses();
     fetchDeliveryMethods();
     fetchPaperworkHistory();
-  } else if (newTab === 'clinical' && clinicalSections.value.length === 0) {
-    fetchClinicalResponses();
+  } else if (newTab === 'clinical') {
+    fetchClinicalResponses(true);
   } else if (newTab === 'demographics' && !demoProfileFields.value.length && !demoIntakeFields.value.length) {
     fetchDemographics();
   } else if (newTab === 'surveys' && clientSurveyResponses.value.length === 0) {
@@ -4593,6 +4645,17 @@ watch(() => props.client, async () => {
   await fetchAdminNote();
   loadMessagesCollapsed();
 }, { deep: true, immediate: true });
+
+watch(effectiveClientType, async (nextType, prevType) => {
+  if (nextType === prevType) return;
+  clinicalSections.value = [];
+  clinicalEditing.value = false;
+  if (activeTab.value === 'clinical' || ['clinical', 'learning'].includes(nextType)) {
+    await fetchClinicalResponses(true);
+  }
+  const allowed = new Set((tabs.value || []).map((t) => t.id));
+  if (!allowed.has(activeTab.value)) activeTab.value = 'overview';
+});
 
 const hydrateChecklist = async () => {
   try {
@@ -4667,6 +4730,11 @@ const clinicalLoading = ref(false);
 const clinicalError = ref('');
 const clinicalDebug = ref('');
 const clinicalDebugLoading = ref(false);
+const clinicalTemplateMode = ref(false);
+const clinicalEditable = ref(false);
+const clinicalEditing = ref(false);
+const clinicalEditForm = ref({});
+const clinicalSaving = ref(false);
 // True when the backend has intake rows with encrypted PHI but no decryption
 // key configured in the runtime env. In that state the data is physically
 // present but unreadable — the UI should say so instead of "no responses".
@@ -4703,6 +4771,54 @@ const viewInsuranceCard = async (clientId, slot) => {
 const clinicalTotalFieldCount = computed(() =>
   (clinicalSections.value || []).reduce((acc, s) => acc + (s?.fields?.length || 0), 0)
 );
+
+const canEditClinicalResponses = computed(
+  () => clinicalEditable.value && isClinicalLikeClientType.value && isBackofficeRole.value && hasAgencyAccess.value
+);
+
+const canEditClinicalField = (field) => {
+  if (isInsuranceCardField(field)) return false;
+  return !!field?.key;
+};
+
+const hydrateClinicalEditForm = () => {
+  const next = {};
+  for (const section of clinicalSections.value || []) {
+    for (const field of section?.fields || []) {
+      if (!field?.key || isInsuranceCardField(field)) continue;
+      next[field.key] = field.value ?? '';
+    }
+  }
+  clinicalEditForm.value = next;
+};
+
+const startClinicalEdit = () => {
+  hydrateClinicalEditForm();
+  clinicalEditing.value = true;
+};
+
+const cancelClinicalEdit = () => {
+  clinicalEditing.value = false;
+  hydrateClinicalEditForm();
+};
+
+const saveClinicalResponses = async () => {
+  if (!canEditClinicalResponses.value || !props.client?.id) return;
+  try {
+    clinicalSaving.value = true;
+    clinicalError.value = '';
+    await api.put(`/clients/${props.client.id}/clinical-responses`, {
+      responses: clinicalEditForm.value,
+      reason: 'Admin updated clinical profile fields from client profile'
+    });
+    await fetchClinicalResponses(true);
+    clinicalEditing.value = false;
+  } catch (e) {
+    clinicalError.value = e.response?.data?.error?.message || 'Failed to save clinical responses';
+  } finally {
+    clinicalSaving.value = false;
+  }
+};
 
 // ─── PSC-17 scoring (Pediatric Symptom Checklist, 17-item) ────────────────
 // Items scored Never=0 / Sometimes=1 / Often=2. 17 items split across three
@@ -4954,8 +5070,17 @@ const CLINICAL_SECTION_CARD_VARIANT = new Map([
 const clinicalSectionCardClass = (section) =>
   CLINICAL_SECTION_CARD_VARIANT.get(section?.title) || 'ov-card--clinical-other';
 
-const fetchClinicalResponses = async () => {
+const fetchClinicalResponses = async (force = false) => {
   if (!props.client?.id) return;
+  if (!isClinicalLikeClientType.value) {
+    clinicalSections.value = [];
+    clinicalCapturedAt.value = null;
+    clinicalTemplateMode.value = false;
+    clinicalEditable.value = false;
+    clinicalEditing.value = false;
+    return;
+  }
+  if (!force && clinicalSections.value.length > 0) return;
   try {
     clinicalLoading.value = true;
     clinicalError.value = '';
@@ -4965,6 +5090,9 @@ const fetchClinicalResponses = async () => {
     clinicalSections.value = r.data?.sections || [];
     clinicalCapturedAt.value = r.data?.capturedAt || null;
     clinicalEncryptionKeyMissing.value = !!r.data?.encryptionKeyMissing;
+    clinicalTemplateMode.value = !!r.data?.templateMode;
+    clinicalEditable.value = !!r.data?.editable;
+    if (clinicalEditing.value) hydrateClinicalEditForm();
   } catch (e) {
     clinicalError.value = e.response?.data?.error?.message || 'Failed to load clinical responses';
   } finally {
@@ -5223,7 +5351,7 @@ onMounted(async () => {
     await fetchDeliveryMethods();
     await fetchPaperworkHistory();
   } else if (activeTab.value === 'clinical') {
-    await fetchClinicalResponses();
+    await fetchClinicalResponses(true);
   } else if (activeTab.value === 'demographics') {
     await fetchDemographics();
   } else if (activeTab.value === 'surveys') {
