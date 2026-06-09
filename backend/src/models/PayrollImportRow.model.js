@@ -15,6 +15,19 @@ function decryptOptional(ciphertextB64, ivB64, authTagB64) {
 }
 
 class PayrollImportRow {
+  static async _hasClientPaidColumn() {
+    if (this.__hasClientPaidColumn !== undefined) return this.__hasClientPaidColumn;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payroll_import_rows' AND COLUMN_NAME = 'client_paid_amount'"
+      );
+      this.__hasClientPaidColumn = (cols || []).length > 0;
+    } catch {
+      this.__hasClientPaidColumn = false;
+    }
+    return this.__hasClientPaidColumn;
+  }
+
   static async _latestImportIdForPeriod(payrollPeriodId) {
     const [rows] = await pool.execute(
       `SELECT id
@@ -32,13 +45,18 @@ class PayrollImportRow {
     if (!isBillingEncryptionConfigured()) {
       throw new Error('Billing encryption not configured on server');
     }
+    const hasClientPaid = await this._hasClientPaidColumn();
     const values = [];
     for (const r of rows) {
       const providerName = String(r.providerName || '').trim();
       const patientFirstName = String(r.patientFirstName || '').trim();
       const providerEnc = providerName ? encryptBillingSecret(providerName) : null;
       const patientEnc = patientFirstName ? encryptBillingSecret(patientFirstName) : null;
-      values.push([
+      const clientPaid = (() => {
+        const n = Number(r.clientPaidAmount);
+        return Number.isFinite(n) && n > 0 ? n : null;
+      })();
+      const row = [
         r.payrollImportId,
         r.payrollPeriodId,
         r.agencyId,
@@ -59,10 +77,7 @@ class PayrollImportRow {
         r.noteStatus || null,
         null, // appt_type (do not store)
         null, // amount_collected (do not store)
-        (() => {
-          const n = Number(r.clientPaidAmount);
-          return Number.isFinite(n) && n > 0 ? n : null;
-        })(),
+        ...(hasClientPaid ? [clientPaid] : []),
         null, // paid_status (do not store)
         r.draftPayable === undefined || r.draftPayable === null ? 1 : (r.draftPayable ? 1 : 0),
         r.unitCount,
@@ -71,18 +86,19 @@ class PayrollImportRow {
         r.requiresProcessing ? 1 : 0,
         r.processedAt || null,
         r.processedByUserId || null
-      ]);
+      ];
+      values.push(row);
     }
 
-    // 29 columns inserted (including location + client_paid_amount) => 29 placeholders per row.
-    const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(',');
+    const colCount = values[0].length;
+    const placeholders = values.map(() => `(${new Array(colCount).fill('?').join(', ')})`).join(',');
     const flat = values.flat();
     const [result] = await pool.execute(
       `INSERT INTO payroll_import_rows
        (payroll_import_id, payroll_period_id, agency_id, user_id, provider_name, patient_first_name,
         provider_name_ciphertext_b64, provider_name_iv_b64, provider_name_auth_tag_b64, provider_name_key_id,
         patient_first_name_ciphertext_b64, patient_first_name_iv_b64, patient_first_name_auth_tag_b64, patient_first_name_key_id,
-        service_code, location, service_date, note_status, appt_type, amount_collected, client_paid_amount, paid_status, draft_payable, unit_count, raw_row, row_fingerprint, requires_processing, processed_at, processed_by_user_id)
+        service_code, location, service_date, note_status, appt_type, amount_collected, ${hasClientPaid ? 'client_paid_amount, ' : ''}paid_status, draft_payable, unit_count, raw_row, row_fingerprint, requires_processing, processed_at, processed_by_user_id)
        VALUES ${placeholders}`,
       flat
     );
@@ -161,6 +177,16 @@ class PayrollImportRow {
   static async listAggregatedForPeriod(payrollPeriodId) {
     const latestImportId = await this._latestImportIdForPeriod(payrollPeriodId);
     if (!latestImportId) return [];
+    const hasClientPaid = await this._hasClientPaidColumn();
+    const clientPaidSelect = hasClientPaid
+      ? `SUM(
+           CASE
+             WHEN pir.note_status = 'FINALIZED' OR (pir.note_status = 'DRAFT' AND pir.draft_payable = 1)
+               THEN COALESCE(pir.client_paid_amount, 0)
+             ELSE 0
+           END
+         ) AS raw_finalized_client_paid`
+      : `0 AS raw_finalized_client_paid`;
     const [rows] = await pool.execute(
       `SELECT
          pir.user_id,
@@ -170,13 +196,7 @@ class PayrollImportRow {
          SUM(CASE WHEN pir.note_status = 'DRAFT' AND (pir.draft_payable = 1) THEN pir.unit_count ELSE 0 END) AS raw_draft_payable_units,
          SUM(CASE WHEN pir.note_status = 'DRAFT' AND (pir.draft_payable = 0) THEN pir.unit_count ELSE 0 END) AS raw_draft_not_payable_units,
          SUM(CASE WHEN pir.note_status = 'FINALIZED' THEN pir.unit_count ELSE 0 END) AS raw_finalized_units,
-         SUM(
-           CASE
-             WHEN pir.note_status = 'FINALIZED' OR (pir.note_status = 'DRAFT' AND pir.draft_payable = 1)
-               THEN COALESCE(pir.client_paid_amount, 0)
-             ELSE 0
-           END
-         ) AS raw_finalized_client_paid
+         ${clientPaidSelect}
        FROM payroll_import_rows pir
        WHERE pir.payroll_period_id = ?
          AND pir.payroll_import_id = ?
