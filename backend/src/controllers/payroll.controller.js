@@ -18424,7 +18424,8 @@ export const getPayrollRateCard = async (req, res, next) => {
       other_rate_2: 0,
       other_rate_2_bucket: 'other',
       other_rate_3: 0,
-      other_rate_3_bucket: 'other'
+      other_rate_3_bucket: 'other',
+      percent_pay_enabled: 0
     });
   } catch (e) {
     next(e);
@@ -18433,7 +18434,7 @@ export const getPayrollRateCard = async (req, res, next) => {
 
 export const upsertPayrollRateCard = async (req, res, next) => {
   try {
-    const { agencyId, userId, directRate, indirectRate, otherRate1, otherRate2, otherRate3, otherRate1Bucket, otherRate2Bucket, otherRate3Bucket } = req.body || {};
+    const { agencyId, userId, directRate, indirectRate, otherRate1, otherRate2, otherRate3, otherRate1Bucket, otherRate2Bucket, otherRate3Bucket, percentPayEnabled } = req.body || {};
     if (!agencyId || !userId) return res.status(400).json({ error: { message: 'agencyId and userId are required' } });
     const agencyIdNum = parseInt(agencyId);
     const resolvedAgencyId = await requirePayrollAccess(req, res, agencyIdNum);
@@ -18456,6 +18457,7 @@ export const upsertPayrollRateCard = async (req, res, next) => {
       otherRate1Bucket: normalizeBucket(otherRate1Bucket),
       otherRate2Bucket: normalizeBucket(otherRate2Bucket),
       otherRate3Bucket: normalizeBucket(otherRate3Bucket),
+      percentPayEnabled: percentPayEnabled === undefined ? undefined : !!percentPayEnabled,
       updatedByUserId: req.user.id
     };
     if (![payload.directRate, payload.indirectRate, payload.otherRate1, payload.otherRate2, payload.otherRate3].every((n) => Number.isFinite(n) && n >= 0)) {

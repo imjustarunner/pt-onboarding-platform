@@ -28,6 +28,9 @@
         <button type="button" class="tab" :class="{ active: payrollTab === 'time_claims' }" @click="payrollTab = 'time_claims'; loadTimeClaimSettings()">
           Time claims
         </button>
+        <button type="button" class="tab" :class="{ active: payrollTab === 'percent_pay' }" @click="payrollTab = 'percent_pay'; loadPercentPay()">
+          Percent-of-charge pay
+        </button>
       </div>
 
       <div v-if="payrollTab === 'schedule'" class="card">
@@ -181,6 +184,99 @@
           </button>
         </div>
       </div>
+    </div>
+
+    <div v-else-if="payrollTab === 'percent_pay'" class="card">
+      <h3 style="margin: 0 0 4px 0;">Percent-of-client-paid pay</h3>
+      <p class="hint" style="margin: 0 0 14px 0;">
+        Pay providers a percentage of the client's Patient Amount Paid from billing imports.
+        Enable the feature, optionally set a fallback default %, then configure each service code's pay method below.
+        Per-employee overrides are set on each user's Payroll tab.
+      </p>
+
+      <div v-if="pctError" class="warn">{{ pctError }}</div>
+      <div v-if="pctLoading" class="muted">Loading…</div>
+
+      <template v-else>
+        <!-- Feature toggle -->
+        <div class="toggle-row" style="margin-bottom: 10px;">
+          <input id="pct-enabled" type="checkbox" v-model="pctDraft.enabled" />
+          <label for="pct-enabled" style="font-weight: 600;">Enable percent-of-client-paid pay for this agency</label>
+        </div>
+
+        <!-- Optional agency-wide default percent -->
+        <div class="field" style="max-width: 260px; margin-bottom: 14px;">
+          <label>Agency default % <span class="hint">(optional fallback when no per-code or per-user % is set)</span></label>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <input
+              v-model.number="pctDraft.defaultPercent"
+              type="number" step="0.01" min="0" max="100"
+              :disabled="!pctDraft.enabled"
+              placeholder="e.g. 70"
+              style="width:100px;"
+            />
+            <span class="hint">%</span>
+          </div>
+        </div>
+
+        <div class="actions" style="justify-content: flex-start; margin-bottom: 18px;">
+          <button class="btn btn-primary" type="button" @click="savePercentPay" :disabled="pctSaving">
+            {{ pctSaving ? 'Saving…' : 'Save feature settings' }}
+          </button>
+        </div>
+
+        <!-- Per-service-code pay method -->
+        <div class="settings-section-divider">
+          <h4 style="margin: 0 0 4px 0;">Per-service-code pay method</h4>
+          <p class="hint" style="margin: 0 0 10px 0;">
+            Switch individual codes between fixed-rate and percent-of-charge.
+            A code-level % overrides the agency default; leave blank to use the agency default.
+          </p>
+        </div>
+
+        <div v-if="pctRulesLoading" class="muted">Loading service codes…</div>
+        <div v-else-if="!pctRules.length" class="muted">No service codes configured yet. Add them in Agency → Payroll first.</div>
+        <div v-else class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Service code</th>
+                <th>Pay method</th>
+                <th>Code-level % <span class="hint">(optional)</span></th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in pctRules" :key="r.service_code">
+                <td><strong>{{ r.service_code }}</strong></td>
+                <td>
+                  <select v-model="pctRuleDraft[r.service_code].payMethod" :disabled="!pctDraft.enabled">
+                    <option value="fixed_rate">Fixed rate ($/unit)</option>
+                    <option value="percent_of_charge">Percent of charge (%)</option>
+                  </select>
+                </td>
+                <td>
+                  <div style="display:flex;gap:4px;align-items:center;">
+                    <input
+                      v-model="pctRuleDraft[r.service_code].payPercent"
+                      type="number" step="0.01" min="0" max="100"
+                      :disabled="!pctDraft.enabled || pctRuleDraft[r.service_code].payMethod !== 'percent_of_charge'"
+                      :placeholder="`default ${pctDraft.defaultPercent || 0}%`"
+                      style="width:90px;"
+                    />
+                    <span v-if="pctRuleDraft[r.service_code].payMethod === 'percent_of_charge'" class="hint">%</span>
+                  </div>
+                </td>
+                <td>
+                  <button type="button" class="btn btn-primary btn-sm" @click="savePercentRule(r.service_code)" :disabled="pctRuleSaving[r.service_code] || !pctDraft.enabled">
+                    {{ pctRuleSaving[r.service_code] ? 'Saving…' : 'Save' }}
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
     </div>
     </div>
   </div>
@@ -444,13 +540,102 @@ const addExcessRule = async () => {
   }
 };
 
+// ── Percent-of-charge pay ─────────────────────────────────────────────────────
+const pctLoading = ref(false);
+const pctSaving  = ref(false);
+const pctError   = ref('');
+const pctDraft   = ref({ enabled: false, defaultPercent: 0 });
+
+const pctRules       = ref([]);
+const pctRuleDraft   = ref({});
+const pctRulesLoading = ref(false);
+const pctRuleSaving  = ref({});
+
+const loadPercentPay = async () => {
+  if (!agencyId.value) return;
+  try {
+    pctLoading.value = true;
+    pctError.value = '';
+    const [policyResp, rulesResp] = await Promise.all([
+      api.get('/payroll/percentage-pay-policy', { params: { agencyId: agencyId.value } }),
+      api.get('/payroll/service-code-rules',    { params: { agencyId: agencyId.value } })
+    ]);
+    const pol = policyResp.data || {};
+    pctDraft.value = {
+      enabled: !!pol.enabled,
+      defaultPercent: Number(pol.policy?.defaultPercent ?? 0)
+    };
+    pctRules.value = rulesResp.data || [];
+    const draft = {};
+    for (const r of pctRules.value) {
+      draft[r.service_code] = {
+        payMethod:  String(r.pay_method || 'fixed_rate'),
+        payPercent: r.pay_percent === null || r.pay_percent === undefined ? '' : String(r.pay_percent)
+      };
+    }
+    pctRuleDraft.value = draft;
+  } catch (e) {
+    pctError.value = e.response?.data?.error?.message || e.message || 'Failed to load percent pay settings';
+  } finally {
+    pctLoading.value = false;
+    pctRulesLoading.value = false;
+  }
+};
+
+const savePercentPay = async () => {
+  if (!agencyId.value) return;
+  try {
+    pctSaving.value = true;
+    pctError.value = '';
+    // Save feature flag + default percent
+    const agencyResp = await api.get(`/agencies/${agencyId.value}`);
+    const prev = parseFeatureFlagsJson(agencyResp.data?.feature_flags);
+    await api.put(`/agencies/${agencyId.value}`, {
+      featureFlags: { ...prev, percentOfChargePayEnabled: !!pctDraft.value.enabled }
+    });
+    await api.put('/payroll/percentage-pay-policy', {
+      agencyId: agencyId.value,
+      policy: { defaultPercent: Number(pctDraft.value.defaultPercent || 0) }
+    });
+  } catch (e) {
+    pctError.value = e.response?.data?.error?.message || e.message || 'Failed to save';
+  } finally {
+    pctSaving.value = false;
+  }
+};
+
+const savePercentRule = async (serviceCode) => {
+  if (!agencyId.value || !serviceCode) return;
+  const d = pctRuleDraft.value[serviceCode];
+  if (!d) return;
+  try {
+    pctRuleSaving.value = { ...pctRuleSaving.value, [serviceCode]: true };
+    pctError.value = '';
+    const payPercent = d.payMethod === 'percent_of_charge' && d.payPercent !== ''
+      ? Number(d.payPercent)
+      : null;
+    await api.post('/payroll/service-code-rules', {
+      agencyId: agencyId.value,
+      serviceCode,
+      payMethod: d.payMethod,
+      payPercent
+    });
+  } catch (e) {
+    pctError.value = e.response?.data?.error?.message || e.message || 'Failed to save rule';
+  } finally {
+    pctRuleSaving.value = { ...pctRuleSaving.value, [serviceCode]: false };
+  }
+};
+
 watch(agencyId, async () => {
   await load();
   if (payrollTab.value === 'time_claims') await loadTimeClaimSettings();
+  if (payrollTab.value === 'percent_pay') await loadPercentPay();
 }, { immediate: true });
 
 watch(payrollTab, async (t) => {
   if (t === 'time_claims') await loadTimeClaimSettings();
+  if (t === 'percent_pay') await loadPercentPay();
 });
 </script>
 

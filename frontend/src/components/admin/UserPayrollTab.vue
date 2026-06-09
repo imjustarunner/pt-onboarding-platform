@@ -204,9 +204,22 @@
           </div>
         </div>
 
+        <div v-if="percentOfChargePayEnabled" class="pct-toggle-row">
+          <label class="pct-toggle-label">
+            <input
+              type="checkbox"
+              :checked="userPercentPayEnabled"
+              :disabled="savingUserPercentToggle"
+              @change="saveUserPercentPayToggle($event.target.checked)"
+            />
+            Enable percent-of-charge pay for this employee
+          </label>
+          <span class="muted" style="font-size:12px;">When on, % fields appear on the rate card and percent pay is used where configured.</span>
+        </div>
+
         <div v-if="editingRates" class="muted" style="margin-top: 8px;">
           Tip: set a <strong>$</strong> rate, a <strong>%</strong> rate, or both per code — leave blank to not override.
-          <span v-if="percentOfChargePayEnabled"> Which value is used at pay time depends on the pay method set for that code in Agency → Payroll.</span>
+          <span v-if="percentOfChargePayEnabled && userPercentPayEnabled"> Which value is used at pay time depends on the pay method set for that code in Settings → Payroll Settings → Percent-of-charge pay.</span>
         </div>
         <div v-if="editError" class="error-box" style="margin-top: 10px;">{{ editError }}</div>
 
@@ -327,8 +340,8 @@
 
               <div class="rate-value" v-if="!editingRates">
                 <span v-if="r.rateAmount !== null" class="rate-val-dollar">{{ fmtMoney(r.rateAmount) }}</span>
-                <span v-if="r.isPercentPay" class="rate-val-pct">{{ ratePercentDisplay(r) }}</span>
-                <span v-if="r.rateAmount === null && !r.isPercentPay" class="muted">—</span>
+                <span v-if="r.isPercentPay && userPercentPayEnabled" class="rate-val-pct">{{ ratePercentDisplay(r) }}</span>
+                <span v-if="r.rateAmount === null && !(r.isPercentPay && userPercentPayEnabled)" class="muted">—</span>
               </div>
 
               <div class="rate-edit" v-else>
@@ -363,7 +376,7 @@
                       placeholder="rate"
                     />
                   </div>
-                  <div v-if="percentOfChargePayEnabled" class="rate-input-row">
+                  <div v-if="percentOfChargePayEnabled && userPercentPayEnabled" class="rate-input-row">
                     <input
                       v-model="percentDraftByCode[r.serviceCode]"
                       type="number"
@@ -622,6 +635,8 @@ const perCodeRates = ref([]);
 const serviceCodeRules = ref([]);
 const percentOfChargePayEnabled = ref(false);
 const percentagePayDefaultPercent = ref(0);
+const userPercentPayEnabled = ref(false);
+const savingUserPercentToggle = ref(false);
 const userRateVisibilityRows = ref([]);
 
 const ptoLoading = ref(false);
@@ -1142,6 +1157,7 @@ const loadComp = async () => {
     serviceCodeRules.value = rules.data || [];
     percentOfChargePayEnabled.value = !!pctPolicy?.data?.enabled;
     percentagePayDefaultPercent.value = Number(pctPolicy?.data?.policy?.defaultPercent || 0);
+    userPercentPayEnabled.value = !!(rc.data?.percent_pay_enabled);
     userRateVisibilityRows.value = vis.data || [];
     templates.value = tmpl.data || [];
     await loadOtherRateTitles();
@@ -1223,6 +1239,32 @@ const loadTemplate = async () => {
 watch(selectedTemplateId, () => {
   templateDetails.value = null;
 });
+
+const saveUserPercentPayToggle = async (val) => {
+  if (!selectedAgencyId.value) return;
+  try {
+    savingUserPercentToggle.value = true;
+    const rc = rateCard.value || {};
+    await api.post('/payroll/rate-cards', {
+      agencyId: selectedAgencyId.value,
+      userId: props.userId,
+      directRate: rc.direct_rate ?? 0,
+      indirectRate: rc.indirect_rate ?? 0,
+      otherRate1: rc.other_rate_1 ?? 0,
+      otherRate2: rc.other_rate_2 ?? 0,
+      otherRate3: rc.other_rate_3 ?? 0,
+      otherRate1Bucket: rc.other_rate_1_bucket,
+      otherRate2Bucket: rc.other_rate_2_bucket,
+      otherRate3Bucket: rc.other_rate_3_bucket,
+      percentPayEnabled: val
+    });
+    userPercentPayEnabled.value = val;
+  } catch (e) {
+    editError.value = e.response?.data?.error?.message || 'Failed to update percent pay toggle';
+  } finally {
+    savingUserPercentToggle.value = false;
+  }
+};
 
 const beginEditRates = () => {
   if (!canEditRates.value) return;
@@ -1738,6 +1780,24 @@ select option {
   display: block;
   font-size: 0.85em;
   color: #6b7280;
+}
+.pct-toggle-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+}
+.pct-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
 }
 
 .mini-input {
