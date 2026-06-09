@@ -16,13 +16,19 @@ class PayrollPtoRequest {
     return rows?.[0] || null;
   }
 
-  static async listForAgency({ agencyId, status = null, limit = 200 }) {
+  static async listForAgency({ agencyId, status = null, statuses = null, limit = 200 }) {
     const lim = Math.max(1, Math.min(500, Number(limit || 200)));
     const params = [agencyId];
     let where = 'WHERE r.agency_id = ?';
-    if (status) {
+    // Accept either a statuses array or a single status string.
+    const statusList = statuses || (status ? [status] : null);
+    if (statusList && statusList.length === 1) {
       where += ' AND r.status = ?';
-      params.push(status);
+      params.push(statusList[0]);
+    } else if (statusList && statusList.length > 1) {
+      const placeholders = statusList.map(() => '?').join(', ');
+      where += ` AND r.status IN (${placeholders})`;
+      params.push(...statusList);
     }
     const [rows] = await pool.execute(
       `SELECT r.*,

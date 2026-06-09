@@ -569,7 +569,28 @@
                     <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" >Admin Dashboard</router-link>
                     <div class="nav-dropdown-sep" />
                     <router-link :to="orgTo('/admin/executive-report')" v-if="user?.role === 'super_admin'" >Executive Report</router-link>
-                    <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" >Payroll</router-link>
+                    <div class="nav-payroll-item" v-if="canSeePayrollManagement">
+                      <router-link :to="orgTo('/admin/payroll')" class="nav-payroll-link">
+                        Payroll
+                        <span v-if="payrollPendingCount > 0" class="nav-payroll-badge">{{ payrollPendingCount }}</span>
+                      </router-link>
+                      <div v-if="payrollPendingItems.length" class="nav-payroll-sub">
+                        <div class="nav-payroll-sub-head">Pending submissions</div>
+                        <button
+                          v-for="item in payrollPendingItems.slice(0, 10)"
+                          :key="item.userId"
+                          type="button"
+                          class="nav-payroll-sub-row"
+                          @click.stop="goToPayrollStage"
+                        >
+                          <span class="nav-payroll-sub-name">{{ item.name }}</span>
+                          <span class="nav-payroll-sub-types">{{ item.types.join(', ') }}</span>
+                        </button>
+                        <div v-if="payrollPendingItems.length > 10" class="nav-payroll-sub-more">
+                          +{{ payrollPendingItems.length - 10 }} more
+                        </div>
+                      </div>
+                    </div>
                     <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" >Receivables</router-link>
                     <router-link :to="orgTo('/admin/learning-billing')" v-if="canSeePayrollManagement && learningBillingNavEnabled" >Learning Billing</router-link>
                     <router-link :to="orgTo('/admin/psychotherapy-compliance')" v-if="canSeePayrollManagement" >Psychotherapy Compliance</router-link>
@@ -1552,6 +1573,27 @@
           class="toast-dismiss-btn kudos-toast-dismiss-btn"
           aria-label="Dismiss"
           @click.stop="dismissKudosToast"
+        >×</button>
+      </div>
+      <div
+        v-if="payrollPendingToastVisible && payrollPendingCount > 0"
+        class="payroll-pending-toast-wrap"
+        role="alert"
+      >
+        <button type="button" class="payroll-pending-toast" @click="goToPayrollStage">
+          <span class="payroll-pending-toast-icon" aria-hidden="true">💼</span>
+          <span>
+            <strong>{{ payrollPendingCount }}</strong> pending payroll submission{{ payrollPendingCount !== 1 ? 's' : '' }}
+            <span v-if="payrollPendingItems.length" class="payroll-pending-toast-names">
+              — {{ payrollPendingItems.slice(0, 3).map((p) => p.name.split(' ')[0]).join(', ') }}{{ payrollPendingItems.length > 3 ? ` +${payrollPendingItems.length - 3} more` : '' }}
+            </span>
+          </span>
+        </button>
+        <button
+          type="button"
+          class="toast-dismiss-btn"
+          aria-label="Dismiss"
+          @click.stop="dismissPayrollPendingToast"
         >×</button>
       </div>
       <div
@@ -2792,6 +2834,49 @@ const canSeeAvailabilityIntake = computed(() => {
 const showSchoolClientsPendingBadge = computed(() => canSeeSchoolClientsNav.value);
 const schoolClientsPendingCount = ref(0);
 let schoolClientsPendingInterval = null;
+
+// ---- Pending payroll submissions badge + toast ----
+const payrollPendingCount = ref(0);
+const payrollPendingItems = ref([]); // [{ userId, name, types, count }]
+const payrollPendingTypeCounts = ref({});
+const payrollPendingToastVisible = ref(false);
+const payrollPendingToastDismissed = ref(false);
+let payrollPendingInterval = null;
+
+const fetchPayrollPendingSubmissions = async () => {
+  if (!isAuthenticated.value || !canSeePayrollManagement.value || !currentAgencyId.value) {
+    payrollPendingCount.value = 0;
+    payrollPendingItems.value = [];
+    return;
+  }
+  try {
+    const resp = await api.get('/payroll/pending-submissions-summary', {
+      params: { agencyId: Number(currentAgencyId.value) },
+      skipGlobalLoading: true
+    });
+    const prevCount = payrollPendingCount.value;
+    payrollPendingCount.value = Number(resp.data?.totalCount || 0);
+    payrollPendingItems.value = Array.isArray(resp.data?.ptoSubmissions) ? resp.data.ptoSubmissions : [];
+    payrollPendingTypeCounts.value = resp.data?.typeCounts || {};
+    // Show toast when count increases (new submissions arrived) and not dismissed this session.
+    if (payrollPendingCount.value > prevCount && !payrollPendingToastDismissed.value) {
+      payrollPendingToastVisible.value = true;
+    }
+  } catch {
+    // best-effort
+  }
+};
+
+const dismissPayrollPendingToast = () => {
+  payrollPendingToastVisible.value = false;
+  payrollPendingToastDismissed.value = true;
+};
+
+const goToPayrollStage = () => {
+  payrollPendingToastVisible.value = false;
+  const to = orgTo('/admin/payroll');
+  router.push(to);
+};
 const MIN_PENDING_DATE = '2026-02-01';
 const fetchSchoolClientsPendingCount = async () => {
   if (!isAuthenticated.value || !showSchoolClientsPendingBadge.value || !schoolClientsAgencyId.value) {
@@ -3496,6 +3581,22 @@ function syncSchoolClientsPending([authenticated, showBadge, agencyId]) {
 watch(
   [isAuthenticated, showSchoolClientsPendingBadge, schoolClientsAgencyId],
   syncSchoolClientsPending
+);
+
+function syncPayrollPendingPolling([authenticated, canSee, agencyId]) {
+  if (payrollPendingInterval) clearInterval(payrollPendingInterval);
+  payrollPendingInterval = null;
+  if (authenticated && canSee && agencyId) {
+    fetchPayrollPendingSubmissions();
+    payrollPendingInterval = setInterval(fetchPayrollPendingSubmissions, 3 * 60 * 1000);
+    return;
+  }
+  payrollPendingCount.value = 0;
+  payrollPendingItems.value = [];
+}
+watch(
+  [isAuthenticated, canSeePayrollManagement, currentAgencyId],
+  syncPayrollPendingPolling
 );
 
 watch(sessionSettingsKey, () => {
@@ -5167,6 +5268,113 @@ onUnmounted(() => {
 .new-notification-toast-wrap .new-notification-toast-dismiss {
   border-radius: 0;
   flex-shrink: 0;
+}
+
+/* ── Payroll pending submissions toast ── */
+.payroll-pending-toast-wrap {
+  position: fixed;
+  top: 60px;
+  right: 20px;
+  z-index: 1540;
+  display: inline-flex;
+  align-items: stretch;
+  max-width: min(440px, calc(100vw - 40px));
+  border-radius: 12px;
+  border: 1px solid #b6d4b3;
+  background: #f0fdf0;
+  box-shadow: 0 8px 24px rgba(22, 101, 52, 0.18);
+  overflow: hidden;
+  animation: newNotificationToastIn 0.3s ease-out;
+}
+.payroll-pending-toast {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border: none;
+  background: transparent;
+  color: #14532d;
+  cursor: pointer;
+  font-size: 14px;
+  font: inherit;
+  text-align: left;
+}
+.payroll-pending-toast:hover { background: #dcfce7; }
+.payroll-pending-toast-icon { font-size: 18px; flex-shrink: 0; }
+.payroll-pending-toast-names { font-weight: 400; color: #166534; font-size: 13px; }
+
+/* ── Nav payroll item with pending badge + sub-dropdown ── */
+.nav-payroll-item {
+  position: relative;
+}
+.nav-payroll-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.nav-payroll-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #166534;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+.nav-payroll-sub {
+  display: none;
+  position: absolute;
+  left: 100%;
+  top: 0;
+  min-width: 220px;
+  max-width: 300px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+  z-index: 2000;
+  overflow: hidden;
+}
+.nav-payroll-item:hover .nav-payroll-sub {
+  display: block;
+}
+.nav-payroll-sub-head {
+  padding: 8px 12px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #6b7280);
+  border-bottom: 1px solid var(--border);
+}
+.nav-payroll-sub-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+  padding: 7px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+  color: var(--text-primary);
+}
+.nav-payroll-sub-row:hover { background: var(--bg-secondary); }
+.nav-payroll-sub-name { font-weight: 600; }
+.nav-payroll-sub-types { font-size: 12px; color: var(--text-muted, #6b7280); }
+.nav-payroll-sub-more {
+  padding: 5px 12px 8px;
+  font-size: 12px;
+  color: var(--text-muted, #6b7280);
 }
 
 /* Login/logout activity toast – pokes out by the chat rail on the left */

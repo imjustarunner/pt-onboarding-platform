@@ -188,6 +188,7 @@ import {
   ,deleteMyPtoRequest
   ,listPtoRequests
   ,patchPtoRequest
+  ,getPendingSubmissionsSummary
 } from '../controllers/payroll.controller.js';
 
 const router = express.Router();
@@ -360,6 +361,7 @@ router.put('/users/:userId/pto-account', upsertUserPtoAccount);
 router.get('/users/:userId/salary-positions', listUserSalaryPositions);
 router.post('/users/:userId/salary-positions', upsertUserSalaryPosition);
 router.delete('/users/:userId/salary-positions/:positionId', deleteUserSalaryPosition);
+router.get('/pending-submissions-summary', getPendingSubmissionsSummary);
 router.get('/pto-requests', listPtoRequests);
 router.patch('/pto-requests/:id', patchPtoRequest);
 router.get('/agency-users', listPayrollAgencyUsers);

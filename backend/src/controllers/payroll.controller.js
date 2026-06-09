@@ -17458,13 +17458,81 @@ export const deleteMyPtoRequest = async (req, res, next) => {
   }
 };
 
+/**
+ * Returns a lightweight summary of all pending (submitted) payroll claim submissions
+ * across PTO, mileage, medcancel, reimbursement, and time claims.
+ * Used by the nav badge and dashboard toast for payroll staff.
+ */
+export const getPendingSubmissionsSummary = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    // Count submitted PTO requests with submitter names.
+    const [ptoRows] = await pool.execute(
+      `SELECT r.id, r.user_id, r.request_type, r.total_hours,
+              COALESCE(u.full_name, CONCAT(u.first_name, ' ', u.last_name)) AS user_name,
+              r.created_at
+       FROM payroll_pto_requests r
+       LEFT JOIN users u ON u.id = r.user_id
+       WHERE r.agency_id = ? AND r.status = 'submitted'
+       ORDER BY r.created_at ASC`,
+      [agencyId]
+    );
+
+    // Count other pending claim types (simple counts only).
+    const claimQueries = [
+      ['mileage', `SELECT COUNT(*) AS cnt FROM payroll_mileage_claims WHERE agency_id = ? AND status = 'submitted'`],
+      ['medcancel', `SELECT COUNT(*) AS cnt FROM payroll_medcancel_claims WHERE agency_id = ? AND status = 'submitted'`],
+      ['reimbursement', `SELECT COUNT(*) AS cnt FROM payroll_reimbursement_claims WHERE agency_id = ? AND status = 'submitted'`],
+      ['time', `SELECT COUNT(*) AS cnt FROM payroll_time_claims WHERE agency_id = ? AND status = 'submitted'`],
+    ];
+    const typeCounts = { pto: (ptoRows || []).length };
+    await Promise.all(claimQueries.map(async ([type, sql]) => {
+      try {
+        const [rows] = await pool.execute(sql, [agencyId]);
+        typeCounts[type] = Number(rows?.[0]?.cnt || 0);
+      } catch {
+        typeCounts[type] = 0;
+      }
+    }));
+
+    const totalCount = Object.values(typeCounts).reduce((a, b) => a + b, 0);
+
+    // Build per-user summary from PTO requests (most actionable).
+    const byUser = new Map();
+    for (const r of ptoRows || []) {
+      const uid = Number(r.user_id);
+      if (!byUser.has(uid)) {
+        byUser.set(uid, { userId: uid, name: String(r.user_name || '').trim() || `User ${uid}`, types: [], count: 0 });
+      }
+      const entry = byUser.get(uid);
+      const type = String(r.request_type || 'sick').toLowerCase() === 'training' ? 'Training PTO' : 'Sick PTO';
+      if (!entry.types.includes(type)) entry.types.push(type);
+      entry.count += 1;
+    }
+
+    res.json({
+      ok: true,
+      totalCount,
+      typeCounts,
+      ptoSubmissions: Array.from(byUser.values())
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const listPtoRequests = async (req, res, next) => {
   try {
     const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     if (!(await requirePayrollAccess(req, res, agencyId))) return;
-    const status = req.query.status ? String(req.query.status) : 'submitted';
-    const rows = await PayrollPtoRequest.listForAgency({ agencyId, status, limit: 500 });
+    // Accept comma-separated statuses (e.g. "submitted,approved,rejected") or a single value.
+    const statusParam = req.query.status ? String(req.query.status) : 'submitted';
+    const statuses = statusParam.split(',').map((s) => s.trim()).filter(Boolean);
+    const rows = await PayrollPtoRequest.listForAgency({ agencyId, statuses, limit: 500 });
     const withItems = await Promise.all((rows || []).map(async (r) => ({ ...r, items: await PayrollPtoRequest.listItemsForRequest(r.id) })));
     res.json(withItems);
   } catch (e) {

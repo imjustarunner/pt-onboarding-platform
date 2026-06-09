@@ -2820,11 +2820,11 @@
             </div>
 
             <div class="card" style="margin-top: 12px;">
-              <h3 class="card-title" style="margin: 0 0 6px 0;">PTO Requests (Pending)</h3>
-              <div class="hint">Approve to deduct PTO balances and post PTO pay into payroll adjustments (uses agency default PTO rate).</div>
+              <h3 class="card-title" style="margin: 0 0 6px 0;">PTO Requests</h3>
+              <div class="hint">Approve to deduct PTO balances and post PTO pay into payroll adjustments. Approved and denied requests remain visible below.</div>
               <div v-if="pendingPtoError" class="warn-box" style="margin-top: 8px;">{{ pendingPtoError }}</div>
-              <div v-if="pendingPtoLoading" class="muted" style="margin-top: 8px;">Loading pending requests…</div>
-              <div v-else-if="!pendingPtoRequests.length" class="muted" style="margin-top: 8px;">No pending PTO requests.</div>
+              <div v-if="pendingPtoLoading" class="muted" style="margin-top: 8px;">Loading requests…</div>
+              <div v-else-if="!pendingPtoRequests.length" class="muted" style="margin-top: 8px;">No PTO requests.</div>
               <div v-else class="table-wrap" style="margin-top: 10px;">
                 <table class="table">
                   <thead>
@@ -2833,6 +2833,7 @@
                       <th>Created</th>
                       <th>Submitted by</th>
                       <th>Type</th>
+                      <th>Status</th>
                       <th class="right">Hours</th>
                       <th class="right">Starting balance</th>
                       <th class="right">New balance</th>
@@ -2843,19 +2844,25 @@
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="r in pendingPtoRequests" :key="r.id">
+                    <tr v-for="r in pendingPtoRequests" :key="r.id" :class="{ 'pto-row-approved': r.status === 'approved', 'pto-row-rejected': r.status === 'rejected' }">
                       <td>{{ nameForUserId(r.user_id) }}</td>
                       <td>{{ String(r.created_at || '').slice(0, 10) }}</td>
                       <td>{{ submitterLabel(r) }}</td>
                       <td>{{ String(r.request_type || '').toLowerCase() === 'training' ? 'Training PTO' : 'Sick Leave' }}</td>
+                      <td>
+                        <span :class="['pto-status-badge', `pto-status-${String(r.status || 'submitted').toLowerCase()}`]">
+                          {{ String(r.status || 'submitted').charAt(0).toUpperCase() + String(r.status || 'submitted').slice(1) }}
+                        </span>
+                      </td>
                       <td class="right">{{ fmtNum(Number(r.total_hours || 0)) }}</td>
                       <td class="right">
-                        {{ fmtNum(ptoBalancePreviewForRequest(r).start) }}
+                        {{ r.status === 'submitted' ? fmtNum(ptoBalancePreviewForRequest(r).start) : '—' }}
                       </td>
                       <td class="right">
-                        <span :class="ptoBalancePreviewForRequest(r).next < -1e-9 ? 'warn' : ''">
+                        <span v-if="r.status === 'submitted'" :class="ptoBalancePreviewForRequest(r).next < -1e-9 ? 'warn' : ''">
                           {{ fmtNum(ptoBalancePreviewForRequest(r).next) }}
                         </span>
+                        <span v-else class="muted">—</span>
                       </td>
                       <td>
                         {{
@@ -2874,12 +2881,13 @@
                         <span v-else class="muted">—</span>
                       </td>
                       <td class="right">
-                        <select v-model="ptoTargetPeriodByRequestId[r.id]" :disabled="approvingPtoRequestId === r.id">
+                        <select v-if="r.status === 'submitted'" v-model="ptoTargetPeriodByRequestId[r.id]" :disabled="approvingPtoRequestId === r.id">
                           <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
                         </select>
+                        <span v-else class="muted">—</span>
                       </td>
                       <td class="right">
-                        <div class="actions" style="justify-content: flex-end; margin: 0;">
+                        <div v-if="r.status === 'submitted'" class="actions" style="justify-content: flex-end; margin: 0;">
                           <button
                             class="btn btn-primary btn-sm"
                             @click="approvePtoRequest(r)"
@@ -2894,6 +2902,9 @@
                             Reject
                           </button>
                         </div>
+                        <span v-else class="muted" style="font-size: 12px;">
+                          {{ r.status === 'approved' ? `Approved ${String(r.approved_at || '').slice(0,10)}` : r.status === 'rejected' ? `Denied ${String(r.rejected_at || '').slice(0,10)}` : '' }}
+                        </span>
                       </td>
                     </tr>
                   </tbody>
@@ -2902,7 +2913,7 @@
 
               <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
                 <button class="btn btn-secondary" @click="loadAllPendingPtoRequests" :disabled="pendingPtoLoading || !agencyId">
-                  Show all pending (any period)
+                  Show all (any period)
                 </button>
                 <button class="btn btn-secondary" @click="loadPendingPtoRequests" :disabled="pendingPtoLoading || !selectedPeriodId">
                   This pay period only
@@ -8562,7 +8573,7 @@ const fetchAllPendingPtoRequests = async () => {
     pendingPtoLoading.value = true;
     pendingPtoError.value = '';
     const resp = await api.get('/payroll/pto-requests', {
-      params: { agencyId: agencyId.value, status: 'submitted' }
+      params: { agencyId: agencyId.value, status: 'submitted,approved,rejected,deferred' }
     });
     pendingPtoRequests.value = (resp.data || []).filter((r) => !!r && typeof r === 'object');
     const nextTarget = { ...(ptoTargetPeriodByRequestId.value || {}) };
@@ -8609,7 +8620,12 @@ const loadPendingPtoRequests = async () => {
   pendingPtoMode.value = 'period';
   await fetchAllPendingPtoRequests();
   if (!selectedPeriodId.value) return;
-  pendingPtoRequests.value = (pendingPtoRequests.value || []).filter(isPtoRequestInSelectedPeriod);
+  // Period filter only applies to submitted (pending) requests; approved/rejected always remain visible.
+  pendingPtoRequests.value = (pendingPtoRequests.value || []).filter((r) => {
+    const st = String(r.status || '').toLowerCase();
+    if (st !== 'submitted') return true; // always show non-pending
+    return isPtoRequestInSelectedPeriod(r);
+  });
 };
 
 const reloadPendingPtoRequests = async () => {
@@ -14746,4 +14762,22 @@ input[type='number'] {
     grid-template-columns: 1fr;
   }
 }
+
+/* PTO request status badges */
+.pto-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pto-status-submitted { background: #fef3c7; color: #92400e; }
+.pto-status-approved  { background: #dcfce7; color: #166534; }
+.pto-status-rejected  { background: #fee2e2; color: #991b1b; }
+.pto-status-deferred  { background: #f1f5f9; color: #475569; }
+
+/* Row tinting for approved/denied */
+tr.pto-row-approved td { background: #f0fdf4; }
+tr.pto-row-rejected td { background: #fff5f5; opacity: 0.8; }
 </style>
