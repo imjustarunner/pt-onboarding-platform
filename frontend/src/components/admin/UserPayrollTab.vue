@@ -206,6 +206,7 @@
 
         <div v-if="editingRates" class="muted" style="margin-top: 8px;">
           Tip: leaving a service-code rate blank will not create/change that override.
+          <span v-if="percentOfChargePayEnabled"> Percent-of-charge codes use a provider-specific pay %; blank uses the agency or service-code default.</span>
         </div>
         <div v-if="editError" class="error-box" style="margin-top: 10px;">{{ editError }}</div>
 
@@ -324,7 +325,10 @@
                 <span class="code-badge">{{ r.serviceCode }}</span>
               </div>
 
-              <div class="rate-value" v-if="!editingRates">{{ fmtMoney(r.rateAmount) }}</div>
+              <div class="rate-value" v-if="!editingRates">
+                <template v-if="r.isPercentPay">{{ ratePercentDisplay(r) }}</template>
+                <template v-else>{{ fmtMoney(r.rateAmount) }}</template>
+              </div>
 
               <div class="rate-edit" v-else>
                 <button
@@ -346,7 +350,26 @@
                   </svg>
                 </button>
 
-                <input v-model="rateDraftByCode[r.serviceCode]" type="number" step="0.01" min="0" class="mini-input" />
+                <div v-if="r.isPercentPay" class="percent-edit-wrap">
+                  <input
+                    v-model="percentDraftByCode[r.serviceCode]"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    class="mini-input"
+                    :placeholder="percentPlaceholder(r)"
+                  />
+                  <span class="percent-suffix">%</span>
+                </div>
+                <input
+                  v-else
+                  v-model="rateDraftByCode[r.serviceCode]"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  class="mini-input"
+                />
               </div>
             </div>
           </div>
@@ -591,6 +614,8 @@ const hasPayrollAccessForAgency = ref(false);
 const rateCard = ref(null);
 const perCodeRates = ref([]);
 const serviceCodeRules = ref([]);
+const percentOfChargePayEnabled = ref(false);
+const percentagePayDefaultPercent = ref(0);
 const userRateVisibilityRows = ref([]);
 
 const ptoLoading = ref(false);
@@ -834,6 +859,7 @@ const editingRates = ref(false);
 const savingRates = ref(false);
 const editError = ref('');
 const rateDraftByCode = ref({});
+const percentDraftByCode = ref({});
 const rateCardDraft = ref({
   directRate: '',
   indirectRate: '',
@@ -976,6 +1002,60 @@ const fmtNum = (v) => {
   const n = Number(v || 0);
   return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 };
+const fmtPercent = (v) => {
+  const n = Number(v || 0);
+  if (!Number.isFinite(n)) return '—';
+  return `${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
+};
+
+const payrollRuleByCode = computed(() => {
+  const m = new Map();
+  for (const r of serviceCodeRules.value || []) {
+    const code = String(r?.service_code || '').trim().toUpperCase();
+    if (code) m.set(code, r);
+  }
+  return m;
+});
+
+const buildRateRowMeta = (serviceCode, rateRow) => {
+  const code = String(serviceCode || '').trim();
+  const rule = payrollRuleByCode.value.get(code.toUpperCase()) || null;
+  const isPercentPay = percentOfChargePayEnabled.value
+    && String(rule?.pay_method || '').trim().toLowerCase() === 'percent_of_charge';
+  const userPercentRaw = rateRow?.pay_percent;
+  const userPercent = userPercentRaw === null || userPercentRaw === undefined || userPercentRaw === ''
+    ? null
+    : Number(userPercentRaw);
+  const codePercentRaw = rule?.pay_percent;
+  const codePercent = codePercentRaw === null || codePercentRaw === undefined || codePercentRaw === ''
+    ? null
+    : Number(codePercentRaw);
+  const agencyDefault = Number(percentagePayDefaultPercent.value || 0);
+  const effectivePercent = (Number.isFinite(userPercent) ? userPercent : null)
+    ?? (Number.isFinite(codePercent) ? codePercent : null)
+    ?? agencyDefault;
+  return {
+    isPercentPay,
+    payPercent: Number.isFinite(userPercent) ? userPercent : null,
+    codePercent: Number.isFinite(codePercent) ? codePercent : null,
+    agencyDefault,
+    effectivePercent
+  };
+};
+
+const ratePercentDisplay = (row) => {
+  if (!row?.isPercentPay) return '—';
+  const base = fmtPercent(row.effectivePercent);
+  if (row.payPercent === null) {
+    return `${base} (default)`;
+  }
+  return base;
+};
+
+const percentPlaceholder = (row) => {
+  const fallback = row?.codePercent ?? row?.agencyDefault ?? 0;
+  return `default ${Number(fallback).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
+};
 
 const fullRateRows = computed(() => {
   const codes = new Map();
@@ -997,17 +1077,22 @@ const fullRateRows = computed(() => {
   return out.map((x) => {
     const r = rateByCode.get(x.serviceCode) || null;
     const vis = visibilityByCode.value.get(x.serviceCode);
+    const meta = buildRateRowMeta(x.serviceCode, r);
     return {
       serviceCode: x.serviceCode,
       rateAmount: r ? Number(r.rate_amount) : null,
-      visible: vis === undefined ? true : !!vis
+      visible: vis === undefined ? true : !!vis,
+      ...meta
     };
   });
 });
 
 const visibleRateRows = computed(() => {
-  // Show only configured rates, and only those marked visible in the dictionary.
-  return (fullRateRows.value || []).filter((r) => r.rateAmount !== null && r.visible);
+  return (fullRateRows.value || []).filter((r) => {
+    if (!r.visible) return false;
+    if (r.isPercentPay) return true;
+    return r.rateAmount !== null;
+  });
 });
 
 const load = async () => {
@@ -1039,16 +1124,19 @@ const loadComp = async () => {
     compError.value = '';
     hasPayrollAccessForAgency.value = false;
     templateDetails.value = null;
-    const [rc, rates, rules, vis, tmpl] = await Promise.all([
+    const [rc, rates, rules, vis, tmpl, pctPolicy] = await Promise.all([
       api.get('/payroll/rate-cards', { params: { agencyId: selectedAgencyId.value, userId: props.userId } }),
       api.get('/payroll/rates', { params: { agencyId: selectedAgencyId.value, userId: props.userId } }),
       api.get('/payroll/service-code-rules', { params: { agencyId: selectedAgencyId.value } }),
       api.get('/payroll/rate-sheet-visibility', { params: { agencyId: selectedAgencyId.value, userId: props.userId } }),
-      api.get('/payroll/rate-templates', { params: { agencyId: selectedAgencyId.value } })
+      api.get('/payroll/rate-templates', { params: { agencyId: selectedAgencyId.value } }),
+      api.get('/payroll/percentage-pay-policy', { params: { agencyId: selectedAgencyId.value } }).catch(() => ({ data: {} }))
     ]);
     rateCard.value = rc.data || null;
     perCodeRates.value = rates.data || [];
     serviceCodeRules.value = rules.data || [];
+    percentOfChargePayEnabled.value = !!pctPolicy?.data?.enabled;
+    percentagePayDefaultPercent.value = Number(pctPolicy?.data?.policy?.defaultPercent || 0);
     userRateVisibilityRows.value = vis.data || [];
     templates.value = tmpl.data || [];
     await loadOtherRateTitles();
@@ -1161,6 +1249,7 @@ const cancelEditRates = () => {
   savingRates.value = false;
   editError.value = '';
   rateDraftByCode.value = {};
+  percentDraftByCode.value = {};
 };
 
 const saveRates = async () => {
@@ -1176,6 +1265,14 @@ const saveRates = async () => {
       if (!Number.isFinite(n) || n < 0) throw new Error('Rates must be non-negative numbers');
       return n;
     };
+    const toPercentOrNull = (s) => {
+      const t = String(s ?? '').trim();
+      if (!t) return null;
+      const n = Number(t);
+      if (!Number.isFinite(n) || n < 0 || n > 100) throw new Error('Pay percentages must be between 0 and 100');
+      return n;
+    };
+    const rowMetaByCode = new Map((fullRateRows.value || []).map((r) => [String(r.serviceCode || '').trim(), r]));
 
     // Save hourly card (best-effort). If left blank, treat as 0.
     const dr = toNumOrNull(rateCardDraft.value.directRate);
@@ -1202,7 +1299,13 @@ const saveRates = async () => {
     for (const r of perCodeRates.value || []) {
       const code = String(r.service_code || '').trim();
       if (!code || current.has(code)) continue;
-      current.set(code, { amount: Number(r.rate_amount) });
+      const pct = r.pay_percent === null || r.pay_percent === undefined || r.pay_percent === ''
+        ? null
+        : Number(r.pay_percent);
+      current.set(code, {
+        amount: Number(r.rate_amount),
+        payPercent: Number.isFinite(pct) ? pct : null
+      });
     }
     const changes = [];
     const deletes = [];
@@ -1215,6 +1318,8 @@ const saveRates = async () => {
       const trimmedCode = String(code || '').trim();
       if (!trimmedCode) continue;
       if (!allowedCodes.has(trimmedCode)) continue;
+      const rowMeta = rowMetaByCode.get(trimmedCode);
+      if (rowMeta?.isPercentPay) continue;
       const t = String(val ?? '').trim();
       const prev = current.get(trimmedCode);
       if (!t) {
@@ -1224,8 +1329,36 @@ const saveRates = async () => {
       }
       const n = Number(t);
       if (!Number.isFinite(n) || n < 0) throw new Error('Rates must be non-negative numbers');
-      if (!prev || Math.abs(prev.amount - n) > 0.000001) {
-        changes.push({ serviceCode: trimmedCode, rateAmount: n });
+      if (!prev || Math.abs(prev.amount - n) > 0.000001 || prev.payPercent !== null) {
+        changes.push({ serviceCode: trimmedCode, rateAmount: n, payPercent: null });
+      }
+    }
+    for (const [code, val] of Object.entries(percentDraftByCode.value || {})) {
+      const trimmedCode = String(code || '').trim();
+      if (!trimmedCode) continue;
+      if (!allowedCodes.has(trimmedCode)) continue;
+      const rowMeta = rowMetaByCode.get(trimmedCode);
+      if (!rowMeta?.isPercentPay) continue;
+      const prev = current.get(trimmedCode);
+      const t = String(val ?? '').trim();
+      if (!t) {
+        if (prev?.payPercent !== null && prev?.payPercent !== undefined) {
+          if (!prev || (prev.amount || 0) <= 0) {
+            deletes.push(trimmedCode);
+          } else {
+            changes.push({ serviceCode: trimmedCode, rateAmount: prev.amount, payPercent: null });
+          }
+        }
+        continue;
+      }
+      const pct = toPercentOrNull(t);
+      if (prev && prev.payPercent !== null && Math.abs(prev.payPercent - pct) <= 0.000001) continue;
+      if (!prev || prev.payPercent === null || Math.abs((prev.payPercent ?? 0) - pct) > 0.000001) {
+        changes.push({
+          serviceCode: trimmedCode,
+          rateAmount: prev?.amount ?? 0,
+          payPercent: pct
+        });
       }
     }
 
@@ -1237,6 +1370,7 @@ const saveRates = async () => {
           userId: props.userId,
           serviceCode: c.serviceCode,
           rateAmount: c.rateAmount,
+          payPercent: c.payPercent ?? null,
           effectiveStart: null,
           effectiveEnd: null
         })
@@ -1570,6 +1704,17 @@ select option {
   padding: 4px 6px;
   font-size: 12px;
 }
+.percent-edit-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.percent-suffix {
+  font-size: 0.9em;
+  color: #666;
+}
+
 .mini-input {
   width: 92px;
   text-align: right;

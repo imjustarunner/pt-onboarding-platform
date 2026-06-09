@@ -26,21 +26,25 @@ class PayrollRate {
     userId,
     serviceCode,
     rateAmount,
+    payPercent = null,
     rateUnit = 'per_unit',
     effectiveStart = null,
     effectiveEnd = null
   }) {
+    const pctRaw = payPercent === null || payPercent === undefined || payPercent === '' ? null : Number(payPercent);
+    const pct = Number.isFinite(pctRaw) ? Math.max(0, Math.min(100, pctRaw)) : null;
     // Upsert via UNIQUE(agency_id,user_id,service_code,effective_start)
     await pool.execute(
       `INSERT INTO payroll_rates
-       (agency_id, user_id, service_code, rate_amount, rate_unit, effective_start, effective_end)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+       (agency_id, user_id, service_code, rate_amount, pay_percent, rate_unit, effective_start, effective_end)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          rate_amount = VALUES(rate_amount),
+         pay_percent = VALUES(pay_percent),
          rate_unit = VALUES(rate_unit),
          effective_end = VALUES(effective_end),
          updated_at = CURRENT_TIMESTAMP`,
-      [agencyId, userId, serviceCode, rateAmount, rateUnit, effectiveStart, effectiveEnd]
+      [agencyId, userId, serviceCode, rateAmount, pct, rateUnit, effectiveStart, effectiveEnd]
     );
     return this.findBestRate({ agencyId, userId, serviceCode, asOf: effectiveStart || null });
   }

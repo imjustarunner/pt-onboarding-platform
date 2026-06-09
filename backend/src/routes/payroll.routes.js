@@ -87,6 +87,8 @@ import {
   ,putMedcancelPolicy
   ,getHolidayPayPolicy
   ,putHolidayPayPolicy
+  ,getPercentagePayPolicy
+  ,putPercentagePayPolicy
   ,getMyMedcancelPolicy
   ,listAgencyHolidays
   ,listMyAgencyHolidays
@@ -266,6 +268,8 @@ router.get('/medcancel-policy', getMedcancelPolicy);
 router.put('/medcancel-policy', putMedcancelPolicy);
 router.get('/holiday-pay-policy', getHolidayPayPolicy);
 router.put('/holiday-pay-policy', putHolidayPayPolicy);
+router.get('/percentage-pay-policy', getPercentagePayPolicy);
+router.put('/percentage-pay-policy', putPercentagePayPolicy);
 router.get('/holidays', listAgencyHolidays);
 router.get('/me/holidays', listMyAgencyHolidays);
 router.post('/holidays', createAgencyHoliday);

@@ -60,6 +60,11 @@ import { accruePrelicensedSupervisionFromPayroll } from '../services/supervision
 import { getUserCompensationForAgency } from '../models/PayrollCompensation.service.js';
 import { getAgencyMedcancelPolicy, upsertAgencyMedcancelPolicy } from '../services/payrollMedcancelPolicy.service.js';
 import { getAgencyHolidayPayPolicy, upsertAgencyHolidayPayPolicy } from '../services/payrollHolidayPolicy.service.js';
+import {
+  getAgencyPercentagePayPolicy,
+  upsertAgencyPercentagePayPolicy,
+  resolvePercentOfChargePay
+} from '../services/payrollPercentagePayPolicy.service.js';
 import { syncHolidayBonusClaimsForPeriod } from '../services/payrollHolidayBonus.service.js';
 import {
   listAgencyHolidays as listAgencyHolidaysSvc,
@@ -1780,14 +1785,18 @@ function parsePayrollRows(records, opts = {}) {
       normalized['paid'] ||
       '';
 
-    const amountRaw =
+    const patientPaidRaw =
       normalized['patient amount paid'] ||
       normalized['patient_amount_paid'] ||
-      normalized['amount'] ||
-      normalized['amount collected'] ||
-      normalized['amount_collected'] ||
-      normalized['collected'] ||
+      firstMatchByRegexes(normalized, [/^patient\s*amount\s*paid$/i]) ||
       '';
+    let clientPaidAmount = Number(String(patientPaidRaw).replace(/[$,()]/g, '').trim());
+    if (!Number.isFinite(clientPaidAmount)) clientPaidAmount = 0;
+    clientPaidAmount = Math.abs(clientPaidAmount);
+    if (!(clientPaidAmount > 0)) clientPaidAmount = null;
+
+    // Legacy alias used only for missed-appointment display flags below.
+    const amountRaw = patientPaidRaw;
 
     // Display-only: "Missed Appointment" rows (Type column), Paid in Full (Patient Balance Status)
     if (isMissedType) {
@@ -1869,6 +1878,7 @@ function parsePayrollRows(records, opts = {}) {
       serviceCode: String(serviceCode).trim(),
       serviceDate: parseServiceDate(serviceDateRaw),
       unitCount,
+      clientPaidAmount,
       noteStatus,
       // IMPORTANT: Do not persist the raw billing report row or non-essential fields.
       // We only keep a small fingerprintFields object for hashing during import.
@@ -4036,9 +4046,15 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
 
 export const upsertRate = async (req, res, next) => {
   try {
-    const { agencyId, userId, serviceCode, rateAmount, effectiveStart, effectiveEnd } = req.body || {};
+    const { agencyId, userId, serviceCode, rateAmount, payPercent, effectiveStart, effectiveEnd } = req.body || {};
     if (!agencyId || !userId || !serviceCode || rateAmount === undefined) {
       return res.status(400).json({ error: { message: 'agencyId, userId, serviceCode, and rateAmount are required' } });
+    }
+    const payPercentNum = payPercent === undefined || payPercent === null || payPercent === ''
+      ? null
+      : Number(payPercent);
+    if (payPercentNum !== null && (!Number.isFinite(payPercentNum) || payPercentNum < 0 || payPercentNum > 100)) {
+      return res.status(400).json({ error: { message: 'payPercent must be between 0 and 100' } });
     }
     const agencyIdNum = parseInt(agencyId);
     const resolvedAgencyId = await requirePayrollAccess(req, res, agencyIdNum);
@@ -4065,6 +4081,7 @@ export const upsertRate = async (req, res, next) => {
       userId: userIdNum,
       serviceCode: code,
       rateAmount: Number(rateAmount),
+      payPercent: payPercentNum,
       // Rate unit is agency-driven via payroll_service_code_rules.pay_rate_unit.
       // Keep per-user rates stored as per_unit for backward compatibility.
       rateUnit: 'per_unit',
@@ -4431,6 +4448,7 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
       providerName: a.provider_name,
       serviceCode: a.service_code,
       ...eff,
+      clientPaidAmount: Number(a.raw_finalized_client_paid || 0),
       oldDoneNotesUnits: Number(carry.oldDoneNotesUnits || 0),
       oldDoneNotesNotes: Number(carry.oldDoneNotesNotes || 0),
       carryoverMeta: carry.carryoverMeta || null,
@@ -4906,6 +4924,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       const codeChangedUnits = codeChangedMeta ? Number(codeChangedMeta.units || 0) : 0;
       const codeChangedNotes = codeChangedMeta ? Number(codeChangedMeta.notes || 0) : 0;
       const codeChangedFromCodes = Array.isArray(codeChangedMeta?.fromCodes) ? codeChangedMeta.fromCodes : [];
+      const clientPaidAmount = Number(row.clientPaidAmount || 0);
 
       const codeKey = String(code || '').trim().toUpperCase();
       // SALARY is paid only via the Salary card (payroll_salary_positions), not per-code rates.
@@ -5009,6 +5028,12 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         }
       }
 
+      const pctPay = resolvePercentOfChargePay({
+        policy: percentagePayPolicy,
+        rule,
+        perCodeRate: perCode
+      });
+
       // Always compute wage math on pay-hours for non-flat categories.
       const computeLineAmount = ({ units, payHours }) => {
         if ((codeKey === '99414' || codeKey === '99415' || codeKey === '99416') && userIsIntern) {
@@ -5020,6 +5045,9 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
           if (supervisionPayEligibleByUserId.has(Number(userId)) && supervisionPayEligibleByUserId.get(Number(userId)) === false) {
             return 0;
           }
+        }
+        if (pctPay.usesPercentPay && clientPaidAmount > 0 && Number.isFinite(pctPay.percent)) {
+          return Math.round((clientPaidAmount * pctPay.percent / 100) * 100) / 100;
         }
         if (perCode) {
           if (bucket !== 'flat') {
@@ -5072,6 +5100,9 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         durationMinutes: Number.isFinite(durationMinutes) ? durationMinutes : null,
         rateAmount,
         rateUnit: perCode ? perCodePayUnit : (rateSource === 'rate_card' ? 'per_hour' : 'per_unit'),
+        payMethod: pctPay.usesPercentPay ? 'percent_of_charge' : 'fixed_rate',
+        payPercent: pctPay.usesPercentPay ? pctPay.percent : null,
+        clientPaidAmount: pctPay.usesPercentPay ? clientPaidAmount : null,
         amount: lineAmount,
         // For now, "hours" represents Credits/Hours (credits treated as hours).
         hours: creditsHours,
@@ -5778,7 +5809,8 @@ export const importPayrollCsv = [
           rowFingerprint,
           requiresProcessing,
           processedAt: null,
-          processedByUserId: null
+          processedByUserId: null,
+          clientPaidAmount: r.clientPaidAmount ?? null
         };
       });
 
@@ -6006,7 +6038,8 @@ export const importPayrollAuto = [
           rowFingerprint,
           requiresProcessing,
           processedAt: null,
-          processedByUserId: null
+          processedByUserId: null,
+          clientPaidAmount: r.clientPaidAmount ?? null
         };
       });
 
@@ -6227,7 +6260,8 @@ export const batchCatchUp = [
                 rowFingerprint: computeRowFingerprint({ agencyId: period.agency_id, clinicianName: r.providerName, patientFirstName: r.patientFirstName, serviceCode: r.serviceCode, serviceDate: r.serviceDate, location }),
                 requiresProcessing,
                 processedAt: null,
-                processedByUserId: null
+                processedByUserId: null,
+                clientPaidAmount: r.clientPaidAmount ?? null
               };
             });
             await PayrollImportRow.bulkInsert(rowsToInsertPersist);
@@ -6331,7 +6365,8 @@ export const batchCatchUp = [
               rowFingerprint: computeRowFingerprint({ agencyId: period.agency_id, clinicianName: r.providerName, patientFirstName: r.patientFirstName, serviceCode: r.serviceCode, serviceDate: r.serviceDate, location }),
               requiresProcessing,
               processedAt: null,
-              processedByUserId: null
+              processedByUserId: null,
+              clientPaidAmount: r.clientPaidAmount ?? null
             };
           });
           await PayrollImportRow.bulkInsert(rowsToInsert2);
@@ -6708,7 +6743,8 @@ export const batchCatchUp = [
             rowFingerprint: computeRowFingerprint({ agencyId: period.agency_id, clinicianName: r.providerName, patientFirstName: r.patientFirstName, serviceCode: r.serviceCode, serviceDate: r.serviceDate, location }),
             requiresProcessing,
             processedAt: null,
-            processedByUserId: null
+            processedByUserId: null,
+            clientPaidAmount: r.clientPaidAmount ?? null
           });
         }
         await PayrollImportRow.bulkInsert(rowsToInsert);
@@ -9461,7 +9497,8 @@ export const replacePayrollImport = [
           rowFingerprint,
           requiresProcessing,
           processedAt: null,
-          processedByUserId: null
+          processedByUserId: null,
+          clientPaidAmount: r.clientPaidAmount ?? null
         };
       });
 
@@ -16676,6 +16713,32 @@ export const putHolidayPayPolicy = async (req, res, next) => {
   }
 };
 
+export const getPercentagePayPolicy = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const out = await getAgencyPercentagePayPolicy({ agencyId });
+    res.json({ ok: true, agencyId, ...out });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const putPercentagePayPolicy = async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const agencyId = body.agencyId ? parseInt(body.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const policy = body.policy && typeof body.policy === 'object' ? body.policy : {};
+    const out = await upsertAgencyPercentagePayPolicy({ agencyId, policy });
+    res.json({ ok: true, agencyId, ...out });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const getMyMedcancelPolicy = async (req, res, next) => {
   try {
     const userId = req.user?.id;
@@ -18413,7 +18476,7 @@ export const listServiceCodeRules = async (req, res, next) => {
 
 export const upsertServiceCodeRule = async (req, res, next) => {
   try {
-    const { agencyId, serviceCode, category, otherSlot, unitToHourMultiplier, countsForTier, durationMinutes, tierCreditMultiplier, payDivisor, payRateUnit, creditValue, showInRateSheet } = req.body || {};
+    const { agencyId, serviceCode, category, otherSlot, unitToHourMultiplier, countsForTier, durationMinutes, tierCreditMultiplier, payDivisor, payRateUnit, creditValue, showInRateSheet, payMethod, payPercent } = req.body || {};
     if (!agencyId || !serviceCode) return res.status(400).json({ error: { message: 'agencyId and serviceCode are required' } });
     const agencyIdNum = parseInt(agencyId);
     const resolvedAgencyId = await requirePayrollAccess(req, res, agencyIdNum);
@@ -18494,6 +18557,19 @@ export const upsertServiceCodeRule = async (req, res, next) => {
     if (!Number.isFinite(tcm) || tcm < 0 || tcm > 1) {
       return res.status(400).json({ error: { message: 'tierCreditMultiplier must be between 0 and 1' } });
     }
+    const payMethodRaw = (payMethod === undefined || payMethod === null || String(payMethod).trim() === '')
+      ? (existing?.pay_method || 'fixed_rate')
+      : payMethod;
+    const payMethodNorm = String(payMethodRaw || 'fixed_rate').trim().toLowerCase() === 'percent_of_charge'
+      ? 'percent_of_charge'
+      : 'fixed_rate';
+    const payPercentRaw = (payPercent === undefined)
+      ? (existing?.pay_percent ?? null)
+      : payPercent;
+    const payPercentNum = payPercentRaw === null || payPercentRaw === '' ? null : Number(payPercentRaw);
+    if (payPercentNum !== null && (!Number.isFinite(payPercentNum) || payPercentNum < 0 || payPercentNum > 100)) {
+      return res.status(400).json({ error: { message: 'payPercent must be between 0 and 100' } });
+    }
     await PayrollServiceCodeRule.upsert({
       agencyId: resolvedAgencyId,
       serviceCode: codeTrimmed,
@@ -18508,7 +18584,9 @@ export const upsertServiceCodeRule = async (req, res, next) => {
       payDivisor: Math.trunc(pd),
       payRateUnit: payUnit,
       creditValue: cv,
-      showInRateSheet: vis
+      showInRateSheet: vis,
+      payMethod: payMethodNorm,
+      payPercent: payPercentNum
     });
     res.json({ ok: true });
   } catch (e) {

@@ -1450,6 +1450,10 @@
               <span>Allow tier rates for Other Mileage</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.otherMileageTierRatesEnabled" compact />
             </div>
+            <div v-if="agencyForm.featureFlags.payrollEnabled" class="toggle-row" style="margin-top: 10px;">
+              <span>Enable percent-of-charge pay (billing)</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.percentOfChargePayEnabled" compact />
+            </div>
             <small v-if="agencyForm.featureFlags.payrollEnabled" class="hint">
               When off, Other Mileage uses the agency's flat Other Mileage rate even if Tier 1/2/3 rates are configured for School Mileage.
             </small>
@@ -3648,6 +3652,44 @@
             </div>
 
             <div class="settings-section-divider">
+              <h4>Percent-of-charge pay (billing)</h4>
+              <p class="section-description">
+                Pay providers a percentage of what the client actually paid on the billing report (Patient Amount Paid). Enable the feature flag above, set a default percent here, then choose per service code whether to use fixed rates or percent-of-charge.
+              </p>
+            </div>
+
+            <div v-if="percentagePayPolicyError" class="error-modal">
+              <strong>Error:</strong> {{ percentagePayPolicyError }}
+            </div>
+            <div class="filters-row" style="align-items: flex-end;">
+              <div class="filters-group" style="min-width: 220px;">
+                <label class="filters-label">Default pay percent (%)</label>
+                <input
+                  v-model.number="percentagePayPolicyDraft.defaultPercent"
+                  class="filters-input"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  :disabled="percentagePayPolicyLoading || percentagePayPolicySaving || !agencyForm.featureFlags.percentOfChargePayEnabled"
+                />
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-secondary btn-sm" @click="loadPercentagePayPolicy" :disabled="percentagePayPolicyLoading || !editingAgency?.id">
+                  {{ percentagePayPolicyLoading ? 'Loading…' : 'Reload' }}
+                </button>
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-primary btn-sm" @click="savePercentagePayPolicy" :disabled="percentagePayPolicySaving || !editingAgency?.id || !agencyForm.featureFlags.percentOfChargePayEnabled">
+                  {{ percentagePayPolicySaving ? 'Saving…' : 'Save default percent' }}
+                </button>
+              </div>
+            </div>
+            <div v-if="!agencyForm.featureFlags.percentOfChargePayEnabled" class="filters-hint" style="margin-top: 8px;">
+              Turn on <strong>Enable percent-of-charge pay (billing)</strong> in Features to activate this pay method.
+            </div>
+
+            <div class="settings-section-divider" style="margin-top: 18px;">
               <h4>Payroll Service Codes (Equivalencies)</h4>
               <p class="section-description">
                 Edit how each service code converts units → hours and whether it counts for tier credits. This drives payroll calculations.
@@ -3724,6 +3766,8 @@
                   <tr>
                     <th>Service Code</th>
                     <th>Category (rate type)</th>
+                    <th>Pay method</th>
+                    <th class="right">Pay %</th>
                     <th>Pay unit</th>
                     <th class="right">Pay Divisor</th>
                     <th class="right">Credit Value</th>
@@ -6040,6 +6084,8 @@ const loadPayrollRules = async () => {
     const normalized = rows.map((r) => ({
       ...r,
       category: r.category || 'direct',
+      pay_method: r.pay_method || 'fixed_rate',
+      pay_percent: r.pay_percent === null || r.pay_percent === undefined || r.pay_percent === '' ? '' : Number(r.pay_percent),
       pay_rate_unit: r.pay_rate_unit || 'per_unit',
       other_slot: Number(r.other_slot || 1),
       duration_minutes: r.duration_minutes ?? '',
@@ -6070,6 +6116,8 @@ const serializePayrollRule = (row) => {
   return JSON.stringify({
     service_code: code,
     category: String(row?.category || 'direct').trim().toLowerCase(),
+    pay_method: String(row?.pay_method || 'fixed_rate').trim().toLowerCase(),
+    pay_percent: row?.pay_percent === '' || row?.pay_percent === null || row?.pay_percent === undefined ? null : Number(row.pay_percent),
     pay_rate_unit: String(row?.pay_rate_unit || 'per_unit').trim().toLowerCase(),
     pay_divisor: Number(row?.pay_divisor ?? 1),
     credit_value: Number(row?.credit_value ?? 0),
@@ -6125,6 +6173,8 @@ const savePayrollRule = async (row) => {
       serviceCode: code,
       category: row.category,
       otherSlot: row.other_slot,
+      payMethod: row.pay_method || 'fixed_rate',
+      payPercent: row.pay_method === 'percent_of_charge' ? (row.pay_percent === '' ? null : row.pay_percent) : null,
       payRateUnit: row.pay_rate_unit || 'per_unit',
       // Duration is intentionally hidden/not used for now (credits drive hours).
       durationMinutes: null,
@@ -6185,6 +6235,8 @@ const addPayrollRule = async () => {
     agency_id: editingAgency.value.id,
     service_code: code,
     category: 'direct',
+    pay_method: 'fixed_rate',
+    pay_percent: '',
     pay_rate_unit: 'per_unit',
     other_slot: 1,
     duration_minutes: '',
@@ -6449,6 +6501,7 @@ const defaultAgencyForm = () => ({
     // Payroll: when enabled, users with has_payroll_access can access Payroll (off by default)
     payrollEnabled: false,
     otherMileageTierRatesEnabled: false,
+    percentOfChargePayEnabled: false,
     // Onboarding packages, checklists, field defs, digital forms in Settings (off by default)
     onboardingTrainingEnabled: false,
     // Hiring: when enabled, users with has_hiring_access can access Hiring (off by default)
@@ -7851,6 +7904,7 @@ const editAgency = async (agency) => {
       budgetManagementEnabled: featureFlags.budgetManagementEnabled === true,
       payrollEnabled: featureFlags.payrollEnabled === true,
       otherMileageTierRatesEnabled: featureFlags.otherMileageTierRatesEnabled === true,
+      percentOfChargePayEnabled: featureFlags.percentOfChargePayEnabled === true,
       hiringEnabled: featureFlags.hiringEnabled === true,
       onboardingTrainingEnabled: featureFlags.onboardingTrainingEnabled === true,
 
