@@ -3809,6 +3809,31 @@
                       </select>
                     </td>
                     <td>
+                      <select
+                        v-model="r.pay_method"
+                        @change="onPayrollRuleChanged(r)"
+                        :disabled="!agencyForm.featureFlags.percentOfChargePayEnabled"
+                        title="Fixed rate uses per-code/per-hour rates. Percent-of-client-paid pays a percentage of the billing report Patient Amount Paid."
+                      >
+                        <option value="fixed_rate">fixed_rate</option>
+                        <option value="percent_of_charge">percent_of_charge</option>
+                      </select>
+                    </td>
+                    <td class="right">
+                      <input
+                        v-model.number="r.pay_percent"
+                        @change="onPayrollRuleChanged(r)"
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        style="width: 90px;"
+                        :disabled="r.pay_method !== 'percent_of_charge'"
+                        :placeholder="r.pay_method === 'percent_of_charge' ? `default ${Number(percentagePayPolicyDraft.defaultPercent || 0)}%` : '—'"
+                        title="Percent of client-paid amount for this code. Blank uses the agency default percent."
+                      />
+                    </td>
+                    <td>
                       <select v-model="r.pay_rate_unit" @change="onPayrollRuleChanged(r)" title="Controls whether per-code rates pay by units or by computed pay-hours (units ÷ pay divisor).">
                         <option value="per_unit">per_unit</option>
                         <option value="per_hour">per_hour</option>
@@ -3861,7 +3886,7 @@
                     </td>
                   </tr>
                   <tr v-if="!payrollRules.length">
-                    <td colspan="9" class="empty-state-inline">No service code rules found.</td>
+                    <td colspan="10" class="empty-state-inline">No service code rules found.</td>
                   </tr>
                 </tbody>
               </table>
@@ -4695,6 +4720,53 @@ const holidayPayPolicyDraft = ref({
   notifyMissingApproval: false,
   notifyStrictMessage: false
 });
+
+// Percent-of-client-paid pay policy (agency default percent)
+const percentagePayPolicyLoading = ref(false);
+const percentagePayPolicySaving = ref(false);
+const percentagePayPolicyError = ref('');
+const percentagePayPolicyDraft = ref({
+  defaultPercent: 0
+});
+
+const loadPercentagePayPolicy = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    percentagePayPolicyLoading.value = true;
+    percentagePayPolicyError.value = '';
+    const resp = await api.get('/payroll/percentage-pay-policy', { params: { agencyId: editingAgency.value.id } });
+    const pol = resp.data?.policy || {};
+    percentagePayPolicyDraft.value = {
+      defaultPercent: Number(pol?.defaultPercent || 0)
+    };
+  } catch (e) {
+    percentagePayPolicyError.value = e.response?.data?.error?.message || e.message || 'Failed to load percent pay policy';
+  } finally {
+    percentagePayPolicyLoading.value = false;
+  }
+};
+
+const savePercentagePayPolicy = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    percentagePayPolicySaving.value = true;
+    percentagePayPolicyError.value = '';
+    const resp = await api.put('/payroll/percentage-pay-policy', {
+      agencyId: editingAgency.value.id,
+      policy: {
+        defaultPercent: Number(percentagePayPolicyDraft.value.defaultPercent || 0)
+      }
+    });
+    const pol = resp.data?.policy || {};
+    percentagePayPolicyDraft.value = {
+      defaultPercent: Number(pol?.defaultPercent || 0)
+    };
+  } catch (e) {
+    percentagePayPolicyError.value = e.response?.data?.error?.message || e.message || 'Failed to save percent pay policy';
+  } finally {
+    percentagePayPolicySaving.value = false;
+  }
+};
 
 // Excess compensation rules (agency-only)
 const excessRules = ref([]);
@@ -5578,6 +5650,7 @@ const openPayrollTab = async () => {
   await loadExcessRules();
   await loadPayrollRules();
   await loadOtherRateTitles();
+  await loadPercentagePayPolicy();
   await loadOfficeLocations();
 };
 

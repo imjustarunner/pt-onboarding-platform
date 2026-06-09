@@ -4590,6 +4590,14 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
 
 async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, periodStart, periodEnd }) {
   const rows = await getEffectiveStagingAggregates(payrollPeriodId, { agencyId, periodStart, periodEnd });
+  // Percent-of-client-paid pay policy (agency default + feature flag). Best-effort:
+  // if it can't load, fall back to disabled so fixed-rate payroll is unaffected.
+  let percentagePayPolicy = { enabled: false, policy: { defaultPercent: 0 } };
+  try {
+    percentagePayPolicy = await getAgencyPercentagePayPolicy({ agencyId });
+  } catch {
+    percentagePayPolicy = { enabled: false, policy: { defaultPercent: 0 } };
+  }
   // Count unpaid notes (rows) from the latest import for this pay period.
   // This is informational only (used for provider-facing notices), and does not affect pay math.
   const unpaidNotesCountsByUserId = new Map(); // userId -> { noNoteNotes, draftNotes, totalNotes }
