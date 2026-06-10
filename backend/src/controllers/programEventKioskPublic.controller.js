@@ -898,14 +898,10 @@ export const submitProgramEventCheckout = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Client not found' } });
     }
 
-    if (clientCheckoutBlocked(releaseEntry)) {
-      return res.status(409).json({
-        error: {
-          message: 'No authorized pickups or walk-home authorization on file. Update the guardian waiver before releasing this client.',
-          code: 'RELEASE_NOT_AUTHORIZED'
-        }
-      });
-    }
+    // Note: we intentionally do NOT block checkout when no pickups/walk-home
+    // are on file. Staff can still release using an ad-hoc name + signature
+    // so that clients who were checked in without complete waiver info can
+    // still be checked out the same day.
 
     if (walkHomeAlone) {
       if (!clientHasWalkHomeAuthorization(releaseEntry)) {

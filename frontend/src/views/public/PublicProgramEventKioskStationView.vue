@@ -306,8 +306,8 @@
               <span v-if="checkinRecordForClient(c.id)?.checkedInAt" class="muted small">
                 Checked in {{ formatTime(checkinRecordForClient(c.id).checkedInAt) }}
               </span>
-              <span v-if="c.checkoutBlocked" class="pe-tag pe-tag--warn">Release info missing</span>
-              <span v-else class="pe-tag pe-tag--action">Check out</span>
+              <span v-if="c.checkoutBlocked" class="pe-tag pe-tag--warn">No pickup info on file</span>
+              <span class="pe-tag pe-tag--action">Check out</span>
               <!-- Staff-only: remove accidental check-in -->
               <button
                 v-if="kioskActive"
@@ -918,9 +918,9 @@
         <template v-if="checkoutPhase === 'release'">
         <div v-if="checkoutError" class="error-box pe-kiosk-modal-err">{{ checkoutError }}</div>
 
-        <div v-if="activeClient?.checkoutBlocked" class="pe-checkout-issue-banner">
-          <strong>Release blocked:</strong>
-          No authorized pickups or walk-home authorization on file. Update the guardian waiver before this client can be released.
+        <div v-if="activeClient?.checkoutBlocked" class="pe-checkout-issue-banner pe-checkout-issue-banner--warn">
+          <strong>No pickup info on file.</strong>
+          Enter the pickup person's name below and have them sign to release.
         </div>
 
         <div v-if="clientHasAllergyInfo(activeClient)" class="pe-checkout-allergy-banner">
@@ -928,7 +928,7 @@
           {{ allergySummary(activeClient.allergies) || approvedSnacksSummary(activeClient.allergies) || activeClient.allergies.notes || 'See resource tab for details' }}
         </div>
 
-        <template v-if="!activeClient?.checkoutBlocked">
+        <template v-if="true">
           <div v-if="checkoutBlockReason === checkoutSelectReason" class="pe-checkout-select-hint">
             {{ checkoutSelectReason }}
           </div>
@@ -976,8 +976,17 @@
               <div class="muted small">{{ p.phone || '' }}</div>
             </li>
           </ul>
-          <div v-if="!guardianPickupOptions(activeClient).length && !otherPickupOptions(activeClient).length" class="muted small">
-            No pickup contacts on file — use walk-home authorization below if on file.
+          <!-- Ad-hoc pickup entry: shown when no contacts are on file at all -->
+          <div v-if="!guardianPickupOptions(activeClient).length && !otherPickupOptions(activeClient).length" class="pe-adhoc-pickup">
+            <label class="pe-adhoc-pickup__label">Pickup person's name</label>
+            <input
+              v-model="adHocPickupName"
+              class="pe-adhoc-pickup__input"
+              type="text"
+              placeholder="First and last name"
+              @input="adHocPickupName.trim() ? selectAdHocPickup() : null"
+              @blur="adHocPickupName.trim() ? selectAdHocPickup() : null"
+            />
           </div>
 
           <h4 class="pe-kiosk-modal-h4">Walk-home authorization</h4>
@@ -2192,6 +2201,7 @@ function openCheckout(client) {
   checkoutError.value = '';
   sigDirty.value = false;
   photoPreview.value = '';
+  adHocPickupName.value = '';
   checkoutOpen.value = true;
   nextTick(() => {
     if (sigCanvas.value) {
@@ -2226,6 +2236,7 @@ function closeCheckout() {
   checkoutPhase.value = 'release';
   activeClient.value = null;
   photoPreview.value = '';
+  adHocPickupName.value = '';
 }
 function openCheckoutDetail(client) {
   checkoutDetailClient.value = client;
@@ -2336,9 +2347,17 @@ function clearPhoto() {
   syncCamera();
 }
 
+// Ad-hoc pickup name when no authorized contacts are on file
+const adHocPickupName = ref('');
+function selectAdHocPickup() {
+  if (!adHocPickupName.value.trim()) return;
+  releaseMode.value = 'adhoc';
+}
+
 const checkoutSelectReason = computed(() => {
   const client = activeClient.value;
-  if (!client || client.checkoutBlocked) return '';
+  if (!client) return '';
+  if (client.checkoutBlocked) return 'Enter the pickup person\'s name above, then sign to release.';
   const pickupCount = guardianPickupOptions(client).length + otherPickupOptions(client).length;
   const hasWalk = client?.walkHome?.allowedToWalkHome === true;
   if (pickupCount && hasWalk) {
@@ -2406,8 +2425,11 @@ watch(
 
 const checkoutBlockReason = computed(() => {
   const client = activeClient.value;
-  if (!client || client.checkoutBlocked) return '';
+  if (!client) return '';
   if (!releaseMode.value) return checkoutSelectReason.value;
+  if (releaseMode.value === 'adhoc' && !adHocPickupName.value.trim()) {
+    return 'Enter the pickup person\'s name above to continue.';
+  }
   if (!sigDirty.value) return 'Draw a signature above to continue.';
   if (!photoPreview.value && effectivePhotoPreference.value === 1) return 'Take a release photo above to continue.';
   if (releaseMode.value === 'pickup' && !selectedPickupKey.value) {
@@ -2434,6 +2456,9 @@ async function submitCheckout() {
       releasedToName = pickup.name;
       releasedToRelationship = pickup.relationship;
       releasedToPhone = pickup.phone;
+    } else if (releaseMode.value === 'adhoc') {
+      releasedToName = adHocPickupName.value.trim();
+      if (!releasedToName) { checkoutError.value = 'Enter the pickup person\'s name.'; submitting.value = false; return; }
     }
     const sigData = sigCanvas.value ? sigCanvas.value.toDataURL('image/png') : '';
     const res = await api.post(`${apiBase()}/checkout`, {
@@ -2502,7 +2527,6 @@ function eligibleCheckoutSiblings(guardianUserId, excludeId) {
     if (Number(c.id) === Number(excludeId)) return false;
     if (!checkinRecordForClient(c.id)) return false; // must be checked in today
     if (releasedToday(c.id)) return false;           // not already released
-    if (c.checkoutBlocked) return false;
     return (c.guardians || []).some((g) => Number(g.userId) === Number(guardianUserId));
   });
 }
@@ -3293,6 +3317,36 @@ onBeforeUnmount(() => {
   font-size: 13px;
   margin-bottom: 12px;
   color: #991b1b;
+}
+.pe-checkout-issue-banner--warn {
+  background: #fffbeb;
+  border-color: #fcd34d;
+  color: #92400e;
+}
+.pe-adhoc-pickup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 12px;
+}
+.pe-adhoc-pickup__label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #374151;
+}
+.pe-adhoc-pickup__input {
+  padding: 11px 13px;
+  font-size: 1rem;
+  border: 1.5px solid #d1d5db;
+  border-radius: 10px;
+  background: #f9fafb;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+.pe-adhoc-pickup__input:focus {
+  border-color: #2563eb;
+  background: #fff;
 }
 .pe-checkout-warn { color: #b45309; }
 .pe-kiosk-modal-sub { margin: 8px 0 4px; }
