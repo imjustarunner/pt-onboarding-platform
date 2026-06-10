@@ -1454,12 +1454,27 @@ function buildNavigatorSessionRowsFromEligible(eligible) {
         /* ignore */
       }
     }
+    const es = hubIsSpanish.value;
+    const displayTitle = localizeSessionLabel(lab, idx);
+    const rawSubtitle = dr || fallbackSubtitle || '';
+    let displaySubtitle = es ? localizeSessionDateRange(rawSubtitle) : rawSubtitle;
+    if (!displaySubtitle && fe.startsAt) {
+      try {
+        const locale = es ? 'es' : undefined;
+        const s = new Date(fe.startsAt);
+        if (!Number.isNaN(s.getTime())) {
+          displaySubtitle = s.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+      } catch { /* ignore */ }
+    }
     return {
       groupKey: g.key,
       publicSessionLabel: lab,
       publicSessionDateRange: dr,
       fallbackSubtitle,
-      startsAt: fe.startsAt
+      startsAt: fe.startsAt,
+      displayTitle,
+      displaySubtitle
     };
   });
 }
@@ -2483,7 +2498,7 @@ watch(
   { immediate: true }
 );
 
-/** Auto-select navigator location/session when only one option exists (skip extra clicks). */
+/** Auto-select the navigator location when only one site exists (sessions are always shown for the user to pick). */
 watch(
   () => [
     eventNavigatorEnabled.value,
@@ -2500,35 +2515,6 @@ watch(
     const locs = allNavigatorLocations.value || [];
     if (locs.length !== 1) return;
     selectNavigatorLocation(locs[0]);
-  },
-  { immediate: true }
-);
-
-watch(
-  () => [
-    eventNavigatorEnabled.value,
-    journeyPrimary.value,
-    navigatorLocationName.value,
-    summerSessionsForSelectedLocation.value,
-    navigatorSessionLabel.value,
-    navigatorSessionDateRange.value
-  ],
-  () => {
-    if (!eventNavigatorEnabled.value) return;
-    if (journeyPrimary.value !== 'school') return;
-    if (Date.now() < Number(suppressNavigatorAutoPickUntilMs.value || 0)) return;
-    const loc = String(navigatorLocationName.value || '').trim();
-    if (!loc) return;
-    if (
-      String(navigatorSessionLabel.value || '').trim() ||
-      String(navigatorSessionDateRange.value || '').trim()
-    ) {
-      return;
-    }
-    const rows = summerSessionsForSelectedLocation.value || [];
-    if (rows.length !== 1) return;
-    // will also auto-open registration if only one program matches
-    selectNavigatorSessionForLocationFlow(rows[0]);
   },
   { immediate: true }
 );
