@@ -63,9 +63,9 @@
             <div v-if="logoUrl" class="pmh-splash-program-logo-wrap" title="Program logo">
               <img class="pmh-splash-program-logo" :src="logoUrl" :alt="`${displayHeadline} logo`" />
             </div>
-              <p class="pmh-splash-kicker">Welcome to the</p>
+              <p class="pmh-splash-kicker">{{ t('public.welcomeTo') }}</p>
               <h1 class="pmh-splash-title">{{ displayHeadline }}</h1>
-              <p class="pmh-splash-sub">Choose how you want to find the best option for your family.</p>
+              <p class="pmh-splash-sub">{{ t('public.chooseFamilyPath') }}</p>
             </div>
 
             <div v-if="splashTenantLogos.length" class="pmh-splash-agency">
@@ -103,7 +103,7 @@
               @click="goLearnMore"
             >
               <span class="pmh-choice-title">{{ t('public.thisIsMyFirstTime') }}</span>
-              <span class="pmh-choice-sub">See what the program is, then pick your best fit.</span>
+              <span class="pmh-choice-sub">{{ t('public.seeWhatProgramSub') }}</span>
             </button>
             <button
               type="button"
@@ -112,7 +112,7 @@
               @click="choosePrimary('school')"
             >
               <span class="pmh-choice-title">{{ t('public.iKnowMyLocation') }}</span>
-              <span class="pmh-choice-sub">Choose your site first, then pick a session.</span>
+              <span class="pmh-choice-sub">{{ t('public.chooseSiteFirstSub') }}</span>
             </button>
             <button
               type="button"
@@ -120,16 +120,14 @@
               :class="{ 'pmh-choice-btn--pulse': showSplashPathPulse, active: journeyPrimary === 'program' }"
               @click="choosePrimary('program')"
             >
-              <span class="pmh-choice-title">Help me choose</span>
+              <span class="pmh-choice-title">{{ t('public.helpMeChooseTitle') }}</span>
               <span class="pmh-choice-sub">{{ t('public.helpMeChooseSub') }}</span>
             </button>
           </div>
 
           <div v-if="journeyPrimary === 'school'" class="pmh-pathfinder-detail">
-            <p class="pmh-pathfinder-detail-title">Choose your location or school</p>
-            <p class="pmh-pathfinder-detail-hint">
-              Sites include schools and other program locations. Names are shown as published (not street addresses).
-            </p>
+            <p class="pmh-pathfinder-detail-title">{{ t('public.chooseLocationOrSchool') }}</p>
+            <p class="pmh-pathfinder-detail-hint">{{ t('public.sitesIncludeSchools') }}</p>
             <div class="pmh-chip-row pmh-chip-row--wrap">
               <button
                 v-for="loc in allNavigatorLocations"
@@ -143,11 +141,11 @@
               </button>
             </div>
             <p v-if="!allNavigatorLocations.length" class="pmh-navigator-empty">
-              No registration sites are listed here yet. Try another agency filter above or browse the full list below.
+              {{ t('public.noSitesListedFilter') }}
             </p>
             <template v-if="navigatorLocationSelected">
-              <p class="pmh-pathfinder-detail-title">Choose your session</p>
-              <p class="pmh-pathfinder-detail-hint">Session dates come from each program’s registration listing for this site.</p>
+              <p class="pmh-pathfinder-detail-title">{{ t('public.chooseSession') }}</p>
+              <p class="pmh-pathfinder-detail-hint">{{ t('public.sessionDatesFromProgram') }}</p>
               <div class="pmh-chip-row pmh-chip-row--wrap">
                 <button
                   v-for="(s, si) in summerSessionsForSelectedLocation"
@@ -162,11 +160,11 @@
                 </button>
               </div>
               <p v-if="!summerSessionsForSelectedLocation.length" class="pmh-navigator-empty">
-                No sessions are open for this site right now. Pick another location or browse below.
+                {{ t('public.noSessionsOpenSite') }}
               </p>
               <template v-if="navigatorSessionSelected && registrationsForNavigatorLocationSession.length > 1">
-                <p class="pmh-pathfinder-detail-title">Open registration</p>
-                <p class="pmh-pathfinder-detail-hint">More than one program uses this session label — pick the one that matches your family.</p>
+                <p class="pmh-pathfinder-detail-title">{{ t('public.openRegistration') }}</p>
+                <p class="pmh-pathfinder-detail-hint">{{ t('public.multipleProgramsSameSession') }}</p>
                 <div class="pmh-chip-row pmh-chip-row--wrap">
                   <button
                     v-for="opt in registrationsForNavigatorLocationSession"
@@ -183,7 +181,7 @@
                 v-if="navigatorSessionSelected && !registrationsForNavigatorLocationSession.length"
                 class="pmh-navigator-empty"
               >
-                No registration link matched this site and session. Try another session or browse the full list below.
+                {{ t('public.noRegistrationMatch') }}
               </p>
             </template>
           </div>
@@ -358,13 +356,13 @@
               >
                 <span class="pmh-loc-card-scrim" aria-hidden="true" />
                 <span class="pmh-loc-card-body">
-                  <span class="pmh-loc-card-eyebrow">Location</span>
+                  <span class="pmh-loc-card-eyebrow">{{ t('public.locationEyebrow') }}</span>
                   <span class="pmh-loc-card-name">{{ loc }}</span>
-                  <span class="pmh-loc-card-cta">Choose this site &rsaquo;</span>
+                  <span class="pmh-loc-card-cta">{{ t('public.chooseThisSite') }} &rsaquo;</span>
                 </span>
               </button>
               <p v-if="!schoolFlowLocations.length" class="pmh-subflow-empty">
-                No locations are listed yet. Please check back soon.
+                {{ t('public.noLocationsListed') }}
               </p>
             </div>
 
@@ -372,11 +370,11 @@
               <div class="pmh-loc-card pmh-loc-card--picked" :style="locCardStyle(navigatorLocationName, null)">
                 <span class="pmh-loc-card-scrim" aria-hidden="true" />
                 <span class="pmh-loc-card-body">
-                  <span class="pmh-loc-card-eyebrow">You chose</span>
+                  <span class="pmh-loc-card-eyebrow">{{ t('public.youChose') }}</span>
                   <span class="pmh-loc-card-name">{{ navigatorLocationName }}</span>
                 </span>
               </div>
-              <p class="pmh-subflow-subtitle">Pick a session</p>
+              <p class="pmh-subflow-subtitle">{{ t('public.pickASession') }}</p>
               <div class="pmh-subflow-cards pmh-subflow-cards--session">
                 <button
                   v-for="(s, si) in schoolFlowSessionsForLocation"
@@ -385,14 +383,14 @@
                   class="pmh-sess-card"
                   @click="goRegisterForLocationInSession(navigatorLocationName, s)"
                 >
-                  <span class="pmh-sess-card-eyebrow">Session</span>
+                  <span class="pmh-sess-card-eyebrow">{{ t('public.sessionEyebrow') }}</span>
                   <span class="pmh-sess-card-title">{{ s.displayTitle }}</span>
                   <span v-if="s.displaySubtitle" class="pmh-sess-card-sub">{{ s.displaySubtitle }}</span>
-                  <span class="pmh-sess-card-cta pmh-sess-card-cta--register">Register now &rsaquo;</span>
+                  <span class="pmh-sess-card-cta pmh-sess-card-cta--register">{{ t('public.registerNowBtn') }} &rsaquo;</span>
                 </button>
               </div>
               <p v-if="!schoolFlowSessionsForLocation.length" class="pmh-subflow-empty">
-                No open sessions here right now. Try another site above.
+                {{ t('public.noOpenSessionsHere') }}
               </p>
             </div>
           </template>
@@ -401,13 +399,13 @@
           <template v-else-if="journeyPrimary === 'program'">
             <div v-if="!programChooseMode" class="pmh-subflow-cards pmh-subflow-cards--session">
               <button type="button" class="pmh-sess-card" @click="selectProgramChooseMode('session')">
-                <span class="pmh-sess-card-eyebrow">Option</span>
-                <span class="pmh-sess-card-title">I know which session I want</span>
+                <span class="pmh-sess-card-eyebrow">{{ t('public.optionEyebrow') }}</span>
+                <span class="pmh-sess-card-title">{{ t('public.iKnowWhichSession') }}</span>
                 <span class="pmh-sess-card-sub">{{ t('public.chooseBySessionSub') }}</span>
                 <span class="pmh-sess-card-cta">{{ t('public.chooseBySession') }} &rsaquo;</span>
               </button>
               <button type="button" class="pmh-sess-card" @click="selectProgramChooseMode('nearest')">
-                <span class="pmh-sess-card-eyebrow">Option</span>
+                <span class="pmh-sess-card-eyebrow">{{ t('public.optionEyebrow') }}</span>
                 <span class="pmh-sess-card-title">{{ t('public.closestToHomeTitle') }}</span>
                 <span class="pmh-sess-card-sub">{{ t('public.closestToHomeSub') }}</span>
                 <span class="pmh-sess-card-cta">{{ t('public.closestToHome') }} &rsaquo;</span>
@@ -423,19 +421,19 @@
                   class="pmh-sess-card"
                   @click="selectProgramSession(s)"
                 >
-                  <span class="pmh-sess-card-eyebrow">Session</span>
+                  <span class="pmh-sess-card-eyebrow">{{ t('public.sessionEyebrow') }}</span>
                   <span class="pmh-sess-card-title">{{ s.displayTitle }}</span>
                   <span v-if="s.displaySubtitle" class="pmh-sess-card-sub">{{ s.displaySubtitle }}</span>
-                  <span class="pmh-sess-card-cta">See sites &rsaquo;</span>
+                  <span class="pmh-sess-card-cta">{{ t('public.seeSites') }} &rsaquo;</span>
                 </button>
                 <p v-if="!programSessionRows.length" class="pmh-subflow-empty">
-                  No open sessions are listed yet. Please check back soon.
+                  {{ t('public.noOpenSessionsListed') }}
                 </p>
               </div>
 
               <div v-else class="pmh-subflow-picked">
                 <div class="pmh-sess-card pmh-sess-card--picked">
-                  <span class="pmh-sess-card-eyebrow">You chose</span>
+                  <span class="pmh-sess-card-eyebrow">{{ t('public.youChose') }}</span>
                   <span class="pmh-sess-card-title">{{ programSessionRow.displayTitle }}</span>
                   <span v-if="programSessionRow.displaySubtitle" class="pmh-sess-card-sub">{{ programSessionRow.displaySubtitle }}</span>
                 </div>
@@ -448,13 +446,13 @@
                     @click="programUseAddress = !programUseAddress"
                   >
                     <span aria-hidden="true">📍</span>
-                    {{ programUseAddress ? 'Hide address search' : 'Use my address to see which is closest' }}
+                    {{ programUseAddress ? t('public.hideAddressSearch') : t('public.useAddressClosest') }}
                   </button>
                 </div>
 
                 <div v-if="programUseAddress" class="pmh-subflow-addr">
                   <label class="pmh-subflow-addr-label" for="pmh-subflow-addr-input">
-                    Enter your home address
+                    {{ t('public.yourHomeAddress') }}
                   </label>
                   <div class="pmh-subflow-addr-row">
                     <input
@@ -474,17 +472,17 @@
                       :disabled="programAddressLoading"
                       @click="runProgramNearest"
                     >
-                      {{ programAddressLoading ? 'Calculating…' : 'Find' }}
+                      {{ programAddressLoading ? t('public.calculating') : t('public.find') }}
                     </button>
                   </div>
                   <p v-if="programAddressError" class="pmh-subflow-addr-err">{{ programAddressError }}</p>
                   <p v-if="programAddressOrigin" class="pmh-subflow-addr-note">
-                    Sorted by driving distance from <strong>{{ programAddressOrigin }}</strong>.
-                    <button type="button" class="pmh-subflow-linkish" @click="clearProgramNearest">Clear</button>
+                    {{ t('public.sortedByDrivingDistance', { address: programAddressOrigin }) }}
+                    <button type="button" class="pmh-subflow-linkish" @click="clearProgramNearest">{{ t('public.clearSearch') }}</button>
                   </p>
                 </div>
 
-                <p class="pmh-subflow-subtitle">Locations for {{ programSessionRow.displayTitle }}</p>
+                <p class="pmh-subflow-subtitle">{{ t('public.locationsForSession', { title: programSessionRow.displayTitle }) }}</p>
                 <div class="pmh-subflow-cards pmh-subflow-cards--loc">
                   <button
                     v-for="loc in programRankedLocations"
@@ -497,7 +495,7 @@
                   >
                     <span class="pmh-loc-card-scrim" aria-hidden="true" />
                     <span class="pmh-loc-card-body">
-                      <span class="pmh-loc-card-eyebrow">Location</span>
+                      <span class="pmh-loc-card-eyebrow">{{ t('public.locationEyebrow') }}</span>
                       <span class="pmh-loc-card-name">{{ loc }}</span>
                       <span v-if="distanceInfoForLocation(loc, programSessionRow)" class="pmh-loc-card-distance">
                         ~{{ formatMiles(distanceInfoForLocation(loc, programSessionRow).meters) }} mi
@@ -509,13 +507,13 @@
                         v-else-if="programAddressRankedEvents && programAddressOrigin"
                         class="pmh-loc-card-distance pmh-loc-card-distance--na"
                       >
-                        Distance unavailable
+                        {{ t('public.distanceUnavailable') }}
                       </span>
-                      <span class="pmh-loc-card-cta pmh-loc-card-cta--register">Register now &rsaquo;</span>
+                      <span class="pmh-loc-card-cta pmh-loc-card-cta--register">{{ t('public.registerNowBtn') }} &rsaquo;</span>
                     </span>
                   </button>
                   <p v-if="!programRankedLocations.length" class="pmh-subflow-empty">
-                    No sites open for this session right now. Pick another session above.
+                    {{ t('public.noOpenSessionsHere') }}
                   </p>
                 </div>
               </div>
@@ -525,7 +523,7 @@
               <div v-if="!programNearestLocationSelected" class="pmh-subflow-picked">
                 <div class="pmh-subflow-addr">
                   <label class="pmh-subflow-addr-label" for="pmh-subflow-addr-input-nearest">
-                    Enter your home address
+                    {{ t('public.yourHomeAddress') }}
                   </label>
                   <div class="pmh-subflow-addr-row">
                     <input
@@ -544,17 +542,17 @@
                       :disabled="programAddressLoading"
                       @click="runProgramNearest"
                     >
-                      {{ programAddressLoading ? 'Calculating…' : 'Find' }}
+                      {{ programAddressLoading ? t('public.calculating') : t('public.find') }}
                     </button>
                   </div>
                   <p v-if="programAddressError" class="pmh-subflow-addr-err">{{ programAddressError }}</p>
                   <p v-if="programAddressOrigin" class="pmh-subflow-addr-note">
-                    Sites ranked by driving distance from <strong>{{ programAddressOrigin }}</strong>.
-                    <button type="button" class="pmh-subflow-linkish" @click="clearProgramNearest">Clear</button>
+                    {{ t('public.sitesRankedByDriveFrom', { address: programAddressOrigin }) }}
+                    <button type="button" class="pmh-subflow-linkish" @click="clearProgramNearest">{{ t('public.clearSearch') }}</button>
                   </p>
                 </div>
 
-                <p class="pmh-subflow-subtitle">Choose a location</p>
+                <p class="pmh-subflow-subtitle">{{ t('public.chooseALocation') }}</p>
                 <div class="pmh-subflow-cards pmh-subflow-cards--loc">
                   <button
                     v-for="loc in programRankedAllLocations"
@@ -567,7 +565,7 @@
                   >
                     <span class="pmh-loc-card-scrim" aria-hidden="true" />
                     <span class="pmh-loc-card-body">
-                      <span class="pmh-loc-card-eyebrow">Location</span>
+                      <span class="pmh-loc-card-eyebrow">{{ t('public.locationEyebrow') }}</span>
                       <span class="pmh-loc-card-name">{{ loc }}</span>
                       <span v-if="distanceInfoForLocation(loc, null)" class="pmh-loc-card-distance">
                         ~{{ formatMiles(distanceInfoForLocation(loc, null).meters) }} mi
@@ -577,13 +575,13 @@
                         v-else-if="programAddressRankedEvents && programAddressOrigin"
                         class="pmh-loc-card-distance pmh-loc-card-distance--na"
                       >
-                        Distance unavailable
+                        {{ t('public.distanceUnavailable') }}
                       </span>
-                      <span class="pmh-loc-card-cta">See sessions &rsaquo;</span>
+                      <span class="pmh-loc-card-cta">{{ t('public.seeSessions') }} &rsaquo;</span>
                     </span>
                   </button>
                   <p v-if="!programLocationsAll.length" class="pmh-subflow-empty">
-                    No locations are listed yet. Please check back soon.
+                    {{ t('public.noLocationsListed') }}
                   </p>
                 </div>
               </div>
@@ -592,7 +590,7 @@
                 <div class="pmh-loc-card pmh-loc-card--picked" :style="locCardStyle(programNearestLocation, null)">
                   <span class="pmh-loc-card-scrim" aria-hidden="true" />
                   <span class="pmh-loc-card-body">
-                    <span class="pmh-loc-card-eyebrow">You chose</span>
+                    <span class="pmh-loc-card-eyebrow">{{ t('public.youChose') }}</span>
                     <span class="pmh-loc-card-name">{{ programNearestLocation }}</span>
                     <span v-if="distanceInfoForLocation(programNearestLocation, null)" class="pmh-loc-card-distance">
                       ~{{ formatMiles(distanceInfoForLocation(programNearestLocation, null).meters) }} mi
@@ -603,7 +601,7 @@
                   </span>
                 </div>
 
-                <p class="pmh-subflow-subtitle">Pick a session</p>
+                <p class="pmh-subflow-subtitle">{{ t('public.pickASession') }}</p>
                 <div class="pmh-subflow-cards pmh-subflow-cards--session">
                   <button
                     v-for="(s, si) in programSessionsForNearestLocation"
@@ -612,14 +610,14 @@
                     class="pmh-sess-card"
                     @click="goRegisterForLocationInSession(programNearestLocation, s)"
                   >
-                    <span class="pmh-sess-card-eyebrow">Session</span>
+                    <span class="pmh-sess-card-eyebrow">{{ t('public.sessionEyebrow') }}</span>
                     <span class="pmh-sess-card-title">{{ s.displayTitle }}</span>
                     <span v-if="s.displaySubtitle" class="pmh-sess-card-sub">{{ s.displaySubtitle }}</span>
-                    <span class="pmh-sess-card-cta pmh-sess-card-cta--register">Register now &rsaquo;</span>
+                    <span class="pmh-sess-card-cta pmh-sess-card-cta--register">{{ t('public.registerNowBtn') }} &rsaquo;</span>
                   </button>
                 </div>
                 <p v-if="!programSessionsForNearestLocation.length" class="pmh-subflow-empty">
-                  No open sessions here right now. Try another site above.
+                  {{ t('public.noOpenSessionsHere') }}
                 </p>
               </div>
             </template>
@@ -685,10 +683,8 @@
                 </button>
               </div>
             </div>
-            <p class="pmh-pathfinder-detail-title">Choose your location or school</p>
-            <p class="pmh-pathfinder-detail-hint">
-              Sites include schools and other program locations. Names are shown as published (not street addresses).
-            </p>
+            <p class="pmh-pathfinder-detail-title">{{ t('public.chooseLocationOrSchool') }}</p>
+            <p class="pmh-pathfinder-detail-hint">{{ t('public.sitesIncludeSchools') }}</p>
             <div class="pmh-chip-row pmh-chip-row--wrap">
               <button
                 v-for="loc in allNavigatorLocations"
@@ -702,11 +698,11 @@
               </button>
             </div>
             <p v-if="!allNavigatorLocations.length" class="pmh-navigator-empty">
-              No registration sites are listed here yet. Try another agency filter above or browse the full list below.
+              {{ t('public.noSitesListedFilter') }}
             </p>
             <template v-if="navigatorLocationSelected">
-              <p class="pmh-pathfinder-detail-title">Choose your session</p>
-              <p class="pmh-pathfinder-detail-hint">Session dates come from each program’s registration listing for this site.</p>
+              <p class="pmh-pathfinder-detail-title">{{ t('public.chooseSession') }}</p>
+              <p class="pmh-pathfinder-detail-hint">{{ t('public.sessionDatesFromProgram') }}</p>
               <div class="pmh-chip-row pmh-chip-row--wrap">
                 <button
                   v-for="(s, si) in summerSessionsForSelectedLocation"
@@ -721,11 +717,11 @@
                 </button>
               </div>
               <p v-if="!summerSessionsForSelectedLocation.length" class="pmh-navigator-empty">
-                No sessions are open for this site right now. Pick another location or browse below.
+                {{ t('public.noSessionsOpenSite') }}
               </p>
               <template v-if="navigatorSessionSelected && registrationsForNavigatorLocationSession.length > 1">
-                <p class="pmh-pathfinder-detail-title">Open registration</p>
-                <p class="pmh-pathfinder-detail-hint">More than one program uses this session label — pick the one that matches your family.</p>
+                <p class="pmh-pathfinder-detail-title">{{ t('public.openRegistration') }}</p>
+                <p class="pmh-pathfinder-detail-hint">{{ t('public.multipleProgramsSameSession') }}</p>
                 <div class="pmh-chip-row pmh-chip-row--wrap">
                   <button
                     v-for="opt in registrationsForNavigatorLocationSession"
@@ -742,7 +738,7 @@
                 v-if="navigatorSessionSelected && !registrationsForNavigatorLocationSession.length"
                 class="pmh-navigator-empty"
               >
-                No registration link matched this site and session. Try another session or browse the full list below.
+                {{ t('public.noRegistrationMatch') }}
               </p>
             </template>
           </div>
@@ -1927,21 +1923,21 @@ function goRegisterForLocationInSession(loc, row) {
 }
 
 const subFlowEyebrow = computed(() => {
-  if (journeyPrimary.value === 'school') return 'I know my location / school';
-  if (journeyPrimary.value === 'program') return 'Help me choose';
+  if (journeyPrimary.value === 'school') return t('public.iKnowMyLocation');
+  if (journeyPrimary.value === 'program') return t('public.helpMeChoose');
   return '';
 });
 
 const subFlowTitle = computed(() => {
   if (journeyPrimary.value === 'school') {
-    return navigatorLocationName.value ? 'Pick a session for this site' : 'Choose your site or school';
+    return navigatorLocationName.value ? t('public.pickSessionForSite') : t('public.chooseYourSite');
   }
   if (journeyPrimary.value === 'program') {
-    if (!programChooseMode.value) return 'How would you like to choose?';
+    if (!programChooseMode.value) return t('public.howWouldYouChoose');
     if (programChooseMode.value === 'nearest') {
-      return programNearestLocationSelected.value ? 'Pick a session for this site' : 'Find the closest site to home';
+      return programNearestLocationSelected.value ? t('public.pickSessionForSite') : t('public.closestToHomeTitle');
     }
-    return programSessionRow.value ? 'Pick a location for this session' : 'Pick a session to get started';
+    return programSessionRow.value ? t('public.pickLocationForSession') : t('public.pickSessionToStart');
   }
   return '';
 });
@@ -1949,33 +1945,33 @@ const subFlowTitle = computed(() => {
 const subFlowHint = computed(() => {
   if (journeyPrimary.value === 'school') {
     return navigatorLocationName.value
-      ? 'All available sessions at this site are shown below. Tap one to register.'
-      : 'Tap a site to see the sessions open for registration there.';
+      ? t('public.allSessionsBelow')
+      : t('public.tapSiteForSessions');
   }
   if (journeyPrimary.value === 'program') {
     if (!programChooseMode.value) {
-      return 'Choose how you’d like to browse. You can switch back anytime.';
+      return t('public.chooseBrowseStyle');
     }
     if (programChooseMode.value === 'nearest') {
       return programNearestLocationSelected.value
-        ? 'All available sessions for this site are shown below. Tap one to register.'
-        : 'Enter your address to rank sites by the shortest drive — then pick a site to see its sessions.';
+        ? t('public.allSessionsBelow')
+        : t('public.enterAddressThenSite');
     }
     return programSessionRow.value
-      ? 'Register at the site that works for you — or use your address to see which is closest.'
-      : 'Session dates are shown on each card.';
+      ? ''
+      : t('public.sessionDatesOnCard');
   }
   return '';
 });
 
 const subFlowBackLabel = computed(() => {
-  if (journeyPrimary.value === 'school' && navigatorLocationName.value) return 'Back to sites';
+  if (journeyPrimary.value === 'school' && navigatorLocationName.value) return t('public.backToSites');
   if (journeyPrimary.value === 'program') {
-    if (programChooseMode.value === 'nearest' && programNearestLocationSelected.value) return 'Back to locations';
-    if (programChooseMode.value === 'session' && programSessionRow.value) return 'Back to sessions';
-    if (programChooseMode.value) return 'Back to choices';
+    if (programChooseMode.value === 'nearest' && programNearestLocationSelected.value) return t('public.backToLocations');
+    if (programChooseMode.value === 'session' && programSessionRow.value) return t('public.backToSessions');
+    if (programChooseMode.value) return t('public.backToChoices');
   }
-  return 'Back';
+  return t('common.back');
 });
 
 function locCardStyle(loc, row) {
