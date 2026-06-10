@@ -1493,7 +1493,9 @@ function buildNavigatorSessionRowsFromEligible(eligible) {
         }
       } catch { /* ignore */ }
     }
-    const displayTime = buildDisplayTime(fe.clientCheckInDisplayTime, fe.clientCheckOutDisplayTime);
+    const displayTime = fe.publicSessionTime
+      ? String(fe.publicSessionTime).trim()
+      : buildDisplayTime(fe.clientCheckInDisplayTime, fe.clientCheckOutDisplayTime);
     return {
       groupKey: g.key,
       publicSessionLabel: lab,

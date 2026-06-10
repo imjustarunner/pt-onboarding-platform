@@ -989,6 +989,18 @@
                   placeholder="e.g. June 1 – June 12, 2026"
                 />
               </div>
+              <div class="form-group">
+                <label class="sb-ce-lbl">Session time (public)</label>
+                <input
+                  v-model.trim="draft.publicSessionTime"
+                  class="input"
+                  maxlength="128"
+                  placeholder="e.g. 9:00 AM – 3:00 PM"
+                />
+                <p class="muted small sb-ce-pattern-lead" style="margin-top: 4px;">
+                  Shown on session picker cards so families know the daily schedule.
+                </p>
+              </div>
               <div class="sb-ce-public-link-wrap">
                 <label class="sb-ce-lbl">Public event page link</label>
                 <div class="sb-ce-public-link-row">
@@ -1634,6 +1646,7 @@ function emptyDraft() {
     publicAgeMax: '',
     publicSessionLabel: '',
     publicSessionDateRange: '',
+    publicSessionTime: '',
     clientCheckInDisplayTime: '',
     clientCheckOutDisplayTime: '',
     employeeReportTime: '',
@@ -1972,6 +1985,7 @@ function populateFromEvent(event) {
       event.publicAgeMax != null && event.publicAgeMax !== '' ? String(Number(event.publicAgeMax)) : '',
     publicSessionLabel: String(event.publicSessionLabel || '').trim(),
     publicSessionDateRange: String(event.publicSessionDateRange || '').trim(),
+    publicSessionTime: String(event.publicSessionTime || '').trim(),
     clientCheckInDisplayTime: wallTimeToInput(event.clientCheckInDisplayTime),
     clientCheckOutDisplayTime: wallTimeToInput(event.clientCheckOutDisplayTime),
     employeeReportTime: wallTimeToInput(event.employeeReportTime),
@@ -2822,6 +2836,7 @@ function validateAndBuildPersistPayload() {
     })(),
     publicSessionLabel: String(draft.value.publicSessionLabel || '').trim().slice(0, 128) || null,
     publicSessionDateRange: String(draft.value.publicSessionDateRange || '').trim().slice(0, 255) || null,
+    publicSessionTime: String(draft.value.publicSessionTime || '').trim().slice(0, 128) || null,
     clientCheckInDisplayTime: draft.value.clientCheckInDisplayTime || null,
     clientCheckOutDisplayTime: draft.value.clientCheckOutDisplayTime || null,
     employeeReportTime: draft.value.employeeReportTime || null,

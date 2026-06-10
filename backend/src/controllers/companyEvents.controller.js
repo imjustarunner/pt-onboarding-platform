@@ -428,6 +428,7 @@ function mapEventRow(row, req, opts = {}) {
     })(),
     publicSessionLabel: row.public_session_label ? String(row.public_session_label).trim() : '',
     publicSessionDateRange: row.public_session_date_range ? String(row.public_session_date_range).trim() : '',
+    publicSessionTime: row.public_session_time ? String(row.public_session_time).trim() : '',
     snacksAvailable: row.snacks_available === undefined ? true : !!(row.snacks_available === 1 || row.snacks_available === true),
     snackOptions: (() => { const p = parseJsonMaybe(row.snack_options_json); return Array.isArray(p) ? p : []; })(),
     mealsAvailable: !!(row.meals_available === 1 || row.meals_available === true),
@@ -625,7 +626,9 @@ function parseEventPayload(body = {}) {
   const publicSessionDateRange = String(body.publicSessionDateRange ?? body.public_session_date_range ?? '')
     .trim()
     .slice(0, 255);
-
+  const publicSessionTime = String(body.publicSessionTime ?? body.public_session_time ?? '')
+    .trim()
+    .slice(0, 128);
   const parseWallTime = (raw) => {
     if (raw === undefined || raw === null || raw === '') return null;
     const s = String(raw).trim();
@@ -851,6 +854,7 @@ function parseEventPayload(body = {}) {
     publicAgeMax,
     publicSessionLabel: publicSessionLabel || null,
     publicSessionDateRange: publicSessionDateRange || null,
+    publicSessionTime: publicSessionTime || null,
     clientCheckInDisplayTime,
     clientCheckOutDisplayTime,
     employeeReportTime,
@@ -1844,8 +1848,8 @@ async function createCompanyEventCore(req, agencyId, userId, parsed) {
 
   const [insertResult] = await pool.execute(
     `INSERT INTO company_events
-     (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, public_hero_image_url, public_hero_focal_point, public_listing_details, in_person_public, public_location_address, public_location_lat, public_location_lng, public_age_min, public_age_max, public_session_label, public_session_date_range, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible, program_cost_billing_mode, program_cost_dollars, per_session_cost_dollars, client_check_in_display_time, client_check_out_display_time, employee_report_time, employee_departure_time, virtual_sessions_enabled, kiosk_event_pin_hash, snacks_available, snack_options_json, meals_available, meal_options_json, guest_policy, potluck_enabled, organizer_providing_json, event_image_url, event_image_urls_json, rsvp_deadline, event_location_name, event_location_address, event_location_phone, family_provision_note, registration_form_url, sms_draft_json, staffing_config_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, public_hero_image_url, public_hero_focal_point, public_listing_details, in_person_public, public_location_address, public_location_lat, public_location_lng, public_age_min, public_age_max, public_session_label, public_session_date_range, public_session_time, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible, program_cost_billing_mode, program_cost_dollars, per_session_cost_dollars, client_check_in_display_time, client_check_out_display_time, employee_report_time, employee_departure_time, virtual_sessions_enabled, kiosk_event_pin_hash, snacks_available, snack_options_json, meals_available, meal_options_json, guest_policy, potluck_enabled, organizer_providing_json, event_image_url, event_image_urls_json, rsvp_deadline, event_location_name, event_location_address, event_location_phone, family_provision_note, registration_form_url, sms_draft_json, staffing_config_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       agencyId,
       organizationIdForRow,
@@ -1866,6 +1870,7 @@ async function createCompanyEventCore(req, agencyId, userId, parsed) {
       parsed.publicAgeMax != null ? parsed.publicAgeMax : null,
       parsed.publicSessionLabel,
       parsed.publicSessionDateRange,
+      parsed.publicSessionTime,
       parsed.startsAt,
       parsed.endsAt,
       parsed.timezone,
@@ -2086,7 +2091,7 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
 
   await pool.execute(
     `UPDATE company_events
-     SET updated_by_user_id = ?, organization_id = ?, title = ?, description = ?, event_type = ?, splash_content = ?, public_hero_image_url = ?, public_hero_focal_point = ?, public_listing_details = ?, in_person_public = ?, public_location_address = ?, public_location_lat = ?, public_location_lng = ?, public_age_min = ?, public_age_max = ?, public_session_label = ?, public_session_date_range = ?, starts_at = ?, ends_at = ?, timezone = ?, recurrence_json = ?, is_active = ?, rsvp_mode = ?, voting_config_json = ?, reminder_config_json = ?, voting_closed_at = ?, sms_code = ?, skill_builder_direct_hours = ?, registration_eligible = ?, public_registration_status = ?, public_registration_status_label = ?, medicaid_eligible = ?, cash_eligible = ?, program_cost_billing_mode = ?, program_cost_dollars = ?, per_session_cost_dollars = ?, client_check_in_display_time = ?, client_check_out_display_time = ?, employee_report_time = ?, employee_departure_time = ?, virtual_sessions_enabled = ?, kiosk_event_pin_hash = ?, snacks_available = ?, snack_options_json = ?, meals_available = ?, meal_options_json = ?, guest_policy = ?, potluck_enabled = ?, organizer_providing_json = ?, event_image_url = ?, event_image_urls_json = ?, rsvp_deadline = ?, event_location_name = ?, event_location_address = ?, event_location_phone = ?, family_provision_note = ?, registration_form_url = ?, sms_draft_json = ?, staffing_config_json = ?
+     SET updated_by_user_id = ?, organization_id = ?, title = ?, description = ?, event_type = ?, splash_content = ?, public_hero_image_url = ?, public_hero_focal_point = ?, public_listing_details = ?, in_person_public = ?, public_location_address = ?, public_location_lat = ?, public_location_lng = ?, public_age_min = ?, public_age_max = ?, public_session_label = ?, public_session_date_range = ?, public_session_time = ?, starts_at = ?, ends_at = ?, timezone = ?, recurrence_json = ?, is_active = ?, rsvp_mode = ?, voting_config_json = ?, reminder_config_json = ?, voting_closed_at = ?, sms_code = ?, skill_builder_direct_hours = ?, registration_eligible = ?, public_registration_status = ?, public_registration_status_label = ?, medicaid_eligible = ?, cash_eligible = ?, program_cost_billing_mode = ?, program_cost_dollars = ?, per_session_cost_dollars = ?, client_check_in_display_time = ?, client_check_out_display_time = ?, employee_report_time = ?, employee_departure_time = ?, virtual_sessions_enabled = ?, kiosk_event_pin_hash = ?, snacks_available = ?, snack_options_json = ?, meals_available = ?, meal_options_json = ?, guest_policy = ?, potluck_enabled = ?, organizer_providing_json = ?, event_image_url = ?, event_image_urls_json = ?, rsvp_deadline = ?, event_location_name = ?, event_location_address = ?, event_location_phone = ?, family_provision_note = ?, registration_form_url = ?, sms_draft_json = ?, staffing_config_json = ?
      WHERE id = ? AND agency_id = ?`,
     [
       userId,
@@ -2106,6 +2111,7 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
       parsed.publicAgeMax != null ? parsed.publicAgeMax : null,
       parsed.publicSessionLabel,
       parsed.publicSessionDateRange,
+      parsed.publicSessionTime,
       parsed.startsAt,
       parsed.endsAt,
       parsed.timezone,
@@ -4200,7 +4206,7 @@ export const getCompanyEventPublic = async (req, res, next) => {
          ce.starts_at, ce.ends_at, ce.timezone, ce.rsvp_deadline,
          ce.rsvp_mode,
          ce.event_location_name, ce.event_location_address, ce.event_location_phone,
-         ce.public_age_min, ce.public_age_max, ce.public_session_label, ce.public_session_date_range,
+         ce.public_age_min, ce.public_age_max, ce.public_session_label, ce.public_session_date_range, ce.public_session_time,
          ce.medicaid_eligible, ce.cash_eligible,
          ce.program_cost_billing_mode, ce.program_cost_dollars, ce.per_session_cost_dollars,
          ce.guest_policy, ce.family_provision_note, ce.organizer_providing_json,
@@ -4296,6 +4302,7 @@ export const getCompanyEventPublic = async (req, res, next) => {
         publicAgeMax: row.public_age_max != null ? Number(row.public_age_max) : null,
         publicSessionLabel: row.public_session_label ? String(row.public_session_label).trim() : '',
         publicSessionDateRange: row.public_session_date_range ? String(row.public_session_date_range).trim() : '',
+        publicSessionTime: row.public_session_time ? String(row.public_session_time).trim() : '',
         medicaidEligible: !!(row.medicaid_eligible === 1 || row.medicaid_eligible === true),
         cashEligible: !!(row.cash_eligible === 1 || row.cash_eligible === true),
         programCostBillingMode: String(row.program_cost_billing_mode || 'total').trim(),
@@ -4566,7 +4573,7 @@ export const copyCompanyEventToTarget = async (req, res, next) => {
          title, description, event_type, splash_content, public_hero_image_url,
          public_hero_focal_point, public_listing_details, in_person_public,
          public_location_address, public_location_lat, public_location_lng,
-         public_age_min, public_age_max, public_session_label, public_session_date_range,
+         public_age_min, public_age_max, public_session_label, public_session_date_range, public_session_time,
          starts_at, ends_at, timezone, recurrence_json, is_active,
          guardian_waiver_required_sections_json, rsvp_mode, voting_config_json,
          reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours,
@@ -4587,7 +4594,7 @@ export const copyCompanyEventToTarget = async (req, res, next) => {
          ?, description, event_type, splash_content, public_hero_image_url,
          public_hero_focal_point, public_listing_details, in_person_public,
          public_location_address, public_location_lat, public_location_lng,
-         public_age_min, public_age_max, public_session_label, public_session_date_range,
+         public_age_min, public_age_max, public_session_label, public_session_date_range, public_session_time,
          starts_at, ends_at, timezone, recurrence_json, 0,
          guardian_waiver_required_sections_json, rsvp_mode, voting_config_json,
          reminder_config_json, voting_closed_at, NULL, skill_builder_direct_hours,

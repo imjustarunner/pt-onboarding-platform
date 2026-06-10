@@ -16,7 +16,7 @@ export const PUBLIC_EVENT_SELECT = `ce.id, ce.title, ce.description, ce.splash_c
        ce.public_hero_image_url, ce.public_listing_details, ce.in_person_public,
        ce.public_location_address, ce.public_location_lat, ce.public_location_lng,
        ce.public_age_min, ce.public_age_max,
-       ce.public_session_label, ce.public_session_date_range,
+       ce.public_session_label, ce.public_session_date_range, ce.public_session_time,
        ce.client_check_in_display_time, ce.client_check_out_display_time,
        ce.starts_at, ce.ends_at, ce.timezone, ce.registration_eligible,
        ce.public_registration_status, ce.public_registration_status_label,
@@ -66,6 +66,7 @@ export function formatPublicEvent(row, sessionLocations = []) {
     publicAgeMax,
     publicSessionLabel: row.public_session_label ? String(row.public_session_label).trim() : null,
     publicSessionDateRange: row.public_session_date_range ? String(row.public_session_date_range).trim() : null,
+    publicSessionTime: row.public_session_time ? String(row.public_session_time).trim() : null,
     clientCheckInDisplayTime: row.client_check_in_display_time ? String(row.client_check_in_display_time).slice(0, 8) : null,
     clientCheckOutDisplayTime: row.client_check_out_display_time ? String(row.client_check_out_display_time).slice(0, 8) : null
   };
