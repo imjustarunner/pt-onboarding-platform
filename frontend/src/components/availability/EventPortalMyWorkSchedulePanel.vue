@@ -4,7 +4,17 @@
     <div v-else-if="error" class="error">{{ error }}</div>
     <template v-else-if="data">
       <section v-if="data.availability?.length || data.mode === 'program_event'" class="epws-section">
-        <h3 class="epws-h">Your availability for this event</h3>
+        <div class="epws-h-row">
+          <h3 class="epws-h">Your availability for this event</h3>
+          <button
+            v-if="data.activeAvailabilityRequestId"
+            type="button"
+            class="epws-update-btn"
+            @click="router.push(`/facilitator-availability/${data.activeAvailabilityRequestId}`)"
+          >
+            {{ data.availability?.length ? 'Update availability' : 'Submit availability' }}
+          </button>
+        </div>
         <p class="muted small epws-lead">
           Dates you marked as available, on waitlist, or on-call when staffing this event.
         </p>
@@ -56,7 +66,10 @@
 
 <script setup>
 import { ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import api from '../../services/api';
+
+const router = useRouter();
 
 const props = defineProps({
   agencyId: { type: [Number, String, null], default: null },
@@ -157,10 +170,31 @@ watch(
 .epws-section {
   margin: 0;
 }
+.epws-h-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 0.35rem;
+}
 .epws-h {
-  margin: 0 0 0.35rem;
+  margin: 0;
   font-size: 0.95rem;
   font-weight: 600;
+}
+.epws-update-btn {
+  font-size: 0.78rem;
+  padding: 3px 10px;
+  border: 1px solid #2563eb;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.epws-update-btn:hover {
+  background: #dbeafe;
 }
 .epws-lead {
   margin: 0 0 0.65rem;

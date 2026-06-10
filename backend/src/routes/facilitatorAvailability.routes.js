@@ -21,7 +21,8 @@ import {
   updateAssignment,
   publishSchedule,
   getMyPublishedSchedule,
-  getLocationDistances
+  getLocationDistances,
+  getOtherProviders
 } from '../controllers/facilitatorAvailability.controller.js';
 
 // ── Employee routes — mounted at /api/facilitator-availability ────────────────
@@ -44,6 +45,7 @@ adminRouter.put('/:requestId', updateRequest);
 adminRouter.post('/:requestId/push', requireAdmin, pushRequest);
 adminRouter.get('/:requestId/responses', getResponses);
 adminRouter.get('/:requestId/staffing-workspace', getStaffingWorkspace);
+adminRouter.get('/:requestId/other-providers', getOtherProviders);
 adminRouter.get('/:requestId/schedule', getSchedulingData);
 adminRouter.put('/:requestId/slot-override', setSlotOverride);
 adminRouter.post('/:requestId/assign', assignFacilitator);

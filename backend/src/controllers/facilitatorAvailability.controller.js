@@ -1656,31 +1656,65 @@ export const assignFacilitatorToEvent = async (req, res, next) => {
     if (!fare?.ok) return res.status(404).json({ error: { message: 'Event not in this request' } });
 
     const requireFullSession = !!req.body?.requireFullSession;
+    // overrideAvailability: skip the availability check and assign to all session
+    // dates regardless of whether the provider submitted availability. Used when an
+    // admin has verbally confirmed availability with a provider who hasn't yet
+    // filled in the online form.
+    const overrideAvailability = !!req.body?.overrideAvailability;
 
-    const dateInfo = await loadUserAssignableSessionDatesForEvent({
-      requestId,
-      userId: providerUserId,
-      companyEventId: eventId,
-      agencyId
-    });
-
-    if (dateInfo.availableCount === 0) {
-      return res.status(400).json({
-        error: { message: 'This person has no available days for this event' }
+    let dateInfo;
+    if (overrideAvailability) {
+      // Bypass availability check — load all session dates for the event and assign
+      // to any that haven't already been assigned to this provider.
+      const [sessionDates] = await pool.execute(
+        `SELECT id, session_date FROM company_event_session_dates
+         WHERE company_event_id = ? ORDER BY session_date, id`,
+        [eventId]
+      );
+      const [assignedRows] = await pool.execute(
+        `SELECT cesd.session_date
+         FROM company_event_session_providers csp
+         JOIN company_event_session_dates cesd ON cesd.id = csp.session_date_id
+         WHERE csp.company_event_id = ? AND csp.agency_id = ? AND csp.provider_user_id = ?`,
+        [eventId, agencyId, providerUserId]
+      );
+      const assignedDatesSet = new Set(
+        (assignedRows || []).map((r) => toDateOnlyString(r.session_date)).filter(Boolean)
+      );
+      const assignable = (sessionDates || [])
+        .map((sd) => ({ sessionDateId: sd.id, date: toDateOnlyString(sd.session_date) || '' }))
+        .filter((sd) => sd.date && !assignedDatesSet.has(sd.date));
+      dateInfo = {
+        totalCount: (sessionDates || []).length,
+        availableCount: (sessionDates || []).length,
+        assignable
+      };
+    } else {
+      dateInfo = await loadUserAssignableSessionDatesForEvent({
+        requestId,
+        userId: providerUserId,
+        companyEventId: eventId,
+        agencyId
       });
-    }
 
-    if (requireFullSession && dateInfo.availableCount < dateInfo.totalCount) {
-      return res.status(400).json({
-        error: {
-          message: `Cannot assign all days — only ${dateInfo.availableCount} of ${dateInfo.totalCount} days marked available`
-        }
-      });
+      if (dateInfo.availableCount === 0) {
+        return res.status(400).json({
+          error: { message: 'This person has no available days for this event' }
+        });
+      }
+
+      if (requireFullSession && dateInfo.availableCount < dateInfo.totalCount) {
+        return res.status(400).json({
+          error: {
+            message: `Cannot assign all days — only ${dateInfo.availableCount} of ${dateInfo.totalCount} days marked available`
+          }
+        });
+      }
     }
 
     if (!dateInfo.assignable.length) {
       return res.status(400).json({
-        error: { message: 'No remaining available days to assign for this person' }
+        error: { message: 'No remaining days to assign for this person (already fully assigned)' }
       });
     }
 
@@ -1724,7 +1758,7 @@ export const assignFacilitatorToEvent = async (req, res, next) => {
         ok: true,
         assignedDates,
         overCapacityDates,
-        skippedUnavailable: dateInfo.totalCount - dateInfo.availableCount
+        skippedUnavailable: overrideAvailability ? 0 : (dateInfo.totalCount - dateInfo.availableCount)
       });
     } catch (e) {
       await conn.rollback();
@@ -2134,6 +2168,44 @@ export const getLocationDistances = async (req, res, next) => {
     }));
 
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ─── Admin: list providers who haven't submitted availability for this request ─
+
+export const getOtherProviders = async (req, res, next) => {
+  try {
+    const agencyId = parseId(req.params?.agencyId);
+    const requestId = parseId(req.params?.requestId);
+    if (!agencyId || !requestId) return res.status(400).json({ error: { message: 'Invalid id' } });
+    if (!(await canManage(req, agencyId))) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const request = await assertRequestInAgency(requestId, agencyId);
+    if (!request) return res.status(404).json({ error: { message: 'Not found' } });
+
+    // All active agency users who do NOT have any submission (draft or formal) in this request
+    const [rows] = await pool.execute(
+      `SELECT u.id AS user_id, u.first_name, u.last_name, u.email
+       FROM users u
+       INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ? AND ua.is_active = 1
+       WHERE u.id NOT IN (
+         SELECT fas.user_id
+         FROM facilitator_availability_submissions fas
+         WHERE fas.request_id = ?
+       )
+       ORDER BY u.first_name, u.last_name, u.email`,
+      [agencyId, requestId]
+    );
+
+    const providers = (rows || []).map((r) => ({
+      userId: Number(r.user_id),
+      name: personName(r.first_name, r.last_name, r.email),
+      email: r.email || null
+    }));
+
+    res.json({ providers });
   } catch (err) {
     next(err);
   }

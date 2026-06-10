@@ -133,6 +133,55 @@
               </button>
               <span v-else-if="person.assignedSessionCount > 0" class="fsw-assigned-label">Assigned</span>
             </div>
+
+            <!-- Other providers (no submission) -->
+            <div class="fsw-other-toggle-row">
+              <button
+                type="button"
+                class="btn btn-sm btn-secondary"
+                :disabled="actionLoading || readOnly"
+                @click="toggleOtherProviders"
+              >
+                {{ otherProvidersOpen ? '▲ Hide other providers' : '▼ Other providers' }}
+              </button>
+            </div>
+
+            <template v-if="otherProvidersOpen">
+              <div class="fsw-other-disclaimer">
+                <strong>⚠ Override assignment</strong> — the providers listed below have
+                <em>not</em> submitted availability for this request. Only assign them after
+                confirming their availability directly. The system will assign them to
+                <strong>all session dates</strong> for this event as a draft.
+              </div>
+
+              <div v-if="otherProvidersLoading" class="fsw-hint">Loading…</div>
+              <div v-else-if="otherProvidersError" class="fsw-error" style="font-size:.82rem;padding:6px 8px;">{{ otherProvidersError }}</div>
+              <template v-else>
+                <input
+                  v-model="otherProvidersSearch"
+                  class="fsw-other-search"
+                  type="search"
+                  placeholder="Filter by name…"
+                />
+                <div v-if="!filteredOtherProviders.length" class="fsw-hint">
+                  {{ otherProviders.length ? 'No matches.' : 'All agency providers have submitted availability.' }}
+                </div>
+                <div v-for="p in filteredOtherProviders" :key="p.userId" class="fsw-staff-row">
+                  <div class="fsw-staff-info">
+                    <strong>{{ p.name }}</strong>
+                    <span class="fsw-staff-meta">{{ p.email || '' }}</span>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-secondary"
+                    :disabled="actionLoading || readOnly"
+                    @click="assignAllDates(p.userId, false, true)"
+                  >
+                    Assign all dates (override)
+                  </button>
+                </div>
+              </template>
+            </template>
           </div>
 
           <div class="fsw-dates-panel">
@@ -238,6 +287,12 @@ const actionLoading = ref(false);
 const selectedEventId = ref(null);
 const fullSessionOnly = ref(false);
 
+const otherProvidersOpen = ref(false);
+const otherProviders = ref([]);
+const otherProvidersLoading = ref(false);
+const otherProvidersError = ref('');
+const otherProvidersSearch = ref('');
+
 const fmtDate = (d) => formatDate(d) || '';
 const fmtDow = (d) => {
   if (!d) return '';
@@ -299,6 +354,14 @@ const personEventMeta = (person) => {
   return parts.join(' · ');
 };
 
+const filteredOtherProviders = computed(() => {
+  const q = otherProvidersSearch.value.trim().toLowerCase();
+  if (!q) return otherProviders.value;
+  return otherProviders.value.filter(
+    (p) => p.name.toLowerCase().includes(q) || (p.email || '').toLowerCase().includes(q)
+  );
+});
+
 const load = async () => {
   if (!props.requestId || !props.agencyBase) return;
   loading.value = true;
@@ -319,15 +382,39 @@ const load = async () => {
   }
 };
 
-const assignAllDates = async (userId, requireFullSession = false) => {
+const loadOtherProviders = async () => {
+  otherProvidersLoading.value = true;
+  otherProvidersError.value = '';
+  try {
+    const r = await api.get(`${props.agencyBase}/${props.requestId}/other-providers`);
+    otherProviders.value = r.data?.providers || [];
+  } catch (e) {
+    otherProvidersError.value = e?.response?.data?.error?.message || e.message || 'Could not load providers';
+    otherProviders.value = [];
+  } finally {
+    otherProvidersLoading.value = false;
+  }
+};
+
+const toggleOtherProviders = () => {
+  otherProvidersOpen.value = !otherProvidersOpen.value;
+  if (otherProvidersOpen.value && !otherProviders.value.length && !otherProvidersLoading.value) {
+    loadOtherProviders();
+  }
+};
+
+const assignAllDates = async (userId, requireFullSession = false, overrideAvailability = false) => {
   actionLoading.value = true;
   try {
     await api.post(`${props.agencyBase}/${props.requestId}/assign-event`, {
       companyEventId: selectedEventId.value,
       userId,
-      requireFullSession
+      requireFullSession,
+      ...(overrideAvailability ? { overrideAvailability: true } : {})
     });
     await load();
+    // Refresh other-providers list so the just-assigned person's status updates
+    if (overrideAvailability && otherProvidersOpen.value) await loadOtherProviders();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e.message || 'Assignment failed';
   } finally {
@@ -379,6 +466,9 @@ const publish = async (mode, companyEventId = null) => {
 
 watch(() => props.requestId, () => {
   selectedEventId.value = null;
+  otherProvidersOpen.value = false;
+  otherProviders.value = [];
+  otherProvidersSearch.value = '';
   load();
 });
 
@@ -440,6 +530,10 @@ defineExpose({ reload: load });
 .fsw-chip--finalized { background: #dcfce7; }
 .fsw-status-select { font-size: .72rem; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; }
 .fsw-chip-x { border: none; background: none; cursor: pointer; color: #64748b; padding: 0 2px; }
+
+.fsw-other-toggle-row { margin-top: 14px; padding-top: 10px; border-top: 1px dashed #cbd5e1; }
+.fsw-other-disclaimer { background: #fef3c7; border: 1px solid #fcd34d; border-radius: 8px; padding: 9px 12px; font-size: .82rem; color: #78350f; margin: 10px 0 8px; }
+.fsw-other-search { width: 100%; box-sizing: border-box; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: .85rem; margin-bottom: 8px; }
 
 .fsw-matrix { margin-top: 8px; }
 .fsw-matrix-scroll { overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 10px; }

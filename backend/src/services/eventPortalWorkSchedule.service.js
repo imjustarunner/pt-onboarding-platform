@@ -234,6 +234,22 @@ export async function fetchMyEventPortalWorkSchedule({ agencyId, eventId, userId
   const ev = evRows?.[0];
   if (!ev) return { error: { status: 404, message: 'Event not found' } };
 
+  // Look up the active availability request for this event so the provider can
+  // navigate directly to their form to update availability.
+  let activeAvailabilityRequestId = null;
+  try {
+    const [reqRows] = await pool.execute(
+      `SELECT far.id
+       FROM facilitator_availability_requests far
+       JOIN facilitator_availability_request_events fare ON fare.request_id = far.id
+       WHERE fare.company_event_id = ? AND far.agency_id = ? AND far.status = 'active'
+       ORDER BY far.id DESC
+       LIMIT 1`,
+      [eid, aid]
+    );
+    activeAvailabilityRequestId = reqRows?.[0]?.id ? Number(reqRows[0].id) : null;
+  } catch { /* best-effort */ }
+
   const isSkillsGroupEvent = String(ev.event_type || '').trim().toLowerCase() === 'skills_group'
     || !!ev.skills_group_id;
 
@@ -248,6 +264,7 @@ export async function fetchMyEventPortalWorkSchedule({ agencyId, eventId, userId
       eventId: eid,
       eventTitle: ev.title || '',
       mode: 'skills_group',
+      activeAvailabilityRequestId,
       weeklyPattern,
       availability,
       bookings
@@ -264,6 +281,7 @@ export async function fetchMyEventPortalWorkSchedule({ agencyId, eventId, userId
     eventId: eid,
     eventTitle: ev.title || '',
     mode: 'program_event',
+    activeAvailabilityRequestId,
     weeklyPattern: [],
     availability,
     bookings
