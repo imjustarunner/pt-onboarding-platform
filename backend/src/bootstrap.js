@@ -11,9 +11,15 @@
  * to be retrieved for diagnosis without a full rollback.
  */
 import http from 'http';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const HOST = '0.0.0.0';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 let appLoaded = false;
 let loadError = null;
@@ -34,12 +40,63 @@ const placeholder = (req, res) => {
   }
 };
 
+async function runStartupMigrations() {
+  try {
+    const migrationsDir = path.join(__dirname, '../database/migrations');
+    if (!fs.existsSync(migrationsDir)) {
+      console.log('⚠️  Migrations directory not found, skipping startup migrations');
+      return;
+    }
+
+    const { default: pool } = await import('./config/database.js');
+
+    const files = fs.readdirSync(migrationsDir)
+      .filter(f => f.endsWith('.sql'))
+      .sort();
+
+    console.log(`🗄️  Running ${files.length} startup migrations...`);
+
+    for (const file of files) {
+      const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+      const statements = sql.split(';').filter(s => s.trim().length > 0);
+      for (const stmt of statements) {
+        if (!stmt.trim()) continue;
+        try {
+          await pool.query(stmt.trim() + ';');
+        } catch (err) {
+          const msg = String(err?.message || '');
+          const isExpected =
+            msg.includes('already exists') ||
+            msg.includes('Duplicate column') ||
+            msg.includes('Duplicate key') ||
+            msg.includes('Duplicate foreign key') ||
+            msg.includes('duplicate foreign key') ||
+            msg.includes("doesn't exist") ||
+            msg.includes('check that it exists') ||
+            msg.includes('check that column/key exists') ||
+            msg.includes('ER_FK_COLUMN_CANNOT_DROP') ||
+            err.code === 'ER_FK_DUP_NAME' ||
+            err.errno === 1022;
+          if (!isExpected) {
+            console.warn(`⚠️  Migration ${file}: ${msg}`);
+          }
+        }
+      }
+    }
+
+    console.log('✅ Startup migrations complete');
+  } catch (err) {
+    console.error('⚠️  Startup migrations failed (non-fatal):', err?.message || err);
+  }
+}
+
 const server = http.createServer(placeholder);
 
 server.listen(PORT, HOST, () => {
   console.log(`🚀 Listening on http://${HOST}:${PORT} (bootstrap phase)`);
 
-  import('./server.js')
+  runStartupMigrations()
+    .then(() => import('./server.js'))
     .then(({ app }) => {
       if (typeof app !== 'function') throw new Error('server.js did not export a valid Express app');
       server.removeAllListeners('request');

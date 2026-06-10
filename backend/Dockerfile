@@ -109,6 +109,9 @@ RUN npm config set fetch-retries 5 && \
 # Copy backend source code
 COPY backend/src ./src
 
+# Copy database migrations (run automatically on startup via bootstrap.js)
+COPY database/migrations ./database/migrations
+
 # Copy bundled uploads (icons/logos/user photos) for fallback serving.
 # Note: Cloud Run filesystem is ephemeral, but these baked-in assets are available
 # across instances and are helpful when GCS keys are missing/misconfigured.
