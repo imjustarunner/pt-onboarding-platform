@@ -143,7 +143,8 @@
     "hideAddressSearch": "Ocultar búsqueda por dirección",
     "useAddressClosest": "Usar mi dirección para ver cuál está más cerca",
     "sitesRankedByDriveFrom": "Sitios ordenados por distancia en auto desde {address}.",
-    "clearSearch": "Limpiar"
+    "clearSearch": "Limpiar",
+    "registerWithTitle": "Inscribirse — {title}"
   },
   "intake": {
     "welcome": "Bienvenido",

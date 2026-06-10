@@ -157,6 +157,7 @@
                 >
                   <span class="pmh-chip-session-title">{{ s.displayTitle }}</span>
                   <span v-if="s.displaySubtitle" class="pmh-chip-session-sub">{{ s.displaySubtitle }}</span>
+                  <span v-if="s.displayTime" class="pmh-chip-session-time">{{ s.displayTime }}</span>
                 </button>
               </div>
               <p v-if="!summerSessionsForSelectedLocation.length" class="pmh-navigator-empty">
@@ -173,7 +174,7 @@
                     class="pmh-chip-btn"
                     @click="goLocationRegistration(opt)"
                   >
-                    Register{{ opt.programTitle ? ` — ${opt.programTitle}` : '' }}
+                    {{ opt.programTitle ? t('public.registerWithTitle', { title: opt.programTitle }) : t('public.registerNowBtn') }}
                   </button>
                 </div>
               </template>
@@ -386,6 +387,7 @@
                   <span class="pmh-sess-card-eyebrow">{{ t('public.sessionEyebrow') }}</span>
                   <span class="pmh-sess-card-title">{{ s.displayTitle }}</span>
                   <span v-if="s.displaySubtitle" class="pmh-sess-card-sub">{{ s.displaySubtitle }}</span>
+                  <span v-if="s.displayTime" class="pmh-sess-card-time">{{ s.displayTime }}</span>
                   <span class="pmh-sess-card-cta pmh-sess-card-cta--register">{{ t('public.registerNowBtn') }} &rsaquo;</span>
                 </button>
               </div>
@@ -424,6 +426,7 @@
                   <span class="pmh-sess-card-eyebrow">{{ t('public.sessionEyebrow') }}</span>
                   <span class="pmh-sess-card-title">{{ s.displayTitle }}</span>
                   <span v-if="s.displaySubtitle" class="pmh-sess-card-sub">{{ s.displaySubtitle }}</span>
+                  <span v-if="s.displayTime" class="pmh-sess-card-time">{{ s.displayTime }}</span>
                   <span class="pmh-sess-card-cta">{{ t('public.seeSites') }} &rsaquo;</span>
                 </button>
                 <p v-if="!programSessionRows.length" class="pmh-subflow-empty">
@@ -436,6 +439,7 @@
                   <span class="pmh-sess-card-eyebrow">{{ t('public.youChose') }}</span>
                   <span class="pmh-sess-card-title">{{ programSessionRow.displayTitle }}</span>
                   <span v-if="programSessionRow.displaySubtitle" class="pmh-sess-card-sub">{{ programSessionRow.displaySubtitle }}</span>
+                  <span v-if="programSessionRow.displayTime" class="pmh-sess-card-time">{{ programSessionRow.displayTime }}</span>
                 </div>
 
                 <div class="pmh-subflow-addr-toggle">
@@ -613,6 +617,7 @@
                     <span class="pmh-sess-card-eyebrow">{{ t('public.sessionEyebrow') }}</span>
                     <span class="pmh-sess-card-title">{{ s.displayTitle }}</span>
                     <span v-if="s.displaySubtitle" class="pmh-sess-card-sub">{{ s.displaySubtitle }}</span>
+                    <span v-if="s.displayTime" class="pmh-sess-card-time">{{ s.displayTime }}</span>
                     <span class="pmh-sess-card-cta pmh-sess-card-cta--register">{{ t('public.registerNowBtn') }} &rsaquo;</span>
                   </button>
                 </div>
@@ -714,6 +719,7 @@
                 >
                   <span class="pmh-chip-session-title">{{ s.displayTitle }}</span>
                   <span v-if="s.displaySubtitle" class="pmh-chip-session-sub">{{ s.displaySubtitle }}</span>
+                  <span v-if="s.displayTime" class="pmh-chip-session-time">{{ s.displayTime }}</span>
                 </button>
               </div>
               <p v-if="!summerSessionsForSelectedLocation.length" class="pmh-navigator-empty">
@@ -730,7 +736,7 @@
                     class="pmh-chip-btn"
                     @click="goLocationRegistration(opt)"
                   >
-                    Register{{ opt.programTitle ? ` — ${opt.programTitle}` : '' }}
+                    {{ opt.programTitle ? t('public.registerWithTitle', { title: opt.programTitle }) : t('public.registerNowBtn') }}
                   </button>
                 </div>
               </template>
@@ -1385,6 +1391,30 @@ function startsAtToMs(iso) {
   return Number.isNaN(t) ? null : t;
 }
 
+/**
+ * Format a wall-clock time string like "09:00:00" → "9:00 AM" / "3:00 PM".
+ * Handles HH:MM, HH:MM:SS, and H:MM variants.
+ */
+function formatWallTime(timeStr) {
+  if (!timeStr) return '';
+  const m = String(timeStr).match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return '';
+  let h = parseInt(m[1], 10);
+  const min = m[2];
+  const suffix = h < 12 ? 'AM' : 'PM';
+  if (h === 0) h = 12;
+  else if (h > 12) h -= 12;
+  return min === '00' ? `${h} ${suffix}` : `${h}:${min} ${suffix}`;
+}
+
+/** Build a displayTime string from check-in/check-out wall-clock times, e.g. "9:00 AM – 3:00 PM". */
+function buildDisplayTime(checkIn, checkOut) {
+  const a = formatWallTime(checkIn);
+  const b = formatWallTime(checkOut);
+  if (a && b) return `${a} – ${b}`;
+  return a || b || '';
+}
+
 /** Hide school-path registration once the calendar date is on or after (session start + 2 days). */
 function isPastSessionRegistrationCutoff(startsAt) {
   const ms = startsAtToMs(startsAt);
@@ -1463,6 +1493,7 @@ function buildNavigatorSessionRowsFromEligible(eligible) {
         }
       } catch { /* ignore */ }
     }
+    const displayTime = buildDisplayTime(fe.clientCheckInDisplayTime, fe.clientCheckOutDisplayTime);
     return {
       groupKey: g.key,
       publicSessionLabel: lab,
@@ -1470,7 +1501,8 @@ function buildNavigatorSessionRowsFromEligible(eligible) {
       fallbackSubtitle,
       startsAt: fe.startsAt,
       displayTitle,
-      displaySubtitle
+      displaySubtitle,
+      displayTime
     };
   });
 }
@@ -4977,6 +5009,13 @@ watch(hubSlug, () => {
   color: var(--hub-text-muted);
 }
 
+.pmh-chip-session-time {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--hub-text-muted);
+  opacity: 0.8;
+}
+
 .pmh-cta-band {
   margin: 16px 16px 0;
   padding: 22px 20px 24px;
@@ -5981,6 +6020,13 @@ watch(hubSlug, () => {
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--hub-text-muted);
+}
+
+.pmh-sess-card-time {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--hub-text-muted);
+  opacity: 0.8;
 }
 
 .pmh-sess-card-cta {
