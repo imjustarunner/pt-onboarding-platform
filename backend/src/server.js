@@ -1494,6 +1494,22 @@ if (!isBootstrap) {
     }
   };
 
+  // Auto clock-out employees 90 min after all clients have left an event (runs every 5 min)
+  const scheduleAutoEmployeeClockOut = async () => {
+    try {
+      const { runAutoEmployeeClockOut } = await import('./services/autoEmployeeClockOut.service.js');
+      const r = await runAutoEmployeeClockOut();
+      if (r?.clockedOut?.length) {
+        console.log(`[autoEmployeeClockOut] Auto clocked out ${r.clockedOut.length} employee(s):`, r.clockedOut);
+      }
+    } catch (error) {
+      console.error('Error in auto employee clock-out job:', error);
+    }
+  };
+
+  scheduleAutoEmployeeClockOut();
+  setInterval(scheduleAutoEmployeeClockOut, 5 * 60 * 1000);
+
   // Run immediately on startup (best-effort)
   scheduleOfficeScheduleWatchdog();
   scheduleSkillBuildersSessionCloseout();
