@@ -5268,7 +5268,27 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       agencyId,
       userId
     });
-    const timeClaimsAmount = (approvedTimeClaims || []).reduce((a, c) => a + Number(c?.applied_amount || 0), 0);
+    // Effective dollar amount for a time claim. Skill Builders event time is paid at the
+    // provider's direct/indirect rate-card rate (hours x rate) when no explicit dollar
+    // amount is stored; an explicit non-zero applied_amount (admin override) still wins.
+    const effectiveTimeClaimAmount = (c) => {
+      const stored = Number(c?.applied_amount || 0);
+      const claimType = String(c?.claim_type || '').trim().toLowerCase();
+      if (claimType === 'skill_builder_event' && Math.abs(stored) <= 1e-9) {
+        const b = String(c?.bucket || 'indirect').trim().toLowerCase() === 'direct' ? 'direct' : 'indirect';
+        const payload = c?.payload || {};
+        const hrsCol = (c?.credits_hours === null || c?.credits_hours === undefined || c?.credits_hours === '') ? null : Number(c.credits_hours);
+        const hrs = Number.isFinite(hrsCol)
+          ? hrsCol
+          : (b === 'direct' ? Number(payload?.directHours || 0) : Number(payload?.indirectHours || 0));
+        if (Number.isFinite(hrs) && hrs > 1e-9) {
+          const evRate = b === 'direct' ? (Number(rateCard?.direct_rate || 0) || 0) : (Number(rateCard?.indirect_rate || 0) || 0);
+          return Math.round(hrs * evRate * 100) / 100;
+        }
+      }
+      return stored;
+    };
+    const timeClaimsAmount = (approvedTimeClaims || []).reduce((a, c) => a + effectiveTimeClaimAmount(c), 0);
     const otherTaxableAmount = Number(adj?.other_taxable_amount || 0);
     const imatterAmount = Number(adj?.imatter_amount || 0);
     const missedAppointmentsAmount = Number(adj?.missed_appointments_amount || 0);
@@ -5497,13 +5517,16 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
           tierCreditsCurrent += hrs;
         }
       }
-      if (Math.abs(amt) > 1e-9) {
+      // Skill Builders event time is paid at the provider's direct/indirect rate-card rate
+      // (see effectiveTimeClaimAmount). This keeps the displayed line in sync with the total.
+      const effectiveAmt = effectiveTimeClaimAmount(c);
+      if (Math.abs(effectiveAmt) > 1e-9) {
         const typeLabel = claimType ? claimType.replace(/_/g, ' ') : 'time claim';
         pushLine({
           type: 'time_claim',
           label: `Time claim (${typeLabel})`,
           taxable: true,
-          amount: amt,
+          amount: effectiveAmt,
           bucket: b,
           meta: { creditsHours: (Number.isFinite(hrs) ? hrs : null) }
         });
