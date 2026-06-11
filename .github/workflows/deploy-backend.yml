@@ -6,7 +6,9 @@ on:
       - main
     paths:
       - 'backend/**'
-      - 'frontend/**'  # ADDED: Now triggers when you fix frontend files too
+      - 'frontend/**'
+      - 'database/migrations/**'
+      - '.dockerignore'
       - '.github/workflows/deploy-backend.yml'
   workflow_dispatch:
 

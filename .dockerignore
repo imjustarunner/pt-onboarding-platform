@@ -54,9 +54,9 @@ frontend/Dockerfile
 .github/
 cloudbuild*.yaml
 
-# Database — exclude schema/scripts; keep migrations for Cloud Run startup (bootstrap.js)
-database/*
-!database/migrations/
+# Database — keep migrations for Cloud Run startup (bootstrap.js); exclude everything else
+database/create-fresh-init.js
+database/generate-fresh-schema.js
 
 # Uploads (will be in Cloud Storage)
 # Keep a placeholder directory so backend Dockerfile can `COPY backend/uploads ...`
