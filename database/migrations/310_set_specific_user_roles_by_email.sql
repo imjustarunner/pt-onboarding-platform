@@ -9,6 +9,7 @@
 
 UPDATE users
 SET role = CASE LOWER(email)
+  WHEN 'michael@plottwistco.com' THEN 'super_admin'
   WHEN 'rachel@itsco.health' THEN 'admin'
   WHEN 'haley@plottwistco.com' THEN 'super_admin'
   WHEN 'hannah@plottwistco.com' THEN 'admin'
@@ -19,6 +20,7 @@ SET role = CASE LOWER(email)
   ELSE role
 END
 WHERE LOWER(email) IN (
+  'michael@plottwistco.com',
   'rachel@itsco.health',
   'haley@plottwistco.com',
   'hannah@plottwistco.com',

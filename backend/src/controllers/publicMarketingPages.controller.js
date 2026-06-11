@@ -156,7 +156,10 @@ export const getPublicMarketingPageEvents = async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
       const baseUrl = hubRequestBaseUrl(req);
-      const events = await loadHubPublicEvents(conn, sources, { baseUrl });
+      let events = await loadHubPublicEvents(conn, sources, { baseUrl });
+      if (slug === 'd11summer2026') {
+        events = events.filter((ev) => !/denver/i.test(String(ev.title || '')));
+      }
       res.json({
         ok: true,
         hubSlug: String(page.slug || '').toLowerCase(),
