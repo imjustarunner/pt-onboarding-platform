@@ -10617,6 +10617,20 @@ const payTotalsFromBreakdown = (breakdown) => {
     else if (bucket === 'flat') out.flatAmount += amt;
     else out.directAmount += amt;
   }
+  // Also sum adjustment lines (time claims, manual pay lines, etc.) by bucket so that
+  // providers whose only pay comes from event time still show correct direct/indirect totals.
+  const adjLines = breakdown?.__adjustments?.lines;
+  if (Array.isArray(adjLines)) {
+    for (const line of adjLines) {
+      const amt = Number(line?.amount || 0);
+      if (Math.abs(amt) <= 1e-9) continue;
+      const bucket = line?.bucket ? String(line.bucket).trim().toLowerCase() : 'direct';
+      if (bucket === 'indirect') out.indirectAmount += amt;
+      else if (bucket === 'other') out.otherAmount += amt;
+      else if (bucket === 'flat') out.flatAmount += amt;
+      else out.directAmount += amt;
+    }
+  }
   return out;
 };
 

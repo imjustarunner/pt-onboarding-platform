@@ -5521,10 +5521,19 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       // (see effectiveTimeClaimAmount). This keeps the displayed line in sync with the total.
       const effectiveAmt = effectiveTimeClaimAmount(c);
       if (Math.abs(effectiveAmt) > 1e-9) {
-        const typeLabel = claimType ? claimType.replace(/_/g, ' ') : 'time claim';
+        let lineLabel;
+        if (claimType === 'skill_builder_event') {
+          const evTitle = String(payload?.eventTitle || '').trim() || 'Skill Builders event';
+          const dateStr = String(c?.claim_date || payload?.clockInAt || '').slice(0, 10);
+          const bucketLabel = b === 'direct' ? 'Direct' : 'Indirect';
+          lineLabel = `${evTitle}${dateStr ? ` (${dateStr})` : ''} — ${bucketLabel}`;
+        } else {
+          const typeLabel = claimType ? claimType.replace(/_/g, ' ') : 'time claim';
+          lineLabel = `Time claim (${typeLabel})`;
+        }
         pushLine({
           type: 'time_claim',
-          label: `Time claim (${typeLabel})`,
+          label: lineLabel,
           taxable: true,
           amount: effectiveAmt,
           bucket: b,

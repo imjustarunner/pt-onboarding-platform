@@ -516,6 +516,18 @@ const payTotalsFromBreakdown = (b) => {
     else if (bucket === 'flat') out.flatAmount += amt;
     else out.directAmount += amt;
   }
+  const adjLines = b?.__adjustments?.lines;
+  if (Array.isArray(adjLines)) {
+    for (const line of adjLines) {
+      const amt = Number(line?.amount || 0);
+      if (Math.abs(amt) <= 1e-9) continue;
+      const bucket = line?.bucket ? String(line.bucket).trim().toLowerCase() : 'direct';
+      if (bucket === 'indirect') out.indirectAmount += amt;
+      else if (bucket === 'other') out.otherAmount += amt;
+      else if (bucket === 'flat') out.flatAmount += amt;
+      else out.directAmount += amt;
+    }
+  }
   return out;
 };
 
