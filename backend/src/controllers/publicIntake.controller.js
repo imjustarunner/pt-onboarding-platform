@@ -4735,7 +4735,7 @@ export const createPublicIntakeSession = async (req, res, next) => {
         ipAddress,
         since
       });
-      if (starts >= 5) {
+      if (starts >= 50) {
         return res.status(429).json({ error: { message: 'Daily intake start limit reached. Please try again tomorrow.' } });
       }
     }
