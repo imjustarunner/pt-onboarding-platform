@@ -4735,6 +4735,25 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
   }
 
+  // Ensure users with ONLY approved time claims (e.g. Skill Builders event time,
+  // meeting/training, holiday pay) get a payroll summary row even without sessions.
+  try {
+    const [tcUserRows] = await pool.execute(
+      `SELECT DISTINCT user_id FROM payroll_time_claims
+       WHERE agency_id = ?
+         AND status IN ('approved','paid')
+         AND target_payroll_period_id = ?
+         AND user_id IS NOT NULL`,
+      [agencyId, payrollPeriodId]
+    );
+    for (const r of tcUserRows || []) {
+      const uid = Number(r?.user_id || 0);
+      if (uid && !byUser.has(uid)) byUser.set(uid, []);
+    }
+  } catch (e) {
+    if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+  }
+
   // Prelicensed pay gating for supervision codes (99414/99416):
   // pay is $0 until (individual>=50 AND total>=100) as of *prior* periods (pay-forward only).
   const supervisionPayEligibleByUserId = new Map();
@@ -16285,11 +16304,26 @@ export const patchHolidayBonusClaim = async (req, res, next) => {
   }
 };
 
-async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard }) {
+async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approveBucket = null, approveCreditsHours = null }) {
   const type = String(claim?.claim_type || '').toLowerCase();
   const payload = claim?.payload || {};
   const directRate = Number(rateCard?.direct_rate || 0);
   const indirectRate = Number(rateCard?.indirect_rate || 0);
+
+  if (type === 'skill_builder_event') {
+    // Event-time is paid per bucket: hours × the matching rate-card rate.
+    const bucket = String(approveBucket || claim?.bucket || payload?.bucketRole || '').toLowerCase();
+    let hrs = Number(approveCreditsHours);
+    if (!Number.isFinite(hrs) || hrs < 0) hrs = Number(claim?.credits_hours);
+    if (!Number.isFinite(hrs) || hrs < 0) {
+      hrs = bucket === 'direct' ? Number(payload?.directHours || 0) : Number(payload?.indirectHours || 0);
+    }
+    const rate = bucket === 'direct' ? directRate : indirectRate;
+    if (Number.isFinite(hrs) && hrs > 0 && rate > 0) {
+      return Math.round(hrs * rate * 100) / 100;
+    }
+    return null;
+  }
 
   if (type === 'meeting_training' || type === 'mentor_cpa_meeting') {
     const mins = Number(payload?.totalMinutes || 0);
@@ -16373,9 +16407,19 @@ export const patchTimeClaim = async (req, res, next) => {
       });
       if (!ok.ok) return;
 
+      const bucketRaw = String(body.bucket || body.category || 'indirect').trim().toLowerCase();
+      const bucket = bucketRaw === 'direct' ? 'direct' : 'indirect';
+      const creditsHoursRaw =
+        body.creditsHours === null || body.creditsHours === undefined || body.creditsHours === ''
+          ? (body.credits_hours === null || body.credits_hours === undefined || body.credits_hours === '' ? null : Number(body.credits_hours))
+          : Number(body.creditsHours);
+      if (creditsHoursRaw !== null && (!Number.isFinite(creditsHoursRaw) || creditsHoursRaw < 0)) {
+        return res.status(400).json({ error: { message: 'creditsHours must be a non-negative number (or blank)' } });
+      }
+
       // Applied amount is dollar-based.
       // Prefer explicit admin override, then payload amount (if provided), then best-effort
-      // default based on submitted minutes + user's rate card.
+      // default based on submitted minutes/hours + user's rate card.
       const override = body.appliedAmount === null || body.appliedAmount === undefined || body.appliedAmount === '' ? null : Number(body.appliedAmount);
       const payloadAmountRaw =
         claim?.payload?.amount === null || claim?.payload?.amount === undefined || claim?.payload?.amount === ''
@@ -16385,7 +16429,13 @@ export const patchTimeClaim = async (req, res, next) => {
       if (!Number.isFinite(override) && !Number.isFinite(payloadAmountRaw)) {
         try {
           const rateCard = await PayrollRateCard.findForUser(claim.agency_id, claim.user_id);
-          computedDefaultAmount = await computeDefaultAppliedAmountForTimeClaim({ claim, rateCard });
+          computedDefaultAmount = await computeDefaultAppliedAmountForTimeClaim({
+            claim,
+            rateCard,
+            // For event-time, pay = the bucket being approved × its hours × the rate-card rate.
+            approveBucket: bucket,
+            approveCreditsHours: creditsHoursRaw
+          });
         } catch {
           computedDefaultAmount = null;
         }
@@ -16395,16 +16445,6 @@ export const patchTimeClaim = async (req, res, next) => {
         : (Number.isFinite(payloadAmountRaw) ? payloadAmountRaw : (Number.isFinite(computedDefaultAmount) ? computedDefaultAmount : 0));
       if (!Number.isFinite(appliedAmount) || appliedAmount < 0) {
         return res.status(400).json({ error: { message: 'appliedAmount must be a non-negative number' } });
-      }
-
-      const bucketRaw = String(body.bucket || body.category || 'indirect').trim().toLowerCase();
-      const bucket = bucketRaw === 'direct' ? 'direct' : 'indirect';
-      const creditsHoursRaw =
-        body.creditsHours === null || body.creditsHours === undefined || body.creditsHours === ''
-          ? (body.credits_hours === null || body.credits_hours === undefined || body.credits_hours === '' ? null : Number(body.credits_hours))
-          : Number(body.creditsHours);
-      if (creditsHoursRaw !== null && (!Number.isFinite(creditsHoursRaw) || creditsHoursRaw < 0)) {
-        return res.status(400).json({ error: { message: 'creditsHours must be a non-negative number (or blank)' } });
       }
 
       const updated = await PayrollTimeClaim.approve({

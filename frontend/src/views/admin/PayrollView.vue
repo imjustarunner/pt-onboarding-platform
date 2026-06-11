@@ -2767,8 +2767,34 @@
                           >
                             Approve {{ row.bucketLabel.toLowerCase() }}
                           </button>
-                          <span v-if="!row.canApprove && row.claim?.status === 'approved'" class="muted" style="font-size: 12px;">Approved</span>
-                          <span v-else-if="!row.canApprove && row.claim?.status === 'rejected'" class="muted" style="font-size: 12px;">Rejected</span>
+                          <button
+                            v-if="row.bucket === 'direct' && row.canApprove"
+                            class="btn btn-secondary btn-sm"
+                            type="button"
+                            :disabled="eventTimeSavingId === row.submission.punchInId"
+                            @click="returnEventTimeSubmission(row.submission)"
+                          >
+                            Send back…
+                          </button>
+                          <button
+                            v-if="row.bucket === 'direct' && row.canApprove"
+                            class="btn btn-danger btn-sm"
+                            type="button"
+                            :disabled="eventTimeSavingId === row.submission.punchInId"
+                            @click="rejectEventTimeSubmission(row.submission)"
+                          >
+                            Reject
+                          </button>
+                          <button
+                            v-if="row.bucket === 'direct' && !row.canApprove && row.claim?.status === 'approved'"
+                            class="btn btn-secondary btn-sm"
+                            type="button"
+                            :disabled="eventTimeSavingId === row.submission.punchInId"
+                            @click="unapproveEventTimeSubmission(row.submission)"
+                          >
+                            Unapprove
+                          </button>
+                          <span v-if="!row.canApprove && row.claim?.status === 'rejected'" class="muted" style="font-size: 12px;">Rejected</span>
                         </div>
                       </td>
                     </tr>
@@ -8655,6 +8681,69 @@ const approveEventTimeSubmission = async (submission, bucket) => {
     await reloadPendingTimeClaims();
   } catch (e) {
     eventTimeError.value = e.response?.data?.error?.message || e.message || 'Failed to approve event time claim';
+  } finally {
+    eventTimeSavingId.value = null;
+  }
+};
+
+// Reject both buckets (direct + indirect) of an event-time submission.
+const rejectEventTimeSubmission = async (submission) => {
+  if (!agencyId.value || !submission) return;
+  const reason = window.prompt('Reject this event time? Enter a reason (required):', '') || '';
+  if (!String(reason).trim()) return;
+  const claimIds = [submission.directClaim?.id, submission.indirectClaim?.id].filter(Boolean);
+  if (!claimIds.length) return;
+  eventTimeSavingId.value = submission.punchInId;
+  try {
+    for (const id of claimIds) {
+      await api.patch(`/payroll/time-claims/${id}`, { action: 'reject', rejectionReason: String(reason).trim() });
+    }
+    await loadEventTimeSubmissions();
+    await reloadPendingTimeClaims();
+  } catch (e) {
+    eventTimeError.value = e.response?.data?.error?.message || e.message || 'Failed to reject event time';
+  } finally {
+    eventTimeSavingId.value = null;
+  }
+};
+
+// Unapprove both buckets of an approved event-time submission (returns to Pending).
+const unapproveEventTimeSubmission = async (submission) => {
+  if (!agencyId.value || !submission) return;
+  const ok = window.confirm('Unapprove this event time? It will return to Pending so it can be edited or re-approved.');
+  if (!ok) return;
+  const claimIds = [submission.directClaim?.id, submission.indirectClaim?.id].filter(Boolean);
+  if (!claimIds.length) return;
+  eventTimeSavingId.value = submission.punchInId;
+  try {
+    for (const id of claimIds) {
+      await api.patch(`/payroll/time-claims/${id}`, { action: 'unapprove' });
+    }
+    await loadEventTimeSubmissions();
+    await reloadPendingTimeClaims();
+  } catch (e) {
+    eventTimeError.value = e.response?.data?.error?.message || e.message || 'Failed to unapprove event time';
+  } finally {
+    eventTimeSavingId.value = null;
+  }
+};
+
+// Send back both buckets of an event-time submission to the employee for changes.
+const returnEventTimeSubmission = async (submission) => {
+  if (!agencyId.value || !submission) return;
+  const note = window.prompt('Send back to employee. Enter a note (required):', '') || '';
+  if (!String(note).trim()) return;
+  const claimIds = [submission.directClaim?.id, submission.indirectClaim?.id].filter(Boolean);
+  if (!claimIds.length) return;
+  eventTimeSavingId.value = submission.punchInId;
+  try {
+    for (const id of claimIds) {
+      await api.patch(`/payroll/time-claims/${id}`, { action: 'return', note: String(note).trim() });
+    }
+    await loadEventTimeSubmissions();
+    await reloadPendingTimeClaims();
+  } catch (e) {
+    eventTimeError.value = e.response?.data?.error?.message || e.message || 'Failed to send back event time';
   } finally {
     eventTimeSavingId.value = null;
   }
