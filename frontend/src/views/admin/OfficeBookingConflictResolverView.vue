@@ -48,49 +48,22 @@
 
     <div v-if="!loading && diagnosticIssueCount > 0" class="diagnostic-details">
 
-      <!-- Duplicate room/time events -->
-      <div v-if="diagnostics?.duplicateActiveEvents?.length" class="card conflict-table-wrap diagnostic-section">
+      <!-- Duplicate room/time events — calendar grid view -->
+      <div v-if="diagnostics?.duplicateActiveEvents?.length" class="card diagnostic-section calendar-section">
         <div class="section-head">
           <div>
             <h3>Duplicate room/time events <span class="count-chip">{{ diagnostics.duplicateActiveEvents.length }} slot{{ diagnostics.duplicateActiveEvents.length === 1 ? '' : 's' }}</span></h3>
-            <div class="muted">Two or more active events are occupying the same room at the same time. Cancel all but one per slot.</div>
+            <div class="muted">Click any colored block to see who is double-booked and rebook or cancel one of them. Blocks with a <strong>!</strong> badge mean a provider is also booked in another room at the same time.</div>
           </div>
         </div>
-        <table class="table">
-          <thead>
-            <tr>
-              <th>When</th>
-              <th>Office · Room</th>
-              <th>Provider</th>
-              <th>Status</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="(group, gi) in diagnostics.duplicateActiveEvents" :key="`dag-${gi}`">
-              <tr v-for="(ev, ei) in group.events" :key="`da-${ev.id}`"
-                  :class="{ 'group-last': ei === group.events.length - 1 && gi < diagnostics.duplicateActiveEvents.length - 1 }">
-                <td v-if="ei === 0" :rowspan="group.events.length" class="time-col slot-cell">
-                  <div class="slot-date">{{ formatDate(group.start_at) }}</div>
-                  <div class="time-range">{{ formatTime(group.start_at) }}<template v-if="group.end_at"> – {{ formatTime(group.end_at) }}</template></div>
-                </td>
-                <td v-if="ei === 0" :rowspan="group.events.length" class="slot-cell">
-                  <div class="office-name">{{ group.office_name }}</div>
-                  <div class="room-label muted">{{ group.room_number ? `#${group.room_number} · ` : '' }}{{ group.room_label || group.room_name }}</div>
-                </td>
-                <td>{{ ev.provider_name || 'Unassigned' }}</td>
-                <td><span :class="`status-chip status-${(ev.status || 'active').toLowerCase()}`">{{ ev.status || 'Active' }}</span></td>
-                <td>
-                  <button class="btn btn-sm btn-cancel"
-                          :disabled="actingEventId === ev.id"
-                          @click="cancelDuplicateEvent(ev.id, gi)">
-                    {{ actingEventId === ev.id ? 'Cancelling…' : 'Cancel event' }}
-                  </button>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
+        <div class="calendar-body">
+          <ConflictCalendarGrid
+            :groups="diagnostics.duplicateActiveEvents"
+            v-model:weekStart="conflictWeekStart"
+            @cancel-event="cancelDuplicateEvent"
+            @rebook-complete="load"
+          />
+        </div>
       </div>
 
       <!-- Duplicate active standing assignments -->
@@ -310,8 +283,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import ConflictCalendarGrid from '../../components/schedule/ConflictCalendarGrid.vue';
 
 const loading = ref(true);
 const error   = ref('');
@@ -322,6 +296,37 @@ const actingEventId = ref(null);
 const actingAssignId = ref(null);
 const cleaningUp = ref(false);
 const cleanupResult = ref(null);
+
+// Week shown in the calendar grid — jump to the Monday of the earliest conflict
+// whenever new diagnostics arrive.
+const conflictWeekStart = ref(mondayOfToday());
+
+function mondayOfToday() {
+  const d = new Date();
+  const day = d.getDay();
+  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+  return d.toISOString().slice(0, 10);
+}
+
+function addDaysYmd(ymd, n) {
+  const d = new Date(ymd + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// When diagnostics load, jump to the week of the first conflict.
+watch(() => diagnostics.value?.duplicateActiveEvents, (groups) => {
+  if (!groups?.length) return;
+  const earliest = groups
+    .map((g) => String(g.start_at).slice(0, 10))
+    .sort()[0];
+  if (earliest) {
+    const d = new Date(earliest + 'T00:00:00');
+    const day = d.getDay();
+    d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+    conflictWeekStart.value = d.toISOString().slice(0, 10);
+  }
+}, { immediate: true });
 
 const diagnosticIssueCount = computed(() =>
   (diagnostics.value?.duplicateActiveEvents?.length || 0)
@@ -559,6 +564,8 @@ onMounted(load);
   margin: 0 0 4px;
   font-size: 1rem;
 }
+.calendar-section { overflow: visible; }
+.calendar-body { padding: 14px 18px; }
 .diag-pill {
   display: inline-block;
   padding: 4px 9px;

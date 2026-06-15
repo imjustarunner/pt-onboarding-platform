@@ -3115,7 +3115,19 @@ export const getOfficeScheduleIntegrityDiagnostics = async (req, res, next) => {
                 e.room_id, r.name AS room_name, r.room_number, r.label AS room_label,
                 e.start_at, e.end_at, e.status,
                 COALESCE(e.booked_provider_id, e.assigned_provider_id) AS provider_id,
-                TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))) AS provider_name
+                TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))) AS provider_name,
+                CASE
+                  WHEN COALESCE(e.booked_provider_id, e.assigned_provider_id) IS NULL THEN 0
+                  ELSE EXISTS (
+                    SELECT 1 FROM office_events e2
+                    WHERE COALESCE(e2.booked_provider_id, e2.assigned_provider_id)
+                          = COALESCE(e.booked_provider_id, e.assigned_provider_id)
+                      AND e2.start_at < e.end_at
+                      AND e2.end_at > e.start_at
+                      AND e2.id != e.id
+                      AND (e2.status IS NULL OR UPPER(e2.status) <> 'CANCELLED')
+                  )
+                END AS has_other_booking
          FROM office_events e
          JOIN office_locations ol ON ol.id = e.office_location_id
          JOIN office_rooms r ON r.id = e.room_id
@@ -3145,7 +3157,8 @@ export const getOfficeScheduleIntegrityDiagnostics = async (req, res, next) => {
           id: row.id,
           status: row.status || null,
           provider_id: row.provider_id || null,
-          provider_name: row.provider_name || null
+          provider_name: row.provider_name || null,
+          has_other_booking: !!row.has_other_booking
         });
       }
       duplicateActiveEvents = [...slotMap.values()];
@@ -3380,6 +3393,77 @@ export const cleanupInactiveProviderBookings = async (req, res, next) => {
     }
     const result = await OfficeScheduleWatchdogService.cleanupInactiveProviderBookings();
     return res.json(result);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const availableRoomsForSlot = async (req, res, next) => {
+  try {
+    if (!canManageSchedule(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const { locationId, startAt, endAt, excludeRoomId } = req.query;
+    if (!locationId || !startAt || !endAt) {
+      return res.status(400).json({ error: { message: 'locationId, startAt and endAt are required' } });
+    }
+    const [rooms] = await pool.execute(
+      `SELECT r.id, r.name, r.label, r.room_number, r.room_type
+       FROM office_rooms r
+       WHERE r.office_location_id = ?
+         AND (r.is_active = TRUE OR r.is_active IS NULL)
+         AND r.id != COALESCE(?, -1)
+         AND r.id NOT IN (
+           SELECT DISTINCT e.room_id
+           FROM office_events e
+           WHERE e.office_location_id = ?
+             AND e.start_at < ?
+             AND e.end_at > ?
+             AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+         )
+       ORDER BY r.room_number + 0, r.name`,
+      [Number(locationId), excludeRoomId ? Number(excludeRoomId) : null,
+       Number(locationId), startAt, endAt]
+    );
+    return res.json({ rooms });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const rebookEvent = async (req, res, next) => {
+  try {
+    if (!canManageSchedule(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const { eventId, newRoomId } = req.body;
+    if (!eventId || !newRoomId) {
+      return res.status(400).json({ error: { message: 'eventId and newRoomId are required' } });
+    }
+    // Verify the target room is genuinely open (no active overlapping event).
+    const [existingRows] = await pool.execute(
+      `SELECT e2.id
+       FROM office_events e
+       JOIN office_events e2 ON e2.room_id = ?
+         AND e2.start_at < e.end_at
+         AND e2.end_at > e.start_at
+         AND e2.id != e.id
+         AND (e2.status IS NULL OR UPPER(e2.status) <> 'CANCELLED')
+       WHERE e.id = ?
+       LIMIT 1`,
+      [Number(newRoomId), Number(eventId)]
+    );
+    if (existingRows.length) {
+      return res.status(409).json({ error: { message: 'That room already has a booking in this time slot' } });
+    }
+    const [result] = await pool.execute(
+      `UPDATE office_events SET room_id = ?, updated_at = NOW() WHERE id = ?`,
+      [Number(newRoomId), Number(eventId)]
+    );
+    if (!result.affectedRows) {
+      return res.status(404).json({ error: { message: 'Event not found' } });
+    }
+    return res.json({ ok: true });
   } catch (e) {
     next(e);
   }

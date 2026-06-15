@@ -26,6 +26,8 @@ import {
   getOfficeScheduleIntegrityDiagnostics,
   resolveIntegrityConflict,
   cleanupInactiveProviderBookings,
+  availableRoomsForSlot,
+  rebookEvent,
   getSlotConflicts,
   resolveSlotConflict,
   getScheduleAudit
@@ -77,6 +79,8 @@ router.post('/locations/:locationId/rooms', createRoom);
 router.get('/admin/integrity-diagnostics', getOfficeScheduleIntegrityDiagnostics);
 router.post('/admin/integrity-diagnostics/resolve', resolveIntegrityConflict);
 router.post('/admin/cleanup-inactive-providers', cleanupInactiveProviderBookings);
+router.get('/admin/available-rooms-for-slot', availableRoomsForSlot);
+router.post('/admin/rebook-event', rebookEvent);
 router.get('/admin/slot-conflicts', getSlotConflicts);
 router.post('/admin/slot-conflicts/resolve', resolveSlotConflict);
 
