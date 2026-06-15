@@ -4309,10 +4309,20 @@ const loadAllowedTemplates = async (link) => {
   const allowedIds = Array.isArray(link.allowed_document_template_ids)
     ? link.allowed_document_template_ids
     : [];
-  if (!allowedIds.length) return [];
+
+  // Also include Spanish-mapped template IDs so Spanish PDFs load on the public intake.
+  const translationMap = link.document_translation_map && typeof link.document_translation_map === 'object'
+    ? link.document_translation_map
+    : {};
+  const spanishIds = Object.values(translationMap)
+    .map(Number)
+    .filter((id) => Number.isFinite(id) && id > 0 && !allowedIds.includes(id));
+
+  const allIds = [...allowedIds, ...spanishIds];
+  if (!allIds.length) return [];
 
   const templates = [];
-  for (const id of allowedIds) {
+  for (const id of allIds) {
     const t = await DocumentTemplate.findById(id);
     if (t && t.is_active) templates.push(t);
   }
@@ -4371,7 +4381,15 @@ const loadTemplateById = async (link, templateId) => {
   const allowedIds = Array.isArray(link.allowed_document_template_ids)
     ? link.allowed_document_template_ids
     : [];
-  if (!allowedIds.includes(templateId)) return null;
+
+  // Also permit Spanish-mapped template IDs so preview/sign works when locale is Español.
+  const translationMap = link.document_translation_map && typeof link.document_translation_map === 'object'
+    ? link.document_translation_map
+    : {};
+  const spanishIds = Object.values(translationMap).map(Number).filter((id) => Number.isFinite(id) && id > 0);
+
+  const isAllowed = allowedIds.includes(templateId) || spanishIds.includes(Number(templateId));
+  if (!isAllowed) return null;
   const template = await DocumentTemplate.findById(templateId);
   if (!template || !template.is_active) return null;
   return template;

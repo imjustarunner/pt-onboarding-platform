@@ -4204,6 +4204,15 @@ const save = async () => {
       // Omit empty map so a save for question-label changes does not wipe stored PDF mappings.
       return undefined;
     })();
+    // Ensure Spanish-mapped template IDs are also stored so they can be served on the public intake.
+    if (documentTranslationMapPayload && typeof documentTranslationMapPayload === 'object') {
+      Object.values(documentTranslationMapPayload).forEach((esId) => {
+        const id = Number(esId);
+        if (Number.isFinite(id) && id > 0 && !allowedDocumentTemplateIds.includes(id)) {
+          allowedDocumentTemplateIds.push(id);
+        }
+      });
+    }
     const payload = {
       title: form.title,
       description: form.description,
