@@ -2694,6 +2694,7 @@
               <h3 class="card-title" style="margin: 0 0 6px 0;">Event time (Pending)</h3>
               <div class="hint">
                 Skill Builders / program event kiosk check-in/out with direct and indirect hour split. Each session appears as two rows (direct + indirect). Direct hours are defaulted from the event settings and locked; edit the indirect hours if needed before approving each bucket. Edits are logged with the original values.
+                All pending submissions are shown here regardless of pay period. <strong>Approving posts to the currently selected pay period.</strong> Switch pay periods before approving to control where each submission is posted.
               </div>
               <div v-if="eventTimeError" class="warn-box" style="margin-top: 8px;">{{ eventTimeError }}</div>
               <div v-if="eventTimeLoading" class="muted" style="margin-top: 8px;">Loading event time submissions…</div>
@@ -2712,7 +2713,7 @@
                       <th>Bucket</th>
                       <th class="right">Hours</th>
                       <th>Status</th>
-                      <th>Pay period</th>
+                      <th>Suggested period</th>
                       <th class="right">Actions</th>
                     </tr>
                   </thead>
@@ -8592,7 +8593,10 @@ const loadEventTimeSubmissions = async () => {
       params: {
         agencyId: agencyId.value,
         status: eventTimeShowApproved.value ? 'submitted,approved,rejected,deferred' : 'submitted',
-        suggestedPeriodId: selectedPeriodId.value || undefined
+        // For pending view: show ALL unapproved submissions agency-wide so nothing falls
+        // through the cracks (e.g. claims whose suggested period doesn't match the open period).
+        // For history view: filter to the selected period so you see what was approved into it.
+        suggestedPeriodId: eventTimeShowApproved.value ? (selectedPeriodId.value || undefined) : undefined
       }
     });
     eventTimeSubmissions.value = Array.isArray(resp.data?.submissions) ? resp.data.submissions : [];
