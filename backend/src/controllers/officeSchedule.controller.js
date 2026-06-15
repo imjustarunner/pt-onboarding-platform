@@ -18,6 +18,7 @@ import { refreshLocationBookingsFromEhr } from '../services/officeScheduleEhrSyn
 import { getSchedulingBookingMetadata, validateSchedulingSelection } from '../services/schedulingTaxonomy.service.js';
 import { ensureAppointmentContext } from '../services/appointmentContext.service.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
+import { OfficeScheduleWatchdogService } from '../services/officeScheduleWatchdog.service.js';
 
 const canManageSchedule = (role) =>
   role === 'clinical_practice_assistant' || role === 'provider_plus' || role === 'admin' || role === 'super_admin' || role === 'superadmin' || role === 'support' || role === 'staff';
@@ -3367,6 +3368,18 @@ export const resolveIntegrityConflict = async (req, res, next) => {
     }
 
     return res.status(400).json({ error: { message: `Unknown action: ${action}` } });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const cleanupInactiveProviderBookings = async (req, res, next) => {
+  try {
+    if (!canManageSchedule(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Only schedule managers can run provider cleanup' } });
+    }
+    const result = await OfficeScheduleWatchdogService.cleanupInactiveProviderBookings();
+    return res.json(result);
   } catch (e) {
     next(e);
   }

@@ -9,12 +9,22 @@
           For each conflict, choose who keeps the room.
         </p>
       </div>
-      <div style="display:flex;gap:8px;flex-shrink:0;">
+      <div style="display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap;">
+        <button class="btn btn-secondary" @click="runInactiveCleanup" :disabled="cleaningUp || loading"
+                title="Cancel all future bookings and assignments for archived or deactivated providers">
+          {{ cleaningUp ? 'Cleaning up…' : 'Clear inactive providers' }}
+        </button>
         <router-link to="/admin/schedule-audit" class="btn btn-secondary">Full schedule audit</router-link>
         <button class="btn btn-secondary" @click="load" :disabled="loading">Refresh</button>
       </div>
     </div>
 
+    <div v-if="cleanupResult" class="cleanup-result-box">
+      Inactive provider cleanup complete —
+      <strong>{{ cleanupResult.eventsCancel }} future event{{ cleanupResult.eventsCancel === 1 ? '' : 's' }} cancelled</strong>,
+      <strong>{{ cleanupResult.assignmentsDeactivated }} standing assignment{{ cleanupResult.assignmentsDeactivated === 1 ? '' : 's' }} deactivated</strong>.
+      <button class="dismiss-btn" @click="cleanupResult = null">✕</button>
+    </div>
     <div v-if="error" class="error-box">{{ error }}</div>
     <div v-else-if="loading" class="loading">Loading…</div>
 
@@ -310,6 +320,8 @@ const diagnostics = ref(null);
 const actingKey = ref(null);
 const actingEventId = ref(null);
 const actingAssignId = ref(null);
+const cleaningUp = ref(false);
+const cleanupResult = ref(null);
 
 const diagnosticIssueCount = computed(() =>
   (diagnostics.value?.duplicateActiveEvents?.length || 0)
@@ -402,6 +414,21 @@ const resolveReleased = async (c, action) => {
     error.value = e.response?.data?.error?.message || 'Failed to resolve conflict';
   } finally {
     actingKey.value = null;
+  }
+};
+
+const runInactiveCleanup = async () => {
+  try {
+    cleaningUp.value = true;
+    cleanupResult.value = null;
+    error.value = '';
+    const resp = await api.post('/office-schedule/admin/cleanup-inactive-providers');
+    cleanupResult.value = resp.data;
+    await load();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Cleanup failed';
+  } finally {
+    cleaningUp.value = false;
   }
 };
 
@@ -634,4 +661,14 @@ onMounted(load);
 .status-assigned_available { background: #f0fdf4; color: #15803d; }
 .status-available         { background: #f0fdf4; color: #15803d; }
 .status-active            { background: #f3f4f6; color: #374151; }
+
+.cleanup-result-box {
+  background: #f0fdf4; border: 1px solid #86efac; color: #166534;
+  border-radius: 8px; padding: 12px 16px; margin-bottom: 16px;
+  font-size: 0.9rem; display: flex; align-items: center; gap: 8px;
+}
+.dismiss-btn {
+  margin-left: auto; background: none; border: none; cursor: pointer;
+  color: #166534; font-size: 1rem; padding: 0 4px; line-height: 1;
+}
 </style>

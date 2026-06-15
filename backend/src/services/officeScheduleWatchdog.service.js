@@ -412,6 +412,12 @@ export class OfficeScheduleWatchdogService {
 
     const confirms = await this.emitSixWeekBookingConfirmReminders();
     const forfeits = await this.autoForfeitStaleAvailableSlots();
+    let inactiveCleanup = null;
+    try {
+      inactiveCleanup = await this.cleanupInactiveProviderBookings();
+    } catch (e) {
+      inactiveCleanup = { ok: false, reason: 'exception', error: String(e?.message || e) };
+    }
 
     let googleSync = null;
     try {
@@ -428,6 +434,95 @@ export class OfficeScheduleWatchdogService {
       ehrTnDowngrade = { ok: false, reason: 'exception', error: String(e?.message || e) };
     }
 
-    return { ok: true, ehrRefresh, internalSessionBook, confirms, forfeits, googleSync, ehrTnDowngrade };
+    return { ok: true, ehrRefresh, internalSessionBook, confirms, forfeits, inactiveCleanup, googleSync, ehrTnDowngrade };
+  }
+
+  /**
+   * Cancel all future office bookings and deactivate all standing assignments
+   * for users who are archived (is_archived = TRUE) or deactivated (is_active = FALSE).
+   * Safe to run daily — skips users who are already fully cleaned up.
+   */
+  static async cleanupInactiveProviderBookings() {
+    // Find provider IDs that are inactive or archived.
+    const [inactiveProviders] = await pool.execute(
+      `SELECT id FROM users
+       WHERE (is_archived = TRUE OR is_active = FALSE)
+         AND role IN ('PROVIDER', 'provider', 'therapist', 'THERAPIST', 'clinician', 'CLINICIAN')`
+    );
+
+    // If the role filter is too strict (roles vary per app), fall back to all
+    // deactivated/archived users who have any office events or assignments.
+    // We run both queries and union the IDs.
+    const [anyInactive] = await pool.execute(
+      `SELECT DISTINCT u.id FROM users u
+       WHERE (u.is_archived = TRUE OR u.is_active = FALSE)`
+    );
+
+    const providerIdSet = new Set([
+      ...inactiveProviders.map((r) => r.id),
+      ...anyInactive.map((r) => r.id)
+    ]);
+    const providerIds = [...providerIdSet];
+
+    if (!providerIds.length) return { ok: true, eventsCancel: 0, assignmentsDeactivated: 0 };
+
+    const ph = providerIds.map(() => '?').join(',');
+
+    // 1. Cancel all future office_events where this provider is the booked or assigned provider.
+    const [evResult] = await pool.execute(
+      `UPDATE office_events
+       SET status = 'CANCELLED', updated_at = NOW()
+       WHERE (booked_provider_id IN (${ph}) OR assigned_provider_id IN (${ph}))
+         AND start_at >= NOW()
+         AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
+      [...providerIds, ...providerIds]
+    );
+
+    // 2. Deactivate all active standing assignments for these providers.
+    const [aResult] = await pool.execute(
+      `UPDATE office_standing_assignments
+       SET is_active = FALSE, updated_at = NOW()
+       WHERE provider_id IN (${ph})
+         AND is_active = TRUE`,
+      providerIds
+    );
+
+    // 3. Cancel future materialized events tied to those now-deactivated assignments.
+    //    Run even if aResult.affectedRows = 0 to catch any that slipped through.
+    await pool.execute(
+      `UPDATE office_events oe
+       JOIN office_standing_assignments osa ON osa.id = oe.standing_assignment_id
+       SET oe.status = 'CANCELLED', oe.updated_at = NOW()
+       WHERE osa.provider_id IN (${ph})
+         AND osa.is_active = FALSE
+         AND oe.start_at >= NOW()
+         AND (oe.status IS NULL OR UPPER(oe.status) <> 'CANCELLED')`,
+      providerIds
+    );
+
+    // 4. Deactivate active booking plans for these providers' assignments.
+    await pool.execute(
+      `UPDATE office_booking_plans bp
+       JOIN office_standing_assignments osa ON osa.id = bp.standing_assignment_id
+       SET bp.is_active = FALSE, bp.updated_at = NOW()
+       WHERE osa.provider_id IN (${ph})
+         AND bp.is_active = TRUE`,
+      providerIds
+    );
+
+    // 5. Cancel any pending DROP_ASSIGNMENT or other booking requests from these providers.
+    await pool.execute(
+      `UPDATE office_booking_requests
+       SET status = 'CANCELLED', updated_at = NOW()
+       WHERE requested_provider_id IN (${ph})
+         AND status = 'PENDING'`,
+      providerIds
+    );
+
+    return {
+      ok: true,
+      eventsCancel: evResult.affectedRows,
+      assignmentsDeactivated: aResult.affectedRows
+    };
   }
 }
