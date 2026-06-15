@@ -12,6 +12,7 @@ import {
   getMyMandatoryOfficeReview,
   createOfficeBookingRequest,
   listPendingOfficeBookingRequests,
+  getOfficeBookingRequestContext,
   approveOfficeBookingRequest,
   denyOfficeBookingRequest,
   createBookingRequest,
@@ -22,6 +23,7 @@ import {
   createLocation,
   updateLocation,
   createRoom,
+  getOfficeScheduleIntegrityDiagnostics,
   getSlotConflicts,
   resolveSlotConflict,
   getScheduleAudit
@@ -60,6 +62,7 @@ router.post('/requests/:id/approve', approveRequest);
 router.post('/requests/:id/deny', denyRequest);
 
 router.get('/booking-requests/pending', listPendingOfficeBookingRequests);
+router.get('/booking-requests/:id/context', getOfficeBookingRequestContext);
 router.post('/booking-requests/:id/approve', approveOfficeBookingRequest);
 router.post('/booking-requests/:id/deny', denyOfficeBookingRequest);
 
@@ -69,6 +72,7 @@ router.put('/locations/:id', updateLocation);
 router.post('/locations/:locationId/rooms', createRoom);
 
 // Booking conflict resolver (post-reinstatement triage)
+router.get('/admin/integrity-diagnostics', getOfficeScheduleIntegrityDiagnostics);
 router.get('/admin/slot-conflicts', getSlotConflicts);
 router.post('/admin/slot-conflicts/resolve', resolveSlotConflict);
 

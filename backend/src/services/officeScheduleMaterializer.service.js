@@ -98,16 +98,6 @@ function isAssignmentActiveOnDate(assignment, dateStr) {
   if (availableSince && dateStr < availableSince) return false;
   const availableUntil = normalizeYmd(assignment.temporary_until_date);
   if (availableUntil && dateStr > availableUntil) return false;
-  // Require ongoing provider confirmation every 2 weeks; fully expire after 6 weeks
-  // without confirmation so stale assigned slots stop materializing.
-  const lastTwoWeekConfirm = normalizeYmd(assignment.last_two_week_confirmed_at);
-  const created = normalizeYmd(assignment.created_at);
-  const confirmAnchor = lastTwoWeekConfirm || availableSince || created;
-  if (confirmAnchor) {
-    const expiresAt = addDays(confirmAnchor, 42);
-    if (expiresAt && dateStr > expiresAt) return false;
-  }
-
   // Weekly always active; biweekly active on even week offset from available_since_date.
   if (assignment.assigned_frequency === 'WEEKLY') return true;
   const anchor = normalizeYmd(assignment.available_since_date) || new Date().toISOString().slice(0, 10);

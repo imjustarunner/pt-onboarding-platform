@@ -2157,6 +2157,26 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
 
     const assignmentIds = [];
     for (let h = hour; h < endHour; h++) {
+      const [physicalConflicts] = await conn.execute(
+        `SELECT a.id, u.first_name, u.last_name
+         FROM office_standing_assignments a
+         JOIN users u ON u.id = a.provider_id
+         WHERE a.office_location_id = ?
+           AND a.room_id = ?
+           AND a.weekday = ?
+           AND a.hour = ?
+           AND a.is_active = TRUE
+         LIMIT 1`,
+        [officeId, roomId, weekday, h]
+      );
+      if ((physicalConflicts || []).length) {
+        const c = physicalConflicts[0];
+        const providerName = `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'another provider';
+        const err = new Error(`That office slot is already assigned to ${providerName}.`);
+        err.status = 409;
+        throw err;
+      }
+
       const [existingAssign] = await conn.execute(
         `SELECT id
          FROM office_standing_assignments

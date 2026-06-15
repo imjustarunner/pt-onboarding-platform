@@ -230,15 +230,17 @@ export class OfficeScheduleWatchdogService {
   }
 
   /**
-   * Two-phase forfeit for AVAILABLE standing assignments that have been unbooked for 42+ days.
+   * Two-phase review pipeline for AVAILABLE standing assignments unbooked for 42+ days.
    *
-   * Phase B1 (warn): If last_forfeit_warning_at IS NULL, send a "your slot will be released
-   * in 14 days" notification and set last_forfeit_warning_at = NOW(). Do NOT forfeit yet.
-   * The mandatory review splash (OfficeMandatoryReviewSplash) will surface this slot with
-   * urgency so the provider can book, extend, or forfeit it themselves.
+   * Phase B1 (warn): If last_forfeit_warning_at IS NULL, send the provider a heads-up that
+   * their slot has been unbooked for 6+ weeks and ask them to act within 14 days.
+   * Set last_forfeit_warning_at = NOW(). Do NOT drop the slot.
    *
-   * Phase B2 (forfeit): If last_forfeit_warning_at was set 14+ days ago and the slot is
-   * still unbooked, set is_active = FALSE and send the forfeit notification.
+   * Phase B2 (queue for admin review): If last_forfeit_warning_at was set 14+ days ago and
+   * the slot is still unbooked with no pending DROP_ASSIGNMENT request already queued,
+   * create a PENDING office_booking_requests row (type = DROP_ASSIGNMENT) so that the same
+   * CPA/admin approvers who manage schedules can approve or deny the release.
+   * The assignment stays active and keeps materializing until an admin decides.
    *
    * Any provider action (keepAvailable, setBookingPlan, extendTemporary, forfeitAssignment)
    * must clear last_forfeit_warning_at = NULL so the clock resets.
@@ -259,6 +261,8 @@ export class OfficeScheduleWatchdogService {
     const selectCols = `
       osa.id AS standing_assignment_id,
       osa.provider_id,
+      osa.office_location_id,
+      osa.room_id,
       osa.last_forfeit_warning_at,
       ola.agency_id,
       ol.name AS office_name,
@@ -285,21 +289,21 @@ export class OfficeScheduleWatchdogService {
       );
     } catch (e) {
       if (e?.code === 'ER_BAD_FIELD_ERROR') {
-        // last_forfeit_warning_at column not yet added; fall back to old behavior (warn only).
-        return { warned: 0, forfeited: 0, reason: 'column_missing_run_migration_697' };
+        return { warned: 0, queued: 0, reason: 'column_missing_run_migration_697' };
       }
       throw e;
     }
 
     let warned = 0;
-    let forfeited = 0;
-    let notified = 0;
+    let queued = 0;
 
     for (const r of rows || []) {
       const assignmentId = Number(r.standing_assignment_id);
       const providerId = Number(r.provider_id);
       const agencyId = Number(r.agency_id);
-      if (!assignmentId || !providerId || !agencyId) continue;
+      const officeLocationId = Number(r.office_location_id);
+      const roomId = Number(r.room_id) || null;
+      if (!assignmentId || !providerId || !agencyId || !officeLocationId) continue;
 
       const roomLabel = String(r.room_label || r.room_name || '').trim() || 'Room';
       const officeName = String(r.office_name || '').trim() || 'Office';
@@ -312,7 +316,7 @@ export class OfficeScheduleWatchdogService {
       const warnedDaysAgo = warnedAt ? Math.floor((Date.now() - warnedAt.getTime()) / 86400000) : null;
 
       if (!warnedAt) {
-        // Phase B1: send warning notification; do NOT forfeit yet.
+        // Phase B1: notify provider; do NOT drop the slot.
         try {
           await pool.execute(
             `UPDATE office_standing_assignments
@@ -325,7 +329,7 @@ export class OfficeScheduleWatchdogService {
             type: 'office_schedule_forfeit_warning',
             severity: 'warning',
             title: 'Office slot needs your attention',
-            message: `Your office slot has been unbooked for 6+ weeks (${slotLabel}). Please book, keep available, or release it within 14 days — otherwise it will be automatically released.`,
+            message: `Your office slot has been unbooked for 6+ weeks (${slotLabel}). Please book, keep available, or release it within 14 days — otherwise an admin review will be initiated to determine whether the slot should be released.`,
             userId: providerId,
             agencyId,
             relatedEntityType: 'office_standing_assignment',
@@ -337,45 +341,56 @@ export class OfficeScheduleWatchdogService {
           // ignore per-row errors
         }
       } else if (warnedDaysAgo !== null && warnedDaysAgo >= 14) {
-        // Phase B2: 14-day grace period has passed with no provider action — forfeit.
+        // Phase B2: 14-day grace passed with no provider action.
+        // Queue a DROP_ASSIGNMENT request for admin approval instead of auto-forfeiting.
         try {
-          await pool.execute(
-            `UPDATE office_standing_assignments
-             SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
-             WHERE id = ?`,
-            [assignmentId]
+          // Check if a pending drop request already exists for this assignment.
+          const [existing] = await pool.query(
+            `SELECT id FROM office_booking_requests
+             WHERE request_type = 'DROP_ASSIGNMENT'
+               AND status = 'PENDING'
+               AND JSON_UNQUOTE(JSON_EXTRACT(requester_notes, '$.standingAssignmentId')) = ?
+             LIMIT 1`,
+            [String(assignmentId)]
           );
-          forfeited += 1;
+          if ((existing || []).length > 0) continue;
 
-          // Notify provider (deduped by trigger+provider).
-          const ok = await NotificationEvent.tryCreate({
-            agencyId,
-            triggerKey: 'office_schedule_unbooked_forfeit',
-            providerUserId: providerId,
-            recipientUserId: providerId
+          const notePayload = JSON.stringify({
+            standingAssignmentId: assignmentId,
+            slotLabel,
+            reason: 'unbooked_6_weeks',
+            warnedAt: warnedAt?.toISOString() ?? null
           });
-          if (ok) {
-            await createNotificationAndDispatch({
-              type: 'office_schedule_unbooked_forfeit',
-              severity: 'warning',
-              title: 'Office slot released',
-              message: `An office slot remained unbooked and was automatically released after the 14-day notice period (${slotLabel}).`,
-              userId: providerId,
-              agencyId,
-              relatedEntityType: 'office_standing_assignment',
-              relatedEntityId: assignmentId,
-              actorSource: 'Office Scheduling'
-            });
-            notified += 1;
-          }
+
+          const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+          await pool.execute(
+            `INSERT INTO office_booking_requests
+               (request_type, status, office_location_id, room_id, requested_provider_id,
+                start_at, end_at, recurrence, requester_notes, created_at, updated_at)
+             VALUES ('DROP_ASSIGNMENT', 'PENDING', ?, ?, ?, ?, ?, 'ONCE', ?, ?, ?)`,
+            [officeLocationId, roomId, providerId, now, now, notePayload, now, now]
+          );
+          queued += 1;
+
+          await createNotificationAndDispatch({
+            type: 'office_schedule_drop_review_queued',
+            severity: 'info',
+            title: 'Office slot pending admin review',
+            message: `Your office slot (${slotLabel}) has been unbooked for several weeks. An admin will review whether it should be released. Your slot remains active in the meantime.`,
+            userId: providerId,
+            agencyId,
+            relatedEntityType: 'office_standing_assignment',
+            relatedEntityId: assignmentId,
+            actorSource: 'Office Scheduling'
+          });
         } catch {
           // ignore per-row errors
         }
       }
-      // else: warning was sent but 14-day window not yet elapsed — skip.
+      // else: warning sent but 14-day window not yet elapsed — skip.
     }
 
-    return { warned, forfeited, notified };
+    return { warned, queued };
   }
 
   static async run() {

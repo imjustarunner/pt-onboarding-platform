@@ -17,6 +17,83 @@ function normalizeMySqlDateTime(value) {
 }
 
 class OfficeEvent {
+  static lockNameForSlot({ roomId, startAt, endAt }) {
+    const normalizedStartAt = normalizeMySqlDateTime(startAt);
+    const normalizedEndAt = normalizeMySqlDateTime(endAt);
+    return `office_slot:${Number(roomId)}:${normalizedStartAt}:${normalizedEndAt}`;
+  }
+
+  static duplicateSlotError(conflict = null) {
+    const err = new Error('That office has an existing schedule event during this time.');
+    err.status = 409;
+    err.code = 'OFFICE_SLOT_CONFLICT';
+    err.conflict = conflict || null;
+    return err;
+  }
+
+  static async findActiveRoomConflicts({ roomId, startAt, endAt, excludeEventId = null, executor = pool }) {
+    const normalizedStartAt = normalizeMySqlDateTime(startAt);
+    const normalizedEndAt = normalizeMySqlDateTime(endAt);
+    const params = [roomId, normalizedEndAt, normalizedStartAt];
+    let excludeSql = '';
+    if (excludeEventId) {
+      excludeSql = 'AND e.id <> ?';
+      params.push(excludeEventId);
+    }
+    const [rows] = await executor.execute(
+      `SELECT
+         e.id,
+         e.office_location_id,
+         e.room_id,
+         e.start_at,
+         e.end_at,
+         e.status,
+         e.slot_state,
+         e.assigned_provider_id,
+         e.booked_provider_id,
+         CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS provider_name
+       FROM office_events e
+       LEFT JOIN users u ON u.id = COALESCE(e.booked_provider_id, e.assigned_provider_id)
+       WHERE e.room_id = ?
+         AND e.start_at < ?
+         AND e.end_at > ?
+         AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+         ${excludeSql}
+       ORDER BY e.start_at ASC, e.id ASC
+       LIMIT 10`,
+      params
+    );
+    return rows || [];
+  }
+
+  static async withRoomSlotLock({ roomId, startAt, endAt, timeoutSeconds = 8 }, fn) {
+    const conn = await pool.getConnection();
+    const lockName = this.lockNameForSlot({ roomId, startAt, endAt });
+    let lockAcquired = false;
+    try {
+      const [[lockRow]] = await conn.execute('SELECT GET_LOCK(?, ?) AS got_lock', [lockName, timeoutSeconds]);
+      lockAcquired = Number(lockRow?.got_lock || 0) === 1;
+      if (!lockAcquired) {
+        const err = new Error('Office slot is busy. Please refresh and try again.');
+        err.status = 409;
+        err.code = 'OFFICE_SLOT_LOCK_TIMEOUT';
+        throw err;
+      }
+      await conn.beginTransaction();
+      const result = await fn(conn);
+      await conn.commit();
+      return result;
+    } catch (e) {
+      try { await conn.rollback(); } catch { /* ignore */ }
+      throw e;
+    } finally {
+      if (lockAcquired) {
+        try { await conn.execute('SELECT RELEASE_LOCK(?)', [lockName]); } catch { /* ignore */ }
+      }
+      conn.release();
+    }
+  }
+
   static async findById(id) {
     const [rows] = await pool.execute('SELECT * FROM office_events WHERE id = ? LIMIT 1', [id]);
     return rows?.[0] || null;
@@ -109,6 +186,121 @@ class OfficeEvent {
     return this.findById(result.insertId);
   }
 
+  static async createIfRoomOpen(args) {
+    const normalizedStartAt = normalizeMySqlDateTime(args.startAt);
+    const normalizedEndAt = normalizeMySqlDateTime(args.endAt);
+    return this.withRoomSlotLock({
+      roomId: args.roomId,
+      startAt: normalizedStartAt,
+      endAt: normalizedEndAt
+    }, async (conn) => {
+      const conflicts = await this.findActiveRoomConflicts({
+        roomId: args.roomId,
+        startAt: normalizedStartAt,
+        endAt: normalizedEndAt,
+        executor: conn
+      });
+      if (conflicts.length) {
+        const requestedProviderId = Number(args.bookedProviderId || args.assignedProviderId || 0) || null;
+        const reusable = conflicts.length === 1
+          && requestedProviderId
+          && Number(conflicts[0].assigned_provider_id || conflicts[0].booked_provider_id || 0) === requestedProviderId
+          && String(conflicts[0].status || '').toUpperCase() !== 'BOOKED'
+          && !['ASSIGNED_BOOKED', 'COMPANY_HOLD'].includes(String(conflicts[0].slot_state || '').toUpperCase());
+        if (reusable) {
+          await conn.execute(
+            `UPDATE office_events
+             SET status = ?,
+                 slot_state = COALESCE(?, slot_state),
+                 booked_provider_id = ?,
+                 client_id = COALESCE(?, client_id),
+                 notes = COALESCE(?, notes),
+                 appointment_type_code = COALESCE(?, appointment_type_code),
+                 appointment_subtype_code = COALESCE(?, appointment_subtype_code),
+                 service_code = COALESCE(?, service_code),
+                 modality = COALESCE(?, modality),
+                 approved_by_user_id = COALESCE(?, approved_by_user_id),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [
+              args.status,
+              args.slotState || 'ASSIGNED_BOOKED',
+              requestedProviderId,
+              args.clientId || null,
+              args.notes || null,
+              args.appointmentTypeCode || null,
+              args.appointmentSubtypeCode || null,
+              args.serviceCode || null,
+              args.modality || null,
+              args.approvedByUserId || null,
+              conflicts[0].id
+            ]
+          );
+          return conflicts[0].id;
+        }
+        throw this.duplicateSlotError(conflicts[0]);
+      }
+      let result;
+      try {
+        [result] = await conn.execute(
+          `INSERT INTO office_events
+           (office_location_id, room_id, start_at, end_at, status, slot_state, standing_assignment_id, booking_plan_id, assigned_provider_id, booked_provider_id, client_id, clinical_session_id, note_context_id, billing_context_id, source, recurrence_group_id, notes, appointment_type_code, appointment_subtype_code, service_code, modality, created_by_user_id, approved_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            args.officeLocationId,
+            args.roomId,
+            normalizedStartAt,
+            normalizedEndAt,
+            args.status,
+            args.slotState || null,
+            args.standingAssignmentId || null,
+            args.bookingPlanId || null,
+            args.assignedProviderId || null,
+            args.bookedProviderId || null,
+            args.clientId || null,
+            args.clinicalSessionId || null,
+            args.noteContextId || null,
+            args.billingContextId || null,
+            args.source,
+            args.recurrenceGroupId || null,
+            args.notes || null,
+            args.appointmentTypeCode || null,
+            args.appointmentSubtypeCode || null,
+            args.serviceCode || null,
+            args.modality || null,
+            args.createdByUserId,
+            args.approvedByUserId || null
+          ]
+        );
+      } catch (e) {
+        if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+        [result] = await conn.execute(
+          `INSERT INTO office_events
+           (office_location_id, room_id, start_at, end_at, status, slot_state, standing_assignment_id, booking_plan_id, assigned_provider_id, booked_provider_id, source, recurrence_group_id, notes, created_by_user_id, approved_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            args.officeLocationId,
+            args.roomId,
+            normalizedStartAt,
+            normalizedEndAt,
+            args.status,
+            args.slotState || null,
+            args.standingAssignmentId || null,
+            args.bookingPlanId || null,
+            args.assignedProviderId || null,
+            args.bookedProviderId || null,
+            args.source,
+            args.recurrenceGroupId || null,
+            args.notes || null,
+            args.createdByUserId,
+            args.approvedByUserId || null
+          ]
+        );
+      }
+      return result.insertId;
+    }).then((id) => this.findById(id));
+  }
+
   static async listForOfficeWindow({ officeLocationId, startAt, endAt }) {
     const [rows] = await pool.execute(
       `SELECT
@@ -165,10 +357,33 @@ class OfficeEvent {
     bookedProviderId = null,
     createdByUserId,
     replaceCancelled = false,
-    notes = null
+    notes = null,
+    _locked = false
   }) {
     const normalizedStartAt = normalizeMySqlDateTime(startAt);
     const normalizedEndAt = normalizeMySqlDateTime(endAt);
+    if (!_locked) {
+      return this.withRoomSlotLock({
+        roomId,
+        startAt: normalizedStartAt,
+        endAt: normalizedEndAt
+      }, () => this.upsertSlotState({
+        officeLocationId,
+        roomId,
+        startAt: normalizedStartAt,
+        endAt: normalizedEndAt,
+        slotState,
+        standingAssignmentId,
+        bookingPlanId,
+        recurrenceGroupId,
+        assignedProviderId,
+        bookedProviderId,
+        createdByUserId,
+        replaceCancelled,
+        notes,
+        _locked: true
+      }));
+    }
     // Keep legacy `status` aligned for older code paths.
     const legacyStatus = (slotState === 'ASSIGNED_BOOKED' || slotState === 'COMPANY_HOLD') ? 'BOOKED' : 'RELEASED';
 

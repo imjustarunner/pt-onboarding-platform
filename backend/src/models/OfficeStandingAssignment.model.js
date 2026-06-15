@@ -16,6 +16,14 @@ class OfficeStandingAssignment {
     recurrenceGroupId = null,
     createdByUserId
   }) {
+    const activeConflicts = await this.findActiveConflictsBySlot({
+      officeLocationId,
+      roomId,
+      weekday,
+      hour
+    });
+    if (activeConflicts.length) throw this.conflictError(activeConflicts[0]);
+
     let result;
     try {
       [result] = await pool.execute(
@@ -100,6 +108,45 @@ class OfficeStandingAssignment {
       [officeLocationId, roomId, weekday, hour]
     );
     return rows?.[0] || null;
+  }
+
+  static async findActiveConflictsBySlot({ officeLocationId, roomId, weekday, hour, excludeAssignmentId = null }) {
+    const params = [officeLocationId, roomId, weekday, hour];
+    let excludeSql = '';
+    if (excludeAssignmentId) {
+      excludeSql = 'AND a.id <> ?';
+      params.push(excludeAssignmentId);
+    }
+    const [rows] = await pool.execute(
+      `SELECT
+         a.*,
+         u.first_name AS provider_first_name,
+         u.last_name AS provider_last_name
+       FROM office_standing_assignments a
+       JOIN users u ON u.id = a.provider_id
+       WHERE a.office_location_id = ?
+         AND a.room_id = ?
+         AND a.weekday = ?
+         AND a.hour = ?
+         AND a.is_active = TRUE
+         ${excludeSql}
+       ORDER BY a.id ASC`,
+      params
+    );
+    return rows || [];
+  }
+
+  static conflictError(conflict = null) {
+    const providerName = conflict
+      ? `${conflict.provider_first_name || ''} ${conflict.provider_last_name || ''}`.trim()
+      : '';
+    const err = new Error(providerName
+      ? `That recurring office slot is already assigned to ${providerName}.`
+      : 'That recurring office slot is already assigned.');
+    err.status = 409;
+    err.code = 'STANDING_SLOT_CONFLICT';
+    err.conflict = conflict || null;
+    return err;
   }
 
   static async findAnyBySlotProviderFrequency({

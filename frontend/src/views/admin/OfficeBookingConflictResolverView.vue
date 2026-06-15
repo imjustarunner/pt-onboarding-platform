@@ -18,13 +18,126 @@
     <div v-if="error" class="error-box">{{ error }}</div>
     <div v-else-if="loading" class="loading">Loading…</div>
 
-    <div v-else-if="conflicts.length === 0" class="card empty-state">
-      <div class="empty-icon">✓</div>
-      <div class="empty-title">No conflicts found</div>
-      <div class="empty-sub">No future slots have two providers booked into the same room. You're all set.</div>
+    <div v-if="!loading && diagnostics" class="card diagnostic-banner">
+      <div>
+        <strong>Integrity diagnostics</strong>
+        <div class="muted">Checks duplicate room/time events, duplicate active standing assignments, and providers booked in multiple rooms.</div>
+      </div>
+      <div class="diagnostic-stats">
+        <span class="diag-pill" :class="{ bad: diagnostics.summary?.duplicateActiveEvents }">
+          Events: {{ diagnostics.summary?.duplicateActiveEvents || 0 }}
+        </span>
+        <span class="diag-pill" :class="{ bad: diagnostics.summary?.duplicateActiveStandingAssignments }">
+          Standing: {{ diagnostics.summary?.duplicateActiveStandingAssignments || 0 }}
+        </span>
+        <span class="diag-pill" :class="{ bad: diagnostics.summary?.providerDoubleBookings }">
+          Providers: {{ diagnostics.summary?.providerDoubleBookings || 0 }}
+        </span>
+      </div>
     </div>
 
-    <template v-else>
+    <div v-if="!loading && diagnosticIssueCount > 0" class="diagnostic-details">
+      <div v-if="diagnostics?.duplicateActiveEvents?.length" class="card conflict-table-wrap diagnostic-section">
+        <div class="section-head">
+          <div>
+            <h3>Duplicate room/time events</h3>
+            <div class="muted">These are active event rows occupying the same room at the same time.</div>
+          </div>
+        </div>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Office · Room</th>
+              <th>Providers</th>
+              <th>Event IDs</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in diagnostics.duplicateActiveEvents" :key="`dae-${row.room_id}-${row.start_at}`">
+              <td class="mono time-col">
+                <div>{{ formatDate(row.start_at) }}</div>
+                <div class="time-range">{{ formatTime(row.start_at) }}<template v-if="row.end_at"> – {{ formatTime(row.end_at) }}</template></div>
+              </td>
+              <td>
+                <div class="office-name">{{ row.office_name }}</div>
+                <div class="room-label muted">{{ row.room_number ? `#${row.room_number} · ` : '' }}{{ row.room_label || row.room_name }}</div>
+              </td>
+              <td>{{ row.providers || 'Unknown provider' }}</td>
+              <td class="mono">{{ row.event_ids }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div v-if="diagnostics?.duplicateActiveStandingAssignments?.length" class="card conflict-table-wrap diagnostic-section">
+        <div class="section-head">
+          <div>
+            <h3>Duplicate active standing assignments</h3>
+            <div class="muted">These providers own the same recurring physical room/day/hour.</div>
+          </div>
+        </div>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Recurring slot</th>
+              <th>Office · Room</th>
+              <th>Providers</th>
+              <th>Assignment IDs</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in diagnostics.duplicateActiveStandingAssignments" :key="`das-${row.room_id}-${row.weekday}-${row.hour}`">
+              <td class="mono">{{ weekdayLabel(row.weekday) }} · {{ hourLabel(row.hour) }}</td>
+              <td>
+                <div class="office-name">{{ row.office_name }}</div>
+                <div class="room-label muted">{{ row.room_number ? `#${row.room_number} · ` : '' }}{{ row.room_label || row.room_name }}</div>
+              </td>
+              <td>{{ row.providers || 'Unknown provider' }}</td>
+              <td class="mono">{{ row.assignment_ids }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div v-if="diagnostics?.providerDoubleBookings?.length" class="card conflict-table-wrap diagnostic-section">
+        <div class="section-head">
+          <div>
+            <h3>Providers booked in multiple rooms</h3>
+            <div class="muted">These rows indicate one provider is booked in more than one room at the exact same time.</div>
+          </div>
+        </div>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Provider</th>
+              <th>Rooms</th>
+              <th>Event IDs</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in diagnostics.providerDoubleBookings" :key="`pdb-${row.provider_id}-${row.start_at}`">
+              <td class="mono time-col">
+                <div>{{ formatDate(row.start_at) }}</div>
+                <div class="time-range">{{ formatTime(row.start_at) }}<template v-if="row.end_at"> – {{ formatTime(row.end_at) }}</template></div>
+              </td>
+              <td>{{ row.provider_name || `Provider #${row.provider_id}` }}</td>
+              <td>{{ row.rooms }}</td>
+              <td class="mono">{{ row.event_ids }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div v-if="!loading && conflicts.length === 0 && diagnosticIssueCount === 0" class="card empty-state">
+      <div class="empty-icon">✓</div>
+      <div class="empty-title">No conflicts found</div>
+      <div class="empty-sub">No future duplicate bookings, standing assignment duplicates, or provider double-bookings were found.</div>
+    </div>
+
+    <template v-if="!loading && conflicts.length > 0">
       <div class="conflict-count card conflict-banner">
         <strong>{{ conflicts.length }} slot{{ conflicts.length === 1 ? '' : 's' }} need your attention.</strong>
         For each one, choose which provider keeps the room — the other will be removed from that slot.
@@ -161,13 +274,20 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import api from '../../services/api';
 
 const loading = ref(true);
 const error   = ref('');
 const conflicts = ref([]);
+const diagnostics = ref(null);
 const actingKey = ref(null);
+
+const diagnosticIssueCount = computed(() =>
+  Number(diagnostics.value?.summary?.duplicateActiveEvents || 0)
+  + Number(diagnostics.value?.summary?.duplicateActiveStandingAssignments || 0)
+  + Number(diagnostics.value?.summary?.providerDoubleBookings || 0)
+);
 
 const rowKey = (c) =>
   c.conflict_type === 'double_booked'
@@ -178,8 +298,12 @@ const load = async () => {
   try {
     loading.value = true;
     error.value   = '';
-    const resp    = await api.get('/office-schedule/admin/slot-conflicts');
-    conflicts.value = resp.data?.conflicts || [];
+    const [conflictResp, diagnosticResp] = await Promise.all([
+      api.get('/office-schedule/admin/slot-conflicts'),
+      api.get('/office-schedule/admin/integrity-diagnostics')
+    ]);
+    conflicts.value = conflictResp.data?.conflicts || [];
+    diagnostics.value = diagnosticResp.data || null;
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load conflicts';
   } finally {
@@ -263,6 +387,15 @@ const formatTime = (d) => {
   try { return new Date(d).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); }
   catch { return d; }
 };
+const weekdayLabel = (weekday) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][Number(weekday)] || String(weekday);
+const hourLabel = (hour) => {
+  const h = Number(hour);
+  if (!Number.isFinite(h)) return String(hour || '');
+  if (h === 0) return '12:00 AM';
+  if (h < 12) return `${h}:00 AM`;
+  if (h === 12) return '12:00 PM';
+  return `${h - 12}:00 PM`;
+};
 
 onMounted(load);
 </script>
@@ -298,6 +431,37 @@ onMounted(load);
   border-left: 4px solid var(--color-warning, #f59e0b);
   padding: 14px 18px; margin-bottom: 12px;
   font-size: 0.92rem; line-height: 1.5;
+}
+.diagnostic-banner {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.diagnostic-stats { display: flex; flex-wrap: wrap; gap: 8px; }
+.diagnostic-details { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
+.diagnostic-section { padding: 0; overflow-x: auto; }
+.section-head {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+}
+.section-head h3 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+.diag-pill {
+  display: inline-block;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.diag-pill.bad {
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 .legend {

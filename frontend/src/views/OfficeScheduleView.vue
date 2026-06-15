@@ -42,10 +42,16 @@
         <div class="legend-item"><span class="dot assigned_available"></span> Assigned available</div>
         <div class="legend-item"><span class="dot assigned_temporary"></span> Assigned temporary</div>
         <div class="legend-item"><span class="dot assigned_booked"></span> Assigned booked</div>
+        <div class="legend-item"><span class="dot conflict"></span> Conflict</div>
         <div class="legend-item"><span class="dot company_hold"></span> Company hold</div>
         <div class="legend-item"><span class="dot intake-ip"></span> In-person intake</div>
         <div class="legend-item"><span class="dot intake-v"></span> Virtual intake</div>
         <div class="legend-item"><span class="dot own-slot"></span> Your schedule</div>
+      </div>
+      <div v-if="gridConflictCount > 0" class="schedule-conflict-banner">
+        <strong>{{ gridConflictCount }} room/time conflict{{ gridConflictCount === 1 ? '' : 's' }} detected.</strong>
+        Resolve these before approving more office bookings.
+        <router-link to="/admin/booking-conflict-resolver">Open conflict resolver</router-link>
       </div>
       <div v-if="cancelledGoogleEvents.length" class="cancelled-google-card">
         <div class="cancelled-google-title">Cancelled slots still linked to Google (cleanup queue)</div>
@@ -913,6 +919,12 @@ const cancelledGoogleEvents = computed(() => {
       when: start && end ? `${start} - ${end}` : (start || '')
     };
   });
+});
+
+const gridConflictCount = computed(() => {
+  const diagnosticCount = Number(grid.value?.diagnostics?.duplicateRoomSlotConflictCount || 0) || 0;
+  const slotCount = (grid.value?.slots || []).filter((s) => String(s?.state || '') === 'conflict').length;
+  return Math.max(diagnosticCount, slotCount);
 });
 
 const isAvailableState = (state) => {
@@ -2626,9 +2638,24 @@ input[type='date'] {
 .dot.assigned_available { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.18); }
 .dot.assigned_temporary { background: #2563eb; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.16); }
 .dot.assigned_booked { background: #ef4444; box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.16); }
+.dot.conflict { background: #991b1b; box-shadow: 0 0 0 4px rgba(153, 27, 27, 0.2); }
 .dot.intake-ip { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.24); }
 .dot.intake-v { background: #10b981; box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2); }
 .dot.own-slot { background: #7c3aed; box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.2); }
+.schedule-conflict-banner {
+  margin-bottom: 12px;
+  border: 1px solid rgba(220, 38, 38, 0.35);
+  border-left: 4px solid #dc2626;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(254, 226, 226, 0.72);
+  color: #991b1b;
+}
+.schedule-conflict-banner a {
+  color: #7f1d1d;
+  font-weight: 900;
+  margin-left: 8px;
+}
 .cancelled-google-card {
   margin-bottom: 12px;
   border: 1px solid rgba(245, 158, 11, 0.42);

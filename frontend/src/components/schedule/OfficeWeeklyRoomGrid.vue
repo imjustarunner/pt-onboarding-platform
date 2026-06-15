@@ -134,6 +134,7 @@ const slotName = (dateYmd, hour, roomId) => {
   if (!s) return '';
   const pending = Number(s?.pendingRequestCount || 0) || 0;
   const state = String(s.state || '');
+  if (state === 'conflict') return 'Conflict';
   if (state === 'open' && pending > 0) return 'Requested';
   if (state === 'open') return 'Open';
   const booked = String(s.bookedProviderName || '').trim();
@@ -145,6 +146,7 @@ const slotBadge = (dateYmd, hour, roomId) => {
   const s = getSlot(dateYmd, hour, roomId);
   const pending = Number(s?.pendingRequestCount || 0) || 0;
   const freqBadge = String(s?.frequencyBadge || '').trim();
+  if (String(s?.state || '') === 'conflict') return `${Number(s?.conflictCount || 0) || 2} booked`;
   if (pending > 0 && freqBadge) return `Requested · ${freqBadge}`;
   if (pending > 0) return 'Requested';
   return freqBadge || '';
@@ -166,6 +168,12 @@ const slotMeta = (dateYmd, hour, roomId) => {
   const pending = Number(s?.pendingRequestCount || 0) || 0;
   const names = Array.isArray(s?.pendingRequestNames) ? s.pendingRequestNames : [];
   const state = String(s.state || '');
+  if (state === 'conflict') {
+    const providers = Array.isArray(s?.conflictEvents)
+      ? s.conflictEvents.map((ev) => ev?.providerName).filter(Boolean)
+      : [];
+    return providers.length ? providers.join(' / ') : 'Multiple bookings';
+  }
   if (pending > 0 && names.length) return `Requested by: ${names.join(', ')}`;
   if (pending > 0) return 'Requested';
   if (state === 'open') return '';
@@ -183,6 +191,12 @@ const slotTitle = (dateYmd, hour, roomId) => {
   const name = slotName(dateYmd, hour, roomId);
   if (name) parts.push(`Person: ${name}`);
   if (s.frequencyLabel) parts.push(`Frequency: ${s.frequencyLabel}`);
+  if (String(s?.state || '') === 'conflict' && Array.isArray(s?.conflictEvents)) {
+    parts.push('Conflicting bookings:');
+    for (const ev of s.conflictEvents) {
+      parts.push(`- ${ev.providerName || 'Unknown provider'} (event ${ev.eventId || 'n/a'})`);
+    }
+  }
   const pending = Number(s?.pendingRequestCount || 0) || 0;
   if (pending > 0 && Array.isArray(s?.pendingRequestNames) && s.pendingRequestNames.length) {
     parts.push(`Requested by: ${s.pendingRequestNames.join(', ')}`);
@@ -253,6 +267,17 @@ const dayGridStyle = computed(() => ({
 .state-assigned_available { background: rgba(39, 174, 96, 0.08); }
 .state-assigned_temporary { background: rgba(155, 81, 224, 0.08); }
 .state-assigned_booked { background: rgba(235, 87, 87, 0.08); }
+.state-conflict {
+  background: rgba(220, 38, 38, 0.16);
+  border-left: 4px solid #dc2626;
+  box-shadow: inset 0 0 0 1px rgba(220, 38, 38, 0.35);
+}
+.state-conflict .cell-name { color: #991b1b; }
+.state-conflict .cell-badge {
+  background: #fee2e2;
+  color: #991b1b;
+  border-color: #fecaca;
+}
 .cell.requested { border-left: 3px solid rgba(245, 158, 11, 0.8); }
 </style>
 

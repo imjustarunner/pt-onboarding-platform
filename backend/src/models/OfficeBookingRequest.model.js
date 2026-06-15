@@ -90,17 +90,21 @@ class OfficeBookingRequest {
       `SELECT DISTINCT
          r.*,
          ol.name AS office_location_name,
+         ol.timezone AS office_timezone,
          rm.name AS room_name,
          rm.room_number AS room_number,
          rm.label AS room_label,
          u.first_name AS requester_first_name,
          u.last_name AS requester_last_name,
-         u.email AS requester_email
+         u.email AS requester_email,
+         c.full_name AS client_full_name,
+         c.initials AS client_initials
        FROM office_booking_requests r
        JOIN office_locations ol ON r.office_location_id = ol.id
        JOIN office_location_agencies ola ON ola.office_location_id = ol.id
        LEFT JOIN office_rooms rm ON r.room_id = rm.id
        JOIN users u ON u.id = r.requested_provider_id
+       LEFT JOIN clients c ON c.id = r.client_id
        WHERE ${where}
        ORDER BY r.created_at ASC`,
       params

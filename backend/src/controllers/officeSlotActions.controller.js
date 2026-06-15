@@ -636,6 +636,13 @@ export const setBookingPlan = async (req, res, next) => {
       // Best-effort immediate occurrence mark; plan save remains source of truth.
     }
 
+    await materializeOfficeWeeks({
+      officeLocationId,
+      startDateYmd: bookingStartDate,
+      createdByUserId: req.user.id,
+      weeks: 4
+    });
+
     res.json({ ok: true, bookingPlan: plan });
   } catch (e) {
     next(e);
@@ -1287,6 +1294,12 @@ export const setEventBookingPlan = async (req, res, next) => {
       appointmentSubtypeCode: validatedSelection.appointmentSubtypeCode,
       serviceCode: validatedSelection.serviceCode,
       modality: validatedSelection.modality
+    });
+    await materializeOfficeWeeks({
+      officeLocationId,
+      startDateYmd: bookingStartDate,
+      createdByUserId: req.user.id,
+      weeks: 4
     });
     const clientId = Number(req.body?.clientId || ev.client_id || 0) || null;
     if (clientId) {
