@@ -1635,7 +1635,7 @@
 
         <div class="field" style="margin-top: 10px;">
           <label style="display: inline-flex; gap: 8px; align-items: center; font-weight: 600;">
-            <input type="checkbox" v-model="showOffSchedulePeriods" @change="loadPeriods" />
+            <input type="checkbox" v-model="showOffSchedulePeriods" />
             Show off-schedule periods
           </label>
           <div class="hint" style="margin-top: 4px;">
@@ -2758,7 +2758,7 @@
                               :title="'Pay period to post to when approving'"
                             >
                               <option :value="null" disabled>— select period —</option>
-                              <option v-for="p in periods" :key="p.id" :value="p.id">
+                              <option v-for="p in alignedPeriods" :key="p.id" :value="p.id">
                                 {{ periodRangeLabel(p) }}
                               </option>
                             </select>
@@ -6211,6 +6211,9 @@ const agencyId = computed(() => {
 });
 
 const periods = ref([]);
+// Only schedule-aligned periods — used for claim target dropdowns so off-schedule periods
+// are never offered as posting targets.
+const alignedPeriods = computed(() => (periods.value || []).filter((p) => Number(p.schedule_aligned) === 1));
 const selectedPeriodId = ref(null);
 const selectedPeriod = ref(null);
 const summaries = ref([]);
@@ -8616,15 +8619,31 @@ const loadEventTimeSubmissions = async () => {
     });
     const submissions = Array.isArray(resp.data?.submissions) ? resp.data.submissions : [];
     eventTimeSubmissions.value = submissions;
-    // Seed per-submission target period: prefer the claim's suggested period if it exists
-    // in the periods list; otherwise default to the currently selected period.
+    // Seed per-submission target period. Always prefer a schedule-aligned period:
+    // 1. If the claim's suggested period is aligned → use it.
+    // 2. Otherwise find the aligned period whose date range contains the clock-out date.
+    // 3. Fall back to the currently selected period.
     const next = { ...(eventTimeTargetPeriodByPunchId.value || {}) };
+    const aligned = (periods.value || []).filter((p) => Number(p.schedule_aligned) === 1);
     for (const s of submissions) {
       if (next[s.punchInId]) continue; // keep user's manual selection
       const claim = s.directClaim || s.indirectClaim;
       const suggestedId = Number(claim?.suggestedPayrollPeriodId || 0);
-      const inList = suggestedId && (periods.value || []).some((p) => Number(p.id) === suggestedId);
-      next[s.punchInId] = inList ? suggestedId : (Number(selectedPeriodId.value) || null);
+      const suggestedPeriod = suggestedId ? (periods.value || []).find((p) => Number(p.id) === suggestedId) : null;
+      if (suggestedPeriod && Number(suggestedPeriod.schedule_aligned) === 1) {
+        next[s.punchInId] = suggestedId;
+        continue;
+      }
+      // Suggested period is missing or off-schedule — find aligned period by date.
+      const dateStr = String(s.clockOutAt || s.clockInAt || '').slice(0, 10);
+      const matchedAligned = dateStr
+        ? aligned.find((p) => {
+            const ps = String(p.period_start || '').slice(0, 10);
+            const pe = String(p.period_end || '').slice(0, 10);
+            return dateStr >= ps && dateStr <= pe;
+          })
+        : null;
+      next[s.punchInId] = matchedAligned ? matchedAligned.id : (Number(selectedPeriodId.value) || null);
     }
     eventTimeTargetPeriodByPunchId.value = next;
   } catch (e) {
@@ -9509,8 +9528,12 @@ const showOrgPicker = computed(() => {
 });
 
 const sortedPeriods = computed(() => {
-  const all = (periods.value || []).slice();
-  // Prefer sorting by period_end desc, then id desc
+  // When "Show off-schedule periods" is off, hide unaligned periods from the list view.
+  // All periods are still loaded for label/picker resolution (see loadPeriods).
+  const all = (periods.value || [])
+    .filter((p) => showOffSchedulePeriods.value || Number(p.schedule_aligned) === 1)
+    .slice();
+  // Sort by period_end desc, then id desc
   all.sort((a, b) => {
     const ae = String(a?.period_end || '');
     const be = String(b?.period_end || '');
