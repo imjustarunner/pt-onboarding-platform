@@ -5406,6 +5406,7 @@ export const signPublicIntakeDocument = async (req, res, next) => {
     const missingFields = [];
     for (const def of fieldDefinitions) {
       if (!def || !def.required) continue;
+      if (String(def.type || '').toLowerCase() === 'signature') continue;
       if (!isFieldVisible(def, fieldValues)) continue;
       if (def.type === 'date' && (def.autoToday || isPublicDateField(def))) continue;
       if (isOptionalPublicField(def)) continue;
