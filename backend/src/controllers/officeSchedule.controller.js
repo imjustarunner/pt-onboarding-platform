@@ -3074,11 +3074,7 @@ export const getOfficeScheduleIntegrityDiagnostics = async (req, res, next) => {
     const agencyIds = (userAgencies || []).map((a) => Number(a.id)).filter((n) => n > 0);
     if (!agencyIds.length) {
       return res.json({
-        summary: {
-          duplicateActiveEvents: 0,
-          duplicateActiveStandingAssignments: 0,
-          providerDoubleBookings: 0
-        },
+        summary: { duplicateActiveEvents: 0, duplicateActiveStandingAssignments: 0, providerDoubleBookings: 0 },
         duplicateActiveEvents: [],
         duplicateActiveStandingAssignments: [],
         providerDoubleBookings: []
@@ -3086,91 +3082,166 @@ export const getOfficeScheduleIntegrityDiagnostics = async (req, res, next) => {
     }
     const placeholders = agencyIds.map(() => '?').join(',');
 
-    const [duplicateActiveEvents] = await pool.execute(
-      `SELECT
-         e.office_location_id,
-         ol.name AS office_name,
-         e.room_id,
-         r.name AS room_name,
-         r.room_number,
-         r.label AS room_label,
-         e.start_at,
-         e.end_at,
-         COUNT(*) AS event_count,
-         GROUP_CONCAT(e.id ORDER BY e.id) AS event_ids,
-         GROUP_CONCAT(DISTINCT CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) ORDER BY u.last_name SEPARATOR ', ') AS providers
+    // Use IN subquery instead of JOIN to office_location_agencies so each event
+    // row appears exactly once regardless of how many agencies own the location.
+    // A direct JOIN multiplies rows (one per agency membership) and makes every
+    // single-event slot appear as COUNT(*) > 1 — producing hundreds of false positives.
+
+    // ── Duplicate active events ───────────────────────────────────────────────
+    const [dupEventSlots] = await pool.execute(
+      `SELECT e.room_id, e.start_at, e.end_at, COUNT(*) AS event_count
        FROM office_events e
-       JOIN office_location_agencies ola ON ola.office_location_id = e.office_location_id AND ola.agency_id IN (${placeholders})
-       JOIN office_locations ol ON ol.id = e.office_location_id
-       JOIN office_rooms r ON r.id = e.room_id
-       LEFT JOIN users u ON u.id = COALESCE(e.booked_provider_id, e.assigned_provider_id)
        WHERE e.start_at >= NOW()
          AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
-       GROUP BY e.office_location_id, ol.name, e.room_id, r.name, r.room_number, r.label, e.start_at, e.end_at
+         AND e.office_location_id IN (
+           SELECT DISTINCT ola.office_location_id
+           FROM office_location_agencies ola
+           WHERE ola.agency_id IN (${placeholders})
+         )
+       GROUP BY e.room_id, e.start_at, e.end_at
        HAVING COUNT(*) > 1
-       ORDER BY e.start_at ASC, ol.name ASC, r.label ASC
-       LIMIT 500`,
+       ORDER BY e.start_at ASC
+       LIMIT 100`,
       agencyIds
     );
 
-    const [duplicateActiveStandingAssignments] = await pool.execute(
-      `SELECT
-         a.office_location_id,
-         ol.name AS office_name,
-         a.room_id,
-         r.name AS room_name,
-         r.room_number,
-         r.label AS room_label,
-         a.weekday,
-         a.hour,
-         COUNT(*) AS assignment_count,
-         GROUP_CONCAT(a.id ORDER BY a.id) AS assignment_ids,
-         GROUP_CONCAT(DISTINCT CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) ORDER BY u.last_name SEPARATOR ', ') AS providers
-       FROM office_standing_assignments a
-       JOIN office_location_agencies ola ON ola.office_location_id = a.office_location_id AND ola.agency_id IN (${placeholders})
-       JOIN office_locations ol ON ol.id = a.office_location_id
-       JOIN office_rooms r ON r.id = a.room_id
-       LEFT JOIN users u ON u.id = a.provider_id
-       WHERE a.is_active = TRUE
-       GROUP BY a.office_location_id, ol.name, a.room_id, r.name, r.room_number, r.label, a.weekday, a.hour
-       HAVING COUNT(*) > 1
-       ORDER BY ol.name ASC, r.label ASC, a.weekday ASC, a.hour ASC
-       LIMIT 500`,
-      agencyIds
-    );
-
-    const [providerDoubleBookings] = await pool.execute(
-      `SELECT
-         provider_id,
-         provider_name,
-         start_at,
-         end_at,
-         COUNT(*) AS booking_count,
-         GROUP_CONCAT(event_id ORDER BY event_id) AS event_ids,
-         GROUP_CONCAT(room_label ORDER BY room_label SEPARATOR ', ') AS rooms
-       FROM (
-         SELECT
-           e.id AS event_id,
-           COALESCE(e.booked_provider_id, e.assigned_provider_id, sa.provider_id) AS provider_id,
-           CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS provider_name,
-           e.start_at,
-           e.end_at,
-           CONCAT(ol.name, ' / ', COALESCE(r.label, r.name)) AS room_label
+    let duplicateActiveEvents = [];
+    if (dupEventSlots.length) {
+      const slotCond = dupEventSlots.map(() => '(e.room_id = ? AND e.start_at = ? AND e.end_at = ?)').join(' OR ');
+      const slotParams = dupEventSlots.flatMap((s) => [s.room_id, s.start_at, s.end_at]);
+      const [evRows] = await pool.execute(
+        `SELECT e.id, e.office_location_id, ol.name AS office_name,
+                e.room_id, r.name AS room_name, r.room_number, r.label AS room_label,
+                e.start_at, e.end_at, e.status,
+                COALESCE(e.booked_provider_id, e.assigned_provider_id) AS provider_id,
+                TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))) AS provider_name
          FROM office_events e
-         JOIN office_location_agencies ola ON ola.office_location_id = e.office_location_id AND ola.agency_id IN (${placeholders})
          JOIN office_locations ol ON ol.id = e.office_location_id
          JOIN office_rooms r ON r.id = e.room_id
-         LEFT JOIN office_standing_assignments sa ON sa.id = e.standing_assignment_id
-         LEFT JOIN users u ON u.id = COALESCE(e.booked_provider_id, e.assigned_provider_id, sa.provider_id)
+         LEFT JOIN users u ON u.id = COALESCE(e.booked_provider_id, e.assigned_provider_id)
+         WHERE (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+           AND (${slotCond})
+         ORDER BY e.start_at ASC, e.room_id ASC, e.id ASC`,
+        slotParams
+      );
+      const slotMap = new Map();
+      for (const row of evRows) {
+        const key = `${row.room_id}|${row.start_at}|${row.end_at}`;
+        if (!slotMap.has(key)) {
+          slotMap.set(key, {
+            office_location_id: row.office_location_id,
+            office_name: row.office_name,
+            room_id: row.room_id,
+            room_name: row.room_name,
+            room_number: row.room_number,
+            room_label: row.room_label,
+            start_at: row.start_at,
+            end_at: row.end_at,
+            events: []
+          });
+        }
+        slotMap.get(key).events.push({
+          id: row.id,
+          status: row.status || null,
+          provider_id: row.provider_id || null,
+          provider_name: row.provider_name || null
+        });
+      }
+      duplicateActiveEvents = [...slotMap.values()];
+    }
+
+    // ── Duplicate active standing assignments ─────────────────────────────────
+    const [dupAssignSlots] = await pool.execute(
+      `SELECT a.office_location_id, a.room_id, a.weekday, a.hour, COUNT(*) AS assignment_count
+       FROM office_standing_assignments a
+       WHERE a.is_active = TRUE
+         AND a.office_location_id IN (
+           SELECT DISTINCT ola.office_location_id
+           FROM office_location_agencies ola
+           WHERE ola.agency_id IN (${placeholders})
+         )
+       GROUP BY a.office_location_id, a.room_id, a.weekday, a.hour
+       HAVING COUNT(*) > 1
+       ORDER BY a.office_location_id ASC, a.room_id ASC, a.weekday ASC, a.hour ASC
+       LIMIT 100`,
+      agencyIds
+    );
+
+    let duplicateActiveStandingAssignments = [];
+    if (dupAssignSlots.length) {
+      const aCond = dupAssignSlots.map(() => '(a.office_location_id = ? AND a.room_id = ? AND a.weekday = ? AND a.hour = ?)').join(' OR ');
+      const aParams = dupAssignSlots.flatMap((s) => [s.office_location_id, s.room_id, s.weekday, s.hour]);
+      const [assignRows] = await pool.execute(
+        `SELECT a.id, a.office_location_id, ol.name AS office_name,
+                a.room_id, r.name AS room_name, r.room_number, r.label AS room_label,
+                a.weekday, a.hour, a.assigned_frequency, a.created_at, a.provider_id,
+                TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))) AS provider_name
+         FROM office_standing_assignments a
+         JOIN office_locations ol ON ol.id = a.office_location_id
+         JOIN office_rooms r ON r.id = a.room_id
+         LEFT JOIN users u ON u.id = a.provider_id
+         WHERE a.is_active = TRUE
+           AND (${aCond})
+         ORDER BY a.office_location_id ASC, a.room_id ASC, a.weekday ASC, a.hour ASC, a.id ASC`,
+        aParams
+      );
+      const aSlotMap = new Map();
+      for (const row of assignRows) {
+        const key = `${row.office_location_id}|${row.room_id}|${row.weekday}|${row.hour}`;
+        if (!aSlotMap.has(key)) {
+          aSlotMap.set(key, {
+            office_location_id: row.office_location_id,
+            office_name: row.office_name,
+            room_id: row.room_id,
+            room_name: row.room_name,
+            room_number: row.room_number,
+            room_label: row.room_label,
+            weekday: row.weekday,
+            hour: row.hour,
+            assignments: []
+          });
+        }
+        aSlotMap.get(key).assignments.push({
+          id: row.id,
+          provider_id: row.provider_id || null,
+          provider_name: row.provider_name || null,
+          assigned_frequency: row.assigned_frequency || null,
+          created_at: row.created_at || null
+        });
+      }
+      duplicateActiveStandingAssignments = [...aSlotMap.values()];
+    }
+
+    // ── Provider double-bookings ──────────────────────────────────────────────
+    const [providerDoubleBookings] = await pool.execute(
+      `SELECT provider_id, provider_name, start_at, end_at,
+              COUNT(*) AS booking_count,
+              GROUP_CONCAT(event_id ORDER BY event_id) AS event_ids,
+              GROUP_CONCAT(room_label ORDER BY room_label SEPARATOR ', ') AS rooms
+       FROM (
+         SELECT e.id AS event_id,
+                COALESCE(e.booked_provider_id, e.assigned_provider_id) AS provider_id,
+                TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))) AS provider_name,
+                e.start_at, e.end_at,
+                CONCAT(ol.name, ' / ', COALESCE(r.label, r.name)) AS room_label
+         FROM office_events e
+         JOIN office_locations ol ON ol.id = e.office_location_id
+         JOIN office_rooms r ON r.id = e.room_id
+         LEFT JOIN users u ON u.id = COALESCE(e.booked_provider_id, e.assigned_provider_id)
          WHERE e.start_at >= NOW()
            AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
-           AND UPPER(COALESCE(e.status, '')) = 'BOOKED'
-           AND COALESCE(e.booked_provider_id, e.assigned_provider_id, sa.provider_id) IS NOT NULL
+           AND UPPER(COALESCE(e.status,'')) = 'BOOKED'
+           AND COALESCE(e.booked_provider_id, e.assigned_provider_id) IS NOT NULL
+           AND e.office_location_id IN (
+             SELECT DISTINCT ola.office_location_id
+             FROM office_location_agencies ola
+             WHERE ola.agency_id IN (${placeholders})
+           )
        ) booked
        GROUP BY provider_id, provider_name, start_at, end_at
        HAVING COUNT(*) > 1
        ORDER BY start_at ASC, provider_name ASC
-       LIMIT 500`,
+       LIMIT 100`,
       agencyIds
     );
 
@@ -3184,6 +3255,53 @@ export const getOfficeScheduleIntegrityDiagnostics = async (req, res, next) => {
       duplicateActiveStandingAssignments,
       providerDoubleBookings
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const resolveIntegrityConflict = async (req, res, next) => {
+  try {
+    if (!canManageSchedule(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Only schedule managers can resolve integrity conflicts' } });
+    }
+
+    const { action, eventId, assignmentId } = req.body;
+
+    if (action === 'cancelEvent') {
+      if (!eventId) return res.status(400).json({ error: { message: 'eventId required' } });
+      const [result] = await pool.execute(
+        `UPDATE office_events SET status = 'CANCELLED', updated_at = NOW()
+         WHERE id = ? AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
+        [Number(eventId)]
+      );
+      if (!result.affectedRows) {
+        return res.status(404).json({ error: { message: 'Event not found or already cancelled' } });
+      }
+      return res.json({ ok: true });
+    }
+
+    if (action === 'deactivateAssignment') {
+      if (!assignmentId) return res.status(400).json({ error: { message: 'assignmentId required' } });
+      await pool.execute(
+        `UPDATE office_standing_assignments SET is_active = FALSE, updated_at = NOW()
+         WHERE id = ? AND is_active = TRUE`,
+        [Number(assignmentId)]
+      );
+      // Also cancel all future materialized events for this assignment so the
+      // grid clears immediately without waiting for the next materializer run.
+      await pool.execute(
+        `UPDATE office_events
+         SET status = 'CANCELLED', updated_at = NOW()
+         WHERE standing_assignment_id = ?
+           AND start_at >= NOW()
+           AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
+        [Number(assignmentId)]
+      );
+      return res.json({ ok: true });
+    }
+
+    return res.status(400).json({ error: { message: `Unknown action: ${action}` } });
   } catch (e) {
     next(e);
   }

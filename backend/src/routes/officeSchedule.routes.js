@@ -24,6 +24,7 @@ import {
   updateLocation,
   createRoom,
   getOfficeScheduleIntegrityDiagnostics,
+  resolveIntegrityConflict,
   getSlotConflicts,
   resolveSlotConflict,
   getScheduleAudit
@@ -73,6 +74,7 @@ router.post('/locations/:locationId/rooms', createRoom);
 
 // Booking conflict resolver (post-reinstatement triage)
 router.get('/admin/integrity-diagnostics', getOfficeScheduleIntegrityDiagnostics);
+router.post('/admin/integrity-diagnostics/resolve', resolveIntegrityConflict);
 router.get('/admin/slot-conflicts', getSlotConflicts);
 router.post('/admin/slot-conflicts/resolve', resolveSlotConflict);
 

@@ -37,11 +37,13 @@
     </div>
 
     <div v-if="!loading && diagnosticIssueCount > 0" class="diagnostic-details">
+
+      <!-- Duplicate room/time events -->
       <div v-if="diagnostics?.duplicateActiveEvents?.length" class="card conflict-table-wrap diagnostic-section">
         <div class="section-head">
           <div>
-            <h3>Duplicate room/time events</h3>
-            <div class="muted">These are active event rows occupying the same room at the same time.</div>
+            <h3>Duplicate room/time events <span class="count-chip">{{ diagnostics.duplicateActiveEvents.length }} slot{{ diagnostics.duplicateActiveEvents.length === 1 ? '' : 's' }}</span></h3>
+            <div class="muted">Two or more active events are occupying the same room at the same time. Cancel all but one per slot.</div>
           </div>
         </div>
         <table class="table">
@@ -49,32 +51,44 @@
             <tr>
               <th>When</th>
               <th>Office · Room</th>
-              <th>Providers</th>
-              <th>Event IDs</th>
+              <th>Provider</th>
+              <th>Status</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in diagnostics.duplicateActiveEvents" :key="`dae-${row.room_id}-${row.start_at}`">
-              <td class="mono time-col">
-                <div>{{ formatDate(row.start_at) }}</div>
-                <div class="time-range">{{ formatTime(row.start_at) }}<template v-if="row.end_at"> – {{ formatTime(row.end_at) }}</template></div>
-              </td>
-              <td>
-                <div class="office-name">{{ row.office_name }}</div>
-                <div class="room-label muted">{{ row.room_number ? `#${row.room_number} · ` : '' }}{{ row.room_label || row.room_name }}</div>
-              </td>
-              <td>{{ row.providers || 'Unknown provider' }}</td>
-              <td class="mono">{{ row.event_ids }}</td>
-            </tr>
+            <template v-for="(group, gi) in diagnostics.duplicateActiveEvents" :key="`dag-${gi}`">
+              <tr v-for="(ev, ei) in group.events" :key="`da-${ev.id}`"
+                  :class="{ 'group-last': ei === group.events.length - 1 && gi < diagnostics.duplicateActiveEvents.length - 1 }">
+                <td v-if="ei === 0" :rowspan="group.events.length" class="time-col slot-cell">
+                  <div class="slot-date">{{ formatDate(group.start_at) }}</div>
+                  <div class="time-range">{{ formatTime(group.start_at) }}<template v-if="group.end_at"> – {{ formatTime(group.end_at) }}</template></div>
+                </td>
+                <td v-if="ei === 0" :rowspan="group.events.length" class="slot-cell">
+                  <div class="office-name">{{ group.office_name }}</div>
+                  <div class="room-label muted">{{ group.room_number ? `#${group.room_number} · ` : '' }}{{ group.room_label || group.room_name }}</div>
+                </td>
+                <td>{{ ev.provider_name || 'Unassigned' }}</td>
+                <td><span :class="`status-chip status-${(ev.status || 'active').toLowerCase()}`">{{ ev.status || 'Active' }}</span></td>
+                <td>
+                  <button class="btn btn-sm btn-cancel"
+                          :disabled="actingEventId === ev.id"
+                          @click="cancelDuplicateEvent(ev.id, gi)">
+                    {{ actingEventId === ev.id ? 'Cancelling…' : 'Cancel event' }}
+                  </button>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
 
+      <!-- Duplicate active standing assignments -->
       <div v-if="diagnostics?.duplicateActiveStandingAssignments?.length" class="card conflict-table-wrap diagnostic-section">
         <div class="section-head">
           <div>
-            <h3>Duplicate active standing assignments</h3>
-            <div class="muted">These providers own the same recurring physical room/day/hour.</div>
+            <h3>Duplicate active standing assignments <span class="count-chip">{{ diagnostics.duplicateActiveStandingAssignments.length }} slot{{ diagnostics.duplicateActiveStandingAssignments.length === 1 ? '' : 's' }}</span></h3>
+            <div class="muted">Two or more providers hold the same recurring room/day/hour. Deactivate all but one — this will also cancel their future materialized events.</div>
           </div>
         </div>
         <table class="table">
@@ -82,29 +96,43 @@
             <tr>
               <th>Recurring slot</th>
               <th>Office · Room</th>
-              <th>Providers</th>
-              <th>Assignment IDs</th>
+              <th>Provider</th>
+              <th>Frequency</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in diagnostics.duplicateActiveStandingAssignments" :key="`das-${row.room_id}-${row.weekday}-${row.hour}`">
-              <td class="mono">{{ weekdayLabel(row.weekday) }} · {{ hourLabel(row.hour) }}</td>
-              <td>
-                <div class="office-name">{{ row.office_name }}</div>
-                <div class="room-label muted">{{ row.room_number ? `#${row.room_number} · ` : '' }}{{ row.room_label || row.room_name }}</div>
-              </td>
-              <td>{{ row.providers || 'Unknown provider' }}</td>
-              <td class="mono">{{ row.assignment_ids }}</td>
-            </tr>
+            <template v-for="(group, gi) in diagnostics.duplicateActiveStandingAssignments" :key="`dag-a-${gi}`">
+              <tr v-for="(a, ai) in group.assignments" :key="`da-a-${a.id}`"
+                  :class="{ 'group-last': ai === group.assignments.length - 1 && gi < diagnostics.duplicateActiveStandingAssignments.length - 1 }">
+                <td v-if="ai === 0" :rowspan="group.assignments.length" class="slot-cell mono">
+                  {{ weekdayLabel(group.weekday) }} · {{ hourLabel(group.hour) }}
+                </td>
+                <td v-if="ai === 0" :rowspan="group.assignments.length" class="slot-cell">
+                  <div class="office-name">{{ group.office_name }}</div>
+                  <div class="room-label muted">{{ group.room_number ? `#${group.room_number} · ` : '' }}{{ group.room_label || group.room_name }}</div>
+                </td>
+                <td>{{ a.provider_name || `Provider #${a.provider_id}` }}</td>
+                <td class="muted">{{ a.assigned_frequency || '—' }}</td>
+                <td>
+                  <button class="btn btn-sm btn-cancel"
+                          :disabled="actingAssignId === a.id"
+                          @click="deactivateDuplicateAssignment(a.id, gi)">
+                    {{ actingAssignId === a.id ? 'Deactivating…' : 'Deactivate' }}
+                  </button>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
 
+      <!-- Provider double-bookings (same person, two rooms, same time) -->
       <div v-if="diagnostics?.providerDoubleBookings?.length" class="card conflict-table-wrap diagnostic-section">
         <div class="section-head">
           <div>
-            <h3>Providers booked in multiple rooms</h3>
-            <div class="muted">These rows indicate one provider is booked in more than one room at the exact same time.</div>
+            <h3>Providers booked in multiple rooms <span class="count-chip">{{ diagnostics.providerDoubleBookings.length }}</span></h3>
+            <div class="muted">One provider is booked in more than one room at the exact same time. Use the "Cancel event" rows above to remove the unwanted booking.</div>
           </div>
         </div>
         <table class="table">
@@ -113,7 +141,6 @@
               <th>When</th>
               <th>Provider</th>
               <th>Rooms</th>
-              <th>Event IDs</th>
             </tr>
           </thead>
           <tbody>
@@ -124,7 +151,6 @@
               </td>
               <td>{{ row.provider_name || `Provider #${row.provider_id}` }}</td>
               <td>{{ row.rooms }}</td>
-              <td class="mono">{{ row.event_ids }}</td>
             </tr>
           </tbody>
         </table>
@@ -282,11 +308,13 @@ const error   = ref('');
 const conflicts = ref([]);
 const diagnostics = ref(null);
 const actingKey = ref(null);
+const actingEventId = ref(null);
+const actingAssignId = ref(null);
 
 const diagnosticIssueCount = computed(() =>
-  Number(diagnostics.value?.summary?.duplicateActiveEvents || 0)
-  + Number(diagnostics.value?.summary?.duplicateActiveStandingAssignments || 0)
-  + Number(diagnostics.value?.summary?.providerDoubleBookings || 0)
+  (diagnostics.value?.duplicateActiveEvents?.length || 0)
+  + (diagnostics.value?.duplicateActiveStandingAssignments?.length || 0)
+  + (diagnostics.value?.providerDoubleBookings?.length || 0)
 );
 
 const rowKey = (c) =>
@@ -374,6 +402,60 @@ const resolveReleased = async (c, action) => {
     error.value = e.response?.data?.error?.message || 'Failed to resolve conflict';
   } finally {
     actingKey.value = null;
+  }
+};
+
+const cancelDuplicateEvent = async (eventId, groupIndex) => {
+  try {
+    actingEventId.value = eventId;
+    error.value = '';
+    await api.post('/office-schedule/admin/integrity-diagnostics/resolve', {
+      action: 'cancelEvent',
+      eventId
+    });
+    // Remove the cancelled event from the group; remove the group if only one remains
+    const groups = diagnostics.value?.duplicateActiveEvents;
+    if (groups) {
+      const group = groups[groupIndex];
+      if (group) {
+        group.events = group.events.filter((e) => e.id !== eventId);
+        if (group.events.length <= 1) {
+          diagnostics.value.duplicateActiveEvents = groups.filter((_, i) => i !== groupIndex);
+          diagnostics.value.summary.duplicateActiveEvents = diagnostics.value.duplicateActiveEvents.length;
+        }
+      }
+    }
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to cancel event';
+  } finally {
+    actingEventId.value = null;
+  }
+};
+
+const deactivateDuplicateAssignment = async (assignmentId, groupIndex) => {
+  try {
+    actingAssignId.value = assignmentId;
+    error.value = '';
+    await api.post('/office-schedule/admin/integrity-diagnostics/resolve', {
+      action: 'deactivateAssignment',
+      assignmentId
+    });
+    // Remove the deactivated assignment from the group; remove group if only one remains
+    const groups = diagnostics.value?.duplicateActiveStandingAssignments;
+    if (groups) {
+      const group = groups[groupIndex];
+      if (group) {
+        group.assignments = group.assignments.filter((a) => a.id !== assignmentId);
+        if (group.assignments.length <= 1) {
+          diagnostics.value.duplicateActiveStandingAssignments = groups.filter((_, i) => i !== groupIndex);
+          diagnostics.value.summary.duplicateActiveStandingAssignments = diagnostics.value.duplicateActiveStandingAssignments.length;
+        }
+      }
+    }
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to deactivate assignment';
+  } finally {
+    actingAssignId.value = null;
   }
 };
 
@@ -526,4 +608,30 @@ onMounted(load);
 .btn-dismiss:hover:not(:disabled) { background: #e5e7eb; }
 .btn-a:disabled, .btn-b:disabled, .btn-dismiss:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-freq { font-weight: 400; font-size: 0.75rem; opacity: 0.8; }
+
+.btn-cancel {
+  background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca;
+  padding: 5px 10px; border-radius: 6px; font-size: 0.82rem; font-weight: 600; cursor: pointer;
+  white-space: nowrap;
+}
+.btn-cancel:hover:not(:disabled) { background: #fee2e2; }
+.btn-cancel:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.count-chip {
+  display: inline-block; padding: 1px 7px; border-radius: 999px;
+  background: #f3f4f6; color: #374151; font-size: 0.75rem; font-weight: 600;
+  margin-left: 6px; vertical-align: middle;
+}
+.slot-cell { background: #f9fafb; font-weight: 500; }
+.slot-date { font-weight: 600; }
+.group-last td { border-bottom: 2px solid var(--color-border, #e5e7eb) !important; }
+
+.status-chip {
+  display: inline-block; padding: 2px 7px; border-radius: 10px;
+  font-size: 0.74rem; font-weight: 600; white-space: nowrap;
+}
+.status-booked            { background: #eff6ff; color: #1d4ed8; }
+.status-assigned_available { background: #f0fdf4; color: #15803d; }
+.status-available         { background: #f0fdf4; color: #15803d; }
+.status-active            { background: #f3f4f6; color: #374151; }
 </style>
