@@ -3148,6 +3148,42 @@ export const getOfficeScheduleIntegrityDiagnostics = async (req, res, next) => {
         });
       }
       duplicateActiveEvents = [...slotMap.values()];
+
+      // Auto-cancel same-provider duplicates: if every event in a group belongs
+      // to the same provider (or all are unassigned), keep the best one and
+      // cancel the rest immediately — no manual intervention needed.
+      const stillNeedsReview = [];
+      let autoResolvedEventCount = 0;
+      for (const group of duplicateActiveEvents) {
+        const providerIds = group.events.map((e) => e.provider_id);
+        const uniqueProviders = new Set(providerIds.filter(Boolean));
+        const allSameProvider = uniqueProviders.size <= 1;
+        if (allSameProvider) {
+          // Keep the BOOKED event if one exists, otherwise the one with the smallest id.
+          const sorted = [...group.events].sort((a, b) => {
+            const aBooked = (a.status || '').toUpperCase() === 'BOOKED' ? 0 : 1;
+            const bBooked = (b.status || '').toUpperCase() === 'BOOKED' ? 0 : 1;
+            if (aBooked !== bBooked) return aBooked - bBooked;
+            return a.id - b.id;
+          });
+          const keepId = sorted[0].id;
+          const cancelIds = sorted.slice(1).map((e) => e.id);
+          if (cancelIds.length) {
+            const cancelPlaceholders = cancelIds.map(() => '?').join(',');
+            await pool.execute(
+              `UPDATE office_events SET status = 'CANCELLED', updated_at = NOW()
+               WHERE id IN (${cancelPlaceholders})
+                 AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
+              cancelIds
+            );
+            autoResolvedEventCount += cancelIds.length;
+          }
+          // Do not include this group in the response — it's resolved.
+        } else {
+          stillNeedsReview.push(group);
+        }
+      }
+      duplicateActiveEvents = stillNeedsReview;
     }
 
     // ── Duplicate active standing assignments ─────────────────────────────────
@@ -3210,6 +3246,35 @@ export const getOfficeScheduleIntegrityDiagnostics = async (req, res, next) => {
         });
       }
       duplicateActiveStandingAssignments = [...aSlotMap.values()];
+
+      // Auto-deactivate same-provider duplicate standing assignments: keep the
+      // oldest (lowest id) and deactivate + cancel future events for the rest.
+      const assignNeedsReview = [];
+      for (const group of duplicateActiveStandingAssignments) {
+        const uniqueProviders = new Set(group.assignments.map((a) => a.provider_id).filter(Boolean));
+        if (uniqueProviders.size <= 1) {
+          const sorted = [...group.assignments].sort((a, b) => a.id - b.id);
+          const deactivateIds = sorted.slice(1).map((a) => a.id);
+          if (deactivateIds.length) {
+            const dp = deactivateIds.map(() => '?').join(',');
+            await pool.execute(
+              `UPDATE office_standing_assignments SET is_active = FALSE, updated_at = NOW()
+               WHERE id IN (${dp}) AND is_active = TRUE`,
+              deactivateIds
+            );
+            await pool.execute(
+              `UPDATE office_events SET status = 'CANCELLED', updated_at = NOW()
+               WHERE standing_assignment_id IN (${dp})
+                 AND start_at >= NOW()
+                 AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
+              deactivateIds
+            );
+          }
+        } else {
+          assignNeedsReview.push(group);
+        }
+      }
+      duplicateActiveStandingAssignments = assignNeedsReview;
     }
 
     // ── Provider double-bookings ──────────────────────────────────────────────
