@@ -2750,6 +2750,19 @@
                       <td class="muted" style="font-size: 12px;">{{ eventTimePeriodLabel(row.claim) }}</td>
                       <td class="right">
                         <div class="actions" style="justify-content: flex-end; margin: 0; flex-wrap: wrap; gap: 6px;">
+                          <template v-if="row.canApprove">
+                            <select
+                              v-model="eventTimeTargetPeriodByPunchId[row.submission.punchInId]"
+                              :disabled="eventTimeSavingId === row.submission.punchInId"
+                              style="font-size: 11px; max-width: 160px;"
+                              :title="'Pay period to post to when approving'"
+                            >
+                              <option :value="null" disabled>— select period —</option>
+                              <option v-for="p in periods" :key="p.id" :value="p.id">
+                                {{ periodRangeLabel(p) }}
+                              </option>
+                            </select>
+                          </template>
                           <button
                             v-if="row.bucket === 'direct' && row.canApprove"
                             class="btn btn-secondary btn-sm"
@@ -2763,7 +2776,7 @@
                             v-if="row.canApprove"
                             class="btn btn-primary btn-sm"
                             type="button"
-                            :disabled="eventTimeSavingId === row.submission.punchInId || !selectedPeriodId"
+                            :disabled="eventTimeSavingId === row.submission.punchInId || !eventTimeTargetPeriodByPunchId[row.submission.punchInId]"
                             @click="approveEventTimeSubmission(row.submission, row.bucket)"
                           >
                             Approve {{ row.bucketLabel.toLowerCase() }}
@@ -6632,6 +6645,8 @@ const eventTimeLoading = ref(false);
 const eventTimeError = ref('');
 const eventTimeSavingId = ref(null);
 const eventTimeShowApproved = ref(false); // when true, include approved/rejected history
+// Per-submission target period selector (keyed by punchInId).
+const eventTimeTargetPeriodByPunchId = ref({});
 const eventTimeEditOpen = ref(false);
 const eventTimeEditSubmission = ref(null);
 const eventTimeEditClockIn = ref('');
@@ -8599,7 +8614,19 @@ const loadEventTimeSubmissions = async () => {
         suggestedPeriodId: eventTimeShowApproved.value ? (selectedPeriodId.value || undefined) : undefined
       }
     });
-    eventTimeSubmissions.value = Array.isArray(resp.data?.submissions) ? resp.data.submissions : [];
+    const submissions = Array.isArray(resp.data?.submissions) ? resp.data.submissions : [];
+    eventTimeSubmissions.value = submissions;
+    // Seed per-submission target period: prefer the claim's suggested period if it exists
+    // in the periods list; otherwise default to the currently selected period.
+    const next = { ...(eventTimeTargetPeriodByPunchId.value || {}) };
+    for (const s of submissions) {
+      if (next[s.punchInId]) continue; // keep user's manual selection
+      const claim = s.directClaim || s.indirectClaim;
+      const suggestedId = Number(claim?.suggestedPayrollPeriodId || 0);
+      const inList = suggestedId && (periods.value || []).some((p) => Number(p.id) === suggestedId);
+      next[s.punchInId] = inList ? suggestedId : (Number(selectedPeriodId.value) || null);
+    }
+    eventTimeTargetPeriodByPunchId.value = next;
   } catch (e) {
     eventTimeError.value = e.response?.data?.error?.message || e.message || 'Failed to load event time submissions';
     eventTimeSubmissions.value = [];
@@ -8670,14 +8697,19 @@ const saveEventTimeEdit = async () => {
 };
 
 const approveEventTimeSubmission = async (submission, bucket) => {
-  if (!agencyId.value || !selectedPeriodId.value || !submission) return;
+  if (!agencyId.value || !submission) return;
+  const targetPeriodId = Number(eventTimeTargetPeriodByPunchId.value?.[submission.punchInId] || selectedPeriodId.value || 0);
+  if (!targetPeriodId) {
+    eventTimeError.value = 'Select a pay period before approving.';
+    return;
+  }
   const claim = bucket === 'direct' ? submission.directClaim : submission.indirectClaim;
   if (!claim?.id) return;
   eventTimeSavingId.value = submission.punchInId;
   try {
     await api.patch(`/payroll/time-claims/${claim.id}`, {
       action: 'approve',
-      targetPayrollPeriodId: selectedPeriodId.value,
+      targetPayrollPeriodId: targetPeriodId,
       bucket,
       creditsHours: bucket === 'direct' ? submission.directHours : submission.indirectHours
     });
@@ -11783,7 +11815,10 @@ const loadPeriods = async () => {
     // Idempotent: creates only missing periods.
     await api.post('/payroll/periods/ensure-future', { months: 6, pastPeriods: 2 }, { params: { agencyId: agencyId.value } });
   const resp = await api.get('/payroll/periods', {
-    params: { agencyId: agencyId.value, alignedOnly: showOffSchedulePeriods.value ? 'false' : 'true' }
+    // Always load all periods so off-schedule/older periods resolve labels correctly.
+    // The UI toggle (showOffSchedulePeriods) hides them from the list view but they
+    // still need to be available for claim label lookups and the period picker.
+    params: { agencyId: agencyId.value, alignedOnly: 'false' }
   });
   periods.value = resp.data || [];
   } catch (e) {

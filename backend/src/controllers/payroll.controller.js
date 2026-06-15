@@ -2872,7 +2872,7 @@ export const listPayrollPeriods = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     const resolvedAgencyId = await requirePayrollAccess(req, res, agencyId);
     if (!resolvedAgencyId) return;
-    const rows = await PayrollPeriod.listByAgency(resolvedAgencyId, { limit: 100, offset: 0 });
+    const rows = await PayrollPeriod.listByAgency(resolvedAgencyId, { limit: 300, offset: 0 });
     let sched = null;
     try {
       sched = await getScheduleSettingsOrDefault({ agencyId: resolvedAgencyId });
