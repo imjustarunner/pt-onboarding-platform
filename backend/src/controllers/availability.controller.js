@@ -14,6 +14,7 @@ import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.service.js';
 import * as officeSlotSeriesService from '../services/officeSlotSeries.service.js';
 import OfficeBookingPlan from '../models/OfficeBookingPlan.model.js';
+import OfficeEvent from '../models/OfficeEvent.model.js';
 import { directIndirectRatioKindFromRatio } from '../utils/directIndirectRatioBands.js';
 import {
   normalizeSkillBuilderBlocks,
@@ -286,6 +287,203 @@ async function ensureClientProviderLinkedForRequest({ requestRow, actorUserId })
   }
 }
 
+/**
+ * Find or create a "Private Tutoring" learning_program_class for the provider,
+ * then create a learning_class_session for the individual booking.
+ * Returns the new session ID, or null on failure.
+ */
+async function createTutoringSessionForPublicRequest({ requestRow, linkedOfficeEventId, agencyId, actorUserId }) {
+  const providerId = Number(requestRow?.provider_id || 0);
+  const clientId = Number(requestRow?.created_client_id || requestRow?.matched_client_id || 0) || null;
+  if (!providerId || !agencyId) return null;
+
+  const startWall = String(requestRow?.requested_start_at || '').slice(0, 19);
+  const modality = String(requestRow?.modality || 'VIRTUAL').toUpperCase();
+  const subjectArea = String(requestRow?.subject_area || '').trim() || null;
+  const gradeLevel = String(requestRow?.client_grade_level || '').trim() || null;
+
+  // Step 1: Find or create a "Private Tutoring" class for this provider in this agency.
+  // Uses a deterministic marker: class_code = 'private_tutoring_{providerId}'
+  const classCode = `private_tutoring_${providerId}`;
+  let classId = null;
+
+  const [existingClass] = await pool.execute(
+    `SELECT id FROM learning_program_classes
+     WHERE organization_id = ? AND class_code = ? AND is_active = TRUE
+     LIMIT 1`,
+    [agencyId, classCode]
+  );
+
+  if (existingClass?.[0]) {
+    classId = Number(existingClass[0].id);
+  } else {
+    const [classResult] = await pool.execute(
+      `INSERT INTO learning_program_classes
+         (organization_id, class_name, class_code, delivery_mode, status, is_active, created_by_user_id)
+       VALUES (?, ?, ?, 'individual', 'active', TRUE, ?)`,
+      [agencyId, `Private Tutoring – Provider #${providerId}`, classCode, actorUserId || null]
+    );
+    classId = Number(classResult.insertId);
+
+    // Add provider as a class member
+    try {
+      await pool.execute(
+        `INSERT INTO learning_class_provider_memberships
+           (learning_class_id, provider_user_id, membership_status, created_by_user_id)
+         VALUES (?, ?, 'active', ?)
+         ON DUPLICATE KEY UPDATE membership_status = 'active', updated_at = CURRENT_TIMESTAMP`,
+        [classId, providerId, actorUserId || null]
+      );
+    } catch {
+      // membership table may have constraints — non-fatal
+    }
+  }
+
+  if (!classId) return null;
+
+  // Step 2: Create the individual session
+  const deliveryContext = modality === 'IN_PERSON' ? 'in_person' : 'virtual';
+  const titleParts = ['Tutoring Session'];
+  if (subjectArea) titleParts.push(`– ${subjectArea}`);
+  if (gradeLevel) titleParts.push(`(${gradeLevel})`);
+  const title = titleParts.join(' ');
+
+  const [sessionResult] = await pool.execute(
+    `INSERT INTO learning_class_sessions
+       (learning_class_id, title, mode, session_subtype, delivery_context, starts_at,
+        provider_user_id, office_event_id, created_by_user_id)
+     VALUES (?, ?, 'individual', 'tutoring', ?, ?, ?, ?, ?)`,
+    [
+      classId,
+      title,
+      deliveryContext,
+      startWall || null,
+      providerId,
+      linkedOfficeEventId || null,
+      actorUserId || null
+    ]
+  );
+  const sessionId = Number(sessionResult.insertId);
+  if (!sessionId) return null;
+
+  // Step 3: Add client as class member if we have one
+  if (clientId) {
+    try {
+      await pool.execute(
+        `INSERT INTO learning_class_client_memberships
+           (learning_class_id, client_id, membership_status, created_by_user_id)
+         VALUES (?, ?, 'active', ?)
+         ON DUPLICATE KEY UPDATE membership_status = 'active', updated_at = CURRENT_TIMESTAMP`,
+        [classId, clientId, actorUserId || null]
+      );
+    } catch {
+      // non-fatal
+    }
+  }
+
+  // Step 4: Send session launch notification to provider
+  try {
+    const [agencyRows] = await pool.execute(
+      `SELECT slug, organization_type FROM agencies WHERE id = ? LIMIT 1`,
+      [agencyId]
+    );
+    const slug = agencyRows?.[0]?.slug || null;
+    const sessionUrl = slug
+      ? `/${slug}/tutoring-session/${sessionId}`
+      : (modality === 'IN_PERSON' ? `/in-person-tutoring-session/${sessionId}` : `/tutoring-session/${sessionId}`);
+
+    const clientName = String(requestRow?.client_name || 'Student').trim();
+    const timeLabel = startWall
+      ? new Date(startWall.replace(' ', 'T') + 'Z').toLocaleString('en-US', {
+          weekday: 'short', month: 'short', day: 'numeric',
+          hour: 'numeric', minute: '2-digit', hour12: true
+        })
+      : 'the scheduled time';
+
+    await Notification.create({
+      type: 'tutoring_session_scheduled',
+      severity: 'info',
+      title: 'Tutoring session confirmed',
+      message: `Your tutoring session with ${clientName} on ${timeLabel} is confirmed. Launch at: ${sessionUrl}`,
+      userId: providerId,
+      agencyId: Number(agencyId),
+      relatedEntityType: 'learning_class_session',
+      relatedEntityId: sessionId,
+      ...(actorUserId ? { actorUserId } : { actorSource: 'System' })
+    });
+  } catch {
+    // non-fatal notification
+  }
+
+  return sessionId;
+}
+
+/**
+ * Find the ASSIGNED_AVAILABLE office_event for the provider at the exact requested time
+ * and mark it ASSIGNED_BOOKED (with named lock to prevent double-booking).
+ * Returns the booked event ID, or null if no matching available event was found.
+ */
+async function bookOfficeEventForPublicRequest({ requestRow, actorUserId }) {
+  const providerId = Number(requestRow?.provider_id || 0);
+  if (!providerId) return null;
+
+  const startWall = String(requestRow?.requested_start_at || '').slice(0, 19);
+  const endWall = String(requestRow?.requested_end_at || '').slice(0, 19);
+  if (!startWall || !endWall) return null;
+
+  // Find the matching ASSIGNED_AVAILABLE office event for this provider at this exact time
+  const [rows] = await pool.execute(
+    `SELECT e.id
+     FROM office_events e
+     WHERE e.assigned_provider_id = ?
+       AND e.start_at = ?
+       AND e.end_at = ?
+       AND UPPER(COALESCE(e.slot_state, '')) = 'ASSIGNED_AVAILABLE'
+       AND (e.status IS NULL OR UPPER(e.status) NOT IN ('CANCELLED', 'RELEASED'))
+     LIMIT 1`,
+    [providerId, startWall, endWall]
+  );
+
+  const eventId = Number(rows?.[0]?.id || 0);
+  if (!eventId) return null;
+
+  // Named lock prevents concurrent approvals from double-booking the same slot
+  const lockName = `office_slot_${eventId}`;
+  const [[lockRow]] = await pool.execute(`SELECT GET_LOCK(?, 5) AS acquired`, [lockName]);
+  if (!lockRow?.acquired) return null;
+
+  try {
+    // Re-check state inside the lock
+    const [[check]] = await pool.execute(
+      `SELECT id, slot_state FROM office_events WHERE id = ? LIMIT 1`,
+      [eventId]
+    );
+    if (!check || String(check.slot_state || '').toUpperCase() !== 'ASSIGNED_AVAILABLE') return null;
+
+    const clientId = Number(requestRow?.created_client_id || requestRow?.matched_client_id || 0) || null;
+    const modality = String(requestRow?.modality || 'IN_PERSON').toUpperCase();
+
+    await OfficeEvent.markBooked({
+      eventId,
+      bookedProviderId: providerId,
+      modality
+    });
+
+    // Link the client to this event if we have one
+    if (clientId) {
+      try {
+        await OfficeEvent.setContextLinkage({ eventId, clientId });
+      } catch {
+        // setContextLinkage may not exist on older builds — non-fatal
+      }
+    }
+
+    return eventId;
+  } finally {
+    await pool.execute(`SELECT RELEASE_LOCK(?)`, [lockName]);
+  }
+}
+
 async function requestStillAvailable({ agencyId, requestRow }) {
   const providerId = Number(requestRow?.provider_id || 0);
   if (!providerId) return false;
@@ -309,7 +507,7 @@ async function requestStillAvailable({ agencyId, requestRow }) {
   return list.some((s) => `${s.startAt}|${s.endAt}` === wanted);
 }
 
-async function sendPublicRequestDecisionNotifications({ agencyId, requestRow, status, actorUserId }) {
+async function sendPublicRequestDecisionNotifications({ agencyId, requestRow, status, actorUserId, linkedOfficeEventId = null }) {
   const st = String(status || '').toUpperCase();
   if (!['APPROVED', 'DECLINED', 'CANCELLED'].includes(st)) return;
 
@@ -338,15 +536,18 @@ async function sendPublicRequestDecisionNotifications({ agencyId, requestRow, st
   const statusLabel = st === 'APPROVED' ? 'approved' : st === 'DECLINED' ? 'declined' : 'cancelled';
 
   try {
+    const bookedSuffix = st === 'APPROVED' && linkedOfficeEventId
+      ? ' The office slot has been booked automatically.'
+      : '';
     await Notification.create({
       type: 'program_reminder',
       severity: st === 'APPROVED' ? 'info' : 'warning',
       title: `Public appointment request ${statusLabel}`,
-      message: `${clientName} (${modality}) for ${timeLabel} has been ${statusLabel}.`,
+      message: `${clientName} (${modality}) for ${timeLabel} has been ${statusLabel}.${bookedSuffix}`,
       userId: provider?.id || null,
       agencyId: Number(agencyId),
-      relatedEntityType: 'public_appointment_request',
-      relatedEntityId: Number(requestRow?.id || 0) || null,
+      relatedEntityType: linkedOfficeEventId ? 'office_event' : 'public_appointment_request',
+      relatedEntityId: linkedOfficeEventId || Number(requestRow?.id || 0) || null,
       ...(actorUserId ? { actorUserId } : { actorSource: 'System' })
     });
   } catch {
@@ -4274,7 +4475,12 @@ export const listPublicAppointmentRequests = async (req, res, next) => {
         createdGuardianUserId: r.created_guardian_user_id || null,
         notes: r.notes || '',
         status: r.status,
-        createdAt: r.created_at
+        serviceType: r.service_type || null,
+        subjectArea: r.subject_area || null,
+        clientGradeLevel: r.client_grade_level || null,
+        createdAt: r.created_at,
+        linkedOfficeEventId: r.linked_office_event_id || null,
+        linkedSessionId: r.linked_session_id || null
       }))
     });
   } catch (e) {
@@ -4318,10 +4524,61 @@ export const setPublicAppointmentRequestStatus = async (req, res, next) => {
       if (!ok) return res.status(404).json({ error: { message: 'Request not found' } });
 
       let updatedRow = null;
+      let linkedOfficeEventId = null;
+
       if (status === 'APPROVED') {
         updatedRow = await PublicAppointmentRequest.findById({ agencyId, requestId });
         if (updatedRow) {
           await ensureClientProviderLinkedForRequest({ requestRow: updatedRow, actorUserId: req.user?.id || null });
+
+          const modality = String(updatedRow.modality || '').toUpperCase();
+          const serviceType = String(updatedRow.service_type || '').toLowerCase();
+          const isTutoring = serviceType === 'tutoring';
+
+          // For IN_PERSON requests: find the matching ASSIGNED_AVAILABLE office_event and book it.
+          if (modality === 'IN_PERSON') {
+            linkedOfficeEventId = await bookOfficeEventForPublicRequest({
+              requestRow: updatedRow,
+              actorUserId: req.user?.id || null
+            });
+            if (linkedOfficeEventId) {
+              try {
+                await pool.execute(
+                  `UPDATE public_appointment_requests
+                   SET linked_office_event_id = ?, updated_at = CURRENT_TIMESTAMP
+                   WHERE id = ?`,
+                  [linkedOfficeEventId, requestId]
+                );
+              } catch {
+                // Column may not exist if migration 865 hasn't run — non-fatal
+              }
+            }
+          }
+
+          // For tutoring requests: create a learning_class_session so the provider
+          // can launch the session directly from the approval notification.
+          if (isTutoring) {
+            try {
+              const linkedSessionId = await createTutoringSessionForPublicRequest({
+                requestRow: updatedRow,
+                linkedOfficeEventId,
+                agencyId,
+                actorUserId: req.user?.id || null
+              });
+              if (linkedSessionId) {
+                await pool.execute(
+                  `UPDATE public_appointment_requests
+                   SET linked_session_id = ?, updated_at = CURRENT_TIMESTAMP
+                   WHERE id = ?`,
+                  [linkedSessionId, requestId]
+                );
+                linkedOfficeEventId = linkedOfficeEventId || null;
+              }
+            } catch (e) {
+              // Non-fatal — log but don't block the approval
+              console.warn('[tutoring-session-create] failed:', e?.message || e);
+            }
+          }
         }
       }
 
@@ -4331,7 +4588,8 @@ export const setPublicAppointmentRequestStatus = async (req, res, next) => {
           agencyId,
           requestRow: postUpdate,
           status,
-          actorUserId: req.user?.id || null
+          actorUserId: req.user?.id || null,
+          linkedOfficeEventId
         });
       }
     } catch (e) {
@@ -4339,7 +4597,7 @@ export const setPublicAppointmentRequestStatus = async (req, res, next) => {
       throw e;
     }
 
-    res.json({ ok: true });
+    res.json({ ok: true, linkedOfficeEventId });
   } catch (e) {
     next(e);
   }

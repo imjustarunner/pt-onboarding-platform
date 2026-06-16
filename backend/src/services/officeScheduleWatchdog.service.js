@@ -7,6 +7,7 @@ import OfficeEvent from '../models/OfficeEvent.model.js';
 import GoogleCalendarService from './googleCalendar.service.js';
 import {
   refreshAllLocationsFromEhr,
+  auditIcsCoverageAllLocations,
   downgradeBookedWithoutExternalOverlap
 } from './officeScheduleEhrSync.service.js';
 import { retryFailedProviderAssignmentGoogleSync } from './providerAssignmentGoogleSync.service.js';
@@ -431,14 +432,17 @@ export class OfficeScheduleWatchdogService {
       googleSync = { ok: false, reason: 'exception', error: String(e?.message || e) };
     }
 
-    let ehrTnDowngrade = null;
+    // ICS coverage audit runs at the same 6-week cadence as booking confirm reminders.
+    // It flags (but never auto-cancels) slots with insufficient clinical session coverage.
+    // downgradeBookedWithoutExternalOverlap is now a no-op; audit replaces it.
+    let icsCoverageAudit = null;
     try {
-      ehrTnDowngrade = await downgradeBookedWithoutExternalOverlap({ actorUserId: 1 });
+      icsCoverageAudit = await auditIcsCoverageAllLocations({ actorUserId: 1 });
     } catch (e) {
-      ehrTnDowngrade = { ok: false, reason: 'exception', error: String(e?.message || e) };
+      icsCoverageAudit = { ok: false, reason: 'exception', error: String(e?.message || e) };
     }
 
-    return { ok: true, ehrRefresh, internalSessionBook, confirms, forfeits, inactiveCleanup, googleSync, ehrTnDowngrade };
+    return { ok: true, ehrRefresh, internalSessionBook, confirms, forfeits, inactiveCleanup, googleSync, icsCoverageAudit };
   }
 
   /**

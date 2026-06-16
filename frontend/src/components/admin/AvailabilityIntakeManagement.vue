@@ -178,6 +178,9 @@
                   <button class="btn btn-primary btn-sm" @click="setPublicStatus(r, 'APPROVED')" :disabled="saving">Approve</button>
                   <button class="btn btn-secondary btn-sm" @click="setPublicStatus(r, 'DECLINED')" :disabled="saving">Decline</button>
                 </div>
+                <div v-if="r.linkedOfficeEventId" class="booking-created-pill">
+                  Office booked ✓
+                </div>
               </div>
             </div>
           </div>
@@ -659,10 +662,13 @@ const setPublicStatus = async (r, status) => {
   try {
     saving.value = true;
     error.value = '';
-    await api.post(`/availability/admin/public-appointment-requests/${r.id}/status`, {
+    const res = await api.post(`/availability/admin/public-appointment-requests/${r.id}/status`, {
       agencyId: agencyId.value,
       status
     });
+    if (status === 'APPROVED' && res.data?.linkedOfficeEventId) {
+      r._linkedOfficeEventId = res.data.linkedOfficeEventId;
+    }
     await reload();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to update appointment request';
@@ -907,6 +913,7 @@ watch(
 @media (min-width: 1100px) { .skills-grid { grid-template-columns: 1fr 1fr; } }
 .card-inner { border: 1px solid var(--border); border-radius: 12px; padding: 12px; background: white; }
 .row-inline { display: flex; gap: 8px; align-items: center; }
+.booking-created-pill { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 12px; background: #d1fae5; color: #065f46; margin-top: 2px; }
 .skill-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .skill-row:last-child { border-bottom: none; }
 </style>

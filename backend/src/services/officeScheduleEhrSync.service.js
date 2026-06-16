@@ -10,6 +10,17 @@ import GoogleCalendarService from './googleCalendar.service.js';
 import OfficeScheduleMaterializer from './officeScheduleMaterializer.service.js';
 import { createNotificationAndDispatch } from './notificationDispatcher.service.js';
 
+// Clinical session keywords — ICS SUMMARY must contain at least one to count as verified.
+const CLINICAL_KEYWORDS = [
+  'therapy', 'counseling', 'session', 'consultation', 'intake',
+  'tutoring', 'evaluation', 'assessment', 'treatment', 'supervision'
+];
+
+function hasClinicalKeyword(summary) {
+  const s = String(summary || '').toLowerCase();
+  return CLINICAL_KEYWORDS.some((kw) => s.includes(kw));
+}
+
 function isValidTimeZone(tz) {
   const s = String(tz || '').trim();
   if (!s) return false;
@@ -121,11 +132,105 @@ async function resolveProviderTimeZone({ providerId, fallbackTimeZone }) {
   return fallback;
 }
 
+async function providerHasExternalBusyFeeds(providerId) {
+  const pid = Number(providerId || 0);
+  if (!pid) return { ok: false, hasFeeds: false };
+  const calendars = await UserExternalCalendar.listForUser({ userId: pid, includeFeeds: true, activeOnly: true });
+  for (const c of calendars || []) {
+    for (const f of c?.feeds || []) {
+      if (String(f?.icsUrl || '').trim() && f?.isActive !== false) return { ok: true, hasFeeds: true };
+    }
+  }
+  const provider = await User.findById(pid);
+  const legacy = String(provider?.external_busy_ics_url || provider?.externalBusyIcsUrl || '').trim();
+  if (legacy) return { ok: true, hasFeeds: true };
+  return { ok: true, hasFeeds: false };
+}
+
+/** Fetch ICS busy items WITH their summary fields preserved (use events, not merged busy). */
+async function loadBusyWithSummaryForProvider({ providerId, weekStartYmd, timeMinIso, timeMaxIso }) {
+  const calendars = await UserExternalCalendar.listForUser({ userId: providerId, includeFeeds: true, activeOnly: true });
+  const feeds = [];
+  for (const c of calendars || []) {
+    for (const f of c?.feeds || []) {
+      const url = String(f?.icsUrl || '').trim();
+      if (url) feeds.push({ id: f.id, url });
+    }
+  }
+
+  let busy = [];
+  let feedsOk = 0;
+  let feedsFailed = 0;
+  const errors = [];
+
+  if (feeds.length) {
+    const r = await ExternalBusyCalendarService.getBusyForFeeds({
+      userId: providerId,
+      weekStart: String(weekStartYmd || new Date().toISOString().slice(0, 10)).slice(0, 10),
+      feeds,
+      timeMinIso,
+      timeMaxIso
+    });
+    if (!r?.ok && r?.reason === 'all_feeds_failed') {
+      feedsFailed += feeds.length;
+      errors.push(String(r?.error || 'all_feeds_failed'));
+    } else if (r?.ok) {
+      // Use r.events (unmerged, has summaries) instead of r.busy (merged, loses summaries)
+      busy.push(...(r.events || r.busy || []));
+      feedsOk += feeds.length;
+    }
+  }
+
+  const provider = await User.findById(providerId);
+  const legacyIcsUrl = String(provider?.external_busy_ics_url || provider?.externalBusyIcsUrl || '').trim();
+  if (legacyIcsUrl) {
+    const r = await ExternalBusyCalendarService.getBusyForWeek({
+      userId: providerId,
+      weekStart: String(weekStartYmd || new Date().toISOString().slice(0, 10)).slice(0, 10),
+      icsUrl: legacyIcsUrl,
+      timeMinIso,
+      timeMaxIso
+    });
+    if (r?.ok) {
+      busy.push(...(r.busy || []));
+      feedsOk += 1;
+    } else {
+      feedsFailed += 1;
+      errors.push(String(r?.error || r?.reason || 'legacy_feed_failed'));
+    }
+  }
+
+  return { ok: feedsFailed === 0 || busy.length > 0, busy, feedsOk, feedsFailed, errors };
+}
+
+async function writeSyncLog({ officeLocationId, eventsScanned, eventsBooked, eventsOverlapUpdated, feedsOk, feedsFailed, errorSummary }) {
+  try {
+    await pool.execute(
+      `INSERT INTO office_ehr_sync_log
+         (office_location_id, run_at, events_scanned, events_booked, events_overlap_updated, feeds_ok, feeds_failed, error_summary)
+       VALUES (?, NOW(), ?, ?, ?, ?, ?, ?)`,
+      [
+        Number(officeLocationId),
+        Number(eventsScanned || 0),
+        Number(eventsBooked || 0),
+        Number(eventsOverlapUpdated || 0),
+        Number(feedsOk || 0),
+        Number(feedsFailed || 0),
+        errorSummary ? String(errorSummary).slice(0, 500) : null
+      ]
+    );
+  } catch {
+    // Table may not exist yet — never block sync on log write
+  }
+}
+
 /**
- * For each ASSIGNED_AVAILABLE / ASSIGNED_TEMPORARY office occurrence in the window, if the
- * provider's Therapy Notes / external ICS busy blocks overlap that slot, mark the occurrence
- * booked and ensure an active booking plan exists (same behavior as the admin "Refresh
- * Therapy Notes-linked room bookings" action).
+ * For each ASSIGNED_AVAILABLE / ASSIGNED_TEMPORARY / ASSIGNED_BOOKED office occurrence in the
+ * forward window:
+ * - ASSIGNED_AVAILABLE / ASSIGNED_TEMPORARY: if ICS overlap found → markBooked + upsert booking plan
+ * - ASSIGNED_BOOKED: if ICS overlap found → update last_ics_overlap_at only (no state change)
+ *
+ * Writes a row to office_ehr_sync_log with feed health stats.
  */
 export async function refreshLocationBookingsFromEhr({ officeLocationId, actorUserId }) {
   const officeId = parseInt(officeLocationId, 10);
@@ -151,6 +256,8 @@ export async function refreshLocationBookingsFromEhr({ officeLocationId, actorUs
     });
   }
 
+  // Scan both ASSIGNED_AVAILABLE/TEMPORARY (to promote to BOOKED) and
+  // ASSIGNED_BOOKED (to refresh last_ics_overlap_at for coverage verification).
   const [assignedRows] = await pool.execute(
     `SELECT
        e.id,
@@ -166,7 +273,7 @@ export async function refreshLocationBookingsFromEhr({ officeLocationId, actorUs
      WHERE e.office_location_id = ?
        AND e.start_at >= ?
        AND e.start_at < ?
-       AND UPPER(COALESCE(e.slot_state, '')) IN ('ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY')
+       AND UPPER(COALESCE(e.slot_state, '')) IN ('ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'ASSIGNED_BOOKED')
        AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
      ORDER BY e.start_at ASC`,
     [officeId, windowStartWall, windowEndWall]
@@ -174,12 +281,18 @@ export async function refreshLocationBookingsFromEhr({ officeLocationId, actorUs
 
   const events = (assignedRows || []).filter((r) => Number(r.assigned_provider_id || r.booked_provider_id || 0) > 0);
   if (!events.length) {
+    await writeSyncLog({ officeLocationId: officeId, eventsScanned: 0, eventsBooked: 0, eventsOverlapUpdated: 0, feedsOk: 0, feedsFailed: 0 });
     return { ok: true, officeLocationId: officeId, scannedAssigned: 0, bookedFromEhr: 0, touchedProviders: 0, bookingPlansReset: 0 };
   }
 
-  const providerIds = Array.from(new Set(events.map((e) => Number(e.assigned_provider_id || e.booked_provider_id || 0)).filter((n) => Number.isInteger(n) && n > 0)));
+  const providerIds = Array.from(new Set(
+    events.map((e) => Number(e.assigned_provider_id || e.booked_provider_id || 0)).filter((n) => Number.isInteger(n) && n > 0)
+  ));
   const providerTimeZoneById = new Map();
   const busyByProviderId = new Map();
+  let totalFeedsOk = 0;
+  let totalFeedsFailed = 0;
+  const allErrors = [];
 
   for (const providerId of providerIds) {
     // eslint-disable-next-line no-await-in-loop
@@ -196,46 +309,29 @@ export async function refreshLocationBookingsFromEhr({ officeLocationId, actorUs
       : `${windowEndYmdExclusive}T00:00:00Z`;
 
     // eslint-disable-next-line no-await-in-loop
-    const calendars = await UserExternalCalendar.listForUser({ userId: providerId, includeFeeds: true, activeOnly: true });
-    const feeds = [];
-    for (const c of calendars || []) {
-      for (const f of c?.feeds || []) {
-        const url = String(f?.icsUrl || '').trim();
-        if (url) feeds.push({ id: f.id, url });
-      }
+    const result = await loadBusyWithSummaryForProvider({
+      providerId,
+      weekStartYmd: windowStartYmd,
+      timeMinIso,
+      timeMaxIso
+    });
+
+    if (!result.ok && result.feedsFailed > 0) {
+      console.warn(`[ehr-sync] provider=${providerId} location=${officeId} feeds_failed=${result.feedsFailed} errors=${result.errors.join('; ')}`);
+      allErrors.push(...result.errors);
+    } else {
+      console.info(`[ehr-sync] provider=${providerId} location=${officeId} status=ok busy_items=${result.busy.length}`);
     }
 
-    let busy = [];
-    if (feeds.length) {
-      // eslint-disable-next-line no-await-in-loop
-      const r = await ExternalBusyCalendarService.getBusyForFeeds({
-        userId: providerId,
-        weekStart: windowStartYmd,
-        feeds,
-        timeMinIso,
-        timeMaxIso
-      });
-      if (r?.ok) busy.push(...(r.busy || []));
-    }
-
-    const provider = await User.findById(providerId);
-    const legacyIcsUrl = String(provider?.external_busy_ics_url || provider?.externalBusyIcsUrl || '').trim();
-    if (legacyIcsUrl) {
-      // eslint-disable-next-line no-await-in-loop
-      const r = await ExternalBusyCalendarService.getBusyForWeek({
-        userId: providerId,
-        weekStart: windowStartYmd,
-        icsUrl: legacyIcsUrl,
-        timeMinIso,
-        timeMaxIso
-      });
-      if (r?.ok) busy.push(...(r.busy || []));
-    }
-    busyByProviderId.set(providerId, busy);
+    totalFeedsOk += result.feedsOk;
+    totalFeedsFailed += result.feedsFailed;
+    busyByProviderId.set(providerId, result.busy);
   }
 
   const eventsToBook = [];
+  const bookedEventsToUpdateOverlap = [];
   const planSeedByAssignmentId = new Map();
+
   for (const e of events) {
     const providerId = Number(e.assigned_provider_id || e.booked_provider_id || 0);
     const providerTimeZone = providerTimeZoneById.get(providerId) || officeTimeZone;
@@ -249,13 +345,27 @@ export async function refreshLocationBookingsFromEhr({ officeLocationId, actorUs
       const be = new Date(b.endAt).getTime();
       return intervalsOverlap(eventStartMs, eventEndMs, bs, be);
     });
-    if (!hasMatch) continue;
-    eventsToBook.push({ eventId: Number(e.id), providerId, standingAssignmentId: Number(e.standing_assignment_id || 0) || null, startAt: String(e.start_at || '').slice(0, 19) });
-    if (Number(e.standing_assignment_id || 0) > 0) {
-      const sid = Number(e.standing_assignment_id);
-      const existing = planSeedByAssignmentId.get(sid);
-      if (!existing || String(e.start_at) < String(existing.startAt)) {
-        planSeedByAssignmentId.set(sid, { startAt: String(e.start_at || '').slice(0, 10) });
+
+    const slotState = String(e.slot_state || '').toUpperCase();
+
+    if (slotState === 'ASSIGNED_BOOKED') {
+      // Already booked — just refresh overlap timestamp for coverage verification
+      if (hasMatch) bookedEventsToUpdateOverlap.push(Number(e.id));
+    } else {
+      // ASSIGNED_AVAILABLE / ASSIGNED_TEMPORARY — promote to booked if TN overlap found
+      if (!hasMatch) continue;
+      eventsToBook.push({
+        eventId: Number(e.id),
+        providerId,
+        standingAssignmentId: Number(e.standing_assignment_id || 0) || null,
+        startAt: String(e.start_at || '').slice(0, 19)
+      });
+      if (Number(e.standing_assignment_id || 0) > 0) {
+        const sid = Number(e.standing_assignment_id);
+        const existing = planSeedByAssignmentId.get(sid);
+        if (!existing || String(e.start_at) < String(existing.startAt)) {
+          planSeedByAssignmentId.set(sid, { startAt: String(e.start_at || '').slice(0, 10) });
+        }
       }
     }
   }
@@ -270,6 +380,21 @@ export async function refreshLocationBookingsFromEhr({ officeLocationId, actorUs
       await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId: b.eventId });
     } catch {
       // best-effort mirror
+    }
+  }
+
+  // Refresh last_ics_overlap_at on already-booked events that had ICS overlap
+  if (bookedEventsToUpdateOverlap.length) {
+    const ph = bookedEventsToUpdateOverlap.map(() => '?').join(',');
+    try {
+      await pool.execute(
+        `UPDATE office_events
+         SET last_ics_overlap_at = NOW(), updated_at = CURRENT_TIMESTAMP
+         WHERE id IN (${ph})`,
+        bookedEventsToUpdateOverlap
+      );
+    } catch {
+      // Column may not exist yet if migration 864 hasn't run
     }
   }
 
@@ -303,11 +428,22 @@ export async function refreshLocationBookingsFromEhr({ officeLocationId, actorUs
     }
   }
 
+  await writeSyncLog({
+    officeLocationId: officeId,
+    eventsScanned: events.length,
+    eventsBooked: bookedFromEhr,
+    eventsOverlapUpdated: bookedEventsToUpdateOverlap.length,
+    feedsOk: totalFeedsOk,
+    feedsFailed: totalFeedsFailed,
+    errorSummary: allErrors.length ? allErrors.slice(0, 3).join('; ') : null
+  });
+
   return {
     ok: true,
     officeLocationId: officeId,
     scannedAssigned: events.length,
     bookedFromEhr,
+    overlapUpdated: bookedEventsToUpdateOverlap.length,
     touchedProviders: providerIds.length,
     bookingPlansReset,
     windowStart: windowStartWall,
@@ -345,153 +481,161 @@ export async function refreshAllLocationsFromEhr({ actorUserId = 1 } = {}) {
   return { ok: true, locations: results.length, bookedFromEhr, results };
 }
 
-async function providerHasExternalBusyFeeds(providerId) {
-  const pid = Number(providerId || 0);
-  if (!pid) return { ok: false, hasFeeds: false };
-  const calendars = await UserExternalCalendar.listForUser({ userId: pid, includeFeeds: true, activeOnly: true });
-  for (const c of calendars || []) {
-    for (const f of c?.feeds || []) {
-      if (String(f?.icsUrl || '').trim() && f?.isActive !== false) return { ok: true, hasFeeds: true };
-    }
-  }
-  const provider = await User.findById(pid);
-  const legacy = String(provider?.external_busy_ics_url || provider?.externalBusyIcsUrl || '').trim();
-  if (legacy) return { ok: true, hasFeeds: true };
-  return { ok: true, hasFeeds: false };
-}
+// ---------------------------------------------------------------------------
+// ICS Coverage Audit (replaces auto-drop)
+// ---------------------------------------------------------------------------
+// Runs at the 6-week cadence. For each ASSIGNED_BOOKED event in the past window:
+//  1. Check ICS overlap + clinical keyword → covered / non_clinical_busy / no_coverage
+//  2. Apply bookend rule: if first & last hour of a contiguous block are clinically covered,
+//     all middle hours are marked covered (no flag).
+//  3. Set ics_flag_type on uncovered/partial events. Notify scheduling admin roles.
+//  4. DOES NOT auto-cancel or deactivate anything — admin decides.
+// ---------------------------------------------------------------------------
 
-async function loadBusyForProviderWindow({ providerId, weekStartYmd, timeMinIso, timeMaxIso }) {
-  const calendars = await UserExternalCalendar.listForUser({ userId: providerId, includeFeeds: true, activeOnly: true });
-  const feeds = [];
-  for (const c of calendars || []) {
-    for (const f of c?.feeds || []) {
-      const url = String(f?.icsUrl || '').trim();
-      if (url) feeds.push({ id: f.id, url });
-    }
-  }
-
-  let busy = [];
-  if (feeds.length) {
-    const r = await ExternalBusyCalendarService.getBusyForFeeds({
-      userId: providerId,
-      weekStart: String(weekStartYmd || new Date().toISOString().slice(0, 10)).slice(0, 10),
-      feeds,
-      timeMinIso,
-      timeMaxIso
-    });
-    if (!r?.ok && r?.reason === 'all_feeds_failed') {
-      return { ok: false, reason: 'all_feeds_failed', busy: [] };
-    }
-    if (r?.ok) busy.push(...(r.busy || []));
-  }
-
-  const provider = await User.findById(providerId);
-  const legacyIcsUrl = String(provider?.external_busy_ics_url || provider?.externalBusyIcsUrl || '').trim();
-  if (legacyIcsUrl) {
-    const r = await ExternalBusyCalendarService.getBusyForWeek({
-      userId: providerId,
-      weekStart: String(weekStartYmd || new Date().toISOString().slice(0, 10)).slice(0, 10),
-      icsUrl: legacyIcsUrl,
-      timeMinIso,
-      timeMaxIso
-    });
-    if (r?.ok) busy.push(...(r.busy || []));
-  }
-
-  return { ok: true, busy };
-}
-
-function userBookingGraceStillActive(userBookingConfirmedAt) {
-  const raw = userBookingConfirmedAt;
-  if (raw === null || raw === undefined) return false;
-  const t = new Date(raw).getTime();
-  if (!Number.isFinite(t)) return false;
-  const graceMs = 42 * 24 * 60 * 60 * 1000;
-  return Date.now() < t + graceMs;
+function calendarDateYmd(wallDateTime) {
+  return String(wallDateTime || '').slice(0, 10);
 }
 
 /**
- * When the last two past booked occurrences have no overlap with Therapy Notes / external ICS
- * busy time: deactivate the booking plan and set occurrences to ASSIGNED_AVAILABLE.
- * — ehr_sync plans: apply as soon as both checks fail (same cadence as the prior 2-occurrence warning).
- * — user plans: only after user_booking_confirmed_at + 6 weeks (42 days), so provider-marked
- *   bookings bypass TN checks for that window.
- * Requires at least one ICS feed (same as overlap refresh); otherwise we cannot verify TN and skip.
+ * Group a list of office_event rows (sorted by start_at ASC) into contiguous blocks.
+ * Two events are contiguous when the gap between end_at and the next start_at is ≤ 5 min.
  */
-export async function downgradeBookedWithoutExternalOverlap({ actorUserId = 1 } = {}) {
-  const actorId = parseInt(actorUserId, 10) || 1;
+function groupIntoContiguousBlocks(events) {
+  if (!events.length) return [];
+  const blocks = [];
+  let current = [events[0]];
+  for (let i = 1; i < events.length; i++) {
+    const prev = current[current.length - 1];
+    const prevEndStr = String(prev.end_at || '').trim();
+    const curStartStr = String(events[i].start_at || '').trim();
+    const prevEndMs = prevEndStr ? new Date(prevEndStr.replace(' ', 'T') + 'Z').getTime() : NaN;
+    const curStartMs = curStartStr ? new Date(curStartStr.replace(' ', 'T') + 'Z').getTime() : NaN;
+    const gapMs = Number.isFinite(prevEndMs) && Number.isFinite(curStartMs)
+      ? curStartMs - prevEndMs
+      : Infinity;
+    if (gapMs <= 5 * 60 * 1000) {
+      current.push(events[i]);
+    } else {
+      blocks.push(current);
+      current = [events[i]];
+    }
+  }
+  blocks.push(current);
+  return blocks;
+}
+
+/**
+ * For one contiguous block, determine per-event coverage status.
+ * Returns array of { eventId, flagType: null|'no_coverage'|'non_clinical_busy'|'partial_coverage', hasClinicalOverlap }
+ */
+function analyzeBlock(block, busyItems, providerTimeZone) {
+  const results = block.map((ev) => {
+    const eventStartMs = utcMsForWallMySqlDateTime(ev.start_at, providerTimeZone);
+    const eventEndMs = utcMsForWallMySqlDateTime(ev.end_at, providerTimeZone);
+    let hasClinicalOverlap = false;
+    let hasNonClinicalOverlap = false;
+
+    for (const b of busyItems) {
+      const bs = new Date(b.startAt).getTime();
+      const be = new Date(b.endAt).getTime();
+      if (!intervalsOverlap(eventStartMs, eventEndMs, bs, be)) continue;
+      if (hasClinicalKeyword(b.summary)) {
+        hasClinicalOverlap = true;
+      } else {
+        hasNonClinicalOverlap = true;
+      }
+    }
+    return { eventId: Number(ev.id), hasClinicalOverlap, hasNonClinicalOverlap };
+  });
+
+  // Bookend rule: if the first and last event in the block are clinically covered,
+  // treat all middle events as covered too (provider is present the whole block).
+  const firstCovered = results[0]?.hasClinicalOverlap;
+  const lastCovered = results[results.length - 1]?.hasClinicalOverlap;
+  if (firstCovered && lastCovered) {
+    return results.map((r) => ({ eventId: r.eventId, flagType: null }));
+  }
+
+  return results.map((r) => {
+    if (r.hasClinicalOverlap) return { eventId: r.eventId, flagType: null };
+    if (r.hasNonClinicalOverlap) return { eventId: r.eventId, flagType: 'non_clinical_busy' };
+    // Check if this is the tail of a partially covered block
+    const isTail = firstCovered && !lastCovered;
+    return { eventId: r.eventId, flagType: isTail ? 'partial_coverage' : 'no_coverage' };
+  });
+}
+
+/**
+ * Run the 6-week ICS coverage audit for one office location.
+ * Flags events with insufficient clinical coverage; never auto-cancels anything.
+ */
+export async function auditIcsCoverageForLocation({ officeLocationId, actorUserId = 1, windowDays = 42 } = {}) {
+  const officeId = parseInt(officeLocationId, 10);
+  if (!officeId) return { ok: false, reason: 'invalid_location' };
+
+  const loc = await OfficeLocation.findById(officeId);
+  if (!loc) return { ok: false, reason: 'location_not_found' };
+
+  const officeTimeZone = isValidTimeZone(loc?.timezone) ? String(loc.timezone) : 'America/New_York';
+  const todayYmd = localYmdInTz(new Date(), officeTimeZone) || new Date().toISOString().slice(0, 10);
+  const windowStartYmd = OfficeScheduleMaterializer.addDays(todayYmd, -Number(windowDays || 42));
+
   let rows = [];
   try {
     const [r] = await pool.execute(
       `SELECT
          e.id,
-         e.standing_assignment_id,
          e.start_at,
          e.end_at,
          e.assigned_provider_id,
+         e.standing_assignment_id,
          e.office_location_id,
-         bp.booking_origin,
-         bp.user_booking_confirmed_at,
+         e.ics_flag_cleared_at,
          ol.name AS office_name,
          r.name AS room_name,
          r.label AS room_label
        FROM office_events e
-       JOIN office_booking_plans bp ON bp.id = e.booking_plan_id AND bp.is_active = TRUE
-       JOIN office_standing_assignments osa ON osa.id = e.standing_assignment_id AND osa.is_active = TRUE
        JOIN office_locations ol ON ol.id = e.office_location_id
        JOIN office_rooms r ON r.id = e.room_id
-       WHERE e.slot_state = 'ASSIGNED_BOOKED'
+       WHERE e.office_location_id = ?
+         AND e.slot_state = 'ASSIGNED_BOOKED'
          AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
-         AND e.start_at >= bp.booking_start_date
-         AND e.start_at >= DATE_SUB(NOW(), INTERVAL 120 DAY)
+         AND e.start_at >= ?
          AND e.start_at < NOW()
-       ORDER BY e.standing_assignment_id ASC, e.start_at DESC`
+       ORDER BY e.assigned_provider_id ASC, e.standing_assignment_id ASC, e.start_at ASC`,
+      [officeId, `${windowStartYmd} 00:00:00`]
     );
     rows = r || [];
   } catch (e) {
-    if (e?.code === 'ER_NO_SUCH_TABLE') {
-      return { ok: false, reason: 'office_tables_missing', downgraded: 0 };
-    }
-    if (e?.code === 'ER_BAD_FIELD_ERROR') {
-      return { ok: false, reason: 'booking_origin_columns_missing', downgraded: 0 };
+    if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
+      return { ok: false, reason: 'tables_or_columns_missing' };
     }
     throw e;
   }
 
-  const byAssignment = new Map();
+  if (!rows.length) return { ok: true, flagged: 0, covered: 0, checked: 0 };
+
+  // Group rows by provider
+  const byProvider = new Map();
   for (const row of rows) {
-    const sid = Number(row.standing_assignment_id || 0);
-    if (!sid) continue;
-    if (!byAssignment.has(sid)) byAssignment.set(sid, []);
-    const list = byAssignment.get(sid);
-    if (list.length < 2) list.push(row);
+    const pid = Number(row.assigned_provider_id || 0);
+    if (!pid) continue;
+    if (!byProvider.has(pid)) byProvider.set(pid, []);
+    byProvider.get(pid).push(row);
   }
 
-  let downgraded = 0;
-  for (const [standingAssignmentId, lastTwo] of byAssignment.entries()) {
-    if (lastTwo.length < 2) continue;
+  let flagged = 0;
+  let covered = 0;
+  const flagsByProvider = new Map();
 
-    const providerId = Number(lastTwo[0]?.assigned_provider_id || 0);
-    if (!providerId) continue;
-
+  for (const [providerId, providerEvents] of byProvider.entries()) {
+    // eslint-disable-next-line no-await-in-loop
     const feedCheck = await providerHasExternalBusyFeeds(providerId);
     if (!feedCheck.hasFeeds) continue;
 
-    const origin = String(lastTwo[0]?.booking_origin || 'ehr_sync').toLowerCase();
-    const ubc = lastTwo[0]?.user_booking_confirmed_at;
-    if (origin === 'user' && userBookingGraceStillActive(ubc)) {
-      continue;
-    }
+    // eslint-disable-next-line no-await-in-loop
+    const providerTimeZone = await resolveProviderTimeZone({ providerId, fallbackTimeZone: officeTimeZone });
 
-    const assignment = await OfficeStandingAssignment.findById(standingAssignmentId);
-    if (!assignment || !assignment.is_active) continue;
-
-    const loc = await OfficeLocation.findById(Number(assignment.office_location_id || 0));
-    const officeTz = isValidTimeZone(loc?.timezone) ? String(loc.timezone) : 'America/New_York';
-    const providerTimeZone = await resolveProviderTimeZone({ providerId, fallbackTimeZone: officeTz });
-
-    const todayYmd = new Date().toISOString().slice(0, 10);
-    const windowStartYmd = OfficeScheduleMaterializer.addDays(todayYmd, -120);
     const windowStartWall = `${windowStartYmd} 00:00:00`;
     const startParts = parseMySqlDateTimeParts(windowStartWall);
     const timeMinIso = startParts
@@ -499,124 +643,211 @@ export async function downgradeBookedWithoutExternalOverlap({ actorUserId = 1 } 
       : `${windowStartYmd}T00:00:00Z`;
     const timeMaxIso = new Date().toISOString();
 
-    const busyPack = await loadBusyForProviderWindow({
+    // eslint-disable-next-line no-await-in-loop
+    const busyResult = await loadBusyWithSummaryForProvider({
       providerId,
       weekStartYmd: windowStartYmd,
       timeMinIso,
       timeMaxIso
     });
-    if (!busyPack.ok) continue;
 
-    const busy = busyPack.busy || [];
+    if (!busyResult.ok && busyResult.busy.length === 0) {
+      console.warn(`[ehr-audit] provider=${providerId} all_feeds_failed — skipping audit for this provider`);
+      continue;
+    }
 
-    // Guard: if the ICS feed returned no past-completed busy slots, the feed almost
-    // certainly only exports *upcoming* appointments (Therapy Notes does this).  We
-    // cannot reliably verify past bookings against such a feed, so skip the downgrade
-    // for this assignment rather than wrongly releasing legitimate bookings.
+    // Guard: if no past-completed ICS events exist in the feed, the feed likely
+    // only exports upcoming events. Skip to avoid false flags.
     const now = Date.now();
-    const hasPastBusySlot = busy.some((b) => new Date(b.endAt).getTime() < now);
-    if (!hasPastBusySlot) continue;
-
-    let bothMissing = true;
-    for (const ev of lastTwo) {
-      const eventStartMs = utcMsForWallMySqlDateTime(ev.start_at, providerTimeZone);
-      const eventEndMs = utcMsForWallMySqlDateTime(ev.end_at, providerTimeZone);
-      if (!Number.isFinite(eventStartMs) || !Number.isFinite(eventEndMs)) {
-        bothMissing = false;
-        break;
-      }
-      const hasMatch = busy.some((b) => {
-        const bs = new Date(b.startAt).getTime();
-        const be = new Date(b.endAt).getTime();
-        return intervalsOverlap(eventStartMs, eventEndMs, bs, be);
-      });
-      if (hasMatch) {
-        bothMissing = false;
-        break;
-      }
+    const hasPastBusy = busyResult.busy.some((b) => new Date(b.endAt).getTime() < now);
+    if (!hasPastBusy) {
+      console.info(`[ehr-audit] provider=${providerId} no past ICS events found — skipping audit`);
+      continue;
     }
 
-    if (!bothMissing) continue;
+    // Group events by (standing_assignment_id, calendar_date) → find contiguous blocks
+    const groupKey = (row) => `${row.standing_assignment_id || 'X'}:${calendarDateYmd(row.start_at)}`;
+    const groups = new Map();
+    for (const row of providerEvents) {
+      const k = groupKey(row);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(row);
+    }
 
-    const agencies = await User.getAgencies(providerId);
-    const agencyId = Number(agencies?.[0]?.id || 0);
-    if (!agencyId) continue;
-
-    const officeName = String(lastTwo[0]?.office_name || '').trim() || 'Office';
-    const roomLabel = String(lastTwo[0]?.room_label || lastTwo[0]?.room_name || '').trim() || 'Room';
-
-    const [evRows] = await pool.execute(
-      `SELECT id
-       FROM office_events
-       WHERE standing_assignment_id = ?
-         AND slot_state = 'ASSIGNED_BOOKED'
-         AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
-         AND start_at >= NOW()`,
-      [standingAssignmentId]
-    );
-    const eventIds = (evRows || []).map((x) => Number(x.id)).filter((n) => Number.isInteger(n) && n > 0);
-
-    for (const eid of eventIds) {
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        await GoogleCalendarService.cancelBookedOfficeEvent({ officeEventId: eid });
-      } catch {
-        // best-effort
+    const flagsForProvider = [];
+    for (const [, groupEvents] of groups.entries()) {
+      groupEvents.sort((a, b) => String(a.start_at).localeCompare(String(b.start_at)));
+      const blocks = groupIntoContiguousBlocks(groupEvents);
+      for (const block of blocks) {
+        const analysis = analyzeBlock(block, busyResult.busy, providerTimeZone);
+        for (const item of analysis) {
+          if (item.flagType) {
+            flagsForProvider.push({ ...item, providerId });
+            flagged += 1;
+          } else {
+            covered += 1;
+          }
+        }
       }
     }
 
-    await OfficeBookingPlan.deactivateByAssignmentId(standingAssignmentId);
-
-    if (eventIds.length) {
-      await pool.execute(
-        `UPDATE office_events
-         SET status = 'RELEASED',
-             slot_state = 'ASSIGNED_AVAILABLE',
-             booked_provider_id = NULL,
-             booking_plan_id = NULL,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE standing_assignment_id = ?
-           AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
-           AND id IN (${eventIds.map(() => '?').join(',')})`,
-        [standingAssignmentId, ...eventIds]
-      );
-    }
-
-    const todayStr = new Date().toISOString().slice(0, 10);
-    try {
-      await OfficeStandingAssignment.update(standingAssignmentId, {
-        available_since_date: todayStr,
-        last_two_week_confirmed_at: new Date()
-      });
-    } catch {
-      // ignore
-    }
-
-    try {
-      await createNotificationAndDispatch({
-        type: 'office_schedule_booked_reverted_no_tn',
-        severity: 'warning',
-        title: 'Office slot set back to available',
-        message: `Your recurring office slot (${officeName} • ${roomLabel}) was marked booked, but Therapy Notes did not show overlapping appointments for the last two occurrences. It has been set to assigned available. Open My Schedule → Office to mark it booked again if it should stay reserved.`,
-        userId: providerId,
-        agencyId,
-        relatedEntityType: 'office_standing_assignment',
-        relatedEntityId: standingAssignmentId,
-        actorUserId: actorId,
-        actorSource: 'Office Scheduling'
-      });
-    } catch {
-      // ignore
-    }
-
-    downgraded += 1;
+    if (flagsForProvider.length) flagsByProvider.set(providerId, flagsForProvider);
   }
 
-  return { ok: true, downgraded, assignmentsChecked: byAssignment.size };
+  // Write flags to database and clear flags on covered events
+  const allFlaggedIds = [];
+  for (const [, flags] of flagsByProvider.entries()) {
+    for (const f of flags) allFlaggedIds.push(f);
+  }
+
+  // Update flagged events
+  for (const f of allFlaggedIds) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await pool.execute(
+        `UPDATE office_events
+         SET ics_flag_type = ?,
+             ics_flagged_at = NOW(),
+             ics_flag_cleared_by_user_id = NULL,
+             ics_flag_cleared_at = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [f.flagType, f.eventId]
+      );
+    } catch {
+      // Column may not exist yet
+    }
+  }
+
+  // Send admin notifications for newly flagged providers
+  if (flagsByProvider.size > 0) {
+    let adminUserIds = [];
+    try {
+      const [adminRows] = await pool.execute(
+        `SELECT DISTINCT ua.user_id
+         FROM user_agencies ua
+         JOIN office_location_agencies ola ON ola.agency_id = ua.agency_id
+         JOIN users u ON u.id = ua.user_id
+         WHERE ola.office_location_id = ?
+           AND u.role IN ('clinical_practice_assistant','admin','super_admin','superadmin','staff')
+           AND u.is_active = TRUE`,
+        [officeId]
+      );
+      adminUserIds = (adminRows || []).map((r) => Number(r.user_id)).filter(Boolean);
+    } catch {
+      // fallback: skip notification
+    }
+
+    const [locationAgencyRows] = await pool.execute(
+      `SELECT agency_id FROM office_location_agencies WHERE office_location_id = ? LIMIT 1`,
+      [officeId]
+    ).catch(() => [[]]);
+    const agencyId = Number(locationAgencyRows?.[0]?.agency_id || 0);
+
+    for (const adminId of adminUserIds) {
+      try {
+        const count = allFlaggedIds.length;
+        const providerCount = flagsByProvider.size;
+        // eslint-disable-next-line no-await-in-loop
+        await createNotificationAndDispatch({
+          type: 'office_schedule_coverage_flag',
+          severity: 'warning',
+          title: 'Office coverage flags need review',
+          message: `${count} office event${count !== 1 ? 's' : ''} across ${providerCount} provider${providerCount !== 1 ? 's' : ''} at ${loc?.name || 'your office'} have insufficient ICS session coverage. Open Office Schedule → Coverage Flags to review and keep or release each slot.`,
+          userId: adminId,
+          agencyId: agencyId || undefined,
+          relatedEntityType: 'office_location',
+          relatedEntityId: officeId,
+          actorUserId: parseInt(actorUserId, 10) || 1,
+          actorSource: 'Office Scheduling'
+        });
+      } catch {
+        // ignore per-admin notification errors
+      }
+    }
+  }
+
+  return { ok: true, flagged, covered, checked: rows.length, flagsByProvider: flagsByProvider.size };
+}
+
+/**
+ * Run the ICS coverage audit for every active office location (6-week watchdog cadence).
+ */
+export async function auditIcsCoverageAllLocations({ actorUserId = 1 } = {}) {
+  let locations = [];
+  try {
+    locations = await OfficeLocation.listAll({ includeInactive: false });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return { ok: false, reason: 'office_tables_missing' };
+    throw e;
+  }
+
+  const results = [];
+  for (const loc of locations || []) {
+    const id = Number(loc?.id || 0);
+    if (!id) continue;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const r = await auditIcsCoverageForLocation({ officeLocationId: id, actorUserId });
+      results.push({ officeLocationId: id, ...r });
+    } catch (e) {
+      results.push({ officeLocationId: id, ok: false, error: String(e?.message || e) });
+    }
+  }
+
+  const totalFlagged = results.reduce((s, r) => s + (Number(r.flagged) || 0), 0);
+  return { ok: true, locations: results.length, totalFlagged, results };
+}
+
+/**
+ * Returns EHR sync health summary per provider for an office location.
+ */
+export async function getEhrSyncHealth({ officeLocationId } = {}) {
+  const officeId = parseInt(officeLocationId, 10) || null;
+  try {
+    const locationFilter = officeId ? 'AND osl.office_location_id = ?' : '';
+    const params = officeId ? [officeId] : [];
+    const [logs] = await pool.execute(
+      `SELECT
+         osl.office_location_id,
+         ol.name AS office_name,
+         MAX(osl.run_at) AS last_run_at,
+         SUM(osl.events_scanned) AS total_scanned,
+         SUM(osl.events_booked) AS total_booked,
+         SUM(osl.feeds_failed) AS total_feeds_failed,
+         MAX(osl.error_summary) AS last_error
+       FROM office_ehr_sync_log osl
+       JOIN office_locations ol ON ol.id = osl.office_location_id
+       WHERE osl.run_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+         ${locationFilter}
+       GROUP BY osl.office_location_id, ol.name
+       ORDER BY osl.office_location_id`,
+      params
+    );
+    return { ok: true, locations: logs || [] };
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return { ok: false, reason: 'sync_log_table_missing', locations: [] };
+    return { ok: false, reason: String(e?.message || e), locations: [] };
+  }
+}
+
+/**
+ * Auto-drop is DISABLED — replaced by auditIcsCoverageAllLocations.
+ * Kept as a no-op export so existing imports don't break.
+ */
+export async function downgradeBookedWithoutExternalOverlap() {
+  // No-op: this function previously auto-cancelled future bookings when ICS
+  // showed no overlap for the last 2 occurrences. That behavior has been
+  // replaced by auditIcsCoverageForLocation, which flags slots for admin review
+  // instead of silently canceling them.
+  return { ok: true, downgraded: 0, skipped: 'replaced_by_coverage_audit' };
 }
 
 export default {
   refreshLocationBookingsFromEhr,
   refreshAllLocationsFromEhr,
+  auditIcsCoverageForLocation,
+  auditIcsCoverageAllLocations,
+  getEhrSyncHealth,
   downgradeBookedWithoutExternalOverlap
 };

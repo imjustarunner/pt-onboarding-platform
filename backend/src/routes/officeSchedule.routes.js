@@ -30,7 +30,13 @@ import {
   rebookEvent,
   getSlotConflicts,
   resolveSlotConflict,
-  getScheduleAudit
+  getScheduleAudit,
+  getCoverageFlags,
+  keepCoverageFlag,
+  releaseCoverageFlag,
+  getEhrSyncHealthEndpoint,
+  runCoverageAudit,
+  runAllLocationsCoverageAudit
 } from '../controllers/officeSchedule.controller.js';
 
 const router = express.Router();
@@ -86,6 +92,15 @@ router.post('/admin/slot-conflicts/resolve', resolveSlotConflict);
 
 // Full schedule audit / print report
 router.get('/admin/schedule-audit', getScheduleAudit);
+
+// ICS coverage flags (6-week audit results)
+router.get('/admin/coverage-flags', getCoverageFlags);
+router.post('/admin/coverage-flags/:eventId/keep', keepCoverageFlag);
+router.post('/admin/coverage-flags/:eventId/release', releaseCoverageFlag);
+router.get('/admin/ehr-sync-health', getEhrSyncHealthEndpoint);
+router.post('/locations/:locationId/run-coverage-audit', runCoverageAudit);
+// Trigger all-locations coverage audit manually (used by admin Coverage Flags page)
+router.post('/watchdog/run-coverage-audit', runAllLocationsCoverageAudit);
 
 export default router;
 

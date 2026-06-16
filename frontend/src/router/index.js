@@ -1291,6 +1291,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: 'schedule_manager', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/office-coverage-flags',
+    name: 'OrganizationOfficeCoverageFlags',
+    component: () => import('../views/admin/OfficeCoverageFlagsView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'schedule_manager', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/provider-availability',
     name: 'OrganizationProviderAvailabilityDashboard',
     component: () => import('../views/admin/ProviderAvailabilityDashboardView.vue'),
@@ -2070,6 +2076,12 @@ const routes = [
     path: '/admin/schedule-audit',
     name: 'OfficeScheduleAudit',
     component: () => import('../views/admin/OfficeScheduleAuditView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
+  },
+  {
+    path: '/admin/office-coverage-flags',
+    name: 'OfficeCoverageFlags',
+    component: () => import('../views/admin/OfficeCoverageFlagsView.vue'),
     meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
   },
   {

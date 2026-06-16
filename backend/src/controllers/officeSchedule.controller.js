@@ -14,7 +14,7 @@ import User from '../models/User.model.js';
 import UserComplianceDocument from '../models/UserComplianceDocument.model.js';
 import OfficeScheduleMaterializer, { shouldBookOnDate } from '../services/officeScheduleMaterializer.service.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
-import { refreshLocationBookingsFromEhr } from '../services/officeScheduleEhrSync.service.js';
+import { refreshLocationBookingsFromEhr, getEhrSyncHealth, auditIcsCoverageForLocation, auditIcsCoverageAllLocations } from '../services/officeScheduleEhrSync.service.js';
 import { getSchedulingBookingMetadata, validateSchedulingSelection } from '../services/schedulingTaxonomy.service.js';
 import { ensureAppointmentContext } from '../services/appointmentContext.service.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
@@ -3899,3 +3899,173 @@ export const getScheduleAudit = async (req, res, next) => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// ICS Coverage Flags
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/office-schedule/coverage-flags
+ * Returns all past ASSIGNED_BOOKED events with a non-null ics_flag_type,
+ * grouped by provider, for admin review.
+ */
+export const getCoverageFlags = async (req, res, next) => {
+  try {
+    if (!canManageSchedule(req.user?.role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const userAgencies = await User.getAgencies(req.user.id);
+    const agencyIds = (userAgencies || []).map((a) => Number(a.id)).filter((n) => n > 0);
+    if (!agencyIds.length) return res.json({ flags: [] });
+
+    const ph = agencyIds.map(() => '?').join(',');
+
+    const [rows] = await pool.execute(
+      `SELECT
+         e.id                AS event_id,
+         e.start_at,
+         e.end_at,
+         e.slot_state,
+         e.ics_flag_type,
+         e.ics_flagged_at,
+         e.ics_flag_cleared_at,
+         e.ics_flag_cleared_by_user_id,
+         e.last_ics_overlap_at,
+         e.standing_assignment_id,
+         e.assigned_provider_id,
+         CONCAT(u.first_name, ' ', u.last_name) AS provider_name,
+         ol.id               AS office_location_id,
+         ol.name             AS office_name,
+         r.id                AS room_id,
+         r.name              AS room_name,
+         r.label             AS room_label
+       FROM office_events e
+       JOIN office_rooms r    ON r.id  = e.room_id
+       JOIN office_locations ol ON ol.id = e.office_location_id
+       JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id IN (${ph})
+       JOIN users u ON u.id = e.assigned_provider_id
+       WHERE e.ics_flag_type IS NOT NULL
+         AND e.ics_flag_cleared_at IS NULL
+         AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+       ORDER BY e.assigned_provider_id ASC, e.start_at ASC`,
+      agencyIds
+    );
+
+    res.json({ flags: rows || [] });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/office-schedule/coverage-flags/:eventId/keep
+ * Admin clears the coverage flag (keeps the booking as-is).
+ */
+export const keepCoverageFlag = async (req, res, next) => {
+  try {
+    if (!canManageSchedule(req.user?.role)) return res.status(403).json({ error: 'Forbidden' });
+    const eventId = parseInt(req.params.eventId, 10);
+    if (!eventId) return res.status(400).json({ error: 'Invalid event ID' });
+
+    await pool.execute(
+      `UPDATE office_events
+       SET ics_flag_type = NULL,
+           ics_flag_cleared_by_user_id = ?,
+           ics_flag_cleared_at = NOW(),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [req.user.id, eventId]
+    );
+
+    res.json({ ok: true, eventId, action: 'kept' });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/office-schedule/coverage-flags/:eventId/release
+ * Admin releases the flagged hours — sets event to RELEASED / ASSIGNED_AVAILABLE
+ * so another provider can be assigned, and clears the flag.
+ */
+export const releaseCoverageFlag = async (req, res, next) => {
+  try {
+    if (!canManageSchedule(req.user?.role)) return res.status(403).json({ error: 'Forbidden' });
+    const eventId = parseInt(req.params.eventId, 10);
+    if (!eventId) return res.status(400).json({ error: 'Invalid event ID' });
+
+    const [[event]] = await pool.execute(
+      `SELECT id, office_location_id, standing_assignment_id, assigned_provider_id, booking_plan_id
+       FROM office_events WHERE id = ? LIMIT 1`,
+      [eventId]
+    );
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+
+    await pool.execute(
+      `UPDATE office_events
+       SET status = 'RELEASED',
+           slot_state = 'ASSIGNED_AVAILABLE',
+           booked_provider_id = NULL,
+           booking_plan_id = NULL,
+           ics_flag_type = NULL,
+           ics_flag_cleared_by_user_id = ?,
+           ics_flag_cleared_at = NOW(),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [req.user.id, eventId]
+    );
+
+    try {
+      await GoogleCalendarService.cancelBookedOfficeEvent({ officeEventId: eventId });
+    } catch {
+      // best-effort
+    }
+
+    res.json({ ok: true, eventId, action: 'released' });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/office-schedule/ehr-sync/health
+ * Returns recent EHR sync run stats per location so admins can see if feeds are healthy.
+ */
+export const getEhrSyncHealthEndpoint = async (req, res, next) => {
+  try {
+    if (!canManageSchedule(req.user?.role)) return res.status(403).json({ error: 'Forbidden' });
+    const officeLocationId = req.query.officeLocationId ? parseInt(req.query.officeLocationId, 10) : null;
+    const result = await getEhrSyncHealth({ officeLocationId });
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/office-schedule/locations/:locationId/run-coverage-audit
+ * Manually trigger the ICS coverage audit for one location.
+ */
+export const runCoverageAudit = async (req, res, next) => {
+  try {
+    if (!canManageSchedule(req.user?.role)) return res.status(403).json({ error: 'Forbidden' });
+    const officeLocationId = parseInt(req.params.locationId, 10);
+    if (!officeLocationId) return res.status(400).json({ error: 'Invalid location ID' });
+    const result = await auditIcsCoverageForLocation({ officeLocationId, actorUserId: req.user.id });
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/office-schedule/watchdog/run-coverage-audit
+ * Manually trigger the ICS coverage audit for all locations.
+ */
+export const runAllLocationsCoverageAudit = async (req, res, next) => {
+  try {
+    if (!canManageSchedule(req.user?.role)) return res.status(403).json({ error: 'Forbidden' });
+    const result = await auditIcsCoverageAllLocations({ actorUserId: req.user.id });
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
+};

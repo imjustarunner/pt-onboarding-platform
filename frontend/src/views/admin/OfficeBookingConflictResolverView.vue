@@ -14,6 +14,7 @@
                 title="Cancel all future bookings and assignments for archived or deactivated providers">
           {{ cleaningUp ? 'Cleaning up…' : 'Clear inactive providers' }}
         </button>
+        <router-link to="/admin/office-coverage-flags" class="btn btn-secondary">Coverage flags</router-link>
         <router-link to="/admin/schedule-audit" class="btn btn-secondary">Full schedule audit</router-link>
         <button class="btn btn-secondary" @click="load" :disabled="loading">Refresh</button>
       </div>

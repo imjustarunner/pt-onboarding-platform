@@ -5,6 +5,7 @@ import { checkPublicAvailabilityGate } from '../services/publicAvailabilityGate.
 import ProviderPublicProfile from '../models/ProviderPublicProfile.model.js';
 import PublicIntakeClientService from '../services/publicIntakeClient.service.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import Notification from '../models/Notification.model.js';
 
 function parseIntSafe(v) {
   const n = parseInt(v, 10);
@@ -716,6 +717,26 @@ export const createPublicAppointmentRequest = async (req, res, next) => {
       createdGuardianUserId: createdEntity.createdGuardianUserId || null,
       notes
     });
+
+    // Notify the provider that a new booking request has arrived.
+    try {
+      const timeLabel = start
+        ? start.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
+        : 'requested time';
+      const modalityLabel = modality === 'VIRTUAL' ? 'Virtual' : 'In-Person';
+      await Notification.create({
+        type: 'public_appointment_request_received',
+        severity: 'info',
+        title: 'New public appointment request',
+        message: `${name} has requested a ${modalityLabel} appointment on ${timeLabel}. Review it in Availability → Appointments.`,
+        userId: providerId,
+        agencyId: Number(agencyId),
+        relatedEntityType: 'public_appointment_request',
+        relatedEntityId: created?.id || null
+      });
+    } catch {
+      // Best-effort — never block the response on notification failure
+    }
 
     res.status(201).json({
       ok: true,
