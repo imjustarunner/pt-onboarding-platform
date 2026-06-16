@@ -12,6 +12,8 @@ import Notification from '../models/Notification.model.js';
 import { isPublicProviderFinderFeatureEnabled } from '../services/publicAvailabilityGate.service.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.service.js';
+import * as officeSlotSeriesService from '../services/officeSlotSeries.service.js';
+import OfficeBookingPlan from '../models/OfficeBookingPlan.model.js';
 import { directIndirectRatioKindFromRatio } from '../utils/directIndirectRatioBands.js';
 import {
   normalizeSkillBuilderBlocks,
@@ -2152,11 +2154,32 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
 
     const providerId = Number(reqRow.provider_id);
 
+    // Pre-flight: check every occurrence date for conflicts before opening a transaction.
+    // Delegates to the shared officeSlotSeries service so both approval paths stay in sync.
+    const seriesCheck = await officeSlotSeriesService.validateOfficeSlotSeries({
+      pool,
+      providerId,
+      roomId,
+      officeLocationId: officeId,
+      startDate: requestStartDate,
+      weekday,
+      startHour: hour,
+      endHour,
+      recurrence: recurrenceName,
+      occurrenceCount: requestOccurrenceCount
+    });
+    if (!seriesCheck.ok) {
+      return res.status(seriesCheck.status).json({ error: seriesCheck.error });
+    }
+
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
     const assignmentIds = [];
     for (let h = hour; h < endHour; h++) {
+      // Only block on OTHER providers' active assignments in this room/weekday/hour.
+      // Exclude the requesting provider so that re-approvals and extensions update
+      // the existing assignment instead of falsely rejecting with "already assigned".
       const [physicalConflicts] = await conn.execute(
         `SELECT a.id, u.first_name, u.last_name
          FROM office_standing_assignments a
@@ -2166,13 +2189,16 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
            AND a.weekday = ?
            AND a.hour = ?
            AND a.is_active = TRUE
+           AND a.provider_id != ?
          LIMIT 1`,
-        [officeId, roomId, weekday, h]
+        [officeId, roomId, weekday, h, providerId]
       );
       if ((physicalConflicts || []).length) {
         const c = physicalConflicts[0];
         const providerName = `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'another provider';
-        const err = new Error(`That office slot is already assigned to ${providerName}.`);
+        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const dayLabel = dayNames[weekday] || `weekday ${weekday}`;
+        const err = new Error(`That office slot (${dayLabel} ${h}:00) is already assigned to ${providerName}. Please choose a different room or time.`);
         err.status = 409;
         throw err;
       }
@@ -2328,6 +2354,52 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
 
     await conn.commit();
 
+    // Create a booking plan so the materializer marks this slot as BOOKED (red on the grid)
+    // rather than leaving it as ASSIGNED_AVAILABLE (grey). This is the critical step that was
+    // previously missing from the legacy approval path.
+    try {
+      if (assignmentId) {
+        // Map the recurrence to the booking plan's booked_frequency.
+        // Monthly is approximated as weekly cadence across the occurrence window.
+        const bookingFreq = recurrenceName === 'BIWEEKLY' ? 'BIWEEKLY'
+          : recurrenceName === 'MONTHLY' ? 'WEEKLY'
+          : 'WEEKLY';
+        await OfficeBookingPlan.upsertActive({
+          standingAssignmentId: assignmentId,
+          bookedFrequency: bookingFreq,
+          bookingStartDate: requestStartDate,
+          activeUntilDate: untilDate,
+          bookedOccurrenceCount: requestOccurrenceCount,
+          createdByUserId: req.user.id,
+          bookingOrigin: 'user'
+        });
+        // Materialize 6 weeks starting from the request start date so the approved
+        // bookings are immediately visible without waiting for the next cron or grid load.
+        // Use Monday anchor + useExactWeekStart so cache keys align with the grid.
+        const materializeWeeks = recurrenceName === 'BIWEEKLY' ? 12 : 6;
+        const startWeek = OfficeScheduleMaterializer.startOfWeekMonday(requestStartDate);
+        if (startWeek) {
+          for (let i = 0; i < materializeWeeks; i++) {
+            const weekStart = OfficeScheduleMaterializer.addDays(startWeek, i * 7);
+            try {
+              await OfficeScheduleMaterializer.materializeWeek({
+                officeLocationId: officeId,
+                weekStartRaw: weekStart,
+                createdByUserId: req.user.id,
+                useExactWeekStart: true
+              });
+            } catch {
+              // Non-critical; grid load will re-materialize on next view
+            }
+          }
+        }
+      }
+    } catch (planErr) {
+      // Non-blocking: assignment was created successfully; booking plan creation failure
+      // is recoverable (provider can set via the schedule UI, watchdog will fill gaps).
+      console.error('[assignTemporaryOfficeFromRequest] booking plan upsert failed', planErr?.message);
+    }
+
     // Resolve related notifications for everyone so they disappear from all feeds
     await Notification.markAllAsResolvedForFilter(agencyId, {
       relatedEntityType: 'provider_office_availability_request',
@@ -2347,9 +2419,9 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
       const freqLabel = String(freq || '').toUpperCase() === 'BIWEEKLY' ? 'biweekly' : 'weekly';
       await Notification.create({
         type: 'office_availability_request_approved',
-        severity: 'warning',
-        title: 'Office request approved - action needed',
-        message: `Approved: ${officeName} (${roomLabel}), ${dayLabel} ${startLabel}-${endLabel} (${freqLabel}). When this slot is scheduled with a client, mark it as BOOKED in your schedule.`,
+        severity: 'info',
+        title: 'Office request approved',
+        message: `Your office slot has been approved and booked: ${officeName} (${roomLabel}), ${dayLabel} ${startLabel}–${endLabel} (${freqLabel}). It now appears on the schedule.`,
         userId: providerId,
         agencyId,
         relatedEntityType: 'provider_office_availability_request',

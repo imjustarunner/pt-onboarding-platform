@@ -546,7 +546,8 @@ async function cancelFutureEventsForStandingAssignment(standingAssignmentId, fro
 }
 
 async function materializeOfficeWeeks({ officeLocationId, startDateYmd, createdByUserId, weeks = 4 }) {
-  const startWeek = OfficeScheduleMaterializer.startOfWeekISO(startDateYmd);
+  // Use Monday anchor so cache keys match the grid's Mon–Sun view.
+  const startWeek = OfficeScheduleMaterializer.startOfWeekMonday(startDateYmd);
   if (!startWeek) return;
   for (let i = 0; i < weeks; i++) {
     const weekStart = OfficeScheduleMaterializer.addDays(startWeek, i * 7);
@@ -554,7 +555,8 @@ async function materializeOfficeWeeks({ officeLocationId, startDateYmd, createdB
     await OfficeScheduleMaterializer.materializeWeek({
       officeLocationId,
       weekStartRaw: weekStart,
-      createdByUserId
+      createdByUserId,
+      useExactWeekStart: true
     });
   }
 }

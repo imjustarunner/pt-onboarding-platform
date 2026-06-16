@@ -35,7 +35,10 @@ export class OfficeScheduleWatchdogService {
       throw e;
     }
 
-    const startWeek = OfficeScheduleMaterializer.startOfWeekISO(today);
+    // Use Monday as the week anchor to match the grid's Mon–Sun view.
+    // This ensures the debounce cache keys align between the watchdog and grid loads,
+    // and Sunday slots are correctly placed in the same week window the grid shows.
+    const startWeek = OfficeScheduleMaterializer.startOfWeekMonday(today);
     const weekStarts = [];
     for (let d = 0; d <= Number(horizonDays || 28); d += 7) {
       weekStarts.push(OfficeScheduleMaterializer.addDays(startWeek, d));
@@ -47,7 +50,8 @@ export class OfficeScheduleWatchdogService {
           await OfficeScheduleMaterializer.materializeWeek({
             officeLocationId,
             weekStartRaw: ws,
-            createdByUserId: 1
+            createdByUserId: 1,
+            useExactWeekStart: true
           });
         } catch (e) {
           // If migrations aren't applied yet, don't block watchdog.

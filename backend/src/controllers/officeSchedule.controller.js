@@ -19,6 +19,7 @@ import { getSchedulingBookingMetadata, validateSchedulingSelection } from '../se
 import { ensureAppointmentContext } from '../services/appointmentContext.service.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 import { OfficeScheduleWatchdogService } from '../services/officeScheduleWatchdog.service.js';
+import { validateOfficeSlotSeries, generateOccurrenceDates, recurrenceLabel as officeRecurrenceLabel } from '../services/officeSlotSeries.service.js';
 
 const canManageSchedule = (role) =>
   role === 'clinical_practice_assistant' || role === 'provider_plus' || role === 'admin' || role === 'super_admin' || role === 'superadmin' || role === 'support' || role === 'staff';
@@ -2275,12 +2276,13 @@ export const createOfficeBookingRequest = async (req, res, next) => {
     if (normalizedRecurrence === 'ONCE' && isSameDay) {
       // Materialize the containing week so standing assignments appear as occupied.
       try {
-        const ws = startOfWeekISO(startYmd);
+        const ws = OfficeScheduleMaterializer.startOfWeekMonday(startYmd);
         if (ws) {
           await OfficeScheduleMaterializer.materializeWeek({
             officeLocationId: loc.id,
             weekStartRaw: ws,
-            createdByUserId: req.user.id
+            createdByUserId: req.user.id,
+            useExactWeekStart: true
           });
         }
       } catch {
@@ -2624,12 +2626,13 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
     // Ensure week events are materialized so standing assignments appear as occupied.
     try {
       const ymd = String(reqRow.start_at || '').slice(0, 10);
-      const ws = startOfWeekISO(ymd);
+      const ws = OfficeScheduleMaterializer.startOfWeekMonday(ymd);
       if (ws) {
         await OfficeScheduleMaterializer.materializeWeek({
           officeLocationId: loc.id,
           weekStartRaw: ws,
-          createdByUserId: req.user.id
+          createdByUserId: req.user.id,
+          useExactWeekStart: true
         });
       }
     } catch {
@@ -2719,8 +2722,9 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
       try {
         await OfficeScheduleMaterializer.materializeWeek({
           officeLocationId: loc.id,
-          weekStartRaw: startOfWeekISO(String(reqRow.start_at || '').slice(0, 10)),
-          createdByUserId: req.user.id
+          weekStartRaw: OfficeScheduleMaterializer.startOfWeekMonday(String(reqRow.start_at || '').slice(0, 10)),
+          createdByUserId: req.user.id,
+          useExactWeekStart: true
         });
       } catch {
         // best-effort immediate materialization

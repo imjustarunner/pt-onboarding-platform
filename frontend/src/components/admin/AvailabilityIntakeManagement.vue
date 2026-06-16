@@ -37,10 +37,18 @@
                 </div>
                 <div class="meta" v-if="r.notes">Notes: {{ r.notes }}</div>
                 <div class="meta">
+                  <span v-if="r.requestedStartDate">Starting <strong>{{ fmtDate(r.requestedStartDate) }}</strong>&nbsp;·&nbsp;</span>
+                  <strong>{{ requestedRecurrenceLabel(r) }}{{ r.requestedFrequency && r.requestedFrequency !== 'ONCE' ? ` × ${r.requestedOccurrenceCount}` : '' }}</strong>
+                </div>
+                <div class="meta">
                   Windows:
                   <span v-for="(s, idx) in r.slots" :key="idx" class="pill">
                     {{ weekdayLabel(s.weekday) }} {{ hourLabel(s.startHour) }}–{{ hourLabel(s.endHour) }}
                   </span>
+                </div>
+                <div class="meta occurrence-preview" v-if="occurrencePreview(r).length > 1">
+                  Occurrences:
+                  <span v-for="(d, i) in occurrencePreview(r)" :key="i" class="pill pill-date">{{ fmtShortDate(d) }}</span>
                 </div>
               </div>
 
@@ -49,7 +57,9 @@
                 <div class="assign-readonly">
                   <div class="assign-row"><span class="assign-label">Office:</span> {{ officeAssignDisplay(r).office }}</div>
                   <div class="assign-row"><span class="assign-label">Room:</span> {{ officeAssignDisplay(r).room }}</div>
+                  <div class="assign-row"><span class="assign-label">Date:</span> {{ fmtDate(r.requestedStartDate) || 'Not specified' }}</div>
                   <div class="assign-row"><span class="assign-label">Time:</span> {{ officeAssignDisplay(r).time }}</div>
+                  <div class="assign-row"><span class="assign-label">Frequency:</span> {{ requestedRecurrenceLabel(r) }}{{ r.requestedFrequency && r.requestedFrequency !== 'ONCE' ? ` × ${r.requestedOccurrenceCount}` : '' }}</div>
                 </div>
                 <div v-if="needsAutoAssignableRoom(r)" class="assign-options">
                   <div class="lbl">Available offices for {{ requestedRecurrenceLabel(r) }}</div>
@@ -369,6 +379,37 @@ const fmtDateTime = (v) => {
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return String(v);
   return d.toLocaleString();
+};
+
+const fmtDate = (ymd) => {
+  if (!ymd) return '';
+  const d = new Date(ymd + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return String(ymd);
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const fmtShortDate = (ymd) => {
+  if (!ymd) return '';
+  const d = new Date(ymd + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return String(ymd);
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+};
+
+const occurrencePreview = (r) => {
+  const startDate = r?.requestedStartDate;
+  if (!startDate) return [];
+  const freq = String(r?.requestedFrequency || 'ONCE').toUpperCase();
+  const count = Math.max(1, Math.min(12, Number(r?.requestedOccurrenceCount || 1)));
+  if (freq === 'ONCE') return [startDate];
+  const step = freq === 'BIWEEKLY' ? 14 : freq === 'MONTHLY' ? 28 : 7;
+  const base = new Date(startDate + 'T00:00:00');
+  const dates = [];
+  for (let i = 0; i < count; i++) {
+    const d = new Date(base);
+    d.setDate(d.getDate() + i * step);
+    dates.push(d.toISOString().slice(0, 10));
+  }
+  return dates;
 };
 
 const officeName = (id) => offices.value.find((o) => Number(o.id) === Number(id))?.name || `#${id}`;
@@ -843,6 +884,8 @@ watch(
 .title { font-weight: 900; }
 .meta { color: var(--text-secondary); font-size: 12px; margin-top: 6px; }
 .pill { display: inline-block; margin: 4px 6px 0 0; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-alt); }
+.pill-date { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; font-size: 11px; }
+.occurrence-preview { margin-top: 6px; }
 .assign { display: flex; flex-direction: column; gap: 8px; }
 .assign-readonly { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-alt); }
 .assign-row { font-size: 14px; margin-bottom: 4px; }

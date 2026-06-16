@@ -58,6 +58,19 @@ function startOfWeekISO(dateStr) {
   return ymdFromUtcDate(d);
 }
 
+function startOfWeekMonday(dateStr) {
+  // Returns Monday of the week for the given YYYY-MM-DD using UTC calendar math.
+  // All grid views use Monday as the week anchor, so background jobs (watchdog,
+  // approvals) should also use this so their debounce cache keys match the grid's.
+  const p = parseYmdParts(dateStr);
+  if (!p) return null;
+  const d = new Date(Date.UTC(p.y, p.mo - 1, p.d));
+  const day = d.getUTCDay(); // 0=Sun..6=Sat
+  const diff = day === 0 ? -6 : 1 - day; // Mon is 1; Sunday needs -6 to reach prior Monday
+  d.setUTCDate(d.getUTCDate() + diff);
+  return ymdFromUtcDate(d);
+}
+
 function addDays(dateStr, days) {
   const p = parseYmdParts(dateStr);
   if (!p) return null;
@@ -165,6 +178,10 @@ const MATERIALIZE_RECENT_MS = 15000;
 export class OfficeScheduleMaterializer {
   static startOfWeekISO(dateStr) {
     return startOfWeekISO(dateStr);
+  }
+
+  static startOfWeekMonday(dateStr) {
+    return startOfWeekMonday(dateStr);
   }
 
   static addDays(dateStr, days) {

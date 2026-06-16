@@ -15,7 +15,15 @@
             <div class="readonly-values">
               <div><span class="readonly-label">Office:</span> {{ formDisplay.office }}</div>
               <div><span class="readonly-label">Room:</span> {{ formDisplay.room }}</div>
+              <div><span class="readonly-label">Date:</span> {{ fmtDate(request.requestedStartDate) || 'Not specified' }}</div>
               <div><span class="readonly-label">Time:</span> {{ formDisplay.time }}</div>
+              <div><span class="readonly-label">Frequency:</span> {{ requestedRecurrenceLabel }}{{ request.requestedFrequency && request.requestedFrequency !== 'ONCE' ? ` × ${request.requestedOccurrenceCount}` : '' }}</div>
+            </div>
+            <div v-if="occurrenceDates.length > 1" class="occurrence-preview">
+              <div class="occurrence-label">Occurrences:</div>
+              <div class="occurrence-chips">
+                <span v-for="(d, i) in occurrenceDates" :key="i" class="occurrence-chip">{{ fmtShortDate(d) }}</span>
+              </div>
             </div>
             <template v-if="needsAutoAssignableRoom">
               <label style="margin-top: 10px;">Available offices for {{ requestedRecurrenceLabel }}</label>
@@ -77,6 +85,37 @@ const hourLabel = (h) => {
   d.setHours(Number(h), 0, 0, 0);
   return d.toLocaleTimeString([], { hour: 'numeric' });
 };
+
+const fmtDate = (ymd) => {
+  if (!ymd) return '';
+  const d = new Date(ymd + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return String(ymd);
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const fmtShortDate = (ymd) => {
+  if (!ymd) return '';
+  const d = new Date(ymd + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return String(ymd);
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+};
+
+const occurrenceDates = computed(() => {
+  const startDate = request.value?.requestedStartDate;
+  if (!startDate) return [];
+  const freq = String(request.value?.requestedFrequency || 'ONCE').toUpperCase();
+  const count = Math.max(1, Math.min(12, Number(request.value?.requestedOccurrenceCount || 1)));
+  if (freq === 'ONCE') return [startDate];
+  const step = freq === 'BIWEEKLY' ? 14 : freq === 'MONTHLY' ? 28 : 7;
+  const base = new Date(startDate + 'T00:00:00');
+  const dates = [];
+  for (let i = 0; i < count; i++) {
+    const d = new Date(base);
+    d.setDate(d.getDate() + i * step);
+    dates.push(d.toISOString().slice(0, 10));
+  }
+  return dates;
+});
 
 const loading = ref(false);
 const error = ref('');
@@ -407,6 +446,14 @@ watch(
 .readonly-label { font-weight: 600; color: var(--text-secondary, #6b7280); margin-right: 6px; }
 .readonly-display .hint { font-size: 12px; margin-top: 8px; }
 .warning { color: #8a5a00; }
+.occurrence-preview { margin-top: 10px; }
+.occurrence-label { font-size: 11px; font-weight: 700; color: var(--text-secondary, #6b7280); margin-bottom: 4px; }
+.occurrence-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.occurrence-chip {
+  display: inline-block; padding: 2px 8px;
+  background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8;
+  border-radius: 999px; font-size: 11px; font-weight: 600;
+}
 .error-box {
   background: rgba(239, 68, 68, 0.1);
   color: #b91c1c;
