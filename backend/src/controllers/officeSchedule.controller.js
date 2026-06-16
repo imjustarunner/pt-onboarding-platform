@@ -3680,24 +3680,63 @@ export const resolveSlotConflict = async (req, res, next) => {
         }
         const planId = planRow?.id || null;
         const providerId = Number(relRow.assignment_provider_id || relRow.assigned_provider_id || 0);
-        // Restore the ENTIRE recurring series — all future orphaned events for this assignment
+        // Restore the ENTIRE recurring series — all future orphaned events for this assignment.
+        // Skip any individual occurrence that already has a different active booking (those
+        // would become an immediate double-booking; they'll appear in the conflict resolver
+        // as released_vs_booked and must be resolved individually).
         const [bulkResult] = await conn.execute(
-          `UPDATE office_events
-           SET status = 'BOOKED', slot_state = 'ASSIGNED_BOOKED',
-               booked_provider_id = ?, booking_plan_id = ?, updated_at = CURRENT_TIMESTAMP
-           WHERE standing_assignment_id = ?
-             AND slot_state = 'ASSIGNED_AVAILABLE'
-             AND status = 'RELEASED'
-             AND booking_plan_id IS NULL
-             AND start_at >= NOW()`,
-          [providerId || null, planId, relRow.standing_assignment_id]
+          `UPDATE office_events oe
+           SET oe.status = 'BOOKED', oe.slot_state = 'ASSIGNED_BOOKED',
+               oe.booked_provider_id = ?, oe.booking_plan_id = ?, oe.updated_at = CURRENT_TIMESTAMP
+           WHERE oe.standing_assignment_id = ?
+             AND oe.slot_state = 'ASSIGNED_AVAILABLE'
+             AND oe.status = 'RELEASED'
+             AND oe.booking_plan_id IS NULL
+             AND oe.start_at >= NOW()
+             AND NOT EXISTS (
+               SELECT 1 FROM (SELECT id, room_id, start_at, booked_provider_id, assigned_provider_id, status
+                              FROM office_events) oe2
+               WHERE oe2.room_id  = oe.room_id
+                 AND oe2.start_at = oe.start_at
+                 AND oe2.id      <> oe.id
+                 AND (oe2.status IS NULL OR UPPER(oe2.status) NOT IN ('CANCELLED','RELEASED'))
+                 AND COALESCE(oe2.booked_provider_id, oe2.assigned_provider_id) IS NOT NULL
+                 AND COALESCE(oe2.booked_provider_id, oe2.assigned_provider_id) <> ?
+             )`,
+          [providerId || null, planId, relRow.standing_assignment_id, providerId || 0]
         );
+        // Count how many occurrences were skipped due to a conflicting booking already in the slot.
+        const [[skipRow]] = await conn.execute(
+          `SELECT COUNT(*) AS skipped
+           FROM office_events oe
+           WHERE oe.standing_assignment_id = ?
+             AND oe.slot_state = 'ASSIGNED_AVAILABLE'
+             AND oe.status = 'RELEASED'
+             AND oe.booking_plan_id IS NULL
+             AND oe.start_at >= NOW()
+             AND EXISTS (
+               SELECT 1 FROM (SELECT id, room_id, start_at, booked_provider_id, assigned_provider_id, status
+                              FROM office_events) oe2
+               WHERE oe2.room_id  = oe.room_id
+                 AND oe2.start_at = oe.start_at
+                 AND oe2.id      <> oe.id
+                 AND (oe2.status IS NULL OR UPPER(oe2.status) NOT IN ('CANCELLED','RELEASED'))
+                 AND COALESCE(oe2.booked_provider_id, oe2.assigned_provider_id) IS NOT NULL
+                 AND COALESCE(oe2.booked_provider_id, oe2.assigned_provider_id) <> ?
+             )`,
+          [relRow.standing_assignment_id, providerId || 0]
+        );
+        const skippedCount = Number(skipRow?.skipped || 0);
         await conn.commit();
         return res.json({
           ok: true, conflictType, action,
           releasedEventId: relId,
           standingAssignmentId: relRow.standing_assignment_id,
-          restoredCount: bulkResult?.affectedRows || 0
+          restoredCount: bulkResult?.affectedRows || 0,
+          skippedCount,
+          skippedMessage: skippedCount > 0
+            ? `${skippedCount} occurrence(s) were skipped because another provider is already booked in that slot. They will appear in the conflict resolver as individual conflicts to resolve.`
+            : null
         });
       } else {
         // dismiss: mark as cancelled — the slot becomes open (single slot only)

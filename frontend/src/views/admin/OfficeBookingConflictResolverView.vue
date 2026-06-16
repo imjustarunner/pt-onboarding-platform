@@ -393,6 +393,12 @@ const resolveOrphaned = async (c, action) => {
             (x) => !(x.conflict_type === 'orphaned_released' && x.standing_assignment_id === saId)
           )
         : conflicts.value.filter((x) => rowKey(x) !== key);
+      // If some occurrences were skipped (another provider was already there), they now
+      // appear in the conflict list as released_vs_booked. Reload to surface them.
+      if (resp.data?.skippedCount > 0) {
+        error.value = resp.data.skippedMessage || `${resp.data.skippedCount} occurrence(s) were skipped — another provider is already booked in those slots. They now appear below as individual conflicts to resolve.`;
+        await load();
+      }
     } else {
       conflicts.value = conflicts.value.filter((x) => rowKey(x) !== key);
     }
