@@ -959,24 +959,38 @@
                 <div><strong>Time:</strong> {{ officeRequestSummary.timeRange }}</div>
                 <div><strong>Duration:</strong> {{ officeRequestSummary.duration }}</div>
               </div>
-              <label class="lbl">Frequency</label>
+
+              <!-- Booking helper copy for the direct 'office' booking action -->
+              <div v-if="requestType === 'office'" class="book-slot-help">
+                <strong>Book this assigned office slot.</strong>
+                Choose <em>Once</em> to mark just this occurrence as booked, or select a recurring frequency to book the next several sessions automatically.
+              </div>
+
+              <label class="lbl" :style="requestType === 'office' ? 'margin-top: 10px;' : ''">
+                {{ requestType === 'office' ? 'How often?' : 'Frequency' }}
+              </label>
               <select v-model="officeBookingRecurrence" class="input" :disabled="requestType === 'office' && modalIsOneTimeAssignedSlot">
-                <option value="ONCE">Once</option>
+                <option value="ONCE">Once (this occurrence only)</option>
                 <option value="WEEKLY">Weekly</option>
                 <option value="BIWEEKLY">Biweekly</option>
                 <option value="MONTHLY">Monthly</option>
               </select>
 
-              <label v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(officeBookingRecurrence)" class="lbl" style="margin-top: 10px;">Occurrences</label>
+              <label v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(officeBookingRecurrence)" class="lbl" style="margin-top: 10px;">
+                Number of sessions
+              </label>
               <input
                 v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(officeBookingRecurrence)"
                 v-model.number="officeBookingOccurrenceCount"
                 type="number"
                 min="1"
-                :max="officeBookingRecurrence === 'WEEKLY' ? 6 : 104"
+                :max="officeBookingRecurrence === 'WEEKLY' ? 26 : 104"
                 class="input"
                 style="margin-top: 4px; width: 80px;"
               />
+              <div v-if="['WEEKLY','BIWEEKLY','MONTHLY'].includes(officeBookingRecurrence)" class="muted" style="margin-top: 4px; font-size: 12px;">
+                Default is 6 sessions. You can change this.
+              </div>
 
               <template v-if="showClinicalBookingFields && isSessionBookingRequestType">
                 <label class="lbl" style="margin-top: 10px;">Appointment type</label>
@@ -4425,8 +4439,10 @@ const availableQuickActions = computed(() => {
     },
     {
       id: 'office',
-      label: 'Office booking',
-      description: 'Mark assigned office slot as booked/busy',
+      label: hasAssignedOffice ? 'Book this slot' : 'Office booking',
+      description: hasAssignedOffice
+        ? 'Mark your assigned office as booked — once or recurring'
+        : 'Mark assigned office slot as booked/busy',
       disabledReason: hasEvent && ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(state)
         ? ''
         : 'Select an assigned office slot',
@@ -4567,10 +4583,10 @@ const availableQuickActions = computed(() => {
     },
     {
       id: 'unbook_slot',
-      label: 'Unbook slot',
-      description: 'Return this to assigned office availability',
+      label: 'Unbook (keep assigned)',
+      description: 'Mark this slot as available again — keeps your recurring assignment intact',
       disabledReason: hasEvent && booked ? '' : 'Needs booked office slot',
-      visible: !supervisionOnlyMode && hasEvent && booked,
+      visible: hasEvent && booked,
       tone: 'slate'
     },
     {
@@ -5623,11 +5639,21 @@ const openSlotActionModal = ({
   } else if (!selectedActionAgencyId.value || !effectiveAgencyIds.value.includes(Number(selectedActionAgencyId.value))) {
     selectedActionAgencyId.value = Number(effectiveAgencyIds.value[0] || 0) || 0;
   }
-  if (!normalizedInitialRequestType && String(modalContext.value.slotState || '').toUpperCase() === 'ASSIGNED_BOOKED') {
-    requestType.value = canManageOffices.value ? 'admin_assign' : 'booked_note';
-  }
-  if (!normalizedInitialRequestType && viewMode.value === 'office_layout' && ['', 'OPEN', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(String(modalContext.value.slotState || '').toUpperCase())) {
-    requestType.value = canManageOffices.value ? 'admin_assign' : 'office_request_only';
+  if (!normalizedInitialRequestType && viewMode.value === 'office_layout') {
+    const ss = String(modalContext.value.slotState || '').toUpperCase();
+    if (ss === 'ASSIGNED_BOOKED') {
+      // Booked slot: admin gets cancel/edit options, owner gets unbook
+      requestType.value = canManageOffices.value ? 'cancel_booking' : 'unbook_slot';
+    } else if (['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(ss)) {
+      // Assigned but not yet booked: everyone can book it directly
+      requestType.value = 'office';
+      // Default to weekly / 6 sessions so they can pick immediately
+      officeBookingRecurrence.value = 'WEEKLY';
+      officeBookingOccurrenceCount.value = 6;
+    } else {
+      // Open slot: admin can assign, others can request
+      requestType.value = canManageOffices.value ? 'admin_assign' : 'office_request_only';
+    }
   }
   // If user selected a contiguous range on one day, use it as the default modal duration.
   const rows = preserveSelectionRange ? sortedSelectedActionSlots() : [];
@@ -10171,6 +10197,16 @@ defineExpose({ resetToOpenFinder });
 }
 
 /* Admin assign inline form */
+.book-slot-help {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #1e40af;
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
 .cb-form {
   margin-top: 14px;
   padding: 14px;
