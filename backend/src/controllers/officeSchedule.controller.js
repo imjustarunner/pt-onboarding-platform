@@ -821,7 +821,7 @@ export const listLocationProviders = async (req, res, next) => {
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
            AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
            AND (
-             u.role IN ('provider', 'supervisor', 'clinical_practice_assistant', 'admin', 'super_admin', 'staff')
+             u.role IN ('provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant', 'admin', 'super_admin', 'staff')
              OR (u.has_provider_access = TRUE)
            )
            AND LOWER(COALESCE(u.role, '')) NOT IN ('guardian', 'school_support')
@@ -850,7 +850,7 @@ export const listLocationProviders = async (req, res, next) => {
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
            AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
            AND (
-             u.role IN ('provider', 'supervisor', 'clinical_practice_assistant', 'admin', 'super_admin', 'staff')
+             u.role IN ('provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant', 'admin', 'super_admin', 'staff')
              OR (u.has_provider_access = TRUE)
            )
            AND LOWER(COALESCE(u.role, '')) NOT IN ('guardian', 'school_support')
