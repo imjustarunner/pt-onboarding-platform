@@ -1170,7 +1170,7 @@
             </div>
           </div>
 
-          <div v-if="canUseQuarterHourInput && !disableEndTimeInput && requestType !== 'admin_assign'" class="row" style="gap: 8px; margin-top: 10px; margin-bottom: 10px;">
+          <div v-if="canUseQuarterHourInput && !disableEndTimeInput && requestType !== 'admin_assign' && requestType !== 'cancel_booking'" class="row" style="gap: 8px; margin-top: 10px; margin-bottom: 10px;">
             <label class="sched-inline compact" style="flex: 1;">
               <span>Start time</span>
               <select v-model.number="modalStartHour" class="sched-select compact">
@@ -1189,7 +1189,7 @@
             </label>
           </div>
 
-          <template v-if="requestType !== 'admin_assign'">
+          <template v-if="requestType !== 'admin_assign' && requestType !== 'cancel_booking'">
             <label class="lbl" style="margin-top: 10px;">End time</label>
             <select
               v-model.number="modalEndHour"
@@ -1217,6 +1217,34 @@
 
             <div v-if="modalError" class="error" style="margin-top: 10px;">{{ modalError }}</div>
           </template>
+
+          <!-- Cancel booking form (admin only) -->
+          <div v-if="requestType === 'cancel_booking'" class="cb-form">
+            <div class="cb-info">
+              <strong>Cancel this booking</strong>
+              <span v-if="modalContext.bookedProviderName || modalContext.assignedProviderName">
+                — {{ modalContext.bookedProviderName || modalContext.assignedProviderName }}
+              </span>
+            </div>
+            <div class="cb-scope-row">
+              <label class="check">
+                <input type="radio" v-model="cancelBookingScope" value="occurrence" />
+                <span><strong>This occurrence only</strong> — cancel just this date's booking, keep the recurring assignment</span>
+              </label>
+              <label class="check">
+                <input type="radio" v-model="cancelBookingScope" value="future" />
+                <span><strong>This and all future</strong> — cancel this date and deactivate all upcoming recurrences</span>
+              </label>
+            </div>
+            <div v-if="cancelBookingError" class="error" style="margin-top: 8px;">{{ cancelBookingError }}</div>
+            <button
+              class="btn btn-danger"
+              type="button"
+              :disabled="cancelBookingLoading"
+              style="margin-top: 12px; width: 100%;"
+              @click="submitCancelBooking"
+            >{{ cancelBookingLoading ? 'Cancelling…' : (cancelBookingScope === 'future' ? 'Cancel this & all future occurrences' : 'Cancel this occurrence') }}</button>
+          </div>
 
           <!-- Admin assign form (shown instead of standard end-time/notes/submit) -->
           <div v-if="requestType === 'admin_assign'" class="aa-form">
@@ -1357,7 +1385,7 @@
           </div>
         </div>
 
-        <div v-if="!intakeConfirmStep && requestType !== 'admin_assign'" class="modal-actions">
+        <div v-if="!intakeConfirmStep && requestType !== 'admin_assign' && requestType !== 'cancel_booking'" class="modal-actions">
           <button
             class="btn btn-primary"
             type="button"
@@ -2706,8 +2734,8 @@ const dayNameForDateYmd = (dateYmd) => {
 };
 
 const onOfficeLayoutCellClick = ({ dateYmd, hour, roomId, slot, event }) => {
-  // If a non-admin clicks someone else's booked slot in the office layout, show read-only info.
-  if (!isAdminMode.value) {
+  // If a non-admin without office management rights clicks someone else's booked slot → read-only info.
+  if (!isAdminMode.value && !canManageOffices.value) {
     const currentUserId = Number(authStore.user?.id || 0);
     const st = String(slot?.state || slot?.slotState || '').toLowerCase();
     const isOtherPersonsBooked = st === 'assigned_booked' && currentUserId > 0
@@ -4415,11 +4443,13 @@ const availableQuickActions = computed(() => {
     },
     {
       id: 'admin_assign',
-      label: 'Assign slot (admin)',
-      description: 'Directly assign this slot to a person or hold it — no request needed',
+      label: booked ? 'Edit / reassign slot' : 'Assign slot (admin)',
+      description: booked
+        ? 'Update this booking — change duration, provider, or frequency'
+        : 'Directly assign this slot to a person or hold it — no request needed',
       disabledReason: '',
-      visible: !supervisionOnlyMode && canManageOffices.value && state !== 'ASSIGNED_BOOKED',
-      tone: 'red'
+      visible: !supervisionOnlyMode && canManageOffices.value,
+      tone: booked ? 'amber' : 'red'
     },
     {
       id: 'intake_virtual_on',
@@ -4552,6 +4582,14 @@ const availableQuickActions = computed(() => {
       tone: 'red'
     },
     {
+      id: 'cancel_booking',
+      label: 'Cancel booking',
+      description: 'Remove this booking from the schedule',
+      disabledReason: '',
+      visible: !supervisionOnlyMode && canManageOffices.value && booked,
+      tone: 'red'
+    },
+    {
       id: 'extend_assignment',
       label: 'Extend assignment',
       description: (() => {
@@ -4587,7 +4625,8 @@ const OFFICE_LAYOUT_ONLY_ACTIONS = new Set([
   'admin_assign',
   'unbook_slot',
   'booked_note',
-  'booked_record'
+  'booked_record',
+  'cancel_booking'
 ]);
 
 const OFFICE_BLOCK_ONLY_ACTIONS = new Set([
@@ -4604,7 +4643,8 @@ const OFFICE_BLOCK_ONLY_ACTIONS = new Set([
   'admin_assign',
   'unbook_slot',
   'booked_note',
-  'booked_record'
+  'booked_record',
+  'cancel_booking'
 ]);
 
 const CLUB_SCHEDULING_ACTIONS = new Set(['agency_meeting', 'huddle']);
@@ -5584,7 +5624,7 @@ const openSlotActionModal = ({
     selectedActionAgencyId.value = Number(effectiveAgencyIds.value[0] || 0) || 0;
   }
   if (!normalizedInitialRequestType && String(modalContext.value.slotState || '').toUpperCase() === 'ASSIGNED_BOOKED') {
-    requestType.value = 'booked_note';
+    requestType.value = canManageOffices.value ? 'admin_assign' : 'booked_note';
   }
   if (!normalizedInitialRequestType && viewMode.value === 'office_layout' && ['', 'OPEN', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(String(modalContext.value.slotState || '').toUpperCase())) {
     requestType.value = canManageOffices.value ? 'admin_assign' : 'office_request_only';
@@ -5870,6 +5910,11 @@ const adminAssignError = ref('');
 const adminAssignProviders = ref([]);
 const adminAssignProvidersLoading = ref(false);
 
+// ---- Cancel booking action state ----
+const cancelBookingScope = ref('occurrence'); // 'occurrence' | 'future'
+const cancelBookingLoading = ref(false);
+const cancelBookingError = ref('');
+
 // ---- Provider office overlay (selected office location weekly grid) ----
 const selectedOfficeLocationId = ref(0);
 const officeGridLoading = ref(false);
@@ -5959,8 +6004,8 @@ const quickGlanceRows = computed(() => {
     const providerLabel = String(slot?.bookedProviderName || slot?.assignedProviderName || slot?.providerInitials || '').trim() || '—';
     const roomLabel = `${r?.roomNumber ? `#${r.roomNumber} ` : ''}${r?.label || r?.name || `Room ${r?.id || ''}`}`.trim();
     const bookedByMe = st === 'assigned_booked' && currentUserId > 0 && Number(slot?.bookedProviderId || 0) === currentUserId;
-    // Non-admin clicking someone else's booked slot → clickable but view-only info panel.
-    const isViewOnlySlot = st === 'assigned_booked' && !bookedByMe && !isAdminMode.value;
+    // Non-admin without office management rights clicking someone else's booked slot → view-only info panel.
+    const isViewOnlySlot = st === 'assigned_booked' && !bookedByMe && !isAdminMode.value && !canManageOffices.value;
     return {
       roomId: Number(r.id),
       roomLabel,
@@ -6266,6 +6311,35 @@ watch(officeAssignBuildingId, async (id) => {
   await loadOfficeRooms(id);
 });
 
+const submitCancelBooking = async () => {
+  const ctx = modalContext.value || {};
+  const locId = Number(ctx.officeLocationId || selectedOfficeLocationId.value || 0);
+  cancelBookingError.value = '';
+  if (!locId) { cancelBookingError.value = 'No office location found for this slot.'; return; }
+  if (!ctx.officeEventId && !ctx.standingAssignmentId) { cancelBookingError.value = 'No booking data found for this slot.'; return; }
+  try {
+    cancelBookingLoading.value = true;
+    const scope = cancelBookingScope.value || 'occurrence';
+    if (ctx.officeEventId) {
+      await api.post(`/office-slots/${locId}/events/${ctx.officeEventId}/cancel`, { scope });
+    }
+    if (scope === 'future' && ctx.standingAssignmentId) {
+      await api.post(`/office-slots/${locId}/assignments/${ctx.standingAssignmentId}/cancel`, {
+        scope: 'future',
+        date: String(ctx.dateYmd || '').slice(0, 10),
+        hour: Number(ctx.hour || 0)
+      });
+    }
+    invalidateScheduleSummaryCacheForUser(props.userId);
+    closeModal();
+    await Promise.all([load({ forceRefresh: true }), loadSelectedOfficeGrid()]);
+  } catch (e) {
+    cancelBookingError.value = e.response?.data?.error?.message || e.message || 'Failed to cancel booking.';
+  } finally {
+    cancelBookingLoading.value = false;
+  }
+};
+
 const loadAdminAssignProviders = async () => {
   const locId = Number(selectedOfficeLocationId.value || 0) || Number(modalContext.value?.officeLocationId || 0);
   if (!locId || !canManageOffices.value) { adminAssignProviders.value = []; return; }
@@ -6350,6 +6424,14 @@ watch(requestType, (newType) => {
   officeAssignStartHour.value = Number(modalHour.value || 0);
   if (!officeAssignEndHour.value || officeAssignEndHour.value <= officeAssignStartHour.value) {
     officeAssignEndHour.value = Math.min(officeAssignStartHour.value + 1, 22);
+  }
+  // Pre-fill person from already-booked/assigned slot
+  const ctx = modalContext.value || {};
+  const bookedId = Number(ctx.assignedProviderId || 0);
+  if (bookedId && canManageOffices.value) {
+    adminAssignPersonId.value = bookedId;
+    adminAssignPersonName.value = String(ctx.bookedProviderName || ctx.assignedProviderName || '').trim();
+    adminAssignPersonSearch.value = adminAssignPersonName.value;
   }
 });
 
@@ -6438,6 +6520,8 @@ const closeModal = () => {
   adminAssignRecurringUntil.value = '';
   adminAssignTemporary4Weeks.value = false;
   adminAssignError.value = '';
+  cancelBookingScope.value = 'occurrence';
+  cancelBookingError.value = '';
 };
 
 const confirmIntakeInPerson = (enableBoth) => {
@@ -6703,6 +6787,23 @@ const submitRequest = async () => {
         // eslint-disable-next-line no-await-in-loop
         await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/book`, {
           booked: false
+        });
+      }
+      refreshInBackground = true;
+    } else if (requestType.value === 'cancel_booking') {
+      const ctx = modalContext.value || {};
+      const locId = Number(ctx.officeLocationId || selectedOfficeLocationId.value || 0);
+      if (!locId) throw new Error('No office location found for this slot.');
+      const scope = cancelBookingScope.value || 'occurrence';
+      if (!ctx.officeEventId && !ctx.standingAssignmentId) throw new Error('No booking found for this slot.');
+      if (ctx.officeEventId) {
+        await api.post(`/office-slots/${locId}/events/${ctx.officeEventId}/cancel`, { scope });
+      }
+      if (scope === 'future' && ctx.standingAssignmentId) {
+        await api.post(`/office-slots/${locId}/assignments/${ctx.standingAssignmentId}/cancel`, {
+          scope: 'future',
+          date: String(ctx.dateYmd || '').slice(0, 10),
+          hour: Number(ctx.hour || 0)
         });
       }
       refreshInBackground = true;
@@ -10070,6 +10171,48 @@ defineExpose({ resetToOpenFinder });
 }
 
 /* Admin assign inline form */
+.cb-form {
+  margin-top: 14px;
+  padding: 14px;
+  background: #fff5f5;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+}
+.cb-info {
+  font-size: 14px;
+  margin-bottom: 12px;
+  color: #374151;
+}
+.cb-scope-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cb-scope-row .check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.cb-scope-row .check input[type="radio"] {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.btn-danger {
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-danger:hover:not(:disabled) { background: #b91c1c; }
+.btn-danger:disabled { opacity: 0.6; cursor: not-allowed; }
+
 .aa-form {
   margin-top: 12px;
   padding-top: 12px;
