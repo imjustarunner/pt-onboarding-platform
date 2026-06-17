@@ -2895,12 +2895,15 @@ export const staffAssignOpenSlot = async (req, res, next) => {
         }
       }
 
-      await materializeOfficeWeeks({
+      // Fire-and-forget: the clicked-day event was already created above; future-week
+      // materialization runs in the background so a transient DB hiccup (e.g. Cloud SQL
+      // proxy auth lapse) never converts a successful assignment into a 500.
+      materializeOfficeWeeks({
         officeLocationId,
         startDateYmd: date,
         createdByUserId: req.user.id,
         weeks: 12
-      });
+      }).catch((e) => console.warn('[officeSlotActions] background materialization failed:', e?.message || e));
 
       const createdEventIds = createdEvents.map((e) => Number(e?.id || 0)).filter((n) => n > 0);
       syncOfficeEventsToGoogleBestEffort(createdEventIds).catch(() => {});
@@ -2966,12 +2969,12 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
 
-    await materializeOfficeWeeks({
+    materializeOfficeWeeks({
       officeLocationId,
       startDateYmd: date,
       createdByUserId: req.user.id,
       weeks: 1
-    });
+    }).catch((e) => console.warn('[officeSlotActions] one-time materialize failed:', e?.message || e));
 
     const createdEventIds = createdEvents.map((e) => Number(e?.id || 0)).filter((n) => n > 0);
     syncOfficeEventsToGoogleBestEffort(createdEventIds).catch(() => {});

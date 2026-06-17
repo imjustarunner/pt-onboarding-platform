@@ -465,10 +465,7 @@ class OfficeEvent {
              assigned_provider_id = ?,
              booked_provider_id = ?,
              updated_at = CURRENT_TIMESTAMP
-         WHERE room_id = ?
-           AND start_at = ?
-           AND end_at = ?
-           AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
+         WHERE id = ?`,
         [
           officeLocationId,
           roomId,
@@ -481,9 +478,7 @@ class OfficeEvent {
           recurrenceGroupId,
           assignedProviderId,
           effectiveBookedProviderId,
-          roomId,
-          normalizedStartAt,
-          normalizedEndAt
+          existing.id
         ]
       );
       return await this.findById(existing.id);

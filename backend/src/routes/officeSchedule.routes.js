@@ -36,7 +36,8 @@ import {
   releaseCoverageFlag,
   getEhrSyncHealthEndpoint,
   runCoverageAudit,
-  runAllLocationsCoverageAudit
+  runAllLocationsCoverageAudit,
+  debugEventsForWeek
 } from '../controllers/officeSchedule.controller.js';
 
 const router = express.Router();
@@ -99,6 +100,7 @@ router.post('/admin/coverage-flags/:eventId/keep', keepCoverageFlag);
 router.post('/admin/coverage-flags/:eventId/release', releaseCoverageFlag);
 router.get('/admin/ehr-sync-health', getEhrSyncHealthEndpoint);
 router.post('/locations/:locationId/run-coverage-audit', runCoverageAudit);
+router.get('/locations/:locationId/debug-events', debugEventsForWeek);
 // Trigger all-locations coverage audit manually (used by admin Coverage Flags page)
 router.post('/watchdog/run-coverage-audit', runAllLocationsCoverageAudit);
 

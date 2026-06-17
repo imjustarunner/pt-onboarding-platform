@@ -478,19 +478,22 @@ export class OfficeScheduleWatchdogService {
    * Safe to run daily — skips users who are already fully cleaned up.
    */
   static async cleanupInactiveProviderBookings() {
-    // Find provider IDs that are inactive or archived.
+    // Only clean up providers/users who have been inactive for at least 14 days.
+    // This guards against a transient deactivation (e.g. a provider re-enabled the same day)
+    // accidentally wiping their office bookings before the correction is made.
     const [inactiveProviders] = await pool.execute(
       `SELECT id FROM users
        WHERE (is_archived = TRUE OR is_active = FALSE)
-         AND role IN ('PROVIDER', 'provider', 'therapist', 'THERAPIST', 'clinician', 'CLINICIAN')`
+         AND (updated_at IS NULL OR updated_at <= DATE_SUB(NOW(), INTERVAL 14 DAY))
+         AND role IN ('PROVIDER', 'provider', 'therapist', 'THERAPIST', 'clinician', 'CLINICIAN',
+                      'provider_plus', 'PROVIDER_PLUS')`
     );
 
-    // If the role filter is too strict (roles vary per app), fall back to all
-    // deactivated/archived users who have any office events or assignments.
-    // We run both queries and union the IDs.
+    // Broad fallback: any user inactive for 14+ days.
     const [anyInactive] = await pool.execute(
       `SELECT DISTINCT u.id FROM users u
-       WHERE (u.is_archived = TRUE OR u.is_active = FALSE)`
+       WHERE (u.is_archived = TRUE OR u.is_active = FALSE)
+         AND (u.updated_at IS NULL OR u.updated_at <= DATE_SUB(NOW(), INTERVAL 14 DAY))`
     );
 
     const providerIdSet = new Set([

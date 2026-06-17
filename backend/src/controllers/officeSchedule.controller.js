@@ -904,12 +904,18 @@ export const getWeeklyGrid = async (req, res, next) => {
     const rooms = await OfficeRoom.findByLocation(parseInt(locationId));
 
     // Materialize office_events rows for assigned slots in this week (so kiosk has stable event IDs).
-    await OfficeScheduleMaterializer.materializeWeek({
-      officeLocationId: parseInt(locationId),
-      weekStartRaw: weekStart,
-      useExactWeekStart: true,
-      createdByUserId: req.user.id
-    });
+    // Wrapped in try/catch: a transient DB connection drop must not prevent the grid from loading
+    // existing events — it just means this week might not have new events yet.
+    try {
+      await OfficeScheduleMaterializer.materializeWeek({
+        officeLocationId: parseInt(locationId),
+        weekStartRaw: weekStart,
+        useExactWeekStart: true,
+        createdByUserId: req.user.id
+      });
+    } catch (materializeErr) {
+      console.warn('[getWeeklyGrid] materializeWeek failed (DB hiccup?); loading existing events:', materializeErr?.message || materializeErr);
+    }
 
     const officeLocationIdNum = parseInt(locationId);
     const events = await OfficeEvent.listForOfficeWindow({ officeLocationId: officeLocationIdNum, startAt: windowStart, endAt: windowEnd });
@@ -4035,6 +4041,72 @@ export const getEhrSyncHealthEndpoint = async (req, res, next) => {
     const officeLocationId = req.query.officeLocationId ? parseInt(req.query.officeLocationId, 10) : null;
     const result = await getEhrSyncHealth({ officeLocationId });
     res.json(result);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+/**
+ * GET /office-schedule/locations/:locationId/debug-events?weekStart=YYYY-MM-DD
+ * Super-admin-only raw DB dump: standing assignments + office_events for the requested week.
+ * Diagnoses "I assigned a slot but it doesn't show" without needing direct DB access.
+ */
+export const debugEventsForWeek = async (req, res, next) => {
+  try {
+    if (req.user?.role !== 'super_admin') return res.status(403).json({ error: 'super_admin only' });
+    const locationId = parseInt(req.params.locationId, 10);
+    if (!locationId) return res.status(400).json({ error: 'Invalid locationId' });
+    const weekStartRaw = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const weekStart = normalizeYmd(weekStartRaw);
+    if (!weekStart) return res.status(400).json({ error: 'weekStart must be YYYY-MM-DD' });
+    const weekEnd = addDays(weekStart, 7);
+    const windowStart = `${weekStart} 00:00:00`;
+    const windowEnd = `${weekEnd} 00:00:00`;
+
+    const [assignments] = await pool.execute(
+      `SELECT a.id, a.provider_id, a.room_id, a.weekday, a.hour,
+              a.assigned_frequency, a.availability_mode, a.is_active,
+              a.available_since_date, a.temporary_until_date,
+              a.recurrence_group_id,
+              u.first_name, u.last_name, u.role AS user_role,
+              u.is_active AS user_is_active, u.is_archived AS user_is_archived
+       FROM office_standing_assignments a
+       JOIN users u ON u.id = a.provider_id
+       WHERE a.office_location_id = ?`,
+      [locationId]
+    );
+    const [events] = await pool.execute(
+      `SELECT e.id, e.room_id, e.start_at, e.end_at, e.status, e.slot_state,
+              e.standing_assignment_id, e.booking_plan_id,
+              e.assigned_provider_id, e.booked_provider_id,
+              e.created_at, e.updated_at
+       FROM office_events e
+       WHERE e.office_location_id = ?
+         AND e.start_at < ?
+         AND e.end_at > ?
+       ORDER BY e.start_at, e.room_id`,
+      [locationId, windowEnd, windowStart]
+    );
+    const [cancelledThisWeek] = await pool.execute(
+      `SELECT e.id, e.room_id, e.start_at, e.status, e.slot_state, e.standing_assignment_id
+       FROM office_events e
+       WHERE e.office_location_id = ?
+         AND e.start_at < ?
+         AND e.end_at > ?
+         AND UPPER(COALESCE(e.status,'')) = 'CANCELLED'
+       ORDER BY e.start_at`,
+      [locationId, windowEnd, windowStart]
+    );
+    return res.json({
+      weekStart,
+      weekEnd,
+      locationId,
+      activeAssignments: (assignments || []).filter((a) => a.is_active),
+      inactiveAssignments: (assignments || []).filter((a) => !a.is_active),
+      activeEvents: events || [],
+      cancelledEventsThisWeek: cancelledThisWeek || []
+    });
   } catch (e) {
     next(e);
   }
