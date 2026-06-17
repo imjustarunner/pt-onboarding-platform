@@ -15,11 +15,16 @@
         <h2>Request submitted!</h2>
         <p>We'll follow up at <strong>{{ form.email }}</strong> to confirm your appointment.</p>
         <div class="confirm-detail">
-          <span class="confirm-appt-label">Session</span>
+          <span class="confirm-appt-label">{{ form.hasRecentAssessment === false ? 'Tutoring session (pending eval)' : 'Session' }}</span>
           <span>{{ provider.displayName }}</span>
-          <span>{{ formatSlotLabel(slot) }}</span>
+          <span>{{ formatSlotLabel(form.hasRecentAssessment === false && providerCanEval && form.intakeSlot ? form.intakeSlot : slot) }}</span>
         </div>
-        <div v-if="form.intakeSlot" class="confirm-detail confirm-detail--intake">
+        <div v-if="form.hasRecentAssessment === false && form.evalSlot" class="confirm-detail confirm-detail--eval">
+          <span class="confirm-appt-label">Evaluation (first appointment)</span>
+          <span>{{ evalProviderName }}</span>
+          <span>{{ formatSlotLabel(form.evalSlot) }}</span>
+        </div>
+        <div v-else-if="form.intakeSlot && form.hasRecentAssessment !== false" class="confirm-detail confirm-detail--intake">
           <span class="confirm-appt-label">Intake &amp; evaluation</span>
           <span>{{ provider.displayName }}</span>
           <span>{{ formatSlotLabel(form.intakeSlot) }}</span>
@@ -177,6 +182,131 @@
             </label>
           </div>
 
+          <!-- Step: assessment check (new tutoring clients only) -->
+          <div v-if="currentStep.id === 'assessment_check'" class="step-intake">
+            <p class="intake-intro">
+              Academic evaluations help us tailor tutoring to your student's current level.
+            </p>
+            <p class="field-label">Does <strong>{{ form.clientFullName || 'your student' }}</strong> have academic testing or assessments from the <strong>past 3 months</strong>?</p>
+            <div class="toggle-row" style="margin-top:0.5rem">
+              <button class="toggle-btn" :class="{ active: form.hasRecentAssessment === true }" type="button" @click="setAssessmentAnswer(true)">Yes, they do</button>
+              <button class="toggle-btn" :class="{ active: form.hasRecentAssessment === false }" type="button" @click="setAssessmentAnswer(false)">No, evaluation needed</button>
+            </div>
+            <span v-if="fieldError('assessment_check')" class="field-error" style="font-size:0.8rem">{{ fieldError('assessment_check') }}</span>
+
+            <!-- Eval-required branch -->
+            <template v-if="form.hasRecentAssessment === false">
+              <div v-if="evalCheckLoading" class="intake-loading"><span class="spinner" /> Checking evaluator availability…</div>
+              <template v-else>
+                <!-- Provider CAN do evaluations: reuse selected slot as eval, pick new session slot -->
+                <div v-if="providerCanEval" class="eval-notice eval-notice--same-provider">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:1.1rem;height:1.1rem;flex-shrink:0"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg>
+                  <span><strong>{{ provider.displayName }}</strong> can conduct the evaluation. Your selected time will be used for the evaluation. Please pick a separate time for your first tutoring session below.</span>
+                </div>
+                <!-- Provider CANNOT do evaluations: show evaluator picker -->
+                <div v-else class="eval-notice eval-notice--other">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:1.1rem;height:1.1rem;flex-shrink:0"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg>
+                  <span>An evaluator will need to meet with <strong>{{ form.clientFullName || 'your student' }}</strong> before tutoring begins. Please select an evaluator and a time below.</span>
+                </div>
+
+                <!-- Evaluator picker (when provider cannot eval) -->
+                <template v-if="!providerCanEval">
+                  <div v-if="evalProvidersLoading" class="intake-loading"><span class="spinner" /> Loading evaluators…</div>
+                  <div v-else-if="evalProvidersError" class="intake-error">{{ evalProvidersError }}</div>
+                  <div v-else-if="evalProviders.length === 0" class="intake-empty">No evaluators available at this time. Please contact us directly.</div>
+                  <div v-else class="eval-provider-list">
+                    <button
+                      v-for="ep in evalProviders"
+                      :key="ep.providerId"
+                      class="eval-provider-card"
+                      :class="{ selected: form.evalProviderId === ep.providerId }"
+                      type="button"
+                      @click="selectEvalProvider(ep)"
+                    >
+                      <div class="eval-provider-avatar">
+                        <img v-if="ep.profilePhotoUrl" :src="ep.profilePhotoUrl" :alt="ep.displayName" />
+                        <span v-else>{{ initials(ep.displayName) }}</span>
+                      </div>
+                      <div class="eval-provider-info">
+                        <strong>{{ ep.displayName }}</strong>
+                        <span v-if="ep.title" class="muted small">{{ ep.title }}</span>
+                      </div>
+                    </button>
+                  </div>
+                </template>
+
+                <!-- Eval slot picker (same provider or separate evaluator) -->
+                <template v-if="providerCanEval || form.evalProviderId">
+                  <div class="intake-week-nav" style="margin-top:0.75rem">
+                    <button class="week-nav-btn" type="button" :disabled="evalWeekIsPast" @click="shiftEvalWeek(-1)">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/></svg>
+                    </button>
+                    <span class="intake-week-label">{{ evalWeekLabel }}</span>
+                    <button class="week-nav-btn" type="button" @click="shiftEvalWeek(1)">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+                    </button>
+                  </div>
+                  <div v-if="evalSlotsLoading" class="intake-loading"><span class="spinner" /> Loading available eval times…</div>
+                  <div v-else-if="evalSlotsError" class="intake-error">{{ evalSlotsError }}</div>
+                  <div v-else-if="evalSlots.length === 0" class="intake-empty">No availability this week — try a different week.</div>
+                  <div v-else class="intake-slots-grid">
+                    <button
+                      v-for="s in evalSlots"
+                      :key="s.startAt"
+                      class="intake-slot-chip"
+                      :class="{ selected: form.evalSlot?.startAt === s.startAt }"
+                      type="button"
+                      @click="form.evalSlot = s"
+                    >
+                      <span class="chip-day">{{ slotDay(s) }}</span>
+                      <span class="chip-time">{{ slotTime(s) }}</span>
+                      <span class="chip-modality">{{ s.modality === 'VIRTUAL' ? 'Virtual' : 'In-person' }}</span>
+                    </button>
+                  </div>
+                  <p v-if="form.evalSlot" class="intake-selected-summary">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:1rem;height:1rem;vertical-align:-2px"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    Evaluation: {{ formatSlotLabel(form.evalSlot) }}
+                  </p>
+                </template>
+
+                <!-- Second session slot picker (when provider CAN do eval — they need a separate tutor slot) -->
+                <template v-if="providerCanEval">
+                  <p class="field-label" style="margin-top:1rem">Now pick a time for the tutoring session (different from the evaluation above):</p>
+                  <div class="intake-week-nav">
+                    <button class="week-nav-btn" type="button" :disabled="intakeWeekIsPast" @click="shiftIntakeWeek(-1)">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/></svg>
+                    </button>
+                    <span class="intake-week-label">{{ intakeWeekLabel }}</span>
+                    <button class="week-nav-btn" type="button" @click="shiftIntakeWeek(1)">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+                    </button>
+                  </div>
+                  <div v-if="intakeSlotsLoading" class="intake-loading"><span class="spinner" /> Loading session times…</div>
+                  <div v-else-if="intakeSlotsError" class="intake-error">{{ intakeSlotsError }}</div>
+                  <div v-else-if="intakeSlots.length === 0" class="intake-empty">No availability this week — try a different week.</div>
+                  <div v-else class="intake-slots-grid">
+                    <button
+                      v-for="s in intakeSlots"
+                      :key="s.startAt"
+                      class="intake-slot-chip"
+                      :class="{ selected: form.intakeSlot?.startAt === s.startAt }"
+                      type="button"
+                      @click="form.intakeSlot = s"
+                    >
+                      <span class="chip-day">{{ slotDay(s) }}</span>
+                      <span class="chip-time">{{ slotTime(s) }}</span>
+                      <span class="chip-modality">{{ s.modality === 'VIRTUAL' ? 'Virtual' : 'In-person' }}</span>
+                    </button>
+                  </div>
+                  <p v-if="form.intakeSlot" class="intake-selected-summary">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:1rem;height:1rem;vertical-align:-2px"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    Session: {{ formatSlotLabel(form.intakeSlot) }}
+                  </p>
+                </template>
+              </template>
+            </template>
+          </div>
+
           <!-- Step: intake/evaluation -->
           <div v-if="currentStep.id === 'intake'" class="step-intake">
             <p class="intake-intro">
@@ -240,17 +370,22 @@
             <div v-if="form.notes" class="review-row"><span class="review-label">Notes</span><span>{{ form.notes }}</span></div>
 
             <p class="review-section-label" style="margin-top:1rem">Appointments requested</p>
-            <div class="review-appt-block review-appt-block--session">
-              <span class="review-appt-role">Session</span>
-              <span>{{ provider.displayName }}</span>
-              <span class="review-appt-time">{{ formatSlotLabel(slot) }}</span>
+            <div v-if="form.hasRecentAssessment === false && form.evalSlot" class="review-appt-block review-appt-block--eval">
+              <span class="review-appt-role">Evaluation (first)</span>
+              <span>{{ evalProviderName }}</span>
+              <span class="review-appt-time">{{ formatSlotLabel(form.evalSlot) }}</span>
             </div>
-            <div v-if="form.includeIntake && form.intakeSlot" class="review-appt-block review-appt-block--intake">
+            <div class="review-appt-block review-appt-block--session">
+              <span class="review-appt-role">{{ form.hasRecentAssessment === false ? 'Tutoring session (after eval)' : 'Session' }}</span>
+              <span>{{ provider.displayName }}</span>
+              <span class="review-appt-time">{{ formatSlotLabel(form.hasRecentAssessment === false && providerCanEval && form.intakeSlot ? form.intakeSlot : slot) }}</span>
+            </div>
+            <div v-if="form.includeIntake && form.intakeSlot && form.hasRecentAssessment !== false" class="review-appt-block review-appt-block--intake">
               <span class="review-appt-role">Intake &amp; evaluation</span>
               <span>{{ provider.displayName }}</span>
               <span class="review-appt-time">{{ formatSlotLabel(form.intakeSlot) }}</span>
             </div>
-            <div v-if="form.includeIntake && !form.intakeSlot" class="review-appt-block review-appt-block--skipped">
+            <div v-if="form.includeIntake && !form.intakeSlot && form.hasRecentAssessment !== false" class="review-appt-block review-appt-block--skipped">
               <span class="review-appt-role">Intake &amp; evaluation</span>
               <span style="color:#9ca3af">Not scheduled</span>
             </div>
@@ -321,6 +456,7 @@ const ALL_STEPS = [
   { id: 'client_existing', title: 'Client verification', forBookingMode: 'CURRENT_CLIENT' },
   { id: 'tutoring_details', title: 'Session details', forServiceType: 'tutoring' },
   { id: 'notes', title: 'Additional notes' },
+  { id: 'assessment_check', title: 'Assessment check', forNewTutoring: true },
   { id: 'intake', title: 'Intake & evaluation' },
   { id: 'review', title: 'Review & submit' }
 ];
@@ -340,9 +476,119 @@ const form = ref({
   subjectArea: '',
   clientGradeLevel: '',
   notes: '',
-  includeIntake: null, // null = not yet answered, true/false = answered
-  intakeSlot: null
+  includeIntake: null,
+  intakeSlot: null,
+  // Evaluation gate fields (migration 868)
+  hasRecentAssessment: null, // null = unanswered, true = has assessment, false = needs eval
+  evalProviderId: null,      // separate evaluator id (when provider can't eval)
+  evalSlot: null             // selected eval slot
 });
+
+// Evaluation gate state
+const evalCheckLoading = ref(false);
+const providerCanEval = ref(false);
+const evalProviders = ref([]);
+const evalProvidersLoading = ref(false);
+const evalProvidersError = ref('');
+const evalSlots = ref([]);
+const evalSlotsLoading = ref(false);
+const evalSlotsError = ref('');
+const evalWeekStart = ref(new Date().toISOString().slice(0, 10));
+const selectedEvalProvider = ref(null);
+
+const evalWeekIsPast = computed(() => {
+  const today = new Date().toISOString().slice(0, 10);
+  return evalWeekStart.value <= today;
+});
+
+const evalWeekLabel = computed(() => {
+  const d = new Date(evalWeekStart.value + 'T12:00:00');
+  const end = new Date(d);
+  end.setDate(end.getDate() + 6);
+  const fmt = (dt) => dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return `${fmt(d)} – ${fmt(end)}`;
+});
+
+const evalProviderName = computed(() => {
+  if (providerCanEval.value) return props.provider.displayName;
+  return selectedEvalProvider.value?.displayName || 'Evaluator';
+});
+
+function shiftEvalWeek(dir) {
+  const d = new Date(evalWeekStart.value + 'T12:00:00');
+  d.setDate(d.getDate() + dir * 7);
+  const today = new Date().toISOString().slice(0, 10);
+  const candidate = d.toISOString().slice(0, 10);
+  if (dir < 0 && candidate < today) return;
+  evalWeekStart.value = candidate;
+  loadEvalSlots();
+}
+
+async function loadEvalSlots() {
+  const pid = providerCanEval.value ? props.provider.providerId : form.value.evalProviderId;
+  if (!pid) return;
+  evalSlotsLoading.value = true;
+  evalSlotsError.value = '';
+  try {
+    const params = new URLSearchParams({
+      weekStart: evalWeekStart.value,
+      bookingMode: form.value.bookingMode,
+      programType: props.slot.programType || 'IN_PERSON'
+    });
+    const res = await api.get(
+      `/public/agency-services/${encodeURIComponent(props.agencySlug)}/providers/${pid}/slots?${params}`,
+      { skipAuthRedirect: true }
+    );
+    // Exclude the main session slot
+    evalSlots.value = (res.data?.slots || []).filter((s) => s.startAt !== props.slot.startAt);
+  } catch (e) {
+    evalSlotsError.value = e.response?.data?.error?.message || 'Could not load evaluation times.';
+  } finally {
+    evalSlotsLoading.value = false;
+  }
+}
+
+async function setAssessmentAnswer(hasAssessment) {
+  form.value.hasRecentAssessment = hasAssessment;
+  form.value.evalSlot = null;
+  form.value.evalProviderId = null;
+  selectedEvalProvider.value = null;
+  if (!hasAssessment) {
+    // Check if the selected tutor is enrolled as an evaluator
+    evalCheckLoading.value = true;
+    try {
+      const res = await api.get(
+        `/public/agency-services/${encodeURIComponent(props.agencySlug)}/evaluators?programType=${props.slot.programType || 'IN_PERSON'}`,
+        { skipAuthRedirect: true }
+      );
+      const evals = res.data?.evaluators || [];
+      const canEval = evals.some((e) => e.providerId === props.provider.providerId);
+      providerCanEval.value = canEval;
+      if (canEval) {
+        // Reuse existing slot as eval; provider slot picker shows session alternatives
+        form.value.evalProviderId = props.provider.providerId;
+        form.value.evalSlot = props.slot;
+        // Load session alternatives (any slot other than the selected one)
+        loadIntakeSlots();
+      } else {
+        evalProviders.value = evals;
+      }
+    } catch {
+      providerCanEval.value = false;
+      evalProviders.value = [];
+    } finally {
+      evalCheckLoading.value = false;
+    }
+  }
+}
+
+async function selectEvalProvider(ep) {
+  form.value.evalProviderId = ep.providerId;
+  selectedEvalProvider.value = ep;
+  form.value.evalSlot = null;
+  evalSlots.value = [];
+  await loadEvalSlots();
+}
 
 // Intake slot fetching state
 const intakeSlots = ref([]);
@@ -417,6 +663,10 @@ const visibleSteps = computed(() => {
   return ALL_STEPS.filter((s) => {
     if (s.forBookingMode) return s.forBookingMode === form.value.bookingMode;
     if (s.forServiceType) return s.forServiceType === props.serviceType;
+    // assessment_check: only for new tutoring clients
+    if (s.forNewTutoring) return props.serviceType === 'tutoring' && form.value.bookingMode === 'NEW_CLIENT';
+    // Hide the old optional intake step when eval path is active (eval-required path handles it)
+    if (s.id === 'intake') return !(props.serviceType === 'tutoring' && form.value.bookingMode === 'NEW_CLIENT');
     return true;
   });
 });
@@ -443,8 +693,14 @@ function validateStep(step) {
     if (!form.value.clientInitials.trim()) errs.clientInitials = 'Client initials are required';
   }
   if (step.id === 'intake') {
-    // Intake answer is required before proceeding
     if (form.value.includeIntake === null) errs.intake = 'Please choose whether to add an intake appointment.';
+  }
+  if (step.id === 'assessment_check') {
+    if (form.value.hasRecentAssessment === null) errs.assessment_check = 'Please answer the assessment question.';
+    if (form.value.hasRecentAssessment === false) {
+      if (!form.value.evalSlot) errs.assessment_check = 'Please select an evaluation time.';
+      else if (!providerCanEval.value && !form.value.evalProviderId) errs.assessment_check = 'Please select an evaluator.';
+    }
   }
   fieldErrors.value = errs;
   return Object.keys(errs).length === 0;
@@ -456,6 +712,14 @@ const canAdvance = computed(() => {
   if (step.id === 'client_new') return form.value.clientFullName.trim() && form.value.guardianFirstName.trim() && form.value.guardianEmail.trim();
   if (step.id === 'client_existing') return form.value.clientInitials.trim();
   if (step.id === 'intake') return form.value.includeIntake !== null;
+  if (step.id === 'assessment_check') {
+    if (form.value.hasRecentAssessment === null) return false;
+    if (form.value.hasRecentAssessment === false) {
+      if (!form.value.evalSlot) return false;
+      if (!providerCanEval.value && !form.value.evalProviderId) return false;
+    }
+    return true;
+  }
   return true;
 });
 
@@ -509,14 +773,20 @@ async function submit() {
   submitError.value = '';
   try {
     const f = form.value;
+    const evalRequired = f.hasRecentAssessment === false;
+    // When provider CAN eval: main slot = tutoring session (pendingEval), evalSlot = props.slot
+    // When provider CANNOT eval: main slot = props.slot (tutoring session), evalSlot = f.evalSlot
+    const sessionSlot = (evalRequired && providerCanEval.value && f.intakeSlot) ? f.intakeSlot : props.slot;
+    const evalSlotToSend = evalRequired ? (providerCanEval.value ? props.slot : f.evalSlot) : null;
+
     const payload = {
       serviceType: props.serviceType,
       providerId: props.provider.providerId,
-      modality: props.slot.modality || (props.slot.programType === 'VIRTUAL' ? 'VIRTUAL' : 'IN_PERSON'),
+      modality: sessionSlot.modality || (sessionSlot.programType === 'VIRTUAL' ? 'VIRTUAL' : 'IN_PERSON'),
       bookingMode: f.bookingMode,
-      programType: props.slot.programType || 'IN_PERSON',
-      startAt: props.slot.startAt,
-      endAt: props.slot.endAt,
+      programType: sessionSlot.programType || 'IN_PERSON',
+      startAt: sessionSlot.startAt,
+      endAt: sessionSlot.endAt,
       name: f.name,
       email: f.email,
       phone: f.phone || null,
@@ -530,8 +800,13 @@ async function submit() {
       guardianRelationship: f.guardianRelationship || 'Parent',
       subjectArea: props.serviceType === 'tutoring' ? (f.subjectArea || null) : null,
       clientGradeLevel: props.serviceType === 'tutoring' ? (f.clientGradeLevel || null) : null,
-      // Paired intake appointment (optional — backend creates it atomically if present)
-      intakeAppointment: f.includeIntake && f.intakeSlot ? {
+      // Evaluation gate fields (migration 868)
+      evalRequired,
+      evalProviderId: evalRequired ? (providerCanEval.value ? props.provider.providerId : f.evalProviderId) : null,
+      evalStartAt: evalSlotToSend?.startAt || null,
+      evalEndAt: evalSlotToSend?.endAt || null,
+      // Legacy intake (only when no eval required)
+      intakeAppointment: !evalRequired && f.includeIntake && f.intakeSlot ? {
         startAt: f.intakeSlot.startAt,
         endAt: f.intakeSlot.endAt,
         modality: f.intakeSlot.modality || (f.intakeSlot.programType === 'VIRTUAL' ? 'VIRTUAL' : 'IN_PERSON')
@@ -903,7 +1178,59 @@ async function submit() {
   margin-bottom: 0.5rem;
 }
 .review-appt-block--intake { background: var(--wiz-a-tint); border-color: color-mix(in srgb, var(--wiz-a) 30%, white); }
+.review-appt-block--eval { background: #fff7ed; border-color: #fed7aa; }
 .review-appt-block--skipped { opacity: 0.5; }
 .review-appt-role { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--wiz-p); }
 .review-appt-time { font-size: 0.8125rem; color: #6b7280; }
+
+/* Evaluation gate */
+.eval-notice {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.eval-notice--same-provider { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+.eval-notice--other { background: #fff7ed; border: 1px solid #fed7aa; color: #92400e; }
+.eval-provider-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.eval-provider-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 0.875rem;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 0.5rem;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.12s, background 0.12s;
+}
+.eval-provider-card:hover { border-color: var(--wiz-a); background: var(--wiz-a-tint); }
+.eval-provider-card.selected { border-color: var(--wiz-a); background: var(--wiz-a-soft); }
+.eval-provider-avatar {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--wiz-a-tint);
+  color: var(--wiz-p);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+.eval-provider-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.eval-provider-info { display: flex; flex-direction: column; gap: 1px; font-size: 0.875rem; }
+.confirm-detail--eval { background: #fff7ed; border-color: #fed7aa; }
 </style>

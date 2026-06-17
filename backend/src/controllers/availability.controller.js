@@ -4538,6 +4538,10 @@ export const listPublicAppointmentRequests = async (req, res, next) => {
         notes: r.notes || '',
         status: r.status,
         serviceType: r.service_type || null,
+        sessionType: r.session_type || null,
+        appointmentRole: r.appointment_role || null,
+        evalRequired: r.eval_required === 1 || r.eval_required === true,
+        pairedRequestId: r.paired_request_id || null,
         subjectArea: r.subject_area || null,
         clientGradeLevel: r.client_grade_level || null,
         createdAt: r.created_at,
@@ -4567,7 +4571,21 @@ export const setPublicAppointmentRequestStatus = async (req, res, next) => {
     try {
       const existing = await PublicAppointmentRequest.findById({ agencyId, requestId });
       if (!existing) return res.status(404).json({ error: { message: 'Request not found' } });
-      if (String(existing.status || '').toUpperCase() !== 'PENDING') {
+
+      const existingStatus = String(existing.status || '').toUpperCase();
+
+      // PENDING_EVAL = session is waiting for its paired evaluation to be approved first.
+      // Approving it directly is blocked; it can only be declined or cancelled manually.
+      if (existingStatus === 'PENDING_EVAL') {
+        if (status === 'APPROVED') {
+          return res.status(409).json({
+            error: {
+              message: 'This session is waiting for its paired evaluation appointment to be approved first. Approve the evaluation request to unlock this one.'
+            }
+          });
+        }
+        // Allow DECLINED / CANCELLED of PENDING_EVAL requests
+      } else if (existingStatus !== 'PENDING') {
         return res.status(409).json({ error: { message: `Request already ${String(existing.status || '').toLowerCase()}` } });
       }
 
@@ -4639,6 +4657,48 @@ export const setPublicAppointmentRequestStatus = async (req, res, next) => {
             } catch (e) {
               // Non-fatal — log but don't block the approval
               console.warn('[tutoring-session-create] failed:', e?.message || e);
+            }
+          }
+
+          // Evaluation approval → unblock the paired session request (PENDING_EVAL → PENDING)
+          const appointmentRole = String(updatedRow.appointment_role || '').toLowerCase();
+          const pairedRequestId = Number(updatedRow.paired_request_id || 0);
+          if (appointmentRole === 'evaluation' && pairedRequestId) {
+            try {
+              await pool.execute(
+                `UPDATE public_appointment_requests
+                 SET status = 'PENDING', updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?
+                   AND agency_id = ?
+                   AND UPPER(COALESCE(status, 'PENDING_EVAL')) = 'PENDING_EVAL'`,
+                [pairedRequestId, agencyId]
+              );
+              // Notify guardian/client that eval was approved and session is now ready
+              const [pairedRow] = await pool.execute(
+                `SELECT * FROM public_appointment_requests WHERE id = ? LIMIT 1`,
+                [pairedRequestId]
+              );
+              if (pairedRow?.[0]) {
+                const guardianEmail = String(pairedRow[0].client_email || '').trim();
+                const clientName = String(pairedRow[0].client_name || 'Client').trim();
+                const sessionStart = pairedRow[0].requested_start_at;
+                const sessionTimeLabel = sessionStart
+                  ? new Date(String(sessionStart).replace(' ', 'T')).toLocaleString('en-US', {
+                      weekday: 'short', month: 'short', day: 'numeric',
+                      hour: 'numeric', minute: '2-digit', hour12: true
+                    })
+                  : 'your scheduled time';
+                if (guardianEmail && EmailService.isConfigured()) {
+                  await EmailService.send({
+                    to: guardianEmail,
+                    subject: `Evaluation approved — your tutoring session is now being reviewed`,
+                    text: `Hi ${clientName},\n\nYour evaluation appointment has been approved! Your tutoring session request for ${sessionTimeLabel} is now in our queue for final approval. You will hear from us shortly.\n\nThank you.`,
+                    html: `<p>Hi <strong>${clientName}</strong>,</p><p>Your evaluation appointment has been approved! Your tutoring session request for <strong>${sessionTimeLabel}</strong> is now in our queue for final approval. You will hear from us shortly.</p><p>Thank you.</p>`
+                  }).catch(() => {});
+                }
+              }
+            } catch {
+              // Non-fatal — eval approval still succeeded
             }
           }
         }

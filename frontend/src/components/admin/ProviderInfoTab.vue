@@ -1008,7 +1008,8 @@ onMounted(refresh);
 // ---------------------------------------------------------------------------
 const SERVICE_TYPES = [
   { type: 'counseling', label: 'Counseling Finder', description: 'Appears on the public "Find a Counselor" page for this agency.' },
-  { type: 'tutoring', label: 'Tutoring Finder', description: 'Appears on the public "Find a Tutor" page. Requires a tutoring profile below.' }
+  { type: 'tutoring', label: 'Tutoring Finder', description: 'Appears on the public "Find a Tutor" page. Requires a tutoring profile below.' },
+  { type: 'evaluation', label: 'Evaluator', description: 'Can conduct academic evaluations for new tutoring clients who need one before their first session.' }
 ];
 
 const SUBJECT_OPTIONS = ['Math', 'Reading', 'Writing', 'Science', 'History', 'SAT/ACT Prep', 'Spanish', 'English', 'Study Skills', 'PSAT', 'AP Courses', 'College Prep', 'Other'];
@@ -1018,8 +1019,8 @@ const listingsLoading = ref(false);
 const listingsError = ref('');
 const listingsSaving = ref(false);
 
-// enrollment state: { counseling: true|false, tutoring: true|false }
-const enrollments = ref({ counseling: false, tutoring: false });
+// enrollment state: { counseling: true|false, tutoring: true|false, evaluation: true|false }
+const enrollments = ref({ counseling: false, tutoring: false, evaluation: false });
 
 // tutoring profile form
 const tutoringForm = ref({
@@ -1040,15 +1041,18 @@ async function loadListings() {
   listingsLoading.value = true;
   listingsError.value = '';
   try {
-    const [cRes, tRes] = await Promise.all([
+    const [cRes, tRes, eRes] = await Promise.all([
       api.get(`/public/agency-services/${encodeURIComponent(slug)}/enrollment?serviceType=counseling`, { skipAuthRedirect: true }).catch(() => null),
-      api.get(`/public/agency-services/${encodeURIComponent(slug)}/enrollment?serviceType=tutoring`, { skipAuthRedirect: true }).catch(() => null)
+      api.get(`/public/agency-services/${encodeURIComponent(slug)}/enrollment?serviceType=tutoring`, { skipAuthRedirect: true }).catch(() => null),
+      api.get(`/public/agency-services/${encodeURIComponent(slug)}/enrollment?serviceType=evaluation`, { skipAuthRedirect: true }).catch(() => null)
     ]);
     const cEnrollments = cRes?.data?.enrollments || [];
     const tEnrollments = tRes?.data?.enrollments || [];
+    const eEnrollments = eRes?.data?.enrollments || [];
     const uid = Number(props.userId);
     enrollments.value.counseling = cEnrollments.some((e) => Number(e.user_id) === uid && e.is_active);
     enrollments.value.tutoring = tEnrollments.some((e) => Number(e.user_id) === uid && e.is_active);
+    enrollments.value.evaluation = eEnrollments.some((e) => Number(e.user_id) === uid && e.is_active);
 
     // Load tutoring profile if enrolled
     if (enrollments.value.tutoring) {

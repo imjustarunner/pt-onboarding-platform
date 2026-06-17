@@ -98,11 +98,11 @@
         <div class="enrollment-grid">
           <div v-for="svc in enrollmentCounts" :key="svc.serviceType" class="enrollment-item">
             <strong>{{ svc.count }}</strong>
-            <span>{{ svc.serviceType === 'counseling' ? 'Counselor(s)' : 'Tutor(s)' }} enrolled</span>
+            <span>{{ svc.serviceType === 'counseling' ? 'Counselor(s)' : svc.serviceType === 'tutoring' ? 'Tutor(s)' : 'Evaluator(s)' }} enrolled</span>
             <span v-if="svc.serviceType === 'counseling'">
               <a :href="`/${agencySlug}/find-counselor`" target="_blank" class="enrollment-link">View public page</a>
             </span>
-            <span v-else>
+            <span v-else-if="svc.serviceType === 'tutoring'">
               <a :href="`/${agencySlug}/find-tutor`" target="_blank" class="enrollment-link">View public page</a>
             </span>
           </div>
@@ -143,7 +143,7 @@ const saveError = ref('');
 const copied = ref(false);
 const publicBookingEnabled = ref(false);
 
-const SERVICE_TYPE_DEFS = ['counseling', 'tutoring'];
+const SERVICE_TYPE_DEFS = ['counseling', 'tutoring', 'evaluation'];
 
 const serviceTypeConfigs = ref(
   SERVICE_TYPE_DEFS.map((serviceType) => ({

@@ -271,6 +271,64 @@ These are rules the codebase enforces that must not be broken by future changes:
 
 7. **Migration convention**: Always add new migrations as `.sql` files in `database/migrations/` named `{next_number}_{short_description}.sql`. Never add inline migrations.
 
+8. **PENDING_EVAL session requests must not be directly approved**: Any request with `status = 'PENDING_EVAL'` is blocked until its paired evaluation appointment (`appointment_role = 'evaluation'`) is approved. Approving the evaluation automatically promotes the session to `PENDING`. Direct approval of `PENDING_EVAL` returns HTTP 409.
+
+---
+
+## Appointment Taxonomy
+
+`public_appointment_requests` carries three complementary type fields:
+
+| Field | Values | Purpose |
+|-------|--------|---------|
+| `service_type` | `counseling`, `tutoring` | Broad service category |
+| `session_type` | `evaluation`, `tutoring`, `counseling`, `consultation` | Granular appointment type within service |
+| `appointment_role` | `session`, `intake`, `evaluation` | Role in the paired-request chain |
+
+### Provider enrollment types (`provider_public_service_enrollments.service_type`)
+
+| Value | Effect |
+|-------|--------|
+| `counseling` | Appears on the "Find a Counselor" public page |
+| `tutoring` | Appears on the "Find a Tutor" public page |
+| `evaluation` | Listed as an available evaluator when new tutoring clients need a pre-session academic evaluation |
+
+Manage via **Provider Profile → Public Listings** toggle (three checkboxes).
+
+### Evaluation gate flow (new tutoring clients)
+
+```
+New client books tutoring slot
+        │
+        ▼
+Wizard step: "Has the student had academic testing in the past 3 months?"
+        │
+      Yes ──► Normal single request (session_type = tutoring, status = PENDING)
+        │
+       No ──► evalRequired = true
+              │
+              ├─ Provider enrolled for 'evaluation'?
+              │     Yes ──► Same provider: selected slot becomes eval, client picks new session slot
+              │     No  ──► Show evaluator list from GET /:slug/evaluators; client picks evaluator + eval slot
+              │
+              ▼
+         Two paired requests created:
+           Req 1: appointment_role = 'evaluation', session_type = 'evaluation', status = PENDING
+           Req 2: appointment_role = 'session',    session_type = 'tutoring',   status = PENDING_EVAL (blocked)
+           Both: paired_request_id pointing to each other
+
+Admin approval flow:
+  1. Eval request (PENDING) → admin approves → Req 2 automatically promoted PENDING_EVAL → PENDING
+  2. Guardian receives "evaluation approved" email with session time
+  3. Session request now approvable → admin approves → learning_class_session created
+```
+
+### What is NOT yet implemented (documented for future work)
+
+- **Automatic assessment recency check**: Currently the "3 months" rule is self-reported by the client on the booking form. A future enhancement would auto-check `learning_evidence` records for the client to verify.
+- **Credential-based evaluation eligibility**: Future — only providers meeting specific credential thresholds (e.g. licensed clinicians) should be enrollable as evaluators. Hold until credential compliance module is re-enabled.
+- **Current client fast-path**: Existing clients skip the eval gate. Future: if a current client's last assessment was > 3 months ago (detectable from `learning_evidence`), prompt them to schedule a re-evaluation.
+
 ---
 
 ## File Map (Key Scheduling Files)
@@ -285,15 +343,16 @@ These are rules the codebase enforces that must not be broken by future changes:
 | `backend/src/controllers/officeSlotActions.controller.js` | Book/unbook/set outcome on individual events |
 | `backend/src/controllers/availability.controller.js` | Legacy office requests + public request approval (now creates real bookings) |
 | `backend/src/controllers/publicProviderAvailability.controller.js` | Legacy public finder (agencyId + key) |
-| `backend/src/controllers/publicAgencyServices.controller.js` | Slug-based counseling + tutoring finder |
+| `backend/src/controllers/publicAgencyServices.controller.js` | Slug-based counseling + tutoring + evaluator finder; eval-required booking creation |
 | `backend/src/controllers/kiosk.controller.js` | Kiosk check-in |
 | `backend/src/routes/officeSchedule.routes.js` | All /api/office-schedule/* routes |
 | `frontend/src/views/OfficeScheduleView.vue` | Main provider/admin office schedule view |
 | `frontend/src/views/admin/OfficeBookingConflictResolverView.vue` | Conflict resolver dashboard |
 | `frontend/src/views/admin/OfficeCoverageFlagsView.vue` | ICS coverage flags dashboard (new) |
 | `frontend/src/views/admin/OfficeScheduleAuditView.vue` | Full schedule audit / print report |
-| `frontend/src/components/admin/AvailabilityIntakeManagement.vue` | Office + public request approvals |
+| `frontend/src/components/admin/AvailabilityIntakeManagement.vue` | Office + public request approvals (PENDING_EVAL-aware) |
+| `frontend/src/components/publicServices/PublicBookingWizard.vue` | Multi-step booking wizard with eval gate step |
 | `frontend/src/views/tutoring/VirtualTutoringSessionView.vue` | Virtual tutoring session UI |
 | `frontend/src/views/tutoring/InPersonTutoringSessionView.vue` | In-person tutoring session UI |
 | `frontend/src/views/public/PublicTutorFinderView.vue` | Public tutor booking page |
-| `database/migrations/864–867_*.sql` | Most recent scheduling migrations |
+| `database/migrations/864–868_*.sql` | Most recent scheduling and taxonomy migrations |

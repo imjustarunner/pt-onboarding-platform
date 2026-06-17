@@ -85,7 +85,7 @@ class PublicAppointmentRequest {
       `SELECT *
        FROM public_appointment_requests
        WHERE agency_id = ?
-         AND status = 'PENDING'
+         AND status IN ('PENDING', 'PENDING_EVAL')
        ORDER BY created_at DESC
        LIMIT ${lim}`,
       [aid]
@@ -98,7 +98,7 @@ class PublicAppointmentRequest {
     const rid = Number(requestId || 0);
     const st = String(status || '').trim().toUpperCase();
     if (!aid || !rid) return false;
-    if (!['APPROVED', 'DECLINED', 'CANCELLED', 'PENDING'].includes(st)) return false;
+    if (!['APPROVED', 'DECLINED', 'CANCELLED', 'PENDING', 'PENDING_EVAL'].includes(st)) return false;
     const [r] = await pool.execute(
       `UPDATE public_appointment_requests
        SET status = ?, updated_at = CURRENT_TIMESTAMP

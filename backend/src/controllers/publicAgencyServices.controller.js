@@ -612,6 +612,91 @@ export const listTutors = async (req, res, next) => {
 };
 
 // ---------------------------------------------------------------------------
+// GET /:agencySlug/evaluators — providers enrolled for 'evaluation' service type
+// Mirrors listTutors but filtered to the 'evaluation' enrollment bucket.
+// ---------------------------------------------------------------------------
+
+export const listEvaluators = async (req, res, next) => {
+  try {
+    const agency = await requireAgencyBySlug(res, req.params.agencySlug);
+    if (!agency) return;
+
+    const bookingMode = normalizeBookingMode(req.query.bookingMode || req.query.mode);
+    const programType = normalizeProgramType(req.query.programType || req.query.program);
+    const weekStartRaw = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const weekStart = startOfWeekMondayYmd(isValidYmd(weekStartRaw) ? weekStartRaw : new Date().toISOString().slice(0, 10));
+    const searchQ = String(req.query.search || '').trim().toLowerCase();
+
+    const providerRows = await listEnrolledProviders(agency.id, 'evaluation');
+
+    const evaluators = await runWithConcurrency(providerRows, 6, async (row) => {
+      const heldSlots = await getHeldSlotStartsForProvider(agency.id, Number(row.id));
+      const summary = await computeProviderWindowSummary({
+        agencyId: agency.id,
+        providerId: Number(row.id),
+        weekStart,
+        bookingMode,
+        programType,
+        heldSlots
+      });
+      const slotSet = normalizeSlots({
+        result: summary.thisWeek,
+        bookingMode,
+        providerAcceptingNewClients: 1,
+        profileAcceptingNewClientsOverride: null
+      });
+      const filteredThisWeek = programType === 'VIRTUAL' ? slotSet.virtual : slotSet.inPerson;
+      if (!filteredThisWeek.length && !summary.nextAvailableAt) return null;
+
+      const displayName = `${row.first_name || ''} ${row.last_name || ''}`.trim();
+      if (searchQ && !displayName.toLowerCase().includes(searchQ)) return null;
+
+      // Also check if this evaluator is also enrolled as a tutor (shows tutor profile)
+      const tutoringProfile = await getTutoringProfile(Number(row.id), agency.id).catch(() => null);
+
+      return {
+        providerId: Number(row.id),
+        firstName: row.first_name || '',
+        lastName: row.last_name || '',
+        displayName,
+        title: row.title || null,
+        profilePhotoUrl: publicUploadsUrlFromStoredPath(row.profile_photo_path || null),
+        tutoringProfile: tutoringProfile || undefined,
+        availability: {
+          bookingMode,
+          programType,
+          weekStart,
+          thisWeekCount: filteredThisWeek.length,
+          nextAvailableAt: summary.nextAvailableAt || null,
+          slots: filteredThisWeek.map((s) => ({ ...s, bookingMode, programType }))
+        }
+      };
+    });
+
+    const validEvaluators = (evaluators || []).filter(Boolean);
+
+    res.json({
+      ok: true,
+      serviceType: 'evaluation',
+      agencyId: Number(agency.id),
+      agencySlug: agency.slug,
+      agencyName: agency.name || '',
+      weekStart,
+      bookingMode,
+      programType,
+      evaluators: validEvaluators.sort((a, b) => {
+        if (a.availability?.nextAvailableAt && b.availability?.nextAvailableAt) {
+          return String(a.availability.nextAvailableAt).localeCompare(String(b.availability.nextAvailableAt));
+        }
+        return String(a.displayName || '').localeCompare(String(b.displayName || ''));
+      })
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// ---------------------------------------------------------------------------
 // GET /:agencySlug/providers/:providerId — profile + availability detail
 // ---------------------------------------------------------------------------
 
@@ -997,6 +1082,24 @@ export const createBookingRequest = async (req, res, next) => {
     const subjectArea = String(req.body?.subjectArea || '').trim() || null;
     const clientGradeLevel = String(req.body?.clientGradeLevel || '').trim() || null;
 
+    // --- Evaluation-required flow (migration 868) ---
+    // evalRequired=true means client self-reported no recent assessments and an
+    // evaluation must happen before the session.  In this case:
+    //   - evalProviderId / evalStartAt / evalEndAt describe the eval appointment
+    //   - The session request is created with status='PENDING_EVAL' (blocked)
+    //   - The eval request is created with status='PENDING' and appointment_role='evaluation'
+    const evalRequired = req.body?.evalRequired === true || req.body?.evalRequired === 'true';
+    const evalProviderId = parseIntSafe(req.body?.evalProviderId) || providerId; // defaults to same provider
+    const evalStartAt = String(req.body?.evalStartAt || '').trim();
+    const evalEndAt = String(req.body?.evalEndAt || '').trim();
+
+    if (evalRequired && (!evalStartAt || !evalEndAt)) {
+      return res.status(400).json({ error: { message: 'evalStartAt and evalEndAt are required when evalRequired is true' } });
+    }
+
+    // Derive session_type from serviceType
+    const sessionType = serviceType === 'tutoring' ? 'tutoring' : 'counseling';
+
     const created = await PublicAppointmentRequest.create({
       agencyId: agency.id,
       providerId,
@@ -1015,19 +1118,80 @@ export const createBookingRequest = async (req, res, next) => {
       notes: req.body?.notes ?? null
     });
 
-    // Patch in service_type, subject_area, client_grade_level, appointment_role
+    // Patch service_type, session_type, subject, grade, appointment_role, eval_required
+    // and – for eval-required flow – set status to PENDING_EVAL (session is blocked).
+    const sessionStatus = evalRequired ? 'PENDING_EVAL' : 'PENDING';
     if (created?.id) {
       await pool.execute(
         `UPDATE public_appointment_requests
-         SET service_type = ?, subject_area = ?, client_grade_level = ?, appointment_role = 'session'
+         SET service_type = ?, session_type = ?, subject_area = ?, client_grade_level = ?,
+             appointment_role = 'session', eval_required = ?, status = ?
          WHERE id = ?`,
-        [serviceType || null, subjectArea || null, clientGradeLevel || null, created.id]
+        [serviceType || null, sessionType, subjectArea, clientGradeLevel,
+          evalRequired ? 1 : 0, sessionStatus, created.id]
       );
     }
 
-    // --- Optional paired intake/evaluation appointment ---
+    // --- Evaluation appointment (eval-required path) ---
+    let evalCreated = null;
+    if (evalRequired && created?.id) {
+      const evalStart = new Date(evalStartAt);
+      const evalEnd = new Date(evalEndAt);
+      if (!Number.isNaN(evalStart.getTime()) && !Number.isNaN(evalEnd.getTime()) && evalEnd > evalStart) {
+        // Validate eval slot not already held
+        const [evalDupRows] = await pool.execute(
+          `SELECT id FROM public_appointment_requests
+           WHERE provider_id = ?
+             AND requested_start_at = ?
+             AND UPPER(COALESCE(status, 'PENDING')) NOT IN ('DECLINED', 'CANCELLED', 'PENDING_EVAL')
+           LIMIT 1`,
+          [evalProviderId, evalStart.toISOString().slice(0, 19).replace('T', ' ')]
+        );
+        if (!evalDupRows?.[0]) {
+          try {
+            const evalModality = modality; // inherit from main request
+            evalCreated = await PublicAppointmentRequest.create({
+              agencyId: agency.id,
+              providerId: evalProviderId,
+              modality: evalModality,
+              bookingMode,
+              programType,
+              requestedStartAt: evalStart.toISOString().slice(0, 19).replace('T', ' '),
+              requestedEndAt: evalEnd.toISOString().slice(0, 19).replace('T', ' '),
+              clientName: name,
+              clientEmail: email,
+              clientPhone: req.body?.phone ?? null,
+              clientInitials: clientInitials || null,
+              matchedClientId,
+              createdClientId,
+              createdGuardianUserId,
+              notes: req.body?.notes ?? null
+            });
+            if (evalCreated?.id) {
+              // Eval request: PENDING, role = evaluation, paired back to session
+              await pool.execute(
+                `UPDATE public_appointment_requests
+                 SET service_type = ?, session_type = 'evaluation', subject_area = ?,
+                     client_grade_level = ?, appointment_role = 'evaluation',
+                     eval_required = 0, paired_request_id = ?
+                 WHERE id = ?`,
+                [serviceType || null, subjectArea, clientGradeLevel, created.id, evalCreated.id]
+              );
+              // Back-link session to eval
+              await pool.execute(
+                `UPDATE public_appointment_requests SET paired_request_id = ? WHERE id = ?`,
+                [evalCreated.id, created.id]
+              );
+            }
+          } catch { /* non-fatal — main booking still succeeded */ }
+        }
+      }
+    }
+
+    // --- Optional paired intake/evaluation appointment (legacy opt-in, non-required path) ---
+    // Only runs when evalRequired is false (backward compatible with existing intake step).
     let intakeCreated = null;
-    const intakePayload = req.body?.intakeAppointment;
+    const intakePayload = (!evalRequired) ? req.body?.intakeAppointment : null;
     if (created?.id && intakePayload && intakePayload.startAt && intakePayload.endAt) {
       const intakeStart = new Date(intakePayload.startAt);
       const intakeEnd = new Date(intakePayload.endAt);
@@ -1099,7 +1263,7 @@ export const createBookingRequest = async (req, res, next) => {
         providerDisplayName,
         subjectArea,
         clientGradeLevel,
-        intakeCreated: intakeCreated || null
+        intakeCreated: evalCreated || intakeCreated || null
       }).catch(() => {});
     }
 
@@ -1110,16 +1274,27 @@ export const createBookingRequest = async (req, res, next) => {
         agencyId: agency.id,
         providerId,
         serviceType,
+        sessionType,
         modality,
         bookingMode,
         programType,
         subjectArea,
         clientGradeLevel,
         appointmentRole: 'session',
+        evalRequired,
         requestedStartAt: created?.requested_start_at ?? null,
         requestedEndAt: created?.requested_end_at ?? null,
-        status: 'PENDING'
+        status: sessionStatus
       },
+      evalRequest: evalCreated?.id ? {
+        id: evalCreated.id,
+        appointmentRole: 'evaluation',
+        sessionType: 'evaluation',
+        providerId: evalProviderId,
+        requestedStartAt: evalCreated.requested_start_at ?? null,
+        requestedEndAt: evalCreated.requested_end_at ?? null,
+        status: 'PENDING'
+      } : null,
       intakeRequest: intakeCreated?.id ? {
         id: intakeCreated.id,
         appointmentRole: 'intake',

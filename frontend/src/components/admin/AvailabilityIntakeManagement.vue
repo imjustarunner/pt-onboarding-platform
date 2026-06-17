@@ -154,9 +154,27 @@
 
           <div v-if="publicRequests.length === 0" class="muted">No pending appointment requests.</div>
           <div v-else class="list">
-            <div v-for="r in publicRequests" :key="r.id" class="row">
+            <div v-for="r in publicRequests" :key="r.id" :id="`pub-req-${r.id}`" class="row" :class="{ 'row--pending-eval': r.status === 'PENDING_EVAL' }">
+              <!-- PENDING_EVAL banner: session is blocked waiting for eval approval -->
+              <div v-if="r.status === 'PENDING_EVAL'" class="pending-eval-banner">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:1rem;height:1rem;flex-shrink:0"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+                Waiting for evaluation approval
+                <span v-if="r.pairedRequestId" class="eval-pair-link" @click="scrollToRequest(r.pairedRequestId)">— View evaluation request #{{ r.pairedRequestId }}</span>
+              </div>
+              <!-- Eval approval banner: approving this will unlock the paired session -->
+              <div v-if="r.appointmentRole === 'evaluation' && r.pairedRequestId" class="eval-unlock-banner">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:1rem;height:1rem;flex-shrink:0"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                Approving this evaluation will unlock the linked session request
+                <span class="eval-pair-link" @click="scrollToRequest(r.pairedRequestId)">#{{ r.pairedRequestId }}</span>
+              </div>
               <div class="main">
-                <div class="title">{{ r.providerName }} <span class="pill">{{ r.modality }}</span></div>
+                <div class="title">
+                  {{ r.providerName }}
+                  <span class="pill">{{ r.modality }}</span>
+                  <span v-if="r.appointmentRole === 'evaluation'" class="pill pill--eval">Evaluation</span>
+                  <span v-else-if="r.sessionType === 'tutoring'" class="pill pill--tutoring">Tutoring</span>
+                  <span v-else-if="r.sessionType === 'counseling'" class="pill pill--counseling">Counseling</span>
+                </div>
                 <div class="meta" v-if="r.bookingMode || r.programType">
                   Mode: {{ r.bookingMode || '—' }} • Program: {{ r.programType || '—' }}
                 </div>
@@ -174,8 +192,14 @@
               </div>
               <div class="assign">
                 <div class="lbl">Decision</div>
-                <div class="row-inline">
-                  <button class="btn btn-primary btn-sm" @click="setPublicStatus(r, 'APPROVED')" :disabled="saving">Approve</button>
+                <div v-if="r.status === 'PENDING_EVAL'" class="pending-eval-lock">
+                  <span class="pill pill--muted">Awaiting evaluation</span>
+                  <button class="btn btn-secondary btn-sm" @click="setPublicStatus(r, 'DECLINED')" :disabled="saving">Decline</button>
+                </div>
+                <div v-else class="row-inline">
+                  <button class="btn btn-primary btn-sm" @click="setPublicStatus(r, 'APPROVED')" :disabled="saving">
+                    {{ r.appointmentRole === 'evaluation' && r.pairedRequestId ? 'Approve & unlock session' : 'Approve' }}
+                  </button>
                   <button class="btn btn-secondary btn-sm" @click="setPublicStatus(r, 'DECLINED')" :disabled="saving">Decline</button>
                 </div>
                 <div v-if="r.linkedOfficeEventId" class="booking-created-pill">
@@ -658,6 +682,11 @@ const rotatePublicFinderKey = async () => {
   }
 };
 
+function scrollToRequest(requestId) {
+  const el = document.getElementById(`pub-req-${requestId}`);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 const setPublicStatus = async (r, status) => {
   try {
     saving.value = true;
@@ -890,6 +919,39 @@ watch(
 .title { font-weight: 900; }
 .meta { color: var(--text-secondary); font-size: 12px; margin-top: 6px; }
 .pill { display: inline-block; margin: 4px 6px 0 0; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-alt); }
+.pill--eval { background: #fff7ed; color: #92400e; border-color: #fed7aa; }
+.pill--tutoring { background: #eff6ff; color: #1e40af; border-color: #bfdbfe; }
+.pill--counseling { background: #f0fdf4; color: #166534; border-color: #bbf7d0; }
+.pill--muted { background: #f3f4f6; color: #9ca3af; border-color: #e5e7eb; }
+.row--pending-eval { opacity: 0.8; background: #fafafa; }
+.pending-eval-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #92400e;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+}
+.eval-unlock-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #065f46;
+  background: #d1fae5;
+  border: 1px solid #6ee7b7;
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+}
+.eval-pair-link { cursor: pointer; text-decoration: underline; margin-left: 4px; }
+.pending-eval-lock { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .pill-date { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; font-size: 11px; }
 .occurrence-preview { margin-top: 6px; }
 .assign { display: flex; flex-direction: column; gap: 8px; }

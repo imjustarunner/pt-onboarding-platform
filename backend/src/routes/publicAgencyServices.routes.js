@@ -3,6 +3,7 @@ import {
   getAgencyServicesHub,
   listCounselors,
   listTutors,
+  listEvaluators,
   getProviderDetail,
   getProviderSlots,
   createBookingRequest,
@@ -20,6 +21,7 @@ const router = express.Router();
 router.get('/:agencySlug', getAgencyServicesHub);
 router.get('/:agencySlug/counselors', listCounselors);
 router.get('/:agencySlug/tutors', listTutors);
+router.get('/:agencySlug/evaluators', listEvaluators);
 router.get('/:agencySlug/providers/:providerId', getProviderDetail);
 router.get('/:agencySlug/providers/:providerId/slots', getProviderSlots);
 router.post('/:agencySlug/requests', createBookingRequest);
