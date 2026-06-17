@@ -13,6 +13,50 @@ import {
 import { retryFailedProviderAssignmentGoogleSync } from './providerAssignmentGoogleSync.service.js';
 
 export class OfficeScheduleWatchdogService {
+  /**
+   * Materialize office events for all active buildings across a rolling horizon.
+   * This runs unconditionally every watchdog cycle so recurring assignments always
+   * have events available weeks ahead — independent of Google Calendar config.
+   */
+  static async rollMaterializationHorizon({ horizonDays = 84 } = {}) {
+    const today = new Date().toISOString().slice(0, 10);
+    let buildings = [];
+    try {
+      const [rows] = await pool.execute(
+        `SELECT id FROM office_locations WHERE is_active = TRUE`
+      );
+      buildings = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE') return { ok: false, reason: 'office_tables_missing' };
+      throw e;
+    }
+
+    const startWeek = OfficeScheduleMaterializer.startOfWeekMonday(today);
+    const weekStarts = [];
+    for (let d = 0; d <= Number(horizonDays || 84); d += 7) {
+      weekStarts.push(OfficeScheduleMaterializer.addDays(startWeek, d));
+    }
+
+    let materialized = 0;
+    for (const officeLocationId of buildings) {
+      for (const ws of weekStarts) {
+        try {
+          await OfficeScheduleMaterializer.materializeWeek({
+            officeLocationId,
+            weekStartRaw: ws,
+            createdByUserId: 1,
+            useExactWeekStart: true
+          });
+          materialized++;
+        } catch (e) {
+          if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') continue;
+          throw e;
+        }
+      }
+    }
+    return { ok: true, buildings: buildings.length, weekStarts: weekStarts.length, materialized };
+  }
+
   static async syncBookedToGoogle({ horizonDays = 28 } = {}) {
     if (!GoogleCalendarService.isConfigured()) {
       return { ok: false, reason: 'google_calendar_not_configured' };
@@ -21,8 +65,8 @@ export class OfficeScheduleWatchdogService {
     const today = new Date().toISOString().slice(0, 10);
     const end = OfficeScheduleMaterializer.addDays(today, Number(horizonDays || 28));
 
-    // Materialize each week for each active building (office_location).
-    // Best-effort: if tables/columns not present yet, do not crash watchdog.
+    // Materialization now runs unconditionally via rollMaterializationHorizon().
+    // Re-use buildings list for the Google sync loop below.
     let buildings = [];
     try {
       const [rows] = await pool.execute(
@@ -34,32 +78,6 @@ export class OfficeScheduleWatchdogService {
     } catch (e) {
       if (e?.code === 'ER_NO_SUCH_TABLE') return { ok: false, reason: 'office_tables_missing' };
       throw e;
-    }
-
-    // Use Monday as the week anchor to match the grid's Mon–Sun view.
-    // This ensures the debounce cache keys align between the watchdog and grid loads,
-    // and Sunday slots are correctly placed in the same week window the grid shows.
-    const startWeek = OfficeScheduleMaterializer.startOfWeekMonday(today);
-    const weekStarts = [];
-    for (let d = 0; d <= Number(horizonDays || 28); d += 7) {
-      weekStarts.push(OfficeScheduleMaterializer.addDays(startWeek, d));
-    }
-
-    for (const officeLocationId of buildings) {
-      for (const ws of weekStarts) {
-        try {
-          await OfficeScheduleMaterializer.materializeWeek({
-            officeLocationId,
-            weekStartRaw: ws,
-            createdByUserId: 1,
-            useExactWeekStart: true
-          });
-        } catch (e) {
-          // If migrations aren't applied yet, don't block watchdog.
-          if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') continue;
-          throw e;
-        }
-      }
     }
 
     // Sync assigned/booked office slots and program staffing in the window.
@@ -399,6 +417,15 @@ export class OfficeScheduleWatchdogService {
   }
 
   static async run() {
+    // Always roll the materialization horizon first so recurring assignments have
+    // events for the next 12 weeks regardless of Google Calendar config.
+    let materializationRoll = null;
+    try {
+      materializationRoll = await this.rollMaterializationHorizon({ horizonDays: 84 });
+    } catch (e) {
+      materializationRoll = { ok: false, reason: 'exception', error: String(e?.message || e) };
+    }
+
     let ehrRefresh = null;
     try {
       // Match Therapy Notes / ICS busy blocks to assigned office slots → mark booked (same as admin refresh).
@@ -442,7 +469,7 @@ export class OfficeScheduleWatchdogService {
       icsCoverageAudit = { ok: false, reason: 'exception', error: String(e?.message || e) };
     }
 
-    return { ok: true, ehrRefresh, internalSessionBook, confirms, forfeits, inactiveCleanup, googleSync, icsCoverageAudit };
+    return { ok: true, materializationRoll, ehrRefresh, internalSessionBook, confirms, forfeits, inactiveCleanup, googleSync, icsCoverageAudit };
   }
 
   /**

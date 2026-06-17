@@ -2899,7 +2899,7 @@ export const staffAssignOpenSlot = async (req, res, next) => {
         officeLocationId,
         startDateYmd: date,
         createdByUserId: req.user.id,
-        weeks: 4
+        weeks: 12
       });
 
       const createdEventIds = createdEvents.map((e) => Number(e?.id || 0)).filter((n) => n > 0);
