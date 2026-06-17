@@ -556,7 +556,10 @@ async function materializeOfficeWeeks({ officeLocationId, startDateYmd, createdB
       officeLocationId,
       weekStartRaw: weekStart,
       createdByUserId,
-      useExactWeekStart: true
+      useExactWeekStart: true,
+      // Force a fresh pass: this runs right after creating/updating assignments, so the
+      // short-lived materialize cache (populated by a grid view seconds ago) must not skip it.
+      force: true
     });
   }
 }
@@ -2907,6 +2910,10 @@ export const staffAssignOpenSlot = async (req, res, next) => {
         }
       }
 
+      // Drop the short-lived materialize cache so a grid refresh re-materializes from the
+      // new assignment rows (rather than a stale cached pass) even before the background job finishes.
+      OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
+
       // Fire-and-forget: the clicked-day event was already created above; future-week
       // materialization runs in the background so a transient DB hiccup (e.g. Cloud SQL
       // proxy auth lapse) never converts a successful assignment into a 500.
@@ -2980,6 +2987,8 @@ export const staffAssignOpenSlot = async (req, res, next) => {
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
+
+    OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
 
     materializeOfficeWeeks({
       officeLocationId,

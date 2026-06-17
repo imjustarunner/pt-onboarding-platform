@@ -188,7 +188,22 @@ export class OfficeScheduleMaterializer {
     return addDays(dateStr, days);
   }
 
-  static async materializeWeek({ officeLocationId, weekStartRaw, createdByUserId, useExactWeekStart = false }) {
+  /**
+   * Drop the short-lived materialize read-cache for an office (all weeks).
+   * Call this right after writing standing assignments / booking plans so the next
+   * grid load re-materializes from the new source-of-truth rows instead of serving
+   * a stale cached pass.
+   */
+  static invalidateOffice(officeLocationId) {
+    const officeId = parseInt(officeLocationId, 10);
+    if (!officeId) return;
+    const prefix = `${officeId}|`;
+    for (const key of materializeRecent.keys()) {
+      if (key.startsWith(prefix)) materializeRecent.delete(key);
+    }
+  }
+
+  static async materializeWeek({ officeLocationId, weekStartRaw, createdByUserId, useExactWeekStart = false, force = false }) {
     const officeId = parseInt(officeLocationId, 10);
     const rawWeekStart = normalizeYmd(weekStartRaw);
     const weekStart = useExactWeekStart
@@ -198,8 +213,13 @@ export class OfficeScheduleMaterializer {
     if (!officeId || !weekStart) return { ok: false, reason: 'invalid_args' };
     const key = `${officeId}|${weekStart}`;
     const now = Date.now();
-    const recent = materializeRecent.get(key);
-    if (recent && (now - recent.at) < MATERIALIZE_RECENT_MS) return recent.value;
+    // `force` bypasses the short-lived read cache so a freshly created/updated assignment
+    // always materializes, even if this week was rendered (and cached) seconds earlier.
+    if (!force) {
+      const recent = materializeRecent.get(key);
+      if (recent && (now - recent.at) < MATERIALIZE_RECENT_MS) return recent.value;
+    }
+    // Always de-dupe concurrent runs for the same week.
     if (materializeInFlight.has(key)) return materializeInFlight.get(key);
 
     const runner = (async () => {
