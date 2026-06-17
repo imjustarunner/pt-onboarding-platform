@@ -582,6 +582,41 @@
                       <p v-else class="hint" style="margin: 0;">No recommendations yet.</p>
                     </div>
 
+                    <!-- Upcoming tutoring sessions -->
+                    <div class="learning-progress-card upcoming-sessions-card" style="margin-top: 10px;">
+                      <div class="learning-progress-card-title">
+                        Upcoming tutoring sessions
+                        <span v-if="upcomingTutoringSessions.length" class="upcoming-count-badge">{{ upcomingTutoringSessions.length }}</span>
+                      </div>
+                      <ul v-if="upcomingTutoringSessions.length" class="learning-progress-list upcoming-list">
+                        <li
+                          v-for="session in upcomingTutoringSessions"
+                          :key="`up-${session.id}`"
+                          class="upcoming-session-row"
+                        >
+                          <div class="upcoming-session-info">
+                            <strong>{{ session.title || 'Tutoring Session' }}</strong>
+                            <span v-if="session.provider_name" class="muted small"> · {{ session.provider_name }}</span>
+                          </div>
+                          <div class="upcoming-session-meta muted small">
+                            {{ fmtUpcomingDate(session.starts_at) }}
+                            <span v-if="session.delivery_context === 'in_person'"> · In-person</span>
+                            <span v-else> · Virtual</span>
+                          </div>
+                          <button
+                            type="button"
+                            class="btn btn-primary btn-sm upcoming-launch-btn"
+                            @click="router.push(session.session_url)"
+                          >
+                            Join session
+                          </button>
+                        </li>
+                      </ul>
+                      <p v-else class="hint" style="margin: 0;">
+                        No upcoming sessions scheduled. Once a tutoring session is confirmed, it will appear here with a launch button.
+                      </p>
+                    </div>
+
                     <div class="learning-progress-card" style="margin-top: 10px;">
                       <div class="learning-progress-card-title">Recent tutoring sessions</div>
                       <p class="hint" style="margin: 0 0 10px;">
@@ -1656,6 +1691,7 @@ const learningRecommendationRows = ref([]);
 // New for virtual tutoring dashboard integration
 const tutoringSessions = ref([]);
 const tutoringSummaries = ref([]);
+const upcomingTutoringSessions = ref([]);
 
 const formatLearningScore = (value) => {
   const n = Number(value);
@@ -1674,6 +1710,24 @@ const formatLearningDate = (value) => {
   }
 };
 
+const fmtUpcomingDate = (value) => {
+  if (!value) return '—';
+  try {
+    const d = new Date(value);
+    if (!Number.isFinite(d.getTime())) return String(value);
+    return d.toLocaleString(undefined, {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  } catch {
+    return String(value);
+  }
+};
+
 const loadSelectedChildLearningProgress = async () => {
   const clientId = Number(selectedChildId.value || 0);
   if (!clientId || !standardsLearningVisible.value) {
@@ -1681,6 +1735,7 @@ const loadSelectedChildLearningProgress = async () => {
     learningGoalRows.value = [];
     learningRecommendationRows.value = [];
     tutoringSessions.value = [];
+    upcomingTutoringSessions.value = [];
     return;
   }
   learningProgressLoading.value = true;
@@ -1707,13 +1762,15 @@ const loadSelectedChildLearningProgress = async () => {
 
   // Tutoring sessions load independently so a 404 here cannot wipe the learning panel.
   try {
-    const tutoringRes = await api.get(
-      `/learning-progress/students/${clientId}/tutoring-sessions`,
-      { skipGlobalLoading: true }
-    );
-    tutoringSessions.value = Array.isArray(tutoringRes.data?.sessions) ? tutoringRes.data.sessions : [];
+    const [pastRes, upcomingRes] = await Promise.all([
+      api.get(`/learning-progress/students/${clientId}/tutoring-sessions`, { skipGlobalLoading: true }),
+      api.get(`/learning-progress/students/${clientId}/tutoring-sessions?upcoming=1`, { skipGlobalLoading: true })
+    ]);
+    tutoringSessions.value = Array.isArray(pastRes.data?.sessions) ? pastRes.data.sessions : [];
+    upcomingTutoringSessions.value = Array.isArray(upcomingRes.data?.sessions) ? upcomingRes.data.sessions : [];
   } catch {
     tutoringSessions.value = [];
+    upcomingTutoringSessions.value = [];
   }
   tutoringSummaries.value = tutoringSessions.value.map((s) => {
     const ai = s.ai_summary_json || {};
@@ -2378,6 +2435,66 @@ watch(
   border-radius: 8px;
   padding: 10px;
   background: #fff;
+}
+
+.upcoming-sessions-card {
+  border-color: rgba(99, 102, 241, 0.35);
+  background: rgba(99, 102, 241, 0.03);
+}
+
+.upcoming-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #6366f1;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.upcoming-list {
+  padding-left: 0;
+  list-style: none;
+}
+
+.upcoming-session-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.upcoming-session-row:last-child {
+  border-bottom: none;
+}
+
+.upcoming-session-info {
+  font-size: 14px;
+}
+
+.upcoming-session-meta {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.upcoming-launch-btn {
+  align-self: flex-start;
+  margin-top: 6px;
+  background: #6366f1;
+  border-color: #6366f1;
+  color: #fff;
+}
+
+.upcoming-launch-btn:hover {
+  background: #4f46e5;
+  border-color: #4f46e5;
 }
 
 .learning-progress-card-title {

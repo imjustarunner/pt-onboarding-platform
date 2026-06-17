@@ -59,27 +59,52 @@ export const getStudentTutoringSessions = async (req, res, next) => {
     if (!clientId) return res.status(400).json({ error: { message: 'Invalid studentId' } });
     await assertLearningClientAccess(req, clientId);
     const limit = Math.min(Math.max(asInt(req.query.limit) || 10, 1), 50);
+    // ?upcoming=1 returns scheduled future sessions; default returns past completed sessions
+    const upcomingOnly = String(req.query.upcoming || '') === '1';
+
+    const dateFilter = upcomingOnly
+      ? `AND (s.status IN ('scheduled','live') OR (s.status IS NULL AND s.starts_at > NOW()))`
+      : `AND s.starts_at < NOW()`;
+
+    const orderBy = upcomingOnly ? `ORDER BY s.starts_at ASC` : `ORDER BY COALESCE(s.ends_at, s.starts_at) DESC`;
 
     const [rows] = await pool.query(
       `SELECT s.id, s.learning_class_id, s.title, s.status, s.mode, s.session_subtype, s.delivery_context,
               s.starts_at, s.ends_at, s.primary_assignment_id,
-              s.ai_summary_json, s.standards_context_json
+              s.provider_user_id,
+              s.ai_summary_json, s.standards_context_json,
+              CONCAT(u.first_name, ' ', u.last_name) AS provider_name,
+              a.slug AS org_slug
          FROM learning_class_sessions s
          JOIN learning_class_client_memberships m
            ON m.learning_class_id = s.learning_class_id
           AND m.client_id = ?
           AND m.membership_status IN ('active','completed')
+         LEFT JOIN users u ON u.id = s.provider_user_id
+         LEFT JOIN learning_program_classes lpc ON lpc.id = s.learning_class_id
+         LEFT JOIN agencies a ON a.id = lpc.organization_id
         WHERE (s.session_subtype = 'tutoring' OR s.mode = 'individual')
-        ORDER BY COALESCE(s.ends_at, s.starts_at) DESC
+          ${dateFilter}
+        ${orderBy}
         LIMIT ?`,
       [clientId, limit]
     );
 
-    const sessions = rows.map((r) => ({
-      ...r,
-      ai_summary_json: safeJson(r.ai_summary_json),
-      standards_context_json: safeJson(r.standards_context_json)
-    }));
+    const sessions = rows.map((r) => {
+      const sessionId = r.id;
+      const orgSlug = r.org_slug || null;
+      const sessionUrl = orgSlug
+        ? `/${orgSlug}/tutoring-session/${sessionId}`
+        : String(r.delivery_context || '').toLowerCase() === 'in_person'
+          ? `/in-person-tutoring-session/${sessionId}`
+          : `/tutoring-session/${sessionId}`;
+      return {
+        ...r,
+        session_url: sessionUrl,
+        ai_summary_json: safeJson(r.ai_summary_json),
+        standards_context_json: safeJson(r.standards_context_json)
+      };
+    });
 
     res.json({ sessions });
   } catch (error) {

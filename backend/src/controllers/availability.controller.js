@@ -381,10 +381,10 @@ async function createTutoringSessionForPublicRequest({ requestRow, linkedOfficeE
     }
   }
 
-  // Step 4: Send session launch notification to provider
+  // Step 4: Build session URL and notify provider + guardian(s)
   try {
     const [agencyRows] = await pool.execute(
-      `SELECT slug, organization_type FROM agencies WHERE id = ? LIMIT 1`,
+      `SELECT slug FROM agencies WHERE id = ? LIMIT 1`,
       [agencyId]
     );
     const slug = agencyRows?.[0]?.slug || null;
@@ -400,19 +400,81 @@ async function createTutoringSessionForPublicRequest({ requestRow, linkedOfficeE
         })
       : 'the scheduled time';
 
-    await Notification.create({
+    const notifPayload = {
       type: 'tutoring_session_scheduled',
       severity: 'info',
-      title: 'Tutoring session confirmed',
-      message: `Your tutoring session with ${clientName} on ${timeLabel} is confirmed. Launch at: ${sessionUrl}`,
-      userId: providerId,
       agencyId: Number(agencyId),
       relatedEntityType: 'learning_class_session',
       relatedEntityId: sessionId,
       ...(actorUserId ? { actorUserId } : { actorSource: 'System' })
+    };
+
+    // Notify provider
+    await Notification.create({
+      ...notifPayload,
+      title: 'Tutoring session confirmed',
+      message: `Your tutoring session with ${clientName} on ${timeLabel} is confirmed. Launch at: ${sessionUrl}`,
+      userId: providerId
     });
+
+    // Notify guardian(s) — collect from created_guardian_user_id (new client)
+    // and from client_guardians table (existing client)
+    const guardianUserIds = new Set();
+    const createdGuardianId = Number(requestRow?.created_guardian_user_id || 0);
+    if (createdGuardianId) guardianUserIds.add(createdGuardianId);
+
+    if (clientId) {
+      try {
+        const [guardianRows] = await pool.execute(
+          `SELECT guardian_user_id FROM client_guardians
+           WHERE client_id = ? AND access_enabled = TRUE`,
+          [clientId]
+        );
+        for (const g of guardianRows || []) {
+          const gid = Number(g.guardian_user_id || 0);
+          if (gid) guardianUserIds.add(gid);
+        }
+      } catch {
+        // client_guardians table may not exist on all deploys
+      }
+    }
+
+    for (const guardianId of guardianUserIds) {
+      try {
+        await Notification.create({
+          ...notifPayload,
+          title: 'Tutoring session scheduled',
+          message: `A tutoring session for ${clientName} has been scheduled on ${timeLabel}. View it in the guardian portal.`,
+          userId: guardianId
+        });
+      } catch {
+        // non-fatal per-guardian
+      }
+
+      // Send email if configured
+      if (EmailService.isConfigured()) {
+        try {
+          const [gUserRows] = await pool.execute(
+            `SELECT email, first_name FROM users WHERE id = ? LIMIT 1`,
+            [guardianId]
+          );
+          const guardianEmail = String(gUserRows?.[0]?.email || '').trim();
+          const guardianFirstName = String(gUserRows?.[0]?.first_name || 'Guardian').trim();
+          if (guardianEmail) {
+            await EmailService.send({
+              to: guardianEmail,
+              subject: `Tutoring session confirmed for ${clientName}`,
+              text: `Hi ${guardianFirstName},\n\nA tutoring session for ${clientName} has been confirmed for ${timeLabel}.\n\nYou can view upcoming sessions in your guardian portal.\n\nThank you.`,
+              html: `<p>Hi ${guardianFirstName},</p><p>A tutoring session for <strong>${clientName}</strong> has been confirmed for <strong>${timeLabel}</strong>.</p><p>You can view upcoming sessions in your <a href="${sessionUrl}">guardian portal</a>.</p><p>Thank you.</p>`
+            });
+          }
+        } catch {
+          // non-fatal email
+        }
+      }
+    }
   } catch {
-    // non-fatal notification
+    // non-fatal notification block
   }
 
   return sessionId;
