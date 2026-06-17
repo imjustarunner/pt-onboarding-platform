@@ -192,9 +192,11 @@ async function validateOfficeSlotSeries({
       // Check for a conflicting recurring standing assignment from another provider
       if (officeLocationId) {
         const [saConflicts] = await pool.execute(
-          `SELECT a.id, u.first_name, u.last_name
+          `SELECT a.id, a.office_location_id, u.first_name, u.last_name,
+                  ol.name AS office_name
            FROM office_standing_assignments a
            JOIN users u ON u.id = a.provider_id
+           LEFT JOIN office_locations ol ON ol.id = a.office_location_id
            WHERE a.office_location_id = ?
              AND a.room_id = ?
              AND a.weekday = ?
@@ -207,6 +209,7 @@ async function validateOfficeSlotSeries({
         if (saConflicts?.length) {
           const c = saConflicts[0];
           const blocker = `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'another provider';
+          const officeNote = c.office_name ? ` in ${c.office_name}` : '';
           const dateLabel = new Date(occDate + 'T00:00:00').toLocaleDateString('en-US', {
             weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
           });
@@ -214,10 +217,11 @@ async function validateOfficeSlotSeries({
             ok: false,
             status: 409,
             error: {
-              message: `Cannot approve — this room/time is already assigned to ${blocker} (recurring). Occurrence #${oi + 1} on ${dateLabel} is blocked. Please choose a different room.`,
+              message: `Cannot approve — this room/time is already assigned to ${blocker}${officeNote} (recurring). Occurrence #${oi + 1} on ${dateLabel} is blocked. Please choose a different room.`,
               blockedOccurrence: oi + 1,
               blockedDate: occDate,
-              blockingProvider: blocker
+              blockingProvider: blocker,
+              blockingOffice: c.office_name || null
             }
           };
         }

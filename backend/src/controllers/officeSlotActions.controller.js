@@ -2765,8 +2765,10 @@ export const staffAssignOpenSlot = async (req, res, next) => {
              AND start_at < ?
              AND end_at > ?
              AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
+             AND (assigned_provider_id IS NULL OR assigned_provider_id <> ?)
+             AND (booked_provider_id   IS NULL OR booked_provider_id   <> ?)
            LIMIT 1`,
-          [roomId, endAt, startAt]
+          [roomId, endAt, startAt, assignedUserId, assignedUserId]
         );
         if (!(activeEventRows || []).length && legacyAssignmentId) {
           await pool.execute(`DELETE FROM office_room_assignments WHERE id = ?`, [legacyAssignmentId]);
@@ -2778,6 +2780,8 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
     try {
+      // Exclude events already belonging to this provider — they are being re-assigned/extended,
+      // not introducing a new conflict.
       const [eRows] = await pool.execute(
         `SELECT id
          FROM office_events
@@ -2785,8 +2789,10 @@ export const staffAssignOpenSlot = async (req, res, next) => {
            AND start_at < ?
            AND end_at > ?
            AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
+           AND (assigned_provider_id IS NULL OR assigned_provider_id <> ?)
+           AND (booked_provider_id   IS NULL OR booked_provider_id   <> ?)
          LIMIT 1`,
-        [roomId, endAt, startAt]
+        [roomId, endAt, startAt, assignedUserId, assignedUserId]
       );
       if ((eRows || []).length) {
         return res.status(409).json({ error: { message: 'That office has an existing schedule event during this time.' } });
