@@ -2808,11 +2808,13 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       const startHour = Number(hour);
       const finalHour = Number(endHour !== null ? endHour : hour + 1);
 
-      // Pre-flight conflict check: scan every hour of every weekday before creating anything.
-      // If the same provider already owns that exact slot (same room/weekday/hour), skip it —
-      // they're just expanding their block to include hours they already hold. Only block on
-      // slots owned by a *different* provider.
-      const hoursToSkip = new Set(); // 'weekday:hour' keys for hours already owned by this provider
+      // Pre-flight scan: classify each hour of each weekday before creating anything.
+      // - Same provider already owns the slot → ALIGN it to this block's settings (frequency,
+      //   recurrence group, availability window) so a re-book of "11–4 weekly" makes the whole
+      //   block consistent instead of leaving fragmented older slots (some biweekly, different
+      //   anchors) that only render on some weeks. Its booking plan frequency is aligned too.
+      // - Different provider owns it → real conflict (unless their slot was already released).
+      const existingToAlign = new Map(); // 'weekday:hour' → existing assignment row
       for (const weekday of recurrenceWeekdays) {
         for (let h = startHour; h < finalHour; h++) {
           // eslint-disable-next-line no-await-in-loop
@@ -2823,9 +2825,9 @@ export const staffAssignOpenSlot = async (req, res, next) => {
             hour: h
           });
           if (existingStanding?.id) {
-            // Same provider already holds this slot → skip, not a conflict.
+            // Same provider already holds this slot → align it instead of failing/skipping.
             if (Number(existingStanding.provider_id) === Number(assignedUserId)) {
-              hoursToSkip.add(`${weekday}:${h}`);
+              existingToAlign.set(`${weekday}:${h}`, existingStanding);
               continue;
             }
             // eslint-disable-next-line no-await-in-loop
@@ -2853,8 +2855,42 @@ export const staffAssignOpenSlot = async (req, res, next) => {
 
       for (const weekday of recurrenceWeekdays) {
         for (let h = startHour; h < finalHour; h++) {
-          // Skip hours where this provider already has an active assignment in this room.
-          if (hoursToSkip.has(`${weekday}:${h}`)) continue;
+          const alignKey = `${weekday}:${h}`;
+          const existing = existingToAlign.get(alignKey) || null;
+
+          if (existing?.id) {
+            // Realign the provider's existing slot to this block so the whole 11–4 range is uniform.
+            // eslint-disable-next-line no-await-in-loop
+            const aligned = await OfficeStandingAssignment.update(existing.id, {
+              assigned_frequency: assignedFrequency,
+              recurrence_group_id: recurrenceGroupId,
+              available_since_date: date,
+              last_two_week_confirmed_at: new Date(),
+              ...(temporaryWeeks > 0
+                ? {
+                  availability_mode: 'TEMPORARY',
+                  temporary_until_date: addDaysYmd(date, temporaryWeeks * 7)
+                }
+                : { availability_mode: 'AVAILABLE', temporary_until_date: null })
+            });
+            // If the slot is booked with a different cadence, align the plan so it renders every
+            // intended week (a biweekly plan would otherwise blank the slot on off-weeks).
+            // eslint-disable-next-line no-await-in-loop
+            const activePlan = await OfficeBookingPlan.findActiveByAssignmentId(existing.id);
+            if (activePlan?.id && String(activePlan.booked_frequency || '').toUpperCase() !== assignedFrequency) {
+              // eslint-disable-next-line no-await-in-loop
+              await OfficeBookingPlan.upsertActive({
+                standingAssignmentId: existing.id,
+                bookedFrequency: assignedFrequency,
+                bookingStartDate: String(activePlan.booking_start_date || date).slice(0, 10) || date,
+                activeUntilDate: activePlan.active_until_date ? String(activePlan.active_until_date).slice(0, 10) : null,
+                createdByUserId: req.user.id
+              });
+            }
+            standingAssignments.push(aligned || existing);
+            continue;
+          }
+
           // eslint-disable-next-line no-await-in-loop
           const standingAssignment = await OfficeStandingAssignment.create({
             officeLocationId,
