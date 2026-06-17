@@ -2805,6 +2805,11 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       const startHour = Number(hour);
       const finalHour = Number(endHour !== null ? endHour : hour + 1);
 
+      // Pre-flight conflict check: scan every hour of every weekday before creating anything.
+      // If the same provider already owns that exact slot (same room/weekday/hour), skip it —
+      // they're just expanding their block to include hours they already hold. Only block on
+      // slots owned by a *different* provider.
+      const hoursToSkip = new Set(); // 'weekday:hour' keys for hours already owned by this provider
       for (const weekday of recurrenceWeekdays) {
         for (let h = startHour; h < finalHour; h++) {
           // eslint-disable-next-line no-await-in-loop
@@ -2815,6 +2820,11 @@ export const staffAssignOpenSlot = async (req, res, next) => {
             hour: h
           });
           if (existingStanding?.id) {
+            // Same provider already holds this slot → skip, not a conflict.
+            if (Number(existingStanding.provider_id) === Number(assignedUserId)) {
+              hoursToSkip.add(`${weekday}:${h}`);
+              continue;
+            }
             // eslint-disable-next-line no-await-in-loop
             const released = await deactivateStandingAssignmentIfReleased(existingStanding.id, date);
             if (released) {
@@ -2840,6 +2850,8 @@ export const staffAssignOpenSlot = async (req, res, next) => {
 
       for (const weekday of recurrenceWeekdays) {
         for (let h = startHour; h < finalHour; h++) {
+          // Skip hours where this provider already has an active assignment in this room.
+          if (hoursToSkip.has(`${weekday}:${h}`)) continue;
           // eslint-disable-next-line no-await-in-loop
           const standingAssignment = await OfficeStandingAssignment.create({
             officeLocationId,
