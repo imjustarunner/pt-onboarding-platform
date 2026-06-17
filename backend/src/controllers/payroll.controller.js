@@ -17549,7 +17549,7 @@ export const getPendingSubmissionsSummary = async (req, res, next) => {
     // Count submitted PTO requests with submitter names.
     const [ptoRows] = await pool.execute(
       `SELECT r.id, r.user_id, r.request_type, r.total_hours,
-              COALESCE(u.full_name, CONCAT(u.first_name, ' ', u.last_name)) AS user_name,
+              CONCAT(u.first_name, ' ', u.last_name) AS user_name,
               r.created_at
        FROM payroll_pto_requests r
        LEFT JOIN users u ON u.id = r.user_id

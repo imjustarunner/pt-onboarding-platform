@@ -1170,7 +1170,7 @@
             </div>
           </div>
 
-          <div v-if="canUseQuarterHourInput && !disableEndTimeInput" class="row" style="gap: 8px; margin-top: 10px; margin-bottom: 10px;">
+          <div v-if="canUseQuarterHourInput && !disableEndTimeInput && requestType !== 'admin_assign'" class="row" style="gap: 8px; margin-top: 10px; margin-bottom: 10px;">
             <label class="sched-inline compact" style="flex: 1;">
               <span>Start time</span>
               <select v-model.number="modalStartHour" class="sched-select compact">
@@ -1189,35 +1189,175 @@
             </label>
           </div>
 
-          <label class="lbl" style="margin-top: 10px;">End time</label>
-          <select
-            v-model.number="modalEndHour"
-            class="input"
-            :disabled="disableEndTimeInput"
-          >
-            <option v-for="h in endHourOptions" :key="`end-${h}`" :value="h">
-              {{ hourLabel(h) }}
-            </option>
-          </select>
+          <template v-if="requestType !== 'admin_assign'">
+            <label class="lbl" style="margin-top: 10px;">End time</label>
+            <select
+              v-model.number="modalEndHour"
+              class="input"
+              :disabled="disableEndTimeInput"
+            >
+              <option v-for="h in endHourOptions" :key="`end-${h}`" :value="h">
+                {{ hourLabel(h) }}
+              </option>
+            </select>
 
-          <div v-if="canUseQuarterHourInput && !disableEndTimeInput" class="row" style="gap: 8px; margin-top: 8px;">
-            <label class="sched-inline compact" style="flex: 1;">
-              <span>End min</span>
-              <select v-model.number="modalEndMinute" class="sched-select compact">
-                <option v-for="m in endMinuteOptions" :key="`end-min-${m}`" :value="m">
-                  :{{ String(m).padStart(2, '0') }}
-                </option>
+            <div v-if="canUseQuarterHourInput && !disableEndTimeInput" class="row" style="gap: 8px; margin-top: 8px;">
+              <label class="sched-inline compact" style="flex: 1;">
+                <span>End min</span>
+                <select v-model.number="modalEndMinute" class="sched-select compact">
+                  <option v-for="m in endMinuteOptions" :key="`end-min-${m}`" :value="m">
+                    :{{ String(m).padStart(2, '0') }}
+                  </option>
+                </select>
+              </label>
+            </div>
+
+            <label class="lbl" style="margin-top: 10px;">Notes (optional)</label>
+            <textarea v-model="requestNotes" class="input" rows="3" :placeholder="requestNotesPlaceholder" />
+
+            <div v-if="modalError" class="error" style="margin-top: 10px;">{{ modalError }}</div>
+          </template>
+
+          <!-- Admin assign form (shown instead of standard end-time/notes/submit) -->
+          <div v-if="requestType === 'admin_assign'" class="aa-form">
+            <!-- Room context info -->
+            <div v-if="modalContext.roomId" class="aa-room-info">
+              <span class="aa-room-label">Room:</span>
+              <span>{{ adminAssignRoomLabel }}</span>
+            </div>
+            <div v-else class="modern-help" style="margin-top: 8px;">
+              Switch to office layout view and click a specific room cell to assign directly. Make sure an office location is selected in the toolbar.
+            </div>
+
+            <!-- Mode radio -->
+            <div class="aa-mode-row">
+              <label class="check">
+                <input type="radio" v-model="adminAssignMode" value="provider" />
+                <span>Assign to person</span>
+              </label>
+              <label class="check">
+                <input type="radio" v-model="adminAssignMode" value="company_hold" />
+                <span>Company hold</span>
+              </label>
+            </div>
+
+            <!-- Company hold label -->
+            <div v-if="adminAssignMode === 'company_hold'" style="margin-top: 8px;">
+              <label class="lbl">Label</label>
+              <input v-model="adminAssignHoldTitle" class="input" type="text" maxlength="255" placeholder="Company hold" />
+            </div>
+
+            <!-- Person search -->
+            <div v-else style="margin-top: 8px; position: relative;">
+              <label class="lbl">
+                Person
+                <span v-if="adminAssignProvidersLoading" class="muted" style="font-weight:400;"> (loading…)</span>
+              </label>
+              <div style="position: relative;">
+                <input
+                  v-model="adminAssignPersonSearch"
+                  class="input"
+                  :class="{ 'aa-has-selection': adminAssignPersonId }"
+                  type="text"
+                  autocomplete="off"
+                  placeholder="Search by name…"
+                  @focus="adminAssignShowDropdown = true"
+                  @blur="onAdminAssignPersonBlur"
+                />
+                <div v-if="adminAssignShowDropdown && adminAssignPersonResults.length" class="aa-person-dropdown" @mousedown.prevent>
+                  <button
+                    v-for="p in adminAssignPersonResults"
+                    :key="`aa-p-${p.id}`"
+                    type="button"
+                    class="aa-person-option"
+                    :class="{ 'aa-person-option--selected': Number(p.id) === adminAssignPersonId }"
+                    @click="selectAdminAssignPerson(p)"
+                  >
+                    <span>{{ p.last_name }}, {{ p.first_name }}</span>
+                    <span class="aa-role-badge">{{ p.role }}</span>
+                  </button>
+                </div>
+              </div>
+              <div v-if="adminAssignPersonId" class="aa-selected-person">
+                ✓ {{ adminAssignPersonName }}
+                <button type="button" class="aa-clear-person" @click="adminAssignPersonId = 0; adminAssignPersonName = ''; adminAssignPersonSearch = ''">×</button>
+              </div>
+              <div v-if="!adminAssignProvidersLoading && !adminAssignProviders.length && selectedOfficeLocationId" class="muted" style="margin-top: 4px; font-size: 12px;">
+                No providers found for this office location.
+              </div>
+            </div>
+
+            <!-- End time -->
+            <div style="margin-top: 8px;">
+              <label class="lbl">End time</label>
+              <select v-model.number="officeAssignEndHour" class="input">
+                <option v-for="h in officeAssignEndHourOptions" :key="`aa-end-${h}`" :value="h">{{ hourLabel(h) }}</option>
               </select>
-            </label>
+            </div>
+
+            <!-- Recurrence -->
+            <div style="margin-top: 8px;">
+              <label class="lbl">Recurrence</label>
+              <select v-model="adminAssignRecurrence" class="input">
+                <option value="ONCE">Single occurrence</option>
+                <option value="WEEKLY">Weekly</option>
+                <option value="BIWEEKLY">Biweekly</option>
+              </select>
+            </div>
+
+            <!-- Recurring options -->
+            <template v-if="adminAssignRecurrence !== 'ONCE'">
+              <div style="margin-top: 8px;">
+                <label class="lbl">Days</label>
+                <div class="aa-weekday-row">
+                  <label
+                    v-for="wd in ADMIN_ASSIGN_WEEKDAYS"
+                    :key="`aa-wd-${wd.value}`"
+                    class="aa-weekday-check"
+                    :class="{ on: adminAssignWeekdays.includes(wd.value) }"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="adminAssignWeekdays.includes(wd.value)"
+                      @change="adminAssignWeekdays.includes(wd.value)
+                        ? adminAssignWeekdays.splice(adminAssignWeekdays.indexOf(wd.value), 1)
+                        : adminAssignWeekdays.push(wd.value)"
+                      style="display:none;"
+                    />
+                    {{ wd.label }}
+                  </label>
+                </div>
+              </div>
+              <div style="margin-top: 8px;">
+                <label class="lbl">Recurring until</label>
+                <input v-model="adminAssignRecurringUntil" type="date" class="input" />
+              </div>
+              <div v-if="adminAssignMode === 'provider'" style="margin-top: 8px;">
+                <label class="check">
+                  <input type="checkbox" v-model="adminAssignTemporary4Weeks" />
+                  <span>Temporary 4-week hold</span>
+                </label>
+                <div v-if="adminAssignTemporary4Weeks" class="muted" style="font-size: 12px; margin-top: 4px;">
+                  Temporary while placing a client. Converts to a regular assignment when booked.
+                </div>
+              </div>
+            </template>
+
+            <div v-if="adminAssignError" class="error" style="margin-top: 8px;">{{ adminAssignError }}</div>
+            <div style="margin-top: 12px; display: flex; justify-content: flex-end;">
+              <button
+                class="btn btn-primary"
+                type="button"
+                :disabled="adminAssignLoading || !adminAssignCanSubmit"
+                @click="submitAdminAssign"
+              >
+                {{ adminAssignLoading ? 'Assigning…' : (adminAssignMode === 'company_hold' ? 'Block slot' : 'Assign') }}
+              </button>
+            </div>
           </div>
-
-          <label class="lbl" style="margin-top: 10px;">Notes (optional)</label>
-          <textarea v-model="requestNotes" class="input" rows="3" :placeholder="requestNotesPlaceholder" />
-
-          <div v-if="modalError" class="error" style="margin-top: 10px;">{{ modalError }}</div>
         </div>
 
-        <div v-if="!intakeConfirmStep" class="modal-actions">
+        <div v-if="!intakeConfirmStep && requestType !== 'admin_assign'" class="modal-actions">
           <button
             class="btn btn-primary"
             type="button"
@@ -4274,6 +4414,14 @@ const availableQuickActions = computed(() => {
       tone: 'teal'
     },
     {
+      id: 'admin_assign',
+      label: 'Assign slot (admin)',
+      description: 'Directly assign this slot to a person or hold it — no request needed',
+      disabledReason: '',
+      visible: !supervisionOnlyMode && canManageOffices.value && state !== 'ASSIGNED_BOOKED',
+      tone: 'red'
+    },
+    {
       id: 'intake_virtual_on',
       label: 'Enable virtual intake',
       description: 'Auto-add virtual work hours if missing',
@@ -4436,6 +4584,7 @@ const OFFICE_LAYOUT_ONLY_ACTIONS = new Set([
   'intake_inperson_off',
   'office',
   'office_request_only',
+  'admin_assign',
   'unbook_slot',
   'booked_note',
   'booked_record'
@@ -4452,6 +4601,7 @@ const OFFICE_BLOCK_ONLY_ACTIONS = new Set([
   'office',
   'individual_session',
   'group_session',
+  'admin_assign',
   'unbook_slot',
   'booked_note',
   'booked_record'
@@ -5417,6 +5567,12 @@ const openSlotActionModal = ({
   createAgendaDraftTitle.value = '';
   createAgendaDraftItems.value = [];
   modalContext.value = buildModalContext({ dayName: modalDay.value, hour: modalHour.value, roomId, slot, dateYmd });
+  // Pre-fill admin assign person with the schedule's user (works in both self and admin mode)
+  if (canManageOffices.value) {
+    adminAssignPersonId.value = Number(props.userId || 0);
+    adminAssignPersonName.value = '';
+    adminAssignPersonSearch.value = '';
+  }
   if (modalLockRoomToAssigned.value) {
     selectedOfficeRoomId.value = Number(modalContext.value?.roomId || 0) || 0;
     officeBookingRecurrence.value = 'ONCE';
@@ -5431,7 +5587,7 @@ const openSlotActionModal = ({
     requestType.value = 'booked_note';
   }
   if (!normalizedInitialRequestType && viewMode.value === 'office_layout' && ['', 'OPEN', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(String(modalContext.value.slotState || '').toUpperCase())) {
-    requestType.value = 'office_request_only';
+    requestType.value = canManageOffices.value ? 'admin_assign' : 'office_request_only';
   }
   // If user selected a contiguous range on one day, use it as the default modal duration.
   const rows = preserveSelectionRange ? sortedSelectedActionSlots() : [];
@@ -5692,6 +5848,27 @@ const officeAssignBuildingId = ref(0);
 const officeAssignRoomId = ref(0);
 const officeLocations = ref([]);
 const officeRooms = ref([]);
+
+// ---- Admin assign form (inline within request modal) ----
+const ADMIN_ASSIGN_WEEKDAYS = [
+  { value: 1, label: 'Mon' }, { value: 2, label: 'Tue' }, { value: 3, label: 'Wed' },
+  { value: 4, label: 'Thu' }, { value: 5, label: 'Fri' }, { value: 6, label: 'Sat' },
+  { value: 0, label: 'Sun' },
+];
+const adminAssignMode = ref('provider'); // 'provider' | 'company_hold'
+const adminAssignHoldTitle = ref('Company hold');
+const adminAssignPersonSearch = ref('');
+const adminAssignPersonId = ref(0);
+const adminAssignPersonName = ref('');
+const adminAssignShowDropdown = ref(false);
+const adminAssignRecurrence = ref('ONCE');
+const adminAssignWeekdays = ref([]);
+const adminAssignRecurringUntil = ref('');
+const adminAssignTemporary4Weeks = ref(false);
+const adminAssignLoading = ref(false);
+const adminAssignError = ref('');
+const adminAssignProviders = ref([]);
+const adminAssignProvidersLoading = ref(false);
 
 // ---- Provider office overlay (selected office location weekly grid) ----
 const selectedOfficeLocationId = ref(0);
@@ -5988,6 +6165,34 @@ const officeAssignEndHourOptions = computed(() => {
   return out;
 });
 
+const adminAssignPersonResults = computed(() => {
+  const list = adminAssignProviders.value || [];
+  const q = (adminAssignPersonSearch.value || '').trim().toLowerCase();
+  if (!q) return list.slice(0, 30);
+  return list.filter((p) =>
+    `${p.first_name || ''} ${p.last_name || ''}`.toLowerCase().includes(q) ||
+    `${p.last_name || ''}, ${p.first_name || ''}`.toLowerCase().includes(q) ||
+    `${p.last_name || ''} ${p.first_name || ''}`.toLowerCase().includes(q)
+  ).slice(0, 30);
+});
+
+const adminAssignCanSubmit = computed(() =>
+  !adminAssignLoading.value && (
+    adminAssignMode.value === 'company_hold' ||
+    adminAssignPersonId.value > 0
+  )
+);
+
+const adminAssignRoomLabel = computed(() => {
+  const roomId = Number(modalContext.value?.roomId || 0);
+  if (!roomId) return '';
+  const rooms = Array.isArray(officeGrid.value?.rooms) ? officeGrid.value.rooms : [];
+  const room = rooms.find((r) => Number(r.id) === roomId);
+  if (!room) return `Room ${roomId}`;
+  const num = room.roomNumber || room.room_number;
+  return [num ? `#${num}` : null, room.label || room.name].filter(Boolean).join(' ') || `Room ${roomId}`;
+});
+
 const loadOfficeLocations = async () => {
   try {
     const r = await api.get('/offices');
@@ -6061,6 +6266,104 @@ watch(officeAssignBuildingId, async (id) => {
   await loadOfficeRooms(id);
 });
 
+const loadAdminAssignProviders = async () => {
+  const locId = Number(selectedOfficeLocationId.value || 0) || Number(modalContext.value?.officeLocationId || 0);
+  if (!locId || !canManageOffices.value) { adminAssignProviders.value = []; return; }
+  adminAssignProvidersLoading.value = true;
+  try {
+    const r = await api.get(`/office-schedule/locations/${locId}/providers`);
+    adminAssignProviders.value = Array.isArray(r.data) ? r.data : [];
+  } catch {
+    adminAssignProviders.value = [];
+  } finally {
+    adminAssignProvidersLoading.value = false;
+  }
+};
+
+const selectAdminAssignPerson = (p) => {
+  adminAssignPersonId.value = Number(p.id);
+  adminAssignPersonName.value = `${p.last_name || ''}, ${p.first_name || ''}`.trim();
+  adminAssignPersonSearch.value = adminAssignPersonName.value;
+  adminAssignShowDropdown.value = false;
+};
+
+const onAdminAssignPersonBlur = () => {
+  window.setTimeout(() => { adminAssignShowDropdown.value = false; }, 180);
+};
+
+const submitAdminAssign = async () => {
+  try {
+    adminAssignLoading.value = true;
+    adminAssignError.value = '';
+    const locId = Number(selectedOfficeLocationId.value || 0) || Number(modalContext.value?.officeLocationId || 0);
+    if (!locId) throw new Error('No office location selected. Switch to office layout and select an office first.');
+    const slots = sortedSelectedActionSlots();
+    const firstSlot = slots[0] || {};
+    const dateYmd = String(firstSlot.dateYmd || modalContext.value?.dateYmd || '').slice(0, 10);
+    const startHour = Number(firstSlot.hour ?? modalContext.value?.hour ?? 0);
+    const roomId = Number(firstSlot.roomId || modalContext.value?.roomId || 0);
+    if (!roomId) throw new Error('No room selected. Click on a specific room cell in the office layout grid.');
+    if (!dateYmd || !/^\d{4}-\d{2}-\d{2}$/.test(dateYmd)) throw new Error('Invalid date. Please try clicking the slot again.');
+    if (adminAssignMode.value === 'provider' && !adminAssignPersonId.value) throw new Error('Please select a person to assign.');
+    const body = {
+      roomId,
+      date: dateYmd,
+      hour: startHour,
+      endHour: officeAssignEndHour.value,
+      recurrenceFrequency: adminAssignRecurrence.value,
+      assignmentMode: adminAssignMode.value === 'company_hold' ? 'COMPANY_HOLD' : 'PROVIDER',
+    };
+    if (adminAssignMode.value === 'company_hold') {
+      body.holdTitle = adminAssignHoldTitle.value || 'Company hold';
+    } else {
+      body.assignedUserId = adminAssignPersonId.value;
+    }
+    if (adminAssignRecurrence.value !== 'ONCE') {
+      body.weekdays = adminAssignWeekdays.value;
+      if (adminAssignRecurringUntil.value) body.recurringUntilDate = adminAssignRecurringUntil.value;
+      if (adminAssignTemporary4Weeks.value) body.temporaryWeeks = 4;
+    }
+    await api.post(`/office-slots/${locId}/open-slots/assign`, body);
+    invalidateScheduleSummaryCacheForUser(props.userId);
+    closeModal();
+    await Promise.all([load({ forceRefresh: true }), loadSelectedOfficeGrid()]);
+  } catch (e) {
+    adminAssignError.value = e.response?.data?.error?.message || e.message || 'Failed to assign slot';
+  } finally {
+    adminAssignLoading.value = false;
+  }
+};
+
+watch(requestType, (newType) => {
+  if (newType !== 'admin_assign') return;
+  void loadAdminAssignProviders();
+  // Pre-fill weekday from clicked day
+  if (!adminAssignWeekdays.value.length && modalDay.value) {
+    const idx = ALL_DAYS.indexOf(String(modalDay.value || ''));
+    if (idx >= 0) adminAssignWeekdays.value = [(idx + 1) % 7];
+  }
+  // Default recurring until (~3 months)
+  if (!adminAssignRecurringUntil.value) {
+    adminAssignRecurringUntil.value = addDaysYmd(todayLocalYmd.value, 90);
+  }
+  // Sync end hour
+  officeAssignStartHour.value = Number(modalHour.value || 0);
+  if (!officeAssignEndHour.value || officeAssignEndHour.value <= officeAssignStartHour.value) {
+    officeAssignEndHour.value = Math.min(officeAssignStartHour.value + 1, 22);
+  }
+});
+
+// After providers load, auto-fill name if ID was pre-filled (e.g. from props.userId)
+watch(adminAssignProviders, (newList) => {
+  if (adminAssignPersonId.value && !adminAssignPersonName.value) {
+    const p = newList.find((x) => Number(x.id) === Number(adminAssignPersonId.value));
+    if (p) {
+      adminAssignPersonName.value = `${p.last_name || ''}, ${p.first_name || ''}`.trim();
+      adminAssignPersonSearch.value = adminAssignPersonName.value;
+    }
+  }
+});
+
 const openOfficeAssignModal = async (dayName, hour) => {
   officeAssignError.value = '';
   officeAssignDay.value = String(dayName);
@@ -6124,6 +6427,17 @@ const closeModal = () => {
   modalError.value = '';
   intakeConfirmStep.value = null;
   intakeConfirmChoice.value = null;
+  adminAssignMode.value = 'provider';
+  adminAssignHoldTitle.value = 'Company hold';
+  adminAssignPersonSearch.value = '';
+  adminAssignPersonId.value = 0;
+  adminAssignPersonName.value = '';
+  adminAssignShowDropdown.value = false;
+  adminAssignRecurrence.value = 'ONCE';
+  adminAssignWeekdays.value = [];
+  adminAssignRecurringUntil.value = '';
+  adminAssignTemporary4Weeks.value = false;
+  adminAssignError.value = '';
 };
 
 const confirmIntakeInPerson = (enableBoth) => {
@@ -9753,6 +10067,112 @@ defineExpose({ resetToOpenFinder });
   margin-top: 4px;
   font-size: 12px;
   color: #6b7280;
+}
+
+/* Admin assign inline form */
+.aa-form {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+.aa-room-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #374151;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin-bottom: 10px;
+}
+.aa-room-label { font-weight: 600; }
+.aa-mode-row {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
+.aa-has-selection {
+  border-color: #16a34a !important;
+}
+.aa-person-dropdown {
+  position: absolute;
+  z-index: 200;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.13);
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.aa-person-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  gap: 8px;
+}
+.aa-person-option:hover,
+.aa-person-option--selected { background: #f0fdf4; }
+.aa-role-badge {
+  font-size: 11px;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.aa-selected-person {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  font-size: 13px;
+  color: #15803d;
+  font-weight: 500;
+}
+.aa-clear-person {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #9ca3af;
+  font-size: 17px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.aa-clear-person:hover { color: #ef4444; }
+.aa-weekday-row {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.aa-weekday-check {
+  padding: 5px 10px;
+  border-radius: 4px;
+  border: 1px solid #d1d5db;
+  cursor: pointer;
+  font-size: 13px;
+  user-select: none;
+  background: #f9fafb;
+  color: #374151;
+  transition: background 0.12s, color 0.12s;
+}
+.aa-weekday-check.on {
+  background: #15803d;
+  color: #fff;
+  border-color: #15803d;
 }
 </style>
 
