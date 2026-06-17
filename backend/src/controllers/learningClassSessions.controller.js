@@ -5,6 +5,8 @@ import tutoringTranscriptSummary from '../services/tutoringTranscriptSummary.ser
 import LearningProgress from '../models/LearningProgress.model.js';
 import { runAgentAssist } from '../services/agents/agentRuntime.service.js';
 import { createOrGetRoomByUniqueName, createAccessTokenAsync, isVideoConfigured } from '../services/video.service.js';
+import StripePaymentsService, { isStripeConfigured } from '../services/stripePayments.service.js';
+import BillingMerchantContextService from '../services/billingMerchantContext.service.js';
 import {
   buildInPersonMaterialDownload,
   buildInPersonTranscriptSummaryText,
@@ -282,6 +284,78 @@ export const startClassSession = async (req, res, next) => {
   }
 };
 
+// ── Post-session billing (POST_SESSION payment policy) ─────────────────────────────────────────
+
+async function triggerPostSessionCharge(session) {
+  if (!isStripeConfigured()) return;
+  const agencyId = Number(session?.agency_id || 0);
+  const clientId = Number(session?.client_id || 0);
+  const sessionId = Number(session?.id || 0);
+  if (!agencyId || !clientId) return;
+
+  try {
+    // Only charge if the tutor has POST_SESSION policy
+    const [profileRows] = await pool.execute(
+      `SELECT p.session_rate_cents, p.payment_policy, p.user_id AS provider_user_id
+       FROM provider_tutoring_profiles p
+       WHERE p.user_id = ? AND p.agency_id = ?
+       LIMIT 1`,
+      [Number(session.provider_user_id || 0), agencyId]
+    );
+    const profile = profileRows?.[0];
+    if (!profile || String(profile.payment_policy || '').toUpperCase() !== 'POST_SESSION') return;
+    const rateCents = Number(profile.session_rate_cents || 0);
+    if (!rateCents) return;
+
+    // Find the guardian's auto_charge card for this agency+client
+    const [cardRows] = await pool.execute(
+      `SELECT gpc.stripe_payment_method_id, gpc.stripe_customer_id
+       FROM guardian_payment_cards gpc
+       JOIN client_guardians cg ON cg.guardian_user_id = gpc.guardian_user_id
+       WHERE cg.client_id = ? AND gpc.agency_id = ? AND gpc.auto_charge = 1
+       LIMIT 1`,
+      [clientId, agencyId]
+    );
+    const card = cardRows?.[0];
+    if (!card?.stripe_payment_method_id || !card?.stripe_customer_id) return;
+
+    const ctx = await BillingMerchantContextService.getAgencyClientPaymentsContext(agencyId);
+    const connectedAccountId = ctx?.stripeConnectedAccountId || null;
+
+    const intent = await StripePaymentsService.chargePaymentMethod({
+      customerId: card.stripe_customer_id,
+      paymentMethodId: card.stripe_payment_method_id,
+      amountCents: rateCents,
+      currency: 'usd',
+      description: `Tutoring session #${sessionId} — post-session charge`,
+      metadata: { agency_id: String(agencyId), client_id: String(clientId), session_id: String(sessionId) },
+      connectedAccountId
+    });
+
+    await pool.execute(
+      `INSERT INTO learning_session_charges
+         (agency_id, client_id, learning_class_session_id, total_cents, currency, charge_status, payment_mode, created_by_user_id)
+       VALUES (?, ?, ?, ?, 'USD', 'CAPTURED', 'PAY_PER_EVENT', 0)`,
+      [agencyId, clientId, sessionId, rateCents]
+    );
+    const [[chargeRow]] = await pool.execute(
+      `SELECT LAST_INSERT_ID() AS id`
+    );
+    const chargeId = Number(chargeRow?.id || 0);
+    if (chargeId) {
+      await pool.execute(
+        `INSERT INTO learning_payments
+           (agency_id, learning_session_charge_id, amount_cents, currency, payment_status, processor, processor_intent_id)
+         VALUES (?, ?, ?, 'USD', 'SUCCEEDED', 'STRIPE', ?)`,
+        [agencyId, chargeId, rateCents, intent.id]
+      );
+    }
+  } catch (err) {
+    // Non-fatal: log but do not disrupt the session-end flow
+    console.error('[learningClassSessions] Post-session charge failed:', err?.message);
+  }
+}
+
 export const endClassSession = async (req, res, next) => {
   try {
     const sessionId = asInt(req.params.sessionId);
@@ -307,10 +381,14 @@ export const endClassSession = async (req, res, next) => {
     // progress update, and guardian homework generation (non-blocking)
     const freshSession = await LearningClassSession.findById(sessionId);
     if (freshSession?.session_subtype === 'tutoring' || String(freshSession?.mode || '').toLowerCase() === 'individual') {
-      // Fire and forget the AI analysis (full integration with agents for real-time hints during session)
       setImmediate(() => {
         tutoringTranscriptSummary.triggerTutoringSessionSummary(sessionId)
           .catch(err => console.error('Background tutoring transcript analysis failed:', err));
+      });
+      // Post-session charge for tutors who use POST_SESSION billing policy
+      setImmediate(() => {
+        triggerPostSessionCharge(freshSession)
+          .catch(err => console.error('Background post-session charge failed:', err));
       });
     }
 

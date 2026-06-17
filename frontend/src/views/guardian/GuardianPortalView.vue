@@ -582,6 +582,28 @@
                       <p v-else class="hint" style="margin: 0;">No recommendations yet.</p>
                     </div>
 
+                    <!-- Book sessions card -->
+                    <div v-if="tutoringProvider" class="learning-progress-card book-sessions-card" style="margin-top: 10px;">
+                      <div class="learning-progress-card-title">Book tutoring sessions</div>
+                      <div class="book-sessions-body">
+                        <div>
+                          <div class="book-sessions-provider">{{ tutoringProvider.providerName }}</div>
+                          <div class="book-sessions-meta muted small">
+                            <span v-if="tutoringProvider.sessionRateCents">
+                              ${{ Math.round(tutoringProvider.sessionRateCents / 100) }} / session ·
+                            </span>
+                            <span v-if="tutoringProvider.minSessionPackage > 1">
+                              Min package: {{ tutoringProvider.minSessionPackage }} sessions ·
+                            </span>
+                            <span>{{ tutoringProvider.paymentPolicy === 'PREPAY' ? 'Prepay required' : 'Pay after session' }}</span>
+                          </div>
+                        </div>
+                        <button class="btn btn-primary btn-sm" @click="bookingDrawerOpen = true">
+                          Request session
+                        </button>
+                      </div>
+                    </div>
+
                     <!-- Upcoming tutoring sessions -->
                     <div class="learning-progress-card upcoming-sessions-card" style="margin-top: 10px;">
                       <div class="learning-progress-card-title">
@@ -877,6 +899,22 @@
       </div>
     </div>
   </div>
+
+  <!-- Booking drawer (teleports to body) -->
+  <GuardianSessionBookingDrawer
+    v-if="tutoringProvider"
+    :open="bookingDrawerOpen"
+    :agency-slug="guardianPathSlug"
+    :provider-id="tutoringProvider.providerId"
+    :provider-name="tutoringProvider.providerName"
+    :child-id="selectedChildId ? Number(selectedChildId) : null"
+    :child-name="selectedChild ? (selectedChild.first_name + ' ' + selectedChild.last_name) : ''"
+    :session-rate-cents="tutoringProvider.sessionRateCents"
+    :min-session-package="tutoringProvider.minSessionPackage"
+    :payment-policy="tutoringProvider.paymentPolicy"
+    @close="bookingDrawerOpen = false"
+    @submitted="bookingDrawerOpen = false"
+  />
 </template>
 
 <script setup>
@@ -894,6 +932,7 @@ import GuardianBillingTab from '../../components/guardian/GuardianBillingTab.vue
 import GuardianPaymentInsuranceTab from '../../components/guardian/GuardianPaymentInsuranceTab.vue';
 import GuardianDependentsTab from '../../components/guardian/GuardianDependentsTab.vue';
 import GuardianSkillBuildersEventView from './GuardianSkillBuildersEventView.vue';
+import GuardianSessionBookingDrawer from '../../components/guardian/GuardianSessionBookingDrawer.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -1693,6 +1732,10 @@ const tutoringSessions = ref([]);
 const tutoringSummaries = ref([]);
 const upcomingTutoringSessions = ref([]);
 
+// Book sessions drawer
+const bookingDrawerOpen = ref(false);
+const tutoringProvider = ref(null); // { providerId, providerName, sessionRateCents, minSessionPackage, paymentPolicy }
+
 const formatLearningScore = (value) => {
   const n = Number(value);
   if (!Number.isFinite(n)) return '—';
@@ -1768,6 +1811,29 @@ const loadSelectedChildLearningProgress = async () => {
     ]);
     tutoringSessions.value = Array.isArray(pastRes.data?.sessions) ? pastRes.data.sessions : [];
     upcomingTutoringSessions.value = Array.isArray(upcomingRes.data?.sessions) ? upcomingRes.data.sessions : [];
+
+    // Derive the linked provider for the "Book sessions" card
+    const linkedProviderId = upcomingTutoringSessions.value[0]?.provider_user_id
+      || tutoringSessions.value[0]?.provider_user_id
+      || null;
+    if (linkedProviderId && guardianPathSlug.value) {
+      try {
+        const pRes = await api.get(
+          `/public/agency-services/${encodeURIComponent(guardianPathSlug.value)}/tutoring-profiles/${linkedProviderId}`,
+          { skipGlobalLoading: true }
+        );
+        const p = pRes.data?.profile;
+        if (p) {
+          tutoringProvider.value = {
+            providerId: linkedProviderId,
+            providerName: upcomingTutoringSessions.value[0]?.provider_name || tutoringSessions.value[0]?.provider_name || 'Your tutor',
+            sessionRateCents: p.sessionRateCents || null,
+            minSessionPackage: p.minSessionPackage || 1,
+            paymentPolicy: p.paymentPolicy || 'POST_SESSION'
+          };
+        }
+      } catch { tutoringProvider.value = null; }
+    }
   } catch {
     tutoringSessions.value = [];
     upcomingTutoringSessions.value = [];
@@ -2440,6 +2506,29 @@ watch(
 .upcoming-sessions-card {
   border-color: rgba(99, 102, 241, 0.35);
   background: rgba(99, 102, 241, 0.03);
+}
+
+.book-sessions-card {
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.03);
+}
+
+.book-sessions-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.book-sessions-provider {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a2e;
+}
+
+.book-sessions-meta {
+  margin-top: 2px;
 }
 
 .upcoming-count-badge {

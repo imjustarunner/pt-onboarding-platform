@@ -277,6 +277,22 @@
                 <span>Accepting new students</span>
               </label>
             </div>
+            <div class="field-item">
+              <label>Minimum session package</label>
+              <select v-model.number="tutoringForm.minSessionPackage">
+                <option :value="1">1 — Single session OK</option>
+                <option :value="2">2 sessions minimum</option>
+                <option :value="3">3 sessions minimum</option>
+                <option :value="4">4 sessions minimum</option>
+              </select>
+            </div>
+            <div class="field-item">
+              <label>Payment policy</label>
+              <select v-model="tutoringForm.paymentPolicy">
+                <option value="POST_SESSION">Charge after each session</option>
+                <option value="PREPAY">Require prepayment at booking</option>
+              </select>
+            </div>
           </div>
           <div style="margin-top: 12px; display: flex; justify-content: flex-end;">
             <button class="btn btn-primary" :disabled="tutoringSaving" @click="saveTutoringProfile">
@@ -1029,7 +1045,9 @@ const tutoringForm = ref({
   sessionRateDollars: '',
   sessionRateNote: '',
   bio: '',
-  acceptingNewStudents: true
+  acceptingNewStudents: true,
+  minSessionPackage: 1,
+  paymentPolicy: 'POST_SESSION'
 });
 const tutoringSaving = ref(false);
 const tutoringSaveSuccess = ref('');
@@ -1065,6 +1083,8 @@ async function loadListings() {
         tutoringForm.value.sessionRateNote = p.sessionRateNote || '';
         tutoringForm.value.bio = p.bio || '';
         tutoringForm.value.acceptingNewStudents = p.acceptingNewStudents !== false;
+        tutoringForm.value.minSessionPackage = p.minSessionPackage || 1;
+        tutoringForm.value.paymentPolicy = p.paymentPolicy || 'POST_SESSION';
       }
     }
   } catch (e) {
@@ -1121,7 +1141,9 @@ async function saveTutoringProfile() {
       sessionRateCents: Number.isFinite(rateDollars) && rateDollars > 0 ? Math.round(rateDollars * 100) : null,
       sessionRateNote: tutoringForm.value.sessionRateNote || null,
       bio: tutoringForm.value.bio || null,
-      acceptingNewStudents: tutoringForm.value.acceptingNewStudents
+      acceptingNewStudents: tutoringForm.value.acceptingNewStudents,
+      minSessionPackage: tutoringForm.value.minSessionPackage,
+      paymentPolicy: tutoringForm.value.paymentPolicy
     }, { skipAuthRedirect: true });
     tutoringSaveSuccess.value = 'Tutoring profile saved.';
     setTimeout(() => (tutoringSaveSuccess.value = ''), 3000);

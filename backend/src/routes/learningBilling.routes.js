@@ -23,7 +23,8 @@ import {
   runSubscriptionRenewalsInternal,
   createPaymentIntentPlaceholder,
   recordPaymentAttemptPlaceholder,
-  listFrontDeskParticipants
+  listFrontDeskParticipants,
+  buySessionPackage
 } from '../controllers/learningBilling.controller.js';
 
 const router = express.Router();
@@ -65,6 +66,7 @@ router.get('/booking-eligibility', getBookingEligibility);
 router.post('/sessions/from-office-event', createSessionFromOfficeEvent);
 router.post('/payments/intent', createPaymentIntentPlaceholder);
 router.post('/payments/:paymentId/attempts', recordPaymentAttemptPlaceholder);
+router.post('/packages/buy', buySessionPackage);
 router.get('/front-desk/participants', listFrontDeskParticipants);
 
 export default router;

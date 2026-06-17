@@ -204,7 +204,9 @@ async function listEnrolledProviders(agencyId, serviceType) {
 
 async function getTutoringProfile(userId, agencyId) {
   const [rows] = await pool.execute(
-    `SELECT subject_areas_json, grade_levels_json, session_rate_cents, session_rate_note, bio, accepting_new_students
+    `SELECT subject_areas_json, grade_levels_json, session_rate_cents, session_rate_note, bio, accepting_new_students,
+            COALESCE(min_session_package, 1) AS min_session_package,
+            COALESCE(payment_policy, 'POST_SESSION') AS payment_policy
      FROM provider_tutoring_profiles
      WHERE user_id = ? AND agency_id = ?
      LIMIT 1`,
@@ -223,7 +225,9 @@ async function getTutoringProfile(userId, agencyId) {
     sessionRateLabel: formatMoney(r.session_rate_cents),
     sessionRateNote: r.session_rate_note || null,
     bio: r.bio || null,
-    acceptingNewStudents: r.accepting_new_students === 1 || r.accepting_new_students === true
+    acceptingNewStudents: r.accepting_new_students === 1 || r.accepting_new_students === true,
+    minSessionPackage: Number(r.min_session_package || 1),
+    paymentPolicy: r.payment_policy || 'POST_SESSION'
   };
 }
 
@@ -1451,11 +1455,15 @@ export const upsertTutoringProfile = async (req, res, next) => {
     const sessionRateNote = req.body?.sessionRateNote !== undefined ? String(req.body.sessionRateNote || '').trim() : null;
     const bio = req.body?.bio !== undefined ? String(req.body.bio || '').trim() : null;
     const acceptingNewStudents = req.body?.acceptingNewStudents === false || req.body?.acceptingNewStudents === 0 ? 0 : 1;
+    const minSessionPackage = req.body?.minSessionPackage !== undefined ? Math.max(1, Math.min(10, parseIntSafe(req.body.minSessionPackage) || 1)) : 1;
+    const paymentPolicy = ['PREPAY', 'POST_SESSION'].includes(String(req.body?.paymentPolicy || '').toUpperCase())
+      ? String(req.body.paymentPolicy).toUpperCase()
+      : 'POST_SESSION';
 
     await pool.execute(
       `INSERT INTO provider_tutoring_profiles
-         (user_id, agency_id, subject_areas_json, grade_levels_json, session_rate_cents, session_rate_note, bio, accepting_new_students)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         (user_id, agency_id, subject_areas_json, grade_levels_json, session_rate_cents, session_rate_note, bio, accepting_new_students, min_session_package, payment_policy)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          subject_areas_json = VALUES(subject_areas_json),
          grade_levels_json = VALUES(grade_levels_json),
@@ -1463,6 +1471,8 @@ export const upsertTutoringProfile = async (req, res, next) => {
          session_rate_note = VALUES(session_rate_note),
          bio = VALUES(bio),
          accepting_new_students = VALUES(accepting_new_students),
+         min_session_package = VALUES(min_session_package),
+         payment_policy = VALUES(payment_policy),
          updated_at = CURRENT_TIMESTAMP`,
       [
         userId, Number(agency.id),
@@ -1471,7 +1481,9 @@ export const upsertTutoringProfile = async (req, res, next) => {
         sessionRateCents || null,
         sessionRateNote || null,
         bio || null,
-        acceptingNewStudents
+        acceptingNewStudents,
+        minSessionPackage,
+        paymentPolicy
       ]
     );
 

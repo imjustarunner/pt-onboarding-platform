@@ -14,6 +14,8 @@ import LearningBillingGateService from '../services/learningBillingGate.service.
 import LearningQuickbooksQueueService from '../services/learningQuickbooksQueue.service.js';
 import LearningSubscriptionRenewalService from '../services/learningSubscriptionRenewal.service.js';
 import ClientPaymentsSetupService from '../services/clientPaymentsSetup.service.js';
+import StripePaymentsService, { isStripeConfigured } from '../services/stripePayments.service.js';
+import BillingMerchantContextService from '../services/billingMerchantContext.service.js';
 import { isBookedOfficeEventForLearningLink, wallMySqlToUtcDateTime } from '../utils/learningBillingTime.utils.js';
 import { encryptBillingSecret } from '../services/billingEncryption.service.js';
 
@@ -367,11 +369,53 @@ export const createPaymentIntentPlaceholder = async (req, res, next) => {
       if (!linked) return res.status(403).json({ error: { message: 'Access denied for this charge' } });
     }
     const idempotencyKey = `learning_payment_intent:${agencyId}:${chargeId}`;
-    const processorIntentId = `pi_placeholder_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+    // Attempt real Stripe charge when the agency has a connected account configured
+    let processorIntentId = `pi_placeholder_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    let processor = 'PLACEHOLDER';
+    let paymentStatus = 'REQUIRES_ACTION';
+    let clientSecret = null;
+
+    if (isStripeConfigured() && paymentMethodId) {
+      try {
+        const ctx = await BillingMerchantContextService.getAgencyClientPaymentsContext(agencyId);
+        const connectedAccountId = ctx?.stripeConnectedAccountId || null;
+        // Look up customer ID from payment method row
+        const [pmRows] = await pool.execute(
+          `SELECT stripe_customer_id FROM learning_payment_methods WHERE id = ? AND agency_id = ? LIMIT 1`,
+          [paymentMethodId, agencyId]
+        );
+        const customerId = pmRows?.[0]?.stripe_customer_id || null;
+        const pmRow = await pool.execute(
+          `SELECT stripe_payment_method_id FROM learning_payment_methods WHERE id = ? LIMIT 1`,
+          [paymentMethodId]
+        );
+        const stripePaymentMethodId = pmRow?.[0]?.[0]?.stripe_payment_method_id || null;
+        if (customerId && stripePaymentMethodId) {
+          const intent = await StripePaymentsService.chargePaymentMethod({
+            customerId,
+            paymentMethodId: stripePaymentMethodId,
+            amountCents: Number(charge.total_cents || 0),
+            currency: (charge.currency || 'USD').toLowerCase(),
+            description: `Learning session charge #${chargeId}`,
+            metadata: { agency_id: String(agencyId), charge_id: String(chargeId) },
+            connectedAccountId
+          });
+          processorIntentId = intent.id;
+          processor = 'STRIPE';
+          paymentStatus = intent.status === 'succeeded' ? 'SUCCEEDED' : 'REQUIRES_ACTION';
+          clientSecret = intent.client_secret || null;
+        }
+      } catch (stripeErr) {
+        // fall through to placeholder if Stripe is misconfigured for this agency
+        console.warn('[learningBilling] Stripe charge attempt failed, using placeholder:', stripeErr?.message);
+      }
+    }
+
     const [ins] = await pool.execute(
       `INSERT INTO learning_payments
          (agency_id, learning_session_charge_id, payment_method_id, amount_cents, currency, payment_status, processor, processor_intent_id, idempotency_key, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, 'REQUIRES_ACTION', 'PLACEHOLDER', ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          id = LAST_INSERT_ID(id),
          updated_at = CURRENT_TIMESTAMP`,
@@ -381,13 +425,15 @@ export const createPaymentIntentPlaceholder = async (req, res, next) => {
         paymentMethodId,
         Number(charge.total_cents || 0),
         charge.currency || 'USD',
+        paymentStatus,
+        processor,
         processorIntentId,
         idempotencyKey,
         req.user.id
       ]
     );
     const paymentId = Number(ins?.insertId || 0);
-    return res.json({ ok: true, paymentIntentCreated: true, paymentId });
+    return res.json({ ok: true, paymentIntentCreated: true, paymentId, clientSecret, processor });
   } catch (e) {
     next(e);
   }
@@ -882,6 +928,111 @@ export const runSubscriptionRenewalsInternal = async (req, res, next) => {
       limit: Number(req.body?.limit || req.query?.limit || 200)
     });
     return res.json({ ok: true, internal: true, ...result });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Buy a session package: charge guardian now and credit N tokens to the client.
+ * Used by GuardianSessionBookingDrawer when payment_policy = 'PREPAY'.
+ *
+ * Body: { agencyId, clientId, sessionCount, stripePaymentMethodId, agencySlug? }
+ */
+export const buySessionPackage = async (req, res, next) => {
+  try {
+    const agencyId = Number(req.body?.agencyId || 0);
+    const clientId = Number(req.body?.clientId || 0);
+    const sessionCount = Math.max(1, Number(req.body?.sessionCount || 1));
+    const stripePaymentMethodId = String(req.body?.stripePaymentMethodId || '').trim();
+    if (!agencyId || !clientId) {
+      return res.status(400).json({ error: { message: 'agencyId and clientId are required' } });
+    }
+    const gate = await requireLearningBillingEnabled({ agencyId, res });
+    if (!gate) return;
+
+    const role = String(req.user?.role || '').toLowerCase();
+    if (role !== 'client_guardian' && !canManageLearningBilling(role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    if (role === 'client_guardian') {
+      const linked = await isGuardianLinkedToClient({ guardianUserId: req.user.id, clientId });
+      if (!linked) return res.status(403).json({ error: { message: 'Access denied for this client' } });
+    }
+
+    // Resolve session rate for this client's tutor
+    const [rateRows] = await pool.execute(
+      `SELECT p.session_rate_cents, p.payment_policy, p.user_id AS provider_user_id
+       FROM learning_class_sessions lcs
+       JOIN provider_tutoring_profiles p ON p.user_id = lcs.provider_user_id AND p.agency_id = lcs.agency_id
+       WHERE lcs.client_id = ? AND lcs.agency_id = ?
+         AND lcs.status IN ('scheduled','pending')
+       ORDER BY lcs.starts_at DESC
+       LIMIT 1`,
+      [clientId, agencyId]
+    );
+    const rateCents = Number(rateRows?.[0]?.session_rate_cents || 0);
+    if (!rateCents) {
+      return res.status(409).json({ error: { message: 'Could not determine session rate for this client' } });
+    }
+
+    const totalCents = rateCents * sessionCount;
+    let processorIntentId = `pi_placeholder_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    let processor = 'PLACEHOLDER';
+
+    if (isStripeConfigured() && stripePaymentMethodId) {
+      try {
+        const ctx = await BillingMerchantContextService.getAgencyClientPaymentsContext(agencyId);
+        const connectedAccountId = ctx?.stripeConnectedAccountId || null;
+        // Look up the guardian's Stripe customer ID for this agency
+        const [custRows] = await pool.execute(
+          `SELECT stripe_customer_id FROM learning_payment_methods
+           WHERE owner_user_id = ? AND agency_id = ? AND stripe_payment_method_id = ? LIMIT 1`,
+          [req.user.id, agencyId, stripePaymentMethodId]
+        );
+        const customerId = custRows?.[0]?.stripe_customer_id || null;
+        if (customerId) {
+          const intent = await StripePaymentsService.chargePaymentMethod({
+            customerId,
+            paymentMethodId: stripePaymentMethodId,
+            amountCents: totalCents,
+            currency: 'usd',
+            description: `Tutoring package: ${sessionCount} session(s) for client #${clientId}`,
+            metadata: { agency_id: String(agencyId), client_id: String(clientId), session_count: String(sessionCount) },
+            connectedAccountId
+          });
+          processorIntentId = intent.id;
+          processor = 'STRIPE';
+        }
+      } catch (stripeErr) {
+        console.warn('[learningBilling] buySessionPackage Stripe charge failed:', stripeErr?.message);
+      }
+    }
+
+    // Record the charge
+    const [chargeIns] = await pool.execute(
+      `INSERT INTO learning_session_charges
+         (agency_id, client_id, total_cents, currency, charge_status, payment_mode, created_by_user_id)
+       VALUES (?, ?, ?, 'USD', 'CAPTURED', 'PACKAGE', ?)`,
+      [agencyId, clientId, totalCents, req.user.id]
+    );
+    const chargeId = Number(chargeIns.insertId);
+
+    // Credit N tokens to the client
+    await LearningTokenLedger.addEntry({
+      agencyId,
+      clientId,
+      guardianUserId: role === 'client_guardian' ? req.user.id : null,
+      tokenType: 'INDIVIDUAL',
+      direction: 'CREDIT',
+      quantity: sessionCount,
+      reasonCode: 'PACKAGE_PURCHASE',
+      metadataJson: { chargeId, processorIntentId, processor, sessionCount },
+      createdByUserId: req.user.id
+    });
+
+    return res.json({ ok: true, chargeId, processor, totalCents, tokensGranted: sessionCount });
   } catch (e) {
     next(e);
   }

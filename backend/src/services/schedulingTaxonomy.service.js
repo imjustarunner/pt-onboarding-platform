@@ -13,15 +13,6 @@ const FALLBACK_APPOINTMENT_TYPES = [
   { code: 'INDIRECT_SERVICES', label: 'Indirect Services', colorToken: 'indirect', sortOrder: 80 }
 ];
 
-const FALLBACK_APPOINTMENT_SUBTYPES = [
-  { code: 'AVAILABLE_INTAKE', appointmentTypeCode: 'AVAILABLE_SLOT', label: 'Available Intake', sortOrder: 10 },
-  { code: 'AVAILABLE_SESSION', appointmentTypeCode: 'AVAILABLE_SLOT', label: 'Available Session', sortOrder: 20 },
-  { code: 'PERSONAL', appointmentTypeCode: 'EVENT', label: 'Personal', sortOrder: 10 },
-  { code: 'SCHEDULE_HOLD', appointmentTypeCode: 'EVENT', label: 'Schedule Hold', sortOrder: 20 },
-  { code: 'GROUP_THERAPY', appointmentTypeCode: 'SESSION', label: 'Group Therapy', sortOrder: 30 },
-  { code: 'TELEHEALTH', appointmentTypeCode: 'SESSION', label: 'Telehealth', sortOrder: 40 }
-];
-
 const FALLBACK_SERVICE_CODES = [
   { code: 'H0032', label: 'Mental health service plan development', isBillable: true, defaultNoteType: 'PROGRESS_NOTE', minDurationMinutes: null },
   { code: 'H2014', label: 'Skills training and development', isBillable: true, defaultNoteType: 'PROGRESS_NOTE', minDurationMinutes: null },
@@ -29,7 +20,18 @@ const FALLBACK_SERVICE_CODES = [
   { code: '90832', label: 'Psychotherapy, 30 minutes', isBillable: true, defaultNoteType: 'PROGRESS_NOTE', minDurationMinutes: 16 },
   { code: '90834', label: 'Psychotherapy, 45 minutes', isBillable: true, defaultNoteType: 'PROGRESS_NOTE', minDurationMinutes: 38 },
   { code: '90837', label: 'Psychotherapy, 60 minutes', isBillable: true, defaultNoteType: 'PROGRESS_NOTE', minDurationMinutes: 53 },
+  { code: 'TUTORING', label: 'Tutoring Session', isBillable: true, defaultNoteType: null, minDurationMinutes: null },
   { code: 'ADMIN', label: 'Administrative/Non-billable', isBillable: false, defaultNoteType: 'ADMIN_NOTE', minDurationMinutes: null }
+];
+
+const FALLBACK_APPOINTMENT_SUBTYPES = [
+  { code: 'AVAILABLE_INTAKE', appointmentTypeCode: 'AVAILABLE_SLOT', label: 'Available Intake', sortOrder: 10 },
+  { code: 'AVAILABLE_SESSION', appointmentTypeCode: 'AVAILABLE_SLOT', label: 'Available Session', sortOrder: 20 },
+  { code: 'PERSONAL', appointmentTypeCode: 'EVENT', label: 'Personal', sortOrder: 10 },
+  { code: 'SCHEDULE_HOLD', appointmentTypeCode: 'EVENT', label: 'Schedule Hold', sortOrder: 20 },
+  { code: 'GROUP_THERAPY', appointmentTypeCode: 'SESSION', label: 'Group Therapy', sortOrder: 30 },
+  { code: 'TELEHEALTH', appointmentTypeCode: 'SESSION', label: 'Telehealth', sortOrder: 40 },
+  { code: 'TUTORING', appointmentTypeCode: 'SESSION', label: 'Tutoring', sortOrder: 50 }
 ];
 
 const DIRECT_SERVICE_APPOINTMENT_TYPES = new Set(['SESSION', 'ASSESSMENT']);

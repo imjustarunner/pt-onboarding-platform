@@ -523,12 +523,17 @@ async function bookOfficeEventForPublicRequest({ requestRow, actorUserId }) {
     if (!check || String(check.slot_state || '').toUpperCase() !== 'ASSIGNED_AVAILABLE') return null;
 
     const clientId = Number(requestRow?.created_client_id || requestRow?.matched_client_id || 0) || null;
-    const modality = String(requestRow?.modality || 'IN_PERSON').toUpperCase();
+    const rawModality = String(requestRow?.modality || 'IN_PERSON').toUpperCase();
+    const serviceType = String(requestRow?.service_type || '').toLowerCase();
+    const modality = rawModality === 'VIRTUAL' ? 'TELEHEALTH' : 'IN_PERSON';
 
     await OfficeEvent.markBooked({
       eventId,
       bookedProviderId: providerId,
-      modality
+      modality,
+      appointmentTypeCode: 'SESSION',
+      appointmentSubtypeCode: serviceType === 'tutoring' ? 'TUTORING' : null,
+      serviceCode: serviceType === 'tutoring' ? 'TUTORING' : null
     });
 
     // Link the client to this event if we have one

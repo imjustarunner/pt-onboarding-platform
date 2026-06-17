@@ -3402,7 +3402,9 @@ router.beforeEach(async (to, from, next) => {
     if (String(authStore.user?.role || '').toLowerCase() === 'client_guardian') {
       const p = String(to.path || '');
       const isGuardianPath = p === '/guardian' || p.endsWith('/guardian') || p.includes('/guardian/');
-      if (!isGuardianPath) {
+      const GUARDIAN_ALLOWED_EXTERNAL = ['/tutoring-session/', '/in-person-tutoring-session/'];
+      const pathOk = isGuardianPath || GUARDIAN_ALLOWED_EXTERNAL.some((prefix) => p.includes(prefix));
+      if (!pathOk) {
         next(getDashboardRoute());
         return;
       }
