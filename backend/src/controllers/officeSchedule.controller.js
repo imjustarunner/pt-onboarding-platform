@@ -4141,3 +4141,89 @@ export const runAllLocationsCoverageAudit = async (req, res, next) => {
     next(e);
   }
 };
+
+/**
+ * GET /office-schedule/provider-schedule-list?userId=X
+ * Returns all active standing office assignments for the given provider (list view).
+ * Admins/staff can query any userId; regular users can only query themselves.
+ */
+export const getProviderScheduleList = async (req, res, next) => {
+  try {
+    const isManager = canManageSchedule(req.user?.role);
+    let targetUserId = Number(req.query.userId || req.user.id);
+    if (!isManager) targetUserId = Number(req.user.id);
+    if (!targetUserId) return res.status(400).json({ error: 'Invalid userId' });
+
+    const [[userRow], [assignments]] = await Promise.all([
+      pool.execute(`SELECT first_name, last_name FROM users WHERE id = ? LIMIT 1`, [targetUserId]),
+      pool.execute(
+        `SELECT
+           a.id,
+           a.office_location_id,
+           a.room_id,
+           a.weekday,
+           a.hour,
+           a.assigned_frequency,
+           a.availability_mode,
+           a.available_since_date,
+           a.temporary_until_date,
+           a.is_active,
+           r.name  AS room_name,
+           r.room_number,
+           r.label AS room_label,
+           ol.name AS office_name
+         FROM office_standing_assignments a
+         JOIN office_rooms r         ON r.id  = a.room_id
+         JOIN office_locations ol    ON ol.id = a.office_location_id
+         WHERE a.provider_id = ?
+           AND a.is_active   = TRUE
+         ORDER BY ol.name ASC, a.weekday ASC, a.hour ASC`,
+        [targetUserId]
+      )
+    ]);
+
+    const user = userRow[0] || null;
+    const userName = user ? `${user.first_name || ''} ${user.last_name || ''}`.trim() : '';
+
+    const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const freqLabel = (f) => {
+      if (f === 'WEEKLY') return 'Weekly';
+      if (f === 'BIWEEKLY') return 'Biweekly';
+      return f || '';
+    };
+    const hourToLabel = (h) => {
+      const n = Number(h);
+      if (!Number.isFinite(n)) return '';
+      if (n === 0) return '12 AM';
+      if (n < 12) return `${n} AM`;
+      if (n === 12) return '12 PM';
+      return `${n - 12} PM`;
+    };
+
+    return res.json({
+      userId: targetUserId,
+      userName,
+      assignments: (assignments || []).map((a) => ({
+        id: a.id,
+        officeLocationId: a.office_location_id,
+        officeName: a.office_name || '',
+        roomId: a.room_id,
+        roomName: a.room_name || '',
+        roomNumber: a.room_number || null,
+        roomLabel: a.room_label || a.room_name || '',
+        weekday: Number(a.weekday),
+        weekdayName: WEEKDAY_NAMES[Number(a.weekday)] || `Day ${a.weekday}`,
+        hour: Number(a.hour),
+        hourLabel: hourToLabel(a.hour),
+        assignedFrequency: String(a.assigned_frequency || '').toUpperCase(),
+        frequencyLabel: freqLabel(String(a.assigned_frequency || '').toUpperCase()),
+        availabilityMode: String(a.availability_mode || '').toUpperCase(),
+        availableSinceDate: a.available_since_date ? String(a.available_since_date).slice(0, 10) : null,
+        temporaryUntilDate: a.temporary_until_date ? String(a.temporary_until_date).slice(0, 10) : null,
+        isActive: Boolean(a.is_active)
+      }))
+    });
+  } catch (e) {
+    next(e);
+  }
+};

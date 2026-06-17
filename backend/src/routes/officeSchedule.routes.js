@@ -37,7 +37,8 @@ import {
   getEhrSyncHealthEndpoint,
   runCoverageAudit,
   runAllLocationsCoverageAudit,
-  debugEventsForWeek
+  debugEventsForWeek,
+  getProviderScheduleList
 } from '../controllers/officeSchedule.controller.js';
 
 const router = express.Router();
@@ -101,6 +102,8 @@ router.post('/admin/coverage-flags/:eventId/release', releaseCoverageFlag);
 router.get('/admin/ehr-sync-health', getEhrSyncHealthEndpoint);
 router.post('/locations/:locationId/run-coverage-audit', runCoverageAudit);
 router.get('/locations/:locationId/debug-events', debugEventsForWeek);
+// Provider schedule list: all active standing assignments for a given user (used by Schedule List card)
+router.get('/provider-schedule-list', getProviderScheduleList);
 // Trigger all-locations coverage audit manually (used by admin Coverage Flags page)
 router.post('/watchdog/run-coverage-audit', runAllLocationsCoverageAudit);
 

@@ -63,6 +63,21 @@ export const SCHEDULE_VIEWS = [
       iconBg: '#fef3c7',
     },
   },
+  {
+    id: 'schedule_list',
+    title: 'Schedule list',
+    navLabel: 'Schedule list',
+    description: 'All office bookings in a sortable list view.',
+    statLabel: 'Schedule list',
+    statHint: 'All bookings',
+    icon: 'list',
+    visibleKey: 'scheduleList',
+    theme: {
+      accent: '#0284c7',
+      icon: '#0369a1',
+      iconBg: '#e0f2fe',
+    },
+  },
 ];
 
 const BY_ID = Object.fromEntries(SCHEDULE_VIEWS.map((v) => [v.id, v]));

@@ -569,11 +569,59 @@
       </div>
     </template>
 
+    <!-- Read-only slot info modal for non-admin users viewing someone else's booked slot -->
+    <div v-if="showSlotInfoModal" class="modal-backdrop modal-backdrop--request" @click.self="showSlotInfoModal = false">
+      <div class="modal modal--slot-info">
+        <div class="modal-head">
+          <div class="modal-title">Office booking info</div>
+          <button class="btn btn-secondary btn-sm" type="button" @click="showSlotInfoModal = false">Close</button>
+        </div>
+        <div class="slot-info-card" v-if="slotInfoModalData">
+          <div class="slot-info-row">
+            <span class="slot-info-label">Room</span>
+            <span class="slot-info-value">{{ slotInfoModalData.roomLabel }}</span>
+          </div>
+          <div class="slot-info-row">
+            <span class="slot-info-label">Booked by</span>
+            <span class="slot-info-value slot-info-value--provider">{{ slotInfoModalData.providerLabel || '—' }}</span>
+          </div>
+          <div class="slot-info-row" v-if="slotInfoModalData.slot?.assignedFrequency || slotInfoModalData.slot?.frequencyLabel">
+            <span class="slot-info-label">Schedule</span>
+            <span class="slot-info-value">
+              {{ slotInfoModalData.slot?.frequencyLabel || (slotInfoModalData.slot?.assignedFrequency === 'WEEKLY' ? 'Weekly' : slotInfoModalData.slot?.assignedFrequency === 'BIWEEKLY' ? 'Biweekly' : slotInfoModalData.slot?.assignedFrequency || '—') }}
+            </span>
+          </div>
+          <div class="slot-info-row" v-if="slotInfoModalData.slot?.appointmentType && slotInfoModalData.slot?.appointmentType !== 'NONE'">
+            <span class="slot-info-label">Session type</span>
+            <span class="slot-info-value">{{ slotInfoModalData.slot.appointmentType }}</span>
+          </div>
+          <div class="slot-info-row">
+            <span class="slot-info-label">Status</span>
+            <span class="slot-info-value slot-info-status" :class="`slot-info-status--${slotInfoModalData.state}`">{{ slotInfoModalData.statusLabel }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-if="showRequestModal" class="modal-backdrop modal-backdrop--request" @click.self="closeModal">
       <div class="modal modal--request">
         <div class="modal-head">
           <div class="modal-title">Request / book time</div>
           <button class="btn btn-secondary btn-sm" type="button" @click="closeModal">Close</button>
+        </div>
+        <!-- Admin slot info header: shows booked provider info when viewing another user's slot -->
+        <div v-if="isAdminMode && modalContext.assignedProviderId && (modalContext.assignedProviderName || modalContext.bookedProviderName)" class="admin-slot-info-header">
+          <div class="admin-slot-info-row">
+            <span class="admin-slot-info-icon">👤</span>
+            <span><strong>{{ modalContext.bookedProviderName || modalContext.assignedProviderName }}</strong></span>
+            <span v-if="modalContext.frequencyLabel" class="admin-slot-info-pill">{{ modalContext.frequencyLabel }}</span>
+            <span v-if="modalContext.assignmentAvailabilityMode" class="admin-slot-info-pill admin-slot-info-pill--mode">{{ modalContext.assignmentAvailabilityMode === 'PERMANENT' ? 'Permanent' : 'Temporary' }}</span>
+            <span v-if="modalContext.appointmentType && modalContext.appointmentType !== 'NONE'" class="admin-slot-info-pill admin-slot-info-pill--type">{{ modalContext.appointmentType }}</span>
+          </div>
+          <div v-if="modalContext.assignmentAvailableSinceDate" class="admin-slot-info-dates">
+            Active since {{ modalContext.assignmentAvailableSinceDate }}
+            <template v-if="modalContext.assignmentTemporaryUntilDate"> · Until {{ modalContext.assignmentTemporaryUntilDate }}</template>
+          </div>
         </div>
 
         <div class="muted" style="margin-top: 6px;">
@@ -2518,6 +2566,26 @@ const dayNameForDateYmd = (dateYmd) => {
 };
 
 const onOfficeLayoutCellClick = ({ dateYmd, hour, roomId, slot, event }) => {
+  // If a non-admin clicks someone else's booked slot in the office layout, show read-only info.
+  if (!isAdminMode.value) {
+    const currentUserId = Number(authStore.user?.id || 0);
+    const st = String(slot?.state || slot?.slotState || '').toLowerCase();
+    const isOtherPersonsBooked = st === 'assigned_booked' && currentUserId > 0
+      && Number(slot?.bookedProviderId || slot?.assignedProviderId || 0) !== currentUserId;
+    if (isOtherPersonsBooked) {
+      const roomName = String(slot?.roomLabel || slot?.room_label || `Room ${roomId}`).trim();
+      const providerName = String(slot?.bookedProviderFullName || slot?.bookedProviderName || slot?.assignedProviderFullName || slot?.assignedProviderName || slot?.providerInitials || '').trim() || '—';
+      slotInfoModalData.value = {
+        roomLabel: roomName,
+        providerLabel: providerName,
+        state: st,
+        statusLabel: 'Booked',
+        slot,
+      };
+      showSlotInfoModal.value = true;
+      return;
+    }
+  }
   if (!canBookFromGrid.value) return;
   const dn = dayNameForDateYmd(dateYmd);
   if (!dn) return;
@@ -4027,6 +4095,8 @@ const clearSelectedActionSlots = () => {
 
 // ---- In-grid request creation (self mode) ----
 const showRequestModal = ref(false);
+const showSlotInfoModal = ref(false);
+const slotInfoModalData = ref(null);
 const modalDay = ref('Monday');
 const modalHour = ref(7);
 const modalStartHour = ref(7);
@@ -4165,7 +4235,8 @@ const availableQuickActions = computed(() => {
   const booked = state === 'ASSIGNED_BOOKED';
   const schoolWindowOk = canUseSchool(modalDay.value, modalHour.value, modalEndHour.value);
   const supervisionOptionVisible = canScheduleSupervisionFromGrid.value;
-  const supervisionOnlyMode = isViewingOtherUserSchedule.value;
+  // Admins with office-management rights can still see all office actions when viewing another user's schedule.
+  const supervisionOnlyMode = isViewingOtherUserSchedule.value && !canManageOffices.value;
   const hasClinicalOrLearningOrg = effectiveAgencyFeatureFlags.value.hasClinicalOrg || effectiveAgencyFeatureFlags.value.hasLearningOrg;
   return [
     {
@@ -5251,7 +5322,10 @@ const buildModalContext = ({ dayName, hour, roomId = 0, slot = null, dateYmd = n
     assignmentTemporaryExtensionCount: Number(slot?.assignmentTemporaryExtensionCount ?? top?.assignmentTemporaryExtensionCount ?? 0),
     slotState: rawState,
     virtualIntakeEnabled: (slot?.virtualIntakeEnabled === true) || (top?.virtualIntakeEnabled === true),
-    inPersonIntakeEnabled: (slot?.inPersonIntakeEnabled === true) || (top?.inPersonIntakeEnabled === true)
+    inPersonIntakeEnabled: (slot?.inPersonIntakeEnabled === true) || (top?.inPersonIntakeEnabled === true),
+    assignedProviderName: String(slot?.assignedProviderFullName || slot?.assignedProviderName || top?.assignedProviderFullName || top?.assignedProviderName || '').trim() || null,
+    bookedProviderName: String(slot?.bookedProviderFullName || slot?.bookedProviderName || top?.bookedProviderFullName || top?.bookedProviderName || '').trim() || null,
+    appointmentType: String(slot?.appointmentType || top?.appointmentType || '').trim().toUpperCase() || null,
   };
 };
 
@@ -5708,7 +5782,8 @@ const quickGlanceRows = computed(() => {
     const providerLabel = String(slot?.bookedProviderName || slot?.assignedProviderName || slot?.providerInitials || '').trim() || '—';
     const roomLabel = `${r?.roomNumber ? `#${r.roomNumber} ` : ''}${r?.label || r?.name || `Room ${r?.id || ''}`}`.trim();
     const bookedByMe = st === 'assigned_booked' && currentUserId > 0 && Number(slot?.bookedProviderId || 0) === currentUserId;
-    const isClickable = st !== 'assigned_booked' || bookedByMe;
+    // Non-admin clicking someone else's booked slot → clickable but view-only info panel.
+    const isViewOnlySlot = st === 'assigned_booked' && !bookedByMe && !isAdminMode.value;
     return {
       roomId: Number(r.id),
       roomLabel,
@@ -5717,7 +5792,8 @@ const quickGlanceRows = computed(() => {
       providerLabel,
       hasPendingRequest: pending > 0,
       slot,
-      isClickable
+      isClickable: true,
+      isViewOnlySlot
     };
   });
   const filter = String(quickGlanceStateFilter.value || 'all');
@@ -5733,7 +5809,18 @@ const quickGlanceRows = computed(() => {
 });
 
 const onQuickGlanceRowClick = (row) => {
-  if (!row?.isClickable) return;
+  // Non-admin viewing someone else's booked slot → read-only info panel.
+  if (row?.isViewOnlySlot) {
+    slotInfoModalData.value = {
+      roomLabel: row.roomLabel,
+      providerLabel: row.providerLabel,
+      state: row.state,
+      statusLabel: row.statusLabel,
+      slot: row.slot,
+    };
+    showSlotInfoModal.value = true;
+    return;
+  }
   const dateYmd = String(quickGlanceDateYmd.value || '').slice(0, 10);
   const hour = Number(quickGlanceHour.value || 0);
   const dayName = dayNameForDateYmd(dateYmd);
@@ -9582,6 +9669,90 @@ defineExpose({ resetToOpenFinder });
 }
 .agenda-draft-list .btn-ghost:hover {
   color: #1f2937;
+}
+
+/* Read-only slot info modal (regular user viewing another's booking) */
+.modal--slot-info {
+  max-width: 380px;
+}
+.slot-info-card {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.slot-info-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.slot-info-label {
+  min-width: 90px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+}
+.slot-info-value {
+  font-size: 15px;
+  color: #111827;
+}
+.slot-info-value--provider {
+  font-weight: 600;
+  color: #166534;
+}
+.slot-info-status {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.slot-info-status--assigned_booked { background: #fee2e2; color: #991b1b; }
+.slot-info-status--assigned_available { background: #dcfce7; color: #166534; }
+.slot-info-status--assigned_temporary { background: #fef3c7; color: #92400e; }
+.slot-info-status--open { background: #f3f4f6; color: #374151; }
+
+/* Admin slot info header inside the request modal */
+.admin-slot-info-header {
+  margin: 10px 0 6px;
+  padding: 10px 14px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+}
+.admin-slot-info-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 14px;
+}
+.admin-slot-info-icon {
+  font-size: 16px;
+}
+.admin-slot-info-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #dcfce7;
+  color: #166534;
+}
+.admin-slot-info-pill--mode {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.admin-slot-info-pill--type {
+  background: #f3e8ff;
+  color: #7e22ce;
+}
+.admin-slot-info-dates {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #6b7280;
 }
 </style>
 

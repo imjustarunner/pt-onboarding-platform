@@ -685,7 +685,7 @@
               <div v-if="!providerSurfacesEnabled" class="hint" style="margin-top: 8px;">
                 Scheduling is disabled for this organization.
               </div>
-              <div v-else-if="scheduleViewMode !== 'self' && !currentAgencyId" class="hint" style="margin-top: 8px;">
+              <div v-else-if="scheduleViewMode !== 'self' && scheduleViewMode !== 'schedule_list' && !currentAgencyId" class="hint" style="margin-top: 8px;">
                 Select an organization to view your schedule.
               </div>
               <div v-else-if="scheduleViewAsRequiresOrg && !currentAgencyId" class="hint" style="margin-top: 8px;">
@@ -706,6 +706,9 @@
                 :hide-google-and-therapy-notes="isClubContext"
                 @update:weekStartYmd="onScheduleWeekStartUpdate"
               />
+              <div v-else-if="scheduleViewMode === 'schedule_list'" class="psl-panel-wrap">
+                <ProviderScheduleList :user-id="scheduleGridUserId" />
+              </div>
               <ScheduleAvailabilityGrid
                 ref="scheduleGridRef"
                 v-else-if="authStore.user?.id && scheduleGridUserId && !(scheduleViewAsRequiresOrg && !currentAgencyId)"
@@ -1049,6 +1052,7 @@ import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilit
 import CompanyEventsCalendarModal from '../components/schedule/CompanyEventsCalendarModal.vue';
 import PersonSearchSelect from '../components/schedule/PersonSearchSelect.vue';
 import ScheduleMultiUserOverlayGrid from '../components/schedule/ScheduleMultiUserOverlayGrid.vue';
+import ProviderScheduleList from '../components/schedule/ProviderScheduleList.vue';
 import MyPayrollTab from '../components/dashboard/MyPayrollTab.vue';
 import SubmitPanelTab from '../components/dashboard/SubmitPanelTab.vue';
 import MyAccountTab from '../components/dashboard/MyAccountTab.vue';
@@ -1423,6 +1427,7 @@ const scheduleHubViews = computed(() => {
     supervisee: isSupervisor(authStore.user),
     employees: canPickEmployeeSchedule.value,
     skillBuilders: sbCount > 0,
+    scheduleList: canPickEmployeeSchedule.value,
   };
   return SCHEDULE_VIEWS.filter((view) => {
     if (!view.visibleKey) return true;
@@ -1443,7 +1448,7 @@ const onScheduleHubSelectView = (viewId) => {
     onMyScheduleClick();
     return;
   }
-  if (viewId === 'supervisee' || viewId === 'employees') {
+  if (viewId === 'supervisee' || viewId === 'employees' || viewId === 'schedule_list') {
     scheduleViewMode.value = viewId;
   }
 };
@@ -2574,6 +2579,10 @@ const scheduleViewHeadline = computed(() => {
   if (scheduleViewMode.value === 'employees') {
     const name = scheduleSubjectDisplayName.value || 'Employee';
     return `${name}'s schedule`;
+  }
+  if (scheduleViewMode.value === 'schedule_list') {
+    const name = scheduleSubjectDisplayName.value || (isViewingAnotherUserOnMySchedule.value ? 'Team member' : null);
+    return name ? `${name}'s bookings` : 'Schedule list';
   }
   if (isViewingAnotherUserOnMySchedule.value) {
     const name = scheduleSubjectDisplayName.value || 'Team member';
