@@ -6286,6 +6286,23 @@ export const finalizePublicIntake = async (req, res, next) => {
     let createdClients = [];
     let returningAutoMatchInitialsForEmail = '';
     if (link.create_client) {
+      // Retry guard: the submission status is written 'submitted' before PDF
+      // generation completes (see updateById above). If finalize fails after
+      // client creation but before the PDF is saved, a subsequent retry falls
+      // through the idempotent check (no PDF yet) and would create a second set
+      // of duplicate clients. Guard against this by reusing the client that was
+      // already linked to the submission on a prior attempt.
+      if (updatedSubmission.client_id) {
+        const retryClient = await Client.findById(updatedSubmission.client_id, { includeSensitive: true });
+        if (retryClient?.id) {
+          createdClients = [retryClient];
+          console.info('[publicIntake] finalize retry: reusing existing client, skipping creation', {
+            submissionId,
+            clientId: retryClient.id
+          });
+        }
+      }
+      if (!createdClients.length) {
       const attachInfo = await resolveIntakeExistingClientAttach({
         link,
         intakeData,
@@ -6429,6 +6446,7 @@ export const finalizePublicIntake = async (req, res, next) => {
           guardian_user_id: guardianUser?.id || null
         });
       }
+      } // end if (!createdClients.length)
     }
 
     const signedDocs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
