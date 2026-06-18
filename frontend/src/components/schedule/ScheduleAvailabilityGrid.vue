@@ -16,6 +16,7 @@
             <button
               type="button"
               class="sched-office-cta"
+              :class="{ 'sched-office-cta--active': viewMode === 'office_layout' }"
               :disabled="loading || officeGridLoading"
               data-tour="my-schedule-request-office-cta"
               @click="openQuickOfficeRoomRequest"
@@ -9004,15 +9005,24 @@ defineExpose({ resetToOpenFinder });
   color: #fff;
   cursor: pointer;
   box-shadow: 0 4px 14px rgba(22, 101, 52, 0.28);
-  transition: transform 0.12s, box-shadow 0.15s, filter 0.15s;
+  transition: transform 0.12s, box-shadow 0.15s, filter 0.15s, background 0.2s;
   text-align: left;
   max-width: 100%;
+}
+
+.sched-office-cta--active {
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
+  box-shadow: 0 4px 14px rgba(29, 78, 216, 0.28);
 }
 
 .sched-office-cta:hover:not(:disabled) {
   filter: brightness(1.05);
   box-shadow: 0 6px 18px rgba(22, 101, 52, 0.34);
   transform: translateY(-1px);
+}
+
+.sched-office-cta--active:hover:not(:disabled) {
+  box-shadow: 0 6px 18px rgba(29, 78, 216, 0.34);
 }
 
 .sched-office-cta:focus-visible {

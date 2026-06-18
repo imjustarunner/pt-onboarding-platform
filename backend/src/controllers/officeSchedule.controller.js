@@ -904,18 +904,16 @@ export const getWeeklyGrid = async (req, res, next) => {
     const rooms = await OfficeRoom.findByLocation(parseInt(locationId));
 
     // Materialize office_events rows for assigned slots in this week (so kiosk has stable event IDs).
-    // Wrapped in try/catch: a transient DB connection drop must not prevent the grid from loading
-    // existing events — it just means this week might not have new events yet.
-    try {
-      await OfficeScheduleMaterializer.materializeWeek({
-        officeLocationId: parseInt(locationId),
-        weekStartRaw: weekStart,
-        useExactWeekStart: true,
-        createdByUserId: req.user.id
-      });
-    } catch (materializeErr) {
-      console.warn('[getWeeklyGrid] materializeWeek failed (DB hiccup?); loading existing events:', materializeErr?.message || materializeErr);
-    }
+    // Fire-and-forget: run in the background so the grid responds immediately from existing DB rows.
+    // The next page refresh (or automatic 15-second cache expiry) picks up any newly materialized events.
+    OfficeScheduleMaterializer.materializeWeek({
+      officeLocationId: parseInt(locationId),
+      weekStartRaw: weekStart,
+      useExactWeekStart: true,
+      createdByUserId: req.user.id
+    }).catch((materializeErr) => {
+      console.warn('[getWeeklyGrid] background materializeWeek failed:', materializeErr?.message || materializeErr);
+    });
 
     const officeLocationIdNum = parseInt(locationId);
     const events = await OfficeEvent.listForOfficeWindow({ officeLocationId: officeLocationIdNum, startAt: windowStart, endAt: windowEnd });
@@ -1119,6 +1117,16 @@ export const getWeeklyGrid = async (req, res, next) => {
     }
 
     const slots = [];
+
+    // Remove null/undefined/false fields to shrink JSON payload.
+    // The frontend treats any missing key as null/false already.
+    const compact = (obj) => {
+      const out = {};
+      for (const [k, v] of Object.entries(obj)) {
+        if (v !== null && v !== undefined && v !== false) out[k] = v;
+      }
+      return out;
+    };
     for (const room of rooms) {
       for (const date of days) {
         for (const hour of hours) {
@@ -1699,7 +1707,7 @@ export const getWeeklyGrid = async (req, res, next) => {
         roomNumber: r.room_number ?? null,
         label: r.label ?? null
       })),
-      slots,
+      slots: slots.map(compact),
       cancelledGoogleEvents,
       diagnostics: {
         duplicateRoomSlotConflictCount: conflictSlotsByKey.size,
