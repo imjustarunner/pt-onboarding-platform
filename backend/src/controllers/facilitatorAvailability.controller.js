@@ -453,7 +453,9 @@ export const listMyPending = async (req, res, next) => {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: { message: 'Unauthenticated' } });
 
-    // Active requests for agencies this user belongs to, with no submitted submission yet
+    // Active requests for agencies this user belongs to, with no submitted submission yet.
+    // Exclude requests whose deadline has already passed — past-deadline requests
+    // no longer require action even if the admin hasn't manually closed them.
     const [rows] = await pool.execute(
       `SELECT r.id, r.title, r.subtitle, r.deadline, r.agency_id, r.on_call_enabled,
               s.id AS submission_id, s.submitted_at
@@ -462,6 +464,7 @@ export const listMyPending = async (req, res, next) => {
        LEFT JOIN facilitator_availability_submissions s ON s.request_id = r.id AND s.user_id = ?
        WHERE r.status = 'active'
          AND (s.id IS NULL OR s.submitted_at IS NULL)
+         AND (r.deadline IS NULL OR r.deadline > NOW())
        ORDER BY r.created_at DESC`,
       [userId, userId]
     );
