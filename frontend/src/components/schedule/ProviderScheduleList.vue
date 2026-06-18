@@ -57,8 +57,8 @@
               </span>
             </td>
             <td class="psl__td psl__td--mode">
-              <span class="psl__mode-pill" :class="row.availabilityMode === 'PERMANENT' ? 'psl__mode-pill--perm' : 'psl__mode-pill--temp'">
-                {{ row.availabilityMode === 'PERMANENT' ? 'Permanent' : 'Temporary' }}
+              <span class="psl__mode-pill" :class="modePillClass(row.availabilityMode)">
+                {{ modeLabel(row.availabilityMode) }}
               </span>
             </td>
             <td class="psl__td psl__td--since">
@@ -157,6 +157,26 @@ const load = async () => {
     error.value = e?.response?.data?.error || 'Failed to load schedule list.';
   } finally {
     loading.value = false;
+  }
+};
+
+const modeLabel = (mode) => {
+  switch (String(mode || '').toUpperCase()) {
+    case 'AVAILABLE':    return 'Active';
+    case 'TEMPORARY':   return 'Temporary';
+    case 'PERMANENT':   return 'Permanent';
+    case 'COMPANY_HOLD':return 'Company hold';
+    default:            return mode || '—';
+  }
+};
+
+const modePillClass = (mode) => {
+  switch (String(mode || '').toUpperCase()) {
+    case 'AVAILABLE':    return 'psl__mode-pill--active';
+    case 'TEMPORARY':   return 'psl__mode-pill--temp';
+    case 'PERMANENT':   return 'psl__mode-pill--perm';
+    case 'COMPANY_HOLD':return 'psl__mode-pill--hold';
+    default:            return 'psl__mode-pill--temp';
   }
 };
 
@@ -355,6 +375,16 @@ watch(() => props.userId, load, { immediate: true });
 .psl__mode-pill--temp {
   background: #fef3c7;
   color: #92400e;
+}
+
+.psl__mode-pill--active {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.psl__mode-pill--hold {
+  background: #f3e8ff;
+  color: #6b21a8;
 }
 
 .psl__date {
