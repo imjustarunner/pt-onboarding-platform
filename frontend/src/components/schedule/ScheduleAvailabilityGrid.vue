@@ -19,10 +19,13 @@
               :class="{ 'sched-office-cta--active': viewMode === 'office_layout' }"
               :disabled="loading || officeGridLoading"
               data-tour="my-schedule-request-office-cta"
-              @click="openQuickOfficeRoomRequest"
+              @click="viewMode === 'office_layout' ? viewMode = 'open_finder' : openQuickOfficeRoomRequest()"
             >
               <span class="sched-office-cta-icon" aria-hidden="true">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg v-if="viewMode === 'office_layout'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M19 12H5" /><path d="M12 19l-7-7 7-7" />
+                </svg>
+                <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M3 21h18" />
                   <path d="M5 21V7l8-4v18" />
                   <path d="M19 21V11l-6-4" />
@@ -30,8 +33,8 @@
                 </svg>
               </span>
               <span class="sched-office-cta-copy">
-                <span class="sched-office-cta-title">Request office or room</span>
-                <span class="sched-office-cta-sub">Submit a time for staff approval</span>
+                <span class="sched-office-cta-title">{{ viewMode === 'office_layout' ? 'My Schedule' : 'Request office or room' }}</span>
+                <span class="sched-office-cta-sub">{{ viewMode === 'office_layout' ? 'Back to your personal calendar' : 'Submit a time for staff approval' }}</span>
               </span>
             </button>
             <div class="sched-view-switch" role="tablist" aria-label="Schedule view" data-tour="my-schedule-view-switch">
