@@ -750,7 +750,7 @@ async function loadCompanyEventProviderOptionsForEvent(eventId, agencyId) {
      WHERE ua.agency_id = ?
        AND (u.is_active IS NULL OR u.is_active = TRUE)
        AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-       AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','INACTIVE_EMPLOYEE','PROSPECTIVE'))
+       AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
        AND ${AGENCY_PROVIDER_LIKE_SQL}
      ORDER BY u.last_name ASC, u.first_name ASC`,
     [agencyId]

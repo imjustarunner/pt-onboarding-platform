@@ -166,7 +166,7 @@ class SupervisorAssignment {
          AND sa.agency_id = ?
          AND (u.is_archived IS NULL OR u.is_archived = FALSE)
          AND (u.is_active IS NULL OR u.is_active = TRUE)
-         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))`,
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))`,
       [sv, aid]
     );
     return [...new Set((rows || []).map((r) => Number(r.supervisor_id)).filter((n) => Number.isInteger(n) && n > 0))];

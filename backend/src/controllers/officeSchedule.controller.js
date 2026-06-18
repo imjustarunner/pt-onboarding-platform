@@ -819,7 +819,7 @@ export const listLocationProviders = async (req, res, next) => {
          WHERE (uol.user_id IS NOT NULL OR ola.office_location_id IS NOT NULL)
            AND (u.is_active IS NULL OR u.is_active = TRUE)
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
            AND (
              u.role IN ('provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant', 'admin', 'super_admin', 'staff')
              OR (u.has_provider_access = TRUE)
@@ -848,7 +848,7 @@ export const listLocationProviders = async (req, res, next) => {
          WHERE ola.office_location_id = ?
            AND (u.is_active IS NULL OR u.is_active = TRUE)
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
            AND (
              u.role IN ('provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant', 'admin', 'super_admin', 'staff')
              OR (u.has_provider_access = TRUE)

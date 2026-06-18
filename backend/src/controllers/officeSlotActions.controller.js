@@ -2745,6 +2745,16 @@ export const staffAssignOpenSlot = async (req, res, next) => {
     const user = await User.findById(assignedUserId);
     if (!user) return res.status(404).json({ error: { message: 'Assigned user not found' } });
 
+    const userStatus = String(user.status || '').toUpperCase();
+    const blockedStatuses = ['ARCHIVED', 'INACTIVE_EMPLOYEE', 'TERMINATED_PENDING', 'PROSPECTIVE'];
+    if (blockedStatuses.includes(userStatus)) {
+      return res.status(400).json({
+        error: {
+          message: `Cannot assign office to ${user.first_name} ${user.last_name} — their account status is ${userStatus.replace('_', ' ').toLowerCase()}.`
+        }
+      });
+    }
+
     // Avoid double-booking a room. Block if ANY assignment/event overlaps the requested window.
     try {
       const [aRows] = await pool.execute(

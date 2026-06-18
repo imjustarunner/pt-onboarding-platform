@@ -3248,7 +3248,7 @@ export const listProvidersForAvailability = async (req, res, next) => {
          WHERE ua.agency_id = ?
            AND (u.is_active IS NULL OR u.is_active = TRUE)
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
            AND (
              u.role IN ('provider', 'supervisor', 'clinical_practice_assistant', 'admin', 'super_admin', 'staff', 'support')
              OR u.has_provider_access = TRUE
@@ -3268,7 +3268,7 @@ export const listProvidersForAvailability = async (req, res, next) => {
            AND (u.role IN ('provider') OR u.has_provider_access = TRUE)
            AND (u.is_active IS NULL OR u.is_active = TRUE)
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
          ORDER BY u.last_name ASC, u.first_name ASC`,
         [agencyId, req.user.id]
       );
@@ -3282,7 +3282,7 @@ export const listProvidersForAvailability = async (req, res, next) => {
            AND (u.role IN ('provider') OR u.has_provider_access = TRUE)
            AND (u.is_active IS NULL OR u.is_active = TRUE)
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
          ORDER BY u.last_name ASC, u.first_name ASC`,
         [agencyId]
       );
@@ -3393,7 +3393,7 @@ export const listIntakeAvailabilityCards = async (req, res, next) => {
          WHERE ua.agency_id = ?
            AND (u.is_active IS NULL OR u.is_active = TRUE)
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
            AND (
              u.role IN ('provider', 'supervisor', 'clinical_practice_assistant', 'admin', 'super_admin', 'staff', 'support')
              OR u.has_provider_access = TRUE
@@ -3524,7 +3524,7 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
        WHERE (u.role IN ('provider') OR u.has_provider_access = TRUE)
          AND (u.is_archived IS NULL OR u.is_archived = FALSE)
          AND (u.is_active IS NULL OR u.is_active = TRUE)
-         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
        ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
       [agencyId]
     );
@@ -3595,7 +3595,7 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
          )
          AND (u.is_archived IS NULL OR u.is_archived = FALSE)
          AND (u.is_active IS NULL OR u.is_active = TRUE)
-         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
        ORDER BY s.name ASC,
                 FIELD(psa.day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday') ASC,
                 u.last_name ASC, u.first_name ASC`,
@@ -3668,7 +3668,7 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
        WHERE ${officeWhere.join(' AND ')}
          AND (u.is_archived IS NULL OR u.is_archived = FALSE)
          AND (u.is_active IS NULL OR u.is_active = TRUE)
-         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
        ORDER BY ol.name ASC, u.last_name ASC, u.first_name ASC, osa.weekday ASC, osa.hour ASC`,
       [agencyId, ...officeParams]
     );
@@ -3732,7 +3732,7 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
          WHERE ${virtualWhere.join(' AND ')}
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
            AND (u.is_active IS NULL OR u.is_active = TRUE)
-           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
          ORDER BY u.last_name ASC, u.first_name ASC,
                   FIELD(v.day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'),
                   v.start_time ASC`,
@@ -3928,7 +3928,7 @@ export const hourlyWorkerDirectIndirectDashboard = async (req, res, next) => {
          AND (u.is_hourly_worker = 1 OR u.is_hourly_worker = TRUE OR u.is_hourly_worker = '1')
          AND (u.is_archived IS NULL OR u.is_archived = FALSE)
          AND (u.is_active IS NULL OR u.is_active = TRUE)
-         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
        ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
       [agencyId]
     );
@@ -4080,7 +4080,7 @@ export const agencyProviderNoNoteDraftUnpaidDashboard = async (req, res, next) =
        WHERE (u.role IN ('provider') OR u.has_provider_access = TRUE)
          AND (u.is_archived IS NULL OR u.is_archived = FALSE)
          AND (u.is_active IS NULL OR u.is_active = TRUE)
-         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
        ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
       [agencyId]
     );
@@ -4190,7 +4190,7 @@ export const providerAppTracker = async (req, res, next) => {
        WHERE (u.role IN ('provider') OR u.has_provider_access = TRUE)
          AND (u.is_archived IS NULL OR u.is_archived = FALSE)
          AND (u.is_active IS NULL OR u.is_active = TRUE)
-         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
        ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
       [agencyId]
     );

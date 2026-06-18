@@ -1976,7 +1976,7 @@ export async function executeToolCall({ req, toolCall }) {
        WHERE ua.agency_id = ?
          AND (u.is_active IS NULL OR u.is_active = TRUE)
          AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
          AND (
            u.role IN ('provider', 'supervisor', 'clinical_practice_assistant', 'provider_plus')
            OR u.has_provider_access = TRUE

@@ -114,7 +114,7 @@ class ProviderSearchIndex {
          WHERE ua.agency_id = ?
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
            AND (u.is_active IS NULL OR u.is_active = TRUE)
-           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
            AND (u.role IN ('provider') OR u.has_provider_access = TRUE)`,
         [aid]
       );
@@ -213,7 +213,7 @@ class ProviderSearchIndex {
       `ua.agency_id = ?`,
       `(u.is_archived IS NULL OR u.is_archived = FALSE)`,
       `(u.is_active IS NULL OR u.is_active = TRUE)`,
-      `(u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))`,
+      `(u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))`,
       `(u.role IN ('provider') OR u.has_provider_access = TRUE)`
     ];
 

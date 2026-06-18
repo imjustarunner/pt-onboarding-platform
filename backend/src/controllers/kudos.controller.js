@@ -809,7 +809,7 @@ export const getAdminKudosTracker = async (req, res, next) => {
          AND LOWER(COALESCE(u.role, '')) <> 'supervisor'
          AND (u.is_archived IS NULL OR u.is_archived = FALSE)
          AND (u.is_active IS NULL OR u.is_active = TRUE)
-         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
        ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
       [agencyId]
     );
