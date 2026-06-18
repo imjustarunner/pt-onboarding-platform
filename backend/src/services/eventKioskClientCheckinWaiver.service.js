@@ -65,7 +65,7 @@ async function loadWaiverProfilesForClientIds(clientIds) {
   }
 }
 
-async function loadKioskPickupsForClientIds(clientIds) {
+export async function loadKioskPickupsForClientIds(clientIds) {
   const ids = [...new Set((clientIds || []).map(Number).filter((n) => n > 0))];
   if (!ids.length) return [];
   const ph = ids.map(() => '?').join(',');

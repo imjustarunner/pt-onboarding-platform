@@ -56,6 +56,7 @@ import {
 import {
   buildKioskClientWaiverEntry,
   getEventKioskClientCheckinSheet,
+  loadKioskPickupsForClientIds,
   saveEventKioskClientWaiverSection,
   saveKioskPickupsForClient
 } from '../services/eventKioskClientCheckinWaiver.service.js';
@@ -574,11 +575,12 @@ export const getProgramEventKioskContext = async (req, res, next) => {
       entry.confirmationSetMethod = conf?.confirmationSetMethod || null;
     }
 
-    const [guardianRows, waiverRows, intakeWaiverFallback, historyWaiverFallback] = await Promise.all([
+    const [guardianRows, waiverRows, intakeWaiverFallback, historyWaiverFallback, kioskPickupRows] = await Promise.all([
       loadGuardiansForClientIds(clientIds),
       loadWaiverProfilesForClientIds(clientIds),
       loadIntakeWaiverSectionsFallbackForClientIds(clientIds),
-      loadWaiverHistorySectionsFallbackForClientIds(clientIds)
+      loadWaiverHistorySectionsFallbackForClientIds(clientIds),
+      loadKioskPickupsForClientIds(clientIds)
     ]);
 
     for (const g of guardianRows) {
@@ -614,6 +616,20 @@ export const getProgramEventKioskContext = async (req, res, next) => {
       const entry = clientMap.get(Number(clientId));
       if (!entry) continue;
       mergeWaiverSectionsIntoKioskClient(entry, sections, updatedAt, { fillMissingOnly: true });
+    }
+
+    // Merge kiosk-added pickup contacts (client_kiosk_pickups) — these are
+    // added inline during check-in without a full waiver signature and must be
+    // included in the checkout pickup list so guardians can select them.
+    for (const kp of kioskPickupRows) {
+      const entry = clientMap.get(Number(kp.client_id));
+      if (!entry) continue;
+      mergeWaiverSectionsIntoKioskClient(entry, {
+        pickup_authorization: {
+          status: 'active',
+          payload: { authorizedPickups: [{ name: kp.name, relationship: kp.relationship || '', phone: kp.phone || '' }] }
+        }
+      }, new Date().toISOString(), { fillMissingOnly: false });
     }
 
     for (const c of clientMap.values()) {
