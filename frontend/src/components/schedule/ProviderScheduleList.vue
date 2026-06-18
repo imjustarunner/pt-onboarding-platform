@@ -62,8 +62,15 @@
               </span>
             </td>
             <td class="psl__td psl__td--since">
-              <span v-if="row.availableSinceDate" class="psl__date">{{ row.availableSinceDate }}</span>
-              <span v-if="row.temporaryUntilDate" class="psl__date-until"> – {{ row.temporaryUntilDate }}</span>
+              <template v-if="row.availabilityMode === 'TEMPORARY'">
+                <span v-if="row.availableSinceDate" class="psl__date">{{ fmtDate(row.availableSinceDate) }}</span>
+                <span v-if="row.temporaryUntilDate" class="psl__date-until"> – {{ fmtDate(row.temporaryUntilDate) }}</span>
+                <span v-if="!row.availableSinceDate && !row.temporaryUntilDate" class="psl__date-none">—</span>
+              </template>
+              <template v-else>
+                <span v-if="row.availableSinceDate" class="psl__date">Since {{ fmtDate(row.availableSinceDate) }}</span>
+                <span v-else class="psl__date-none">—</span>
+              </template>
             </td>
           </tr>
         </tbody>
@@ -101,7 +108,7 @@ const COLUMNS = [
   { key: 'time', label: 'Time', sortable: true },
   { key: 'frequency', label: 'Frequency', sortable: false },
   { key: 'mode', label: 'Mode', sortable: false },
-  { key: 'dates', label: 'Active dates', sortable: false },
+  { key: 'dates', label: 'Dates', sortable: false },
 ];
 
 const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Mon-Sun ordering
@@ -158,6 +165,14 @@ const load = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const fmtDate = (ymd) => {
+  if (!ymd) return '';
+  const [y, m, d] = String(ymd).split('-').map(Number);
+  if (!y || !m || !d) return ymd;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${months[m - 1]} ${d}, ${y}`;
 };
 
 const modeLabel = (mode) => {
@@ -395,5 +410,10 @@ watch(() => props.userId, load, { immediate: true });
 .psl__date-until {
   font-size: 12px;
   color: #6b7280;
+}
+
+.psl__date-none {
+  font-size: 12px;
+  color: #d1d5db;
 }
 </style>

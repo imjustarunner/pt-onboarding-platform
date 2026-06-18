@@ -4234,8 +4234,8 @@ export const getProviderScheduleList = async (req, res, next) => {
         assignedFrequency: String(a.assigned_frequency || '').toUpperCase(),
         frequencyLabel: freqLabel(String(a.assigned_frequency || '').toUpperCase()),
         availabilityMode: String(a.availability_mode || '').toUpperCase(),
-        availableSinceDate: a.available_since_date ? String(a.available_since_date).slice(0, 10) : null,
-        temporaryUntilDate: a.temporary_until_date ? String(a.temporary_until_date).slice(0, 10) : null,
+        availableSinceDate: a.available_since_date ? new Date(a.available_since_date).toISOString().slice(0, 10) : null,
+        temporaryUntilDate: a.temporary_until_date ? new Date(a.temporary_until_date).toISOString().slice(0, 10) : null,
         isActive: Boolean(a.is_active)
       }))
     });
