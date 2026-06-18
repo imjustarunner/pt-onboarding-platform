@@ -2192,6 +2192,28 @@ function selectWalkHomeSelf() {
   selectedPickupKey.value = '';
   releaseMode.value = 'walk_home_self';
 }
+async function refreshClientPickupsForCheckout(clientId) {
+  // Silently fetch the latest sheet so checkout always shows fresh pickup data,
+  // even if the in-memory context is stale from earlier in the session.
+  try {
+    const res = await api.get(`${apiBase()}/checkin/client/${clientId}/sheet`, {
+      headers: authHeaders(),
+      skipGlobalLoading: true,
+      skipAuthRedirect: true
+    });
+    if (res.data) {
+      applyCheckinSheetToClient(res.data);
+      // Re-point activeClient if it's still showing this client
+      if (activeClient.value && Number(activeClient.value.id) === Number(clientId)) {
+        const idx = clients.value.findIndex((c) => Number(c.id) === Number(clientId));
+        if (idx !== -1) activeClient.value = clients.value[idx];
+      }
+    }
+  } catch {
+    // Non-critical — checkout can still proceed with cached data
+  }
+}
+
 function openCheckout(client) {
   if (!kioskActive.value) return;
   activeClient.value = client;
@@ -2203,6 +2225,9 @@ function openCheckout(client) {
   photoPreview.value = '';
   adHocPickupName.value = '';
   checkoutOpen.value = true;
+  // Refresh pickup list from DB in the background so checkout always shows
+  // the latest signed authorizations, regardless of session-cache state.
+  refreshClientPickupsForCheckout(client.id);
   nextTick(() => {
     if (sigCanvas.value) {
       const c = sigCanvas.value;
