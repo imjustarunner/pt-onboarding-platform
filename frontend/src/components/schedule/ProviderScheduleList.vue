@@ -162,7 +162,7 @@ const load = async () => {
 
 const modeLabel = (mode) => {
   switch (String(mode || '').toUpperCase()) {
-    case 'AVAILABLE':    return 'Active';
+    case 'AVAILABLE':    return 'Standing';
     case 'TEMPORARY':   return 'Temporary';
     case 'PERMANENT':   return 'Permanent';
     case 'COMPANY_HOLD':return 'Company hold';
