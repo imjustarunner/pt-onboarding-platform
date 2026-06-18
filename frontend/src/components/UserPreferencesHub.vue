@@ -774,7 +774,7 @@
             <div class="field">
               <label>Default schedule view</label>
               <select v-model="prefs.schedule_default_view" :disabled="viewOnly">
-                <option value="open_finder">Open finder</option>
+                <option value="open_finder">My Schedule</option>
                 <option value="office_layout">Office layout</option>
               </select>
               <div class="field-help">Initial view when opening your schedule.</div>

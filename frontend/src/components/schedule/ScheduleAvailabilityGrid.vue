@@ -41,11 +41,14 @@
                 class="sched-seg"
                 role="tab"
                 :aria-selected="String(viewMode === opt.id)"
-                :class="{ on: viewMode === opt.id }"
+                :class="{
+                  on: viewMode === opt.id,
+                  'sched-seg--back': opt.id === 'open_finder' && viewMode === 'office_layout'
+                }"
                 :disabled="loading"
                 @click="viewMode = opt.id"
               >
-                {{ opt.label }}
+                <span v-if="opt.id === 'open_finder' && viewMode === 'office_layout'">← </span>{{ opt.label }}
               </button>
             </div>
           </div>
@@ -2395,14 +2398,14 @@ const showAllCalendars = () => {
 };
 
 const viewModeOptions = [
-  { id: 'open_finder', label: 'Open finder' },
-  { id: 'office_layout', label: 'Click Here to navigate offices and request more office space' }
+  { id: 'open_finder', label: 'My Schedule' },
+  { id: 'office_layout', label: 'Office & Room Booking' }
 ];
 
 // Office reminder: pulse + 3s toast when user lands on My Schedule (self mode)
 const showOfficeReminderPulse = ref(false);
 const officeReminderToast = ref('');
-const OFFICE_REMINDER_MSG = 'Click here to navigate offices and request more office space.';
+const OFFICE_REMINDER_MSG = 'Click "Office & Room Booking" to navigate offices and request space.';
 const OFFICE_REMINDER_STORAGE_KEY = 'sched_office_reminder_seen';
 const showOfficeReminder = () => {
   if (props.mode !== 'self') return;
@@ -9080,6 +9083,17 @@ defineExpose({ resetToOpenFinder });
   background: #fff;
   color: var(--text-primary);
   box-shadow: 0 1px 0 rgba(15, 23, 42, 0.06);
+}
+.sched-seg--back {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1.5px solid #bfdbfe;
+  font-weight: 700;
+}
+.sched-seg--back:hover {
+  background: #dbeafe;
+  color: #1e40af;
+  border-color: #93c5fd;
 }
 .sched-seg:disabled { opacity: 0.55; cursor: not-allowed; }
 
