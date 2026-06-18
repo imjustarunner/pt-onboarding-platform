@@ -19,7 +19,7 @@
               :class="{ 'sched-office-cta--active': viewMode === 'office_layout' }"
               :disabled="loading || officeGridLoading"
               data-tour="my-schedule-request-office-cta"
-              @click="viewMode === 'office_layout' ? viewMode = 'open_finder' : openQuickOfficeRoomRequest()"
+              @click="viewMode === 'office_layout' ? viewMode = 'open_finder' : viewMode = 'office_layout'"
             >
               <span class="sched-office-cta-icon" aria-hidden="true">
                 <svg v-if="viewMode === 'office_layout'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
