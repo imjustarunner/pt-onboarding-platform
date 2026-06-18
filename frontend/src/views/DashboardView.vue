@@ -650,6 +650,21 @@
                     </button>
                   </div>
                 </template>
+
+                <template v-else-if="scheduleViewMode === 'schedule_list'">
+                  <div class="schedule-inline-controls">
+                    <PersonSearchSelect
+                      v-model="scheduleListUserId"
+                      :options="employeeSchedulePickerOptions"
+                      placeholder="Search staff member…"
+                      class="schedule-list-picker"
+                    />
+                    <span v-if="scheduleListUserId" class="schedule-list-picker-clear" @click="scheduleListUserId = 0" title="Clear selection">✕</span>
+                  </div>
+                  <div v-if="!scheduleListUserId" class="hint" style="margin-top: 6px;">
+                    Type a name above to view their office booking schedule.
+                  </div>
+                </template>
               </div>
 
               <div
@@ -1467,6 +1482,8 @@ const employeeSortKey = ref('name'); // 'name' | 'agency'
 const employeeSortDir = ref('asc'); // 'asc' | 'desc'
 const employeeQuery = ref('');
 const selectedEmployeeDirectoryId = ref(0);
+/** Schedule list view: standing-assignment summary for a selected staff member. */
+const scheduleListUserId = ref(0);
 const employeeScheduleWeekStartYmd = ref('');
 const SCHEDULE_VIEW_PREF_PREFIX = 'dashboard.scheduleViewPref.v1';
 const PENDING_SCHEDULE_WEEK_RESET_KEY = 'pt.pendingScheduleWeekReset';
@@ -2381,6 +2398,7 @@ const scheduleGridUserId = computed(() => {
   }
   if (scheduleViewMode.value === 'supervisee') return Number(selectedSuperviseeId.value || 0);
   if (scheduleViewMode.value === 'employees') return Number(selectedEmployeeDirectoryId.value || 0);
+  if (scheduleViewMode.value === 'schedule_list') return Number(scheduleListUserId.value || 0);
   return 0;
 });
 
@@ -5027,6 +5045,26 @@ h1 {
 }
 .schedule-employee-view-as-toolbar {
   align-items: center;
+}
+.schedule-list-picker {
+  flex: 1 1 280px;
+  min-width: 220px;
+  max-width: 480px;
+}
+.schedule-list-picker-clear {
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 13px;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  line-height: 1;
+  user-select: none;
+}
+.schedule-list-picker-clear:hover {
+  color: #dc2626;
+  border-color: #fca5a5;
+  background: #fef2f2;
 }
 .schedule-view-as-label {
   font-size: 13px;
