@@ -1165,7 +1165,8 @@ const runAvailabilitySearch = async () => {
 
     for (const room of rooms) {
       const s0 = getSlot(room.id, date, hour);
-      const st = String(s0?.state || '');
+      // Slots with no DB record are implicitly open (no assignment or booking).
+      const st = s0 ? String(s0.state || '') : 'open';
       if (!isAvailableState(st)) continue;
 
       if (searchFilter.value === 'open' && !isOpenState(st)) continue;
@@ -1176,7 +1177,8 @@ const runAvailabilitySearch = async () => {
         const h = hour - i;
         if (!hours.includes(h)) break;
         const s = getSlot(room.id, date, h);
-        if (!isAvailableState(s?.state)) break;
+        const sst = s ? String(s.state || '') : 'open';
+        if (!isAvailableState(sst)) break;
         prev++;
       }
       let next = 0;
@@ -1184,7 +1186,8 @@ const runAvailabilitySearch = async () => {
         const h = hour + i;
         if (!hours.includes(h)) break;
         const s = getSlot(room.id, date, h);
-        if (!isAvailableState(s?.state)) break;
+        const sst = s ? String(s.state || '') : 'open';
+        if (!isAvailableState(sst)) break;
         next++;
       }
 

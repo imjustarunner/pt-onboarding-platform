@@ -1631,6 +1631,22 @@ export const getWeeklyGrid = async (req, res, next) => {
       s.frequencyBadge = meta.frequencyBadge;
     }
 
+    // Auto-dismiss cancelled events that have no Google event ID — nothing to clean up in Google.
+    // This prevents them from accumulating in the cleanup queue across weeks.
+    try {
+      await pool.execute(
+        `UPDATE office_events
+         SET google_sync_status = 'SYNCED',
+             google_sync_error  = NULL,
+             google_synced_at   = NOW()
+         WHERE office_location_id = ?
+           AND UPPER(COALESCE(status, '')) = 'CANCELLED'
+           AND (google_provider_event_id IS NULL OR TRIM(google_provider_event_id) = '')
+           AND UPPER(COALESCE(google_sync_status, '')) IN ('FAILED', 'PENDING')`,
+        [officeLocationIdNum]
+      );
+    } catch (_e) { /* non-critical — best effort */ }
+
     const [cancelledGoogleRows] = await pool.execute(
       `SELECT
          e.id,
