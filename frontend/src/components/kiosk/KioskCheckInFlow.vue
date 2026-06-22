@@ -270,7 +270,7 @@ async function submitCheckIn() {
     await loadQuestionnaires();
     step.value = 'questionnaires';
   } catch (e) {
-    checkInError.value = e?.response?.data?.error?.message || 'Check-in failed. Please try again or see the front desk.';
+    checkInError.value = e?.response?.data?.error?.message || 'Check-in failed. Please try again or contact the support team.';
   } finally {
     checkingIn.value = false;
   }

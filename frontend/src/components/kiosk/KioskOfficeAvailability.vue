@@ -24,7 +24,7 @@
           <span>Checking availability…</span>
         </div>
         <div v-else-if="rooms.length === 0" class="koa-empty">
-          No offices have availability remaining today. Please see the front desk.
+          No offices have availability remaining today. Please contact the support team.
         </div>
         <div v-else class="koa-rooms-grid">
           <button
@@ -259,7 +259,7 @@ async function submitReservation() {
     } else if (e?.response?.status === 409) {
       pinError.value = 'That room is no longer available. Please go back and choose another.';
     } else {
-      pinError.value = e?.response?.data?.error?.message || 'Reservation failed. Please see the front desk.';
+      pinError.value = e?.response?.data?.error?.message || 'Reservation failed. Please contact the support team.';
     }
     pin.value = '';
   } finally {
