@@ -1622,7 +1622,55 @@ export const listProviderSlotsToday = async (req, res, next) => {
   }
 };
 
-// Public: rooms at this location with no BOOKED event overlapping now
+// ── Room availability helpers ────────────────────────────────────────────────
+
+// Convert "fake-UTC" ms back to "YYYY-MM-DD HH:MM:SS" naive local string
+function msToNaiveStr(ms) {
+  const d = new Date(ms);
+  return `${d.getUTCFullYear()}-${_pad2(d.getUTCMonth() + 1)}-${_pad2(d.getUTCDate())} ${_pad2(d.getUTCHours())}:${_pad2(d.getUTCMinutes())}:${_pad2(d.getUTCSeconds())}`;
+}
+
+// Given sorted booked intervals (naive strings) and "now" string, return the
+// next contiguous free window from now until end of day.  Returns null if no
+// window of ≥ 1 hour remains today.
+function nextFreeWindow(bookedIntervals, nowStr, dayEndStr) {
+  const toMs = (s) => new Date(s.replace(' ', 'T') + 'Z').getTime();
+  const nowMs    = toMs(nowStr);
+  const dayEndMs = toMs(dayEndStr);
+
+  // Merge overlapping booked intervals that fall within today
+  const sorted = [...bookedIntervals]
+    .map((iv) => ({ s: toMs(iv.start), e: toMs(iv.end) }))
+    .sort((a, b) => a.s - b.s);
+
+  const merged = [];
+  for (const iv of sorted) {
+    if (merged.length && iv.s <= merged[merged.length - 1].e) {
+      merged[merged.length - 1].e = Math.max(merged[merged.length - 1].e, iv.e);
+    } else {
+      merged.push({ s: iv.s, e: iv.e });
+    }
+  }
+
+  // Walk through gaps between merged intervals starting from nowMs
+  let cursor = nowMs;
+  for (const iv of merged) {
+    if (iv.s > cursor) {
+      // Free gap from cursor → iv.s
+      const end = Math.min(iv.s, dayEndMs);
+      if (end - cursor >= 3600_000) return { start: msToNaiveStr(cursor), end: msToNaiveStr(end), availableNow: cursor <= nowMs + 60_000 };
+    }
+    if (iv.e > cursor) cursor = iv.e;
+  }
+
+  // Free from cursor to end of day
+  if (dayEndMs - cursor >= 3600_000) {
+    return { start: msToNaiveStr(cursor), end: msToNaiveStr(dayEndMs), availableNow: cursor <= nowMs + 60_000 };
+  }
+  return null;
+}
+
+// Public: rooms with remaining availability today, each with their next free window
 export const listAvailableRooms = async (req, res, next) => {
   try {
     const { locationId } = req.params;
@@ -1630,43 +1678,90 @@ export const listAvailableRooms = async (req, res, next) => {
     if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
 
     const tz = loc.timezone || 'America/Denver';
-    // Format "now" as a local time string in the office's timezone (matches how DB strings are stored)
-    const nowLocal = new Intl.DateTimeFormat('sv-SE', {
+    const nowStr = new Intl.DateTimeFormat('sv-SE', {
       timeZone: tz,
       year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit'
-    }).format(new Date()).replace(' ', 'T').replace('T', ' ');
+    }).format(new Date());
+    const { endAt: dayEnd } = localTodayBounds(tz);
 
+    // Fetch all active rooms + any booked events remaining today
     const [rows] = await pool.execute(
-      `SELECT r.id, r.name, r.room_number, r.label, r.sort_order
+      `SELECT r.id, r.name, r.room_number, r.label, r.sort_order,
+              e.id AS event_id,
+              e.start_at AS booked_start,
+              e.end_at   AS booked_end
        FROM office_rooms r
-       WHERE r.location_id = ?
-         AND r.is_active = TRUE
-         AND NOT EXISTS (
-           SELECT 1 FROM office_events e
-           WHERE e.room_id = r.id
-             AND (e.status = 'BOOKED' OR e.slot_state = 'ASSIGNED_BOOKED')
-             AND e.start_at < ?
-             AND e.end_at > ?
-         )
-       ORDER BY r.sort_order ASC, r.name ASC`,
-      [parseInt(locationId), nowLocal, nowLocal]
+       LEFT JOIN office_events e
+         ON e.room_id = r.id
+         AND (e.status = 'BOOKED' OR e.slot_state = 'ASSIGNED_BOOKED')
+         AND e.end_at   > ?
+         AND e.start_at < ?
+       WHERE r.location_id = ? AND r.is_active = TRUE
+       ORDER BY r.sort_order ASC, r.name ASC, e.start_at ASC`,
+      [nowStr, dayEnd, parseInt(locationId)]
     );
 
-    res.json({ locationId: parseInt(locationId), rooms: rows || [] });
+    // Group rows by room
+    const roomMap = new Map();
+    for (const row of (rows || [])) {
+      if (!roomMap.has(row.id)) {
+        roomMap.set(row.id, { id: row.id, name: row.name, roomNumber: row.room_number, bookedIntervals: [] });
+      }
+      if (row.event_id) {
+        roomMap.get(row.id).bookedIntervals.push({
+          start: toNaiveStr(row.booked_start),
+          end:   toNaiveStr(row.booked_end)
+        });
+      }
+    }
+
+    const rooms = [];
+    for (const room of roomMap.values()) {
+      const win = nextFreeWindow(room.bookedIntervals, nowStr, dayEnd);
+      if (!win) continue;
+
+      const toMs  = (s) => new Date(s.replace(' ', 'T') + 'Z').getTime();
+      const maxMs = toMs(win.end) - toMs(win.start);
+      const maxHours = Math.floor(maxMs / 3600_000);
+      if (maxHours < 1) continue;
+
+      rooms.push({
+        id: room.id,
+        name: room.name,
+        roomNumber: room.roomNumber,
+        availableNow: win.availableNow,
+        windowStart: win.start,
+        windowEnd: win.end,
+        maxHours
+      });
+    }
+
+    // Sort: available now first, then by soonest window start
+    rooms.sort((a, b) => {
+      if (a.availableNow !== b.availableNow) return a.availableNow ? -1 : 1;
+      return a.windowStart.localeCompare(b.windowStart);
+    });
+
+    res.json({ locationId: parseInt(locationId), timezone: tz, rooms });
   } catch (e) {
     next(e);
   }
 };
 
-// Public: enter PIN → reserve a room for the rest of the day (creates BOOKED office_event)
+// Public: enter PIN → reserve a room for a chosen number of hours within its free window
 export const reserveRoomByPin = async (req, res, next) => {
   try {
     const { locationId } = req.params;
-    const { roomId, pin } = req.body || {};
+    const { roomId, pin, windowStart, hours } = req.body || {};
 
     if (!roomId || !pin) {
       return res.status(400).json({ error: { message: 'roomId and pin are required' } });
+    }
+
+    const hoursNum = parseInt(hours, 10);
+    if (!hoursNum || hoursNum < 1 || hoursNum > 12) {
+      return res.status(400).json({ error: { message: 'hours must be between 1 and 12' } });
     }
 
     const normalizedPin = normalizePin(pin);
@@ -1682,7 +1777,7 @@ export const reserveRoomByPin = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Room not found at this location' } });
     }
 
-    // Identify user by PIN hash (same mechanism as identifyByPin)
+    // Identify user by PIN hash
     const pinHash = KioskModel.hashPin(normalizedPin);
     const [userRows] = await pool.execute(
       `SELECT u.id, u.first_name, u.last_name
@@ -1698,21 +1793,24 @@ export const reserveRoomByPin = async (req, res, next) => {
       return res.status(401).json({ error: { message: 'Invalid PIN' } });
     }
 
-    // Determine booking window in the office's local timezone: current hour → end of day
     const tz = loc.timezone || 'America/Denver';
-    const localNowStr = new Intl.DateTimeFormat('sv-SE', {
+    // Use windowStart from client if valid, otherwise fall back to current local time
+    const nowStr = new Intl.DateTimeFormat('sv-SE', {
       timeZone: tz,
       year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit'
-    }).format(new Date()); // "2026-06-22 10:16:00"
+    }).format(new Date());
 
-    // Round down to current hour as the start
-    const localHour = localNowStr.slice(11, 13); // "10"
-    const localYmd = localNowStr.slice(0, 10);   // "2026-06-22"
-    const startAtStr = `${localYmd} ${localHour}:00:00`;
-    const endAtStr = `${localYmd} 23:59:00`;
+    const startAtStr = (windowStart && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(windowStart))
+      ? windowStart.slice(0, 16) + ':00'
+      : nowStr.slice(0, 16) + ':00';
 
-    // Check room is still open
+    // Calculate endAt = startAt + hoursNum
+    const startMs = new Date(startAtStr.replace(' ', 'T') + 'Z').getTime();
+    const endMs   = startMs + hoursNum * 3600_000;
+    const endAtStr = msToNaiveStr(endMs);
+
+    // Validate no conflict
     const [conflictRows] = await pool.execute(
       `SELECT 1 FROM office_events
        WHERE room_id = ? AND (status = 'BOOKED' OR slot_state = 'ASSIGNED_BOOKED')
@@ -1721,7 +1819,7 @@ export const reserveRoomByPin = async (req, res, next) => {
       [room.id, endAtStr, startAtStr]
     );
     if (conflictRows?.[0]) {
-      return res.status(409).json({ error: { message: 'That room is no longer available' } });
+      return res.status(409).json({ error: { message: 'That room is no longer available for this time' } });
     }
 
     const ev = await OfficeEvent.createIfRoomOpen({
@@ -1748,8 +1846,9 @@ export const reserveRoomByPin = async (req, res, next) => {
         roomId: room.id,
         roomName: room.name,
         roomNumber: room.room_number,
-        startAt: ev.start_at,
-        endAt: ev.end_at,
+        startAt: startAtStr,
+        endAt: endAtStr,
+        hours: hoursNum,
         provider: { id: user.id, firstName: user.first_name, lastName: user.last_name }
       }
     });

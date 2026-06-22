@@ -97,6 +97,7 @@
     <KioskOfficeAvailability
       v-if="showOfficeAvailability"
       :location-id="locationId"
+      :timezone="locationTimezone"
       @close="showOfficeAvailability = false"
     />
   </div>
