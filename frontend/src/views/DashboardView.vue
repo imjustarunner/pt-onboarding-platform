@@ -411,6 +411,41 @@
               @open-skill-builder-availability="openSkillBuilderAvailabilityFromHub"
             />
           </div>
+
+          <!-- Provider: Program Portals overview — list of programs they are assigned to -->
+          <div v-if="!previewMode && activeTab === 'provider_program_portals'" class="my-panel prov-portals-panel">
+            <div class="prov-portals-header">
+              <h2 class="prov-portals-title">Program Portals</h2>
+              <p class="prov-portals-sub">Programs you are assigned to. Open one to access your event portals and schedule.</p>
+            </div>
+            <div class="prov-portals-grid">
+              <button
+                v-for="org in providerAssignedProgramOrgs"
+                :key="org.id"
+                type="button"
+                class="prov-portals-card"
+                @click="openProviderProgramPortal(org)"
+              >
+                <div class="prov-portals-card-logo" aria-hidden="true">
+                  <img
+                    v-if="programPortalRailIconUrl(org)"
+                    :src="programPortalRailIconUrl(org)"
+                    class="prov-portals-card-img"
+                    alt=""
+                  />
+                  <span v-else class="prov-portals-card-initial">{{ String(org.name || '?').charAt(0).toUpperCase() }}</span>
+                </div>
+                <div class="prov-portals-card-body">
+                  <div class="prov-portals-card-name">{{ org.name }}</div>
+                  <div class="prov-portals-card-meta">
+                    {{ org.eventCount }} assigned event{{ org.eventCount !== 1 ? 's' : '' }}
+                  </div>
+                </div>
+                <div class="prov-portals-card-cta">Open portal <span aria-hidden="true">→</span></div>
+              </button>
+            </div>
+          </div>
+
           <TrainingFocusTab
             v-if="!previewMode && activeTab === 'training' && !isPending"
             @update-count="updateTrainingCount"
@@ -1211,6 +1246,21 @@ function openInlineProgramHub({ mode = '', cardId = '', organization = null, ini
   };
   selectedRailCardId.value = String(cardId || '');
   activeTab.value = PROGRAM_WORKSPACE_TAB;
+}
+
+function openProviderProgramPortal(org) {
+  const slug = String(org?.slug || '').trim().toLowerCase();
+  if (slug) {
+    router.push(`/${slug}/dashboard`);
+  } else {
+    // Fallback: open modal hub if slug is missing
+    openInlineProgramHub({
+      mode: 'provider',
+      cardId: 'provider_program_portals',
+      organization: { id: Number(org.id), name: String(org.name || ''), slug: org.slug, logo_path: org.logoPath, logo_url: org.logoUrl },
+      initialSection: 'events'
+    });
+  }
 }
 
 function closeInlineProgramHub() {
@@ -3206,24 +3256,20 @@ const dashboardCards = computed(() => {
             description: 'H2014 group notes: Skill Builders program hub or event portal (Client management).'
           });
         }
-        // Per-program rail cards for providers directly assigned to program events
-        if (isProviderLikeForSkillBuildersSchedule.value && !isClubContext.value) {
-          for (const org of providerAssignedProgramOrgs.value || []) {
-            const oid = Number(org.id);
-            if (!Number.isFinite(oid) || oid <= 0) continue;
-            // Skip if already shown as a coordinator program to avoid duplicates
-            if ((subCoordinatorProgramOrgs.value || []).some((x) => Number(x?.id) === oid)) continue;
-            const name = String(org.name || '').trim() || `Program ${oid}`;
-            cards.push({
-              id: `provider_event_program_${oid}`,
-              label: name,
-              kind: 'modal',
-              programOrganizationId: oid,
-              badgeCount: 0,
-              iconUrl: programPortalRailIconUrl(org),
-              description: `Your assigned events and event portals for ${name}.`
-            });
-          }
+        // Single "Program Portals" overview card for providers assigned to program events
+        if (
+          isProviderLikeForSkillBuildersSchedule.value &&
+          !isClubContext.value &&
+          providerAssignedProgramOrgs.value.length > 0
+        ) {
+          cards.push({
+            id: 'provider_program_portals',
+            label: 'Program Portals',
+            kind: 'content',
+            badgeCount: 0,
+            iconUrl: brandingStore.getAdminQuickActionIconUrl('program_overview', iconOrg),
+            description: 'Programs you are assigned to — open one to access event portals.'
+          });
         }
       }
       // Show Tools & Aids for eligible roles. Privileged roles (admin/super_admin/support) always see it
@@ -3461,7 +3507,6 @@ const railCards = computed(() => {
     // - If My Account doesn't exist yet (during onboarding), Checklist stays first.
     if (hasMy) {
       if (k.startsWith('sub_coord_program_')) return 4;
-      if (k.startsWith('provider_event_program_')) return 3.85;
       return ({
         my: 0,
         my_schedule: 1,
@@ -3469,6 +3514,7 @@ const railCards = computed(() => {
         sub_coordinator_school_portals: 3,
         sub_coordinator_program_overview: 3.5,
         skill_builders_provider_hub: 3.7,
+        provider_program_portals: 3.8,
         skill_builders_availability: 4,
         clients: 5,
         tools_aids: 6,
@@ -3489,13 +3535,13 @@ const railCards = computed(() => {
       })[k] ?? 999;
     }
     if (k.startsWith('sub_coord_program_')) return 6;
-    if (k.startsWith('provider_event_program_')) return 3.85;
     return ({
       checklist: 0,
       documents: 1,
       training: 2,
       my_schedule: 3,
       skill_builders_provider_hub: 3.7,
+      provider_program_portals: 3.8,
       program_shifts: 4,
       sub_coordinator_school_portals: 5,
       sub_coordinator_program_overview: 5.5,
@@ -3644,28 +3690,6 @@ const handleCardClick = (card) => {
         cardId: card.id,
         organization: resolvedOrg,
         initialSection: null
-      });
-    }
-    return;
-  }
-  if (String(card?.id || '').startsWith('provider_event_program_')) {
-    const oid = Number(card?.programOrganizationId);
-    if (Number.isFinite(oid) && oid > 0) {
-      const org = (providerAssignedProgramOrgs.value || []).find((x) => Number(x?.id) === oid);
-      const resolvedOrg = org
-        ? {
-            id: oid,
-            name: String(org.name || card?.label || '').trim() || `Program ${oid}`,
-            slug: org.slug,
-            logo_path: org.logoPath,
-            logo_url: org.logoUrl
-          }
-        : { id: oid, name: String(card?.label || '').trim() || `Program ${oid}` };
-      openInlineProgramHub({
-        mode: 'provider',
-        cardId: card.id,
-        organization: resolvedOrg,
-        initialSection: 'events'
       });
     }
     return;
@@ -6797,6 +6821,109 @@ h1 {
 .dash-card:disabled {
   cursor: not-allowed;
   opacity: 0.7;
+}
+
+/* ── Provider Program Portals overview panel ── */
+.prov-portals-panel {
+  background: #f3f4f6;
+  min-height: 100%;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.prov-portals-header {
+  margin-bottom: 20px;
+}
+
+.prov-portals-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary, #111827);
+  margin: 0 0 4px;
+}
+
+.prov-portals-sub {
+  font-size: 13px;
+  color: var(--text-secondary, #6b7280);
+  margin: 0;
+}
+
+.prov-portals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.prov-portals-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 16px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+
+.prov-portals-card:hover {
+  border-color: #166534;
+  box-shadow: 0 2px 8px rgba(22,101,52,0.12);
+}
+
+.prov-portals-card-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: #f9fafb;
+}
+
+.prov-portals-card-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.prov-portals-card-initial {
+  font-size: 18px;
+  font-weight: 700;
+  color: #166534;
+}
+
+.prov-portals-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.prov-portals-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.prov-portals-card-meta {
+  font-size: 12px;
+  color: var(--text-secondary, #6b7280);
+  margin-top: 2px;
+}
+
+.prov-portals-card-cta {
+  font-size: 13px;
+  font-weight: 600;
+  color: #166534;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 </style>
