@@ -1631,10 +1631,16 @@ function msToNaiveStr(ms) {
 }
 
 // Given sorted booked intervals (naive strings) and "now" string, return the
-// next contiguous free window from now until end of day.  Returns null if no
-// window of ≥ 1 hour remains today.
+// next contiguous free window aligned to whole-hour clock blocks.
+// - If free right now: start snaps DOWN to floor of current hour.
+// - If becoming free later: start snaps UP to ceiling of the hour it ends.
+// - End always snaps DOWN to nearest floor hour.
+// Returns null if no window of ≥ 1 hour remains today.
 function nextFreeWindow(bookedIntervals, nowStr, dayEndStr) {
   const toMs = (s) => new Date(s.replace(' ', 'T') + 'Z').getTime();
+  const floorHour = (ms) => Math.floor(ms / 3600_000) * 3600_000;
+  const ceilHour  = (ms) => Math.ceil(ms  / 3600_000) * 3600_000;
+
   const nowMs    = toMs(nowStr);
   const dayEndMs = toMs(dayEndStr);
 
@@ -1652,22 +1658,33 @@ function nextFreeWindow(bookedIntervals, nowStr, dayEndStr) {
     }
   }
 
-  // Walk through gaps between merged intervals starting from nowMs
+  // Advance cursor past any booking that covers nowMs
   let cursor = nowMs;
+  let nextBookingStart = dayEndMs;
   for (const iv of merged) {
-    if (iv.s > cursor) {
-      // Free gap from cursor → iv.s
-      const end = Math.min(iv.s, dayEndMs);
-      if (end - cursor >= 3600_000) return { start: msToNaiveStr(cursor), end: msToNaiveStr(end), availableNow: cursor <= nowMs + 60_000 };
-    }
-    if (iv.e > cursor) cursor = iv.e;
+    if (iv.s > cursor) { nextBookingStart = iv.s; break; }
+    if (iv.e > cursor) { cursor = iv.e; }
   }
 
-  // Free from cursor to end of day
-  if (dayEndMs - cursor >= 3600_000) {
-    return { start: msToNaiveStr(cursor), end: msToNaiveStr(dayEndMs), availableNow: cursor <= nowMs + 60_000 };
+  // Re-scan to find the next booking start after the resolved cursor
+  nextBookingStart = dayEndMs;
+  for (const iv of merged) {
+    if (iv.s > cursor) { nextBookingStart = iv.s; break; }
   }
-  return null;
+
+  // Snap start: floor if free now, ceiling if becoming free later
+  const snappedStart = cursor === nowMs ? floorHour(cursor) : ceilHour(cursor);
+  // Snap end: floor hour of the next booking (or EOD)
+  const snappedEnd   = floorHour(nextBookingStart);
+
+  const maxHours = Math.floor((snappedEnd - snappedStart) / 3600_000);
+  if (maxHours < 1) return null;
+
+  return {
+    start: msToNaiveStr(snappedStart),
+    end:   msToNaiveStr(snappedEnd),
+    availableNow: cursor === nowMs
+  };
 }
 
 // Public: rooms with remaining availability today, each with their next free window
