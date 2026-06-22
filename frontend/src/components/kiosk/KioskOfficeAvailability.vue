@@ -190,18 +190,27 @@ const reserved     = ref(null);
 
 const pinKeys = ['1','2','3','4','5','6','7','8','9','Clear','0','⌫'];
 
+// naiveStr is already in office local time ("YYYY-MM-DD HH:MM:SS") —
+// extract components directly to avoid any UTC conversion.
 function formatTime(naiveStr) {
   if (!naiveStr) return '';
-  const d = new Date(naiveStr.replace(' ', 'T') + 'Z');
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: props.timezone });
+  const hour   = parseInt(naiveStr.slice(11, 13), 10);
+  const minute = naiveStr.slice(14, 16);
+  const h = hour % 12 || 12;
+  const ampm = hour < 12 ? 'AM' : 'PM';
+  return `${h}:${minute} ${ampm}`;
 }
 
 function formatEndTime(startStr, hours) {
   if (!startStr) return '';
-  const startMs = new Date(startStr.replace(' ', 'T') + 'Z').getTime();
-  const endMs   = startMs + hours * 3600_000;
-  const d = new Date(endMs);
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: props.timezone });
+  const startHour = parseInt(startStr.slice(11, 13), 10);
+  const startMin  = parseInt(startStr.slice(14, 16), 10);
+  const totalMin  = startHour * 60 + startMin + hours * 60;
+  const endHour   = Math.floor(totalMin / 60) % 24;
+  const endMin    = totalMin % 60;
+  const h = endHour % 12 || 12;
+  const ampm = endHour < 12 ? 'AM' : 'PM';
+  return `${h}:${String(endMin).padStart(2, '0')} ${ampm}`;
 }
 
 async function loadRooms() {
