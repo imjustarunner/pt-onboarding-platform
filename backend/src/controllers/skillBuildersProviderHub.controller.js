@@ -618,6 +618,69 @@ export const listMyAssignedSkillBuilderEvents = async (req, res, next) => {
   }
 };
 
+/** GET /api/skill-builders/me/assigned-program-orgs?agencyId=
+ *  Returns the distinct program organizations where this provider has event assignments.
+ *  Used by My Dashboard to surface per-program rail cards for assigned providers. */
+export const listMyAssignedProgramOrgs = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const userId = parsePositiveInt(req.user?.id);
+    if (!agencyId || !userId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await userHasAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT
+         a.id          AS org_id,
+         a.name        AS org_name,
+         LOWER(TRIM(a.slug)) AS org_slug,
+         a.logo_path,
+         a.logo_url,
+         COUNT(DISTINCT ce.id) AS event_count
+       FROM (
+         SELECT DISTINCT cepa.company_event_id AS event_id
+         FROM company_event_provider_assignments cepa
+         INNER JOIN company_events ce0 ON ce0.id = cepa.company_event_id AND ce0.agency_id = ?
+         WHERE cepa.provider_user_id = ?
+         UNION
+         SELECT DISTINCT cesp.company_event_id AS event_id
+         FROM company_event_session_providers cesp
+         WHERE cesp.agency_id = ? AND cesp.provider_user_id = ?
+         UNION
+         SELECT DISTINCT s.company_event_id AS event_id
+         FROM skill_builders_event_session_providers p
+         INNER JOIN skill_builders_event_sessions s ON s.id = p.session_id
+         INNER JOIN company_events ce1 ON ce1.id = s.company_event_id AND ce1.agency_id = ?
+         WHERE p.provider_user_id = ?
+       ) assigned
+       INNER JOIN company_events ce ON ce.id = assigned.event_id
+         AND ce.agency_id = ?
+         AND ce.organization_id IS NOT NULL
+         AND (ce.is_active = TRUE OR ce.is_active IS NULL)
+       INNER JOIN agencies a ON a.id = ce.organization_id
+         AND a.organization_type = 'program'
+       GROUP BY a.id, a.name, a.slug, a.logo_path, a.logo_url
+       ORDER BY a.name ASC
+       LIMIT 50`,
+      [agencyId, userId, agencyId, userId, agencyId, userId, agencyId]
+    );
+
+    const organizations = (rows || []).map((r) => ({
+      id: Number(r.org_id),
+      name: String(r.org_name || ''),
+      slug: String(r.org_slug || ''),
+      logoPath: r.logo_path || null,
+      logoUrl: r.logo_url || null,
+      eventCount: Number(r.event_count || 0)
+    }));
+
+    return res.json({ organizations });
+  } catch (e) {
+    next(e);
+  }
+};
+
 /** GET /api/skill-builders/me/upcoming-events?agencyId= — events user may apply to */
 export const listUpcomingSkillBuilderEventsForApply = async (req, res, next) => {
   try {

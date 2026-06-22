@@ -4,6 +4,7 @@ import { requireSkillBuildersSchoolProgramForAgencyContext } from '../middleware
 import {
   getMySkillBuildersProgram,
   listMyAssignedSkillBuilderEvents,
+  listMyAssignedProgramOrgs,
   listUpcomingSkillBuilderEventsForApply,
   applyToSkillBuilderEvent,
   listMySkillBuilderEventClients,
@@ -115,6 +116,7 @@ router.use(requireSkillBuildersSchoolProgramForAgencyContext);
 
 router.get('/me/program', getMySkillBuildersProgram);
 router.get('/me/assigned-events', listMyAssignedSkillBuilderEvents);
+router.get('/me/assigned-program-orgs', listMyAssignedProgramOrgs);
 router.get('/me/upcoming-events', listUpcomingSkillBuilderEventsForApply);
 router.post('/me/applications', applyToSkillBuilderEvent);
 router.get('/me/clients', listMySkillBuilderEventClients);

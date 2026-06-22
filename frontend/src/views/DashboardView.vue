@@ -1229,6 +1229,7 @@ function openSkillBuilderAvailabilityFromHub() {
 }
 
 const subCoordinatorProgramOrgs = ref([]);
+const providerAssignedProgramOrgs = ref([]);
 
 const railCollapsedMode = ref(false);
 const railHoverExpanded = ref(false);
@@ -2806,6 +2807,37 @@ watch(
   }
 );
 
+async function loadProviderAssignedProgramOrgs() {
+  providerAssignedProgramOrgs.value = [];
+  if (!isProviderLikeForSkillBuildersSchedule.value || !isOnboardingComplete.value) return;
+  if (!canAccessSkillBuildersSchoolProgramTenantDashboard.value) return;
+  const aid = currentAgencyId.value;
+  if (!aid) return;
+  try {
+    const res = await api.get('/skill-builders/me/assigned-program-orgs', {
+      params: { agencyId: Number(aid) },
+      skipGlobalLoading: true
+    });
+    providerAssignedProgramOrgs.value = Array.isArray(res.data?.organizations)
+      ? res.data.organizations
+      : [];
+  } catch {
+    providerAssignedProgramOrgs.value = [];
+  }
+}
+
+watch(
+  () => [
+    isProviderLikeForSkillBuildersSchedule.value,
+    currentAgencyId.value,
+    isOnboardingComplete.value,
+    canAccessSkillBuildersSchoolProgramTenantDashboard.value
+  ],
+  () => {
+    loadProviderAssignedProgramOrgs();
+  }
+);
+
 // Agency logo URL for preview mode
 const previewAgencyLogoUrl = computed(() => {
   if (!props.previewMode) return null;
@@ -3174,6 +3206,25 @@ const dashboardCards = computed(() => {
             description: 'H2014 group notes: Skill Builders program hub or event portal (Client management).'
           });
         }
+        // Per-program rail cards for providers directly assigned to program events
+        if (isProviderLikeForSkillBuildersSchedule.value && !isClubContext.value) {
+          for (const org of providerAssignedProgramOrgs.value || []) {
+            const oid = Number(org.id);
+            if (!Number.isFinite(oid) || oid <= 0) continue;
+            // Skip if already shown as a coordinator program to avoid duplicates
+            if ((subCoordinatorProgramOrgs.value || []).some((x) => Number(x?.id) === oid)) continue;
+            const name = String(org.name || '').trim() || `Program ${oid}`;
+            cards.push({
+              id: `provider_event_program_${oid}`,
+              label: name,
+              kind: 'modal',
+              programOrganizationId: oid,
+              badgeCount: 0,
+              iconUrl: programPortalRailIconUrl(org),
+              description: `Your assigned events and event portals for ${name}.`
+            });
+          }
+        }
       }
       // Show Tools & Aids for eligible roles. Privileged roles (admin/super_admin/support) always see it
       // even when no agency is selected; others require the feature flag on current agency.
@@ -3369,7 +3420,7 @@ const dashboardCards = computed(() => {
       }
       cards.push({
         id: 'sub_coordinator_program_overview',
-        label: 'Program Overview',
+        label: 'Program Portals',
         kind: 'link',
         to: '/admin/schools/overview?orgType=program',
         badgeCount: 0,
@@ -3410,6 +3461,7 @@ const railCards = computed(() => {
     // - If My Account doesn't exist yet (during onboarding), Checklist stays first.
     if (hasMy) {
       if (k.startsWith('sub_coord_program_')) return 4;
+      if (k.startsWith('provider_event_program_')) return 3.85;
       return ({
         my: 0,
         my_schedule: 1,
@@ -3437,6 +3489,7 @@ const railCards = computed(() => {
       })[k] ?? 999;
     }
     if (k.startsWith('sub_coord_program_')) return 6;
+    if (k.startsWith('provider_event_program_')) return 3.85;
     return ({
       checklist: 0,
       documents: 1,
@@ -3591,6 +3644,28 @@ const handleCardClick = (card) => {
         cardId: card.id,
         organization: resolvedOrg,
         initialSection: null
+      });
+    }
+    return;
+  }
+  if (String(card?.id || '').startsWith('provider_event_program_')) {
+    const oid = Number(card?.programOrganizationId);
+    if (Number.isFinite(oid) && oid > 0) {
+      const org = (providerAssignedProgramOrgs.value || []).find((x) => Number(x?.id) === oid);
+      const resolvedOrg = org
+        ? {
+            id: oid,
+            name: String(org.name || card?.label || '').trim() || `Program ${oid}`,
+            slug: org.slug,
+            logo_path: org.logoPath,
+            logo_url: org.logoUrl
+          }
+        : { id: oid, name: String(card?.label || '').trim() || `Program ${oid}` };
+      openInlineProgramHub({
+        mode: 'provider',
+        cardId: card.id,
+        organization: resolvedOrg,
+        initialSection: 'events'
       });
     }
     return;
@@ -4337,6 +4412,7 @@ onMounted(async () => {
   // Deferring to nextTick prevents TDZ crashes in minified bundles.
   void nextTick(() => {
     loadSubCoordinatorProgramOrgs();
+    loadProviderAssignedProgramOrgs();
     syncSkillBuilderForceModal(isSkillBuilderForceModalRequired.value);
     loadSkillBuilderBiweeklyPendingState();
     syncSbProgramsQuery();

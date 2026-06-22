@@ -961,6 +961,7 @@ const portalTiles = computed(() => {
         key: `event-${id}`,
         kind: 'event',
         eventId: id,
+        programPortalSlug: String(ev.programPortalSlug || ev.program_portal_slug || '').trim().toLowerCase() || null,
         title: String(ev.title || '').trim() || `Event ${id}`,
         typeLabel: 'Event',
         subtitle: sub || null,
@@ -999,7 +1000,7 @@ function orgSlug() {
 
 function eventPortalSlug() {
   const fromProp = String(props.organizationPortalSlug || '').trim().toLowerCase();
-  if (props.mode === 'coordinator' && fromProp) return fromProp;
+  if (fromProp) return fromProp;
   return String(orgSlug() || '').trim().toLowerCase();
 }
 
@@ -1031,7 +1032,7 @@ function openEnrollmentWorkspace(tile) {
 
 function selectPortalTile(t) {
   selectedPortalKey.value = t.key;
-  if (t.kind === 'event') goEventPortal(t.eventId);
+  if (t.kind === 'event') goEventPortal(t.eventId, t);
   else openEnrollmentWorkspace(t);
 }
 
@@ -1149,6 +1150,13 @@ async function loadProgramContext() {
   resolvedOrgName.value = '';
   const aid = Number(props.agencyId);
   if (props.mode !== 'provider' || !Number.isFinite(aid) || aid <= 0) return;
+  // If a specific org ID is passed in provider mode, use it directly (assigned-provider flow).
+  const explicitOrgId = Number(props.organizationId);
+  if (Number.isFinite(explicitOrgId) && explicitOrgId > 0) {
+    resolvedOrgId.value = explicitOrgId;
+    resolvedOrgName.value = props.organizationName || 'Program';
+    return;
+  }
   try {
     const res = await api.get('/skill-builders/me/program', { params: { agencyId: aid }, skipGlobalLoading: true });
     if (res.data?.organizationId) {
