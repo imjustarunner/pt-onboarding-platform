@@ -1464,6 +1464,9 @@ export const listProvidersToday = async (req, res, next) => {
          r.room_number
        FROM office_events e
        JOIN users u ON u.id = e.booked_provider_id
+         AND u.is_active = 1
+         AND u.status = 'ACTIVE_EMPLOYEE'
+         AND u.terminated_at IS NULL
        JOIN office_rooms r ON r.id = e.room_id
        WHERE e.office_location_id = ?
          AND (e.status = 'BOOKED' OR e.slot_state = 'ASSIGNED_BOOKED')
@@ -1536,7 +1539,6 @@ export const listProvidersToday = async (req, res, next) => {
       return a.status === 'active_now' ? -1 : 1;
     });
 
-    console.log('[kiosk-debug] providers-today', locationId, 'rows:', rows?.length, 'providers:', providers.length, 'tz:', tz, 'bounds:', startAt, endAt, 'nowLocal:', nowLocal);
     res.json({ locationId: parseInt(locationId), locationName: loc.name, timezone: tz, providers });
   } catch (e) {
     console.error('[kiosk-debug] providers-today error:', e);
@@ -1563,6 +1565,10 @@ export const listProviderSlotsToday = async (req, res, next) => {
          r.room_number,
          oec.id AS checkin_id
        FROM office_events e
+       JOIN users u ON u.id = e.booked_provider_id
+         AND u.is_active = 1
+         AND u.status = 'ACTIVE_EMPLOYEE'
+         AND u.terminated_at IS NULL
        JOIN office_rooms r ON r.id = e.room_id
        LEFT JOIN office_event_checkins oec ON oec.event_id = e.id
        WHERE e.office_location_id = ?
