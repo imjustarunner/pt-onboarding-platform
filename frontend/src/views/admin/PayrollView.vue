@@ -577,8 +577,8 @@
                   <div v-if="batchCatchUpResult.superFlagCount > 0" class="warn-box" style="margin-top: 10px; padding: 10px; font-size: 0.9em;">
                     <strong>No note ({{ batchCatchUpResult.superFlagCount }}):</strong> Please address before continuing.
                   </div>
-                  <div v-if="(batchCatchUpResult.h0031PendingCount || 0) + (batchCatchUpResult.h0032PendingCount || 0) + (batchCatchUpResult.h2014PendingCount || 0) + (batchCatchUpResult.h2032PendingCount || 0) > 0" class="warn-box" style="margin-top: 8px; padding: 10px; font-size: 0.9em;">
-                    {{ batchCatchUpResult.h0031PendingCount || 0 }} H0031, {{ batchCatchUpResult.h0032PendingCount || 0 }} H0032, {{ batchCatchUpResult.h2014PendingCount || 0 }} H2014, {{ batchCatchUpResult.h2032PendingCount || 0 }} H2032 rows need minutes updated (you’ll do that in later steps).
+                  <div v-if="(batchCatchUpResult.h0031PendingCount || 0) + (batchCatchUpResult.h0032PendingCount || 0) + (batchCatchUpResult.h2014PendingCount || 0) + (batchCatchUpResult.h90853PendingCount || 0) + (batchCatchUpResult.h2032PendingCount || 0) > 0" class="warn-box" style="margin-top: 8px; padding: 10px; font-size: 0.9em;">
+                    {{ batchCatchUpResult.h0031PendingCount || 0 }} H0031, {{ batchCatchUpResult.h0032PendingCount || 0 }} H0032, {{ batchCatchUpResult.h2014PendingCount || 0 }} H2014, {{ batchCatchUpResult.h90853PendingCount || 0 }} 90853, {{ batchCatchUpResult.h2032PendingCount || 0 }} H2032 rows need minutes updated (you’ll do that in later steps).
                   </div>
                 </div>
                 <div v-if="batchCatchUpResult?.applied" style="margin-top: 10px;">
@@ -638,6 +638,13 @@
                 Process H2014 minutes + mark Done.
                 <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
                   <button class="btn btn-secondary" type="button" @click="wizardOpenRawMode('process_h2014')" :disabled="!selectedPeriodId">Open Raw Import (H2014)</button>
+                </div>
+              </div>
+
+              <div v-else-if="wizardStep?.key === '90853'" class="hint">
+                Process 90853 (group therapy) minutes + mark Done.
+                <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                  <button class="btn btn-secondary" type="button" @click="wizardOpenRawMode('process_90853')" :disabled="!selectedPeriodId">Open Raw Import (90853)</button>
                 </div>
               </div>
 
@@ -1212,13 +1219,13 @@
 
           <!-- ── H-code minutes warning ── -->
           <div
-            v-if="(batchCatchUpResult.h0031PendingCount || 0) + (batchCatchUpResult.h0032PendingCount || 0) + (batchCatchUpResult.h2014PendingCount || 0) + (batchCatchUpResult.h2032PendingCount || 0) > 0"
+            v-if="(batchCatchUpResult.h0031PendingCount || 0) + (batchCatchUpResult.h0032PendingCount || 0) + (batchCatchUpResult.h2014PendingCount || 0) + (batchCatchUpResult.h90853PendingCount || 0) + (batchCatchUpResult.h2032PendingCount || 0) > 0"
             class="warn-box"
             style="margin-top: 10px; padding: 12px;"
           >
             <strong>H0031/H0032/H2014 minutes:</strong>
-            {{ batchCatchUpResult.h0031PendingCount || 0 }} H0031, {{ batchCatchUpResult.h0032PendingCount || 0 }} H0032, {{ batchCatchUpResult.h2014PendingCount || 0 }} H2014, {{ batchCatchUpResult.h2032PendingCount || 0 }} H2032 rows need minutes updated.
-            Open <strong>Raw Import</strong> → <strong>Process H0031</strong> / <strong>Process H0032</strong> / <strong>Process H2014</strong> / <strong>Process H2032</strong> to edit. Unpaid rows are highlighted in amber.
+            {{ batchCatchUpResult.h0031PendingCount || 0 }} H0031, {{ batchCatchUpResult.h0032PendingCount || 0 }} H0032, {{ batchCatchUpResult.h2014PendingCount || 0 }} H2014, {{ batchCatchUpResult.h90853PendingCount || 0 }} 90853, {{ batchCatchUpResult.h2032PendingCount || 0 }} H2032 rows need minutes updated.
+            Open <strong>Raw Import</strong> → <strong>Process H0031</strong> / <strong>Process H0032</strong> / <strong>Process H2014</strong> / <strong>Process 90853</strong> / <strong>Process H2032</strong> to edit. Unpaid rows are highlighted in amber.
           </div>
         </div>
         <div v-if="isBatchCatchUpDestPosted" class="warn-box" style="margin-top: 10px;">
@@ -4600,6 +4607,7 @@
                   <span v-else-if="rawMode === 'process_h0031'">Raw Import (Process H0031)</span>
                   <span v-else-if="rawMode === 'process_h0032'">Raw Import (Process H0032)</span>
                   <span v-else-if="rawMode === 'process_h2014'">Raw Import (Process H2014)</span>
+                  <span v-else-if="rawMode === 'process_90853'">Raw Import (Process 90853)</span>
                   <span v-else-if="rawMode === 'process_h2032'">Raw Import (Process H2032)</span>
                   <span v-else-if="rawMode === 'missed_appts_paid_in_full'">Raw Import (Missed Appointments • Paid in Full)</span>
                   <span v-else>Raw Import (Processed)</span>
@@ -4619,6 +4627,9 @@
                   <span v-else-if="rawMode === 'process_h2014'">
                     See, approve, and change all H2014 (Skills Training) rows before moving past raw import. Enter correct minutes and mark Done. Payroll cannot run until these are processed.
                   </span>
+                  <span v-else-if="rawMode === 'process_90853'">
+                    See, approve, and change all 90853 (Group therapy) rows before moving past raw import. Enter correct minutes and mark Done. Payroll cannot run until these are processed.
+                  </span>
                   <span v-else-if="rawMode === 'process_h2032'">
                     See, approve, and change all H2032 (Activity therapy) rows before moving past raw import. Enter correct minutes and mark Done. Payroll cannot run until these are processed.
                   </span>
@@ -4635,6 +4646,7 @@
                 <button class="btn btn-secondary btn-sm" @click="rawMode = 'process_h0031'">Process H0031</button>
                 <button class="btn btn-secondary btn-sm" @click="rawMode = 'process_h0032'">Process H0032</button>
                 <button class="btn btn-secondary btn-sm" @click="rawMode = 'process_h2014'">Process H2014</button>
+                <button class="btn btn-secondary btn-sm" @click="rawMode = 'process_90853'">Process 90853</button>
                 <button class="btn btn-secondary btn-sm" @click="rawMode = 'process_h2032'">Process H2032</button>
                 <button class="btn btn-secondary btn-sm" @click="rawMode = 'missed_appts_paid_in_full'">Missed Appts (Paid in Full)</button>
                 <button class="btn btn-secondary btn-sm" @click="rawMode = 'processed'">Processed</button>
@@ -4703,7 +4715,7 @@
                 <label>Status</label>
                 <div class="hint" v-if="isPeriodPosted">
                   Posted (locked)
-                  <span v-if="rawMode === 'process_h0031' || rawMode === 'process_h0032' || rawMode === 'process_h2014' || rawMode === 'process_h2032'">
+                  <span v-if="rawMode === 'process_h0031' || rawMode === 'process_h0032' || rawMode === 'process_h2014' || rawMode === 'process_90853' || rawMode === 'process_h2032'">
                     •
                     <button
                       type="button"
@@ -4711,7 +4723,7 @@
                       style="margin-left: 8px;"
                       @click="unlockPostedRawProcessing"
                     >
-                      {{ rawPostedProcessingUnlocked ? 'Unlocked' : 'Unlock H0031/H0032/H2014/H2032 editing' }}
+                      {{ rawPostedProcessingUnlocked ? 'Unlocked' : 'Unlock H0031/H0032/H2014/H2032/90853 editing' }}
                     </button>
                   </span>
                 </div>
@@ -4726,11 +4738,11 @@
               No unpaid rows. Try <strong>Payable</strong> or <strong>Show All</strong> to see finalized rows, or review the Run Audit section above for late notes to add to current period.
             </div>
             <div
-              v-if="isPeriodPosted && rawPostedProcessingUnlocked && (rawMode === 'process_h0031' || rawMode === 'process_h0032' || rawMode === 'process_h2014' || rawMode === 'process_h2032')"
+              v-if="isPeriodPosted && rawPostedProcessingUnlocked && (rawMode === 'process_h0031' || rawMode === 'process_h0032' || rawMode === 'process_h2014' || rawMode === 'process_90853' || rawMode === 'process_h2032')"
               class="warn-box"
               style="margin-top: 10px;"
             >
-                    You are editing a <strong>posted</strong> period. This is allowed only for H0031/H0032/H2014/H2032 minutes + Done processing.
+                    You are editing a <strong>posted</strong> period. This is allowed only for H0031/H0032/H2014/H2032/90853 minutes + Done processing.
               It updates Raw Import and Payroll Stage totals, but does not automatically recompute posted payroll totals.
             </div>
             <div class="table-wrap">
@@ -4767,7 +4779,7 @@
                     v-for="r in rawModeRowsLimited"
                     :key="r.id"
                     :class="{
-                      'row-unpaid-h003': (rawMode === 'process_h0031' || rawMode === 'process_h0032' || rawMode === 'process_h2014' || rawMode === 'process_h2032') && !willBePaid(r),
+                      'row-unpaid-h003': (rawMode === 'process_h0031' || rawMode === 'process_h0032' || rawMode === 'process_h2014' || rawMode === 'process_90853' || rawMode === 'process_h2032') && !willBePaid(r),
                       'row-paid-muted': Number(r.is_paid) === 1
                     }"
                   >
@@ -4809,7 +4821,7 @@
                     <td v-else>
                       <div style="display: flex; align-items: center; gap: 10px; justify-content: flex-end;">
                         <label
-                          v-if="rawMode === 'process_h0031' || rawMode === 'process_h0032' || rawMode === 'process_h2014' || rawMode === 'process_h2032'"
+                          v-if="rawMode === 'process_h0031' || rawMode === 'process_h0032' || rawMode === 'process_h2014' || rawMode === 'process_90853' || rawMode === 'process_h2032'"
                           class="muted"
                           style="display: inline-flex; align-items: center; gap: 6px; margin-right: 6px;"
                           title="Local checklist only (not saved)"
@@ -5726,6 +5738,13 @@
                   Process H2014 minutes + mark Done.
                   <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
                     <button class="btn btn-secondary" type="button" @click="wizardOpenRawMode('process_h2014')" :disabled="!selectedPeriodId">Open Raw Import (H2014)</button>
+                  </div>
+                </div>
+
+                <div v-else-if="wizardStep?.key === '90853'" class="hint">
+                  Process 90853 (group therapy) minutes + mark Done.
+                  <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                    <button class="btn btn-secondary" type="button" @click="wizardOpenRawMode('process_90853')" :disabled="!selectedPeriodId">Open Raw Import (90853)</button>
                   </div>
                 </div>
 
@@ -7549,6 +7568,7 @@ const wizardSteps = computed(() => {
     { key: 'h0031', title: 'Process H0031' },
     { key: 'h0032', title: 'Process H0032' },
     { key: 'h2014', title: 'Process H2014' },
+    { key: '90853', title: 'Process 90853' },
     { key: 'h2032', title: 'Process H2032' },
     { key: 'stage', title: 'Payroll Stage (edits, todos, manual adds)' },
     { key: 'run', title: 'Run payroll' },
@@ -10836,7 +10856,15 @@ const rawDraftRows = computed(() => {
   return rows;
 });
 
-const rawMode = ref('draft_audit'); // draft_audit | process_h0031 | process_h0032 | process_h2014 | process_h2032 | processed | missed_appts_paid_in_full
+const rawMode = ref('draft_audit'); // draft_audit | process_h0031 | process_h0032 | process_h2014 | process_90853 | process_h2032 | processed | missed_appts_paid_in_full
+
+const isRawImportProcessMode = (mode) => (
+  mode === 'process_h0031'
+  || mode === 'process_h0032'
+  || mode === 'process_h2014'
+  || mode === 'process_90853'
+  || mode === 'process_h2032'
+);
 
 const rawModeRowsLimited = computed(() => {
   const all = rawModeRows.value || [];
@@ -10915,6 +10943,11 @@ const rawModeRows = computed(() => {
       Number(r.requires_processing) === 1 &&
       String(r.service_code || '').trim().toUpperCase() === 'H2014'
     );
+  } else if (mode === 'process_90853') {
+    rows = rows.filter((r) =>
+      Number(r.requires_processing) === 1 &&
+      String(r.service_code || '').trim().toUpperCase() === '90853'
+    );
   } else if (mode === 'process_h2032') {
     rows = rows.filter((r) =>
       Number(r.requires_processing) === 1 &&
@@ -10937,7 +10970,7 @@ const rawModeRows = computed(() => {
   rows.sort((a, b) => {
     // In processing views, keep unfinished rows at the top and done rows at the bottom,
     // so users can undo mistakes without rows disappearing.
-    if (mode === 'process_h0031' || mode === 'process_h0032' || mode === 'process_h2014' || mode === 'process_h2032') {
+    if (isRawImportProcessMode(mode)) {
       const ra = processedRank(a);
       const rb = processedRank(b);
       if (ra !== rb) return ra - rb;
@@ -11355,8 +11388,8 @@ const applyRawAddToCurrentPeriod = async () => {
     await loadRawAuditData();
   } catch (e) {
     const msg = e.response?.data?.error?.message || e.message || '';
-    if (e.response?.status === 409 && (String(msg).includes('H0031') || String(msg).includes('H0032') || String(msg).includes('H2014') || String(msg).includes('H2032'))) {
-      const ok = window.confirm('Carryover is blocked by H0031/H0032/H2014/H2032 processing. Apply anyway (skip processing gate)?');
+    if (e.response?.status === 409 && (String(msg).includes('H0031') || String(msg).includes('H0032') || String(msg).includes('H2014') || String(msg).includes('H2032') || String(msg).includes('90853'))) {
+      const ok = window.confirm('Carryover is blocked by H0031/H0032/H2014/H2032/90853 processing. Apply anyway (skip processing gate)?');
       if (ok) {
         await api.post(`/payroll/periods/${destId}/raw-audit-actions/apply`, {
           sourcePayrollPeriodId: rawAuditActivePeriodId.value,
@@ -11638,7 +11671,7 @@ const toggleRawProcessed = async (row, nextDone) => {
 
 const unlockPostedRawProcessing = () => {
   if (!isPeriodPosted.value) return;
-  if (!(rawMode.value === 'process_h0031' || rawMode.value === 'process_h0032' || rawMode.value === 'process_h2014' || rawMode.value === 'process_h2032')) return;
+  if (!isRawImportProcessMode(rawMode.value)) return;
   if (rawPostedProcessingUnlocked.value) return;
   const ok = window.confirm(
     'Unlock editing for a POSTED pay period?\n\nThis will allow editing H0031/H0032 minutes and marking Done in Raw Import so you can correct time for Category-1 providers.\n\nIt does NOT automatically recompute posted payroll totals.'
@@ -11649,7 +11682,7 @@ const unlockPostedRawProcessing = () => {
 watch([showRawModal, rawMode, selectedPeriodId], ([open, mode]) => {
   // Default back to locked when reopening/switching.
   if (!open) rawPostedProcessingUnlocked.value = false;
-  if (!(mode === 'process_h0031' || mode === 'process_h0032' || mode === 'process_h2014' || mode === 'process_h2032')) rawPostedProcessingUnlocked.value = false;
+  if (!isRawImportProcessMode(mode)) rawPostedProcessingUnlocked.value = false;
 });
 
 watch([rawAuditSelectedImportId, rawAuditBaselineImportId, rawAuditSelectedRunId, rawAuditBaselineRunId], async ([importId, baselineImportId, runId, baselineRunId], [prevImportId, prevBaselineImportId, prevRunId, prevBaselineRunId]) => {
@@ -12327,7 +12360,7 @@ const saveStageCarryoverEdits = async () => {
     } catch (e) {
       const msg = e.response?.data?.error?.message || e.message || '';
       // Catch-up workflow: allow explicit bypass of H0031/H0032 processing gates for carryover edits.
-      if (e.response?.status === 409 && (String(msg).includes('H0031') || String(msg).includes('H0032') || String(msg).includes('H2014') || String(msg).includes('H2032') || e.response?.data?.pendingProcessing)) {
+      if (e.response?.status === 409 && (String(msg).includes('H0031') || String(msg).includes('H0032') || String(msg).includes('H2014') || String(msg).includes('H2032') || String(msg).includes('90853') || e.response?.data?.pendingProcessing)) {
         const ok = window.confirm(
           'Old Done Notes is blocked by H0031/H0032 processing requirements.\n\nSave anyway (skip processing gate)?\n\nUse this only for catch-up/backfill. You must verify/correct final units in the destination payroll stage before running payroll.'
         );
@@ -12913,7 +12946,7 @@ const applyCarryover = async () => {
     } catch (e) {
       const msg = e.response?.data?.error?.message || e.message || '';
       // Catch-up workflow: allow explicit bypass of H0031/H0032 processing gates for carryover apply.
-      if (e.response?.status === 409 && (String(msg).includes('H0031') || String(msg).includes('H0032') || String(msg).includes('H2014') || String(msg).includes('H2032') || e.response?.data?.pendingProcessing)) {
+      if (e.response?.status === 409 && (String(msg).includes('H0031') || String(msg).includes('H0032') || String(msg).includes('H2014') || String(msg).includes('H2032') || String(msg).includes('90853') || e.response?.data?.pendingProcessing)) {
         const ok = window.confirm(
           'Carryover is blocked by H0031/H0032 processing requirements.\n\nApply carryover anyway (skip processing gate)?\n\nUse this only for catch-up/backfill. You must verify/correct final units in the destination payroll stage before running payroll.'
         );
@@ -14436,7 +14469,7 @@ const applyBatchCatchUpAllToPeriod = async () => {
           totalApplied += rowsToApply.length;
         } catch (e) {
           if (e.response?.status === 409 && (String(e.response?.data?.error?.message || '').includes('H0031') || String(e.response?.data?.error?.message || '').includes('H0032'))) {
-            const ok = window.confirm('Carryover is blocked by H0031/H0032/H2014/H2032 processing. Apply anyway (skip processing gate)?');
+            const ok = window.confirm('Carryover is blocked by H0031/H0032/H2014/H2032/90853 processing. Apply anyway (skip processing gate)?');
             if (ok) {
               await api.post(`/payroll/periods/${destId}/carryover/apply`, { rows: rowsToApply }, { params: { skipProcessingGate: 'true' } });
               totalApplied += rowsToApply.length;
@@ -14527,8 +14560,8 @@ const applyBatchCatchUpToPeriod = async () => {
     await selectPeriod(destId);
   } catch (e) {
     const msg = e.response?.data?.error?.message || e.message || '';
-    if (e.response?.status === 409 && (String(msg).includes('H0031') || String(msg).includes('H0032') || String(msg).includes('H2014') || String(msg).includes('H2032'))) {
-      const ok = window.confirm('Carryover is blocked by H0031/H0032/H2014/H2032 processing. Apply anyway (skip processing gate)?');
+    if (e.response?.status === 409 && (String(msg).includes('H0031') || String(msg).includes('H0032') || String(msg).includes('H2014') || String(msg).includes('H2032') || String(msg).includes('90853'))) {
+      const ok = window.confirm('Carryover is blocked by H0031/H0032/H2014/H2032/90853 processing. Apply anyway (skip processing gate)?');
       if (ok) {
         await api.post(`/payroll/periods/${destId}/carryover/apply`, { rows: rowsToApply }, { params: { skipProcessingGate: 'true' } });
         batchCatchUpResult.value = { ...result, applied: true, carryoverRowsApplied: rowsToApply.length };

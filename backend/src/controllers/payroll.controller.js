@@ -156,7 +156,32 @@ function paidStateForStatus(statusKey) {
 
 // Session key: clinician + date + service code + client. Omit userId and location so same
 // session matches across runs.
-const UNIT_EDITABLE_CODES = new Set(['H0031', 'H0032', 'H2014', 'H2032']);
+const UNIT_EDITABLE_CODES = new Set(['H0031', 'H0032', 'H2014', 'H2032', '90853']);
+const RAW_IMPORT_PROCESS_CODES = new Set(['H0031', 'H0032', 'H2014', 'H2032', '90853']);
+const RAW_IMPORT_PROCESS_CODES_LABEL = 'H0031/H0032/H2014/H2032/90853';
+
+function normalizeImportRowProcessing({ codeKey, unitCount, userId, h0032ManualMinutesByUserId }) {
+  const code = String(codeKey || '').trim().toUpperCase();
+  const isH0031 = code === 'H0031';
+  const isH0032 = code === 'H0032';
+  const isH2014 = code === 'H2014';
+  const isH2032 = code === 'H2032';
+  const is90853 = code === '90853';
+  const h0032NeedsManualMinutes = isH0032
+    ? !!(h0032ManualMinutesByUserId instanceof Map
+      ? h0032ManualMinutesByUserId.get(userId)
+      : h0032ManualMinutesByUserId)
+    : false;
+
+  let normalizedUnitCount = Number(unitCount) || 0;
+  if (isH0031 && Math.abs(normalizedUnitCount - 1) < 1e-9) normalizedUnitCount = 60;
+  else if (isH0032 && Math.abs(normalizedUnitCount - 1) < 1e-9) normalizedUnitCount = 30;
+  else if ((isH2014 || isH2032) && Math.abs(normalizedUnitCount - 1) < 1e-9) normalizedUnitCount = 15;
+  else if (is90853 && Math.abs(normalizedUnitCount - 1) < 1e-9) normalizedUnitCount = 60;
+
+  const requiresProcessing = isH0031 || (isH0032 && h0032NeedsManualMinutes) || isH2014 || isH2032 || is90853;
+  return { unitCount: normalizedUnitCount, requiresProcessing };
+}
 function rowEntityKey(row) {
   const provider = normalizeName(row?.provider_name || '');
   const client = firstTokenForClient(row?.patient_first_name);
@@ -3000,8 +3025,8 @@ export const patchPayrollImportRow = async (req, res, next) => {
         return res.status(409).json({ error: { message: 'This row does not require processing' } });
       }
       const codeKey = String(row.service_code || '').trim().toUpperCase();
-      if (codeKey !== 'H0031' && codeKey !== 'H0032' && codeKey !== 'H2014' && codeKey !== 'H2032') {
-        return res.status(409).json({ error: { message: 'Only H0031/H0032/H2014/H2032 rows can be processed' } });
+      if (!RAW_IMPORT_PROCESS_CODES.has(codeKey)) {
+        return res.status(409).json({ error: { message: `Only ${RAW_IMPORT_PROCESS_CODES_LABEL} rows can be processed` } });
       }
 
       if (wantsUnitCount) {
@@ -5845,26 +5870,13 @@ export const importPayrollCsv = [
         const userId = resolveUserIdForProviderName(nameToIds, r.providerName);
         const codeKey = String(r.serviceCode || '').trim().toUpperCase();
 
-        // H0031: imported as 1 occurrence, but must be treated as minutes (default 60) and must be processed.
-        // H0032: default to 30 minutes for everyone; Category-2 users additionally require processing (Done).
-        // H2014: always requires processing; default 15 min when 1 unit.
-        // H2032: always requires processing; default 15 min when 1 unit (activity therapy, per 15 min).
-        const isH0031 = codeKey === 'H0031';
-        const isH0032 = codeKey === 'H0032';
-        const isH2014 = codeKey === 'H2014';
-        const isH2032 = codeKey === 'H2032';
-        const h0032NeedsManualMinutes = isH0032 ? !!h0032ManualMinutesByUserId.get(userId) : false;
-
-        let unitCount = Number(r.unitCount) || 0;
-        if (isH0031) {
-          if (Math.abs(unitCount - 1) < 1e-9) unitCount = 60;
-        } else if (isH0032) {
-          if (Math.abs(unitCount - 1) < 1e-9) unitCount = 30;
-        } else if (isH2014 || isH2032) {
-          if (Math.abs(unitCount - 1) < 1e-9) unitCount = 15;
-        }
-
-        const requiresProcessing = isH0031 || (isH0032 && h0032NeedsManualMinutes) || isH2014 || isH2032;
+        // H0031/H0032/H2014/H2032/90853: imported unit counts are normalized to minutes and may require Done processing.
+        const { unitCount, requiresProcessing } = normalizeImportRowProcessing({
+          codeKey,
+          unitCount: r.unitCount,
+          userId,
+          h0032ManualMinutesByUserId
+        });
         const location = String(r.fingerprintFields?.location ?? r.location ?? '').trim() || null;
         const rowFingerprint = computeRowFingerprint({
           agencyId,
@@ -6078,22 +6090,12 @@ export const importPayrollAuto = [
         const userId = resolveUserIdForProviderName(nameToIds, r.providerName);
         const codeKey = String(r.serviceCode || '').trim().toUpperCase();
 
-        const isH0031 = codeKey === 'H0031';
-        const isH0032 = codeKey === 'H0032';
-        const isH2014 = codeKey === 'H2014';
-        const isH2032 = codeKey === 'H2032';
-        const h0032NeedsManualMinutes = isH0032 ? !!h0032ManualMinutesByUserId.get(userId) : false;
-
-        let unitCount = Number(r.unitCount) || 0;
-        if (isH0031) {
-          if (Math.abs(unitCount - 1) < 1e-9) unitCount = 60;
-        } else if (isH0032) {
-          if (Math.abs(unitCount - 1) < 1e-9) unitCount = 30;
-        } else if (isH2014 || isH2032) {
-          if (Math.abs(unitCount - 1) < 1e-9) unitCount = 15;
-        }
-
-        const requiresProcessing = isH0031 || (isH0032 && h0032NeedsManualMinutes) || isH2014 || isH2032;
+        const { unitCount, requiresProcessing } = normalizeImportRowProcessing({
+          codeKey,
+          unitCount: r.unitCount,
+          userId,
+          h0032ManualMinutesByUserId
+        });
         const location = String(r.fingerprintFields?.location ?? r.location ?? '').trim() || null;
         const rowFingerprint = computeRowFingerprint({
           agencyId: resolvedAgencyId,
@@ -6315,16 +6317,12 @@ export const batchCatchUp = [
             const rowsToInsertPersist = parsed2.map((r) => {
               const userId = resolveUserIdForProviderName(nameToIds, r.providerName);
               const codeKey = String(r.serviceCode || '').trim().toUpperCase();
-              const isH0031 = codeKey === 'H0031';
-              const isH0032 = codeKey === 'H0032';
-              const isH2014 = codeKey === 'H2014';
-              const isH2032 = codeKey === 'H2032';
-              const h0032NeedsManual = isH0032 ? !!h0032ManualPersist.get(userId) : false;
-              let unitCount = Number(r.unitCount) || 0;
-              if (isH0031 && Math.abs(unitCount - 1) < 1e-9) unitCount = 60;
-              else if (isH0032 && Math.abs(unitCount - 1) < 1e-9) unitCount = 30;
-              else if ((isH2014 || isH2032) && Math.abs(unitCount - 1) < 1e-9) unitCount = 15;
-              const requiresProcessing = isH0031 || (isH0032 && h0032NeedsManual) || isH2014 || isH2032;
+              const { unitCount, requiresProcessing } = normalizeImportRowProcessing({
+                codeKey,
+                unitCount: r.unitCount,
+                userId,
+                h0032ManualMinutesByUserId: h0032ManualPersist
+              });
               const location = String(r.fingerprintFields?.location ?? r.location ?? '').trim() || null;
               return {
                 payrollImportId: impPersist.id,
@@ -6420,16 +6418,12 @@ export const batchCatchUp = [
           const rowsToInsert2 = parsed2.map((r) => {
             const userId = resolveUserIdForProviderName(nameToIds, r.providerName);
             const codeKey = String(r.serviceCode || '').trim().toUpperCase();
-            const isH0031 = codeKey === 'H0031';
-            const isH0032 = codeKey === 'H0032';
-            const isH2014 = codeKey === 'H2014';
-            const isH2032 = codeKey === 'H2032';
-            const h0032NeedsManual = isH0032 ? !!h0032Manual.get(userId) : false;
-            let unitCount = Number(r.unitCount) || 0;
-            if (isH0031 && Math.abs(unitCount - 1) < 1e-9) unitCount = 60;
-            else if (isH0032 && Math.abs(unitCount - 1) < 1e-9) unitCount = 30;
-            else if ((isH2014 || isH2032) && Math.abs(unitCount - 1) < 1e-9) unitCount = 15;
-            const requiresProcessing = isH0031 || (isH0032 && h0032NeedsManual) || isH2014 || isH2032;
+            const { unitCount, requiresProcessing } = normalizeImportRowProcessing({
+              codeKey,
+              unitCount: r.unitCount,
+              userId,
+              h0032ManualMinutesByUserId: h0032Manual
+            });
             const location = String(r.fingerprintFields?.location ?? r.location ?? '').trim() || null;
             return {
               payrollImportId: imp2.id,
@@ -6778,6 +6772,7 @@ export const batchCatchUp = [
       let h0031PendingCount = 0;
       let h0032PendingCount = 0;
       let h2014PendingCount = 0;
+      let h90853PendingCount = 0;
       let h2032PendingCount = 0;
 
       if (applyCarryover && !sourceIsPosted && !twoRunMode) {
@@ -6803,11 +6798,12 @@ export const batchCatchUp = [
         for (const r of parsedC) {
           const userId = resolveUserIdForProviderName(nameToIds, r.providerName);
           const codeKey = String(r.serviceCode || '').trim().toUpperCase();
-          let unitCount = Number(r.unitCount) || 0;
-          if (codeKey === 'H0031' && Math.abs(unitCount - 1) < 1e-9) unitCount = 60;
-          else if (codeKey === 'H0032' && Math.abs(unitCount - 1) < 1e-9) unitCount = 30;
-          else if ((codeKey === 'H2014' || codeKey === 'H2032') && Math.abs(unitCount - 1) < 1e-9) unitCount = 15;
-          const requiresProcessing = codeKey === 'H0031' || (codeKey === 'H0032' && !!h0032Manual.get(userId)) || codeKey === 'H2014' || codeKey === 'H2032';
+          const { unitCount, requiresProcessing } = normalizeImportRowProcessing({
+            codeKey,
+            unitCount: r.unitCount,
+            userId,
+            h0032ManualMinutesByUserId: h0032Manual
+          });
           const location = String(r.fingerprintFields?.location ?? r.location ?? '').trim() || null;
           rowsToInsert.push({
             payrollImportId: imp.id,
@@ -6848,6 +6844,7 @@ export const batchCatchUp = [
         h0031PendingCount = rowsToInsert.filter((r) => String(r.serviceCode || '').trim().toUpperCase() === 'H0031' && r.requiresProcessing).length;
         h0032PendingCount = rowsToInsert.filter((r) => String(r.serviceCode || '').trim().toUpperCase() === 'H0032' && r.requiresProcessing).length;
         h2014PendingCount = rowsToInsert.filter((r) => String(r.serviceCode || '').trim().toUpperCase() === 'H2014' && r.requiresProcessing).length;
+        h90853PendingCount = rowsToInsert.filter((r) => String(r.serviceCode || '').trim().toUpperCase() === '90853' && r.requiresProcessing).length;
         h2032PendingCount = rowsToInsert.filter((r) => String(r.serviceCode || '').trim().toUpperCase() === 'H2032' && r.requiresProcessing).length;
       }
 
@@ -6879,6 +6876,7 @@ export const batchCatchUp = [
         h0031PendingCount,
         h0032PendingCount,
         h2014PendingCount,
+        h90853PendingCount,
         h2032PendingCount,
         addedToDestination: sourceIsPosted && !!destPeriod,
         applied: applyCarryover,
@@ -9540,16 +9538,12 @@ export const replacePayrollImport = [
       const rowsToInsert = parsed.map((r) => {
         const userId = resolveUserIdForProviderName(nameToIds, r.providerName);
         const codeKey = String(r.serviceCode || '').trim().toUpperCase();
-        const isH0031 = codeKey === 'H0031';
-        const isH0032 = codeKey === 'H0032';
-        const isH2014 = codeKey === 'H2014';
-        const isH2032 = codeKey === 'H2032';
-        const h0032NeedsManualMinutes = isH0032 ? !!h0032ManualMinutesByUserId.get(userId) : false;
-        let unitCount = Number(r.unitCount) || 0;
-        if (isH0031 && Math.abs(unitCount - 1) < 1e-9) unitCount = 60;
-        else if (isH0032 && Math.abs(unitCount - 1) < 1e-9) unitCount = 30;
-        else if ((isH2014 || isH2032) && Math.abs(unitCount - 1) < 1e-9) unitCount = 15;
-        const requiresProcessing = isH0031 || (isH0032 && h0032NeedsManualMinutes) || isH2014 || isH2032;
+        const { unitCount, requiresProcessing } = normalizeImportRowProcessing({
+          codeKey,
+          unitCount: r.unitCount,
+          userId,
+          h0032ManualMinutesByUserId
+        });
         const location = String(r.fingerprintFields?.location ?? r.location ?? '').trim() || null;
         const rowFingerprint = computeRowFingerprint({
           agencyId,
@@ -10932,7 +10926,7 @@ export const applyPayrollCarryover = async (req, res, next) => {
       const sample = await PayrollImportRow.listUnprocessedForPeriod({ payrollPeriodId, limit: 50 });
       return res.status(409).json({
         error: {
-          message: `Cannot apply carryover: ${pendingProcessingCount} H0031/H0032/H2014/H2032 row(s) require processing (minutes + Done) in the current pay period.`
+          message: `Cannot apply carryover: ${pendingProcessingCount} ${RAW_IMPORT_PROCESS_CODES_LABEL} row(s) require processing (minutes + Done) in the current pay period.`
         },
         pendingProcessing: { count: pendingProcessingCount, sample }
       });
@@ -10940,7 +10934,7 @@ export const applyPayrollCarryover = async (req, res, next) => {
     if (skipProcessingGate && pendingProcessingCount > 0) {
       warnings.push({
         code: 'H0031/H0032',
-        message: `Carryover applied with skipProcessingGate=true while ${pendingProcessingCount} H0031/H0032/H2014/H2032 row(s) in the current pay period still require processing (minutes + Done).`
+        message: `Carryover applied with skipProcessingGate=true while ${pendingProcessingCount} ${RAW_IMPORT_PROCESS_CODES_LABEL} row(s) in the current pay period still require processing (minutes + Done).`
       });
     }
 
@@ -11411,7 +11405,7 @@ export const applyPayrollRawAuditActions = async (req, res, next) => {
         const sample = await PayrollImportRow.listUnprocessedForPeriod({ payrollPeriodId, limit: 50 });
         return res.status(409).json({
           error: {
-            message: `Cannot apply raw import actions: ${pendingProcessingCount} H0031/H0032/H2014/H2032 row(s) require processing (minutes + Done) in the current pay period.`
+            message: `Cannot apply raw import actions: ${pendingProcessingCount} ${RAW_IMPORT_PROCESS_CODES_LABEL} row(s) require processing (minutes + Done) in the current pay period.`
           },
           pendingProcessing: { count: pendingProcessingCount, sample }
         });
@@ -11419,7 +11413,7 @@ export const applyPayrollRawAuditActions = async (req, res, next) => {
       if (skipProcessingGate && pendingProcessingCount > 0) {
         warnings.push({
           code: 'H0031/H0032',
-          message: `Raw import actions applied with skipProcessingGate=true while ${pendingProcessingCount} H0031/H0032/H2014/H2032 row(s) in the current pay period still require processing.`
+          message: `Raw import actions applied with skipProcessingGate=true while ${pendingProcessingCount} ${RAW_IMPORT_PROCESS_CODES_LABEL} row(s) in the current pay period still require processing.`
         });
       }
     }
@@ -11974,7 +11968,7 @@ export const runPayrollPeriod = async (req, res, next) => {
       }
       return res.status(409).json({
         error: {
-          message: `Cannot run payroll: ${pendingProcessingCount} H0031/H0032/H2014/H2032 row(s) require processing (minutes + Done).`
+          message: `Cannot run payroll: ${pendingProcessingCount} ${RAW_IMPORT_PROCESS_CODES_LABEL} row(s) require processing (minutes + Done).`
         },
         pendingProcessing: {
           count: pendingProcessingCount,
