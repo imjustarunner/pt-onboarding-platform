@@ -107,6 +107,10 @@ export const authenticate = async (req, res, next) => {
     ) {
       return next();
     }
+    // Other public kiosk endpoints (check-in, questionnaires, slots)
+    if (/^\/api\/kiosk\/[^/]+\/(checkin|questionnaires|events|identify-by-pin|providers|available-rooms)\/?/.test(requestPath)) {
+      return next();
+    }
     if (requestPath.startsWith('/api/public-intake') && !requestPath.includes('/approve')) {
       return next();
     }

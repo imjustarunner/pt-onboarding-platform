@@ -1461,13 +1461,31 @@ export const listProvidersToday = async (req, res, next) => {
          e.start_at,
          e.end_at,
          r.name AS room_name,
-         r.room_number
+         r.room_number,
+         COALESCE(a_loc.name,       a_any.name)           AS agency_name,
+         COALESCE(a_loc.color_palette, a_any.color_palette) AS agency_color_palette
        FROM office_events e
        JOIN users u ON u.id = e.booked_provider_id
          AND u.is_active = 1
          AND u.status = 'ACTIVE_EMPLOYEE'
          AND u.terminated_at IS NULL
        JOIN office_rooms r ON r.id = e.room_id
+       JOIN office_locations ol ON ol.id = e.office_location_id
+       -- Prefer agency matching this location
+       LEFT JOIN user_agencies ua_loc
+         ON ua_loc.user_id = u.id
+         AND ua_loc.agency_id = ol.agency_id
+         AND ua_loc.is_active = 1
+       LEFT JOIN agencies a_loc ON a_loc.id = ua_loc.agency_id
+       -- Fallback: any active agency for this provider
+       LEFT JOIN (
+         SELECT ua2.user_id,
+                a2.name,
+                a2.color_palette
+         FROM user_agencies ua2
+         JOIN agencies a2 ON a2.id = ua2.agency_id
+         WHERE ua2.is_active = 1
+       ) a_any ON a_any.user_id = u.id AND a_loc.id IS NULL
        WHERE e.office_location_id = ?
          AND (e.status = 'BOOKED' OR e.slot_state = 'ASSIGNED_BOOKED')
          AND e.booked_provider_id IS NOT NULL
@@ -1489,6 +1507,15 @@ export const listProvidersToday = async (req, res, next) => {
           credential: row.credential || null,
           title: row.title || null,
           profilePhotoPath: row.profile_photo_path || null,
+          agencyName: row.agency_name || null,
+          agencyPrimaryColor: (() => {
+            try {
+              const palette = typeof row.agency_color_palette === 'string'
+                ? JSON.parse(row.agency_color_palette)
+                : row.agency_color_palette;
+              return palette?.primary || null;
+            } catch { return null; }
+          })(),
           currentRoomName: null,
           currentRoomNumber: null,
           nextSlotAt: null,
