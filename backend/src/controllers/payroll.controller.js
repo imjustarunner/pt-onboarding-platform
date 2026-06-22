@@ -986,6 +986,32 @@ function fmtTierExportCell(summary) {
   return `${tierName} (Current)`;
 }
 
+function resolveManualPayCreditsHours({ category, creditsHours, amount, rateCard }) {
+  const hrsProvided = (creditsHours === null || creditsHours === undefined || creditsHours === '')
+    ? null
+    : Number(creditsHours);
+  if (Number.isFinite(hrsProvided) && hrsProvided > 1e-9) {
+    return Math.round(hrsProvided * 100) / 100;
+  }
+  const amt = Number(amount || 0);
+  if (!Number.isFinite(amt) || Math.abs(amt) < 1e-9) return null;
+  const cat = String(category || 'direct').trim().toLowerCase() === 'indirect' ? 'indirect' : 'direct';
+  const rate = cat === 'indirect'
+    ? Number(rateCard?.indirect_rate || 0)
+    : Number(rateCard?.direct_rate || 0);
+  if (!Number.isFinite(rate) || rate <= 1e-9) return null;
+  return Math.round((amt / rate) * 100) / 100;
+}
+
+async function inferManualPayCreditsHoursForUser({ agencyId, userId, category, creditsHours, amount }) {
+  return resolveManualPayCreditsHours({
+    category,
+    creditsHours,
+    amount,
+    rateCard: await PayrollRateCard.findForUser(agencyId, userId)
+  });
+}
+
 async function getImmediatePriorPeriodWeeklyAvg({ agencyId, userId, periodStart, defaultWeeklyAvg }) {
   const fallback = Number(defaultWeeklyAvg || 0);
   const safeFallback = Number.isFinite(fallback) ? fallback : 0;
@@ -3982,8 +4008,11 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       let indirectCreditsFromAdjLines = 0;
       for (const line of adjustmentLines) {
         if (!line || line.taxable !== true) continue;
-        const bucket = String(line.bucket || '').trim().toLowerCase();
-        if (!(bucket === 'direct' || bucket === 'indirect')) continue;
+        let bucket = String(line.bucket || '').trim().toLowerCase();
+        if (!(bucket === 'direct' || bucket === 'indirect')) {
+          if (String(line.type || '').trim().toLowerCase() === 'manual_pay_line') bucket = 'direct';
+          else continue;
+        }
         const lineAmount = safeNum(line.amount || 0);
         const lineHours = adjustmentLineHours(line);
         if (bucket === 'direct') {
@@ -3992,6 +4021,29 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
         } else {
           indirectAmtFromAdjLines += lineAmount;
           indirectCreditsFromAdjLines += lineHours;
+        }
+      }
+
+      // Back-compat: bucket manual pay from stored manualPayLines when older runs lack adjustment line buckets.
+      const manualPayInAdjLines = adjustmentLines.some(
+        (line) => String(line?.type || '').trim().toLowerCase() === 'manual_pay_line'
+      );
+      if (!manualPayInAdjLines) {
+        const manualPayLinesMeta = Array.isArray(adjFromBreakdown?.manualPayLines)
+          ? adjFromBreakdown.manualPayLines
+          : (Array.isArray(breakdown?.__manualPayLines) ? breakdown.__manualPayLines : []);
+        for (const ml of manualPayLinesMeta) {
+          const lineAmount = safeNum(ml?.amount || 0);
+          if (Math.abs(lineAmount) < 1e-9) continue;
+          const bucket = String(ml?.category || 'direct').trim().toLowerCase() === 'indirect' ? 'indirect' : 'direct';
+          const lineHours = safeNum(ml?.creditsHours ?? ml?.credits_hours ?? 0);
+          if (bucket === 'direct') {
+            directAmtFromAdjLines += lineAmount;
+            directCreditsFromAdjLines += lineHours;
+          } else {
+            indirectAmtFromAdjLines += lineAmount;
+            indirectCreditsFromAdjLines += lineHours;
+          }
         }
       }
 
@@ -5599,11 +5651,16 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         meta: { hours: Number(it.hours || 0), rate: Number(it.rate || 0) }
       });
     }
-    // Manual pay lines: appear as explicit line items and can contribute to hour totals (for PTO basis).
+    // Manual pay lines: explicit line items bucketed direct/indirect; hours count toward PTO accrual basis.
     for (const l of manualPayLines || []) {
       const amt = Number(l.amount || 0);
       const cat = String(l.category || 'direct').toLowerCase() === 'indirect' ? 'indirect' : 'direct';
-      const hrs = (l?.creditsHours === null || l?.creditsHours === undefined || l?.creditsHours === '') ? null : Number(l?.creditsHours);
+      const hrs = resolveManualPayCreditsHours({
+        category: cat,
+        creditsHours: l?.creditsHours,
+        amount: amt,
+        rateCard
+      });
       if (Number.isFinite(hrs) && hrs > 1e-9) {
         if (cat === 'indirect') { indirectHours += hrs; totalHours += hrs; }
         else { directHours += hrs; totalHours += hrs; }
@@ -8466,6 +8523,18 @@ export const createPayrollManualPayLine = async (req, res, next) => {
       await ensurePtoAccount({ agencyId: period.agency_id, userId, updatedByUserId: req.user.id });
     }
 
+    let resolvedCreditsHours = creditsHoursRaw;
+    if (lineType !== 'pto') {
+      const inferred = await inferManualPayCreditsHoursForUser({
+        agencyId: period.agency_id,
+        userId,
+        category,
+        creditsHours: creditsHoursRaw,
+        amount
+      });
+      if (inferred !== null) resolvedCreditsHours = inferred;
+    }
+
     const id = await PayrollManualPayLine.create({
       payrollPeriodId,
       agencyId: period.agency_id,
@@ -8474,7 +8543,7 @@ export const createPayrollManualPayLine = async (req, res, next) => {
       ptoBucket: (lineType === 'pto' ? ptoBucket : null),
       label,
       category,
-      creditsHours: creditsHoursRaw,
+      creditsHours: resolvedCreditsHours,
       amount,
       createdByUserId: req.user.id
     });
@@ -8483,7 +8552,7 @@ export const createPayrollManualPayLine = async (req, res, next) => {
     if (lineType === 'pto') {
       const acct = await PayrollPtoAccount.findForAgencyUser({ agencyId: period.agency_id, userId });
       const eff = String((ptoBucket === 'training' ? acct?.training_start_effective_date : acct?.sick_start_effective_date) || period.period_end || period.period_start || '').slice(0, 10);
-      const delta = Number(creditsHoursRaw || 0);
+      const delta = Number(resolvedCreditsHours || 0);
       await PayrollPtoLedger.create({
         agencyId: period.agency_id,
         userId,
@@ -8571,12 +8640,43 @@ export const updatePayrollManualPayLine = async (req, res, next) => {
     const creditsHours = req.body?.creditsHours ?? req.body?.credits_hours;
     const amount = req.body?.amount;
 
+    const [existingRows] = await pool.execute(
+      `SELECT user_id, category, credits_hours, amount, line_type
+       FROM payroll_manual_pay_lines
+       WHERE id = ? AND payroll_period_id = ? AND agency_id = ?
+       LIMIT 1`,
+      [lineId, payrollPeriodId, period.agency_id]
+    );
+    const existing = existingRows?.[0] || null;
+    if (!existing) return res.status(404).json({ error: { message: 'Manual pay line not found' } });
+
+    const nextAmount = (amount !== undefined && amount !== null && amount !== '')
+      ? Number(amount)
+      : Number(existing?.amount || 0);
+    let resolvedCreditsHours = (creditsHours !== undefined && creditsHours !== null && creditsHours !== '')
+      ? Number(creditsHours)
+      : undefined;
+
+    if (String(existing?.line_type || 'pay').toLowerCase() !== 'pto') {
+      const hasExplicitHours = resolvedCreditsHours !== undefined && Number.isFinite(resolvedCreditsHours);
+      if (!hasExplicitHours) {
+        const inferred = await inferManualPayCreditsHoursForUser({
+          agencyId: period.agency_id,
+          userId: Number(existing?.user_id || 0),
+          category: String(existing?.category || 'indirect'),
+          creditsHours: existing?.credits_hours,
+          amount: nextAmount
+        });
+        if (inferred !== null) resolvedCreditsHours = inferred;
+      }
+    }
+
     const updated = await PayrollManualPayLine.updateById({
       id: lineId,
       payrollPeriodId,
       agencyId: period.agency_id,
-      creditsHours: creditsHours !== undefined && creditsHours !== null && creditsHours !== '' ? Number(creditsHours) : undefined,
-      amount: amount !== undefined && amount !== null && amount !== '' ? Number(amount) : undefined
+      creditsHours: resolvedCreditsHours,
+      amount: (amount !== undefined && amount !== null && amount !== '') ? nextAmount : undefined
     });
 
     if (!updated) {
@@ -8795,11 +8895,14 @@ export const createPayrollManualBulk = async (req, res, next) => {
       const payHours = (inputType === 'minutes')
         ? (quantity / 60)
         : (payDivisor > 0 ? quantity / payDivisor : 0);
+      const billableUnits = (inputType === 'minutes')
+        ? payHours
+        : quantity;
       let amount;
       if (rateUnit === 'per_hour') {
         amount = Math.round(payHours * rateAmount * 100) / 100;
       } else {
-        amount = Math.round(units * rateAmount * 100) / 100;
+        amount = Math.round(billableUnits * rateAmount * 100) / 100;
       }
       matched.push({ userId: u.id, amount, rateAmount, rateUnit, creditsHours: payHours });
     }

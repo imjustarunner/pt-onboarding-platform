@@ -10710,6 +10710,19 @@ const payTotalsFromBreakdown = (breakdown) => {
       else out.directAmount += amt;
     }
   }
+  const manualPayInAdj = Array.isArray(adjLines) && adjLines.some(
+    (line) => String(line?.type || '').trim().toLowerCase() === 'manual_pay_line'
+  );
+  if (!manualPayInAdj) {
+    const manualList = breakdown?.__adjustments?.manualPayLines || breakdown?.__manualPayLines || [];
+    for (const ml of (Array.isArray(manualList) ? manualList : [])) {
+      const amt = Number(ml?.amount || 0);
+      if (Math.abs(amt) <= 1e-9) continue;
+      const bucket = String(ml?.category || 'direct').trim().toLowerCase() === 'indirect' ? 'indirect' : 'direct';
+      if (bucket === 'indirect') out.indirectAmount += amt;
+      else out.directAmount += amt;
+    }
+  }
   return out;
 };
 
