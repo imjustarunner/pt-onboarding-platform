@@ -11,6 +11,7 @@ import {
   downgradeBookedWithoutExternalOverlap
 } from './officeScheduleEhrSync.service.js';
 import { retryFailedProviderAssignmentGoogleSync } from './providerAssignmentGoogleSync.service.js';
+import { deactivateStaleStandingAssignments } from './officeStandingAssignmentMaintenance.service.js';
 
 export class OfficeScheduleWatchdogService {
   /**
@@ -426,6 +427,15 @@ export class OfficeScheduleWatchdogService {
       materializationRoll = { ok: false, reason: 'exception', error: String(e?.message || e) };
     }
 
+    // After materialization, retire expired / orphaned standing assignments and
+    // mirror removals to Google Calendar.
+    let staleAssignmentCleanup = null;
+    try {
+      staleAssignmentCleanup = await deactivateStaleStandingAssignments();
+    } catch (e) {
+      staleAssignmentCleanup = { ok: false, reason: 'exception', error: String(e?.message || e) };
+    }
+
     let ehrRefresh = null;
     try {
       // Match Therapy Notes / ICS busy blocks to assigned office slots → mark booked (same as admin refresh).
@@ -469,7 +479,18 @@ export class OfficeScheduleWatchdogService {
       icsCoverageAudit = { ok: false, reason: 'exception', error: String(e?.message || e) };
     }
 
-    return { ok: true, materializationRoll, ehrRefresh, internalSessionBook, confirms, forfeits, inactiveCleanup, googleSync, icsCoverageAudit };
+    return {
+      ok: true,
+      staleAssignmentCleanup,
+      materializationRoll,
+      ehrRefresh,
+      internalSessionBook,
+      confirms,
+      forfeits,
+      inactiveCleanup,
+      googleSync,
+      icsCoverageAudit
+    };
   }
 
   /**

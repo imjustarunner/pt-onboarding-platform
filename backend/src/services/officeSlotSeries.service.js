@@ -189,10 +189,13 @@ async function validateOfficeSlotSeries({
         };
       }
 
-      // Check for a conflicting recurring standing assignment from another provider
+      // Check for a conflicting recurring standing assignment from another provider.
+      // Only treat it as a real conflict if the assignment is backed by at least one
+      // active (non-cancelled) event on or after the first occurrence date — stale
+      // assignments with no future events should not block new approvals.
       if (officeLocationId) {
         const [saConflicts] = await pool.execute(
-          `SELECT a.id, a.office_location_id, u.first_name, u.last_name,
+          `SELECT a.id, a.provider_id, a.office_location_id, u.first_name, u.last_name,
                   ol.name AS office_name
            FROM office_standing_assignments a
            JOIN users u ON u.id = a.provider_id
@@ -203,27 +206,48 @@ async function validateOfficeSlotSeries({
              AND a.hour = ?
              AND a.is_active = TRUE
              AND a.provider_id != ?
+             AND (a.available_since_date IS NULL OR a.available_since_date <= ?)
+             AND (a.temporary_until_date IS NULL OR a.temporary_until_date >= ?)
            LIMIT 1`,
-          [officeLocationId, roomId, weekday, h, providerId]
+          [officeLocationId, roomId, weekday, h, providerId, occDate, occDate]
         );
         if (saConflicts?.length) {
           const c = saConflicts[0];
-          const blocker = `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'another provider';
-          const officeNote = c.office_name ? ` in ${c.office_name}` : '';
-          const dateLabel = new Date(occDate + 'T00:00:00').toLocaleDateString('en-US', {
-            weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
-          });
-          return {
-            ok: false,
-            status: 409,
-            error: {
-              message: `Cannot approve — this room/time is already assigned to ${blocker}${officeNote} (recurring). Occurrence #${oi + 1} on ${dateLabel} is blocked. Please choose a different room.`,
-              blockedOccurrence: oi + 1,
-              blockedDate: occDate,
-              blockingProvider: blocker,
-              blockingOffice: c.office_name || null
-            }
-          };
+          // Verify the blocking provider actually has a live event at this exact
+          // weekday + hour in the same room on or after the first occurrence date.
+          // If not, the standing assignment is orphaned and should not block.
+          // MySQL DAYOFWEEK: 1=Sun … 7=Sat (our weekday is 0-based, so +1).
+          const slotStart = `${occDate} ${String(h).padStart(2, '0')}:00:00`;
+          const [liveEvents] = await pool.execute(
+            `SELECT 1
+             FROM office_events
+             WHERE room_id = ?
+               AND booked_provider_id = ?
+               AND start_at >= ?
+               AND DAYOFWEEK(start_at) = ?
+               AND HOUR(start_at) = ?
+               AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
+             LIMIT 1`,
+            [roomId, c.provider_id, slotStart, weekday + 1, h]
+          );
+          if (liveEvents?.length) {
+            const blocker = `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'another provider';
+            const officeNote = c.office_name ? ` in ${c.office_name}` : '';
+            const dateLabel = new Date(occDate + 'T00:00:00').toLocaleDateString('en-US', {
+              weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+            });
+            return {
+              ok: false,
+              status: 409,
+              error: {
+                message: `Cannot approve — this room/time is already assigned to ${blocker}${officeNote} (recurring). Occurrence #${oi + 1} on ${dateLabel} is blocked. Please choose a different room.`,
+                blockedOccurrence: oi + 1,
+                blockedDate: occDate,
+                blockingProvider: blocker,
+                blockingOffice: c.office_name || null
+              }
+            };
+          }
         }
       }
     }

@@ -15,6 +15,7 @@ import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.s
 import * as officeSlotSeriesService from '../services/officeSlotSeries.service.js';
 import OfficeBookingPlan from '../models/OfficeBookingPlan.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
+import { syncOfficeEventsToGoogleBestEffort } from '../services/providerAssignmentGoogleSync.service.js';
 import { directIndirectRatioKindFromRatio } from '../utils/directIndirectRatioBands.js';
 import {
   normalizeSkillBuilderBlocks,
@@ -2448,8 +2449,10 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
       // Only block on OTHER providers' active assignments in this room/weekday/hour.
       // Exclude the requesting provider so that re-approvals and extensions update
       // the existing assignment instead of falsely rejecting with "already assigned".
+      // Also skip stale assignments — only treat as a real conflict when the blocking
+      // provider has at least one live (non-cancelled) event at this slot going forward.
       const [physicalConflicts] = await conn.execute(
-        `SELECT a.id, u.first_name, u.last_name
+        `SELECT a.id, a.provider_id, u.first_name, u.last_name
          FROM office_standing_assignments a
          JOIN users u ON u.id = a.provider_id
          WHERE a.office_location_id = ?
@@ -2463,12 +2466,24 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
       );
       if ((physicalConflicts || []).length) {
         const c = physicalConflicts[0];
-        const providerName = `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'another provider';
-        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        const dayLabel = dayNames[weekday] || `weekday ${weekday}`;
-        const err = new Error(`That office slot (${dayLabel} ${h}:00) is already assigned to ${providerName}. Please choose a different room or time.`);
-        err.status = 409;
-        throw err;
+        const slotStartStr = `${requestStartDate} ${String(h).padStart(2, '0')}:00:00`;
+        const [liveCheck] = await conn.execute(
+          `SELECT 1 FROM office_events
+           WHERE room_id = ? AND booked_provider_id = ? AND start_at >= ?
+             AND DAYOFWEEK(start_at) = ?
+             AND HOUR(start_at) = ?
+             AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
+           LIMIT 1`,
+          [roomId, c.provider_id, slotStartStr, weekday + 1, h]
+        );
+        if ((liveCheck || []).length) {
+          const providerName = `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'another provider';
+          const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+          const dayLabel = dayNames[weekday] || `weekday ${weekday}`;
+          const err = new Error(`That office slot (${dayLabel} ${h}:00) is already assigned to ${providerName}. Please choose a different room or time.`);
+          err.status = 409;
+          throw err;
+        }
       }
 
       const [existingAssign] = await conn.execute(
@@ -2647,6 +2662,7 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
         const materializeWeeks = recurrenceName === 'BIWEEKLY' ? 12 : 6;
         const startWeek = OfficeScheduleMaterializer.startOfWeekMonday(requestStartDate);
         if (startWeek) {
+          OfficeScheduleMaterializer.invalidateOffice(officeId);
           for (let i = 0; i < materializeWeeks; i++) {
             const weekStart = OfficeScheduleMaterializer.addDays(startWeek, i * 7);
             try {
@@ -2654,11 +2670,26 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
                 officeLocationId: officeId,
                 weekStartRaw: weekStart,
                 createdByUserId: req.user.id,
-                useExactWeekStart: true
+                useExactWeekStart: true,
+                force: true
               });
             } catch {
               // Non-critical; grid load will re-materialize on next view
             }
+          }
+          // Mirror newly booked slots to Google Calendar (provider + room resource).
+          const [syncRows] = await pool.execute(
+            `SELECT id
+             FROM office_events
+             WHERE standing_assignment_id = ?
+               AND start_at >= ?
+               AND UPPER(COALESCE(slot_state, '')) = 'ASSIGNED_BOOKED'
+               AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
+            [assignmentId, `${requestStartDate} 00:00:00`]
+          );
+          const eventIds = (syncRows || []).map((r) => Number(r.id)).filter((n) => n > 0);
+          if (eventIds.length) {
+            syncOfficeEventsToGoogleBestEffort(eventIds).catch(() => {});
           }
         }
       }
