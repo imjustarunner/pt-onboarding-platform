@@ -941,6 +941,26 @@ function fmtTierLabelCurrentPeriod({ tierLevel, biWeeklyTotal, weeklyAvg }) {
   return `${name} (${Number(total).toFixed(1)} bi-wk total; ${Number(weeklyAvg || 0).toFixed(1)}/wk)`;
 }
 
+function fmtTierExportCell(summary) {
+  let breakdown = summary?.breakdown;
+  if (typeof breakdown === 'string') {
+    try { breakdown = JSON.parse(breakdown); } catch { breakdown = null; }
+  }
+  const tier = breakdown?.__tier;
+  if (!tier) return '';
+
+  const benefitTierLevel = Number(tier.tierLevel || 0);
+  const biWeeklyTotal = Number(tier.biWeeklyTotal || 0);
+  const graceActive = Number(summary?.grace_active || 0) === 1;
+
+  if (!benefitTierLevel && biWeeklyTotal <= 0 && !graceActive) return '';
+
+  const tierName = benefitTierLevel ? `Tier ${benefitTierLevel}` : 'Out of Compliance';
+  if (graceActive) return `${tierName} (Grace)`;
+  if (!benefitTierLevel) return 'Out of Compliance';
+  return `${tierName} (Current)`;
+}
+
 async function getImmediatePriorPeriodWeeklyAvg({ agencyId, userId, periodStart, defaultWeeklyAvg }) {
   const fallback = Number(defaultWeeklyAvg || 0);
   const safeFallback = Number.isFinite(fallback) ? fallback : 0;
@@ -3849,6 +3869,7 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
     // - PTO requested hours (sick + training split) + key adjustment columns
     const header = [
       'Employee',
+      'Benefit Tier',
       'Direct Hour Credits',
       'Direct Taxable Pay',
       'Direct Hourly Rate',
@@ -3988,6 +4009,7 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       lines.push(
         [
           csvEscape(employee),
+          csvEscape(fmtTierExportCell(s)),
           fmt2(directCredits),
           fmt2(directTaxablePay),
           fmt2(directRate),
