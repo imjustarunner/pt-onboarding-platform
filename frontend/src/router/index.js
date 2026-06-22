@@ -584,6 +584,13 @@ const routes = [
     component: () => import('../views/KioskView.vue'),
     meta: { requiresGuest: false }
   },
+  // Provider-First Welcome Kiosk (public lobby splash screen)
+  {
+    path: '/kiosk-welcome/:locationId',
+    name: 'KioskWelcome',
+    component: () => import('../views/KioskWelcomeView.vue'),
+    meta: { requiresGuest: false }
+  },
   {
     path: '/:organizationSlug/new_account/:token',
     name: 'NewAccount',
@@ -699,6 +706,16 @@ const routes = [
         meta: { requiresAuth: true, organizationSlug: true, requiresProviderMobileAccess: true }
       }
     ]
+  },
+  {
+    path: '/:organizationSlug/provider/kiosk-questionnaires',
+    name: 'OrganizationProviderKioskQuestionnaires',
+    component: () => import('../views/provider/ProviderKioskQuestionnairesView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['provider', 'provider_plus', 'intern', 'supervisor', 'clinical_practice_assistant'],
+      organizationSlug: true
+    }
   },
   {
     path: '/:organizationSlug/operations-dashboard',

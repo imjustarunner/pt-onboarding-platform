@@ -27,13 +27,30 @@ import {
   listKioskSkillBuilderEventSessions,
   listKioskAttachedSurveys,
   kioskSkillBuilderEventClockIn,
-  kioskSkillBuilderEventClockOut
+  kioskSkillBuilderEventClockOut,
+  // Provider-First Welcome Kiosk
+  listProvidersToday,
+  listProviderSlotsToday,
+  listAvailableRooms,
+  reserveRoomByPin,
+  // Provider Questionnaire Management (authenticated)
+  listProviderQuestRules,
+  createProviderQuestRule,
+  deleteProviderQuestRule,
+  listProviderQuestResponses,
+  tagResponseToClient
 } from '../controllers/kiosk.controller.js';
 
 const router = express.Router();
 
 // Authenticated kiosk user context (must be before :locationId)
 router.get('/me/context', authenticate, requireKioskUser, getKioskContext);
+
+// Provider-First Welcome Kiosk: public endpoints
+router.get('/:locationId/providers-today', listProvidersToday);
+router.get('/:locationId/providers/:providerId/slots-today', listProviderSlotsToday);
+router.get('/:locationId/available-rooms', listAvailableRooms);
+router.post('/:locationId/reserve-by-pin', reserveRoomByPin);
 
 // Public kiosk endpoints (backward compatibility)
 router.get('/:locationId/skill-builders-events/:eventId/sessions', listKioskSkillBuilderEventSessions);
@@ -68,6 +85,13 @@ router.post('/:locationId/submit', submitKioskSurvey);
 router.use(authenticate);
 router.get('/:locationId/checkins', listCheckins);
 router.get('/providers/:providerId/surveys', getSlotSurveys);
+
+// Provider Questionnaire Management (authenticated)
+router.get('/questionnaire-rules', listProviderQuestRules);
+router.post('/questionnaire-rules', createProviderQuestRule);
+router.delete('/questionnaire-rules/:ruleId', deleteProviderQuestRule);
+router.get('/questionnaire-responses', listProviderQuestResponses);
+router.patch('/questionnaire-responses/:responseId/tag-client', tagResponseToClient);
 
 export default router;
 

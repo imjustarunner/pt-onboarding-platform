@@ -6,7 +6,14 @@ class OfficeSlotQuestionnaireRule {
    * @param {Object} opts - { officeLocationId, roomId, startAt (Date or ISO string) }
    * @returns {Promise<Array>} Matching rules with module info
    */
-  static async findForEvent({ officeLocationId, roomId, startAt }) {
+  /**
+   * Priority order:
+   * 1. Provider-specific rules (provider_id = bookedProviderId) — narrowest match first
+   * 2. Room + day + hour rules (provider_id IS NULL)
+   *
+   * Within each tier, more-specific rules (non-null room_id / day_of_week) rank higher.
+   */
+  static async findForEvent({ officeLocationId, roomId, startAt, bookedProviderId = null }) {
     const start = startAt instanceof Date ? startAt : new Date(startAt);
     const dayOfWeek = start.getDay();
     const hour = start.getHours();
@@ -14,6 +21,34 @@ class OfficeSlotQuestionnaireRule {
     const roomCondition = roomId == null
       ? 'osqr.room_id IS NULL'
       : '(osqr.room_id IS NULL OR osqr.room_id = ?)';
+
+    // Provider-specific rules (tier 1)
+    if (bookedProviderId) {
+      const provParams = [officeLocationId, bookedProviderId];
+      if (roomId != null) provParams.push(roomId);
+      provParams.push(dayOfWeek, hour, hour);
+
+      const [provRows] = await pool.execute(
+        `SELECT osqr.*, m.title AS module_title, m.description AS module_description,
+                il.title AS intake_link_title
+         FROM office_slot_questionnaire_rules osqr
+         LEFT JOIN modules m ON m.id = osqr.module_id
+         LEFT JOIN intake_links il ON il.id = osqr.intake_link_id
+         WHERE osqr.office_location_id = ?
+           AND osqr.provider_id = ?
+           AND osqr.is_active = TRUE
+           AND (osqr.module_id IS NOT NULL OR osqr.intake_link_id IS NOT NULL)
+           AND ${roomCondition}
+           AND (osqr.day_of_week IS NULL OR osqr.day_of_week = ?)
+           AND (osqr.hour_start IS NULL OR osqr.hour_start <= ?)
+           AND (osqr.hour_end IS NULL OR osqr.hour_end >= ?)
+         ORDER BY osqr.room_id IS NOT NULL DESC, osqr.day_of_week IS NOT NULL DESC`,
+        provParams
+      );
+      if (provRows?.length > 0) return provRows;
+    }
+
+    // Room/day/hour rules with no provider filter (tier 2)
     const params = [officeLocationId];
     if (roomId != null) params.push(roomId);
     params.push(dayOfWeek, hour, hour);
@@ -25,6 +60,7 @@ class OfficeSlotQuestionnaireRule {
        LEFT JOIN modules m ON m.id = osqr.module_id
        LEFT JOIN intake_links il ON il.id = osqr.intake_link_id
        WHERE osqr.office_location_id = ?
+         AND osqr.provider_id IS NULL
          AND osqr.is_active = TRUE
          AND (osqr.module_id IS NOT NULL OR osqr.intake_link_id IS NOT NULL)
          AND ${roomCondition}

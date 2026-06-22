@@ -82,6 +82,31 @@ export const authenticate = async (req, res, next) => {
     if (requestPath.startsWith('/api/public/')) {
       return next();
     }
+    // Provider-First Welcome Kiosk public endpoints (no auth required)
+    if (
+      req.method === 'GET' &&
+      /^\/api\/kiosk\/[^/]+\/providers-today\/?$/.test(requestPath)
+    ) {
+      return next();
+    }
+    if (
+      req.method === 'GET' &&
+      /^\/api\/kiosk\/[^/]+\/providers\/[^/]+\/slots-today\/?$/.test(requestPath)
+    ) {
+      return next();
+    }
+    if (
+      req.method === 'GET' &&
+      /^\/api\/kiosk\/[^/]+\/available-rooms\/?$/.test(requestPath)
+    ) {
+      return next();
+    }
+    if (
+      req.method === 'POST' &&
+      /^\/api\/kiosk\/[^/]+\/reserve-by-pin\/?$/.test(requestPath)
+    ) {
+      return next();
+    }
     if (requestPath.startsWith('/api/public-intake') && !requestPath.includes('/approve')) {
       return next();
     }

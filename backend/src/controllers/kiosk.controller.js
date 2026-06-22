@@ -220,7 +220,8 @@ export const listKioskQuestionnaires = async (req, res, next) => {
         const slotRules = await OfficeSlotQuestionnaireRule.findForEvent({
           officeLocationId: parseInt(locationId),
           roomId: ev.room_id,
-          startAt: ev.start_at
+          startAt: ev.start_at,
+          bookedProviderId: ev.booked_provider_id || null
         });
         if (slotRules?.length > 0) {
           out = slotRules.map((r) => {
@@ -1366,6 +1367,548 @@ export const kioskSkillBuilderEventClockIn = async (req, res, next) => {
     if (e?.code === 'ER_NO_SUCH_TABLE') {
       return res.status(503).json({ error: { message: 'Kiosk punches table not migrated' } });
     }
+    next(e);
+  }
+};
+
+// ── Timezone helpers for office-local time ──────────────────────────────────
+// All office_events are stored as local datetime strings (no UTC offset).
+// These helpers let us compare them correctly against "now" in the office tz.
+
+// mysql2 (with timezone:'+00:00') returns DATETIME columns as JS Date objects
+// whose UTC components equal the original wall-clock value stored in MySQL
+// (e.g. "2026-06-22 08:00:00" → Date with getUTCHours()===8).
+// This helper extracts those UTC components back into a plain "YYYY-MM-DD HH:MM:SS"
+// naive local string so the rest of the timezone comparison logic works correctly.
+const _pad2 = (n) => String(n).padStart(2, '0');
+function toNaiveStr(v) {
+  if (!v) return null;
+  const d = v instanceof Date ? v : new Date(String(v).replace(' ', 'T') + 'Z');
+  if (Number.isNaN(d.getTime())) return String(v).slice(0, 19);
+  return `${d.getUTCFullYear()}-${_pad2(d.getUTCMonth() + 1)}-${_pad2(d.getUTCDate())} ${_pad2(d.getUTCHours())}:${_pad2(d.getUTCMinutes())}:${_pad2(d.getUTCSeconds())}`;
+}
+
+// Returns the YYYY-MM-DD date in the given IANA timezone
+function localYmdInTz(dateLike, timeZone) {
+  try {
+    const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
+    if (Number.isNaN(d.getTime())) return '';
+    return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+  } catch {
+    return '';
+  }
+}
+
+// Returns the "local-now" millisecond value for a given timezone so that
+// naive DB strings (e.g. "2026-06-22 10:00:00") can be compared against it
+// without needing a real UTC conversion.  Works by reading what time it is
+// right now in the target timezone, then building a synthetic ms value that
+// matches the same scale as `new Date(dbString).getTime()` when Node treats
+// the DB string as local-server time.
+//
+// In practice: format the current UTC instant in the target timezone, then
+// parse that local-time string back as if it were UTC (naively), giving a
+// consistent "local epoch" for comparisons.
+function localNowMs(tz) {
+  const now = new Date();
+  const localStr = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: tz,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
+  }).format(now); // "2026-06-22 10:16:00"
+  return new Date(localStr.replace(' ', 'T') + 'Z').getTime();
+}
+
+// Returns { startAt, endAt } as "YYYY-MM-DD HH:MM:SS" local strings for the
+// current day in the given IANA timezone — suitable for MySQL DATETIME comparisons
+// against event rows that are also stored as local strings.
+function localTodayBounds(tz) {
+  const now = new Date();
+  const ymd = localYmdInTz(now, tz);
+  if (!ymd) {
+    // Fallback: use midnight/end-of-day in server local time
+    const s = new Date(now); s.setHours(0, 0, 0, 0);
+    const e = new Date(now); e.setHours(23, 59, 59, 999);
+    const fmt = (d) => d.toISOString().replace('T', ' ').slice(0, 19);
+    return { startAt: fmt(s), endAt: fmt(e) };
+  }
+  return { startAt: `${ymd} 00:00:00`, endAt: `${ymd} 23:59:59` };
+}
+
+// ─── Provider-First Welcome Kiosk ────────────────────────────────────────────
+
+// Public: providers with BOOKED events today, sorted active-now → upcoming (done = omitted)
+export const listProvidersToday = async (req, res, next) => {
+  try {
+    const { locationId } = req.params;
+    const loc = await OfficeLocation.findById(parseInt(locationId));
+    if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
+
+    const now = new Date();
+    const tz = loc.timezone || 'America/Denver';
+    const { startAt, endAt } = localTodayBounds(tz);
+    const nowLocal = localNowMs(tz); // synthetic "local now" for DB string comparisons
+
+    const [rows] = await pool.execute(
+      `SELECT
+         u.id,
+         u.first_name,
+         u.last_name,
+         u.credential,
+         u.title,
+         u.profile_photo_path,
+         e.id AS event_id,
+         e.start_at,
+         e.end_at,
+         r.name AS room_name,
+         r.room_number
+       FROM office_events e
+       JOIN users u ON u.id = e.booked_provider_id
+       JOIN office_rooms r ON r.id = e.room_id
+       WHERE e.office_location_id = ?
+         AND (e.status = 'BOOKED' OR e.slot_state = 'ASSIGNED_BOOKED')
+         AND e.booked_provider_id IS NOT NULL
+         AND e.start_at < ?
+         AND e.end_at > ?
+       ORDER BY u.id, e.start_at ASC`,
+      [parseInt(locationId), endAt, startAt]
+    );
+
+    // Group by provider; determine status from their events relative to now
+    const providerMap = new Map();
+    for (const row of (rows || [])) {
+      const pid = row.id;
+      if (!providerMap.has(pid)) {
+        providerMap.set(pid, {
+          id: pid,
+          firstName: row.first_name,
+          lastName: row.last_name,
+          credential: row.credential || null,
+          title: row.title || null,
+          profilePhotoPath: row.profile_photo_path || null,
+          currentRoomName: null,
+          currentRoomNumber: null,
+          nextSlotAt: null,
+          status: 'upcoming',
+          events: []
+        });
+      }
+      providerMap.get(pid).events.push({
+        startAt: toNaiveStr(row.start_at),
+        endAt: toNaiveStr(row.end_at),
+        roomName: row.room_name,
+        roomNumber: row.room_number
+      });
+    }
+
+    const providers = [];
+    for (const p of providerMap.values()) {
+      // Compare naive local strings against local-now using consistent "naive UTC" parsing
+      const toMs = (s) => new Date(s.replace(' ', 'T') + 'Z').getTime();
+      const activeEvent = p.events.find((e) => toMs(e.startAt) <= nowLocal && toMs(e.endAt) > nowLocal);
+      const futureEvents = p.events.filter((e) => toMs(e.startAt) > nowLocal);
+      const allDone = p.events.every((e) => toMs(e.endAt) <= nowLocal);
+
+      if (allDone) continue; // Provider's day is done; omit from kiosk
+
+      if (activeEvent) {
+        p.status = 'active_now';
+        p.currentRoomName = activeEvent.roomName;
+        p.currentRoomNumber = activeEvent.roomNumber;
+      } else if (futureEvents.length > 0) {
+        p.status = 'upcoming';
+        p.nextSlotAt = futureEvents[0].startAt;
+        p.currentRoomName = futureEvents[0].roomName;
+        p.currentRoomNumber = futureEvents[0].roomNumber;
+      }
+
+      delete p.events;
+      providers.push(p);
+    }
+
+    // Sort: active_now first, then upcoming by nextSlotAt
+    providers.sort((a, b) => {
+      if (a.status === b.status) {
+        const ta = a.nextSlotAt ? new Date(a.nextSlotAt.replace(' ', 'T') + 'Z').getTime() : 0;
+        const tb = b.nextSlotAt ? new Date(b.nextSlotAt.replace(' ', 'T') + 'Z').getTime() : 0;
+        return ta - tb;
+      }
+      return a.status === 'active_now' ? -1 : 1;
+    });
+
+    console.log('[kiosk-debug] providers-today', locationId, 'rows:', rows?.length, 'providers:', providers.length, 'tz:', tz, 'bounds:', startAt, endAt, 'nowLocal:', nowLocal);
+    res.json({ locationId: parseInt(locationId), locationName: loc.name, timezone: tz, providers });
+  } catch (e) {
+    console.error('[kiosk-debug] providers-today error:', e);
+    next(e);
+  }
+};
+
+// Public: a provider's BOOKED slots for today (no client info)
+export const listProviderSlotsToday = async (req, res, next) => {
+  try {
+    const { locationId, providerId } = req.params;
+    const loc = await OfficeLocation.findById(parseInt(locationId));
+    if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
+
+    const tz = loc.timezone || 'America/Denver';
+    const { startAt, endAt } = localTodayBounds(tz);
+
+    const [rows] = await pool.execute(
+      `SELECT
+         e.id AS event_id,
+         e.start_at,
+         e.end_at,
+         r.name AS room_name,
+         r.room_number,
+         oec.id AS checkin_id
+       FROM office_events e
+       JOIN office_rooms r ON r.id = e.room_id
+       LEFT JOIN office_event_checkins oec ON oec.event_id = e.id
+       WHERE e.office_location_id = ?
+         AND e.booked_provider_id = ?
+         AND (e.status = 'BOOKED' OR e.slot_state = 'ASSIGNED_BOOKED')
+         AND e.start_at < ?
+         AND e.end_at > ?
+       ORDER BY e.start_at ASC`,
+      [parseInt(locationId), parseInt(providerId), endAt, startAt]
+    );
+
+    const slots = (rows || []).map((r) => ({
+      eventId: r.event_id,
+      startAt: toNaiveStr(r.start_at),
+      endAt: toNaiveStr(r.end_at),
+      roomName: r.room_name,
+      roomNumber: r.room_number,
+      alreadyCheckedIn: r.checkin_id != null
+    }));
+
+    res.json({ locationId: parseInt(locationId), providerId: parseInt(providerId), timezone: tz, slots });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// Public: rooms at this location with no BOOKED event overlapping now
+export const listAvailableRooms = async (req, res, next) => {
+  try {
+    const { locationId } = req.params;
+    const loc = await OfficeLocation.findById(parseInt(locationId));
+    if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
+
+    const tz = loc.timezone || 'America/Denver';
+    // Format "now" as a local time string in the office's timezone (matches how DB strings are stored)
+    const nowLocal = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: tz,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    }).format(new Date()).replace(' ', 'T').replace('T', ' ');
+
+    const [rows] = await pool.execute(
+      `SELECT r.id, r.name, r.room_number, r.label, r.sort_order
+       FROM office_rooms r
+       WHERE r.location_id = ?
+         AND r.is_active = TRUE
+         AND NOT EXISTS (
+           SELECT 1 FROM office_events e
+           WHERE e.room_id = r.id
+             AND (e.status = 'BOOKED' OR e.slot_state = 'ASSIGNED_BOOKED')
+             AND e.start_at < ?
+             AND e.end_at > ?
+         )
+       ORDER BY r.sort_order ASC, r.name ASC`,
+      [parseInt(locationId), nowLocal, nowLocal]
+    );
+
+    res.json({ locationId: parseInt(locationId), rooms: rows || [] });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// Public: enter PIN → reserve a room for the rest of the day (creates BOOKED office_event)
+export const reserveRoomByPin = async (req, res, next) => {
+  try {
+    const { locationId } = req.params;
+    const { roomId, pin } = req.body || {};
+
+    if (!roomId || !pin) {
+      return res.status(400).json({ error: { message: 'roomId and pin are required' } });
+    }
+
+    const normalizedPin = normalizePin(pin);
+    if (!normalizedPin) {
+      return res.status(400).json({ error: { message: 'PIN must be 4 digits' } });
+    }
+
+    const loc = await OfficeLocation.findById(parseInt(locationId));
+    if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
+
+    const room = await (await import('../models/OfficeRoom.model.js')).default.findById(parseInt(roomId));
+    if (!room || Number(room.location_id) !== parseInt(locationId) || !room.is_active) {
+      return res.status(404).json({ error: { message: 'Room not found at this location' } });
+    }
+
+    // Identify user by PIN hash (same mechanism as identifyByPin)
+    const pinHash = KioskModel.hashPin(normalizedPin);
+    const [userRows] = await pool.execute(
+      `SELECT u.id, u.first_name, u.last_name
+       FROM users u
+       JOIN user_preferences up ON up.user_id = u.id
+       WHERE up.kiosk_pin_hash = ?
+         AND u.is_active = TRUE
+       LIMIT 1`,
+      [pinHash]
+    );
+    const user = userRows?.[0] || null;
+    if (!user) {
+      return res.status(401).json({ error: { message: 'Invalid PIN' } });
+    }
+
+    // Determine booking window in the office's local timezone: current hour → end of day
+    const tz = loc.timezone || 'America/Denver';
+    const localNowStr = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: tz,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    }).format(new Date()); // "2026-06-22 10:16:00"
+
+    // Round down to current hour as the start
+    const localHour = localNowStr.slice(11, 13); // "10"
+    const localYmd = localNowStr.slice(0, 10);   // "2026-06-22"
+    const startAtStr = `${localYmd} ${localHour}:00:00`;
+    const endAtStr = `${localYmd} 23:59:00`;
+
+    // Check room is still open
+    const [conflictRows] = await pool.execute(
+      `SELECT 1 FROM office_events
+       WHERE room_id = ? AND (status = 'BOOKED' OR slot_state = 'ASSIGNED_BOOKED')
+         AND start_at < ? AND end_at > ?
+       LIMIT 1`,
+      [room.id, endAtStr, startAtStr]
+    );
+    if (conflictRows?.[0]) {
+      return res.status(409).json({ error: { message: 'That room is no longer available' } });
+    }
+
+    const ev = await OfficeEvent.createIfRoomOpen({
+      officeLocationId: parseInt(locationId),
+      roomId: room.id,
+      startAt: startAtStr,
+      endAt: endAtStr,
+      status: 'BOOKED',
+      assignedProviderId: null,
+      bookedProviderId: user.id,
+      source: 'KIOSK_PIN_RESERVE',
+      createdByUserId: user.id,
+      approvedByUserId: user.id
+    });
+
+    if (!ev) {
+      return res.status(409).json({ error: { message: 'Could not reserve room — slot taken' } });
+    }
+
+    res.status(201).json({
+      ok: true,
+      event: {
+        id: ev.id,
+        roomId: room.id,
+        roomName: room.name,
+        roomNumber: room.room_number,
+        startAt: ev.start_at,
+        endAt: ev.end_at,
+        provider: { id: user.id, firstName: user.first_name, lastName: user.last_name }
+      }
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// ─── Provider Questionnaire Management (authenticated) ────────────────────────
+
+// Auth: list questionnaire rules set by this provider
+export const listProviderQuestRules = async (req, res, next) => {
+  try {
+    const providerId = req.user.id;
+    const { locationId } = req.query;
+
+    let whereExtra = '';
+    const params = [providerId];
+    if (locationId) {
+      whereExtra = ' AND osqr.office_location_id = ?';
+      params.push(parseInt(locationId));
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT osqr.id, osqr.office_location_id, osqr.room_id, osqr.day_of_week,
+              osqr.hour_start, osqr.hour_end, osqr.module_id, osqr.intake_link_id,
+              osqr.is_active, osqr.created_at,
+              m.title AS module_title,
+              il.title AS intake_link_title,
+              r.name AS room_name,
+              ol.name AS location_name
+       FROM office_slot_questionnaire_rules osqr
+       LEFT JOIN modules m ON m.id = osqr.module_id
+       LEFT JOIN intake_links il ON il.id = osqr.intake_link_id
+       LEFT JOIN office_rooms r ON r.id = osqr.room_id
+       LEFT JOIN office_locations ol ON ol.id = osqr.office_location_id
+       WHERE osqr.provider_id = ?${whereExtra}
+       ORDER BY ol.name, osqr.day_of_week, osqr.hour_start`,
+      params
+    );
+    res.json({ rules: rows || [] });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// Auth: create a questionnaire rule for this provider
+export const createProviderQuestRule = async (req, res, next) => {
+  try {
+    const providerId = req.user.id;
+    const { officeLocationId, roomId = null, dayOfWeek = null, hourStart = null, hourEnd = null, moduleId = null, intakeLinkId = null } = req.body || {};
+
+    if (!officeLocationId) return res.status(400).json({ error: { message: 'officeLocationId is required' } });
+    if (!moduleId && !intakeLinkId) return res.status(400).json({ error: { message: 'moduleId or intakeLinkId is required' } });
+
+    const OfficeSlotQuestionnaireRule = (await import('../models/OfficeSlotQuestionnaireRule.model.js')).default;
+
+    const end = hourEnd != null ? parseInt(hourEnd) : (hourStart != null ? parseInt(hourStart) : null);
+    const [result] = await pool.execute(
+      `INSERT INTO office_slot_questionnaire_rules
+         (office_location_id, provider_id, room_id, day_of_week, hour_start, hour_end, module_id, intake_link_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        parseInt(officeLocationId),
+        providerId,
+        roomId ? parseInt(roomId) : null,
+        dayOfWeek != null ? parseInt(dayOfWeek) : null,
+        hourStart != null ? parseInt(hourStart) : null,
+        end,
+        moduleId ? parseInt(moduleId) : null,
+        intakeLinkId ? parseInt(intakeLinkId) : null
+      ]
+    );
+    const rule = await OfficeSlotQuestionnaireRule.findById(result.insertId);
+    res.status(201).json({ ok: true, rule });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// Auth: delete a questionnaire rule (only if owned by this provider)
+export const deleteProviderQuestRule = async (req, res, next) => {
+  try {
+    const providerId = req.user.id;
+    const ruleId = parseInt(req.params.ruleId);
+    if (!ruleId) return res.status(400).json({ error: { message: 'ruleId is required' } });
+
+    const [result] = await pool.execute(
+      'DELETE FROM office_slot_questionnaire_rules WHERE id = ? AND provider_id = ?',
+      [ruleId, providerId]
+    );
+    if (!result.affectedRows) {
+      return res.status(404).json({ error: { message: 'Rule not found or not owned by you' } });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// Auth: list this provider's questionnaire responses with day-of-week × hour aggregation
+export const listProviderQuestResponses = async (req, res, next) => {
+  try {
+    const providerId = req.user.id;
+    const { locationId, moduleId, intakeLinkId, view = 'list', limit: limitRaw = 100, offset: offsetRaw = 0 } = req.query;
+
+    const params = [providerId];
+    const conditions = ['oqr.provider_id = ?'];
+    if (locationId) { conditions.push('oqr.office_location_id = ?'); params.push(parseInt(locationId)); }
+    if (moduleId) { conditions.push('oqr.module_id = ?'); params.push(parseInt(moduleId)); }
+    if (intakeLinkId) { conditions.push('oqr.intake_link_id = ?'); params.push(parseInt(intakeLinkId)); }
+
+    const where = conditions.join(' AND ');
+
+    if (view === 'heatmap') {
+      // Aggregate by day-of-week × hour for trend analysis
+      const [rows] = await pool.execute(
+        `SELECT DAYOFWEEK(e.start_at) AS day_of_week,
+                HOUR(e.start_at) AS hour_of_day,
+                COUNT(*) AS response_count,
+                oqr.module_id,
+                oqr.intake_link_id
+         FROM office_questionnaire_responses oqr
+         JOIN office_events e ON e.id = oqr.event_id
+         WHERE ${where}
+         GROUP BY DAYOFWEEK(e.start_at), HOUR(e.start_at), oqr.module_id, oqr.intake_link_id
+         ORDER BY day_of_week, hour_of_day`,
+        params
+      );
+      return res.json({ view: 'heatmap', rows: rows || [] });
+    }
+
+    // List view (paginated) — never includes client_id in output even if tagged
+    const limit = Math.min(parseInt(limitRaw) || 50, 200);
+    const offset = parseInt(offsetRaw) || 0;
+    const listParams = [...params, limit, offset];
+
+    const [rows] = await pool.execute(
+      `SELECT oqr.id, oqr.office_location_id, oqr.room_id, oqr.event_id,
+              oqr.module_id, oqr.intake_link_id, oqr.answers, oqr.created_at,
+              oqr.client_id IS NOT NULL AS is_client_tagged,
+              DAYOFWEEK(e.start_at) AS day_of_week,
+              HOUR(e.start_at) AS hour_of_day,
+              DATE(e.start_at) AS event_date,
+              e.start_at, e.end_at,
+              r.name AS room_name,
+              m.title AS module_title,
+              il.title AS intake_link_title
+       FROM office_questionnaire_responses oqr
+       JOIN office_events e ON e.id = oqr.event_id
+       LEFT JOIN office_rooms r ON r.id = oqr.room_id
+       LEFT JOIN modules m ON m.id = oqr.module_id
+       LEFT JOIN intake_links il ON il.id = oqr.intake_link_id
+       WHERE ${where}
+       ORDER BY oqr.created_at DESC
+       LIMIT ? OFFSET ?`,
+      listParams
+    );
+
+    res.json({ view: 'list', responses: rows || [], limit, offset });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// Auth: tag a questionnaire response to a client on the provider's caseload
+export const tagResponseToClient = async (req, res, next) => {
+  try {
+    const providerId = req.user.id;
+    const responseId = parseInt(req.params.responseId);
+    const clientId = req.body?.clientId ? parseInt(req.body.clientId) : null;
+
+    if (!responseId) return res.status(400).json({ error: { message: 'responseId is required' } });
+
+    // Verify the response belongs to this provider
+    const [rows] = await pool.execute(
+      'SELECT id, provider_id FROM office_questionnaire_responses WHERE id = ? LIMIT 1',
+      [responseId]
+    );
+    const response = rows?.[0];
+    if (!response) return res.status(404).json({ error: { message: 'Response not found' } });
+    if (Number(response.provider_id) !== providerId) {
+      return res.status(403).json({ error: { message: 'Not your response' } });
+    }
+
+    await pool.execute(
+      'UPDATE office_questionnaire_responses SET client_id = ? WHERE id = ?',
+      [clientId || null, responseId]
+    );
+
+    res.json({ ok: true, responseId, clientId: clientId || null });
+  } catch (e) {
     next(e);
   }
 };
