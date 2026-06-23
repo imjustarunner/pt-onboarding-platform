@@ -43,7 +43,10 @@
             @click="selectedSlot = slot"
           >
             <span class="kcif-slot__time">{{ formatTime(slot.startAt) }}</span>
-            <span v-if="slot.roomName" class="kcif-slot__room">{{ slot.roomNumber || slot.roomName }}</span>
+            <span v-if="slot.roomNumber || slot.roomName" class="kcif-slot__room">
+              <template v-if="slot.roomNumber">Office number {{ slot.roomNumber }}</template>
+              <template v-else>{{ slot.roomName }}</template>
+            </span>
             <span v-if="slot.alreadyCheckedIn" class="kcif-slot__done">Checked in</span>
           </button>
         </div>
