@@ -3132,7 +3132,7 @@ export const listPrehireCandidates = async (req, res, next) => {
     const [rows] = await pool.execute(
       `SELECT
          u.id, u.first_name, u.last_name, u.email, u.personal_email,
-         u.status, u.phone, u.city, u.state, u.hired_at, u.created_at,
+         u.status, u.phone_number, u.hired_at, u.created_at,
          hp.applied_role, hp.source, hp.interview_date,
          hp.created_at AS applied_at,
          (
