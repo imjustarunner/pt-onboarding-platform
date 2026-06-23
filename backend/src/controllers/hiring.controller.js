@@ -3167,6 +3167,10 @@ export const listPrehireCandidates = async (req, res, next) => {
        WHERE u.status IN (${placeholders})
          AND u.is_active = TRUE
          AND u.role NOT IN ('client_guardian', 'client', 'guardian')
+         AND (
+           hp.id IS NOT NULL
+           OR u.hired_at IS NOT NULL
+         )
          ${agencyClause}
        GROUP BY u.id, hp.id
        ORDER BY u.hired_at DESC, u.created_at DESC`,

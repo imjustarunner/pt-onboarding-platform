@@ -14,6 +14,8 @@
             </option>
           </select>
         </div>
+        <button class="btn btn-secondary" @click="router.push(orgPath('/admin/pre-hire'))">Pre-Hire</button>
+        <button class="btn btn-secondary" @click="router.push(orgPath('/admin/onboarding'))">Onboarding</button>
         <button class="btn btn-secondary" @click="refresh" :disabled="loading">Refresh</button>
         <button
           class="btn btn-secondary"

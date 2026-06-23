@@ -205,16 +205,24 @@ const agencyChoices = computed(() => {
   const base = role === 'super_admin'
     ? (Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [])
     : (Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : []);
-  return (base || []).filter(Boolean);
+  return (base || [])
+    .filter(Boolean)
+    .filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency')
+    .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
 });
 const canChooseAgency = computed(() => agencyChoices.value.length > 1);
 const selectedAgencyId = ref(String(agencyStore.currentAgencyId || agencyChoices.value[0]?.id || ''));
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 const slug = computed(() => route.params.organizationSlug || '');
-const applicantsRoute = computed(() => slug.value ? `/${slug.value}/admin/hiring/candidates` : '/admin/hiring/candidates');
-const preHireRoute = computed(() => slug.value ? `/${slug.value}/admin/pre-hire` : '/admin/pre-hire');
-const userProfileRoute = (id) => slug.value ? `/${slug.value}/admin/users/${id}` : `/admin/users/${id}`;
+const effectiveSlug = computed(() => {
+  if (slug.value) return slug.value;
+  const agency = agencyChoices.value.find((a) => String(a.id) === String(selectedAgencyId.value));
+  return String(agency?.portal_url || agency?.portalUrl || agency?.slug || '').trim().toLowerCase() || '';
+});
+const applicantsRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/hiring/candidates` : '/admin/hiring/candidates');
+const preHireRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/pre-hire` : '/admin/pre-hire');
+const userProfileRoute = (id) => effectiveSlug.value ? `/${effectiveSlug.value}/admin/users/${id}` : `/admin/users/${id}`;
 
 const goToProfile = (e) => router.push(userProfileRoute(e.id));
 

@@ -379,7 +379,7 @@
                     <span class="phr-note-author">{{ n.author_name || 'Staff' }}</span>
                     <span class="phr-note-date">{{ fmtDate(n.created_at) }}</span>
                   </div>
-                  <div class="phr-note-body">{{ n.content }}</div>
+                  <div class="phr-note-body">{{ n.message }}</div>
                 </div>
               </div>
               <div class="phr-note-composer">
@@ -423,16 +423,30 @@ const agencyChoices = computed(() => {
   const base = role === 'super_admin'
     ? (Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [])
     : (Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : []);
-  return (base || []).filter(Boolean);
+  return (base || [])
+    .filter(Boolean)
+    .filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency')
+    .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
 });
 const canChooseAgency = computed(() => agencyChoices.value.length > 1);
 const selectedAgencyId = ref(String(agencyStore.currentAgencyId || agencyChoices.value[0]?.id || ''));
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 const slug = computed(() => route.params.organizationSlug || '');
-const applicantsRoute = computed(() => slug.value ? `/${slug.value}/admin/hiring/candidates` : '/admin/hiring/candidates');
-const onboardingRoute = computed(() => slug.value ? `/${slug.value}/admin/onboarding` : '/admin/onboarding');
-const userProfileRoute = (id) => slug.value ? `/${slug.value}/admin/users/${id}` : `/admin/users/${id}`;
+
+// Resolve the best org slug for building admin links:
+// 1. Explicit org slug in the current route (e.g. /:org/admin/pre-hire)
+// 2. portal_url of the currently selected agency (so profile opens in the right tenant context)
+// 3. No prefix (super-admin with no agency selected)
+const effectiveSlug = computed(() => {
+  if (slug.value) return slug.value;
+  const agency = agencyChoices.value.find((a) => String(a.id) === String(selectedAgencyId.value));
+  return String(agency?.portal_url || agency?.portalUrl || agency?.slug || '').trim().toLowerCase() || '';
+});
+
+const applicantsRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/hiring/candidates` : '/admin/hiring/candidates');
+const onboardingRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/onboarding` : '/admin/onboarding');
+const userProfileRoute = (id) => effectiveSlug.value ? `/${effectiveSlug.value}/admin/users/${id}` : `/admin/users/${id}`;
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const candidates = ref([]);
@@ -571,8 +585,9 @@ const loadTasks = async (userId) => {
 const loadNotes = async (userId) => {
   notesLoading.value = true;
   try {
-    const { data } = await api.get(`/hiring/candidates/${userId}/notes`).catch(() => ({ data: [] }));
-    notes.value = data || [];
+    const params = selectedAgencyId.value ? { agencyId: selectedAgencyId.value } : {};
+    const { data } = await api.get(`/hiring/candidates/${userId}`, { params }).catch(() => ({ data: {} }));
+    notes.value = Array.isArray(data?.notes) ? data.notes : [];
   } catch { /* non-fatal */ }
   finally { notesLoading.value = false; }
 };
@@ -581,11 +596,13 @@ const saveNote = async () => {
   if (!noteText.value.trim() || !selectedId.value) return;
   noteSaving.value = true;
   try {
-    await api.post(`/hiring/candidates/${selectedId.value}/notes`, { content: noteText.value });
+    const params = selectedAgencyId.value ? { agencyId: selectedAgencyId.value } : {};
+    await api.post(`/hiring/candidates/${selectedId.value}/notes`, { message: noteText.value }, { params });
     noteText.value = '';
     await loadNotes(selectedId.value);
-  } catch { /* non-fatal */ }
-  finally { noteSaving.value = false; }
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to save note.');
+  } finally { noteSaving.value = false; }
 };
 
 // ── Actions ───────────────────────────────────────────────────────────────────
