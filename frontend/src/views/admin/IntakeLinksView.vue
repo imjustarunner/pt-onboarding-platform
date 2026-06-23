@@ -176,6 +176,12 @@
         <option value="inactive">Inactive only</option>
         <option value="all">All statuses</option>
       </select>
+      <select v-model="filterStage" title="Filter by lifecycle stage (pre-hire / onboarding tagging — Phase 2)">
+        <option value="all">All Stages</option>
+        <option value="pre_hire">Pre-Hire</option>
+        <option value="onboarding">Onboarding</option>
+        <option value="general">General (untagged)</option>
+      </select>
       <select v-model="filterFormType">
         <option value="all">All Types</option>
         <option value="intake">Intake</option>
@@ -192,6 +198,12 @@
           {{ org.name }} ({{ org.organization_type || 'agency' }})
         </option>
       </select>
+    </div>
+
+    <div v-if="filterStage !== 'all'" class="stage-filter-notice">
+      <strong>Stage filter active:</strong> Forms are shown based on their <code>form_stage</code> tag.
+      Stage tagging for digital forms is a Phase 2 feature — no forms have stage tags yet.
+      <a href="#" @click.prevent="filterStage = 'all'">Clear filter</a>
     </div>
 
     <div v-if="loading" class="loading">Loading…</div>
@@ -5722,6 +5734,7 @@ const buildPayloadFromSteps = () => {
 const filterScope = ref('all');
 const filterStatus = ref('active');
 const filterFormType = ref('all');
+const filterStage = ref('all');
 const filterOrgId = ref('all');
 const filteredLinks = computed(() => {
   let list = links.value;
@@ -5735,6 +5748,14 @@ const filteredLinks = computed(() => {
   }
   if (filterFormType.value !== 'all') {
     list = list.filter((l) => (l.form_type || 'intake') === filterFormType.value);
+  }
+  // Stage filter reads form_stage column (Phase 2 — currently always undefined/null)
+  if (filterStage.value !== 'all') {
+    if (filterStage.value === 'general') {
+      list = list.filter((l) => !l.form_stage);
+    } else {
+      list = list.filter((l) => l.form_stage === filterStage.value);
+    }
   }
   if (filterOrgId.value !== 'all') {
     const target = Number(filterOrgId.value);
@@ -5800,6 +5821,16 @@ watch(
 .filters {
   display: flex;
   gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.stage-filter-notice {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: #92400e;
   margin-bottom: 12px;
 }
 .quick-create {

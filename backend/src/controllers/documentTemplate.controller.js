@@ -389,10 +389,14 @@ export const getTemplates = async (req, res, next) => {
       limit,
       sortBy,
       sortOrder,
-      isActive
+      isActive,
+      stage
     } = req.query;
 
     const filters = {};
+    if (stage !== undefined && stage !== null && stage !== 'all') {
+      filters.documentStage = stage || null;
+    }
 
     // Role-based filtering
     console.log('getTemplates - User role:', req.user.role, 'agencyId query param:', agencyId, 'type:', typeof agencyId);

@@ -222,6 +222,15 @@
       </div>
     </div>
 
+    <!-- Pre-hire attention widget – visible to admins/staff with canManageHiring -->
+    <div
+      v-if="!previewMode && isOnboardingComplete && canSeePreHireWidget"
+      class="top-snapshot-wrap"
+      data-tour="dash-prehire-attention"
+    >
+      <PreHireAttentionWidget />
+    </div>
+
     <!-- Social & feeds (collapsible block) – super_admin only until full release -->
     <div
       v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && authStore.user?.role === 'super_admin' && dashboardSocialFeeds.length > 0"
@@ -1122,6 +1131,7 @@ import LastPaycheckModal from '../components/dashboard/LastPaycheckModal.vue';
 import BudgetSubmitExpensesModal from '../components/budget/BudgetSubmitExpensesModal.vue';
 import SocialFeedsPanel from '../components/dashboard/SocialFeedsPanel.vue';
 import PresenceStatusWidget from '../components/dashboard/PresenceStatusWidget.vue';
+import PreHireAttentionWidget from '../components/dashboard/PreHireAttentionWidget.vue';
 import StaffCard from '../components/dashboard/StaffCard.vue';
 import SurveyPromptCard from '../components/dashboard/SurveyPromptCard.vue';
 import FacilitatorAvailabilityPromptCard from '../components/dashboard/FacilitatorAvailabilityPromptCard.vue';
@@ -1434,6 +1444,14 @@ const shiftProgramsEnabledForAgency = computed(() => isTruthyFlag(agencyFlags.va
 
 const timeClaimExcessEnabled = computed(() => agencyFlags.value?.timeClaimExcessEnabled !== false);
 const timeClaimServiceCorrectionEnabled = computed(() => agencyFlags.value?.timeClaimServiceCorrectionEnabled !== false);
+
+// Pre-hire attention widget: visible to admins and staff with canManageHiring capability
+const canSeePreHireWidget = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  if (role === 'super_admin' || role === 'admin') return true;
+  const caps = authStore.user?.capabilities || {};
+  return !!caps.canManageHiring;
+});
 
 // Presence widget: super_admin always; staff/admin when agency has presenceEnabled
 const canSeePresenceWidget = computed(() => {

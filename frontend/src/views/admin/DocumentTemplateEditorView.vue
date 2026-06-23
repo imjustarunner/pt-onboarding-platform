@@ -59,6 +59,15 @@
               </div>
             </div>
             <div class="form-group">
+              <label>Lifecycle stage tag</label>
+              <select v-model="form.documentStage">
+                <option value="">General (no stage tag)</option>
+                <option value="pre_hire">Pre-Hire — shown in Mark Hired modal</option>
+                <option value="onboarding">Onboarding — assigned at employee onboarding</option>
+                <option value="ongoing">Ongoing — recurring or periodic</option>
+              </select>
+            </div>
+            <div class="form-group">
               <label>Employee hub category</label>
               <select v-model="form.employeeDisplayCategory">
                 <option
@@ -294,6 +303,7 @@ const form = ref({
   htmlContent: '',
   documentType: 'administrative',
   documentActionType: 'signature',
+  documentStage: '',
   employeeDisplayCategory: '',
   layoutType: 'standard',
   letterheadTemplateId: null,
@@ -460,6 +470,7 @@ const loadTemplate = async () => {
       htmlContent: template.html_content !== undefined && template.html_content !== null ? template.html_content : '',
       documentType: template.document_type || 'administrative',
       documentActionType: template.document_action_type || 'signature',
+      documentStage: template.document_stage || '',
       employeeDisplayCategory: template.employee_display_category || '',
       layoutType: template.layout_type || 'standard',
       letterheadTemplateId: template.letterhead_template_id ?? null,
@@ -504,6 +515,7 @@ const saveTemplate = async () => {
         iconId: form.value.iconId || null,
         documentType: form.value.documentType,
         documentActionType: form.value.documentActionType,
+        documentStage: form.value.documentStage || null,
         employeeDisplayCategory: form.value.employeeDisplayCategory || null,
         layoutType: form.value.layoutType,
         letterheadTemplateId: form.value.layoutType === 'letter' ? form.value.letterheadTemplateId : null,
@@ -545,6 +557,7 @@ const saveTemplate = async () => {
             : null);
     updateData.documentType = form.value.documentType;
     updateData.documentActionType = form.value.documentActionType;
+    updateData.documentStage = form.value.documentStage || null;
     updateData.employeeDisplayCategory = form.value.employeeDisplayCategory || null;
     updateData.languageCode = form.value.languageCode || null;
     if (form.value.saveAsNewVersion) {

@@ -75,7 +75,11 @@ class BillingUsageService {
       [parsedAgencyId]
     );
 
-    // Active onboardees (status ONBOARDING)
+    // Active onboardees (status ONBOARDING only).
+    // INTENTIONAL: PENDING_SETUP, PREHIRE_OPEN, and PREHIRE_REVIEW are pre-hire
+    // pipeline stages and are NOT billed as active onboardees. Billing begins
+    // only when staff promotes a candidate to ONBOARDING via People Ops → Pre-Hire.
+    // Do NOT add those statuses here without a billing policy review.
     const [onboardeeRows] = await pool.execute(
       `SELECT COUNT(DISTINCT u.id) as cnt
        FROM users u

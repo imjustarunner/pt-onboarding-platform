@@ -551,38 +551,68 @@ export const checkPendingAccess = async (req, res, next) => {
     }
     
     // PREHIRE_OPEN users can only access specific routes
-    const allowedPaths = [
-      '/api/users/me',
-      '/api/users/onboarding-checklist',
-      '/api/users/pending/status',
-      '/api/users/pending/complete',
-      '/api/user-documents',
-      '/api/tasks',
-      '/api/custom-checklist-items',
-      '/api/user-checklist-assignments'
-    ];
-    
     const requestPath = req.path;
-    const isAllowed = allowedPaths.some(path => requestPath.startsWith(path));
-    
-    // Block access to training modules, employee documents, and credentials
-    const blockedPaths = [
-      '/api/modules',
-      '/api/training-focuses',
+
+    // Block broad library browsing for credentials / account management
+    const hardBlockedPaths = [
       '/api/user-accounts',
       '/api/users/change-password'
     ];
-    
-    const isBlocked = blockedPaths.some(path => requestPath.startsWith(path));
-    
-    if (isBlocked) {
-      return res.status(403).json({ 
-        error: { message: 'This feature is not available during the pre-hire process.' } 
+    if (hardBlockedPaths.some(p => requestPath.startsWith(p))) {
+      return res.status(403).json({
+        error: { message: 'This feature is not available during the pre-hire process.' }
       });
     }
-    
-    // For document access, we'll filter in the controller
-    // For now, allow the request to proceed
+
+    // Training modules and focuses: allow only if the specific resource is task-assigned to this user
+    const moduleMatch = requestPath.match(/^\/api\/modules\/(\d+)/);
+    const focusMatch = requestPath.match(/^\/api\/training-focuses\/(\d+)/);
+
+    if (moduleMatch) {
+      // Allow only if the module is assigned to this user via a task
+      const moduleId = parseInt(moduleMatch[1], 10);
+      try {
+        const pool = (await import('../config/database.js')).default;
+        const [rows] = await pool.execute(
+          `SELECT id FROM tasks WHERE assigned_to_user_id = ? AND task_type = 'training' AND reference_id = ? LIMIT 1`,
+          [fullUser.id, moduleId]
+        );
+        if (!rows.length) {
+          return res.status(403).json({
+            error: { message: 'This training module has not been assigned to you yet.' }
+          });
+        }
+      } catch { /* allow on error to avoid breaking existing flows */ }
+      return next();
+    }
+
+    if (focusMatch) {
+      // Allow only if the user has a user_track for this focus
+      const trackId = parseInt(focusMatch[1], 10);
+      try {
+        const pool = (await import('../config/database.js')).default;
+        const [rows] = await pool.execute(
+          `SELECT id FROM user_tracks WHERE user_id = ? AND track_id = ? LIMIT 1`,
+          [fullUser.id, trackId]
+        );
+        if (!rows.length) {
+          return res.status(403).json({
+            error: { message: 'This training focus has not been assigned to you yet.' }
+          });
+        }
+      } catch { /* allow on error */ }
+      return next();
+    }
+
+    // Block listing endpoints for training library (not item-specific)
+    const libraryBlockedPaths = ['/api/modules', '/api/training-focuses'];
+    if (libraryBlockedPaths.some(p => requestPath === p || requestPath === p + '/')) {
+      return res.status(403).json({
+        error: { message: 'Training library browsing is not available during the pre-hire process.' }
+      });
+    }
+
+    // For all other paths, allow (document access filtered in controllers)
     next();
   } catch (error) {
     next(error);

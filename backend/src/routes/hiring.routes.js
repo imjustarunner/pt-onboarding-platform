@@ -44,7 +44,14 @@ import {
   getMyPendingTimeCapsuleReveals,
   postTimeCapsuleRevealOpen,
   postTimeCapsuleRevealAcknowledge,
-  postTimeCapsuleRevealSnooze
+  postTimeCapsuleRevealSnooze,
+  getHiringSettings,
+  updateHiringSettings,
+  listSignerRoles,
+  createSignerRole,
+  updateSignerRole,
+  deleteSignerRole,
+  sendPreHire
 } from '../controllers/hiring.controller.js';
 
 const router = express.Router();
@@ -115,5 +122,16 @@ router.delete('/candidates/:userId', deleteCandidate);
 router.post('/candidates/:userId/research', requestCandidateResearch);
 router.post('/candidates/:userId/prescreen', generateCandidatePreScreenReport);
 router.post('/candidates/:userId/promote', promoteCandidateToPendingSetup);
+router.post('/candidates/:userId/send-prehire', sendPreHire);
+
+// Pre-hire workflow settings
+router.get('/settings', getHiringSettings);
+router.put('/settings', updateHiringSettings);
+
+// Internal signer roles
+router.get('/signer-roles', listSignerRoles);
+router.post('/signer-roles', createSignerRole);
+router.put('/signer-roles/:roleId', updateSignerRole);
+router.delete('/signer-roles/:roleId', deleteSignerRole);
 
 export default router;

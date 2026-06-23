@@ -339,6 +339,7 @@ import CustomChecklistItemManagement from './CustomChecklistItemManagement.vue';
 import AgencyCustomChecklistItems from './AgencyCustomChecklistItems.vue';
 import AssetsManagement from './AssetsManagement.vue';
 import OnboardingPackageManagement from './OnboardingPackageManagement.vue';
+import HiringPreHireSettings from './HiringPreHireSettings.vue';
 import ArchiveManagement from './ArchiveManagement.vue';
 import ClientCatalogManagement from './ClientCatalogManagement.vue';
 import SchoolCatalogManagement from './SchoolCatalogManagement.vue';
@@ -669,6 +670,17 @@ const allCategories = [
         requiresBudgetManagementEnabled: true,
         roles: ['super_admin', 'admin'],
         excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
+        id: 'hiring-prehire',
+        label: 'Hiring & Pre-Hire',
+        icon: '🤝',
+        component: 'HiringPreHireSettings',
+        requiresAgency: true,
+        requiresOnboardingTrainingEnabled: true,
+        roles: ['super_admin', 'admin', 'support'],
+        excludeRoles: ['clinical_practice_assistant'],
         excludeSupervisor: true
       },
       {
@@ -1165,6 +1177,7 @@ const componentMap = {
   AgencyCustomChecklistItems,
   AssetsManagement,
   OnboardingPackageManagement,
+  HiringPreHireSettings,
   ArchiveManagement,
   ClientCatalogManagement,
   SchoolCatalogManagement,

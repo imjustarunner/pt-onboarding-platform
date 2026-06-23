@@ -26,6 +26,7 @@ import payrollTour from './tours/payroll.tour';
 import expensesTour from './tours/expenses.tour';
 import payrollReportsTour from './tours/payrollReports.tour';
 import hiringCandidatesTour from './tours/hiringCandidates.tour';
+import preHireTour from './tours/preHire.tour';
 import userManagerTour from './tours/userManager.tour';
 import notificationsHubTour from './tours/notificationsHub.tour';
 import teamNotificationsTour from './tours/teamNotifications.tour';
@@ -89,6 +90,8 @@ export const getTourForRoute = (route, options = {}) => {
     OrganizationExpenses: expensesTour,
     HiringCandidates: hiringCandidatesTour,
     OrganizationHiringCandidates: hiringCandidatesTour,
+    PreHire: preHireTour,
+    OrganizationPreHire: preHireTour,
     UserManager: userManagerTour,
     OrganizationUserManager: userManagerTour,
     ClientManagement: clientManagementTour,

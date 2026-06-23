@@ -142,8 +142,8 @@
                   <span v-if="generatingPreScreen" class="spinner" aria-hidden="true"></span>
                   {{ generatingPreScreen ? 'Generating…' : 'Generate Pre-Screen Report' }}
                 </button>
-                <button class="btn btn-primary" @click="promote" :disabled="promoting || !selectedId">
-                  {{ promoting ? 'Promoting…' : 'Mark hired (start setup)' }}
+                <button class="btn btn-primary" @click="openMarkHiredModal" :disabled="!selectedId">
+                  Mark hired (start setup)
                 </button>
                 <button class="btn btn-danger" @click="markNotHired" :disabled="markingNotHired || !selectedId">
                   {{ markingNotHired ? 'Saving…' : 'Not hired' }}
@@ -154,9 +154,9 @@
               </div>
             </div>
 
-            <div v-if="promoteResult?.passwordlessTokenLink" class="info-banner">
-              <div><strong>Setup link:</strong></div>
-              <div class="mono">{{ promoteResult.passwordlessTokenLink }}</div>
+            <div v-if="lastHireTokenLink" class="info-banner">
+              <div><strong>Setup link sent — backup copy:</strong></div>
+              <div class="mono">{{ lastHireTokenLink }}</div>
             </div>
 
             <div class="tabs" data-tour="hiring-detail-tabs">
@@ -802,6 +802,16 @@
         </div>
       </div>
     </div>
+
+    <!-- Mark Hired Modal -->
+    <MarkHiredModal
+      :show="showMarkHiredModal"
+      :candidate="markHiredCandidate"
+      :agency-id="effectiveAgencyId"
+      :applied-role="markHiredAppliedRole"
+      @close="showMarkHiredModal = false"
+      @hired="onHired"
+    />
   </div>
 </template>
 
@@ -815,6 +825,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import UserAvatar from '../../components/common/UserAvatar.vue';
+import MarkHiredModal from '../../components/hiring/MarkHiredModal.vue';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -1137,6 +1148,7 @@ const selectCandidate = async (id) => {
   referenceRequests.value = [];
   referenceActivity.value = [];
   promoteResult.value = null;
+  lastHireTokenLink.value = '';
   preScreenLinkedInUrl.value = '';
   await loadAssignees();
   await loadDetail();
@@ -1302,23 +1314,30 @@ const generatePreScreenReport = async () => {
   }
 };
 
-// Promote
+// Mark Hired Modal
+const showMarkHiredModal = ref(false);
+const lastHireTokenLink = ref('');
+
+const markHiredCandidate = computed(() => detail.value?.user || null);
+const markHiredAppliedRole = computed(
+  () => detail.value?.profile?.applied_role || detail.value?.profile?.appliedRole || ''
+);
+
+const openMarkHiredModal = () => {
+  if (!selectedId.value) return;
+  lastHireTokenLink.value = '';
+  showMarkHiredModal.value = true;
+};
+
+const onHired = async (result) => {
+  lastHireTokenLink.value = result?.passwordlessTokenLink || '';
+  await refresh();
+  await loadDetail();
+};
+
+// Legacy promote (kept for reference — now triggered via modal)
 const promoting = ref(false);
 const promoteResult = ref(null);
-const promote = async () => {
-  if (!selectedId.value || !effectiveAgencyId.value) return;
-  try {
-    promoting.value = true;
-    const r = await api.post(`/hiring/candidates/${selectedId.value}/promote`, {}, { params: { agencyId: effectiveAgencyId.value } });
-    promoteResult.value = r.data || null;
-    await refresh();
-    await loadDetail();
-  } catch (e) {
-    alert(e.response?.data?.error?.message || 'Failed to promote candidate');
-  } finally {
-    promoting.value = false;
-  }
-};
 
 // Resumes
 const resumesLoading = ref(false);

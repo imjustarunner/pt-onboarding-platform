@@ -333,6 +333,7 @@
                   </button>
                   <div v-if="peopleOpsMenuOpen" class="nav-dropdown-menu">
                     <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring')" >Applicants</router-link>
+                    <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/pre-hire')" >Pre-Hire</router-link>
                     <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/careers')" >Careers</router-link>
                     <router-link v-if="hasPeopleOpsFeature && showOnDemandLink && !isSscSstcTenant" :to="orgTo('/on-demand-training')" >On-Demand Training</router-link>
                     <router-link

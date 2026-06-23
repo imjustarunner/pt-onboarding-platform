@@ -28,6 +28,7 @@ import {
   snoozeTimeCapsuleReveal
 } from '../services/hiringInterviewCapsule.service.js';
 import HiringReferenceRequest from '../models/HiringReferenceRequest.model.js';
+import EmailService from '../services/email.service.js';
 import UserActivityLog from '../models/UserActivityLog.model.js';
 import { createAndSendReferenceRequests } from '../services/hiringReferenceRequests.service.js';
 
@@ -2769,4 +2770,279 @@ export const submitMyInterviewSplash = async (req, res, next) => {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
+};
+
+// ─── Pre-Hire Settings (per agency) ────────────────────────────────────────
+
+export const getHiringSettings = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const [rows] = await pool.execute(
+      'SELECT prehire_settings FROM agencies WHERE id = ? LIMIT 1',
+      [agencyId]
+    );
+    const raw = rows[0]?.prehire_settings;
+    const settings = typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
+    res.json({ agencyId, settings });
+  } catch (e) { next(e); }
+};
+
+export const updateHiringSettings = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const allowed = [
+      'default_prehire_package_id',
+      'default_onboarding_package_id',
+      'default_contract_template_id',
+      'token_expiry_hours',
+      'invite_email_subject',
+      'invite_email_body'
+    ];
+    const patch = {};
+    for (const key of allowed) {
+      if (key in req.body) patch[key] = req.body[key] ?? null;
+    }
+
+    const [existingRows] = await pool.execute(
+      'SELECT prehire_settings FROM agencies WHERE id = ? LIMIT 1',
+      [agencyId]
+    );
+    const rawExisting = existingRows[0]?.prehire_settings;
+    const existing = typeof rawExisting === 'string' ? JSON.parse(rawExisting) : (rawExisting || {});
+    const merged = { ...existing, ...patch };
+
+    await pool.execute(
+      'UPDATE agencies SET prehire_settings = ? WHERE id = ?',
+      [JSON.stringify(merged), agencyId]
+    );
+    res.json({ agencyId, settings: merged });
+  } catch (e) { next(e); }
+};
+
+// ─── Hiring Signer Roles ────────────────────────────────────────────────────
+
+export const listSignerRoles = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const [rows] = await pool.execute(
+      `SELECT hsr.*, u.first_name, u.last_name, u.email
+       FROM hiring_signer_roles hsr
+       LEFT JOIN users u ON u.id = hsr.default_user_id
+       WHERE hsr.agency_id = ?
+       ORDER BY hsr.sort_order ASC, hsr.id ASC`,
+      [agencyId]
+    );
+    res.json(rows || []);
+  } catch (e) { next(e); }
+};
+
+export const createSignerRole = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const { roleLabel, defaultUserId, sortOrder } = req.body;
+    if (!roleLabel || !String(roleLabel).trim()) {
+      return res.status(400).json({ error: { message: 'roleLabel is required' } });
+    }
+
+    const [result] = await pool.execute(
+      `INSERT INTO hiring_signer_roles (agency_id, role_label, default_user_id, sort_order)
+       VALUES (?, ?, ?, ?)`,
+      [agencyId, String(roleLabel).trim(), defaultUserId ?? null, sortOrder ?? 0]
+    );
+    const [newRows] = await pool.execute(
+      `SELECT hsr.*, u.first_name, u.last_name, u.email
+       FROM hiring_signer_roles hsr
+       LEFT JOIN users u ON u.id = hsr.default_user_id
+       WHERE hsr.id = ?`,
+      [result.insertId]
+    );
+    res.status(201).json(newRows[0]);
+  } catch (e) { next(e); }
+};
+
+export const updateSignerRole = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const roleId = parseIntParam(req.params.roleId);
+    const { roleLabel, defaultUserId, sortOrder } = req.body;
+
+    const [existing] = await pool.execute(
+      'SELECT id FROM hiring_signer_roles WHERE id = ? AND agency_id = ?',
+      [roleId, agencyId]
+    );
+    if (!existing.length) return res.status(404).json({ error: { message: 'Signer role not found' } });
+
+    await pool.execute(
+      `UPDATE hiring_signer_roles
+       SET role_label = ?, default_user_id = ?, sort_order = ?
+       WHERE id = ? AND agency_id = ?`,
+      [String(roleLabel).trim(), defaultUserId ?? null, sortOrder ?? 0, roleId, agencyId]
+    );
+    const [updated] = await pool.execute(
+      `SELECT hsr.*, u.first_name, u.last_name, u.email
+       FROM hiring_signer_roles hsr
+       LEFT JOIN users u ON u.id = hsr.default_user_id
+       WHERE hsr.id = ?`,
+      [roleId]
+    );
+    res.json(updated[0]);
+  } catch (e) { next(e); }
+};
+
+export const deleteSignerRole = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const roleId = parseIntParam(req.params.roleId);
+    await pool.execute(
+      'DELETE FROM hiring_signer_roles WHERE id = ? AND agency_id = ?',
+      [roleId, agencyId]
+    );
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+};
+
+// ─── Send Pre-Hire (unified: promote + assign docs + countersign tasks) ─────
+
+export const sendPreHire = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const user = await User.findById(candidateUserId);
+    if (!user) return res.status(404).json({ error: { message: 'Candidate not found' } });
+
+    // 1. Promote to PENDING_SETUP (or keep if already there)
+    let tokenResult = null;
+    if (user.status === 'PROSPECTIVE' || user.status === 'PENDING_SETUP') {
+      await User.updateStatus(candidateUserId, 'PENDING_SETUP', req.user.id);
+      try {
+        const existing = await HiringProfile.findByCandidateUserId(candidateUserId);
+        await HiringProfile.upsert({
+          candidateUserId,
+          stage: 'hired',
+          appliedRole: existing?.applied_role || existing?.appliedRole || null,
+          source: existing?.source || null
+        });
+      } catch { /* ignore */ }
+      tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24);
+      await ensureAssignedJobDescriptionDocument(candidateUserId, req.user.id);
+    } else {
+      // Already promoted — just regenerate token so modal always surfaces a fresh link
+      try { tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24); } catch { /* ignore */ }
+    }
+
+    const tokenLink = tokenResult
+      ? `${config.frontendUrl}/passwordless-login/${tokenResult.token}`
+      : null;
+
+    // Send invite email to candidate if we have a link and a personal email.
+    // Subject/body are pulled from agency prehire_settings if configured, else a sensible default is used.
+    if (tokenLink && user.personal_email) {
+      setImmediate(async () => {
+        try {
+          const [agencyRows] = await pool.execute(
+            `SELECT prehire_settings FROM agencies WHERE id = ? LIMIT 1`,
+            [agencyId]
+          );
+          const settings = agencyRows[0]?.prehire_settings
+            ? (typeof agencyRows[0].prehire_settings === 'string'
+              ? JSON.parse(agencyRows[0].prehire_settings)
+              : agencyRows[0].prehire_settings)
+            : {};
+
+          const firstName = user.first_name || 'there';
+          const defaultSubject = settings.invite_email_subject || 'Your pre-hire setup link is ready';
+          const defaultBody = settings.invite_email_body
+            ? settings.invite_email_body.replace(/\{first_name\}/gi, firstName).replace(/\{link\}/gi, tokenLink)
+            : `Hi ${firstName},\n\nYou've been marked as hired! Please use the link below to complete your pre-hire documents and get started.\n\n${tokenLink}\n\nThis link is valid for 7 days. If you have any questions, please reach out to us.\n\nWelcome aboard!`;
+
+          await EmailService.sendEmail({
+            to: user.personal_email,
+            subject: defaultSubject,
+            text: defaultBody
+          });
+        } catch (emailErr) {
+          console.error('[sendPreHire] Failed to send invite email:', emailErr);
+        }
+      });
+    }
+
+    // 2. Assign selected document templates as tasks
+    const { documentTemplateIds = [], signerAssignments = [] } = req.body;
+    const { default: TaskAssignmentService } = await import('../services/taskAssignment.service.js');
+    const { default: DocumentTemplate } = await import('../models/DocumentTemplate.model.js');
+    const assignedTasks = [];
+
+    for (const templateId of documentTemplateIds) {
+      try {
+        const tmpl = await DocumentTemplate.findById(templateId);
+        if (!tmpl) continue;
+        const task = await TaskAssignmentService.assignDocumentTask({
+          title: tmpl.name,
+          description: tmpl.description || '',
+          documentTemplateId: templateId,
+          assignedByUserId: req.user.id,
+          assignedToUserId: candidateUserId,
+          assignedToAgencyId: agencyId,
+          documentActionType: tmpl.document_action_type || 'signature',
+          metadata: { prehire: true }
+        });
+        assignedTasks.push(task);
+
+        // 3. Create a countersign task for each internal signer on this document
+        for (const sa of signerAssignments) {
+          if (!sa.userId) continue;
+          await pool.execute(
+            `INSERT INTO tasks (
+              task_type, document_action_type, title, description,
+              assigned_to_user_id, assigned_to_agency_id, assigned_by_user_id,
+              reference_id, metadata,
+              countersign_signer_user_id, countersign_role_label, countersign_field_key
+            ) VALUES (?, 'countersignature', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              'document',
+              `Countersign: ${tmpl.name}`,
+              `Please countersign ${(user.first_name || '')} ${(user.last_name || '')} — ${tmpl.name}`.trim(),
+              sa.userId,
+              agencyId,
+              req.user.id,
+              task.id,
+              JSON.stringify({ prehire: true, candidateUserId, countersign: true }),
+              sa.userId,
+              sa.roleLabel || null,
+              sa.fieldKey || null
+            ]
+          );
+        }
+      } catch (docErr) {
+        console.error('sendPreHire: failed to assign document task', templateId, docErr);
+      }
+    }
+
+    res.json({
+      ok: true,
+      passwordlessToken: tokenResult?.token || null,
+      passwordlessTokenLink: tokenLink,
+      assignedTaskCount: assignedTasks.length,
+      signerTaskCount: signerAssignments.length * assignedTasks.length
+    });
+  } catch (e) { next(e); }
 };

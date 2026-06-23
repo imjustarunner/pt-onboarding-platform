@@ -1523,6 +1523,12 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/pre-hire',
+    name: 'OrganizationPreHire',
+    component: () => import('../views/admin/PreHireView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/careers',
     name: 'OrganizationCareers',
     component: () => import('../views/admin/CareersView.vue'),
@@ -2290,6 +2296,12 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }
   },
   {
+    path: '/admin/pre-hire',
+    name: 'PreHire',
+    component: () => import('../views/admin/PreHireView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }
+  },
+  {
     path: '/admin/careers',
     name: 'Careers',
     component: () => import('../views/admin/CareersView.vue'),
@@ -2378,6 +2390,12 @@ const routes = [
     name: 'PasswordlessTokenLogin',
     component: () => import('../views/PasswordlessTokenLoginView.vue'),
     meta: { requiresGuest: true }
+  },
+  {
+    path: '/pre-hire/:token',
+    name: 'CandidatePreHirePortal',
+    component: () => import('../views/CandidatePreHirePortalView.vue'),
+    meta: { requiresGuest: false, isPublicPortal: true }
   },
   {
     path: '/reset-password/:token',

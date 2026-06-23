@@ -1150,6 +1150,32 @@ export const counterSignDocument = async (req, res, next) => {
       [storageResult.relativePath, pdfHash, JSON.stringify(updatedAudit), signedDoc.id]
     );
 
+    // Mark the countersign task as completed and record the timestamp
+    try {
+      await pool.execute(
+        `UPDATE tasks
+         SET status = 'completed',
+             completed_at = NOW(),
+             countersign_signed_at = NOW()
+         WHERE document_action_type = 'countersignature'
+           AND reference_id = ?
+           AND countersign_signer_user_id = ?
+           AND status != 'completed'`,
+        [taskId, userId]
+      );
+    } catch (e) {
+      console.warn('[counterSign] Failed to mark countersign task complete:', e?.message);
+    }
+
+    // Fire-and-forget: check if all countersign tasks for this candidate are done
+    setImmediate(async () => {
+      try {
+        await checkAllCountersignsDone(taskId, pool);
+      } catch (e) {
+        console.error('[counterSign] checkAllCountersignsDone error:', e?.message);
+      }
+    });
+
     res.json({
       success: true,
       signedDocument: await SignedDocument.findById(signedDoc.id),
@@ -1160,6 +1186,59 @@ export const counterSignDocument = async (req, res, next) => {
   }
 };
 
+async function checkAllCountersignsDone(candidateDocTaskId, dbPool) {
+  // Find the candidate user from the original document task
+  const [taskRows] = await dbPool.execute(
+    'SELECT assigned_to_user_id, assigned_to_agency_id FROM tasks WHERE id = ? LIMIT 1',
+    [candidateDocTaskId]
+  );
+  if (!taskRows.length) return;
+
+  const candidateUserId = taskRows[0].assigned_to_user_id;
+  const agencyId = taskRows[0].assigned_to_agency_id;
+  if (!candidateUserId) return;
+
+  // Find all countersign tasks whose reference_id is a candidate doc task for this user
+  const [countersignRows] = await dbPool.execute(
+    `SELECT t.id, t.status
+     FROM tasks t
+     JOIN tasks candidate_task ON candidate_task.id = t.reference_id
+     WHERE t.document_action_type = 'countersignature'
+       AND candidate_task.assigned_to_user_id = ?`,
+    [candidateUserId]
+  );
+
+  if (!countersignRows.length) return;
+
+  const allDone = countersignRows.every(r => r.status === 'completed');
+  if (!allDone) return;
+
+  // All countersigns done — create a staff notification task
+  console.log(`[counterSign] All countersign tasks complete for candidate ${candidateUserId}. Creating staff notification.`);
+
+  const User = (await import('../models/User.model.js')).default;
+  const candidate = await User.findById(candidateUserId);
+  if (!candidate) return;
+
+  await dbPool.execute(
+    `INSERT INTO tasks (
+      task_type, title, description,
+      assigned_to_role, assigned_to_agency_id,
+      reference_id, metadata, status
+    ) VALUES (
+      'notification', ?, ?,
+      'admin', ?,
+      ?, ?, 'pending'
+    )`,
+    [
+      `All countersignatures complete — ${candidate.first_name} ${candidate.last_name}`,
+      `All required staff countersignatures have been collected for ${candidate.first_name} ${candidate.last_name}. The contract is fully executed and the candidate is ready to proceed.`,
+      agencyId,
+      candidateUserId,
+      JSON.stringify({ type: 'countersign_complete', candidateUserId, agencyId })
+    ]
+  );
+}
 
 export const viewSignedDocument = async (req, res, next) => {
   try {

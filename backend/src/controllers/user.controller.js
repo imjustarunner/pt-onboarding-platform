@@ -7164,13 +7164,49 @@ export const promoteToOnboarding = async (req, res, next) => {
     } catch (e) {
       console.warn('Workspace login enable failed:', e?.message || e);
     }
-    
-    // Note: Package assignment should be done separately via package assignment endpoint
-    // The status change will be triggered when an onboarding package is assigned
-    
+
+    // Auto-assign default onboarding package from agency prehire_settings
+    let autoPackageResult = null;
+    try {
+      const [agencyRows] = await pool.execute(
+        'SELECT prehire_settings FROM agencies WHERE id = (SELECT agency_id FROM user_agencies WHERE user_id = ? LIMIT 1)',
+        [id]
+      );
+      const rawSettings = agencyRows[0]?.prehire_settings;
+      const settings = typeof rawSettings === 'string' ? JSON.parse(rawSettings) : (rawSettings || {});
+      const defaultPackageId = settings.default_onboarding_package_id;
+
+      if (defaultPackageId) {
+        const [agencyIdRow] = await pool.execute(
+          'SELECT agency_id FROM user_agencies WHERE user_id = ? LIMIT 1',
+          [id]
+        );
+        const agencyId = agencyIdRow[0]?.agency_id;
+        if (agencyId) {
+          const { assignPackageToUser } = await import('../services/packageAssignment.service.js');
+          autoPackageResult = await assignPackageToUser({
+            packageId: defaultPackageId,
+            userId: parseInt(id),
+            agencyId,
+            assignedByUserId: req.user.id,
+            ensureAccountSetup: true
+          });
+          console.log(`[promoteToOnboarding] Auto-assigned default onboarding package ${defaultPackageId} to user ${id}`);
+        }
+      }
+    } catch (pkgErr) {
+      console.warn('[promoteToOnboarding] Auto-package assignment failed (non-fatal):', pkgErr?.message);
+    }
+
     res.json({
       message: 'User promoted to onboarding status',
-      user: updatedUser
+      user: updatedUser,
+      autoPackageAssigned: autoPackageResult ? {
+        packageId: autoPackageResult.packageId,
+        packageName: autoPackageResult.packageName,
+        documentsAssigned: autoPackageResult.documents?.length || 0,
+        trainingAssigned: autoPackageResult.trainingFocuses?.length || 0
+      } : null
     });
   } catch (error) {
     next(error);
