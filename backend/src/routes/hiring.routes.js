@@ -53,7 +53,8 @@ import {
   deleteSignerRole,
   sendPreHire,
   listPrehireCandidates,
-  listOnboardingCandidates
+  listOnboardingCandidates,
+  sendOnboardingInvite
 } from '../controllers/hiring.controller.js';
 
 const router = express.Router();
@@ -127,6 +128,7 @@ router.post('/candidates/:userId/promote', promoteCandidateToPendingSetup);
 router.post('/candidates/:userId/send-prehire', sendPreHire);
 router.get('/prehire-candidates', listPrehireCandidates);
 router.get('/onboarding-candidates', listOnboardingCandidates);
+router.post('/candidates/:userId/send-onboarding-invite', sendOnboardingInvite);
 
 // Pre-hire workflow settings
 router.get('/settings', getHiringSettings);

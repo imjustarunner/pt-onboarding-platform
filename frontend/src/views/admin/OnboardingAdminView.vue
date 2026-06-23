@@ -126,15 +126,15 @@
             class="ona-tr"
             @click="goToProfile(e)"
           >
-            <td class="ona-td">
-              <div class="ona-emp-cell">
-                <div class="ona-avatar" :style="avatarStyle(e)">{{ initials(e) }}</div>
-                <div>
-                  <div class="ona-emp-name">{{ fullName(e) }}</div>
-                  <div class="ona-emp-email">{{ e.work_email || e.personal_email || e.email }}</div>
+              <td class="ona-td">
+                <div class="ona-emp-cell">
+                  <div class="ona-avatar" :style="avatarStyle(e)">{{ initials(e) }}</div>
+                  <div>
+                    <a class="ona-emp-name ona-name-link" :href="userProfileRoute(e.id)" target="_blank" rel="noopener" @click.stop>{{ fullName(e) }}</a>
+                    <div class="ona-emp-email">{{ e.work_email || e.personal_email || e.email }}</div>
+                  </div>
                 </div>
-              </div>
-            </td>
+              </td>
             <td class="ona-td ona-td-muted">{{ e.job_title || '—' }}</td>
             <td class="ona-td ona-td-muted">{{ fmtDate(e.hired_at) }}</td>
             <td class="ona-td ona-td-muted">{{ fmtDate(e.created_at) }}</td>
@@ -160,10 +160,23 @@
               <span v-else class="ona-td-muted">0</span>
             </td>
             <td class="ona-td" @click.stop>
-              <div class="ona-actions-wrap">
-                <button class="ona-action-btn" @click.stop="toggleMenu(e.id)">⋮</button>
-                <div v-if="openMenu === e.id" class="ona-action-menu" @mouseleave="openMenu = null">
-                  <button class="ona-action-item" @click="goToProfile(e); openMenu = null">View profile</button>
+              <div class="ona-row-actions">
+                <button class="ona-invite-btn" @click.stop="openInviteMenu(e.id)">Send Invite ▾</button>
+                <div v-if="inviteMenu === e.id" class="ona-invite-dropdown" @mouseleave="inviteMenu = null">
+                  <button class="ona-action-item" @click="sendInvite(e, 'token'); inviteMenu = null">
+                    <span>✉ Magic link (passwordless)</span>
+                    <span class="ona-action-sub">→ {{ e.personal_email || e.email }}</span>
+                  </button>
+                  <button class="ona-action-item" :disabled="!e.work_email" @click="sendInvite(e, 'login'); inviteMenu = null">
+                    <span>🔑 Workspace login</span>
+                    <span class="ona-action-sub">{{ e.work_email || '(no work email)' }}</span>
+                  </button>
+                </div>
+                <div class="ona-actions-wrap">
+                  <button class="ona-action-btn" @click.stop="toggleMenu(e.id)">⋮</button>
+                  <div v-if="openMenu === e.id" class="ona-action-menu" @mouseleave="openMenu = null">
+                    <button class="ona-action-item" @click="goToProfile(e); openMenu = null">View profile</button>
+                  </div>
                 </div>
               </div>
             </td>
@@ -214,6 +227,9 @@ const progressFilter = ref('');
 const sortCol = ref('hired_at');
 const sortDir = ref('desc');
 const openMenu = ref(null);
+const inviteMenu = ref(null);
+const inviteSending = ref(null);
+const inviteMsg = ref('');
 
 // ── Load ──────────────────────────────────────────────────────────────────────
 const load = async () => {
@@ -271,6 +287,21 @@ const setSort = (col) => {
 };
 
 const toggleMenu = (id) => { openMenu.value = openMenu.value === id ? null : id; };
+const openInviteMenu = (id) => { inviteMenu.value = inviteMenu.value === id ? null : id; };
+const sendInvite = async (e, method) => {
+  inviteSending.value = e.id;
+  inviteMsg.value = '';
+  try {
+    const params = selectedAgencyId.value ? { agencyId: selectedAgencyId.value } : {};
+    await api.post(`/hiring/candidates/${e.id}/send-onboarding-invite`, { sendMethod: method }, { params });
+    inviteMsg.value = method === 'token' ? 'Magic link sent!' : 'Login email sent!';
+    setTimeout(() => { inviteMsg.value = ''; }, 3000);
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to send invite.');
+  } finally {
+    inviteSending.value = null;
+  }
+};;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fullName = (u) => `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email || '—';
@@ -340,6 +371,8 @@ onMounted(load);
 .ona-emp-cell { display: flex; align-items: center; gap: 10px; }
 .ona-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0; }
 .ona-emp-name { font-weight: 600; color: #111827; }
+.ona-name-link { font-weight: 600; color: #2563eb; text-decoration: none; }
+.ona-name-link:hover { text-decoration: underline; }
 .ona-emp-email { font-size: 11px; color: #6b7280; margin-top: 1px; }
 
 .ona-progress-cell { display: flex; align-items: center; gap: 8px; }
@@ -358,4 +391,11 @@ onMounted(load);
 .ona-action-menu { position: absolute; right: 0; top: 100%; background: white; border: 1px solid #e5e7eb; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.1); z-index: 100; min-width: 140px; padding: 4px 0; }
 .ona-action-item { display: block; width: 100%; text-align: left; padding: 8px 14px; font-size: 13px; background: transparent; border: none; cursor: pointer; color: #374151; }
 .ona-action-item:hover { background: #f9fafb; }
+.ona-action-item:disabled { opacity: 0.5; cursor: not-allowed; }
+.ona-action-sub { display: block; font-size: 11px; color: #9ca3af; font-family: monospace; margin-top: 1px; }
+
+.ona-row-actions { display: flex; align-items: center; gap: 6px; position: relative; }
+.ona-invite-btn { font-size: 11px; font-weight: 700; padding: 5px 10px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.ona-invite-btn:hover { background: #dbeafe; }
+.ona-invite-dropdown { position: absolute; top: 100%; left: 0; background: white; border: 1px solid #e5e7eb; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); z-index: 100; min-width: 200px; padding: 4px 0; margin-top: 2px; }
 </style>

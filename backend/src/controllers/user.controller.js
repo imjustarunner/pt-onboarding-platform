@@ -7165,37 +7165,94 @@ export const promoteToOnboarding = async (req, res, next) => {
       console.warn('Workspace login enable failed:', e?.message || e);
     }
 
-    // Auto-assign default onboarding package from agency prehire_settings
+    // Resolve the package to assign:
+    // 1. Explicit packageId from request body (staff override)
+    // 2. Role-based default from prehire_settings.role_package_mappings
+    // 3. Agency-wide default from prehire_settings.default_onboarding_package_id
+    const { packageId: bodyPackageId, sendMethod = 'token' } = req.body || {};
     let autoPackageResult = null;
     try {
       const [agencyRows] = await pool.execute(
-        'SELECT prehire_settings FROM agencies WHERE id = (SELECT agency_id FROM user_agencies WHERE user_id = ? LIMIT 1)',
+        'SELECT agency_id FROM user_agencies WHERE user_id = ? LIMIT 1',
         [id]
       );
-      const rawSettings = agencyRows[0]?.prehire_settings;
-      const settings = typeof rawSettings === 'string' ? JSON.parse(rawSettings) : (rawSettings || {});
-      const defaultPackageId = settings.default_onboarding_package_id;
+      const agencyId = agencyRows[0]?.agency_id;
 
-      if (defaultPackageId) {
-        const [agencyIdRow] = await pool.execute(
-          'SELECT agency_id FROM user_agencies WHERE user_id = ? LIMIT 1',
-          [id]
+      if (agencyId) {
+        const [settingsRows] = await pool.execute(
+          'SELECT prehire_settings FROM agencies WHERE id = ? LIMIT 1',
+          [agencyId]
         );
-        const agencyId = agencyIdRow[0]?.agency_id;
-        if (agencyId) {
+        const rawSettings = settingsRows[0]?.prehire_settings;
+        const settings = typeof rawSettings === 'string' ? JSON.parse(rawSettings) : (rawSettings || {});
+
+        // Resolve package: explicit > role-mapped > global default
+        let resolvedPackageId = bodyPackageId ? parseInt(bodyPackageId, 10) : null;
+        if (!resolvedPackageId) {
+          // Look up the candidate's applied_role and check role mappings
+          try {
+            const [hpRows] = await pool.execute(
+              'SELECT applied_role FROM hiring_profiles WHERE candidate_user_id = ? LIMIT 1',
+              [id]
+            );
+            const appliedRole = hpRows[0]?.applied_role || null;
+            if (appliedRole && Array.isArray(settings.role_package_mappings)) {
+              const match = settings.role_package_mappings.find(
+                (m) => m.role && m.role.toLowerCase() === appliedRole.toLowerCase()
+              );
+              if (match?.packageId) resolvedPackageId = parseInt(match.packageId, 10);
+            }
+          } catch { /* non-fatal */ }
+        }
+        if (!resolvedPackageId && settings.default_onboarding_package_id) {
+          resolvedPackageId = parseInt(settings.default_onboarding_package_id, 10);
+        }
+
+        if (resolvedPackageId) {
           const { assignPackageToUser } = await import('../services/packageAssignment.service.js');
           autoPackageResult = await assignPackageToUser({
-            packageId: defaultPackageId,
+            packageId: resolvedPackageId,
             userId: parseInt(id),
             agencyId,
             assignedByUserId: req.user.id,
             ensureAccountSetup: true
           });
-          console.log(`[promoteToOnboarding] Auto-assigned default onboarding package ${defaultPackageId} to user ${id}`);
+          console.log(`[promoteToOnboarding] Assigned onboarding package ${resolvedPackageId} to user ${id}`);
+        }
+
+        // Send credentials based on sendMethod
+        if (sendMethod === 'token') {
+          // Generate a passwordless token for initial onboarding login
+          try {
+            const tokenResult = await User.generatePasswordlessToken(parseInt(id), 7 * 24);
+            const tokenLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/passwordless-login/${tokenResult.token}`;
+            if (user.personal_email) {
+              const EmailService = (await import('../services/email.service.js')).default;
+              await EmailService.sendEmail({
+                to: user.personal_email,
+                subject: 'Your onboarding access is ready',
+                text: `Hi ${user.first_name || 'there'},\n\nYou've been promoted to onboarding! Use the link below to access your onboarding checklist:\n\n${tokenLink}\n\nThis link is valid for 7 days.`
+              }).catch(() => {});
+            }
+          } catch (te) { console.warn('[promoteToOnboarding] Token send failed:', te?.message); }
+        } else if (sendMethod === 'login') {
+          // Send workspace login instructions
+          try {
+            const loginEmail = user.work_email || user.personal_email;
+            if (loginEmail) {
+              const EmailService = (await import('../services/email.service.js')).default;
+              const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+              await EmailService.sendEmail({
+                to: loginEmail,
+                subject: 'Your workspace account is ready',
+                text: `Hi ${user.first_name || 'there'},\n\nYour onboarding account is now active. Log in with your work email address at:\n\n${frontendUrl}/login\n\nEmail: ${user.work_email || user.personal_email}\n\nIf you need to reset your password, use the "Forgot password" link on the login page.`
+              }).catch(() => {});
+            }
+          } catch (le) { console.warn('[promoteToOnboarding] Login email send failed:', le?.message); }
         }
       }
     } catch (pkgErr) {
-      console.warn('[promoteToOnboarding] Auto-package assignment failed (non-fatal):', pkgErr?.message);
+      console.warn('[promoteToOnboarding] Package/send step failed (non-fatal):', pkgErr?.message);
     }
 
     res.json({
@@ -7206,7 +7263,8 @@ export const promoteToOnboarding = async (req, res, next) => {
         packageName: autoPackageResult.packageName,
         documentsAssigned: autoPackageResult.documents?.length || 0,
         trainingAssigned: autoPackageResult.trainingFocuses?.length || 0
-      } : null
+      } : null,
+      sendMethod
     });
   } catch (error) {
     next(error);

@@ -2800,11 +2800,19 @@ export const updateHiringSettings = async (req, res, next) => {
       'default_contract_template_id',
       'token_expiry_hours',
       'invite_email_subject',
-      'invite_email_body'
+      'invite_email_body',
+      'role_package_mappings'
     ];
     const patch = {};
     for (const key of allowed) {
-      if (key in req.body) patch[key] = req.body[key] ?? null;
+      if (key in req.body) {
+        // Validate role_package_mappings is an array
+        if (key === 'role_package_mappings') {
+          patch[key] = Array.isArray(req.body[key]) ? req.body[key] : [];
+        } else {
+          patch[key] = req.body[key] ?? null;
+        }
+      }
     }
 
     const [existingRows] = await pool.execute(
@@ -3052,6 +3060,59 @@ export const sendPreHire = async (req, res, next) => {
       assignedTaskCount: assignedTasks.length,
       signerTaskCount: signerAssignments.length * assignedTasks.length
     });
+  } catch (e) { next(e); }
+};
+
+// ─── Send onboarding invite to existing ONBOARDING user ──────────────────────
+// POST /api/hiring/candidates/:userId/send-onboarding-invite
+// Sends a magic link or workspace login email to an already-promoted employee.
+export const sendOnboardingInvite = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    if (agencyId) await ensureAgencyAccess(req, agencyId);
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const user = await User.findById(candidateUserId);
+    if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+    if (user.status !== 'ONBOARDING') {
+      return res.status(400).json({ error: { message: 'User is not in ONBOARDING status' } });
+    }
+
+    const { sendMethod = 'token' } = req.body || {};
+    const frontendUrl = config.frontendUrl || process.env.FRONTEND_URL || 'http://localhost:3000';
+
+    if (sendMethod === 'token') {
+      const tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24);
+      const tokenLink = `${frontendUrl}/passwordless-login/${tokenResult.token}`;
+      if (user.personal_email) {
+        setImmediate(async () => {
+          try {
+            await EmailService.sendEmail({
+              to: user.personal_email,
+              subject: 'Your onboarding access — action required',
+              text: `Hi ${user.first_name || 'there'},\n\nHere is your onboarding access link:\n\n${tokenLink}\n\nThis link is valid for 7 days. Log in to view your onboarding checklist and complete any assigned tasks.`
+            });
+          } catch (e) { console.error('[sendOnboardingInvite] Email failed:', e); }
+        });
+      }
+      return res.json({ ok: true, sendMethod, tokenLink });
+    } else if (sendMethod === 'login') {
+      const loginEmail = user.work_email || user.personal_email;
+      if (!loginEmail) return res.status(400).json({ error: { message: 'No email address found for this user' } });
+      setImmediate(async () => {
+        try {
+          await EmailService.sendEmail({
+            to: loginEmail,
+            subject: 'Your workspace account is ready',
+            text: `Hi ${user.first_name || 'there'},\n\nYour onboarding account is now active. Log in at:\n\n${frontendUrl}/login\n\nEmail: ${loginEmail}\n\nIf you need to reset your password, use the "Forgot password" link on the login page.`
+          });
+        } catch (e) { console.error('[sendOnboardingInvite] Login email failed:', e); }
+      });
+      return res.json({ ok: true, sendMethod });
+    }
+
+    return res.status(400).json({ error: { message: 'Invalid sendMethod. Must be "token" or "login".' } });
   } catch (e) { next(e); }
 };
 

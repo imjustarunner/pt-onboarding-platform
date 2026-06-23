@@ -140,7 +140,13 @@
                 <div class="phr-cand-cell">
                   <div class="phr-avatar" :style="avatarStyle(c)">{{ initials(c) }}</div>
                   <div>
-                    <div class="phr-cand-name">{{ fullName(c) }}</div>
+                    <a
+                      class="phr-cand-name phr-name-link"
+                      :href="userProfileRoute(c.id)"
+                      target="_blank"
+                      rel="noopener"
+                      @click.stop
+                    >{{ fullName(c) }}</a>
                     <div class="phr-cand-email">{{ c.personal_email || c.email }}</div>
                   </div>
                 </div>
@@ -161,12 +167,20 @@
                 <span class="phr-tasks-badge">{{ c.task_completed }} of {{ c.task_total }}</span>
               </td>
               <td class="phr-td" @click.stop>
-                <div class="phr-actions-wrap" style="position:relative;">
-                  <button class="phr-action-btn" @click.stop="toggleMenu(c.id)">⋮</button>
-                  <div v-if="openMenu === c.id" class="phr-action-menu" @mouseleave="openMenu = null">
-                    <button class="phr-action-item" @click="selectUser(c.id); openMenu = null">View details</button>
-                    <button class="phr-action-item" @click="resendLink(c); openMenu = null">Resend setup link</button>
-                    <button v-if="c.status === 'PREHIRE_REVIEW'" class="phr-action-item phr-action-item-green" @click="promoteUser(c); openMenu = null">Promote to Onboarding</button>
+                <div class="phr-row-actions">
+                  <button
+                    v-if="c.status === 'PREHIRE_REVIEW'"
+                    class="phr-promote-btn"
+                    @click.stop="openPromoteModal(c)"
+                    title="Move to Onboarding"
+                  >Move to Onboarding →</button>
+                  <div class="phr-actions-wrap" style="position:relative;">
+                    <button class="phr-action-btn" @click.stop="toggleMenu(c.id)">⋮</button>
+                    <div v-if="openMenu === c.id" class="phr-action-menu" @mouseleave="openMenu = null">
+                      <button class="phr-action-item" @click="selectUser(c.id); openMenu = null">View details</button>
+                      <button class="phr-action-item" @click="resendLink(c); openMenu = null">Resend setup link</button>
+                      <button v-if="c.status === 'PREHIRE_REVIEW'" class="phr-action-item phr-action-item-green" @click="openPromoteModal(c); openMenu = null">Move to Onboarding…</button>
+                    </div>
                   </div>
                 </div>
               </td>
@@ -220,7 +234,7 @@
           </div>
           <div class="phr-detail-meta">
             <div class="phr-detail-name-row">
-              <h3 class="phr-detail-name">{{ fullName(selectedUser) }}</h3>
+              <a class="phr-detail-name phr-name-link" :href="userProfileRoute(selectedUser.id)" target="_blank" rel="noopener">{{ fullName(selectedUser) }}</a>
               <span class="phr-status-pill" :class="statusPillClass(selectedUser.status)">{{ statusLabel(selectedUser.status) }}</span>
               <span class="phr-days-txt">{{ daysSince(selectedUser.hired_at || selectedUser.created_at) }} days in pre-hire</span>
             </div>
@@ -236,7 +250,7 @@
             <button class="phr-action-btn" @click="toggleMenu('detail')">⋮</button>
             <div v-if="openMenu === 'detail'" class="phr-action-menu phr-action-menu-right" @mouseleave="openMenu = null">
               <button class="phr-action-item" @click="resendLink(selectedUser); openMenu = null">Resend setup link</button>
-              <button v-if="selectedUser.status === 'PREHIRE_REVIEW'" class="phr-action-item phr-action-item-green" @click="promoteUser(selectedUser); openMenu = null">Promote to Onboarding</button>
+              <button v-if="selectedUser.status === 'PREHIRE_REVIEW'" class="phr-action-item phr-action-item-green" @click="openPromoteModal(selectedUser); openMenu = null">Move to Onboarding…</button>
             </div>
           </div>
         </div>
@@ -273,8 +287,8 @@
         <div v-else-if="selectedUser.status === 'PREHIRE_REVIEW'" class="phr-stage-banner phr-stage-primary">
           <strong>Ready for review</strong>
           <p>Review their submission and promote them to Onboarding when ready. A work email is required before promotion.</p>
-          <button class="phr-btn phr-btn-primary phr-btn-sm" @click="promoteUser(selectedUser)" :disabled="actionLoading || !selectedUser.work_email">
-            {{ actionLoading ? 'Promoting…' : 'Promote to Onboarding' }}
+          <button class="phr-btn phr-btn-primary phr-btn-sm" @click="openPromoteModal(selectedUser)">
+            Move to Onboarding…
           </button>
           <p v-if="!selectedUser.work_email" class="phr-warn-txt">⚠ A work email is required before promoting.</p>
           <p v-if="actionMsg" class="phr-action-msg">{{ actionMsg }}</p>
@@ -380,6 +394,15 @@
       </div>
     </div>
   </div>
+
+  <!-- Promote to Onboarding Modal -->
+  <PromoteToOnboardingModal
+    v-if="showPromoteModal && promoteCandidate"
+    :candidate="promoteCandidate"
+    :agency-id="selectedAgencyId"
+    @close="showPromoteModal = false; promoteCandidate = null"
+    @promoted="onPromoted"
+  />
 </template>
 
 <script setup>
@@ -388,6 +411,7 @@ import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import PromoteToOnboardingModal from '../../components/hiring/PromoteToOnboardingModal.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -429,6 +453,8 @@ const notes = ref([]);
 const notesLoading = ref(false);
 const noteText = ref('');
 const noteSaving = ref(false);
+const showPromoteModal = ref(false);
+const promoteCandidate = ref(null);
 
 // ── Normalisation ─────────────────────────────────────────────────────────────
 const LEGACY_STATUS_MAP = {
@@ -575,19 +601,16 @@ const resendLink = async (c) => {
   } finally { actionLoading.value = false; }
 };
 
-const promoteUser = async (c) => {
-  if (!confirm(`Promote ${fullName(c)} to Onboarding?`)) return;
-  actionLoading.value = true;
-  actionMsg.value = '';
-  try {
-    const params = selectedAgencyId.value ? { agencyId: selectedAgencyId.value } : {};
-    await api.post(`/users/${c.id}/promote-to-onboarding`, {}, { params });
-    actionMsg.value = 'Promoted to Onboarding!';
-    await load();
-    selectedId.value = null;
-  } catch (e) {
-    actionMsg.value = e.response?.data?.error?.message || 'Failed to promote.';
-  } finally { actionLoading.value = false; }
+const openPromoteModal = (c) => {
+  promoteCandidate.value = c;
+  showPromoteModal.value = true;
+};
+
+const onPromoted = async () => {
+  showPromoteModal.value = false;
+  promoteCandidate.value = null;
+  selectedId.value = null;
+  await load();
 };
 
 const toggleMenu = (id) => { openMenu.value = openMenu.value === id ? null : id; };
@@ -702,6 +725,9 @@ onMounted(load);
 .phr-avatar-sm { width: 32px; height: 32px; font-size: 12px; }
 .phr-avatar-lg { width: 48px; height: 48px; font-size: 18px; }
 .phr-cand-name { font-weight: 600; color: #111827; }
+.phr-name-link { font-weight: 600; color: #2563eb; text-decoration: none; }
+.phr-name-link:hover { text-decoration: underline; }
+.phr-detail-name.phr-name-link { font-size: 20px; }
 .phr-cand-email { font-size: 11px; color: #6b7280; margin-top: 1px; }
 
 /* ── Progress ── */
@@ -723,6 +749,9 @@ onMounted(load);
 .phr-action-item { display: block; width: 100%; text-align: left; padding: 8px 14px; font-size: 13px; background: transparent; border: none; cursor: pointer; color: #374151; }
 .phr-action-item:hover { background: #f9fafb; }
 .phr-action-item-green { color: #16a34a; }
+.phr-row-actions { display: flex; align-items: center; gap: 6px; }
+.phr-promote-btn { font-size: 11px; font-weight: 700; padding: 4px 10px; background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; border-radius: 20px; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
+.phr-promote-btn:hover { background: #dcfce7; border-color: #86efac; }
 
 /* ── Status pills ── */
 .phr-status-pill { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 20px; white-space: nowrap; }

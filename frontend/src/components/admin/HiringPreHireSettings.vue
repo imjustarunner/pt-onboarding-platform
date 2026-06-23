@@ -101,6 +101,44 @@
         </div>
       </div>
 
+      <!-- Job Role → Onboarding Package Mapping -->
+      <div class="hps-section">
+        <div class="hps-section-header">
+          <div class="hps-section-title">Onboarding Package by Job Role</div>
+          <div class="hps-section-sub">
+            Map specific job roles to onboarding packages. When a candidate with a matching applied role is promoted to Onboarding,
+            this package is pre-selected automatically. Overrides the agency-wide default for that role.
+          </div>
+        </div>
+
+        <div v-if="form.role_package_mappings.length > 0" class="hps-role-list">
+          <div v-for="(mapping, idx) in form.role_package_mappings" :key="idx" class="hps-role-row">
+            <div class="hps-role-tag">{{ mapping.role }}</div>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            <span class="hps-role-pkg">
+              {{ (packages.find(p => String(p.id) === String(mapping.packageId)) || {}).name || '(package not found)' }}
+            </span>
+            <button class="hps-role-remove" @click="removeRoleMapping(idx)" title="Remove">✕</button>
+          </div>
+        </div>
+        <p v-else class="hps-empty">No role mappings defined. Add one below to automatically assign packages by job role.</p>
+
+        <div class="hps-role-add-row">
+          <input
+            v-model="newRoleMapping.role"
+            class="input hps-role-input"
+            placeholder="Job role (e.g. Marketing Coordinator)"
+          />
+          <select v-model="newRoleMapping.packageId" class="input hps-role-pkg-select">
+            <option :value="null">— Select package —</option>
+            <option v-for="p in onboardingPackages" :key="p.id" :value="p.id">{{ p.name }}</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" @click="addRoleMapping" :disabled="!newRoleMapping.role.trim() || !newRoleMapping.packageId">
+            Add mapping
+          </button>
+        </div>
+      </div>
+
       <div class="hps-save-row">
         <button class="btn btn-primary" :disabled="saving" @click="saveSettings">
           {{ saving ? 'Saving…' : 'Save settings' }}
@@ -202,8 +240,27 @@ const form = ref({
   default_contract_template_id: null,
   token_expiry_hours: 168,
   invite_email_subject: '',
-  invite_email_body: ''
+  invite_email_body: '',
+  role_package_mappings: []
 });
+
+// Role→package mapping helpers
+const newRoleMapping = ref({ role: '', packageId: null });
+const addRoleMapping = () => {
+  if (!newRoleMapping.value.role.trim()) return;
+  const existing = form.value.role_package_mappings.findIndex(
+    (m) => m.role.toLowerCase() === newRoleMapping.value.role.toLowerCase()
+  );
+  if (existing >= 0) {
+    form.value.role_package_mappings[existing] = { ...newRoleMapping.value };
+  } else {
+    form.value.role_package_mappings.push({ ...newRoleMapping.value });
+  }
+  newRoleMapping.value = { role: '', packageId: null };
+};
+const removeRoleMapping = (idx) => {
+  form.value.role_package_mappings.splice(idx, 1);
+};
 
 const packages = ref([]);
 const templates = ref([]);
@@ -234,7 +291,8 @@ const loadAll = async () => {
       default_contract_template_id: s.default_contract_template_id ?? null,
       token_expiry_hours: s.token_expiry_hours ?? 168,
       invite_email_subject: s.invite_email_subject ?? '',
-      invite_email_body: s.invite_email_body ?? ''
+      invite_email_body: s.invite_email_body ?? '',
+      role_package_mappings: Array.isArray(s.role_package_mappings) ? s.role_package_mappings : []
     };
 
     packages.value = (pkgsRes.data || []).filter(p => p.is_active !== false);
@@ -407,4 +465,18 @@ onMounted(loadAll);
 .hps-now-list li { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: #374151; line-height: 1.5; }
 .now-check { color: #16a34a; font-weight: 700; flex-shrink: 0; }
 .muted { color: #9ca3af; }
+
+/* Role → Package mapping */
+.hps-role-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.hps-role-row {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 13px;
+}
+.hps-role-tag { background: #e0e7ff; color: #3730a3; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 20px; }
+.hps-role-pkg { flex: 1; color: #374151; font-weight: 500; }
+.hps-role-remove { background: transparent; border: none; color: #9ca3af; cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 4px; }
+.hps-role-remove:hover { background: #fee2e2; color: #dc2626; }
+.hps-role-add-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.hps-role-input { flex: 1; min-width: 200px; }
+.hps-role-pkg-select { flex: 1; min-width: 180px; }
 </style>
