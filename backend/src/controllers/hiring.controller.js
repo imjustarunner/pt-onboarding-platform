@@ -3166,6 +3166,7 @@ export const listPrehireCandidates = async (req, res, next) => {
        LEFT JOIN hiring_profiles hp ON hp.candidate_user_id = u.id
        WHERE u.status IN (${placeholders})
          AND u.is_active = TRUE
+         AND u.role NOT IN ('client_guardian', 'client', 'guardian')
          ${agencyClause}
        GROUP BY u.id, hp.id
        ORDER BY u.hired_at DESC, u.created_at DESC`,
@@ -3232,6 +3233,7 @@ export const listOnboardingCandidates = async (req, res, next) => {
        LEFT JOIN hiring_profiles hp ON hp.candidate_user_id = u.id
        WHERE u.status = 'ONBOARDING'
          AND u.is_active = TRUE
+         AND u.role NOT IN ('client_guardian', 'client', 'guardian')
          ${agencyClause}
        GROUP BY u.id, hp.id
        ORDER BY u.hired_at DESC, u.created_at DESC`,
