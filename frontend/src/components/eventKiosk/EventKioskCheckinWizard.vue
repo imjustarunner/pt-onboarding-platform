@@ -314,6 +314,12 @@
             </button>
           </template>
         </footer>
+        <p
+          v-if="isLastStep && currentStepId !== 'photo_preference' && !submitting && completeBlockReason"
+          class="ek-checkin-block-reason"
+        >
+          {{ completeBlockReason }}
+        </p>
       </template>
     </div>
 
@@ -564,6 +570,16 @@ const canComplete = computed(() => {
   // family could pass the pickup step but never enable the Complete button.
   if (pickupGateBlocked.value) return false;
   return true;
+});
+
+// Surfaces WHY the Complete button is disabled so a stuck check-in is never
+// a silent mystery. Mirrors the canComplete conditions in order.
+const completeBlockReason = computed(() => {
+  if (sheetLoading.value || !sheet.value) return 'Loading check-in info…';
+  if (!checkerValid.value) return 'Tap Back and confirm who is checking in.';
+  if (pickupGateBlocked.value) return 'No authorized pickup is on file. Add one on the pickup step.';
+  if (!allergiesConfirmed.value) return 'Check the box above to confirm the allergy / medical info.';
+  return '';
 });
 
 function emitClose() {
@@ -1209,6 +1225,12 @@ watch(
 }
 .ek-checkin-err {
   margin-bottom: 10px;
+}
+.ek-checkin-block-reason {
+  margin: 10px 0 0;
+  text-align: right;
+  font-size: 13px;
+  color: #b45309;
 }
 .ek-checkin-waiver-checks {
   margin-top: 12px;
