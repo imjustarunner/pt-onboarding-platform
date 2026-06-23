@@ -558,12 +558,11 @@ const canComplete = computed(() => {
   if (!sheet.value || sheetLoading.value) return false;
   if (!checkerValid.value) return false;
   if (!allergiesConfirmed.value) return false;
-  const gate = sheet.value.gate || {};
-  if (sheet.value.waiversEnabled) {
-    if (gate.pickupRequired && !gate.pickupSatisfied) return false;
-    if (gate.pickupRequired && !guardianUserId.value) return false;
-    if (!sheetHasPickups.value && gate.pickupRequired && !gate.pickupSatisfied) return false;
-  }
+  // Pickup requirement is satisfied by ANY pickup on file (intake, signed
+  // waiver, or kiosk-added) — identical to the pickup step gate. Using the
+  // stricter "signed waiver section" check here created a dead-end where a
+  // family could pass the pickup step but never enable the Complete button.
+  if (pickupGateBlocked.value) return false;
   return true;
 });
 
