@@ -2933,6 +2933,13 @@ export const sendPreHire = async (req, res, next) => {
     let tokenResult = null;
     if (user.status === 'PROSPECTIVE' || user.status === 'PENDING_SETUP') {
       await User.updateStatus(candidateUserId, 'PENDING_SETUP', req.user.id);
+      // Best-effort: stamp hired_at if the column exists
+      try {
+        await pool.execute(
+          `UPDATE users SET hired_at = NOW() WHERE id = ? AND hired_at IS NULL`,
+          [candidateUserId]
+        );
+      } catch { /* column may not exist yet */ }
       try {
         const existing = await HiringProfile.findByCandidateUserId(candidateUserId);
         await HiringProfile.upsert({
@@ -3003,6 +3010,7 @@ export const sendPreHire = async (req, res, next) => {
           assignedToUserId: candidateUserId,
           assignedToAgencyId: agencyId,
           documentActionType: tmpl.document_action_type || 'signature',
+          isRequired: tmpl.is_required ? 1 : 0,
           metadata: { prehire: true }
         });
         assignedTasks.push(task);
@@ -3044,5 +3052,143 @@ export const sendPreHire = async (req, res, next) => {
       assignedTaskCount: assignedTasks.length,
       signerTaskCount: signerAssignments.length * assignedTasks.length
     });
+  } catch (e) { next(e); }
+};
+
+// ─── Pre-hire candidates with progress ───────────────────────────────────────
+// GET /api/hiring/prehire-candidates?agencyId=X
+// Returns PENDING_SETUP, PREHIRE_OPEN, PREHIRE_REVIEW users enriched with
+// task progress counts and hiring profile data.
+export const listPrehireCandidates = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    if (agencyId) await ensureAgencyAccess(req, agencyId);
+
+    const agencyClause = agencyId ? `AND ua.agency_id = ${agencyId}` : '';
+    const statuses = ['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW'];
+    const placeholders = statuses.map(() => '?').join(',');
+
+    const [rows] = await pool.execute(
+      `SELECT
+         u.id, u.first_name, u.last_name, u.email, u.personal_email,
+         u.status, u.phone, u.city, u.state, u.hired_at, u.created_at,
+         hp.applied_role, hp.source, hp.interview_date,
+         hp.created_at AS applied_at,
+         (
+           SELECT COUNT(*) FROM tasks t
+           WHERE t.assigned_to_user_id = u.id
+             AND t.document_action_type != 'countersignature'
+             AND t.status != 'deleted'
+         ) AS task_total,
+         (
+           SELECT COUNT(*) FROM tasks t
+           WHERE t.assigned_to_user_id = u.id
+             AND t.document_action_type != 'countersignature'
+             AND t.status = 'completed'
+         ) AS task_completed,
+         (
+           SELECT COUNT(*) FROM tasks t
+           WHERE t.assigned_to_user_id = u.id
+             AND t.is_required = 1
+             AND t.document_action_type != 'countersignature'
+             AND t.status != 'deleted'
+         ) AS required_total,
+         (
+           SELECT COUNT(*) FROM tasks t
+           WHERE t.assigned_to_user_id = u.id
+             AND t.is_required = 1
+             AND t.document_action_type != 'countersignature'
+             AND t.status = 'completed'
+         ) AS required_completed
+       FROM users u
+       INNER JOIN user_agencies ua ON u.id = ua.user_id
+       LEFT JOIN hiring_profiles hp ON hp.candidate_user_id = u.id
+       WHERE u.status IN (${placeholders})
+         AND u.is_active = TRUE
+         ${agencyClause}
+       GROUP BY u.id, hp.id
+       ORDER BY u.hired_at DESC, u.created_at DESC`,
+      statuses
+    );
+
+    const candidates = rows.map((r) => {
+      const total = parseInt(r.task_total, 10) || 0;
+      const completed = parseInt(r.task_completed, 10) || 0;
+      const reqTotal = parseInt(r.required_total, 10) || 0;
+      const reqCompleted = parseInt(r.required_completed, 10) || 0;
+      return {
+        ...r,
+        task_total: total,
+        task_completed: completed,
+        required_total: reqTotal,
+        required_completed: reqCompleted,
+        progress_pct: total > 0 ? Math.round((completed / total) * 100) : 0,
+        required_progress_pct: reqTotal > 0 ? Math.round((reqCompleted / reqTotal) * 100) : 0
+      };
+    });
+
+    res.json(candidates);
+  } catch (e) { next(e); }
+};
+
+// ─── Onboarding candidates with progress ─────────────────────────────────────
+// GET /api/hiring/onboarding-candidates?agencyId=X
+// Returns ONBOARDING status users with task progress.
+export const listOnboardingCandidates = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    if (agencyId) await ensureAgencyAccess(req, agencyId);
+
+    const agencyClause = agencyId ? `AND ua.agency_id = ${agencyId}` : '';
+
+    const [rows] = await pool.execute(
+      `SELECT
+         u.id, u.first_name, u.last_name, u.email, u.personal_email, u.work_email,
+         u.status, u.hired_at, u.created_at,
+         hp.applied_role AS job_title,
+         (
+           SELECT COUNT(*) FROM tasks t
+           WHERE t.assigned_to_user_id = u.id
+             AND t.document_action_type != 'countersignature'
+             AND t.status != 'deleted'
+         ) AS task_total,
+         (
+           SELECT COUNT(*) FROM tasks t
+           WHERE t.assigned_to_user_id = u.id
+             AND t.document_action_type != 'countersignature'
+             AND t.status = 'completed'
+         ) AS task_completed,
+         (
+           SELECT COUNT(*) FROM tasks t
+           WHERE t.assigned_to_user_id = u.id
+             AND t.due_date IS NOT NULL
+             AND t.due_date < NOW()
+             AND t.status != 'completed'
+             AND t.status != 'deleted'
+         ) AS overdue_count
+       FROM users u
+       INNER JOIN user_agencies ua ON u.id = ua.user_id
+       LEFT JOIN hiring_profiles hp ON hp.candidate_user_id = u.id
+       WHERE u.status = 'ONBOARDING'
+         AND u.is_active = TRUE
+         ${agencyClause}
+       GROUP BY u.id, hp.id
+       ORDER BY u.hired_at DESC, u.created_at DESC`,
+      []
+    );
+
+    const result = rows.map((r) => {
+      const total = parseInt(r.task_total, 10) || 0;
+      const completed = parseInt(r.task_completed, 10) || 0;
+      return {
+        ...r,
+        task_total: total,
+        task_completed: completed,
+        overdue_count: parseInt(r.overdue_count, 10) || 0,
+        progress_pct: total > 0 ? Math.round((completed / total) * 100) : 0
+      };
+    });
+
+    res.json(result);
   } catch (e) { next(e); }
 };

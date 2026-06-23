@@ -370,6 +370,8 @@ export const createTemplate = async (req, res, next) => {
       iconId: parsedIconId,
       fieldDefinitions: parsedFieldDefinitions,
       employeeDisplayCategory: parsedDisplayCategory.value,
+      documentStage: req.body.documentStage || null,
+      isRequired: req.body.isRequired ? 1 : 0,
     });
 
     return res.status(201).json(template);
@@ -617,6 +619,8 @@ export const updateTemplate = async (req, res, next) => {
       signaturePage,
       fieldDefinitions,
       employeeDisplayCategory,
+      documentStage,
+      isRequired,
     } = sanitizedInputBody;
 
     // Check permissions: Support can only edit their own documents
@@ -667,6 +671,12 @@ export const updateTemplate = async (req, res, next) => {
         return res.status(400).json({ error: { message: parsed.error } });
       }
       updateData.employeeDisplayCategory = parsed.value;
+    }
+    if (documentStage !== undefined) {
+      updateData.documentStage = documentStage || null;
+    }
+    if (isRequired !== undefined) {
+      updateData.isRequired = isRequired ? 1 : 0;
     }
     if (htmlContent !== undefined) updateData.htmlContent = htmlContent !== null && htmlContent !== '' ? htmlContent : null;
 
@@ -1082,3 +1092,101 @@ export const duplicateTemplate = async (req, res, next) => {
   }
 };
 
+// ─── Sync Pre-Hire Document Pool ─────────────────────────────────────────────
+// POST /api/document-templates/:id/sync-prehire
+// Assigns this template to ALL active pre-hire candidates who don't have it yet.
+// Also accepts POST /api/document-templates/sync-prehire-pool (no :id) to sync
+// ALL pre_hire-staged templates at once.
+export const syncPrehirePool = async (req, res, next) => {
+  try {
+    const agencyId = req.body.agencyId || req.user?.agencyId;
+    const parsedAgencyId = agencyId ? parseInt(agencyId, 10) : null;
+
+    // Determine which template(s) to sync
+    const templateId = req.params.id ? parseInt(req.params.id, 10) : null;
+
+    let templatesToSync = [];
+    if (templateId) {
+      const tmpl = await DocumentTemplate.findById(templateId);
+      if (!tmpl) return res.status(404).json({ error: { message: 'Template not found' } });
+      templatesToSync = [tmpl];
+    } else {
+      // Sync all pre_hire-staged templates for this agency
+      const filters = { documentStage: 'pre_hire' };
+      if (parsedAgencyId) filters.agencyId = parsedAgencyId;
+      const result = await DocumentTemplate.findAll(filters);
+      templatesToSync = result?.templates || result || [];
+    }
+
+    if (templatesToSync.length === 0) {
+      return res.json({ ok: true, assigned: 0, message: 'No pre-hire templates to sync' });
+    }
+
+    // Find all active pre-hire candidates for this agency
+    const prehireStatuses = ['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW'];
+    const placeholders = prehireStatuses.map(() => '?').join(',');
+    const agencyJoin = parsedAgencyId
+      ? `INNER JOIN user_agencies ua ON u.id = ua.user_id AND ua.agency_id = ${parsedAgencyId}`
+      : 'INNER JOIN user_agencies ua ON u.id = ua.user_id';
+
+    const [candidateRows] = await pool.execute(
+      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.status
+       FROM users u
+       ${agencyJoin}
+       WHERE u.status IN (${placeholders})
+         AND u.is_active = TRUE`,
+      prehireStatuses
+    );
+
+    if (candidateRows.length === 0) {
+      return res.json({ ok: true, assigned: 0, message: 'No active pre-hire candidates to sync to' });
+    }
+
+    const TaskAssignmentService = (await import('../services/taskAssignment.service.js')).default;
+    let assignedCount = 0;
+
+    for (const candidate of candidateRows) {
+      // Find which template IDs this candidate already has assigned
+      const [existingRows] = await pool.execute(
+        `SELECT reference_id FROM tasks
+         WHERE assigned_to_user_id = ?
+           AND task_type = 'document'
+           AND document_action_type != 'countersignature'
+           AND status != 'deleted'`,
+        [candidate.id]
+      );
+      const existingTemplateIds = new Set(existingRows.map((r) => String(r.reference_id)));
+
+      for (const tmpl of templatesToSync) {
+        if (existingTemplateIds.has(String(tmpl.id))) continue; // already assigned
+
+        try {
+          await TaskAssignmentService.assignDocumentTask({
+            title: tmpl.name,
+            description: tmpl.description || '',
+            documentTemplateId: tmpl.id,
+            assignedByUserId: req.user.id,
+            assignedToUserId: candidate.id,
+            assignedToAgencyId: parsedAgencyId,
+            documentActionType: tmpl.document_action_type || 'signature',
+            isRequired: tmpl.is_required ? 1 : 0,
+            metadata: { prehire: true, syncedFromPool: true }
+          });
+          assignedCount++;
+        } catch (err) {
+          console.error(`[syncPrehirePool] Failed to assign template ${tmpl.id} to user ${candidate.id}:`, err);
+        }
+      }
+    }
+
+    return res.json({
+      ok: true,
+      assigned: assignedCount,
+      candidatesChecked: candidateRows.length,
+      templatesChecked: templatesToSync.length,
+      message: `Synced ${assignedCount} new task assignment(s) across ${candidateRows.length} candidate(s)`
+    });
+  } catch (e) {
+    next(e);
+  }
+};

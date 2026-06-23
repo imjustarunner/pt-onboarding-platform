@@ -95,6 +95,7 @@
                 <div class="task-card-title">{{ task.title }}</div>
                 <div class="task-card-meta">
                   <span class="task-pill" :class="pillClass(task)">{{ pillLabel(task) }}</span>
+                  <span v-if="task.isRequired" class="task-pill task-pill-required">Required</span>
                 </div>
               </div>
               <div class="task-card-arrow" v-if="task.status !== 'completed'">›</div>
@@ -289,8 +290,9 @@ const agency = computed(() => portalData.value?.agency || null);
 const tasks = computed(() => portalData.value?.tasks || []);
 const progress = computed(() => portalData.value?.progress || { total: 0, completed: 0, allDone: false });
 
-const totalCount = computed(() => progress.value.total);
-const completedCount = computed(() => progress.value.completed);
+// Use required-only progress when any tasks are flagged required; otherwise all tasks
+const totalCount = computed(() => progress.value.requiredTotal || progress.value.total);
+const completedCount = computed(() => progress.value.requiredCompleted ?? progress.value.completed);
 const allDone = computed(() => progress.value.allDone);
 const progressPct = computed(() => totalCount.value > 0 ? Math.round((completedCount.value / totalCount.value) * 100) : 0);
 
@@ -642,6 +644,7 @@ onUnmounted(() => {
 .pill-done { background: #dcfce7; color: #166534; }
 .pill-sign { background: var(--primary-light); color: var(--primary); }
 .pill-review { background: #f1f5f9; color: #475569; }
+.task-pill-required { background: #ede9fe; color: #5b21b6; }
 
 /* CTA */
 .cta-wrap { padding-top: 4px; }

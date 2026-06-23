@@ -50,7 +50,8 @@ class TaskAssignmentService {
       assignedToRole,
       assignedToAgencyId,
       metadata,
-      documentActionType
+      documentActionType,
+      isRequired
     } = assignmentData;
 
     // Create the task first
@@ -65,7 +66,8 @@ class TaskAssignmentService {
       assignedByUserId,
       dueDate,
       referenceId: documentTemplateId || userSpecificDocumentId,
-      metadata
+      metadata,
+      isRequired: isRequired ? 1 : 0
     });
 
     // If it's a template, generate personalized user document immediately

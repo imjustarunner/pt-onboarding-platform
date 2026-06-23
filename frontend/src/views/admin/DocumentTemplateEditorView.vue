@@ -67,6 +67,13 @@
                 <option value="ongoing">Ongoing — recurring or periodic</option>
               </select>
             </div>
+            <div class="form-group" v-if="form.documentStage">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="checkbox" v-model="form.isRequired" style="width:16px;height:16px;" />
+                <span>Required for stage completion</span>
+              </label>
+              <p style="font-size:12px;color:#6b7280;margin:4px 0 0;">When checked, this document must be completed before the candidate can advance to the next stage. Optional documents are still shown but don't block progression.</p>
+            </div>
             <div class="form-group">
               <label>Employee hub category</label>
               <select v-model="form.employeeDisplayCategory">
@@ -304,6 +311,7 @@ const form = ref({
   documentType: 'administrative',
   documentActionType: 'signature',
   documentStage: '',
+  isRequired: false,
   employeeDisplayCategory: '',
   layoutType: 'standard',
   letterheadTemplateId: null,
@@ -471,6 +479,7 @@ const loadTemplate = async () => {
       documentType: template.document_type || 'administrative',
       documentActionType: template.document_action_type || 'signature',
       documentStage: template.document_stage || '',
+      isRequired: !!template.is_required,
       employeeDisplayCategory: template.employee_display_category || '',
       layoutType: template.layout_type || 'standard',
       letterheadTemplateId: template.letterhead_template_id ?? null,
@@ -516,6 +525,7 @@ const saveTemplate = async () => {
         documentType: form.value.documentType,
         documentActionType: form.value.documentActionType,
         documentStage: form.value.documentStage || null,
+        isRequired: form.value.isRequired ? 1 : 0,
         employeeDisplayCategory: form.value.employeeDisplayCategory || null,
         layoutType: form.value.layoutType,
         letterheadTemplateId: form.value.layoutType === 'letter' ? form.value.letterheadTemplateId : null,
@@ -558,6 +568,7 @@ const saveTemplate = async () => {
     updateData.documentType = form.value.documentType;
     updateData.documentActionType = form.value.documentActionType;
     updateData.documentStage = form.value.documentStage || null;
+    updateData.isRequired = form.value.isRequired ? 1 : 0;
     updateData.employeeDisplayCategory = form.value.employeeDisplayCategory || null;
     updateData.languageCode = form.value.languageCode || null;
     if (form.value.saveAsNewVersion) {

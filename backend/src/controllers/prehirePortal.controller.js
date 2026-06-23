@@ -59,12 +59,12 @@ export const getPortal = async (req, res, next) => {
 
     // Tasks assigned to the candidate (exclude countersign tasks, which are for staff)
     const [taskRows] = await pool.execute(
-      `SELECT id, task_type, document_action_type, title, description, status, due_date, reference_id, metadata
+      `SELECT id, task_type, document_action_type, title, description, status, due_date, reference_id, metadata, is_required
        FROM tasks
        WHERE assigned_to_user_id = ?
          AND (document_action_type IS NULL OR document_action_type != 'countersignature')
          AND status NOT IN ('overridden', 'archived')
-       ORDER BY created_at ASC`,
+       ORDER BY is_required DESC, created_at ASC`,
       [userId]
     );
 
@@ -77,11 +77,15 @@ export const getPortal = async (req, res, next) => {
       status: t.status,
       dueDate: t.due_date,
       referenceId: t.reference_id,
+      isRequired: t.is_required === 1 || t.is_required === true,
       metadata: (() => { try { return typeof t.metadata === 'string' ? JSON.parse(t.metadata) : (t.metadata || {}); } catch { return {}; } })()
     }));
 
     const totalTasks = tasks.length;
     const completedTasks = tasks.filter(t => t.status === 'completed').length;
+    // Progress % is based on required tasks only when any are marked required; falls back to all tasks
+    const requiredTasks = tasks.filter(t => t.isRequired);
+    const completedRequired = requiredTasks.filter(t => t.status === 'completed').length;
     const allDone = totalTasks > 0 && completedTasks === totalTasks;
 
     res.json({
@@ -95,7 +99,13 @@ export const getPortal = async (req, res, next) => {
       },
       agency: agency ? { id: agency.id, name: agency.name, logoUrl: agency.logo_url } : null,
       tasks,
-      progress: { total: totalTasks, completed: completedTasks, allDone }
+      progress: {
+        total: totalTasks,
+        completed: completedTasks,
+        requiredTotal: requiredTasks.length,
+        requiredCompleted: completedRequired,
+        allDone
+      }
     });
   } catch (e) { next(e); }
 };

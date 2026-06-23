@@ -44,7 +44,8 @@ class Task {
       recurringRule,
       typicalDayOfWeek,
       typicalTime,
-      targetCount
+      targetCount,
+      isRequired
     } = taskData;
 
     console.log('Task.create: Creating task with data', {
@@ -68,8 +69,8 @@ class Task {
         task_type, document_action_type, title, description, assigned_to_user_id, 
         assigned_to_role, assigned_to_agency_id, assigned_by_user_id, 
         due_date, reference_id, metadata,
-        task_list_id, urgency, is_recurring, recurring_rule, typical_day_of_week, typical_time, target_count
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        task_list_id, urgency, is_recurring, recurring_rule, typical_day_of_week, typical_time, target_count, is_required
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         taskType,
         documentActionType ?? (taskType === 'document' ? 'signature' : null),
@@ -88,7 +89,8 @@ class Task {
         recurringRule ? JSON.stringify(recurringRule) : null,
         typicalDayOfWeek ?? null,
         typicalTimeVal,
-        targetCountVal
+        targetCountVal,
+        isRequired ? 1 : 0
       ]
     );
 

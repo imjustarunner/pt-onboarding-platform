@@ -15,6 +15,7 @@ import {
   getVersionHistory,
   getTemplateVariables,
   duplicateTemplate,
+  syncPrehirePool,
   upload
 } from '../controllers/documentTemplate.controller.js';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
@@ -168,6 +169,8 @@ router.put('/:id', authenticate, requireBackofficeAdmin, validateTemplateUpdate,
 router.post('/:id/archive', authenticate, requireBackofficeAdmin, archiveTemplate);
 router.post('/:id/restore', authenticate, requireBackofficeAdmin, restoreTemplate);
 router.post('/:id/duplicate', authenticate, requireBackofficeAdmin, duplicateTemplate);
+router.post('/:id/sync-prehire', authenticate, requireBackofficeAdmin, syncPrehirePool);
+router.post('/sync-prehire-pool', authenticate, requireBackofficeAdmin, syncPrehirePool);
 router.delete('/:id', authenticate, requireBackofficeAdmin, deleteTemplate);
 router.get('/versions/history', authenticate, requireBackofficeAdmin, getVersionHistory);
 

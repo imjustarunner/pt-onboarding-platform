@@ -101,7 +101,7 @@ class DocumentTemplate {
     let hasDocumentStageColumn = false;
     try {
       const [cols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'document_templates' AND COLUMN_NAME IN ('organization_id','layout_type','letterhead_template_id','letter_header_html','letter_footer_html','field_definitions','employee_display_category','document_stage')"
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'document_templates' AND COLUMN_NAME IN ('organization_id','layout_type','letterhead_template_id','letter_header_html','letter_footer_html','field_definitions','employee_display_category','document_stage','is_required')"
       );
       const set = new Set((cols || []).map((r) => r.COLUMN_NAME));
       hasLayoutTypeColumn = set.has('layout_type');
@@ -113,6 +113,16 @@ class DocumentTemplate {
       hasDocumentStageColumn = set.has('document_stage');
     } catch {
       // ignore (older DBs)
+    }
+
+    let hasIsRequiredColumn = false;
+    try {
+      const [reqCols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'document_templates' AND COLUMN_NAME = 'is_required'"
+      );
+      hasIsRequiredColumn = reqCols.length > 0;
+    } catch {
+      hasIsRequiredColumn = false;
     }
 
     // Build insert query based on whether icon_id column exists
@@ -205,6 +215,12 @@ class DocumentTemplate {
       insertFields += ', document_stage';
       insertValues += ', ?';
       insertParams.push(stage ? String(stage).trim() : null);
+    }
+
+    if (hasIsRequiredColumn) {
+      insertFields += ', is_required';
+      insertValues += ', ?';
+      insertParams.push(templateData.isRequired || templateData.is_required ? 1 : 0);
     }
 
     // language_code — store only 'es'; treat null/'en' identically as English.
@@ -530,7 +546,7 @@ class DocumentTemplate {
     let hasDocumentStageColumn = false;
     try {
       const [cols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'document_templates' AND COLUMN_NAME IN ('organization_id','layout_type','letterhead_template_id','letter_header_html','letter_footer_html','field_definitions','employee_display_category','document_stage')"
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'document_templates' AND COLUMN_NAME IN ('organization_id','layout_type','letterhead_template_id','letter_header_html','letter_footer_html','field_definitions','employee_display_category','document_stage','is_required')"
       );
       const set = new Set((cols || []).map((r) => r.COLUMN_NAME));
       hasOrganizationColumn = set.has('organization_id');
@@ -543,6 +559,16 @@ class DocumentTemplate {
       hasDocumentStageColumn = set.has('document_stage');
     } catch {
       // ignore (older DBs)
+    }
+
+    let hasIsRequiredColumnUpdate = false;
+    try {
+      const [reqCols2] = await pool.execute(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'document_templates' AND COLUMN_NAME = 'is_required'"
+      );
+      hasIsRequiredColumnUpdate = reqCols2.length > 0;
+    } catch {
+      hasIsRequiredColumnUpdate = false;
     }
 
     // Use default values when destructuring to prevent undefined
@@ -875,6 +901,12 @@ class DocumentTemplate {
       const raw = templateData.documentStage ?? templateData.document_stage;
       const val = raw === null || raw === undefined || raw === '' ? null : String(raw).trim();
       safePush(val, 'documentStage');
+    }
+
+    if (hasIsRequiredColumnUpdate && ('isRequired' in templateData || 'is_required' in templateData)) {
+      updates.push('is_required = ?');
+      const raw = templateData.isRequired ?? templateData.is_required;
+      safePush(raw ? 1 : 0, 'isRequired');
     }
     if ('languageCode' in templateData) {
       updates.push('language_code = ?');
