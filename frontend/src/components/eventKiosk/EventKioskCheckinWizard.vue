@@ -479,15 +479,6 @@ const selectedCheckerName = computed(() => {
   const opt = checkerOptions.value.find((o) => o.key === checkerSelectedKey.value);
   return opt?.name || '';
 });
-const pickupGateBlocked = computed(() => {
-  const gate = sheet.value?.gate || {};
-  if (!sheet.value?.waiversEnabled) return false;
-  // Only block if pickup authorization is required AND there are no pickups on file at all.
-  // Pickups populated from intake, signed waivers, or kiosk-direct saves all satisfy this check.
-  if (gate.pickupRequired && !sheetHasPickups.value) return true;
-  return false;
-});
-
 const checkerOptions = computed(() => {
   const opts = [];
   for (const g of sheet.value?.guardians || []) {
@@ -548,7 +539,6 @@ const waiverFieldComponent = computed(() => WAIVER_FIELDS[waiverEditKey.value] |
 const canAdvanceStep = computed(() => {
   const id = currentStepId.value;
   if (id === 'checker' && !checkerValid.value) return false;
-  if (id === 'pickup' && pickupGateBlocked.value) return false;
   return true;
 });
 
@@ -560,24 +550,25 @@ const advanceLabel = computed(() => {
   return t('kiosk.next');
 });
 
+// Check-in is intentionally lenient: the only things required are knowing who
+// is checking the child in (checker) and a one-tap confirmation that the
+// allergy/medical info shown is correct. Missing pickup contacts or having no
+// allergies on file never block check-in — those are not data the family must
+// complete to mark a child present.
 const canComplete = computed(() => {
   if (!sheet.value || sheetLoading.value) return false;
   if (!checkerValid.value) return false;
   if (!allergiesConfirmed.value) return false;
-  // Pickup requirement is satisfied by ANY pickup on file (intake, signed
-  // waiver, or kiosk-added) — identical to the pickup step gate. Using the
-  // stricter "signed waiver section" check here created a dead-end where a
-  // family could pass the pickup step but never enable the Complete button.
-  if (pickupGateBlocked.value) return false;
   return true;
 });
 
 // Surfaces WHY the Complete button is disabled so a stuck check-in is never
-// a silent mystery. Mirrors the canComplete conditions in order.
+// a silent mystery. Mirrors the canComplete conditions in order. Both
+// remaining reasons are always resolvable on the spot by the person checking
+// in, so this can never become a dead-end.
 const completeBlockReason = computed(() => {
   if (sheetLoading.value || !sheet.value) return 'Loading check-in info…';
   if (!checkerValid.value) return 'Tap Back and confirm who is checking in.';
-  if (pickupGateBlocked.value) return 'No authorized pickup is on file. Add one on the pickup step.';
   if (!allergiesConfirmed.value) return 'Check the box above to confirm the allergy / medical info.';
   return '';
 });
