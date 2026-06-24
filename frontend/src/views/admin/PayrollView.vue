@@ -955,7 +955,7 @@
                   <div class="right muted">{{ fmtNum(l?.draftUnits ?? 0) }}</div>
                   <div class="right">{{ fmtNum(l?.finalizedUnits ?? l?.units ?? 0) }}</div>
                   <div class="right muted">{{ fmtNum(l?.hours ?? 0) }}</div>
-                  <div class="right muted">{{ fmtMoney(l?.rateAmount ?? 0) }}</div>
+                  <div class="right muted">{{ fmtBreakdownRate(l) }}</div>
                   <div class="right">{{ fmtMoney(l?.amount ?? 0) }}</div>
                 </div>
               </div>
@@ -4142,7 +4142,7 @@
                   <td class="right muted">{{ fmtNum(v?.payHours ?? 0) }}</td>
                   <td class="right muted">{{ fmtNum(v?.durationMinutes ?? 0) }}</td>
                   <td class="right muted">{{ fmtNum(v?.hours ?? 0) }}</td>
-                  <td class="right muted">{{ fmtMoney(v?.rateAmount ?? 0) }}</td>
+                  <td class="right muted">{{ fmtBreakdownRate(v) }}</td>
                   <td class="right">{{ fmtMoney(v?.amount ?? 0) }}</td>
                   <td class="muted">{{ v?.rateSource || '—' }}</td>
                 </tr>
@@ -4303,7 +4303,7 @@
                   <div class="right">{{ fmtNum(l.finalizedUnits ?? l.units ?? 0) }}</div>
                   <div class="right muted">{{ fmtNum(l.payHours ?? 0) }}</div>
                   <div class="right muted">{{ fmtNum(l.hours ?? 0) }}</div>
-                  <div class="right muted">{{ fmtMoney(l.rateAmount ?? 0) }}</div>
+                  <div class="right muted">{{ fmtBreakdownRate(l) }}</div>
                   <div class="right">{{ fmtMoney(l.amount ?? 0) }}</div>
                 </div>
               </div>
@@ -4550,7 +4550,7 @@
                   <div class="right muted">{{ fmtNum(l.draftUnits ?? 0) }}</div>
                   <div class="right">{{ fmtNum(l.finalizedUnits ?? l.units ?? 0) }}</div>
                   <div class="right muted">{{ fmtNum(l.hours ?? 0) }}</div>
-                  <div class="right muted">{{ fmtMoney(l.rateAmount ?? 0) }}</div>
+                  <div class="right muted">{{ fmtBreakdownRate(l) }}</div>
                   <div class="right">{{ fmtMoney(l.amount ?? 0) }}</div>
                 </div>
               </div>
@@ -10254,6 +10254,17 @@ const fmtMoney = (v) => {
   const n = Number(v || 0);
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD' });
 };
+const fmtBreakdownRate = (line) => {
+  const method = String(line?.payMethod || '').trim().toLowerCase();
+  const pct = line?.payPercent;
+  if (method === 'percent_of_charge' && pct !== null && pct !== undefined && pct !== '') {
+    const n = Number(pct);
+    if (Number.isFinite(n)) {
+      return `${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
+    }
+  }
+  return fmtMoney(line?.rateAmount ?? 0);
+};
 const fmtNum = (v) => {
   const n = Number(v || 0);
   return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -10755,13 +10766,38 @@ const splitBreakdownForDisplay = (breakdown) => {
     const totalAmount = Number(v.amount || 0);
     const totalUnits = Math.max(0, finalizedUnits);
     const baseUnits = Math.max(0, totalUnits - carryUnits);
+    const isPercentPay = String(v.payMethod || '').trim().toLowerCase() === 'percent_of_charge'
+      && v.payPercent !== null && v.payPercent !== undefined && v.payPercent !== '';
+    const payPct = isPercentPay ? Number(v.payPercent) : null;
 
-    const allocAmount = (u) => (totalUnits > 1e-9 ? Number((totalAmount * (u / totalUnits)).toFixed(2)) : 0);
-    const oldNoteAmount = allocAmount(Math.max(0, oldNoteUnits));
-    const codeChangedAmount = allocAmount(Math.max(0, codeChangedUnits));
-    const lateAdditionAmount = allocAmount(Math.max(0, lateAdditionUnits));
-    const carryAmountSum = Number((oldNoteAmount + codeChangedAmount + lateAdditionAmount).toFixed(2));
-    const baseAmount = Math.max(0, Number((totalAmount - carryAmountSum).toFixed(2)));
+    let oldNoteAmount = 0;
+    let codeChangedAmount = 0;
+    let lateAdditionAmount = 0;
+    let baseAmount = 0;
+
+    if (isPercentPay && Number.isFinite(payPct)) {
+      const presentPaid = Number(v.presentClientPaidAmount ?? 0);
+      const oldPaid = Number(v.oldNoteClientPaidAmount ?? 0);
+      if (presentPaid > 0 || oldPaid > 0) {
+        baseAmount = presentPaid > 0 ? Math.round((presentPaid * payPct / 100) * 100) / 100 : 0;
+        oldNoteAmount = oldPaid > 0 ? Math.round((oldPaid * payPct / 100) * 100) / 100 : 0;
+        const codeChangedPaid = Math.max(0, totalAmount - baseAmount - oldNoteAmount);
+        if (codeChangedUnits > 0 && codeChangedPaid > 1e-9) codeChangedAmount = codeChangedPaid;
+        else if (lateAdditionUnits > 0 && codeChangedPaid > 1e-9) lateAdditionAmount = codeChangedPaid;
+      } else {
+        const allocAmount = (u) => (totalUnits > 1e-9 ? Number((totalAmount * (u / totalUnits)).toFixed(2)) : 0);
+        oldNoteAmount = allocAmount(Math.max(0, oldNoteUnits));
+        codeChangedAmount = allocAmount(Math.max(0, codeChangedUnits));
+        lateAdditionAmount = allocAmount(Math.max(0, lateAdditionUnits));
+        baseAmount = Math.max(0, Number((totalAmount - oldNoteAmount - codeChangedAmount - lateAdditionAmount).toFixed(2)));
+      }
+    } else {
+      const allocAmount = (u) => (totalUnits > 1e-9 ? Number((totalAmount * (u / totalUnits)).toFixed(2)) : 0);
+      oldNoteAmount = allocAmount(Math.max(0, oldNoteUnits));
+      codeChangedAmount = allocAmount(Math.max(0, codeChangedUnits));
+      lateAdditionAmount = allocAmount(Math.max(0, lateAdditionUnits));
+      baseAmount = Math.max(0, Number((totalAmount - oldNoteAmount - codeChangedAmount - lateAdditionAmount).toFixed(2)));
+    }
 
     // Base row — always show codes with units, even when amount is $0 (e.g. no-pay benefit codes).
     if (baseUnits > 1e-9) {

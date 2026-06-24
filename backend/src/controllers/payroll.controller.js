@@ -1079,7 +1079,7 @@ async function buildFinalizedClientPaidByFingerprint(payrollPeriodId) {
   if (!importId) return new Map();
   try {
     const [rows] = await pool.execute(
-      `SELECT row_fingerprint, client_paid_amount, note_status, draft_payable
+      `SELECT row_fingerprint, client_paid_amount
        FROM payroll_import_rows
        WHERE payroll_period_id = ?
          AND payroll_import_id = ?
@@ -1091,9 +1091,6 @@ async function buildFinalizedClientPaidByFingerprint(payrollPeriodId) {
     for (const r of rows || []) {
       const key = String(r?.row_fingerprint || '').trim();
       if (!key) continue;
-      const st = String(r?.note_status || '').trim().toUpperCase();
-      const paid = st === 'FINALIZED' || (st === 'DRAFT' && Number(r?.draft_payable || 0));
-      if (!paid) continue;
       map.set(key, Number(r.client_paid_amount || 0));
     }
     return map;
@@ -1137,30 +1134,99 @@ async function buildImportClientPaidByUserCode(payrollPeriodId) {
   }
 }
 
-function resolveStagingRowClientPaidAmount(row, { clientPaidByFingerprint, importClientPaidByUserCode }) {
+async function resolveStagingRowClientPaidAmount(row, payrollPeriodId, periodStartYmd, { clientPaidByFingerprint }) {
   const codeKey = String(row?.serviceCode || '').trim().toUpperCase();
   const uid = Number(row?.userId || 0);
-  const importSum = Number(importClientPaidByUserCode?.get(`${uid}:${codeKey}`) || 0);
-  let total = importSum > 0 ? importSum : Number(row?.clientPaidAmount || 0);
-
-  const rawAuditRows = Array.isArray(row?.carryoverMeta?.rawAuditRows) ? row.carryoverMeta.rawAuditRows : [];
-  let supplemental = 0;
-  const seen = new Set();
-  for (const ar of rawAuditRows) {
-    const key = String(ar?.rowMatchKey || '').trim();
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    const amt = Number(ar?.clientPaidAmount || 0) || Number(clientPaidByFingerprint?.get(key) || 0);
-    if (amt > 0) supplemental += amt;
+  if (!uid || !codeKey) {
+    return { total: 0, presentClientPaidAmount: 0, oldNoteClientPaidAmount: 0 };
   }
 
-  // Carryover-only sessions may not appear in the import aggregate; add their client-paid amounts.
+  const importId = await latestImportIdForPeriod(payrollPeriodId);
+  if (!importId) {
+    return { total: 0, presentClientPaidAmount: 0, oldNoteClientPaidAmount: 0 };
+  }
+
+  const periodStart = String(periodStartYmd || '').slice(0, 10);
   const oldNoteUnits = Number(row?.oldDoneNotesUnits || 0);
-  if (supplemental > 0) {
-    if (importSum <= 0) total = supplemental;
-    else if (oldNoteUnits > 0 && Math.abs(supplemental - importSum) > 1e-9) total = importSum + supplemental;
+  const rawAuditRows = Array.isArray(row?.carryoverMeta?.rawAuditRows) ? row.carryoverMeta.rawAuditRows : [];
+  const carryDates = new Set(
+    rawAuditRows
+      .map((r) => String(r?.serviceDate || '').slice(0, 10))
+      .filter(Boolean)
+  );
+  const carryFingerprints = new Set(
+    rawAuditRows
+      .map((r) => String(r?.rowMatchKey || '').trim())
+      .filter(Boolean)
+  );
+
+  let presentClientPaidAmount = 0;
+  let oldNoteClientPaidAmount = 0;
+
+  try {
+    const [importRows] = await pool.execute(
+      `SELECT
+         note_status,
+         draft_payable,
+         service_date,
+         client_paid_amount,
+         row_fingerprint
+       FROM payroll_import_rows
+       WHERE payroll_period_id = ?
+         AND payroll_import_id = ?
+         AND user_id = ?
+         AND UPPER(TRIM(service_code)) = ?
+         AND client_paid_amount IS NOT NULL
+         AND client_paid_amount > 0`,
+      [payrollPeriodId, importId, uid, codeKey]
+    );
+
+    const seenFingerprints = new Set();
+    for (const r of importRows || []) {
+      const amt = Number(r.client_paid_amount || 0);
+      if (!(amt > 0)) continue;
+      const dos = String(r.service_date || '').slice(0, 10);
+      const st = String(r?.note_status || '').trim().toUpperCase();
+      const fp = String(r?.row_fingerprint || '').trim();
+      if (fp) seenFingerprints.add(fp);
+      const isFinalized = st === 'FINALIZED' || (st === 'DRAFT' && Number(r?.draft_payable || 0));
+      const isPriorDos = !!(periodStart && dos && dos < periodStart);
+      const isCarrySession = carryFingerprints.has(fp) || carryDates.has(dos) || isPriorDos;
+
+      if (oldNoteUnits > 0 && isCarrySession) {
+        oldNoteClientPaidAmount += amt;
+      } else if (isFinalized) {
+        presentClientPaidAmount += amt;
+      } else if (oldNoteUnits > 0) {
+        // Unfinalized import row with client paid — often the old-note session still marked no-note.
+        oldNoteClientPaidAmount += amt;
+      }
+    }
+
+    for (const ar of rawAuditRows) {
+      const key = String(ar?.rowMatchKey || '').trim();
+      if (!key || seenFingerprints.has(key)) continue;
+      const fromMeta = Number(ar?.clientPaidAmount || 0);
+      const fromImport = Number(clientPaidByFingerprint?.get(key) || 0);
+      const amt = fromMeta > 0 ? fromMeta : fromImport;
+      if (amt > 0) oldNoteClientPaidAmount += amt;
+    }
+  } catch (e) {
+    if (e?.errno !== 1054) throw e;
   }
-  return total;
+
+  const aggregateFallback = Number(row?.clientPaidAmount || 0);
+  let total = presentClientPaidAmount + oldNoteClientPaidAmount;
+  if (!(total > 0) && aggregateFallback > 0) {
+    total = aggregateFallback;
+    presentClientPaidAmount = aggregateFallback;
+  }
+
+  return {
+    total,
+    presentClientPaidAmount,
+    oldNoteClientPaidAmount
+  };
 }
 
 async function getImmediatePriorPeriodWeeklyAvg({ agencyId, userId, periodStart, defaultWeeklyAvg }) {
@@ -4840,11 +4906,17 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
   let merged = collapseStagingAggregateRows(out);
   try {
     const clientPaidByFingerprint = await buildFinalizedClientPaidByFingerprint(payrollPeriodId);
-    const importClientPaidByUserCode = await buildImportClientPaidByUserCode(payrollPeriodId);
-    merged = merged.map((row) => ({
-      ...row,
-      clientPaidAmount: resolveStagingRowClientPaidAmount(row, { clientPaidByFingerprint, importClientPaidByUserCode })
-    }));
+    const resolved = [];
+    for (const row of merged) {
+      const paid = await resolveStagingRowClientPaidAmount(row, payrollPeriodId, periodStart, { clientPaidByFingerprint });
+      resolved.push({
+        ...row,
+        clientPaidAmount: paid.total,
+        presentClientPaidAmount: paid.presentClientPaidAmount,
+        oldNoteClientPaidAmount: paid.oldNoteClientPaidAmount
+      });
+    }
+    merged = resolved;
   } catch {
     merged = collapseStagingAggregateRows(out);
   }
@@ -5216,6 +5288,8 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       const codeChangedNotes = codeChangedMeta ? Number(codeChangedMeta.notes || 0) : 0;
       const codeChangedFromCodes = Array.isArray(codeChangedMeta?.fromCodes) ? codeChangedMeta.fromCodes : [];
       const clientPaidAmount = Number(row.clientPaidAmount || 0);
+      const presentClientPaidAmount = Number(row.presentClientPaidAmount ?? clientPaidAmount);
+      const oldNoteClientPaidAmount = Number(row.oldNoteClientPaidAmount || 0);
 
       const codeKey = String(code || '').trim().toUpperCase();
       // SALARY is paid only via the Salary card (payroll_salary_positions), not per-code rates.
@@ -5338,8 +5412,12 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
             return 0;
           }
         }
-        if (pctPay.usesPercentPay && clientPaidAmount > 0 && Number.isFinite(pctPay.percent)) {
-          return Math.round((clientPaidAmount * pctPay.percent / 100) * 100) / 100;
+        if (pctPay.usesPercentPay && Number.isFinite(pctPay.percent)) {
+          const paidBase = presentClientPaidAmount + oldNoteClientPaidAmount;
+          const paid = paidBase > 0 ? paidBase : clientPaidAmount;
+          if (paid > 0) {
+            return Math.round((paid * pctPay.percent / 100) * 100) / 100;
+          }
         }
         if (perCode) {
           if (bucket !== 'flat') {
@@ -5395,6 +5473,8 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         payMethod: pctPay.usesPercentPay ? 'percent_of_charge' : 'fixed_rate',
         payPercent: pctPay.usesPercentPay ? pctPay.percent : null,
         clientPaidAmount: pctPay.usesPercentPay ? clientPaidAmount : null,
+        presentClientPaidAmount: pctPay.usesPercentPay ? presentClientPaidAmount : null,
+        oldNoteClientPaidAmount: pctPay.usesPercentPay ? oldNoteClientPaidAmount : null,
         amount: lineAmount,
         // For now, "hours" represents Credits/Hours (credits treated as hours).
         hours: creditsHours,
