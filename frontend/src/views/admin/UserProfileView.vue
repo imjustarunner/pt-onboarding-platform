@@ -7129,6 +7129,11 @@ onMounted(() => {
   gap: 8px;
   margin-bottom: 32px;
   border-bottom: 2px solid var(--border);
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
 
 .tab-button {
@@ -7142,6 +7147,8 @@ onMounted(() => {
   color: var(--text-secondary);
   transition: all 0.2s;
   margin-bottom: -2px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .tab-button:hover {

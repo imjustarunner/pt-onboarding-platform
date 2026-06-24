@@ -309,10 +309,31 @@
         <div class="phr-tab-content">
           <!-- Overview -->
           <div v-if="activeTab === 'Overview'" class="phr-overview">
+            <!-- Pre-hire access link -->
+            <div class="phr-token-box">
+              <div class="phr-token-header">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+                <span class="phr-token-label">Pre-Hire Portal Link</span>
+                <span v-if="selectedUser.prehire_token_expired" class="phr-token-expired-badge">Expired</span>
+              </div>
+              <div v-if="selectedUser.prehire_portal_link" class="phr-token-link-row">
+                <span class="phr-token-url">{{ selectedUser.prehire_portal_link }}</span>
+                <button class="phr-copy-btn" @click="copyPortalLink(selectedUser.prehire_portal_link)" :title="copyLabel">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                  {{ copyLabel }}
+                </button>
+              </div>
+              <div v-else class="phr-token-empty">
+                No active link. Use "Resend Setup Link" to generate a new one.
+              </div>
+              <div v-if="selectedUser.prehire_token_expires_at" class="phr-token-expiry">
+                Expires {{ fmtDateTime(selectedUser.prehire_token_expires_at) }}
+              </div>
+            </div>
+
             <div class="phr-overview-info">
               <h4 class="phr-section-label">Candidate Overview</h4>
-              <div class="phr-info-row"><span class="phr-info-label">Phone</span><span>{{ selectedUser.phone || '—' }}</span></div>
-              <div class="phr-info-row"><span class="phr-info-label">Location</span><span>{{ [selectedUser.city, selectedUser.state].filter(Boolean).join(', ') || '—' }}</span></div>
+              <div class="phr-info-row"><span class="phr-info-label">Phone</span><span>{{ selectedUser.phone_number || selectedUser.phone || '—' }}</span></div>
               <div class="phr-info-row"><span class="phr-info-label">Source</span><span>{{ selectedUser.source || '—' }}</span></div>
               <div class="phr-info-row"><span class="phr-info-label">Email</span><span>{{ selectedUser.personal_email || selectedUser.email }}</span></div>
               <div class="phr-info-row"><span class="phr-info-label">Work Email</span><span>{{ selectedUser.work_email || '—' }}</span></div>
@@ -461,6 +482,7 @@ const openMenu = ref(null);
 const activeTab = ref('Overview');
 const actionLoading = ref(false);
 const actionMsg = ref('');
+const copyLabel = ref('Copy');
 const tasks = ref([]);
 const tasksLoading = ref(false);
 const notes = ref([]);
@@ -616,6 +638,16 @@ const resendLink = async (c) => {
   } catch (e) {
     actionMsg.value = e.response?.data?.error?.message || 'Failed to resend link.';
   } finally { actionLoading.value = false; }
+};
+
+const copyPortalLink = (link) => {
+  navigator.clipboard.writeText(link).then(() => {
+    copyLabel.value = 'Copied!';
+    setTimeout(() => { copyLabel.value = 'Copy'; }, 2000);
+  }).catch(() => {
+    copyLabel.value = 'Failed';
+    setTimeout(() => { copyLabel.value = 'Copy'; }, 2000);
+  });
 };
 
 const openPromoteModal = (c) => {
@@ -840,6 +872,72 @@ onMounted(load);
 .phr-label-amber { color: #92400e; }
 .phr-info-row { display: flex; gap: 12px; font-size: 13px; padding: 7px 0; border-bottom: 1px solid #f9fafb; }
 .phr-info-label { width: 100px; color: #6b7280; flex-shrink: 0; font-weight: 500; }
+
+/* Token box */
+.phr-token-box {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.phr-token-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #166534;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.phr-token-expired-badge {
+  background: #fee2e2;
+  color: #dc2626;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.phr-token-link-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid #d1fae5;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.phr-token-url {
+  flex: 1;
+  font-size: 12px;
+  color: #065f46;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: monospace;
+}
+.phr-copy-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #1a5c38;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.phr-copy-btn:hover { background: #15803d; }
+.phr-token-empty { font-size: 12px; color: #6b7280; font-style: italic; }
+.phr-token-expiry { font-size: 11px; color: #6b7280; }
 
 /* Countersigns */
 .phr-countersign-section { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 12px 14px; }

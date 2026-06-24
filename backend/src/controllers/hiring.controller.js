@@ -3193,6 +3193,7 @@ export const listPrehireCandidates = async (req, res, next) => {
       `SELECT
          u.id, u.first_name, u.last_name, u.email, u.personal_email,
          u.status, u.phone_number, u.hired_at, u.created_at,
+         u.passwordless_token, u.passwordless_token_expires_at,
          hp.applied_role, hp.source, hp.interview_date,
          hp.created_at AS applied_at,
          (
@@ -3242,6 +3243,8 @@ export const listPrehireCandidates = async (req, res, next) => {
       const completed = parseInt(r.task_completed, 10) || 0;
       const reqTotal = parseInt(r.required_total, 10) || 0;
       const reqCompleted = parseInt(r.required_completed, 10) || 0;
+      const tokenExpiry = r.passwordless_token_expires_at ? new Date(r.passwordless_token_expires_at) : null;
+      const tokenExpired = tokenExpiry ? tokenExpiry < new Date() : true;
       return {
         ...r,
         task_total: total,
@@ -3249,7 +3252,12 @@ export const listPrehireCandidates = async (req, res, next) => {
         required_total: reqTotal,
         required_completed: reqCompleted,
         progress_pct: total > 0 ? Math.round((completed / total) * 100) : 0,
-        required_progress_pct: reqTotal > 0 ? Math.round((reqCompleted / reqTotal) * 100) : 0
+        required_progress_pct: reqTotal > 0 ? Math.round((reqCompleted / reqTotal) * 100) : 0,
+        prehire_portal_link: r.passwordless_token && !tokenExpired
+          ? `${config.frontendUrl}/pre-hire/${r.passwordless_token}`
+          : null,
+        prehire_token_expires_at: r.passwordless_token_expires_at || null,
+        prehire_token_expired: tokenExpired,
       };
     });
 
