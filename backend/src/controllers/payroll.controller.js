@@ -16575,7 +16575,11 @@ export const listMyTimeClaims = async (req, res, next) => {
 
     const rows = await PayrollTimeClaim.listForUser({ agencyId, userId, limit: 200, offset: 0 });
     const hydrated = await hydrateTimeClaimListTranscripts(rows || []);
-    res.json(hydrated || []);
+    // Skill builder kiosk event time is managed in Event time, not Time Claims.
+    const filtered = (hydrated || []).filter(
+      (r) => String(r?.claim_type || '').toLowerCase() !== 'skill_builder_event'
+    );
+    res.json(filtered);
   } catch (e) {
     next(e);
   }

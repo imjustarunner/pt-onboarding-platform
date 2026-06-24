@@ -2334,6 +2334,7 @@ const payrollHubStats = computed(() =>
     reimbursementClaims: reimbursementClaims.value,
     companyCardExpenses: companyCardExpenses.value,
     timeClaims: timeClaims.value,
+    eventTimeSessions: eventTimeSessions.value,
     medcancelClaims: medcancelClaims.value,
   })
 );
@@ -2352,6 +2353,7 @@ const payrollActionItems = computed(() =>
     reimbursementClaims: reimbursementClaims.value,
     companyCardExpenses: companyCardExpenses.value,
     timeClaims: timeClaims.value,
+    eventTimeSessions: eventTimeSessions.value,
     medcancelClaims: medcancelClaims.value,
   })
 );
@@ -2401,6 +2403,12 @@ const onPayrollActionItem = (item) => {
   if (item.type === 'time_claims') {
     const row = (timeClaims.value || []).find((r) => Number(r.id) === id);
     if (row) openEditTimeClaim(row);
+    return;
+  }
+  if (item.type === 'event_time') {
+    const punchId = Number(String(item.key || '').split(':')[1]);
+    const row = (eventTimeSessions.value || []).find((s) => Number(s.punchInId) === punchId);
+    if (row) openEventTimeEdit(row);
     return;
   }
   if (item.type === 'medcancel') {

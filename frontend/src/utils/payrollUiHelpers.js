@@ -47,6 +47,38 @@ function countPendingClaims(...lists) {
   return n;
 }
 
+function countPendingEventSessions(sessions) {
+  let n = 0;
+  for (const s of sessions || []) {
+    const statuses = [s.directClaimStatus, s.indirectClaimStatus];
+    if (statuses.some((st) => claimNeedsAction({ status: st }))) n += 1;
+  }
+  return n;
+}
+
+function eventSessionActionStatus(session) {
+  const statuses = [session?.directClaimStatus, session?.indirectClaimStatus]
+    .map((st) => String(st || '').toLowerCase())
+    .filter(Boolean);
+  if (!statuses.some((st) => NEEDS_ACTION.has(st))) return null;
+  if (statuses.includes('rejected')) return 'rejected';
+  if (statuses.includes('deferred')) return 'deferred';
+  return 'submitted';
+}
+
+function pushEventSessionAction(out, session) {
+  const status = eventSessionActionStatus(session);
+  if (!status || !session?.punchInId) return;
+  out.push({
+    key: `event_time:${session.punchInId}`,
+    type: 'event_time',
+    title: `Event time — ${fmtActionDate(session.clockInAt) || 'session'}`,
+    status,
+    statusLabel: getClaimStatusLabel(status),
+    statusClass: getClaimStatusBadgeClass(status),
+  });
+}
+
 export function computePayrollHubStats({
   periods = [],
   ptoBalances = {},
@@ -55,6 +87,7 @@ export function computePayrollHubStats({
   reimbursementClaims = [],
   companyCardExpenses = [],
   timeClaims = [],
+  eventTimeSessions = [],
   medcancelClaims = [],
 } = {}) {
   const pendingSubmissions = countPendingClaims(
@@ -64,7 +97,7 @@ export function computePayrollHubStats({
     companyCardExpenses,
     timeClaims,
     medcancelClaims
-  );
+  ) + countPendingEventSessions(eventTimeSessions);
   const sick = Number(ptoBalances.sickHours || 0);
   const training = Number(ptoBalances.trainingHours || 0);
   const latest = periods?.[0];
@@ -109,6 +142,7 @@ export function getPayrollActionRequired({
   reimbursementClaims = [],
   companyCardExpenses = [],
   timeClaims = [],
+  eventTimeSessions = [],
   medcancelClaims = [],
   limit = 8,
 } = {}) {
@@ -122,22 +156,10 @@ export function getPayrollActionRequired({
   for (const r of mileageClaims) pushAction(out, r, { type: 'mileage', title: `Mileage — ${fmtActionDate(r.drive_date) || 'claim'}` });
   for (const r of reimbursementClaims) pushAction(out, r, { type: 'reimbursement', title: `Reimbursement — ${fmtActionDate(r.expense_date) || 'claim'}` });
   for (const r of companyCardExpenses) pushAction(out, r, { type: 'company_card', title: `Company card — ${fmtActionDate(r.expense_date) || 'claim'}` });
-  const seenEventPunches = new Set();
   for (const r of timeClaims) {
-    const isEvent = String(r.claim_type || '').toLowerCase() === 'skill_builder_event';
-    if (isEvent) {
-      // Event time is two claims (direct + indirect) per session — show one item.
-      const payload = (r.payload && typeof r.payload === 'object') ? r.payload : {};
-      const punchKey = payload.kioskPunchInId != null ? String(payload.kioskPunchInId) : null;
-      if (punchKey) {
-        if (seenEventPunches.has(punchKey)) continue;
-        seenEventPunches.add(punchKey);
-      }
-      pushAction(out, r, { type: 'time_claims', title: `Event time — ${fmtActionDate(r.claim_date) || 'session'}` });
-    } else {
-      pushAction(out, r, { type: 'time_claims', title: `Time claim — ${fmtActionDate(r.claim_date) || 'claim'}` });
-    }
+    pushAction(out, r, { type: 'time_claims', title: `Time claim — ${fmtActionDate(r.claim_date) || 'claim'}` });
   }
+  for (const s of eventTimeSessions) pushEventSessionAction(out, s);
   for (const r of medcancelClaims) pushAction(out, r, { type: 'medcancel', title: `Med Cancel — ${fmtActionDate(r.claim_date) || 'claim'}` });
 
   const priority = { rejected: 3, deferred: 2, submitted: 1 };
