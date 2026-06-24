@@ -220,7 +220,7 @@ const effectiveSlug = computed(() => {
   const agency = agencyChoices.value.find((a) => String(a.id) === String(selectedAgencyId.value));
   return String(agency?.portal_url || agency?.portalUrl || agency?.slug || '').trim().toLowerCase() || '';
 });
-const applicantsRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/hiring/candidates` : '/admin/hiring/candidates');
+const applicantsRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/hiring` : '/admin/hiring');
 const preHireRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/pre-hire` : '/admin/pre-hire');
 const userProfileRoute = (id) => effectiveSlug.value ? `/${effectiveSlug.value}/admin/users/${id}` : `/admin/users/${id}`;
 
