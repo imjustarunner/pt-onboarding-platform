@@ -10777,8 +10777,8 @@ const splitBreakdownForDisplay = (breakdown) => {
       });
     }
 
-    // Old Note row (display only)
-    if (oldNoteUnits > 1e-9 && oldNoteAmount > 1e-9) {
+    // Old Note row (display only) — show even when amount is $0 (e.g. percent pay pending client-paid data).
+    if (oldNoteUnits > 1e-9) {
       const oldPayHours = bucket !== 'flat' ? (oldNoteUnits / safeDiv) : 0;
       out.push({
         code: `${code} (Old Note)`,
@@ -10794,7 +10794,7 @@ const splitBreakdownForDisplay = (breakdown) => {
       });
     }
 
-    if (codeChangedUnits > 1e-9 && codeChangedAmount > 1e-9) {
+    if (codeChangedUnits > 1e-9) {
       const fromCodes = Array.isArray(v.codeChangedFromCodes) ? v.codeChangedFromCodes.filter(Boolean) : [];
       const label = (fromCodes.length === 1)
         ? `${code} (Code Changed: ${fromCodes[0]}→${code})`
@@ -10814,7 +10814,7 @@ const splitBreakdownForDisplay = (breakdown) => {
       });
     }
 
-    if (lateAdditionUnits > 1e-9 && lateAdditionAmount > 1e-9) {
+    if (lateAdditionUnits > 1e-9) {
       const payHours = bucket !== 'flat' ? (lateAdditionUnits / safeDiv) : 0;
       out.push({
         code: `${code} (Late Addition)`,

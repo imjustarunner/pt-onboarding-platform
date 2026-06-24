@@ -143,6 +143,7 @@ class PayrollImportRow {
          pir.note_status,
          pir.draft_payable,
          pir.unit_count,
+         pir.client_paid_amount,
          pir.row_fingerprint,
          pir.requires_processing,
          pir.processed_at,
@@ -191,7 +192,7 @@ class PayrollImportRow {
       `SELECT
          pir.user_id,
          pir.provider_name,
-         pir.service_code,
+         UPPER(TRIM(pir.service_code)) AS service_code,
          SUM(CASE WHEN pir.note_status = 'NO_NOTE' THEN pir.unit_count ELSE 0 END) AS raw_no_note_units,
          SUM(CASE WHEN pir.note_status = 'DRAFT' AND (pir.draft_payable = 1) THEN pir.unit_count ELSE 0 END) AS raw_draft_payable_units,
          SUM(CASE WHEN pir.note_status = 'DRAFT' AND (pir.draft_payable = 0) THEN pir.unit_count ELSE 0 END) AS raw_draft_not_payable_units,
@@ -200,8 +201,8 @@ class PayrollImportRow {
        FROM payroll_import_rows pir
        WHERE pir.payroll_period_id = ?
          AND pir.payroll_import_id = ?
-       GROUP BY pir.user_id, pir.provider_name, pir.service_code
-       ORDER BY pir.user_id ASC, pir.provider_name ASC, pir.service_code ASC`,
+       GROUP BY pir.user_id, pir.provider_name, UPPER(TRIM(pir.service_code))
+       ORDER BY pir.user_id ASC, pir.provider_name ASC, UPPER(TRIM(pir.service_code)) ASC`,
       [payrollPeriodId, latestImportId]
     );
     return rows;

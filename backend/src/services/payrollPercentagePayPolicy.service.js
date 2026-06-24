@@ -66,13 +66,23 @@ export async function upsertAgencyPercentagePayPolicy({ agencyId, policy }) {
   return getAgencyPercentagePayPolicy({ agencyId });
 }
 
-export function resolvePercentOfChargePay({ policy, rule, perCodeRate }) {
+export function resolvePercentOfChargePay({ policy, rule, perCodeRate, userPercentPayEnabled = false }) {
   if (!policy?.enabled) {
     return { usesPercentPay: false, percent: null };
   }
 
   const method = String(rule?.pay_method || 'fixed_rate').trim().toLowerCase();
   if (method !== 'percent_of_charge') {
+    return { usesPercentPay: false, percent: null };
+  }
+
+  // Service code is percent-of-charge, but only employees with the rate-card toggle
+  // use percent pay; everyone else on this code falls back to fixed $ rates.
+  const userEnabled = userPercentPayEnabled === true
+    || userPercentPayEnabled === 1
+    || String(userPercentPayEnabled || '').trim().toLowerCase() === '1'
+    || String(userPercentPayEnabled || '').trim().toLowerCase() === 'true';
+  if (!userEnabled) {
     return { usesPercentPay: false, percent: null };
   }
 

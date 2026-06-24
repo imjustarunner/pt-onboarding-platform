@@ -1012,6 +1012,157 @@ async function inferManualPayCreditsHoursForUser({ agencyId, userId, category, c
   });
 }
 
+function resolveTimeClaimHours(c) {
+  const bucket = String(c?.bucket || 'indirect').trim().toLowerCase() === 'direct' ? 'direct' : 'indirect';
+  const hrsFromCol =
+    (c?.credits_hours === null || c?.credits_hours === undefined || c?.credits_hours === '')
+      ? null
+      : Number(c?.credits_hours);
+  const payload = c?.payload || {};
+  const mins = Number(payload?.totalMinutes ?? (Number(payload?.directMinutes || 0) + Number(payload?.indirectMinutes || 0)) ?? 0);
+  const hrsFromPayload = Number.isFinite(mins) && mins > 0 ? Math.round((mins / 60) * 100) / 100 : null;
+  let hrs = Number.isFinite(hrsFromCol) ? hrsFromCol : hrsFromPayload;
+  const claimType = String(c?.claim_type || '').trim().toLowerCase();
+  if ((!Number.isFinite(hrs) || hrs <= 1e-9) && claimType === 'skill_builder_event') {
+    const bucketHrs = bucket === 'direct'
+      ? Number(payload?.directHours || 0)
+      : Number(payload?.indirectHours || 0);
+    if (Number.isFinite(bucketHrs) && bucketHrs > 1e-9) hrs = bucketHrs;
+  }
+  return { hrs, bucket, claimType, payload };
+}
+
+function stagingServiceCodeKey(userId, serviceCode) {
+  return `${Number(userId || 0)}:${String(serviceCode || '').trim().toUpperCase()}`;
+}
+
+function mergeStagingAggregateRow(base, add) {
+  const oldDoneNotesUnits = Number(base.oldDoneNotesUnits || 0) + Number(add.oldDoneNotesUnits || 0);
+  const oldDoneNotesNotes = Number(base.oldDoneNotesNotes || 0) + Number(add.oldDoneNotesNotes || 0);
+  const basePresent = Number(base.finalizedUnits || 0) - Number(base.oldDoneNotesUnits || 0);
+  const addPresent = Number(add.finalizedUnits || 0) - Number(add.oldDoneNotesUnits || 0);
+  return {
+    userId: base.userId || add.userId,
+    providerName: base.providerName || add.providerName || null,
+    serviceCode: String(base.serviceCode || add.serviceCode || '').trim().toUpperCase(),
+    noNoteUnits: Number(base.noNoteUnits || 0) + Number(add.noNoteUnits || 0),
+    draftUnits: Number(base.draftUnits || 0) + Number(add.draftUnits || 0),
+    oldDoneNotesUnits,
+    oldDoneNotesNotes,
+    carryoverMeta: mergeCarryoverMeta(base.carryoverMeta, add.carryoverMeta),
+    clientPaidAmount: Number(base.clientPaidAmount || 0) + Number(add.clientPaidAmount || 0),
+    finalizedUnits: basePresent + addPresent + oldDoneNotesUnits,
+    supervisionSource: base.supervisionSource || add.supervisionSource || undefined
+  };
+}
+
+function collapseStagingAggregateRows(rows) {
+  const merged = new Map();
+  for (const row of rows || []) {
+    const key = stagingServiceCodeKey(row.userId, row.serviceCode);
+    if (!key || key.endsWith(':')) continue;
+    const normalized = {
+      ...row,
+      serviceCode: String(row.serviceCode || '').trim().toUpperCase()
+    };
+    if (merged.has(key)) {
+      merged.set(key, mergeStagingAggregateRow(merged.get(key), normalized));
+    } else {
+      merged.set(key, normalized);
+    }
+  }
+  return Array.from(merged.values());
+}
+
+async function buildFinalizedClientPaidByFingerprint(payrollPeriodId) {
+  const importId = await latestImportIdForPeriod(payrollPeriodId);
+  if (!importId) return new Map();
+  try {
+    const [rows] = await pool.execute(
+      `SELECT row_fingerprint, client_paid_amount, note_status, draft_payable
+       FROM payroll_import_rows
+       WHERE payroll_period_id = ?
+         AND payroll_import_id = ?
+         AND client_paid_amount IS NOT NULL
+         AND client_paid_amount > 0`,
+      [payrollPeriodId, importId]
+    );
+    const map = new Map();
+    for (const r of rows || []) {
+      const key = String(r?.row_fingerprint || '').trim();
+      if (!key) continue;
+      const st = String(r?.note_status || '').trim().toUpperCase();
+      const paid = st === 'FINALIZED' || (st === 'DRAFT' && Number(r?.draft_payable || 0));
+      if (!paid) continue;
+      map.set(key, Number(r.client_paid_amount || 0));
+    }
+    return map;
+  } catch (e) {
+    if (e?.errno === 1054) return new Map();
+    throw e;
+  }
+}
+
+async function buildImportClientPaidByUserCode(payrollPeriodId) {
+  const importId = await latestImportIdForPeriod(payrollPeriodId);
+  if (!importId) return new Map();
+  try {
+    const [rows] = await pool.execute(
+      `SELECT
+         user_id,
+         UPPER(TRIM(service_code)) AS service_code,
+         SUM(COALESCE(client_paid_amount, 0)) AS total
+       FROM payroll_import_rows
+       WHERE payroll_period_id = ?
+         AND payroll_import_id = ?
+         AND user_id IS NOT NULL
+         AND (
+           UPPER(TRIM(note_status)) = 'FINALIZED'
+           OR (UPPER(TRIM(note_status)) = 'DRAFT' AND COALESCE(draft_payable, 0) = 1)
+         )
+       GROUP BY user_id, UPPER(TRIM(service_code))`,
+      [payrollPeriodId, importId]
+    );
+    const map = new Map();
+    for (const r of rows || []) {
+      const uid = Number(r?.user_id || 0);
+      const code = String(r?.service_code || '').trim().toUpperCase();
+      if (!uid || !code) continue;
+      map.set(`${uid}:${code}`, Number(r.total || 0));
+    }
+    return map;
+  } catch (e) {
+    if (e?.errno === 1054) return new Map();
+    throw e;
+  }
+}
+
+function resolveStagingRowClientPaidAmount(row, { clientPaidByFingerprint, importClientPaidByUserCode }) {
+  const codeKey = String(row?.serviceCode || '').trim().toUpperCase();
+  const uid = Number(row?.userId || 0);
+  const importSum = Number(importClientPaidByUserCode?.get(`${uid}:${codeKey}`) || 0);
+  let total = importSum > 0 ? importSum : Number(row?.clientPaidAmount || 0);
+
+  const rawAuditRows = Array.isArray(row?.carryoverMeta?.rawAuditRows) ? row.carryoverMeta.rawAuditRows : [];
+  let supplemental = 0;
+  const seen = new Set();
+  for (const ar of rawAuditRows) {
+    const key = String(ar?.rowMatchKey || '').trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const amt = Number(ar?.clientPaidAmount || 0) || Number(clientPaidByFingerprint?.get(key) || 0);
+    if (amt > 0) supplemental += amt;
+  }
+
+  // Carryover-only sessions may not appear in the import aggregate; add their client-paid amounts.
+  const oldNoteUnits = Number(row?.oldDoneNotesUnits || 0);
+  if (supplemental > 0) {
+    if (importSum <= 0) total = supplemental;
+    else if (oldNoteUnits > 0 && Math.abs(supplemental - importSum) > 1e-9) total = importSum + supplemental;
+  }
+  return total;
+}
+
 async function getImmediatePriorPeriodWeeklyAvg({ agencyId, userId, periodStart, defaultWeeklyAvg }) {
   const fallback = Number(defaultWeeklyAvg || 0);
   const safeFallback = Number.isFinite(fallback) ? fallback : 0;
@@ -4505,7 +4656,7 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
   const carryovers = await PayrollStageCarryover.listForPeriod(payrollPeriodId);
   const overrideKey = new Map();
   for (const o of overrides || []) {
-    overrideKey.set(`${o.user_id}:${o.service_code}`, o);
+    overrideKey.set(stagingServiceCodeKey(o.user_id, o.service_code), o);
   }
   const carryKey = new Map();
   for (const c of carryovers || []) {
@@ -4513,18 +4664,18 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
     if (typeof meta === 'string') {
       try { meta = JSON.parse(meta); } catch { meta = null; }
     }
-    carryKey.set(`${c.user_id}:${c.service_code}`, {
-      oldDoneNotesUnits: Number(c.carryover_finalized_units || 0),
-      // Back-compat: old DBs won't have this column yet.
-      oldDoneNotesNotes: Number(c.carryover_finalized_row_count || 0),
-      carryoverMeta: (meta && typeof meta === 'object') ? meta : null
-    });
+    const key = stagingServiceCodeKey(c.user_id, c.service_code);
+    const existing = carryKey.get(key) || { oldDoneNotesUnits: 0, oldDoneNotesNotes: 0, carryoverMeta: null };
+    existing.oldDoneNotesUnits = Number((Number(existing.oldDoneNotesUnits || 0) + Number(c.carryover_finalized_units || 0)).toFixed(2));
+    existing.oldDoneNotesNotes = Number(existing.oldDoneNotesNotes || 0) + Number(c.carryover_finalized_row_count || 0);
+    existing.carryoverMeta = mergeCarryoverMeta(existing.carryoverMeta, (meta && typeof meta === 'object') ? meta : null);
+    carryKey.set(key, existing);
   }
 
   const out = [];
   const aggKeys = new Set();
   for (const a of aggregates || []) {
-    aggKeys.add(`${a.user_id}:${a.service_code}`);
+    aggKeys.add(stagingServiceCodeKey(a.user_id, a.service_code));
   }
   for (const a of aggregates || []) {
     if (!a.user_id) continue;
@@ -4534,7 +4685,7 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
       draftUnits: Number(a.raw_draft_not_payable_units || 0),
       finalizedUnits: Number(a.raw_finalized_units || 0) + Number(a.raw_draft_payable_units || 0)
     };
-    const o = overrideKey.get(`${a.user_id}:${a.service_code}`) || null;
+    const o = overrideKey.get(stagingServiceCodeKey(a.user_id, a.service_code)) || null;
     const eff = o
       ? {
           noNoteUnits: Number(o.no_note_units || 0),
@@ -4542,7 +4693,7 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
           finalizedUnits: Number(o.finalized_units || 0)
         }
       : raw;
-    const carry = carryKey.get(`${a.user_id}:${a.service_code}`) || { oldDoneNotesUnits: 0, oldDoneNotesNotes: 0, carryoverMeta: null };
+    const carry = carryKey.get(stagingServiceCodeKey(a.user_id, a.service_code)) || { oldDoneNotesUnits: 0, oldDoneNotesNotes: 0, carryoverMeta: null };
     out.push({
       userId: a.user_id,
       providerName: a.provider_name,
@@ -4558,7 +4709,7 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
 
   // Include carryover-only rows so run/pay math includes manually-added Old Done Notes.
   for (const c of carryovers || []) {
-    const key = `${c.user_id}:${c.service_code}`;
+    const key = stagingServiceCodeKey(c.user_id, c.service_code);
     if (aggKeys.has(key)) continue;
     const raw = { noNoteUnits: 0, draftUnits: 0, finalizedUnits: 0 };
     const o = overrideKey.get(key) || null;
@@ -4576,6 +4727,7 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
       providerName: null,
       serviceCode: c.service_code,
       ...eff,
+      clientPaidAmount: 0,
       oldDoneNotesUnits: Number(carry.oldDoneNotesUnits || 0),
       oldDoneNotesNotes: Number(carry.oldDoneNotesNotes || 0),
       carryoverMeta: carry.carryoverMeta || null,
@@ -4685,7 +4837,19 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
     }
   }
 
-  return out;
+  let merged = collapseStagingAggregateRows(out);
+  try {
+    const clientPaidByFingerprint = await buildFinalizedClientPaidByFingerprint(payrollPeriodId);
+    const importClientPaidByUserCode = await buildImportClientPaidByUserCode(payrollPeriodId);
+    merged = merged.map((row) => ({
+      ...row,
+      clientPaidAmount: resolveStagingRowClientPaidAmount(row, { clientPaidByFingerprint, importClientPaidByUserCode })
+    }));
+  } catch {
+    merged = collapseStagingAggregateRows(out);
+  }
+
+  return merged;
 }
 
 async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, periodStart, periodEnd }) {
@@ -5158,7 +5322,8 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       const pctPay = resolvePercentOfChargePay({
         policy: percentagePayPolicy,
         rule,
-        perCodeRate: perCode
+        perCodeRate: perCode,
+        userPercentPayEnabled: rateCard?.percent_pay_enabled
       });
 
       // Always compute wage math on pay-hours for non-flat categories.
@@ -5276,58 +5441,6 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     let tierLabel = '';
     let tierCreditsPrior = 0;
     let tierCreditsFinal = 0;
-
-    if (tierSettings.enabled) {
-      // Tier window computations (rolling)
-      const history = await getTierHistorySum({ agencyId, userId, periodEnd, limit: TIER_WINDOW_PERIODS });
-      currentWindowCount = history.count + 1;
-      currentWindowSum = history.sum + tierCreditsCurrent;
-      currentBiWeeklyAvg = currentWindowCount > 0 ? (currentWindowSum / currentWindowCount) : 0;
-      currentWeeklyAvg = currentBiWeeklyAvg / 2;
-      currentTierLevel = tierLevelFromWeeklyAvg(currentWeeklyAvg, tierSettings.thresholds);
-
-      // Previous window (exclude current)
-      prevWindowCount = history.count;
-      prevWindowSum = history.sum;
-      prevBiWeeklyAvg = prevWindowCount > 0 ? (prevWindowSum / prevWindowCount) : 0;
-      prevWeeklyAvg = prevBiWeeklyAvg / 2;
-      prevTierLevel = tierLevelFromWeeklyAvg(prevWeeklyAvg, tierSettings.thresholds);
-
-      const prior = await getImmediatePriorPeriodTierStats({
-        agencyId,
-        userId,
-        periodStart,
-        thresholds: tierSettings.thresholds,
-        defaultBiWeeklyTotal: tierCreditsCurrent
-      });
-      prevPeriodBiWeeklyTotal = Number(prior.biWeeklyTotal || 0);
-      prevPeriodWeeklyAvg = Number(prior.weeklyAvg || 0);
-      prevPeriodTierLevel = Number(prior.tierLevel || 0);
-      // Display should reflect *current period* direct tier credits (Tier Credits (Final)), not rolling average.
-      displayBiWeeklyTotal = tierCreditsCurrent;
-      displayWeeklyAvg = displayBiWeeklyTotal / 2;
-      displayTierLevel = tierLevelFromWeeklyAvg(displayWeeklyAvg, tierSettings.thresholds);
-
-      // Grace/compliance should be based on the immediately prior pay period's payroll numbers.
-      // If the user was compliant last pay period, they remain in grace even if current drops to 0.
-      graceActive = (prevPeriodTierLevel >= 1 && displayTierLevel < prevPeriodTierLevel) ? 1 : 0;
-      benefitTierLevel = graceActive ? prevPeriodTierLevel : displayTierLevel;
-      tierStatus = graceActive
-        ? `Grace (last pay period Tier ${prevPeriodTierLevel}: ${Number(prevPeriodBiWeeklyTotal || 0).toFixed(1)} bi-wk; ${Number(prevPeriodWeeklyAvg).toFixed(1)}/wk)`
-        : tierStatusLabel({ tierLevel: benefitTierLevel, prevTierLevel: prevPeriodTierLevel });
-      tierLabel = graceActive
-        ? `Tier ${benefitTierLevel} (grace; current ${Number(displayBiWeeklyTotal).toFixed(1)} bi-wk; last ${Number(prevPeriodBiWeeklyTotal || 0).toFixed(1)} bi-wk)`
-        : fmtTierLabelCurrentPeriod({ tierLevel: benefitTierLevel, biWeeklyTotal: displayBiWeeklyTotal, weeklyAvg: displayWeeklyAvg });
-
-      // Persisted tier credits fields:
-      // - tier_credits_current: current period DIRECT tier credits (present period only; excludes Old Notes)
-      // - tier_credits_prior: previous-window bi-weekly average (reference only)
-      // - tier_credits_final: current period DIRECT tier credits (what the admin tables expect to match stage direct credits)
-      tierCreditsPrior = prevBiWeeklyAvg;
-      tierCreditsFinal = tierCreditsCurrent;
-    } else {
-      tierCreditsCurrent = 0;
-    }
 
     if (userIsProviderPlus && (practiceSupportMeetingHours > 1e-9 || practiceSupportMeetingAmount > 1e-9)) {
       breakdown.__practiceSupportMeeting = {
@@ -5546,16 +5659,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     // Time claims: explicit line items, bucketed direct/indirect, and can contribute to hour totals.
     for (const c of approvedTimeClaims || []) {
       const amt = Number(c?.applied_amount || 0);
-      const b = String(c?.bucket || 'indirect').trim().toLowerCase() === 'direct' ? 'direct' : 'indirect';
-      const hrsFromCol =
-        (c?.credits_hours === null || c?.credits_hours === undefined || c?.credits_hours === '')
-          ? null
-          : Number(c?.credits_hours);
-      const payload = c?.payload || {};
-      const mins = Number(payload?.totalMinutes ?? (Number(payload?.directMinutes || 0) + Number(payload?.indirectMinutes || 0)) ?? 0);
-      const hrsFromPayload = Number.isFinite(mins) && mins > 0 ? Math.round((mins / 60) * 100) / 100 : null;
-      const hrs = Number.isFinite(hrsFromCol) ? hrsFromCol : hrsFromPayload;
-      const claimType = String(c?.claim_type || '').trim().toLowerCase();
+      const { hrs, bucket: b, claimType, payload } = resolveTimeClaimHours(c);
       const items = Array.isArray(payload?.items) ? payload.items : [];
 
       // excess_holiday with items: show excess direct and excess indirect as separate line items
@@ -5681,6 +5785,51 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
           kind: l?.metadataJson?.kind || null
         }
       });
+    }
+
+    // Tier credits/grace are finalized after all direct-hour sources (service codes, shift punches,
+    // time claims including Skill Builders, manual pay, etc.).
+    if (tierSettings.enabled) {
+      const history = await getTierHistorySum({ agencyId, userId, periodEnd, limit: TIER_WINDOW_PERIODS });
+      currentWindowCount = history.count + 1;
+      currentWindowSum = history.sum + tierCreditsCurrent;
+      currentBiWeeklyAvg = currentWindowCount > 0 ? (currentWindowSum / currentWindowCount) : 0;
+      currentWeeklyAvg = currentBiWeeklyAvg / 2;
+      currentTierLevel = tierLevelFromWeeklyAvg(currentWeeklyAvg, tierSettings.thresholds);
+
+      prevWindowCount = history.count;
+      prevWindowSum = history.sum;
+      prevBiWeeklyAvg = prevWindowCount > 0 ? (prevWindowSum / prevWindowCount) : 0;
+      prevWeeklyAvg = prevBiWeeklyAvg / 2;
+      prevTierLevel = tierLevelFromWeeklyAvg(prevWeeklyAvg, tierSettings.thresholds);
+
+      const prior = await getImmediatePriorPeriodTierStats({
+        agencyId,
+        userId,
+        periodStart,
+        thresholds: tierSettings.thresholds,
+        defaultBiWeeklyTotal: tierCreditsCurrent
+      });
+      prevPeriodBiWeeklyTotal = Number(prior.biWeeklyTotal || 0);
+      prevPeriodWeeklyAvg = Number(prior.weeklyAvg || 0);
+      prevPeriodTierLevel = Number(prior.tierLevel || 0);
+      displayBiWeeklyTotal = tierCreditsCurrent;
+      displayWeeklyAvg = displayBiWeeklyTotal / 2;
+      displayTierLevel = tierLevelFromWeeklyAvg(displayWeeklyAvg, tierSettings.thresholds);
+
+      graceActive = (prevPeriodTierLevel >= 1 && displayTierLevel < prevPeriodTierLevel) ? 1 : 0;
+      benefitTierLevel = graceActive ? prevPeriodTierLevel : displayTierLevel;
+      tierStatus = graceActive
+        ? `Grace (last pay period Tier ${prevPeriodTierLevel}: ${Number(prevPeriodBiWeeklyTotal || 0).toFixed(1)} bi-wk; ${Number(prevPeriodWeeklyAvg || 0).toFixed(1)}/wk)`
+        : tierStatusLabel({ tierLevel: benefitTierLevel, prevTierLevel: prevPeriodTierLevel });
+      tierLabel = graceActive
+        ? `Tier ${benefitTierLevel} (grace; current ${Number(displayBiWeeklyTotal).toFixed(1)} bi-wk; last ${Number(prevPeriodBiWeeklyTotal || 0).toFixed(1)} bi-wk)`
+        : fmtTierLabelCurrentPeriod({ tierLevel: benefitTierLevel, biWeeklyTotal: displayBiWeeklyTotal, weeklyAvg: displayWeeklyAvg });
+
+      tierCreditsPrior = prevBiWeeklyAvg;
+      tierCreditsFinal = tierCreditsCurrent;
+    } else {
+      tierCreditsCurrent = 0;
     }
 
     breakdown.__adjustments = {
@@ -7634,7 +7783,7 @@ export const getPayrollStaging = async (req, res, next) => {
     );
     const overrideKey = new Map();
     for (const o of overrides || []) {
-      overrideKey.set(`${o.user_id}:${o.service_code}`, o);
+      overrideKey.set(stagingServiceCodeKey(o.user_id, o.service_code), o);
     }
     const carryKey = new Map();
     for (const c of carryovers || []) {
@@ -7642,18 +7791,23 @@ export const getPayrollStaging = async (req, res, next) => {
       if (typeof meta === 'string') {
         try { meta = JSON.parse(meta); } catch { meta = null; }
       }
-      carryKey.set(`${c.user_id}:${c.service_code}`, {
-        oldDoneNotesUnits: Number(c.carryover_finalized_units || 0),
-        oldDoneNotesNotes: Number(c.carryover_finalized_row_count || 0),
-        carryoverMeta: (meta && typeof meta === 'object') ? meta : null,
+      const key = stagingServiceCodeKey(c.user_id, c.service_code);
+      const existing = carryKey.get(key) || {
+        oldDoneNotesUnits: 0,
+        oldDoneNotesNotes: 0,
+        carryoverMeta: null,
         sourcePayrollPeriodId: c.source_payroll_period_id || null,
         computedAt: c.computed_at || null,
         computedByUserId: c.computed_by_user_id || null
-      });
+      };
+      existing.oldDoneNotesUnits = Number((Number(existing.oldDoneNotesUnits || 0) + Number(c.carryover_finalized_units || 0)).toFixed(2));
+      existing.oldDoneNotesNotes = Number(existing.oldDoneNotesNotes || 0) + Number(c.carryover_finalized_row_count || 0);
+      existing.carryoverMeta = mergeCarryoverMeta(existing.carryoverMeta, (meta && typeof meta === 'object') ? meta : null);
+      carryKey.set(key, existing);
     }
     const priorUnpaidKey = new Map(); // `${userId}:${serviceCode}` -> { stillUnpaidUnits, sourcePayrollPeriodId, computedAt, computedByUserId }
     for (const p of priorUnpaidStage || []) {
-      priorUnpaidKey.set(`${p.user_id}:${p.service_code}`, {
+      priorUnpaidKey.set(stagingServiceCodeKey(p.user_id, p.service_code), {
         stillUnpaidUnits: Number(p.still_unpaid_units || 0),
         sourcePayrollPeriodId: p.source_payroll_period_id || null,
         computedAt: p.computed_at || null,
@@ -7682,7 +7836,7 @@ export const getPayrollStaging = async (req, res, next) => {
     // Track aggregate keys so we can add carryover-only rows.
     const aggKeys = new Set();
     for (const a of aggregates || []) {
-      aggKeys.add(`${a.user_id || 'null'}:${a.service_code}`);
+      aggKeys.add(stagingServiceCodeKey(a.user_id, a.service_code));
     }
 
     for (const a of aggregates || []) {
@@ -7703,7 +7857,7 @@ export const getPayrollStaging = async (req, res, next) => {
         });
         continue;
       }
-      const o = overrideKey.get(`${a.user_id}:${a.service_code}`) || null;
+      const o = overrideKey.get(stagingServiceCodeKey(a.user_id, a.service_code)) || null;
       const baseEffective = o
         ? {
             noNoteUnits: Number(o.no_note_units || 0),
@@ -7711,7 +7865,7 @@ export const getPayrollStaging = async (req, res, next) => {
             finalizedUnits: Number(o.finalized_units || 0)
           }
         : raw;
-      const key = `${a.user_id}:${a.service_code}`;
+      const key = stagingServiceCodeKey(a.user_id, a.service_code);
       const carry = carryKey.get(key) || { oldDoneNotesUnits: 0, oldDoneNotesNotes: 0, carryoverMeta: null };
       const priorUnpaid = priorUnpaidKey.get(key) || { stillUnpaidUnits: 0 };
       const effective = {
@@ -7743,7 +7897,7 @@ export const getPayrollStaging = async (req, res, next) => {
     // Include carryover-only rows so they appear in Payroll Stage (yellow highlight),
     // even if the current period has no imported rows for that provider+serviceCode.
     for (const c of carryovers || []) {
-      const key = `${c.user_id}:${c.service_code}`;
+      const key = stagingServiceCodeKey(c.user_id, c.service_code);
       if (aggKeys.has(key)) continue;
       const raw = { noNoteUnits: 0, draftUnits: 0, finalizedUnits: 0 };
       const o = overrideKey.get(key) || null;
@@ -7803,6 +7957,13 @@ export const getPayrollStaging = async (req, res, next) => {
     const periodEndYmd = String(period?.period_end || '').slice(0, 10);
     const periodStartD = periodStartYmd ? toUtcDay(periodStartYmd) : null;
     const periodEndD = periodEndYmd ? toUtcDay(periodEndYmd) : null;
+    const manualPayByUser = new Map();
+    for (const l of manualPayLines || []) {
+      const uid = Number(l?.userId ?? l?.user_id ?? 0);
+      if (!uid) continue;
+      if (!manualPayByUser.has(uid)) manualPayByUser.set(uid, []);
+      manualPayByUser.get(uid).push(l);
+    }
 
     for (const [uid, rows] of byUser.entries()) {
       try {
@@ -7870,6 +8031,54 @@ export const getPayrollStaging = async (req, res, next) => {
         );
         const safeCredit = Number.isFinite(creditValue) ? creditValue : 0;
         directTierCreditsThisPeriod += baseFinalizedUnits * safeCredit;
+      }
+
+      try {
+        const approvedTimeClaims = await PayrollTimeClaim.listApprovedForPeriodUser({
+          payrollPeriodId,
+          agencyId: period.agency_id,
+          userId: uid
+        });
+        const rateCard = await PayrollRateCard.findForUser(period.agency_id, uid);
+        for (const c of approvedTimeClaims || []) {
+          const { hrs, bucket, claimType, payload } = resolveTimeClaimHours(c);
+          const items = Array.isArray(payload?.items) ? payload.items : [];
+          if (claimType === 'excess_holiday' && items.length) {
+            let totalExcessDirect = 0;
+            for (const it of items) {
+              const code = String(it?.serviceCode || '').trim();
+              if (!code) continue;
+              const rule = await PayrollExcessCompensationRule.findByAgencyAndCode(period.agency_id, code);
+              const { excessDirect } = PayrollExcessCompensationRule.computeExcessMinutes({
+                actualDirectMinutes: it?.actualDirectMinutes ?? it?.directMinutes ?? 0,
+                actualIndirectMinutes: it?.actualIndirectMinutes ?? it?.indirectMinutes ?? 0,
+                rule: rule || {},
+                units: it?.units ?? 1
+              });
+              totalExcessDirect += excessDirect;
+            }
+            if (totalExcessDirect > 0) {
+              directTierCreditsThisPeriod += Math.round((totalExcessDirect / 60) * 100) / 100;
+            }
+            continue;
+          }
+          if (bucket === 'direct' && Number.isFinite(hrs) && hrs > 1e-9) {
+            directTierCreditsThisPeriod += hrs;
+          }
+        }
+        for (const l of manualPayByUser.get(uid) || []) {
+          const cat = String(l?.category || 'direct').toLowerCase() === 'indirect' ? 'indirect' : 'direct';
+          if (cat !== 'direct') continue;
+          const hrs = resolveManualPayCreditsHours({
+            category: cat,
+            creditsHours: l?.creditsHours ?? l?.credits_hours,
+            amount: l?.amount,
+            rateCard
+          });
+          if (Number.isFinite(hrs) && hrs > 1e-9) directTierCreditsThisPeriod += hrs;
+        }
+      } catch {
+        // Tier preview should still work when optional claim tables are unavailable.
       }
 
       const tierCreditsThisPeriod = directTierCreditsThisPeriod;
