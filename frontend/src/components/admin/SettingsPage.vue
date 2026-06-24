@@ -12,18 +12,24 @@
 
     <!-- Reuse the existing SettingsModal content, but in page mode -->
     <div class="settings-page-body">
-      <SettingsModal :embedded="true" :show-tenant-context="true" />
+      <SettingsModal :embedded="true" :show-tenant-context="true" :initial-item-id="initialItemId" />
     </div>
   </div>
 </template>
 
 <script setup>
-import { useRouter } from 'vue-router';
+import { computed } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
 import SettingsModal from './SettingsModal.vue';
 
 const router = useRouter();
+const route = useRoute();
+
+// Allow deep-linking to a specific settings section via ?item=hiring-prehire
+const initialItemId = computed(() => route.query.item || null);
+
 const goBack = () => {
-  router.push('/admin');
+  router.back();
 };
 </script>
 

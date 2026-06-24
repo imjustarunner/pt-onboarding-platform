@@ -18,7 +18,11 @@
           Refresh
         </button>
         <router-link :to="applicantsRoute" class="phr-btn phr-btn-secondary">View Applicants</router-link>
-        <router-link :to="onboardingRoute" class="phr-btn phr-btn-primary">View Onboarding</router-link>
+        <router-link :to="onboardingRoute" class="phr-btn phr-btn-secondary">View Onboarding</router-link>
+        <router-link :to="settingsRoute" class="phr-btn phr-btn-ghost phr-btn-icon" title="Hiring & Pre-Hire Settings">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          Settings
+        </router-link>
       </div>
     </div>
 
@@ -467,6 +471,7 @@ const effectiveSlug = computed(() => {
 
 const applicantsRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/hiring` : '/admin/hiring');
 const onboardingRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/onboarding` : '/admin/onboarding');
+const settingsRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/settings?item=hiring-prehire` : '/admin/settings?item=hiring-prehire');
 const userProfileRoute = (id) => effectiveSlug.value ? `/${effectiveSlug.value}/admin/users/${id}` : `/admin/users/${id}`;
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -719,7 +724,9 @@ onMounted(load);
 .phr-btn-primary:hover { background: #1f2937; }
 .phr-btn-secondary { background: white; color: #374151; border: 1px solid #e5e7eb; }
 .phr-btn-secondary:hover { background: #f9fafb; }
-.phr-btn-ghost { background: transparent; color: #6b7280; }
+.phr-btn-ghost { background: transparent; color: #6b7280; border: 1px solid #e5e7eb; }
+.phr-btn-ghost:hover { background: #f9fafb; color: #374151; }
+.phr-btn-icon { display: inline-flex; align-items: center; gap: 5px; }
 .phr-btn-ghost:hover { color: #111827; }
 .phr-btn-sm { padding: 6px 12px; font-size: 12px; }
 .phr-btn:disabled { opacity: 0.6; cursor: not-allowed; }
