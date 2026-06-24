@@ -12,7 +12,9 @@
  */
 import User from '../models/User.model.js';
 
-const VALID_STATUSES = new Set(['PENDING_SETUP', 'PREHIRE_OPEN']);
+// PREHIRE_REVIEW is also valid — candidate has finished all tasks and is awaiting staff review,
+// but should still be able to view their completed portal.
+const VALID_STATUSES = new Set(['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW']);
 
 export async function authenticatePrehireToken(req, res, next) {
   const token = req.params.token || req.headers['x-prehire-token'] || req.query.prehireToken;

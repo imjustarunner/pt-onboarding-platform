@@ -634,7 +634,9 @@ const resendLink = async (c) => {
   try {
     const params = selectedAgencyId.value ? { agencyId: selectedAgencyId.value } : {};
     await api.post(`/hiring/candidates/${c.id}/promote`, {}, { params });
-    actionMsg.value = 'Setup link regenerated successfully.';
+    actionMsg.value = 'New portal link generated. Copy it from the token box above.';
+    // Reload so the new token is reflected in the token box
+    await loadCandidates();
   } catch (e) {
     actionMsg.value = e.response?.data?.error?.message || 'Failed to resend link.';
   } finally { actionLoading.value = false; }

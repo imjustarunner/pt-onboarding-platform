@@ -1415,9 +1415,9 @@ export const promoteCandidateToPendingSetup = async (req, res, next) => {
       // ignore (older DBs or missing table)
     }
 
-    // Generate a passwordless token for initial setup (7 days).
+    // Generate a fresh token — always links to the pre-hire portal (not the regular login).
     const tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24);
-    const tokenLink = `${config.frontendUrl}/passwordless-login/${tokenResult.token}`;
+    const tokenLink = `${config.frontendUrl}/pre-hire/${tokenResult.token}`;
 
     // Preserve the exact job-description version this person was hired against.
     await ensureAssignedJobDescriptionDocument(candidateUserId, req.user.id);
@@ -1425,7 +1425,8 @@ export const promoteCandidateToPendingSetup = async (req, res, next) => {
     res.json({
       user: updated,
       passwordlessToken: tokenResult.token,
-      passwordlessTokenLink: tokenLink
+      passwordlessTokenLink: tokenLink,
+      prehirePortalLink: tokenLink
     });
   } catch (e) {
     next(e);
