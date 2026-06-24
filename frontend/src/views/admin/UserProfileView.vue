@@ -2686,6 +2686,13 @@
           :agency-id="agencyStore.currentAgency?.id"
         />
 
+        <UserLifecycleTab
+          v-if="activeTab === 'lifecycle'"
+          :userId="userId"
+          :viewOnly="!canEditUser"
+          :user="user"
+        />
+
       </div>
     </div>
     
@@ -2932,6 +2939,7 @@ import UserActivityLogTab from '../../components/admin/UserActivityLogTab.vue';
 import UserPayrollTab from '../../components/admin/UserPayrollTab.vue';
 import UserDepartmentTab from '../../components/admin/UserDepartmentTab.vue';
 import UserSupervisionTab from '../../components/admin/UserSupervisionTab.vue';
+import UserLifecycleTab from '../../components/admin/UserLifecycleTab.vue';
 import SupervisorAssignmentManager from '../../components/admin/SupervisorAssignmentManager.vue';
 import MovePendingToActiveModal from '../../components/admin/MovePendingToActiveModal.vue';
 import LeaveOfAbsenceModal from '../../components/admin/LeaveOfAbsenceModal.vue';
@@ -3170,6 +3178,20 @@ const canManageAssignments = computed(() => {
 const canViewPayroll = computed(() => {
   const role = authStore.user?.role;
   return role === 'admin' || role === 'super_admin' || role === 'support';
+});
+
+const canViewLifecycleTab = computed(() => {
+  const u = authStore.user;
+  if (!u) return false;
+  const role = String(u.role || '');
+  // Backoffice admins always see it
+  if (role === 'admin' || role === 'super_admin' || role === 'support') return true;
+  // Staff/hiring-capable users with People Ops or hiring feature enabled
+  const caps = u.capabilities || {};
+  const canHire = caps.canManageHiring || u.has_hiring_access === 1 || u.has_hiring_access === '1' || u.has_hiring_access === true;
+  if (!canHire) return false;
+  const flags = parseFeatureFlags(agencyStore.currentAgency?.feature_flags);
+  return !!(flags?.peopleOpsEnabled || flags?.hiringEnabled);
 });
 
 const parseFeatureFlags = (raw) => {
@@ -3821,7 +3843,11 @@ const tabs = computed(() => {
   if (canViewPayroll.value || canViewProviderInfo.value) {
     baseTabs.push({ id: 'supervision', label: 'Supervision' });
   }
-  
+
+  if (canViewLifecycleTab.value) {
+    baseTabs.push({ id: 'lifecycle', label: 'Lifecycle' });
+  }
+
   if (canViewActivityLog.value) {
     baseTabs.push({ id: 'activity', label: 'Activity Log' });
   }

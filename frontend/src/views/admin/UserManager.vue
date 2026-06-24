@@ -407,15 +407,36 @@
                 </div>
               </template>
               <template v-else>
-                <span v-if="user.isOrphaned" class="user-name-link" style="color: var(--text-muted); font-style: italic;">
-                  {{ user.first_name || '[Deleted account]' }} {{ user.last_name }}
-                </span>
-                <router-link v-else :to="userProfilePath(user.id)" class="user-name-link">
-                  {{ user.first_name }} {{ user.last_name }}
-                </router-link>
-                <span v-if="isSscSstcTenant && user.isPlaceholder" class="badge badge-placeholder" title="Manually added — has not yet created an account">Unlinked</span>
-                <span v-if="user.isOrphaned" class="badge badge-orphaned" title="The underlying user account was deleted but the club membership record remains">Orphaned</span>
-                <span v-if="user.isGuardian" class="badge badge-guardian" title="This is a guardian/parent account — remove from club if it shouldn't be here">Guardian</span>
+                <div class="user-name-cell">
+                  <!-- Avatar -->
+                  <div class="um-avatar" :title="`${user.first_name} ${user.last_name}`">
+                    <img
+                      v-if="user.profile_photo_url"
+                      :src="toUploadsUrl(user.profile_photo_url)"
+                      :alt="`${user.first_name} ${user.last_name}`"
+                      class="um-avatar-img"
+                      loading="lazy"
+                      @error="$event.target.style.display='none'; $event.target.nextElementSibling.style.display='flex'"
+                    />
+                    <span class="um-avatar-initials" :style="user.profile_photo_url ? 'display:none' : ''">
+                      {{ ((user.first_name || '')[0] || '') + ((user.last_name || '')[0] || '') }}
+                    </span>
+                  </div>
+                  <!-- Name + badges -->
+                  <div class="um-name-info">
+                    <span v-if="user.isOrphaned" class="user-name-link" style="color: var(--text-muted); font-style: italic;">
+                      {{ user.first_name || '[Deleted account]' }} {{ user.last_name }}
+                    </span>
+                    <router-link v-else :to="userProfilePath(user.id)" class="user-name-link">
+                      {{ user.first_name }} {{ user.last_name }}
+                    </router-link>
+                    <div class="um-badges">
+                      <span v-if="isSscSstcTenant && user.isPlaceholder" class="badge badge-placeholder" title="Manually added — has not yet created an account">Unlinked</span>
+                      <span v-if="user.isOrphaned" class="badge badge-orphaned" title="The underlying user account was deleted but the club membership record remains">Orphaned</span>
+                      <span v-if="user.isGuardian" class="badge badge-guardian" title="This is a guardian/parent account — remove from club if it shouldn't be here">Guardian</span>
+                    </div>
+                  </div>
+                </div>
               </template>
             </td>
             <td class="col-email">
@@ -1653,6 +1674,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { isSupervisor } from '../../utils/helpers.js';
 import { getStatusLabel, getStatusBadgeClass } from '../../utils/statusUtils.js';
+import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 import BulkDocumentAssignmentDialog from '../../components/documents/BulkDocumentAssignmentDialog.vue';
 import aiIconAsset from '../../assets/ai/ai-icon.svg';
 import aiReadyAsset from '../../assets/ai/ready.svg';
@@ -4230,6 +4252,54 @@ onMounted(async () => {
 }
 .user-name-link:hover {
   text-decoration: underline;
+}
+
+/* Avatar in the name column */
+.user-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.um-avatar {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--primary-color, #2d6a4f);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.um-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+.um-avatar-initials {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+.um-name-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.um-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .page-header {

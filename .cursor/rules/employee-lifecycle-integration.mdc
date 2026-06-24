@@ -1,0 +1,66 @@
+---
+description: Reminds the agent to wire new onboarding/offboarding actions into the Lifecycle tab checklist auto-sync when touching hiring, pre-hire, document signing, training, or status transition code.
+globs: backend/src/controllers/hiring.controller.js,backend/src/controllers/user.controller.js,backend/src/services/pendingCompletion.service.js,backend/src/services/packageAssignment.service.js,backend/src/services/trainingFocusProgress.service.js,backend/src/controllers/userInfoValue.controller.js,backend/src/controllers/agencyCredentialing.controller.js,backend/src/routes/hiring.routes.js,backend/src/routes/user.routes.js,frontend/src/views/admin/PreHireView.vue,frontend/src/views/admin/OnboardingAdminView.vue,frontend/src/components/admin/UserLifecycleTab.vue,database/migrations/*.sql
+alwaysApply: false
+---
+
+# Employee Lifecycle Tab — Integration Checklist
+
+Any time you add or change an onboarding/offboarding step, ask: **does this action have a matching `lifecycle_checklist_definitions` item, and should it auto-complete it?**
+
+## How auto-sync works
+
+`backend/src/services/lifecycleSync.service.js` → `syncLifecycleItems(userId)` is called on every Lifecycle tab load. It reads existing app data and calls `UserLifecycleChecklistItem.autoComplete()` for each non-manual item.
+
+Current `integration_type` resolvers:
+
+| type | what it reads |
+|------|--------------|
+| `document_task` | `tasks` where `task_type='document'` and `status='completed'`; title matched by `integration_ref` substring |
+| `training_task` | `tasks` where `task_type='training'` and `status='completed'`; track name matched |
+| `user_info_field` | `user_info_values` for the `integration_ref` field key — non-empty = complete |
+| `account_setup` | `users.email` populated (workspace provisioned) |
+| `credentialing` | `user_insurance_credentialing.status = 'approved'` |
+| `supervision_session` | finalized `supervision_sessions` row exists for supervisee |
+
+## When to act
+
+### Adding a new document template to onboarding/pre-hire packages
+→ Check if there is a matching `item_key` in `lifecycle_checklist_definitions` with `integration_type = 'document_task'`.
+→ If yes, make sure `integration_ref` substring matches the template title/type.
+→ If no matching item, consider adding one to migration 880 or a follow-up migration.
+
+### Adding a new training focus/module to onboarding packages
+→ Same pattern — check `training_task` definitions. `integration_ref` should match the track name/slug.
+
+### Adding a new onboarding status transition (e.g. a new status between ONBOARDING → ACTIVE_EMPLOYEE)
+→ Add `syncLifecycleItems(userId)` call in `user.controller.js` at that transition point.
+→ Status-based lifecycle items use `integration_type = 'status'` (currently manual only — hook pending Phase 2).
+
+### Adding a new user_info field that confirms HR completion (e.g. "cleared_to_start")
+→ Add a `lifecycle_checklist_definitions` row with `integration_type = 'user_info_field'` and `integration_ref = 'your_field_key'`.
+→ No code change needed — the resolver picks it up automatically.
+
+### Adding new offboarding steps or access-removal automation
+→ Add checklist definitions to `lifecycle_checklist_definitions` under the appropriate `category` (`access_removal`, `property_return`, `final_employment`).
+→ If the step can be auto-detected (e.g. workspace disabled via API), add a resolver case in `lifecycleSync.service.js`.
+
+## Phase 2 hook points (future — add these as you build)
+
+Call `syncLifecycleItems(userId)` (import from `lifecycleSync.service.js`) at:
+- Document task completion (`tasks` update handler)
+- Training focus step completion (`trainingFocusProgress.service.js`)
+- User info value save (`userInfoValue.controller.js`)
+- Credentialing approval (`agencyCredentialing.controller.js`)
+- `mark-complete`, `mark-terminated`, `promote-to-onboarding` in `user.controller.js`
+
+## Key files
+
+| Purpose | File |
+|---------|------|
+| Checklist definitions (DB) | `database/migrations/880_employee_lifecycle.sql` |
+| Definition model | `backend/src/models/LifecycleChecklistDefinition.model.js` |
+| Per-user state model | `backend/src/models/UserLifecycleChecklistItem.model.js` |
+| Auto-sync logic | `backend/src/services/lifecycleSync.service.js` |
+| Tab aggregator | `backend/src/services/lifecycle.service.js` |
+| Full spec + inventory | `docs/EMPLOYEE_LIFECYCLE_TAB.md` |

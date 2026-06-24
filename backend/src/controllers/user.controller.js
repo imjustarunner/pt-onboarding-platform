@@ -725,6 +725,28 @@ export const getAllUsers = async (req, res, next) => {
       users = (users || []).map((u) => ({ ...u, provider_has_open_school_slots: false }));
     }
 
+    // Attach profile photo URL (best-effort single bulk query).
+    try {
+      if (Array.isArray(users) && users.length > 0) {
+        const pool = (await import('../config/database.js')).default;
+        const ids = users.map((u) => parseInt(u.id, 10)).filter(Boolean);
+        if (ids.length > 0) {
+          const placeholders = ids.map(() => '?').join(',');
+          const [rows] = await pool.execute(
+            `SELECT id, profile_photo_path FROM users WHERE id IN (${placeholders})`,
+            ids
+          );
+          const photoById = new Map((rows || []).map((r) => [Number(r.id), r.profile_photo_path || null]));
+          users = users.map((u) => ({
+            ...u,
+            profile_photo_url: publicUploadsUrlFromStoredPath(photoById.get(Number(u.id)) || null) || null,
+          }));
+        }
+      }
+    } catch {
+      // Ignore if column doesn't exist yet.
+    }
+
     res.json(users);
   } catch (error) {
     next(error);

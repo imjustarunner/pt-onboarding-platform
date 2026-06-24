@@ -21,6 +21,13 @@ import {
   upsertAgencyProviderPortalSettings
 } from '../controllers/providerPublicProfile.controller.js';
 import { authenticate, requireAdmin, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
+import {
+  getUserLifecycle,
+  updateLifecycleDates,
+  updateSeparationInfo,
+  toggleLifecycleChecklistItem,
+  syncLifecycle,
+} from '../controllers/lifecycle.controller.js';
 
 const router = express.Router();
 
@@ -115,6 +122,13 @@ router.post('/:id/archive', authenticate, requireBackofficeAdmin, archiveUser);
 router.post('/:id/restore', authenticate, requireBackofficeAdmin, restoreUser);
 router.delete('/:id', authenticate, requireBackofficeAdmin, deleteUser);
 router.get('/:id/onboarding-document', authenticate, getOnboardingDocument);
+
+// Lifecycle tab routes (admin, support, super_admin + hiring-capable staff)
+router.get('/:id/lifecycle', authenticate, requireBackofficeAdmin, getUserLifecycle);
+router.patch('/:id/lifecycle/dates', authenticate, requireBackofficeAdmin, updateLifecycleDates);
+router.patch('/:id/lifecycle/separation', authenticate, requireBackofficeAdmin, updateSeparationInfo);
+router.post('/:id/lifecycle/checklist/:definitionId/toggle', authenticate, requireBackofficeAdmin, toggleLifecycleChecklistItem);
+router.post('/:id/lifecycle/sync', authenticate, requireBackofficeAdmin, syncLifecycle);
 
 // Pending status endpoints
 router.get('/:id/pending/status', authenticate, checkPendingCompletionStatus);
