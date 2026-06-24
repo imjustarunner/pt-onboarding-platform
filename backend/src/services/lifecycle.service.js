@@ -215,6 +215,37 @@ export async function getLifecycleData(userId) {
   let onboardDone = 0;
   const missingItems = [];
 
+  // Pre-fetch completed document tasks for this user (used to attach download links below)
+  let completedDocTasksByRef = new Map();
+  try {
+    const [docTaskRows] = await pool.execute(
+      `SELECT t.id AS taskId, t.title, t.reference_id, t.completed_at,
+              dt.title AS templateTitle, dt.document_type, dt.name AS templateName,
+              sd.id AS signedDocId
+       FROM tasks t
+       LEFT JOIN document_templates dt ON dt.id = t.reference_id
+       LEFT JOIN signed_documents sd ON sd.task_id = t.id
+       WHERE t.assigned_to_user_id = ?
+         AND t.task_type = 'document'
+         AND t.status = 'completed'`,
+      [userId]
+    );
+    for (const row of docTaskRows) {
+      // Index by lower-cased title fragments so lifecycle integration_ref lookups can match
+      const keys = [
+        String(row.templateTitle || '').toLowerCase(),
+        String(row.templateName || '').toLowerCase(),
+        String(row.document_type || '').toLowerCase(),
+        String(row.title || '').toLowerCase()
+      ].filter(Boolean);
+      for (const k of keys) {
+        if (!completedDocTasksByRef.has(k)) {
+          completedDocTasksByRef.set(k, row);
+        }
+      }
+    }
+  } catch { /* non-fatal */ }
+
   for (const def of applicable) {
     const state = stateByDefId.get(def.id) || { is_completed: 0, completed_at: null, completion_method: 'manual' };
     const item = {
@@ -227,7 +258,22 @@ export async function getLifecycleData(userId) {
       completedAt: state.completed_at || null,
       completionMethod: state.completion_method || 'manual',
       integrationTypeInfo: def.integration_type,
+      integrationRef: def.integration_ref || null,
+      documentTaskId: null,
+      hasSignedDocument: false,
     };
+
+    // For completed document_task items, attach the signed document task ID for download links
+    if (def.integration_type === 'document_task' && item.isCompleted && def.integration_ref) {
+      const ref = String(def.integration_ref).toLowerCase();
+      for (const [key, row] of completedDocTasksByRef) {
+        if (key.includes(ref) || ref.includes(key)) {
+          item.documentTaskId = row.taskId || null;
+          item.hasSignedDocument = !!row.signedDocId;
+          break;
+        }
+      }
+    }
 
     if (def.phase === 'onboarding') {
       if (def.is_required) {

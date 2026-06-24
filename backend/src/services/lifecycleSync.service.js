@@ -32,19 +32,20 @@ async function resolveUserInfoField(userId, fieldKey) {
 }
 
 async function resolveDocumentTask(userId, integrationRef) {
-  // Match document tasks where the template slug/name contains the ref string
+  // Match document tasks where the template slug/name contains the ref string.
+  // Tasks use assigned_to_user_id (not user_id). reference_id links to document_templates.
   const ref = String(integrationRef || '').toLowerCase();
   const [rows] = await pool.execute(
     `SELECT t.id, t.status, t.completed_at
      FROM tasks t
      LEFT JOIN document_templates dt ON dt.id = t.reference_id AND t.task_type = 'document'
-     WHERE t.user_id = ?
+     WHERE t.assigned_to_user_id = ?
        AND t.task_type = 'document'
        AND t.status = 'completed'
-       AND (LOWER(dt.title) LIKE ? OR LOWER(dt.document_type) LIKE ?)
+       AND (LOWER(COALESCE(dt.title, dt.name, '')) LIKE ? OR LOWER(COALESCE(dt.document_type, '')) LIKE ? OR LOWER(t.title) LIKE ?)
      ORDER BY t.completed_at DESC
      LIMIT 1`,
-    [userId, `%${ref}%`, `%${ref}%`]
+    [userId, `%${ref}%`, `%${ref}%`, `%${ref}%`]
   );
   const row = rows?.[0];
   return { completed: !!row, completedAt: row?.completed_at || null };

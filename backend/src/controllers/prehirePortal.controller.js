@@ -7,6 +7,7 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import EmailService from '../services/email.service.js';
+import { syncLifecycleItems } from '../services/lifecycleSync.service.js';
 
 // ─── GET /api/prehire-portal/:token ─────────────────────────────────────────
 // Returns portal state: candidate info, org info, tasks, overall progress.
@@ -268,6 +269,9 @@ export const portalSign = async (req, res, next) => {
       [taskId]
     );
 
+    // Sync lifecycle checklist so the staff-facing lifecycle tab reflects the signed document
+    setImmediate(() => syncLifecycleItems(userId).catch(() => {}));
+
     // Check if all candidate tasks are now done — if so advance status
     await maybeAdvanceCandidateStatus(userId);
 
@@ -294,6 +298,9 @@ export const portalAcknowledge = async (req, res, next) => {
       `UPDATE tasks SET status = 'completed', completed_at = NOW() WHERE id = ?`,
       [taskId]
     );
+
+    // Sync lifecycle checklist so the staff-facing lifecycle tab reflects the acknowledged document
+    setImmediate(() => syncLifecycleItems(userId).catch(() => {}));
 
     await maybeAdvanceCandidateStatus(userId);
 
@@ -390,6 +397,9 @@ async function advanceCandidateStatus(userId) {
 
   const targetStatus = 'PREHIRE_REVIEW';
   await User.updateStatus(userId, targetStatus, null);
+
+  // Sync lifecycle tab so status-based items reflect the completion
+  setImmediate(() => syncLifecycleItems(userId).catch(() => {}));
 
   // Notify staff — create a system task for any admin in the agency
   try {

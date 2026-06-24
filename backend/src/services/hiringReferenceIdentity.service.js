@@ -47,13 +47,17 @@ export async function resolveHiringReferenceSenderIdentity(agencyId) {
 export async function resolveJobApplicationSenderIdentity(agencyId) {
   const aid = Number(agencyId);
   if (!aid) return null;
-  const byKey = await EmailSenderIdentity.findByAgencyAndIdentityKey(aid, 'job_applications');
-  if (byKey) return byKey;
-  let def = await EmailSenderIdentity.findByAgencyAndIdentityKey(aid, 'default_notifications');
-  if (def) return def;
-  def = await EmailSenderIdentity.findByAgencyAndIdentityKey(aid, 'notifications');
-  if (def) return def;
+  // Prefer a dedicated People Operations or job_applications identity
+  for (const key of ['people_operations', 'job_applications', 'hiring', 'default_notifications', 'notifications']) {
+    const identity = await EmailSenderIdentity.findByAgencyAndIdentityKey(aid, key);
+    if (identity) return identity;
+  }
+  // Last resort: first active agency-specific identity that is NOT a school/intake identity
   const list = await EmailSenderIdentity.list({ agencyId: aid, includePlatformDefaults: false, onlyActive: true });
   const agencyOnly = (list || []).filter((x) => Number(x.agency_id) === aid);
-  return agencyOnly[0] || null;
+  const nonSchool = agencyOnly.find(
+    (x) => !String(x.display_name || x.name || '').toLowerCase().includes('school') &&
+            !String(x.identity_key || '').toLowerCase().includes('school')
+  );
+  return nonSchool || agencyOnly[0] || null;
 }

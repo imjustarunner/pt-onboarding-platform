@@ -231,15 +231,16 @@
             <div class="lc-checklist-group">
               <h4 class="lc-block-title">{{ group.label }}</h4>
               <div class="lc-checklist-table">
-                <div class="lc-checklist-head">
+                <div class="lc-checklist-head lc-checklist-head-docs">
                   <span>Item</span>
                   <span>Complete</span>
                   <span>Date</span>
+                  <span>Doc</span>
                 </div>
                 <div
                   v-for="item in group.items"
                   :key="item.definitionId"
-                  class="lc-checklist-row"
+                  class="lc-checklist-row lc-checklist-row-docs"
                 >
                   <span class="lc-item-label">{{ item.label }}</span>
                   <span class="lc-item-check">
@@ -253,12 +254,26 @@
                     <span v-if="item.completionMethod === 'auto'" class="lc-auto-badge" title="Auto-completed from app data">auto</span>
                   </span>
                   <span class="lc-item-date">{{ fmtDate(item.completedAt) || (item.isCompleted ? '✓' : '—') }}</span>
+                  <span class="lc-item-doc">
+                    <a
+                      v-if="item.integrationTypeInfo === 'document_task' && item.isCompleted && item.documentTaskId"
+                      :href="`/api/document-signing/${item.documentTaskId}/download`"
+                      target="_blank"
+                      class="lc-doc-download"
+                      :title="item.hasSignedDocument ? 'View / download signed document' : 'View document record'"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M10 3v9m0 0l-3-3m3 3l3-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M3 14v2a1 1 0 001 1h12a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                      </svg>
+                    </a>
+                  </span>
                 </div>
               </div>
             </div>
           </template>
         </section>
-
+        
         <!-- ══ OFFBOARDING COLUMN ═════════════════════════════════════════ -->
         <section :class="['lc-offboarding', !data.offboarding.enabled && 'lc-offboarding-disabled']">
           <h3 class="lc-section-title">
@@ -794,6 +809,8 @@ watch(() => props.userId, fetchLifecycle, { immediate: true });
 .lc-item-check { display: flex; align-items: center; gap: 4px; }
 .lc-item-check input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; }
 .lc-item-check input[type="checkbox"]:disabled { cursor: not-allowed; opacity: 0.6; }
+.lc-checklist-head-docs { grid-template-columns: 1fr 52px 90px 30px !important; }
+.lc-checklist-row-docs { grid-template-columns: 1fr 52px 90px 30px !important; }
 .lc-auto-badge {
   font-size: 0.65rem;
   background: #dbeafe;
@@ -804,6 +821,15 @@ watch(() => props.userId, fetchLifecycle, { immediate: true });
   line-height: 1.2;
 }
 .lc-item-date { font-size: 0.78rem; color: #6b7280; }
+.lc-item-doc { display: flex; align-items: center; justify-content: center; }
+.lc-doc-download {
+  color: #1a5c38;
+  display: flex;
+  align-items: center;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+.lc-doc-download:hover { opacity: 1; }
 
 /* Offboarding */
 .lc-offboarding-disabled .lc-section-title { color: #9ca3af; }

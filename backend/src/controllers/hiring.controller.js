@@ -2964,35 +2964,95 @@ export const sendPreHire = async (req, res, next) => {
       try { tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24); } catch { /* ignore */ }
     }
 
+    // Link goes directly to the pre-hire portal, not the regular passwordless login
     const tokenLink = tokenResult
-      ? `${config.frontendUrl}/passwordless-login/${tokenResult.token}`
+      ? `${config.frontendUrl}/pre-hire/${tokenResult.token}`
       : null;
 
-    // Send invite email to candidate if we have a link and a personal email.
-    // Subject/body are pulled from agency prehire_settings if configured, else a sensible default is used.
+    // Send invite email using the agency's People Operations sender identity
     if (tokenLink && user.personal_email) {
       setImmediate(async () => {
         try {
           const [agencyRows] = await pool.execute(
-            `SELECT prehire_settings FROM agencies WHERE id = ? LIMIT 1`,
+            `SELECT prehire_settings, name FROM agencies WHERE id = ? LIMIT 1`,
             [agencyId]
           );
-          const settings = agencyRows[0]?.prehire_settings
-            ? (typeof agencyRows[0].prehire_settings === 'string'
-              ? JSON.parse(agencyRows[0].prehire_settings)
-              : agencyRows[0].prehire_settings)
-            : {};
+          const rawSettings = agencyRows[0]?.prehire_settings;
+          const settings = typeof rawSettings === 'string' ? JSON.parse(rawSettings) : (rawSettings || {});
+          const agencyName = agencyRows[0]?.name || 'People Operations';
 
           const firstName = user.first_name || 'there';
-          const defaultSubject = settings.invite_email_subject || 'Your pre-hire setup link is ready';
-          const defaultBody = settings.invite_email_body
-            ? settings.invite_email_body.replace(/\{first_name\}/gi, firstName).replace(/\{link\}/gi, tokenLink)
-            : `Hi ${firstName},\n\nYou've been marked as hired! Please use the link below to complete your pre-hire documents and get started.\n\n${tokenLink}\n\nThis link is valid for 7 days. If you have any questions, please reach out to us.\n\nWelcome aboard!`;
+          const jobTitle = user.applied_role || settings.default_job_title || '';
 
+          // Priority order: per-hire custom message → agency settings → built-in default
+          const customSubject = String(req.body?.msgSubject || '').trim();
+          const customBody = String(req.body?.msgBody || '').trim();
+
+          const resolvedSubject = customSubject
+            || settings.invite_email_subject
+            || `Welcome to ${agencyName} — complete your pre-hire documents`;
+
+          const resolvedBodyText = customBody
+            ? customBody.replace(/\{first_name\}/gi, firstName).replace(/\{link\}/gi, tokenLink)
+            : settings.invite_email_body
+              ? settings.invite_email_body.replace(/\{first_name\}/gi, firstName).replace(/\{link\}/gi, tokenLink)
+              : [
+                  `Hi ${firstName},`,
+                  ``,
+                  `We're thrilled to welcome you to the ${agencyName} team${jobTitle ? ` as ${jobTitle}` : ''}!`,
+                  ``,
+                  `To complete your pre-hire process, please click the link below to access your secure pre-hire portal. You'll find documents to review and sign, as well as any other items required before your start date.`,
+                  ``,
+                  `Your pre-hire portal: ${tokenLink}`,
+                  ``,
+                  `This link is valid for 7 days. If it expires, please contact your HR coordinator for a new one.`,
+                  ``,
+                  `Once all items are completed, a member of our People Operations team will review and reach out with next steps.`,
+                  ``,
+                  `We look forward to having you on the team!`,
+                  ``,
+                  `— ${agencyName} People Operations`
+                ].join('\n');
+
+          const resolvedBodyHtml = `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#111;max-width:600px;">
+            <p>Hi ${firstName},</p>
+            <p>We're thrilled to welcome you to the <strong>${agencyName}</strong> team${jobTitle ? ` as <strong>${jobTitle}</strong>` : ''}!</p>
+            <p>To complete your pre-hire process, please click the button below to access your secure pre-hire portal. You'll find documents to review and sign, as well as any other items required before your start date.</p>
+            <p style="margin:24px 0;">
+              <a href="${tokenLink}" style="background:#1a5c38;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">Access Your Pre-Hire Portal →</a>
+            </p>
+            <p style="color:#555;font-size:13px;">Or copy this link: <a href="${tokenLink}" style="color:#1a5c38;">${tokenLink}</a></p>
+            <p style="color:#555;font-size:13px;">This link is valid for 7 days. If it expires, please contact your HR coordinator for a new one.</p>
+            <p>Once all items are completed, a member of our People Operations team will review and reach out with next steps.</p>
+            <p>We look forward to having you on the team!</p>
+            <p style="color:#6b7280;font-size:13px;">— ${agencyName} People Operations</p>
+          </div>`;
+
+          // Try to send via the agency's configured sender identity (e.g. po@itsco.health)
+          try {
+            const { resolveJobApplicationSenderIdentity } = await import('../services/hiringReferenceIdentity.service.js');
+            const { sendEmailFromIdentity } = await import('../services/unifiedEmail/unifiedEmailSender.service.js');
+            const identity = await resolveJobApplicationSenderIdentity(agencyId);
+            if (identity?.id) {
+              await sendEmailFromIdentity({
+                senderIdentityId: identity.id,
+                to: user.personal_email,
+                subject: resolvedSubject,
+                text: resolvedBodyText,
+                html: resolvedBodyHtml,
+                source: 'auto'
+              });
+              return;
+            }
+          } catch (identityErr) {
+            console.warn('[sendPreHire] Identity sender failed, falling back:', identityErr?.message);
+          }
+
+          // Fallback: plain EmailService
           await EmailService.sendEmail({
             to: user.personal_email,
-            subject: defaultSubject,
-            text: defaultBody
+            subject: resolvedSubject,
+            text: resolvedBodyText
           });
         } catch (emailErr) {
           console.error('[sendPreHire] Failed to send invite email:', emailErr);
