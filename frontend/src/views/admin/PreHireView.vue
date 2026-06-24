@@ -644,7 +644,7 @@ const resendLink = async (c) => {
     await api.post(`/hiring/candidates/${c.id}/promote`, {}, { params });
     actionMsg.value = 'New portal link generated. Copy it from the token box above.';
     // Reload so the new token is reflected in the token box
-    await loadCandidates();
+    await load();
   } catch (e) {
     actionMsg.value = e.response?.data?.error?.message || 'Failed to resend link.';
   } finally { actionLoading.value = false; }
