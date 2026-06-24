@@ -278,11 +278,7 @@
         <!-- Stage banner -->
         <div v-if="selectedUser.status === 'PENDING_SETUP'" class="phr-stage-banner phr-stage-warn" data-tour="prehire-stage-banner">
           <strong>Waiting on candidate setup</strong>
-          <p>The candidate has not yet set their password or completed initial account setup. Resend their access link if it has expired.</p>
-          <button class="phr-btn phr-btn-secondary phr-btn-sm" @click="resendLink(selectedUser)" :disabled="actionLoading">
-            {{ actionLoading ? 'Sending…' : 'Resend Setup Link' }}
-          </button>
-          <p v-if="actionMsg" class="phr-action-msg">{{ actionMsg }}</p>
+          <p>The candidate has not yet accessed their pre-hire portal. Use the portal link in the Overview tab to share their access link.</p>
         </div>
         <div v-else-if="selectedUser.status === 'PREHIRE_OPEN'" class="phr-stage-banner phr-stage-info">
           <strong>Pre-hire in progress</strong>
@@ -328,11 +324,18 @@
                 </button>
               </div>
               <div v-else class="phr-token-empty">
-                No active link. Use "Resend Setup Link" to generate a new one.
+                No active portal link — generate one below.
               </div>
-              <div v-if="selectedUser.prehire_token_expires_at" class="phr-token-expiry">
-                Expires {{ fmtDateTime(selectedUser.prehire_token_expires_at) }}
+              <div class="phr-token-actions">
+                <button class="phr-regen-btn" @click="resendLink(selectedUser)" :disabled="actionLoading">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+                  {{ actionLoading ? 'Generating…' : 'Generate New Portal Link' }}
+                </button>
+                <span v-if="selectedUser.prehire_token_expires_at" class="phr-token-expiry">
+                  Expires {{ fmtDateTime(selectedUser.prehire_token_expires_at) }}
+                </span>
               </div>
+              <p v-if="actionMsg" class="phr-action-msg">{{ actionMsg }}</p>
             </div>
 
             <div class="phr-overview-info">
@@ -947,6 +950,15 @@ onMounted(load);
 .phr-copy-btn:hover { background: #15803d; }
 .phr-token-empty { font-size: 12px; color: #6b7280; font-style: italic; }
 .phr-token-expiry { font-size: 11px; color: #6b7280; }
+.phr-token-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.phr-regen-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: white; border: 1px solid #bbf7d0; color: #166534;
+  border-radius: 6px; padding: 5px 11px; font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: all 0.15s;
+}
+.phr-regen-btn:hover:not(:disabled) { background: #f0fdf4; border-color: #86efac; }
+.phr-regen-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* Countersigns */
 .phr-countersign-section { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 12px 14px; }
