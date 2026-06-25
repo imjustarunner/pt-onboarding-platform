@@ -146,6 +146,10 @@ export const authenticate = async (req, res, next) => {
     if (requestPath.startsWith('/api/fonts/public') || requestPath.startsWith('/api/fonts/families')) {
       return next();
     }
+    // Pre-hire candidate portal — token-based auth handled by prehirePortalAuth middleware.
+    if (requestPath.startsWith('/api/prehire-portal/')) {
+      return next();
+    }
 
     // Try cookie first (new method), then fall back to Authorization header (for backward compatibility)
     const token = req.cookies?.authToken || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.substring(7) : null);
