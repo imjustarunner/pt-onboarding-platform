@@ -325,7 +325,7 @@ const loadModal = async () => {
   try {
     const [settingsRes, tmplRes, rolesRes, usersRes] = await Promise.all([
       api.get('/hiring/settings', { params: agencyParam }),
-      api.get('/document-templates'),
+      api.get('/document-templates', { params: { limit: 1000 } }),
       api.get('/hiring/signer-roles', { params: agencyParam }),
       api.get('/users')
     ]);
@@ -333,7 +333,17 @@ const loadModal = async () => {
     settings.value = settingsRes.data?.settings || {};
     tokenExpiryHours.value = settings.value.token_expiry_hours ?? 168;
 
-    templates.value = (tmplRes.data || []).filter(t => t.is_active !== false && t.is_active !== 0);
+    templates.value = (() => {
+      const payload = tmplRes.data;
+      const list = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.data)
+          ? payload.data
+          : Array.isArray(payload?.templates)
+            ? payload.templates
+            : [];
+      return list.filter(t => t.is_active !== false && t.is_active !== 0);
+    })();
 
     // Auto-select pre_hire tagged templates
     selectedDocs.value = templates.value.filter(t => t.document_stage === 'pre_hire');

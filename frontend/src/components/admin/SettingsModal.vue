@@ -998,9 +998,8 @@ const tenantSettingsCardHubActive = computed(() => {
   return r === 'super_admin' || r === 'admin';
 });
 
-/** When tenant card hub is active, embedded settings screens should lock to this agency id. */
+/** Embedded settings screens should lock to the active tenant when one is selected. */
 const settingsScopedAgencyId = computed(() => {
-  if (!tenantSettingsCardHubActive.value) return null;
   const id = Number(agencyStore.currentAgency?.id || 0);
   return Number.isFinite(id) && id > 0 ? id : null;
 });
@@ -1698,7 +1697,7 @@ const findCategoryIdForItem = (itemId) => {
   return allCategories.find((c) => c.items?.some((i) => i.id === itemId))?.id || null;
 };
 
-const trySetSelection = (categoryId, itemId) => {
+const trySetSelection = (categoryId, itemId, { deepLink = false } = {}) => {
   if (!categoryId || !itemId) return false;
   const cat = allCategories.find((c) => c.id === categoryId);
   const itemMeta = cat?.items?.find((i) => i.id === itemId);
@@ -1719,17 +1718,18 @@ const trySetSelection = (categoryId, itemId) => {
   const navOk = roleFilteredCategories.value.some(
     (c) => c.id === categoryId && c.items.some((i) => i.id === itemId)
   );
-  if (!hubOk && !navOk && !platformHubOk) return false;
+  const deepLinkOk = deepLink && !!itemMeta;
+  if (!hubOk && !navOk && !platformHubOk && !deepLinkOk) return false;
   selectedCategory.value = categoryId;
   selectedItem.value = itemId;
   expandedCategoryIds.value = new Set([String(categoryId)]);
   return true;
 };
 
-const resolveSelection = (categoryId, itemId) => {
+const resolveSelection = (categoryId, itemId, { deepLink = false } = {}) => {
   if (!itemId) return false;
   const resolvedCategory = categoryId || findCategoryIdForItem(itemId);
-  if (resolvedCategory && trySetSelection(resolvedCategory, itemId)) return true;
+  if (resolvedCategory && trySetSelection(resolvedCategory, itemId, { deepLink })) return true;
   return false;
 };
 
@@ -1805,6 +1805,13 @@ const applyInitialAgencySelection = async () => {
   }
 };
 
+// Best-effort deep link before async agency hydration — avoids landing on tenant hub first.
+if (props.initialItemId) {
+  resolveSelection(props.initialCategoryId, props.initialItemId, { deepLink: true });
+} else if (!props.disableRouteSync && showTenantContextUi.value && route.query.item) {
+  resolveSelection(route.query.category, route.query.item, { deepLink: true });
+}
+
 // Initialize from URL query parameters
 onMounted(async () => {
   const userRole = authStore.user?.role;
@@ -1860,10 +1867,10 @@ onMounted(async () => {
 
   selectedAgencyId.value = agencyStore.currentAgency?.id ? String(agencyStore.currentAgency.id) : '';
 
-  if (resolveSelection(props.initialCategoryId, props.initialItemId)) {
+  if (resolveSelection(props.initialCategoryId, props.initialItemId, { deepLink: true })) {
     // selection set
   } else if (!props.disableRouteSync && showTenantContextUi.value) {
-    if (resolveSelection(route.query.category, route.query.item)) {
+    if (resolveSelection(route.query.category, route.query.item, { deepLink: true })) {
       // selection set
     }
   }
@@ -1941,7 +1948,7 @@ watch(() => route.query, (newQuery) => {
       router.replace({ query: q });
       return;
     }
-    resolveSelection(newQuery.category, newQuery.item);
+    resolveSelection(newQuery.category, newQuery.item, { deepLink: true });
   }
 
   // Support deep-linking to an agency context

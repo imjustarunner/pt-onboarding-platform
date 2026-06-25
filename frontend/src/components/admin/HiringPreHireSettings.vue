@@ -223,12 +223,20 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 
+const props = defineProps({
+  scopedAgencyId: { type: [Number, String], default: null }
+});
+
 const agencyStore = useAgencyStore();
-const agencyId = computed(() => agencyStore.currentAgency?.id || null);
+const agencyId = computed(() => {
+  const scoped = Number(props.scopedAgencyId || 0);
+  if (Number.isFinite(scoped) && scoped > 0) return scoped;
+  return agencyStore.currentAgency?.id || null;
+});
 
 // ─── Page load ────────────────────────────────────────────────────────────────
 const pageLoading = ref(true);
@@ -271,10 +279,17 @@ const preHirePackages = computed(() => packages.value.filter(p => p.package_type
 const onboardingPackages = computed(() => packages.value.filter(p => p.package_type === 'onboarding'));
 const signatureTemplates = computed(() => templates.value.filter(t => (t.document_action_type || 'signature') === 'signature'));
 
+const parseTemplateList = (payload) => {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.templates)) return payload.templates;
+  return [];
+};
+
 const loadAll = async () => {
   if (!agencyId.value) {
-    pageLoading.value = true;
-    pageError.value = '';
+    pageLoading.value = false;
+    pageError.value = 'Select a tenant above to configure hiring settings.';
     return;
   }
   pageLoading.value = true;
@@ -283,8 +298,8 @@ const loadAll = async () => {
     const params = { agencyId: agencyId.value };
     const [settingsRes, pkgsRes, tmplRes, rolesRes, usersRes] = await Promise.all([
       api.get('/hiring/settings', { params }),
-      api.get('/onboarding-packages'),
-      api.get('/document-templates'),
+      api.get('/onboarding-packages', { params: { ...params, includeInactive: 'true' } }),
+      api.get('/document-templates', { params: { limit: 1000 } }),
       api.get('/hiring/signer-roles', { params }),
       api.get('/users').catch(() => ({ data: [] }))
     ]);
@@ -300,8 +315,9 @@ const loadAll = async () => {
       role_package_mappings: Array.isArray(s.role_package_mappings) ? s.role_package_mappings : []
     };
 
-    packages.value = (pkgsRes.data || []).filter(p => p.is_active !== false);
-    templates.value = (tmplRes.data || []).filter(t => t.is_active !== false && t.is_active !== 0);
+    const pkgList = Array.isArray(pkgsRes.data) ? pkgsRes.data : [];
+    packages.value = pkgList.filter(p => p.is_active !== false);
+    templates.value = parseTemplateList(tmplRes.data).filter(t => t.is_active !== false && t.is_active !== 0);
     signerRoles.value = rolesRes.data || [];
 
     const STAFF_ROLES = ['admin', 'support', 'staff', 'super_admin'];
@@ -309,7 +325,8 @@ const loadAll = async () => {
       .filter(u => STAFF_ROLES.includes(u.role) && u.status === 'ACTIVE_EMPLOYEE')
       .sort((a, b) => `${a.first_name}${a.last_name}`.localeCompare(`${b.first_name}${b.last_name}`));
   } catch (e) {
-    pageError.value = e.response?.data?.error?.message || 'Failed to load settings.';
+    console.error('HiringPreHireSettings loadAll failed:', e);
+    pageError.value = e.response?.data?.error?.message || e.message || 'Failed to load settings.';
   } finally {
     pageLoading.value = false;
   }
@@ -395,9 +412,13 @@ const deleteRole = async (role) => {
   }
 };
 
-watch(agencyId, (id) => {
-  if (id) loadAll();
-}, { immediate: true });
+onMounted(() => {
+  if (agencyId.value) void loadAll();
+});
+
+watch(agencyId, (id, prev) => {
+  if (id && id !== prev) void loadAll();
+});
 </script>
 
 <style scoped>
