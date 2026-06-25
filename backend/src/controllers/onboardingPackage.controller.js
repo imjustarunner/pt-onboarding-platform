@@ -54,13 +54,15 @@ export const getPackageById = async (req, res, next) => {
     const modules = await OnboardingPackage.getModules(id);
     const documents = await OnboardingPackage.getDocuments(id);
     const checklistItems = await OnboardingPackage.getChecklistItems(id);
+    const intakeLinks = await OnboardingPackage.getIntakeLinks(id);
 
     res.json({
       ...pkg,
       trainingFocuses,
       modules,
       documents,
-      checklistItems
+      checklistItems,
+      intakeLinks
     });
   } catch (error) {
     next(error);
@@ -292,6 +294,25 @@ export const removeChecklistItemFromPackage = async (req, res, next) => {
   }
 };
 
+// Intake Link management
+export const addIntakeLinkToPackage = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { intakeLinkId, orderIndex } = req.body;
+    if (!intakeLinkId) return res.status(400).json({ error: { message: 'intakeLinkId is required' } });
+    const links = await OnboardingPackage.addIntakeLink(id, parseInt(intakeLinkId), orderIndex || 0);
+    res.json(links);
+  } catch (error) { next(error); }
+};
+
+export const removeIntakeLinkFromPackage = async (req, res, next) => {
+  try {
+    const { id, intakeLinkId } = req.params;
+    await OnboardingPackage.removeIntakeLink(id, parseInt(intakeLinkId));
+    res.json({ message: 'Intake link removed from package' });
+  } catch (error) { next(error); }
+};
+
 // Assign package to user(s)
 export const assignPackage = async (req, res, next) => {
   try {
@@ -368,12 +389,14 @@ export const assignPackage = async (req, res, next) => {
     const modules = await OnboardingPackage.getModules(id);
     const documents = await OnboardingPackage.getDocuments(id);
     const checklistItems = await OnboardingPackage.getChecklistItems(id);
+    const intakeLinks = await OnboardingPackage.getIntakeLinks(id);
 
     const assignments = {
       trainingFocuses: [],
       modules: [],
       documents: [],
-      checklistItems: []
+      checklistItems: [],
+      intakeForms: []
     };
     
     const UserChecklistAssignment = (await import('../models/UserChecklistAssignment.model.js')).default;
@@ -570,6 +593,30 @@ export const assignPackage = async (req, res, next) => {
       } catch (scopeErr) {
         console.warn('[assignPackage] lifecycle scope failed:', scopeErr?.message);
       }
+
+      // Assign intake-link form tasks
+      for (const linkRef of intakeLinks) {
+        try {
+          await pool.execute(
+            `INSERT INTO tasks
+               (task_type, title, description, assigned_to_user_id, assigned_by_user_id,
+                reference_id, metadata, status, is_required)
+             VALUES ('intake_form', ?, ?, ?, ?, ?, ?, 'pending', 0)`,
+            [
+              linkRef.title || 'Complete Digital Form',
+              linkRef.description || 'Please fill out this form as part of your onboarding.',
+              parseInt(userId),
+              assignedByUserId,
+              linkRef.intake_link_id,
+              JSON.stringify({ intakeLinkPublicKey: linkRef.public_key, fromPackage: parseInt(id) })
+            ]
+          );
+          assignments.intakeForms = (assignments.intakeForms || []);
+          assignments.intakeForms.push({ userId: parseInt(userId), intakeLinkId: linkRef.intake_link_id, title: linkRef.title });
+        } catch (intakeErr) {
+          console.warn(`[assignPackage] intake form task creation failed for link ${linkRef.intake_link_id}:`, intakeErr?.message);
+        }
+      }
     }
 
     res.status(201).json({
@@ -582,7 +629,8 @@ export const assignPackage = async (req, res, next) => {
         trainingFocusesAssigned: trainingFocuses.length,
         modulesAssigned: modules.length,
         documentsAssigned: documents.length,
-        checklistItemsAssigned: assignments.checklistItems.length
+        checklistItemsAssigned: assignments.checklistItems.length,
+        intakeFormsAssigned: intakeLinks.length
       }
     });
   } catch (error) {

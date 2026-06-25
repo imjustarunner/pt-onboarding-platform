@@ -550,6 +550,52 @@ async function advanceCandidateStatus(userId) {
   }
 }
 
+// ─── POST /api/prehire-portal/:token/tasks/:taskId/complete-form ─────────────
+// Marks an intake_form task as completed after the candidate fills out the form.
+export const completeIntakeFormTask = async (req, res, next) => {
+  try {
+    const { id: userId } = req.portalUser;
+    const taskId = parseInt(req.params.taskId, 10);
+    if (!taskId) return res.status(400).json({ error: { message: 'Invalid task ID.' } });
+
+    const [rows] = await pool.execute(
+      `SELECT id, task_type, assigned_to_user_id, status
+       FROM tasks WHERE id = ? AND assigned_to_user_id = ? LIMIT 1`,
+      [taskId, userId]
+    );
+    const task = rows[0];
+    if (!task) return res.status(404).json({ error: { message: 'Task not found.' } });
+    if (task.task_type !== 'intake_form') {
+      return res.status(400).json({ error: { message: 'Task is not an intake form task.' } });
+    }
+    if (task.status === 'completed') {
+      return res.json({ ok: true, already: true });
+    }
+
+    await pool.execute(
+      `UPDATE tasks SET status = 'completed', completed_at = NOW() WHERE id = ?`,
+      [taskId]
+    );
+
+    // Trigger search index rebuild asynchronously so the new form data is searchable
+    setImmediate(async () => {
+      try {
+        const [agRows] = await pool.execute(
+          `SELECT agency_id FROM user_agencies WHERE user_id = ? LIMIT 1`,
+          [userId]
+        );
+        const agencyId = agRows[0]?.agency_id;
+        if (agencyId) {
+          const { default: ProviderSearchIndex } = await import('../models/ProviderSearchIndex.model.js');
+          await ProviderSearchIndex.upsertForUserInAgency({ userId, agencyId });
+        }
+      } catch { /* non-fatal */ }
+    });
+
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+};
+
 // ─── GET /api/prehire-portal/:token/messages ─────────────────────────────────
 export const listPortalMessages = async (req, res, next) => {
   try {

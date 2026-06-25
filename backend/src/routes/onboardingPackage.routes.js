@@ -14,6 +14,8 @@ import {
   removeDocumentFromPackage,
   addChecklistItemToPackage,
   removeChecklistItemFromPackage,
+  addIntakeLinkToPackage,
+  removeIntakeLinkFromPackage,
   assignPackage
 } from '../controllers/onboardingPackage.controller.js';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
@@ -68,6 +70,13 @@ router.post('/:id/checklist-items', authenticate, requireBackofficeAdmin, [
   body('orderIndex').optional().isInt({ min: 0 })
 ], addChecklistItemToPackage);
 router.delete('/:id/checklist-items/:checklistItemId', authenticate, requireBackofficeAdmin, removeChecklistItemFromPackage);
+
+// Intake Link management
+router.post('/:id/intake-links', authenticate, requireBackofficeAdmin, [
+  body('intakeLinkId').isInt({ min: 1 }).withMessage('Intake link ID is required'),
+  body('orderIndex').optional().isInt({ min: 0 })
+], addIntakeLinkToPackage);
+router.delete('/:id/intake-links/:intakeLinkId', authenticate, requireBackofficeAdmin, removeIntakeLinkFromPackage);
 
 // Assign package
 router.post('/:id/assign', authenticate, requireBackofficeAdmin, [

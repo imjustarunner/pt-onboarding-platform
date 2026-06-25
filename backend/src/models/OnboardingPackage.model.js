@@ -221,6 +221,36 @@ class OnboardingPackage {
       [packageId, checklistItemId]
     );
   }
+
+  // Intake Link management
+  static async getIntakeLinks(packageId) {
+    const [rows] = await pool.execute(
+      `SELECT opil.*, il.title, il.description, il.public_key, il.form_type, il.is_active
+       FROM onboarding_package_intake_links opil
+       JOIN intake_links il ON il.id = opil.intake_link_id
+       WHERE opil.package_id = ?
+       ORDER BY opil.order_index ASC, opil.id ASC`,
+      [packageId]
+    );
+    return rows;
+  }
+
+  static async addIntakeLink(packageId, intakeLinkId, orderIndex = 0) {
+    await pool.execute(
+      `INSERT INTO onboarding_package_intake_links (package_id, intake_link_id, order_index)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE order_index = ?`,
+      [packageId, intakeLinkId, orderIndex, orderIndex]
+    );
+    return this.getIntakeLinks(packageId);
+  }
+
+  static async removeIntakeLink(packageId, intakeLinkId) {
+    await pool.execute(
+      'DELETE FROM onboarding_package_intake_links WHERE package_id = ? AND intake_link_id = ?',
+      [packageId, intakeLinkId]
+    );
+  }
 }
 
 export default OnboardingPackage;

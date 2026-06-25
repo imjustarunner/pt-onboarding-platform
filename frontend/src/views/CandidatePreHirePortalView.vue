@@ -110,6 +110,7 @@
                 >
                   <div class="task-card-v2-icon" :style="{ background: taskAccentBg(idx), color: taskAccentColor(idx) }">
                     <span v-if="task.status === 'completed'">✓</span>
+                    <span v-else-if="task.taskType === 'intake_form'">📝</span>
                     <span v-else-if="task.actionType === 'review'">📋</span>
                     <span v-else>✍️</span>
                   </div>
@@ -123,16 +124,40 @@
                       <span v-if="task.isRequired" class="task-required-badge">Required</span>
                     </div>
                   </div>
-                  <button
-                    v-if="task.status !== 'completed'"
-                    type="button"
-                    class="task-card-v2-action"
-                    :style="{ borderColor: taskAccentColor(idx), color: taskAccentColor(idx) }"
-                    @click="selectTask(task)"
-                  >
-                    {{ taskActionLabel(task) }}
-                    <span aria-hidden="true">›</span>
-                  </button>
+                  <!-- Intake form tasks: open form + mark done -->
+                  <template v-if="task.taskType === 'intake_form' && task.status !== 'completed'">
+                    <div class="intake-form-actions">
+                      <button
+                        type="button"
+                        class="task-card-v2-action"
+                        :style="{ borderColor: taskAccentColor(idx), color: taskAccentColor(idx) }"
+                        @click="openIntakeForm(task)"
+                      >
+                        Fill Out Form <span aria-hidden="true">↗</span>
+                      </button>
+                      <button
+                        v-if="intakeFormOpened === task.id"
+                        type="button"
+                        class="task-card-v2-action task-card-v2-action--confirm"
+                        :disabled="intakeFormSubmitting"
+                        @click="markIntakeFormDone(task)"
+                      >
+                        {{ intakeFormSubmitting ? 'Saving…' : "I've submitted this form ✓" }}
+                      </button>
+                    </div>
+                  </template>
+                  <!-- Standard document tasks -->
+                  <template v-else-if="task.status !== 'completed'">
+                    <button
+                      type="button"
+                      class="task-card-v2-action"
+                      :style="{ borderColor: taskAccentColor(idx), color: taskAccentColor(idx) }"
+                      @click="selectTask(task)"
+                    >
+                      {{ taskActionLabel(task) }}
+                      <span aria-hidden="true">›</span>
+                    </button>
+                  </template>
                   <div v-else class="task-card-v2-done">Done</div>
                 </article>
               </div>
@@ -330,10 +355,38 @@ const orgInitials = computed(() => {
 
 const taskDescription = (task) => {
   if (task.description) return task.description;
+  if (task.taskType === 'intake_form') return 'Please complete this digital form.';
   if (task.actionType === 'review') return 'Please review and acknowledge this document.';
   return 'Please review and sign this document to continue.';
 };
-const taskActionLabel = (task) => (task.actionType === 'review' ? 'Review & Acknowledge' : 'View & Sign');
+const taskActionLabel = (task) => {
+  if (task.taskType === 'intake_form') return 'Fill Out Form';
+  return task.actionType === 'review' ? 'Review & Acknowledge' : 'View & Sign';
+};
+
+// ─── Intake form task handling ─────────────────────────────────────────────
+const intakeFormSubmitting = ref(false);
+const intakeFormOpened = ref(null); // taskId currently open
+
+const openIntakeForm = (task) => {
+  const pk = task.metadata?.intakeLinkPublicKey;
+  if (!pk) return;
+  intakeFormOpened.value = task.id;
+  window.open(`/intake/${pk}`, '_blank', 'noopener,noreferrer');
+};
+
+const markIntakeFormDone = async (task) => {
+  intakeFormSubmitting.value = true;
+  try {
+    await portalApi.post(`/prehire-portal/${token.value}/tasks/${task.id}/complete-form`);
+    await reloadPortal();
+    intakeFormOpened.value = null;
+  } catch {
+    /* non-fatal */
+  } finally {
+    intakeFormSubmitting.value = false;
+  }
+};
 
 const focusChat = () => {
   chatRef.value?.expand?.();
@@ -962,6 +1015,19 @@ onMounted(async () => {
   font-weight: 700;
   color: #16a34a;
   padding: 0 8px;
+}
+
+.intake-form-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+}
+.task-card-v2-action--confirm {
+  background: #dcfce7;
+  color: #16a34a !important;
+  border-color: #16a34a !important;
+  font-size: 12px;
 }
 
 .cta-wrap { padding-top: 18px; }

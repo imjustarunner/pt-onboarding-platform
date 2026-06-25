@@ -2301,20 +2301,36 @@ export async function executeToolCall({ req, toolCall }) {
     }
     const limit = Math.min(Math.max(1, intOrNull(args.limit) || 25), 100);
 
+    // All 9 clinical multi_select fields relevant to provider matching
     const FIELD_KEYS = [
       'modality',
       'treatment_prefs_max15',
       'pt_specialties_max25',
       'specialties_general',
-      'age_specialty'
+      'age_specialty',
+      'mental_health',
+      'other_issues',
+      'sexuality',
+      'groups'
     ];
     const fieldKeyLabel = {
-      modality: 'Treatment modality',
-      treatment_prefs_max15: 'Treatment preference',
-      pt_specialties_max25: 'Specialty',
-      specialties_general: 'General specialty',
-      age_specialty: 'Age specialty'
+      modality:               'Treatment modality',
+      treatment_prefs_max15:  'Treatment preference',
+      pt_specialties_max25:   'Specialty',
+      specialties_general:    'General specialty',
+      age_specialty:          'Age specialty',
+      mental_health:          'Mental health focus',
+      other_issues:           'Other issues',
+      sexuality:              'Sexuality specialty',
+      groups:                 'Population groups'
     };
+
+    // Textarea fields used as secondary fallback search
+    const TEXTAREA_FALLBACK_FIELDS = [
+      'ideal_client_general',
+      'ideal_client_clinical',
+      'provider_clinician_notes'
+    ];
 
     const placeholders = FIELD_KEYS.map(() => '?').join(',');
     const likeArg = `%${approach}%`;
@@ -2339,15 +2355,17 @@ export async function executeToolCall({ req, toolCall }) {
              OR LOWER(psi.value_option) LIKE LOWER(?)
            )
          ORDER BY
-           -- exact matches first
            CASE WHEN LOWER(psi.value_option) = LOWER(?) THEN 0 ELSE 1 END,
-           -- prefer modality field
            CASE psi.field_key
              WHEN 'modality' THEN 0
              WHEN 'treatment_prefs_max15' THEN 1
              WHEN 'pt_specialties_max25' THEN 2
              WHEN 'specialties_general' THEN 3
              WHEN 'age_specialty' THEN 4
+             WHEN 'mental_health' THEN 5
+             WHEN 'other_issues' THEN 6
+             WHEN 'sexuality' THEN 7
+             WHEN 'groups' THEN 8
              ELSE 9
            END,
            u.last_name, u.first_name
@@ -2360,6 +2378,33 @@ export async function executeToolCall({ req, toolCall }) {
       throw e;
     }
 
+    // Secondary pass: if no multi_select matches found, fall back to LIKE search
+    // across key textarea/text fields so descriptive profiles are still surfaced.
+    if (rows.length === 0) {
+      try {
+        const tbPlaceholders = TEXTAREA_FALLBACK_FIELDS.map(() => '?').join(',');
+        const [tbRows] = await pool.execute(
+          `SELECT
+             psi.user_id,
+             psi.field_key,
+             psi.value_text AS value_option,
+             u.first_name,
+             u.last_name,
+             u.email,
+             u.role
+           FROM provider_search_index psi
+           JOIN users u ON u.id = psi.user_id
+           WHERE psi.agency_id = ?
+             AND psi.field_key IN (${tbPlaceholders})
+             AND LOWER(psi.value_text) LIKE LOWER(?)
+           ORDER BY u.last_name, u.first_name
+           LIMIT 200`,
+          [agencyId, ...TEXTAREA_FALLBACK_FIELDS, likeArg]
+        );
+        rows = tbRows || [];
+      } catch { /* ignore secondary pass errors */ }
+    }
+
     // Group by user, keeping the strongest match (first row per user wins
     // because of the ORDER BY).
     const byUser = new Map();
@@ -2368,13 +2413,18 @@ export async function executeToolCall({ req, toolCall }) {
       if (!uid) continue;
       if (byUser.has(uid)) continue;
       const fullName = [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || r.email;
+      const textareaLabels = {
+        ideal_client_general: 'Ideal client description',
+        ideal_client_clinical: 'Clinical profile notes',
+        provider_clinician_notes: 'Clinician notes'
+      };
       byUser.set(uid, {
         id: uid,
         name: fullName,
         email: r.email,
         role: r.role,
         matchedField: r.field_key,
-        matchedFieldLabel: fieldKeyLabel[r.field_key] || r.field_key,
+        matchedFieldLabel: fieldKeyLabel[r.field_key] || textareaLabels[r.field_key] || r.field_key,
         matchedOption: r.value_option
       });
     }

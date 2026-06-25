@@ -272,6 +272,22 @@ export const submitModuleForm = async (req, res, next) => {
 
     if (effectiveValues.length) {
       await UserInfoValue.bulkUpdate(req.user.id, effectiveValues);
+
+      // Fire-and-forget: rebuild provider search index so clinical profile data
+      // is immediately searchable without a manual rebuild step.
+      setImmediate(async () => {
+        try {
+          const [agRows] = await pool.execute(
+            `SELECT agency_id FROM user_agencies WHERE user_id = ? LIMIT 1`,
+            [req.user.id]
+          );
+          const agencyId = agRows[0]?.agency_id;
+          if (agencyId) {
+            const { default: ProviderSearchIndex } = await import('../models/ProviderSearchIndex.model.js');
+            await ProviderSearchIndex.upsertForUserInAgency({ userId: req.user.id, agencyId });
+          }
+        } catch { /* non-fatal — search index rebuild is best-effort */ }
+      });
     }
 
     if (!shouldValidate) {

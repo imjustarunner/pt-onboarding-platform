@@ -50,8 +50,20 @@ class ProviderSearchIndex {
       keys.length ? [uid, ...keys] : [uid]
     );
 
+    // Normalize legacy / duplicate field keys to their canonical names before indexing.
+    // Old imports may have saved data under alternate keys; mapping them here ensures
+    // the search index and findProvidersByApproach always use the canonical key.
+    const FIELD_ALIASES = {
+      provider_marketing_age_specialty:         'age_specialty',
+      provider_marketing_treatment_modalities:  'modality',
+      provider_marketing_specialties:           'specialties_general',
+      provider_marketing_groups:                'groups',
+      provider_marketing_sexuality:             'sexuality',
+    };
+
     for (const r of rows || []) {
-      const fieldKey = String(r.field_key || '').trim();
+      const rawKey = String(r.field_key || '').trim();
+      const fieldKey = FIELD_ALIASES[rawKey] || rawKey;
       const fieldType = String(r.field_type || '').trim();
       const value = r.value;
       if (!fieldKey) continue;

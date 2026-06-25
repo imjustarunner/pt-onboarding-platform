@@ -250,6 +250,36 @@
               </div>
             </div>
           </div>
+
+          <!-- Intake Forms Tab -->
+          <div v-if="activeDetailTab === 'intake-forms'" class="detail-section">
+            <div class="section-header-inline">
+              <h3>Digital Forms</h3>
+              <button v-if="!readOnly" @click="handleAddIntakeLinkClick" class="btn btn-primary btn-sm">Add Form</button>
+            </div>
+            <p class="section-hint">
+              Digital forms (e.g. clinical profile, marketing directory) assigned as tasks the candidate must fill out.
+            </p>
+            <div v-if="!packageDetails.intakeLinks?.length" class="empty-state">
+              No digital forms added yet.
+            </div>
+            <div v-else class="items-list">
+              <div v-for="(lnk, index) in packageDetails.intakeLinks" :key="lnk.intake_link_id" class="item-row">
+                <span class="item-number">{{ index + 1 }}</span>
+                <div class="item-info">
+                  <strong>{{ lnk.title || '(Untitled Form)' }}</strong>
+                  <span v-if="lnk.description" class="item-description">{{ lnk.description }}</span>
+                  <span class="item-meta">
+                    Type: {{ lnk.form_type || 'intake' }}
+                    <span :class="lnk.is_active ? 'badge-success' : 'badge-secondary'" class="badge badge-sm ml-1">
+                      {{ lnk.is_active ? 'Active' : 'Inactive' }}
+                    </span>
+                  </span>
+                </div>
+                <button v-if="!readOnly" @click="removeIntakeLink(lnk.intake_link_id)" class="btn btn-danger btn-xs">Remove</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -390,6 +420,35 @@
       </div>
     </div>
 
+    <!-- Add Intake Link Modal -->
+    <div v-if="showAddIntakeLink" class="modal-overlay nested-modal" @click.self="showAddIntakeLink = false">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h3>Add Digital Form</h3>
+          <button @click.stop="showAddIntakeLink = false" class="btn-close">×</button>
+        </div>
+        <div class="form-group">
+          <label>Select Form</label>
+          <select v-model="addItemForm.intakeLinkId" class="form-control" @click.stop>
+            <option value="">-- Select --</option>
+            <option v-if="availableIntakeLinks.length === 0" disabled>No forms available</option>
+            <option v-for="lnk in availableIntakeLinks" :key="lnk.id" :value="lnk.id">
+              {{ lnk.title || lnk.public_key }} ({{ lnk.form_type || 'intake' }})
+            </option>
+          </select>
+          <small v-if="availableIntakeLinks.length === 0" style="color: var(--warning); display: block; margin-top: 8px;">
+            No forms found. Create intake links first under the Intake Forms section.
+          </small>
+        </div>
+        <div class="modal-actions">
+          <button @click.stop="showAddIntakeLink = false" class="btn btn-secondary">Cancel</button>
+          <button @click.stop="addIntakeLinkToPackage" class="btn btn-primary" :disabled="!addItemForm.intakeLinkId">
+            Add
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Assign Package Modal -->
     <div v-if="packageToAssign" class="modal-overlay nested-modal" @click.self="packageToAssign = null">
       <div class="modal-content" @click.stop>
@@ -480,17 +539,20 @@ const detailTabs = [
   { id: 'training-focuses', label: 'Training Focuses' },
   { id: 'modules', label: 'Modules' },
   { id: 'documents', label: 'Documents' },
-  { id: 'checklist-items', label: 'Checklist Items' }
+  { id: 'checklist-items', label: 'Checklist Items' },
+  { id: 'intake-forms', label: 'Digital Forms' }
 ];
 
 const showAddTrainingFocus = ref(false);
 const showAddModule = ref(false);
 const showAddDocument = ref(false);
 const showAddChecklistItem = ref(false);
+const showAddIntakeLink = ref(false);
 const availableTracks = ref([]);
 const availableModules = ref([]);
 const availableDocuments = ref([]);
 const availableChecklistItems = ref([]);
+const availableIntakeLinks = ref([]);
 const availableAgencies = ref([]);
 const availableUsers = ref([]);
 
@@ -500,7 +562,8 @@ const addItemForm = ref({
   documentTemplateId: '',
   actionType: 'signature',
   dueDateDays: null,
-  checklistItemId: ''
+  checklistItemId: '',
+  intakeLinkId: ''
 });
 
 const packageToAssign = ref(null);
@@ -805,7 +868,8 @@ const viewPackage = async (id, preserveTab = false) => {
       trainingFocuses: response.data.trainingFocuses || [],
       modules: response.data.modules || [],
       documents: response.data.documents || [],
-      checklistItems: response.data.checklistItems || []
+      checklistItems: response.data.checklistItems || [],
+      intakeLinks: response.data.intakeLinks || []
     };
     
     // Refetch available options filtered by package's agency
@@ -1089,6 +1153,53 @@ const removeDocument = async (documentTemplateId) => {
     await viewPackage(selectedPackage.value.id, true);
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to remove document';
+  }
+};
+
+const fetchIntakeLinks = async (agencyId) => {
+  try {
+    const params = {};
+    if (agencyId) params.organizationId = agencyId;
+    const res = await api.get('/intake-links', { params });
+    const data = Array.isArray(res.data) ? res.data : (res.data?.data || []);
+    availableIntakeLinks.value = data.filter(l => l.is_active);
+  } catch {
+    availableIntakeLinks.value = [];
+  }
+};
+
+const handleAddIntakeLinkClick = async () => {
+  const packageAgencyId = selectedPackage.value?.agency_id;
+  await fetchIntakeLinks(packageAgencyId);
+  showAddIntakeLink.value = true;
+};
+
+const addIntakeLinkToPackage = async () => {
+  try {
+    const res = await api.post(`/onboarding-packages/${selectedPackage.value.id}/intake-links`, {
+      intakeLinkId: parseInt(addItemForm.value.intakeLinkId),
+      orderIndex: packageDetails.value.intakeLinks?.length || 0
+    });
+    if (Array.isArray(res.data)) {
+      packageDetails.value.intakeLinks = [...res.data];
+    } else {
+      await viewPackage(selectedPackage.value.id, true);
+    }
+    addItemForm.value.intakeLinkId = '';
+    showAddIntakeLink.value = false;
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to add form';
+  }
+};
+
+const removeIntakeLink = async (intakeLinkId) => {
+  try {
+    await api.delete(`/onboarding-packages/${selectedPackage.value.id}/intake-links/${intakeLinkId}`);
+    packageDetails.value.intakeLinks = (packageDetails.value.intakeLinks || []).filter(
+      l => l.intake_link_id !== intakeLinkId
+    );
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to remove form';
   }
 };
 

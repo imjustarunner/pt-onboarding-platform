@@ -10,7 +10,8 @@ import {
   portalAcknowledge,
   portalComplete,
   listPortalMessages,
-  sendPortalMessage
+  sendPortalMessage,
+  completeIntakeFormTask
 } from '../controllers/prehirePortal.controller.js';
 
 const router = express.Router();
@@ -35,5 +36,6 @@ router.post(
   portalSign
 );
 router.post('/:token/tasks/:taskId/acknowledge', portalAcknowledge);
+router.post('/:token/tasks/:taskId/complete-form', completeIntakeFormTask);
 
 export default router;
