@@ -1173,6 +1173,8 @@ watch(
 .lifecycle-multi-select {
   min-height: 120px;
 }
+
+.section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
