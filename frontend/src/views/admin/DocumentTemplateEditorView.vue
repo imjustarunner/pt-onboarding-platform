@@ -59,6 +59,29 @@
               </div>
             </div>
             <div class="form-group">
+              <label>Lifecycle checklist item</label>
+              <select v-model="form.lifecycleItemKey">
+                <option value="">None — no lifecycle auto-sync</option>
+                <optgroup
+                  v-for="group in lifecycleDefinitionGroups"
+                  :key="group.category"
+                  :label="group.label"
+                >
+                  <option
+                    v-for="item in group.items"
+                    :key="item.itemKey"
+                    :value="item.itemKey"
+                  >
+                    {{ item.label }}
+                  </option>
+                </optgroup>
+              </select>
+              <small>
+                Links this document to a row on the employee Lifecycle tab. When the candidate completes
+                the task, that checklist item auto-checks. Only scoped items appear on their lifecycle view.
+              </small>
+            </div>
+            <div class="form-group">
               <label>Lifecycle stage tag</label>
               <select v-model="form.documentStage">
                 <option value="">General (no stage tag)</option>
@@ -292,6 +315,7 @@ const affiliatedOrganizations = ref([]);
 const loadingAffiliatedOrgs = ref(false);
 const letterheads = ref([]);
 const loadingLetterheads = ref(false);
+const lifecycleDefinitionGroups = ref([]);
 const selectedAgencyId = ref(null);
 
 const isEdit = computed(() => Boolean(route.params.templateId));
@@ -311,6 +335,7 @@ const form = ref({
   documentType: 'administrative',
   documentActionType: 'signature',
   documentStage: '',
+  lifecycleItemKey: '',
   isRequired: false,
   employeeDisplayCategory: '',
   layoutType: 'standard',
@@ -479,6 +504,7 @@ const loadTemplate = async () => {
       documentType: template.document_type || 'administrative',
       documentActionType: template.document_action_type || 'signature',
       documentStage: template.document_stage || '',
+      lifecycleItemKey: template.lifecycle_item_key || '',
       isRequired: !!template.is_required,
       employeeDisplayCategory: template.employee_display_category || '',
       layoutType: template.layout_type || 'standard',
@@ -525,6 +551,7 @@ const saveTemplate = async () => {
         documentType: form.value.documentType,
         documentActionType: form.value.documentActionType,
         documentStage: form.value.documentStage || null,
+        lifecycleItemKey: form.value.lifecycleItemKey || null,
         isRequired: form.value.isRequired ? 1 : 0,
         employeeDisplayCategory: form.value.employeeDisplayCategory || null,
         layoutType: form.value.layoutType,
@@ -568,6 +595,7 @@ const saveTemplate = async () => {
     updateData.documentType = form.value.documentType;
     updateData.documentActionType = form.value.documentActionType;
     updateData.documentStage = form.value.documentStage || null;
+    updateData.lifecycleItemKey = form.value.lifecycleItemKey || null;
     updateData.isRequired = form.value.isRequired ? 1 : 0;
     updateData.employeeDisplayCategory = form.value.employeeDisplayCategory || null;
     updateData.languageCode = form.value.languageCode || null;
@@ -644,6 +672,13 @@ watch(
 );
 
 onMounted(async () => {
+  try {
+    const lcRes = await api.get('/lifecycle/checklist-definitions', { params: { phase: 'onboarding' } });
+    lifecycleDefinitionGroups.value = lcRes.data?.groups || [];
+  } catch {
+    lifecycleDefinitionGroups.value = [];
+  }
+
   if (authStore.user?.role === 'admin') {
     await agencyStore.fetchUserAgencies();
     if (agencyStore.userAgencies?.length > 0) {

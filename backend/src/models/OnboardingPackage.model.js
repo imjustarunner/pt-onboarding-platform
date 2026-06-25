@@ -71,6 +71,13 @@ class OnboardingPackage {
       updates.push('package_type = ?');
       values.push(packageData.packageType);
     }
+    if (packageData.lifecycleItemKeys !== undefined) {
+      updates.push('lifecycle_item_keys = ?');
+      const keys = Array.isArray(packageData.lifecycleItemKeys)
+        ? packageData.lifecycleItemKeys.filter(Boolean)
+        : [];
+      values.push(keys.length ? JSON.stringify(keys) : null);
+    }
 
     if (updates.length === 0) {
       return this.findById(id);
@@ -157,7 +164,8 @@ class OnboardingPackage {
   // Document management
   static async getDocuments(packageId) {
     const [rows] = await pool.execute(
-      `SELECT opd.*, dt.name as document_name, dt.description as document_description
+      `SELECT opd.*, dt.name as document_name, dt.description as document_description,
+              dt.lifecycle_item_key
        FROM onboarding_package_documents opd
        JOIN document_templates dt ON opd.document_template_id = dt.id
        WHERE opd.package_id = ?

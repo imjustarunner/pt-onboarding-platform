@@ -104,6 +104,29 @@
             <small>Leave as "Platform-Wide" to make this package available to all agencies</small>
           </div>
           <div class="form-group">
+            <label>Lifecycle checklist items (manual steps)</label>
+            <select v-model="packageForm.lifecycleItemKeys" multiple class="form-control lifecycle-multi-select">
+              <optgroup
+                v-for="group in lifecycleDefinitionGroups"
+                :key="group.category"
+                :label="group.label"
+              >
+                <option
+                  v-for="item in group.items"
+                  :key="item.itemKey"
+                  :value="item.itemKey"
+                >
+                  {{ item.label }}
+                </option>
+              </optgroup>
+            </select>
+            <small>
+              Optional HR/orientation steps included when this package is assigned (e.g. equipment issued, login verified).
+              Document-linked items are scoped automatically from each document's lifecycle tag.
+              Hold Cmd/Ctrl to select multiple.
+            </small>
+          </div>
+          <div class="form-group">
             <label>
               <input v-model="packageForm.isActive" type="checkbox" />
               Active
@@ -199,6 +222,7 @@
                   <span class="item-meta">
                     Action: {{ doc.action_type === 'signature' ? 'E-Sign' : 'Review' }}
                     <span v-if="doc.due_date_days"> | Due: {{ doc.due_date_days }} days</span>
+                    <span v-if="doc.lifecycle_item_key"> | Lifecycle: {{ doc.lifecycle_item_key }}</span>
                   </span>
                 </div>
                 <button v-if="!readOnly" @click="removeDocument(doc.document_template_id)" class="btn btn-danger btn-xs">Remove</button>
@@ -443,8 +467,11 @@ const packageForm = ref({
   description: '',
   agencyId: null,
   isActive: true,
-  packageType: 'onboarding'
+  packageType: 'onboarding',
+  lifecycleItemKeys: []
 });
+
+const lifecycleDefinitionGroups = ref([]);
 
 const selectedPackage = ref(null);
 const packageDetails = ref({});
@@ -484,6 +511,28 @@ const assignForm = ref({
 });
 const assigning = ref(false);
 const assignError = ref('');
+
+const parseLifecycleItemKeys = (raw) => {
+  if (Array.isArray(raw)) return raw.filter(Boolean);
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
+
+const fetchLifecycleDefinitions = async () => {
+  try {
+    const res = await api.get('/lifecycle/checklist-definitions', { params: { phase: 'onboarding' } });
+    lifecycleDefinitionGroups.value = res.data?.groups || [];
+  } catch {
+    lifecycleDefinitionGroups.value = [];
+  }
+};
 
 const filteredPackages = computed(() => {
   const sid = Number(props.scopedAgencyId || 0);
@@ -742,7 +791,8 @@ const editPackage = (pkg) => {
     description: pkg.description || '',
     agencyId: pkg.agency_id || null,
     isActive: pkg.is_active !== false,
-    packageType: pkg.package_type || 'onboarding'
+    packageType: pkg.package_type || 'onboarding',
+    lifecycleItemKeys: parseLifecycleItemKeys(pkg.lifecycle_item_keys)
   };
   showCreateModal.value = false;
 };
@@ -836,7 +886,8 @@ const closeModal = () => {
     description: '',
     agencyId: null,
     isActive: true,
-    packageType: 'onboarding'
+    packageType: 'onboarding',
+    lifecycleItemKeys: []
   };
 };
 
@@ -1096,7 +1147,8 @@ onMounted(async () => {
     fetchUsers(),
     fetchTracks(),
     fetchModules(),
-    fetchDocuments()
+    fetchDocuments(),
+    fetchLifecycleDefinitions()
   ]);
   const sid = Number(props.scopedAgencyId || 0);
   if (Number.isFinite(sid) && sid > 0) {
@@ -1118,7 +1170,9 @@ watch(
 </script>
 
 <style scoped>
-.section-header {
+.lifecycle-multi-select {
+  min-height: 120px;
+}
   display: flex;
   justify-content: space-between;
   align-items: center;

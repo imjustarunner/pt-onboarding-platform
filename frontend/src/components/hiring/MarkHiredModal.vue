@@ -26,7 +26,12 @@
         <div class="section-label section-label-spaced">
           Pre-hire documents
           <span class="section-hint">
-            Pre-hire tagged templates are pre-selected. Add or remove as needed.
+            <template v-if="resolvedPackageName">
+              Loaded from package <strong>{{ resolvedPackageName }}</strong>. Add or remove as needed.
+            </template>
+            <template v-else>
+              Pre-hire tagged templates are pre-selected. Add or remove as needed.
+            </template>
           </span>
         </div>
 
@@ -264,6 +269,8 @@ const allSelectedDocs = computed(() => {
 
 // ─── Settings ────────────────────────────────────────────────────────────────
 const settings = ref(null);
+const resolvedPackageId = ref(null);
+const resolvedPackageName = ref('');
 
 // ─── Signer roles ─────────────────────────────────────────────────────────────
 const signerRoles = ref([]);
@@ -345,8 +352,37 @@ const loadModal = async () => {
       return list.filter(t => t.is_active !== false && t.is_active !== 0);
     })();
 
-    // Auto-select pre_hire tagged templates
-    selectedDocs.value = templates.value.filter(t => t.document_stage === 'pre_hire');
+    resolvedPackageId.value = null;
+    resolvedPackageName.value = '';
+
+    const appliedRole =
+      props.candidate?.applied_role || props.appliedRole || '';
+    let packageId = null;
+    if (appliedRole && Array.isArray(settings.value.role_package_mappings)) {
+      const match = settings.value.role_package_mappings.find(
+        (m) => m.role && String(m.role).toLowerCase() === String(appliedRole).toLowerCase()
+      );
+      if (match?.packageId) packageId = match.packageId;
+    }
+    if (!packageId && settings.value.default_prehire_package_id) {
+      packageId = settings.value.default_prehire_package_id;
+    }
+
+    if (packageId) {
+      try {
+        const pkgRes = await api.get(`/onboarding-packages/${packageId}`);
+        const pkg = pkgRes.data || {};
+        resolvedPackageId.value = pkg.id || packageId;
+        resolvedPackageName.value = pkg.name || '';
+        const docIds = (pkg.documents || []).map((d) => d.document_template_id);
+        const byId = new Map(templates.value.map((t) => [t.id, t]));
+        selectedDocs.value = docIds.map((id) => byId.get(id)).filter(Boolean);
+      } catch {
+        selectedDocs.value = templates.value.filter(t => t.document_stage === 'pre_hire');
+      }
+    } else {
+      selectedDocs.value = templates.value.filter(t => t.document_stage === 'pre_hire');
+    }
 
     // Pre-load default contract
     if (settings.value.default_contract_template_id) {
@@ -399,6 +435,7 @@ const send = async () => {
       `/hiring/candidates/${props.candidate.id}/send-prehire`,
       {
         documentTemplateIds: docIds,
+        packageId: resolvedPackageId.value || null,
         signerAssignments: allSigners,
         msgSubject: msgSubject.value,
         msgBody: msgBody.value

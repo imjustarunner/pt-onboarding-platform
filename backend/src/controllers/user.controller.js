@@ -7605,6 +7605,13 @@ export const markUserTerminated = async (req, res, next) => {
     }
 
     try {
+      const { scopeOffboardingChecklist } = await import('../services/lifecycleScope.service.js');
+      await scopeOffboardingChecklist(parseInt(id, 10));
+    } catch (scopeErr) {
+      console.warn('[markUserTerminated] offboarding scope failed:', scopeErr?.message);
+    }
+
+    try {
       const agencyId = await getFirstAgencyForAudit(req.user.id, parseInt(id), req.user.role);
       if (agencyId) {
         await AdminAuditLog.logAction({

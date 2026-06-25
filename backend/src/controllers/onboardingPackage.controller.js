@@ -74,17 +74,23 @@ export const createPackage = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
     }
 
-    const { name, description, agencyId, isActive } = req.body;
+    const { name, description, agencyId, isActive, packageType, lifecycleItemKeys } = req.body;
 
     const pkg = await OnboardingPackage.create({
       name,
       description,
       agencyId: agencyId || null,
       createdByUserId: req.user.id,
-      isActive: isActive !== undefined ? isActive : true
+      isActive: isActive !== undefined ? isActive : true,
+      packageType: packageType || 'onboarding'
     });
 
-    res.status(201).json(pkg);
+    if (lifecycleItemKeys !== undefined) {
+      await OnboardingPackage.update(pkg.id, { lifecycleItemKeys });
+    }
+
+    const refreshed = await OnboardingPackage.findById(pkg.id);
+    res.status(201).json(refreshed || pkg);
   } catch (error) {
     next(error);
   }
@@ -98,12 +104,14 @@ export const updatePackage = async (req, res, next) => {
     }
 
     const { id } = req.params;
-    const { name, description, isActive } = req.body;
+    const { name, description, agencyId, isActive, packageType, lifecycleItemKeys } = req.body;
 
     const pkg = await OnboardingPackage.update(id, {
       name,
       description,
-      isActive
+      isActive,
+      packageType,
+      lifecycleItemKeys
     });
 
     if (!pkg) {
@@ -472,7 +480,12 @@ export const assignPackage = async (req, res, next) => {
             documentActionType: doc.action_type,
             assignedByUserId,
             assignedToUserId: parseInt(userId),
-            dueDate: documentDueDate
+            dueDate: documentDueDate,
+            lifecycleItemKey: template.lifecycle_item_key || null,
+            metadata: {
+              fromPackage: parseInt(id),
+              lifecycleItemKey: template.lifecycle_item_key || undefined
+            }
           });
           
           console.log(`Document task created successfully: Task ID ${task.id} for user ${userId} with due date: ${documentDueDate}`);
@@ -504,6 +517,13 @@ export const assignPackage = async (req, res, next) => {
             console.error(`Failed to assign checklist item ${checklistItem.id} from package:`, checklistError);
           }
         }
+      }
+
+      try {
+        const { scopeFromPackageAssignment } = await import('../services/lifecycleScope.service.js');
+        await scopeFromPackageAssignment(parseInt(userId, 10), parseInt(id, 10));
+      } catch (scopeErr) {
+        console.warn('[assignPackage] lifecycle scope failed:', scopeErr?.message);
       }
     }
 

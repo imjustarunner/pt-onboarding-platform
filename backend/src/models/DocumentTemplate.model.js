@@ -99,9 +99,10 @@ class DocumentTemplate {
     let hasFieldDefinitionsColumn = false;
     let hasDisplayCategoryColumn = false;
     let hasDocumentStageColumn = false;
+    let hasLifecycleItemKeyColumn = false;
     try {
       const [cols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'document_templates' AND COLUMN_NAME IN ('organization_id','layout_type','letterhead_template_id','letter_header_html','letter_footer_html','field_definitions','employee_display_category','document_stage','is_required')"
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'document_templates' AND COLUMN_NAME IN ('organization_id','layout_type','letterhead_template_id','letter_header_html','letter_footer_html','field_definitions','employee_display_category','document_stage','is_required','lifecycle_item_key')"
       );
       const set = new Set((cols || []).map((r) => r.COLUMN_NAME));
       hasLayoutTypeColumn = set.has('layout_type');
@@ -111,6 +112,7 @@ class DocumentTemplate {
       hasFieldDefinitionsColumn = set.has('field_definitions');
       hasDisplayCategoryColumn = set.has('employee_display_category');
       hasDocumentStageColumn = set.has('document_stage');
+      hasLifecycleItemKeyColumn = set.has('lifecycle_item_key');
     } catch {
       // ignore (older DBs)
     }
@@ -221,6 +223,13 @@ class DocumentTemplate {
       insertFields += ', is_required';
       insertValues += ', ?';
       insertParams.push(templateData.isRequired || templateData.is_required ? 1 : 0);
+    }
+
+    if (hasLifecycleItemKeyColumn) {
+      const rawKey = templateData.lifecycleItemKey ?? templateData.lifecycle_item_key ?? null;
+      insertFields += ', lifecycle_item_key';
+      insertValues += ', ?';
+      insertParams.push(rawKey ? String(rawKey).trim() : null);
     }
 
     // language_code — store only 'es'; treat null/'en' identically as English.
@@ -544,9 +553,10 @@ class DocumentTemplate {
     let hasFieldDefinitionsColumn = false;
     let hasDisplayCategoryColumn = false;
     let hasDocumentStageColumn = false;
+    let hasLifecycleItemKeyColumn = false;
     try {
       const [cols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'document_templates' AND COLUMN_NAME IN ('organization_id','layout_type','letterhead_template_id','letter_header_html','letter_footer_html','field_definitions','employee_display_category','document_stage','is_required')"
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'document_templates' AND COLUMN_NAME IN ('organization_id','layout_type','letterhead_template_id','letter_header_html','letter_footer_html','field_definitions','employee_display_category','document_stage','is_required','lifecycle_item_key')"
       );
       const set = new Set((cols || []).map((r) => r.COLUMN_NAME));
       hasOrganizationColumn = set.has('organization_id');
@@ -557,6 +567,7 @@ class DocumentTemplate {
       hasFieldDefinitionsColumn = set.has('field_definitions');
       hasDisplayCategoryColumn = set.has('employee_display_category');
       hasDocumentStageColumn = set.has('document_stage');
+      hasLifecycleItemKeyColumn = set.has('lifecycle_item_key');
     } catch {
       // ignore (older DBs)
     }
@@ -907,6 +918,12 @@ class DocumentTemplate {
       updates.push('is_required = ?');
       const raw = templateData.isRequired ?? templateData.is_required;
       safePush(raw ? 1 : 0, 'isRequired');
+    }
+    if (hasLifecycleItemKeyColumn && ('lifecycleItemKey' in templateData || 'lifecycle_item_key' in templateData)) {
+      updates.push('lifecycle_item_key = ?');
+      const raw = templateData.lifecycleItemKey ?? templateData.lifecycle_item_key;
+      const val = raw === null || raw === undefined || raw === '' ? null : String(raw).trim();
+      safePush(val, 'lifecycleItemKey');
     }
     if ('languageCode' in templateData) {
       updates.push('language_code = ?');

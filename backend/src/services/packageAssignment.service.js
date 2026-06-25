@@ -8,6 +8,7 @@
 import pool from '../config/database.js';
 import OnboardingPackage from '../models/OnboardingPackage.model.js';
 import TaskAssignmentService from './taskAssignment.service.js';
+import { scopeFromPackageAssignment } from './lifecycleScope.service.js';
 import UserTrack from '../models/UserTrack.model.js';
 import TrainingTrack from '../models/TrainingTrack.model.js';
 import Module from '../models/Module.model.js';
@@ -150,7 +151,11 @@ export async function assignPackageToUser({
           assignedToAgencyId: agencyId,
           documentActionType: doc.action_type || template.document_action_type || 'signature',
           dueDate: docDueDate,
-          metadata: { fromPackage: packageId }
+          lifecycleItemKey: template.lifecycle_item_key || null,
+          metadata: {
+            fromPackage: packageId,
+            lifecycleItemKey: template.lifecycle_item_key || undefined
+          }
         });
 
         summary.documents.push({ templateId: doc.document_template_id, name: template.name });
@@ -171,6 +176,12 @@ export async function assignPackageToUser({
   // Ensure account setup checklist item exists for onboarding packages
   if (ensureAccountSetup || pkg.package_type === 'onboarding') {
     await ensureAccountSetupItem(userId, agencyId, assignedByUserId);
+  }
+
+  try {
+    await scopeFromPackageAssignment(userId, packageId);
+  } catch (scopeErr) {
+    console.warn('[PackageAssignment] lifecycle scope failed:', scopeErr?.message);
   }
 
   return { packageId, packageName: pkg.name, packageType: pkg.package_type, userId, ...summary };

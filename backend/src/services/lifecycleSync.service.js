@@ -31,10 +31,31 @@ async function resolveUserInfoField(userId, fieldKey) {
   return { completed, completedAt: completed ? (rows[0].updated_at || null) : null };
 }
 
-async function resolveDocumentTask(userId, integrationRef) {
-  // Match document tasks where the template slug/name contains the ref string.
-  // Tasks use assigned_to_user_id (not user_id). reference_id links to document_templates.
+async function resolveDocumentTask(userId, integrationRef, itemKey) {
+  const key = String(itemKey || '').trim().toLowerCase();
+  if (key) {
+    const [exactRows] = await pool.execute(
+      `SELECT t.id, t.status, t.completed_at
+       FROM tasks t
+       LEFT JOIN document_templates dt ON dt.id = t.reference_id AND t.task_type = 'document'
+       WHERE t.assigned_to_user_id = ?
+         AND t.task_type = 'document'
+         AND t.status = 'completed'
+         AND (
+           LOWER(COALESCE(dt.lifecycle_item_key, '')) = ?
+           OR LOWER(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.lifecycleItemKey'))) = ?
+         )
+       ORDER BY t.completed_at DESC
+       LIMIT 1`,
+      [userId, key, key]
+    );
+    const exact = exactRows?.[0];
+    if (exact) return { completed: true, completedAt: exact.completed_at || null };
+  }
+
+  // Legacy fallback: substring match on template name/type
   const ref = String(integrationRef || '').toLowerCase();
+  if (!ref) return { completed: false, completedAt: null };
   const [rows] = await pool.execute(
     `SELECT t.id, t.status, t.completed_at
      FROM tasks t
@@ -152,7 +173,7 @@ export async function syncLifecycleItems(userId) {
           break;
         }
         case 'document_task':
-          result = await resolveDocumentTask(uid, def.integration_ref);
+          result = await resolveDocumentTask(uid, def.integration_ref, def.item_key);
           break;
         case 'training_task':
           result = await resolveTrainingTask(uid, def.integration_ref);

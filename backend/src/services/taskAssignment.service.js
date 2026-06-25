@@ -70,6 +70,30 @@ class TaskAssignmentService {
       isRequired: isRequired ? 1 : 0
     });
 
+    if (documentTemplateId && assignedToUserId) {
+      try {
+        const DocumentTemplate = (await import('../models/DocumentTemplate.model.js')).default;
+        const { scopeLifecycleItem } = await import('./lifecycleScope.service.js');
+        const template = await DocumentTemplate.findById(documentTemplateId);
+        const lifecycleItemKey =
+          assignmentData.lifecycleItemKey || template?.lifecycle_item_key || null;
+        if (lifecycleItemKey) {
+          const mergedMeta = {
+            ...(typeof metadata === 'object' && metadata ? metadata : {}),
+            lifecycleItemKey
+          };
+          await pool.execute('UPDATE tasks SET metadata = ? WHERE id = ?', [
+            JSON.stringify(mergedMeta),
+            task.id
+          ]);
+          task.metadata = mergedMeta;
+          await scopeLifecycleItem(assignedToUserId, lifecycleItemKey, 'document_task', task.id);
+        }
+      } catch (scopeErr) {
+        console.warn('[assignDocumentTask] lifecycle scope failed:', scopeErr?.message);
+      }
+    }
+
     // If it's a template, generate personalized user document immediately
     if (documentTemplateId && assignedToUserId) {
       try {

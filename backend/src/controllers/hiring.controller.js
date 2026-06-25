@@ -2925,6 +2925,39 @@ export const deleteSignerRole = async (req, res, next) => {
 
 // ─── Send Pre-Hire (unified: promote + assign docs + countersign tasks) ─────
 
+function parsePrehireSettings(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+async function resolvePrehirePackageId({ candidateUserId, bodyPackageId, settings }) {
+  const explicit = parseIntParam(bodyPackageId);
+  if (explicit) return explicit;
+
+  try {
+    const [hpRows] = await pool.execute(
+      'SELECT applied_role FROM hiring_profiles WHERE candidate_user_id = ? LIMIT 1',
+      [candidateUserId]
+    );
+    const appliedRole = hpRows[0]?.applied_role || null;
+    if (appliedRole && Array.isArray(settings.role_package_mappings)) {
+      const match = settings.role_package_mappings.find(
+        (m) => m.role && String(m.role).toLowerCase() === String(appliedRole).toLowerCase()
+      );
+      if (match?.packageId) return parseIntParam(match.packageId);
+    }
+  } catch {
+    // non-fatal
+  }
+
+  return parseIntParam(settings.default_prehire_package_id);
+}
+
 export const sendPreHire = async (req, res, next) => {
   try {
     const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
@@ -3063,12 +3096,35 @@ export const sendPreHire = async (req, res, next) => {
     }
 
     // 2. Assign selected document templates as tasks
-    const { documentTemplateIds = [], signerAssignments = [] } = req.body;
+    const { documentTemplateIds = [], signerAssignments = [], packageId: bodyPackageId } = req.body;
     const { default: TaskAssignmentService } = await import('../services/taskAssignment.service.js');
     const { default: DocumentTemplate } = await import('../models/DocumentTemplate.model.js');
+    const { default: OnboardingPackage } = await import('../models/OnboardingPackage.model.js');
+    const { scopeFromPackageAssignment } = await import('../services/lifecycleScope.service.js');
     const assignedTasks = [];
 
-    for (const templateId of documentTemplateIds) {
+    const [prehireSettingsRows] = await pool.execute(
+      'SELECT prehire_settings FROM agencies WHERE id = ? LIMIT 1',
+      [agencyId]
+    );
+    const prehireSettings = parsePrehireSettings(prehireSettingsRows[0]?.prehire_settings);
+
+    const resolvedPackageId = await resolvePrehirePackageId({
+      candidateUserId,
+      bodyPackageId,
+      settings: prehireSettings
+    });
+
+    let templateIds = (documentTemplateIds || [])
+      .map((id) => parseInt(id, 10))
+      .filter((n) => Number.isFinite(n) && n > 0);
+
+    if (!templateIds.length && resolvedPackageId) {
+      const docs = await OnboardingPackage.getDocuments(resolvedPackageId);
+      templateIds = (docs || []).map((d) => d.document_template_id).filter(Boolean);
+    }
+
+    for (const templateId of templateIds) {
       try {
         const tmpl = await DocumentTemplate.findById(templateId);
         if (!tmpl) continue;
@@ -3081,7 +3137,11 @@ export const sendPreHire = async (req, res, next) => {
           assignedToAgencyId: agencyId,
           documentActionType: tmpl.document_action_type || 'signature',
           isRequired: tmpl.is_required ? 1 : 0,
-          metadata: { prehire: true }
+          lifecycleItemKey: tmpl.lifecycle_item_key || null,
+          metadata: {
+            prehire: true,
+            lifecycleItemKey: tmpl.lifecycle_item_key || undefined
+          }
         });
         assignedTasks.push(task);
 
@@ -3115,12 +3175,21 @@ export const sendPreHire = async (req, res, next) => {
       }
     }
 
+    if (resolvedPackageId) {
+      try {
+        await scopeFromPackageAssignment(candidateUserId, resolvedPackageId);
+      } catch (scopeErr) {
+        console.warn('[sendPreHire] lifecycle scope failed:', scopeErr?.message);
+      }
+    }
+
     res.json({
       ok: true,
       passwordlessToken: tokenResult?.token || null,
       passwordlessTokenLink: tokenLink,
       assignedTaskCount: assignedTasks.length,
-      signerTaskCount: signerAssignments.length * assignedTasks.length
+      signerTaskCount: signerAssignments.length * assignedTasks.length,
+      packageId: resolvedPackageId || null
     });
   } catch (e) { next(e); }
 };

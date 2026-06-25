@@ -227,6 +227,10 @@
           </div>
 
           <!-- Onboarding Checklist Groups -->
+          <p v-if="!data.onboarding.groups?.length" class="lc-hint lc-empty-scope">
+            No onboarding checklist items are in scope yet. Items appear here when a pre-hire or onboarding
+            package is assigned, or when a tagged document task is sent to this person.
+          </p>
           <template v-for="group in data.onboarding.groups" :key="group.category">
             <div class="lc-checklist-group">
               <h4 class="lc-block-title">{{ group.label }}</h4>

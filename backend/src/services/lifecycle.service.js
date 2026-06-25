@@ -15,7 +15,9 @@ import pool from '../config/database.js';
 import LifecycleChecklistDefinition from '../models/LifecycleChecklistDefinition.model.js';
 import UserLifecycleChecklistItem from '../models/UserLifecycleChecklistItem.model.js';
 import UserSeparationInfo from '../models/UserSeparationInfo.model.js';
+import UserLifecycleScopedItem from '../models/UserLifecycleScopedItem.model.js';
 import { getLeaveInfoForUserIds } from './leaveOfAbsence.service.js';
+import { backfillScopeFromExistingAssignments } from './lifecycleScope.service.js';
 
 // Milestone date field keys we manage via user_info_values EAV
 const MILESTONE_FIELD_KEYS = [
@@ -153,6 +155,15 @@ function definitionApplies(definition, isProvider) {
   return true;
 }
 
+function definitionIsVisible(definition, scopedKeys, state) {
+  if (definition.scope_mode === 'always') return true;
+  if (scopedKeys.has(definition.item_key)) return true;
+  if (state?.is_completed) return true;
+  if (state?.manually_overridden) return true;
+  if (state?.notes) return true;
+  return false;
+}
+
 function computeOffboardingStatus(terminationDate, offboardItems) {
   if (!terminationDate) return 'N/A';
   const required = offboardItems.filter((i) => i.is_required);
@@ -195,18 +206,26 @@ export async function getLifecycleData(userId) {
 
   const leaveInfo = leaveMap.get(userId) || null;
 
+  try {
+    await backfillScopeFromExistingAssignments(userId);
+  } catch {
+    // non-fatal
+  }
+  const scopedKeys = await UserLifecycleScopedItem.findKeysByUser(userId);
+
   // Filter definitions applicable to this user's role
   const applicable = allDefinitions.filter((d) => definitionApplies(d, isProvider));
-  const applicableIds = applicable.map((d) => d.id);
 
-  // Ensure per-user rows exist for all applicable definitions
-  if (applicableIds.length) {
-    await UserLifecycleChecklistItem.ensureRows(userId, applicableIds);
-  }
-
-  // Fetch user checklist state
   const userItems = await UserLifecycleChecklistItem.findByUser(userId);
   const stateByDefId = new Map(userItems.map((i) => [i.definition_id, i]));
+
+  const visibleApplicable = applicable.filter((d) => {
+    if (d.phase === 'offboarding') return !!user.termination_date;
+    return definitionIsVisible(d, scopedKeys, stateByDefId.get(d.id));
+  });
+  if (visibleApplicable.length) {
+    await UserLifecycleChecklistItem.ensureRows(userId, visibleApplicable.map((d) => d.id));
+  }
 
   // Build enriched items grouped by phase → category
   const onboardingGroups = {};
@@ -221,6 +240,7 @@ export async function getLifecycleData(userId) {
     const [docTaskRows] = await pool.execute(
       `SELECT t.id AS taskId, t.title, t.reference_id, t.completed_at,
               dt.title AS templateTitle, dt.document_type, dt.name AS templateName,
+              dt.lifecycle_item_key,
               sd.id AS signedDocId
        FROM tasks t
        LEFT JOIN document_templates dt ON dt.id = t.reference_id
@@ -231,8 +251,8 @@ export async function getLifecycleData(userId) {
       [userId]
     );
     for (const row of docTaskRows) {
-      // Index by lower-cased title fragments so lifecycle integration_ref lookups can match
       const keys = [
+        String(row.lifecycle_item_key || '').toLowerCase(),
         String(row.templateTitle || '').toLowerCase(),
         String(row.templateName || '').toLowerCase(),
         String(row.document_type || '').toLowerCase(),
@@ -248,6 +268,11 @@ export async function getLifecycleData(userId) {
 
   for (const def of applicable) {
     const state = stateByDefId.get(def.id) || { is_completed: 0, completed_at: null, completion_method: 'manual' };
+
+    if (def.phase === 'onboarding' && !definitionIsVisible(def, scopedKeys, state)) {
+      continue;
+    }
+
     const item = {
       id: state.id || null,
       definitionId: def.id,
@@ -264,13 +289,15 @@ export async function getLifecycleData(userId) {
     };
 
     // For completed document_task items, attach the signed document task ID for download links
-    if (def.integration_type === 'document_task' && item.isCompleted && def.integration_ref) {
-      const ref = String(def.integration_ref).toLowerCase();
-      for (const [key, row] of completedDocTasksByRef) {
-        if (key.includes(ref) || ref.includes(key)) {
-          item.documentTaskId = row.taskId || null;
-          item.hasSignedDocument = !!row.signedDocId;
-          break;
+    if (def.integration_type === 'document_task' && item.isCompleted) {
+      const ref = String(def.item_key || def.integration_ref || '').toLowerCase();
+      if (ref) {
+        for (const [key, row] of completedDocTasksByRef) {
+          if (key === ref || key.includes(ref) || ref.includes(key)) {
+            item.documentTaskId = row.taskId || null;
+            item.hasSignedDocument = !!row.signedDocId;
+            break;
+          }
         }
       }
     }
