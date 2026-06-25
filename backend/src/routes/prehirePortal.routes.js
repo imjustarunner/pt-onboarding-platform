@@ -8,7 +8,9 @@ import {
   portalIntent,
   portalSign,
   portalAcknowledge,
-  portalComplete
+  portalComplete,
+  listPortalMessages,
+  sendPortalMessage
 } from '../controllers/prehirePortal.controller.js';
 
 const router = express.Router();
@@ -17,6 +19,12 @@ const router = express.Router();
 router.use('/:token', authenticatePrehireToken);
 
 router.get('/:token', getPortal);
+router.get('/:token/messages', listPortalMessages);
+router.post(
+  '/:token/messages',
+  [body('message').trim().notEmpty().withMessage('message is required')],
+  sendPortalMessage
+);
 router.post('/:token/complete', portalComplete);
 router.get('/:token/tasks/:taskId', getPortalTask);
 router.post('/:token/tasks/:taskId/consent', portalConsent);

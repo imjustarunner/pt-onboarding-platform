@@ -6,8 +6,103 @@
  */
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import HiringNote from '../models/HiringNote.model.js';
 import EmailService from '../services/email.service.js';
 import { syncLifecycleItems } from '../services/lifecycleSync.service.js';
+
+function resolveBaseUrl(req) {
+  const proto = (req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
+  const host = req.get('x-forwarded-host') || req.get('host');
+  return `${proto}://${host}`;
+}
+
+function normalizeUploadsPath(p) {
+  if (!p) return null;
+  let cleaned = String(p);
+  if (cleaned.startsWith('/')) cleaned = cleaned.slice(1);
+  if (cleaned.startsWith('uploads/')) cleaned = cleaned.substring('uploads/'.length);
+  return cleaned;
+}
+
+function resolveLogoUrl(req, raw) {
+  if (!raw) return null;
+  if (raw.logo_url && String(raw.logo_url).startsWith('http')) return raw.logo_url;
+  const baseUrl = resolveBaseUrl(req);
+  const cleaned = normalizeUploadsPath(raw.logo_path);
+  if (cleaned) return `${baseUrl}/uploads/${cleaned}`;
+  return raw.logo_url || null;
+}
+
+function resolveProfilePhotoUrl(req, photoPath) {
+  const cleaned = normalizeUploadsPath(photoPath);
+  if (!cleaned) return null;
+  return `${resolveBaseUrl(req)}/uploads/${cleaned}`;
+}
+
+function buildAgencyBranding(req, raw) {
+  if (!raw) return null;
+  const palette = (() => {
+    try {
+      return typeof raw.color_palette === 'string' ? JSON.parse(raw.color_palette) : (raw.color_palette || {});
+    } catch {
+      return {};
+    }
+  })();
+  const theme = (() => {
+    try {
+      return typeof raw.theme_settings === 'string' ? JSON.parse(raw.theme_settings) : (raw.theme_settings || {});
+    } catch {
+      return {};
+    }
+  })();
+  const primaryColor = palette.primary || theme.primaryColor || theme.primary_color || '#1d4ed8';
+  const secondaryColor = palette.secondary || theme.secondaryColor || theme.secondary_color || primaryColor;
+  const accentColor = palette.accent || theme.accentColor || theme.accent_color || secondaryColor || primaryColor;
+  return {
+    id: raw.id,
+    name: raw.name,
+    logoUrl: resolveLogoUrl(req, raw),
+    phoneNumber: raw.phone_number || null,
+    portalUrl: raw.portal_url || null,
+    primaryColor,
+    secondaryColor,
+    accentColor,
+    sidebarColor: theme.sidebarColor || theme.sidebar_color || palette.sidebar || null,
+    fontFamily: theme.fontFamily || palette.fontFamily || null,
+    palette,
+    theme
+  };
+}
+
+async function loadSupportTeam(req, agencyId) {
+  if (!agencyId) return { label: 'People Operations', members: [] };
+  try {
+    const [rows] = await pool.execute(
+      `SELECT u.id, u.first_name, u.last_name, u.profile_photo_path
+       FROM users u
+       INNER JOIN user_agencies ua ON ua.user_id = u.id
+       WHERE ua.agency_id = ?
+         AND u.is_active = TRUE
+         AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+         AND u.role IN ('admin', 'super_admin', 'agency_admin')
+       ORDER BY u.first_name ASC, u.last_name ASC
+       LIMIT 3`,
+      [agencyId]
+    );
+    return {
+      label: 'People Operations',
+      members: (rows || []).map((r) => ({
+        id: r.id,
+        firstName: r.first_name || '',
+        lastName: r.last_name || '',
+        initials: `${(r.first_name || '')[0] || ''}${(r.last_name || '')[0] || ''}`.toUpperCase() || 'PO',
+        photoUrl: resolveProfilePhotoUrl(req, r.profile_photo_path)
+      }))
+    };
+  } catch {
+    return { label: 'People Operations', members: [] };
+  }
+}
 
 // ─── GET /api/prehire-portal/:token ─────────────────────────────────────────
 // Returns portal state: candidate info, org info, tasks, overall progress.
@@ -22,9 +117,10 @@ export const getPortal = async (req, res, next) => {
 
     // Agency / org info + branding
     let agency = null;
+    let supportTeam = { label: 'People Operations', members: [] };
     try {
       const [agRows] = await pool.execute(
-        `SELECT a.id, a.name, a.logo_url, a.color_palette, a.theme_settings, a.phone_number, a.portal_url
+        `SELECT a.id, a.name, a.logo_url, a.logo_path, a.color_palette, a.theme_settings, a.phone_number, a.portal_url
          FROM agencies a
          JOIN user_agencies ua ON ua.agency_id = a.id
          WHERE ua.user_id = ?
@@ -33,18 +129,8 @@ export const getPortal = async (req, res, next) => {
       );
       const raw = agRows[0] || null;
       if (raw) {
-        const palette = (() => { try { return typeof raw.color_palette === 'string' ? JSON.parse(raw.color_palette) : (raw.color_palette || {}); } catch { return {}; } })();
-        const theme = (() => { try { return typeof raw.theme_settings === 'string' ? JSON.parse(raw.theme_settings) : (raw.theme_settings || {}); } catch { return {}; } })();
-        agency = {
-          id: raw.id,
-          name: raw.name,
-          logoUrl: raw.logo_url || null,
-          phoneNumber: raw.phone_number || null,
-          primaryColor: palette.primary || theme.primaryColor || theme.primary_color || '#1d4ed8',
-          accentColor: palette.accent || theme.accentColor || palette.secondary || '#0f766e',
-          palette,
-          theme
-        };
+        agency = buildAgencyBranding(req, raw);
+        supportTeam = await loadSupportTeam(req, raw.id);
       }
     } catch { /* ignore */ }
 
@@ -98,7 +184,8 @@ export const getPortal = async (req, res, next) => {
         status: user.status,
         appliedRole: hiringProfile?.applied_role || null
       },
-      agency: agency ? { id: agency.id, name: agency.name, logoUrl: agency.logo_url } : null,
+      agency,
+      supportTeam,
       tasks,
       progress: {
         total: totalTasks,
@@ -462,3 +549,46 @@ async function advanceCandidateStatus(userId) {
     console.error('[prehirePortal] Staff notification task creation failed:', e);
   }
 }
+
+// ─── GET /api/prehire-portal/:token/messages ─────────────────────────────────
+export const listPortalMessages = async (req, res, next) => {
+  try {
+    const { id: userId } = req.portalUser;
+    const messages = await HiringNote.listPortalMessages(userId);
+    res.json({
+      messages: messages.map((m) => ({
+        id: m.id,
+        message: m.message,
+        createdAt: m.created_at,
+        isCandidate: m.author_user_id === userId,
+        authorName: m.author_user_id === userId
+          ? null
+          : `${m.author_first_name || ''} ${m.author_last_name || ''}`.trim() || 'People Operations'
+      }))
+    });
+  } catch (e) { next(e); }
+};
+
+// ─── POST /api/prehire-portal/:token/messages ────────────────────────────────
+export const sendPortalMessage = async (req, res, next) => {
+  try {
+    const { id: userId } = req.portalUser;
+    const message = String(req.body?.message || '').trim();
+    if (!message) return res.status(400).json({ error: { message: 'message is required' } });
+
+    const note = await HiringNote.create({
+      candidateUserId: userId,
+      authorUserId: userId,
+      message,
+      isPortalMessage: true
+    });
+
+    res.status(201).json({
+      id: note.id,
+      message: note.message,
+      createdAt: note.created_at,
+      isCandidate: true,
+      authorName: null
+    });
+  } catch (e) { next(e); }
+};

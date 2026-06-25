@@ -405,15 +405,20 @@
                 <div v-for="n in notes" :key="n.id" class="phr-note-item">
                   <div class="phr-note-header">
                     <span class="phr-note-author">{{ n.author_name || 'Staff' }}</span>
+                    <span v-if="n.is_portal_message" class="phr-note-portal-badge">Portal chat</span>
                     <span class="phr-note-date">{{ fmtDate(n.created_at) }}</span>
                   </div>
                   <div class="phr-note-body">{{ n.message }}</div>
                 </div>
               </div>
               <div class="phr-note-composer">
-                <textarea v-model="noteText" class="phr-note-input" rows="3" placeholder="Add a note…"></textarea>
+                <textarea v-model="noteText" class="phr-note-input" rows="3" placeholder="Add a note or reply to the candidate in their portal chat…"></textarea>
+                <label class="phr-note-portal-check">
+                  <input v-model="noteToPortal" type="checkbox" />
+                  Send to candidate portal chat
+                </label>
                 <button class="phr-btn phr-btn-primary phr-btn-sm" @click="saveNote" :disabled="!noteText.trim() || noteSaving">
-                  {{ noteSaving ? 'Saving…' : 'Save note' }}
+                  {{ noteSaving ? 'Saving…' : (noteToPortal ? 'Send to portal' : 'Save note') }}
                 </button>
               </div>
             </div>
@@ -496,6 +501,7 @@ const tasksLoading = ref(false);
 const notes = ref([]);
 const notesLoading = ref(false);
 const noteText = ref('');
+const noteToPortal = ref(false);
 const noteSaving = ref(false);
 const showPromoteModal = ref(false);
 const promoteCandidate = ref(null);
@@ -627,8 +633,12 @@ const saveNote = async () => {
   noteSaving.value = true;
   try {
     const params = selectedAgencyId.value ? { agencyId: selectedAgencyId.value } : {};
-    await api.post(`/hiring/candidates/${selectedId.value}/notes`, { message: noteText.value }, { params });
+    await api.post(`/hiring/candidates/${selectedId.value}/notes`, {
+      message: noteText.value,
+      isPortalMessage: noteToPortal.value
+    }, { params });
     noteText.value = '';
+    noteToPortal.value = false;
     await loadNotes(selectedId.value);
   } catch (e) {
     alert(e.response?.data?.error?.message || 'Failed to save note.');
@@ -987,6 +997,24 @@ onMounted(load);
 
 /* Notes tab */
 .phr-notes-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+.phr-note-portal-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #2563eb;
+  background: #dbeafe;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.phr-note-portal-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #475569;
+  margin: 8px 0 10px;
+}
 .phr-note-item { background: #f9fafb; border-radius: 10px; padding: 12px; }
 .phr-note-header { display: flex; justify-content: space-between; font-size: 12px; color: #6b7280; margin-bottom: 6px; }
 .phr-note-author { font-weight: 600; color: #374151; }

@@ -1,12 +1,12 @@
 import pool from '../config/database.js';
 
 class HiringNote {
-  static async create({ candidateUserId, authorUserId, message, rating = null, parentNoteId = null }) {
+  static async create({ candidateUserId, authorUserId, message, rating = null, parentNoteId = null, isPortalMessage = false }) {
     try {
       const [result] = await pool.execute(
-        `INSERT INTO hiring_notes (candidate_user_id, parent_note_id, author_user_id, message, rating)
-         VALUES (?, ?, ?, ?, ?)`,
-        [candidateUserId, parentNoteId || null, authorUserId, String(message || ''), rating]
+        `INSERT INTO hiring_notes (candidate_user_id, parent_note_id, author_user_id, message, rating, is_portal_message)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [candidateUserId, parentNoteId || null, authorUserId, String(message || ''), rating, isPortalMessage ? 1 : 0]
       );
       return this.findById(result.insertId);
     } catch (e) {
@@ -67,6 +67,45 @@ class HiringNote {
            ORDER BY n.created_at DESC
            LIMIT ${safeLimit}`,
           [candidateUserId]
+        );
+        return rows || [];
+      }
+      throw e;
+    }
+  }
+
+  static async listPortalMessages(candidateUserId, { limit = 200 } = {}) {
+    const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 200, 1), 500);
+    try {
+      const [rows] = await pool.execute(
+        `SELECT n.*,
+                u.first_name AS author_first_name,
+                u.last_name AS author_last_name
+         FROM hiring_notes n
+         LEFT JOIN users u ON u.id = n.author_user_id
+         WHERE n.candidate_user_id = ?
+           AND (
+             n.is_portal_message = 1
+             OR n.author_user_id = ?
+           )
+         ORDER BY n.created_at ASC
+         LIMIT ${safeLimit}`,
+        [candidateUserId, candidateUserId]
+      );
+      return rows || [];
+    } catch (e) {
+      if (e?.code === 'ER_BAD_FIELD_ERROR') {
+        const [rows] = await pool.execute(
+          `SELECT n.*,
+                  u.first_name AS author_first_name,
+                  u.last_name AS author_last_name
+           FROM hiring_notes n
+           LEFT JOIN users u ON u.id = n.author_user_id
+           WHERE n.candidate_user_id = ?
+             AND n.author_user_id = ?
+           ORDER BY n.created_at ASC
+           LIMIT ${safeLimit}`,
+          [candidateUserId, candidateUserId]
         );
         return rows || [];
       }

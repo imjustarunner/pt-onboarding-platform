@@ -1164,7 +1164,8 @@ export const createCandidateNote = async (req, res, next) => {
       authorUserId: req.user.id,
       message,
       rating: Number.isFinite(rating) ? rating : null,
-      parentNoteId: parentNoteId || null
+      parentNoteId: parentNoteId || null,
+      isPortalMessage: req.body?.isPortalMessage === true || req.body?.is_portal_message === true
     });
 
     res.status(201).json(note);

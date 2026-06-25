@@ -25,124 +25,152 @@
     <!-- Main portal -->
     <template v-else-if="portalData">
 
-      <!-- Header bar -->
-      <header class="portal-header">
-        <div class="portal-header-left">
-          <img v-if="agency?.logoUrl" :src="agency.logoUrl" :alt="agency.name" class="header-logo" />
-          <span v-else class="header-org-name">{{ agency?.name || 'Your Organization' }}</span>
-        </div>
-        <div class="portal-header-center">
-          <div class="portal-greeting">
-            Welcome, <strong>{{ candidate.firstName }}</strong>!
-          </div>
-          <div class="portal-subgreeting">
-            {{ phaseLabel }} · {{ agency?.name }}
-          </div>
-        </div>
-        <div class="portal-header-right">
-          <div class="portal-clock">{{ clockDisplay }}</div>
-          <div class="portal-date">{{ dateDisplay }}</div>
-        </div>
-      </header>
-
-      <!-- Body -->
-      <div class="portal-body">
-
-        <!-- Left: task grid -->
-        <div class="portal-main">
-          <div class="section-eyebrow">{{ sectionLabel }}</div>
-
-          <!-- All done state -->
-          <div v-if="allDone" class="all-done-banner">
-            <div class="all-done-icon">🎉</div>
-            <div>
-              <strong>All items complete!</strong>
-              <div class="all-done-sub">Your documents are under review. We'll reach out shortly with next steps.</div>
-            </div>
+      <div class="portal-shell">
+        <!-- Left nav -->
+        <aside class="portal-nav" :style="sidebarStyle">
+          <div class="portal-nav-brand">
+            <img v-if="agency?.logoUrl" :src="agency.logoUrl" :alt="agency.name" class="portal-nav-logo" />
+            <div v-else class="portal-nav-logo-fallback">{{ orgInitials }}</div>
+            <div class="portal-nav-org">{{ agency?.name || 'Your Organization' }}</div>
           </div>
 
-          <!-- Progress bar -->
-          <div class="progress-wrap">
-            <div class="progress-bar">
-              <div class="progress-fill" :style="{ width: progressPct + '%' }"></div>
-            </div>
-            <div class="progress-label">{{ completedCount }} of {{ totalCount }} complete</div>
-          </div>
+          <nav class="portal-nav-links">
+            <a class="portal-nav-link portal-nav-link--active" href="#" @click.prevent>
+              <span class="portal-nav-icon">▦</span>
+              Dashboard
+            </a>
+            <span class="portal-nav-link portal-nav-link--disabled">
+              <span class="portal-nav-icon">☑</span>
+              My Tasks
+            </span>
+            <span class="portal-nav-link portal-nav-link--disabled">
+              <span class="portal-nav-icon">📄</span>
+              Documents
+            </span>
+            <span class="portal-nav-link portal-nav-link--disabled">
+              <span class="portal-nav-icon">👤</span>
+              Profile
+            </span>
+          </nav>
 
-          <!-- Task cards grid -->
-          <div v-if="!allDone && tasks.length === 0" class="empty-tasks">
-            No items have been assigned yet. Your hiring team will send them shortly.
-          </div>
-
-          <div class="task-grid">
-            <div
-              v-for="task in tasks"
-              :key="task.id"
-              class="task-card"
-              :class="{
-                'task-card--done': task.status === 'completed',
-                'task-card--active': activeTaskId === task.id,
-                'task-card--pending': task.status !== 'completed'
-              }"
-              @click="selectTask(task)"
-            >
-              <div class="task-card-icon">
-                <span v-if="task.status === 'completed'" class="icon-done">✓</span>
-                <span v-else-if="task.actionType === 'review'" class="icon-review">📋</span>
-                <span v-else class="icon-sign">✍️</span>
-              </div>
-              <div class="task-card-body">
-                <div class="task-card-title">{{ task.title }}</div>
-                <div class="task-card-meta">
-                  <span class="task-pill" :class="pillClass(task)">{{ pillLabel(task) }}</span>
-                  <span v-if="task.isRequired" class="task-pill task-pill-required">Required</span>
-                </div>
-              </div>
-              <div class="task-card-arrow" v-if="task.status !== 'completed'">›</div>
-            </div>
-          </div>
-
-          <!-- Submit CTA -->
-          <div v-if="tasks.length > 0 && !allDone" class="cta-wrap">
-            <button class="btn-complete" :disabled="submitting" @click="confirmSubmit">
-              {{ submitting ? 'Submitting…' : 'I\'ve completed everything — submit for review' }}
-            </button>
-            <div class="cta-help">
-              You can also submit before all items are done if you need assistance.
-            </div>
-          </div>
-        </div>
-
-        <!-- Right: sidebar -->
-        <aside class="portal-sidebar">
-          <!-- Candidate info card -->
-          <div class="sidebar-card candidate-card">
-            <div class="sidebar-card-label">YOUR INFORMATION</div>
-            <div class="candidate-name">{{ candidate.firstName }} {{ candidate.lastName }}</div>
-            <div class="candidate-role" v-if="candidate.appliedRole">{{ candidate.appliedRole }}</div>
-            <div class="candidate-email">{{ candidate.email }}</div>
-          </div>
-
-          <!-- Need help card -->
-          <div class="sidebar-card help-card">
-            <div class="sidebar-card-label">NEED HELP?</div>
-            <div class="help-text">Contact your hiring team for assistance with any of these items.</div>
-            <div v-if="agency?.phoneNumber" class="help-phone">📞 {{ agency.phoneNumber }}</div>
-          </div>
-
-          <!-- Phase info -->
-          <div class="sidebar-card phase-card">
-            <div class="sidebar-card-label">{{ isPrehire ? 'PRE-HIRE' : 'ONBOARDING' }}</div>
-            <div class="phase-text">
-              <span v-if="isPrehire">
-                Please complete these items before your start date. Once finished, your team will review and send your login credentials.
-              </span>
-              <span v-else>
-                Welcome to the team! Complete these items to finish setting up your account.
-              </span>
-            </div>
+          <div class="portal-nav-footer">
+            <span class="portal-nav-shield">🛡</span>
+            Your data is secure. This portal is protected by encryption.
           </div>
         </aside>
+
+        <!-- Center column -->
+        <div class="portal-center">
+          <header class="portal-topbar">
+            <div class="portal-topbar-spacer"></div>
+            <div class="portal-user-chip">
+              <div class="portal-user-avatar">{{ candidateInitials }}</div>
+              <span>{{ candidate.firstName }} {{ candidate.lastName }}</span>
+            </div>
+          </header>
+
+          <main class="portal-content">
+            <div class="portal-welcome">
+              <h1>Welcome, {{ candidate.firstName }}! 👋</h1>
+              <p>We're excited to have you join {{ agency?.name || 'the team' }}.</p>
+            </div>
+
+            <section class="portal-tasks-section">
+              <div class="portal-tasks-head">
+                <div>
+                  <h2>Your {{ isPrehire ? 'Pre-Hire' : 'Onboarding' }} Tasks</h2>
+                  <p>{{ completedCount }} of {{ totalCount }} completed</p>
+                </div>
+                <div class="portal-tasks-progress-wrap">
+                  <div class="portal-tasks-progress-bar">
+                    <div class="portal-tasks-progress-fill" :style="{ width: progressPct + '%' }"></div>
+                  </div>
+                  <span class="portal-tasks-progress-pct">{{ progressPct }}%</span>
+                </div>
+              </div>
+
+              <div v-if="allDone" class="all-done-banner">
+                <div class="all-done-icon">🎉</div>
+                <div>
+                  <strong>All items complete!</strong>
+                  <div class="all-done-sub">Your documents are under review. We'll reach out shortly with next steps.</div>
+                </div>
+              </div>
+
+              <div v-if="!allDone && tasks.length === 0" class="empty-tasks">
+                No items have been assigned yet. Your hiring team will send them shortly.
+              </div>
+
+              <div class="task-list">
+                <article
+                  v-for="(task, idx) in tasks"
+                  :key="task.id"
+                  class="task-card-v2"
+                  :class="{ 'task-card-v2--done': task.status === 'completed' }"
+                >
+                  <div class="task-card-v2-icon" :style="{ background: taskAccentBg(idx), color: taskAccentColor(idx) }">
+                    <span v-if="task.status === 'completed'">✓</span>
+                    <span v-else-if="task.actionType === 'review'">📋</span>
+                    <span v-else>✍️</span>
+                  </div>
+                  <div class="task-card-v2-body">
+                    <div class="task-card-v2-title">{{ idx + 1 }}. {{ task.title }}</div>
+                    <div class="task-card-v2-desc">{{ taskDescription(task) }}</div>
+                    <div class="task-card-v2-meta">
+                      <span class="task-status-badge" :class="task.status === 'completed' ? 'task-status-badge--done' : 'task-status-badge--pending'">
+                        {{ task.status === 'completed' ? 'COMPLETED' : 'PENDING' }}
+                      </span>
+                      <span v-if="task.isRequired" class="task-required-badge">Required</span>
+                    </div>
+                  </div>
+                  <button
+                    v-if="task.status !== 'completed'"
+                    type="button"
+                    class="task-card-v2-action"
+                    :style="{ borderColor: taskAccentColor(idx), color: taskAccentColor(idx) }"
+                    @click="selectTask(task)"
+                  >
+                    {{ taskActionLabel(task) }}
+                    <span aria-hidden="true">›</span>
+                  </button>
+                  <div v-else class="task-card-v2-done">Done</div>
+                </article>
+              </div>
+
+              <div v-if="tasks.length > 0 && !allDone" class="cta-wrap">
+                <button class="btn-complete" :disabled="submitting" @click="confirmSubmit">
+                  {{ submitting ? 'Submitting…' : 'I\'ve completed everything — submit for review' }}
+                </button>
+                <div class="cta-help">
+                  You can also submit before all items are done if you need assistance.
+                </div>
+              </div>
+            </section>
+
+            <section class="portal-help-card">
+              <div class="portal-help-icon">💬</div>
+              <div class="portal-help-copy">
+                <strong>Need help or have questions?</strong>
+                <p>Our People Operations team is here to help you through every step.</p>
+              </div>
+              <button type="button" class="portal-help-btn" @click="focusChat">Chat with People Ops</button>
+            </section>
+          </main>
+
+          <footer class="portal-page-footer">
+            <span>© {{ currentYear }} {{ agency?.name || 'Your Organization' }}. All rights reserved.</span>
+            <span class="portal-page-footer-links">Privacy Policy · Terms of Use</span>
+          </footer>
+        </div>
+
+        <!-- Right chat -->
+        <PreHirePortalChat
+          ref="chatRef"
+          :token="token"
+          :portal-api="portalApi"
+          :support-team="supportTeam"
+          :agency-name="agency?.name || ''"
+        />
       </div>
 
       <!-- Task signing panel (modal-style overlay) -->
@@ -252,24 +280,17 @@
         </div>
       </div>
 
-      <!-- Footer bar -->
-      <footer class="portal-footer">
-        <div class="footer-org">{{ agency?.name }}</div>
-        <div class="footer-divider">|</div>
-        <div class="footer-status">{{ statusLabel }}</div>
-        <div v-if="agency?.phoneNumber" class="footer-divider">|</div>
-        <div v-if="agency?.phoneNumber" class="footer-phone">{{ agency.phoneNumber }}</div>
-      </footer>
     </template>
 
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, computed, onMounted, nextTick, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import DOMPurify from 'dompurify';
 import axios from 'axios';
+import PreHirePortalChat from '../components/prehire/PreHirePortalChat.vue';
 
 const route = useRoute();
 const token = computed(() => route.params.token);
@@ -287,8 +308,37 @@ const portalData = ref(null);
 
 const candidate = computed(() => portalData.value?.candidate || {});
 const agency = computed(() => portalData.value?.agency || null);
+const supportTeam = computed(() => portalData.value?.supportTeam || { label: 'People Operations', members: [] });
 const tasks = computed(() => portalData.value?.tasks || []);
 const progress = computed(() => portalData.value?.progress || { total: 0, completed: 0, allDone: false });
+const chatRef = ref(null);
+const currentYear = new Date().getFullYear();
+
+const TASK_ACCENTS = ['#2563eb', '#16a34a', '#9333ea', '#ea580c'];
+const taskAccentColor = (idx) => TASK_ACCENTS[idx % TASK_ACCENTS.length];
+const taskAccentBg = (idx) => `color-mix(in srgb, ${taskAccentColor(idx)} 12%, white)`;
+
+const candidateInitials = computed(() =>
+  `${(candidate.value.firstName || '')[0] || ''}${(candidate.value.lastName || '')[0] || ''}`.toUpperCase() || 'YOU'
+);
+const orgInitials = computed(() => {
+  const name = agency.value?.name || 'Org';
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+});
+
+const taskDescription = (task) => {
+  if (task.description) return task.description;
+  if (task.actionType === 'review') return 'Please review and acknowledge this document.';
+  return 'Please review and sign this document to continue.';
+};
+const taskActionLabel = (task) => (task.actionType === 'review' ? 'Review & Acknowledge' : 'View & Sign');
+
+const focusChat = () => {
+  chatRef.value?.expand?.();
+  chatRef.value?.$el?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+};
 
 // Use required-only progress when any tasks are flagged required; otherwise all tasks
 const totalCount = computed(() => progress.value.requiredTotal || progress.value.total);
@@ -310,16 +360,27 @@ const statusLabel = computed(() => {
 });
 
 // ─── CSS vars from agency branding ────────────────────────────────────────────
-const cssVars = computed(() => ({
-  '--primary': agency.value?.primaryColor || '#1d4ed8',
-  '--accent': agency.value?.accentColor || '#0f766e'
-}));
+const cssVars = computed(() => {
+  const a = agency.value || {};
+  const primary = a.primaryColor || '#2563eb';
+  const secondary = a.secondaryColor || primary;
+  const accent = a.accentColor || secondary;
+  return {
+    '--primary': primary,
+    '--secondary': secondary,
+    '--accent': accent,
+    '--primary-light': `color-mix(in srgb, ${primary} 12%, white)`,
+    '--primary-mid': `color-mix(in srgb, ${primary} 25%, white)`,
+    '--primary-soft': `color-mix(in srgb, ${primary} 8%, white)`,
+    ...(a.fontFamily ? { fontFamily: a.fontFamily } : {})
+  };
+});
 
-// ─── Clock ────────────────────────────────────────────────────────────────────
-const now = ref(new Date());
-let clockInterval = null;
-const clockDisplay = computed(() => now.value.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-const dateDisplay = computed(() => now.value.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }));
+const sidebarStyle = computed(() => {
+  const a = agency.value || {};
+  const bg = a.sidebarColor || '#0b192e';
+  return { background: bg };
+});
 
 // ─── Task panel ───────────────────────────────────────────────────────────────
 const activeTaskId = ref(null);
@@ -473,7 +534,6 @@ const submitSign = async () => {
 };
 
 // Watch panelStep to init canvas when sign step activates
-import { watch } from 'vue';
 watch(() => panelStep.value, (step) => { if (step === 'sign') initCanvas(); });
 
 // ─── Submit portal (all done) ─────────────────────────────────────────────────
@@ -527,34 +587,40 @@ const reloadPortal = async () => {
 
 onMounted(async () => {
   await loadPortal();
-  clockInterval = setInterval(() => { now.value = new Date(); }, 1000);
-});
-
-onUnmounted(() => {
-  clearInterval(clockInterval);
 });
 </script>
 
 <style scoped>
-/* ─── CSS Variables ─────────────────────────────────────────────────────────── */
 .portal-root {
-  --primary: #1d4ed8;
+  --primary: #2563eb;
+  --secondary: #2563eb;
   --accent: #0f766e;
   --primary-light: color-mix(in srgb, var(--primary) 12%, white);
   --primary-mid: color-mix(in srgb, var(--primary) 25%, white);
+  --primary-soft: color-mix(in srgb, var(--primary) 8%, white);
   min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background: #f8fafc;
+  background: #f3f4f6;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   color: #0f172a;
 }
 
+.portal-shell {
+  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  overflow: hidden;
+}
+
 /* ─── Splash / error screens ────────────────────────────────────────────────── */
 .portal-splash {
-  flex: 1; display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  gap: 16px; text-align: center; padding: 40px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  text-align: center;
+  padding: 40px;
 }
 .portal-splash-error { background: #fff1f2; }
 .portal-splash-done { background: #f0fdf4; }
@@ -571,118 +637,433 @@ onUnmounted(() => {
 .portal-splash p { font-size: 15px; color: #475569; max-width: 400px; margin: 0; }
 .contact-line { font-size: 14px; color: #374151; }
 
-/* ─── Header ────────────────────────────────────────────────────────────────── */
-.portal-header {
-  display: flex; align-items: center; justify-content: space-between;
-  background: var(--primary); color: white;
-  padding: 0 32px; height: 72px; flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
-}
-.portal-header-left { display: flex; align-items: center; gap: 12px; min-width: 180px; }
-.header-logo { height: 42px; object-fit: contain; filter: brightness(0) invert(1); border-radius: 4px; }
-.header-org-name { font-size: 18px; font-weight: 700; letter-spacing: 0.02em; }
-.portal-header-center { flex: 1; text-align: center; }
-.portal-greeting { font-size: 20px; font-weight: 700; }
-.portal-subgreeting { font-size: 13px; opacity: 0.8; margin-top: 1px; }
-.portal-header-right { text-align: right; min-width: 160px; }
-.portal-clock { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.portal-date { font-size: 12px; opacity: 0.75; margin-top: 1px; }
-
-/* ─── Body layout ───────────────────────────────────────────────────────────── */
-.portal-body {
-  display: flex; gap: 24px; padding: 28px 32px; flex: 1; min-height: 0;
-  max-width: 1200px; width: 100%; margin: 0 auto; box-sizing: border-box;
+/* ─── Left nav ──────────────────────────────────────────────────────────────── */
+.portal-nav {
+  width: 240px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  color: rgba(255, 255, 255, 0.92);
+  padding: 24px 16px;
 }
 
-/* ─── Main area ─────────────────────────────────────────────────────────────── */
-.portal-main { flex: 1; display: flex; flex-direction: column; gap: 16px; }
+.portal-nav-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 0 8px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 16px;
+}
 
-.section-eyebrow {
-  font-size: 11px; font-weight: 800; letter-spacing: 0.1em;
-  color: #64748b; text-transform: uppercase;
+.portal-nav-logo {
+  max-height: 44px;
+  max-width: 160px;
+  object-fit: contain;
+}
+
+.portal-nav-logo-fallback {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 14px;
+}
+
+.portal-nav-org {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.portal-nav-links {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.portal-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.72);
+  text-decoration: none;
+}
+
+.portal-nav-link--active {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.portal-nav-link--disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.portal-nav-icon {
+  width: 18px;
+  text-align: center;
+  opacity: 0.9;
+}
+
+.portal-nav-footer {
+  margin-top: auto;
+  padding: 16px 8px 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.45);
+  display: flex;
+  gap: 8px;
+}
+
+.portal-nav-shield { flex-shrink: 0; }
+
+/* ─── Center column ─────────────────────────────────────────────────────────── */
+.portal-center {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.portal-topbar {
+  height: 64px;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 28px;
+}
+
+.portal-user-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.portal-user-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.portal-content {
+  flex: 1;
+  padding: 28px 32px 20px;
+  max-width: 920px;
+}
+
+.portal-welcome h1 {
+  margin: 0 0 6px;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.portal-welcome p {
+  margin: 0 0 24px;
+  color: #64748b;
+  font-size: 15px;
+}
+
+.portal-tasks-section {
+  background: transparent;
+}
+
+.portal-tasks-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 16px;
+}
+
+.portal-tasks-head h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.portal-tasks-head p {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.portal-tasks-progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 180px;
+}
+
+.portal-tasks-progress-bar {
+  flex: 1;
+  height: 8px;
+  background: #e5e7eb;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.portal-tasks-progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 99px;
+  transition: width 0.35s ease;
+}
+
+.portal-tasks-progress-pct {
+  font-size: 13px;
+  font-weight: 700;
+  color: #64748b;
+  min-width: 36px;
+  text-align: right;
 }
 
 .all-done-banner {
-  display: flex; align-items: center; gap: 16px;
-  background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 14px; padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 14px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
 }
 .all-done-icon { font-size: 28px; }
 .all-done-sub { font-size: 13px; color: #374151; margin-top: 3px; }
 
-/* Progress */
-.progress-wrap { display: flex; align-items: center; gap: 12px; }
-.progress-bar { flex: 1; height: 8px; background: #e2e8f0; border-radius: 99px; overflow: hidden; }
-.progress-fill { height: 100%; background: var(--accent); border-radius: 99px; transition: width 0.4s ease; }
-.progress-label { font-size: 13px; color: #64748b; white-space: nowrap; font-variant-numeric: tabular-nums; }
-
-.empty-tasks { font-size: 14px; color: #94a3b8; padding: 24px 0; text-align: center; }
-
-/* Task cards grid */
-.task-grid { display: flex; flex-direction: column; gap: 10px; }
-
-.task-card {
-  display: flex; align-items: center; gap: 16px;
-  background: white; border: 1.5px solid #e2e8f0; border-radius: 14px;
-  padding: 16px 18px; cursor: pointer;
-  transition: all 0.15s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+.empty-tasks {
+  font-size: 14px;
+  color: #94a3b8;
+  padding: 24px 0;
+  text-align: center;
 }
-.task-card:hover:not(.task-card--done) {
-  border-color: var(--primary); box-shadow: 0 4px 16px rgba(0,0,0,0.1); transform: translateY(-1px);
+
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
-.task-card--done { opacity: 0.65; cursor: default; }
-.task-card--active { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); }
 
-.task-card-icon { font-size: 22px; width: 36px; text-align: center; flex-shrink: 0; }
-.icon-done { color: #16a34a; }
-.task-card-body { flex: 1; min-width: 0; }
-.task-card-title { font-size: 15px; font-weight: 600; color: #0f172a; margin-bottom: 5px; }
-.task-card-meta { display: flex; gap: 6px; }
-.task-card-arrow { font-size: 20px; color: #94a3b8; }
+.task-card-v2 {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 16px;
+  align-items: center;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 18px 20px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+}
 
-/* Pills */
-.task-pill { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 20px; }
-.pill-done { background: #dcfce7; color: #166534; }
-.pill-sign { background: var(--primary-light); color: var(--primary); }
-.pill-review { background: #f1f5f9; color: #475569; }
-.task-pill-required { background: #ede9fe; color: #5b21b6; }
+.task-card-v2--done { opacity: 0.72; }
 
-/* CTA */
-.cta-wrap { padding-top: 4px; }
+.task-card-v2-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.task-card-v2-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.task-card-v2-desc {
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.45;
+  margin-bottom: 8px;
+}
+
+.task-card-v2-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.task-status-badge {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.task-status-badge--pending {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.task-status-badge--done {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.task-required-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+.task-card-v2-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border: 1.5px solid;
+  border-radius: 10px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.task-card-v2-action:hover {
+  background: var(--primary-soft);
+}
+
+.task-card-v2-done {
+  font-size: 13px;
+  font-weight: 700;
+  color: #16a34a;
+  padding: 0 8px;
+}
+
+.cta-wrap { padding-top: 18px; }
 .btn-complete {
-  display: inline-flex; align-items: center; gap: 8px;
-  background: var(--accent); color: white; border: none; border-radius: 10px;
-  font-size: 14px; font-weight: 600; padding: 12px 24px; cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.12); transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 12px 24px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  transition: all 0.15s;
 }
 .btn-complete:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-1px); }
 .btn-complete:disabled { opacity: 0.5; cursor: not-allowed; }
 .cta-help { font-size: 12px; color: #94a3b8; margin-top: 6px; }
 
-/* ─── Sidebar ───────────────────────────────────────────────────────────────── */
-.portal-sidebar { width: 260px; flex-shrink: 0; display: flex; flex-direction: column; gap: 14px; }
-
-.sidebar-card {
-  background: white; border: 1px solid #e2e8f0; border-radius: 14px;
-  padding: 16px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+.portal-help-card {
+  margin-top: 28px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 18px 20px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
 }
-.sidebar-card-label {
-  font-size: 10px; font-weight: 800; letter-spacing: 0.1em;
-  color: #94a3b8; text-transform: uppercase; margin-bottom: 10px;
+
+.portal-help-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--primary-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
 }
-.candidate-name { font-size: 16px; font-weight: 700; color: #0f172a; }
-.candidate-role { font-size: 13px; color: var(--primary); font-weight: 600; margin-top: 3px; }
-.candidate-email { font-size: 12px; color: #64748b; margin-top: 5px; word-break: break-all; }
 
-.help-text { font-size: 13px; color: #374151; line-height: 1.5; }
-.help-phone { font-size: 13px; color: var(--primary); font-weight: 600; margin-top: 8px; }
+.portal-help-copy {
+  flex: 1;
+  min-width: 0;
+}
 
-.phase-card { background: var(--primary-light); border-color: var(--primary-mid); }
-.phase-text { font-size: 13px; color: #374151; line-height: 1.6; }
+.portal-help-copy strong {
+  display: block;
+  font-size: 15px;
+  margin-bottom: 2px;
+}
+
+.portal-help-copy p {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.portal-help-btn {
+  border: 1.5px solid var(--primary);
+  background: #fff;
+  color: var(--primary);
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.portal-help-btn:hover {
+  background: var(--primary-soft);
+}
+
+.portal-page-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 32px 24px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.portal-page-footer-links {
+  white-space: nowrap;
+}
+
+/* Pills (task panel) */
+.task-pill { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 20px; }
+.pill-done { background: #dcfce7; color: #166534; }
+.pill-sign { background: var(--primary-light); color: var(--primary); }
+.pill-review { background: #f1f5f9; color: #475569; }
 
 /* ─── Task panel (slide-in) ─────────────────────────────────────────────────── */
 .task-panel-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.4);
-  display: flex; align-items: stretch; justify-content: flex-end; z-index: 50;
+  display: flex; align-items: stretch; justify-content: flex-end; z-index: 70;
 }
 
 .task-panel {
@@ -701,18 +1082,15 @@ onUnmounted(() => {
 
 .task-panel-body { flex: 1; overflow-y: auto; padding: 22px; }
 
-/* Done state */
 .task-done-msg { display: flex; align-items: center; gap: 14px; font-size: 15px; color: #16a34a; font-weight: 600; padding: 20px 0; }
 .task-done-check { font-size: 28px; }
 
-/* Consent step */
 .consent-block { display: flex; flex-direction: column; gap: 16px; }
 .consent-block h3 { font-size: 16px; font-weight: 700; margin: 0; color: #0f172a; }
 .consent-block p { font-size: 14px; color: #475569; line-height: 1.65; margin: 0; }
 .consent-check-row { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; cursor: pointer; }
 .consent-check-row input { margin-top: 3px; cursor: pointer; }
 
-/* Review step */
 .review-block { display: flex; flex-direction: column; gap: 16px; }
 .doc-preview { font-size: 14px; color: #0f172a; line-height: 1.7; max-height: 55vh; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; background: #fafafa; }
 .doc-placeholder { text-align: center; padding: 40px 20px; }
@@ -720,7 +1098,6 @@ onUnmounted(() => {
 .doc-placeholder-sub { font-size: 13px; color: #94a3b8; margin-top: 6px; }
 .review-actions { padding-top: 8px; }
 
-/* Sign step */
 .sign-block { display: flex; flex-direction: column; gap: 14px; }
 .sign-instructions { font-size: 13px; color: #475569; }
 .sig-canvas {
@@ -730,7 +1107,6 @@ onUnmounted(() => {
 .sign-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .panel-error { font-size: 13px; color: #dc2626; background: #fef2f2; border-radius: 8px; padding: 8px 12px; }
 
-/* Buttons */
 .btn-primary {
   background: var(--primary); color: white; border: none; border-radius: 8px;
   font-size: 14px; font-weight: 600; padding: 10px 20px; cursor: pointer;
@@ -745,10 +1121,9 @@ onUnmounted(() => {
 .btn-secondary-sm:hover { background: #e2e8f0; }
 .btn-back { background: transparent; color: #64748b; border: none; font-size: 13px; cursor: pointer; padding: 8px 12px; }
 
-/* ─── Submit confirm overlay ────────────────────────────────────────────────── */
 .confirm-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.4);
-  display: flex; align-items: center; justify-content: center; z-index: 60;
+  display: flex; align-items: center; justify-content: center; z-index: 80;
 }
 .confirm-modal {
   background: white; border-radius: 14px; padding: 28px 28px 22px;
@@ -758,30 +1133,41 @@ onUnmounted(() => {
 .confirm-modal p { font-size: 14px; color: #475569; line-height: 1.6; margin: 0 0 20px; }
 .confirm-actions { display: flex; gap: 10px; justify-content: flex-end; }
 
-/* ─── Footer ────────────────────────────────────────────────────────────────── */
-.portal-footer {
-  display: flex; align-items: center; gap: 12px;
-  background: #0f172a; color: rgba(255,255,255,0.65); font-size: 13px;
-  padding: 0 32px; height: 44px; flex-shrink: 0;
-}
-.footer-org { color: rgba(255,255,255,0.85); font-weight: 600; }
-.footer-divider { opacity: 0.3; }
-
-/* ─── Panel slide animation ─────────────────────────────────────────────────── */
 .panel-slide-enter-active,
 .panel-slide-leave-active { transition: transform 0.25s ease; }
 .panel-slide-enter-from,
 .panel-slide-leave-to { transform: translateX(100%); }
 
-/* ─── Spinner ───────────────────────────────────────────────────────────────── */
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ─── Mobile ────────────────────────────────────────────────────────────────── */
-@media (max-width: 768px) {
-  .portal-header { padding: 0 16px; }
-  .portal-header-right { display: none; }
-  .portal-body { flex-direction: column; padding: 16px; }
-  .portal-sidebar { width: 100%; }
+@media (max-width: 1100px) {
+  .portal-shell { flex-direction: column; }
+  .portal-nav {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 12px 16px;
+  }
+  .portal-nav-brand {
+    flex-direction: row;
+    align-items: center;
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+  }
+  .portal-nav-links,
+  .portal-nav-footer { display: none; }
+  .portal-content { padding: 20px 16px; }
+  .portal-help-card { flex-direction: column; align-items: flex-start; }
+  .task-card-v2 {
+    grid-template-columns: auto 1fr;
+  }
+  .task-card-v2-action,
+  .task-card-v2-done {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
   .task-panel { width: 100vw; }
 }
 </style>
