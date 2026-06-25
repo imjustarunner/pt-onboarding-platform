@@ -1186,6 +1186,20 @@ if (!isBootstrap) {
 
 
 
+  // ── Batched pre-hire notification processor ────────────────────────────────
+  // Checks every 60 s for overdue prehire_notification_queue rows and sends
+  // one batched email per candidate with a fresh portal token.
+  const processPrehireNotifications = async () => {
+    try {
+      const { processOverduePrehireNotifications } = await import('./services/prehireNotification.service.js');
+      await processOverduePrehireNotifications();
+    } catch (err) {
+      console.error('[prehireNotification] processor error:', err?.message);
+    }
+  };
+  processPrehireNotifications();
+  setInterval(processPrehireNotifications, 60 * 1000); // every 60 seconds
+
   // Set up periodic processing of terminated and completed users
   // Run every hour to check for users that need to be marked inactive or archived
   setInterval(async () => {

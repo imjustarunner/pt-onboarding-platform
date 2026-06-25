@@ -297,12 +297,15 @@
         <!-- Tabs -->
         <div class="phr-tabs">
           <button
-            v-for="tab in ['Overview', 'Documents', 'Notes']"
+            v-for="tab in ['Overview', 'Documents', 'Messages', 'Notes']"
             :key="tab"
             class="phr-tab"
             :class="{ active: activeTab === tab }"
             @click="activeTab = tab"
-          >{{ tab }}</button>
+          >
+            {{ tab }}
+            <span v-if="tab === 'Messages' && messages.length" class="phr-tab-badge">{{ messages.length }}</span>
+          </button>
         </div>
 
         <!-- Tab content -->
@@ -377,21 +380,84 @@
           <!-- Documents -->
           <div v-else-if="activeTab === 'Documents'" class="phr-tab-docs">
             <div v-if="tasksLoading" class="phr-loading-sm">Loading…</div>
-            <div v-else-if="candidateTasks.length === 0" class="phr-empty-sm">No documents assigned yet.</div>
-            <div v-else class="phr-doc-list">
-              <div v-for="t in candidateTasks" :key="t.id" class="phr-doc-item">
-                <div class="phr-doc-icon">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                </div>
-                <div class="phr-doc-body">
-                  <div class="phr-doc-title">{{ t.title }}</div>
-                  <div class="phr-doc-meta">
-                    <span class="phr-task-status-pill" :class="t.status === 'completed' ? 'phr-pill-green' : 'phr-pill-gray'">
-                      {{ t.status === 'completed' ? 'Completed' : t.document_action_type === 'signature' ? 'Awaiting signature' : 'Awaiting review' }}
-                    </span>
-                    <span v-if="t.is_required" class="phr-required-badge">Required</span>
+            <template v-else>
+              <!-- Admin-managed docs (job description, uploaded files) -->
+              <template v-if="adminDocs.length">
+                <div class="phr-doc-section-label">Reference Documents</div>
+                <div class="phr-doc-list">
+                  <div v-for="d in adminDocs" :key="'ad-' + d.id" class="phr-doc-item phr-doc-item-ref">
+                    <div class="phr-doc-icon phr-doc-icon-ref">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    </div>
+                    <div class="phr-doc-body">
+                      <div class="phr-doc-title">{{ d.title }}</div>
+                      <div class="phr-doc-meta">
+                        <span class="phr-task-status-pill phr-pill-blue">Reference</span>
+                        <a v-if="d.storage_path" :href="`/api/users/${selectedUser.id}/admin-docs/${d.id}/view`" target="_blank" class="phr-doc-view-link">View ↗</a>
+                      </div>
+                    </div>
                   </div>
                 </div>
+                <div class="phr-doc-section-label phr-doc-section-label-mt">Assigned Documents</div>
+              </template>
+
+              <div v-if="candidateTasks.length === 0" class="phr-empty-sm">No documents assigned yet.</div>
+              <div v-else class="phr-doc-list">
+                <div v-for="t in candidateTasks" :key="t.id" class="phr-doc-item">
+                  <div class="phr-doc-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  </div>
+                  <div class="phr-doc-body">
+                    <div class="phr-doc-title">{{ t.title }}</div>
+                    <div class="phr-doc-meta">
+                      <span class="phr-task-status-pill" :class="t.status === 'completed' ? 'phr-pill-green' : 'phr-pill-gray'">
+                        {{ t.status === 'completed' ? 'Completed' : t.document_action_type === 'signature' ? 'Awaiting signature' : 'Awaiting review' }}
+                      </span>
+                      <span v-if="t.is_required" class="phr-required-badge">Required</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Assign document -->
+              <div class="phr-assign-doc-bar">
+                <button v-if="!showAssignDoc" class="phr-btn phr-btn-ghost phr-btn-sm" @click="openAssignDoc">+ Assign Document</button>
+                <div v-else class="phr-assign-doc-form">
+                  <select v-model="assignDocTemplateId" class="phr-select">
+                    <option value="">— select a template —</option>
+                    <option v-for="tmpl in assignDocTemplates" :key="tmpl.id" :value="tmpl.id">{{ tmpl.name }}</option>
+                  </select>
+                  <button class="phr-btn phr-btn-primary phr-btn-sm" @click="assignDocument" :disabled="!assignDocTemplateId || assignDocLoading">
+                    {{ assignDocLoading ? 'Assigning…' : 'Assign' }}
+                  </button>
+                  <button class="phr-btn phr-btn-ghost phr-btn-sm" @click="showAssignDoc = false">Cancel</button>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Messages (portal chat) -->
+          <div v-else-if="activeTab === 'Messages'" class="phr-tab-messages">
+            <div v-if="messagesLoading" class="phr-loading-sm">Loading messages…</div>
+            <div v-else class="phr-chat-window">
+              <div v-if="messages.length === 0" class="phr-empty-sm">No messages yet. Send one below to reach the candidate in their portal.</div>
+              <div v-else class="phr-chat-list">
+                <div
+                  v-for="m in messages"
+                  :key="m.id"
+                  class="phr-chat-bubble"
+                  :class="m.author_user_id === selectedUser.id ? 'phr-bubble-candidate' : 'phr-bubble-staff'"
+                >
+                  <div class="phr-bubble-author">{{ m.author_user_id === selectedUser.id ? fullName(selectedUser) : ((m.author_first_name || '') + ' ' + (m.author_last_name || '')).trim() || 'People Ops' }}</div>
+                  <div class="phr-bubble-body">{{ m.message }}</div>
+                  <div class="phr-bubble-time">{{ fmtDateTime(m.created_at) }}</div>
+                </div>
+              </div>
+              <div class="phr-chat-composer">
+                <textarea v-model="msgText" class="phr-note-input" rows="2" placeholder="Message the candidate…" @keydown.enter.ctrl="sendMessage"></textarea>
+                <button class="phr-btn phr-btn-primary phr-btn-sm" @click="sendMessage" :disabled="!msgText.trim() || msgSending">
+                  {{ msgSending ? 'Sending…' : 'Send to candidate' }}
+                </button>
               </div>
             </div>
           </div>
@@ -500,14 +566,23 @@ const actionLoading = ref(false);
 const actionMsg = ref('');
 const copyLabel = ref('Copy');
 const tasks = ref([]);
+const adminDocs = ref([]);
 const tasksLoading = ref(false);
 const notes = ref([]);
 const notesLoading = ref(false);
 const noteText = ref('');
 const noteToPortal = ref(false);
 const noteSaving = ref(false);
+const messages = ref([]);
+const messagesLoading = ref(false);
+const msgText = ref('');
+const msgSending = ref(false);
 const showPromoteModal = ref(false);
 const promoteCandidate = ref(null);
+const showAssignDoc = ref(false);
+const assignDocTemplates = ref([]);
+const assignDocTemplateId = ref('');
+const assignDocLoading = ref(false);
 
 // ── Normalisation ─────────────────────────────────────────────────────────────
 const LEGACY_STATUS_MAP = {
@@ -598,17 +673,23 @@ const selectUser = (id) => {
   activeTab.value = 'Overview';
   actionMsg.value = '';
   tasks.value = [];
+  adminDocs.value = [];
   notes.value = [];
+  messages.value = [];
+  showAssignDoc.value = false;
+  assignDocTemplateId.value = '';
   loadTasks(id);
   loadNotes(id);
+  loadMessages(id);
 };
 
 const loadTasks = async (userId) => {
   tasksLoading.value = true;
   try {
-    const [candidateRes, countersignRes] = await Promise.all([
+    const [candidateRes, countersignRes, adminDocsRes] = await Promise.all([
       api.get('/tasks/all', { params: { assignedToUserId: userId } }),
-      api.get('/tasks/all', { params: { taskType: 'document', assignedToAgencyId: selectedAgencyId.value } }).catch(() => ({ data: [] }))
+      api.get('/tasks/all', { params: { taskType: 'document', assignedToAgencyId: selectedAgencyId.value } }).catch(() => ({ data: [] })),
+      api.get(`/users/${userId}/admin-docs`).catch(() => ({ data: [] }))
     ]);
     const candidateTaskData = candidateRes.data || [];
     const candidateTaskIds = new Set(candidateTaskData.map((t) => t.id));
@@ -617,6 +698,25 @@ const loadTasks = async (userId) => {
         t.reference_id && candidateTaskIds.has(t.reference_id)
     );
     tasks.value = [...candidateTaskData, ...countersignData];
+
+    // Store admin-managed docs (job description snapshots, etc.)
+    const rawDocs = Array.isArray(adminDocsRes.data) ? adminDocsRes.data : (adminDocsRes.data?.docs || adminDocsRes.data?.data || []);
+    adminDocs.value = rawDocs.filter((d) => !d.is_deleted);
+
+    // Refresh the candidate's task count from live data so the progress bar is accurate.
+    const docTasks = candidateTaskData.filter(
+      (t) => !t.document_action_type || t.document_action_type !== 'countersignature'
+    ).filter((t) => t.status !== 'deleted');
+    const completedDocTasks = docTasks.filter((t) => t.status === 'completed');
+    const idx = candidates.value.findIndex((c) => c.id === userId);
+    if (idx !== -1) {
+      candidates.value[idx] = {
+        ...candidates.value[idx],
+        task_total: docTasks.length,
+        task_completed: completedDocTasks.length,
+        progress_pct: docTasks.length > 0 ? Math.round((completedDocTasks.length / docTasks.length) * 100) : 0,
+      };
+    }
   } catch { /* non-fatal */ }
   finally { tasksLoading.value = false; }
 };
@@ -629,6 +729,65 @@ const loadNotes = async (userId) => {
     notes.value = Array.isArray(data?.notes) ? data.notes : [];
   } catch { /* non-fatal */ }
   finally { notesLoading.value = false; }
+};
+
+const loadMessages = async (userId) => {
+  messagesLoading.value = true;
+  try {
+    const params = selectedAgencyId.value ? { agencyId: selectedAgencyId.value } : {};
+    const { data } = await api.get(`/hiring/candidates/${userId}`, { params }).catch(() => ({ data: {} }));
+    const allNotes = Array.isArray(data?.notes) ? data.notes : [];
+    messages.value = allNotes.filter((n) => n.is_portal_message);
+  } catch { /* non-fatal */ }
+  finally { messagesLoading.value = false; }
+};
+
+const sendMessage = async () => {
+  if (!msgText.value.trim() || !selectedId.value) return;
+  msgSending.value = true;
+  try {
+    const params = selectedAgencyId.value ? { agencyId: selectedAgencyId.value } : {};
+    const { data } = await api.post(
+      `/hiring/candidates/${selectedId.value}/notes`,
+      { message: msgText.value, isPortalMessage: true },
+      { params }
+    );
+    msgText.value = '';
+    messages.value = [...messages.value, data];
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to send message.');
+  } finally { msgSending.value = false; }
+};
+
+const openAssignDoc = async () => {
+  showAssignDoc.value = true;
+  if (assignDocTemplates.value.length) return;
+  try {
+    const params = { limit: 500 };
+    if (selectedAgencyId.value) params.agencyId = selectedAgencyId.value;
+    const res = await api.get('/document-templates', { params });
+    const raw = res.data;
+    const list = Array.isArray(raw) ? raw : (Array.isArray(raw?.data) ? raw.data : []);
+    assignDocTemplates.value = list.filter((t) => t.is_active !== false);
+  } catch { /* non-fatal */ }
+};
+
+const assignDocument = async () => {
+  if (!assignDocTemplateId.value || !selectedId.value) return;
+  assignDocLoading.value = true;
+  try {
+    const params = selectedAgencyId.value ? { agencyId: selectedAgencyId.value } : {};
+    await api.post(
+      `/hiring/candidates/${selectedId.value}/send-document`,
+      { documentTemplateId: assignDocTemplateId.value, agencyId: selectedAgencyId.value },
+      { params }
+    );
+    showAssignDoc.value = false;
+    assignDocTemplateId.value = '';
+    await loadTasks(selectedId.value);
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to assign document.');
+  } finally { assignDocLoading.value = false; }
 };
 
 const saveNote = async () => {
@@ -1029,4 +1188,35 @@ onMounted(load);
 /* Misc */
 .phr-loading-sm { font-size: 13px; color: #9ca3af; padding: 12px 0; }
 .phr-empty-sm { font-size: 13px; color: #9ca3af; padding: 12px 0; }
+
+/* Tab message badge */
+.phr-tab-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; margin-left: 5px; background: #3b82f6; color: #fff; font-size: 10px; font-weight: 700; border-radius: 9px; }
+
+/* Reference docs */
+.phr-doc-section-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: #9ca3af; padding: 10px 0 6px; }
+.phr-doc-section-label-mt { margin-top: 10px; }
+.phr-doc-item-ref { background: #f8fafc; border: 1px solid #e9f0fc; }
+.phr-doc-icon-ref { color: #6366f1; }
+.phr-pill-blue { background: #eff6ff; color: #2563eb; }
+.phr-doc-view-link { font-size: 12px; color: #3b82f6; text-decoration: none; }
+.phr-doc-view-link:hover { text-decoration: underline; }
+
+/* Assign document bar */
+.phr-assign-doc-bar { margin-top: 14px; padding-top: 14px; border-top: 1px solid #f3f4f6; }
+.phr-assign-doc-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.phr-select { flex: 1; min-width: 160px; border: 1px solid #d1d5db; border-radius: 8px; padding: 6px 10px; font-size: 13px; background: #fff; }
+.phr-select:focus { outline: none; border-color: #3b82f6; }
+
+/* Portal chat */
+.phr-tab-messages { display: flex; flex-direction: column; height: 100%; min-height: 300px; }
+.phr-chat-window { display: flex; flex-direction: column; gap: 12px; height: 100%; }
+.phr-chat-list { display: flex; flex-direction: column; gap: 10px; max-height: 360px; overflow-y: auto; padding: 4px 0; }
+.phr-chat-bubble { max-width: 80%; padding: 10px 14px; border-radius: 14px; font-size: 13px; }
+.phr-bubble-staff { align-self: flex-end; background: #3b82f6; color: #fff; border-bottom-right-radius: 4px; }
+.phr-bubble-candidate { align-self: flex-start; background: #f3f4f6; color: #111827; border-bottom-left-radius: 4px; }
+.phr-bubble-author { font-size: 10px; font-weight: 600; margin-bottom: 3px; opacity: .75; }
+.phr-bubble-body { line-height: 1.5; }
+.phr-bubble-time { font-size: 10px; margin-top: 4px; opacity: .6; text-align: right; }
+.phr-bubble-candidate .phr-bubble-time { text-align: left; }
+.phr-chat-composer { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid #f3f4f6; margin-top: auto; }
 </style>

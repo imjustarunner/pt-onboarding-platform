@@ -3276,21 +3276,21 @@ export const listPrehireCandidates = async (req, res, next) => {
          (
            SELECT COUNT(*) FROM tasks t
            WHERE t.assigned_to_user_id = u.id
-             AND t.document_action_type != 'countersignature'
+             AND (t.document_action_type IS NULL OR t.document_action_type != 'countersignature')
              AND t.status = 'completed'
          ) AS task_completed,
          (
            SELECT COUNT(*) FROM tasks t
            WHERE t.assigned_to_user_id = u.id
              AND t.is_required = 1
-             AND t.document_action_type != 'countersignature'
+             AND (t.document_action_type IS NULL OR t.document_action_type != 'countersignature')
              AND t.status != 'deleted'
          ) AS required_total,
          (
            SELECT COUNT(*) FROM tasks t
            WHERE t.assigned_to_user_id = u.id
              AND t.is_required = 1
-             AND t.document_action_type != 'countersignature'
+             AND (t.document_action_type IS NULL OR t.document_action_type != 'countersignature')
              AND t.status = 'completed'
          ) AS required_completed
        FROM users u
@@ -3354,13 +3354,13 @@ export const listOnboardingCandidates = async (req, res, next) => {
          (
            SELECT COUNT(*) FROM tasks t
            WHERE t.assigned_to_user_id = u.id
-             AND t.document_action_type != 'countersignature'
+             AND (t.document_action_type IS NULL OR t.document_action_type != 'countersignature')
              AND t.status != 'deleted'
          ) AS task_total,
          (
            SELECT COUNT(*) FROM tasks t
            WHERE t.assigned_to_user_id = u.id
-             AND t.document_action_type != 'countersignature'
+             AND (t.document_action_type IS NULL OR t.document_action_type != 'countersignature')
              AND t.status = 'completed'
          ) AS task_completed,
          (
@@ -3396,5 +3396,57 @@ export const listOnboardingCandidates = async (req, res, next) => {
     });
 
     res.json(result);
+  } catch (e) { next(e); }
+};
+
+/**
+ * POST /api/hiring/candidates/:userId/send-document
+ * Retroactively assign a single document template to an existing pre-hire.
+ */
+export const sendDocumentToCandidate = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.body.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const documentTemplateId = parseIntParam(req.body.documentTemplateId);
+    if (!documentTemplateId) return res.status(400).json({ error: { message: 'documentTemplateId is required' } });
+
+    const { default: DocumentTemplate } = await import('../models/DocumentTemplate.model.js');
+    const { default: TaskAssignmentService } = await import('../services/taskAssignment.service.js');
+
+    const tmpl = await DocumentTemplate.findById(documentTemplateId);
+    if (!tmpl) return res.status(404).json({ error: { message: 'Document template not found' } });
+
+    const task = await TaskAssignmentService.assignDocumentTask({
+      title: tmpl.name,
+      description: tmpl.description || '',
+      documentTemplateId,
+      assignedByUserId: req.user.id,
+      assignedToUserId: candidateUserId,
+      assignedToAgencyId: agencyId,
+      documentActionType: tmpl.document_action_type || 'signature',
+      isRequired: tmpl.is_required ? 1 : 0,
+      lifecycleItemKey: tmpl.lifecycle_item_key || null,
+      metadata: {
+        prehire: true,
+        retroactive: true,
+        lifecycleItemKey: tmpl.lifecycle_item_key || undefined
+      }
+    });
+
+    // Also make sure the JD document is snapshotted for this candidate
+    await ensureAssignedJobDescriptionDocument(candidateUserId, req.user.id);
+
+    // Queue a batched notification email (fires 15 min after first addition)
+    const { queuePrehireNotification } = await import('../services/prehireNotification.service.js');
+    await queuePrehireNotification(candidateUserId, agencyId, {
+      type: 'document',
+      title: tmpl.name,
+    });
+
+    res.status(201).json({ task });
   } catch (e) { next(e); }
 };

@@ -118,6 +118,29 @@ export const updatePackage = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Onboarding package not found' } });
     }
 
+    // If lifecycle_item_keys changed, retroactively re-scope all assigned users.
+    if (lifecycleItemKeys !== undefined) {
+      setImmediate(async () => {
+        try {
+          const { scopeFromPackageAssignment } = await import('../services/lifecycleScope.service.js');
+          const [userRows] = await pool.execute(
+            `SELECT DISTINCT t.assigned_to_user_id
+             FROM tasks t
+             WHERE t.assigned_to_user_id IS NOT NULL
+               AND t.metadata IS NOT NULL
+               AND JSON_VALID(t.metadata) = 1
+               AND JSON_EXTRACT(t.metadata, '$.fromPackage') = ?`,
+            [parseInt(id, 10)]
+          );
+          for (const row of userRows || []) {
+            await scopeFromPackageAssignment(row.assigned_to_user_id, parseInt(id, 10));
+          }
+        } catch (scopeErr) {
+          console.warn('[updatePackage] retroactive scope failed:', scopeErr?.message);
+        }
+      });
+    }
+
     res.json(pkg);
   } catch (error) {
     next(error);
@@ -203,6 +226,28 @@ export const addDocumentToPackage = async (req, res, next) => {
       dueDateDays || null
     );
     const documents = await OnboardingPackage.getDocuments(id);
+
+    // Retroactively scope lifecycle items for all users already assigned this package.
+    // Runs async so the response is not delayed.
+    setImmediate(async () => {
+      try {
+        const { scopeFromPackageAssignment } = await import('../services/lifecycleScope.service.js');
+        const [userRows] = await pool.execute(
+          `SELECT DISTINCT t.assigned_to_user_id
+           FROM tasks t
+           WHERE t.assigned_to_user_id IS NOT NULL
+             AND t.metadata IS NOT NULL
+             AND JSON_VALID(t.metadata) = 1
+             AND JSON_EXTRACT(t.metadata, '$.fromPackage') = ?`,
+          [parseInt(id, 10)]
+        );
+        for (const row of userRows || []) {
+          await scopeFromPackageAssignment(row.assigned_to_user_id, parseInt(id, 10));
+        }
+      } catch (scopeErr) {
+        console.warn('[addDocumentToPackage] retroactive scope failed:', scopeErr?.message);
+      }
+    });
 
     res.json(documents);
   } catch (error) {
