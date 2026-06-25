@@ -1693,6 +1693,66 @@ const selectItem = (categoryId, itemId) => {
   });
 };
 
+const findCategoryIdForItem = (itemId) => {
+  if (!itemId) return null;
+  return allCategories.find((c) => c.items?.some((i) => i.id === itemId))?.id || null;
+};
+
+const trySetSelection = (categoryId, itemId) => {
+  if (!categoryId || !itemId) return false;
+  const cat = allCategories.find((c) => c.id === categoryId);
+  const itemMeta = cat?.items?.find((i) => i.id === itemId);
+  if (!itemMeta) return false;
+  const hubIds = ['tenant-ws-home', 'tenant-ws-org-directory', 'tenant-ws-global-platform'];
+  const hubOk =
+    tenantSettingsCardHubActive.value && categoryId === 'platform' && hubIds.includes(itemId);
+  const platformHubOk =
+    platformSettingsCardHubActive.value &&
+    categoryId === 'platform' &&
+    (itemId === 'platform-ws-home' ||
+      itemId === 'platform-billing' ||
+      itemId === 'platform-feature-catalog' ||
+      itemId === 'platform-feature-audit' ||
+      itemId === 'platform-all-agencies' ||
+      itemId === 'platform-settings' ||
+      itemId === 'tenant-ws-global-platform');
+  const navOk = roleFilteredCategories.value.some(
+    (c) => c.id === categoryId && c.items.some((i) => i.id === itemId)
+  );
+  if (!hubOk && !navOk && !platformHubOk) return false;
+  selectedCategory.value = categoryId;
+  selectedItem.value = itemId;
+  expandedCategoryIds.value = new Set([String(categoryId)]);
+  return true;
+};
+
+const resolveSelection = (categoryId, itemId) => {
+  if (!itemId) return false;
+  const resolvedCategory = categoryId || findCategoryIdForItem(itemId);
+  if (resolvedCategory && trySetSelection(resolvedCategory, itemId)) return true;
+  return false;
+};
+
+const applyDefaultSelection = () => {
+  if (selectedCategory.value && selectedItem.value) return;
+  if (platformSettingsCardHubActive.value) {
+    selectedCategory.value = 'platform';
+    selectedItem.value = 'platform-ws-home';
+    expandedCategoryIds.value = new Set(['platform']);
+  } else if (tenantSettingsCardHubActive.value) {
+    selectedCategory.value = 'platform';
+    selectedItem.value = 'tenant-ws-home';
+    expandedCategoryIds.value = new Set(['platform']);
+  } else if (visibleCategories.value.length > 0) {
+    const firstCategory = visibleCategories.value[0];
+    if (firstCategory.items.length > 0) {
+      selectedCategory.value = firstCategory.id;
+      selectedItem.value = firstCategory.items[0].id;
+      expandedCategoryIds.value = new Set([String(firstCategory.id)]);
+    }
+  }
+};
+
 const openTenantHubArea = ({ category, item, agencyTab }) => {
   const id = agencyStore.currentAgency?.id;
   if (!id) return;
@@ -1799,76 +1859,16 @@ onMounted(async () => {
   await applyInitialAgencySelection();
 
   selectedAgencyId.value = agencyStore.currentAgency?.id ? String(agencyStore.currentAgency.id) : '';
-  
-  // Initial selection: props > route query (when route sync is enabled) > default
-  const trySetSelection = (categoryId, itemId) => {
-    if (!categoryId || !itemId) return false;
-    const cat = allCategories.find((c) => c.id === categoryId);
-    const itemMeta = cat?.items?.find((i) => i.id === itemId);
-    if (!itemMeta) return false;
-    const hubIds = ['tenant-ws-home', 'tenant-ws-org-directory', 'tenant-ws-global-platform'];
-    const hubOk =
-      tenantSettingsCardHubActive.value && categoryId === 'platform' && hubIds.includes(itemId);
-    const platformHubOk =
-      platformSettingsCardHubActive.value &&
-      categoryId === 'platform' &&
-      (itemId === 'platform-ws-home' ||
-        itemId === 'platform-billing' ||
-        itemId === 'platform-feature-catalog' ||
-        itemId === 'platform-feature-audit' ||
-        itemId === 'platform-all-agencies' ||
-        itemId === 'platform-settings' ||
-        itemId === 'tenant-ws-global-platform');
-    const navOk = roleFilteredCategories.value.some(
-      (c) => c.id === categoryId && c.items.some((i) => i.id === itemId)
-    );
-    if (!hubOk && !navOk && !platformHubOk) return false;
-    selectedCategory.value = categoryId;
-    selectedItem.value = itemId;
-    expandedCategoryIds.value = new Set([String(categoryId)]);
-    return true;
-  };
-
-  const resolveSelection = (categoryId, itemId) => {
-    if (categoryId && itemId && trySetSelection(categoryId, itemId)) return true;
-    if (!itemId) return false;
-    for (const cat of allCategories) {
-      if (cat.items?.some((i) => i.id === itemId) && trySetSelection(cat.id, itemId)) {
-        return true;
-      }
-    }
-    return false;
-  };
 
   if (resolveSelection(props.initialCategoryId, props.initialItemId)) {
     // selection set
   } else if (!props.disableRouteSync && showTenantContextUi.value) {
-    const categoryParam = route.query.category;
-    const itemParam = route.query.item;
-    if (resolveSelection(categoryParam, itemParam)) {
+    if (resolveSelection(route.query.category, route.query.item)) {
       // selection set
     }
   }
-  
-  // Default to first visible category and item (only if no selection was established)
-  if (!selectedCategory.value || !selectedItem.value) {
-    if (platformSettingsCardHubActive.value) {
-      selectedCategory.value = 'platform';
-      selectedItem.value = 'platform-ws-home';
-      expandedCategoryIds.value = new Set(['platform']);
-    } else if (tenantSettingsCardHubActive.value) {
-      selectedCategory.value = 'platform';
-      selectedItem.value = 'tenant-ws-home';
-      expandedCategoryIds.value = new Set(['platform']);
-    } else if (visibleCategories.value.length > 0) {
-      const firstCategory = visibleCategories.value[0];
-      if (firstCategory.items.length > 0) {
-        selectedCategory.value = firstCategory.id;
-        selectedItem.value = firstCategory.items[0].id;
-        expandedCategoryIds.value = new Set([String(firstCategory.id)]);
-      }
-    }
-  }
+
+  applyDefaultSelection();
 
   if (
     isSuperAdmin.value &&
@@ -1941,34 +1941,10 @@ watch(() => route.query, (newQuery) => {
       router.replace({ query: q });
       return;
     }
-    const hubIds = ['tenant-ws-home', 'tenant-ws-org-directory', 'tenant-ws-global-platform'];
-    const resolvedCategory =
-      newQuery.category ||
-      allCategories.find((c) => c.items?.some((i) => i.id === newQuery.item))?.id ||
-      null;
-    const inHubSidebar =
-      tenantSettingsCardHubActive.value &&
-      resolvedCategory === 'platform' &&
-      hubIds.includes(newQuery.item);
-    const inFullNav = roleFilteredCategories.value.some(
-      (c) => c.id === resolvedCategory && c.items.some((i) => i.id === newQuery.item)
-    );
-    const inPlatformHubHome =
-      platformSettingsCardHubActive.value &&
-      resolvedCategory === 'platform' &&
-      ['platform-ws-home', 'platform-all-agencies', 'platform-settings', 'platform-billing', 'platform-feature-catalog', 'platform-feature-audit', 'tenant-ws-global-platform'].includes(
-        newQuery.item
-      );
-    const categoryFromNav = roleFilteredCategories.value.find((c) => c.id === resolvedCategory);
-    const itemFromNav = categoryFromNav?.items?.find((i) => i.id === newQuery.item);
-    if (inHubSidebar || inFullNav || itemFromNav || inPlatformHubHome) {
-      selectedCategory.value = resolvedCategory;
-      selectedItem.value = newQuery.item;
-      expandedCategoryIds.value = new Set([String(resolvedCategory)]);
-    }
+    resolveSelection(newQuery.category, newQuery.item);
   }
 
-  // Support deep-linking to an agency context (skip if URL already matches store — avoids double setCurrentAgency + duplicate work per chip click)
+  // Support deep-linking to an agency context
   if (newQuery.agencyId) {
     const id = parseInt(String(newQuery.agencyId), 10);
     if (!Number.isNaN(id) && Number(agencyStore.currentAgency?.id) !== id) {
@@ -1985,7 +1961,7 @@ watch(() => route.query, (newQuery) => {
       }
     }
   }
-}, { immediate: true });
+});
 
 watch(
   () => [selectedCategory.value, selectedItem.value],

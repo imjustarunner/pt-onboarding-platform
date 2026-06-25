@@ -223,7 +223,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 
@@ -395,10 +395,9 @@ const deleteRole = async (role) => {
   }
 };
 
-onMounted(loadAll);
 watch(agencyId, (id) => {
   if (id) loadAll();
-});
+}, { immediate: true });
 </script>
 
 <style scoped>
