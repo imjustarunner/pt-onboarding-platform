@@ -12,7 +12,12 @@
 
     <!-- Reuse the existing SettingsModal content, but in page mode -->
     <div class="settings-page-body">
-      <SettingsModal :embedded="true" :show-tenant-context="true" :initial-item-id="initialItemId" />
+      <SettingsModal
+      :embedded="true"
+      :show-tenant-context="true"
+      :initial-category-id="initialCategoryId"
+      :initial-item-id="initialItemId"
+    />
     </div>
   </div>
 </template>
@@ -25,8 +30,9 @@ import SettingsModal from './SettingsModal.vue';
 const router = useRouter();
 const route = useRoute();
 
-// Allow deep-linking to a specific settings section via ?item=hiring-prehire
+// Allow deep-linking to a specific settings section via ?category=workflow&item=hiring-prehire
 const initialItemId = computed(() => route.query.item || null);
+const initialCategoryId = computed(() => route.query.category || null);
 
 const goBack = () => {
   router.back();

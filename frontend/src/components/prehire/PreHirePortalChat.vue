@@ -1,19 +1,19 @@
 <template>
-  <aside class="ph-chat" :class="{ 'ph-chat--collapsed': collapsed }">
-    <div class="ph-chat-header">
-      <div class="ph-chat-header-main">
-        <div class="ph-chat-title">{{ supportTeam?.label || 'People Operations' }}</div>
-        <div class="ph-chat-status">
-          <span class="ph-chat-dot"></span>
-          We're online
+  <div class="ph-chat-wrap">
+    <aside v-show="!collapsed" class="ph-chat">
+      <div class="ph-chat-header">
+        <div class="ph-chat-header-main">
+          <div class="ph-chat-title">{{ supportTeam?.label || 'People Operations' }}</div>
+          <div class="ph-chat-status">
+            <span class="ph-chat-dot"></span>
+            We're online
+          </div>
         </div>
+        <button type="button" class="ph-chat-toggle" @click="collapse" title="Minimize chat" aria-label="Minimize chat">
+          ✕
+        </button>
       </div>
-      <button type="button" class="ph-chat-toggle" @click="collapsed = !collapsed" :title="collapsed ? 'Open chat' : 'Minimize chat'">
-        {{ collapsed ? '◀' : '▶' }}
-      </button>
-    </div>
 
-    <template v-if="!collapsed">
       <div class="ph-chat-team">
         <div class="ph-chat-avatars">
           <div
@@ -64,8 +64,19 @@
           ➤
         </button>
       </form>
-    </template>
-  </aside>
+    </aside>
+
+    <button
+      v-if="collapsed"
+      type="button"
+      class="ph-chat-fab"
+      @click="expand"
+      aria-label="Open People Operations chat"
+    >
+      <span class="ph-chat-fab-icon">💬</span>
+      <span class="ph-chat-fab-label">Chat with People Ops</span>
+    </button>
+  </div>
 </template>
 
 <script setup>
@@ -134,6 +145,15 @@ const send = async () => {
   }
 };
 
+const collapse = () => {
+  collapsed.value = true;
+};
+
+const expand = () => {
+  collapsed.value = false;
+  scrollToBottom();
+};
+
 watch(() => props.token, () => {
   loading.value = true;
   loadMessages();
@@ -148,28 +168,24 @@ onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer);
 });
 
-defineExpose({
-  expand() {
-    collapsed.value = false;
-  }
-});
+defineExpose({ expand, collapse });
 </script>
 
 <style scoped>
+.ph-chat-wrap {
+  position: relative;
+  flex-shrink: 0;
+  height: 100%;
+}
+
 .ph-chat {
   width: 360px;
-  flex-shrink: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: #fff;
   border-left: 1px solid #e5e7eb;
   box-shadow: -4px 0 24px rgba(15, 23, 42, 0.06);
-  min-height: 0;
-  height: 100%;
-}
-
-.ph-chat--collapsed {
-  width: 48px;
 }
 
 .ph-chat-header {
@@ -208,11 +224,17 @@ defineExpose({
   border: none;
   background: #f1f5f9;
   color: #64748b;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.ph-chat-toggle:hover {
+  background: #e2e8f0;
+  color: #0f172a;
 }
 
 .ph-chat-team {
@@ -364,17 +386,62 @@ defineExpose({
   cursor: not-allowed;
 }
 
+/* Floating reopen button — always reachable when chat is minimized */
+.ph-chat-fab {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 45;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border: none;
+  border-radius: 999px;
+  background: var(--primary, #2563eb);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.22);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ph-chat-fab:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.28);
+}
+
+.ph-chat-fab-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
 @media (max-width: 1100px) {
   .ph-chat {
     position: fixed;
     right: 0;
     top: 0;
     bottom: 0;
-    z-index: 40;
+    z-index: 50;
+    width: min(360px, 100vw);
   }
 
-  .ph-chat--collapsed {
-    width: 48px;
+  .ph-chat-fab {
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .ph-chat-fab-label {
+    display: none;
+  }
+
+  .ph-chat-fab {
+    width: 56px;
+    height: 56px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 50%;
   }
 }
 </style>

@@ -479,7 +479,10 @@ const effectiveSlug = computed(() => {
 
 const applicantsRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/hiring` : '/admin/hiring');
 const onboardingRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/onboarding` : '/admin/onboarding');
-const settingsRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/settings?item=hiring-prehire` : '/admin/settings?item=hiring-prehire');
+const settingsRoute = computed(() => {
+  const query = 'category=workflow&item=hiring-prehire';
+  return effectiveSlug.value ? `/${effectiveSlug.value}/admin/settings?${query}` : `/admin/settings?${query}`;
+});
 const userProfileRoute = (id) => effectiveSlug.value ? `/${effectiveSlug.value}/admin/users/${id}` : `/admin/users/${id}`;
 
 // ── State ─────────────────────────────────────────────────────────────────────

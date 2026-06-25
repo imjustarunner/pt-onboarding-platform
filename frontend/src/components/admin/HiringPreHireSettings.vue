@@ -223,7 +223,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 
@@ -272,16 +272,21 @@ const onboardingPackages = computed(() => packages.value.filter(p => p.package_t
 const signatureTemplates = computed(() => templates.value.filter(t => (t.document_action_type || 'signature') === 'signature'));
 
 const loadAll = async () => {
+  if (!agencyId.value) {
+    pageLoading.value = true;
+    pageError.value = '';
+    return;
+  }
   pageLoading.value = true;
   pageError.value = '';
   try {
-    const params = agencyId.value ? { agencyId: agencyId.value } : {};
+    const params = { agencyId: agencyId.value };
     const [settingsRes, pkgsRes, tmplRes, rolesRes, usersRes] = await Promise.all([
       api.get('/hiring/settings', { params }),
       api.get('/onboarding-packages'),
       api.get('/document-templates'),
       api.get('/hiring/signer-roles', { params }),
-      api.get('/users')
+      api.get('/users').catch(() => ({ data: [] }))
     ]);
 
     const s = settingsRes.data?.settings || {};
@@ -391,6 +396,9 @@ const deleteRole = async (role) => {
 };
 
 onMounted(loadAll);
+watch(agencyId, (id) => {
+  if (id) loadAll();
+});
 </script>
 
 <style scoped>

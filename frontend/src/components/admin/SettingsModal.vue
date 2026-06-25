@@ -1829,12 +1829,23 @@ onMounted(async () => {
     return true;
   };
 
-  if (trySetSelection(props.initialCategoryId, props.initialItemId)) {
+  const resolveSelection = (categoryId, itemId) => {
+    if (categoryId && itemId && trySetSelection(categoryId, itemId)) return true;
+    if (!itemId) return false;
+    for (const cat of allCategories) {
+      if (cat.items?.some((i) => i.id === itemId) && trySetSelection(cat.id, itemId)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  if (resolveSelection(props.initialCategoryId, props.initialItemId)) {
     // selection set
   } else if (!props.disableRouteSync && showTenantContextUi.value) {
     const categoryParam = route.query.category;
     const itemParam = route.query.item;
-    if (categoryParam && itemParam && trySetSelection(categoryParam, itemParam)) {
+    if (resolveSelection(categoryParam, itemParam)) {
       // selection set
     }
   }
@@ -1917,7 +1928,7 @@ watch(() => route.query, (newQuery) => {
     });
     return;
   }
-  if (newQuery.category && newQuery.item) {
+  if (newQuery.item) {
     if (
       platformSettingsCardHubActive.value &&
       newQuery.category === 'platform' &&
@@ -1931,25 +1942,29 @@ watch(() => route.query, (newQuery) => {
       return;
     }
     const hubIds = ['tenant-ws-home', 'tenant-ws-org-directory', 'tenant-ws-global-platform'];
+    const resolvedCategory =
+      newQuery.category ||
+      allCategories.find((c) => c.items?.some((i) => i.id === newQuery.item))?.id ||
+      null;
     const inHubSidebar =
       tenantSettingsCardHubActive.value &&
-      newQuery.category === 'platform' &&
+      resolvedCategory === 'platform' &&
       hubIds.includes(newQuery.item);
     const inFullNav = roleFilteredCategories.value.some(
-      (c) => c.id === newQuery.category && c.items.some((i) => i.id === newQuery.item)
+      (c) => c.id === resolvedCategory && c.items.some((i) => i.id === newQuery.item)
     );
     const inPlatformHubHome =
       platformSettingsCardHubActive.value &&
-      newQuery.category === 'platform' &&
+      resolvedCategory === 'platform' &&
       ['platform-ws-home', 'platform-all-agencies', 'platform-settings', 'platform-billing', 'platform-feature-catalog', 'platform-feature-audit', 'tenant-ws-global-platform'].includes(
         newQuery.item
       );
-    const categoryFromNav = roleFilteredCategories.value.find((c) => c.id === newQuery.category);
+    const categoryFromNav = roleFilteredCategories.value.find((c) => c.id === resolvedCategory);
     const itemFromNav = categoryFromNav?.items?.find((i) => i.id === newQuery.item);
     if (inHubSidebar || inFullNav || itemFromNav || inPlatformHubHome) {
-      selectedCategory.value = newQuery.category;
+      selectedCategory.value = resolvedCategory;
       selectedItem.value = newQuery.item;
-      expandedCategoryIds.value = new Set([String(newQuery.category)]);
+      expandedCategoryIds.value = new Set([String(resolvedCategory)]);
     }
   }
 
