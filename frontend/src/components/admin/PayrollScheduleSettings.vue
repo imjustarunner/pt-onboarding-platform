@@ -52,6 +52,9 @@
         <button type="button" class="tab" :class="{ active: payrollTab === 'rate_titles' }" @click="payrollTab = 'rate_titles'; loadRateTitles()">
           Rate Titles
         </button>
+        <button type="button" class="tab" :class="{ active: payrollTab === 'comp_levels' }" @click="payrollTab = 'comp_levels'">
+          Compensation Levels
+        </button>
       </div>
 
       <div v-if="payrollTab === 'schedule'" class="card">
@@ -570,6 +573,11 @@
       </template>
     </div>
 
+    <!-- ── Compensation Levels ──────────────────────────────────────────────── -->
+    <div v-else-if="payrollTab === 'comp_levels'">
+      <CompensationLevelsSettings :agency-id="agencyId" />
+    </div>
+
     <div v-else-if="payrollTab === 'percent_pay'" class="card">
       <h3 style="margin: 0 0 4px 0;">Percent-of-client-paid pay</h3>
       <p class="hint" style="margin: 0 0 14px 0;">
@@ -670,6 +678,7 @@
 import { computed, ref, watch } from 'vue';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
+import CompensationLevelsSettings from './CompensationLevelsSettings.vue';
 
 const props = defineProps({
   scopedAgencyId: { type: Number, default: null }

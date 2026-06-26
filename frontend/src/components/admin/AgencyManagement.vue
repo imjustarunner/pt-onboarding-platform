@@ -3190,19 +3190,7 @@
 
           <!-- Payroll Tab (agency-only) -->
           <div v-show="activeTab === 'payroll'" class="tab-content">
-            <!-- Compensation Levels -->
             <div class="settings-section-divider">
-              <h4 style="margin-bottom: 4px;">Compensation Levels</h4>
-              <p class="section-description">
-                Define structured pay rates for three credential categories (Bachelors/Interns, Pre-licensed Masters, Licensed) with five levels each. Assign providers a level from their Payroll tab.
-              </p>
-            </div>
-            <CompensationLevelsSettings
-              v-if="editingAgency?.id"
-              :agency-id="editingAgency.id"
-            />
-
-            <div class="settings-section-divider" style="margin-top: 28px;">
               <h4>Med Cancel (Payroll)</h4>
               <p class="section-description">
                 Configure the pay service code and per-missed-service rates for providers marked “Low” or “High”.
@@ -4111,7 +4099,6 @@ import ToggleSwitch from '../ui/ToggleSwitch.vue';
 import SocialFeedsAdmin from './SocialFeedsAdmin.vue';
 import CompanyEventsManager from './CompanyEventsManager.vue';
 import KudosTiersAdmin from './KudosTiersAdmin.vue';
-import CompensationLevelsSettings from './CompensationLevelsSettings.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
