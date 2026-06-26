@@ -6,7 +6,7 @@
         <p class="cl-sub">Define rates for each category and level. Assign providers a category + level from their Payroll tab to apply the rates automatically.</p>
       </div>
       <div class="cl-header-actions">
-        <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="fetch">Refresh</button>
+        <button type="button" class="btn btn-secondary btn-sm" @click="loadData">{{ loading ? 'Loading…' : 'Refresh' }}</button>
         <button type="button" class="btn btn-primary btn-sm" :disabled="saving || loading" @click="saveAll">
           {{ saving ? 'Saving…' : 'Save all' }}
         </button>
@@ -234,15 +234,24 @@ const applyLevels = (levels, labels, rates) => {
   if (rates) levelRates.value = { ...rates };
 };
 
-const fetch = async () => {
-  if (!props.agencyId) return;
+let currentAbort = null;
+
+const loadData = async () => {
+  if (!props.agencyId) { loading.value = false; return; }
+  // Cancel any in-flight request so refresh always wins
+  if (currentAbort) { currentAbort.abort(); }
+  currentAbort = new AbortController();
   loading.value = true;
   error.value = '';
   try {
-    const res = await api.get('/payroll/compensation-levels', { params: { agencyId: props.agencyId } });
+    const res = await api.get('/payroll/compensation-levels', {
+      params: { agencyId: props.agencyId },
+      signal: currentAbort.signal
+    });
     applyLevels(res.data?.levels || [], res.data?.categoryLabels || {}, res.data?.levelRates || {});
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to load compensation levels';
+    if (e.name === 'CanceledError' || e.code === 'ERR_CANCELED') return; // aborted — don't touch state
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to load compensation levels';
   } finally {
     loading.value = false;
   }
@@ -285,7 +294,7 @@ const saveAll = async () => {
   }
 };
 
-watch(() => props.agencyId, () => fetch(), { immediate: true });
+watch(() => props.agencyId, () => loadData(), { immediate: true });
 </script>
 
 <style scoped>
