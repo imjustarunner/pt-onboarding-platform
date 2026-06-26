@@ -167,6 +167,76 @@
         </div>
       </div>
 
+      <!-- Compensation Level Assignment -->
+      <div v-if="selectedAgencyId" class="comp-card" style="margin-bottom: 16px;">
+        <div class="comp-header">
+          <div>
+            <h3 class="comp-title">Compensation Level</h3>
+            <div class="muted">Assign this provider to a category and level. Rates are defined in Agency → Edit Organization → Payroll.</div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-secondary btn-sm" @click="fetchCompLevel" :disabled="compLevelLoading">Refresh</button>
+          </div>
+        </div>
+
+        <div v-if="compLevelError" class="error-box" style="margin-top: 8px;">{{ compLevelError }}</div>
+        <div v-if="compLevelSaveSuccess" class="save-success" style="margin-top: 8px;">Level assigned and rates applied.</div>
+
+        <div v-if="compLevelLoading" class="muted" style="margin-top: 10px;">Loading…</div>
+        <div v-else style="margin-top: 12px;">
+          <!-- Current assignment display -->
+          <div v-if="currentCompLevel" class="comp-level-badge-row">
+            <div class="comp-level-badge">
+              <span class="comp-level-cat">{{ COMP_CATEGORIES[currentCompLevel.category]?.label || `Category ${currentCompLevel.category}` }}</span>
+              <span class="comp-level-sep">/</span>
+              <span class="comp-level-lbl">Compensation Level {{ currentCompLevel.level }}</span>
+              <span v-if="currentCompLevel.label" class="comp-level-name">{{ currentCompLevel.label }}</span>
+            </div>
+            <div class="comp-level-rates" v-if="currentCompLevel.direct_rate != null || currentCompLevel.indirect_rate != null">
+              <span v-if="currentCompLevel.direct_rate != null">Direct: <strong>${{ Number(currentCompLevel.direct_rate).toFixed(2) }}/hr</strong></span>
+              <span v-if="currentCompLevel.indirect_rate != null">Indirect: <strong>${{ Number(currentCompLevel.indirect_rate).toFixed(2) }}/hr</strong></span>
+              <span v-if="currentCompLevel.has_ffs && currentCompLevel.ffs_rate != null">FFS: <strong>${{ Number(currentCompLevel.ffs_rate).toFixed(2) }}/unit</strong></span>
+            </div>
+            <button class="btn btn-ghost btn-sm comp-level-remove" @click="removeCompLevel" :disabled="compLevelSaving" title="Remove level assignment">✕</button>
+          </div>
+          <div v-else class="muted" style="font-size: 13px; margin-bottom: 12px;">No compensation level assigned.</div>
+
+          <!-- Assignment form -->
+          <div class="comp-level-assign-row">
+            <div class="field-inline">
+              <label>Category</label>
+              <select v-model.number="compLevelDraft.category">
+                <option :value="null">Select…</option>
+                <option v-for="(cat, key) in COMP_CATEGORIES" :key="key" :value="Number(key)">{{ cat.label }} — {{ cat.description }}</option>
+              </select>
+            </div>
+            <div class="field-inline">
+              <label>Level</label>
+              <select v-model.number="compLevelDraft.level" :disabled="!compLevelDraft.category">
+                <option :value="null">Select…</option>
+                <option v-for="n in 5" :key="n" :value="n">Compensation Level {{ n }}</option>
+              </select>
+            </div>
+            <div class="field-inline comp-level-preview" v-if="previewCompLevel">
+              <label>Rates at this level</label>
+              <div class="comp-level-preview-rates">
+                <span v-if="previewCompLevel.direct_rate != null">Direct: <strong>${{ Number(previewCompLevel.direct_rate).toFixed(2) }}/hr</strong></span>
+                <span v-if="previewCompLevel.indirect_rate != null">Indirect: <strong>${{ Number(previewCompLevel.indirect_rate).toFixed(2) }}/hr</strong></span>
+                <span v-if="previewCompLevel.has_ffs && previewCompLevel.ffs_rate != null">FFS: <strong>${{ Number(previewCompLevel.ffs_rate).toFixed(2) }}/unit</strong></span>
+                <span v-if="previewCompLevel.direct_rate == null && previewCompLevel.indirect_rate == null" class="muted">Not configured yet</span>
+              </div>
+            </div>
+            <button
+              class="btn btn-primary btn-sm"
+              :disabled="!compLevelDraft.category || !compLevelDraft.level || compLevelSaving"
+              @click="assignCompLevel"
+            >
+              {{ compLevelSaving ? 'Saving…' : 'Assign & Apply Rates' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div v-if="selectedAgencyId" class="comp-card">
         <div class="comp-header">
           <div>
@@ -784,6 +854,87 @@ const visibilityByCode = computed(() => {
   return m;
 });
 
+// ── Compensation Level ──────────────────────────────────────────────────────
+const COMP_CATEGORIES = {
+  1: { label: 'Category 1', description: 'Bachelors, Interns, QBHA & Peer Professionals' },
+  2: { label: 'Category 2', description: 'Pre-licensed & Unlicensed Masters Level' },
+  3: { label: 'Category 3', description: 'Licensed Professionals' }
+};
+
+const compLevelLoading = ref(false);
+const compLevelSaving = ref(false);
+const compLevelError = ref('');
+const compLevelSaveSuccess = ref(false);
+const currentCompLevel = ref(null);
+const allCompLevels = ref([]);
+const compLevelDraft = ref({ category: null, level: null });
+
+const previewCompLevel = computed(() => {
+  const { category, level } = compLevelDraft.value;
+  if (!category || !level) return null;
+  return allCompLevels.value.find((r) => r.category === category && r.level === level) || null;
+});
+
+const fetchCompLevel = async () => {
+  if (!selectedAgencyId.value || !props.userId) return;
+  compLevelLoading.value = true;
+  compLevelError.value = '';
+  try {
+    const [assignRes, defsRes] = await Promise.all([
+      api.get(`/payroll/users/${props.userId}/compensation-level`, { params: { agencyId: selectedAgencyId.value } }),
+      api.get('/payroll/compensation-levels', { params: { agencyId: selectedAgencyId.value } })
+    ]);
+    currentCompLevel.value = assignRes.data?.assignment || null;
+    allCompLevels.value = defsRes.data?.levels || [];
+    if (currentCompLevel.value) {
+      compLevelDraft.value = { category: currentCompLevel.value.category, level: currentCompLevel.value.level };
+    }
+  } catch (e) {
+    compLevelError.value = e.response?.data?.error?.message || 'Failed to load compensation level';
+  } finally {
+    compLevelLoading.value = false;
+  }
+};
+
+const assignCompLevel = async () => {
+  if (!compLevelDraft.value.category || !compLevelDraft.value.level) return;
+  compLevelSaving.value = true;
+  compLevelError.value = '';
+  compLevelSaveSuccess.value = false;
+  try {
+    const res = await api.post(`/payroll/users/${props.userId}/compensation-level`, {
+      agencyId: selectedAgencyId.value,
+      category: compLevelDraft.value.category,
+      level: compLevelDraft.value.level,
+      applyRates: true
+    });
+    currentCompLevel.value = res.data?.assignment || null;
+    compLevelSaveSuccess.value = true;
+    setTimeout(() => { compLevelSaveSuccess.value = false; }, 3000);
+    await loadComp();
+  } catch (e) {
+    compLevelError.value = e.response?.data?.error?.message || 'Failed to assign compensation level';
+  } finally {
+    compLevelSaving.value = false;
+  }
+};
+
+const removeCompLevel = async () => {
+  if (!confirm('Remove compensation level assignment?')) return;
+  compLevelSaving.value = true;
+  compLevelError.value = '';
+  try {
+    await api.delete(`/payroll/users/${props.userId}/compensation-level`, { params: { agencyId: selectedAgencyId.value } });
+    currentCompLevel.value = null;
+    compLevelDraft.value = { category: null, level: null };
+  } catch (e) {
+    compLevelError.value = e.response?.data?.error?.message || 'Failed to remove level';
+  } finally {
+    compLevelSaving.value = false;
+  }
+};
+
+// ── Rate Templates ───────────────────────────────────────────────────────────
 const templates = ref([]);
 const selectedTemplateId = ref(null);
 const templateDetails = ref(null);
@@ -1584,6 +1735,7 @@ watch(
     await load();
     await loadComp();
     await loadPtoAccount();
+    await fetchCompLevel();
   }
 );
 
@@ -1593,6 +1745,7 @@ watch(
     await load();
     await loadComp();
     await loadPtoAccount();
+    await fetchCompLevel();
   },
   { immediate: true }
 );
@@ -1956,6 +2109,102 @@ input {
 }
 .loading {
   color: var(--text-secondary);
+}
+.save-success {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.comp-level-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+.comp-level-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.comp-level-cat {
+  font-weight: 700;
+  color: #2e5d50;
+}
+.comp-level-sep {
+  color: #9ca3af;
+}
+.comp-level-lbl {
+  font-weight: 600;
+}
+.comp-level-name {
+  color: #6b7280;
+  font-size: 12px;
+}
+.comp-level-rates {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #374151;
+}
+.comp-level-remove {
+  margin-left: auto;
+  padding: 2px 8px;
+  color: #ef4444;
+  background: none;
+  border: 1px solid #fca5a5;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.comp-level-remove:hover { background: #fef2f2; }
+.comp-level-assign-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.field-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.field-inline label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0;
+}
+.field-inline select {
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+  min-width: 200px;
+}
+.comp-level-preview {
+  padding: 8px 12px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+.comp-level-preview-rates {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  margin-top: 2px;
 }
 </style>
 

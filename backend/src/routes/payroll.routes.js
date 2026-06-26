@@ -1,6 +1,13 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
+  listCompensationLevels,
+  saveCompensationLevels,
+  getUserCompensationLevel,
+  assignUserCompensationLevel,
+  removeUserCompensationLevel
+} from '../controllers/payrollCompensationLevel.controller.js';
+import {
   createPayrollPeriod,
   listPayrollPeriods,
   getUnpaidDraftsReport,
@@ -384,6 +391,13 @@ router.post('/periods/:id(\\d+)/supervision/import', ...importSupervisionCsv);
 // Payroll Tools (read-only, no persistence)
 router.post('/tools/payroll/compare', ...toolComparePayrollFiles);
 router.post('/tools/payroll/viewer', ...toolPreviewPayrollFileStaging);
+
+// Compensation levels (agency-wide definitions + per-user assignment)
+router.get('/compensation-levels', listCompensationLevels);
+router.put('/compensation-levels', saveCompensationLevels);
+router.get('/users/:userId/compensation-level', getUserCompensationLevel);
+router.post('/users/:userId/compensation-level', assignUserCompensationLevel);
+router.delete('/users/:userId/compensation-level', removeUserCompensationLevel);
 
 // User payroll history
 router.get('/users/:userId/periods', listUserPayroll);
