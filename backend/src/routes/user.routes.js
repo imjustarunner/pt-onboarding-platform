@@ -1,5 +1,5 @@
 import express from 'express';
-import { getCurrentUser, getAllUsers, getGuardianUsers, getGuardianLinkedClients, getGuardianEvents, bulkDeleteGuardians, aiQueryUsers, getUserById, getUserStravaConnection, updateUser, updateUserStatus, requireSkillBuilderConfirmNextLogin, getUserAgencies, getSuperviseePortalSlugs, getProvidersForSupport, getAffiliatedPortals, assignUserToAgency, removeUserFromAgency, setUserAgencyPayrollAccess, setUserAgencyDepartmentAccess, getUserDepartmentAccess, setUserAgencyH0032Mode, setUserAgencySupervisionPrelicensed, generateInvitationToken, generateTemporaryPassword, setCustomTemporaryPassword, resetPasswordlessToken, sendInitialSetupLink, resendSetupLink, sendResetPasswordLink, sendResetPasswordLinkSms, getUserCredentials, getAccountInfo, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, setStaffInactive, restoreUser, deleteUser, deleteMe, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges, promoteToOnboarding, createCurrentEmployee, getUserLoginEmailAliases, addUserLoginEmailAlias, removeUserLoginEmailAlias, getUserScheduleSummary, listUserMeetingCandidates, createUserScheduleEvent, deleteUserScheduleEvent, getUserGoogleEvent, patchUserGoogleEvent, deleteUserGoogleEvent, getUserExternalCalendars, createUserExternalCalendar, addUserExternalCalendarFeed, patchUserExternalCalendar, patchUserExternalCalendarFeed, setSsoPasswordOverride } from '../controllers/user.controller.js';
+import { getCurrentUser, getAllUsers, getGuardianUsers, getGuardianLinkedClients, getGuardianEvents, bulkDeleteGuardians, aiQueryUsers, getUserById, getUserStravaConnection, updateUser, updateUserStatus, requireSkillBuilderConfirmNextLogin, getUserAgencies, getSuperviseePortalSlugs, getProvidersForSupport, getAffiliatedPortals, assignUserToAgency, removeUserFromAgency, setUserAgencyPayrollAccess, setUserAgencyDepartmentAccess, getUserDepartmentAccess, setUserAgencyH0032Mode, setUserAgencySupervisionPrelicensed, generateInvitationToken, generateTemporaryPassword, setCustomTemporaryPassword, resetPasswordlessToken, sendInitialSetupLink, resendSetupLink, sendResetPasswordLink, sendResetPasswordLinkSms, getUserCredentials, getAccountInfo, getProfileOverview, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, setStaffInactive, restoreUser, deleteUser, deleteMe, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges, promoteToOnboarding, createCurrentEmployee, getUserLoginEmailAliases, addUserLoginEmailAlias, removeUserLoginEmailAlias, getUserScheduleSummary, listUserMeetingCandidates, createUserScheduleEvent, deleteUserScheduleEvent, getUserGoogleEvent, patchUserGoogleEvent, deleteUserGoogleEvent, getUserExternalCalendars, createUserExternalCalendar, addUserExternalCalendarFeed, patchUserExternalCalendar, patchUserExternalCalendarFeed, setSsoPasswordOverride } from '../controllers/user.controller.js';
 import { getUserOfficeAssignments, upsertUserOfficeAssignments } from '../controllers/userOfficeAssignments.controller.js';
 import { upload as uploadProfilePhoto, uploadUserProfilePhoto } from '../controllers/userProfilePhoto.controller.js';
 import {
@@ -27,6 +27,9 @@ import {
   updateSeparationInfo,
   toggleLifecycleChecklistItem,
   syncLifecycle,
+  uploadLifecycleChecklistAttachment,
+  downloadLifecycleChecklistAttachment,
+  deleteLifecycleChecklistAttachment,
 } from '../controllers/lifecycle.controller.js';
 
 const router = express.Router();
@@ -105,6 +108,7 @@ router.post('/change-password', authenticate, changePassword); // For users to c
 router.post('/:id/change-password', authenticate, changePassword); // For admins to change other users' passwords
 router.get('/:id/credentials', authenticate, requireBackofficeAdmin, getUserCredentials);
 router.get('/:id/account-info', authenticate, getAccountInfo);
+router.get('/:id/profile-overview', authenticate, getProfileOverview);
 router.post('/:id/toggle-supervisor-privileges', authenticate, toggleSupervisorPrivileges);
 router.get('/:id/completion-package', authenticate, downloadCompletionPackage);
 router.get('/:id/onboarding-checklist', authenticate, getOnboardingChecklist);
@@ -128,6 +132,9 @@ router.get('/:id/lifecycle', authenticate, requireBackofficeAdmin, getUserLifecy
 router.patch('/:id/lifecycle/dates', authenticate, requireBackofficeAdmin, updateLifecycleDates);
 router.patch('/:id/lifecycle/separation', authenticate, requireBackofficeAdmin, updateSeparationInfo);
 router.post('/:id/lifecycle/checklist/:definitionId/toggle', authenticate, requireBackofficeAdmin, toggleLifecycleChecklistItem);
+router.post('/:id/lifecycle/checklist/:definitionId/attachment', authenticate, requireBackofficeAdmin, uploadLifecycleChecklistAttachment);
+router.get('/:id/lifecycle/checklist/:definitionId/attachment', authenticate, requireBackofficeAdmin, downloadLifecycleChecklistAttachment);
+router.delete('/:id/lifecycle/checklist/:definitionId/attachment', authenticate, requireBackofficeAdmin, deleteLifecycleChecklistAttachment);
 router.post('/:id/lifecycle/sync', authenticate, requireBackofficeAdmin, syncLifecycle);
 
 // Pending status endpoints

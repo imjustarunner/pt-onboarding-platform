@@ -6588,12 +6588,15 @@ export const getAccountInfo = async (req, res, next) => {
 
         const supervisors = (supervisorAssignments || []).map((assignment) => ({
           id: assignment.supervisor_id,
+          assignmentId: assignment.id,
           firstName: assignment.supervisor_first_name,
           lastName: assignment.supervisor_last_name,
           email: assignment.supervisor_email,
           workPhone: null,
           workPhoneExtension: null,
-          agencyName: assignment.agency_name
+          agencyName: assignment.agency_name,
+          supervisorType: assignment.supervisor_type || 'clinical',
+          isPrimary: !!(assignment.is_primary === 1 || assignment.is_primary === true)
         }));
 
         const ids = Array.from(new Set(supervisors.map((s) => Number(s.id)).filter((n) => Number.isInteger(n) && n > 0)));
@@ -8710,6 +8713,202 @@ export const wipePendingUserData = async (req, res, next) => {
   } catch (error) {
     console.error('Error wiping pending user data:', error);
     next(error);
+  }
+};
+
+/**
+ * GET /users/:id/profile-overview?agencyId=
+ *
+ * Aggregates all sections needed for the employee Overview tab into a single
+ * response, reducing ~8 client round trips to 1.  Every sub-query is
+ * best-effort: failures return null/[] so the page still renders with whatever
+ * data is available.
+ */
+export const getProfileOverview = async (req, res, next) => {
+  try {
+    const targetId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(targetId) || targetId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid user id' } });
+    }
+
+    // Access control: backoffice roles only (mirrors account-info but slightly tighter)
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    const isBackoffice = ['admin', 'super_admin', 'support'].includes(actorRole);
+    const isSelf = req.user?.id === targetId;
+    const isSupervisorUser = req.user?.has_supervisor_privileges;
+
+    if (!isBackoffice && !isSelf && !isSupervisorUser) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const agencyId = parseInt(req.query.agencyId || req.user?.agencyId, 10) || null;
+
+    const user = await User.findById(targetId);
+    if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+
+    // ── Parallel sub-queries ─────────────────────────────────────────────────
+
+    const accountInfoPromise = (async () => {
+      try {
+        // Reuse lightweight version: personal email + address fields from DB
+        const [rows] = await pool.execute(
+          `SELECT personal_email, home_street_address, home_address_line2, home_city, home_state, home_postal_code
+           FROM users WHERE id = ? LIMIT 1`,
+          [targetId]
+        );
+        const r = rows[0] || {};
+        return {
+          personalEmail: user.personal_email || r.personal_email || null,
+          languagesSpoken: user.languages_spoken || null,
+          preferredName: user.preferred_name || null,
+          title: user.title || null,
+          serviceFocus: user.service_focus || null,
+          phoneNumber: user.phone_number || null,
+          personalPhone: user.personal_phone || null,
+          workPhone: user.work_phone || null,
+          workPhoneExtension: user.work_phone_extension || null,
+          homeStreetAddress: r.home_street_address || null,
+          homeAddressLine2: r.home_address_line2 || null,
+          homeCity: r.home_city || null,
+          homeState: r.home_state || null,
+          homePostalCode: r.home_postal_code || null,
+          companyCardEnabled: !!(user.company_card_enabled === 1 || user.company_card_enabled === true || user.company_card_enabled === '1'),
+          companyCarSubmitAccess: !!(user.company_car_submit_access === 1 || user.company_car_submit_access === true || user.company_car_submit_access === '1'),
+          companyCarManageAccess: !!(user.company_car_manage_access === 1 || user.company_car_manage_access === true || user.company_car_manage_access === '1'),
+          skillBuilderEligible: !!(user.skill_builder_eligible === 1 || user.skill_builder_eligible === true || user.skill_builder_eligible === '1'),
+          hasPayrollAccess: (await User.listPayrollAgencyIds(targetId)).length > 0,
+          hasCredentialingAccess: (await User.listCredentialingAgencyIds(targetId)).length > 0,
+          isHourlyWorker: !!(user.is_hourly_worker === 1 || user.is_hourly_worker === true || user.is_hourly_worker === '1'),
+          hasHiringAccess: !!(user.has_hiring_access === 1 || user.has_hiring_access === true || user.has_hiring_access === '1'),
+        };
+      } catch {
+        return null;
+      }
+    })();
+
+    const lifecyclePromise = (async () => {
+      try {
+        const { getLifecycleData } = await import('../services/lifecycle.service.js');
+        const data = await getLifecycleData(targetId);
+        // Return only the summary + dates slices needed for overview
+        return { summary: data.summary, dates: data.dates };
+      } catch {
+        return null;
+      }
+    })();
+
+    const tasksPromise = (async () => {
+      try {
+        const Task = (await import('../models/Task.model.js')).default;
+        const tasks = await Task.getAll({ assignedToUserId: targetId });
+        const now = new Date();
+        let pendingCount = 0, inProgressCount = 0, overdueCount = 0, upcomingCount = 0;
+        const recentDocs = [];
+        const upcomingOverdue = [];
+
+        for (const t of tasks) {
+          if (t.status === 'pending') pendingCount++;
+          if (t.status === 'in_progress') inProgressCount++;
+          const dd = t.due_date ? new Date(t.due_date) : null;
+          const isActive = t.status === 'pending' || t.status === 'in_progress';
+          if (dd && isActive) {
+            if (dd < now) overdueCount++;
+            else if (dd <= new Date(now.getTime() + 30 * 86400000)) upcomingCount++;
+            if (upcomingOverdue.length < 5) upcomingOverdue.push(t);
+          }
+          if ((t.task_type === 'document') && recentDocs.length < 5) recentDocs.push(t);
+        }
+
+        return { pendingCount, inProgressCount, overdueCount, upcomingCount, recentDocs, upcomingOverdue };
+      } catch {
+        return { pendingCount: 0, inProgressCount: 0, overdueCount: 0, upcomingCount: 0, recentDocs: [], upcomingOverdue: [] };
+      }
+    })();
+
+    const supervisorsPromise = (async () => {
+      try {
+        const SupervisorAssignment = (await import('../models/SupervisorAssignment.model.js')).default;
+        return await SupervisorAssignment.findBySupervisee(targetId);
+      } catch {
+        return [];
+      }
+    })();
+
+    const activityPromise = (async () => {
+      try {
+        const auditRows = await AdminAuditLog.getAuditLog(agencyId, { userId: targetId, limit: 8 });
+        return (auditRows || []).slice(0, 8);
+      } catch {
+        return [];
+      }
+    })();
+
+    const notesPromise = (async () => {
+      try {
+        const HiringNote = (await import('../models/HiringNote.model.js')).default;
+        return await HiringNote.listByCandidateUserId(targetId, { limit: 10 });
+      } catch {
+        return [];
+      }
+    })();
+
+    const acceptedInsurancesPromise = (async () => {
+      if (!agencyId) return [];
+      try {
+        const { listProviderAcceptedInsurances } = await import('../services/providerAcceptedInsurance.service.js');
+        return await listProviderAcceptedInsurances({ userId: targetId, agencyId });
+      } catch {
+        return [];
+      }
+    })();
+
+    const [accountInfo, lifecycle, tasks, supervisors, recentActivity, notes, acceptedInsurances] = await Promise.all([
+      accountInfoPromise,
+      lifecyclePromise,
+      tasksPromise,
+      supervisorsPromise,
+      activityPromise,
+      notesPromise,
+      acceptedInsurancesPromise,
+    ]);
+
+    res.json({
+      user: {
+        id: user.id,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        preferred_name: user.preferred_name,
+        email: user.email,
+        work_email: user.work_email,
+        phone_number: user.phone_number,
+        personal_phone: user.personal_phone,
+        title: user.title,
+        department: user.department,
+        employment_type: user.employment_type,
+        work_location: user.work_location,
+        pay_rate: user.pay_rate,
+        pay_type: user.pay_type,
+        hire_date: user.hire_date,
+        start_date: user.start_date,
+        status: user.status,
+        role: user.role,
+        pronouns: user.pronouns,
+        emergency_contact: user.emergency_contact,
+        employee_id: user.employee_id,
+        manager_name: user.manager_name,
+        manager_first_name: user.manager_first_name,
+        manager_last_name: user.manager_last_name,
+      },
+      accountInfo,
+      lifecycle,
+      tasks,
+      supervisors,
+      recentActivity,
+      notes,
+      acceptedInsurances,
+    });
+  } catch (err) {
+    next(err);
   }
 };
 

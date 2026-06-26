@@ -67,9 +67,15 @@
                 }}</a>
                 <template v-else>{{ providerContactPhone.display }}</template>
               </div>
-              <div v-if="acceptedInsuranceLabels.length" class="insurance-row">
+              <div v-if="acceptedInsuranceLabels.length || acceptedInsuranceItems.length" class="insurance-row">
                 <div class="insurance-label">Accepted insurance</div>
-                <div class="insurance-list">
+                <AcceptedInsuranceBadges
+                  v-if="acceptedInsuranceItems.length"
+                  :items="acceptedInsuranceItems"
+                  :show-label="false"
+                  :show-names="true"
+                />
+                <div v-else class="insurance-list">
                   <span
                     v-for="name in acceptedInsuranceLabels"
                     :key="`insurance-${name}`"
@@ -102,6 +108,7 @@
                     <div class="supervisor-meta">
                       <div class="supervisor-name">
                         {{ s.first_name }} {{ s.last_name }}
+                        <span class="supervisor-type-tag">{{ supervisorTypeLabel(s.supervisor_type) }}</span>
                         <span v-if="s.is_primary" class="primary-tag">Primary</span>
                       </div>
                       <div v-if="s.credential" class="supervisor-cred">
@@ -361,6 +368,8 @@ import SoftScheduleEditor from './SoftScheduleEditor.vue';
 import ClientListGrid from '../ClientListGrid.vue';
 import { useAuthStore } from '../../../store/auth';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';
+import AcceptedInsuranceBadges from '../../admin/AcceptedInsuranceBadges.vue';
+import { supervisorTypeLabel } from '../../../constants/supervisorTypes.js';
 import { formatPhoneForDisplay } from '../../../utils/phoneDisplay.js';
 import {
   useSlotVerification,
@@ -629,6 +638,22 @@ const acceptedInsuranceLabels = computed(() => {
   return items
     .map((x) => String(x?.label || x?.insurance_key || '').trim())
     .filter(Boolean);
+});
+
+const acceptedInsuranceItems = computed(() => {
+  const items = Array.isArray(profile.value?.insurances_accepted) ? profile.value.insurances_accepted : [];
+  return items
+    .map((x) => ({
+      insurance_definition_id: x.insurance_key,
+      name: x.name || x.label,
+      label: x.label || x.name,
+      logo_path: x.logo_path || null,
+      logo_url: x.logo_url || null,
+      effective_date: x.effective_date || null,
+      source: x.source || 'self',
+      inherited_from_name: x.inherited_from_name || null
+    }))
+    .filter((x) => x.name || x.label);
 });
 
 const computeFiscalYearStartYmd = (d) => {
@@ -1224,6 +1249,16 @@ watch(
   color: #065f46;
   background: rgba(16, 185, 129, 0.12);
   border: 1px solid rgba(16, 185, 129, 0.28);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.supervisor-type-tag {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #374151;
+  background: rgba(107, 114, 128, 0.12);
+  border: 1px solid rgba(107, 114, 128, 0.25);
   padding: 2px 8px;
   border-radius: 999px;
 }

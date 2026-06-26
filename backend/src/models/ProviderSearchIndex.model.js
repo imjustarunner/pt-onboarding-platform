@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import { isBachelorsCredentialText } from '../utils/credentialNormalization.js';
+import { FACET_FIELD_ALIASES } from '../constants/clinicalFacetFields.js';
 
 function normalizeMultiSelect(raw) {
   if (raw === null || raw === undefined) return [];
@@ -53,13 +54,7 @@ class ProviderSearchIndex {
     // Normalize legacy / duplicate field keys to their canonical names before indexing.
     // Old imports may have saved data under alternate keys; mapping them here ensures
     // the search index and findProvidersByApproach always use the canonical key.
-    const FIELD_ALIASES = {
-      provider_marketing_age_specialty:         'age_specialty',
-      provider_marketing_treatment_modalities:  'modality',
-      provider_marketing_specialties:           'specialties_general',
-      provider_marketing_groups:                'groups',
-      provider_marketing_sexuality:             'sexuality',
-    };
+    const FIELD_ALIASES = FACET_FIELD_ALIASES;
 
     for (const r of rows || []) {
       const rawKey = String(r.field_key || '').trim();

@@ -188,9 +188,20 @@ async function resolveProviderProfileSummary({ agencyId, providerUserId }) {
   const agencySettings = await resolveAgencyPortalSettings(agencyId);
   const effectiveRateCents = profile?.selfPayRateCents ?? agencySettings?.defaultSelfPayRateCents ?? null;
   const effectiveRateNote = String(profile?.selfPayRateNote || agencySettings?.defaultSelfPayRateNote || '').trim() || null;
+  let acceptedInsurances = [];
+  try {
+    const { listProviderAcceptedInsurancesForDisplay } = await import('../services/providerAcceptedInsurance.service.js');
+    acceptedInsurances = await listProviderAcceptedInsurancesForDisplay({
+      userId: providerUserId,
+      agencyId
+    });
+  } catch {
+    acceptedInsurances = [];
+  }
   return {
     publicBlurb: String(profile?.publicBlurb || '').trim(),
     insurances: Array.isArray(profile?.insurances) ? profile.insurances : [],
+    acceptedInsurances,
     selfPayRateCents: effectiveRateCents,
     selfPayRateLabel: formatMoney(effectiveRateCents),
     selfPayRateNote: effectiveRateNote,
@@ -475,6 +486,7 @@ export const listPublicProvidersAvailability = async (req, res, next) => {
         profile: {
           publicBlurb: profile.publicBlurb || '',
           insurancesAccepted: Array.isArray(profile.insurances) ? profile.insurances : [],
+          acceptedInsurances: Array.isArray(profile.acceptedInsurances) ? profile.acceptedInsurances : [],
           selfPayRateCents: profile.selfPayRateCents ?? null,
           selfPayRateLabel: profile.selfPayRateLabel || null,
           selfPayRateNote: profile.selfPayRateNote || null
@@ -538,6 +550,7 @@ export const getPublicProviderProfile = async (req, res, next) => {
       profile: {
         publicBlurb: profile.publicBlurb || '',
         insurancesAccepted: Array.isArray(profile.insurances) ? profile.insurances : [],
+        acceptedInsurances: Array.isArray(profile.acceptedInsurances) ? profile.acceptedInsurances : [],
         selfPayRateCents: profile.selfPayRateCents ?? null,
         selfPayRateLabel: profile.selfPayRateLabel || null,
         selfPayRateNote: profile.selfPayRateNote || null,

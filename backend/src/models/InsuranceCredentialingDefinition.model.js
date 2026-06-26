@@ -7,7 +7,7 @@ import pool from '../config/database.js';
 class InsuranceCredentialingDefinition {
   static async listByAgencyId(agencyId) {
     const [rows] = await pool.execute(
-      `SELECT id, agency_id, name, parent_id, contact_phone, contact_email,
+      `SELECT id, agency_id, name, parent_id, logo_path, contact_phone, contact_email,
               reminder_notes, sort_order, created_at, updated_at
        FROM insurance_credentialing_definitions
        WHERE agency_id = ?
@@ -45,7 +45,7 @@ class InsuranceCredentialingDefinition {
 
   static async update(id, updates) {
     const allowed = [
-      'name', 'parent_id', 'contact_phone', 'contact_email', 'reminder_notes', 'sort_order',
+      'name', 'parent_id', 'logo_path', 'contact_phone', 'contact_email', 'reminder_notes', 'sort_order',
       'login_username_ciphertext', 'login_username_iv', 'login_username_auth_tag', 'login_username_key_id',
       'login_password_ciphertext', 'login_password_iv', 'login_password_auth_tag', 'login_password_key_id'
     ];

@@ -1,8 +1,115 @@
 <template>
   <div class="container">
     <div class="page-header">
-      <div>
-        <router-link :to="backToUsersList" class="back-link" data-tour="user-profile-back">{{ backLinkLabel }}</router-link>
+      <router-link :to="backToUsersList" class="back-link" data-tour="user-profile-back">{{ backLinkLabel }}</router-link>
+
+      <!-- Enhanced employee profile header -->
+      <div v-if="!isViewingGuardian && !isSscMemberProfileMode && !isViewingSchoolStaff && user" class="ph-wrap" data-tour="user-profile-header">
+
+        <div class="ph-photo-col">
+          <div class="header-avatar ph-avatar">
+            <img v-if="headerPhotoUrl" :src="headerPhotoUrl" alt="Profile photo" class="header-photo" />
+            <div v-else class="header-photo-fallback" aria-hidden="true">{{ headerInitials }}</div>
+          </div>
+          <input ref="profilePhotoInput" type="file" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp" style="display:none;" @change="onAdminPhotoSelected" data-tour="user-profile-photo-upload" />
+          <button v-if="canEditUser" class="ph-upload-btn" type="button" @click="profilePhotoInput?.click()" :disabled="photoUploading">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13"><path fill-rule="evenodd" d="M4 5a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.586a1 1 0 01-.707-.293l-1.121-1.121A2 2 0 0011.172 3H8.828a2 2 0 00-1.414.586L6.293 4.707A1 1 0 015.586 5H4zm6 9a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+            {{ photoUploading ? 'Uploading…' : 'Upload New Photo' }}
+          </button>
+          <div v-if="photoError" class="ph-photo-err">{{ photoError }}</div>
+        </div>
+
+        <div class="ph-info-col">
+          <div class="ph-name-row">
+            <h1 class="ph-name" data-tour="user-profile-title">{{ headerDisplayName }}</h1>
+            <span :class="['status-badge-header', getStatusBadgeClass(user.status, user.is_active)]">
+              {{ getStatusLabel(user.status, user.is_active) }}
+            </span>
+            <span v-if="isOnLeave" class="status-badge-header status-badge-header--leave" :title="leaveOfAbsenceLabel">{{ leaveBadgeText }}</span>
+            <button v-if="showLeaveOfAbsenceButton" type="button" class="btn btn-secondary btn-sm" @click="showLeaveOfAbsenceModal = true">
+              {{ leaveOfAbsence?.departureDate ? 'Edit leave of absence' : 'Record leave of absence' }}
+            </button>
+            <div v-if="showGlobalAvailabilityInHeader" class="header-availability" :title="providerAcceptingNewClients ? 'OPEN (global)' : 'CLOSED (global)'" data-tour="user-profile-global-availability">
+              <span class="header-availability-label">Global</span>
+              <div class="toggle-switch toggle-switch-sm">
+                <input type="checkbox" v-model="providerAcceptingNewClients" :disabled="!canToggleGlobalAvailability || updatingGlobalAvailability" @change="saveGlobalAvailability" />
+                <span class="slider"></span>
+              </div>
+              <button type="button" class="header-availability-info" @click="showGlobalAvailabilityHint = !showGlobalAvailabilityHint">i</button>
+              <div v-if="showGlobalAvailabilityHint" class="header-availability-hint">
+                <strong>Reminder:</strong> Please ensure your schedule is open in Therapy Notes for the times that you are available via “Extra availability”.
+              </div>
+            </div>
+            <button v-if="canRepairProviderSlots && isAffiliationTabActive && selectedSchoolAffiliationId" type="button" class="btn btn-secondary btn-sm" :disabled="repairingProviderSlots" @click="repairProviderSlots" title="Recalculate and repair stored slot availability for this affiliation">
+              {{ repairingProviderSlots ? 'Repairing…' : 'Repair slots' }}
+            </button>
+          </div>
+
+          <div v-if="user.title" class="ph-subtitle-role">{{ user.title }}</div>
+
+          <div class="ph-contact-row">
+            <span v-if="user.email" class="ph-contact-chip">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13"><path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"/><path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"/></svg>
+              {{ user.email }}
+            </span>
+            <span v-if="headerPhone" class="ph-contact-chip">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13"><path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z"/></svg>
+              {{ headerPhone }}
+            </span>
+            <span v-if="headerLocation" class="ph-contact-chip">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13"><path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>
+              {{ headerLocation }}
+            </span>
+          </div>
+
+          <div v-if="headerAcceptedInsurances.length" class="ph-accepted-insurance">
+            <AcceptedInsuranceBadges :items="headerAcceptedInsurances" label="Insurance accepted" />
+          </div>
+
+          <div class="ph-metrics-bar">
+            <div v-if="headerEmployeeId" class="ph-metric">
+              <div class="ph-ml">Employee ID</div>
+              <div class="ph-mv">{{ headerEmployeeId }}</div>
+            </div>
+            <div v-if="headerHireDate" class="ph-metric">
+              <div class="ph-ml">Hire Date</div>
+              <div class="ph-mv">{{ fmtHeaderDate(headerHireDate) }}</div>
+            </div>
+            <div v-if="headerStartDate" class="ph-metric">
+              <div class="ph-ml">Start Date</div>
+              <div class="ph-mv">{{ fmtHeaderDate(headerStartDate) }}</div>
+            </div>
+            <div v-if="headerManagerName" class="ph-metric">
+              <div class="ph-ml">Manager</div>
+              <div class="ph-mv">{{ headerManagerName }}</div>
+            </div>
+            <div v-if="headerSupervisorName" class="ph-metric">
+              <div class="ph-ml">Supervisor</div>
+              <div class="ph-mv">{{ headerSupervisorName }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="user.status || headerServiceFocus || headerLanguages" class="ph-panel-col">
+          <div class="ph-panel-item">
+            <div class="ph-pl">Employee Status</div>
+            <div :class="['ph-pv', user.is_active ? 'ph-pv--active' : '']">
+              {{ getStatusLabel(user.status, user.is_active) }}
+            </div>
+          </div>
+          <div v-if="headerServiceFocus" class="ph-panel-item">
+            <div class="ph-pl">Service Focus</div>
+            <div class="ph-pv">{{ headerServiceFocus }}</div>
+          </div>
+          <div v-if="headerLanguages" class="ph-panel-item">
+            <div class="ph-pl">Languages</div>
+            <div class="ph-pv">{{ headerLanguages }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Fallback compact header (guardian / SSC / school staff) -->
+      <div v-else>
         <div class="user-header-info" data-tour="user-profile-header">
           <div class="header-avatar">
             <img v-if="headerPhotoUrl" :src="headerPhotoUrl" alt="Profile photo" class="header-photo" />
@@ -14,80 +121,29 @@
             class="sstc-captain-badge sstc-captain-badge--legacy"
             :title="`Team captain in ${memberCaptainMeta.captainTeamCount} season${memberCaptainMeta.captainTeamCount === 1 ? '' : 's'}`"
           >C</span>
-          <span 
-            v-if="user" 
-            :class="['status-badge-header', getStatusBadgeClass(user.status, user.is_active)]"
-          >
+          <span v-if="user" :class="['status-badge-header', getStatusBadgeClass(user.status, user.is_active)]">
             {{ getStatusLabel(user.status, user.is_active) }}
           </span>
-          <span
-            v-if="!isSscMemberProfileMode && !isViewingGuardian && isOnLeave"
-            class="status-badge-header status-badge-header--leave"
-            :title="leaveOfAbsenceLabel"
-          >
-            {{ leaveBadgeText }}
-          </span>
-          <button
-            v-if="!isSscMemberProfileMode && !isViewingGuardian && showLeaveOfAbsenceButton"
-            type="button"
-            class="btn btn-secondary btn-sm"
-            @click="showLeaveOfAbsenceModal = true"
-          >
+          <span v-if="!isSscMemberProfileMode && !isViewingGuardian && isOnLeave" class="status-badge-header status-badge-header--leave" :title="leaveOfAbsenceLabel">{{ leaveBadgeText }}</span>
+          <button v-if="!isSscMemberProfileMode && !isViewingGuardian && showLeaveOfAbsenceButton" type="button" class="btn btn-secondary btn-sm" @click="showLeaveOfAbsenceModal = true">
             {{ leaveOfAbsence?.departureDate ? 'Edit leave of absence' : 'Record leave of absence' }}
           </button>
-
-          <!-- Global availability (providers) -->
-          <div
-            v-if="showGlobalAvailabilityInHeader"
-            class="header-availability"
-            :title="providerAcceptingNewClients ? 'OPEN (global)' : 'CLOSED (global)'"
-            data-tour="user-profile-global-availability"
-          >
+          <div v-if="showGlobalAvailabilityInHeader" class="header-availability" :title="providerAcceptingNewClients ? 'OPEN (global)' : 'CLOSED (global)'" data-tour="user-profile-global-availability">
             <span class="header-availability-label">Global</span>
             <div class="toggle-switch toggle-switch-sm">
-              <input
-                type="checkbox"
-                v-model="providerAcceptingNewClients"
-                :disabled="!canToggleGlobalAvailability || updatingGlobalAvailability"
-                @change="saveGlobalAvailability"
-              />
+              <input type="checkbox" v-model="providerAcceptingNewClients" :disabled="!canToggleGlobalAvailability || updatingGlobalAvailability" @change="saveGlobalAvailability" />
               <span class="slider"></span>
             </div>
-            <button type="button" class="header-availability-info" @click="showGlobalAvailabilityHint = !showGlobalAvailabilityHint">
-              i
-            </button>
-            <div v-if="showGlobalAvailabilityHint" class="header-availability-hint">
-              <strong>Reminder:</strong> Please ensure your schedule is open in Therapy Notes for the times that you are available via “Extra availability”.
-            </div>
+            <button type="button" class="header-availability-info" @click="showGlobalAvailabilityHint = !showGlobalAvailabilityHint">i</button>
+            <div v-if="showGlobalAvailabilityHint" class="header-availability-hint"><strong>Reminder:</strong> Please ensure your schedule is open in Therapy Notes for the times that you are available via “Extra availability”.</div>
           </div>
-
-          <button
-            v-if="canRepairProviderSlots && isAffiliationTabActive && selectedSchoolAffiliationId"
-            type="button"
-            class="btn btn-secondary btn-sm"
-            :disabled="repairingProviderSlots"
-            @click="repairProviderSlots"
-            :title="'Recalculate and repair stored slot availability for this affiliation'"
-          >
-            {{ repairingProviderSlots ? 'Repairing…' : 'Repair slots' }}
-          </button>
+          <button v-if="canRepairProviderSlots && isAffiliationTabActive && selectedSchoolAffiliationId" type="button" class="btn btn-secondary btn-sm" :disabled="repairingProviderSlots" @click="repairProviderSlots">{{ repairingProviderSlots ? 'Repairing…' : 'Repair slots' }}</button>
         </div>
         <p class="subtitle">{{ user?.email }}</p>
-
-        <div v-if="canEditUser" style="margin-top: 10px;">
-          <input
-            ref="profilePhotoInput"
-            type="file"
-            accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
-            style="display:none;"
-            @change="onAdminPhotoSelected"
-          />
-          <div style="display:flex; gap: 10px; align-items:center; flex-wrap: wrap;" data-tour="user-profile-photo-upload">
-            <button class="btn btn-secondary btn-sm" type="button" @click="profilePhotoInput?.click()" :disabled="photoUploading">
-              {{ photoUploading ? 'Uploading…' : 'Upload Profile Photo' }}
-            </button>
-            <div v-if="photoError" class="error" style="margin:0;">{{ photoError }}</div>
-          </div>
+        <div v-if="canEditUser" style="margin-top: 10px;" data-tour="user-profile-photo-upload">
+          <input ref="profilePhotoInput" type="file" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp" style="display:none;" @change="onAdminPhotoSelected" />
+          <button class="btn btn-secondary btn-sm" type="button" @click="profilePhotoInput?.click()" :disabled="photoUploading">{{ photoUploading ? 'Uploading…' : 'Upload Profile Photo' }}</button>
+          <div v-if="photoError" class="error" style="margin:0;">{{ photoError }}</div>
         </div>
       </div>
     </div>
@@ -95,13 +151,14 @@
     <div v-if="loading" class="loading">Loading user profile...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else class="profile-content">
-      <div class="tabs" data-tour="user-profile-tabs">
+      <div class="profile-tabs" data-tour="user-profile-tabs">
         <button
           v-for="tab in tabs"
           :key="tab.id"
           type="button"
           @click="selectTab(tab.id)"
-          :class="['tab-button', { active: activeTab === tab.id }]"
+          :class="['profile-tab', { 'profile-tab--active': activeTab === tab.id }]"
+          :aria-selected="activeTab === tab.id ? 'true' : 'false'"
           data-tour="user-profile-tab"
         >
           {{ tab.label }}
@@ -109,9 +166,32 @@
       </div>
 
       <!-- Force full remount when switching tabs to avoid Vue patch edge-cases across radically different subtrees -->
-      <div class="tab-content" :key="activeTab" data-tour="user-profile-tab-content">
+      <div
+        class="tab-content"
+        :class="{ 'tab-content--flush': activeTab === 'overview' || activeTab === 'account' || activeTab === 'provider_info' }"
+        :key="activeTab"
+        data-tour="user-profile-tab-content"
+      >
+
+        <!-- Overview tab (employee profiles only) -->
+        <UserOverviewTab
+          v-if="activeTab === 'overview' && !isViewingGuardian && !isSscMemberProfileMode && !isViewingSchoolStaff && user"
+          :userId="userId"
+          :user="user"
+          :canEditUser="canEditUser"
+          :canViewLifecycleTab="canViewLifecycleTab"
+          :canViewCredentialingTab="canViewCredentialingTab"
+          :canManageAssignments="canManageAssignments"
+          :canViewActivityLog="canViewActivityLog"
+          :canViewPayroll="canViewPayroll"
+          :agencyId="agencyStore.currentAgency?.id"
+          :preloadedOverview="overview"
+          :preloadedOverviewLoading="overviewLoading"
+          @navigate="selectTab"
+        />
+
         <div v-if="activeTab === 'account'" class="tab-panel">
-          <h2>Account Information</h2>
+          <h2 v-if="isViewingGuardian || isSscMemberProfileMode">Account Information</h2>
 
           <!-- Guardian-specific info banner -->
           <div v-if="isViewingGuardian" style="background: #e8f4f8; border: 1px solid #b3d9ea; border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; display: flex; align-items: flex-start; gap: 10px;">
@@ -319,615 +399,16 @@
             </div>
           </div>
 
-          <div v-else class="account-layout">
-            <div class="account-main">
-              <form v-if="canEditUser" @submit.prevent="saveAccount" class="account-form">
-                <div class="form-actions-bar form-actions-bar--top">
-                  <button v-if="!isEditingAccount" type="button" class="btn btn-secondary" @click="startEditAccount">
-                    Edit
-                  </button>
-                  <button v-else type="submit" class="btn btn-primary" :disabled="saving">
-                    {{ saving ? 'Saving...' : 'Save Changes' }}
-                  </button>
-                  <button v-if="isEditingAccount" type="button" class="btn btn-secondary" :disabled="saving" @click="cancelEditAccount">
-                    Cancel
-                  </button>
-                </div>
-                <div class="form-grid">
-                <div class="form-group">
-                  <label>First Name</label>
-                  <input v-model="accountForm.firstName" type="text" :disabled="!isEditingAccount" />
-                </div>
-                <div class="form-group">
-                  <label>Last Name</label>
-                  <input v-model="accountForm.lastName" type="text" :disabled="!isEditingAccount" />
-                </div>
-                <div class="form-group">
-                  <label>Preferred Name (display only)</label>
-                  <input v-model="accountForm.preferredName" type="text" :disabled="!isEditingAccount" />
-                  <small class="form-help">
-                    Shows up as <strong>First "Preferred" Last</strong> in headers/welcome, but is not used for payroll or legal records.
-                  </small>
-                </div>
-                <div class="form-group">
-                  <label>Login Email</label>
-                  <input
-                    v-model="accountForm.email"
-                    type="email"
-                    :disabled="!isEditingAccount || String(user?.email || '').toLowerCase() === 'superadmin@plottwistco.com'"
-                  />
-                  <small class="form-help">
-                    This is the email the user logs in with. Changing it does <strong>not</strong> change their password — use “Send Reset Password Link” if needed.
-                  </small>
-                </div>
-                <div class="form-group">
-                  <label>Personal Email</label>
-                  <input v-model="accountForm.personalEmail" type="email" :disabled="!isEditingAccount" />
-                  <small class="form-help">
-                    Contact email (not used for login).
-                  </small>
-                </div>
-                <div v-if="!isViewingGuardian" class="form-group">
-                  <label>Title</label>
-                  <input v-model="accountForm.title" type="text" :disabled="!isEditingAccount" placeholder="e.g. Therapist" />
-                </div>
-                <div v-if="!isViewingGuardian" class="form-group">
-                  <label>Service Focus</label>
-                  <input v-model="accountForm.serviceFocus" type="text" :disabled="!isEditingAccount" placeholder="e.g. School-based, Trauma, Medicaid" />
-                </div>
-                <div v-if="isProviderLikeUser" class="form-group">
-                  <label>Start date (with organization)</label>
-                  <input
-                    v-model="accountForm.providerStartDate"
-                    type="date"
-                    :disabled="!isEditingAccount"
-                  />
-                  <small class="form-help">
-                    Used for tenure on Provider Management → Hourly direct / indirect and for anniversary planning. Not tied to payroll.
-                  </small>
-                </div>
-                <div class="form-group">
-                  <label>Languages spoken</label>
-                  <input v-model="accountForm.languagesSpoken" type="text" :disabled="!isEditingAccount" placeholder="e.g. English, Spanish" />
-                </div>
-                <div class="form-group">
-                  <label>Personal Phone Number</label>
-                  <input v-model="accountForm.personalPhone" type="tel" :disabled="!isEditingAccount" />
-                </div>
-                <div v-if="!isViewingGuardian" class="form-group">
-                  <label>Work Phone Number</label>
-                  <input v-model="accountForm.workPhone" type="tel" :disabled="!isEditingAccount" />
-                </div>
-                <div v-if="!isViewingGuardian" class="form-group">
-                  <label>Work Phone Extension</label>
-                  <input v-model="accountForm.workPhoneExtension" type="text" :disabled="!isEditingAccount" />
-                </div>
-                <div v-if="!isViewingGuardian" class="form-group">
-                  <label>System Phone Number (masked SMS)</label>
-                  <input :value="systemPhoneNumberDisplay" type="tel" disabled />
-                  <small class="form-help">
-                    This is the system-assigned number used for masked texting. It can’t be edited here.
-                  </small>
-                </div>
-                <div v-if="!isViewingGuardian" class="form-group">
-                  <label>Texting / Calling Number</label>
-                  <div class="texting-number-display">
-                    <span v-if="textingNumbersLoading">Loading…</span>
-                    <span v-else-if="assignedTextingNumbers.length">{{ assignedTextingNumbers.map(n => n.phone_number).join(', ') }}</span>
-                    <span v-else class="muted">Not assigned</span>
-                    <router-link v-if="canManageTexting" :to="textingSettingsLink" class="link-inline">Assign in settings</router-link>
-                  </div>
-                  <small class="form-help">
-                    Phone number for client SMS and voice. Assigned in Settings → Texting Numbers.
-                  </small>
-                </div>
-
-                <div v-if="!isViewingGuardian" class="form-group form-group-full">
-                  <div class="section-divider" style="margin: 8px 0 6px;">
-                    <h3 style="margin: 0;">Home Address</h3>
-                  </div>
-                  <p class="hint" style="margin: 0 0 10px;">
-                    Used for School Mileage auto-calculation.
-                  </p>
-                </div>
-
-                <div v-if="!isViewingGuardian" class="form-group">
-                  <label>Street</label>
-                  <input v-model="accountForm.homeStreetAddress" type="text" placeholder="123 Main St" :disabled="!isEditingAccount" />
-                </div>
-                <div v-if="!isViewingGuardian" class="form-group">
-                  <label>Apt / Unit</label>
-                  <input v-model="accountForm.homeAddressLine2" type="text" placeholder="Apt 4B (optional)" :disabled="!isEditingAccount" />
-                </div>
-                <div v-if="!isViewingGuardian" class="form-group">
-                  <label>City</label>
-                  <input v-model="accountForm.homeCity" type="text" placeholder="City" :disabled="!isEditingAccount" />
-                </div>
-                <div v-if="!isViewingGuardian" class="form-group">
-                  <label>State</label>
-                  <input v-model="accountForm.homeState" type="text" placeholder="State" :disabled="!isEditingAccount" />
-                </div>
-                <div v-if="!isViewingGuardian" class="form-group">
-                  <label>Postal Code</label>
-                  <input v-model="accountForm.homePostalCode" type="text" placeholder="ZIP" :disabled="!isEditingAccount" />
-                </div>
-
-                <div v-if="!isViewingGuardian && accountForm.externalBusyIcsUrl" class="form-group form-group-full">
-                  <label>Legacy external busy calendar (deprecated)</label>
-                  <input v-model="accountForm.externalBusyIcsUrl" type="url" disabled />
-                  <small class="form-help">
-                    This legacy field is no longer used. Use “External calendars (ICS)” below.
-                  </small>
-                </div>
-
-                <div v-if="!isViewingGuardian && canEditExternalBusyIcsUrl" class="form-group form-group-full">
-                  <label>External calendars (ICS)</label>
-                  <div style="display:flex; gap: 10px; align-items:center; flex-wrap: wrap;">
-                    <button type="button" class="btn btn-secondary btn-sm" @click="openExternalCalendarsModal">
-                      Manage…
-                    </button>
-                    <span class="muted" style="font-size: 12px;">
-                      <template v-if="externalCalendarsLoading">Loading…</template>
-                      <template v-else-if="externalCalendars.length">{{ externalCalendars.length }} calendar{{ externalCalendars.length === 1 ? '' : 's' }}</template>
-                      <template v-else>None yet</template>
-                    </span>
-                  </div>
-                  <small class="form-help">This is usually set once per user.</small>
-                </div>
-                
-                <div class="form-group form-group-full">
-                  <label>Role</label>
-                  <select v-model="accountForm.role" :disabled="!isEditingAccount || !canChangeRole">
-                    <option v-if="canAssignSuperAdmin" value="super_admin">Super Admin</option>
-                    <option v-if="canAssignAdmin" value="admin">Admin</option>
-                    <option v-if="canAssignSupport" value="support">Staff (Admin Tools)</option>
-                    <option v-if="canAssignAssistantAdmin" value="assistant_admin">Assistant Admin</option>
-                    <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
-                    <option value="provider_plus">Provider Plus</option>
-                    <option value="staff">Staff</option>
-                    <option value="provider">Provider</option>
-                    <option value="school_staff">School Staff</option>
-                    <option value="client_guardian">Guardian (Client Portal)</option>
-                  </select>
-                  <small v-if="!canChangeRole" class="form-help">You don't have permission to change roles</small>
-                  <small v-else-if="!canAssignSuperAdmin && accountForm.role === 'super_admin'" class="form-help">Only super admins can assign the super admin role</small>
-                  <small v-else-if="!canAssignAdmin && accountForm.role === 'admin'" class="form-help">Only super admins and admins can assign the admin role</small>
-                  <small v-else-if="!canAssignSupport && accountForm.role === 'support'" class="form-help">Only super admins and admins can assign the staff role</small>
-                  <small v-else-if="!canAssignAssistantAdmin && accountForm.role === 'assistant_admin'" class="form-help">Only super admins and admins can assign the assistant admin role</small>
-                </div>
-
-                <div v-if="!isViewingGuardian" class="form-group form-group-full">
-                  <label>Credential</label>
-                  <input
-                    v-model="accountForm.credential"
-                    type="text"
-                    placeholder="e.g., LCSW, LPC, Intern, CSW, etc."
-                    :disabled="!isEditingAccount"
-                  />
-                  <small class="form-help">
-                    Used for classification/display. This does not change permissions.
-                  </small>
-                  <small class="form-help" style="display:block; margin-top: 6px;">
-                    Normalized credential tier preview: <strong>{{ credentialTierPreviewLabel }}</strong>
-                  </small>
-                </div>
-                </div>
-                
-                <div v-if="isEditingAccount" class="form-actions-bar form-actions-bar--bottom">
-                  <button type="submit" class="btn btn-primary" :disabled="saving">
-                    {{ saving ? 'Saving...' : 'Save Changes' }}
-                  </button>
-                  <button type="button" class="btn btn-secondary" :disabled="saving" @click="cancelEditAccount">
-                    Cancel
-                  </button>
-                </div>
-
-                <div v-if="showExternalCalendarsModal" class="modal-overlay" @click.self="closeExternalCalendarsModal">
-                  <div class="modal-content" style="max-width: 980px;">
-                    <div style="display:flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
-                      <h3 style="margin: 0;">External calendars (ICS)</h3>
-                      <div style="display:flex; gap: 8px; align-items:center;">
-                        <button type="button" class="btn btn-secondary btn-sm" @click="loadExternalCalendars" :disabled="externalCalendarsSaving">
-                          Refresh
-                        </button>
-                        <button type="button" class="btn btn-secondary btn-sm" @click="closeExternalCalendarsModal">
-                          Close
-                        </button>
-                      </div>
-                    </div>
-                    <p class="hint" style="margin: 8px 0 14px;">
-                      Add one or more named calendars (e.g., “Therapy Notes”). Each calendar can have multiple ICS feed URLs.
-                    </p>
-
-                    <div style="border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--bg);">
-                      <div style="font-weight: 900;">Therapy Notes calendar (paste URL only)</div>
-                      <p class="hint" style="margin: 6px 0 10px;">
-                        Paste this user’s personal ICS feed URL from Therapy Notes. You don’t need to create or name a calendar — we save it under this user automatically.
-                      </p>
-                      <div class="muted small" style="margin: -6px 0 10px;">
-                        If Therapy Notes gives you a <strong>webcal://</strong> link, that’s OK — we’ll fetch it as <strong>https://</strong>.
-                      </div>
-                      <div style="display:flex; gap: 8px; align-items: end; flex-wrap: wrap;">
-                        <div style="flex: 1; min-width: 260px;">
-                          <label class="lbl">ICS URL</label>
-                          <input
-                            class="agency-select"
-                            v-model="ehrIcsUrl"
-                            type="url"
-                            placeholder="https://…/calendar.ics"
-                            :disabled="ehrIcsSaving || externalCalendarsSaving"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          class="btn btn-secondary btn-sm"
-                          @click="saveEhrIcsUrl"
-                          :disabled="ehrIcsSaving || externalCalendarsSaving"
-                        >
-                          {{ ehrIcsSaving ? 'Saving…' : 'Save' }}
-                        </button>
-                      </div>
-                      <div v-if="ehrIcsError" class="error" style="margin-top: 8px;">{{ ehrIcsError }}</div>
-                      <div class="muted small" style="margin-top: 8px;">
-                        Tip: pasting a new URL will automatically make it the only active Therapy Notes feed for this user.
-                      </div>
-                    </div>
-
-                    <div v-if="externalCalendarsError" class="error" style="margin-top: 12px;">{{ externalCalendarsError }}</div>
-                    <div v-if="externalCalendarsLoading" class="muted" style="margin-top: 12px;">Loading external calendars…</div>
-
-                    <div v-else style="margin-top: 12px;">
-                      <div style="display:flex; gap: 8px; align-items: end; flex-wrap: wrap;">
-                        <div style="flex: 1; min-width: 240px;">
-                          <label class="lbl">New calendar label</label>
-                          <input class="agency-select" v-model="newExternalCalendarLabel" placeholder="e.g. Therapy Notes" />
-                        </div>
-                        <button
-                          type="button"
-                          class="btn btn-secondary btn-sm"
-                          @click="createExternalCalendar"
-                          :disabled="externalCalendarsSaving || !newExternalCalendarLabel.trim()"
-                        >
-                          {{ externalCalendarsSaving ? 'Saving…' : 'Create calendar' }}
-                        </button>
-                      </div>
-
-                      <div v-if="externalCalendars.length === 0" class="muted" style="margin-top: 10px;">
-                        No external calendars yet.
-                      </div>
-
-                      <div v-else style="margin-top: 10px; display:flex; flex-direction: column; gap: 10px;">
-                        <div v-for="c in externalCalendars" :key="`ec-${c.id}`" style="border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--bg-alt);">
-                          <div style="display:flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
-                            <div style="display:flex; align-items: end; gap: 8px; flex-wrap: wrap;">
-                              <div style="min-width: 240px;">
-                                <label class="lbl">Calendar label</label>
-                                <input
-                                  class="agency-select"
-                                  :value="editExternalCalendarLabelById[c.id] ?? c.label"
-                                  :disabled="externalCalendarsSaving"
-                                  @input="editExternalCalendarLabelById = { ...(editExternalCalendarLabelById || {}), [c.id]: $event.target.value }"
-                                />
-                              </div>
-                              <button
-                                type="button"
-                                class="btn btn-secondary btn-sm"
-                                :disabled="externalCalendarsSaving"
-                                @click="saveExternalCalendarLabel(c)"
-                              >
-                                Save label
-                              </button>
-                            </div>
-                            <label class="toggle-label" style="margin:0;">
-                              <span style="font-size: 12px;">Active</span>
-                              <div class="toggle-switch">
-                                <input
-                                  type="checkbox"
-                                  :checked="!!c.isActive"
-                                  :disabled="externalCalendarsSaving"
-                                  @change="toggleExternalCalendar(c, $event.target.checked)"
-                                />
-                                <span class="slider"></span>
-                              </div>
-                            </label>
-                          </div>
-
-                          <div class="muted" style="margin-top: 6px;">Feeds</div>
-                          <div v-if="(c.feeds || []).length === 0" class="muted" style="margin-top: 4px;">No feeds yet.</div>
-                          <div v-else style="margin-top: 6px; display:flex; flex-direction: column; gap: 6px;">
-                            <div
-                              v-for="f in c.feeds"
-                              :key="`ecf-${f.id}`"
-                              style="display:flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;"
-                            >
-                              <div class="muted" style="max-width: 100%; overflow: hidden; text-overflow: ellipsis;">
-                                {{ f.icsUrl }}
-                              </div>
-                              <label class="toggle-label" style="margin:0;">
-                                <span style="font-size: 12px;">Active</span>
-                                <div class="toggle-switch">
-                                  <input
-                                    type="checkbox"
-                                    :checked="!!f.isActive"
-                                    :disabled="externalCalendarsSaving"
-                                    @change="toggleExternalFeed(c, f, $event.target.checked)"
-                                  />
-                                  <span class="slider"></span>
-                                </div>
-                              </label>
-                            </div>
-                          </div>
-
-                          <div style="display:flex; gap: 8px; align-items: end; margin-top: 10px; flex-wrap: wrap;">
-                            <div style="flex: 1; min-width: 260px;">
-                              <label class="lbl">Add ICS URL</label>
-                              <input
-                                class="agency-select"
-                                v-model="newExternalFeedUrlByCalendarId[c.id]"
-                                placeholder="https://…/calendar.ics"
-                                :disabled="externalCalendarsSaving"
-                              />
-                            </div>
-                            <button
-                              type="button"
-                              class="btn btn-secondary btn-sm"
-                              @click="addExternalFeed(c)"
-                              :disabled="externalCalendarsSaving || !String(newExternalFeedUrlByCalendarId[c.id] || '').trim()"
-                            >
-                              Add feed
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </form>
-              <div v-else class="view-only-notice">
+          <UserAccountDashboard v-else>
+            <template #view-only>
+              <div v-if="!canEditUser" class="view-only-notice">
                 <p><strong>View Only:</strong> Clinical Practice Assistants and Supervisors have view-only access to user profiles. Contact an administrator to make changes.</p>
               </div>
-            </div>
+            </template>
 
-            <div class="account-sidebar">
-              <div v-if="!isViewingGuardian" class="account-flags-section">
-                <h3>Contracts &amp; flags</h3>
-
-                <div
-                  class="compact-row"
-                  title="Controls whether the provider can submit Med Cancel (Missed Medicaid sessions)."
-                >
-                  <div class="compact-meta">
-                    <div class="compact-title">Med Cancel</div>
-                  </div>
-                  <select v-model="accountForm.medcancelRateSchedule" class="compact-select" :disabled="!isEditingAccount">
-                    <option value="none">None</option>
-                    <option value="low">Low</option>
-                    <option value="high">High</option>
-                  </select>
-                </div>
-
-                <label
-                  class="compact-toggle"
-                  title="Enables “Submit Expense (Company Card)” for this user."
-                >
-                  <span class="compact-title">Company card</span>
-                  <div class="toggle-switch toggle-switch-sm">
-                    <input
-                      id="company-card-toggle"
-                      type="checkbox"
-                      v-model="accountForm.companyCardEnabled"
-                      :disabled="!isEditingAccount"
-                    />
-                    <span class="slider"></span>
-                  </div>
-                </label>
-
-                <label
-                  class="compact-toggle"
-                  title="Can submit company car mileage trips."
-                >
-                  <span class="compact-title">Company car submit</span>
-                  <div class="toggle-switch toggle-switch-sm">
-                    <input
-                      id="company-car-submit-toggle"
-                      type="checkbox"
-                      v-model="accountForm.companyCarSubmitAccess"
-                      :disabled="!isEditingAccount"
-                    />
-                    <span class="slider"></span>
-                  </div>
-                </label>
-
-                <label
-                  class="compact-toggle"
-                  title="Full access: manage cars, import spreadsheet, view all trips."
-                >
-                  <span class="compact-title">Company car manage</span>
-                  <div class="toggle-switch toggle-switch-sm">
-                    <input
-                      id="company-car-manage-toggle"
-                      type="checkbox"
-                      v-model="accountForm.companyCarManageAccess"
-                      :disabled="!isEditingAccount"
-                    />
-                    <span class="slider"></span>
-                  </div>
-                </label>
-
-                <label
-                  v-if="canEditSkillBuilderCoordinatorAccess"
-                  class="compact-toggle"
-                  title="Program coordinators can open program hubs (e.g. Programs &amp; events) for affiliated organizations. School Skill Builders tools (event availability grid, SB client management) only apply when that tenant program is enabled."
-                >
-                  <span class="compact-title">Program coordinator</span>
-                  <div class="toggle-switch toggle-switch-sm">
-                    <input
-                      id="skill-builder-coordinator-toggle"
-                      type="checkbox"
-                      v-model="accountForm.hasSkillBuilderCoordinatorAccess"
-                      :disabled="!isEditingAccount || !canEditSkillBuilderCoordinatorAccess"
-                    />
-                    <span class="slider"></span>
-                  </div>
-                </label>
-                <div
-                  v-if="canEditSkillBuilderCoordinatorAccess"
-                  class="compact-subtitle muted"
-                  style="margin-top: -4px;"
-                >
-                  Unlocks program-level coordinator tools; school Skill Builders screens follow the tenant “Skill Builders school program” setting.
-                </div>
-
-                <template v-if="canShowSkillBuildersSchoolProgramUserFields">
-                  <label
-                    class="compact-toggle"
-                    title="If enabled, this provider is in the Skill Development Program (including at least 6 hours/week via Submit → Additional Availability when required)."
-                  >
-                    <span class="compact-title">Skill Development Program eligible</span>
-                    <div class="toggle-switch toggle-switch-sm">
-                      <input
-                        id="skill-builder-eligible-toggle"
-                        type="checkbox"
-                        v-model="accountForm.skillBuilderEligible"
-                        :disabled="!isEditingAccount"
-                      />
-                      <span class="slider"></span>
-                    </div>
-                  </label>
-
-                  <div
-                    v-if="canRequireSkillBuilderConfirmNextLogin && (accountForm.skillBuilderEligible || user?.skill_builder_eligible)"
-                    class="compact-row"
-                    style="align-items: center;"
-                    title="Push a required Skill Builder confirmation prompt to this user. They must click Confirm next 2 weeks on next login."
-                  >
-                    <div class="compact-meta">
-                      <div class="compact-title">Require SB confirm</div>
-                      <div class="compact-subtitle muted">Next login: must confirm next 2 weeks</div>
-                    </div>
-                    <button
-                      class="btn btn-secondary btn-sm"
-                      type="button"
-                      :disabled="forcingSkillBuilderConfirm"
-                      @click="requireSkillBuilderConfirmNextLogin"
-                    >
-                      Push
-                    </button>
-                  </div>
-                </template>
-
-                <label
-                  v-if="showPayrollAccessToggle"
-                  class="compact-toggle"
-                  title="Enable to allow this user to access Payroll management for their assigned agencies. Changes are audited."
-                >
-                  <span class="compact-title">Payroll access</span>
-                  <div class="toggle-switch toggle-switch-sm">
-                    <input
-                      id="payroll-access-toggle"
-                      type="checkbox"
-                      v-model="accountForm.hasPayrollAccess"
-                      :disabled="!isEditingAccount"
-                    />
-                    <span class="slider"></span>
-                  </div>
-                </label>
-                <label
-                  v-if="showCredentialingAccessToggle"
-                  class="compact-toggle"
-                  title="Enable to allow this user to access Credentialing management for their assigned agencies. Changes are audited."
-                >
-                  <span class="compact-title">Credentialing access</span>
-                  <div class="toggle-switch toggle-switch-sm">
-                    <input
-                      id="credentialing-access-toggle"
-                      type="checkbox"
-                      v-model="accountForm.hasCredentialingAccess"
-                      :disabled="!isEditingAccount"
-                    />
-                    <span class="slider"></span>
-                  </div>
-                </label>
-                <label
-                  class="compact-toggle"
-                  title="Hourly workers see the Direct/Indirect ratio on their snapshot from posted payroll; yellow/red ratio notifications are sent only after a period is posted."
-                >
-                  <span class="compact-title">Hourly Workers</span>
-                  <div class="toggle-switch toggle-switch-sm">
-                    <input
-                      id="hourly-worker-toggle"
-                      type="checkbox"
-                      v-model="accountForm.isHourlyWorker"
-                      :disabled="!isEditingAccount"
-                    />
-                    <span class="slider"></span>
-                  </div>
-                </label>
-                <label
-                  class="compact-toggle"
-                  title="Allows access to applicants and prospective people in the hiring process."
-                >
-                  <span class="compact-title">Hiring process access</span>
-                  <div class="toggle-switch toggle-switch-sm">
-                    <input
-                      id="hiring-access-toggle"
-                      type="checkbox"
-                      v-model="accountForm.hasHiringAccess"
-                      :disabled="!isEditingAccount"
-                    />
-                    <span class="slider"></span>
-                  </div>
-                </label>
-                <label
-                  class="compact-toggle"
-                  title="Allows access to view and download medical records release submissions in Submitted Documents."
-                >
-                  <span class="compact-title">Medical records release access</span>
-                  <div class="toggle-switch toggle-switch-sm">
-                    <input
-                      id="medical-records-release-access-toggle"
-                      type="checkbox"
-                      v-model="accountForm.hasMedicalRecordsReleaseAccess"
-                      :disabled="!isEditingAccount"
-                    />
-                    <span class="slider"></span>
-                  </div>
-                </label>
-                <label
-                  class="compact-toggle"
-                  title="Per-user entitlement for Games access (user-based billing)."
-                >
-                  <span class="compact-title">Games access</span>
-                  <div class="toggle-switch toggle-switch-sm">
-                    <input
-                      id="games-access-toggle"
-                      type="checkbox"
-                      v-model="accountForm.hasGamesAccess"
-                      :disabled="!isEditingAccount"
-                    />
-                    <span class="slider"></span>
-                  </div>
-                </label>
-                <label
-                  v-if="canToggleSupervisorPrivileges"
-                  class="compact-toggle"
-                  title="Allows this user to be assigned as a supervisor while maintaining their primary role."
-                >
-                  <span class="compact-title">Supervisor privileges</span>
-                  <div class="toggle-switch toggle-switch-sm">
-                    <input
-                      id="supervisor-privileges-toggle"
-                      type="checkbox"
-                      v-model="accountForm.hasSupervisorPrivileges"
-                      :disabled="!isEditingAccount"
-                    />
-                    <span class="slider"></span>
-                  </div>
-                </label>
-              </div>
-
+            <template #feature-access>
+              <AccountDashboardCard section-id="feature-access" title="Feature Access" subtitle="Per-user entitlements and billing." :can-edit="false">
               <div v-if="!isViewingGuardian && canManageFeatureAccess && perUserFeatureAccessRows.length > 0" class="feature-access-section">
-                <h3>Feature access</h3>
                 <p class="feature-access-help">
                   Per-user entitlements driven by the platform feature catalog. Toggling here writes a
                   billing event for the user's primary tenant; charges are pro-rated to the day.
@@ -966,9 +447,12 @@
                   </div>
                 </div>
               </div>
+              </AccountDashboardCard>
+            </template>
 
+            <template #agency-assignments>
+              <AccountDashboardCard section-id="agency-assignments" title="Agency Assignments" :can-edit="canEditUser">
               <div class="agency-assignments-section">
-                <h3>Agency Assignments</h3>
                 <div class="agency-assignments">
                   <div v-if="affiliatedAgencies.length === 0" class="no-agencies">
                     <p>No agencies assigned</p>
@@ -1226,36 +710,51 @@
                   </div>
                 </div>
               </div>
+              </AccountDashboardCard>
+            </template>
 
-              <div class="admin-tools-section">
-                <h3>Admin Tools</h3>
-                <div v-if="isProviderLikeUser" class="card" style="margin-bottom: 16px;">
-                  <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
-                    <h4 style="margin:0;">Public Provider Profile (Agency Finder)</h4>
-                    <button
-                      class="btn btn-primary btn-sm"
-                      type="button"
-                      :disabled="!canEditUser || providerPublicProfileSaving || !selectedProviderProfileAgencyId"
-                      @click="saveProviderPublicProfile"
-                    >
-                      {{ providerPublicProfileSaving ? 'Saving…' : 'Save' }}
-                    </button>
+            <template #public-profile>
+              <AccountDashboardCard
+                v-if="isProviderLikeUser"
+                section-id="public-profile"
+                title="Public Provider Profile"
+                subtitle="Agency Finder card details visible to the public."
+                :can-edit="canEditUser"
+                :editing="false"
+              >
+                <template #actions>
+                  <button
+                    class="btn btn-primary btn-sm"
+                    type="button"
+                    :disabled="!canEditUser || providerPublicProfileSaving || !selectedProviderProfileAgencyId"
+                    @click="saveProviderPublicProfile"
+                  >
+                    {{ providerPublicProfileSaving ? 'Saving…' : 'Save' }}
+                  </button>
+                </template>
+                <div v-if="providerPublicProfileLoading" class="loading">Loading provider public profile…</div>
+                <div v-else-if="providerPublicProfileError" class="error">{{ providerPublicProfileError }}</div>
+                <div v-else class="form-grid" style="margin-top: 0;">
+                  <div class="form-group form-group-full">
+                    <label>Public provider blurb (view-only for providers)</label>
+                    <textarea
+                      v-model="providerPublicBlurb"
+                      rows="4"
+                      placeholder="Shown on public Find a Provider card details."
+                      :disabled="!canEditUser || providerPublicProfileSaving"
+                      style="width: 100%;"
+                    />
                   </div>
-                  <div v-if="providerPublicProfileLoading" class="loading">Loading provider public profile…</div>
-                  <div v-else-if="providerPublicProfileError" class="error">{{ providerPublicProfileError }}</div>
-                  <div v-else class="form-grid" style="margin-top: 10px;">
-                    <div class="form-group form-group-full">
-                      <label>Public provider blurb (view-only for providers)</label>
-                      <textarea
-                        v-model="providerPublicBlurb"
-                        rows="4"
-                        placeholder="Shown on public Find a Provider card details."
-                        :disabled="!canEditUser || providerPublicProfileSaving"
-                        style="width: 100%;"
-                      />
-                    </div>
-                    <div class="form-group">
-                      <label>Insurance accepted (comma separated)</label>
+                  <div class="form-group form-group-full">
+                    <label>Insurances shown on profile</label>
+                    <AcceptedInsuranceBadges
+                      v-if="headerAcceptedInsurances.length"
+                      :items="headerAcceptedInsurances"
+                      :show-label="false"
+                    />
+                    <small v-else class="form-help">No credentialing insurances yet. Supervisees inherit billing supervisor insurances when assigned.</small>
+                    <div style="margin-top: 8px;">
+                      <label style="font-size: 12px; font-weight: 400; color: var(--text-secondary);">Edit CSV (comma separated)</label>
                       <input
                         v-model="providerPublicInsurancesCsv"
                         type="text"
@@ -1263,215 +762,78 @@
                         :disabled="!canEditUser || providerPublicProfileSaving"
                       />
                     </div>
-                    <div class="form-group">
-                      <label>Provider self-pay override (USD)</label>
-                      <input
-                        v-model.number="providerSelfPayRateUsd"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="Leave blank to use agency default"
-                        :disabled="!canEditUser || providerPublicProfileSaving"
-                      />
-                    </div>
-                    <div class="form-group">
-                      <label>Provider self-pay note</label>
-                      <input
-                        v-model="providerSelfPayRateNote"
-                        type="text"
-                        placeholder="Optional note shown publicly"
-                        :disabled="!canEditUser || providerPublicProfileSaving"
-                      />
-                    </div>
-                    <div class="form-group">
-                      <label>Agency default self-pay (USD)</label>
-                      <input
-                        v-model.number="agencyDefaultSelfPayRateUsd"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        :disabled="!canEditUser || providerPublicProfileSaving"
-                      />
-                    </div>
-                    <div class="form-group form-group-full">
-                      <label>Agency finder intro blurb</label>
-                      <textarea
-                        v-model="agencyFinderIntroBlurb"
-                        rows="3"
-                        placeholder="Intro paragraph shown above provider cards."
-                        :disabled="!canEditUser || providerPublicProfileSaving"
-                        style="width: 100%;"
-                      />
-                      <small class="form-help">
-                        Active agency: {{ selectedProviderProfileAgencyName || 'Select/assign an agency first' }}
-                      </small>
-                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label>Provider self-pay override (USD)</label>
+                    <input
+                      v-model.number="providerSelfPayRateUsd"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="Leave blank to use agency default"
+                      :disabled="!canEditUser || providerPublicProfileSaving"
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label>Provider self-pay note</label>
+                    <input
+                      v-model="providerSelfPayRateNote"
+                      type="text"
+                      placeholder="Optional note shown publicly"
+                      :disabled="!canEditUser || providerPublicProfileSaving"
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label>Agency default self-pay (USD)</label>
+                    <input
+                      v-model.number="agencyDefaultSelfPayRateUsd"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      :disabled="!canEditUser || providerPublicProfileSaving"
+                    />
+                  </div>
+                  <div class="form-group form-group-full">
+                    <label>Agency finder intro blurb</label>
+                    <textarea
+                      v-model="agencyFinderIntroBlurb"
+                      rows="3"
+                      placeholder="Intro paragraph shown above provider cards."
+                      :disabled="!canEditUser || providerPublicProfileSaving"
+                      style="width: 100%;"
+                    />
+                    <small class="form-help">
+                      Active agency: {{ selectedProviderProfileAgencyName || 'Select/assign an agency first' }}
+                    </small>
                   </div>
                 </div>
-                <div class="additional-account-info">
-                  <div v-if="accountInfoLoading" class="loading">Loading account information...</div>
-                  <div v-else-if="accountInfoError" class="error">{{ accountInfoError }}</div>
-                  <div v-else>
-                    <!-- Supervisor Information Section -->
-                    <div v-if="accountInfo.supervisors && accountInfo.supervisors.length > 0" class="supervisors-section" style="margin-top: 24px;">
-                      <h4 style="margin-top: 0; margin-bottom: 15px;">Supervisor Information</h4>
-                      <div class="supervisors-list">
-                        <div v-for="supervisor in accountInfo.supervisors" :key="supervisor.id" class="supervisor-item">
-                          <div class="supervisor-name">
-                            <strong>{{ supervisor.firstName }} {{ supervisor.lastName }}</strong>
-                            <span v-if="supervisor.agencyName" class="supervisor-agency">({{ supervisor.agencyName }})</span>
-                          </div>
-                          <div v-if="supervisor.workPhone" class="supervisor-contact">
-                            <span>Work Phone: {{ supervisor.workPhone }}</span>
-                            <span v-if="supervisor.workPhoneExtension"> ext. {{ supervisor.workPhoneExtension }}</span>
-                          </div>
-                          <div v-if="supervisor.email" class="supervisor-contact">
-                            <span>Email: {{ supervisor.email }}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <!-- Pending User Login Link Section -->
-                    <div v-if="user?.status === 'pending' && accountInfo.passwordlessLoginLink" class="passwordless-link-section" style="margin-top: 24px; padding: 20px; background: #e7f3ff; border-radius: 8px; border: 1px solid #007bff;">
-                      <h4 style="margin-top: 0; margin-bottom: 15px;">Direct Login Link</h4>
-                      <p style="margin: 0 0 15px 0; color: #666; font-size: 14px; line-height: 1.6;">
-                        Use this link to access the account. The user will be asked to verify their last name when they click the link.
-                      </p>
-                      
-                      <!-- Token Status -->
-                      <div v-if="accountInfo.passwordlessTokenExpiresAt" style="margin-bottom: 15px; padding: 10px; background: var(--bg); border-radius: 6px; border: 1px solid var(--border);">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                          <div>
-                            <strong>Link Status:</strong>
-                            <span :style="{ color: accountInfo.passwordlessTokenIsExpired ? '#dc3545' : '#28a745', marginLeft: '8px' }">
-                              {{ accountInfo.passwordlessTokenIsExpired ? '❌ Expired' : '✅ Valid' }}
-                            </span>
-                          </div>
-                          <div style="text-align: right;">
-                            <div><strong>Expires:</strong> {{ formatTokenExpiration(accountInfo.passwordlessTokenExpiresAt) }}</div>
-                            <div v-if="!accountInfo.passwordlessTokenIsExpired && accountInfo.passwordlessTokenExpiresInHours" style="font-size: 12px; color: #666;">
-                              ({{ formatTimeUntilExpiry(accountInfo.passwordlessTokenExpiresInHours) }})
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                        <input 
-                          type="text" 
-                          :value="accountInfo.passwordlessLoginLink" 
-                          readonly 
-                          style="flex: 1; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; font-family: monospace; background: var(--bg); cursor: text;"
-                          @click="$event.target.select()"
-                        />
-                        <button 
-                          @click="copyPasswordlessLink" 
-                          class="btn btn-primary btn-sm"
-                        >
-                          Copy Link
-                        </button>
-                      </div>
-                      <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
-                        <button 
-                          @click="showResetTokenModal = true" 
-                          class="btn btn-secondary btn-sm"
-                          :disabled="resettingToken"
-                        >
-                          {{ resettingToken ? 'Resetting...' : 'Reset Link (New Token)' }}
-                        </button>
-                        <div v-if="showResetTokenModal" style="display: flex; gap: 10px; align-items: center; margin-left: 10px;">
-                          <label style="font-size: 12px;">Expires in:</label>
-                          <input 
-                            type="number" 
-                            v-model="tokenExpirationDays" 
-                            min="1" 
-                            max="30"
-                            style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;"
-                          />
-                          <span style="font-size: 12px;">days</span>
-                          <button 
-                            @click="confirmResetToken" 
-                            class="btn btn-success btn-sm"
-                            :disabled="resettingToken"
-                          >
-                            Confirm
-                          </button>
-                          <button 
-                            @click="showResetTokenModal = false" 
-                            class="btn btn-secondary btn-sm"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                      <small style="display: block; color: #666; font-size: 12px; font-style: italic; margin-top: 10px;">
-                        Click the link above to select it, or use the copy button. Use "Reset Link" to generate a new token with custom expiration.
-                      </small>
-                    </div>
-                    
-                    <div v-if="!isViewingGuardian" class="download-section">
-                      <h4>Download Completion Package</h4>
-                      <p class="download-description">
-                        Download a complete package of all completed items for this user, including signed documents, 
-                        certificates, completion confirmations, and quiz scores.
-                      </p>
-                      <button 
-                        @click="downloadCompletionPackage" 
-                        class="btn btn-primary btn-sm"
-                        :disabled="downloadingPackage"
-                      >
-                        {{ downloadingPackage ? 'Generating...' : 'Download' }}
-                      </button>
-                    </div>
-                    
-                    <div v-if="canEditUser" class="account-management-section">
-                      <h4>Account Management</h4>
-                      <div class="account-management-content" :class="{ 'activate-section': !user?.is_active }">
-                        <p v-if="user?.is_active">
-                          Deactivate this user account. This will prevent them from logging in. 
-                          Note: This user may need to be marked as completed or terminated instead.
-                        </p>
-                        <p v-else>
-                          Activate this user account. This will restore their access to the system.
-                        </p>
-                        <button 
-                          v-if="user?.is_active"
-                          @click="deactivateUser" 
-                          class="btn btn-warning btn-sm"
-                          :disabled="deactivatingUser"
-                        >
-                          {{ deactivatingUser ? 'Deactivating...' : 'Deactivate' }}
-                        </button>
-                        <button 
-                          v-else
-                          @click="activateUser" 
-                          class="btn btn-success btn-sm"
-                          :disabled="activatingUser"
-                        >
-                          {{ activatingUser ? 'Activating...' : 'Activate' }}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-            
-            <!-- SSC/SSTC member profiles: club status is managed from the Member Management list, not here -->
-            <div v-if="isSscMemberProfileMode" class="ssc-status-note">
-              <span class="ssc-status-icon">ℹ️</span>
-              Club membership status (Active / Inactive) is managed from the
-              <strong>Member Management</strong> page. Use the toggle there to activate or
-              deactivate this member's access to the club.
-            </div>
+              </AccountDashboardCard>
 
-            <template v-if="!isSscMemberProfileMode">
-            <div class="section-divider">
-              <h3>Status Management</h3>
-            </div>
-            
+              <AccountDashboardCard
+                section-id="admin-tools"
+                title="Admin Tools"
+                :can-edit="false"
+              >
+                <div v-if="accountInfoLoading" class="loading">Loading account information...</div>
+                <div v-else-if="accountInfoError" class="error">{{ accountInfoError }}</div>
+                <div v-else-if="!isViewingGuardian" class="download-section">
+                  <p class="download-description">
+                    Download a complete package of all completed items for this user, including signed documents,
+                    certificates, completion confirmations, and quiz scores.
+                  </p>
+                  <button
+                    @click="downloadCompletionPackage"
+                    class="btn btn-primary btn-sm"
+                    :disabled="downloadingPackage"
+                  >
+                    {{ downloadingPackage ? 'Generating...' : 'Download Completion Package' }}
+                  </button>
+                </div>
+              </AccountDashboardCard>
+            </template>
+
+            <template #workspace-security>
+              <AccountDashboardCard section-id="workspace-security" title="Workspace & Security" :can-edit="false">
             <div class="password-status-layout">
               <div v-if="accountInfo.ssoPolicyRequired" class="reset-password-section">
                 <h4>Workspace Sign-in Policy</h4>
@@ -1599,9 +961,13 @@
                   </div>
                 </div>
               </template>
-              
+            </div>
+              </AccountDashboardCard>
+            </template>
+
+            <template #status-management>
+              <AccountDashboardCard section-id="status-management" title="Status Management" :can-edit="false">
               <div class="status-management">
-                <h4>Status Management</h4>
                 <div class="current-status">
                   <p><strong>Current Status:</strong> 
                     <span :class="['status-badge', getStatusBadgeClass(user.status, user.is_active)]">
@@ -1742,8 +1108,282 @@
                   </button>
                 </div>
               </div>
-            </div>
-            </template><!-- /v-if="!isSscMemberProfileMode" status management -->
+              </AccountDashboardCard>
+            </template>
+
+            <template #supervisor-assignments>
+              <AccountDashboardCard v-if="showAdditionalAccountSections" section-id="supervisor-assignments" title="Supervisor Assignments" :can-edit="false">
+                <div v-if="canManageAssignments" class="supervisor-assignments-section">
+                  <SupervisorAssignmentManager
+                    :supervisor-id="(user && (isSupervisor(user) || user.role === 'clinical_practice_assistant')) ? userId : null"
+                    :supervisee-id="(user && !((isSupervisor(user) || user.role === 'clinical_practice_assistant'))) ? userId : null"
+                  />
+                </div>
+                <div v-else class="supervisor-assignments-section">
+                  <div v-if="(user && isSupervisor(user)) || user?.role === 'clinical_practice_assistant'" class="assignments-info">
+                    <h4>Assigned Supervisees</h4>
+                    <div v-if="superviseesLoading" class="loading">Loading supervisees...</div>
+                    <div v-else-if="supervisees.length === 0" class="empty-state">
+                      <p>No supervisees assigned. Contact an administrator to assign supervisees.</p>
+                    </div>
+                    <div v-else class="supervisees-list">
+                      <div v-for="supervisee in supervisees" :key="supervisee.id" class="supervisee-item">
+                        <span>{{ supervisee.supervisee_first_name }} {{ supervisee.supervisee_last_name }}</span>
+                        <small style="color: var(--text-secondary);">{{ supervisee.supervisee_email }}</small>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-else class="assignments-info">
+                    <h4>Assigned Supervisors</h4>
+                    <div v-if="supervisorsLoading" class="loading">Loading supervisors...</div>
+                    <div v-else-if="supervisors.length === 0" class="empty-state">
+                      <p>No supervisors assigned.</p>
+                    </div>
+                    <div v-else class="supervisors-list">
+                      <div v-for="supervisor in supervisors" :key="supervisor.id" class="supervisor-item">
+                        <span>
+                          {{ supervisor.supervisor_first_name }} {{ supervisor.supervisor_last_name }}
+                          <span class="supervisor-type-pill">{{ supervisorTypeLabel(supervisor.supervisor_type) }}</span>
+                          <span v-if="supervisor.is_primary" class="primary-pill">Primary</span>
+                        </span>
+                        <small style="color: var(--text-secondary);">{{ supervisor.supervisor_email }}</small>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </AccountDashboardCard>
+            </template>
+
+            <template #building-offices>
+              <AccountDashboardCard v-if="canManageAssignments && showAdditionalAccountSections" section-id="building-offices" title="Assigned Building Offices" subtitle="Office links for scheduling and school mileage mapping." :can-edit="canEditUser">
+                <div v-if="officeAssignmentsLoading" class="loading">Loading office assignments…</div>
+                <div v-else-if="officeAssignmentsError" class="error">{{ officeAssignmentsError }}</div>
+                <template v-else>
+                  <div v-if="!officeAssignmentsDraft.length" class="empty-state">
+                    <p>No building office assignments yet.</p>
+                  </div>
+                  <div v-else class="table-wrap">
+                    <table class="table">
+                      <thead>
+                        <tr>
+                          <th>Office</th>
+                          <th>Address</th>
+                          <th>Active</th>
+                          <th>Primary</th>
+                          <th v-if="canEditUser">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="(row, idx) in officeAssignmentsDraft" :key="`off-assign-${idx}`">
+                          <td>
+                            <select
+                              v-model.number="row.officeLocationId"
+                              :disabled="!canEditUser || savingOfficeAssignments"
+                              @change="syncOfficeRowDetails(row)"
+                            >
+                              <option :value="0" disabled>Select office…</option>
+                              <option
+                                v-for="opt in officeOptionsForRow(idx)"
+                                :key="`office-opt-${idx}-${opt.id}`"
+                                :value="Number(opt.id)"
+                              >
+                                {{ opt.name }}
+                              </option>
+                            </select>
+                          </td>
+                          <td><span class="muted">{{ officeAddressForRow(row) || '—' }}</span></td>
+                          <td>
+                            <input type="checkbox" v-model="row.isActive" :disabled="!canEditUser || savingOfficeAssignments" @change="normalizeOfficePrimary()" />
+                          </td>
+                          <td>
+                            <input
+                              type="radio"
+                              name="primary-office-assignment"
+                              :checked="row.isPrimary"
+                              :disabled="!canEditUser || savingOfficeAssignments || !row.isActive"
+                              @change="setPrimaryOfficeAssignment(idx)"
+                            />
+                          </td>
+                          <td v-if="canEditUser">
+                            <button class="btn btn-danger btn-sm" type="button" :disabled="savingOfficeAssignments" @click="removeOfficeAssignmentRow(idx)">Remove</button>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div v-if="canEditUser" style="margin-top: 10px; display:flex; gap: 8px; flex-wrap: wrap;">
+                    <button class="btn btn-secondary btn-sm" type="button" :disabled="savingOfficeAssignments" @click="addOfficeAssignmentRow">Add office</button>
+                    <button class="btn btn-primary btn-sm" type="button" :disabled="savingOfficeAssignments" @click="saveOfficeAssignments">
+                      {{ savingOfficeAssignments ? 'Saving…' : 'Save office assignments' }}
+                    </button>
+                  </div>
+                </template>
+              </AccountDashboardCard>
+            </template>
+
+            <template #external-calendars-modal>
+                <div v-if="showExternalCalendarsModal" class="modal-overlay" @click.self="closeExternalCalendarsModal">
+                  <div class="modal-content" style="max-width: 980px;">
+                    <div style="display:flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+                      <h3 style="margin: 0;">External calendars (ICS)</h3>
+                      <div style="display:flex; gap: 8px; align-items:center;">
+                        <button type="button" class="btn btn-secondary btn-sm" @click="loadExternalCalendars" :disabled="externalCalendarsSaving">
+                          Refresh
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" @click="closeExternalCalendarsModal">
+                          Close
+                        </button>
+                      </div>
+                    </div>
+                    <p class="hint" style="margin: 8px 0 14px;">
+                      Add one or more named calendars (e.g., “Therapy Notes”). Each calendar can have multiple ICS feed URLs.
+                    </p>
+
+                    <div style="border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--bg);">
+                      <div style="font-weight: 900;">Therapy Notes calendar (paste URL only)</div>
+                      <p class="hint" style="margin: 6px 0 10px;">
+                        Paste this user’s personal ICS feed URL from Therapy Notes. You don’t need to create or name a calendar — we save it under this user automatically.
+                      </p>
+                      <div class="muted small" style="margin: -6px 0 10px;">
+                        If Therapy Notes gives you a <strong>webcal://</strong> link, that’s OK — we’ll fetch it as <strong>https://</strong>.
+                      </div>
+                      <div style="display:flex; gap: 8px; align-items: end; flex-wrap: wrap;">
+                        <div style="flex: 1; min-width: 260px;">
+                          <label class="lbl">ICS URL</label>
+                          <input
+                            class="agency-select"
+                            v-model="ehrIcsUrl"
+                            type="url"
+                            placeholder="https://…/calendar.ics"
+                            :disabled="ehrIcsSaving || externalCalendarsSaving"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-sm"
+                          @click="saveEhrIcsUrl"
+                          :disabled="ehrIcsSaving || externalCalendarsSaving"
+                        >
+                          {{ ehrIcsSaving ? 'Saving…' : 'Save' }}
+                        </button>
+                      </div>
+                      <div v-if="ehrIcsError" class="error" style="margin-top: 8px;">{{ ehrIcsError }}</div>
+                      <div class="muted small" style="margin-top: 8px;">
+                        Tip: pasting a new URL will automatically make it the only active Therapy Notes feed for this user.
+                      </div>
+                    </div>
+
+                    <div v-if="externalCalendarsError" class="error" style="margin-top: 12px;">{{ externalCalendarsError }}</div>
+                    <div v-if="externalCalendarsLoading" class="muted" style="margin-top: 12px;">Loading external calendars…</div>
+
+                    <div v-else style="margin-top: 12px;">
+                      <div style="display:flex; gap: 8px; align-items: end; flex-wrap: wrap;">
+                        <div style="flex: 1; min-width: 240px;">
+                          <label class="lbl">New calendar label</label>
+                          <input class="agency-select" v-model="newExternalCalendarLabel" placeholder="e.g. Therapy Notes" />
+                        </div>
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-sm"
+                          @click="createExternalCalendar"
+                          :disabled="externalCalendarsSaving || !newExternalCalendarLabel.trim()"
+                        >
+                          {{ externalCalendarsSaving ? 'Saving…' : 'Create calendar' }}
+                        </button>
+                      </div>
+
+                      <div v-if="externalCalendars.length === 0" class="muted" style="margin-top: 10px;">
+                        No external calendars yet.
+                      </div>
+
+                      <div v-else style="margin-top: 10px; display:flex; flex-direction: column; gap: 10px;">
+                        <div v-for="c in externalCalendars" :key="`ec-${c.id}`" style="border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--bg-alt);">
+                          <div style="display:flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
+                            <div style="display:flex; align-items: end; gap: 8px; flex-wrap: wrap;">
+                              <div style="min-width: 240px;">
+                                <label class="lbl">Calendar label</label>
+                                <input
+                                  class="agency-select"
+                                  :value="editExternalCalendarLabelById[c.id] ?? c.label"
+                                  :disabled="externalCalendarsSaving"
+                                  @input="editExternalCalendarLabelById = { ...(editExternalCalendarLabelById || {}), [c.id]: $event.target.value }"
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                class="btn btn-secondary btn-sm"
+                                :disabled="externalCalendarsSaving"
+                                @click="saveExternalCalendarLabel(c)"
+                              >
+                                Save label
+                              </button>
+                            </div>
+                            <label class="toggle-label" style="margin:0;">
+                              <span style="font-size: 12px;">Active</span>
+                              <div class="toggle-switch">
+                                <input
+                                  type="checkbox"
+                                  :checked="!!c.isActive"
+                                  :disabled="externalCalendarsSaving"
+                                  @change="toggleExternalCalendar(c, $event.target.checked)"
+                                />
+                                <span class="slider"></span>
+                              </div>
+                            </label>
+                          </div>
+
+                          <div class="muted" style="margin-top: 6px;">Feeds</div>
+                          <div v-if="(c.feeds || []).length === 0" class="muted" style="margin-top: 4px;">No feeds yet.</div>
+                          <div v-else style="margin-top: 6px; display:flex; flex-direction: column; gap: 6px;">
+                            <div
+                              v-for="f in c.feeds"
+                              :key="`ecf-${f.id}`"
+                              style="display:flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;"
+                            >
+                              <div class="muted" style="max-width: 100%; overflow: hidden; text-overflow: ellipsis;">
+                                {{ f.icsUrl }}
+                              </div>
+                              <label class="toggle-label" style="margin:0;">
+                                <span style="font-size: 12px;">Active</span>
+                                <div class="toggle-switch">
+                                  <input
+                                    type="checkbox"
+                                    :checked="!!f.isActive"
+                                    :disabled="externalCalendarsSaving"
+                                    @change="toggleExternalFeed(c, f, $event.target.checked)"
+                                  />
+                                  <span class="slider"></span>
+                                </div>
+                              </label>
+                            </div>
+                          </div>
+
+                          <div style="display:flex; gap: 8px; align-items: end; margin-top: 10px; flex-wrap: wrap;">
+                            <div style="flex: 1; min-width: 260px;">
+                              <label class="lbl">Add ICS URL</label>
+                              <input
+                                class="agency-select"
+                                v-model="newExternalFeedUrlByCalendarId[c.id]"
+                                placeholder="https://…/calendar.ics"
+                                :disabled="externalCalendarsSaving"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              class="btn btn-secondary btn-sm"
+                              @click="addExternalFeed(c)"
+                              :disabled="externalCalendarsSaving || !String(newExternalFeedUrlByCalendarId[c.id] || '').trim()"
+                            >
+                              Add feed
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+            </template>
+          </UserAccountDashboard>
         </div>
 
         <div v-if="activeTab === 'linked_clients'" class="tab-panel">
@@ -2054,157 +1694,29 @@
           </template>
         </div>
 
-        <div v-if="activeTab === 'additional'" class="tab-panel">
-          <h2>Additional</h2>
-
-          <div class="section-divider">
-            <h3>Supervisor Assignments</h3>
-          </div>
-
-          <div v-if="canManageAssignments" class="supervisor-assignments-section">
-              <SupervisorAssignmentManager
-              :supervisor-id="(user && (isSupervisor(user) || user.role === 'clinical_practice_assistant')) ? userId : null"
-              :supervisee-id="(user && !((isSupervisor(user) || user.role === 'clinical_practice_assistant'))) ? userId : null"
-            />
-          </div>
-
-          <div v-else class="supervisor-assignments-section">
-            <div v-if="(user && isSupervisor(user)) || user?.role === 'clinical_practice_assistant'" class="assignments-info">
-              <h4>Assigned Supervisees</h4>
-              <div v-if="superviseesLoading" class="loading">Loading supervisees...</div>
-              <div v-else-if="supervisees.length === 0" class="empty-state">
-                <p>No supervisees assigned. Contact an administrator to assign supervisees.</p>
-              </div>
-              <div v-else class="supervisees-list">
-                <div v-for="supervisee in supervisees" :key="supervisee.id" class="supervisee-item">
-                  <span>{{ supervisee.supervisee_first_name }} {{ supervisee.supervisee_last_name }}</span>
-                  <small style="color: var(--text-secondary);">{{ supervisee.supervisee_email }}</small>
-                </div>
-              </div>
-            </div>
-            <div v-else class="assignments-info">
-              <h4>Assigned Supervisors</h4>
-              <div v-if="supervisorsLoading" class="loading">Loading supervisors...</div>
-              <div v-else-if="supervisors.length === 0" class="empty-state">
-                <p>No supervisors assigned.</p>
-              </div>
-              <div v-else class="supervisors-list">
-                <div v-for="supervisor in supervisors" :key="supervisor.id" class="supervisor-item">
-                  <span>
-                    {{ supervisor.supervisor_first_name }} {{ supervisor.supervisor_last_name }}
-                    <span v-if="supervisor.is_primary" class="primary-pill">Primary</span>
-                  </span>
-                  <small style="color: var(--text-secondary);">{{ supervisor.supervisor_email }}</small>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="canManageAssignments" class="section-divider" style="margin-top: 18px;">
-            <h3>Assigned Building Offices</h3>
-          </div>
-          <div v-if="canManageAssignments" class="card" style="padding: 12px;">
-            <div class="hint">
-              These office links drive building-scoped scheduling options and school mileage office mapping.
-            </div>
-            <div v-if="officeAssignmentsLoading" class="loading" style="margin-top: 8px;">Loading office assignments…</div>
-            <div v-else-if="officeAssignmentsError" class="error" style="margin-top: 8px;">{{ officeAssignmentsError }}</div>
-            <template v-else>
-              <div v-if="!officeAssignmentsDraft.length" class="empty-state" style="margin-top: 8px;">
-                <p>No building office assignments yet.</p>
-              </div>
-              <div v-else class="table-wrap" style="margin-top: 10px;">
-                <table class="table">
-                  <thead>
-                    <tr>
-                      <th>Office</th>
-                      <th>Address</th>
-                      <th>Active</th>
-                      <th>Primary</th>
-                      <th v-if="canEditUser">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(row, idx) in officeAssignmentsDraft" :key="`off-assign-${idx}`">
-                      <td>
-                        <select
-                          v-model.number="row.officeLocationId"
-                          :disabled="!canEditUser || savingOfficeAssignments"
-                          @change="syncOfficeRowDetails(row)"
-                        >
-                          <option :value="0" disabled>Select office…</option>
-                          <option
-                            v-for="opt in officeOptionsForRow(idx)"
-                            :key="`office-opt-${idx}-${opt.id}`"
-                            :value="Number(opt.id)"
-                          >
-                            {{ opt.name }}
-                          </option>
-                        </select>
-                      </td>
-                      <td>
-                        <span class="muted">{{ officeAddressForRow(row) || '—' }}</span>
-                      </td>
-                      <td>
-                        <input
-                          type="checkbox"
-                          v-model="row.isActive"
-                          :disabled="!canEditUser || savingOfficeAssignments"
-                          @change="normalizeOfficePrimary()"
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="radio"
-                          name="primary-office-assignment"
-                          :checked="row.isPrimary"
-                          :disabled="!canEditUser || savingOfficeAssignments || !row.isActive"
-                          @change="setPrimaryOfficeAssignment(idx)"
-                        />
-                      </td>
-                      <td v-if="canEditUser">
-                        <button
-                          class="btn btn-danger btn-sm"
-                          type="button"
-                          :disabled="savingOfficeAssignments"
-                          @click="removeOfficeAssignmentRow(idx)"
-                        >
-                          Remove
-                        </button>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <div v-if="canEditUser" style="margin-top: 10px; display:flex; gap: 8px; flex-wrap: wrap;">
-                <button class="btn btn-secondary btn-sm" type="button" :disabled="savingOfficeAssignments" @click="addOfficeAssignmentRow">
-                  Add office
-                </button>
-                <button class="btn btn-primary btn-sm" type="button" :disabled="savingOfficeAssignments" @click="saveOfficeAssignments">
-                  {{ savingOfficeAssignments ? 'Saving…' : 'Save office assignments' }}
-                </button>
-              </div>
-            </template>
-          </div>
-        </div>
-
         <div v-if="activeTab === 'provider_info'" class="tab-panel">
-          <ProviderInfoTab :userId="userId" />
-
-          <div class="section-divider" style="margin-top: 18px;">
-            <h3>Agency (Bulk Import) Information</h3>
-          </div>
-          <UserInformationTab :userId="userId" />
+          <ClinicalInformationTab :user-id="userId" />
         </div>
 
         <div v-if="activeTab === 'credentialing'" class="tab-panel">
           <CredentialingTab :userId="userId" />
         </div>
 
-        <div v-if="isAffiliationTabActive" class="tab-panel">
-          <h2>{{ activeAffiliationTabLabel }}</h2>
-          <p class="hint" style="margin-top: -6px;">
-            Configure provider availability for this affiliation type: global Open/Closed, per-affiliation override, and day/hour slots.
+        <div v-if="activeTab === 'affiliations'" class="tab-panel">
+          <h2>Affiliations</h2>
+          <div class="affiliation-subtabs">
+            <button
+              v-for="sec in AFFILIATION_SECTION_IDS"
+              :key="sec"
+              type="button"
+              :class="['affiliation-subtab', { active: activeAffiliationSection === sec }]"
+              @click="selectAffiliationSection(sec)"
+            >
+              {{ AFFILIATION_TAB_CONFIG[sec].singleLabel }}
+            </button>
+          </div>
+          <p class="hint" style="margin-top: 8px;">
+            Configure provider availability for {{ activeAffiliationSingleLabel.toLowerCase() }} affiliations: global Open/Closed, per-affiliation override, and day/hour slots.
           </p>
 
           <div v-if="schoolAffiliationsLoading" class="loading">Loading affiliations…</div>
@@ -2918,7 +2430,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch, nextTick } from 'vue';
+import { ref, onMounted, computed, watch, nextTick, provide } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -2926,12 +2438,19 @@ import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
 import { canAccessSkillBuildersSchoolProgramSurfaces } from '../../utils/skillBuildersSchoolProgramAccess.js';
 import { isSupervisor } from '../../utils/helpers.js';
+import { supervisorTypeLabel, hasClinicalSupervisorInLists } from '../../constants/supervisorTypes.js';
+import { isFullyLicensedCredentialText } from '../../utils/credentialNormalization.js';
 import { VALID_EMPLOYEE_STATUSES, RESTRICTED_ROLE_STATUSES } from '../../utils/statusUtils.js';
-import { getBackendBaseUrl } from '../../utils/uploadsUrl';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
+import { useProfileOverview } from '../../composables/useProfileOverview.js';
+import UserOverviewTab from '../../components/admin/UserOverviewTab.vue';
+import AcceptedInsuranceBadges from '../../components/admin/AcceptedInsuranceBadges.vue';
 import UserTrainingTab from '../../components/admin/UserTrainingTab.vue';
 import UserDocumentsTab from '../../components/admin/UserDocumentsTab.vue';
-import UserInformationTab from '../../components/admin/UserInformationTab.vue';
-import ProviderInfoTab from '../../components/admin/ProviderInfoTab.vue';
+import ClinicalInformationTab from '../../components/admin/clinical/ClinicalInformationTab.vue';
+import UserAccountDashboard from '../../components/admin/account/UserAccountDashboard.vue';
+import AccountDashboardCard from '../../components/admin/account/AccountDashboardCard.vue';
+import { USER_ACCOUNT_CONTEXT_KEY } from '../../composables/userAccountContext.js';
 import CredentialingTab from '../../components/admin/CredentialingTab.vue';
 import UserCommunicationsTab from '../../components/admin/UserCommunicationsTab.vue';
 import UserAdminDocsTab from '../../components/admin/UserAdminDocsTab.vue';
@@ -2952,6 +2471,12 @@ const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
 const userId = computed(() => parseInt(route.params.userId));
+
+const { overview, overviewLoading, overviewError, refreshOverview } = useProfileOverview(
+  userId,
+  computed(() => agencyStore.currentAgency?.id)
+);
+provide('refreshProfileOverview', refreshOverview);
 
 const userDisplayNameForDocs = computed(() => {
   const u = user.value;
@@ -3002,8 +2527,21 @@ const error = ref('');
 const user = ref(null);
 /** Target user's agencies (declared early for SSC club id resolution on member profiles). */
 const userAgencies = ref([]);
-// Initialize activeTab from query parameter or default to 'account'
-const activeTab = ref(route.query.tab || 'account');
+const LEGACY_AFFILIATION_TAB_IDS = ['school_affiliation', 'program_affiliation', 'learning_affiliation'];
+
+function resolveInitialProfileTab() {
+  let raw = String(route.query.tab || '').trim();
+  if (raw === 'additional') raw = 'account';
+  if (LEGACY_AFFILIATION_TAB_IDS.includes(raw)) {
+    return { tab: 'affiliations', section: raw };
+  }
+  return { tab: raw || 'overview', section: 'school_affiliation' };
+}
+
+const _initialProfileTab = resolveInitialProfileTab();
+const activeAffiliationSection = ref(_initialProfileTab.section);
+// Initialize activeTab from query parameter or default to 'overview' (employee profiles)
+const activeTab = ref(_initialProfileTab.tab);
 const saving = ref(false);
 const memberSeasonHistoryLoading = ref(false);
 const memberSeasonHistoryError = ref('');
@@ -3082,12 +2620,9 @@ const profilePhotoInput = ref(null);
 const photoUploading = ref(false);
 const photoError = ref('');
 
-const headerPhotoUrl = computed(() => {
-  const rel = user.value?.profile_photo_url || null;
-  if (!rel) return null;
-  const base = getBackendBaseUrl();
-  return `${base}${String(rel).startsWith('/') ? rel : `/${rel}`}`;
-});
+const headerPhotoUrl = computed(() =>
+  toUploadsUrl(user.value?.profile_photo_url || user.value?.profile_photo_path || null)
+);
 
 const headerInitials = computed(() => {
   const f = String(user.value?.first_name || '').trim();
@@ -3105,6 +2640,69 @@ const headerDisplayName = computed(() => {
   if (first && preferred) return `${first} "${preferred}"`;
   if (first && last) return `${first} ${last}`;
   return first || last || 'User';
+});
+
+const headerPhone = computed(() =>
+  accountForm.value?.phoneNumber ||
+  user.value?.phone_number ||
+  overview.value?.accountInfo?.phoneNumber || ''
+);
+const headerLocation = computed(() => {
+  const city = accountForm.value?.homeCity || overview.value?.accountInfo?.homeCity || '';
+  const state = accountForm.value?.homeState || overview.value?.accountInfo?.homeState || '';
+  return [city, state].filter(Boolean).join(', ');
+});
+const headerEmployeeId = computed(() => {
+  const id = user.value?.employee_id || overview.value?.user?.employee_id;
+  if (id) return String(id).startsWith('EMP') ? id : `EMP-${String(id).padStart(4, '0')}`;
+  const uid = user.value?.id;
+  return uid ? `EMP-${String(uid).padStart(4, '0')}` : '';
+});
+const headerHireDate = computed(() =>
+  user.value?.hire_date || overview.value?.user?.hire_date || ''
+);
+const headerStartDate = computed(() =>
+  accountForm.value?.providerStartDate ||
+  user.value?.provider_start_date ||
+  user.value?.start_date ||
+  overview.value?.user?.start_date ||
+  overview.value?.lifecycle?.summary?.startDate || ''
+);
+const headerServiceFocus = computed(() =>
+  accountForm.value?.serviceFocus ||
+  user.value?.service_focus ||
+  overview.value?.accountInfo?.serviceFocus || ''
+);
+const headerLanguages = computed(() =>
+  accountForm.value?.languagesSpoken ||
+  user.value?.languages_spoken ||
+  overview.value?.accountInfo?.languagesSpoken || ''
+);
+const headerAcceptedInsurances = computed(() => {
+  const rows = overview.value?.acceptedInsurances;
+  return Array.isArray(rows) ? rows : [];
+});
+const fmtHeaderDate = (raw) => {
+  if (!raw) return '—';
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const headerManagerName = computed(() => {
+  const u = user.value;
+  const ou = overview.value?.user;
+  if (u?.manager_first_name && u?.manager_last_name) return `${u.manager_first_name} ${u.manager_last_name}`;
+  if (ou?.manager_first_name && ou?.manager_last_name) return `${ou.manager_first_name} ${ou.manager_last_name}`;
+  return u?.manager_name || ou?.manager_name || '';
+});
+
+const headerSupervisorName = computed(() => {
+  const svs = overview.value?.supervisors || supervisors.value || [];
+  const clinical = svs.filter((s) => !s.supervisor_type || s.supervisor_type === 'clinical');
+  const primary = clinical.find((s) => s.is_primary) || clinical[0] || svs.find((s) => s.is_primary) || svs[0];
+  if (!primary) return '';
+  return `${primary.supervisor_first_name || ''} ${primary.supervisor_last_name || ''}`.trim();
 });
 
 const onAdminPhotoSelected = async (event) => {
@@ -3175,6 +2773,18 @@ const canManageAssignments = computed(() => {
   return role === 'admin' || role === 'super_admin' || role === 'support';
 });
 
+const showAdditionalAccountSections = computed(() => {
+  return !isViewingGuardian.value && !isSscMemberProfileMode.value && !isViewingSchoolStaff.value;
+});
+
+const triggerPhotoUpload = () => {
+  try {
+    profilePhotoInput.value?.click();
+  } catch {
+    // ignore
+  }
+};
+
 const canViewPayroll = computed(() => {
   const role = authStore.user?.role;
   return role === 'admin' || role === 'super_admin' || role === 'support';
@@ -3229,8 +2839,7 @@ const canViewProviderInfo = computed(() => {
   const u = user.value;
   if (!u) return false;
   // First principles: profile fields/forms apply to all employee types, not just providers.
-  // Keep School Affiliation gated below by the same flag, but always show Provider Info so admins
-  // can view/edit imported profile fields for any user.
+  // Profile fields/forms apply to all employee types; tab is labeled Clinical Information in the nav.
   return true;
 });
 
@@ -3244,7 +2853,13 @@ const canViewCredentialingTab = computed(() => {
   if (!target) return false;
   const targetRole = String(target.role || '').toLowerCase();
   const providerLikeRoles = ['provider', 'provider_plus', 'clinical_practice_assistant', 'super_admin', 'admin'];
-  return providerLikeRoles.includes(targetRole);
+  if (!providerLikeRoles.includes(targetRole)) return false;
+  const credentialText = [
+    target.credential,
+    accountForm.value?.credential,
+    licenseCredentialSummary.value?.typeNumber
+  ].map((v) => String(v || '').trim()).find(Boolean) || '';
+  return isFullyLicensedCredentialText(credentialText);
 });
 
 const isViewingSchoolStaff = computed(() => {
@@ -3753,9 +3368,13 @@ const AFFILIATION_TAB_CONFIG = Object.freeze({
   learning_affiliation: { type: 'learning', label: 'Learning Affiliation', singleLabel: 'Learning Organization', pluralLabel: 'Learning Organizations' }
 });
 
-const isAffiliationTabId = (tabId) => Object.prototype.hasOwnProperty.call(AFFILIATION_TAB_CONFIG, String(tabId || ''));
-const isAffiliationTabActive = computed(() => isAffiliationTabId(activeTab.value));
-const activeAffiliationConfig = computed(() => AFFILIATION_TAB_CONFIG[String(activeTab.value)] || null);
+const AFFILIATION_SECTION_IDS = Object.freeze(Object.keys(AFFILIATION_TAB_CONFIG));
+
+const isAffiliationSectionId = (sectionId) => Object.prototype.hasOwnProperty.call(AFFILIATION_TAB_CONFIG, String(sectionId || ''));
+const isLegacyAffiliationTabId = (tabId) => isAffiliationSectionId(tabId);
+
+const isAffiliationTabActive = computed(() => activeTab.value === 'affiliations');
+const activeAffiliationConfig = computed(() => AFFILIATION_TAB_CONFIG[String(activeAffiliationSection.value)] || null);
 const activeAffiliationOrgType = computed(() => String(activeAffiliationConfig.value?.type || ''));
 const activeAffiliationTabLabel = computed(() => String(activeAffiliationConfig.value?.label || 'Affiliation'));
 const activeAffiliationSingleLabel = computed(() => String(activeAffiliationConfig.value?.singleLabel || 'Affiliation'));
@@ -3814,16 +3433,13 @@ const tabs = computed(() => {
   }
 
   const baseTabs = [
+    { id: 'overview', label: 'Overview' },
     { id: 'account', label: 'Account' },
-    { id: 'additional', label: 'Additional' },
-    ...(canViewProviderInfo.value ? [{ id: 'provider_info', label: 'Provider Info' }] : []),
+    ...(canViewLifecycleTab.value ? [{ id: 'lifecycle', label: 'Lifecycle' }] : []),
+    ...(canViewProviderInfo.value ? [{ id: 'provider_info', label: 'Clinical Information' }] : []),
     ...(canViewCredentialingTab.value ? [{ id: 'credentialing', label: 'Credentialing' }] : []),
     ...(canViewSchoolAffiliation.value
-      ? [
-        { id: 'school_affiliation', label: 'School Affiliation' },
-        { id: 'program_affiliation', label: 'Program Affiliation' },
-        { id: 'learning_affiliation', label: 'Learning Affiliation' }
-      ]
+      ? [{ id: 'affiliations', label: 'Affiliations' }]
       : []),
     ...(canViewProviderInfo.value ? [{ id: 'schedule_availability', label: 'Schedule & Availability' }] : []),
     { id: 'training', label: 'Training' },
@@ -3844,10 +3460,6 @@ const tabs = computed(() => {
     baseTabs.push({ id: 'supervision', label: 'Supervision' });
   }
 
-  if (canViewLifecycleTab.value) {
-    baseTabs.push({ id: 'lifecycle', label: 'Lifecycle' });
-  }
-
   if (canViewActivityLog.value) {
     baseTabs.push({ id: 'activity', label: 'Activity Log' });
   }
@@ -3855,12 +3467,20 @@ const tabs = computed(() => {
   return baseTabs;
 });
 
-// If the current tab becomes unavailable (e.g., switching to a school_staff user), normalize back to Account.
+// If the current tab becomes unavailable (e.g., switching to a school_staff user), normalize to first tab.
 watch(
   tabs,
   (t) => {
     const allowed = new Set((t || []).map((x) => x.id));
-    if (!allowed.has(String(activeTab.value || ''))) activeTab.value = 'account';
+    const cur = String(activeTab.value || '');
+    if (isLegacyAffiliationTabId(cur)) {
+      activeAffiliationSection.value = cur;
+      activeTab.value = 'affiliations';
+      return;
+    }
+    if (!allowed.has(cur)) {
+      activeTab.value = (t || [])[0]?.id || 'account';
+    }
   },
   { immediate: true }
 );
@@ -4506,6 +4126,73 @@ const saveSchoolAffiliation = async () => {
 const providerCredentialFieldId = ref(null);
 const providerCredentialLoaded = ref(false);
 
+const licenseCredentialSummary = ref({
+  hasDetails: false,
+  typeNumber: '',
+  issuedDate: '',
+  expirationDate: '',
+  uploadUrl: '',
+  uploadedAt: ''
+});
+
+const LICENSE_INFO_FIELD_KEYS = {
+  typeNumber: ['provider_credential_license_type_number', 'license_type_number'],
+  issuedDate: ['provider_credential_license_issued_date', 'license_issued', 'license_issued_date'],
+  expirationDate: ['provider_credential_license_expiration_date', 'license_expires', 'license_expiration_date'],
+  upload: ['license_upload']
+};
+
+const pickUserInfoFieldValue = (rows, keys) => {
+  const list = Array.isArray(rows) ? rows : [];
+  for (const key of keys || []) {
+    const hit = list.find((f) => String(f?.field_key || '').toLowerCase() === String(key).toLowerCase());
+    const val = hit?.value;
+    if (val !== null && val !== undefined && String(val).trim()) return String(val).trim();
+  }
+  return '';
+};
+
+const formatLicenseDisplayDate = (raw) => {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  const d = new Date(s.includes('T') ? s : `${s}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return s;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const isFullyLicensedForCredentialing = computed(() => {
+  const credentialText = [
+    accountForm.value?.credential,
+    user.value?.credential,
+    licenseCredentialSummary.value?.typeNumber
+  ].map((v) => String(v || '').trim()).find(Boolean) || '';
+  if (!isFullyLicensedCredentialText(credentialText)) return false;
+  const supervisorLists = [supervisors.value, accountInfo.value?.supervisors, overview.value?.supervisors];
+  return !hasClinicalSupervisorInLists(supervisorLists);
+});
+
+const fetchLicenseCredentialSummary = async () => {
+  try {
+    const res = await api.get(`/users/${userId.value}/user-info`);
+    const rows = Array.isArray(res.data) ? res.data : [];
+    const typeNumber = pickUserInfoFieldValue(rows, LICENSE_INFO_FIELD_KEYS.typeNumber);
+    const issuedDate = formatLicenseDisplayDate(pickUserInfoFieldValue(rows, LICENSE_INFO_FIELD_KEYS.issuedDate));
+    const expirationDate = formatLicenseDisplayDate(pickUserInfoFieldValue(rows, LICENSE_INFO_FIELD_KEYS.expirationDate));
+    const uploadRaw = pickUserInfoFieldValue(rows, LICENSE_INFO_FIELD_KEYS.upload);
+    const uploadUrl = uploadRaw ? toUploadsUrl(uploadRaw) : '';
+    licenseCredentialSummary.value = {
+      hasDetails: !!(typeNumber || issuedDate || expirationDate || uploadUrl),
+      typeNumber,
+      issuedDate,
+      expirationDate,
+      uploadUrl: uploadUrl || '',
+      uploadedAt: uploadUrl ? 'On file' : ''
+    };
+  } catch {
+    licenseCredentialSummary.value = { hasDetails: false, typeNumber: '', issuedDate: '', expirationDate: '', uploadUrl: '', uploadedAt: '' };
+  }
+};
+
 const isEditingAccount = ref(false);
 
 const startEditAccount = () => {
@@ -4652,7 +4339,7 @@ watch([activeTab, isViewingGuardian], async ([t, viewingGuardian]) => {
     await loadMemberSeasonHistory();
     return;
   }
-  if (isAffiliationTabId(t)) {
+  if (t === 'affiliations') {
     if (!canViewSchoolAffiliation.value) return;
     await loadSchoolAffiliations();
     ensureSelectedAffiliationForActiveTab();
@@ -4660,6 +4347,12 @@ watch([activeTab, isViewingGuardian], async ([t, viewingGuardian]) => {
     syncProviderSchoolBlurbFromUser();
   }
 }, { immediate: true });
+
+watch(activeAffiliationSection, async () => {
+  if (activeTab.value !== 'affiliations') return;
+  ensureSelectedAffiliationForActiveTab();
+  await loadSchoolAssignments();
+});
 
 watch([isSscMemberProfileMode, selectedClubIdForMemberProfile], async ([enabled, clubId]) => {
   if (!enabled || !clubId || !userId.value) return;
@@ -5364,6 +5057,7 @@ const fetchUser = async () => {
         fetchAvailableAgencies(),
         fetchAccountInfo(),
         fetchProviderCredential(),
+        fetchLicenseCredentialSummary(),
         loadExternalCalendars(),
         loadOfficeAssignments(),
         loadLeaveOfAbsence(),
@@ -6055,13 +5749,19 @@ const openSchoolSchedulingFromAgencyRow = async (org) => {
   const id = Number(org?.id || 0);
   if (!id) return;
   const orgType = String(org?.organization_type || '').toLowerCase();
-  if (orgType === 'program') activeTab.value = 'program_affiliation';
-  else if (orgType === 'learning') activeTab.value = 'learning_affiliation';
-  else activeTab.value = 'school_affiliation';
+  if (orgType === 'program') activeAffiliationSection.value = 'program_affiliation';
+  else if (orgType === 'learning') activeAffiliationSection.value = 'learning_affiliation';
+  else activeAffiliationSection.value = 'school_affiliation';
+  activeTab.value = 'affiliations';
   await nextTick();
   await loadSchoolAffiliations();
   selectedSchoolAffiliationId.value = String(id);
   await loadSchoolAssignments();
+};
+
+const selectAffiliationSection = (sectionId) => {
+  if (!isAffiliationSectionId(sectionId)) return;
+  activeAffiliationSection.value = sectionId;
 };
 
 const removeAgency = async (agencyId) => {
@@ -6079,8 +5779,8 @@ const removeAgency = async (agencyId) => {
   }
 };
 
-const saveAccount = async () => {
-  if (!isEditingAccount.value) return;
+const saveAccount = async (options = {}) => {
+  if (!options.fromDashboard && !isEditingAccount.value) return;
 
   if (isSscMemberProfileMode.value) {
     const clubId = selectedClubIdForMemberProfile.value;
@@ -6242,6 +5942,7 @@ const saveAccount = async () => {
       }
     }
     isEditingAccount.value = false;
+    void refreshOverview();
     if (credentialSaveWarning || backendWarnings.length > 0) {
       const parts = [];
       if (credentialSaveWarning) {
@@ -6561,6 +6262,39 @@ const getStatusBadgeClass = (status, isActive = true) => {
   };
   return classes[status] || 'badge-secondary';
 };
+
+provide(USER_ACCOUNT_CONTEXT_KEY, {
+  user,
+  userId,
+  accountForm,
+  saving,
+  canEditUser,
+  overview,
+  overviewLoading,
+  headerDisplayName,
+  headerPhotoUrl,
+  headerManagerName,
+  headerSupervisorName,
+  photoUploading,
+  triggerPhotoUpload,
+  saveAccount: () => saveAccount({ fromDashboard: true }),
+  cancelEditAccount,
+  navigate: (tabId) => { activeTab.value = tabId; },
+  getStatusLabel,
+  api,
+  canChangeRole,
+  canAssignSuperAdmin,
+  canAssignAdmin,
+  canAssignSupport,
+  canAssignAssistantAdmin,
+  showPayrollAccessToggle,
+  showCredentialingAccessToggle,
+  canToggleSupervisorPrivileges,
+  canEditSkillBuilderCoordinatorAccess,
+  canShowSkillBuildersSchoolProgramUserFields,
+  openExternalCalendarsModal,
+  isFullyLicensedForCredentialing
+});
 
 const markComplete = async () => {
   if (!confirm('Mark this user as Active? (This does not change their password. Use “Send Reset Password Link” if they need to set one.)')) {
@@ -7031,6 +6765,168 @@ onMounted(() => {
   color: var(--text-primary);
 }
 
+/* ─── Enhanced profile header ─────────────────────────────────────────────── */
+.ph-wrap {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: start;
+  padding: 20px 0 8px;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  margin-bottom: 4px;
+}
+
+.ph-photo-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 168px;
+  flex-shrink: 0;
+}
+
+.ph-photo-col .ph-avatar {
+  width: 168px;
+  height: 168px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ph-photo-col .header-photo-fallback {
+  font-size: 42px;
+}
+
+.ph-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #6b7280;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+}
+.ph-upload-btn:hover { color: var(--primary, #059669); }
+.ph-upload-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.ph-photo-err { font-size: 11px; color: #dc2626; text-align: center; }
+
+.ph-info-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ph-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ph-name {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary, #111827);
+  white-space: nowrap;
+}
+.ph-subtitle-role {
+  font-size: 13.5px;
+  color: var(--text-secondary, #6b7280);
+  margin: 0;
+}
+.ph-contact-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.ph-contact-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: #374151;
+}
+.ph-contact-chip svg { flex-shrink: 0; opacity: 0.6; }
+
+.ph-accepted-insurance {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.ph-metrics-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  margin-top: 6px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
+  overflow: hidden;
+}
+.ph-metric {
+  flex: 1;
+  padding: 8px 14px;
+  border-right: 1px solid #e5e7eb;
+  min-width: 0;
+}
+.ph-metric:last-child { border-right: none; }
+.ph-ml {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9ca3af;
+  margin-bottom: 3px;
+  white-space: nowrap;
+}
+.ph-mv {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ph-panel-col {
+  width: 190px;
+  flex-shrink: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ph-panel-item { display: flex; flex-direction: column; gap: 3px; }
+.ph-pl {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9ca3af;
+}
+.ph-pv { font-size: 13px; color: #374151; line-height: 1.4; }
+.ph-pv--active { color: var(--primary, #059669); font-weight: 600; }
+
+@media (max-width: 900px) {
+  .ph-wrap { grid-template-columns: 168px minmax(0, 1fr); }
+  .ph-panel-col { display: none; }
+}
+@media (max-width: 640px) {
+  .ph-wrap { grid-template-columns: 1fr; }
+  .ph-photo-col { flex-direction: row; align-items: center; width: auto; }
+  .ph-metrics-bar { flex-wrap: wrap; }
+}
+
 .prelicensed-field {
   display: flex;
   flex-direction: column;
@@ -7124,47 +7020,103 @@ onMounted(() => {
   margin: 0;
 }
 
-.tabs {
+.tabs,
+.profile-tabs {
   display: flex;
-  gap: 8px;
-  margin-bottom: 32px;
-  border-bottom: 2px solid var(--border);
+  gap: 4px;
+  margin-bottom: 20px;
+  padding: 5px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
   overflow-x: auto;
   flex-wrap: nowrap;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  scrollbar-color: #cbd5e1 transparent;
 }
 
-.tab-button {
-  padding: 12px 24px;
+.tab-button,
+.profile-tab {
+  padding: 9px 16px;
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #64748b;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+
+.tab-button:hover,
+.profile-tab:hover {
+  color: #334155;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.tab-button.active,
+.profile-tab--active {
+  color: #2e5d50;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.tab-button.active:hover,
+.profile-tab--active:hover {
+  color: #244a40;
+  background: #fff;
+}
+
+.affiliation-subtabs {
+  display: flex;
+  gap: 6px;
+  margin-top: -12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid #eef2f7;
+  padding-bottom: 0;
+}
+
+.affiliation-subtab {
+  padding: 8px 16px;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
-  color: var(--text-secondary);
-  transition: all 0.2s;
-  margin-bottom: -2px;
-  white-space: nowrap;
-  flex-shrink: 0;
+  color: #64748b;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
 }
 
-.tab-button:hover {
-  color: var(--primary);
+.affiliation-subtab:hover {
+  color: #2e5d50;
 }
 
-.tab-button.active {
-  color: var(--primary);
-  border-bottom-color: var(--primary);
+.affiliation-subtab.active {
+  color: #2e5d50;
+  border-bottom-color: #2e5d50;
 }
 
 .tab-content {
   background: white;
-  border-radius: 12px;
-  padding: 32px;
-  box-shadow: var(--shadow);
+  border-radius: 14px;
+  padding: 28px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  border: 1px solid #eef2f7;
+}
+
+.tab-content--flush {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  border-radius: 0;
 }
 
 .tab-panel h2 {

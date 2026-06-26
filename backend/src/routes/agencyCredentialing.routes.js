@@ -17,7 +17,17 @@ import {
   updateUserInsuranceCredentialing,
   deleteUserInsuranceCredentialing,
   revealCredential,
-  listCredentialingTimeline
+  listCredentialingTimeline,
+  uploadInsuranceDefinitionLogo,
+  insuranceLogoUpload,
+  listInsuranceContacts,
+  createInsuranceContact,
+  updateInsuranceContact,
+  deleteInsuranceContact,
+  listInsuranceInteractions,
+  createInsuranceInteraction,
+  updateInsuranceInteraction,
+  deleteInsuranceInteraction
 } from '../controllers/agencyCredentialing.controller.js';
 
 const router = express.Router();
@@ -42,6 +52,22 @@ router.post('/:agencyId/credentialing/insurances', authenticate, createInsurance
 router.get('/:agencyId/credentialing/insurances/:id', authenticate, getInsuranceDefinition);
 router.patch('/:agencyId/credentialing/insurances/:id', authenticate, updateInsuranceDefinition);
 router.delete('/:agencyId/credentialing/insurances/:id', authenticate, deleteInsuranceDefinition);
+router.post(
+  '/:agencyId/credentialing/insurances/:id/logo',
+  authenticate,
+  insuranceLogoUpload.single('logo'),
+  uploadInsuranceDefinitionLogo
+);
+
+router.get('/:agencyId/credentialing/insurances/:id/contacts', authenticate, listInsuranceContacts);
+router.post('/:agencyId/credentialing/insurances/:id/contacts', authenticate, createInsuranceContact);
+router.patch('/:agencyId/credentialing/insurances/:id/contacts/:contactId', authenticate, updateInsuranceContact);
+router.delete('/:agencyId/credentialing/insurances/:id/contacts/:contactId', authenticate, deleteInsuranceContact);
+
+router.get('/:agencyId/credentialing/insurances/:id/interactions', authenticate, listInsuranceInteractions);
+router.post('/:agencyId/credentialing/insurances/:id/interactions', authenticate, createInsuranceInteraction);
+router.patch('/:agencyId/credentialing/insurances/:id/interactions/:interactionId', authenticate, updateInsuranceInteraction);
+router.delete('/:agencyId/credentialing/insurances/:id/interactions/:interactionId', authenticate, deleteInsuranceInteraction);
 
 // View by insurance
 router.get('/:agencyId/credentialing/by-insurance', authenticate, listCredentialingByInsurance);

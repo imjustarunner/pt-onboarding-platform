@@ -133,7 +133,12 @@
           </div>
           <div class="info-row">
             <strong>Insurance accepted:</strong>
-            <span>{{ insuranceLabel(providerInfo.profile?.insurancesAccepted) }}</span>
+            <AcceptedInsuranceBadges
+              v-if="providerInfo.profile?.acceptedInsurances?.length"
+              :items="providerInfo.profile.acceptedInsurances"
+              :show-label="false"
+            />
+            <span v-else>{{ insuranceLabel(providerInfo.profile?.insurancesAccepted) }}</span>
           </div>
         </div>
       </div>
@@ -221,6 +226,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../services/api';
+import AcceptedInsuranceBadges from '../components/admin/AcceptedInsuranceBadges.vue';
 
 const route = useRoute();
 const loading = ref(false);

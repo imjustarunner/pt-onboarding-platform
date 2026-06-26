@@ -156,6 +156,12 @@ function definitionApplies(definition, isProvider) {
 }
 
 function definitionIsVisible(definition, scopedKeys, state) {
+  // Auto-integrated items (document tasks, training, user_info fields, etc.) always
+  // appear on the checklist. Scoping only gates purely manual HR steps — and for now
+  // those are also set to scope_mode='always' until package-level scoping is re-enabled.
+  const integrationType = String(definition.integration_type || 'manual').trim();
+  if (integrationType !== 'manual') return true;
+
   if (definition.scope_mode === 'always') return true;
   if (scopedKeys.has(definition.item_key)) return true;
   if (state?.is_completed) return true;
@@ -212,6 +218,7 @@ export async function getLifecycleData(userId) {
     // non-fatal
   }
   const scopedKeys = await UserLifecycleScopedItem.findKeysByUser(userId);
+  const scopedItems = await UserLifecycleScopedItem.findDetailsByUser(userId);
 
   // Filter definitions applicable to this user's role
   const applicable = allDefinitions.filter((d) => definitionApplies(d, isProvider));
@@ -286,6 +293,17 @@ export async function getLifecycleData(userId) {
       integrationRef: def.integration_ref || null,
       documentTaskId: null,
       hasSignedDocument: false,
+      supportsAttachment:
+        def.category === 'compliance_documents'
+        && ['document_task', 'manual'].includes(String(def.integration_type || '').toLowerCase()),
+      attachment: state.attachment_storage_path
+        ? {
+            hasAttachment: true,
+            originalName: state.attachment_original_name || null,
+            uploadedAt: state.attachment_uploaded_at || null,
+            isEncrypted: !!state.attachment_is_encrypted,
+          }
+        : { hasAttachment: false },
     };
 
     // For completed document_task items, attach the signed document task ID for download links
@@ -391,6 +409,13 @@ export async function getLifecycleData(userId) {
       },
       groups: onboardingGroupList,
     },
+    // Audit: why items were scoped (visibility no longer gated by this — see definitionIsVisible)
+    scopedItems: scopedItems.map((r) => ({
+      itemKey: r.item_key,
+      source: r.source,
+      sourceId: r.source_id,
+      createdAt: r.created_at
+    })),
     offboarding: {
       enabled: !!user.termination_date,
       terminationDate: user.termination_date ? String(user.termination_date).slice(0, 10) : null,

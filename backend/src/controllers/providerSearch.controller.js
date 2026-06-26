@@ -2,6 +2,7 @@ import { validationResult } from 'express-validator';
 import ProviderSearchIndex from '../models/ProviderSearchIndex.model.js';
 import Agency from '../models/Agency.model.js';
 import { callGeminiText } from '../services/geminiText.service.js';
+import { listClinicalFacetsForUsers } from '../services/providerClinicalFacets.service.js';
 
 function parseFlags(raw) {
   if (!raw) return {};
@@ -116,6 +117,31 @@ export const compileProviderSearch = async (req, res, next) => {
     const filters = Array.isArray(parsed?.filters) ? parsed.filters.slice(0, 6) : [];
     const explanation = String(parsed?.explanation || '').slice(0, 1000);
     res.json({ filters, explanation });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getClinicalFacetsBatch = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.query.agencyId, 10);
+    const raw = String(req.query.userIds || req.query.userId || '').trim();
+    const userIds = raw
+      .split(',')
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => Number.isInteger(n) && n > 0);
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+    if (!userIds.length) {
+      return res.status(400).json({ error: { message: 'userIds is required' } });
+    }
+    const map = await listClinicalFacetsForUsers(userIds.slice(0, 100), { agencyId });
+    const facetsByUserId = {};
+    for (const [uid, facets] of map.entries()) {
+      facetsByUserId[String(uid)] = facets;
+    }
+    res.json({ ok: true, agencyId, facetsByUserId });
   } catch (e) {
     next(e);
   }

@@ -1,9 +1,14 @@
 import pool from '../config/database.js';
+import multer from 'multer';
+import path from 'path';
 import User from '../models/User.model.js';
 import UserInfoValue from '../models/UserInfoValue.model.js';
 import InsuranceCredentialingDefinition from '../models/InsuranceCredentialingDefinition.model.js';
+import InsuranceCredentialingContact from '../models/InsuranceCredentialingContact.model.js';
+import InsuranceCredentialingInteraction from '../models/InsuranceCredentialingInteraction.model.js';
 import UserInsuranceCredentialing from '../models/UserInsuranceCredentialing.model.js';
 import CredentialingChangeLog from '../models/CredentialingChangeLog.model.js';
+import StorageService from '../services/storage.service.js';
 import { encryptChatText, decryptChatText } from '../services/chatEncryption.service.js';
 import { validationResult } from 'express-validator';
 import crypto from 'crypto';
@@ -247,6 +252,26 @@ async function assertCredentialPrivilege(req, agencyId) {
   err.statusCode = 403;
   throw err;
 }
+
+async function assertInsuranceDefinition(req, agencyId, insuranceId) {
+  const def = await InsuranceCredentialingDefinition.findById(insuranceId);
+  if (!def || Number(def.agency_id) !== agencyId) {
+    const err = new Error('Insurance definition not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  return def;
+}
+
+export const insuranceLogoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml'];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Invalid file type. Only image files are allowed.'));
+  }
+});
 
 function isActiveUserRow(u) {
   const st = String(u?.status || '').toUpperCase();
@@ -731,6 +756,7 @@ export const listInsuranceDefinitions = async (req, res, next) => {
       agency_id: r.agency_id,
       name: r.name,
       parent_id: r.parent_id,
+      logo_path: r.logo_path || null,
       contact_phone: r.contact_phone,
       contact_email: r.contact_email,
       reminder_notes: r.reminder_notes,
@@ -907,6 +933,7 @@ export const listUserCredentialing = async (req, res, next) => {
       user_id: r.user_id,
       insurance_credentialing_definition_id: r.insurance_credentialing_definition_id,
       insurance_name: r.insurance_name,
+      insurance_logo_path: r.insurance_logo_path || null,
       effective_date: r.effective_date,
       submitted_date: r.submitted_date,
       resubmitted_date: r.resubmitted_date,
@@ -1087,6 +1114,248 @@ export const listCredentialingTimeline = async (req, res, next) => {
       ? await CredentialingChangeLog.listByUserId(userId, limit)
       : await CredentialingChangeLog.listByAgencyId(agencyId, limit);
     res.json({ timeline: rows || [] });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// --- Insurance logo upload ---
+export const uploadInsuranceDefinitionLogo = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0 || !Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId or id' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    await assertInsuranceDefinition(req, agencyId, id);
+    if (!req.file) {
+      return res.status(400).json({ error: { message: 'No image uploaded' } });
+    }
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    const ext = path.extname(req.file.originalname) || '.png';
+    const filename = `insurance-${id}-${uniqueSuffix}${ext}`;
+    const storageResult = await StorageService.saveLogo(req.file.buffer, filename, req.file.mimetype);
+    const logoPath = storageResult.relativePath || storageResult.path;
+    const updated = await InsuranceCredentialingDefinition.update(id, { logo_path: logoPath });
+    res.json({ logo_path: updated?.logo_path || logoPath });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// --- Insurance contacts CRUD ---
+export const listInsuranceContacts = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0 || !Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId or id' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    await assertInsuranceDefinition(req, agencyId, id);
+    const contacts = await InsuranceCredentialingContact.listByInsuranceDefinitionId(id);
+    res.json({ contacts: contacts || [] });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const createInsuranceContact = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0 || !Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId or id' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    await assertInsuranceDefinition(req, agencyId, id);
+    const body = req.body || {};
+    const created = await InsuranceCredentialingContact.create({
+      insuranceDefinitionId: id,
+      agencyId,
+      label: body.label ? String(body.label).trim() : null,
+      contactName: body.contactName ? String(body.contactName).trim() : null,
+      phone: body.phone ? String(body.phone).trim() : null,
+      email: body.email ? String(body.email).trim() : null,
+      notes: body.notes ? String(body.notes).trim() : null,
+      sortOrder: body.sortOrder != null ? parseInt(body.sortOrder, 10) : 0
+    });
+    res.status(201).json(created);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const updateInsuranceContact = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const contactId = parseInt(req.params.contactId, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0 || !Number.isInteger(contactId) || contactId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId or contactId' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    const contact = await InsuranceCredentialingContact.findById(contactId);
+    if (!contact || Number(contact.agency_id) !== agencyId) {
+      return res.status(404).json({ error: { message: 'Contact not found' } });
+    }
+    const body = req.body || {};
+    const updates = {};
+    if (body.label != null) updates.label = body.label ? String(body.label).trim() : null;
+    if (body.contactName != null) updates.contact_name = body.contactName ? String(body.contactName).trim() : null;
+    if (body.phone != null) updates.phone = body.phone ? String(body.phone).trim() : null;
+    if (body.email != null) updates.email = body.email ? String(body.email).trim() : null;
+    if (body.notes != null) updates.notes = body.notes ? String(body.notes).trim() : null;
+    if (body.sortOrder != null) updates.sort_order = parseInt(body.sortOrder, 10);
+    const updated = await InsuranceCredentialingContact.update(contactId, updates);
+    res.json(updated);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteInsuranceContact = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const contactId = parseInt(req.params.contactId, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0 || !Number.isInteger(contactId) || contactId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId or contactId' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    const contact = await InsuranceCredentialingContact.findById(contactId);
+    if (!contact || Number(contact.agency_id) !== agencyId) {
+      return res.status(404).json({ error: { message: 'Contact not found' } });
+    }
+    await InsuranceCredentialingContact.delete(contactId);
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// --- Insurance interaction log ---
+export const listInsuranceInteractions = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0 || !Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId or id' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    await assertInsuranceDefinition(req, agencyId, id);
+    const userIdRaw = req.query.userId;
+    const userId = userIdRaw != null && userIdRaw !== '' ? parseInt(userIdRaw, 10) : null;
+    const scope = String(req.query.scope || 'all').trim().toLowerCase();
+    const interactions = await InsuranceCredentialingInteraction.list({
+      agencyId,
+      insuranceDefinitionId: id,
+      userId: Number.isInteger(userId) && userId > 0 ? userId : null,
+      scope: ['employee', 'agency', 'all'].includes(scope) ? scope : 'all'
+    });
+    res.json({ interactions: interactions || [] });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const createInsuranceInteraction = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0 || !Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId or id' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    await assertInsuranceDefinition(req, agencyId, id);
+    const body = req.body || {};
+    const interactionAt = body.interactionAt ? new Date(body.interactionAt) : null;
+    if (!interactionAt || Number.isNaN(interactionAt.getTime())) {
+      return res.status(400).json({ error: { message: 'interactionAt required' } });
+    }
+    const callerUserId = parseInt(body.callerUserId || req.user.id, 10);
+    if (!Number.isInteger(callerUserId) || callerUserId <= 0) {
+      return res.status(400).json({ error: { message: 'callerUserId required' } });
+    }
+    const userId = body.userId != null && body.userId !== ''
+      ? parseInt(body.userId, 10)
+      : null;
+    const contactId = body.contactId != null && body.contactId !== ''
+      ? parseInt(body.contactId, 10)
+      : null;
+    const created = await InsuranceCredentialingInteraction.create({
+      agencyId,
+      insuranceDefinitionId: id,
+      userId: Number.isInteger(userId) && userId > 0 ? userId : null,
+      contactId: Number.isInteger(contactId) && contactId > 0 ? contactId : null,
+      interactionAt,
+      callerUserId,
+      phoneNumberCalled: body.phoneNumberCalled ? String(body.phoneNumberCalled).trim() : null,
+      contactPersonName: body.contactPersonName ? String(body.contactPersonName).trim() : null,
+      outcome: body.outcome ? String(body.outcome).trim() : null,
+      referenceId: body.referenceId ? String(body.referenceId).trim() : null,
+      notes: body.notes ? String(body.notes).trim() : null,
+      createdByUserId: req.user.id
+    });
+    res.status(201).json(created);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const updateInsuranceInteraction = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const interactionId = parseInt(req.params.interactionId, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0 || !Number.isInteger(interactionId) || interactionId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId or interactionId' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    const row = await InsuranceCredentialingInteraction.findById(interactionId);
+    if (!row || Number(row.agency_id) !== agencyId) {
+      return res.status(404).json({ error: { message: 'Interaction not found' } });
+    }
+    const body = req.body || {};
+    const updates = {};
+    if (body.userId !== undefined) {
+      const uid = body.userId != null && body.userId !== '' ? parseInt(body.userId, 10) : null;
+      updates.user_id = Number.isInteger(uid) && uid > 0 ? uid : null;
+    }
+    if (body.contactId !== undefined) {
+      const cid = body.contactId != null && body.contactId !== '' ? parseInt(body.contactId, 10) : null;
+      updates.contact_id = Number.isInteger(cid) && cid > 0 ? cid : null;
+    }
+    if (body.interactionAt != null) {
+      const d = new Date(body.interactionAt);
+      if (Number.isNaN(d.getTime())) return res.status(400).json({ error: { message: 'Invalid interactionAt' } });
+      updates.interaction_at = d;
+    }
+    if (body.callerUserId != null) updates.caller_user_id = parseInt(body.callerUserId, 10);
+    if (body.phoneNumberCalled != null) updates.phone_number_called = body.phoneNumberCalled ? String(body.phoneNumberCalled).trim() : null;
+    if (body.contactPersonName != null) updates.contact_person_name = body.contactPersonName ? String(body.contactPersonName).trim() : null;
+    if (body.outcome != null) updates.outcome = body.outcome ? String(body.outcome).trim() : null;
+    if (body.referenceId != null) updates.reference_id = body.referenceId ? String(body.referenceId).trim() : null;
+    if (body.notes != null) updates.notes = body.notes ? String(body.notes).trim() : null;
+    const updated = await InsuranceCredentialingInteraction.update(interactionId, updates);
+    res.json(updated);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteInsuranceInteraction = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const interactionId = parseInt(req.params.interactionId, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0 || !Number.isInteger(interactionId) || interactionId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId or interactionId' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    const row = await InsuranceCredentialingInteraction.findById(interactionId);
+    if (!row || Number(row.agency_id) !== agencyId) {
+      return res.status(404).json({ error: { message: 'Interaction not found' } });
+    }
+    await InsuranceCredentialingInteraction.delete(interactionId);
+    res.json({ ok: true });
   } catch (e) {
     next(e);
   }

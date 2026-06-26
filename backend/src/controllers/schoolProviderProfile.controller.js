@@ -392,11 +392,37 @@ export const getProviderSchoolProfile = async (req, res, next) => {
         if (!missingSchemaError(e)) throw e;
       }
     }
-    const insuranceInfo = await computeAcceptedInsurances({
+    let insuranceInfo = await computeAcceptedInsurances({
       agencyId: activeAgencyId,
       providerUserId,
       credentialText: credential
     });
+    if (activeAgencyId) {
+      try {
+        const { listProviderAcceptedInsurances } = await import('../services/providerAcceptedInsurance.service.js');
+        const credInsurances = await listProviderAcceptedInsurances({
+          userId: providerUserId,
+          agencyId: activeAgencyId
+        });
+        if (credInsurances.length > 0) {
+          insuranceInfo = {
+            accepted: credInsurances.map((ins) => ({
+              insurance_key: String(ins.insurance_definition_id),
+              label: ins.label || ins.name,
+              name: ins.name,
+              logo_path: ins.logo_path,
+              logo_url: ins.logo_url,
+              effective_date: ins.effective_date,
+              source: ins.source || 'self',
+              inherited_from_name: ins.inherited_from_name || null
+            })),
+            acceptsTricareOverride: insuranceInfo.acceptsTricareOverride
+          };
+        }
+      } catch (e) {
+        if (!missingSchemaError(e)) throw e;
+      }
+    }
 
     // Optional: supervisors (best-effort; all assignments under the school's affiliated agency)
     let supervisors = [];
@@ -409,6 +435,7 @@ export const getProviderSchoolProfile = async (req, res, next) => {
             `SELECT
                sa.supervisor_id,
                sa.is_primary,
+               sa.supervisor_type,
                u.first_name,
                u.last_name,
                u.email,
@@ -468,7 +495,8 @@ export const getProviderSchoolProfile = async (req, res, next) => {
           email: s.email || null,
           credential: credByUserId.has(Number(s.supervisor_id)) ? String(credByUserId.get(Number(s.supervisor_id)) || '') : null,
           profile_photo_url: publicUploadsUrlFromStoredPath(s.profile_photo_path || null),
-          is_primary: s.is_primary === 1 || s.is_primary === true
+          is_primary: s.is_primary === 1 || s.is_primary === true,
+          supervisor_type: s.supervisor_type || 'clinical'
         }));
       }
     } catch (e) {

@@ -42,7 +42,7 @@
         <div v-if="data.summary.dateOfBirth" class="lc-summary-field">
           <div class="lc-summary-label">Date of Birth</div>
           <div class="lc-summary-value">{{ fmtDate(data.summary.dateOfBirth) }}</div>
-          <div class="lc-summary-note">Edit in Provider Info</div>
+          <div class="lc-summary-note">Edit in Clinical Information</div>
         </div>
         <div v-if="data.summary.leave?.isOnLeave || data.summary.leave?.departureDate" class="lc-summary-field">
           <div class="lc-summary-label">Leave of Absence</div>
@@ -80,14 +80,21 @@
             </div>
 
             <div v-if="data.onboarding.missingItems.length" class="lc-missing-box">
-              <div class="lc-missing-title">
+              <button
+                type="button"
+                class="lc-missing-title"
+                :aria-expanded="missingItemsExpanded"
+                @click="missingItemsExpanded = !missingItemsExpanded"
+              >
                 <svg width="15" height="15" viewBox="0 0 20 20" fill="none" class="lc-warn-icon">
                   <path d="M10 2L2 18h16L10 2z" fill="#d97706" stroke="none"/>
                   <path d="M10 8v4M10 14h.01" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
                 </svg>
-                Missing Items
-              </div>
-              <ul class="lc-missing-list">
+                <span>Missing Items</span>
+                <span class="lc-missing-count">({{ data.onboarding.missingItems.length }})</span>
+                <span class="lc-missing-chevron" :class="{ 'lc-missing-chevron--open': missingItemsExpanded }">›</span>
+              </button>
+              <ul v-show="missingItemsExpanded" class="lc-missing-list">
                 <li v-for="item in data.onboarding.missingItems" :key="item">{{ item }}</li>
               </ul>
             </div>
@@ -227,6 +234,7 @@
           </div>
 
           <!-- Onboarding Checklist Groups -->
+          <div v-if="attachmentError" class="lc-attachment-error">{{ attachmentError }}</div>
           <p v-if="!data.onboarding.groups?.length" class="lc-hint lc-empty-scope">
             No onboarding checklist items are in scope yet. Items appear here when a pre-hire or onboarding
             package is assigned, or when a tagged document task is sent to this person.
@@ -235,16 +243,16 @@
             <div class="lc-checklist-group">
               <h4 class="lc-block-title">{{ group.label }}</h4>
               <div class="lc-checklist-table">
-                <div class="lc-checklist-head lc-checklist-head-docs">
+                <div :class="['lc-checklist-head', group.category === 'compliance_documents' ? 'lc-checklist-head-docs' : '']">
                   <span>Item</span>
                   <span>Complete</span>
                   <span>Date</span>
-                  <span>Doc</span>
+                  <span v-if="group.category === 'compliance_documents'">Doc</span>
                 </div>
                 <div
                   v-for="item in group.items"
                   :key="item.definitionId"
-                  class="lc-checklist-row lc-checklist-row-docs"
+                  :class="['lc-checklist-row', group.category === 'compliance_documents' ? 'lc-checklist-row-docs' : '']"
                 >
                   <span class="lc-item-label">{{ item.label }}</span>
                   <span class="lc-item-check">
@@ -258,12 +266,13 @@
                     <span v-if="item.completionMethod === 'auto'" class="lc-auto-badge" title="Auto-completed from app data">auto</span>
                   </span>
                   <span class="lc-item-date">{{ fmtDate(item.completedAt) || (item.isCompleted ? '✓' : '—') }}</span>
-                  <span class="lc-item-doc">
+                  <span v-if="group.category === 'compliance_documents'" class="lc-item-doc">
+                    <!-- Signed document from onboarding flow -->
                     <a
-                      v-if="item.integrationTypeInfo === 'document_task' && item.isCompleted && item.documentTaskId"
+                      v-if="item.documentTaskId"
                       :href="`/api/document-signing/${item.documentTaskId}/download`"
                       target="_blank"
-                      class="lc-doc-download"
+                      class="lc-doc-action lc-doc-download"
                       :title="item.hasSignedDocument ? 'View / download signed document' : 'View document record'"
                     >
                       <svg width="14" height="14" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -271,6 +280,34 @@
                         <path d="M3 14v2a1 1 0 001 1h12a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
                       </svg>
                     </a>
+                    <!-- Retroactive encrypted upload -->
+                    <template v-else-if="item.supportsAttachment">
+                      <button
+                        v-if="item.attachment?.hasAttachment"
+                        type="button"
+                        class="lc-doc-action lc-doc-download"
+                        :title="`Download ${item.attachment.originalName || 'document'}`"
+                        @click="downloadAttachment(item)"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M10 3v9m0 0l-3-3m3 3l3-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                          <path d="M3 14v2a1 1 0 001 1h12a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                        </svg>
+                      </button>
+                      <button
+                        v-if="!viewOnly"
+                        type="button"
+                        class="lc-doc-action lc-doc-upload"
+                        :disabled="attachmentUploadingId === item.definitionId"
+                        :title="item.attachment?.hasAttachment ? 'Replace document (PDF)' : 'Upload document (PDF)'"
+                        @click="triggerAttachmentUpload(item)"
+                      >
+                        <svg v-if="attachmentUploadingId !== item.definitionId" width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                          <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clip-rule="evenodd"/>
+                        </svg>
+                        <span v-else class="lc-doc-spinner">…</span>
+                      </button>
+                    </template>
                   </span>
                 </div>
               </div>
@@ -424,6 +461,14 @@
         </section>
       </div>
     </template>
+
+    <input
+      ref="attachmentFileInput"
+      type="file"
+      accept="application/pdf"
+      style="display:none;"
+      @change="onAttachmentFileSelected"
+    />
   </div>
 </template>
 
@@ -445,6 +490,11 @@ const datesSaved = ref(false);
 const datesError = ref('');
 const sepSaved = ref(false);
 const sepError = ref('');
+const missingItemsExpanded = ref(false);
+const attachmentFileInput = ref(null);
+const attachmentUploadTarget = ref(null);
+const attachmentUploadingId = ref(null);
+const attachmentError = ref('');
 
 const datesForm = ref({
   offer_accepted_date: null,
@@ -631,8 +681,73 @@ async function toggleItem(item, checked) {
   }
 }
 
+function triggerAttachmentUpload(item) {
+  if (props.viewOnly) return;
+  attachmentError.value = '';
+  attachmentUploadTarget.value = item;
+  attachmentFileInput.value?.click();
+}
+
+async function onAttachmentFileSelected(event) {
+  const file = event?.target?.files?.[0];
+  const item = attachmentUploadTarget.value;
+  attachmentUploadTarget.value = null;
+  try {
+    if (event?.target) event.target.value = '';
+  } catch {
+    // ignore
+  }
+  if (!file || !item) return;
+
+  if (file.type !== 'application/pdf') {
+    attachmentError.value = 'Only PDF files are allowed.';
+    return;
+  }
+
+  attachmentUploadingId.value = item.definitionId;
+  attachmentError.value = '';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    await api.post(
+      `/users/${props.userId}/lifecycle/checklist/${item.definitionId}/attachment`,
+      fd,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+    await fetchLifecycle();
+  } catch (e) {
+    attachmentError.value = e?.response?.data?.error?.message || 'Failed to upload document.';
+  } finally {
+    attachmentUploadingId.value = null;
+  }
+}
+
+async function downloadAttachment(item) {
+  attachmentError.value = '';
+  try {
+    const res = await api.get(
+      `/users/${props.userId}/lifecycle/checklist/${item.definitionId}/attachment`,
+      { responseType: 'blob' }
+    );
+    const blob = new Blob([res.data], { type: res.headers['content-type'] || 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = item.attachment?.originalName || `${item.itemKey || 'document'}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    attachmentError.value = e?.response?.data?.error?.message || 'Failed to download document.';
+  }
+}
+
 // ─── Lifecycle ─────────────────────────────────────────────────────────────────
-watch(() => props.userId, fetchLifecycle, { immediate: true });
+watch(() => props.userId, () => {
+  missingItemsExpanded.value = false;
+  fetchLifecycle();
+}, { immediate: true });
 </script>
 
 <style scoped>
@@ -719,13 +834,33 @@ watch(() => props.userId, fetchLifecycle, { immediate: true });
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
   font-weight: 600;
   font-size: 0.8rem;
   color: #92400e;
-  margin-bottom: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+.lc-missing-title:hover { color: #78350f; }
+.lc-missing-count {
+  font-weight: 500;
+  opacity: 0.85;
+}
+.lc-missing-chevron {
+  margin-left: auto;
+  font-size: 1rem;
+  line-height: 1;
+  transition: transform 0.15s ease;
+  transform: rotate(0deg);
+}
+.lc-missing-chevron--open {
+  transform: rotate(90deg);
 }
 .lc-warn-icon { flex-shrink: 0; }
-.lc-missing-list { margin: 0; padding-left: 18px; font-size: 0.82rem; color: #92400e; }
+.lc-missing-list { margin: 8px 0 0; padding-left: 18px; font-size: 0.82rem; color: #92400e; }
 .lc-missing-list li { margin-bottom: 2px; }
 
 /* Timeline */
@@ -813,8 +948,32 @@ watch(() => props.userId, fetchLifecycle, { immediate: true });
 .lc-item-check { display: flex; align-items: center; gap: 4px; }
 .lc-item-check input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; }
 .lc-item-check input[type="checkbox"]:disabled { cursor: not-allowed; opacity: 0.6; }
-.lc-checklist-head-docs { grid-template-columns: 1fr 52px 90px 30px !important; }
-.lc-checklist-row-docs { grid-template-columns: 1fr 52px 90px 30px !important; }
+.lc-checklist-head-docs { grid-template-columns: 1fr 52px 90px 56px !important; }
+.lc-checklist-row-docs { grid-template-columns: 1fr 52px 90px 56px !important; }
+.lc-attachment-error {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  font-size: 0.82rem;
+}
+.lc-doc-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+.lc-doc-upload { color: #6b7280; }
+.lc-doc-upload:hover:not(:disabled) { color: #1a5c38; }
+.lc-doc-upload:disabled { opacity: 0.5; cursor: not-allowed; }
+.lc-doc-spinner { font-size: 12px; color: #6b7280; }
 .lc-auto-badge {
   font-size: 0.65rem;
   background: #dbeafe;
@@ -825,13 +984,14 @@ watch(() => props.userId, fetchLifecycle, { immediate: true });
   line-height: 1.2;
 }
 .lc-item-date { font-size: 0.78rem; color: #6b7280; }
-.lc-item-doc { display: flex; align-items: center; justify-content: center; }
+.lc-item-doc { display: flex; align-items: center; justify-content: center; gap: 2px; }
 .lc-doc-download {
   color: #1a5c38;
   display: flex;
   align-items: center;
-  opacity: 0.7;
+  opacity: 0.85;
   transition: opacity 0.15s;
+  text-decoration: none;
 }
 .lc-doc-download:hover { opacity: 1; }
 

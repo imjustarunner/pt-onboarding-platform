@@ -885,6 +885,52 @@ class StorageService {
   }
 
   /**
+   * Save a lifecycle checklist attachment under a private prefix (never /uploads).
+   * Caller is responsible for encrypting the buffer when KMS is configured.
+   */
+  static async saveLifecycleChecklistAttachment({ userId, definitionId, fileBuffer, filename, contentType, isEncrypted = false }) {
+    const sanitizedFilename = this.sanitizeFilename(filename || `lifecycle-${Date.now()}.pdf`);
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const key = `lifecycle_attachments/user_${userId}/def_${definitionId}/${unique}-${sanitizedFilename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType: isEncrypted ? 'application/octet-stream' : (contentType || 'application/pdf'),
+      metadata: {
+        userId: String(userId),
+        definitionId: String(definitionId),
+        uploadType: 'lifecycle_checklist_attachment',
+        isEncrypted: isEncrypted ? 'true' : 'false',
+        uploadedAt: new Date().toISOString(),
+      },
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
+  static async readObjectBuffer(key) {
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(String(key));
+    const [buffer] = await file.download();
+    return buffer;
+  }
+
+  static async deleteLifecycleChecklistAttachment(key) {
+    const raw = String(key || '').trim();
+    if (!raw) return;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(raw);
+    try {
+      await file.delete();
+    } catch (gcsError) {
+      if (gcsError.code !== 404) {
+        throw new Error(`Failed to delete lifecycle attachment from GCS: ${gcsError.message}`);
+      }
+    }
+  }
+
+  /**
    * Read a user-specific document file from GCS
    * @param {string} filename - Filename
    * @returns {Promise<Buffer>}

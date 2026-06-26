@@ -1,17 +1,59 @@
 <template>
   <div class="container credentials-view">
     <h2>My Credentials</h2>
-    <p class="subtitle">Upload licenses, insurance, TB tests, and other required credentials.</p>
+    <p class="subtitle">Upload your practicing license and other required credentials. Your license ties to the Credential field on your account profile.</p>
 
     <div v-if="error" class="error-box">{{ error }}</div>
 
+    <div class="card card-license">
+      <h3>Practicing license</h3>
+      <p class="card-hint">
+        Upload a PDF of your current license (LPC, LPCC, LMFT, LCSW, Psychologist, etc.). This appears on your account profile and supports insurance credentialing.
+      </p>
+      <form @submit.prevent="createLicenseDoc" class="form">
+        <div class="row">
+          <div class="field">
+            <label>Expiration date</label>
+            <input v-model="licenseForm.expirationDate" type="date" />
+          </div>
+        </div>
+        <div class="field">
+          <label>Notes (optional)</label>
+          <input v-model="licenseForm.notes" type="text" placeholder="e.g., Colorado LPCC" />
+        </div>
+        <div class="field">
+          <label>License PDF *</label>
+          <input type="file" accept=".pdf,application/pdf" @change="onLicenseFileChange" required />
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary" type="submit" :disabled="saving || !licenseFile">
+            {{ saving ? 'Uploading…' : 'Upload license' }}
+          </button>
+        </div>
+      </form>
+      <div v-if="licenseDoc" class="current-license">
+        <div class="title">
+          <strong>Current license on file</strong>
+          <span v-if="isExpired(licenseDoc)" class="badge badge-expired">Expired</span>
+        </div>
+        <div class="meta">
+          <span v-if="licenseDoc.expiration_date">Expires: {{ formatDate(licenseDoc.expiration_date) }}</span>
+          <span v-else>Expires: —</span>
+          <span>Uploaded: {{ formatDate(licenseDoc.uploaded_at || licenseDoc.created_at) }}</span>
+        </div>
+        <div class="item-actions" style="margin-top: 8px;">
+          <button class="btn btn-danger btn-sm" @click="deleteDoc(licenseDoc)" :disabled="saving">Remove</button>
+        </div>
+      </div>
+    </div>
+
     <div class="card">
-      <h3>Add / Update Credential</h3>
+      <h3>Other credentials</h3>
       <form @submit.prevent="createDoc" class="form">
         <div class="row">
           <div class="field">
             <label>Document Type *</label>
-            <input v-model="form.documentType" type="text" placeholder="e.g., license, insurance, tb_test" required />
+            <input v-model="form.documentType" type="text" placeholder="e.g., insurance, tb_test" required />
           </div>
           <div class="field">
             <label>Expiration Date</label>
@@ -45,11 +87,11 @@
     </div>
 
     <div class="card">
-      <h3>Current Credentials</h3>
+      <h3>All uploaded credentials</h3>
       <div v-if="loading" class="loading">Loading...</div>
-      <div v-else-if="docs.length === 0" class="empty">No credentials uploaded yet.</div>
+      <div v-else-if="otherDocs.length === 0 && !licenseDoc" class="empty">No credentials uploaded yet.</div>
       <div v-else class="list">
-        <div v-for="doc in docs" :key="doc.id" class="item">
+        <div v-for="doc in otherDocs" :key="doc.id" class="item">
           <div class="item-main">
             <div class="title">
               <strong>{{ doc.document_type }}</strong>
@@ -72,7 +114,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import api from '../services/api';
 
 const loading = ref(true);
@@ -80,6 +122,7 @@ const saving = ref(false);
 const error = ref('');
 const docs = ref([]);
 const file = ref(null);
+const licenseFile = ref(null);
 
 const form = ref({
   documentType: '',
@@ -87,6 +130,19 @@ const form = ref({
   isBlocking: false,
   notes: ''
 });
+
+const licenseForm = ref({
+  expirationDate: '',
+  notes: ''
+});
+
+const isLicenseDoc = (doc) => {
+  const t = String(doc?.document_type || '').trim().toLowerCase();
+  return t === 'license' || t === 'license_upload';
+};
+
+const licenseDoc = computed(() => (docs.value || []).find(isLicenseDoc) || null);
+const otherDocs = computed(() => (docs.value || []).filter((d) => !isLicenseDoc(d)));
 
 const formatDate = (d) => {
   try {
@@ -102,8 +158,23 @@ const isExpired = (doc) => {
 };
 
 const onFileChange = (e) => {
-  const f = e.target.files?.[0] || null;
-  file.value = f;
+  file.value = e.target.files?.[0] || null;
+};
+
+const onLicenseFileChange = (e) => {
+  licenseFile.value = e.target.files?.[0] || null;
+};
+
+const uploadComplianceDoc = async ({ uploadFile, documentType, expirationDate, isBlocking, notes }) => {
+  const fd = new FormData();
+  fd.append('file', uploadFile);
+  fd.append('documentType', documentType);
+  if (expirationDate) fd.append('expirationDate', expirationDate);
+  fd.append('isBlocking', isBlocking ? '1' : '0');
+  if (notes) fd.append('notes', notes);
+  await api.post('/user-compliance-documents', fd, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
 };
 
 const load = async () => {
@@ -119,20 +190,42 @@ const load = async () => {
   }
 };
 
+const createLicenseDoc = async () => {
+  if (!licenseFile.value) return;
+  try {
+    saving.value = true;
+    error.value = '';
+    if (licenseDoc.value) {
+      await api.delete(`/user-compliance-documents/${licenseDoc.value.id}`);
+    }
+    await uploadComplianceDoc({
+      uploadFile: licenseFile.value,
+      documentType: 'license',
+      expirationDate: licenseForm.value.expirationDate,
+      isBlocking: false,
+      notes: licenseForm.value.notes
+    });
+    licenseForm.value = { expirationDate: '', notes: '' };
+    licenseFile.value = null;
+    await load();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to upload license';
+  } finally {
+    saving.value = false;
+  }
+};
+
 const createDoc = async () => {
   if (!file.value) return;
   try {
     saving.value = true;
     error.value = '';
-    const fd = new FormData();
-    fd.append('file', file.value);
-    fd.append('documentType', form.value.documentType);
-    if (form.value.expirationDate) fd.append('expirationDate', form.value.expirationDate);
-    fd.append('isBlocking', form.value.isBlocking ? '1' : '0');
-    if (form.value.notes) fd.append('notes', form.value.notes);
-
-    await api.post('/user-compliance-documents', fd, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+    await uploadComplianceDoc({
+      uploadFile: file.value,
+      documentType: form.value.documentType,
+      expirationDate: form.value.expirationDate,
+      isBlocking: form.value.isBlocking,
+      notes: form.value.notes
     });
 
     form.value = { documentType: '', expirationDate: '', isBlocking: false, notes: '' };
@@ -162,6 +255,20 @@ onMounted(load);
 </script>
 
 <style scoped>
+.card-license {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+.card-hint {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+.current-license {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed #bbf7d0;
+}
 .credentials-view .subtitle {
   color: var(--text-secondary);
   margin-bottom: 16px;

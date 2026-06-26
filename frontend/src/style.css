@@ -1146,11 +1146,25 @@
   background-color: var(--bg) !important;
   border-color: var(--border);
 }
-[data-theme="dark"] .profile-content .tab-button {
+[data-theme="dark"] .profile-content .tab-button,
+[data-theme="dark"] .profile-content .profile-tab {
   color: var(--text-secondary);
 }
-[data-theme="dark"] .profile-content .tab-button.active {
+[data-theme="dark"] .profile-content .tab-button:hover,
+[data-theme="dark"] .profile-content .profile-tab:hover {
   color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.06);
+}
+[data-theme="dark"] .profile-content .tab-button.active,
+[data-theme="dark"] .profile-content .profile-tab--active {
+  color: #6ee7b7;
+  background: var(--bg-alt);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+[data-theme="dark"] .profile-content .profile-tabs,
+[data-theme="dark"] .profile-content .tabs {
+  background: var(--bg-alt);
+  border-color: var(--border);
 }
 [data-theme="dark"] .profile-content .form-group input,
 [data-theme="dark"] .profile-content .form-group select,

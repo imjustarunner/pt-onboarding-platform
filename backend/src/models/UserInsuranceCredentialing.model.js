@@ -6,7 +6,7 @@ import pool from '../config/database.js';
 class UserInsuranceCredentialing {
   static async listByUserId(userId) {
     const [rows] = await pool.execute(
-      `SELECT uic.*, icd.name AS insurance_name, icd.parent_id AS insurance_parent_id
+      `SELECT uic.*, icd.name AS insurance_name, icd.parent_id AS insurance_parent_id, icd.logo_path AS insurance_logo_path
        FROM user_insurance_credentialing uic
        JOIN insurance_credentialing_definitions icd ON icd.id = uic.insurance_credentialing_definition_id
        WHERE uic.user_id = ?

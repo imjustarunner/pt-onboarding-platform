@@ -59,6 +59,97 @@ class UserLifecycleChecklistItem {
     return this.findByUserAndDefinition(userId, definitionId);
   }
 
+  static async setAttachment(userId, definitionId, attachment, { markComplete = true, completedByUserId = null } = {}) {
+    const {
+      storagePath,
+      originalName,
+      mimeType,
+      uploadedAt,
+      uploadedByUserId,
+      isEncrypted,
+      encryptionKeyId,
+      encryptionWrappedKeyB64,
+      encryptionIvB64,
+      encryptionAuthTagB64,
+      encryptionAlg,
+      encryptionAad,
+    } = attachment;
+
+    await pool.execute(
+      `INSERT INTO user_lifecycle_checklist_items
+         (user_id, definition_id, is_completed, completed_at, completed_by_user_id, completion_method, manually_overridden,
+          attachment_storage_path, attachment_original_name, attachment_mime_type,
+          attachment_uploaded_at, attachment_uploaded_by_user_id, attachment_is_encrypted,
+          attachment_encryption_key_id, attachment_encryption_wrapped_key_b64,
+          attachment_encryption_iv_b64, attachment_encryption_auth_tag_b64,
+          attachment_encryption_alg, attachment_encryption_aad)
+       VALUES (?, ?, ?, ?, ?, 'manual', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         attachment_storage_path = VALUES(attachment_storage_path),
+         attachment_original_name = VALUES(attachment_original_name),
+         attachment_mime_type = VALUES(attachment_mime_type),
+         attachment_uploaded_at = VALUES(attachment_uploaded_at),
+         attachment_uploaded_by_user_id = VALUES(attachment_uploaded_by_user_id),
+         attachment_is_encrypted = VALUES(attachment_is_encrypted),
+         attachment_encryption_key_id = VALUES(attachment_encryption_key_id),
+         attachment_encryption_wrapped_key_b64 = VALUES(attachment_encryption_wrapped_key_b64),
+         attachment_encryption_iv_b64 = VALUES(attachment_encryption_iv_b64),
+         attachment_encryption_auth_tag_b64 = VALUES(attachment_encryption_auth_tag_b64),
+         attachment_encryption_alg = VALUES(attachment_encryption_alg),
+         attachment_encryption_aad = VALUES(attachment_encryption_aad),
+         is_completed = CASE WHEN ? THEN 1 ELSE is_completed END,
+         completed_at = CASE WHEN ? THEN COALESCE(completed_at, VALUES(completed_at)) ELSE completed_at END,
+         completed_by_user_id = CASE WHEN ? THEN COALESCE(completed_by_user_id, VALUES(completed_by_user_id)) ELSE completed_by_user_id END,
+         completion_method = CASE WHEN ? THEN 'manual' ELSE completion_method END`,
+      [
+        userId,
+        definitionId,
+        markComplete ? 1 : 0,
+        markComplete ? (uploadedAt || new Date()) : null,
+        markComplete ? completedByUserId : null,
+        storagePath,
+        originalName,
+        mimeType,
+        uploadedAt || new Date(),
+        uploadedByUserId,
+        isEncrypted ? 1 : 0,
+        encryptionKeyId || null,
+        encryptionWrappedKeyB64 || null,
+        encryptionIvB64 || null,
+        encryptionAuthTagB64 || null,
+        encryptionAlg || null,
+        encryptionAad || null,
+        markComplete ? 1 : 0,
+        markComplete ? 1 : 0,
+        markComplete ? 1 : 0,
+        markComplete ? 1 : 0,
+      ]
+    );
+
+    return this.findByUserAndDefinition(userId, definitionId);
+  }
+
+  static async clearAttachment(userId, definitionId) {
+    await pool.execute(
+      `UPDATE user_lifecycle_checklist_items
+       SET attachment_storage_path = NULL,
+           attachment_original_name = NULL,
+           attachment_mime_type = NULL,
+           attachment_uploaded_at = NULL,
+           attachment_uploaded_by_user_id = NULL,
+           attachment_is_encrypted = 0,
+           attachment_encryption_key_id = NULL,
+           attachment_encryption_wrapped_key_b64 = NULL,
+           attachment_encryption_iv_b64 = NULL,
+           attachment_encryption_auth_tag_b64 = NULL,
+           attachment_encryption_alg = NULL,
+           attachment_encryption_aad = NULL
+       WHERE user_id = ? AND definition_id = ?`,
+      [userId, definitionId]
+    );
+    return this.findByUserAndDefinition(userId, definitionId);
+  }
+
   /**
    * Auto-complete an item (from sync). Does not overwrite a manually_overridden=1 row
    * when trying to mark complete.

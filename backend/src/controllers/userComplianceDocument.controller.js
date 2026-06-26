@@ -98,6 +98,18 @@ export const createComplianceDocument = async (req, res, next) => {
       createdByUserId: req.user.id
     });
 
+    // License uploads from My Dashboard → mirror to profile license_upload + credential
+    if (normalizedType === 'license' || normalizedType === 'license_upload') {
+      try {
+        const { syncLicenseUploadToProfile } = await import('../services/licenseCredentialSync.service.js');
+        await syncLicenseUploadToProfile(targetUserId, storageResult.relativePath, {
+          expirationDate: effectiveExpirationDate
+        });
+      } catch {
+        // non-fatal
+      }
+    }
+
     // Best-effort: receipt upload marks a matching "Background Check" checklist item complete
     if (normalizedType.startsWith('background_check_receipt')) {
       try {

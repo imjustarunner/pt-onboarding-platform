@@ -5,6 +5,12 @@ import ProviderPublicProfile from '../models/ProviderPublicProfile.model.js';
 import PublicIntakeClientService from '../services/publicIntakeClient.service.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import EmailService from '../services/email.service.js';
+import {
+  detectAgeBucketFromText,
+  normalizeAgeFilterValue,
+  providerServesAgeBucket,
+  textMatchesClinicalProfile
+} from '../utils/ageMatch.util.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -232,33 +238,16 @@ async function getTutoringProfile(userId, agencyId) {
 }
 
 async function getCounselingSpecialties(userId) {
-  const [rows] = await pool.execute(
-    `SELECT value_text, value_option, field_key
-     FROM provider_search_index
-     WHERE user_id = ?
-       AND field_key IN (
-         'provider_counseling_specialties',
-         'provider_marketing_treatment_modalities',
-         'provider_marketing_age_specialty',
-         'age_specialty',
-         'provider_marketing_focus'
-       )
-     ORDER BY field_key ASC`,
-    [Number(userId)]
-  );
-  const specialties = [];
-  const modalities = [];
-  const ageGroups = [];
-  const focus = [];
-  for (const r of rows || []) {
-    const val = String(r.value_option || r.value_text || '').trim();
-    if (!val) continue;
-    if (r.field_key === 'provider_counseling_specialties') specialties.push(val);
-    else if (r.field_key === 'provider_marketing_treatment_modalities') modalities.push(val);
-    else if (r.field_key === 'provider_marketing_age_specialty' || r.field_key === 'age_specialty') ageGroups.push(val);
-    else if (r.field_key === 'provider_marketing_focus') focus.push(val);
-  }
-  return { specialties, modalities, ageGroups, focus };
+  const { listClinicalFacetsForUser } = await import('../services/providerClinicalFacets.service.js');
+  const facets = await listClinicalFacetsForUser(Number(userId));
+  return {
+    specialties: facets.specialties || [],
+    modalities: facets.modalities || [],
+    ageGroups: facets.ageGroups || [],
+    focus: facets.populations || [],
+    interventions: facets.interventions || [],
+    serviceSettings: facets.serviceSettings || []
+  };
 }
 
 async function resolveProviderProfileSummary({ agencyId, providerUserId }) {
@@ -266,9 +255,20 @@ async function resolveProviderProfileSummary({ agencyId, providerUserId }) {
   const agencySettings = await ProviderPublicProfile.getAgencySettings({ agencyId });
   const effectiveRateCents = profile?.selfPayRateCents ?? agencySettings?.defaultSelfPayRateCents ?? null;
   const effectiveRateNote = String(profile?.selfPayRateNote || agencySettings?.defaultSelfPayRateNote || '').trim() || null;
+  let acceptedInsurances = [];
+  try {
+    const { listProviderAcceptedInsurancesForDisplay } = await import('../services/providerAcceptedInsurance.service.js');
+    acceptedInsurances = await listProviderAcceptedInsurancesForDisplay({
+      userId: providerUserId,
+      agencyId
+    });
+  } catch {
+    acceptedInsurances = [];
+  }
   return {
     publicBlurb: String(profile?.publicBlurb || '').trim(),
     insurances: Array.isArray(profile?.insurances) ? profile.insurances : [],
+    acceptedInsurances,
     selfPayRateCents: effectiveRateCents,
     selfPayRateLabel: formatMoney(effectiveRateCents),
     selfPayRateNote: effectiveRateNote,
@@ -404,6 +404,8 @@ export const listCounselors = async (req, res, next) => {
     const filterSpecialty = String(req.query.specialty || '').trim().toLowerCase();
     const filterModality = String(req.query.modality || '').trim().toLowerCase();
     const filterAgeGroup = String(req.query.ageGroup || '').trim().toLowerCase();
+    const queryAgeBucket = detectAgeBucketFromText(searchQ);
+    const normalizedQueryAge = queryAgeBucket ? normalizeAgeFilterValue(queryAgeBucket) : '';
 
     const agencySettings = await ProviderPublicProfile.getAgencySettings({ agencyId: agency.id });
     const serviceTypeRow = (await getAgencyServiceTypes(agency.id)).find((st) => st.service_type === 'counseling');
@@ -435,10 +437,27 @@ export const listCounselors = async (req, res, next) => {
 
       // Apply client-side filters
       const displayName = `${row.first_name || ''} ${row.last_name || ''}`.trim();
-      if (searchQ && !displayName.toLowerCase().includes(searchQ)) return null;
-      if (filterSpecialty && !specialties.map((s) => s.toLowerCase()).some((s) => s.includes(filterSpecialty))) return null;
+      const detectedSearchAge = queryAgeBucket;
+      const effectiveAgeFilter = filterAgeGroup || (detectedSearchAge ? normalizeAgeFilterValue(detectedSearchAge) : '');
+
+      if (searchQ) {
+        const nameMatch = displayName.toLowerCase().includes(searchQ);
+        const clinicalMatch = textMatchesClinicalProfile({
+          text: searchQ,
+          specialties,
+          modalities,
+          ageGroups,
+          focus
+        });
+        if (!nameMatch && !clinicalMatch) return null;
+      }
+
+      if (filterSpecialty) {
+        const allClinical = [...specialties, ...modalities, ...ageGroups, ...focus].map((s) => s.toLowerCase());
+        if (!allClinical.some((s) => s.includes(filterSpecialty))) return null;
+      }
       if (filterModality && !modalities.map((s) => s.toLowerCase()).some((s) => s.includes(filterModality))) return null;
-      if (filterAgeGroup && !ageGroups.map((s) => s.toLowerCase()).some((s) => s.includes(filterAgeGroup))) return null;
+      if (effectiveAgeFilter && !providerServesAgeBucket(ageGroups, effectiveAgeFilter)) return null;
 
       return {
         providerId: Number(row.id),
@@ -456,6 +475,7 @@ export const listCounselors = async (req, res, next) => {
         profile: {
           publicBlurb: profile.publicBlurb || '',
           insurancesAccepted: Array.isArray(profile.insurances) ? profile.insurances : [],
+          acceptedInsurances: Array.isArray(profile.acceptedInsurances) ? profile.acceptedInsurances : [],
           selfPayRateCents: profile.selfPayRateCents ?? null,
           selfPayRateLabel: profile.selfPayRateLabel || null,
           selfPayRateNote: profile.selfPayRateNote || null
@@ -498,6 +518,21 @@ export const listCounselors = async (req, res, next) => {
           .sort()[0] || null
       },
       providers: validProviders.sort((a, b) => {
+        if (filterSpecialty) {
+          const score = (p) => {
+            const all = [...(p.specialties || []), ...(p.modalities || []), ...(p.ageGroups || []), ...(p.focus || [])]
+              .map((s) => String(s).toLowerCase());
+            return all.filter((s) => s.includes(filterSpecialty)).length;
+          };
+          const diff = score(b) - score(a);
+          if (diff !== 0) return diff;
+        }
+        const ageFilter = filterAgeGroup || normalizedQueryAge;
+        if (ageFilter) {
+          const ageScore = (p) => (providerServesAgeBucket(p.ageGroups, ageFilter) ? 1 : 0);
+          const diff = ageScore(b) - ageScore(a);
+          if (diff !== 0) return diff;
+        }
         if (a.availability?.nextAvailableAt && b.availability?.nextAvailableAt) {
           return String(a.availability.nextAvailableAt).localeCompare(String(b.availability.nextAvailableAt));
         }
@@ -773,6 +808,7 @@ export const getProviderDetail = async (req, res, next) => {
       profile: {
         publicBlurb: profile.publicBlurb || '',
         insurancesAccepted: Array.isArray(profile.insurances) ? profile.insurances : [],
+        acceptedInsurances: Array.isArray(profile.acceptedInsurances) ? profile.acceptedInsurances : [],
         selfPayRateCents: profile.selfPayRateCents ?? null,
         selfPayRateLabel: profile.selfPayRateLabel || null,
         selfPayRateNote: profile.selfPayRateNote || null

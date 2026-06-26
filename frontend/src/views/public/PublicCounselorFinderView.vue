@@ -31,13 +31,20 @@
       <div class="filters-bar-inner">
         <label class="filter-field">
           <span>Search providers</span>
-          <input v-model="filters.search" type="text" placeholder="Name, specialty, issue…" @input="debouncedLoad" />
+          <input v-model="filters.search" type="text" placeholder="e.g. 10 year old boy, ADHD, CBT…" @input="debouncedLoad" />
         </label>
         <label class="filter-field">
           <span>Specialty</span>
           <select v-model="filters.specialty" @change="load">
             <option value="">All Specialties</option>
             <option v-for="s in SPECIALTY_OPTIONS" :key="s" :value="s">{{ s }}</option>
+          </select>
+        </label>
+        <label class="filter-field">
+          <span>Ages served</span>
+          <select v-model="filters.ageGroup" @change="load">
+            <option value="">All ages</option>
+            <option v-for="a in AGE_GROUP_OPTIONS" :key="a" :value="a">{{ a }}</option>
           </select>
         </label>
         <label class="filter-field">
@@ -191,9 +198,14 @@
           <strong>Rate</strong>
           <span>{{ profileModal.provider?.profile?.selfPayRateLabel || 'Contact office for rate' }}</span>
         </div>
-        <div v-if="profileModal.provider?.profile?.insurancesAccepted?.length" class="profile-modal-section">
+        <div v-if="profileModal.provider?.profile?.acceptedInsurances?.length || profileModal.provider?.profile?.insurancesAccepted?.length" class="profile-modal-section">
           <strong>Insurance accepted</strong>
-          <span>{{ profileModal.provider.profile.insurancesAccepted.join(', ') }}</span>
+          <AcceptedInsuranceBadges
+            v-if="profileModal.provider?.profile?.acceptedInsurances?.length"
+            :items="profileModal.provider.profile.acceptedInsurances"
+            :show-label="false"
+          />
+          <span v-else>{{ profileModal.provider.profile.insurancesAccepted.join(', ') }}</span>
         </div>
         <button class="btn-book-modal" type="button" :disabled="!(profileModal.provider?.availability?.slots?.length)" @click="bookFromProfile">Book Now</button>
       </div>
@@ -218,6 +230,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import PublicProviderCard from '../../components/publicServices/PublicProviderCard.vue';
 import PublicBookingWizard from '../../components/publicServices/PublicBookingWizard.vue';
+import AcceptedInsuranceBadges from '../../components/admin/AcceptedInsuranceBadges.vue';
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import { useBrandingStore } from '../../store/branding.js';
 
@@ -241,6 +254,15 @@ const SPECIALTY_OPTIONS = [
   'Stress', 'Self-Esteem', 'Anger Management', 'Substance Use'
 ];
 
+const AGE_GROUP_OPTIONS = [
+  'Toddler (0-5)',
+  'Children (6-10)',
+  'Preteen (11-13)',
+  'Teen (14-18)',
+  'Adults (18+)',
+  'Seniors (65+)'
+];
+
 const contactPhone = ref('');
 const agencyName = ref('');
 const introBlurb = ref('');
@@ -254,6 +276,7 @@ const sortBy = ref('soonest');
 const filters = ref({
   search: '',
   specialty: '',
+  ageGroup: '',
   programType: 'IN_PERSON',
   weekStart: new Date().toISOString().slice(0, 10)
 });
@@ -262,7 +285,7 @@ const wizardState = ref({ open: false, provider: null, slot: null });
 const profileModal = ref({ open: false, provider: null });
 
 const hasActiveFilters = computed(() =>
-  filters.value.search || filters.value.specialty
+  filters.value.search || filters.value.specialty || filters.value.ageGroup
 );
 
 const displayedProviders = computed(() => {
@@ -297,6 +320,7 @@ function setTab(tabId) {
 function clearFilters() {
   filters.value.search = '';
   filters.value.specialty = '';
+  filters.value.ageGroup = '';
   load();
 }
 
@@ -313,6 +337,7 @@ async function load() {
     });
     if (filters.value.search) params.set('search', filters.value.search);
     if (filters.value.specialty) params.set('specialty', filters.value.specialty);
+    if (filters.value.ageGroup) params.set('ageGroup', filters.value.ageGroup);
 
     const res = await api.get(
       `/public/agency-services/${encodeURIComponent(slug.value)}/counselors?${params}`,

@@ -69,6 +69,11 @@
     <div v-if="error" class="error" style="margin-top: 12px;">{{ error }}</div>
     <div v-if="info" class="success" style="margin-top: 12px;">{{ info }}</div>
 
+    <details ref="insuranceDefinitionsDetails" class="card insurance-definitions-card" style="margin-top: 14px;" :open="insuranceDefinitionsOpen">
+      <summary>Insurance definitions</summary>
+      <InsuranceDefinitionsPanel :agency-id="selectedAgencyId" />
+    </details>
+
     <details class="card timeline-card" style="margin-top: 14px;">
       <summary>Credentialing timeline</summary>
       <CredentialingTimeline :agency-id="selectedAgencyId" />
@@ -389,11 +394,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import CredentialingTimeline from '../../components/admin/CredentialingTimeline.vue';
+import InsuranceDefinitionsPanel from '../../components/admin/InsuranceDefinitionsPanel.vue';
 
 const route = useRoute();
 const agencyStore = useAgencyStore();
@@ -419,6 +425,9 @@ const viewMode = ref('by_provider');
 
 const byInsuranceData = ref([]);
 const byInsuranceLoading = ref(false);
+
+const insuranceDefinitionsDetails = ref(null);
+const insuranceDefinitionsOpen = ref(String(route.query?.panel || '') === 'insurance-definitions');
 
 const showCsvModal = ref(false);
 const csvColumnOptions = [
@@ -679,6 +688,22 @@ const doExportCsv = async () => {
   }
 };
 
+const applyRoutePanelPrefs = async () => {
+  const panel = String(route.query?.panel || '').trim();
+  insuranceDefinitionsOpen.value = panel === 'insurance-definitions';
+
+  const queryAgencyId = parseInt(String(route.query?.agencyId || ''), 10);
+  if (Number.isInteger(queryAgencyId) && queryAgencyId > 0) {
+    const match = (agencies.value || []).find((a) => Number(a.id) === queryAgencyId);
+    if (match) selectedAgencyId.value = queryAgencyId;
+  }
+
+  if (insuranceDefinitionsOpen.value) {
+    await nextTick();
+    insuranceDefinitionsDetails.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }
+};
+
 onMounted(async () => {
   // Use the agency list scoped to the current user (works for admin/support/staff).
   // `fetchAgencies()` hits /agencies which may be restricted for staff.
@@ -686,10 +711,18 @@ onMounted(async () => {
   if (!selectedAgencyId.value && agencies.value.length) {
     selectedAgencyId.value = agencies.value[0].id;
   }
+  await applyRoutePanelPrefs();
   if (viewMode.value === 'by_insurance' && selectedAgencyId.value) {
     await fetchByInsurance();
   }
 });
+
+watch(
+  () => [route.query?.panel, route.query?.agencyId, agencies.value?.length],
+  () => {
+    void applyRoutePanelPrefs();
+  }
+);
 
 watch(
   () => selectedAgencyId.value,

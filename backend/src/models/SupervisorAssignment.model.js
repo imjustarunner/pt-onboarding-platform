@@ -1,27 +1,86 @@
 import pool from '../config/database.js';
+import { normalizeSupervisorType } from '../constants/supervisorTypes.js';
 
 class SupervisorAssignment {
   /**
    * Create a new supervisor assignment
    */
-  static async create(supervisorId, superviseeId, agencyId, createdByUserId = null, { isPrimary = false } = {}) {
+  static async create(supervisorId, superviseeId, agencyId, createdByUserId = null, { isPrimary = false, supervisorType = 'clinical' } = {}) {
+    const type = normalizeSupervisorType(supervisorType);
     const [result] = await pool.execute(
-      `INSERT INTO supervisor_assignments (supervisor_id, supervisee_id, agency_id, is_primary, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?)`,
-      [supervisorId, superviseeId, agencyId, isPrimary ? 1 : 0, createdByUserId]
+      `INSERT INTO supervisor_assignments (supervisor_id, supervisee_id, agency_id, supervisor_type, is_primary, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [supervisorId, superviseeId, agencyId, type, isPrimary ? 1 : 0, createdByUserId]
     );
 
     return this.findById(result.insertId);
   }
 
-  static async ensure(supervisorId, superviseeId, agencyId, createdByUserId = null, { isPrimary = false } = {}) {
+  static async findBySuperviseeAndType(superviseeId, agencyId, supervisorType) {
+    const type = normalizeSupervisorType(supervisorType);
+    const [rows] = await pool.execute(
+      `SELECT sa.*,
+              u.first_name as supervisor_first_name,
+              u.last_name as supervisor_last_name
+       FROM supervisor_assignments sa
+       INNER JOIN users u ON u.id = sa.supervisor_id
+       WHERE sa.supervisee_id = ? AND sa.agency_id = ? AND sa.supervisor_type = ?
+       LIMIT 1`,
+      [superviseeId, agencyId, type]
+    );
+    return rows?.[0] || null;
+  }
+
+  static async getBillingSupervisorId(superviseeId, agencyId) {
+    const row = await this.findBySuperviseeAndType(superviseeId, agencyId, 'billing');
+    const id = Number(row?.supervisor_id || 0);
+    return Number.isInteger(id) && id > 0 ? id : null;
+  }
+
+  static async updateSupervisorForAssignment(id, supervisorId, createdByUserId = null) {
+    await pool.execute(
+      `UPDATE supervisor_assignments
+       SET supervisor_id = ?, created_by_user_id = COALESCE(?, created_by_user_id)
+       WHERE id = ?`,
+      [supervisorId, createdByUserId, id]
+    );
+    return this.findById(id);
+  }
+
+  static async upsertByType({
+    supervisorId,
+    superviseeId,
+    agencyId,
+    supervisorType = 'clinical',
+    createdByUserId = null,
+    isPrimary = false
+  }) {
+    const type = normalizeSupervisorType(supervisorType);
+    const existing = await this.findBySuperviseeAndType(superviseeId, agencyId, type);
+    if (existing) {
+      if (Number(existing.supervisor_id) === Number(supervisorId)) {
+        return this.findById(existing.id);
+      }
+      return this.updateSupervisorForAssignment(existing.id, supervisorId, createdByUserId);
+    }
+    if (isPrimary === true) {
+      try {
+        await this.clearPrimary(superviseeId, agencyId);
+      } catch {
+        // ignore
+      }
+    }
+    return this.create(supervisorId, superviseeId, agencyId, createdByUserId, { isPrimary, supervisorType: type });
+  }
+
+  static async ensure(supervisorId, superviseeId, agencyId, createdByUserId = null, { isPrimary = false, supervisorType = 'clinical' } = {}) {
     const supId = Number(supervisorId || 0);
     const svId = Number(superviseeId || 0);
     const aId = Number(agencyId || 0);
     if (!supId || !svId || !aId) return null;
-    const existing = await this.isAssigned(supId, svId, aId);
+    const existing = await this.isAssigned(supId, svId, aId, { supervisorType });
     if (existing) return true;
-    await this.create(supId, svId, aId, createdByUserId, { isPrimary });
+    await this.create(supId, svId, aId, createdByUserId, { isPrimary, supervisorType });
     return true;
   }
 
@@ -242,12 +301,15 @@ class SupervisorAssignment {
   /**
    * Check if assignment exists
    */
-  static async isAssigned(supervisorId, superviseeId, agencyId) {
-    const [rows] = await pool.execute(
-      `SELECT id FROM supervisor_assignments
-       WHERE supervisor_id = ? AND supervisee_id = ? AND agency_id = ?`,
-      [supervisorId, superviseeId, agencyId]
-    );
+  static async isAssigned(supervisorId, superviseeId, agencyId, { supervisorType = null } = {}) {
+    const params = [supervisorId, superviseeId, agencyId];
+    let sql = `SELECT id FROM supervisor_assignments
+       WHERE supervisor_id = ? AND supervisee_id = ? AND agency_id = ?`;
+    if (supervisorType != null) {
+      sql += ' AND supervisor_type = ?';
+      params.push(normalizeSupervisorType(supervisorType));
+    }
+    const [rows] = await pool.execute(sql, params);
 
     return rows.length > 0;
   }

@@ -2,6 +2,7 @@ import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import User from '../models/User.model.js';
 import { validationResult } from 'express-validator';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import { normalizeSupervisorType, SUPERVISOR_TYPES } from '../constants/supervisorTypes.js';
 
 /**
  * Create a new supervisor assignment
@@ -18,10 +19,15 @@ export const createAssignment = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only admins, super admins, and support can create supervisor assignments' } });
     }
 
-    const { supervisorId, superviseeId, agencyId, isPrimary } = req.body;
+    const { supervisorId, superviseeId, agencyId, isPrimary, supervisorType } = req.body;
+    const type = normalizeSupervisorType(supervisorType);
 
     if (!supervisorId || !superviseeId || !agencyId) {
       return res.status(400).json({ error: { message: 'supervisorId, superviseeId, and agencyId are required' } });
+    }
+
+    if (supervisorType != null && !SUPERVISOR_TYPES.includes(type)) {
+      return res.status(400).json({ error: { message: `supervisorType must be one of: ${SUPERVISOR_TYPES.join(', ')}` } });
     }
 
     // Verify supervisor exists and can be assigned as supervisor
@@ -57,10 +63,9 @@ export const createAssignment = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Supervisee does not belong to this agency' } });
     }
 
-    // Check if assignment already exists
-    const exists = await SupervisorAssignment.isAssigned(supervisorId, superviseeId, agencyId);
-    if (exists) {
-      return res.status(400).json({ error: { message: 'Assignment already exists' } });
+    const existingForType = await SupervisorAssignment.findBySuperviseeAndType(superviseeId, agencyId, type);
+    if (existingForType && Number(existingForType.supervisor_id) === Number(supervisorId)) {
+      return res.status(400).json({ error: { message: 'This supervisor is already assigned for that type' } });
     }
 
     // If marking as primary, clear previous primary first (best-effort; column may not exist yet)
@@ -72,12 +77,16 @@ export const createAssignment = async (req, res, next) => {
       }
     }
 
-    // Create assignment
-    const assignment = await SupervisorAssignment.create(supervisorId, superviseeId, agencyId, req.user.id, {
+    const assignment = await SupervisorAssignment.upsertByType({
+      supervisorId,
+      superviseeId,
+      agencyId,
+      supervisorType: type,
+      createdByUserId: req.user.id,
       isPrimary: isPrimary === true
     });
 
-    res.status(201).json(assignment);
+    res.status(existingForType ? 200 : 201).json(assignment);
   } catch (error) {
     next(error);
   }

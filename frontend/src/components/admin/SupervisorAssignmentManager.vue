@@ -2,7 +2,7 @@
   <div class="supervisor-assignment-manager">
     <div class="section-header">
       <h3>Supervisor Assignments</h3>
-      <p class="section-description">Assign users to supervisors within agencies. Supervisors can only view and manage their assigned supervisees.</p>
+      <p class="section-description">Assign clinical, manager, and billing supervisors per agency. Each type holds one person; the same person may fill multiple types. Primary typically marks the main clinical supervisor.</p>
     </div>
 
     <div v-if="loading" class="loading">Loading assignments...</div>
@@ -32,6 +32,7 @@
                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border);">Supervisor</th>
                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border);">Supervisee</th>
                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border);">Agency</th>
+                <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border);">Type</th>
                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border);">Primary</th>
                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border);">Assigned</th>
                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border);">Actions</th>
@@ -50,6 +51,7 @@
                   <small style="color: var(--text-secondary);">{{ assignment.supervisee_email }}</small>
                 </td>
                 <td style="padding: 12px;">{{ assignment.agency_name }}</td>
+                <td style="padding: 12px;">{{ supervisorTypeLabel(assignment.supervisor_type) }}</td>
                 <td style="padding: 12px;">
                   <button
                     type="button"
@@ -111,6 +113,13 @@
               <small style="color: var(--text-secondary); font-size: 12px;">This user is automatically selected</small>
             </div>
             <div>
+              <label style="display: block; margin-bottom: 6px; font-weight: 500;">Supervisor type</label>
+              <select v-model="newAssignment.supervisorType" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px;">
+                <option v-for="t in SUPERVISOR_TYPES" :key="t" :value="t">{{ supervisorTypeLabel(t) }}</option>
+              </select>
+              <small style="color: var(--text-secondary); font-size: 12px;">One person per type (clinical, manager, billing). Same person may hold multiple types.</small>
+            </div>
+            <div>
               <label style="display: block; margin-bottom: 6px; font-weight: 500;">Agency</label>
               <select v-model="newAssignment.agencyId" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px;">
                 <option value="">Select an agency...</option>
@@ -139,6 +148,7 @@ import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { isSupervisor } from '../../utils/helpers.js';
+import { SUPERVISOR_TYPES, supervisorTypeLabel } from '../../constants/supervisorTypes.js';
 
 const props = defineProps({
   supervisorId: {
@@ -170,7 +180,8 @@ const settingPrimary = ref(false);
 const newAssignment = ref({
   supervisorId: props.supervisorId || '',
   superviseeId: props.superviseeId || '',
-  agencyId: props.agencyId || ''
+  agencyId: props.agencyId || '',
+  supervisorType: 'clinical'
 });
 
 // Auto-fill supervisee if prop is provided
@@ -336,6 +347,7 @@ const createAssignment = async () => {
       supervisorId: parseInt(newAssignment.value.supervisorId),
       superviseeId: parseInt(newAssignment.value.superviseeId),
       agencyId: parseInt(newAssignment.value.agencyId),
+      supervisorType: newAssignment.value.supervisorType || 'clinical',
       isPrimary: false
     });
     
@@ -343,7 +355,8 @@ const createAssignment = async () => {
     newAssignment.value = {
       supervisorId: props.supervisorId || '',
       superviseeId: props.superviseeId || '',
-      agencyId: props.agencyId || ''
+      agencyId: props.agencyId || '',
+      supervisorType: 'clinical'
     };
     
     await fetchAssignments();

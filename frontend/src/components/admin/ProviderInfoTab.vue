@@ -1,6 +1,6 @@
 <template>
-  <div class="provider-info-tab">
-    <div class="tab-header">
+  <div class="provider-info-tab" :class="{ 'provider-info-tab--embedded': embedded }">
+    <div v-if="!embedded" class="tab-header">
       <div>
         <h2 style="margin: 0;">Profile Info</h2>
         <p class="subtitle">Profile fields captured into the user’s file (spec-driven).</p>
@@ -20,6 +20,22 @@
         </button>
         <button class="btn btn-primary" @click="saveAll" :disabled="saving || loading || installing || visibleProviderFields.length === 0 || !canEditAnyVisible">
           {{ saving ? 'Saving...' : 'Save Profile Info' }}
+        </button>
+      </div>
+    </div>
+
+    <div v-else-if="embedded && panelTitle" class="embedded-header">
+      <div>
+        <h3 style="margin: 0;">{{ panelTitle }}</h3>
+        <p v-if="embeddedHint" class="subtitle">{{ embeddedHint }}</p>
+      </div>
+      <div class="header-actions">
+        <label class="toggle" style="display:flex; align-items:center; gap:8px;">
+          <input type="checkbox" v-model="showEmptyAssignedFields" />
+          <span style="font-size: 13px; color: var(--text-secondary);">Show empty fields</span>
+        </label>
+        <button class="btn btn-primary btn-sm" @click="saveAll" :disabled="saving || loading || visibleProviderFields.length === 0 || !canEditAnyVisible">
+          {{ saving ? 'Saving…' : 'Save' }}
         </button>
       </div>
     </div>
@@ -54,14 +70,18 @@
 
     <div v-else>
       <div v-if="visibleProviderFields.length === 0" class="empty-state">
-        <p style="margin: 0;">No profile fields found for this user yet.</p>
+        <p v-if="missingClinicalFieldKeys.length" style="margin: 0;">
+          Field definitions not found for:
+          <code>{{ missingClinicalFieldKeys.join(', ') }}</code>.
+        </p>
+        <p v-else style="margin: 0;">No profile fields found for this section yet.</p>
         <p style="margin: 8px 0 0 0; color: var(--text-secondary);">
-          Run “Sync Forms (Spec)” to create categories/fields, then assign the appropriate form module to the user.
+          Run “Sync Forms (Spec)” to create categories/fields, then refresh. You can still assign form modules from the user’s training tasks.
         </p>
       </div>
 
       <div v-else class="sections">
-        <div class="section-controls" style="display:flex; gap:10px; margin: 0 0 14px 0; flex-wrap: wrap;">
+        <div v-if="!embedded" class="section-controls" style="display:flex; gap:10px; margin: 0 0 14px 0; flex-wrap: wrap;">
           <button type="button" class="btn btn-secondary btn-sm" @click="collapseAllSections" :disabled="loading || saving">
             Collapse all
           </button>
@@ -71,7 +91,7 @@
         </div>
 
         <div v-for="section in visibleProviderSections" :key="section.key" class="section">
-          <div class="section-title">
+          <div v-if="!(embedded && section.key === '__clinical_panel')" class="section-title">
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
               <button
                 type="button"
@@ -99,7 +119,7 @@
             </div>
           </div>
 
-          <div v-show="!isSectionCollapsed(section.key)" class="fields-grid">
+          <div v-show="embedded && section.key === '__clinical_panel' ? true : !isSectionCollapsed(section.key)" class="fields-grid">
             <div v-for="field in section.fields" :key="field.id" class="field-item">
               <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
                 <div style="display:flex; flex-direction:column; gap:2px;">
@@ -179,6 +199,9 @@
               </select>
 
               <div v-else-if="field.field_type === 'multi_select'" class="multi-select">
+                <p v-if="!(field.options || []).length" class="muted" style="margin: 0; font-size: 13px;">
+                  No choices configured yet — run Sync Forms (Spec) for this agency, then refresh.
+                </p>
                 <label v-for="option in (field.options || [])" :key="optionKey(option)" class="multi-select-option">
                   <input
                     type="checkbox"
@@ -309,9 +332,25 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import {
+  isClinicalProfileField,
+  isMappedClinicalField
+} from '../../constants/clinicalProfileLayout.js';
+
+import {
+  expandFieldKeys
+} from '../../utils/clinicalFieldDisplay.js';
 
 const props = defineProps({
-  userId: { type: Number, required: true }
+  userId: { type: Number, required: true },
+  embedded: { type: Boolean, default: false },
+  fieldKeys: { type: Array, default: null },
+  fieldGroups: { type: Array, default: null },
+  panelTitle: { type: String, default: '' },
+  panelHint: { type: String, default: '' },
+  ensureEmptyFields: { type: Boolean, default: false },
+  showUnmappedOnly: { type: Boolean, default: false },
+  clinicalFilter: { type: Boolean, default: false }
 });
 
 const authStore = useAuthStore();
@@ -466,17 +505,75 @@ const targetAgency = computed(() => {
 });
 
 const providerFields = computed(() => {
-  // Backend already returns only assigned-or-has-value fields when using assignedOrHasValueOnly=true.
-  // Render whatever we have, even if categories haven't been synced yet.
-  return allFields.value || [];
+  let list = allFields.value || [];
+  if (props.clinicalFilter) {
+    list = list.filter((f) => isClinicalProfileField(f));
+  }
+  if (Array.isArray(props.fieldKeys) && props.fieldKeys.length) {
+    const allow = new Set(expandFieldKeys(props.fieldKeys));
+    list = list.filter((f) => allow.has(String(f?.field_key || '').trim()));
+    if (props.embedded) {
+      const hasLegacyAge = list.some((f) => String(f?.field_key || '').trim() === 'age_specialty');
+      if (hasLegacyAge) {
+        list = list.filter((f) => {
+          const fk = String(f?.field_key || '').trim();
+          if (fk !== 'provider_marketing_age_specialty') return true;
+          return !!f?.hasValue;
+        });
+      }
+    }
+  } else if (props.showUnmappedOnly) {
+    list = list.filter((f) => {
+      const fk = String(f?.field_key || '').trim();
+      return fk && !isMappedClinicalField(fk);
+    });
+  }
+  return list;
+});
+
+const embeddedHint = computed(() => {
+  if (props.panelHint) return props.panelHint;
+  if (!props.embedded) return '';
+  if (props.showUnmappedOnly) {
+    return 'Fields not yet grouped into a clinical sub-tab appear here.';
+  }
+  if (Array.isArray(props.fieldKeys) && props.fieldKeys.length) {
+    return 'Edit or add values here even if onboarding forms were never assigned. Empty multi-select fields mean the provider is open to all clients for that category.';
+  }
+  return '';
 });
 
 // Legacy matching keys (imported via Employee Info import)
 const LEGACY_MATCH_KEYS = new Set(['age_specialty', 'treatment_prefs_max15']);
+
 const sectionKeyForField = (f) => {
+  if (props.embedded && Array.isArray(props.fieldGroups) && props.fieldGroups.length) {
+    const fk = String(f?.field_key || '').trim();
+    for (const g of props.fieldGroups) {
+      const allow = new Set(expandFieldKeys(g?.fieldKeys || []));
+      if (allow.has(fk)) return `clinical_group_${g.id || g.label}`;
+    }
+    return '__clinical_panel_other';
+  }
+  if (props.embedded && Array.isArray(props.fieldKeys) && props.fieldKeys.length) {
+    return '__clinical_panel';
+  }
   const fk = String(f?.field_key || '').trim();
   if (fk && LEGACY_MATCH_KEYS.has(fk)) return 'provider_legacy_matching';
   return f?.category_key || '__uncategorized';
+};
+
+const sectionLabelForKey = (key) => {
+  if (key.startsWith('clinical_group_')) {
+    const id = key.replace('clinical_group_', '');
+    const g = (props.fieldGroups || []).find((x) => String(x?.id || x?.label) === id);
+    if (g?.label) return g.label;
+  }
+  if (key === '__clinical_panel_other') return 'Other';
+  if (key === '__clinical_panel') return props.panelTitle || 'Clinical fields';
+  if (key === 'provider_legacy_matching') return 'Legacy Provider Matching (Imported)';
+  const c = (categories.value || []).find((x) => x.category_key === key);
+  return c?.category_label || key;
 };
 
 // If a provider is managed via legacy import, we often want to remove duplicate “new” marketing fields
@@ -515,59 +612,61 @@ const cleanupLegacyDuplicates = async () => {
   }
 };
 
-const providerSections = computed(() => {
-  const byCat = new Map();
-  (providerFields.value || []).forEach((f) => {
-    const key = sectionKeyForField(f);
-    if (!byCat.has(key)) byCat.set(key, []);
-    byCat.get(key).push(f);
-  });
-
-  const catByKey = new Map((categories.value || []).map((c) => [c.category_key, c]));
-  const keys = Array.from(byCat.keys()).sort((a, b) => String(a).localeCompare(String(b)));
-  return keys
-    .map((key) => {
-      const fields = byCat.get(key) || [];
-      const c = catByKey.get(key);
-      return {
-        key,
-        label: key === 'provider_legacy_matching' ? 'Legacy Provider Matching (Imported)' : (c?.category_label || key),
-        fields: fields.slice().sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
-      };
-    })
-    .filter((s) => (s.fields || []).length > 0);
-});
+const providerSections = computed(() => buildProviderSections(providerFields.value));
 
 const providerFieldsWithValue = computed(() => {
   return (providerFields.value || []).filter((f) => f?.hasValue);
 });
 
 const visibleProviderFields = computed(() => {
+  if (props.ensureEmptyFields) return providerFields.value || [];
   if (showEmptyAssignedFields.value) return providerFields.value || [];
   return providerFieldsWithValue.value || [];
 });
 
-const visibleProviderSections = computed(() => {
+const visibleProviderSections = computed(() => buildProviderSections(visibleProviderFields.value));
+
+function buildProviderSections(fieldsList) {
   const byCat = new Map();
-  (visibleProviderFields.value || []).forEach((f) => {
+  (fieldsList || []).forEach((f) => {
     const key = sectionKeyForField(f);
     if (!byCat.has(key)) byCat.set(key, []);
     byCat.get(key).push(f);
   });
 
-  const catByKey = new Map((categories.value || []).map((c) => [c.category_key, c]));
-  const keys = Array.from(byCat.keys()).sort((a, b) => String(a).localeCompare(String(b)));
+  let keys = Array.from(byCat.keys());
+  if (Array.isArray(props.fieldGroups) && props.fieldGroups.length) {
+    const order = props.fieldGroups.map((g) => `clinical_group_${g.id || g.label}`);
+    order.push('__clinical_panel_other');
+    keys.sort((a, b) => {
+      const ai = order.indexOf(a);
+      const bi = order.indexOf(b);
+      if (ai === -1 && bi === -1) return String(a).localeCompare(String(b));
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    });
+  } else {
+    keys.sort((a, b) => String(a).localeCompare(String(b)));
+  }
+
   return keys
-    .map((key) => {
-      const fields = byCat.get(key) || [];
-      const c = catByKey.get(key);
-      return {
-        key,
-        label: key === 'provider_legacy_matching' ? 'Legacy Provider Matching (Imported)' : (c?.category_label || key),
-        fields: fields.slice().sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
-      };
-    })
+    .map((key) => ({
+      key,
+      label: sectionLabelForKey(key),
+      fields: (byCat.get(key) || []).slice().sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+    }))
     .filter((s) => (s.fields || []).length > 0);
+}
+
+const missingClinicalFieldKeys = computed(() => {
+  if (!props.embedded || !Array.isArray(props.fieldKeys) || !props.fieldKeys.length) return [];
+  const present = new Set((providerFields.value || []).map((f) => String(f?.field_key || '').trim()));
+  return (props.fieldKeys || []).filter((k) => {
+    const key = String(k || '').trim();
+    if (!key || present.has(key)) return false;
+    return !expandFieldKeys([key]).some((alias) => present.has(alias));
+  });
 });
 
 const showInstallCard = computed(() => {
@@ -589,9 +688,31 @@ const refresh = async () => {
       api.get(`/users/${props.userId}/agencies`)
     ]);
 
-    allFields.value = infoRes.data || [];
+    let fields = infoRes.data || [];
     categories.value = catsRes.data || [];
     userAgencies.value = agenciesRes.data || [];
+
+    if ((props.ensureEmptyFields || props.embedded) && Array.isArray(props.fieldKeys) && props.fieldKeys.length) {
+      const presentKeys = new Set(fields.map((f) => String(f?.field_key || '').trim()));
+      const needed = (props.fieldKeys || [])
+        .map((k) => String(k || '').trim())
+        .filter((k) => k && !presentKeys.has(k) && !expandFieldKeys([k]).some((alias) => presentKeys.has(alias)));
+
+      if (needed.length) {
+        try {
+          const defs = await fetchFieldDefinitions();
+          const agencyId = targetAgency.value?.id || null;
+          for (const key of needed) {
+            const def = pickBestFieldDefinition(defs, key, agencyId);
+            if (def) fields.push(syntheticFieldFromDef(def));
+          }
+        } catch {
+          // Non-fatal: staff still see fields that were assigned or have values.
+        }
+      }
+    }
+
+    allFields.value = fields.map(applyDefaultFieldOptions);
 
     const values = {};
     (allFields.value || []).forEach((f) => {
@@ -887,6 +1008,87 @@ const fetchFieldDefinitions = async () => {
   return res.data || [];
 };
 
+const AGE_SPECIALTY_OPTIONS = ['Toddler (0-5)', 'Children (6-10)', 'Preteen (11-13)', 'Teen (14-18)', 'Adults (18+)', 'Seniors (65+)'];
+
+const DEFAULT_MULTI_SELECT_OPTIONS = Object.freeze({
+  age_specialty: AGE_SPECIALTY_OPTIONS,
+  provider_marketing_age_specialty: AGE_SPECIALTY_OPTIONS,
+  mental_health: [
+    'Dissociative Disorders (DID)',
+    'Elderly Persons Disorders',
+    'Impulse Control Disorders',
+    'Mood Disorders',
+    'Personality Disorders',
+    'Psychosis',
+    'Thinking Disorders'
+  ],
+  provider_marketing_mental_health_categories: [
+    'Dissociative Disorders (DID)',
+    'Elderly Persons Disorders',
+    'Impulse Control Disorders',
+    'Mood Disorders',
+    'Personality Disorders',
+    'Psychosis',
+    'Thinking Disorders'
+  ],
+  sexuality: ['Bisexual', 'Lesbian', 'LGBTQ+'],
+  provider_marketing_sexuality: ['Bisexual', 'Lesbian', 'LGBTQ+'],
+  groups: ['Couples', 'Families', 'Groups', 'Individuals'],
+  provider_marketing_focus: ['Couples', 'Families', 'Groups', 'Individuals'],
+  treatment_prefs_max15: null,
+  provider_marketing_treatment_modalities: null
+});
+
+const applyDefaultFieldOptions = (field) => {
+  const fk = String(field?.field_key || '').trim();
+  const opts = field?.options;
+  const hasOptions = Array.isArray(opts) && opts.length > 0;
+  if (hasOptions || !fk) return field;
+  const fallback = DEFAULT_MULTI_SELECT_OPTIONS[fk];
+  if (Array.isArray(fallback) && fallback.length) {
+    return { ...field, options: fallback };
+  }
+  return field;
+};
+
+const pickBestFieldDefinition = (defs, fieldKey, agencyId) => {
+  const key = String(fieldKey || '').trim();
+  if (!key) return null;
+  const matches = (defs || []).filter((d) => String(d?.field_key || '').trim() === key);
+  if (!matches.length) return null;
+  const aid = agencyId ? Number(agencyId) : null;
+  matches.sort((a, b) => {
+    const aAgency = aid && Number(a.agency_id) === aid;
+    const bAgency = aid && Number(b.agency_id) === aid;
+    if (aAgency !== bAgency) return aAgency ? -1 : 1;
+    const aPlat = a.is_platform_template === 1 || a.is_platform_template === true;
+    const bPlat = b.is_platform_template === 1 || b.is_platform_template === true;
+    if (aPlat !== bPlat) return aPlat ? -1 : 1;
+    const aNull = a.agency_id === null || a.agency_id === undefined;
+    const bNull = b.agency_id === null || b.agency_id === undefined;
+    if (aNull !== bNull) return aNull ? -1 : 1;
+    return Number(a.id || 0) - Number(b.id || 0);
+  });
+  return matches[0];
+};
+
+const syntheticFieldFromDef = (def) => {
+  let options = def?.options ?? null;
+  if (typeof options === 'string') {
+    try {
+      options = JSON.parse(options);
+    } catch {
+      options = null;
+    }
+  }
+  return applyDefaultFieldOptions({
+    ...def,
+    value: null,
+    hasValue: false,
+    options
+  });
+};
+
 const createFieldDefinition = async (agencyId, field, orderIndex, categoryKey) => {
   const payload = {
     fieldLabel: field.fieldLabel,
@@ -1018,6 +1220,20 @@ const installTemplate = async () => {
 };
 
 onMounted(refresh);
+
+watch(
+  () => [props.userId, props.fieldKeys, props.ensureEmptyFields],
+  () => refresh(),
+  { deep: true }
+);
+
+watch(
+  () => props.ensureEmptyFields || (props.embedded && Array.isArray(props.fieldKeys) && props.fieldKeys.length),
+  (v) => {
+    if (v) showEmptyAssignedFields.value = true;
+  },
+  { immediate: true }
+);
 
 // ---------------------------------------------------------------------------
 // Public Listings
@@ -1165,6 +1381,18 @@ watch(targetAgency, (agency) => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.provider-info-tab--embedded {
+  gap: 12px;
+}
+
+.embedded-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .tab-header {

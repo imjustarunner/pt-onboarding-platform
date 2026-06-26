@@ -1842,7 +1842,7 @@
                           <select v-model="editProviderUserId" class="inline-select" style="min-width: 220px;">
                             <option value="">Select…</option>
                             <option v-for="p in providerOptions" :key="p.id" :value="String(p.id)">
-                              {{ p.last_name }}, {{ p.first_name }}
+                              {{ providerOptionLabel(p) }}
                             </option>
                           </select>
                         </template>
@@ -1912,9 +1912,12 @@
                     <select v-model="addProviderUserId" class="filters-select">
                       <option value="">Select…</option>
                       <option v-for="p in providerOptions" :key="p.id" :value="String(p.id)">
-                        {{ p.last_name }}, {{ p.first_name }}
+                        {{ providerOptionLabel(p) }}
                       </option>
                     </select>
+                    <div v-if="selectedAddProviderFacets?.summaryTags?.length" class="hint" style="margin-top: 6px;">
+                      Clinical fit: {{ selectedAddProviderFacets.summaryTags.join(' · ') }}
+                    </div>
                   </div>
                   <div class="filters-group" style="min-width: 200px;">
                     <label class="filters-label">Day</label>
@@ -2992,6 +2995,7 @@ const switchRegistrationGroupedOptions = computed(() => {
   return [...groups.entries()].map(([programName, events]) => ({ programName, events }));
 });
 const providerOptions = ref([]);
+const providerClinicalFacets = ref({});
 const addProviderUserId = ref('');
 const addProviderDay = ref('');
 const addProviderMakePrimary = ref(true);
@@ -3001,6 +3005,18 @@ const editProviderUserId = ref('');
 const editProviderDay = ref('Unknown');
 
 const weekdayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+const providerOptionLabel = (p) => {
+  const base = `${p?.last_name || ''}, ${p?.first_name || ''}`.replace(/^,\s*/, '').trim();
+  const tags = providerClinicalFacets.value?.[String(p?.id)]?.summaryTags || [];
+  if (!tags.length) return base;
+  return `${base} — ${tags.slice(0, 4).join(', ')}`;
+};
+
+const selectedAddProviderFacets = computed(() => {
+  const id = addProviderUserId.value ? String(addProviderUserId.value) : '';
+  return id ? (providerClinicalFacets.value?.[id] || null) : null;
+});
 
 const eventAssignmentsCurrentOrUpcoming = computed(() =>
   (eventAssignments.value || []).filter((ev) => String(ev?.timeframe || '').toLowerCase() !== 'past')
@@ -4156,9 +4172,24 @@ const fetchProviderOptions = async () => {
       String(a?.last_name || '').localeCompare(String(b?.last_name || '')) ||
       String(a?.first_name || '').localeCompare(String(b?.first_name || ''))
     );
+
+    const userIds = providerOptions.value.map((p) => p.id).filter(Boolean);
+    if (userIds.length) {
+      try {
+        const facetRes = await api.get('/provider-search/clinical-facets', {
+          params: { agencyId, userIds: userIds.join(',') }
+        });
+        providerClinicalFacets.value = facetRes.data?.facetsByUserId || {};
+      } catch {
+        providerClinicalFacets.value = {};
+      }
+    } else {
+      providerClinicalFacets.value = {};
+    }
   } catch {
     providerScheduleForSelectedOrg.value = [];
     providerOptions.value = [];
+    providerClinicalFacets.value = {};
   }
 };
 
