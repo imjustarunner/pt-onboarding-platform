@@ -79,7 +79,12 @@
                 <option value="work">Employer dashboard</option>
               </select>
             </div>
-            <div class="nav-links-wrapper" :class="{ 'nav-menus-open': navDropdownOpen }">
+            <div
+              ref="navLinksWrapperEl"
+              class="nav-links-wrapper"
+              :class="{ 'nav-menus-open': navDropdownOpen }"
+              @wheel="onNavWheelScroll"
+            >
               <div class="nav-links">
               <!-- SSTC Summit: primary nav order (matches mobile sidebar) -->
               <template v-if="isSummitStatsChallengeChrome && isAuthenticated && isSscClubManager">
@@ -1593,7 +1598,8 @@
         <button
           type="button"
           class="toast-dismiss-btn"
-          aria-label="Dismiss"
+          aria-label="Snooze for 3 hours"
+          title="Snooze for 3 hours"
           @click.stop="dismissPayrollPendingToast"
         >×</button>
       </div>
@@ -1958,6 +1964,17 @@ watch(effectivePreviewViewport, (next) => {
 });
 
 // ---- Brand switcher + nav dropdowns (top-nav) ----
+const navLinksWrapperEl = ref(null);
+
+const onNavWheelScroll = (e) => {
+  const el = navLinksWrapperEl.value;
+  if (!el || navDropdownOpen.value) return;
+  // Only hijack when the nav actually overflows horizontally
+  if (el.scrollWidth <= el.clientWidth) return;
+  e.preventDefault();
+  el.scrollLeft += e.deltaY !== 0 ? e.deltaY : e.deltaX;
+};
+
 const brandMenuOpen = ref(false);
 const peopleOpsMenuOpen = ref(false);
 const directoryMenuOpen = ref(false);
@@ -2837,11 +2854,25 @@ const schoolClientsPendingCount = ref(0);
 let schoolClientsPendingInterval = null;
 
 // ---- Pending payroll submissions badge + toast ----
+const PAYROLL_TOAST_SNOOZE_KEY = 'payrollPendingToastSnoozedUntil';
+
+const isPayrollToastSnoozed = () => {
+  try {
+    const until = Number(localStorage.getItem(PAYROLL_TOAST_SNOOZE_KEY) || 0);
+    return until > Date.now();
+  } catch { return false; }
+};
+
+const snoozePayrollToast = (hours = 3) => {
+  try {
+    localStorage.setItem(PAYROLL_TOAST_SNOOZE_KEY, String(Date.now() + hours * 60 * 60 * 1000));
+  } catch { /* ignore */ }
+};
+
 const payrollPendingCount = ref(0);
 const payrollPendingItems = ref([]); // [{ userId, name, types, count }]
 const payrollPendingTypeCounts = ref({});
 const payrollPendingToastVisible = ref(false);
-const payrollPendingToastDismissed = ref(false);
 let payrollPendingInterval = null;
 
 const fetchPayrollPendingSubmissions = async () => {
@@ -2855,19 +2886,18 @@ const fetchPayrollPendingSubmissions = async () => {
       params: { agencyId: Number(currentAgencyId.value) },
       skipGlobalLoading: true
     });
-    const prevCount = payrollPendingCount.value;
     payrollPendingCount.value = Number(resp.data?.totalCount || 0);
     payrollPendingItems.value = Array.isArray(resp.data?.ptoSubmissions) ? resp.data.ptoSubmissions : [];
     payrollPendingTypeCounts.value = resp.data?.typeCounts || {};
     if (payrollPendingCount.value > 0) {
-      // Show toast whenever there are pending items (unless user dismissed it this session).
-      if (!payrollPendingToastDismissed.value) {
+      // Show toast unless currently snoozed via localStorage
+      if (!isPayrollToastSnoozed()) {
         payrollPendingToastVisible.value = true;
       }
     } else {
-      // Queue cleared — hide toast and reset dismissed flag so it reappears with future submissions.
+      // Queue cleared — hide toast and clear any snooze so it reappears with future submissions
       payrollPendingToastVisible.value = false;
-      payrollPendingToastDismissed.value = false;
+      try { localStorage.removeItem(PAYROLL_TOAST_SNOOZE_KEY); } catch { /* ignore */ }
     }
   } catch {
     // best-effort
@@ -2876,7 +2906,7 @@ const fetchPayrollPendingSubmissions = async () => {
 
 const dismissPayrollPendingToast = () => {
   payrollPendingToastVisible.value = false;
-  payrollPendingToastDismissed.value = true;
+  snoozePayrollToast(3); // snooze for 3 hours via localStorage
 };
 
 const goToPayrollStage = () => {
@@ -4851,13 +4881,14 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-@media (max-width: 1400px) {
+@media (max-width: 1600px) {
   .nav-links-wrapper {
     overflow-x: auto;
     overflow-y: visible;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-x: contain;
     scrollbar-width: none;
+    touch-action: pan-x;
   }
 
   .nav-links-wrapper::-webkit-scrollbar {
