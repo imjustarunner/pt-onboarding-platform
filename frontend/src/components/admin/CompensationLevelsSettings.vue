@@ -6,14 +6,16 @@
         <p class="cl-sub">Define rates for each category and level. Assign providers a category + level from their Payroll tab to apply the rates automatically.</p>
       </div>
       <div class="cl-header-actions">
-        <button type="button" class="btn btn-secondary btn-sm" @click="loadData">{{ loading ? 'Loading…' : 'Refresh' }}</button>
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="loadData">
+          {{ loading ? 'Loading…' : 'Refresh' }}
+        </button>
         <button type="button" class="btn btn-primary btn-sm" :disabled="saving || loading" @click="saveAll">
           {{ saving ? 'Saving…' : 'Save all' }}
         </button>
       </div>
     </div>
 
-    <div v-if="error" class="error" style="margin-bottom: 12px;">{{ error }}</div>
+    <div v-if="error" class="cl-error">{{ error }}</div>
     <div v-if="saveSuccess" class="save-success">Compensation levels saved.</div>
 
     <div v-if="loading" class="cl-loading">Loading…</div>
@@ -43,123 +45,122 @@
                 <th class="col-rate">Direct ($/hr)</th>
                 <th class="col-rate">Indirect ($/hr)</th>
                 <th class="col-ffs-toggle">FFS</th>
-                <th class="col-rate">FFS Rate ($/unit)</th>
+                <th class="col-ratecard">Rate card</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="lvl in 5" :key="lvl" class="cl-row">
-                <td class="col-level">
-                  <span class="cl-level-pill">Level {{ lvl }}</span>
-                </td>
-                <td class="col-label">
-                  <input
-                    v-model="draft[cat.id][lvl].label"
-                    type="text"
-                    class="cl-input"
-                    placeholder="e.g. Staff Counselor I"
-                  />
-                </td>
-                <td class="col-rate">
-                  <div class="cl-rate-input">
-                    <span class="cl-prefix">$</span>
+              <template v-for="lvl in 5" :key="lvl">
+                <tr class="cl-row">
+                  <td class="col-level">
+                    <span class="cl-level-pill">Level {{ lvl }}</span>
+                  </td>
+                  <td class="col-label">
                     <input
-                      v-model.number="draft[cat.id][lvl].directRate"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      class="cl-input cl-input--rate"
-                      placeholder="0.00"
+                      v-model="draft[cat.id][lvl].label"
+                      type="text"
+                      class="cl-input"
+                      placeholder="e.g. Staff Counselor I"
                     />
-                  </div>
-                </td>
-                <td class="col-rate">
-                  <div class="cl-rate-input">
-                    <span class="cl-prefix">$</span>
-                    <input
-                      v-model.number="draft[cat.id][lvl].indirectRate"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      class="cl-input cl-input--rate"
-                      placeholder="0.00"
-                    />
-                  </div>
-                </td>
-                <td class="col-ffs-toggle">
-                  <label class="cl-toggle">
-                    <input type="checkbox" v-model="draft[cat.id][lvl].hasFfs" />
-                    <span class="cl-toggle-slider"></span>
-                  </label>
-                </td>
-                <td class="col-rate">
-                  <div class="cl-rate-input" :class="{ 'cl-rate-input--disabled': !draft[cat.id][lvl].hasFfs }">
-                    <span class="cl-prefix">$</span>
-                    <input
-                      v-model.number="draft[cat.id][lvl].ffsRate"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      class="cl-input cl-input--rate"
-                      placeholder="0.00"
-                      :disabled="!draft[cat.id][lvl].hasFfs"
-                    />
-                  </div>
-                </td>
-              </tr>
-              <!-- FFS per-code rate editor — expands when FFS is toggled on -->
-              <tr v-if="draft[cat.id][lvl].hasFfs" class="cl-ffs-expand-row">
-                <td colspan="6" class="cl-ffs-expand-cell">
-                  <div class="cl-ffs-panel">
-                    <div class="cl-ffs-panel-head">
-                      <span class="cl-ffs-panel-title">Per-code FFS rates for Level {{ lvl }}</span>
-                      <span class="cl-ffs-panel-hint">These codes + rates are applied directly to the provider's rate sheet when you assign this level. Codes not listed here fall back to the rate card.</span>
+                  </td>
+                  <td class="col-rate">
+                    <div class="cl-rate-input">
+                      <span class="cl-prefix">$</span>
+                      <input
+                        v-model.number="draft[cat.id][lvl].directRate"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        class="cl-input cl-input--rate"
+                        placeholder="0.00"
+                      />
                     </div>
-                    <div class="cl-ffs-codes">
-                      <div
-                        v-for="(row, idx) in levelRates[`${cat.id}:${lvl}`] || []"
-                        :key="idx"
-                        class="cl-ffs-code-row"
-                      >
-                        <input
-                          v-model="row.serviceCode"
-                          type="text"
-                          class="cl-input cl-ffs-code-input"
-                          placeholder="Code (e.g. 90837)"
-                          maxlength="20"
-                        />
-                        <div class="cl-rate-input cl-ffs-rate">
-                          <span class="cl-prefix">$</span>
-                          <input
-                            v-model.number="row.rateAmount"
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            class="cl-input cl-input--rate"
-                            placeholder="0.00"
-                          />
-                        </div>
-                        <select v-model="row.rateUnit" class="cl-ffs-unit-select">
-                          <option value="per_unit">per unit</option>
-                          <option value="per_hour">per hour</option>
-                          <option value="flat">flat</option>
-                        </select>
-                        <button
-                          type="button"
-                          class="cl-ffs-remove-btn"
-                          @click="removeFfsCode(cat.id, lvl, idx)"
-                          title="Remove"
-                        >✕</button>
-                      </div>
-                      <div v-if="!(levelRates[`${cat.id}:${lvl}`] || []).length" class="cl-ffs-empty">
-                        No per-code rates yet. Add one below.
-                      </div>
+                  </td>
+                  <td class="col-rate">
+                    <div class="cl-rate-input">
+                      <span class="cl-prefix">$</span>
+                      <input
+                        v-model.number="draft[cat.id][lvl].indirectRate"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        class="cl-input cl-input--rate"
+                        placeholder="0.00"
+                      />
                     </div>
-                    <button type="button" class="cl-ffs-add-btn" @click="addFfsCode(cat.id, lvl)">
-                      + Add service code
+                  </td>
+                  <td class="col-ffs-toggle">
+                    <label class="cl-toggle">
+                      <input type="checkbox" v-model="draft[cat.id][lvl].hasFfs" />
+                      <span class="cl-toggle-slider"></span>
+                    </label>
+                  </td>
+                  <td class="col-ratecard">
+                    <button
+                      v-if="draft[cat.id][lvl].hasFfs"
+                      type="button"
+                      class="cl-ratecard-btn"
+                      :class="{ 'is-open': isExpanded(cat.id, lvl) }"
+                      @click="toggleExpand(cat.id, lvl)"
+                    >
+                      {{ isExpanded(cat.id, lvl) ? 'Hide' : 'Edit rate card' }}
+                      <span v-if="configuredCount(cat.id, lvl)" class="cl-ratecard-count">{{ configuredCount(cat.id, lvl) }}</span>
                     </button>
-                  </div>
-                </td>
-              </tr>
+                    <span v-else class="cl-ratecard-na">—</span>
+                  </td>
+                </tr>
+
+                <tr v-if="isExpanded(cat.id, lvl)" class="cl-expand-row">
+                  <td colspan="6">
+                    <div class="cl-ffs-panel">
+                      <div class="cl-ffs-panel-head">
+                        <strong>FFS rate card — {{ categoryLabels[cat.id] || cat.label }} · Level {{ lvl }}</strong>
+                        <span class="cl-ffs-panel-hint">
+                          Set per-code rates below. Codes left blank fall back to the rate card
+                          (Direct {{ fmtFallback(draft[cat.id][lvl].directRate) }} / Indirect {{ fmtFallback(draft[cat.id][lvl].indirectRate) }}).
+                          These become the defaults applied to a new provider at this level.
+                        </span>
+                      </div>
+
+                      <div v-if="!serviceCodes.length" class="cl-ffs-empty">
+                        No service codes configured for this tenant yet. Add them under the “Service Codes” tab first.
+                      </div>
+
+                      <div v-else class="cl-ffs-codes">
+                        <input
+                          v-model="codeFilter"
+                          type="text"
+                          class="cl-input cl-ffs-filter"
+                          placeholder="Filter service codes…"
+                        />
+                        <div class="cl-ffs-grid">
+                          <div
+                            v-for="sc in filteredServiceCodes"
+                            :key="sc.code"
+                            class="cl-ffs-code-row"
+                          >
+                            <div class="cl-ffs-code-label">
+                              <span class="cl-ffs-code">{{ sc.code }}</span>
+                              <span class="cl-ffs-code-cat" :class="`cat-${sc.category}`">{{ sc.category }}</span>
+                            </div>
+                            <div class="cl-rate-input cl-ffs-rate">
+                              <span class="cl-prefix">$</span>
+                              <input
+                                v-model.number="levelRateEdits[`${cat.id}:${lvl}`][sc.code]"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                class="cl-input cl-input--rate"
+                                :placeholder="fallbackPlaceholder(cat.id, lvl, sc)"
+                              />
+                              <span class="cl-ffs-unit">{{ unitLabel(sc.payRateUnit) }}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>
@@ -169,7 +170,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -188,18 +189,9 @@ const error = ref('');
 const saveSuccess = ref(false);
 
 const categoryLabels = ref({ 1: '', 2: '', 3: '' });
-const levelRates = ref({}); // keyed "cat:level" → [{ serviceCode, rateAmount, rateUnit }]
-
-const addFfsCode = (cat, lvl) => {
-  const key = `${cat}:${lvl}`;
-  if (!levelRates.value[key]) levelRates.value[key] = [];
-  levelRates.value[key].push({ serviceCode: '', rateAmount: null, rateUnit: 'per_unit' });
-};
-
-const removeFfsCode = (cat, lvl, idx) => {
-  const key = `${cat}:${lvl}`;
-  levelRates.value[key]?.splice(idx, 1);
-};
+const serviceCodes = ref([]); // [{ code, category, payRateUnit }]
+const expandedKey = ref(null); // "cat:level" currently open
+const codeFilter = ref('');
 
 const makeDraft = () => {
   const d = {};
@@ -211,8 +203,27 @@ const makeDraft = () => {
   }
   return d;
 };
-
 const draft = ref(makeDraft());
+
+const makeEmptyEdits = () => {
+  const e = {};
+  for (const cat of [1, 2, 3]) {
+    for (let lvl = 1; lvl <= 5; lvl++) e[`${cat}:${lvl}`] = {};
+  }
+  return e;
+};
+
+// levelRateEdits["cat:level"] = { [code]: rateAmount } — always has all 15 keys
+const levelRateEdits = ref(makeEmptyEdits());
+
+const normalizeCodes = (rows) =>
+  (rows || [])
+    .map((r) => ({
+      code: String(r.service_code || '').trim().toUpperCase(),
+      category: r.category || 'direct',
+      payRateUnit: r.pay_rate_unit || 'per_unit'
+    }))
+    .filter((r) => r.code);
 
 const applyLevels = (levels, labels, rates) => {
   const next = makeDraft();
@@ -231,29 +242,63 @@ const applyLevels = (levels, labels, rates) => {
   }
   draft.value = next;
   if (labels) categoryLabels.value = { 1: labels[1] || '', 2: labels[2] || '', 3: labels[3] || '' };
-  if (rates) levelRates.value = { ...rates };
+
+  const edits = makeEmptyEdits();
+  for (const [key, arr] of Object.entries(rates || {})) {
+    if (!edits[key]) edits[key] = {};
+    for (const r of arr || []) {
+      if (r.serviceCode != null) edits[key][String(r.serviceCode).toUpperCase()] = Number(r.rateAmount);
+    }
+  }
+  levelRateEdits.value = edits;
 };
 
-let currentAbort = null;
+// ── Defensive loader ─────────────────────────────────────────────────────────
+// No AbortController (which previously left the global loader/refcount stuck).
+// Instead: a request-generation guard ignores stale responses, skipGlobalLoading
+// keeps this off the global overlay, and a hard timeout guarantees loading clears.
+let reqSeq = 0;
+let safetyTimer = null;
 
 const loadData = async () => {
   if (!props.agencyId) { loading.value = false; return; }
-  // Cancel any in-flight request so refresh always wins
-  if (currentAbort) { currentAbort.abort(); }
-  currentAbort = new AbortController();
+  const seq = ++reqSeq;
   loading.value = true;
   error.value = '';
+
+  if (safetyTimer) clearTimeout(safetyTimer);
+  safetyTimer = setTimeout(() => {
+    if (seq === reqSeq && loading.value) {
+      loading.value = false;
+      error.value = 'Loading timed out — click Refresh to retry.';
+    }
+  }, 15000);
+
   try {
-    const res = await api.get('/payroll/compensation-levels', {
-      params: { agencyId: props.agencyId },
-      signal: currentAbort.signal
-    });
-    applyLevels(res.data?.levels || [], res.data?.categoryLabels || {}, res.data?.levelRates || {});
+    const [levelsRes, codesRes] = await Promise.allSettled([
+      api.get('/payroll/compensation-levels', { params: { agencyId: props.agencyId }, skipGlobalLoading: true }),
+      api.get('/payroll/service-code-rules', { params: { agencyId: props.agencyId }, skipGlobalLoading: true })
+    ]);
+    if (seq !== reqSeq) return; // stale — a newer request superseded this one
+
+    if (levelsRes.status === 'fulfilled') {
+      const d = levelsRes.value?.data || {};
+      applyLevels(d.levels || [], d.categoryLabels || {}, d.levelRates || {});
+    } else {
+      error.value = levelsRes.reason?.response?.data?.error?.message || 'Failed to load compensation levels';
+      applyLevels([], {}, {});
+    }
+
+    if (codesRes.status === 'fulfilled') {
+      serviceCodes.value = normalizeCodes(codesRes.value?.data || []);
+    } else {
+      serviceCodes.value = [];
+    }
   } catch (e) {
-    if (e.name === 'CanceledError' || e.code === 'ERR_CANCELED') return; // aborted — don't touch state
-    error.value = e.response?.data?.error?.message || e.message || 'Failed to load compensation levels';
+    if (seq === reqSeq) error.value = e?.response?.data?.error?.message || e.message || 'Failed to load';
   } finally {
-    loading.value = false;
+    if (safetyTimer) { clearTimeout(safetyTimer); safetyTimer = null; }
+    if (seq === reqSeq) loading.value = false;
   }
 };
 
@@ -264,6 +309,7 @@ const saveAll = async () => {
   saveSuccess.value = false;
   try {
     const levels = [];
+    const levelRates = {};
     for (const cat of [1, 2, 3]) {
       for (let lvl = 1; lvl <= 5; lvl++) {
         const d = draft.value[cat][lvl];
@@ -276,25 +322,72 @@ const saveAll = async () => {
           ffsRate: d.ffsRate ?? null,
           hasFfs: !!d.hasFfs
         });
+
+        const key = `${cat}:${lvl}`;
+        const edits = levelRateEdits.value[key] || {};
+        const arr = [];
+        for (const sc of serviceCodes.value) {
+          const v = edits[sc.code];
+          if (v != null && v !== '' && !Number.isNaN(Number(v))) {
+            arr.push({ serviceCode: sc.code, rateAmount: Number(v), rateUnit: sc.payRateUnit || 'per_unit' });
+          }
+        }
+        levelRates[key] = arr;
       }
     }
+
     const res = await api.put('/payroll/compensation-levels', {
       agencyId: props.agencyId,
       levels,
       categoryLabels: { ...categoryLabels.value },
-      levelRates: { ...levelRates.value }
-    });
-    applyLevels(res.data?.levels || [], res.data?.categoryLabels || {}, res.data?.levelRates || {});
+      levelRates
+    }, { skipGlobalLoading: true });
+
+    const d = res?.data || {};
+    applyLevels(d.levels || [], d.categoryLabels || {}, d.levelRates || {});
     saveSuccess.value = true;
     setTimeout(() => { saveSuccess.value = false; }, 3000);
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to save compensation levels';
+    error.value = e?.response?.data?.error?.message || 'Failed to save compensation levels';
   } finally {
     saving.value = false;
   }
 };
 
+// ── UI helpers ───────────────────────────────────────────────────────────────
+const isExpanded = (cat, lvl) => expandedKey.value === `${cat}:${lvl}`;
+
+const toggleExpand = (cat, lvl) => {
+  const key = `${cat}:${lvl}`;
+  expandedKey.value = expandedKey.value === key ? null : key;
+  codeFilter.value = '';
+  if (!levelRateEdits.value[key]) levelRateEdits.value[key] = {};
+};
+
+const configuredCount = (cat, lvl) => {
+  const edits = levelRateEdits.value[`${cat}:${lvl}`] || {};
+  return Object.values(edits).filter((v) => v != null && v !== '' && !Number.isNaN(Number(v))).length;
+};
+
+const filteredServiceCodes = computed(() => {
+  const q = codeFilter.value.trim().toUpperCase();
+  if (!q) return serviceCodes.value;
+  return serviceCodes.value.filter((sc) => sc.code.includes(q) || sc.category.toUpperCase().includes(q));
+});
+
+const fmtFallback = (v) => (v != null && v !== '' ? `$${Number(v).toFixed(2)}` : '$0.00');
+
+const unitLabel = (u) => (u === 'per_hour' ? '/hr' : u === 'flat' ? 'flat' : '/unit');
+
+const fallbackPlaceholder = (cat, lvl, sc) => {
+  const d = draft.value[cat][lvl];
+  const base = sc.category === 'indirect' ? d.indirectRate : d.directRate;
+  return base != null && base !== '' ? Number(base).toFixed(2) : '0.00';
+};
+
 watch(() => props.agencyId, () => loadData(), { immediate: true });
+
+onBeforeUnmount(() => { if (safetyTimer) clearTimeout(safetyTimer); });
 </script>
 
 <style scoped>
@@ -328,6 +421,15 @@ watch(() => props.agencyId, () => loadData(), { immediate: true });
 .cl-loading {
   color: var(--text-secondary, #6b7280);
   padding: 16px 0;
+}
+.cl-error {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  margin-bottom: 12px;
 }
 .save-success {
   background: #dcfce7;
@@ -430,9 +532,6 @@ watch(() => props.agencyId, () => loadData(), { immediate: true });
 .cl-row {
   border-bottom: 1px solid #f3f4f6;
 }
-.cl-row:last-child {
-  border-bottom: none;
-}
 .cl-row td {
   padding: 8px 10px;
   vertical-align: middle;
@@ -441,6 +540,7 @@ watch(() => props.agencyId, () => loadData(), { immediate: true });
 .col-label { min-width: 160px; }
 .col-rate { width: 140px; }
 .col-ffs-toggle { width: 60px; text-align: center; }
+.col-ratecard { width: 150px; }
 .cl-level-pill {
   display: inline-block;
   padding: 2px 8px;
@@ -473,10 +573,6 @@ watch(() => props.agencyId, () => loadData(), { immediate: true });
   border-radius: 5px;
   overflow: hidden;
   background: #fff;
-}
-.cl-rate-input--disabled {
-  background: #f9fafb;
-  opacity: 0.5;
 }
 .cl-prefix {
   padding: 0 6px;
@@ -537,86 +633,113 @@ watch(() => props.agencyId, () => loadData(), { immediate: true });
   transform: translateX(14px);
 }
 
-/* FFS expansion panel */
-.cl-ffs-expand-row {
-  background: #f0fdf8;
-}
-.cl-ffs-expand-cell {
-  padding: 0 !important;
-  border-bottom: 2px solid #bbf7d0;
-}
-.cl-ffs-panel {
-  padding: 14px 16px 16px;
-}
-.cl-ffs-panel-head {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
-}
-.cl-ffs-panel-title {
-  font-weight: 700;
-  font-size: 13px;
-  color: #166534;
-}
-.cl-ffs-panel-hint {
-  font-size: 12px;
-  color: #4b7a5e;
-}
-.cl-ffs-codes {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-.cl-ffs-code-row {
-  display: flex;
+/* ── Rate card button + FFS panel ── */
+.cl-ratecard-btn {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-}
-.cl-ffs-code-input {
-  width: 130px;
-  flex-shrink: 0;
-  text-transform: uppercase;
-}
-.cl-ffs-rate {
-  width: 130px;
-  flex-shrink: 0;
-}
-.cl-ffs-unit-select {
-  padding: 5px 6px;
-  border: 1px solid #d1d5db;
-  border-radius: 5px;
-  font-size: 12px;
-  background: #fff;
-}
-.cl-ffs-remove-btn {
-  padding: 4px 8px;
-  border: 1px solid #fca5a5;
-  border-radius: 4px;
-  background: none;
-  color: #ef4444;
-  font-size: 11px;
-  cursor: pointer;
-  line-height: 1;
-}
-.cl-ffs-remove-btn:hover { background: #fef2f2; }
-.cl-ffs-empty {
-  font-size: 12px;
-  color: #6b7280;
-  font-style: italic;
-}
-.cl-ffs-add-btn {
-  padding: 5px 12px;
-  border: 1px dashed #86efac;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid #2e5d50;
   border-radius: 6px;
-  background: none;
-  color: #166534;
+  background: #fff;
+  color: #2e5d50;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s;
 }
-.cl-ffs-add-btn:hover { background: #dcfce7; }
+.cl-ratecard-btn:hover { background: #f0fdf4; }
+.cl-ratecard-btn.is-open { background: #2e5d50; color: #fff; }
+.cl-ratecard-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #d1fae5;
+  color: #065f46;
+  font-size: 11px;
+  font-weight: 700;
+}
+.cl-ratecard-btn.is-open .cl-ratecard-count { background: rgba(255,255,255,0.25); color: #fff; }
+.cl-ratecard-na { color: #cbd5e1; }
+.cl-expand-row td {
+  padding: 0;
+  background: #f8fafc;
+  border-bottom: 1px solid #e5e7eb;
+}
+.cl-ffs-panel {
+  padding: 14px 16px;
+}
+.cl-ffs-panel-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.cl-ffs-panel-head strong {
+  font-size: 13px;
+  color: #1e293b;
+}
+.cl-ffs-panel-hint {
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.5;
+}
+.cl-ffs-empty {
+  font-size: 13px;
+  color: #6b7280;
+  font-style: italic;
+  padding: 8px 0;
+}
+.cl-ffs-filter {
+  max-width: 280px;
+  margin-bottom: 10px;
+}
+.cl-ffs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
+}
+.cl-ffs-code-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.cl-ffs-code-label {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 70px;
+  flex-shrink: 0;
+}
+.cl-ffs-code {
+  font-weight: 600;
+  font-size: 13px;
+  color: #334155;
+}
+.cl-ffs-code-cat {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #94a3b8;
+}
+.cl-ffs-code-cat.cat-direct { color: #2e5d50; }
+.cl-ffs-code-cat.cat-indirect { color: #b45309; }
+.cl-ffs-rate {
+  flex: 1;
+  min-width: 0;
+}
+.cl-ffs-unit {
+  padding: 0 6px;
+  font-size: 11px;
+  color: #94a3b8;
+  white-space: nowrap;
+}
 </style>

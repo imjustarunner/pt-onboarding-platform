@@ -8,17 +8,26 @@ const requireAgencyId = (req, res) => {
   return id;
 };
 
-/** GET /payroll/compensation-levels?agencyId= */
+/**
+ * GET /payroll/compensation-levels?agencyId=
+ * Defensive: each sub-query is isolated via allSettled so a single failure
+ * (e.g. a missing/locked table) can never hang or 500 the whole response.
+ */
 export const listCompensationLevels = async (req, res, next) => {
   try {
     const agencyId = requireAgencyId(req, res);
     if (!agencyId) return;
-    const [levels, categoryLabels, levelRates] = await Promise.all([
+    const [levelsR, labelsR, ratesR] = await Promise.allSettled([
       PayrollCompensationLevel.listForAgency(agencyId),
       PayrollCompensationLevel.getCategoryLabels(agencyId),
       PayrollCompensationLevel.getLevelRatesForAgency(agencyId)
     ]);
-    res.json({ levels, categoryLabels, levelRates, categories: COMPENSATION_CATEGORIES });
+    res.json({
+      levels: levelsR.status === 'fulfilled' ? levelsR.value : [],
+      categoryLabels: labelsR.status === 'fulfilled' ? labelsR.value : { 1: '', 2: '', 3: '' },
+      levelRates: ratesR.status === 'fulfilled' ? ratesR.value : {},
+      categories: COMPENSATION_CATEGORIES
+    });
   } catch (e) { next(e); }
 };
 
@@ -30,7 +39,7 @@ export const saveCompensationLevels = async (req, res, next) => {
   try {
     const agencyId = requireAgencyId(req, res);
     if (!agencyId) return;
-    const { levels, categoryLabels } = req.body;
+    const { levels, categoryLabels, levelRates } = req.body;
     if (!Array.isArray(levels)) return res.status(400).json({ error: { message: 'levels array is required' } });
 
     for (const row of levels) {
@@ -54,8 +63,7 @@ export const saveCompensationLevels = async (req, res, next) => {
       }
     }
 
-    // Save per-code rates for each level (levelRates keyed as "cat:level" → array)
-    const { levelRates } = req.body;
+    // Per-code (FFS) rates per level, keyed "cat:level"
     if (levelRates && typeof levelRates === 'object') {
       for (const cat of CATEGORY_IDS) {
         for (const lvl of LEVEL_IDS) {
@@ -67,12 +75,16 @@ export const saveCompensationLevels = async (req, res, next) => {
       }
     }
 
-    const [updated, updatedLabels, updatedLevelRates] = await Promise.all([
+    const [levelsR, labelsR, ratesR] = await Promise.allSettled([
       PayrollCompensationLevel.listForAgency(agencyId),
       PayrollCompensationLevel.getCategoryLabels(agencyId),
       PayrollCompensationLevel.getLevelRatesForAgency(agencyId)
     ]);
-    res.json({ levels: updated, categoryLabels: updatedLabels, levelRates: updatedLevelRates });
+    res.json({
+      levels: levelsR.status === 'fulfilled' ? levelsR.value : [],
+      categoryLabels: labelsR.status === 'fulfilled' ? labelsR.value : { 1: '', 2: '', 3: '' },
+      levelRates: ratesR.status === 'fulfilled' ? ratesR.value : {}
+    });
   } catch (e) { next(e); }
 };
 
@@ -109,8 +121,9 @@ export const assignUserCompensationLevel = async (req, res, next) => {
     if (applyRates) {
       const [def, codeRates] = await Promise.all([
         PayrollCompensationLevel.getLevel(agencyId, category, level),
-        PayrollCompensationLevel.getLevelRates(agencyId, category, level)
+        PayrollCompensationLevel.getLevelRates(agencyId, category, level).catch(() => [])
       ]);
+      // Rate card (direct/indirect) is the fallback for any code without a per-code rate
       if (def && (def.direct_rate != null || def.indirect_rate != null)) {
         await PayrollRateCard.upsert({
           agencyId,
@@ -120,8 +133,9 @@ export const assignUserCompensationLevel = async (req, res, next) => {
           updatedByUserId: req.user?.id
         });
       }
-      // Apply per-code (FFS) rates for this level
-      for (const r of codeRates) {
+      // Per-code overrides (FFS) for the listed service codes
+      for (const r of codeRates || []) {
+        if (!r.serviceCode) continue;
         await PayrollRate.upsert({
           agencyId,
           userId,

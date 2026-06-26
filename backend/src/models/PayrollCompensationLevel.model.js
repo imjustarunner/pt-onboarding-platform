@@ -122,7 +122,7 @@ const PayrollCompensationLevel = {
     );
   },
 
-  /** Return all per-code rates for an agency, keyed as { "cat:level": [{service_code, rate_amount, rate_unit}] } */
+  /** Return all per-code rates for an agency, keyed as { "cat:level": [{serviceCode, rateAmount, rateUnit}] } */
   async getLevelRatesForAgency(agencyId) {
     const [rows] = await pool.execute(
       `SELECT category, level, service_code, rate_amount, rate_unit
@@ -149,6 +149,7 @@ const PayrollCompensationLevel = {
     for (const r of codeRates || []) {
       const code = String(r.serviceCode || '').trim().toUpperCase();
       if (!code) continue;
+      if (r.rateAmount == null || r.rateAmount === '' || Number.isNaN(Number(r.rateAmount))) continue;
       await pool.execute(
         `INSERT INTO payroll_compensation_level_rates (agency_id, category, level, service_code, rate_amount, rate_unit)
          VALUES (?, ?, ?, ?, ?, ?)`,

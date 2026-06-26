@@ -1,6 +1,7 @@
 -- Migration 894: Per-code rates attached to each compensation level
 -- When FFS is enabled for a level, specific service codes can have their own rates.
 -- These are applied to payroll_rates when a level is assigned to a provider.
+-- Codes not listed here fall back to the level's direct/indirect rate card.
 CREATE TABLE payroll_compensation_level_rates (
   id           INT AUTO_INCREMENT PRIMARY KEY,
   agency_id    INT           NOT NULL,
