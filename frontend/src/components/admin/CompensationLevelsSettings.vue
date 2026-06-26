@@ -106,6 +106,60 @@
                   </div>
                 </td>
               </tr>
+              <!-- FFS per-code rate editor — expands when FFS is toggled on -->
+              <tr v-if="draft[cat.id][lvl].hasFfs" class="cl-ffs-expand-row">
+                <td colspan="6" class="cl-ffs-expand-cell">
+                  <div class="cl-ffs-panel">
+                    <div class="cl-ffs-panel-head">
+                      <span class="cl-ffs-panel-title">Per-code FFS rates for Level {{ lvl }}</span>
+                      <span class="cl-ffs-panel-hint">These codes + rates are applied directly to the provider's rate sheet when you assign this level. Codes not listed here fall back to the rate card.</span>
+                    </div>
+                    <div class="cl-ffs-codes">
+                      <div
+                        v-for="(row, idx) in levelRates[`${cat.id}:${lvl}`] || []"
+                        :key="idx"
+                        class="cl-ffs-code-row"
+                      >
+                        <input
+                          v-model="row.serviceCode"
+                          type="text"
+                          class="cl-input cl-ffs-code-input"
+                          placeholder="Code (e.g. 90837)"
+                          maxlength="20"
+                        />
+                        <div class="cl-rate-input cl-ffs-rate">
+                          <span class="cl-prefix">$</span>
+                          <input
+                            v-model.number="row.rateAmount"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            class="cl-input cl-input--rate"
+                            placeholder="0.00"
+                          />
+                        </div>
+                        <select v-model="row.rateUnit" class="cl-ffs-unit-select">
+                          <option value="per_unit">per unit</option>
+                          <option value="per_hour">per hour</option>
+                          <option value="flat">flat</option>
+                        </select>
+                        <button
+                          type="button"
+                          class="cl-ffs-remove-btn"
+                          @click="removeFfsCode(cat.id, lvl, idx)"
+                          title="Remove"
+                        >✕</button>
+                      </div>
+                      <div v-if="!(levelRates[`${cat.id}:${lvl}`] || []).length" class="cl-ffs-empty">
+                        No per-code rates yet. Add one below.
+                      </div>
+                    </div>
+                    <button type="button" class="cl-ffs-add-btn" @click="addFfsCode(cat.id, lvl)">
+                      + Add service code
+                    </button>
+                  </div>
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -134,6 +188,18 @@ const error = ref('');
 const saveSuccess = ref(false);
 
 const categoryLabels = ref({ 1: '', 2: '', 3: '' });
+const levelRates = ref({}); // keyed "cat:level" → [{ serviceCode, rateAmount, rateUnit }]
+
+const addFfsCode = (cat, lvl) => {
+  const key = `${cat}:${lvl}`;
+  if (!levelRates.value[key]) levelRates.value[key] = [];
+  levelRates.value[key].push({ serviceCode: '', rateAmount: null, rateUnit: 'per_unit' });
+};
+
+const removeFfsCode = (cat, lvl, idx) => {
+  const key = `${cat}:${lvl}`;
+  levelRates.value[key]?.splice(idx, 1);
+};
 
 const makeDraft = () => {
   const d = {};
@@ -148,7 +214,7 @@ const makeDraft = () => {
 
 const draft = ref(makeDraft());
 
-const applyLevels = (levels, labels) => {
+const applyLevels = (levels, labels, rates) => {
   const next = makeDraft();
   for (const row of levels || []) {
     const cat = Number(row.category);
@@ -165,6 +231,7 @@ const applyLevels = (levels, labels) => {
   }
   draft.value = next;
   if (labels) categoryLabels.value = { 1: labels[1] || '', 2: labels[2] || '', 3: labels[3] || '' };
+  if (rates) levelRates.value = { ...rates };
 };
 
 const fetch = async () => {
@@ -173,7 +240,7 @@ const fetch = async () => {
   error.value = '';
   try {
     const res = await api.get('/payroll/compensation-levels', { params: { agencyId: props.agencyId } });
-    applyLevels(res.data?.levels || [], res.data?.categoryLabels || {});
+    applyLevels(res.data?.levels || [], res.data?.categoryLabels || {}, res.data?.levelRates || {});
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load compensation levels';
   } finally {
@@ -205,9 +272,10 @@ const saveAll = async () => {
     const res = await api.put('/payroll/compensation-levels', {
       agencyId: props.agencyId,
       levels,
-      categoryLabels: { ...categoryLabels.value }
+      categoryLabels: { ...categoryLabels.value },
+      levelRates: { ...levelRates.value }
     });
-    applyLevels(res.data?.levels || [], res.data?.categoryLabels || {});
+    applyLevels(res.data?.levels || [], res.data?.categoryLabels || {}, res.data?.levelRates || {});
     saveSuccess.value = true;
     setTimeout(() => { saveSuccess.value = false; }, 3000);
   } catch (e) {
@@ -459,4 +527,87 @@ watch(() => props.agencyId, () => fetch(), { immediate: true });
 .cl-toggle input:checked + .cl-toggle-slider::after {
   transform: translateX(14px);
 }
+
+/* FFS expansion panel */
+.cl-ffs-expand-row {
+  background: #f0fdf8;
+}
+.cl-ffs-expand-cell {
+  padding: 0 !important;
+  border-bottom: 2px solid #bbf7d0;
+}
+.cl-ffs-panel {
+  padding: 14px 16px 16px;
+}
+.cl-ffs-panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.cl-ffs-panel-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: #166534;
+}
+.cl-ffs-panel-hint {
+  font-size: 12px;
+  color: #4b7a5e;
+}
+.cl-ffs-codes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.cl-ffs-code-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cl-ffs-code-input {
+  width: 130px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+.cl-ffs-rate {
+  width: 130px;
+  flex-shrink: 0;
+}
+.cl-ffs-unit-select {
+  padding: 5px 6px;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  font-size: 12px;
+  background: #fff;
+}
+.cl-ffs-remove-btn {
+  padding: 4px 8px;
+  border: 1px solid #fca5a5;
+  border-radius: 4px;
+  background: none;
+  color: #ef4444;
+  font-size: 11px;
+  cursor: pointer;
+  line-height: 1;
+}
+.cl-ffs-remove-btn:hover { background: #fef2f2; }
+.cl-ffs-empty {
+  font-size: 12px;
+  color: #6b7280;
+  font-style: italic;
+}
+.cl-ffs-add-btn {
+  padding: 5px 12px;
+  border: 1px dashed #86efac;
+  border-radius: 6px;
+  background: none;
+  color: #166534;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.cl-ffs-add-btn:hover { background: #dcfce7; }
 </style>

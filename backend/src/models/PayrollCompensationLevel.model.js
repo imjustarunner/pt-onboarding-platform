@@ -120,6 +120,53 @@ const PayrollCompensationLevel = {
        ON DUPLICATE KEY UPDATE name = VALUES(name), updated_at = CURRENT_TIMESTAMP`,
       [agencyId, category, String(name || '').trim()]
     );
+  },
+
+  /** Return all per-code rates for an agency, keyed as { "cat:level": [{service_code, rate_amount, rate_unit}] } */
+  async getLevelRatesForAgency(agencyId) {
+    const [rows] = await pool.execute(
+      `SELECT category, level, service_code, rate_amount, rate_unit
+       FROM payroll_compensation_level_rates
+       WHERE agency_id = ?
+       ORDER BY category, level, service_code`,
+      [agencyId]
+    );
+    const map = {};
+    for (const r of rows) {
+      const key = `${r.category}:${r.level}`;
+      if (!map[key]) map[key] = [];
+      map[key].push({ serviceCode: r.service_code, rateAmount: Number(r.rate_amount), rateUnit: r.rate_unit });
+    }
+    return map;
+  },
+
+  /** Replace all per-code rates for a specific level */
+  async saveLevelRates(agencyId, category, level, codeRates) {
+    await pool.execute(
+      `DELETE FROM payroll_compensation_level_rates WHERE agency_id = ? AND category = ? AND level = ?`,
+      [agencyId, category, level]
+    );
+    for (const r of codeRates || []) {
+      const code = String(r.serviceCode || '').trim().toUpperCase();
+      if (!code) continue;
+      await pool.execute(
+        `INSERT INTO payroll_compensation_level_rates (agency_id, category, level, service_code, rate_amount, rate_unit)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [agencyId, category, level, code, Number(r.rateAmount || 0), r.rateUnit || 'per_unit']
+      );
+    }
+  },
+
+  /** Get per-code rates for a specific level */
+  async getLevelRates(agencyId, category, level) {
+    const [rows] = await pool.execute(
+      `SELECT service_code, rate_amount, rate_unit
+       FROM payroll_compensation_level_rates
+       WHERE agency_id = ? AND category = ? AND level = ?
+       ORDER BY service_code`,
+      [agencyId, category, level]
+    );
+    return rows.map((r) => ({ serviceCode: r.service_code, rateAmount: Number(r.rate_amount), rateUnit: r.rate_unit }));
   }
 };
 

@@ -1,5 +1,6 @@
 import PayrollCompensationLevel, { COMPENSATION_CATEGORIES, CATEGORY_IDS, LEVEL_IDS } from '../models/PayrollCompensationLevel.model.js';
 import PayrollRateCard from '../models/PayrollRateCard.model.js';
+import PayrollRate from '../models/PayrollRate.model.js';
 
 const requireAgencyId = (req, res) => {
   const id = parseInt(req.query.agencyId || req.body?.agencyId || '', 10);
@@ -12,11 +13,12 @@ export const listCompensationLevels = async (req, res, next) => {
   try {
     const agencyId = requireAgencyId(req, res);
     if (!agencyId) return;
-    const [levels, categoryLabels] = await Promise.all([
+    const [levels, categoryLabels, levelRates] = await Promise.all([
       PayrollCompensationLevel.listForAgency(agencyId),
-      PayrollCompensationLevel.getCategoryLabels(agencyId)
+      PayrollCompensationLevel.getCategoryLabels(agencyId),
+      PayrollCompensationLevel.getLevelRatesForAgency(agencyId)
     ]);
-    res.json({ levels, categoryLabels, categories: COMPENSATION_CATEGORIES });
+    res.json({ levels, categoryLabels, levelRates, categories: COMPENSATION_CATEGORIES });
   } catch (e) { next(e); }
 };
 
@@ -52,11 +54,25 @@ export const saveCompensationLevels = async (req, res, next) => {
       }
     }
 
-    const [updated, updatedLabels] = await Promise.all([
+    // Save per-code rates for each level (levelRates keyed as "cat:level" → array)
+    const { levelRates } = req.body;
+    if (levelRates && typeof levelRates === 'object') {
+      for (const cat of CATEGORY_IDS) {
+        for (const lvl of LEVEL_IDS) {
+          const key = `${cat}:${lvl}`;
+          if (Array.isArray(levelRates[key])) {
+            await PayrollCompensationLevel.saveLevelRates(agencyId, cat, lvl, levelRates[key]);
+          }
+        }
+      }
+    }
+
+    const [updated, updatedLabels, updatedLevelRates] = await Promise.all([
       PayrollCompensationLevel.listForAgency(agencyId),
-      PayrollCompensationLevel.getCategoryLabels(agencyId)
+      PayrollCompensationLevel.getCategoryLabels(agencyId),
+      PayrollCompensationLevel.getLevelRatesForAgency(agencyId)
     ]);
-    res.json({ levels: updated, categoryLabels: updatedLabels });
+    res.json({ levels: updated, categoryLabels: updatedLabels, levelRates: updatedLevelRates });
   } catch (e) { next(e); }
 };
 
@@ -91,7 +107,10 @@ export const assignUserCompensationLevel = async (req, res, next) => {
     await PayrollCompensationLevel.assignToUser(agencyId, userId, category, level, req.user?.id);
 
     if (applyRates) {
-      const def = await PayrollCompensationLevel.getLevel(agencyId, category, level);
+      const [def, codeRates] = await Promise.all([
+        PayrollCompensationLevel.getLevel(agencyId, category, level),
+        PayrollCompensationLevel.getLevelRates(agencyId, category, level)
+      ]);
       if (def && (def.direct_rate != null || def.indirect_rate != null)) {
         await PayrollRateCard.upsert({
           agencyId,
@@ -99,6 +118,16 @@ export const assignUserCompensationLevel = async (req, res, next) => {
           directRate: Number(def.direct_rate || 0),
           indirectRate: Number(def.indirect_rate || 0),
           updatedByUserId: req.user?.id
+        });
+      }
+      // Apply per-code (FFS) rates for this level
+      for (const r of codeRates) {
+        await PayrollRate.upsert({
+          agencyId,
+          userId,
+          serviceCode: r.serviceCode,
+          rateAmount: r.rateAmount,
+          rateUnit: r.rateUnit || 'per_unit'
         });
       }
     }
