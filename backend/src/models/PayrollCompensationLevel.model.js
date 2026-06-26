@@ -100,6 +100,26 @@ const PayrollCompensationLevel = {
       [agencyId, category, level]
     );
     return rows[0] || null;
+  },
+
+  /** Return { 1: 'Category 1', 2: 'Category 2', 3: 'Category 3' } merged with any agency overrides */
+  async getCategoryLabels(agencyId) {
+    const [rows] = await pool.execute(
+      `SELECT category, name FROM payroll_compensation_category_labels WHERE agency_id = ?`,
+      [agencyId]
+    );
+    const labels = { 1: '', 2: '', 3: '' };
+    for (const r of rows) labels[r.category] = r.name || '';
+    return labels;
+  },
+
+  async saveCategoryLabel(agencyId, category, name) {
+    await pool.execute(
+      `INSERT INTO payroll_compensation_category_labels (agency_id, category, name)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE name = VALUES(name), updated_at = CURRENT_TIMESTAMP`,
+      [agencyId, category, String(name || '').trim()]
+    );
   }
 };
 

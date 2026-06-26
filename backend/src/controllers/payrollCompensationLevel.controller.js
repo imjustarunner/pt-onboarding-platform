@@ -12,17 +12,23 @@ export const listCompensationLevels = async (req, res, next) => {
   try {
     const agencyId = requireAgencyId(req, res);
     if (!agencyId) return;
-    const levels = await PayrollCompensationLevel.listForAgency(agencyId);
-    res.json({ levels, categories: COMPENSATION_CATEGORIES });
+    const [levels, categoryLabels] = await Promise.all([
+      PayrollCompensationLevel.listForAgency(agencyId),
+      PayrollCompensationLevel.getCategoryLabels(agencyId)
+    ]);
+    res.json({ levels, categoryLabels, categories: COMPENSATION_CATEGORIES });
   } catch (e) { next(e); }
 };
 
-/** PUT /payroll/compensation-levels  body: { agencyId, levels: [{category,level,label,directRate,indirectRate,ffsRate,hasFfs}] } */
+/**
+ * PUT /payroll/compensation-levels
+ * body: { agencyId, levels: [{category,level,label,directRate,indirectRate,ffsRate,hasFfs}], categoryLabels?: {1:'',2:'',3:''} }
+ */
 export const saveCompensationLevels = async (req, res, next) => {
   try {
     const agencyId = requireAgencyId(req, res);
     if (!agencyId) return;
-    const { levels } = req.body;
+    const { levels, categoryLabels } = req.body;
     if (!Array.isArray(levels)) return res.status(400).json({ error: { message: 'levels array is required' } });
 
     for (const row of levels) {
@@ -37,8 +43,20 @@ export const saveCompensationLevels = async (req, res, next) => {
         hasFfs: !!row.hasFfs
       });
     }
-    const updated = await PayrollCompensationLevel.listForAgency(agencyId);
-    res.json({ levels: updated });
+
+    if (categoryLabels && typeof categoryLabels === 'object') {
+      for (const cat of CATEGORY_IDS) {
+        if (categoryLabels[cat] !== undefined) {
+          await PayrollCompensationLevel.saveCategoryLabel(agencyId, cat, categoryLabels[cat]);
+        }
+      }
+    }
+
+    const [updated, updatedLabels] = await Promise.all([
+      PayrollCompensationLevel.listForAgency(agencyId),
+      PayrollCompensationLevel.getCategoryLabels(agencyId)
+    ]);
+    res.json({ levels: updated, categoryLabels: updatedLabels });
   } catch (e) { next(e); }
 };
 

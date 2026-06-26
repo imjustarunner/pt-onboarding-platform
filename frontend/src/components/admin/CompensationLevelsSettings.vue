@@ -23,7 +23,13 @@
         <div class="cl-cat-header">
           <div class="cl-cat-badge">Category {{ cat.id }}</div>
           <div class="cl-cat-info">
-            <strong>{{ cat.label }}</strong>
+            <input
+              v-model="categoryLabels[cat.id]"
+              type="text"
+              class="cl-cat-name-input"
+              :placeholder="cat.description"
+              :title="`Custom name for Category ${cat.id}`"
+            />
             <span class="cl-cat-desc">{{ cat.description }}</span>
           </div>
         </div>
@@ -127,6 +133,8 @@ const saving = ref(false);
 const error = ref('');
 const saveSuccess = ref(false);
 
+const categoryLabels = ref({ 1: '', 2: '', 3: '' });
+
 const makeDraft = () => {
   const d = {};
   for (const cat of [1, 2, 3]) {
@@ -140,7 +148,7 @@ const makeDraft = () => {
 
 const draft = ref(makeDraft());
 
-const applyLevels = (levels) => {
+const applyLevels = (levels, labels) => {
   const next = makeDraft();
   for (const row of levels || []) {
     const cat = Number(row.category);
@@ -156,6 +164,7 @@ const applyLevels = (levels) => {
     }
   }
   draft.value = next;
+  if (labels) categoryLabels.value = { 1: labels[1] || '', 2: labels[2] || '', 3: labels[3] || '' };
 };
 
 const fetch = async () => {
@@ -164,7 +173,7 @@ const fetch = async () => {
   error.value = '';
   try {
     const res = await api.get('/payroll/compensation-levels', { params: { agencyId: props.agencyId } });
-    applyLevels(res.data?.levels || []);
+    applyLevels(res.data?.levels || [], res.data?.categoryLabels || {});
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load compensation levels';
   } finally {
@@ -193,8 +202,12 @@ const saveAll = async () => {
         });
       }
     }
-    const res = await api.put('/payroll/compensation-levels', { agencyId: props.agencyId, levels });
-    applyLevels(res.data?.levels || []);
+    const res = await api.put('/payroll/compensation-levels', {
+      agencyId: props.agencyId,
+      levels,
+      categoryLabels: { ...categoryLabels.value }
+    });
+    applyLevels(res.data?.levels || [], res.data?.categoryLabels || {});
     saveSuccess.value = true;
     setTimeout(() => { saveSuccess.value = false; }, 3000);
   } catch (e) {
@@ -279,14 +292,37 @@ watch(() => props.agencyId, () => fetch(), { immediate: true });
 .cl-cat-info {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 3px;
 }
-.cl-cat-info strong {
+.cl-cat-name-input {
   font-size: 14px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 3px 6px;
+  background: transparent;
+  color: #1e293b;
+  width: 300px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.cl-cat-name-input:hover {
+  border-color: #cbd5e1;
+  background: #fff;
+}
+.cl-cat-name-input:focus {
+  outline: none;
+  border-color: #2e5d50;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(46,93,80,0.1);
+}
+.cl-cat-name-input::placeholder {
+  color: #94a3b8;
+  font-weight: 400;
+  font-style: italic;
 }
 .cl-cat-desc {
   font-size: 12px;
-  color: var(--text-secondary, #6b7280);
+  color: #6b7280;
 }
 .cl-table-wrap {
   overflow-x: auto;
