@@ -65,7 +65,10 @@ const PayrollCompensationLevel = {
       `SELECT u.*, c.label, c.direct_rate, c.indirect_rate, c.ffs_rate, c.has_ffs
        FROM payroll_user_compensation_levels u
        LEFT JOIN payroll_compensation_levels c
-         ON c.agency_id = u.agency_id AND c.category = u.category AND c.level = u.level
+         ON c.agency_id = u.agency_id
+        AND c.category  = u.category
+        AND c.level     = u.level
+        AND u.bypass    = 0
        WHERE u.agency_id = ? AND u.user_id = ?
        LIMIT 1`,
       [agencyId, userId]
@@ -73,17 +76,23 @@ const PayrollCompensationLevel = {
     return rows[0] || null;
   },
 
-  async assignToUser(agencyId, userId, category, level, assignedByUserId) {
+  /**
+   * bypass=true → save category (and optional level) but do NOT apply rates.
+   * bypass=false → rates should be applied by the caller after this.
+   * level may be null when bypass=true and no specific level chosen yet.
+   */
+  async assignToUser(agencyId, userId, category, level, assignedByUserId, bypass = true) {
     await pool.execute(
       `INSERT INTO payroll_user_compensation_levels
-         (agency_id, user_id, category, level, assigned_by_user_id)
-       VALUES (?, ?, ?, ?, ?)
+         (agency_id, user_id, category, level, bypass, assigned_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          category            = VALUES(category),
          level               = VALUES(level),
+         bypass              = VALUES(bypass),
          assigned_by_user_id = VALUES(assigned_by_user_id),
          updated_at          = CURRENT_TIMESTAMP`,
-      [agencyId, userId, category, level, assignedByUserId || null]
+      [agencyId, userId, category, level ?? null, bypass ? 1 : 0, assignedByUserId || null]
     );
   },
 

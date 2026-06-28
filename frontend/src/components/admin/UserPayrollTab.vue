@@ -180,7 +180,7 @@
         </div>
 
         <div v-if="compLevelError" class="error-box" style="margin-top: 8px;">{{ compLevelError }}</div>
-        <div v-if="compLevelSaveSuccess" class="save-success" style="margin-top: 8px;">Level assigned and rates applied.</div>
+        <div v-if="compLevelSaveSuccess" class="save-success" style="margin-top: 8px;">Rates applied from compensation level.</div>
 
         <div v-if="compLevelLoading" class="muted" style="margin-top: 10px;">Loading…</div>
         <div v-else style="margin-top: 12px;">
@@ -189,36 +189,30 @@
             <div class="comp-level-badge">
               <span class="comp-level-cat">{{ COMP_CATEGORIES[currentCompLevel.category]?.label || `Category ${currentCompLevel.category}` }}</span>
               <span class="comp-level-sep">/</span>
-              <span class="comp-level-lbl">Compensation Level {{ currentCompLevel.level }}</span>
-              <span v-if="currentCompLevel.label" class="comp-level-name">{{ currentCompLevel.label }}</span>
+              <span v-if="currentCompLevel.bypass" class="comp-level-bypass-badge">Bypass</span>
+              <template v-else>
+                <span class="comp-level-lbl">Compensation Level {{ currentCompLevel.level }}</span>
+                <span v-if="currentCompLevel.label" class="comp-level-name">{{ currentCompLevel.label }}</span>
+              </template>
             </div>
-            <div class="comp-level-rates" v-if="currentCompLevel.direct_rate != null || currentCompLevel.indirect_rate != null">
+            <div class="comp-level-rates" v-if="!currentCompLevel.bypass && (currentCompLevel.direct_rate != null || currentCompLevel.indirect_rate != null)">
               <span v-if="currentCompLevel.direct_rate != null">Direct: <strong>${{ Number(currentCompLevel.direct_rate).toFixed(2) }}/hr</strong></span>
               <span v-if="currentCompLevel.indirect_rate != null">Indirect: <strong>${{ Number(currentCompLevel.indirect_rate).toFixed(2) }}/hr</strong></span>
               <span v-if="currentCompLevel.has_ffs && currentCompLevel.ffs_rate != null">FFS: <strong>${{ Number(currentCompLevel.ffs_rate).toFixed(2) }}/unit</strong></span>
             </div>
             <button class="btn btn-ghost btn-sm comp-level-remove" @click="removeCompLevel" :disabled="compLevelSaving" title="Remove level assignment">✕</button>
           </div>
-          <div v-else class="muted" style="font-size: 13px; margin-bottom: 12px;">No compensation level assigned.</div>
+          <div v-else class="muted" style="font-size: 13px; margin-bottom: 12px;">No category assigned — set in the Account tab.</div>
 
-          <!-- Assignment form -->
-          <div class="comp-level-assign-row">
-            <div class="field-inline">
-              <label>Category</label>
-              <select v-model.number="compLevelDraft.category">
-                <option :value="null">Select…</option>
-                <option v-for="(cat, key) in COMP_CATEGORIES" :key="key" :value="Number(key)">{{ cat.label }} — {{ cat.description }}</option>
-              </select>
-            </div>
-            <div class="field-inline">
-              <label>Level</label>
-              <select v-model.number="compLevelDraft.level" :disabled="!compLevelDraft.category">
-                <option :value="null">Select…</option>
-                <option v-for="n in 5" :key="n" :value="n">Compensation Level {{ n }}</option>
-              </select>
-            </div>
+          <!-- Bypass notice -->
+          <div v-if="currentCompLevel?.bypass" class="comp-bypass-notice">
+            <strong>Bypass active</strong> — This provider's existing rates are preserved. To apply level rates, update their level in the Account tab, then use Apply Rates below.
+          </div>
+
+          <!-- Apply Rates form (shown when a non-bypass level is assigned) -->
+          <div v-if="currentCompLevel && !currentCompLevel.bypass" class="comp-level-assign-row">
             <div class="field-inline comp-level-preview" v-if="previewCompLevel">
-              <label>Rates at this level</label>
+              <label>Rates at Level {{ currentCompLevel.level }}</label>
               <div class="comp-level-preview-rates">
                 <span v-if="previewCompLevel.direct_rate != null">Direct: <strong>${{ Number(previewCompLevel.direct_rate).toFixed(2) }}/hr</strong></span>
                 <span v-if="previewCompLevel.indirect_rate != null">Indirect: <strong>${{ Number(previewCompLevel.indirect_rate).toFixed(2) }}/hr</strong></span>
@@ -228,11 +222,14 @@
             </div>
             <button
               class="btn btn-primary btn-sm"
-              :disabled="!compLevelDraft.category || !compLevelDraft.level || compLevelSaving"
+              :disabled="compLevelSaving"
               @click="assignCompLevel"
             >
-              {{ compLevelSaving ? 'Saving…' : 'Assign & Apply Rates' }}
+              {{ compLevelSaving ? 'Applying…' : 'Apply Rates Now' }}
             </button>
+          </div>
+          <div v-else-if="!currentCompLevel" class="muted" style="font-size: 13px;">
+            Assign a category and level in the Account tab first.
           </div>
         </div>
       </div>
@@ -867,10 +864,10 @@ const compLevelError = ref('');
 const compLevelSaveSuccess = ref(false);
 const currentCompLevel = ref(null);
 const allCompLevels = ref([]);
-const compLevelDraft = ref({ category: null, level: null });
 
 const previewCompLevel = computed(() => {
-  const { category, level } = compLevelDraft.value;
+  if (!currentCompLevel.value || currentCompLevel.value.bypass) return null;
+  const { category, level } = currentCompLevel.value;
   if (!category || !level) return null;
   return allCompLevels.value.find((r) => r.category === category && r.level === level) || null;
 });
@@ -886,9 +883,6 @@ const fetchCompLevel = async () => {
     ]);
     currentCompLevel.value = assignRes.data?.assignment || null;
     allCompLevels.value = defsRes.data?.levels || [];
-    if (currentCompLevel.value) {
-      compLevelDraft.value = { category: currentCompLevel.value.category, level: currentCompLevel.value.level };
-    }
   } catch (e) {
     compLevelError.value = e.response?.data?.error?.message || 'Failed to load compensation level';
   } finally {
@@ -896,16 +890,19 @@ const fetchCompLevel = async () => {
   }
 };
 
+/** Apply rates from the currently-assigned level (bypass must be false). */
 const assignCompLevel = async () => {
-  if (!compLevelDraft.value.category || !compLevelDraft.value.level) return;
+  if (!currentCompLevel.value?.category || !currentCompLevel.value?.level) return;
+  if (currentCompLevel.value.bypass) return;
   compLevelSaving.value = true;
   compLevelError.value = '';
   compLevelSaveSuccess.value = false;
   try {
     const res = await api.post(`/payroll/users/${props.userId}/compensation-level`, {
       agencyId: selectedAgencyId.value,
-      category: compLevelDraft.value.category,
-      level: compLevelDraft.value.level,
+      category: currentCompLevel.value.category,
+      level: currentCompLevel.value.level,
+      bypass: false,
       applyRates: true
     });
     currentCompLevel.value = res.data?.assignment || null;
@@ -913,7 +910,7 @@ const assignCompLevel = async () => {
     setTimeout(() => { compLevelSaveSuccess.value = false; }, 3000);
     await loadComp();
   } catch (e) {
-    compLevelError.value = e.response?.data?.error?.message || 'Failed to assign compensation level';
+    compLevelError.value = e.response?.data?.error?.message || 'Failed to apply rates';
   } finally {
     compLevelSaving.value = false;
   }
@@ -2144,6 +2141,23 @@ input {
 }
 .comp-level-lbl {
   font-weight: 600;
+}
+.comp-level-bypass-badge {
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 999px;
+}
+.comp-bypass-notice {
+  font-size: 13px;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
 }
 .comp-level-name {
   color: #6b7280;

@@ -108,22 +108,22 @@ export const assignUserCompensationLevel = async (req, res, next) => {
   try {
     const userId = parseInt(req.params.userId, 10);
     const agencyId = parseInt(req.body.agencyId, 10);
+    const bypass = req.body.bypass !== false && req.body.bypass !== 'false'; // default true
     const category = parseInt(req.body.category, 10);
-    const level = parseInt(req.body.level, 10);
-    const applyRates = !!req.body.applyRates;
+    const levelRaw = req.body.level != null ? parseInt(req.body.level, 10) : null;
+    const level = LEVEL_IDS.includes(levelRaw) ? levelRaw : null;
+    const applyRates = !bypass && !!req.body.applyRates;
 
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     if (!CATEGORY_IDS.includes(category)) return res.status(400).json({ error: { message: 'Invalid category (must be 1-3)' } });
-    if (!LEVEL_IDS.includes(level)) return res.status(400).json({ error: { message: 'Invalid level (must be 1-5)' } });
 
-    await PayrollCompensationLevel.assignToUser(agencyId, userId, category, level, req.user?.id);
+    await PayrollCompensationLevel.assignToUser(agencyId, userId, category, level, req.user?.id, bypass);
 
-    if (applyRates) {
+    if (applyRates && level) {
       const [def, codeRates] = await Promise.all([
         PayrollCompensationLevel.getLevel(agencyId, category, level),
         PayrollCompensationLevel.getLevelRates(agencyId, category, level).catch(() => [])
       ]);
-      // Rate card (direct/indirect) is the fallback for any code without a per-code rate
       if (def && (def.direct_rate != null || def.indirect_rate != null)) {
         await PayrollRateCard.upsert({
           agencyId,
@@ -133,12 +133,10 @@ export const assignUserCompensationLevel = async (req, res, next) => {
           updatedByUserId: req.user?.id
         });
       }
-      // Per-code overrides (FFS) for the listed service codes
       for (const r of codeRates || []) {
         if (!r.serviceCode) continue;
         await PayrollRate.upsert({
-          agencyId,
-          userId,
+          agencyId, userId,
           serviceCode: r.serviceCode,
           rateAmount: r.rateAmount,
           rateUnit: r.rateUnit || 'per_unit'

@@ -262,6 +262,69 @@
             </div>
           </AccountDashboardCard>
 
+          <!-- Compensation Level -->
+          <AccountDashboardCard
+            section-id="compensation-level"
+            title="Compensation Level"
+            subtitle="Categorize this provider for payroll. Select Bypass to preserve their existing rates."
+            :can-edit="false"
+          >
+            <template #actions>
+              <button type="button" class="acct-btn acct-btn--ghost" @click="loadCompLevel" :disabled="compLoading">
+                {{ compLoading ? 'Loading…' : 'Refresh' }}
+              </button>
+            </template>
+
+            <div v-if="compError" class="comp-error">{{ compError }}</div>
+            <div v-if="compSuccess" class="comp-success">Saved.</div>
+
+            <div v-if="compLoading && !compAssignment" class="comp-muted">Loading…</div>
+
+            <!-- Current state badge -->
+            <div v-if="compAssignment" class="comp-badge-row">
+              <span class="comp-badge-cat">{{ compCategoryLabel(compAssignment.category) }}</span>
+              <span class="comp-badge-sep">/</span>
+              <span v-if="compAssignment.bypass" class="comp-badge-bypass">Bypass</span>
+              <span v-else class="comp-badge-level">
+                Level {{ compAssignment.level }}
+                <em v-if="compAssignment.label" class="comp-badge-name">— {{ compAssignment.label }}</em>
+              </span>
+            </div>
+            <div v-else-if="!compLoading" class="comp-muted">Not yet assigned — defaulting to Bypass.</div>
+
+            <!-- Assignment form -->
+            <div class="comp-form-row">
+              <div class="comp-field">
+                <label class="comp-label">Category</label>
+                <select v-model.number="compDraft.category" class="comp-select">
+                  <option :value="null">Select category…</option>
+                  <option v-for="(cat, key) in COMP_CATEGORIES" :key="key" :value="Number(key)">
+                    {{ compCategoryLabel(Number(key)) }} — {{ cat.description }}
+                  </option>
+                </select>
+              </div>
+              <div class="comp-field" v-if="compDraft.category">
+                <label class="comp-label">Level</label>
+                <select v-model="compDraft.levelKey" class="comp-select">
+                  <option value="bypass">Bypass — Keep existing rates</option>
+                  <option v-for="n in 5" :key="n" :value="String(n)">Compensation Level {{ n }}</option>
+                </select>
+              </div>
+              <button
+                v-if="compDraft.category"
+                type="button"
+                class="acct-btn acct-btn--primary comp-save-btn"
+                :disabled="compSaving"
+                @click="saveCompLevel"
+              >
+                {{ compSaving ? 'Saving…' : 'Save Assignment' }}
+              </button>
+            </div>
+            <p v-if="compDraft.levelKey !== 'bypass' && compDraft.category" class="comp-hint">
+              Rates for this level are applied from the Payroll tab.
+            </p>
+          </AccountDashboardCard>
+
           <!-- Service & Availability -->
           <AccountDashboardCard
             section-id="service-availability"
@@ -559,6 +622,7 @@ const navItems = computed(() => [
   { id: 'professional-details', label: 'Professional Details' },
   { id: 'home-address', label: 'Home Address' },
   { id: 'licenses', label: 'Licenses & Certifications' },
+  { id: 'compensation-level', label: 'Compensation Level' },
   { id: 'service-availability', label: 'Service & Availability' },
   { id: 'supervisor-assignments', label: 'Supervisor Assignments' },
   { id: 'agency-assignments', label: 'Agency Assignments' },
@@ -621,9 +685,119 @@ const loadClinicalFields = async () => {
 
 onMounted(loadClinicalFields);
 watch(() => ctx.userId?.value ?? ctx.userId, loadClinicalFields);
+
+// ── Compensation Level ────────────────────────────────────────────────────────
+const COMP_CATEGORIES = {
+  1: { label: 'Category 1', description: 'Bachelors, Interns, QBHA & Peer Professionals' },
+  2: { label: 'Category 2', description: 'Pre-licensed & Unlicensed Masters Level' },
+  3: { label: 'Category 3', description: 'Licensed Professionals' }
+};
+
+const compAssignment = ref(null);
+const compAllLevels  = ref([]);
+const compCatLabels  = ref({});
+const compLoading    = ref(false);
+const compSaving     = ref(false);
+const compError      = ref('');
+const compSuccess    = ref(false);
+const compDraft      = ref({ category: null, levelKey: 'bypass' });
+
+const compCategoryLabel = (cat) => {
+  if (!cat) return '';
+  return compCatLabels.value[cat] || COMP_CATEGORIES[cat]?.label || `Category ${cat}`;
+};
+
+const loadCompLevel = async () => {
+  const uid = ctx.userId?.value ?? ctx.userId;
+  const aid = ctx.agencyId?.value ?? ctx.agencyId;
+  if (!uid || !aid || !ctx.api) return;
+  compLoading.value = true;
+  compError.value = '';
+  try {
+    const [assignRes, defsRes] = await Promise.all([
+      ctx.api.get(`/payroll/users/${uid}/compensation-level`, { params: { agencyId: aid }, skipGlobalLoading: true }),
+      ctx.api.get('/payroll/compensation-levels', { params: { agencyId: aid }, skipGlobalLoading: true })
+    ]);
+    compAssignment.value = assignRes.data?.assignment || null;
+    compAllLevels.value  = defsRes.data?.levels || [];
+    // Build category label map
+    const labels = {};
+    (defsRes.data?.categoryLabels || []).forEach((cl) => {
+      if (cl.label) labels[cl.category] = cl.label;
+    });
+    compCatLabels.value = labels;
+    // Seed draft from current assignment (or default to bypass)
+    if (compAssignment.value) {
+      compDraft.value = {
+        category: compAssignment.value.category,
+        levelKey: compAssignment.value.bypass ? 'bypass' : String(compAssignment.value.level ?? 'bypass')
+      };
+    } else {
+      compDraft.value = { category: null, levelKey: 'bypass' };
+    }
+  } catch (e) {
+    compError.value = e.response?.data?.error?.message || 'Failed to load compensation level';
+  } finally {
+    compLoading.value = false;
+  }
+};
+
+const saveCompLevel = async () => {
+  const uid = ctx.userId?.value ?? ctx.userId;
+  const aid = ctx.agencyId?.value ?? ctx.agencyId;
+  if (!uid || !aid || !compDraft.value.category) return;
+  compSaving.value = true;
+  compError.value = '';
+  compSuccess.value = false;
+  const bypass = compDraft.value.levelKey === 'bypass';
+  const level  = bypass ? null : parseInt(compDraft.value.levelKey, 10);
+  try {
+    const res = await ctx.api.post(`/payroll/users/${uid}/compensation-level`, {
+      agencyId: aid,
+      category: compDraft.value.category,
+      level,
+      bypass,
+      applyRates: false
+    });
+    compAssignment.value = res.data?.assignment || null;
+    compSuccess.value = true;
+    setTimeout(() => { compSuccess.value = false; }, 3000);
+  } catch (e) {
+    compError.value = e.response?.data?.error?.message || 'Failed to save assignment';
+  } finally {
+    compSaving.value = false;
+  }
+};
+
+const compUserId = computed(() => ctx.userId?.value ?? ctx.userId);
+const compAgencyId = computed(() => ctx.agencyId?.value ?? ctx.agencyId);
+
+watch([compUserId, compAgencyId], ([uid, aid]) => {
+  if (uid && aid) loadCompLevel();
+}, { immediate: true });
 </script>
 
 <style scoped>
+/* ── Compensation Level card ─────────────────────────── */
+.comp-muted    { font-size: 13px; color: #64748b; margin-bottom: 10px; }
+.comp-error    { font-size: 13px; color: #dc2626; background: #fef2f2; border-radius: 6px; padding: 6px 10px; margin-bottom: 10px; }
+.comp-success  { font-size: 13px; color: #065f46; background: #d1fae5; border-radius: 6px; padding: 6px 10px; margin-bottom: 10px; }
+.comp-hint     { font-size: 12px; color: #94a3b8; margin: 6px 0 0; }
+
+.comp-badge-row  { display: flex; align-items: center; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+.comp-badge-cat  { background: #e0e7ff; color: #3730a3; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
+.comp-badge-sep  { color: #94a3b8; font-size: 14px; }
+.comp-badge-level { font-size: 13px; font-weight: 600; color: #0f172a; }
+.comp-badge-bypass { background: #f1f5f9; color: #475569; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
+.comp-badge-name  { font-weight: 400; color: #64748b; }
+
+.comp-form-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.comp-field    { display: flex; flex-direction: column; gap: 4px; min-width: 180px; flex: 1; }
+.comp-label    { font-size: 12px; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: .04em; }
+.comp-select   { border: 1px solid #e2e8f0; border-radius: 8px; padding: 7px 10px; font-size: 13px; color: #0f172a; background: #f8fafc; outline: none; }
+.comp-select:focus { border-color: #2e5d50; background: #fff; }
+.comp-save-btn { flex-shrink: 0; align-self: flex-end; }
+
 .acct-dashboard {
   --acct-green: #2e5d50;
   --acct-bg: #f3f4f6;

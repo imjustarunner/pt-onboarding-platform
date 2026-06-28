@@ -6266,6 +6266,7 @@ const getStatusBadgeClass = (status, isActive = true) => {
 provide(USER_ACCOUNT_CONTEXT_KEY, {
   user,
   userId,
+  agencyId: computed(() => agencyStore.currentAgency?.id),
   accountForm,
   saving,
   canEditUser,
