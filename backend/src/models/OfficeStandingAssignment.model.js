@@ -37,12 +37,13 @@ class OfficeStandingAssignment {
       if (e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062) {
         // An inactive row already exists for this exact slot (same room/provider/weekday/hour/frequency).
         // Reactivate it with fresh settings rather than failing.
-        const [[existing]] = await pool.execute(
+        const [dupRows] = await pool.execute(
           `SELECT id FROM office_standing_assignments
            WHERE room_id = ? AND provider_id = ? AND weekday = ? AND hour = ? AND assigned_frequency = ?
            LIMIT 1`,
           [roomId, providerId, weekday, hour, assignedFrequency]
         );
+        const existing = dupRows?.[0] || null;
         if (!existing?.id) throw e;
         await pool.execute(
           `UPDATE office_standing_assignments
@@ -71,12 +72,13 @@ class OfficeStandingAssignment {
         );
       } catch (insErr) {
         if (insErr?.code === 'ER_DUP_ENTRY' || insErr?.errno === 1062) {
-          const [[existing]] = await pool.execute(
+          const [dupRows] = await pool.execute(
             `SELECT id FROM office_standing_assignments
              WHERE room_id = ? AND provider_id = ? AND weekday = ? AND hour = ? AND assigned_frequency = ?
              LIMIT 1`,
             [roomId, providerId, weekday, hour, assignedFrequency]
           );
+          const existing = dupRows?.[0] || null;
           if (!existing?.id) throw insErr;
           await pool.execute(
             `UPDATE office_standing_assignments

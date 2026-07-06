@@ -2834,21 +2834,32 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       const finalHour = Number(endHour !== null ? endHour : hour + 1);
 
       // Pre-flight scan: classify each hour of each weekday before creating anything.
-      // - Same provider already owns the slot → ALIGN it to this block's settings (frequency,
-      //   recurrence group, availability window) so a re-book of "11–4 weekly" makes the whole
-      //   block consistent instead of leaving fragmented older slots (some biweekly, different
-      //   anchors) that only render on some weeks. Its booking plan frequency is aligned too.
-      // - Different provider owns it → real conflict (unless their slot was already released).
       const existingToAlign = new Map(); // 'weekday:hour' → existing assignment row
       for (const weekday of recurrenceWeekdays) {
         for (let h = startHour; h < finalHour; h++) {
           // eslint-disable-next-line no-await-in-loop
-          const existingStanding = await OfficeStandingAssignment.findActiveBySlot({
+          let existingStanding = await OfficeStandingAssignment.findActiveBySlot({
             officeLocationId,
             roomId,
             weekday,
             hour: h
           });
+          if (!existingStanding?.id) {
+            // Inactive row for the same provider still blocks INSERT (unique slot key).
+            // Find it early so we realign/reactivate instead of surfacing a raw DB error.
+            // eslint-disable-next-line no-await-in-loop
+            const ownInactive = await OfficeStandingAssignment.findAnyBySlotProviderFrequency({
+              officeLocationId,
+              roomId,
+              providerId: assignedUserId,
+              weekday,
+              hour: h,
+              assignedFrequency
+            });
+            if (ownInactive?.id && !ownInactive.is_active) {
+              existingStanding = ownInactive;
+            }
+          }
           if (existingStanding?.id) {
             // Same provider already holds this slot → align it instead of failing/skipping.
             if (Number(existingStanding.provider_id) === Number(assignedUserId)) {
@@ -2887,6 +2898,7 @@ export const staffAssignOpenSlot = async (req, res, next) => {
             // Realign the provider's existing slot to this block so the whole 11–4 range is uniform.
             // eslint-disable-next-line no-await-in-loop
             const aligned = await OfficeStandingAssignment.update(existing.id, {
+              is_active: true,
               assigned_frequency: assignedFrequency,
               recurrence_group_id: recurrenceGroupId,
               available_since_date: date,
