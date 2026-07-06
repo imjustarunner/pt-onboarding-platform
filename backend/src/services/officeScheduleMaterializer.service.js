@@ -213,11 +213,15 @@ export class OfficeScheduleMaterializer {
     if (!officeId || !weekStart) return { ok: false, reason: 'invalid_args' };
     const key = `${officeId}|${weekStart}`;
     const now = Date.now();
+    let cacheHit = false;
     // `force` bypasses the short-lived read cache so a freshly created/updated assignment
     // always materializes, even if this week was rendered (and cached) seconds earlier.
     if (!force) {
       const recent = materializeRecent.get(key);
-      if (recent && (now - recent.at) < MATERIALIZE_RECENT_MS) return recent.value;
+      if (recent && (now - recent.at) < MATERIALIZE_RECENT_MS) {
+        cacheHit = true;
+        return recent.value;
+      }
     }
     // Always de-dupe concurrent runs for the same week.
     if (materializeInFlight.has(key)) return materializeInFlight.get(key);
@@ -226,6 +230,8 @@ export class OfficeScheduleMaterializer {
       const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
       const windowStart = `${weekStart} 00:00:00`;
       const windowEnd = `${addDays(weekStart, 7)} 00:00:00`;
+      let upsertedCount = 0;
+      let cancelledCount = 0;
 
       // Standing assignments + booking plans are the source of truth for assigned_* states.
       const standing = await OfficeStandingAssignment.listByOffice(officeId);
@@ -283,6 +289,7 @@ export class OfficeScheduleMaterializer {
                 endAt,
                 standingAssignmentId: a.id
               });
+              cancelledCount += 1;
             }
             continue; // Skip upsert - slot is open
           }
@@ -309,12 +316,22 @@ export class OfficeScheduleMaterializer {
             recurrenceGroupId: a.recurrence_group_id || null,
             assignedProviderId: a.provider_id,
             bookedProviderId: desiredBookedProviderId || null,
-            createdByUserId: uid || 1
+            createdByUserId: uid || 1,
+            replaceCancelled: true
           });
+          upsertedCount += 1;
         }
       }
 
-      return { ok: true, officeLocationId: officeId, weekStart, days };
+      console.info('[materializeWeek]', JSON.stringify({
+        officeLocationId: officeId,
+        weekStart,
+        cacheHit,
+        upsertedCount,
+        cancelledCount
+      }));
+
+      return { ok: true, officeLocationId: officeId, weekStart, days, upsertedCount, cancelledCount, cacheHit };
     })();
 
     materializeInFlight.set(key, runner);

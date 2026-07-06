@@ -194,16 +194,15 @@ export class ProviderAvailabilityService {
         const officeIds = (officeRows || [])
           .map((r) => Number(r.office_location_id))
           .filter((n) => Number.isInteger(n) && n > 0);
-        const materializeWeekAnchors = [weekStart, addDaysYmd(weekStart, 6)];
+        const materializeWeekStart = OfficeScheduleMaterializer.startOfWeekMonday(weekStart) || weekStart;
         for (const officeLocationId of officeIds) {
-          for (const anchor of materializeWeekAnchors) {
-            // eslint-disable-next-line no-await-in-loop
-            await OfficeScheduleMaterializer.materializeWeek({
-              officeLocationId,
-              weekStartRaw: anchor,
-              createdByUserId: pid
-            });
-          }
+          // eslint-disable-next-line no-await-in-loop
+          await OfficeScheduleMaterializer.materializeWeek({
+            officeLocationId,
+            weekStartRaw: materializeWeekStart,
+            createdByUserId: pid,
+            useExactWeekStart: true
+          });
         }
       } catch (e) {
         if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;

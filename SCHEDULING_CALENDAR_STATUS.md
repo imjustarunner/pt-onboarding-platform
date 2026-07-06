@@ -1,7 +1,46 @@
 # Scheduling & Calendar System — Status Tracker
 
 > **Living document.** Updated after each development session.
-> Last updated: June 16, 2026
+> Last updated: July 6, 2026
+
+---
+
+## Phase 1 Stabilization (July 2026)
+
+Fixes for reports of bookings appearing then disappearing, and recurring slots only showing for one week.
+
+### Changes shipped
+
+| Area | Fix |
+|------|-----|
+| `getWeeklyGrid` | Awaits `materializeWeek` before reading events (eliminates read-then-mutate race) |
+| Materializer | Passes `replaceCancelled: true` when rematerializing standing assignments |
+| Recurring approval | `invalidateOffice` + 12-week materialization after `approveOfficeBookingRequest` |
+| Write paths | `invalidateOffice` on booking-plan, recurrence, keep-available, extend-temporary |
+| Watchdog | `force: true` materialization before stale cleanup; 48h guard on stale deactivation |
+| Week anchors | `useExactWeekStart: true` on schedule-summary and provider-availability materializers |
+| Frontend | Office mutations always invalidate 90s schedule-summary cache + force refresh |
+| Frontend | Office grid stale-while-revalidate (no blank flash on reload) |
+| Logging | `[getWeeklyGrid]`, `[materializeWeek]`, `[watchdog]` structured logs |
+
+### Manual verification checklist
+
+| Scenario | Expected |
+|----------|----------|
+| Staff assigns recurring block (e.g. 11–4 weekly) | All hours visible immediately; persist after refresh |
+| Admin approves recurring office request | Weeks 2–12 populated without navigating each week |
+| Book assigned slot (once + recurring) | Stays visible after refresh; no revert after 90s |
+| Biweekly booking on off-week | Slot open on off-week, booked on on-week — consistent across refreshes |
+| Load grid twice within 15s | Same data both times (no flicker/vanish) |
+| Watchdog run after new assignment | Assignment not deactivated within 48h of creation |
+
+### Deferred to Phase 2
+
+- Retire `office_room_assignments` write path
+- Unify legacy vs canonical approval onto shared `validateOfficeSlotSeries`
+- Fix MONTHLY recurrence semantics
+- Move integrity auto-cancel off GET diagnostics
+- Full dual-pipeline consolidation
 
 ---
 

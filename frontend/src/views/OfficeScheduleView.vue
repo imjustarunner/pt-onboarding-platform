@@ -33,10 +33,10 @@
 
     <div v-if="!officeId" class="muted">Select a building above to view the schedule.</div>
     <div v-else-if="error" class="error-box">{{ error }}</div>
-    <div v-else-if="loading" class="loading">Loading…</div>
+    <div v-else-if="loading && !grid" class="loading">Loading…</div>
     <div v-if="successToast" class="success-toast">{{ successToast }}</div>
 
-    <div v-else-if="grid" class="grid-wrap" data-tour="buildings-schedule-gridwrap">
+    <div v-if="grid" class="grid-wrap" data-tour="buildings-schedule-gridwrap">
       <div class="legend" data-tour="buildings-schedule-legend">
         <div class="legend-item"><span class="dot open"></span> Open</div>
         <div class="legend-item"><span class="dot assigned_available"></span> Assigned available</div>
@@ -1102,8 +1102,9 @@ const goToPreviousWeek = async () => {
 
 const loadGrid = async () => {
   if (!officeId.value) return;
+  const hadGrid = !!grid.value;
   try {
-    loading.value = true;
+    if (!hadGrid) loading.value = true;
     error.value = '';
     const normalizedWeekStart = startOfWeekForMode(weekStart.value, weekStartMode.value);
     weekStart.value = normalizedWeekStart;
@@ -2487,7 +2488,6 @@ const purgeFutureBookedSlot = async () => {
 };
 
 watch(() => officeId.value, async () => {
-  grid.value = null;
   await loadGrid();
   if (canManageSchedule.value) await loadProviders();
 }, { immediate: true });

@@ -21,6 +21,9 @@ export async function deactivateStaleStandingAssignments() {
      LEFT JOIN office_booking_plans bp
        ON bp.standing_assignment_id = sa.id AND bp.is_active = TRUE
      WHERE sa.is_active = TRUE
+       AND (sa.available_since_date IS NULL OR sa.available_since_date < DATE_SUB(CURDATE(), INTERVAL 2 DAY))
+       AND (sa.updated_at IS NULL OR sa.updated_at < DATE_SUB(NOW(), INTERVAL 48 HOUR))
+       AND (sa.last_two_week_confirmed_at IS NULL OR sa.last_two_week_confirmed_at < DATE_SUB(NOW(), INTERVAL 48 HOUR))
        AND (
          (sa.temporary_until_date IS NOT NULL AND sa.temporary_until_date < CURDATE())
          OR (

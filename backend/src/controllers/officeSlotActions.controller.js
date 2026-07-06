@@ -605,6 +605,8 @@ export const setBookingPlan = async (req, res, next) => {
       createdByUserId: req.user.id
     });
 
+    OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
+
     // When booking, availability is still considered assigned_available unless temporarily set;
     // the materializer will mark occurrences as booked.
     // Clear last_forfeit_warning_at so the warning clock resets now that a booking plan exists.
@@ -683,6 +685,15 @@ export const setAssignmentRecurrence = async (req, res, next) => {
       last_two_week_confirmed_at: new Date()
     });
 
+    OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
+    const bookingStartDate = String(assignment.available_since_date || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    materializeOfficeWeeks({
+      officeLocationId,
+      startDateYmd: bookingStartDate,
+      createdByUserId: req.user.id,
+      weeks: 4
+    }).catch(() => {});
+
     return res.json({ ok: true, recurrenceFrequency, standingAssignment: updated });
   } catch (e) {
     next(e);
@@ -717,6 +728,13 @@ export const keepAvailable = async (req, res, next) => {
       last_two_week_confirmed_at: new Date(),
       last_forfeit_warning_at: null
     });
+    OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
+    materializeOfficeWeeks({
+      officeLocationId,
+      startDateYmd: String(assignment.available_since_date || new Date().toISOString().slice(0, 10)).slice(0, 10),
+      createdByUserId: req.user.id,
+      weeks: 4
+    }).catch(() => {});
     res.json({ ok: true });
   } catch (e) {
     next(e);
@@ -752,6 +770,13 @@ export const setTemporary = async (req, res, next) => {
       temporary_until_date: untilDate,
       last_two_week_confirmed_at: new Date()
     });
+    OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
+    materializeOfficeWeeks({
+      officeLocationId,
+      startDateYmd: untilDate,
+      createdByUserId: req.user.id,
+      weeks: 4
+    }).catch(() => {});
     res.json({ ok: true, temporaryUntilDate: untilDate });
   } catch (e) {
     next(e);
@@ -801,6 +826,13 @@ export const extendTemporary = async (req, res, next) => {
       last_two_week_confirmed_at: new Date(),
       last_forfeit_warning_at: null
     });
+    OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
+    materializeOfficeWeeks({
+      officeLocationId,
+      startDateYmd: untilDate,
+      createdByUserId: req.user.id,
+      weeks: 4
+    }).catch(() => {});
     res.json({ ok: true, temporaryUntilDate: untilDate, extensionCount: extCount + 1 });
   } catch (e) {
     next(e);

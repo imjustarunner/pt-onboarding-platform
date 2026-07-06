@@ -440,9 +440,9 @@
         Select an office above to view the room-by-room weekly layout.
       </div>
       <div v-else-if="officeGridError" class="error" style="margin-top: 10px;">{{ officeGridError }}</div>
-      <div v-else-if="officeGridLoading" class="loading" style="margin-top: 10px;">Loading office availability…</div>
+      <div v-else-if="officeGridLoading && !officeGrid" class="loading" style="margin-top: 10px;">Loading office availability…</div>
       <OfficeWeeklyRoomGrid
-        v-else
+        v-else-if="officeGrid"
         :office-grid="officeGrid"
         :today-ymd="todayLocalYmd"
         :can-book="canBookFromGrid"
@@ -6104,8 +6104,9 @@ const loadSelectedOfficeGrid = async () => {
     officeGridError.value = '';
     return;
   }
+  const hadGrid = !!officeGrid.value;
   try {
-    officeGridLoading.value = true;
+    if (!hadGrid) officeGridLoading.value = true;
     officeGridError.value = '';
     const r = await api.get(`/office-schedule/locations/${id}/weekly-grid`, {
       params: { weekStart: weekStart.value },
@@ -6113,7 +6114,7 @@ const loadSelectedOfficeGrid = async () => {
     });
     officeGrid.value = r.data || null;
   } catch (e) {
-    officeGrid.value = null;
+    if (!hadGrid) officeGrid.value = null;
     officeGridError.value = e.response?.data?.error?.message || 'Failed to load office availability';
   } finally {
     officeGridLoading.value = false;
@@ -6510,7 +6511,11 @@ const submitOfficeAssign = async () => {
       endHour: officeAssignEndHour.value
     });
     closeOfficeAssignModal();
-    await load();
+    invalidateScheduleSummaryCacheForUser(props.userId);
+    await Promise.all([
+      load({ forceRefresh: true }),
+      ...(Number(selectedOfficeLocationId.value || 0) > 0 ? [loadSelectedOfficeGrid()] : [])
+    ]);
   } catch (e) {
     officeAssignError.value = e.response?.data?.error?.message || e.message || 'Failed to assign slot';
   } finally {
@@ -6793,6 +6798,7 @@ const submitRequest = async () => {
     let createdScheduleEvents = [];
     let refreshInBackground = false;
     let forceRefreshSummary = false;
+    let needsOfficeRefresh = false;
 
     const dn = modalDay.value;
     const h = Number(effectiveModalStartHour.value || modalHour.value);
@@ -6823,6 +6829,7 @@ const submitRequest = async () => {
         });
       }
       refreshInBackground = true;
+      needsOfficeRefresh = true;
     } else if (requestType.value === 'cancel_booking') {
       const ctx = modalContext.value || {};
       const locId = Number(ctx.officeLocationId || selectedOfficeLocationId.value || 0);
@@ -6840,6 +6847,7 @@ const submitRequest = async () => {
         });
       }
       refreshInBackground = true;
+      needsOfficeRefresh = true;
     } else if (isScheduleEventRequestType.value) {
       const uid = Number(props.userId || authStore.user?.id || 0);
       if (!uid) throw new Error('Provider is required.');
@@ -6996,6 +7004,7 @@ const submitRequest = async () => {
           });
         }
         refreshInBackground = true;
+        needsOfficeRefresh = true;
       } else {
         for (const ctx of contexts) {
           const standingAssignmentId = Number(ctx?.standingAssignmentId || 0);
@@ -7039,6 +7048,7 @@ const submitRequest = async () => {
           throw new Error('Office booking requires an assigned slot occurrence. Use Office request for request workflow.');
         }
         refreshInBackground = true;
+        needsOfficeRefresh = true;
       }
     } else if (requestType.value === 'individual_session' || requestType.value === 'group_session') {
       const officeId = Number(selectedOfficeLocationId.value || 0);
@@ -7360,7 +7370,14 @@ const submitRequest = async () => {
 
     closeModal();
     clearSelectedActionSlots();
-    if (refreshInBackground) {
+    if (needsOfficeRefresh) {
+      invalidateScheduleSummaryCacheForUser(props.userId);
+      const tasks = [load({ forceRefresh: true })];
+      if (Number(selectedOfficeLocationId.value || 0) > 0) {
+        tasks.push(loadSelectedOfficeGrid());
+      }
+      await Promise.all(tasks);
+    } else if (refreshInBackground) {
       const current = summary.value && typeof summary.value === 'object' ? summary.value : null;
       if (current) {
         const mapped = createdScheduleEvents.map((ev) => ({

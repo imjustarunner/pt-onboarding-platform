@@ -27,6 +27,22 @@ const canManageSchedule = (role) =>
 const DELETE_EVENT_REQUEST_TYPE = 'DELETE_EVENT';
 const DROP_ASSIGNMENT_REQUEST_TYPE = 'DROP_ASSIGNMENT';
 
+async function materializeOfficeWeeks({ officeLocationId, startDateYmd, createdByUserId, weeks = 12 }) {
+  const startWeek = OfficeScheduleMaterializer.startOfWeekMonday(startDateYmd);
+  if (!startWeek) return;
+  for (let i = 0; i < weeks; i++) {
+    const ws = OfficeScheduleMaterializer.addDays(startWeek, i * 7);
+    // eslint-disable-next-line no-await-in-loop
+    await OfficeScheduleMaterializer.materializeWeek({
+      officeLocationId,
+      weekStartRaw: ws,
+      createdByUserId,
+      useExactWeekStart: true,
+      force: true
+    });
+  }
+}
+
 function parseJsonSafely(value) {
   if (!value) return null;
   if (typeof value === 'object') return value;
@@ -904,19 +920,26 @@ export const getWeeklyGrid = async (req, res, next) => {
     const rooms = await OfficeRoom.findByLocation(parseInt(locationId));
 
     // Materialize office_events rows for assigned slots in this week (so kiosk has stable event IDs).
-    // Fire-and-forget: run in the background so the grid responds immediately from existing DB rows.
-    // The next page refresh (or automatic 15-second cache expiry) picks up any newly materialized events.
-    OfficeScheduleMaterializer.materializeWeek({
-      officeLocationId: parseInt(locationId),
-      weekStartRaw: weekStart,
-      useExactWeekStart: true,
-      createdByUserId: req.user.id
-    }).catch((materializeErr) => {
-      console.warn('[getWeeklyGrid] background materializeWeek failed:', materializeErr?.message || materializeErr);
-    });
+    // Must complete before reading events — otherwise the response can include rows that background
+    // materialization immediately cancels, causing bookings to appear then vanish on refresh.
+    try {
+      await OfficeScheduleMaterializer.materializeWeek({
+        officeLocationId: parseInt(locationId),
+        weekStartRaw: weekStart,
+        useExactWeekStart: true,
+        createdByUserId: req.user.id
+      });
+    } catch (materializeErr) {
+      console.warn('[getWeeklyGrid] materializeWeek failed (DB hiccup?); loading existing events:', materializeErr?.message || materializeErr);
+    }
 
     const officeLocationIdNum = parseInt(locationId);
     const events = await OfficeEvent.listForOfficeWindow({ officeLocationId: officeLocationIdNum, startAt: windowStart, endAt: windowEnd });
+    console.info('[getWeeklyGrid]', JSON.stringify({
+      locationId: officeLocationIdNum,
+      weekStart,
+      eventCount: (events || []).length
+    }));
     const learningByOfficeEventId = new Map();
     try {
       const eventIds = (events || []).map((e) => Number(e.id)).filter((n) => Number.isInteger(n) && n > 0);
@@ -2749,16 +2772,15 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
         bookedOccurrenceCount: reqOccurrenceCount,
         createdByUserId: req.user.id
       });
-      try {
-        await OfficeScheduleMaterializer.materializeWeek({
-          officeLocationId: loc.id,
-          weekStartRaw: OfficeScheduleMaterializer.startOfWeekMonday(String(reqRow.start_at || '').slice(0, 10)),
-          createdByUserId: req.user.id,
-          useExactWeekStart: true
-        });
-      } catch {
-        // best-effort immediate materialization
-      }
+      OfficeScheduleMaterializer.invalidateOffice(loc.id);
+      materializeOfficeWeeks({
+        officeLocationId: loc.id,
+        startDateYmd: String(reqRow.start_at || '').slice(0, 10),
+        createdByUserId: req.user.id,
+        weeks: 12
+      }).catch((e) => {
+        console.warn('[approveOfficeBookingRequest] background materializeOfficeWeeks failed:', e?.message || e);
+      });
     }
 
     const updatedReq = await OfficeBookingRequest.markDecided({

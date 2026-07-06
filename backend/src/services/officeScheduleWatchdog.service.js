@@ -46,7 +46,8 @@ export class OfficeScheduleWatchdogService {
             officeLocationId,
             weekStartRaw: ws,
             createdByUserId: 1,
-            useExactWeekStart: true
+            useExactWeekStart: true,
+            force: true
           });
           materialized++;
         } catch (e) {
@@ -479,6 +480,11 @@ export class OfficeScheduleWatchdogService {
       icsCoverageAudit = { ok: false, reason: 'exception', error: String(e?.message || e) };
     }
 
+    console.info('[watchdog]', JSON.stringify({
+      staleDeactivatedCount: Number(staleAssignmentCleanup?.assignmentsDeactivated || 0),
+      inactiveCancelledCount: Number(inactiveCleanup?.eventsCancel || 0)
+    }));
+
     return {
       ok: true,
       staleAssignmentCleanup,
@@ -489,7 +495,11 @@ export class OfficeScheduleWatchdogService {
       forfeits,
       inactiveCleanup,
       googleSync,
-      icsCoverageAudit
+      icsCoverageAudit,
+      log: {
+        staleDeactivatedCount: Number(staleAssignmentCleanup?.assignmentsDeactivated || 0),
+        inactiveCancelledCount: Number(inactiveCleanup?.eventsCancel || 0)
+      }
     };
   }
 

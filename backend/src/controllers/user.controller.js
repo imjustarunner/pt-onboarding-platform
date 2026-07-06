@@ -3422,8 +3422,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
         try {
           await OfficeScheduleMaterializer.materializeWeek({
             officeLocationId,
-            weekStartRaw: weekStart,
-            createdByUserId: req.user.id
+            weekStartRaw: OfficeScheduleMaterializer.startOfWeekMonday(weekStart) || weekStart,
+            createdByUserId: req.user.id,
+            useExactWeekStart: true
           });
         } catch {
           // ignore
