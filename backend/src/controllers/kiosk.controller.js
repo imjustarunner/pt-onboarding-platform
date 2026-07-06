@@ -1,5 +1,5 @@
 import OfficeLocation from '../models/OfficeLocation.model.js';
-import OfficeRoomAssignment from '../models/OfficeRoomAssignment.model.js';
+import { listProvidersAtLocationOnDate } from '../services/officeProviderLocation.service.js';
 import User from '../models/User.model.js';
 import KioskModel from '../models/Kiosk.model.js';
 import OfficeLocationAgency from '../models/OfficeLocationAgency.model.js';
@@ -397,24 +397,14 @@ export const listKioskProviders = async (req, res, next) => {
     if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
 
     const d = date ? new Date(`${date}T00:00:00`) : new Date();
-    const startAt = new Date(d); startAt.setHours(0, 0, 0, 0);
-    const endAt = new Date(d); endAt.setHours(23, 59, 59, 999);
+    const dateYmd = d.toISOString().slice(0, 10);
 
-    const assignments = await OfficeRoomAssignment.findAssignmentsForLocationWindow({
+    const providers = await listProvidersAtLocationOnDate({
       locationId: parseInt(locationId),
-      startAt: startAt.toISOString(),
-      endAt: endAt.toISOString()
+      dateYmd
     });
 
-    const uniqueProviders = new Map();
-    for (const a of assignments) {
-      uniqueProviders.set(a.assigned_user_id, {
-        id: a.assigned_user_id,
-        displayName: `${a.first_name} ${(a.last_name || '').slice(0, 1)}.`.trim()
-      });
-    }
-
-    res.json(Array.from(uniqueProviders.values()).sort((a, b) => a.displayName.localeCompare(b.displayName)));
+    res.json(providers.sort((a, b) => a.displayName.localeCompare(b.displayName)));
   } catch (e) {
     next(e);
   }

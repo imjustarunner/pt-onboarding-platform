@@ -13,6 +13,11 @@ import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
 import { syncOfficeEventsToGoogleBestEffort } from '../services/providerAssignmentGoogleSync.service.js';
 import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.service.js';
+import {
+  materializeOfficeWeeks,
+  assignOneTimeOfficeBlock,
+  cleanupOrphanLegacyAssignment
+} from '../services/officeAssignmentOrchestrator.service.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 import { validateSchedulingSelection } from '../services/schedulingTaxonomy.service.js';
 import { ensureAppointmentContext } from '../services/appointmentContext.service.js';
@@ -543,25 +548,6 @@ async function cancelFutureEventsForStandingAssignment(standingAssignmentId, fro
   );
   await cancelGoogleForOfficeEventIds(eventIds);
   return eventIds;
-}
-
-async function materializeOfficeWeeks({ officeLocationId, startDateYmd, createdByUserId, weeks = 4 }) {
-  // Use Monday anchor so cache keys match the grid's Mon–Sun view.
-  const startWeek = OfficeScheduleMaterializer.startOfWeekMonday(startDateYmd);
-  if (!startWeek) return;
-  for (let i = 0; i < weeks; i++) {
-    const weekStart = OfficeScheduleMaterializer.addDays(startWeek, i * 7);
-    // eslint-disable-next-line no-await-in-loop
-    await OfficeScheduleMaterializer.materializeWeek({
-      officeLocationId,
-      weekStartRaw: weekStart,
-      createdByUserId,
-      useExactWeekStart: true,
-      // Force a fresh pass: this runs right after creating/updating assignments, so the
-      // short-lived materialize cache (populated by a grid view seconds ago) must not skip it.
-      force: true
-    });
-  }
 }
 
 export const setBookingPlan = async (req, res, next) => {
@@ -2787,34 +2773,25 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       });
     }
 
-    // Avoid double-booking a room. Block if ANY assignment/event overlaps the requested window.
+    // Avoid double-booking: check live events; clean up orphan legacy assignment rows if present.
     try {
-      const [aRows] = await pool.execute(
-        `SELECT id
-         FROM office_room_assignments
-         WHERE room_id = ?
-           AND start_at < ?
-           AND (end_at IS NULL OR end_at > ?)
-         LIMIT 1`,
-        [roomId, endAt, startAt]
-      );
-      if ((aRows || []).length) {
-        const legacyAssignmentId = Number(aRows[0]?.id || 0);
-        const [activeEventRows] = await pool.execute(
-          `SELECT 1
-           FROM office_events
+      const cleanedLegacy = await cleanupOrphanLegacyAssignment({
+        roomId,
+        startAt,
+        endAt,
+        assignedUserId
+      });
+      if (!cleanedLegacy) {
+        const [aRows] = await pool.execute(
+          `SELECT id
+           FROM office_room_assignments
            WHERE room_id = ?
              AND start_at < ?
-             AND end_at > ?
-             AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
-             AND (assigned_provider_id IS NULL OR assigned_provider_id <> ?)
-             AND (booked_provider_id   IS NULL OR booked_provider_id   <> ?)
+             AND (end_at IS NULL OR end_at > ?)
            LIMIT 1`,
-          [roomId, endAt, startAt, assignedUserId, assignedUserId]
+          [roomId, endAt, startAt]
         );
-        if (!(activeEventRows || []).length && legacyAssignmentId) {
-          await pool.execute(`DELETE FROM office_room_assignments WHERE id = ?`, [legacyAssignmentId]);
-        } else {
+        if ((aRows || []).length) {
           return res.status(409).json({ error: { message: 'That office is already assigned during this time.' } });
         }
       }
@@ -3033,53 +3010,17 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       });
     }
 
-    const assignment = await OfficeRoomAssignment.create({
-      roomId,
-      assignedUserId,
-      assignmentType: 'ONE_TIME',
-      startAt,
-      endAt,
-      sourceRequestId: null,
-      createdByUserId: req.user.id
-    });
-
-    // Create one hourly office_event per assigned hour so each occurrence can be booked individually.
-    // Keep assignment row for legacy paths that still read office_room_assignments.
-    const createdEvents = [];
-    try {
-      const startHour = Number(hour);
-      const finalHour = Number(endHour !== null ? endHour : hour + 1);
-      for (let h = startHour; h < finalHour; h++) {
-        const slotStartAt = mysqlDateTimeForDateHour(date, h);
-        const slotEndAt = mysqlDateTimeForDateHour(date, h + 1);
-        // eslint-disable-next-line no-await-in-loop
-        const event = await OfficeEvent.upsertSlotState({
-          officeLocationId,
-          roomId,
-          startAt: slotStartAt,
-          endAt: slotEndAt,
-          slotState: 'ASSIGNED_AVAILABLE',
-          standingAssignmentId: null,
-          bookingPlanId: null,
-          assignedProviderId: assignedUserId,
-          bookedProviderId: null,
-          createdByUserId: req.user.id,
-          replaceCancelled: true
-        });
-        if (event?.id) createdEvents.push(event);
-      }
-    } catch (e) {
-      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
-    }
-
-    OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
-
-    materializeOfficeWeeks({
+    // One-time assign uses temporary standing assignments (same pipeline as recurring).
+    const { standingAssignments, events: createdEvents } = await assignOneTimeOfficeBlock({
       officeLocationId,
-      startDateYmd: date,
+      roomId,
+      providerId: assignedUserId,
+      dateYmd: date,
+      startHour,
+      endHour: finalHour,
       createdByUserId: req.user.id,
-      weeks: 1
-    }).catch((e) => console.warn('[officeSlotActions] one-time materialize failed:', e?.message || e));
+      markBooked: false
+    });
 
     const createdEventIds = createdEvents.map((e) => Number(e?.id || 0)).filter((n) => n > 0);
     syncOfficeEventsToGoogleBestEffort(createdEventIds).catch(() => {});
@@ -3087,7 +3028,7 @@ export const staffAssignOpenSlot = async (req, res, next) => {
     res.json({
       ok: true,
       lifecycle: 'canonical_open_slots_assign',
-      assignment,
+      standingAssignments,
       events: createdEvents,
       diagnostics: {
         officeLocationId,
@@ -3095,9 +3036,9 @@ export const staffAssignOpenSlot = async (req, res, next) => {
         assignedUserId,
         date,
         hour,
-        endHour: endHour !== null ? endHour : (hour + 1),
-        assignmentId: Number(assignment?.id || 0) || null,
-        createdEventIds: createdEvents.map((e) => Number(e?.id || 0)).filter((n) => n > 0)
+        endHour: finalHour,
+        standingAssignmentIds: standingAssignments.map((s) => Number(s?.id || 0)).filter((n) => n > 0),
+        createdEventIds
       }
     });
   } catch (e) {

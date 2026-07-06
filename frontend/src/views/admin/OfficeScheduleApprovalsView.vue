@@ -4,6 +4,20 @@
       <div>
         <h2>Office booking approvals</h2>
         <p class="subtitle">Review booking context, room timelines, conflicts, and release requests before deciding.</p>
+        <div class="queue-tabs">
+          <button type="button" class="queue-tab" :class="{ active: queueTab === 'booking' }" @click="switchTab('booking')">
+            Booking requests
+            <span v-if="queueSummary.booking" class="tab-count">{{ queueSummary.booking }}</span>
+          </button>
+          <button type="button" class="queue-tab" :class="{ active: queueTab === 'intake' }" @click="switchTab('intake')">
+            Availability intake
+            <span v-if="queueSummary.intake" class="tab-count">{{ queueSummary.intake }}</span>
+          </button>
+          <button type="button" class="queue-tab" :class="{ active: queueTab === 'legacy' }" @click="switchTab('legacy')">
+            Legacy room requests
+            <span v-if="queueSummary.legacy" class="tab-count">{{ queueSummary.legacy }}</span>
+          </button>
+        </div>
       </div>
       <div class="header-actions">
         <router-link to="/admin/booking-conflict-resolver" class="btn btn-secondary">Conflict resolver</router-link>
@@ -14,9 +28,46 @@
     <div v-if="error" class="error-box">{{ error }}</div>
     <div v-if="loading" class="loading">Loading...</div>
 
-    <div v-else-if="requests.length === 0" class="card empty">No pending requests.</div>
+    <div v-else-if="queueTab === 'booking' && requests.length === 0" class="card empty">No pending booking requests.</div>
 
-    <div v-else class="workspace">
+    <div v-else-if="queueTab === 'intake' && intakeRequests.length === 0" class="card empty">No pending availability intake requests.</div>
+
+    <div v-else-if="queueTab === 'intake'" class="intake-list card">
+      <div v-for="r in intakeRequests" :key="`intake-${r.id}`" class="intake-row">
+        <div>
+          <div class="queue-main">{{ r.providerName }}</div>
+          <div class="queue-meta">
+            {{ r.requestedFrequency || 'ONCE' }}
+            <template v-if="r.requestedFrequency && r.requestedFrequency !== 'ONCE'"> × {{ r.requestedOccurrenceCount }}</template>
+            · starting {{ formatDate(r.requestedStartDate) }}
+          </div>
+          <div class="queue-meta">
+            <span v-for="(s, idx) in r.slots" :key="idx" class="chip">
+              {{ weekdayLabel(s.weekday) }} {{ hourLabel(s.startHour) }}–{{ hourLabel(s.endHour) }}
+            </span>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-sm" @click="openIntakeModal(r)">Review</button>
+      </div>
+    </div>
+
+    <div v-else-if="queueTab === 'legacy' && legacyRequests.length === 0" class="card empty">No pending legacy room requests.</div>
+
+    <div v-else-if="queueTab === 'legacy'" class="intake-list card">
+      <div v-for="r in legacyRequests" :key="`legacy-${r.id}`" class="intake-row">
+        <div>
+          <div class="queue-main">{{ r.user_first_name }} {{ r.user_last_name }}</div>
+          <div class="queue-meta">{{ r.location_name }} · {{ r.room_label || r.room_name }}</div>
+          <div class="queue-meta">{{ formatDateTime(r.start_at) }} – {{ formatTime(r.end_at) }}</div>
+        </div>
+        <div class="row-inline">
+          <button class="btn btn-primary btn-sm" @click="approveLegacy(r)" :disabled="actingId === r.id">Approve</button>
+          <button class="btn btn-secondary btn-sm" @click="denyLegacy(r)" :disabled="actingId === r.id">Deny</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-else-if="queueTab === 'booking'" class="workspace">
       <aside class="queue card">
         <div class="queue-title">Pending requests</div>
         <button
@@ -156,6 +207,15 @@
         </section>
       </main>
     </div>
+
+    <OfficeRequestAssignModal
+      :visible="intakeModalVisible"
+      :request-id="intakeModalRequestId"
+      :agency-id="intakeModalAgencyId"
+      @close="closeIntakeModal"
+      @assigned="onIntakeResolved"
+      @denied="onIntakeResolved"
+    />
   </div>
 </template>
 
@@ -164,16 +224,34 @@ import { computed, onMounted, ref } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useRouter } from 'vue-router';
+import OfficeRequestAssignModal from '../../components/admin/OfficeRequestAssignModal.vue';
 
 const authStore = useAuthStore();
 const router = useRouter();
 
 const loading = ref(true);
 const error = ref('');
+const queueTab = ref('booking');
+const queueSummary = ref({ booking: 0, intake: 0, legacy: 0, total: 0 });
 const requests = ref([]);
+const intakeRequests = ref([]);
+const legacyRequests = ref([]);
 const selectedId = ref(null);
 const actingId = ref(null);
 const approverComment = ref('');
+const intakeModalVisible = ref(false);
+const intakeModalRequestId = ref(null);
+const intakeModalAgencyId = ref(null);
+
+const weekdayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const weekdayLabel = (wd) => weekdayNames[Number(wd)] || `Day ${wd}`;
+const hourLabel = (h) => {
+  const n = Number(h);
+  if (!Number.isFinite(n)) return '';
+  const suffix = n >= 12 ? 'PM' : 'AM';
+  const hour12 = n % 12 === 0 ? 12 : n % 12;
+  return `${hour12}:00 ${suffix}`;
+};
 
 const selected = computed(() => requests.value.find((r) => Number(r.id) === Number(selectedId.value)) || requests.value[0] || null);
 
@@ -281,8 +359,16 @@ const load = async () => {
   try {
     loading.value = true;
     error.value = '';
-    const resp = await api.get('/office-schedule/booking-requests/pending?includeContext=1');
-    requests.value = resp.data || [];
+    const [summaryResp, bookingResp, intakeResp, legacyResp] = await Promise.all([
+      api.get('/office-schedule/admin/pending-queue-summary'),
+      api.get('/office-schedule/booking-requests/pending?includeContext=1'),
+      api.get('/office-schedule/admin/pending-intake-requests'),
+      api.get('/office-schedule/requests/pending')
+    ]);
+    queueSummary.value = summaryResp.data || { booking: 0, intake: 0, legacy: 0, total: 0 };
+    requests.value = bookingResp.data || [];
+    intakeRequests.value = intakeResp.data || [];
+    legacyRequests.value = legacyResp.data || [];
     if (!selectedId.value && requests.value.length) selectedId.value = requests.value[0].id;
     if (selectedId.value && !requests.value.some((r) => Number(r.id) === Number(selectedId.value))) {
       selectedId.value = requests.value[0]?.id || null;
@@ -291,6 +377,51 @@ const load = async () => {
     error.value = e.response?.data?.error?.message || 'Failed to load requests';
   } finally {
     loading.value = false;
+  }
+};
+
+const switchTab = (tab) => {
+  queueTab.value = tab;
+};
+
+const openIntakeModal = (r) => {
+  intakeModalRequestId.value = Number(r.id);
+  intakeModalAgencyId.value = Number(r.agencyId);
+  intakeModalVisible.value = true;
+};
+
+const closeIntakeModal = () => {
+  intakeModalVisible.value = false;
+  intakeModalRequestId.value = null;
+  intakeModalAgencyId.value = null;
+};
+
+const onIntakeResolved = async () => {
+  closeIntakeModal();
+  await load();
+};
+
+const approveLegacy = async (r) => {
+  try {
+    actingId.value = r.id;
+    await api.post(`/office-schedule/requests/${r.id}/approve`);
+    await load();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to approve legacy request';
+  } finally {
+    actingId.value = null;
+  }
+};
+
+const denyLegacy = async (r) => {
+  try {
+    actingId.value = r.id;
+    await api.post(`/office-schedule/requests/${r.id}/deny`);
+    await load();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to deny legacy request';
+  } finally {
+    actingId.value = null;
   }
 };
 
@@ -342,6 +473,48 @@ onMounted(async () => {
   margin-bottom: 14px;
 }
 .header-actions { display: flex; gap: 8px; align-items: center; }
+.queue-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.queue-tab {
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.queue-tab.active { background: #eef4ff; border-color: #9db7ff; }
+.tab-count {
+  display: inline-flex;
+  min-width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #334155;
+  color: #fff;
+  font-size: 11px;
+  margin-left: 6px;
+  padding: 0 5px;
+}
+.intake-list { display: flex; flex-direction: column; gap: 10px; }
+.intake-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+}
+.intake-row:last-child { border-bottom: none; padding-bottom: 0; }
+.row-inline { display: flex; gap: 8px; align-items: center; }
+.chip {
+  display: inline-block;
+  background: #f1f5f9;
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-right: 6px;
+  font-size: 12px;
+}
 .subtitle { color: var(--text-secondary); margin: 6px 0 0 0; }
 .card {
   background: white;

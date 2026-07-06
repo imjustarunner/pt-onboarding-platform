@@ -57,6 +57,7 @@ import AdpPayrollService from '../services/adpPayroll.service.js';
 import StorageService from '../services/storage.service.js';
 import { GoogleDriveService } from '../services/googleDrive.service.js';
 import { accruePrelicensedSupervisionFromPayroll } from '../services/supervision.service.js';
+import { resolvePrimaryOfficeForUser } from '../services/officeProviderLocation.service.js';
 import { getUserCompensationForAgency } from '../models/PayrollCompensation.service.js';
 import { getAgencyMedcancelPolicy, upsertAgencyMedcancelPolicy } from '../services/payrollMedcancelPolicy.service.js';
 import { getAgencyHolidayPayPolicy, upsertAgencyHolidayPayPolicy } from '../services/payrollHolidayPolicy.service.js';
@@ -18690,42 +18691,10 @@ async function buildDashboardSummaryPayload(userId, resolvedAgencyId) {
       supervisor = null;
     }
 
-    // Primary office address: resolve from office_room_assignments -> office_rooms -> office_locations.
+    // Primary office address: standing assignments (canonical), legacy assignment fallback, then agency.
     let office = null;
     try {
-      const [rows] = await pool.execute(
-        `SELECT
-            ol.id AS locationId,
-            ol.name AS locationName,
-            ol.street_address AS streetAddress,
-            ol.city AS city,
-            ol.state AS state,
-            ol.postal_code AS postalCode
-         FROM office_room_assignments ora
-         JOIN office_rooms orr ON orr.id = ora.room_id
-         JOIN office_locations ol ON ol.id = orr.location_id
-         WHERE ora.assigned_user_id = ?
-           AND ol.agency_id = ?
-           AND (
-             ora.assignment_type = 'PERMANENT'
-             OR (ora.start_at <= NOW() AND (ora.end_at IS NULL OR ora.end_at >= NOW()))
-           )
-         ORDER BY (ora.assignment_type = 'PERMANENT') DESC, ora.start_at DESC, ora.id DESC
-         LIMIT 1`,
-        [userId, resolvedAgencyId]
-      );
-      const r = rows?.[0] || null;
-      if (r) {
-        office = {
-          source: 'office_location',
-          locationId: Number(r.locationId || 0),
-          name: r.locationName || null,
-          streetAddress: r.streetAddress || null,
-          city: r.city || null,
-          state: r.state || null,
-          postalCode: r.postalCode || null
-        };
-      }
+      office = await resolvePrimaryOfficeForUser({ userId, agencyId: resolvedAgencyId });
     } catch {
       office = null;
     }

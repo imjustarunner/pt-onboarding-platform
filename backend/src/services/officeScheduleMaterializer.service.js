@@ -1,6 +1,7 @@
 import OfficeStandingAssignment from '../models/OfficeStandingAssignment.model.js';
 import OfficeBookingPlan from '../models/OfficeBookingPlan.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
+import { dayDiffYmd } from './officeSlotSeries.service.js';
 
 function parseYmdParts(dateStr) {
   const raw = String(dateStr || '').slice(0, 10);
@@ -138,8 +139,10 @@ export function shouldBookOnDate(plan, assignment, dateStr) {
   }
 
   if (plan.booked_frequency === 'MONTHLY') {
-    // Caller handles month de-dupe if needed; for Stage1 we mirror all ASSIGNED_BOOKED.
-    return true;
+    // Monthly cadence: every 28 days from booking_start_date (aligned with officeSlotSeries).
+    const diffDays = dayDiffYmd(start, dateStr);
+    if (!Number.isFinite(diffDays) || diffDays < 0) return false;
+    return diffDays % 28 === 0;
   }
 
   return false;

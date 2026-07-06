@@ -26,13 +26,19 @@
       <strong>{{ cleanupResult.assignmentsDeactivated }} standing assignment{{ cleanupResult.assignmentsDeactivated === 1 ? '' : 's' }} deactivated</strong>.
       <button class="dismiss-btn" @click="cleanupResult = null">✕</button>
     </div>
+    <div v-if="autoResolvedSummary" class="cleanup-result-box">
+      Auto-resolved duplicate integrity issues —
+      <strong>{{ autoResolvedSummary.events }} duplicate event{{ autoResolvedSummary.events === 1 ? '' : 's' }} cancelled</strong>,
+      <strong>{{ autoResolvedSummary.standingAssignments }} duplicate standing assignment{{ autoResolvedSummary.standingAssignments === 1 ? '' : 's' }} deactivated</strong>.
+      <button class="dismiss-btn" @click="autoResolvedSummary = null">✕</button>
+    </div>
     <div v-if="error" class="error-box">{{ error }}</div>
     <div v-else-if="loading" class="loading">Loading…</div>
 
     <div v-if="!loading && diagnostics" class="card diagnostic-banner">
       <div>
         <strong>Integrity diagnostics</strong>
-        <div class="muted">Checks duplicate room/time events, duplicate active standing assignments, and providers booked in multiple rooms.</div>
+        <div class="muted">Checks duplicate room/time events, duplicate active standing assignments, and providers booked in multiple rooms. Same-provider duplicates are auto-resolved on refresh.</div>
       </div>
       <div class="diagnostic-stats">
         <span class="diag-pill" :class="{ bad: diagnostics.summary?.duplicateActiveEvents }">
@@ -292,6 +298,7 @@ const loading = ref(true);
 const error   = ref('');
 const conflicts = ref([]);
 const diagnostics = ref(null);
+const autoResolvedSummary = ref(null);
 const actingKey = ref(null);
 const actingEventId = ref(null);
 const actingAssignId = ref(null);
@@ -344,12 +351,24 @@ const load = async () => {
   try {
     loading.value = true;
     error.value   = '';
+    let autoResolveResult = null;
+    try {
+      const autoResp = await api.post('/office-schedule/admin/integrity-diagnostics/auto-resolve');
+      autoResolveResult = autoResp.data?.autoResolved || null;
+    } catch {
+      // Non-blocking: diagnostics scan still runs if auto-resolve fails
+    }
     const [conflictResp, diagnosticResp] = await Promise.all([
       api.get('/office-schedule/admin/slot-conflicts'),
       api.get('/office-schedule/admin/integrity-diagnostics')
     ]);
     conflicts.value = conflictResp.data?.conflicts || [];
     diagnostics.value = diagnosticResp.data || null;
+    if (autoResolveResult && (autoResolveResult.events > 0 || autoResolveResult.standingAssignments > 0)) {
+      autoResolvedSummary.value = autoResolveResult;
+    } else {
+      autoResolvedSummary.value = null;
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load conflicts';
   } finally {

@@ -256,10 +256,23 @@ async function validateOfficeSlotSeries({
   return { ok: true };
 }
 
+function dayDiffYmd(startYmd, endYmd) {
+  const s = normalizeYmd(startYmd);
+  const e = normalizeYmd(endYmd);
+  if (!s || !e) return NaN;
+  const sm = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const em = e.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!sm || !em) return NaN;
+  const sMs = Date.UTC(Number(sm[1]), Number(sm[2]) - 1, Number(sm[3]));
+  const eMs = Date.UTC(Number(em[1]), Number(em[2]) - 1, Number(em[3]));
+  return Math.floor((eMs - sMs) / 86400000);
+}
+
 export {
   normalizeYmd,
   toYmd,
   addDays,
+  dayDiffYmd,
   normalizeOfficeRequestRecurrence,
   stepDaysForRecurrence,
   recurrenceLabel,

@@ -12,8 +12,8 @@ import Notification from '../models/Notification.model.js';
 import { isPublicProviderFinderFeatureEnabled } from '../services/publicAvailabilityGate.service.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.service.js';
+import { upsertBookingPlanAndMaterialize } from '../services/officeAssignmentOrchestrator.service.js';
 import * as officeSlotSeriesService from '../services/officeSlotSeries.service.js';
-import OfficeBookingPlan from '../models/OfficeBookingPlan.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
 import { syncOfficeEventsToGoogleBestEffort } from '../services/providerAssignmentGoogleSync.service.js';
 import { directIndirectRatioKindFromRatio } from '../utils/directIndirectRatioBands.js';
@@ -2642,55 +2642,35 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
     // previously missing from the legacy approval path.
     try {
       if (assignmentId) {
-        // Map the recurrence to the booking plan's booked_frequency.
-        // Monthly is approximated as weekly cadence across the occurrence window.
         const bookingFreq = recurrenceName === 'BIWEEKLY' ? 'BIWEEKLY'
-          : recurrenceName === 'MONTHLY' ? 'WEEKLY'
-          : 'WEEKLY';
-        await OfficeBookingPlan.upsertActive({
+          : recurrenceName === 'MONTHLY' ? 'MONTHLY'
+            : 'WEEKLY';
+        const materializeWeeks = recurrenceName === 'BIWEEKLY' ? 12
+          : recurrenceName === 'MONTHLY' ? Math.min(52, requestOccurrenceCount * 5)
+            : 6;
+        await upsertBookingPlanAndMaterialize({
           standingAssignmentId: assignmentId,
+          officeLocationId: officeId,
           bookedFrequency: bookingFreq,
           bookingStartDate: requestStartDate,
           activeUntilDate: untilDate,
           bookedOccurrenceCount: requestOccurrenceCount,
           createdByUserId: req.user.id,
-          bookingOrigin: 'user'
+          bookingOrigin: 'user',
+          materializeWeeks
         });
-        // Materialize 6 weeks starting from the request start date so the approved
-        // bookings are immediately visible without waiting for the next cron or grid load.
-        // Use Monday anchor + useExactWeekStart so cache keys align with the grid.
-        const materializeWeeks = recurrenceName === 'BIWEEKLY' ? 12 : 6;
-        const startWeek = OfficeScheduleMaterializer.startOfWeekMonday(requestStartDate);
-        if (startWeek) {
-          OfficeScheduleMaterializer.invalidateOffice(officeId);
-          for (let i = 0; i < materializeWeeks; i++) {
-            const weekStart = OfficeScheduleMaterializer.addDays(startWeek, i * 7);
-            try {
-              await OfficeScheduleMaterializer.materializeWeek({
-                officeLocationId: officeId,
-                weekStartRaw: weekStart,
-                createdByUserId: req.user.id,
-                useExactWeekStart: true,
-                force: true
-              });
-            } catch {
-              // Non-critical; grid load will re-materialize on next view
-            }
-          }
-          // Mirror newly booked slots to Google Calendar (provider + room resource).
-          const [syncRows] = await pool.execute(
-            `SELECT id
-             FROM office_events
-             WHERE standing_assignment_id = ?
-               AND start_at >= ?
-               AND UPPER(COALESCE(slot_state, '')) = 'ASSIGNED_BOOKED'
-               AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
-            [assignmentId, `${requestStartDate} 00:00:00`]
-          );
-          const eventIds = (syncRows || []).map((r) => Number(r.id)).filter((n) => n > 0);
-          if (eventIds.length) {
-            syncOfficeEventsToGoogleBestEffort(eventIds).catch(() => {});
-          }
+        const [syncRows] = await pool.execute(
+          `SELECT id
+           FROM office_events
+           WHERE standing_assignment_id = ?
+             AND start_at >= ?
+             AND UPPER(COALESCE(slot_state, '')) = 'ASSIGNED_BOOKED'
+             AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
+          [assignmentId, `${requestStartDate} 00:00:00`]
+        );
+        const eventIds = (syncRows || []).map((r) => Number(r.id)).filter((n) => n > 0);
+        if (eventIds.length) {
+          syncOfficeEventsToGoogleBestEffort(eventIds).catch(() => {});
         }
       }
     } catch (planErr) {

@@ -36,11 +36,95 @@ Fixes for reports of bookings appearing then disappearing, and recurring slots o
 
 ### Deferred to Phase 2
 
-- Retire `office_room_assignments` write path
-- Unify legacy vs canonical approval onto shared `validateOfficeSlotSeries`
-- Fix MONTHLY recurrence semantics
-- Move integrity auto-cancel off GET diagnostics
-- Full dual-pipeline consolidation
+- ~~Retire `office_room_assignments` write path~~ → **Done (Phase 2a)**
+- ~~Unify legacy vs canonical approval onto shared materialization service~~ → **Done (Phase 2a)**
+- ~~Fix MONTHLY recurrence semantics~~ → **Done (Phase 2b)**
+- ~~Move integrity auto-cancel off GET diagnostics~~ → **Done (Phase 2b)**
+- ~~Consolidate three request queues into one UI~~ → **Done (Phase 2b — unified approvals tabs)**
+- Retire legacy `office_room_assignments` reads (payroll/kiosk still use for historical data) → **Done (Phase 2c)** — canonical reads with legacy fallback in `officeProviderLocation.service.js`
+
+### Phase 2c — Payroll & kiosk reads (July 2026)
+
+| Area | Fix |
+|------|-----|
+| `officeProviderLocation.service.js` | `resolvePrimaryOfficeForUser` (standing → legacy fallback); `listProvidersAtLocationOnDate` (from `office_events`) |
+| Payroll primary office | Reads active standing assignments first |
+| Kiosk provider list | Reads materialized `office_events` for the date (not `office_room_assignments`) |
+
+---
+
+## Phase 2b — Integrity, MONTHLY, Unified Queue (July 2026)
+
+### Changes shipped
+
+| Area | Fix |
+|------|-----|
+| `officeScheduleIntegrity.service.js` | Read-only `scanIntegrityIssues`; mutations via `autoResolveIntegrityIssues` |
+| `GET /admin/integrity-diagnostics` | Read-only scan (no side effects on page load) |
+| `POST /admin/integrity-diagnostics/auto-resolve` | Cancels same-provider duplicate events; deactivates duplicate standing assignments |
+| Conflict resolver UI | Auto-resolve runs on refresh; shows summary banner |
+| Materializer `MONTHLY` | Books every 28 days from anchor (was incorrectly booking every week) |
+| Intake approval | Booking plan uses `MONTHLY` frequency (not approximated as weekly) |
+| `GET /admin/pending-queue-summary` | Counts across booking, intake, and legacy queues |
+| `GET /admin/pending-intake-requests` | Cross-agency intake list for schedule managers |
+| Office booking approvals UI | Tabs: Booking requests · Availability intake · Legacy room requests |
+
+### MONTHLY semantics
+
+Monthly recurrence uses a **28-day cadence** from `booking_start_date`, consistent across:
+- `officeSlotSeries.generateOccurrenceDates`
+- `officeScheduleMaterializer.shouldBookOnDate`
+- Frontend occurrence previews
+
+Standing assignments remain weekday-based (`WEEKLY` assigned_frequency); the booking plan's `booked_frequency = MONTHLY` controls which weeks materialize as booked.
+
+### Manual verification checklist
+
+| Scenario | Expected |
+|----------|----------|
+| Open conflict resolver / refresh | Same-provider duplicates auto-resolved; GET diagnostics is read-only |
+| Approve monthly intake request (× 6) | ~6 booked occurrences at 28-day intervals, not every week |
+| Set booking plan to MONTHLY on grid | Off-weeks open; booked slots every 28 days |
+| Office booking approvals tabs | Counts match pending items in each queue |
+| Approve intake from approvals tab | Modal opens; approval materializes via canonical path |
+
+---
+
+## Phase 2 — Unified Booking Pipeline (July 2026)
+
+All new office assignment writes now flow through one canonical path:
+
+```
+office_standing_assignments (+ optional office_booking_plans)
+  → officeAssignmentOrchestrator.service.js
+  → OfficeScheduleMaterializer.materializeWeek()
+  → office_events
+```
+
+### Changes shipped
+
+| Area | Fix |
+|------|-----|
+| `officeAssignmentOrchestrator.service.js` | New shared module: `materializeOfficeWeeks`, `assignOneTimeOfficeBlock`, `upsertBookingPlanAndMaterialize` |
+| `staffAssignOpenSlot` (ONCE) | Temporary standing assignments instead of `office_room_assignments` |
+| `approveRequest` (legacy room requests) | Canonical one-time block via orchestrator |
+| `approveOfficeBookingRequest` (ONCE) | Standing + booking plan + materialized events (replaces direct `createIfRoomOpen`) |
+| `assignTemporaryOfficeFromRequest` | Uses shared `upsertBookingPlanAndMaterialize` |
+
+### Still legacy (read-only / historical)
+
+- `getWeeklyGrid` backfills from existing `office_room_assignments` rows for pre-migration data
+- Payroll primary office address still reads `office_room_assignments` (fallback until migrated)
+
+### Manual verification checklist
+
+| Scenario | Expected |
+|----------|----------|
+| Admin one-time assign on grid (ONCE) | Grey assigned slots with standing_assignment_id; no new `office_room_assignments` row |
+| Approve legacy one-time room request | Same — events linked to standing assignment |
+| Approve ONCE office booking request (with client) | Red booked slot; client context preserved |
+| Approve availability intake request (weekly) | Booking plan + 6–12 week materialization via orchestrator |
+| Recurring admin assign | Unchanged — already canonical |
 
 ---
 

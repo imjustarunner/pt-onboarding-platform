@@ -12,6 +12,8 @@ import {
   getMyMandatoryOfficeReview,
   createOfficeBookingRequest,
   listPendingOfficeBookingRequests,
+  getPendingOfficeQueueSummary,
+  listPendingIntakeOfficeRequests,
   getOfficeBookingRequestContext,
   approveOfficeBookingRequest,
   denyOfficeBookingRequest,
@@ -24,6 +26,7 @@ import {
   updateLocation,
   createRoom,
   getOfficeScheduleIntegrityDiagnostics,
+  autoResolveOfficeScheduleIntegrity,
   resolveIntegrityConflict,
   cleanupInactiveProviderBookings,
   availableRoomsForSlot,
@@ -74,6 +77,8 @@ router.post('/requests/:id/approve', approveRequest);
 router.post('/requests/:id/deny', denyRequest);
 
 router.get('/booking-requests/pending', listPendingOfficeBookingRequests);
+router.get('/admin/pending-queue-summary', getPendingOfficeQueueSummary);
+router.get('/admin/pending-intake-requests', listPendingIntakeOfficeRequests);
 router.get('/booking-requests/:id/context', getOfficeBookingRequestContext);
 router.post('/booking-requests/:id/approve', approveOfficeBookingRequest);
 router.post('/booking-requests/:id/deny', denyOfficeBookingRequest);
@@ -85,6 +90,7 @@ router.post('/locations/:locationId/rooms', createRoom);
 
 // Booking conflict resolver (post-reinstatement triage)
 router.get('/admin/integrity-diagnostics', getOfficeScheduleIntegrityDiagnostics);
+router.post('/admin/integrity-diagnostics/auto-resolve', autoResolveOfficeScheduleIntegrity);
 router.post('/admin/integrity-diagnostics/resolve', resolveIntegrityConflict);
 router.post('/admin/cleanup-inactive-providers', cleanupInactiveProviderBookings);
 router.get('/admin/available-rooms-for-slot', availableRoomsForSlot);
