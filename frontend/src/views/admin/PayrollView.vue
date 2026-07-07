@@ -10778,12 +10778,21 @@ const splitBreakdownForDisplay = (breakdown) => {
     if (isPercentPay && Number.isFinite(payPct)) {
       const presentPaid = Number(v.presentClientPaidAmount ?? 0);
       const oldPaid = Number(v.oldNoteClientPaidAmount ?? 0);
-      if (presentPaid > 0 || oldPaid > 0) {
+      const latePaid = Number(v.lateAdditionClientPaidAmount ?? 0);
+      const codeChangedPaid = Number(v.codeChangedClientPaidAmount ?? 0);
+      const carryPaid = Number(v.carryoverClientPaidAmount ?? 0);
+      const hasSplitPaid = presentPaid > 0 || oldPaid > 0 || latePaid > 0 || codeChangedPaid > 0;
+      if (hasSplitPaid) {
         baseAmount = presentPaid > 0 ? Math.round((presentPaid * payPct / 100) * 100) / 100 : 0;
         oldNoteAmount = oldPaid > 0 ? Math.round((oldPaid * payPct / 100) * 100) / 100 : 0;
-        const codeChangedPaid = Math.max(0, totalAmount - baseAmount - oldNoteAmount);
-        if (codeChangedUnits > 0 && codeChangedPaid > 1e-9) codeChangedAmount = codeChangedPaid;
-        else if (lateAdditionUnits > 0 && codeChangedPaid > 1e-9) lateAdditionAmount = codeChangedPaid;
+        lateAdditionAmount = latePaid > 0 ? Math.round((latePaid * payPct / 100) * 100) / 100 : 0;
+        codeChangedAmount = codeChangedPaid > 0 ? Math.round((codeChangedPaid * payPct / 100) * 100) / 100 : 0;
+      } else if (carryPaid > 0) {
+        const allocAmount = (u) => (carryUnits > 1e-9 ? Number((carryPaid * (u / carryUnits)).toFixed(2)) : 0);
+        oldNoteAmount = allocAmount(Math.max(0, oldNoteUnits));
+        codeChangedAmount = allocAmount(Math.max(0, codeChangedUnits));
+        lateAdditionAmount = allocAmount(Math.max(0, lateAdditionUnits));
+        baseAmount = presentPaid > 0 ? Math.round((presentPaid * payPct / 100) * 100) / 100 : 0;
       } else {
         const allocAmount = (u) => (totalUnits > 1e-9 ? Number((totalAmount * (u / totalUnits)).toFixed(2)) : 0);
         oldNoteAmount = allocAmount(Math.max(0, oldNoteUnits));
@@ -11376,7 +11385,8 @@ const rawAddToCurrentPeriodCarryoverMeta = (c, units) => {
       fromStatus: c?.from_status || null,
       toStatus: c?.to_status || null,
       fromLocation: c?.metadata_json?.fromLocation || null,
-      toLocation: c?.metadata_json?.toLocation || null
+      toLocation: c?.metadata_json?.toLocation || null,
+      clientPaidAmount: Number(c?.client_paid_amount || 0) || null
     }]
   };
 };

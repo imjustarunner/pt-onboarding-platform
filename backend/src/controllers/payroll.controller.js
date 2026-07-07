@@ -318,6 +318,7 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
             from_units: fromUnits,
             to_units: toUnits,
             paid_state: paidStateForStatus(toStatus),
+            client_paid_amount: Number(c.client_paid_amount || 0) || null,
             metadata_json: {
               baselineRowId: b.id || null,
               compareRowId: c.id || null,
@@ -363,6 +364,7 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
           from_units: null,
           to_units: Number(c.unit_count || 0),
           paid_state: paidStateForStatus(toStatus),
+          client_paid_amount: Number(c.client_paid_amount || 0) || null,
           metadata_json: { baselineRowId: null, compareRowId: c.id || null, fromLocation: null, toLocation }
         });
       }
@@ -1135,20 +1137,63 @@ async function buildImportClientPaidByUserCode(payrollPeriodId) {
   }
 }
 
+function getCarryoverCategoryUnits(row) {
+  const meta = row?.carryoverMeta?.categories;
+  if (meta && typeof meta === 'object') {
+    return {
+      oldNote: Number(meta.old_note?.units || 0),
+      lateAddition: Number(meta.late_addition?.units || 0),
+      codeChanged: Number(meta.code_changed?.units || 0)
+    };
+  }
+  const legacy = Number(row?.oldDoneNotesUnits || 0);
+  return { oldNote: legacy, lateAddition: 0, codeChanged: 0 };
+}
+
+function splitCarryoverClientPaidAmount(total, cats) {
+  const carryTotal = Number(cats.oldNote || 0) + Number(cats.lateAddition || 0) + Number(cats.codeChanged || 0);
+  const amt = Number(total || 0);
+  if (!(amt > 0) || !(carryTotal > 0)) {
+    return { oldNote: 0, lateAddition: 0, codeChanged: 0, total: 0 };
+  }
+  return {
+    oldNote: Math.round((amt * Number(cats.oldNote || 0) / carryTotal) * 100) / 100,
+    lateAddition: Math.round((amt * Number(cats.lateAddition || 0) / carryTotal) * 100) / 100,
+    codeChanged: Math.round((amt * Number(cats.codeChanged || 0) / carryTotal) * 100) / 100,
+    total: amt
+  };
+}
+
 async function resolveStagingRowClientPaidAmount(row, payrollPeriodId, periodStartYmd, { clientPaidByFingerprint }) {
   const codeKey = String(row?.serviceCode || '').trim().toUpperCase();
   const uid = Number(row?.userId || 0);
   if (!uid || !codeKey) {
-    return { total: 0, presentClientPaidAmount: 0, oldNoteClientPaidAmount: 0 };
+    return {
+      total: 0,
+      presentClientPaidAmount: 0,
+      carryoverClientPaidAmount: 0,
+      oldNoteClientPaidAmount: 0,
+      lateAdditionClientPaidAmount: 0,
+      codeChangedClientPaidAmount: 0
+    };
   }
 
   const importId = await latestImportIdForPeriod(payrollPeriodId);
   if (!importId) {
-    return { total: 0, presentClientPaidAmount: 0, oldNoteClientPaidAmount: 0 };
+    return {
+      total: 0,
+      presentClientPaidAmount: 0,
+      carryoverClientPaidAmount: 0,
+      oldNoteClientPaidAmount: 0,
+      lateAdditionClientPaidAmount: 0,
+      codeChangedClientPaidAmount: 0
+    };
   }
 
   const periodStart = String(periodStartYmd || '').slice(0, 10);
-  const oldNoteUnits = Number(row?.oldDoneNotesUnits || 0);
+  const carryCats = getCarryoverCategoryUnits(row);
+  const carryoverUnits =
+    Number(carryCats.oldNote || 0) + Number(carryCats.lateAddition || 0) + Number(carryCats.codeChanged || 0);
   const rawAuditRows = Array.isArray(row?.carryoverMeta?.rawAuditRows) ? row.carryoverMeta.rawAuditRows : [];
   const carryDates = new Set(
     rawAuditRows
@@ -1162,7 +1207,7 @@ async function resolveStagingRowClientPaidAmount(row, payrollPeriodId, periodSta
   );
 
   let presentClientPaidAmount = 0;
-  let oldNoteClientPaidAmount = 0;
+  let carryoverClientPaidAmount = 0;
 
   try {
     const [importRows] = await pool.execute(
@@ -1194,13 +1239,13 @@ async function resolveStagingRowClientPaidAmount(row, payrollPeriodId, periodSta
       const isPriorDos = !!(periodStart && dos && dos < periodStart);
       const isCarrySession = carryFingerprints.has(fp) || carryDates.has(dos) || isPriorDos;
 
-      if (oldNoteUnits > 0 && isCarrySession) {
-        oldNoteClientPaidAmount += amt;
+      if (carryoverUnits > 0 && isCarrySession) {
+        carryoverClientPaidAmount += amt;
       } else if (isFinalized) {
         presentClientPaidAmount += amt;
-      } else if (oldNoteUnits > 0) {
-        // Unfinalized import row with client paid — often the old-note session still marked no-note.
-        oldNoteClientPaidAmount += amt;
+      } else if (carryoverUnits > 0) {
+        // Unfinalized import row with client paid — common for carryover sessions still marked no-note.
+        carryoverClientPaidAmount += amt;
       }
     }
 
@@ -1210,23 +1255,29 @@ async function resolveStagingRowClientPaidAmount(row, payrollPeriodId, periodSta
       const fromMeta = Number(ar?.clientPaidAmount || 0);
       const fromImport = Number(clientPaidByFingerprint?.get(key) || 0);
       const amt = fromMeta > 0 ? fromMeta : fromImport;
-      if (amt > 0) oldNoteClientPaidAmount += amt;
+      if (amt > 0) carryoverClientPaidAmount += amt;
     }
   } catch (e) {
     if (e?.errno !== 1054) throw e;
   }
 
   const aggregateFallback = Number(row?.clientPaidAmount || 0);
-  let total = presentClientPaidAmount + oldNoteClientPaidAmount;
+  let total = presentClientPaidAmount + carryoverClientPaidAmount;
   if (!(total > 0) && aggregateFallback > 0) {
     total = aggregateFallback;
-    presentClientPaidAmount = aggregateFallback;
+    if (carryoverUnits > 0) carryoverClientPaidAmount = aggregateFallback;
+    else presentClientPaidAmount = aggregateFallback;
   }
+
+  const split = splitCarryoverClientPaidAmount(carryoverClientPaidAmount, carryCats);
 
   return {
     total,
     presentClientPaidAmount,
-    oldNoteClientPaidAmount
+    carryoverClientPaidAmount: split.total,
+    oldNoteClientPaidAmount: split.oldNote,
+    lateAdditionClientPaidAmount: split.lateAddition,
+    codeChangedClientPaidAmount: split.codeChanged
   };
 }
 
@@ -4914,7 +4965,10 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
         ...row,
         clientPaidAmount: paid.total,
         presentClientPaidAmount: paid.presentClientPaidAmount,
-        oldNoteClientPaidAmount: paid.oldNoteClientPaidAmount
+        carryoverClientPaidAmount: paid.carryoverClientPaidAmount,
+        oldNoteClientPaidAmount: paid.oldNoteClientPaidAmount,
+        lateAdditionClientPaidAmount: paid.lateAdditionClientPaidAmount,
+        codeChangedClientPaidAmount: paid.codeChangedClientPaidAmount
       });
     }
     merged = resolved;
@@ -5290,7 +5344,15 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       const codeChangedFromCodes = Array.isArray(codeChangedMeta?.fromCodes) ? codeChangedMeta.fromCodes : [];
       const clientPaidAmount = Number(row.clientPaidAmount || 0);
       const presentClientPaidAmount = Number(row.presentClientPaidAmount ?? clientPaidAmount);
+      const carryoverClientPaidAmount = Number(
+        row.carryoverClientPaidAmount
+        ?? ((Number(row.oldNoteClientPaidAmount || 0))
+          + (Number(row.lateAdditionClientPaidAmount || 0))
+          + (Number(row.codeChangedClientPaidAmount || 0)))
+      );
       const oldNoteClientPaidAmount = Number(row.oldNoteClientPaidAmount || 0);
+      const lateAdditionClientPaidAmount = Number(row.lateAdditionClientPaidAmount || 0);
+      const codeChangedClientPaidAmount = Number(row.codeChangedClientPaidAmount || 0);
 
       const codeKey = String(code || '').trim().toUpperCase();
       // SALARY is paid only via the Salary card (payroll_salary_positions), not per-code rates.
@@ -5414,7 +5476,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
           }
         }
         if (pctPay.usesPercentPay && Number.isFinite(pctPay.percent)) {
-          const paidBase = presentClientPaidAmount + oldNoteClientPaidAmount;
+          const paidBase = presentClientPaidAmount + carryoverClientPaidAmount;
           const paid = paidBase > 0 ? paidBase : clientPaidAmount;
           if (paid > 0) {
             return Math.round((paid * pctPay.percent / 100) * 100) / 100;
@@ -5475,7 +5537,10 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         payPercent: pctPay.usesPercentPay ? pctPay.percent : null,
         clientPaidAmount: pctPay.usesPercentPay ? clientPaidAmount : null,
         presentClientPaidAmount: pctPay.usesPercentPay ? presentClientPaidAmount : null,
+        carryoverClientPaidAmount: pctPay.usesPercentPay ? carryoverClientPaidAmount : null,
         oldNoteClientPaidAmount: pctPay.usesPercentPay ? oldNoteClientPaidAmount : null,
+        lateAdditionClientPaidAmount: pctPay.usesPercentPay ? lateAdditionClientPaidAmount : null,
+        codeChangedClientPaidAmount: pctPay.usesPercentPay ? codeChangedClientPaidAmount : null,
         amount: lineAmount,
         // For now, "hours" represents Credits/Hours (credits treated as hours).
         hours: creditsHours,
