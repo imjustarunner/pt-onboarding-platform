@@ -15,7 +15,7 @@
  */
 
 import pool from '../config/database.js';
-import config from '../config/index.js';
+import config from '../config/config.js';
 import User from '../models/User.model.js';
 
 const DELAY_MINUTES = 15;
