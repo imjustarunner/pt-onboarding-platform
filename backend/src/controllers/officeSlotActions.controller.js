@@ -624,6 +624,10 @@ export const setBookingPlan = async (req, res, next) => {
           serviceCode: bookingSelectionFromBody(req.body).serviceCode,
           modality: bookingSelectionFromBody(req.body).modality
         });
+        await pool.execute(
+          `UPDATE office_events SET booking_plan_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+          [plan.id, eventId]
+        );
       }
     } catch {
       // Best-effort immediate occurrence mark; plan save remains source of truth.
@@ -633,7 +637,7 @@ export const setBookingPlan = async (req, res, next) => {
       officeLocationId,
       startDateYmd: bookingStartDate,
       createdByUserId: req.user.id,
-      weeks: 4
+      weeks: 12
     });
 
     res.json({ ok: true, bookingPlan: plan });
@@ -1318,11 +1322,19 @@ export const setEventBookingPlan = async (req, res, next) => {
       serviceCode: validatedSelection.serviceCode,
       modality: validatedSelection.modality
     });
+    await pool.execute(
+      `UPDATE office_events
+       SET booking_plan_id = ?,
+           standing_assignment_id = COALESCE(standing_assignment_id, ?),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [plan.id, assignment.id, bookedEvent?.id || eid]
+    );
     await materializeOfficeWeeks({
       officeLocationId,
       startDateYmd: bookingStartDate,
       createdByUserId: req.user.id,
-      weeks: 4
+      weeks: 12
     });
     const clientId = Number(req.body?.clientId || ev.client_id || 0) || null;
     if (clientId) {

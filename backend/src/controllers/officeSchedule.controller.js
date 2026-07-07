@@ -2913,14 +2913,16 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
         createdByUserId: req.user.id
       });
       OfficeScheduleMaterializer.invalidateOffice(loc.id);
-      materializeOfficeWeeks({
-        officeLocationId: loc.id,
-        startDateYmd: String(reqRow.start_at || '').slice(0, 10),
-        createdByUserId: req.user.id,
-        weeks: 12
-      }).catch((e) => {
-        console.warn('[approveOfficeBookingRequest] background materializeOfficeWeeks failed:', e?.message || e);
-      });
+      try {
+        await materializeOfficeWeeks({
+          officeLocationId: loc.id,
+          startDateYmd: String(reqRow.start_at || '').slice(0, 10),
+          createdByUserId: req.user.id,
+          weeks: 12
+        });
+      } catch (matErr) {
+        console.warn('[approveOfficeBookingRequest] materializeOfficeWeeks failed:', matErr?.message || matErr);
+      }
     }
 
     const updatedReq = await OfficeBookingRequest.markDecided({
@@ -3514,7 +3516,7 @@ export const getSlotConflicts = async (req, res, next) => {
          osa.assigned_frequency
        FROM office_events oe
        JOIN office_standing_assignments osa
-         ON osa.id = oe.standing_assignment_id AND osa.is_active = TRUE
+         ON osa.id = oe.standing_assignment_id
        JOIN office_location_agencies ola
          ON ola.office_location_id = oe.office_location_id AND ola.agency_id IN (${placeholders})
        JOIN office_rooms r   ON r.id  = oe.room_id
@@ -3619,16 +3621,30 @@ export const resolveSlotConflict = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'releasedEventId and action (restore|dismiss) are required for orphaned_released' } });
       }
       const relId = Number(releasedEventId);
-      const [[relRow]] = await conn.execute(
-        `SELECT oe.*, osa.provider_id AS assignment_provider_id
+      const [relRows] = await conn.execute(
+        `SELECT oe.*, osa.provider_id AS assignment_provider_id, osa.is_active AS assignment_is_active
          FROM office_events oe
-         JOIN office_standing_assignments osa ON osa.id = oe.standing_assignment_id AND osa.is_active = TRUE
+         JOIN office_standing_assignments osa ON osa.id = oe.standing_assignment_id
          WHERE oe.id = ? AND oe.slot_state = 'ASSIGNED_AVAILABLE' AND oe.status = 'RELEASED'
          LIMIT 1`,
         [relId]
       );
-      if (!relRow) { await conn.rollback(); return res.status(404).json({ error: { message: 'Released event not found or already resolved' } }); }
+      const relRow = relRows?.[0] || null;
+      if (!relRow) {
+        await conn.rollback();
+        return res.status(404).json({
+          error: {
+            message: 'Released event not found or already resolved. Refresh the conflict resolver and try again.'
+          }
+        });
+      }
       if (!(await checkAccess(relRow.office_location_id))) { await conn.rollback(); return res.status(403).json({ error: { message: 'Access denied' } }); }
+      if (!relRow.assignment_is_active) {
+        await conn.execute(
+          `UPDATE office_standing_assignments SET is_active = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+          [relRow.standing_assignment_id]
+        );
+      }
 
       if (action === 'restore') {
         // Find or create an active booking plan for this assignment
@@ -3752,16 +3768,30 @@ export const resolveSlotConflict = async (req, res, next) => {
     const conId = Number(conflictEventId);
     if (!relId || !conId) { await conn.rollback(); return res.status(400).json({ error: { message: 'Invalid event IDs' } }); }
 
-    const [[relRows]] = await conn.execute(
-      `SELECT oe.*, osa.provider_id AS assignment_provider_id
+    const [relRowsList] = await conn.execute(
+      `SELECT oe.*, osa.provider_id AS assignment_provider_id, osa.is_active AS assignment_is_active
        FROM office_events oe
-       JOIN office_standing_assignments osa ON osa.id = oe.standing_assignment_id AND osa.is_active = TRUE
+       JOIN office_standing_assignments osa ON osa.id = oe.standing_assignment_id
        WHERE oe.id = ? AND oe.slot_state = 'ASSIGNED_AVAILABLE' AND oe.status = 'RELEASED' AND oe.booking_plan_id IS NULL
        LIMIT 1`,
       [relId]
     );
-    if (!relRows) { await conn.rollback(); return res.status(404).json({ error: { message: 'Released event not found or already resolved' } }); }
+    const relRows = relRowsList?.[0] || null;
+    if (!relRows) {
+      await conn.rollback();
+      return res.status(404).json({
+        error: {
+          message: 'Released event not found or already resolved. Refresh the conflict resolver and try again.'
+        }
+      });
+    }
     if (!(await checkAccess(relRows.office_location_id))) { await conn.rollback(); return res.status(403).json({ error: { message: 'Access denied' } }); }
+    if (!relRows.assignment_is_active) {
+      await conn.execute(
+        `UPDATE office_standing_assignments SET is_active = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [relRows.standing_assignment_id]
+      );
+    }
 
     if (action === 'restore_original') {
       let [[planRow]] = await conn.execute(
