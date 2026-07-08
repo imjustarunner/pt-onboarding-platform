@@ -1268,11 +1268,12 @@ async function resolveStagingRowClientPaidAmount(row, payrollPeriodId, periodSta
       if (fps.length > 0) {
         const ph = fps.map(() => '?').join(',');
         const [xRows] = await pool.execute(
-          `SELECT row_fingerprint, client_paid_amount
+          `SELECT row_fingerprint, MAX(client_paid_amount) AS client_paid_amount
            FROM payroll_import_rows
            WHERE row_fingerprint IN (${ph})
              AND client_paid_amount IS NOT NULL
              AND client_paid_amount > 0
+           GROUP BY row_fingerprint
            LIMIT 20`,
           fps
         );
