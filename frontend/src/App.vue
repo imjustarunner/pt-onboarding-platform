@@ -5896,7 +5896,7 @@ onUnmounted(() => {
   height: 100dvh;
   max-height: 100dvh;
   background-color: var(--primary);
-  color: white;
+  color: var(--header-text-color, #fff);
   transform: translateX(-100%);
   transition: transform 0.3s ease;
   z-index: 1000;
@@ -5922,7 +5922,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   padding: 20px;
-  border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+  border-bottom: 2px solid var(--accent, rgba(255, 255, 255, 0.2));
   position: relative;
   flex-shrink: 0;
 }
@@ -5957,7 +5957,7 @@ onUnmounted(() => {
   right: 20px;
   background: none;
   border: none;
-  color: white;
+  color: var(--header-text-color, #fff);
   font-size: 32px;
   line-height: 1;
   cursor: pointer;
@@ -5987,7 +5987,7 @@ onUnmounted(() => {
 }
 
 .mobile-nav-link {
-  color: white;
+  color: var(--header-text-color, #fff);
   text-decoration: none;
   padding: 16px 20px;
   transition: background-color 0.2s;
@@ -5998,7 +5998,7 @@ onUnmounted(() => {
 .mobile-nav-link:hover,
 .mobile-nav-link.router-link-active {
   background-color: rgba(255, 255, 255, 0.1);
-  border-left-color: white;
+  border-left-color: var(--accent, white);
 }
 
 .mobile-nav-button {
@@ -6105,7 +6105,7 @@ details[open].mobile-nav-group-collapsible .mobile-nav-group-caret {
 .mobile-sidebar-footer {
   padding: 20px;
   padding-bottom: max(20px, env(safe-area-inset-bottom, 0px));
-  border-top: 2px solid rgba(255, 255, 255, 0.2);
+  border-top: 2px solid var(--accent, rgba(255, 255, 255, 0.2));
   flex-shrink: 0;
   background-color: var(--primary);
 }
@@ -6195,6 +6195,30 @@ details[open].mobile-nav-group-collapsible .mobile-nav-group-caret {
 
   .nav-title {
     font-size: 18px;
+  }
+}
+
+/*
+ * Compact top-bar right group on screens too narrow to display all icons.
+ * Logout is always reachable via the hamburger sidebar, so we hide it from
+ * the desktop bar below 1100 px to prevent it being clipped by overflow-x:clip.
+ * The WeatherChip also disappears on mobile (≤768 px) to reclaim horizontal space.
+ */
+@media (max-width: 1100px) {
+  .nav-right-group {
+    gap: 8px;
+  }
+
+  /* Logout is in the sidebar — remove it from the top bar at narrower widths */
+  .nav-right-group > .btn {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  /* On small phones the right group must not overflow the bar */
+  .nav-right-group {
+    gap: 4px;
   }
 }
 
