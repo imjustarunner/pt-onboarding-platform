@@ -317,8 +317,18 @@ export async function updateEventTimeSubmission({
         siblingClaimId: claim.payload?.siblingClaimId || null
       }
     });
+    // Editing re-submits the claim for payroll review. Critically, a claim that
+    // payroll "sent back" is status 'deferred'; without flipping it back to
+    // 'submitted' (and clearing the send-back note) the corrected claim would
+    // never reappear in Payroll Stage, since the stage only lists 'submitted'.
     await pool.execute(
-      `UPDATE payroll_time_claims SET credits_hours = ? WHERE id = ?`,
+      `UPDATE payroll_time_claims
+         SET credits_hours = ?,
+             status = 'submitted',
+             rejection_reason = NULL,
+             rejected_by_user_id = NULL,
+             rejected_at = NULL
+       WHERE id = ?`,
       [hours, claim.id]
     );
   }
