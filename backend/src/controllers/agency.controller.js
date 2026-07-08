@@ -16,6 +16,52 @@ const parseJsonField = (raw) => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// Public branding response cache
+// These three endpoints are called on every page load by every browser tab.
+// A request storm (or misbehaving client) can 429 the whole app at the edge.
+// Cache successful responses in-process for BRANDING_TTL_MS so any number of
+// concurrent callers share a single DB round-trip and edge rate limits are
+// never pressured regardless of client-side loop bugs.
+// ---------------------------------------------------------------------------
+const BRANDING_TTL_MS = 60_000; // 1 minute — branding changes propagate within 60 s
+const _brandingCache = new Map(); // key → { data, statusCode, expiresAt }
+
+const _bcGet = (key) => {
+  const entry = _brandingCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) { _brandingCache.delete(key); return null; }
+  return entry;
+};
+
+const _bcSet = (key, statusCode, data) => {
+  _brandingCache.set(key, { data, statusCode, expiresAt: Date.now() + BRANDING_TTL_MS });
+};
+
+// Wrap a handler so it reads from / writes to the branding cache.
+// cacheKey must be a deterministic string for this specific request.
+const withBrandingCache = (cacheKeyFn, handler) => async (req, res, next) => {
+  const key = cacheKeyFn(req);
+  const cached = _bcGet(key);
+  if (cached) {
+    // Serve from cache — no DB hit, no rate-limit pressure.
+    return res.status(cached.statusCode).json(cached.data);
+  }
+  // Intercept res.json to capture the response before sending it.
+  const originalJson = res.json.bind(res);
+  let capturedStatus = 200;
+  const originalStatus = res.status.bind(res);
+  res.status = (code) => { capturedStatus = code; return originalStatus(code); };
+  res.json = (body) => {
+    // Only cache successful (2xx) responses.
+    if (capturedStatus >= 200 && capturedStatus < 300) {
+      _bcSet(key, capturedStatus, body);
+    }
+    return originalJson(body);
+  };
+  return handler(req, res, next);
+};
+
 /** Extra tables often keyed by tenant `agencies.id` (organization_type agency) for hard-delete cleanup. */
 const TENANT_EXTRA_DEPENDENCY_TABLES = [
   'company_events',
@@ -207,21 +253,24 @@ export const getAgencyById = async (req, res, next) => {
  * Get organization by slug (public route - no auth required)
  * Supports all organization types (Agency, School, Program, Learning)
  */
-export const getAgencyBySlug = async (req, res, next) => {
-  try {
-    const { slug } = req.params;
-    const agency = await Agency.findBySlug(slug);
-    
-    if (!agency) {
-      return res.status(404).json({ error: { message: 'Organization not found' } });
-    }
+export const getAgencyBySlug = withBrandingCache(
+  (req) => `slug:${String(req.params.slug || '').toLowerCase()}`,
+  async (req, res, next) => {
+    try {
+      const { slug } = req.params;
+      const agency = await Agency.findBySlug(slug);
 
-    const [enriched] = await attachAffiliationMeta([agency]);
-    res.json(enriched || agency);
-  } catch (error) {
-    next(error);
+      if (!agency) {
+        return res.status(404).json({ error: { message: 'Organization not found' } });
+      }
+
+      const [enriched] = await attachAffiliationMeta([agency]);
+      res.json(enriched || agency);
+    } catch (error) {
+      next(error);
+    }
   }
-};
+);
 
 export const createAgency = async (req, res, next) => {
   try {
@@ -1262,20 +1311,23 @@ export const resolvePortalByHost = async (req, res, next) => {
   }
 };
 
-export const getAgencyByPortalUrl = async (req, res, next) => {
-  try {
-    const { portalUrl } = req.params;
-    const agency = await Agency.findByPortalUrl(portalUrl);
-    
-    if (!agency) {
-      return res.status(404).json({ error: { message: 'Agency not found' } });
-    }
+export const getAgencyByPortalUrl = withBrandingCache(
+  (req) => `portal:${String(req.params.portalUrl || '').toLowerCase()}`,
+  async (req, res, next) => {
+    try {
+      const { portalUrl } = req.params;
+      const agency = await Agency.findByPortalUrl(portalUrl);
 
-    res.json(agency);
-  } catch (error) {
-    next(error);
+      if (!agency) {
+        return res.status(404).json({ error: { message: 'Agency not found' } });
+      }
+
+      res.json(agency);
+    } catch (error) {
+      next(error);
+    }
   }
-};
+);
 
 /**
  * List affiliated organizations (schools/programs/learning) for an agency.
@@ -1309,8 +1361,10 @@ export const listAffiliatedOrganizations = async (req, res, next) => {
   }
 };
 
-export const getThemeByPortalUrl = async (req, res, next) => {
-  try {
+export const getThemeByPortalUrl = withBrandingCache(
+  (req) => `theme:${String(req.params.portalUrl || '').toLowerCase()}:${String(req.query.pageContext || req.query.brandingContext || '').toLowerCase()}`,
+  async (req, res, next) => {
+    try {
     const { portalUrl } = req.params;
     const agency = await Agency.findByPortalUrl(portalUrl);
     
@@ -1434,10 +1488,13 @@ export const getThemeByPortalUrl = async (req, res, next) => {
   } catch (error) {
     next(error);
   }
-};
+  }
+);
 
-export const getLoginThemeByPortalUrl = async (req, res, next) => {
-  try {
+export const getLoginThemeByPortalUrl = withBrandingCache(
+  (req) => `login-theme:${String(req.params.portalUrl || '').toLowerCase()}`,
+  async (req, res, next) => {
+    try {
     const { portalUrl } = req.params;
     const agency = await Agency.findByPortalUrl(portalUrl);
     
@@ -1617,7 +1674,8 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
   } catch (error) {
     next(error);
   }
-};
+  }
+);
 
 /**
  * GET /api/agencies/:id/notification-sender
