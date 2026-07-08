@@ -1257,6 +1257,34 @@ async function resolveStagingRowClientPaidAmount(row, payrollPeriodId, periodSta
       const amt = fromMeta > 0 ? fromMeta : fromImport;
       if (amt > 0) carryoverClientPaidAmount += amt;
     }
+
+    // Cross-period fallback: if we still have no carryover client-paid amount and the
+    // session is a carryover (e.g. late-addition added from a prior billing import),
+    // look up any import row matching the rawAuditRows fingerprints regardless of period.
+    // This handles the common case where the service date is before the current period
+    // so the session lives in an older import that the per-period queries don't reach.
+    if (carryoverUnits > 0 && !(carryoverClientPaidAmount > 0) && carryFingerprints.size > 0) {
+      const fps = [...carryFingerprints].filter((fp) => !seenFingerprints.has(fp));
+      if (fps.length > 0) {
+        const ph = fps.map(() => '?').join(',');
+        const [xRows] = await pool.execute(
+          `SELECT row_fingerprint, client_paid_amount
+           FROM payroll_import_rows
+           WHERE row_fingerprint IN (${ph})
+             AND client_paid_amount IS NOT NULL
+             AND client_paid_amount > 0
+           LIMIT 20`,
+          fps
+        );
+        for (const xr of xRows || []) {
+          const amt = Number(xr.client_paid_amount || 0);
+          if (amt > 0) {
+            carryoverClientPaidAmount += amt;
+            seenFingerprints.add(String(xr.row_fingerprint || '').trim());
+          }
+        }
+      }
+    }
   } catch (e) {
     if (e?.errno !== 1054) throw e;
   }
