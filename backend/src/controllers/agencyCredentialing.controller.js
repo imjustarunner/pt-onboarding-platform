@@ -129,7 +129,23 @@ export const CREDENTIALING_COLUMNS = [
     readFieldKeys: ['provider_credential_caqh_provider_id', 'caqh_provider_id', 'caqh_id']
   },
   { key: 'personal_email', label: 'personal_email', kind: 'users', usersCol: 'personal_email' },
-  { key: 'cell_number', label: 'cell_number', kind: 'users', usersCol: 'personal_phone' }
+  { key: 'cell_number', label: 'cell_number', kind: 'users', usersCol: 'personal_phone' },
+  {
+    key: 'npi_status',
+    label: 'npi_status',
+    kind: 'uiv',
+    readOnly: true,
+    fieldKey: 'npi_status',
+    readFieldKeys: ['npi_status']
+  },
+  {
+    key: 'license_upload',
+    label: 'license_upload',
+    kind: 'uiv',
+    readOnly: true,
+    fieldKey: 'license_upload',
+    readFieldKeys: ['license_upload']
+  }
 ];
 
 // Best-effort typing for auto-created field definitions (when migrations haven't been run yet).
@@ -687,6 +703,72 @@ export const downloadAgencyProvidersCredentialingCsv = async (req, res, next) =>
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(lines.join('\n'));
+  } catch (e) {
+    next(e);
+  }
+};
+
+// Admin license-copy upload for a specific provider.
+// POST /agencies/:agencyId/credentialing/providers/:userId/license-upload
+// Same storage path and UIV field as self-upload via profile form.
+export const licenseFileUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (allowed.includes(String(file.mimetype || '').toLowerCase())) cb(null, true);
+    else cb(new Error('Only PDF and image files are allowed for license uploads'));
+  }
+});
+
+export const uploadProviderLicenseAdmin = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const targetUserId = parseInt(req.params.userId, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0) return res.status(400).json({ error: { message: 'Invalid agencyId' } });
+    if (!Number.isInteger(targetUserId) || targetUserId <= 0) return res.status(400).json({ error: { message: 'Invalid userId' } });
+    if (!req.file) return res.status(400).json({ error: { message: 'No file uploaded' } });
+
+    await assertCredentialPrivilege(req, agencyId);
+
+    const { syncLicenseUploadToProfile } = await import('../services/licenseCredentialSync.service.js');
+    const { publicUploadsUrlFromStoredPath } = await import('../utils/uploads.js');
+    const StorageService = (await import('../services/storage.service.js')).default;
+    const UserComplianceDocument = (await import('../models/UserComplianceDocument.model.js')).default;
+
+    const saved = await StorageService.saveModuleFormUpload({
+      userId: targetUserId,
+      fieldKey: 'license_upload',
+      fileBuffer: req.file.buffer,
+      filename: req.file.originalname,
+      contentType: req.file.mimetype
+    });
+
+    // Mirror into UIV + optionally sync credential field
+    await syncLicenseUploadToProfile(targetUserId, saved.relativePath);
+
+    // Create / update compliance document record
+    try {
+      await UserComplianceDocument.create({
+        userId: targetUserId,
+        agencyId,
+        documentType: 'license_upload',
+        expirationDate: null,
+        isBlocking: false,
+        filePath: saved.relativePath,
+        notes: `Uploaded by admin (credentialing grid) for user ${targetUserId}`,
+        uploadedAt: new Date(),
+        createdByUserId: req.user.id
+      });
+    } catch {
+      // non-fatal
+    }
+
+    res.json({
+      ok: true,
+      storageKey: saved.relativePath,
+      url: publicUploadsUrlFromStoredPath(saved.relativePath)
+    });
   } catch (e) {
     next(e);
   }
