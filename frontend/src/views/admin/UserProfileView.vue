@@ -6617,7 +6617,7 @@ const copyAllCredentials = async () => {
 
 const tabIds = computed(() => (tabs.value || []).map((t) => t.id));
 
-const selectTab = (tabId) => {
+const selectTab = (tabId, sectionId = '') => {
   const id = String(tabId || '').trim();
   if (!id) return;
   if (!tabIds.value.includes(id)) return;
@@ -6625,6 +6625,22 @@ const selectTab = (tabId) => {
   // Writing to the router during a component update can trigger Vue's internal patch crashes
   // (nextSibling/subTree/emitsOptions) when the route update races with VDOM patching.
   activeTab.value = id;
+
+  // Optionally scroll to a specific section within the newly activated tab.
+  const anchor = String(sectionId || '').trim();
+  if (!anchor) return;
+  // The target section may need a tick (or two) to mount before it exists in the DOM.
+  const tryScroll = (attempt = 0) => {
+    const el = document.getElementById(anchor);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    if (attempt < 10) {
+      setTimeout(() => tryScroll(attempt + 1), 60);
+    }
+  };
+  nextTick(() => tryScroll());
 };
 
 // Ensure activeTab is always valid for the currently computed tabs.
