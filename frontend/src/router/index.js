@@ -2534,6 +2534,20 @@ const hasSkillBuildersToolingBypass = (userLike) => {
   return hasSubCoordinatorAccess(u);
 };
 
+// --- Navigation loop breaker -------------------------------------------------
+// A stale/invalid session (e.g. a token minted before a role change) can put the
+// guards below into a redirect loop — classically login <-> dashboard — which
+// white-screens the app and forces users to manually clear cookies to recover.
+// This tripwire counts how often beforeEach runs in a short window; a redirect
+// loop re-enters beforeEach far more often than any legitimate flow. When it
+// trips we drop the bad client session (so requiresGuest login stops bouncing to
+// the dashboard) and land on login instead of spinning forever.
+const NAV_LOOP_WINDOW_MS = 4000;
+const NAV_LOOP_LIMIT = 14;          // well above any real redirect chain (2-5 hops)
+const NAV_LOOP_COOLDOWN_MS = 8000;  // don't re-trip immediately after recovering
+let _navBeforeEachHits = [];
+let _navLoopBrokenAt = 0;
+
 router.beforeEach(async (to, from, next) => {
   if (officeMandatoryBlocking.value) {
     const path = String(to.path || '');
@@ -2548,6 +2562,40 @@ router.beforeEach(async (to, from, next) => {
   const brandingStore = useBrandingStore();
   const agencyStore = useAgencyStore();
   const organizationStore = useOrganizationStore();
+
+  // Navigation loop breaker: must run before any redirecting guard below.
+  {
+    const now = Date.now();
+    _navBeforeEachHits = _navBeforeEachHits.filter((t) => now - t < NAV_LOOP_WINDOW_MS);
+    _navBeforeEachHits.push(now);
+    if (
+      _navBeforeEachHits.length > NAV_LOOP_LIMIT &&
+      now - _navLoopBrokenAt > NAV_LOOP_COOLDOWN_MS
+    ) {
+      _navLoopBrokenAt = now;
+      _navBeforeEachHits = [];
+      // Drop the stale/invalid client session so login stops bouncing to dashboard.
+      try { authStore.clearAuth?.(); } catch { /* best-effort */ }
+      // Best-effort: also clear the server auth cookie (fire-and-forget, no redirect).
+      try {
+        const sessionId = localStorage.getItem('sessionId');
+        api.post('/auth/logout', { sessionId, reason: 'nav_loop_recovery' }, { skipAuthRedirect: true }).catch(() => {});
+      } catch { /* ignore */ }
+      // eslint-disable-next-line no-console
+      console.error(
+        '[nav-loop-breaker] Redirect loop detected; cleared the stale session and routed to login to recover.'
+      );
+      const slug = getDefaultOrganizationSlug();
+      const loginPath = slug ? `/${slug}/login` : '/login';
+      if (String(to.path || '') !== loginPath) {
+        next({ path: loginPath, replace: true });
+      } else {
+        // Already heading to login — let it render now that the session is cleared.
+        next();
+      }
+      return;
+    }
+  }
 
   // Native iOS/Android builds can be pinned to one tenant slug (SSTC by default).
   // This keeps app launches in the intended branded surface instead of generic /login.
