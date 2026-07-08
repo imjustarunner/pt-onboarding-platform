@@ -4198,6 +4198,7 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       'Indirect Hourly Rate',
       'Total Taxable Pay',
       'Total Extra Taxable Pay (No Hours)',
+      'PTO Pay',
       'Sick Leave PTO (Hours)',
       'Training PTO (Hours)',
       'Bonus Added (Taxable)',
@@ -4275,20 +4276,28 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       let indirectAmtFromAdjLines = 0;
       let directCreditsFromAdjLines = 0;
       let indirectCreditsFromAdjLines = 0;
+      // Types that carry their own hours and should count toward the hourly rate.
+      // PTO, bonus, salary, etc. are excluded so they don't inflate the derived rate.
+      const HOURLY_ADJ_TYPES = new Set(['time_claim', 'manual_pay_line', 'other_rate_1', 'other_rate_2', 'other_rate_3']);
       for (const line of adjustmentLines) {
         if (!line || line.taxable !== true) continue;
+        const lineType = String(line.type || '').trim().toLowerCase();
         let bucket = String(line.bucket || '').trim().toLowerCase();
         if (!(bucket === 'direct' || bucket === 'indirect')) {
-          if (String(line.type || '').trim().toLowerCase() === 'manual_pay_line') bucket = 'direct';
+          if (lineType === 'manual_pay_line') bucket = 'direct';
           else continue;
         }
         const lineAmount = safeNum(line.amount || 0);
-        const lineHours = adjustmentLineHours(line);
+        // Only contribute to the hourly pay + credits totals for lines that
+        // represent hours-based pay. PTO, bonus, medcancel, etc. have no hours
+        // and must not inflate the derived hourly rate.
+        const countsAsHourly = HOURLY_ADJ_TYPES.has(lineType);
+        const lineHours = countsAsHourly ? adjustmentLineHours(line) : 0;
         if (bucket === 'direct') {
-          directAmtFromAdjLines += lineAmount;
+          if (countsAsHourly) directAmtFromAdjLines += lineAmount;
           directCreditsFromAdjLines += lineHours;
         } else {
-          indirectAmtFromAdjLines += lineAmount;
+          if (countsAsHourly) indirectAmtFromAdjLines += lineAmount;
           indirectCreditsFromAdjLines += lineHours;
         }
       }
@@ -4347,6 +4356,16 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       const sickPtoCsv = (sickPtoRequested + trainingPtoRequested > 0) ? sickPtoRequested : ptoTakenHours;
       const trainingPtoCsv = (sickPtoRequested + trainingPtoRequested > 0) ? trainingPtoRequested : 0;
 
+      // PTO pay: from breakdown adjustment lines (type 'pto') or computed from hours × rate.
+      const ptoPay = (() => {
+        const fromLines = adjustmentLines
+          .filter((l) => String(l?.type || '').trim().toLowerCase() === 'pto')
+          .reduce((sum, l) => sum + safeNum(l.amount || 0), 0);
+        if (fromLines > 0) return fromLines;
+        const ptoRate = safeNum(adjFallback?.pto_rate ?? 0);
+        return ptoTakenHours * ptoRate;
+      })();
+
       const nonTaxableTotal = safeNum(adjFromBreakdown?.nonTaxableAmount ?? (mileage + reimbursement + tuition));
       // Salary is base taxable pay; taxable total should include salary + hourly taxable pay + taxable adjustments.
       const totalPay = safeNum(s.total_amount || 0);
@@ -4364,6 +4383,7 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
           fmt2(indirectRate),
           fmt2(taxableTotal),
           fmt2(extraTaxableNoHours),
+          fmt2(ptoPay),
           fmt2(sickPtoCsv),
           fmt2(trainingPtoCsv),
           fmt2(bonus),
