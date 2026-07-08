@@ -13,7 +13,13 @@ import { preloadImages } from '../utils/preloadImages';
 // Prevents duplicate HTTP requests on redirect-chain navigations (/:slug → /:slug/login).
 const _themeInflight = new Map();  // cacheKey → Promise
 const _themeCache    = new Map();  // cacheKey → { data, ts }
+const _themeFailUntil = new Map(); // cacheKey → ts (skip refetch until)
 const THEME_CACHE_TTL_MS = 5000;
+// After a theme fetch fails (e.g. 403 from an edge rate-block, or a network
+// error), do NOT refetch the same portal for this long. Without this, a reactive
+// re-trigger loops on /agencies/portal/:slug/theme, which both floods the console
+// and keeps the edge block alive so branding never recovers (white screen).
+const THEME_FAIL_COOLDOWN_MS = 30000;
 
 /** Dedupe /fonts/public XHR: applyTheme can run often; same agency+family only needs one fetch per session. */
 const _fontPublicLoadedKeys = new Set();
@@ -274,6 +280,13 @@ export const useBrandingStore = defineStore('branding', () => {
       return;
     }
 
+    // Skip refetch while a recent failure is cooling down. This breaks the retry
+    // loop that keeps re-hitting a 403'd/erroring theme endpoint. We keep whatever
+    // branding is already applied (platform fallback) instead of hammering.
+    if (Date.now() < (_themeFailUntil.get(cacheKey) || 0)) {
+      return;
+    }
+
     // Coalesce concurrent requests for the same key
     if (_themeInflight.has(cacheKey)) {
       return _themeInflight.get(cacheKey);
@@ -288,14 +301,21 @@ export const useBrandingStore = defineStore('branding', () => {
           timeout: 15000
         });
         _themeCache.set(cacheKey, { data: response.data, ts: Date.now() });
+        _themeFailUntil.delete(cacheKey);
         _applyThemeData(response.data, portalUrl);
       } catch (err) {
         const status = Number(err?.response?.status || 0);
+        // Negative-cache the failure so a reactive re-trigger can't loop on it.
+        _themeFailUntil.set(cacheKey, Date.now() + THEME_FAIL_COOLDOWN_MS);
         if (import.meta.env.DEV && status !== 401 && status !== 403) {
           console.error('Failed to fetch agency theme:', err);
         }
-        portalAgency.value = null;
-        portalTheme.value = null;
+        // Keep any already-applied branding; only clear if nothing is applied yet
+        // so we don't wipe a working theme on a transient blip.
+        if (!portalTheme.value) {
+          portalAgency.value = null;
+          portalTheme.value = null;
+        }
       } finally {
         _themeInflight.delete(cacheKey);
       }

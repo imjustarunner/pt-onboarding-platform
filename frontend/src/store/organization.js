@@ -29,7 +29,12 @@ const findStoredOrgBySlug = (slug) => {
 // Prevents duplicate HTTP requests when beforeEach fires back-to-back for redirect chains.
 const _slugInflight = new Map();   // slug → Promise
 const _slugCache    = new Map();   // slug → { org, ts }
+const _slugFailUntil = new Map();  // slug → ts (skip refetch until)
 const SLUG_CACHE_TTL_MS = 5000;
+// After a slug lookup fails (e.g. 403 from an edge rate-block), don't refetch the
+// same slug for this long — otherwise a reactive re-trigger loops on
+// /agencies/slug/:slug and keeps the edge block alive.
+const SLUG_FAIL_COOLDOWN_MS = 30000;
 
 /**
  * Organization Store
@@ -75,6 +80,17 @@ export const useOrganizationStore = defineStore('organization', () => {
       return cached.org;
     }
 
+    // Skip refetch while a recent failure is cooling down. Fall back to a stored
+    // org if we have one so context stays populated without hammering the network.
+    if (Date.now() < (_slugFailUntil.get(normalized) || 0)) {
+      const fallbackOrg = findStoredOrgBySlug(normalized);
+      if (fallbackOrg) {
+        _applyOrg(fallbackOrg);
+        return fallbackOrg;
+      }
+      return null;
+    }
+
     // Coalesce concurrent requests for the same slug
     if (_slugInflight.has(normalized)) {
       return _slugInflight.get(normalized);
@@ -98,9 +114,12 @@ export const useOrganizationStore = defineStore('organization', () => {
 
         _applyOrg(org);
         _slugCache.set(normalized, { org, ts: Date.now() });
+        _slugFailUntil.delete(normalized);
         return org;
       } catch (err) {
         const status = Number(err?.response?.status || 0);
+        // Negative-cache the failure so a reactive re-trigger can't loop on it.
+        _slugFailUntil.set(normalized, Date.now() + SLUG_FAIL_COOLDOWN_MS);
         const fallbackOrg = findStoredOrgBySlug(normalized);
         if ((status === 401 || status === 403) && fallbackOrg) {
           _applyOrg(fallbackOrg);
