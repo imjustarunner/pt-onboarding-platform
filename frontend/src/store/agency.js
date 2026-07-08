@@ -36,62 +36,111 @@ export const useAgencyStore = defineStore('agency', () => {
     brandingContextGeneration.value += 1;
   };
 
+  // --- hydrateAgencyById guards -------------------------------------------
+  // hydrateAgencyById is driven by reactive watchers (BrandingProvider, agency
+  // resolution, etc.). If any dependency flaps, naive re-entry hammers
+  // GET /agencies/:id and — before the global circuit breaker — exhausted the
+  // browser socket pool (net::ERR_INSUFFICIENT_RESOURCES), taking the whole app
+  // down. Even with the breaker in place, an unguarded loop still floods the
+  // console and pins the main thread (thousands of "Failed to hydrate agency"
+  // logs) so the app never renders. These guards make repeated calls cheap and
+  // idempotent:
+  //   1. one in-flight request per id (dedup),
+  //   2. a short negative cache so a failing / breaker-tripped id is not
+  //      refetched every tick,
+  //   3. no-op state writes when nothing actually changed, so we never feed an
+  //      identity-based watcher a fresh object and spin the loop faster,
+  //   4. rate-limited error logging.
+  const _hydrateInflight = new Map();   // id -> Promise
+  const _hydrateFailUntil = new Map();  // id -> timestamp (skip refetch until)
+  const HYDRATE_FAIL_COOLDOWN_MS = 10000;
+  let _hydrateLastLogAt = 0;
+
+  const _shallowAgencyEqual = (a, b) => {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    const ka = Object.keys(a);
+    const kb = Object.keys(b);
+    if (ka.length !== kb.length) return false;
+    for (const k of ka) {
+      if (a[k] !== b[k]) return false;
+    }
+    return true;
+  };
+
+  const _applyHydrated = (full) => {
+    const mergeOrPush = (arrRef, allowPush) => {
+      const arr = Array.isArray(arrRef.value) ? arrRef.value.slice() : [];
+      const idx = arr.findIndex((a) => Number(a?.id) === Number(full.id));
+      if (idx >= 0) {
+        const merged = { ...arr[idx], ...full };
+        // Idempotent: skip the reassignment when nothing changed.
+        if (_shallowAgencyEqual(arr[idx], merged)) return;
+        arr[idx] = merged;
+      } else if (allowPush) {
+        arr.push(full);
+      } else {
+        return; // user scope: only merge, never add unrelated orgs
+      }
+      arrRef.value = arr;
+    };
+    // Catalog list: always attach so UIs can resolve names by id (e.g. schedule "Agencies shown" chips).
+    mergeOrPush(agencies, true);
+    // User scope: only merge; do not add unrelated orgs to "my memberships".
+    mergeOrPush(userAgencies, false);
+    if (Number(currentAgency.value?.id) === Number(full.id)) {
+      const merged = { ...currentAgency.value, ...full };
+      // Idempotent: only reassign (new object identity + localStorage write) when
+      // the merged result actually differs. Prevents object-identity churn from
+      // re-triggering any watcher that observes currentAgency by reference.
+      if (!_shallowAgencyEqual(currentAgency.value, merged)) {
+        currentAgency.value = merged;
+        localStorage.setItem('currentAgency', JSON.stringify(merged));
+      }
+    }
+  };
+
   const hydrateAgencyById = async (agencyId) => {
     const id = Number(agencyId);
     if (!Number.isInteger(id) || id < 1) return null;
     const url = `/agencies/${id}`;
+
     const cached = getCached(url);
     if (cached) {
-      const full = cached;
-      const mergeOrPush = (arrRef, allowPush) => {
-        const arr = Array.isArray(arrRef.value) ? arrRef.value.slice() : [];
-        const idx = arr.findIndex((a) => Number(a?.id) === Number(full.id));
-        if (idx >= 0) {
-          arr[idx] = { ...arr[idx], ...full };
-        } else if (allowPush) {
-          arr.push(full);
-        }
-        arrRef.value = arr;
-      };
-      // Catalog list: always attach so UIs can resolve names by id (e.g. schedule "Agencies shown" chips).
-      mergeOrPush(agencies, true);
-      // User scope: only merge; do not add unrelated orgs to "my memberships".
-      mergeOrPush(userAgencies, false);
-      if (Number(currentAgency.value?.id) === Number(full.id)) {
-        currentAgency.value = { ...currentAgency.value, ...full };
-        localStorage.setItem('currentAgency', JSON.stringify(currentAgency.value));
-      }
-      return full;
+      _applyHydrated(cached);
+      return cached;
     }
-    try {
-      const res = await api.get(url);
-      const full = res.data;
-      if (!full?.id) return null;
 
-      const mergeOrPush = (arrRef, allowPush) => {
-        const arr = Array.isArray(arrRef.value) ? arrRef.value.slice() : [];
-        const idx = arr.findIndex((a) => Number(a?.id) === Number(full.id));
-        if (idx >= 0) {
-          arr[idx] = { ...arr[idx], ...full };
-        } else if (allowPush) {
-          arr.push(full);
+    // Skip refetch while a recent failure (incl. circuit-breaker trip) is cooling down.
+    if (Date.now() < (_hydrateFailUntil.get(id) || 0)) return null;
+
+    // Deduplicate concurrent / rapid repeat calls for the same id.
+    const existing = _hydrateInflight.get(id);
+    if (existing) return existing;
+
+    const promise = (async () => {
+      try {
+        const res = await api.get(url);
+        const full = res.data;
+        if (!full?.id) return null;
+        _applyHydrated(full);
+        setCached(url, {}, full);
+        _hydrateFailUntil.delete(id);
+        return full;
+      } catch (e) {
+        _hydrateFailUntil.set(id, Date.now() + HYDRATE_FAIL_COOLDOWN_MS);
+        const now = Date.now();
+        if (now - _hydrateLastLogAt > 2000) {
+          _hydrateLastLogAt = now;
+          console.error('Failed to hydrate agency:', e);
         }
-        arrRef.value = arr;
-      };
-      mergeOrPush(agencies, true);
-      mergeOrPush(userAgencies, false);
-
-      // If current agency matches, update it too.
-      if (Number(currentAgency.value?.id) === Number(full.id)) {
-        currentAgency.value = { ...currentAgency.value, ...full };
-        localStorage.setItem('currentAgency', JSON.stringify(currentAgency.value));
+        return null;
+      } finally {
+        _hydrateInflight.delete(id);
       }
-      setCached(url, {}, full);
-      return full;
-    } catch (e) {
-      console.error('Failed to hydrate agency:', e);
-      return null;
-    }
+    })();
+    _hydrateInflight.set(id, promise);
+    return promise;
   };
 
   const setCurrentAgency = (agency) => {
