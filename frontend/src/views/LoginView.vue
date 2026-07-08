@@ -1,5 +1,5 @@
 <template>
-  <div class="login-page" :class="{ 'login-page--sstc': isSSTCLogin, 'login-page--app-like': isAppLike }">
+  <div class="login-page" :class="{ 'login-page--sstc': isSSTCLogin, 'login-page--app-like': isAppLike, 'login-page--platform': isPlatformLogin }">
     <div v-if="showAppPreviewToggle" class="app-preview-toggle-group" aria-label="Local preview mode">
       <button
         type="button"
@@ -30,6 +30,65 @@
       </button>
     </div>
     <div class="login-container" :class="{ 'login-container--app': isAppLike, 'login-container--ipad': isIpadPreviewMode }" :style="loginContainerStyle">
+      <aside v-if="isPlatformLogin" class="platform-hero" aria-hidden="true">
+        <div class="platform-hero__brand">
+          <img
+            v-if="displayLogoUrl"
+            :src="displayLogoUrl"
+            :alt="platformBrandName"
+            class="platform-hero__logo"
+            @error="handleLogoError"
+          />
+          <span v-else class="platform-hero__wordmark">{{ platformBrandName }}</span>
+        </div>
+        <div class="platform-hero__content">
+          <h1 class="platform-hero__title">
+            Your Operations.<br />
+            <span class="platform-hero__title-accent">All in One Place.</span>
+          </h1>
+          <p class="platform-hero__subtitle">
+            {{ platformBrandName }} empowers teams and organizations to manage,
+            streamline, and grow across every company you oversee.
+          </p>
+          <div class="platform-hero__art">
+            <svg viewBox="0 0 480 320" fill="none" xmlns="http://www.w3.org/2000/svg" role="img">
+              <defs>
+                <linearGradient id="pltCard" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#ffffff" />
+                  <stop offset="1" stop-color="#f7f6fe" />
+                </linearGradient>
+                <linearGradient id="pltBar" x1="0" y1="1" x2="0" y2="0">
+                  <stop offset="0" stop-color="#8f79f8" />
+                  <stop offset="1" stop-color="#6c4df6" />
+                </linearGradient>
+              </defs>
+              <rect x="40" y="44" width="400" height="236" rx="20" fill="url(#pltCard)"
+                stroke="#eceafc" />
+              <rect x="40" y="44" width="64" height="236" rx="20" fill="#f2f0fe" />
+              <circle cx="72" cy="82" r="9" fill="#6c4df6" />
+              <circle cx="72" cy="120" r="7" fill="#c7bdf9" />
+              <circle cx="72" cy="152" r="7" fill="#c7bdf9" />
+              <circle cx="72" cy="184" r="7" fill="#c7bdf9" />
+              <circle cx="72" cy="216" r="7" fill="#c7bdf9" />
+              <rect x="132" y="72" width="150" height="12" rx="6" fill="#e7e4f8" />
+              <rect x="132" y="94" width="96" height="8" rx="4" fill="#efedfa" />
+              <circle cx="372" cy="104" r="34" fill="none" stroke="#eee9fd" stroke-width="12" />
+              <path d="M372 70 a34 34 0 0 1 29 51" fill="none" stroke="#6c4df6"
+                stroke-width="12" stroke-linecap="round" />
+              <rect x="132" y="150" width="26" height="90" rx="6" fill="#e9e5fb" />
+              <rect x="168" y="176" width="26" height="64" rx="6" fill="url(#pltBar)" />
+              <rect x="204" y="140" width="26" height="100" rx="6" fill="#e9e5fb" />
+              <rect x="240" y="196" width="26" height="44" rx="6" fill="url(#pltBar)" />
+              <polyline points="300,232 330,206 356,220 384,180 410,196"
+                fill="none" stroke="#6c4df6" stroke-width="4" stroke-linecap="round"
+                stroke-linejoin="round" />
+              <circle cx="300" cy="232" r="4.5" fill="#6c4df6" />
+              <circle cx="356" cy="220" r="4.5" fill="#6c4df6" />
+              <circle cx="410" cy="196" r="4.5" fill="#6c4df6" />
+            </svg>
+          </div>
+        </div>
+      </aside>
       <div class="login-card" :class="{ 'login-card--wide': intakesPanelOpen && showIntakesTrigger, 'login-card--app': isAppLike, 'login-card--ipad': isIpadPreviewMode }">
         <div v-if="isIpadPreviewMode && !loginParentBranding" class="ipad-hero-panel">
           <img
@@ -108,13 +167,27 @@
           </div>
         </div>
 
+        <div v-if="isPlatformLogin" class="platform-cardhead">
+          <span class="platform-cardhead__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M3 10.5 12 3l9 7.5" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round" />
+              <path d="M5 9.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5"
+                stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                stroke-linejoin="round" />
+            </svg>
+          </span>
+          <h2 class="platform-cardhead__title">Welcome back</h2>
+          <p class="platform-cardhead__subtitle">Log in to your {{ platformBrandName }} account</p>
+        </div>
+
         <div v-else-if="!isIpadPreviewMode" class="login-logo">
           <img :src="displayLogoUrl" alt="Logo" class="logo-image" @error="handleLogoError" v-if="displayLogoUrl" />
         </div>
-        <h2 v-if="!isAppLike && !isSSTCLogin && loginParentBranding">{{ portalLoginHeadline }}</h2>
-        <h2 v-else-if="!isAppLike && !isSSTCLogin">{{ primaryLoginTitle }}</h2>
-        <p v-if="!isAppLike && !isSSTCLogin && loginParentBranding" class="subtitle">{{ portalLoginSubtitle }}</p>
-        <p v-else-if="!isAppLike" class="subtitle">{{ primaryLoginSubtitle }}</p>
+        <h2 v-if="!isAppLike && !isSSTCLogin && !isPlatformLogin && loginParentBranding">{{ portalLoginHeadline }}</h2>
+        <h2 v-else-if="!isAppLike && !isSSTCLogin && !isPlatformLogin">{{ primaryLoginTitle }}</h2>
+        <p v-if="!isAppLike && !isSSTCLogin && !isPlatformLogin && loginParentBranding" class="subtitle">{{ portalLoginSubtitle }}</p>
+        <p v-else-if="!isAppLike && !isPlatformLogin" class="subtitle">{{ primaryLoginSubtitle }}</p>
         
         <div v-if="error" class="error" v-html="formatError(error)"></div>
         <div v-if="showSignupSuggestion" class="login-signup-suggestion">
@@ -465,7 +538,14 @@
         </div>
       </div>
     </div>
-    <PoweredByFooter v-if="!isAppLike" />
+    <PoweredByFooter v-if="!isAppLike && !isPlatformLogin" />
+    <footer v-if="isPlatformLogin" class="platform-footer">
+      <span class="platform-footer__copy">© {{ currentYear }} {{ platformBrandName }}. All rights reserved.</span>
+      <span class="platform-footer__sep" aria-hidden="true">|</span>
+      <router-link to="/privacypolicy" class="platform-footer__link">Privacy Policy</router-link>
+      <span class="platform-footer__sep" aria-hidden="true">|</span>
+      <router-link to="/terms" class="platform-footer__link">Terms of Service</router-link>
+    </footer>
   </div>
 </template>
 
@@ -798,6 +878,23 @@ const platformOrgName = computed(() => {
   }
   return brandingStore.platformBranding?.organization_name || '';
 });
+
+// ── Platform (plottwisthq.com) login redesign ────────────────────────────────
+// The platform login is the GENERIC /login on the main platform domain: it has
+// no org slug in the path AND no tenant bound to the host. This intentionally
+// EXCLUDES branded org logins (e.g. /itsco/login) and portal hosts
+// (e.g. app.itsco.health), so tenant branding is never touched by this override.
+const isPlatformLogin = computed(() =>
+  !isOrgLogin.value &&
+  !isSSTCLogin.value &&
+  !isAppLike.value &&
+  !String(brandingStore.portalHostPortalUrl || '').trim()
+);
+const platformBrandName = computed(() => {
+  const n = String(brandingStore.platformBranding?.organization_name || '').trim();
+  return n && n.toLowerCase() !== 'plottwistco' ? n : 'PlottwistHQ';
+});
+const currentYear = new Date().getFullYear();
 
 // Fetch agency-specific login theme
 const fetchLoginTheme = async (portalUrl) => {
@@ -2783,5 +2880,280 @@ const handleLogoError = (event) => {
   flex: 1;
   height: 1px;
   background: rgba(255,255,255,0.2);
+}
+
+/* ══ Platform login redesign (plottwisthq.com only) ══════════════════════════
+   Scoped entirely under .login-page--platform so branded org logins
+   (/itsco/login) and portal hosts (app.itsco.health) are never affected.
+   Colors are hardcoded here so the platform login keeps this look even if the
+   stored platform theme is ever reverted. */
+.login-page--platform {
+  --pt-plat-primary: #6c4df6;
+  --pt-plat-primary-hover: #5a3ee6;
+  --pt-plat-ink: #1f2333;
+  --pt-plat-muted: #6b7189;
+  background: #f5f5f8;
+}
+
+.login-page--platform .login-container {
+  display: grid;
+  grid-template-columns: 1.02fr 0.98fr;
+  align-items: stretch;
+  padding: 0;
+  background: #f5f5f8 !important;
+}
+
+/* ── Left hero panel ── */
+.platform-hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 64px clamp(32px, 5vw, 88px);
+  background: linear-gradient(150deg, #edecf8 0%, #e9eaf6 46%, #eef0fb 100%);
+  overflow: hidden;
+}
+
+.platform-hero__brand {
+  position: absolute;
+  top: 44px;
+  left: clamp(32px, 5vw, 88px);
+  display: flex;
+  align-items: center;
+}
+
+.platform-hero__logo {
+  height: 42px;
+  width: auto;
+  max-width: 220px;
+  object-fit: contain;
+}
+
+.platform-hero__wordmark {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--pt-plat-ink);
+}
+
+.platform-hero__content {
+  max-width: 520px;
+  margin-top: 48px;
+}
+
+.platform-hero__title {
+  margin: 0 0 18px;
+  font-size: clamp(34px, 3.4vw, 52px);
+  line-height: 1.08;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--pt-plat-ink);
+}
+
+.platform-hero__title-accent {
+  color: var(--pt-plat-primary);
+}
+
+.platform-hero__subtitle {
+  margin: 0 0 34px;
+  max-width: 430px;
+  font-size: clamp(15px, 1.15vw, 18px);
+  line-height: 1.6;
+  color: var(--pt-plat-muted);
+}
+
+.platform-hero__art {
+  width: 100%;
+  max-width: 480px;
+}
+
+.platform-hero__art svg {
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 24px 44px rgba(76, 55, 160, 0.16));
+}
+
+/* ── Right card ── */
+.login-page--platform .login-card {
+  justify-self: center;
+  align-self: center;
+  margin: 0 auto;
+  width: 100%;
+  max-width: 420px;
+  background: #ffffff;
+  border: 1px solid #ececf3;
+  border-radius: 20px;
+  padding: 40px 36px;
+  box-shadow: 0 24px 60px rgba(38, 32, 86, 0.10);
+}
+
+.platform-cardhead {
+  text-align: center;
+  margin-bottom: 26px;
+}
+
+.platform-cardhead__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--pt-plat-primary);
+  margin-bottom: 12px;
+}
+
+.platform-cardhead__icon svg {
+  width: 30px;
+  height: 30px;
+}
+
+.platform-cardhead__title {
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--pt-plat-ink);
+}
+
+.platform-cardhead__subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: var(--pt-plat-muted);
+}
+
+/* ── Form ── */
+.login-page--platform .login-form .form-group label {
+  color: var(--pt-plat-ink);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.login-page--platform .login-form .form-group input,
+.login-page--platform .login-form .form-group select {
+  border-radius: 12px;
+  border: 1px solid #e2e2ec;
+  padding: 13px 14px;
+  font-size: 15px;
+  background: #fbfbfe;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.login-page--platform .login-credentials-username input {
+  padding-left: 42px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%239aa0b4' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='12' cy='7' r='4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 14px center;
+  background-size: 18px 18px;
+}
+
+.login-page--platform .login-form .form-group input:focus,
+.login-page--platform .login-form .form-group select:focus {
+  border-color: var(--pt-plat-primary);
+  box-shadow: 0 0 0 3px rgba(108, 77, 246, 0.15);
+  background: #ffffff;
+  outline: none;
+}
+
+.login-page--platform .password-toggle-btn {
+  color: var(--pt-plat-primary);
+}
+
+/* ── Buttons ── */
+.login-page--platform .login-form .btn-primary {
+  position: relative;
+  background: var(--pt-plat-primary);
+  border: 1px solid var(--pt-plat-primary);
+  border-radius: 12px;
+  min-height: 50px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(108, 77, 246, 0.28);
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.login-page--platform .login-form .btn-primary:hover:not(:disabled) {
+  background: var(--pt-plat-primary-hover);
+  box-shadow: 0 12px 28px rgba(108, 77, 246, 0.34);
+}
+
+.login-page--platform .login-form .btn-primary::after {
+  content: "→";
+  position: absolute;
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.login-page--platform .btn-secondary {
+  border-radius: 12px;
+  min-height: 46px;
+  background: #f4f3fb;
+  border: 1px solid #e2e2ec;
+  color: #4a4f63;
+}
+
+.login-page--platform .remember-me {
+  color: var(--pt-plat-muted);
+  font-size: 13px;
+}
+
+.login-page--platform .remember-me input[type="checkbox"] {
+  accent-color: var(--pt-plat-primary);
+}
+
+.login-page--platform .help-link,
+.login-page--platform .help-link-button {
+  color: var(--pt-plat-primary);
+}
+
+.login-page--platform .help-link:hover {
+  color: var(--pt-plat-primary-hover);
+}
+
+.login-page--platform .help-separator {
+  color: #d5d8e3;
+}
+
+/* ── Footer ── */
+.login-page--platform .platform-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: 18px 16px 24px;
+  font-size: 13px;
+  color: var(--pt-plat-muted);
+  background: #f5f5f8;
+}
+
+.login-page--platform .platform-footer__link {
+  color: var(--pt-plat-muted);
+  text-decoration: none;
+}
+
+.login-page--platform .platform-footer__link:hover {
+  color: var(--pt-plat-primary);
+  text-decoration: underline;
+}
+
+.login-page--platform .platform-footer__sep {
+  margin: 0 12px;
+  color: #cbd0dd;
+}
+
+/* ── Responsive: single column, hero hidden on small screens ── */
+@media (max-width: 900px) {
+  .login-page--platform .login-container {
+    grid-template-columns: 1fr;
+  }
+
+  .platform-hero {
+    display: none;
+  }
+
+  .login-page--platform .login-card {
+    margin: 40px auto;
+  }
 }
 </style>
