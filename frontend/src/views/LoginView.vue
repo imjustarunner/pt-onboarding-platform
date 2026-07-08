@@ -53,7 +53,7 @@
             <span class="platform-hero__title-accent">Infinite Organizations.</span>
           </h1>
           <p class="platform-hero__subtitle">
-            The command center for your teams, companies, and growth.
+            The command center for your teams,<br />companies, and growth.
           </p>
           <div class="platform-hero__art">
             <svg viewBox="0 0 480 320" fill="none" xmlns="http://www.w3.org/2000/svg" role="img">
@@ -2887,288 +2887,287 @@ const handleLogoError = (event) => {
   background: rgba(255,255,255,0.2);
 }
 
-/* ══ Platform login redesign (plottwisthq.com only) ══════════════════════════
-   Scoped entirely under .login-page--platform so branded org logins
-   (/itsco/login) and portal hosts (app.itsco.health) are never affected.
-   Colors are hardcoded here so the platform login keeps this look even if the
-   stored platform theme is ever reverted. */
+/* ══ Platform login — plottwisthq.com only ═══════════════════════════════════
+   Single unified dark theme across ALL screen sizes: phone, iPad, desktop.
+   Scoped entirely under .login-page--platform so every tenant login
+   (/itsco/login, app.itsco.health, native app shell) is completely untouched.
+   The username-first → automatic SSO flow is unchanged — only the presentation. */
+
+/* ── Design tokens ── */
 .login-page--platform {
-  --pt-plat-primary: #6c4df6;
-  --pt-plat-primary-hover: #5a3ee6;
-  --pt-plat-accent: #8B6BFF;
-  --pt-plat-ink: #1f2333;
-  --pt-plat-muted: #6b7189;
-  background: #f5f5f8;
+  --pt-primary:       #6c4df6;
+  --pt-primary-hover: #7c5cff;
+  --pt-accent:        #8B6BFF;
+  --pt-white:         #ffffff;
+  --pt-muted:         rgba(255, 255, 255, 0.72);
+  --pt-subtle:        rgba(255, 255, 255, 0.45);
+  --pt-border:        rgba(255, 255, 255, 0.16);
+  --pt-field-bg:      rgba(255, 255, 255, 0.06);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* Full-bleed dark background art — same image works for all orientations with cover */
+  background: #08081a url('/branding/plottwisthq-mobile-bg.png') no-repeat center center / cover;
+  min-height: 100vh;
+  min-height: 100dvh;
 }
 
-/* Every UI element (labels, inputs, buttons, helper text) uses Inter. */
+/* ── Page chrome fonts ── */
 .login-page--platform .login-form,
 .login-page--platform .login-card,
 .login-page--platform .platform-footer {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
+/* ── Layout: single column, centered ── */
 .login-page--platform .login-container {
-  display: grid;
-  grid-template-columns: 1.02fr 0.98fr;
-  align-items: stretch;
-  padding: 0;
-  background: #f5f5f8 !important;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0 clamp(20px, 5vw, 40px) 0;
+  background: transparent !important;
+  /* Override any grid set by base styles */
+  grid-template-columns: none;
 }
 
-/* ── Left hero panel ── */
+/* ── Hero: always visible, centered ── */
 .platform-hero {
-  position: relative;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  padding: 64px clamp(32px, 5vw, 88px);
-  background: linear-gradient(150deg, #edecf8 0%, #e9eaf6 46%, #eef0fb 100%);
-  overflow: hidden;
+  align-items: center;
+  text-align: center;
+  background: none;
+  padding: clamp(52px, 9vh, 96px) 0 0;
+  width: 100%;
+  max-width: 520px;
 }
 
+/* ── Brand block: logo mark + PLOTTWIST/HQ wordmark ── */
 .platform-hero__brand {
-  position: absolute;
-  top: 44px;
-  left: clamp(32px, 5vw, 88px);
+  position: static;
   display: flex;
-  align-items: center;
-}
-
-.platform-hero__logo {
-  height: 42px;
-  width: auto;
-  max-width: 220px;
-  object-fit: contain;
-}
-
-.platform-hero__wordmark {
-  font-family: 'Space Grotesk', 'Inter', sans-serif;
-  font-size: 22px;
-  font-weight: 500;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--pt-plat-ink);
-}
-
-/* PLOTTWIST / HQ stacked wordmark — mobile splash only (hidden on desktop, which
-   uses the actual platform logo image). */
-.platform-hero__wordmark-stack {
-  display: none;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: 0;
+  margin-bottom: 28px;
+}
+
+/* Logo mark image (the P-cube icon from platform branding). */
+.platform-hero__logo {
+  height: clamp(56px, 8vw, 80px);
+  width: auto;
+  max-width: 200px;
+  object-fit: contain;
+  margin-bottom: 14px;
+}
+
+/* Plain text fallback — hidden when wordmark-stack renders. */
+.platform-hero__wordmark {
+  display: none;
+}
+
+/* PLOTTWIST / HQ stacked wordmark — always shown in the dark layout. */
+.platform-hero__wordmark-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   font-family: 'Space Grotesk', 'Inter', sans-serif;
   font-weight: 500;
   text-transform: uppercase;
 }
 
 .platform-hero__wordmark-main {
-  font-size: 30px;
+  font-size: clamp(22px, 4vw, 34px);
   letter-spacing: 0.28em;
-  /* offset half the tracking so the wide letter-spacing stays optically centered */
-  text-indent: 0.28em;
-  color: #ffffff;
+  text-indent: 0.28em; /* optical center offset for wide tracking */
+  color: var(--pt-white);
   line-height: 1;
 }
 
+/* HQ divider — thin lines either side, matching the mockup */
 .platform-hero__wordmark-sub {
-  font-size: 15px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
   letter-spacing: 0.4em;
   text-indent: 0.4em;
-  color: var(--pt-plat-accent);
+  color: var(--pt-accent);
   line-height: 1;
-  margin-top: 8px;
+  margin-top: 10px;
 }
 
+.platform-hero__wordmark-sub::before,
+.platform-hero__wordmark-sub::after {
+  content: '';
+  display: block;
+  width: 28px;
+  height: 1px;
+  background: var(--pt-accent);
+  opacity: 0.55;
+}
+
+/* ── Headline ── */
 .platform-hero__content {
-  max-width: 520px;
-  margin-top: 48px;
+  max-width: 100%;
+  margin-top: 0;
 }
 
 .platform-hero__title {
-  margin: 0 0 18px;
+  margin: 0 0 16px;
   font-family: 'Manrope', 'Inter', sans-serif;
-  font-size: clamp(40px, 4vw, 54px);
+  font-size: clamp(38px, 5.5vw, 54px);
   line-height: 1.08;
   font-weight: 800;
   letter-spacing: -0.04em;
-  color: var(--pt-plat-ink);
+  color: var(--pt-white);
 }
 
 .platform-hero__title-accent {
-  color: var(--pt-plat-accent);
+  color: var(--pt-accent);
 }
 
 .platform-hero__subtitle {
-  margin: 0 0 34px;
-  max-width: 430px;
+  margin: 0 auto 0;
+  max-width: 400px;
   font-family: 'Inter', sans-serif;
   font-weight: 400;
-  font-size: 18px;
+  font-size: clamp(15px, 2vw, 18px);
   line-height: 1.6;
-  color: var(--pt-plat-muted);
+  color: var(--pt-muted);
 }
 
+/* Dashboard SVG art — not used in the dark layout */
 .platform-hero__art {
+  display: none;
+}
+
+/* ── Login card ── */
+.login-page--platform .login-card {
+  margin: clamp(20px, 3vh, 32px) auto 0;
   width: 100%;
   max-width: 480px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  /* Override any grid alignment */
+  justify-self: unset;
+  align-self: unset;
 }
 
-.platform-hero__art svg {
-  width: 100%;
-  height: auto;
-  filter: drop-shadow(0 24px 44px rgba(76, 55, 160, 0.16));
-}
-
-/* ── Right card ── */
-.login-page--platform .login-card {
-  justify-self: center;
-  align-self: center;
-  margin: 0 auto;
-  width: 100%;
-  max-width: 420px;
-  background: #ffffff;
-  border: 1px solid #ececf3;
-  border-radius: 20px;
-  padding: 40px 36px;
-  box-shadow: 0 24px 60px rgba(38, 32, 86, 0.10);
-}
-
+/* Cardhead (used on old light layout) — hidden; hero carries the branding */
 .platform-cardhead {
-  text-align: center;
-  margin-bottom: 26px;
+  display: none;
 }
 
-.platform-cardhead__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--pt-plat-primary);
-  margin-bottom: 12px;
-}
-
-.platform-cardhead__icon svg {
-  width: 30px;
-  height: 30px;
-}
-
-.platform-cardhead__title {
-  margin: 0 0 6px;
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: var(--pt-plat-ink);
-}
-
-.platform-cardhead__subtitle {
-  margin: 0;
-  font-size: 14px;
-  color: var(--pt-plat-muted);
-}
-
-/* ── Form ── */
+/* ── Form labels ── */
 .login-page--platform .login-form .form-group label {
-  color: var(--pt-plat-ink);
+  color: rgba(255, 255, 255, 0.88);
   font-family: 'Inter', sans-serif;
   font-weight: 500;
   font-size: 15px;
 }
 
-.login-page--platform .login-form .form-group input::placeholder {
-  font-size: 17px;
-  font-weight: 400;
-}
-
+/* ── Inputs ── */
 .login-page--platform .login-form .form-group input,
 .login-page--platform .login-form .form-group select {
-  border-radius: 12px;
-  border: 1px solid #e2e2ec;
-  padding: 13px 14px;
-  font-size: 15px;
-  background: #fbfbfe;
+  border-radius: 14px;
+  border: 1px solid var(--pt-border);
+  padding: 15px 16px;
+  font-size: 17px;
+  background: var(--pt-field-bg);
+  color: var(--pt-white);
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
+.login-page--platform .login-form .form-group input::placeholder {
+  font-size: 17px;
+  font-weight: 400;
+  color: var(--pt-subtle);
+}
+
 .login-page--platform .login-credentials-username input {
-  padding-left: 42px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%239aa0b4' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='12' cy='7' r='4'/%3E%3C/svg%3E");
+  padding-left: 46px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23a99cff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='12' cy='7' r='4'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: 14px center;
+  background-position: 16px center;
   background-size: 18px 18px;
 }
 
 .login-page--platform .login-form .form-group input:focus,
 .login-page--platform .login-form .form-group select:focus {
-  border-color: var(--pt-plat-primary);
-  box-shadow: 0 0 0 3px rgba(108, 77, 246, 0.15);
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.09);
+  border-color: var(--pt-accent);
+  box-shadow: 0 0 0 3px rgba(139, 107, 255, 0.25);
   outline: none;
 }
 
 .login-page--platform .password-toggle-btn {
-  color: var(--pt-plat-primary);
+  color: var(--pt-accent);
 }
 
-/* ── Buttons ── */
+/* ── Primary button ── */
 .login-page--platform .login-form .btn-primary {
   position: relative;
-  background: var(--pt-plat-primary);
-  border: 1px solid var(--pt-plat-primary);
-  border-radius: 12px;
-  min-height: 50px;
+  background: linear-gradient(135deg, #7c5cff 0%, #6248ee 100%);
+  border: none;
+  border-radius: 14px;
+  min-height: 56px;
   font-family: 'Inter', sans-serif;
   font-size: 18px;
   font-weight: 600;
-  color: #ffffff;
-  box-shadow: 0 10px 24px rgba(108, 77, 246, 0.28);
-  transition: background 0.15s ease, box-shadow 0.15s ease;
+  color: var(--pt-white);
+  box-shadow: 0 14px 32px rgba(108, 77, 246, 0.42);
+  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
 }
 
 .login-page--platform .login-form .btn-primary:hover:not(:disabled) {
-  background: var(--pt-plat-primary-hover);
-  box-shadow: 0 12px 28px rgba(108, 77, 246, 0.34);
+  background: linear-gradient(135deg, #8b6bff 0%, #7055f8 100%);
+  box-shadow: 0 16px 36px rgba(108, 77, 246, 0.52);
+  transform: translateY(-1px);
 }
 
 .login-page--platform .login-form .btn-primary::after {
   content: "→";
   position: absolute;
-  right: 18px;
+  right: 20px;
   top: 50%;
   transform: translateY(-50%);
   font-size: 18px;
   font-weight: 700;
 }
 
+/* ── Secondary button ── */
 .login-page--platform .btn-secondary {
-  border-radius: 12px;
-  min-height: 46px;
-  background: #f4f3fb;
-  border: 1px solid #e2e2ec;
-  color: #4a4f63;
+  border-radius: 14px;
+  min-height: 50px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--pt-border);
+  color: rgba(255, 255, 255, 0.88);
 }
 
+/* ── Form chrome ── */
 .login-page--platform .remember-me {
-  color: var(--pt-plat-muted);
+  color: rgba(255, 255, 255, 0.6);
   font-size: 13px;
 }
 
 .login-page--platform .remember-me input[type="checkbox"] {
-  accent-color: var(--pt-plat-primary);
+  accent-color: var(--pt-accent);
 }
 
 .login-page--platform .help-link,
 .login-page--platform .help-link-button {
-  color: var(--pt-plat-primary);
+  color: #b9a6ff;
 }
 
 .login-page--platform .help-link:hover {
-  color: var(--pt-plat-primary-hover);
+  color: var(--pt-white);
 }
 
 .login-page--platform .help-separator {
-  color: #d5d8e3;
+  color: rgba(255, 255, 255, 0.25);
 }
 
 /* ── Footer ── */
@@ -3177,202 +3176,45 @@ const handleLogoError = (event) => {
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
-  padding: 18px 16px 24px;
+  padding: clamp(16px, 3vh, 28px) 16px clamp(20px, 4vh, 36px);
   font-family: 'Inter', sans-serif;
   font-weight: 400;
   font-size: 14px;
-  color: var(--pt-plat-muted);
-  background: #f5f5f8;
+  color: rgba(255, 255, 255, 0.5);
+  background: transparent;
 }
 
 .login-page--platform .platform-footer__link {
-  color: var(--pt-plat-muted);
+  color: rgba(255, 255, 255, 0.65);
   text-decoration: none;
 }
 
 .login-page--platform .platform-footer__link:hover {
-  color: var(--pt-plat-primary);
+  color: #b9a6ff;
   text-decoration: underline;
 }
 
 .login-page--platform .platform-footer__sep {
   margin: 0 12px;
-  color: #cbd0dd;
+  color: rgba(255, 255, 255, 0.2);
 }
 
-/* ── Responsive: tablet — single column, hero hidden, light card ── */
+/* ── Responsive tweaks ── */
+/* Tablet: tighten vertical spacing */
 @media (max-width: 900px) {
-  .login-page--platform .login-container {
-    grid-template-columns: 1fr;
-  }
-
   .platform-hero {
-    display: none;
-  }
-
-  .login-page--platform .login-card {
-    margin: 40px auto;
+    padding-top: clamp(40px, 7vh, 72px);
   }
 }
 
-/* ══ Mobile splash (plottwisthq.com on phones) ══════════════════════════════
-   Dark, premium single-column treatment layered over the mobile background art.
-   Only the presentation changes — the username-first + automatic SSO flow is
-   untouched. Scoped under .login-page--platform so tenants are never affected. */
-@media (max-width: 768px) {
-  .login-page--platform {
-    background: #0a0a1f url('/branding/plottwisthq-mobile-bg.png') no-repeat center top;
-    background-size: cover;
-    min-height: 100vh;
-    min-height: 100dvh;
-  }
-
-  .login-page--platform .login-container {
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    align-items: stretch;
-    grid-template-columns: none;
-    padding: 0 24px 12px;
-    background: transparent !important;
-  }
-
-  /* Re-show the hero (hidden by the tablet rule) as transparent branding. */
-  .login-page--platform .platform-hero {
-    display: flex;
-    background: none;
-    padding: 20vh 0 0;
-    overflow: visible;
-    text-align: center;
-    align-items: center;
-  }
-
-  .login-page--platform .platform-hero__brand {
-    position: static;
-    top: auto;
-    left: auto;
-    justify-content: center;
-    margin-bottom: 22px;
-  }
-
-  /* The background already carries the logo mark; use the PLOTTWIST/HQ wordmark. */
-  .login-page--platform .platform-hero__logo,
-  .login-page--platform .platform-hero__wordmark {
-    display: none;
-  }
-
-  .login-page--platform .platform-hero__wordmark-stack {
-    display: flex;
-  }
-
-  .login-page--platform .platform-hero__content {
-    max-width: 100%;
-    margin-top: 0;
-  }
-
-  .login-page--platform .platform-hero__title {
-    font-size: 42px;
-    color: #ffffff;
-  }
-
-  .login-page--platform .platform-hero__subtitle {
-    margin: 0 auto;
-    max-width: 340px;
-    color: rgba(255, 255, 255, 0.72);
-  }
-
-  /* Bottom artwork is supplied by the background image. */
-  .login-page--platform .platform-hero__art {
-    display: none;
-  }
-
-  /* Card becomes a transparent form area over the dark background. */
+/* Phone: a little more compact */
+@media (max-width: 480px) {
   .login-page--platform .login-card {
-    margin: 26px auto 0;
-    width: 100%;
-    max-width: 420px;
-    background: transparent;
-    border: none;
-    box-shadow: none;
-    padding: 0;
+    max-width: 100%;
   }
 
-  /* Branding lives in the hero on mobile. */
-  .login-page--platform .platform-cardhead {
-    display: none;
-  }
-
-  /* Dark input fields */
-  .login-page--platform .login-form .form-group label {
-    color: rgba(255, 255, 255, 0.92);
-  }
-
-  .login-page--platform .login-form .form-group input,
-  .login-page--platform .login-form .form-group select {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    color: #ffffff;
-  }
-
-  .login-page--platform .login-form .form-group input::placeholder {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .login-page--platform .login-form .form-group input:focus,
-  .login-page--platform .login-form .form-group select:focus {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: var(--pt-plat-accent);
-    box-shadow: 0 0 0 3px rgba(139, 107, 255, 0.25);
-  }
-
-  /* Lighten the username field icon for the dark field. */
-  .login-page--platform .login-credentials-username input {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23a99cff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='12' cy='7' r='4'/%3E%3C/svg%3E");
-  }
-
-  /* Purple gradient button */
-  .login-page--platform .login-form .btn-primary {
-    background: linear-gradient(135deg, #7c5cff 0%, #6c4df6 100%);
-    border: none;
-    min-height: 56px;
-    box-shadow: 0 14px 30px rgba(108, 77, 246, 0.4);
-  }
-
-  .login-page--platform .btn-secondary {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    color: rgba(255, 255, 255, 0.92);
-  }
-
-  .login-page--platform .remember-me {
-    color: rgba(255, 255, 255, 0.6);
-  }
-
-  .login-page--platform .help-link,
-  .login-page--platform .help-link-button {
-    color: #b9a6ff;
-  }
-
-  .login-page--platform .help-separator {
-    color: rgba(255, 255, 255, 0.25);
-  }
-
-  /* Footer over the dark waves */
-  .login-page--platform .platform-footer {
-    background: transparent;
-    color: rgba(255, 255, 255, 0.55);
-  }
-
-  .login-page--platform .platform-footer__link {
-    color: rgba(255, 255, 255, 0.7);
-  }
-
-  .login-page--platform .platform-footer__link:hover {
-    color: #b9a6ff;
-  }
-
-  .login-page--platform .platform-footer__sep {
-    color: rgba(255, 255, 255, 0.25);
+  .platform-hero__wordmark-main {
+    font-size: 26px;
   }
 }
 </style>
