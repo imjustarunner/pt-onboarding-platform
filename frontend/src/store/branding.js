@@ -681,20 +681,23 @@ export const useBrandingStore = defineStore('branding', () => {
         // 2) Custom domain pattern: app.agency2.com -> resolve via backend by Host header.
         const host = window.location.hostname;
         const cacheKey = `__pt_portal_host__:${host}`;
-        const cachedRaw = sessionStorage.getItem(cacheKey);
+        // Check sessionStorage first, fall back to localStorage so the mapping
+        // survives cookie-clear / session-clear events that wipe sessionStorage.
+        const cachedRaw = sessionStorage.getItem(cacheKey) || localStorage.getItem(cacheKey);
         if (cachedRaw) {
-          const cached = JSON.parse(cachedRaw);
-          const cachedPortal = String(cached?.portalUrl || '').trim();
-          if (cachedPortal) {
-            portalHostPortalUrl.value = cachedPortal;
-            try {
-              localStorage.setItem(cacheKey, cachedRaw);
-            } catch {
-              /* ignore */
+          try {
+            const cached = JSON.parse(cachedRaw);
+            const cachedPortal = String(cached?.portalUrl || '').trim();
+            if (cachedPortal) {
+              portalHostPortalUrl.value = cachedPortal;
+              try {
+                sessionStorage.setItem(cacheKey, cachedRaw);
+                localStorage.setItem(cacheKey, cachedRaw);
+              } catch { /* ignore */ }
+              await fetchAgencyTheme(cachedPortal);
+              return;
             }
-            await fetchAgencyTheme(cachedPortal);
-            return;
-          }
+          } catch { /* malformed cache entry — fall through to network */ }
         }
 
         // Call backend to resolve host -> portalUrl.

@@ -594,6 +594,7 @@ import {
   clearRememberedSchoolStaffPasswordLogin
 } from '../utils/loginRemember';
 import { buildOrgLoginPath } from '../utils/orgLoginPath';
+import { getPlatformAppHostname } from '../utils/brandSwitchUrl';
 import { buildPublicIntakeUrl } from '../utils/publicIntakeUrl';
 import QRCode from 'qrcode';
 
@@ -889,12 +890,30 @@ const platformOrgName = computed(() => {
 // no org slug in the path AND no tenant bound to the host. This intentionally
 // EXCLUDES branded org logins (e.g. /itsco/login) and portal hosts
 // (e.g. app.itsco.health), so tenant branding is never touched by this override.
-const isPlatformLogin = computed(() =>
-  !isOrgLogin.value &&
-  !isSSTCLogin.value &&
-  !isAppLike.value &&
-  !String(brandingStore.portalHostPortalUrl || '').trim()
-);
+//
+// IMPORTANT: we check the hostname synchronously FIRST so this is never `true`
+// during the async window before portalHostPortalUrl resolves. Custom domains
+// (e.g. app.itsco.health) are always tenant portals, regardless of whether the
+// resolve call has returned yet. Only the actual platform hostname qualifies.
+const _platformHostname = getPlatformAppHostname(); // 'plottwisthq.com'
+const _currentHostname = String(window.location.hostname || '').toLowerCase().trim();
+const _isOnPlatformHost =
+  _currentHostname === _platformHostname ||
+  _currentHostname === `www.${_platformHostname}` ||
+  _currentHostname === 'localhost' ||
+  _currentHostname === '127.0.0.1';
+
+const isPlatformLogin = computed(() => {
+  // If we're not on the platform host (e.g. we're on app.itsco.health), this
+  // is always a tenant login — never show platform branding.
+  if (!_isOnPlatformHost) return false;
+  return (
+    !isOrgLogin.value &&
+    !isSSTCLogin.value &&
+    !isAppLike.value &&
+    !String(brandingStore.portalHostPortalUrl || '').trim()
+  );
+});
 const platformBrandName = computed(() => {
   const n = String(brandingStore.platformBranding?.organization_name || '').trim();
   return n && n.toLowerCase() !== 'plottwistco' ? n : 'PlottwistHQ';
