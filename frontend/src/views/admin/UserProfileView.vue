@@ -6617,7 +6617,7 @@ const copyAllCredentials = async () => {
 
 const tabIds = computed(() => (tabs.value || []).map((t) => t.id));
 
-const selectTab = (tabId, scrollTarget) => {
+const selectTab = (tabId) => {
   const id = String(tabId || '').trim();
   if (!id) return;
   if (!tabIds.value.includes(id)) return;
@@ -6625,12 +6625,6 @@ const selectTab = (tabId, scrollTarget) => {
   // Writing to the router during a component update can trigger Vue's internal patch crashes
   // (nextSibling/subTree/emitsOptions) when the route update races with VDOM patching.
   activeTab.value = id;
-  if (scrollTarget) {
-    nextTick(() => {
-      const el = document.getElementById(String(scrollTarget));
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-  }
 };
 
 // Ensure activeTab is always valid for the currently computed tabs.

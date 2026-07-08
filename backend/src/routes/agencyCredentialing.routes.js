@@ -27,9 +27,7 @@ import {
   listInsuranceInteractions,
   createInsuranceInteraction,
   updateInsuranceInteraction,
-  deleteInsuranceInteraction,
-  uploadProviderLicenseAdmin,
-  licenseFileUpload
+  deleteInsuranceInteraction
 } from '../controllers/agencyCredentialing.controller.js';
 
 const router = express.Router();
@@ -44,14 +42,6 @@ const validatePatch = [
 router.get('/:agencyId/credentialing/providers', authenticate, listAgencyProvidersCredentialing);
 router.patch('/:agencyId/credentialing/providers', authenticate, validatePatch, patchAgencyProvidersCredentialing);
 router.get('/:agencyId/credentialing/providers.csv', authenticate, downloadAgencyProvidersCredentialingCsv);
-
-// Admin license-copy upload for a specific provider
-router.post(
-  '/:agencyId/credentialing/providers/:userId/license-upload',
-  authenticate,
-  licenseFileUpload.single('file'),
-  uploadProviderLicenseAdmin
-);
 
 // Optional cleanup endpoint (purge stored values by field_key across providers in an agency)
 router.delete('/:agencyId/credentialing/field/:fieldKey', authenticate, deleteAgencyProvidersCredentialingField);

@@ -134,7 +134,6 @@
           <thead>
             <tr>
               <th>Name</th>
-              <th>NPI status</th>
               <th>DOB</th>
               <th>First client date</th>
               <th>NPI number</th>
@@ -144,7 +143,8 @@
               <th>License type/number</th>
               <th>Issued</th>
               <th>Expires</th>
-              <th>License copy</th>
+              <th>Medicaid provider type</th>
+              <th>Tax ID</th>
               <th>Medicaid location id</th>
               <th>Medicaid effective</th>
               <th>Medicaid revalidation</th>
@@ -171,243 +171,196 @@
                 </div>
               </td>
 
-              <!-- NPI status — read-only badge -->
-              <td style="white-space: nowrap;">
-                <span
-                  :class="['npi-status-badge', npiStatusClass(getValue(r.userId, 'npi_status'))]"
-                  :title="getValue(r.userId, 'npi_status') || ''"
-                >{{ npiStatusLabel(getValue(r.userId, 'npi_status')) }}</span>
-              </td>
-
-              <!-- DOB -->
               <td>
-                <span v-if="!isEditingRow(r.userId)" class="cell-text" :title="cellTitle(r,'date_of_birth')">
-                  {{ displayDate(getValue(r.userId, 'date_of_birth')) || '—' }}
-                </span>
                 <input
-                  v-else
                   type="date"
-                  :value="toIsoDate(getValue(r.userId, 'date_of_birth'))"
+                  :readonly="!isEditingRow(r.userId)"
+                  :title="cellTitle(r,'date_of_birth')"
+                  :value="getValue(r.userId, 'date_of_birth')"
+                  @focus="beginEdit(r.userId)"
                   @input="setValue(r.userId, 'date_of_birth', $event.target.value)"
                 />
                 <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'date_of_birth') }}</div>
               </td>
-              <!-- First client date -->
               <td>
-                <span v-if="!isEditingRow(r.userId)" class="cell-text" :title="cellTitle(r,'first_client_date')">
-                  {{ displayDate(getValue(r.userId, 'first_client_date')) || '—' }}
-                </span>
                 <input
-                  v-else
                   type="date"
-                  :value="toIsoDate(getValue(r.userId, 'first_client_date'))"
+                  :readonly="!isEditingRow(r.userId)"
+                  :title="cellTitle(r,'first_client_date')"
+                  :value="getValue(r.userId, 'first_client_date')"
+                  @focus="beginEdit(r.userId)"
                   @input="setValue(r.userId, 'first_client_date', $event.target.value)"
                 />
               </td>
-              <!-- NPI number -->
               <td>
-                <span v-if="!isEditingRow(r.userId)" class="cell-text" :title="cellTitle(r,'npi_number')">
-                  {{ getValue(r.userId, 'npi_number') || '—' }}
-                </span>
                 <input
-                  v-else
                   type="text"
+                  :readonly="!isEditingRow(r.userId)"
+                  :title="cellTitle(r,'npi_number')"
                   :value="getValue(r.userId, 'npi_number')"
+                  @focus="beginEdit(r.userId)"
                   @input="setValue(r.userId, 'npi_number', $event.target.value)"
                 />
                 <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'npi_number') }}</div>
               </td>
-              <!-- NPI id -->
               <td>
-                <span v-if="!isEditingRow(r.userId)" class="cell-text" :title="cellTitle(r,'npi_id')">
-                  {{ getValue(r.userId, 'npi_id') || '—' }}
-                </span>
                 <input
-                  v-else
                   type="text"
+                  :readonly="!isEditingRow(r.userId)"
+                  :title="cellTitle(r,'npi_id')"
                   :value="getValue(r.userId, 'npi_id')"
+                  @focus="beginEdit(r.userId)"
                   @input="setValue(r.userId, 'npi_id', $event.target.value)"
                 />
               </td>
-              <!-- Taxonomy -->
               <td>
-                <span v-if="!isEditingRow(r.userId)" class="cell-text" :title="cellTitle(r,'taxonomy_code')">
-                  {{ getValue(r.userId, 'taxonomy_code') || '—' }}
-                </span>
                 <input
-                  v-else
                   type="text"
+                  :readonly="!isEditingRow(r.userId)"
+                  :title="cellTitle(r,'taxonomy_code')"
                   :value="getValue(r.userId, 'taxonomy_code')"
+                  @focus="beginEdit(r.userId)"
                   @input="setValue(r.userId, 'taxonomy_code', $event.target.value)"
                 />
                 <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'taxonomy_code') }}</div>
               </td>
-              <!-- Zip -->
               <td>
-                <span v-if="!isEditingRow(r.userId)" class="cell-text">
-                  {{ getValue(r.userId, 'zipcode') || '—' }}
-                </span>
                 <input
-                  v-else
                   type="text"
+                  :readonly="!isEditingRow(r.userId)"
+                  :title="cellTitle(r,'zipcode')"
                   :value="getValue(r.userId, 'zipcode')"
+                  @focus="beginEdit(r.userId)"
                   @input="setValue(r.userId, 'zipcode', $event.target.value)"
                 />
               </td>
-              <!-- License type/number -->
+
               <td>
-                <span v-if="!isEditingRow(r.userId)" class="cell-text" :title="cellTitle(r,'license_type_number')">
-                  {{ getValue(r.userId, 'license_type_number') || '—' }}
-                </span>
                 <input
-                  v-else
                   type="text"
+                  :readonly="!isEditingRow(r.userId)"
+                  :title="cellTitle(r,'license_type_number')"
                   :value="getValue(r.userId, 'license_type_number')"
+                  @focus="beginEdit(r.userId)"
                   @input="setValue(r.userId, 'license_type_number', $event.target.value)"
                 />
                 <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'license_type_number') }}</div>
               </td>
-              <!-- License issued — red if license exists but date is missing -->
-              <td :class="licenseDateCellClass(r, 'issued')">
-                <span v-if="!isEditingRow(r.userId)" class="cell-text" :title="cellTitle(r,'license_issued')">
-                  <template v-if="displayDate(getValue(r.userId, 'license_issued'))">
-                    {{ displayDate(getValue(r.userId, 'license_issued')) }}
-                  </template>
-                  <span v-else class="cell-missing">{{ getValue(r.userId, 'license_type_number') ? '⚠ Missing' : '—' }}</span>
-                </span>
+              <td>
                 <input
-                  v-else
                   type="date"
-                  :value="toIsoDate(getValue(r.userId, 'license_issued'))"
+                  :readonly="!isEditingRow(r.userId)"
+                  :title="cellTitle(r,'license_issued')"
+                  :value="getValue(r.userId, 'license_issued')"
+                  @focus="beginEdit(r.userId)"
                   @input="setValue(r.userId, 'license_issued', $event.target.value)"
                 />
                 <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'license_issued') }}</div>
               </td>
-              <!-- License expires — red if expired/missing, yellow if expiring soon -->
-              <td :class="licenseDateCellClass(r, 'expires')">
-                <span v-if="!isEditingRow(r.userId)" class="cell-text" :title="cellTitle(r,'license_expires')">
-                  <template v-if="displayDate(getValue(r.userId, 'license_expires'))">
-                    {{ displayDate(getValue(r.userId, 'license_expires')) }}
-                    <span v-if="isExpired(getValue(r.userId, 'license_expires'))" class="cell-flag cell-flag--expired">Expired</span>
-                    <span v-else-if="isExpiringSoon(getValue(r.userId, 'license_expires'))" class="cell-flag cell-flag--soon">Soon</span>
-                  </template>
-                  <span v-else class="cell-missing">{{ getValue(r.userId, 'license_type_number') ? '⚠ Missing' : '—' }}</span>
-                </span>
+              <td>
                 <input
-                  v-else
                   type="date"
-                  :value="toIsoDate(getValue(r.userId, 'license_expires'))"
+                  :readonly="!isEditingRow(r.userId)"
+                  :title="cellTitle(r,'license_expires')"
+                  :value="getValue(r.userId, 'license_expires')"
+                  @focus="beginEdit(r.userId)"
                   @input="setValue(r.userId, 'license_expires', $event.target.value)"
                 />
                 <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'license_expires') }}</div>
               </td>
-              <!-- License copy — view / upload -->
-              <td :class="['license-copy-cell', !getValue(r.userId, 'license_upload') && getValue(r.userId, 'license_type_number') ? 'cell-alert' : '']">
-                <div class="license-copy-wrap">
-                  <a
-                    v-if="getValue(r.userId, 'license_upload')"
-                    :href="toUploadsUrl(getValue(r.userId, 'license_upload'))"
-                    target="_blank"
-                    rel="noopener"
-                    class="license-copy-link"
-                    title="View uploaded license"
-                  >📄 View</a>
-                  <span v-else-if="getValue(r.userId, 'license_type_number')" class="cell-missing" title="No license copy on file">⚠ No copy</span>
-                  <span v-else class="cell-text muted">—</span>
-                  <button
-                    class="btn btn-secondary btn-xs license-upload-btn"
-                    type="button"
-                    :disabled="uploadingLicenseFor === r.userId"
-                    @click="openLicenseUpload(r)"
-                    title="Upload license copy"
-                  >{{ uploadingLicenseFor === r.userId ? '…' : '↑ Upload' }}</button>
-                </div>
-              </td>
-              <!-- Medicaid location id -->
+
               <td>
-                <span v-if="!isEditingRow(r.userId)" class="cell-text" :title="cellTitle(r,'medicaid_location_id')">
-                  {{ getValue(r.userId, 'medicaid_location_id') || '—' }}
-                </span>
                 <input
-                  v-else
                   type="text"
+                  :readonly="!isEditingRow(r.userId)"
+                  :title="cellTitle(r,'medicaid_provider_type')"
+                  :value="getValue(r.userId, 'medicaid_provider_type')"
+                  @focus="beginEdit(r.userId)"
+                  @input="setValue(r.userId, 'medicaid_provider_type', $event.target.value)"
+                />
+              </td>
+              <td>
+                <input
+                  type="text"
+                  :readonly="!isEditingRow(r.userId)"
+                  :title="cellTitle(r,'tax_id')"
+                  :value="getValue(r.userId, 'tax_id')"
+                  @focus="beginEdit(r.userId)"
+                  @input="setValue(r.userId, 'tax_id', $event.target.value)"
+                />
+              </td>
+              <td>
+                <input
+                  type="text"
+                  :readonly="!isEditingRow(r.userId)"
+                  :title="cellTitle(r,'medicaid_location_id')"
                   :value="getValue(r.userId, 'medicaid_location_id')"
+                  @focus="beginEdit(r.userId)"
                   @input="setValue(r.userId, 'medicaid_location_id', $event.target.value)"
                 />
                 <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'medicaid_location_id') }}</div>
               </td>
-              <!-- Medicaid effective date -->
               <td>
-                <span v-if="!isEditingRow(r.userId)" class="cell-text">
-                  {{ displayDate(getValue(r.userId, 'medicaid_effective_date')) || '—' }}
-                </span>
                 <input
-                  v-else
                   type="date"
-                  :value="toIsoDate(getValue(r.userId, 'medicaid_effective_date'))"
+                  :readonly="!isEditingRow(r.userId)"
+                  :title="cellTitle(r,'medicaid_effective_date')"
+                  :value="getValue(r.userId, 'medicaid_effective_date')"
+                  @focus="beginEdit(r.userId)"
                   @input="setValue(r.userId, 'medicaid_effective_date', $event.target.value)"
                 />
               </td>
-              <!-- Medicaid revalidation -->
               <td>
-                <span v-if="!isEditingRow(r.userId)" class="cell-text">
-                  {{ displayDate(getValue(r.userId, 'medicaid_revalidation')) || '—' }}
-                </span>
                 <input
-                  v-else
                   type="date"
-                  :value="toIsoDate(getValue(r.userId, 'medicaid_revalidation'))"
+                  :readonly="!isEditingRow(r.userId)"
+                  :title="cellTitle(r,'medicaid_revalidation')"
+                  :value="getValue(r.userId, 'medicaid_revalidation')"
+                  @focus="beginEdit(r.userId)"
                   @input="setValue(r.userId, 'medicaid_revalidation', $event.target.value)"
                 />
                 <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'medicaid_revalidation') }}</div>
               </td>
-              <!-- Medicare # -->
               <td>
-                <span v-if="!isEditingRow(r.userId)" class="cell-text">
-                  {{ getValue(r.userId, 'medicare_number') || '—' }}
-                </span>
                 <input
-                  v-else
                   type="text"
+                  :readonly="!isEditingRow(r.userId)"
+                  :title="cellTitle(r,'medicare_number')"
                   :value="getValue(r.userId, 'medicare_number')"
+                  @focus="beginEdit(r.userId)"
                   @input="setValue(r.userId, 'medicare_number', $event.target.value)"
                 />
               </td>
-              <!-- CAQH id -->
               <td>
-                <span v-if="!isEditingRow(r.userId)" class="cell-text" :title="cellTitle(r,'caqh_provider_id')">
-                  {{ getValue(r.userId, 'caqh_provider_id') || '—' }}
-                </span>
                 <input
-                  v-else
                   type="text"
+                  :readonly="!isEditingRow(r.userId)"
+                  :title="cellTitle(r,'caqh_provider_id')"
                   :value="getValue(r.userId, 'caqh_provider_id')"
+                  @focus="beginEdit(r.userId)"
                   @input="setValue(r.userId, 'caqh_provider_id', $event.target.value)"
                 />
                 <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'caqh_provider_id') }}</div>
               </td>
-              <!-- Personal email -->
+
               <td>
-                <span v-if="!isEditingRow(r.userId)" class="cell-text">
-                  {{ getValue(r.userId, 'personal_email') || '—' }}
-                </span>
                 <input
-                  v-else
                   type="email"
+                  :readonly="!isEditingRow(r.userId)"
+                  :title="cellTitle(r,'personal_email')"
                   :value="getValue(r.userId, 'personal_email')"
+                  @focus="beginEdit(r.userId)"
                   @input="setValue(r.userId, 'personal_email', $event.target.value)"
                 />
                 <div v-if="showSources" class="muted" style="font-size: 11px;">src: users.personal_email</div>
               </td>
-              <!-- Cell -->
               <td>
-                <span v-if="!isEditingRow(r.userId)" class="cell-text">
-                  {{ getValue(r.userId, 'cell_number') || '—' }}
-                </span>
                 <input
-                  v-else
                   type="tel"
+                  :readonly="!isEditingRow(r.userId)"
+                  :title="cellTitle(r,'cell_number')"
                   :value="getValue(r.userId, 'cell_number')"
+                  @focus="beginEdit(r.userId)"
                   @input="setValue(r.userId, 'cell_number', $event.target.value)"
                 />
                 <div v-if="showSources" class="muted" style="font-size: 11px;">src: users.personal_phone</div>
@@ -437,15 +390,6 @@
         </table>
       </div>
     </div>
-
-    <!-- Hidden file input for license uploads -->
-    <input
-      ref="licenseUploadInput"
-      type="file"
-      accept=".pdf,.jpg,.jpeg,.png,.webp"
-      style="display:none"
-      @change="onLicenseFileSelected"
-    />
   </div>
 </template>
 
@@ -454,7 +398,6 @@ import { computed, onMounted, ref, watch, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
-import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 import CredentialingTimeline from '../../components/admin/CredentialingTimeline.vue';
 import InsuranceDefinitionsPanel from '../../components/admin/InsuranceDefinitionsPanel.vue';
 
@@ -499,14 +442,15 @@ const csvColumnOptions = [
   { key: 'license_type_number', label: 'License type/number' },
   { key: 'license_issued', label: 'Issued' },
   { key: 'license_expires', label: 'Expires' },
+  { key: 'medicaid_provider_type', label: 'Medicaid provider type' },
+  { key: 'tax_id', label: 'Tax ID' },
   { key: 'medicaid_location_id', label: 'Medicaid location id' },
   { key: 'medicaid_effective_date', label: 'Medicaid effective' },
   { key: 'medicaid_revalidation', label: 'Medicaid revalidation' },
   { key: 'medicare_number', label: 'Medicare #' },
   { key: 'caqh_provider_id', label: 'CAQH id' },
   { key: 'personal_email', label: 'Personal email' },
-  { key: 'cell_number', label: 'Cell' },
-  { key: 'npi_status', label: 'NPI status (from intake)' }
+  { key: 'cell_number', label: 'Cell' }
 ];
 const csvSelectedColumns = ref(csvColumnOptions.map((c) => c.key));
 
@@ -556,10 +500,10 @@ const beginEdit = (userId) => {
   if (!uid) return;
   const r = (rows.value || []).find((x) => Number(x.userId) === uid);
   if (!r) return;
+  editingUserId.value = uid;
 
-  // Build draft from the server data BEFORE changing editingUserId,
-  // so getValue() doesn't accidentally read stale draftValues from a previous edit.
-  const editableKeys = [
+  const initial = new Map();
+  const keys = [
     'date_of_birth',
     'first_client_date',
     'npi_number',
@@ -569,6 +513,8 @@ const beginEdit = (userId) => {
     'license_type_number',
     'license_issued',
     'license_expires',
+    'medicaid_provider_type',
+    'tax_id',
     'medicaid_location_id',
     'medicaid_effective_date',
     'medicaid_revalidation',
@@ -577,55 +523,15 @@ const beginEdit = (userId) => {
     'personal_email',
     'cell_number'
   ];
-  const initial = new Map();
-  for (const k of editableKeys) {
-    initial.set(k, baseValueForRow(r, k));
+  for (const k of keys) {
+    initial.set(k, getValue(uid, k));
   }
   draftValues.value = initial;
-  editingUserId.value = uid;
 };
 
 const cancelEdit = () => {
   editingUserId.value = null;
   draftValues.value = new Map();
-};
-
-// ── License upload ────────────────────────────────────────────────────────────
-const uploadingLicenseFor = ref(null);
-const licenseUploadInput = ref(null);
-const licenseUploadTargetRow = ref(null);
-const licenseUploadError = ref('');
-
-const openLicenseUpload = (row) => {
-  licenseUploadTargetRow.value = row;
-  licenseUploadError.value = '';
-  nextTick(() => licenseUploadInput.value?.click());
-};
-
-const onLicenseFileSelected = async (event) => {
-  const file = event.target.files?.[0];
-  if (!file || !licenseUploadTargetRow.value || !selectedAgencyId.value) return;
-  const row = licenseUploadTargetRow.value;
-  uploadingLicenseFor.value = row.userId;
-  licenseUploadError.value = '';
-  try {
-    const form = new FormData();
-    form.append('file', file);
-    await api.post(
-      `/agencies/${selectedAgencyId.value}/credentialing/providers/${row.userId}/license-upload`,
-      form,
-      { headers: { 'Content-Type': 'multipart/form-data' } }
-    );
-    info.value = `License uploaded for ${row.first_name} ${row.last_name}.`;
-    await refresh();
-  } catch (e) {
-    licenseUploadError.value = e.response?.data?.error?.message || 'Upload failed';
-    error.value = licenseUploadError.value;
-  } finally {
-    uploadingLicenseFor.value = null;
-    licenseUploadTargetRow.value = null;
-    if (licenseUploadInput.value) licenseUploadInput.value.value = '';
-  }
 };
 
 const baseValueForRow = (row, fieldKey) => {
@@ -697,86 +603,6 @@ const mapUiFieldKeyToStorageKey = (uiKey) => {
     default:
       return uiKey;
   }
-};
-
-/** Convert any stored date (YYYY-MM-DD, MM/DD/YYYY, etc.) to YYYY-MM-DD for <input type="date"> */
-const toIsoDate = (val) => {
-  const s = String(val || '').trim();
-  if (!s) return '';
-  // Already ISO
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-  // MM/DD/YYYY
-  const mdyMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (mdyMatch) {
-    const [, m, d, y] = mdyMatch;
-    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
-  }
-  return '';
-};
-
-/** Human-readable date string (M/D/YYYY) from any stored format */
-const displayDate = (val) => {
-  const iso = toIsoDate(val);
-  if (!iso) {
-    // Return raw value if we can't parse it (e.g. "12/21/2022" already looks fine)
-    const s = String(val || '').trim();
-    return s || '';
-  }
-  const [y, m, d] = iso.split('-');
-  return `${Number(m)}/${Number(d)}/${y}`;
-};
-
-const EXPIRY_WARN_DAYS = 90;
-
-const isExpired = (val) => {
-  const iso = toIsoDate(val);
-  if (!iso) return false;
-  return new Date(iso) < new Date();
-};
-
-const isExpiringSoon = (val) => {
-  const iso = toIsoDate(val);
-  if (!iso) return false;
-  const d = new Date(iso);
-  const now = new Date();
-  if (d < now) return false;
-  const diffDays = (d - now) / (1000 * 60 * 60 * 24);
-  return diffDays <= EXPIRY_WARN_DAYS;
-};
-
-/** CSS class for the issued/expires date cells based on license validity */
-const licenseDateCellClass = (row, which) => {
-  const licNum = String(baseValueForRow(row, 'license_type_number') || getValue(row.userId, 'license_type_number') || '').trim();
-  if (!licNum) return ''; // no license number — no highlighting
-
-  if (which === 'issued') {
-    const issued = getValue(row.userId, 'license_issued');
-    return !toIsoDate(issued) ? 'cell-alert' : '';
-  }
-  if (which === 'expires') {
-    const expires = getValue(row.userId, 'license_expires');
-    const iso = toIsoDate(expires);
-    if (!iso) return 'cell-alert';
-    if (isExpired(expires)) return 'cell-alert';
-    if (isExpiringSoon(expires)) return 'cell-warn';
-    return '';
-  }
-  return '';
-};
-
-/** Label for the npi_status field value */
-const npiStatusLabel = (val) => {
-  const v = String(val || '').trim().toLowerCase();
-  if (v === 'yes') return 'Has NPI';
-  if (v === 'no_itsco_create' || v === 'no') return 'ITSCO to create';
-  return '—';
-};
-
-const npiStatusClass = (val) => {
-  const v = String(val || '').trim().toLowerCase();
-  if (v === 'yes') return 'npi-status--has';
-  if (v === 'no_itsco_create' || v === 'no') return 'npi-status--create';
-  return '';
 };
 
 const cellTitle = (row, uiKey) => {
@@ -926,96 +752,6 @@ watch(viewMode, (mode) => {
 .credentialing-page .card {
   font-family: var(--agency-font-family, var(--font-body));
 }
-/* Read-only cell text — matches column width without triggering browser validation */
-.cell-text {
-  display: block;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 160px;
-  font-size: 13px;
-  color: var(--text-primary, #1a1a1a);
-}
-
-/* Cell alert states */
-.cell-alert {
-  background: #ffe0e0 !important;
-}
-.cell-warn {
-  background: #fff8e1 !important;
-}
-.cell-missing {
-  color: #c0392b;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.cell-flag {
-  display: inline-block;
-  margin-left: 4px;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 3px;
-  vertical-align: middle;
-}
-.cell-flag--expired {
-  background: #c0392b;
-  color: #fff;
-}
-.cell-flag--soon {
-  background: #f39c12;
-  color: #fff;
-}
-
-/* License copy column */
-.license-copy-cell {
-  white-space: nowrap;
-}
-.license-copy-wrap {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: nowrap;
-}
-.license-copy-link {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--primary-color, #2d6a4f);
-  text-decoration: none;
-  white-space: nowrap;
-}
-.license-copy-link:hover {
-  text-decoration: underline;
-}
-.btn-xs {
-  font-size: 11px;
-  padding: 2px 7px;
-  line-height: 1.4;
-}
-.license-upload-btn {
-  flex-shrink: 0;
-}
-
-/* NPI status badge */
-.npi-status-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  background: var(--bg-alt, #f5f5f5);
-  color: var(--text-muted, #888);
-}
-.npi-status--has {
-  background: #d4edda;
-  color: #155724;
-}
-.npi-status--create {
-  background: #fff3cd;
-  color: #856404;
-}
-
 .in-network-badges {
   display: flex;
   flex-wrap: wrap;

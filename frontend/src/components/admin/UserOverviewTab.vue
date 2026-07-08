@@ -511,7 +511,7 @@
                     <span class="ov-toggle-track"><span class="ov-toggle-thumb"></span></span>
                   </label>
                 </div>
-                <button class="ov-show-all" type="button" @click="$emit('navigate', 'account', 'access-permissions')">Show all permissions</button>
+                <button class="ov-show-all" type="button" @click="$emit('navigate', 'account')">Show all permissions</button>
               </div>
             </div>
 
