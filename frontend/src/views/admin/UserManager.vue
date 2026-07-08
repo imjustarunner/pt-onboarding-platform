@@ -3786,10 +3786,14 @@ const sortedUsers = computed(() => {
     return ids.some((orgId) => parseInt(String(orgAffiliationById.value?.[String(orgId)] || ''), 10) === agencyId);
   };
 
-  // Super admins should be hidden unless a super admin explicitly toggles them on.
-  // Also prevents non-super-admins from searching/finding super admins.
+  // Super admins should be hidden from non-super-admins entirely.
+  // A super-admin viewer can reveal them via the quick tab, the Role dropdown
+  // (roleSort === 'super_admin'), or an explicit search query.
   const viewerIsSuperAdmin = String(authStore.user?.role || '').toLowerCase() === 'super_admin';
-  const showSuperAdmins = viewerIsSuperAdmin && userTypeFilter.value === 'super_admins';
+  const roleSortIsSuperAdmin = String(roleSort.value || '').toLowerCase() === 'super_admin';
+  const showSuperAdmins =
+    viewerIsSuperAdmin &&
+    (userTypeFilter.value === 'super_admins' || roleSortIsSuperAdmin || hasSearch);
   if (!showSuperAdmins && !isSscSstcTenant.value) {
     filtered = filtered.filter((u) => String(u?.role || '').toLowerCase() !== 'super_admin');
   }

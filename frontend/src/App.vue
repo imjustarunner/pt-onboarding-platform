@@ -3053,12 +3053,35 @@ const programWorkspaceHref = (org) => {
 const assignedEventPortals = ref([]);
 const directoryEventPortals = ref([]);
 
+// --- Storm guards for event-portal loaders ---
+// These loaders are driven by reactive watchers. If any dependency ever flaps
+// (or a tenant's data provokes repeated re-evaluation), the loaders could fire
+// in a tight loop and exhaust the browser's socket pool
+// (net::ERR_INSUFFICIENT_RESOURCES), preventing the app from loading at all.
+// The guards below make that impossible: at most one in-flight request per
+// loader, and a minimum interval between identical (per-agency) calls.
+const EVENT_PORTAL_MIN_INTERVAL_MS = 5000;
+let assignedPortalsInflight = false;
+let assignedPortalsLastKey = '';
+let assignedPortalsLastAt = 0;
+let directoryPortalsInflight = false;
+let directoryPortalsLastKey = '';
+let directoryPortalsLastAt = 0;
+
 async function loadAssignedEventPortals() {
-  assignedEventPortals.value = [];
-  if (!isAuthenticated.value) return;
-  if (!canSeeEventPortalsTopNav.value) return;
+  if (!isAuthenticated.value) { assignedEventPortals.value = []; return; }
+  if (!canSeeEventPortalsTopNav.value) { assignedEventPortals.value = []; return; }
   const aid = Number(agencyStore.currentAgency?.id || 0);
-  if (!aid) return;
+  if (!aid) { assignedEventPortals.value = []; return; }
+  // Collapse duplicate/looping invocations: skip if one is already running or
+  // if we just loaded the same agency within the throttle window.
+  const key = String(aid);
+  const now = Date.now();
+  if (assignedPortalsInflight) return;
+  if (key === assignedPortalsLastKey && now - assignedPortalsLastAt < EVENT_PORTAL_MIN_INTERVAL_MS) return;
+  assignedPortalsInflight = true;
+  assignedPortalsLastKey = key;
+  assignedPortalsLastAt = now;
   try {
     const res = await api.get('/skill-builders/me/assigned-events', {
       params: { agencyId: aid },
@@ -3068,21 +3091,30 @@ async function loadAssignedEventPortals() {
     assignedEventPortals.value = rows;
   } catch {
     assignedEventPortals.value = [];
+  } finally {
+    assignedPortalsInflight = false;
   }
 }
 
 async function loadDirectoryEventPortals() {
-  directoryEventPortals.value = [];
-  if (!isAuthenticated.value) return;
-  if (!canSeeEventPortalsTopNav.value) return;
+  if (!isAuthenticated.value) { directoryEventPortals.value = []; return; }
+  if (!canSeeEventPortalsTopNav.value) { directoryEventPortals.value = []; return; }
   // Only coordinators/admins need the directory-derived list.
-  if (!hasProgramCoordinatorAccess.value) return;
+  if (!hasProgramCoordinatorAccess.value) { directoryEventPortals.value = []; return; }
   const aid = Number(agencyStore.currentAgency?.id || 0);
-  if (!aid) return;
+  if (!aid) { directoryEventPortals.value = []; return; }
   // Fetch events for each program org individually (program-company-events
   // includes events without skills groups, which the directory endpoint misses).
   const orgs = programWorkspaceOrgs.value || [];
-  if (!orgs.length) return;
+  if (!orgs.length) { directoryEventPortals.value = []; return; }
+  // Collapse duplicate/looping invocations (see storm-guard note above).
+  const key = `${aid}:${orgs.length}`;
+  const now = Date.now();
+  if (directoryPortalsInflight) return;
+  if (key === directoryPortalsLastKey && now - directoryPortalsLastAt < EVENT_PORTAL_MIN_INTERVAL_MS) return;
+  directoryPortalsInflight = true;
+  directoryPortalsLastKey = key;
+  directoryPortalsLastAt = now;
   const all = [];
   for (const org of orgs) {
     try {
@@ -3099,6 +3131,7 @@ async function loadDirectoryEventPortals() {
     }
   }
   directoryEventPortals.value = all;
+  directoryPortalsInflight = false;
 }
 
 watch(
