@@ -1107,8 +1107,43 @@
             >Games — Thought Explorer</button>
 
             <template v-if="canSeePortalNav && canSeeFullPortalNav">
-              <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" @click="closeMobileMenu" class="mobile-nav-link">Admin Dashboard</router-link>
-              <router-link :to="orgTo('/operations-dashboard')" v-if="showOperationsDashboardLink && user?.role !== 'provider_plus' && !isSscSstcTenant" @click="closeMobileMenu" class="mobile-nav-link">{{ isAffiliationContext ? 'Team Lead Dashboards' : 'Operations Dashboard' }}</router-link>
+              <!-- People Ops (mirrors top-nav dropdown) -->
+              <div
+                v-if="!isAffiliationContext && (hasPeopleOpsFeature || hasHiringFeature)"
+                class="mobile-nav-group mobile-nav-group-collapsible"
+              >
+                <button
+                  type="button"
+                  class="mobile-nav-group-trigger"
+                  :aria-expanded="mobilePeopleOpsExpanded ? 'true' : 'false'"
+                  @click="mobilePeopleOpsExpanded = !mobilePeopleOpsExpanded"
+                >
+                  <span>People Ops</span>
+                  <span class="mobile-nav-group-caret" :class="{ open: mobilePeopleOpsExpanded }" aria-hidden="true">▸</span>
+                </button>
+                <template v-if="mobilePeopleOpsExpanded">
+                  <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Applicants</router-link>
+                  <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/pre-hire')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Pre-Hire</router-link>
+                  <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/careers')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Careers</router-link>
+                  <router-link v-if="hasPeopleOpsFeature && showOnDemandLink && !isSscSstcTenant" :to="orgTo('/on-demand-training')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">On-Demand Training</router-link>
+                  <router-link :to="orgTo('/admin/modules')" v-if="hasPeopleOpsFeature && isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canViewTraining')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Training Modules</router-link>
+                  <router-link :to="orgTo('/admin/agency-progress')" v-if="hasPeopleOpsFeature && hasCapability('canViewTraining')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Progress</router-link>
+                </template>
+              </div>
+
+              <!-- Directory (mirrors top-nav dropdown) -->
+              <div v-if="!isSscSstcTenant" class="mobile-nav-group mobile-nav-group-collapsible">
+                <button
+                  type="button"
+                  class="mobile-nav-group-trigger"
+                  :aria-expanded="mobileDirectoryExpanded ? 'true' : 'false'"
+                  @click="mobileDirectoryExpanded = !mobileDirectoryExpanded"
+                >
+                  <span>Directory</span>
+                  <span class="mobile-nav-group-caret" :class="{ open: mobileDirectoryExpanded }" aria-hidden="true">▸</span>
+                </button>
+                <template v-if="mobileDirectoryExpanded">
+                  <router-link :to="orgTo('/operations-dashboard')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'provider_plus' || user?.role === 'clinical_practice_assistant')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">{{ isAffiliationContext ? 'Team Lead Dashboards' : 'Operations Dashboard' }}</router-link>
               <div v-if="canSeeScheduleBuildingsDirectoryNav && !isSscSstcTenant" class="mobile-nav-group mobile-nav-group-collapsible">
                 <button
                   type="button"
@@ -1285,107 +1320,96 @@
                 </template>
               </div>
 
-              <router-link
-                v-if="isSscSstcTenant && canSeeDigitalFormsNav"
-                :to="orgTo('/admin/digital-forms')"
-                class="mobile-nav-link"
-                @click="closeMobileMenu"
-              >Digital forms</router-link>
+                  <router-link :to="orgTo('/admin/school-portals-hub')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">School Portals</router-link>
+                  <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="canSeeProgramOverviewNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Program Overview</router-link>
+                  <router-link :to="orgTo('/admin/find-providers')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Provider Booking Interface</router-link>
+                  <router-link :to="orgTo('/admin/provider-availability')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Provider Management</router-link>
+                  <router-link :to="orgTo('/admin/school-clients')" v-if="canSeeSchoolClientsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">
+                    <span>School Clients</span>
+                    <span v-if="schoolClientsPendingCount > 0" class="nav-badge nav-badge-pulse" style="margin-left: 8px;">{{ schoolClientsPendingCount }}</span>
+                  </router-link>
+                  <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
+                  <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Guardians</router-link>
+                  <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Clients</router-link>
+                  <router-link :to="orgTo('/admin/referral-directory')" v-if="canSeeReferralDirectoryNavLink" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Referral Directory</router-link>
+                </template>
+              </div>
 
-              <router-link
-                :to="orgTo('/admin/modules')"
-                v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canViewTraining')"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >Training</router-link>
-              <router-link
-                :to="orgTo('/admin/school-portals-hub')"
-                v-if="canSeeSchoolPortalsNav"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >School Portals</router-link>
-              <router-link
-                :to="orgTo('/admin/provider-availability')"
-                v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >Provider Management</router-link>
-              <router-link
-                :to="orgTo('/admin/school-clients')"
-                v-if="canSeeSchoolClientsNav"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >
-                <span>School Clients</span>
-                <span
-                  v-if="schoolClientsPendingCount > 0"
-                  class="nav-badge nav-badge-pulse"
-                  style="margin-left: 8px;"
+              <!-- Management (mirrors top-nav dropdown) -->
+              <div class="mobile-nav-group mobile-nav-group-collapsible">
+                <button
+                  type="button"
+                  class="mobile-nav-group-trigger"
+                  :aria-expanded="mobileManagementExpanded ? 'true' : 'false'"
+                  @click="mobileManagementExpanded = !mobileManagementExpanded"
                 >
-                  {{ schoolClientsPendingCount }}
-                </span>
-              </router-link>
-              <router-link
-                :to="orgTo('/admin/documents')"
-                v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canSignDocuments')"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >Documents</router-link>
-              <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
-              <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Guardians</router-link>
-              <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Clients</router-link>
-              <router-link :to="orgTo('/admin/referral-directory')" v-if="canSeeReferralDirectoryNavLink" @click="closeMobileMenu" class="mobile-nav-link">Referral Directory</router-link>
-              <router-link
-                :to="orgTo('/admin/communications')"
-                v-if="canUseEngagementFeed && !isSscSstcTenant"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >Engagement Feed</router-link>
-              <router-link
-                :to="orgTo('/admin/communications/messages')"
-                v-if="canUseChats && !isSscSstcTenant"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >Messages</router-link>
-              <router-link
-                :to="orgTo('/notifications')"
-                v-if="(isAdmin || user?.role === 'clinical_practice_assistant') && !isSscSstcTenant"
-                @click="closeMobileMenu"
-                class="mobile-nav-link mobile-nav-link-obnoxious"
-              >
-                Notifications
-                <span class="mobile-obnoxious-badge" v-if="notificationsUnreadCount > 0">{{ notificationsUnreadCount }}</span>
-              </router-link>
-              <router-link
-                :to="ticketsNavLink"
-                v-if="(isAdmin || user?.role === 'staff' || user?.role === 'support' || user?.role === 'super_admin') && !isAffiliationContext"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >
-                Tickets
-                <span class="mobile-obnoxious-badge" v-if="communicationsOpenTicketsCount > 0">{{ communicationsOpenTicketsCount }}</span>
-              </router-link>
-              <router-link
-                :to="myScheduleNavLink"
-                v-if="(canShowScheduleIcon || canShowScheduleTopNav) && !isSscSstcTenant"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >Schedule</router-link>
-              <router-link
-                :to="orgTo('/supervisor/availability-lab')"
-                v-if="user?.role === 'supervisor'"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >Find Providers</router-link>
-              <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Payroll</router-link>
-              <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Receivables</router-link>
-              <router-link :to="orgTo('/admin/learning-billing')" v-if="canSeePayrollManagement && learningBillingNavEnabled" @click="closeMobileMenu" class="mobile-nav-link">Learning Billing</router-link>
-              <router-link :to="orgTo('/admin/audit-center')" v-if="isTrueAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Audit Center</router-link>
-              <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Expense/Reimbursements</router-link>
-              <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" @click="closeMobileMenu" class="mobile-nav-link">Revenue</router-link>
-              <router-link :to="availabilityIntakeNavLink" v-if="canSeeAvailabilityIntake && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Provider Availability</router-link>
+                  <span>Management</span>
+                  <span class="mobile-nav-group-caret" :class="{ open: mobileManagementExpanded }" aria-hidden="true">▸</span>
+                </button>
+                <template v-if="mobileManagementExpanded">
+                  <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Admin Dashboard</router-link>
+                  <router-link :to="orgTo('/admin/executive-report')" v-if="user?.role === 'super_admin'" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Executive Report</router-link>
+                  <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">
+                    <span>Payroll</span>
+                    <span v-if="payrollPendingCount > 0" class="nav-badge nav-badge-pulse" style="margin-left: 8px;">{{ payrollPendingCount }}</span>
+                  </router-link>
+                  <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Receivables</router-link>
+                  <router-link :to="orgTo('/admin/learning-billing')" v-if="canSeePayrollManagement && learningBillingNavEnabled" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Learning Billing</router-link>
+                  <router-link :to="orgTo('/admin/psychotherapy-compliance')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Psychotherapy Compliance</router-link>
+                  <router-link :to="orgTo('/admin/compliance-corner')" v-if="isTrueAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Compliance Corner</router-link>
+                  <router-link :to="orgTo('/admin/audit-center')" v-if="isTrueAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Audit Center</router-link>
+                  <router-link :to="orgTo('/admin/documents')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canSignDocuments')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Documents</router-link>
+                  <router-link :to="orgTo('/admin/facilitator-availability')" v-if="isAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Facilitator Availability</router-link>
+                  <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Expense/Reimbursements</router-link>
+                  <router-link :to="orgTo('/admin/budget-management')" v-if="canSeeBudgetManagement" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Budget Management</router-link>
+                  <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Revenue</router-link>
+                  <router-link :to="availabilityIntakeNavLink" v-if="canSeeAvailabilityIntake && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Provider Availability</router-link>
+                  <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
+                  <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Guardians</router-link>
+                  <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Clients</router-link>
+                  <router-link :to="orgTo('/admin/referral-directory')" v-if="canSeeReferralDirectoryNavLink" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Referral Directory</router-link>
+                  <router-link :to="orgTo('/admin/credentialing')" v-if="canSeeCredentialing" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Credentialing</router-link>
+                  <router-link v-if="isSscSstcTenant && canSeeDigitalFormsNav" :to="orgTo('/admin/digital-forms')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Digital forms</router-link>
+                  <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Settings</router-link>
+                </template>
+              </div>
 
-              <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Settings</router-link>
+              <!-- Communications (mirrors top-nav dropdown) -->
+              <div v-if="showEngagementMenu" class="mobile-nav-group mobile-nav-group-collapsible">
+                <button
+                  type="button"
+                  class="mobile-nav-group-trigger"
+                  :aria-expanded="mobileCommsExpanded ? 'true' : 'false'"
+                  @click="mobileCommsExpanded = !mobileCommsExpanded"
+                >
+                  <span>Communications</span>
+                  <span v-if="communicationsTotalAttentionCount > 0" class="nav-badge nav-badge-pulse" style="margin-left: 8px;">{{ communicationsTotalAttentionCount }}</span>
+                  <span class="mobile-nav-group-caret" :class="{ open: mobileCommsExpanded }" aria-hidden="true">▸</span>
+                </button>
+                <template v-if="mobileCommsExpanded">
+                  <router-link :to="{ path: orgTo('/admin/communications'), query: communicationsWorkspaceQuery }" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">
+                    <span>Workspace</span>
+                    <span v-if="communicationsPendingCount > 0" class="nav-badge nav-badge-pulse" style="margin-left: 8px;">{{ communicationsPendingCount }}</span>
+                  </router-link>
+                  <router-link v-if="canUseEngagementFeed" :to="orgTo('/admin/communications')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Engagement Feed</router-link>
+                  <router-link v-if="canUseChats" :to="orgTo('/admin/communications/messages')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Messages</router-link>
+                  <router-link v-if="canUseAgencyCampaigns && !isSscSstcTenant" :to="orgTo('/admin/communications/campaigns')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Campaigns</router-link>
+                  <router-link v-if="canUseEngagementFeed && !isSscSstcTenant" :to="orgTo('/admin/contacts')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Contacts</router-link>
+                  <router-link :to="orgTo('/notifications')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink mobile-nav-link-obnoxious">
+                    <span>Notifications</span>
+                    <span class="mobile-obnoxious-badge" v-if="notificationsUnreadCount > 0">{{ notificationsUnreadCount }}</span>
+                  </router-link>
+                  <router-link :to="ticketsNavLink" v-if="!isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">
+                    <span>Tickets</span>
+                    <span class="mobile-obnoxious-badge" v-if="communicationsOpenTicketsCount > 0">{{ communicationsOpenTicketsCount }}</span>
+                  </router-link>
+                  <router-link v-if="canShowScheduleTopNav && !isSscSstcTenant" :to="scheduleNavLink" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">
+                    <span>Schedule</span>
+                    <span v-if="showBuildingsPendingBadge && buildingsPendingCount > 0" class="nav-badge" style="margin-left: 8px;">{{ buildingsPendingCount }}</span>
+                  </router-link>
+                  <router-link v-if="user?.role === 'supervisor'" :to="orgTo('/supervisor/availability-lab')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Find Providers</router-link>
+                </template>
+              </div>
             </template>
             <button
               v-if="!isAffiliationContext && !isSummitStatsChallengeChrome"
@@ -1999,6 +2023,14 @@ const mobileMyClubsExpanded = ref(false);
 const activeSeasonsMenuOpen = ref(false);
 const mobileActiveSeasonsExpanded = ref(false);
 const engagementMenuOpen = ref(false);
+
+// Mobile sidebar top-level group expansion state (mirrors the top-nav dropdowns:
+// People Ops / Directory / Management / Communications). Kept separate from the
+// desktop *MenuOpen refs so opening a mobile group never affects the desktop bar.
+const mobilePeopleOpsExpanded = ref(false);
+const mobileDirectoryExpanded = ref(false);
+const mobileManagementExpanded = ref(false);
+const mobileCommsExpanded = ref(false);
 
 const navDropdownOpen = computed(() => {
   return (
@@ -6065,15 +6097,15 @@ details.mobile-nav-group-collapsible > summary::-webkit-details-marker {
   text-transform: none;
   letter-spacing: normal;
   /* Match `.mobile-nav-link` */
-  color: white;
+  color: var(--header-text-color, #fff);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   user-select: none;
 }
 .mobile-nav-group-trigger:hover {
   background-color: rgba(255, 255, 255, 0.1);
-  border-left-color: white;
-  color: white;
+  border-left-color: var(--accent, white);
+  color: var(--header-text-color, #fff);
 }
 .mobile-nav-group-caret {
   display: inline-block;
