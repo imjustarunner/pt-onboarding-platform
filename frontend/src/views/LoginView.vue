@@ -40,15 +40,20 @@
             @error="handleLogoError"
           />
           <span v-else class="platform-hero__wordmark">{{ platformBrandName }}</span>
+          <!-- Mobile-only wordmark treatment: the mobile splash background already
+               carries the logo mark, so we render the PLOTTWIST / HQ wordmark beneath it. -->
+          <div class="platform-hero__wordmark-stack" aria-hidden="true">
+            <span class="platform-hero__wordmark-main">PLOTTWIST</span>
+            <span class="platform-hero__wordmark-sub">HQ</span>
+          </div>
         </div>
         <div class="platform-hero__content">
           <h1 class="platform-hero__title">
-            Your Operations.<br />
-            <span class="platform-hero__title-accent">All in One Place.</span>
+            One Platform.<br />
+            <span class="platform-hero__title-accent">Infinite Organizations.</span>
           </h1>
           <p class="platform-hero__subtitle">
-            {{ platformBrandName }} empowers teams and organizations to manage,
-            streamline, and grow across every company you oversee.
+            The command center for your teams, companies, and growth.
           </p>
           <div class="platform-hero__art">
             <svg viewBox="0 0 480 320" fill="none" xmlns="http://www.w3.org/2000/svg" role="img">
@@ -2890,9 +2895,18 @@ const handleLogoError = (event) => {
 .login-page--platform {
   --pt-plat-primary: #6c4df6;
   --pt-plat-primary-hover: #5a3ee6;
+  --pt-plat-accent: #8B6BFF;
   --pt-plat-ink: #1f2333;
   --pt-plat-muted: #6b7189;
   background: #f5f5f8;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* Every UI element (labels, inputs, buttons, helper text) uses Inter. */
+.login-page--platform .login-form,
+.login-page--platform .login-card,
+.login-page--platform .platform-footer {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .login-page--platform .login-container {
@@ -2930,10 +2944,42 @@ const handleLogoError = (event) => {
 }
 
 .platform-hero__wordmark {
+  font-family: 'Space Grotesk', 'Inter', sans-serif;
   font-size: 22px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
   color: var(--pt-plat-ink);
+}
+
+/* PLOTTWIST / HQ stacked wordmark — mobile splash only (hidden on desktop, which
+   uses the actual platform logo image). */
+.platform-hero__wordmark-stack {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-family: 'Space Grotesk', 'Inter', sans-serif;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.platform-hero__wordmark-main {
+  font-size: 30px;
+  letter-spacing: 0.28em;
+  /* offset half the tracking so the wide letter-spacing stays optically centered */
+  text-indent: 0.28em;
+  color: #ffffff;
+  line-height: 1;
+}
+
+.platform-hero__wordmark-sub {
+  font-size: 15px;
+  letter-spacing: 0.4em;
+  text-indent: 0.4em;
+  color: var(--pt-plat-accent);
+  line-height: 1;
+  margin-top: 8px;
 }
 
 .platform-hero__content {
@@ -2943,21 +2989,24 @@ const handleLogoError = (event) => {
 
 .platform-hero__title {
   margin: 0 0 18px;
-  font-size: clamp(34px, 3.4vw, 52px);
+  font-family: 'Manrope', 'Inter', sans-serif;
+  font-size: clamp(40px, 4vw, 54px);
   line-height: 1.08;
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
   color: var(--pt-plat-ink);
 }
 
 .platform-hero__title-accent {
-  color: var(--pt-plat-primary);
+  color: var(--pt-plat-accent);
 }
 
 .platform-hero__subtitle {
   margin: 0 0 34px;
   max-width: 430px;
-  font-size: clamp(15px, 1.15vw, 18px);
+  font-family: 'Inter', sans-serif;
+  font-weight: 400;
+  font-size: 18px;
   line-height: 1.6;
   color: var(--pt-plat-muted);
 }
@@ -3022,8 +3071,14 @@ const handleLogoError = (event) => {
 /* ── Form ── */
 .login-page--platform .login-form .form-group label {
   color: var(--pt-plat-ink);
-  font-weight: 700;
-  font-size: 13px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  font-size: 15px;
+}
+
+.login-page--platform .login-form .form-group input::placeholder {
+  font-size: 17px;
+  font-weight: 400;
 }
 
 .login-page--platform .login-form .form-group input,
@@ -3063,8 +3118,9 @@ const handleLogoError = (event) => {
   border: 1px solid var(--pt-plat-primary);
   border-radius: 12px;
   min-height: 50px;
-  font-size: 16px;
-  font-weight: 700;
+  font-family: 'Inter', sans-serif;
+  font-size: 18px;
+  font-weight: 600;
   color: #ffffff;
   box-shadow: 0 10px 24px rgba(108, 77, 246, 0.28);
   transition: background 0.15s ease, box-shadow 0.15s ease;
@@ -3122,7 +3178,9 @@ const handleLogoError = (event) => {
   justify-content: center;
   flex-wrap: wrap;
   padding: 18px 16px 24px;
-  font-size: 13px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 400;
+  font-size: 14px;
   color: var(--pt-plat-muted);
   background: #f5f5f8;
 }
@@ -3142,7 +3200,7 @@ const handleLogoError = (event) => {
   color: #cbd0dd;
 }
 
-/* ── Responsive: single column, hero hidden on small screens ── */
+/* ── Responsive: tablet — single column, hero hidden, light card ── */
 @media (max-width: 900px) {
   .login-page--platform .login-container {
     grid-template-columns: 1fr;
@@ -3154,6 +3212,167 @@ const handleLogoError = (event) => {
 
   .login-page--platform .login-card {
     margin: 40px auto;
+  }
+}
+
+/* ══ Mobile splash (plottwisthq.com on phones) ══════════════════════════════
+   Dark, premium single-column treatment layered over the mobile background art.
+   Only the presentation changes — the username-first + automatic SSO flow is
+   untouched. Scoped under .login-page--platform so tenants are never affected. */
+@media (max-width: 768px) {
+  .login-page--platform {
+    background: #0a0a1f url('/branding/plottwisthq-mobile-bg.png') no-repeat center top;
+    background-size: cover;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  .login-page--platform .login-container {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: stretch;
+    grid-template-columns: none;
+    padding: 0 24px 12px;
+    background: transparent !important;
+  }
+
+  /* Re-show the hero (hidden by the tablet rule) as transparent branding. */
+  .login-page--platform .platform-hero {
+    display: flex;
+    background: none;
+    padding: 20vh 0 0;
+    overflow: visible;
+    text-align: center;
+    align-items: center;
+  }
+
+  .login-page--platform .platform-hero__brand {
+    position: static;
+    top: auto;
+    left: auto;
+    justify-content: center;
+    margin-bottom: 22px;
+  }
+
+  /* The background already carries the logo mark; use the PLOTTWIST/HQ wordmark. */
+  .login-page--platform .platform-hero__logo,
+  .login-page--platform .platform-hero__wordmark {
+    display: none;
+  }
+
+  .login-page--platform .platform-hero__wordmark-stack {
+    display: flex;
+  }
+
+  .login-page--platform .platform-hero__content {
+    max-width: 100%;
+    margin-top: 0;
+  }
+
+  .login-page--platform .platform-hero__title {
+    font-size: 42px;
+    color: #ffffff;
+  }
+
+  .login-page--platform .platform-hero__subtitle {
+    margin: 0 auto;
+    max-width: 340px;
+    color: rgba(255, 255, 255, 0.72);
+  }
+
+  /* Bottom artwork is supplied by the background image. */
+  .login-page--platform .platform-hero__art {
+    display: none;
+  }
+
+  /* Card becomes a transparent form area over the dark background. */
+  .login-page--platform .login-card {
+    margin: 26px auto 0;
+    width: 100%;
+    max-width: 420px;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+  }
+
+  /* Branding lives in the hero on mobile. */
+  .login-page--platform .platform-cardhead {
+    display: none;
+  }
+
+  /* Dark input fields */
+  .login-page--platform .login-form .form-group label {
+    color: rgba(255, 255, 255, 0.92);
+  }
+
+  .login-page--platform .login-form .form-group input,
+  .login-page--platform .login-form .form-group select {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: #ffffff;
+  }
+
+  .login-page--platform .login-form .form-group input::placeholder {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .login-page--platform .login-form .form-group input:focus,
+  .login-page--platform .login-form .form-group select:focus {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--pt-plat-accent);
+    box-shadow: 0 0 0 3px rgba(139, 107, 255, 0.25);
+  }
+
+  /* Lighten the username field icon for the dark field. */
+  .login-page--platform .login-credentials-username input {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23a99cff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='12' cy='7' r='4'/%3E%3C/svg%3E");
+  }
+
+  /* Purple gradient button */
+  .login-page--platform .login-form .btn-primary {
+    background: linear-gradient(135deg, #7c5cff 0%, #6c4df6 100%);
+    border: none;
+    min-height: 56px;
+    box-shadow: 0 14px 30px rgba(108, 77, 246, 0.4);
+  }
+
+  .login-page--platform .btn-secondary {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.92);
+  }
+
+  .login-page--platform .remember-me {
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .login-page--platform .help-link,
+  .login-page--platform .help-link-button {
+    color: #b9a6ff;
+  }
+
+  .login-page--platform .help-separator {
+    color: rgba(255, 255, 255, 0.25);
+  }
+
+  /* Footer over the dark waves */
+  .login-page--platform .platform-footer {
+    background: transparent;
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .login-page--platform .platform-footer__link {
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .login-page--platform .platform-footer__link:hover {
+    color: #b9a6ff;
+  }
+
+  .login-page--platform .platform-footer__sep {
+    color: rgba(255, 255, 255, 0.25);
   }
 }
 </style>
