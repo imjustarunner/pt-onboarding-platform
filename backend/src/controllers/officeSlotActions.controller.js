@@ -198,9 +198,9 @@ function addDaysYmd(ymd, days) {
 }
 
 function normalizeRecurringUntilDate(bookingStartDate, rawUntil) {
-  const start = String(bookingStartDate || '').slice(0, 10);
+  const start = ymdFromDateLike(bookingStartDate, null);
   const maxAllowed = addDaysYmd(start, 364);
-  const candidate = String(rawUntil || '').slice(0, 10);
+  const candidate = ymdFromDateLike(rawUntil, null);
   if (!candidate || !/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return maxAllowed;
   if (candidate <= start) return maxAllowed;
   return candidate > maxAllowed ? maxAllowed : candidate;
@@ -220,6 +220,12 @@ function weekdayIndexFromYmd(ymd) {
 }
 
 function ymdFromDateLike(value, fallback = null) {
+  // mysql2 DATE/DATETIME columns arrive as Date objects; String(date).slice(0,10)
+  // becomes "Sat Jun 27" and must never be written back to a DATE column.
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return fallback;
+    return value.toISOString().slice(0, 10);
+  }
   const raw = String(value || '').trim();
   const exact = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (exact) return `${exact[1]}-${exact[2]}-${exact[3]}`;
@@ -2931,8 +2937,10 @@ export const staffAssignOpenSlot = async (req, res, next) => {
               await OfficeBookingPlan.upsertActive({
                 standingAssignmentId: existing.id,
                 bookedFrequency: assignedFrequency,
-                bookingStartDate: String(activePlan.booking_start_date || date).slice(0, 10) || date,
-                activeUntilDate: activePlan.active_until_date ? String(activePlan.active_until_date).slice(0, 10) : null,
+                bookingStartDate: ymdFromDateLike(activePlan.booking_start_date, date) || date,
+                activeUntilDate: activePlan.active_until_date
+                  ? ymdFromDateLike(activePlan.active_until_date, null)
+                  : null,
                 createdByUserId: req.user.id
               });
             }

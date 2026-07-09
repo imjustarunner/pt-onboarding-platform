@@ -1,7 +1,26 @@
 import pool from '../config/database.js';
 
+/**
+ * Normalize a date-like value to YYYY-MM-DD.
+ * mysql2 returns DATE columns as JS Date objects; String(date).slice(0, 10)
+ * yields "Sat Jun 27" which MySQL rejects on write — never use that pattern.
+ */
+function normalizeYmd(value) {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return '';
+    return value.toISOString().slice(0, 10);
+  }
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const exact = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (exact) return `${exact[1]}-${exact[2]}-${exact[3]}`;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toISOString().slice(0, 10);
+}
+
 function addDaysYmd(ymd, days) {
-  const m = String(ymd || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return null;
   const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
   d.setUTCDate(d.getUTCDate() + Number(days || 0));
@@ -9,9 +28,9 @@ function addDaysYmd(ymd, days) {
 }
 
 function normalizeActiveUntilDate({ bookingStartDate, activeUntilDate }) {
-  const start = String(bookingStartDate || '').slice(0, 10);
+  const start = normalizeYmd(bookingStartDate);
   const maxAllowed = addDaysYmd(start, 364);
-  const requested = String(activeUntilDate || '').slice(0, 10);
+  const requested = normalizeYmd(activeUntilDate);
   if (!requested || !/^\d{4}-\d{2}-\d{2}$/.test(requested)) return maxAllowed;
   if (!maxAllowed || requested <= start) return maxAllowed;
   return requested > maxAllowed ? maxAllowed : requested;
@@ -84,7 +103,12 @@ class OfficeBookingPlan {
     createdByUserId,
     bookingOrigin = 'user'
   }) {
-    const start = String(bookingStartDate || '').slice(0, 10);
+    const start = normalizeYmd(bookingStartDate);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) {
+      const err = new Error('bookingStartDate must be YYYY-MM-DD');
+      err.status = 400;
+      throw err;
+    }
     const normalizedActiveUntilDate = normalizeActiveUntilDate({ bookingStartDate: start, activeUntilDate });
     const normalizedOccurrenceCount = Number.isInteger(Number(bookedOccurrenceCount)) && Number(bookedOccurrenceCount) > 0
       ? Number(bookedOccurrenceCount)
