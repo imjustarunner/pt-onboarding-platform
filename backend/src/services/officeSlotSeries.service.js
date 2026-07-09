@@ -48,12 +48,17 @@ function normalizeOfficeRequestRecurrence({ recurrenceRaw, occurrenceCountRaw })
   if (normalizedRecurrence === 'ONCE') {
     return { recurrence: 'ONCE', occurrenceCount: 1 };
   }
-  const max = normalizedRecurrence === 'WEEKLY' ? 6 : 104;
+  // Weekly defaults to open-ended (null occurrence count). Callers that need a
+  // finite series can still pass an explicit count; cap at 52 to avoid runaway.
+  const max = normalizedRecurrence === 'WEEKLY' ? 52 : 104;
   const parsed = parseInt(occurrenceCountRaw, 10);
-  const occurrenceCount = Math.min(
-    max,
-    Math.max(1, Number.isFinite(parsed) ? parsed : (normalizedRecurrence === 'WEEKLY' ? 6 : 1))
-  );
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return {
+      recurrence: normalizedRecurrence,
+      occurrenceCount: normalizedRecurrence === 'WEEKLY' ? null : 1
+    };
+  }
+  const occurrenceCount = Math.min(max, Math.max(1, parsed));
   return { recurrence: normalizedRecurrence, occurrenceCount };
 }
 
@@ -97,8 +102,12 @@ function generateOccurrenceDates({ startDate, recurrence, occurrenceCount }) {
   if (!startDate) return [];
   const normalized = normalizeYmd(startDate);
   if (!normalized) return [];
-  const count = Math.max(1, Number(occurrenceCount || 1));
   const step = stepDaysForRecurrence(recurrence);
+  // Open-ended weekly/biweekly: validate a forward window (12 weeks) so approvals
+  // still catch near-term conflicts without inventing a hard end date.
+  const count = occurrenceCount == null
+    ? (step > 0 ? 12 : 1)
+    : Math.max(1, Number(occurrenceCount || 1));
   if (step === 0 || count === 1) return [normalized]; // ONCE or single occurrence
   const base = new Date(normalized + 'T00:00:00');
   const dates = [];

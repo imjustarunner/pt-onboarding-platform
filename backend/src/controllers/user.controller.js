@@ -3418,16 +3418,24 @@ export const getUserScheduleSummary = async (req, res, next) => {
         // ignore
       }
       const officeLocationIds = Array.from(officeLocationIdSet.values());
+      const mondayAnchor = OfficeScheduleMaterializer.startOfWeekMonday(weekStart) || weekStart;
+      // Force-materialize the viewed week plus two ahead so weekly rooms appear on
+      // My Schedule even when nobody opened the admin office grid for those weeks.
       for (const officeLocationId of officeLocationIds) {
-        try {
-          await OfficeScheduleMaterializer.materializeWeek({
-            officeLocationId,
-            weekStartRaw: OfficeScheduleMaterializer.startOfWeekMonday(weekStart) || weekStart,
-            createdByUserId: req.user.id,
-            useExactWeekStart: true
-          });
-        } catch {
-          // ignore
+        for (let i = 0; i < 3; i++) {
+          try {
+            const weekStartRaw = OfficeScheduleMaterializer.addDays(mondayAnchor, i * 7);
+            // eslint-disable-next-line no-await-in-loop
+            await OfficeScheduleMaterializer.materializeWeek({
+              officeLocationId,
+              weekStartRaw,
+              createdByUserId: req.user.id,
+              useExactWeekStart: true,
+              force: true
+            });
+          } catch {
+            // ignore
+          }
         }
       }
     } catch {
@@ -3535,7 +3543,39 @@ export const getUserScheduleSummary = async (req, res, next) => {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
 
-    // 4) Office schedule (office_events with slot_state)
+    // 4) Office schedule (office_events with slot_state + recurrence metadata)
+    const officeEventFrequencyMeta = (r) => {
+      const assignedFrequency = String(r.assigned_frequency || '').trim().toUpperCase() || null;
+      const bookedFrequency = String(r.booked_frequency || '').trim().toUpperCase() || null;
+      const mode = String(r.assignment_availability_mode || '').trim().toUpperCase();
+      const since = r.assignment_available_since_date
+        ? String(r.assignment_available_since_date).slice(0, 10)
+        : null;
+      const until = r.assignment_temporary_until_date
+        ? String(r.assignment_temporary_until_date).slice(0, 10)
+        : null;
+      const oneTimeByTemporaryWindow =
+        mode === 'TEMPORARY'
+        && since
+        && until
+        && since === until
+        && !bookedFrequency;
+      let frequency = bookedFrequency || assignedFrequency || null;
+      let frequencyLabel = null;
+      if (oneTimeByTemporaryWindow) {
+        frequency = 'ONCE';
+        frequencyLabel = 'Once';
+      } else if (frequency === 'WEEKLY') frequencyLabel = 'Weekly';
+      else if (frequency === 'BIWEEKLY') frequencyLabel = 'Biweekly';
+      else if (frequency === 'MONTHLY') frequencyLabel = 'Monthly';
+      else if (frequency === 'ONCE') frequencyLabel = 'Once';
+      else if (assignedFrequency || bookedFrequency) {
+        frequency = frequency || 'ONCE';
+        frequencyLabel = 'Once';
+      }
+      return { assignedFrequency, bookedFrequency, frequency, frequencyLabel };
+    };
+
     let officeEvents = [];
     try {
       const [rows] = await pool.execute(
@@ -3543,8 +3583,13 @@ export const getUserScheduleSummary = async (req, res, next) => {
            e.id,
            e.office_location_id,
            e.standing_assignment_id,
+           e.booking_plan_id,
            osa.availability_mode AS assignment_availability_mode,
            osa.temporary_extension_count AS assignment_temporary_extension_count,
+           osa.assigned_frequency,
+           osa.available_since_date AS assignment_available_since_date,
+           osa.temporary_until_date AS assignment_temporary_until_date,
+           bp.booked_frequency,
            ol.name AS building_name,
            e.room_id,
            r.room_number,
@@ -3589,6 +3634,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
          JOIN office_rooms r ON r.id = e.room_id
          JOIN office_locations ol ON ol.id = e.office_location_id
          LEFT JOIN office_standing_assignments osa ON osa.id = e.standing_assignment_id
+         LEFT JOIN office_booking_plans bp
+           ON bp.standing_assignment_id = e.standing_assignment_id
+          AND bp.is_active = TRUE
          JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id = ?
          WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
            AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
@@ -3601,11 +3649,13 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const normalizedSlotState = String(r.status || '').trim().toUpperCase() === 'BOOKED'
           ? 'ASSIGNED_BOOKED'
           : r.slot_state;
+        const freq = officeEventFrequencyMeta(r);
         return {
         displayStatus: toDisplayStatus({ status: r.status, slotState: normalizedSlotState }),
         id: r.id,
         buildingId: r.office_location_id,
         standingAssignmentId: Number(r.standing_assignment_id || 0) || null,
+        bookingPlanId: Number(r.booking_plan_id || 0) || null,
         buildingName: r.building_name,
         roomId: r.room_id,
         roomNumber: r.room_number,
@@ -3627,7 +3677,11 @@ export const getUserScheduleSummary = async (req, res, next) => {
         virtualIntakeEnabled: Number(r.virtual_intake_enabled || 0) === 1,
         inPersonIntakeEnabled: Number(r.in_person_intake_enabled || 0) === 1,
         assignmentAvailabilityMode: String(r.assignment_availability_mode || '').toUpperCase() || null,
-        assignmentTemporaryExtensionCount: Number(r.assignment_temporary_extension_count || 0)
+        assignmentTemporaryExtensionCount: Number(r.assignment_temporary_extension_count || 0),
+        assignedFrequency: freq.assignedFrequency,
+        bookedFrequency: freq.bookedFrequency,
+        frequency: freq.frequency,
+        frequencyLabel: freq.frequencyLabel
       };
       });
     } catch (e) {
@@ -3639,6 +3693,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
            e.standing_assignment_id,
            osa.availability_mode AS assignment_availability_mode,
            osa.temporary_extension_count AS assignment_temporary_extension_count,
+           osa.assigned_frequency,
+           osa.available_since_date AS assignment_available_since_date,
+           osa.temporary_until_date AS assignment_temporary_until_date,
            ol.name AS building_name,
            e.room_id,
            r.room_number,
@@ -3685,11 +3742,13 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const normalizedSlotState = String(r.status || '').trim().toUpperCase() === 'BOOKED'
           ? 'ASSIGNED_BOOKED'
           : r.slot_state;
+        const freq = officeEventFrequencyMeta({ ...r, booked_frequency: null });
         return {
         displayStatus: toDisplayStatus({ status: r.status, slotState: normalizedSlotState }),
         id: r.id,
         buildingId: r.office_location_id,
         standingAssignmentId: Number(r.standing_assignment_id || 0) || null,
+        bookingPlanId: null,
         buildingName: r.building_name,
         roomId: r.room_id,
         roomNumber: r.room_number,
@@ -3711,7 +3770,11 @@ export const getUserScheduleSummary = async (req, res, next) => {
         virtualIntakeEnabled: Number(r.virtual_intake_enabled || 0) === 1,
         inPersonIntakeEnabled: Number(r.in_person_intake_enabled || 0) === 1,
         assignmentAvailabilityMode: String(r.assignment_availability_mode || '').toUpperCase() || null,
-        assignmentTemporaryExtensionCount: Number(r.assignment_temporary_extension_count || 0)
+        assignmentTemporaryExtensionCount: Number(r.assignment_temporary_extension_count || 0),
+        assignedFrequency: freq.assignedFrequency,
+        bookedFrequency: freq.bookedFrequency,
+        frequency: freq.frequency,
+        frequencyLabel: freq.frequencyLabel
       };
       });
     }

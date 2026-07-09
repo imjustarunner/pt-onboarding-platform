@@ -1,7 +1,40 @@
 # Scheduling & Calendar System — Status Tracker
 
 > **Living document.** Updated after each development session.
-> Last updated: July 6, 2026
+> Last updated: July 9, 2026
+
+---
+
+## Phase 2d — Weekly Reliability (July 9, 2026)
+
+Root cause of “weekly rooms fall off every week”: watchdog `deactivateStaleStandingAssignments` killed AVAILABLE weekly standing rows when week-2+ events were missing (often after a non-blocking booking-plan failure or TEMPORARY/until-date caps). Staff re-approved → one week appeared → repeat.
+
+### Changes shipped
+
+| Area | Fix |
+|------|-----|
+| `officeStandingAssignmentMaintenance.service.js` | Only auto-deactivates expired **TEMPORARY** windows. AVAILABLE weekly/biweekly orphans are logged + rematerialized (12 weeks), never hard-killed for missing future events |
+| Intake approve (`assignTemporaryOfficeFromRequest`) | Open-ended weekly (`AVAILABLE`, no until/count); booking-plan upsert is **blocking**; per-hour plans for multi-hour blocks; uses `OfficeStandingAssignment.create` (orphan active-slot takeover) |
+| `OfficeStandingAssignment.resolveDuplicateSlotInsert` | Reactivates same-provider rows; takes over orphaned active physical slots; clean 409 on real conflicts |
+| Materializer | AVAILABLE weekly ignores historical `temporary_until` / `active_until` / occurrence caps from old “weekly × 6” path |
+| Migration `900_repair_open_ended_weekly_office_assignments.sql` | Clears until/count caps on active AVAILABLE weekly standing + plans |
+| `getUserScheduleSummary` | Force-materializes viewed week + 2 ahead; returns `frequency` / `frequencyLabel` / `bookedFrequency` |
+
+### Manual verification checklist
+
+| Scenario | Expected |
+|----------|----------|
+| Approve Grace stuck intake (active-slot dup key) | Approves; slot appears; no raw MySQL error |
+| Approve/re-book Gini weekly | Weeks 2–4 red on office grid; persists after refresh |
+| Watchdog after weekly approve | `staleDeactivatedCount` does not include AVAILABLE weekly rows; may log rematerialize orphans |
+| My Schedule for weekly provider | Shows Weekly label; week-2 blocks present |
+| DROP_ASSIGNMENT / conflict resolver / kiosk | Still work (smoke) |
+
+### Deferred (not this pass)
+
+- Retire same-day `createIfRoomOpen` / legacy `office_room_assignments` grid backfill
+- Merge all approval UIs into one screen
+- Change 6-week confirm / DROP_ASSIGNMENT policy
 
 ---
 
@@ -248,6 +281,7 @@ public_appointment_requests       provider_office_availability_requests
 - [x] Stale available slot pipeline: warn → queue DROP_ASSIGNMENT for admin review
 - [x] Inactive/archived provider cleanup
 - [x] Google Calendar mirror sync
+- [x] Stale standing cleanup: expired TEMPORARY only; AVAILABLE weekly orphans rematerialized (Phase 2d)
 
 ---
 

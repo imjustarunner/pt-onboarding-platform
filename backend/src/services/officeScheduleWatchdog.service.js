@@ -482,6 +482,8 @@ export class OfficeScheduleWatchdogService {
 
     console.info('[watchdog]', JSON.stringify({
       staleDeactivatedCount: Number(staleAssignmentCleanup?.assignmentsDeactivated || 0),
+      staleRematerializedOffices: Number(staleAssignmentCleanup?.rematerializedOffices || 0),
+      staleOrphanLogged: Number(staleAssignmentCleanup?.orphanLogged || 0),
       inactiveCancelledCount: Number(inactiveCleanup?.eventsCancel || 0)
     }));
 
@@ -498,6 +500,8 @@ export class OfficeScheduleWatchdogService {
       icsCoverageAudit,
       log: {
         staleDeactivatedCount: Number(staleAssignmentCleanup?.assignmentsDeactivated || 0),
+        staleRematerializedOffices: Number(staleAssignmentCleanup?.rematerializedOffices || 0),
+        staleOrphanLogged: Number(staleAssignmentCleanup?.orphanLogged || 0),
         inactiveCancelledCount: Number(inactiveCleanup?.eventsCancel || 0)
       }
     };

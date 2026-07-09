@@ -14,6 +14,7 @@ import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.service.js';
 import { upsertBookingPlanAndMaterialize } from '../services/officeAssignmentOrchestrator.service.js';
 import * as officeSlotSeriesService from '../services/officeSlotSeries.service.js';
+import OfficeStandingAssignment from '../models/OfficeStandingAssignment.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
 import { syncOfficeEventsToGoogleBestEffort } from '../services/providerAssignmentGoogleSync.service.js';
 import { directIndirectRatioKindFromRatio } from '../utils/directIndirectRatioBands.js';
@@ -32,16 +33,12 @@ function parseIntSafe(v) {
 }
 
 function normalizeOfficeRequestRecurrence({ recurrenceRaw, occurrenceCountRaw }) {
-  const recurrence = String(recurrenceRaw || 'ONCE').trim().toUpperCase();
-  const allowed = new Set(['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY']);
-  const normalizedRecurrence = allowed.has(recurrence) ? recurrence : 'ONCE';
-  if (normalizedRecurrence === 'ONCE') {
-    return { recurrence: 'ONCE', occurrenceCount: 1 };
-  }
-  const max = normalizedRecurrence === 'WEEKLY' ? 6 : 104;
-  const parsed = parseIntSafe(occurrenceCountRaw);
-  const occurrenceCount = Math.min(max, Math.max(1, parsed || (normalizedRecurrence === 'WEEKLY' ? 6 : 1)));
-  return { recurrence: normalizedRecurrence, occurrenceCount };
+  // Keep in sync with officeSlotSeries.normalizeOfficeRequestRecurrence:
+  // weekly defaults to open-ended (null count) unless an explicit count is provided.
+  return officeSlotSeriesService.normalizeOfficeRequestRecurrence({
+    recurrenceRaw,
+    occurrenceCountRaw
+  });
 }
 
 function normalizeYmd(value) {
@@ -2304,7 +2301,6 @@ export const getOfficeRequestAssignmentOptions = async (req, res, next) => {
 };
 
 export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
-  let conn = null;
   try {
     if (!req.user?.id) return res.status(401).json({ error: { message: 'Authentication required' } });
     const agencyId = await resolveAgencyId(req);
@@ -2358,37 +2354,43 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
       occurrenceCountRaw: reqRow.requested_occurrence_count ?? req.body?.requestedOccurrenceCount ?? req.body?.bookedOccurrenceCount ?? req.body?.occurrenceCount ?? null
     });
     const bodyFreq = String(req.body?.assignedFrequency || '').toUpperCase();
-    const bodyWeeks = Math.max(1, parseIntSafe(req.body?.weeks) || 6);
     const hasRequestRecurrence =
       reqRow.requested_frequency != null
       || req.body?.requestedFrequency != null
       || req.body?.recurrence != null;
     let freq = ['WEEKLY', 'BIWEEKLY'].includes(bodyFreq) ? bodyFreq : 'WEEKLY';
-    let weeks = bodyWeeks;
     if (hasRequestRecurrence) {
-      if (requestRecurrence.recurrence === 'ONCE') {
-        freq = 'WEEKLY';
-        weeks = 1;
-      } else if (requestRecurrence.recurrence === 'WEEKLY') {
-        freq = 'WEEKLY';
-        weeks = Math.min(6, Math.max(1, Number(requestRecurrence.occurrenceCount || 1)));
-      } else if (requestRecurrence.recurrence === 'BIWEEKLY') {
+      if (requestRecurrence.recurrence === 'BIWEEKLY') {
         freq = 'BIWEEKLY';
-        weeks = Math.max(1, Number(requestRecurrence.occurrenceCount || 1)) * 2;
-      } else if (requestRecurrence.recurrence === 'MONTHLY') {
-        // Assigned slots support WEEKLY/BIWEEKLY recurrence; approximate monthly with a 4-week cadence window.
+      } else {
+        // ONCE / WEEKLY / MONTHLY standing rows use WEEKLY assigned_frequency;
+        // booking plan frequency + until-date control the actual cadence.
         freq = 'WEEKLY';
-        weeks = Math.max(1, Number(requestRecurrence.occurrenceCount || 1)) * 4;
       }
     }
     const requestStartDate = normalizeYmd(reqRow.requested_start_date) || toYmd(new Date());
-    const requestOccurrenceCount = Math.max(1, Number(requestRecurrence.occurrenceCount || 1));
-    const recurrenceName = String(requestRecurrence.recurrence || '').toUpperCase();
+    const recurrenceName = String(requestRecurrence.recurrence || 'ONCE').toUpperCase();
+    // Weekly intake approvals are open-ended standing slots. The old UI defaulted
+    // "weekly × 6" which wrote temporary_until_date and made Gini/Grace fall off
+    // the calendar after ~6 weeks. Keep finite cutoffs only for ONCE / BIWEEKLY / MONTHLY.
+    let requestOccurrenceCount = requestRecurrence.occurrenceCount == null
+      ? null
+      : Math.max(1, Number(requestRecurrence.occurrenceCount || 1));
+    if (recurrenceName === 'WEEKLY') {
+      requestOccurrenceCount = null;
+    }
     const stepDays = recurrenceName === 'BIWEEKLY' ? 14 : recurrenceName === 'MONTHLY' ? 28 : 7;
-    const lastOccurrenceOffsetDays = recurrenceName === 'ONCE'
-      ? 0
-      : Math.max(0, requestOccurrenceCount - 1) * stepDays;
-    const untilDate = toYmd(addDays(new Date(requestStartDate), lastOccurrenceOffsetDays));
+    let untilDate = null;
+    if (recurrenceName === 'ONCE') {
+      untilDate = requestStartDate;
+    } else if (recurrenceName !== 'WEEKLY' && requestOccurrenceCount != null) {
+      const lastOccurrenceOffsetDays = Math.max(0, requestOccurrenceCount - 1) * stepDays;
+      untilDate = toYmd(addDays(new Date(requestStartDate), lastOccurrenceOffsetDays));
+    }
+    const materializeWeeks = recurrenceName === 'ONCE' ? 1
+      : recurrenceName === 'BIWEEKLY' ? 12
+        : recurrenceName === 'MONTHLY' ? Math.min(52, (requestOccurrenceCount || 6) * 5)
+          : 12;
 
     const [submittedSlotRows] = await pool.execute(
       `SELECT weekday, start_hour, end_hour
@@ -2441,189 +2443,92 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
       return res.status(seriesCheck.status).json({ error: seriesCheck.error });
     }
 
-    conn = await pool.getConnection();
-    await conn.beginTransaction();
-
+    // Standing rows + booking plans use the shared OfficeStandingAssignment model
+    // (handles orphan active-slot unique-key conflicts that previously surfaced as
+    // raw MySQL Duplicate entry errors in the approve modal).
     const assignmentIds = [];
     for (let h = hour; h < endHour; h++) {
-      // Only block on OTHER providers' active assignments in this room/weekday/hour.
-      // Exclude the requesting provider so that re-approvals and extensions update
-      // the existing assignment instead of falsely rejecting with "already assigned".
-      // Also skip stale assignments — only treat as a real conflict when the blocking
-      // provider has at least one live (non-cancelled) event at this slot going forward.
-      const [physicalConflicts] = await conn.execute(
-        `SELECT a.id, a.provider_id, u.first_name, u.last_name
-         FROM office_standing_assignments a
-         JOIN users u ON u.id = a.provider_id
-         WHERE a.office_location_id = ?
-           AND a.room_id = ?
-           AND a.weekday = ?
-           AND a.hour = ?
-           AND a.is_active = TRUE
-           AND a.provider_id != ?
-         LIMIT 1`,
-        [officeId, roomId, weekday, h, providerId]
-      );
-      if ((physicalConflicts || []).length) {
-        const c = physicalConflicts[0];
-        const slotStartStr = `${requestStartDate} ${String(h).padStart(2, '0')}:00:00`;
-        const [liveCheck] = await conn.execute(
-          `SELECT 1 FROM office_events
-           WHERE room_id = ? AND booked_provider_id = ? AND start_at >= ?
-             AND DAYOFWEEK(start_at) = ?
-             AND HOUR(start_at) = ?
-             AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
-           LIMIT 1`,
-          [roomId, c.provider_id, slotStartStr, weekday + 1, h]
-        );
-        if ((liveCheck || []).length) {
-          const providerName = `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'another provider';
-          const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-          const dayLabel = dayNames[weekday] || `weekday ${weekday}`;
-          const err = new Error(`That office slot (${dayLabel} ${h}:00) is already assigned to ${providerName}. Please choose a different room or time.`);
+      // eslint-disable-next-line no-await-in-loop
+      let standing;
+      try {
+        standing = await OfficeStandingAssignment.create({
+          officeLocationId: officeId,
+          roomId,
+          providerId,
+          weekday,
+          hour: h,
+          assignedFrequency: freq,
+          createdByUserId: req.user.id
+        });
+      } catch (createErr) {
+        if (createErr?.status === 409 || createErr?.code === 'STANDING_SLOT_CONFLICT') {
+          const err = new Error(createErr.message || 'That office slot is already assigned.');
           err.status = 409;
           throw err;
         }
+        throw createErr;
       }
+      // eslint-disable-next-line no-await-in-loop
+      standing = await OfficeStandingAssignment.update(standing.id, {
+        is_active: true,
+        availability_mode: recurrenceName === 'ONCE' ? 'TEMPORARY' : 'AVAILABLE',
+        available_since_date: requestStartDate,
+        temporary_until_date: untilDate,
+        temporary_extension_count: 0,
+        last_two_week_confirmed_at: new Date(),
+        last_forfeit_warning_at: null
+      }) || standing;
 
-      const [existingAssign] = await conn.execute(
-        `SELECT id
-         FROM office_standing_assignments
-         WHERE room_id = ? AND provider_id = ? AND weekday = ? AND hour = ? AND assigned_frequency = ?
-         LIMIT 1`,
-        [roomId, providerId, weekday, h, freq]
-      );
-      let assignmentId = existingAssign?.[0]?.id || null;
-      if (!assignmentId) {
-        try {
-          const [ins] = await conn.execute(
-            `INSERT INTO office_standing_assignments
-              (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency,
-               availability_mode, available_since_date, temporary_until_date, temporary_extension_count, last_two_week_confirmed_at, is_active, created_by_user_id)
-             VALUES (?, ?, ?, ?, ?, ?, 'AVAILABLE', ?, ?, 0, NOW(), TRUE, ?)`,
-            [officeId, roomId, providerId, weekday, h, freq, requestStartDate, untilDate, req.user.id]
-          );
-          assignmentId = ins.insertId;
-        } catch (insErr) {
-          if (insErr?.code === 'ER_DUP_ENTRY' || insErr?.errno === 1062) {
-            // Race condition: a concurrent request inserted the same row between our
-            // SELECT and this INSERT.  Re-query for the now-existing row and update it.
-            const [dupRows] = await conn.execute(
-              `SELECT id FROM office_standing_assignments
-               WHERE room_id = ? AND provider_id = ? AND weekday = ? AND hour = ? AND assigned_frequency = ?
-               LIMIT 1`,
-              [roomId, providerId, weekday, h, freq]
-            );
-            assignmentId = dupRows?.[0]?.id || null;
-            if (!assignmentId) throw insErr;
-            await conn.execute(
-              `UPDATE office_standing_assignments
-               SET office_location_id = ?,
-                   availability_mode = 'AVAILABLE',
-                   available_since_date = ?,
-                   temporary_until_date = ?,
-                   temporary_extension_count = 0,
-                   last_two_week_confirmed_at = NOW(),
-                   is_active = TRUE,
-                   updated_at = CURRENT_TIMESTAMP
-               WHERE id = ?`,
-              [officeId, requestStartDate, untilDate, assignmentId]
-            );
-          } else if (insErr?.code === 'ER_BAD_FIELD_ERROR' || insErr?.errno === 1054) {
-            try {
-              const [ins2] = await conn.execute(
-                `INSERT INTO office_standing_assignments
-                  (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency,
-                   availability_mode, available_since_date, temporary_until_date, last_two_week_confirmed_at, is_active, created_by_user_id)
-                 VALUES (?, ?, ?, ?, ?, ?, 'AVAILABLE', ?, ?, NOW(), TRUE, ?)`,
-                [officeId, roomId, providerId, weekday, h, freq, requestStartDate, untilDate, req.user.id]
-              );
-              assignmentId = ins2.insertId;
-            } catch (insErr2) {
-              if (insErr2?.code === 'ER_DUP_ENTRY' || insErr2?.errno === 1062) {
-                const [dupRows] = await conn.execute(
-                  `SELECT id FROM office_standing_assignments
-                   WHERE room_id = ? AND provider_id = ? AND weekday = ? AND hour = ? AND assigned_frequency = ?
-                   LIMIT 1`,
-                  [roomId, providerId, weekday, h, freq]
-                );
-                assignmentId = dupRows?.[0]?.id || null;
-                if (!assignmentId) throw insErr2;
-                await conn.execute(
-                  `UPDATE office_standing_assignments
-                   SET office_location_id = ?,
-                       availability_mode = 'AVAILABLE',
-                       available_since_date = ?,
-                       temporary_until_date = ?,
-                       last_two_week_confirmed_at = NOW(),
-                       is_active = TRUE,
-                       updated_at = CURRENT_TIMESTAMP
-                   WHERE id = ?`,
-                  [officeId, requestStartDate, untilDate, assignmentId]
-                );
-              } else {
-                throw insErr2;
-              }
-            }
-          } else {
-            throw insErr;
-          }
-        }
-      } else {
-        try {
-          await conn.execute(
-            `UPDATE office_standing_assignments
-             SET office_location_id = ?,
-                 availability_mode = 'AVAILABLE',
-                 available_since_date = ?,
-                 temporary_until_date = ?,
-                 temporary_extension_count = 0,
-                 last_two_week_confirmed_at = NOW(),
-                 is_active = TRUE,
-                 updated_at = CURRENT_TIMESTAMP
-             WHERE id = ?`,
-            [officeId, requestStartDate, untilDate, assignmentId]
-          );
-        } catch (updErr) {
-          if (updErr?.code === 'ER_BAD_FIELD_ERROR' || updErr?.errno === 1054) {
-            await conn.execute(
-              `UPDATE office_standing_assignments
-               SET office_location_id = ?,
-                   availability_mode = 'AVAILABLE',
-                   available_since_date = ?,
-                   temporary_until_date = ?,
-                   last_two_week_confirmed_at = NOW(),
-                   is_active = TRUE,
-                   updated_at = CURRENT_TIMESTAMP
-               WHERE id = ?`,
-              [officeId, requestStartDate, untilDate, assignmentId]
-            );
-          } else {
-            throw updErr;
-          }
-        }
-      }
-      // If this slot had a historical cancelled occurrence for this provider/assignment,
-      // clear that blocker so the fresh approval can materialize visibly.
       const startAt = mysqlDateTimeForDateHour(requestStartDate, h);
       const endAt = mysqlDateTimeForDateHour(requestStartDate, h + 1);
       if (startAt && endAt) {
-        await conn.execute(
+        // eslint-disable-next-line no-await-in-loop
+        await pool.execute(
           `DELETE FROM office_events
            WHERE room_id = ?
              AND start_at = ?
              AND end_at = ?
              AND UPPER(COALESCE(status, '')) = 'CANCELLED'
              AND (assigned_provider_id = ? OR standing_assignment_id = ?)`,
-          [roomId, startAt, endAt, providerId, assignmentId]
+          [roomId, startAt, endAt, providerId, standing.id]
         );
       }
-      assignmentIds.push(assignmentId);
+      assignmentIds.push(standing.id);
     }
 
-    const assignmentId = assignmentIds[0];
+    const assignmentId = assignmentIds[0] || null;
 
-    await conn.execute(
+    // Booking plan + materialization is blocking. If this fails, leave the request
+    // PENDING so staff can retry — a standing row without a plan was the Gini vanish loop.
+    const bookingFreq = recurrenceName === 'BIWEEKLY' ? 'BIWEEKLY'
+      : recurrenceName === 'MONTHLY' ? 'MONTHLY'
+        : 'WEEKLY';
+    try {
+      for (const sid of assignmentIds) {
+        // eslint-disable-next-line no-await-in-loop
+        await upsertBookingPlanAndMaterialize({
+          standingAssignmentId: sid,
+          officeLocationId: officeId,
+          bookedFrequency: bookingFreq,
+          bookingStartDate: requestStartDate,
+          activeUntilDate: untilDate,
+          bookedOccurrenceCount: requestOccurrenceCount,
+          createdByUserId: req.user.id,
+          bookingOrigin: 'user',
+          materializeWeeks
+        });
+      }
+    } catch (planErr) {
+      console.error('[assignTemporaryOfficeFromRequest] booking plan upsert failed', planErr?.message || planErr);
+      const err = new Error(
+        planErr?.message
+          || 'Office slot was reserved but the weekly booking plan failed to save. Please try approving again.'
+      );
+      err.status = 500;
+      throw err;
+    }
+
+    await pool.execute(
       `UPDATE provider_office_availability_requests
        SET status = 'ASSIGNED',
            resolved_office_location_id = ?,
@@ -2635,48 +2540,21 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
       [officeId, assignmentId, req.user.id, requestId]
     );
 
-    await conn.commit();
-
-    // Create a booking plan so the materializer marks this slot as BOOKED (red on the grid)
-    // rather than leaving it as ASSIGNED_AVAILABLE (grey). This is the critical step that was
-    // previously missing from the legacy approval path.
-    try {
-      if (assignmentId) {
-        const bookingFreq = recurrenceName === 'BIWEEKLY' ? 'BIWEEKLY'
-          : recurrenceName === 'MONTHLY' ? 'MONTHLY'
-            : 'WEEKLY';
-        const materializeWeeks = recurrenceName === 'BIWEEKLY' ? 12
-          : recurrenceName === 'MONTHLY' ? Math.min(52, requestOccurrenceCount * 5)
-            : 6;
-        await upsertBookingPlanAndMaterialize({
-          standingAssignmentId: assignmentId,
-          officeLocationId: officeId,
-          bookedFrequency: bookingFreq,
-          bookingStartDate: requestStartDate,
-          activeUntilDate: untilDate,
-          bookedOccurrenceCount: requestOccurrenceCount,
-          createdByUserId: req.user.id,
-          bookingOrigin: 'user',
-          materializeWeeks
-        });
-        const [syncRows] = await pool.execute(
-          `SELECT id
-           FROM office_events
-           WHERE standing_assignment_id = ?
-             AND start_at >= ?
-             AND UPPER(COALESCE(slot_state, '')) = 'ASSIGNED_BOOKED'
-             AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
-          [assignmentId, `${requestStartDate} 00:00:00`]
-        );
-        const eventIds = (syncRows || []).map((r) => Number(r.id)).filter((n) => n > 0);
-        if (eventIds.length) {
-          syncOfficeEventsToGoogleBestEffort(eventIds).catch(() => {});
-        }
+    if (assignmentIds.length) {
+      const placeholders = assignmentIds.map(() => '?').join(',');
+      const [syncRows] = await pool.execute(
+        `SELECT id
+         FROM office_events
+         WHERE standing_assignment_id IN (${placeholders})
+           AND start_at >= ?
+           AND UPPER(COALESCE(slot_state, '')) = 'ASSIGNED_BOOKED'
+           AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
+        [...assignmentIds, `${requestStartDate} 00:00:00`]
+      );
+      const eventIds = (syncRows || []).map((r) => Number(r.id)).filter((n) => n > 0);
+      if (eventIds.length) {
+        syncOfficeEventsToGoogleBestEffort(eventIds).catch(() => {});
       }
-    } catch (planErr) {
-      // Non-blocking: assignment was created successfully; booking plan creation failure
-      // is recoverable (provider can set via the schedule UI, watchdog will fill gaps).
-      console.error('[assignTemporaryOfficeFromRequest] booking plan upsert failed', planErr?.message);
     }
 
     // Resolve related notifications for everyone so they disappear from all feeds
@@ -2722,24 +2600,25 @@ export const assignTemporaryOfficeFromRequest = async (req, res, next) => {
       temporaryUntilDate: untilDate
     });
   } catch (e) {
-    if (conn) {
-      try { await conn.rollback(); } catch { /* ignore */ }
-    }
-    const msg = e?.message || String(e);
+    const rawMsg = e?.message || String(e);
     const sqlMsg = e?.sqlMessage || e?.sqlState || null;
-    console.error('[assignTemporaryOfficeFromRequest]', msg, e?.code, e?.errno, sqlMsg);
+    console.error('[assignTemporaryOfficeFromRequest]', rawMsg, e?.code, e?.errno, sqlMsg);
+    const isDup = e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062
+      || /Duplicate entry/i.test(rawMsg);
+    const status = isDup
+      ? 409
+      : (Number(e?.status) >= 400 && Number(e?.status) < 600 ? Number(e.status) : 500);
+    const msg = isDup
+      ? 'That office slot is already assigned. Choose a different room or time, or clear the existing assignment first.'
+      : (rawMsg || 'Assign failed');
     const payload = {
       error: {
-        message: msg || 'Assign failed',
+        message: msg,
         ...(config.nodeEnv === 'development' && sqlMsg && { sqlMessage: sqlMsg }),
         ...(config.nodeEnv === 'development' && e?.code && { code: e.code })
       }
     };
-    return res.status(500).json(payload);
-  } finally {
-    if (conn) {
-      try { conn.release(); } catch (relErr) { console.error('[assignTemporaryOfficeFromRequest] release', relErr?.message); }
-    }
+    return res.status(status).json(payload);
   }
 };
 

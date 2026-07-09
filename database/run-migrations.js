@@ -121,8 +121,10 @@ async function recordMigration(migrationName, success, executionTime, errorMessa
  *   - double-quoted strings (with escaped "" pairs)
  *   - backtick-quoted identifiers
  *
- * Does NOT try to handle delimiter-changing statements (DELIMITER //) — none
- * of our migrations use them. Multi-line `/-* ... *-/` comments are ignored
+ * Handles compound statements (CREATE TRIGGER / PROCEDURE / FUNCTION with
+ * BEGIN...END bodies) by tracking BEGIN/END depth so internal semicolons are
+ * not treated as statement terminators. Does NOT need DELIMITER // changes.
+ * Multi-line `/-* ... *-/` comments are ignored
  * and treated as opaque text since no current migration relies on them and
  * MySQL accepts them in any context.
  */
@@ -132,6 +134,14 @@ function splitSqlStatements(sql) {
   let inSingle = false;
   let inDouble = false;
   let inBacktick = false;
+  // Track BEGIN...END depth so trigger/procedure bodies are kept as a single
+  // statement. Only BEGIN (the compound-statement keyword) increments the depth;
+  // END immediately before a ';' decrements it. END IF / END WHILE / END LOOP
+  // etc. do NOT decrement because another keyword follows before the semicolon.
+  let beginDepth = 0;
+  let wordBuf = '';  // accumulates the current identifier/keyword
+  let lastWord = ''; // last completed word (reset after each statement split)
+
   for (let i = 0; i < sql.length; i += 1) {
     const ch = sql[i];
     const next = sql[i + 1];
@@ -161,13 +171,41 @@ function splitSqlStatements(sql) {
     if (ch === "'") { inSingle = true; buf += ch; continue; }
     if (ch === '"') { inDouble = true; buf += ch; continue; }
     if (ch === '`') { inBacktick = true; buf += ch; continue; }
+
+    // Word boundary: flush accumulated word and detect BEGIN keyword.
+    if (/[A-Za-z_0-9]/.test(ch)) {
+      wordBuf += ch;
+    } else if (wordBuf) {
+      const kw = wordBuf.toUpperCase();
+      if (kw === 'BEGIN') beginDepth += 1;
+      lastWord = kw;
+      wordBuf = '';
+    }
+
     if (ch === ';') {
+      // ';' is a non-word char so the block above already flushed wordBuf into
+      // lastWord. If the word immediately before ';' is END (bare END, not END
+      // IF / END WHILE / END LOOP), this semicolon closes a BEGIN…END block.
+      if (lastWord === 'END') {
+        beginDepth = Math.max(0, beginDepth - 1);
+      }
+      if (beginDepth > 0) {
+        // Still inside a compound statement — keep the ';' in the buffer.
+        buf += ch;
+        continue;
+      }
       const trimmed = buf.trim();
       if (trimmed) out.push(trimmed);
       buf = '';
+      lastWord = '';
       continue;
     }
     buf += ch;
+  }
+  // Flush any trailing word.
+  if (wordBuf) {
+    const kw = wordBuf.toUpperCase();
+    if (kw === 'BEGIN') beginDepth += 1;
   }
   const tail = buf.trim();
   if (tail) out.push(tail);

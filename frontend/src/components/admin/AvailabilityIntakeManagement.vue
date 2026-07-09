@@ -715,13 +715,14 @@ const assignOffice = async (r) => {
   const requestedFrequency = String(r?.requestedFrequency || 'ONCE').toUpperCase();
   const requestedOccurrenceCount = Math.max(1, Number(r?.requestedOccurrenceCount || 1));
   let assignedFrequency = 'WEEKLY';
-  let weeks = 6;
+  // Weekly is open-ended (no week cap). Finite windows only for once/biweekly/monthly.
+  let weeks = null;
   if (requestedFrequency === 'ONCE') {
     assignedFrequency = 'WEEKLY';
     weeks = 1;
   } else if (requestedFrequency === 'WEEKLY') {
     assignedFrequency = 'WEEKLY';
-    weeks = Math.min(6, requestedOccurrenceCount);
+    weeks = null;
   } else if (requestedFrequency === 'BIWEEKLY') {
     assignedFrequency = 'BIWEEKLY';
     weeks = Math.max(1, requestedOccurrenceCount) * 2;

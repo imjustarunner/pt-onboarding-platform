@@ -110,8 +110,14 @@ function weekdayIndexFromYmd(dateStr) {
 function isAssignmentActiveOnDate(assignment, dateStr) {
   const availableSince = normalizeYmd(assignment.available_since_date);
   if (availableSince && dateStr < availableSince) return false;
-  const availableUntil = normalizeYmd(assignment.temporary_until_date);
-  if (availableUntil && dateStr > availableUntil) return false;
+  // temporary_until_date is only a hard cutoff for TEMPORARY assignments.
+  // Ongoing AVAILABLE weekly/biweekly slots must keep materializing past any
+  // historical until-date left over from intake approvals.
+  const mode = String(assignment.availability_mode || '').toUpperCase();
+  if (mode === 'TEMPORARY') {
+    const availableUntil = normalizeYmd(assignment.temporary_until_date);
+    if (availableUntil && dateStr > availableUntil) return false;
+  }
   // Weekly always active; biweekly active on even week offset from available_since_date.
   if (assignment.assigned_frequency === 'WEEKLY') return true;
   const anchor = normalizeYmd(assignment.available_since_date) || new Date().toISOString().slice(0, 10);
@@ -127,7 +133,12 @@ export function shouldBookOnDate(plan, assignment, dateStr) {
   if (dateStr < start) return false;
   const planHardLimit = addDays(start, 365);
   if (planHardLimit && dateStr > planHardLimit) return false;
-  const configuredUntil = normalizeYmd(plan.active_until_date);
+  // Open-ended weekly on an AVAILABLE standing assignment: ignore historical
+  // active_until_date values left by the old "weekly × 6" intake approval path.
+  const openEndedWeekly =
+    String(plan.booked_frequency || '').toUpperCase() === 'WEEKLY'
+    && String(assignment?.availability_mode || '').toUpperCase() !== 'TEMPORARY';
+  const configuredUntil = openEndedWeekly ? null : normalizeYmd(plan.active_until_date);
   if (configuredUntil && dateStr > configuredUntil) return false;
 
   if (plan.booked_frequency === 'WEEKLY') return true;
@@ -168,6 +179,11 @@ function bookingOccurrenceNumberForDate(plan, assignment, dateStr) {
 }
 
 function shouldBookByCount(plan, assignment, dateStr) {
+  // Open-ended weekly AVAILABLE slots ignore occurrence caps from the old intake path.
+  const openEndedWeekly =
+    String(plan?.booked_frequency || '').toUpperCase() === 'WEEKLY'
+    && String(assignment?.availability_mode || '').toUpperCase() !== 'TEMPORARY';
+  if (openEndedWeekly) return true;
   const maxCountRaw = Number(plan?.booked_occurrence_count || 0);
   if (!Number.isInteger(maxCountRaw) || maxCountRaw <= 0) return true;
   const occurrenceNumber = bookingOccurrenceNumberForDate(plan, assignment, dateStr);

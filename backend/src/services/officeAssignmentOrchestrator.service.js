@@ -78,21 +78,29 @@ function resolveRecurrenceParams({ recurrenceRaw, occurrenceCountRaw, startDateY
     occurrenceCountRaw
   });
   const recurrenceName = String(requestRecurrence.recurrence || 'ONCE').toUpperCase();
-  const occurrenceCount = Math.max(1, Number(requestRecurrence.occurrenceCount || 1));
+  const rawCount = requestRecurrence.occurrenceCount;
+  const occurrenceCount = rawCount == null
+    ? null
+    : Math.max(1, Number(rawCount || 1));
   const startDate = normalizeYmd(startDateYmd) || normalizeYmd(new Date());
   const stepDays = stepDaysForRecurrence(recurrenceName);
-  const lastOccurrenceOffsetDays = recurrenceName === 'ONCE'
-    ? 0
-    : Math.max(0, occurrenceCount - 1) * stepDays;
-  const untilDate = toYmdSafe(addDays(new Date(startDate), lastOccurrenceOffsetDays));
+  // Open-ended weekly: no temporary_until / active_until cutoff.
+  // Finite series (ONCE / explicit count / biweekly / monthly): compute until date.
+  let untilDate = null;
+  if (recurrenceName === 'ONCE') {
+    untilDate = startDate;
+  } else if (occurrenceCount != null) {
+    const lastOccurrenceOffsetDays = Math.max(0, occurrenceCount - 1) * stepDays;
+    untilDate = toYmdSafe(addDays(new Date(startDate), lastOccurrenceOffsetDays));
+  }
 
   const assignedFrequency = recurrenceName === 'BIWEEKLY' ? 'BIWEEKLY' : 'WEEKLY';
   const bookingFrequency = recurrenceName === 'BIWEEKLY' ? 'BIWEEKLY'
     : recurrenceName === 'MONTHLY' ? 'MONTHLY'
       : 'WEEKLY';
   const materializeWeeks = recurrenceName === 'BIWEEKLY' ? 12
-    : recurrenceName === 'MONTHLY' ? Math.min(52, occurrenceCount * 5)
-      : recurrenceName === 'ONCE' ? 1 : 6;
+    : recurrenceName === 'MONTHLY' ? Math.min(52, (occurrenceCount || 6) * 5)
+      : recurrenceName === 'ONCE' ? 1 : 12;
 
   return {
     recurrenceName,
