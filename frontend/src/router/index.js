@@ -1471,6 +1471,12 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canManagePayroll', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/payroll/wizard/:periodId?',
+    name: 'OrganizationPayrollWizard',
+    component: () => import('../views/admin/PayrollWizardView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManagePayroll', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/payroll',
     name: 'OrganizationPayroll',
     component: () => import('../views/admin/PayrollView.vue'),
@@ -2274,6 +2280,12 @@ const routes = [
     name: 'ExecutiveReport',
     component: () => import('../views/admin/ExecutiveReportView.vue'),
     meta: { requiresAuth: true, requiresRole: ['super_admin'] }
+  },
+  {
+    path: '/admin/payroll/wizard/:periodId?',
+    name: 'PayrollWizard',
+    component: () => import('../views/admin/PayrollWizardView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManagePayroll' }
   },
   {
     path: '/admin/payroll',

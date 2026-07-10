@@ -1,58 +1,250 @@
 <template>
-  <div class="container">
-    <div class="page-header" data-tour="payroll-header">
-      <div>
+  <div class="container pr-page">
+    <div v-if="wizardReturnPath" class="pr-wizard-return">
+      <span>You opened a payroll tool from the Wizard.</span>
+      <button type="button" class="btn btn-primary btn-sm" @click="returnToWizard">Return to Wizard</button>
+    </div>
+    <div class="pr-header" data-tour="payroll-header">
+      <div class="pr-header-text">
         <h1 data-tour="payroll-title">Payroll</h1>
-        <p class="subtitle">Upload your billing report. We’ll auto-detect the correct pay period (Sat→Fri, every 2 weeks).</p>
+        <p class="subtitle">Manage payroll runs, compare pay periods, and process payments.</p>
       </div>
-    </div>
-
-    <div class="org-bar" data-tour="payroll-org-bar">
-      <div class="org-bar-left">
-        <div class="org-bar-label">Organization</div>
-        <div v-if="!showOrgPicker" class="org-bar-value">
-          <strong>{{ agencyStore.currentAgency?.name || '—' }}</strong>
-        </div>
-        <div v-else class="org-bar-controls">
-          <select v-model="selectedOrgId" :key="`org-bar-${(filteredAgencies || []).length}`">
-            <option :value="null" disabled>Select an organization…</option>
-            <option v-for="a in filteredAgencies" :key="a.id" :value="a.id">{{ a.name }}</option>
-          </select>
-          <input v-model="orgSearch" type="text" placeholder="Search…" />
-        </div>
-      </div>
-    </div>
-
-    <div class="card wizard-hero" style="margin-bottom: 12px;" data-tour="payroll-wizard-hero">
-      <div class="wizard-hero-head">
-        <div>
-          <h2 class="card-title" style="margin-bottom: 4px;">Payroll Wizard</h2>
-          <div class="hint">
-            Step-by-step guide for submitting payroll. Select a pay period here; it will drive the whole page.
+      <div class="pr-header-controls" data-tour="payroll-org-bar">
+        <div class="pr-org-picker">
+          <div v-if="!showOrgPicker" class="pr-org-value">
+            <span class="pr-org-label">Organization</span>
+            <strong>{{ agencyStore.currentAgency?.name || '—' }}</strong>
+          </div>
+          <div v-else class="org-bar-controls">
+            <select v-model="selectedOrgId" :key="`org-bar-${(filteredAgencies || []).length}`">
+              <option :value="null" disabled>Select an organization…</option>
+              <option v-for="a in filteredAgencies" :key="a.id" :value="a.id">{{ a.name }}</option>
+            </select>
+            <input v-model="orgSearch" type="text" placeholder="Search…" />
           </div>
         </div>
       </div>
+    </div>
 
-      <div class="wizard-hero-controls" data-tour="payroll-wizard-controls">
-        <div class="field wizard-period" data-tour="payroll-period-picker">
-          <label>Pay period</label>
-          <select v-model="selectedPeriodId" :disabled="!agencyId || !(periodsForSelect || []).length" :key="`period-wizard-${agencyId || 'none'}`">
-            <option :value="null" disabled>Select a pay period…</option>
-            <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
-          </select>
-          <div class="hint" v-if="selectedPeriodForUi" style="margin-top: 6px;">
+    <div class="pr-metrics" v-if="agencyId">
+      <div class="pr-metric-card">
+        <div class="pr-metric-icon" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+        </div>
+        <div class="pr-metric-body">
+          <div class="pr-metric-label">Current Pay Period</div>
+          <div class="pr-metric-value">{{ selectedPeriodForUi ? periodRangeLabel(selectedPeriodForUi) : '—' }}</div>
+          <div class="pr-metric-meta">
+            Status:
+            <span class="pr-status-pill" :class="`pr-status-${selectedPeriodStatus || 'draft'}`">{{ dashboardStatusLabel }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="pr-metric-card">
+        <div class="pr-metric-icon" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M10 8l6 4-6 4V8z"/></svg>
+        </div>
+        <div class="pr-metric-body">
+          <div class="pr-metric-label">Next Payroll Run</div>
+          <div class="pr-metric-value">Runs on {{ dashboardNextRunLabel }}</div>
+          <div class="pr-metric-meta">14 days after last run</div>
+        </div>
+      </div>
+      <div class="pr-metric-card">
+        <div class="pr-metric-icon" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <div class="pr-metric-body">
+          <div class="pr-metric-label">Total Employees</div>
+          <div class="pr-metric-value pr-metric-num" :title="`Counts active users with payroll staff roles: provider, supervisor, CPA, provider_plus, staff, facilitator, intern, admin, super_admin, support`">{{ dashboardEmployeeCount }}</div>
+          <div class="pr-metric-meta">Active employees</div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pr-metric-card pr-metric-card--action"
+        :class="{ 'pr-metric-card--alert': dashboardPendingCount > 0 }"
+        @click="openPendingFromDashboard"
+        :disabled="!selectedPeriodId"
+      >
+        <div class="pr-metric-icon pr-metric-icon--alert" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+        </div>
+        <div class="pr-metric-body">
+          <div class="pr-metric-label">Pending Submissions</div>
+          <div class="pr-metric-value pr-metric-num">{{ dashboardPendingCounts != null ? dashboardPendingCount : '—' }}</div>
+          <div class="pr-metric-meta">{{ dashboardPendingCount > 0 ? 'Requires review — all periods' : (dashboardPendingCounts != null ? 'All clear' : 'Loading…') }}</div>
+        </div>
+      </button>
+    </div>
+
+    <div class="pr-command" v-if="agencyId" data-tour="payroll-wizard-hero">
+      <div class="pr-command-col pr-command-actions">
+        <div class="card pr-wizard-card">
+          <h2 class="card-title">Payroll Wizard</h2>
+          <p class="hint">Step-by-step guide for submitting payroll. Select a pay period; it drives the whole page.</p>
+          <div class="field wizard-period" data-tour="payroll-period-picker" style="margin-top: 12px;">
+            <label>Pay period</label>
+            <select v-model="selectedPeriodId" :disabled="!agencyId || !(periodsForSelect || []).length" :key="`period-wizard-${agencyId || 'none'}`">
+              <option :value="null" disabled>Select a pay period…</option>
+              <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+            </select>
+          </div>
+          <div class="wizard-cta" data-tour="payroll-open-wizard" style="margin-top: 12px;">
+            <button class="btn btn-primary wizard-btn" type="button" @click="openPayrollWizard" :disabled="!agencyId || !(periods || []).length">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px; vertical-align: -2px;"><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8 19 13M17.8 6.2 19 5M3 21l9-9M12.2 6.2 11 5"/></svg>
+              {{ selectedPeriodId ? 'Open / Resume Wizard' : 'Open Payroll Wizard' }}
+            </button>
+          </div>
+          <div class="hint" style="margin-top: 10px;" v-if="selectedPeriodForUi">
             Current: <strong>{{ periodRangeLabel(selectedPeriodForUi) }}</strong>
           </div>
         </div>
 
-        <div class="wizard-cta" data-tour="payroll-open-wizard">
-          <button class="btn btn-primary wizard-btn" type="button" @click="openPayrollWizard" :disabled="!agencyId || !(periods || []).length">
-            Open Payroll Wizard
-          </button>
-          <div class="hint" style="margin-top: 8px;">
-            Saves progress as you go. Uses explicit “Save & exit” / “Don’t save & exit”.
+        <div class="card pr-quick-card">
+          <h2 class="card-title">Quick Actions</h2>
+          <div class="pr-quick-grid" data-tour="payroll-wizard-controls">
+            <button class="pr-quick-btn" type="button" @click="runPayroll" :disabled="runningPayroll || isPeriodPosted || !selectedPeriodId">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              {{ runningPayroll ? 'Running…' : (canSeeRunResults ? 'Re-run Payroll' : 'Run Payroll') }}
+            </button>
+            <button class="pr-quick-btn" type="button" @click.prevent.stop="openPayrollReports" :disabled="!selectedPeriodId">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+              View Reports
+            </button>
+            <button class="pr-quick-btn" type="button" @click="postPayroll" :disabled="postingPayroll || isPeriodPosted || selectedPeriodStatus !== 'ran'">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              {{ postingPayroll ? 'Posting…' : (isPeriodPosted ? 'Posted' : 'Post Payroll') }}
+            </button>
+            <button class="pr-quick-btn" type="button" @click="triggerCurrentPayrollUpload" :disabled="!agencyId || importing">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Import Payroll
+            </button>
+            <button class="pr-quick-btn" type="button" @click="openManageImportsModal" :disabled="!agencyId">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              Manage Imports
+            </button>
+            <button class="pr-quick-btn" type="button" @click="openTodoModal" :disabled="!selectedPeriodId">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>
+              Add Note
+            </button>
+          </div>
+          <div class="pr-secondary-actions">
+            <button class="btn btn-secondary btn-sm" type="button" @click="showStageModal = true" :disabled="!selectedPeriodId">Payroll Stage</button>
+            <button class="btn btn-secondary btn-sm" type="button" @click="openRawModal" :disabled="!selectedPeriodId">Raw Import Audit</button>
+            <button class="btn btn-secondary btn-sm" type="button" @click="openRunsSideBySideModal" :disabled="!selectedPeriodId">Runs Side-by-Side</button>
+            <button class="btn btn-secondary btn-sm" type="button" @click="openSubmitOnBehalfModal" :disabled="!agencyId">Submit on behalf</button>
+            <button v-if="canSeeRunResults" class="btn btn-secondary btn-sm" type="button" @click.prevent.stop="openRunResultsModalV2" :disabled="!selectedPeriodId">View Ran Payroll</button>
+            <button v-if="canSeeRunResults" class="btn btn-secondary btn-sm" type="button" @click.prevent.stop="openPreviewPostModalV2" :disabled="!selectedPeriodId">Preview Post</button>
+            <button
+              v-if="isPeriodPosted"
+              class="btn btn-danger btn-sm"
+              type="button"
+              @click.prevent.stop="unpostPayroll"
+              :disabled="unpostingPayroll || !selectedPeriodId"
+            >{{ unpostingPayroll ? 'Unposting…' : 'Unpost' }}</button>
+            <button class="btn btn-danger btn-sm" type="button" @click="resetPeriod" :disabled="resettingPeriod || !selectedPeriodId">
+              {{ resettingPeriod ? 'Resetting…' : 'Reset Period' }}
+            </button>
           </div>
         </div>
+
+        <div class="pr-autodetect">
+          <div class="pr-autodetect-icon" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <div>
+            <div class="pr-autodetect-title">Auto-Detect is On</div>
+            <div class="hint">Uploads auto-detect the correct pay period (Sat→Fri, every 2 weeks).</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card pr-command-col pr-history-card">
+        <h2 class="card-title">Pay Periods (History)</h2>
+        <div class="field" style="margin-top: 8px;">
+          <label style="display: inline-flex; gap: 8px; align-items: center; font-weight: 600;">
+            <input type="checkbox" v-model="showOffSchedulePeriods" />
+            Show off-schedule periods
+          </label>
+        </div>
+        <div class="pr-search-wrap" style="margin-top: 10px;">
+          <svg class="pr-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input
+            v-model="historySearch"
+            type="text"
+            class="pr-search-input"
+            placeholder="Search pay periods…"
+          />
+        </div>
+        <div class="list pr-period-list">
+          <button
+            v-for="p in historyPeriodsFiltered"
+            :key="p.id"
+            class="list-item"
+            :class="{ active: selectedPeriodId === p.id }"
+            @click="selectPeriod(p.id)"
+          >
+            <div class="list-item-title">{{ periodRangeLabel(p) }}</div>
+            <div class="list-item-meta">
+              <span class="pr-status-dot" :class="`pr-dot-${String(p.status || '').toLowerCase()}`"></span>
+              <span class="pr-status-pill" :class="`pr-status-${String(p.status || 'draft').toLowerCase()}`">
+                {{ String(p.status || '').toLowerCase() === 'finalized' ? 'Posted' : (p.status || 'draft') }}
+              </span>
+              <span v-if="p.status === 'finalized' && (p.finalized_by_first_name || p.finalized_by_last_name || p.finalized_at)" class="muted">
+                · {{ p.finalized_by_first_name }} {{ p.finalized_by_last_name }}
+              </span>
+            </div>
+          </button>
+          <div v-if="!(historyPeriodsFiltered || []).length" class="muted" style="padding: 12px 4px;">No pay periods found.</div>
+        </div>
+      </div>
+
+      <div class="card pr-command-col pr-details-card">
+        <h2 class="card-title">Period Details</h2>
+        <template v-if="selectedPeriodForUi">
+          <div class="field-row pr-details-filters" style="margin-top: 8px;">
+            <div class="field">
+              <label>Pay Period</label>
+              <select v-model="selectedPeriodId" :key="`period-details-top-${agencyId || 'none'}`">
+                <option :value="null" disabled>Select a pay period…</option>
+                <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Provider</label>
+              <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end;">
+                <select v-model="selectedUserId">
+                  <option :value="null" disabled>Select a provider…</option>
+                  <option v-for="u in sortedAgencyUsers" :key="u.id" :value="u.id">{{ u.last_name }}, {{ u.first_name }}</option>
+                </select>
+                <button class="btn btn-secondary btn-sm" @click="clearSelectedProvider" :disabled="!selectedUserId">Clear</button>
+              </div>
+            </div>
+          </div>
+          <div class="period-meta pr-period-meta">
+            <div><strong>Pay Period:</strong> {{ periodRangeLabel(selectedPeriodForUi) }}</div>
+            <div>
+              <strong>Status:</strong>
+              <span class="pr-status-pill" :class="`pr-status-${selectedPeriodStatus || 'draft'}`">{{ dashboardStatusLabel }}</span>
+            </div>
+            <div v-if="selectedPeriodStatus === 'ran' && selectedPeriodForUi?.ran_at">
+              <strong>Ran:</strong> {{ fmtDateTime(selectedPeriodForUi.ran_at) }}
+            </div>
+            <div v-if="(selectedPeriodStatus === 'posted' || selectedPeriodStatus === 'finalized') && selectedPeriodForUi?.posted_at">
+              <strong>Posted:</strong> {{ fmtDateTime(selectedPeriodForUi.posted_at) }}
+            </div>
+          </div>
+          <div v-if="!canSeeRunResults" class="pr-info-banner">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <span>Run results are private until you click <strong>Run Payroll</strong>. Providers will not see anything until <strong>Post Payroll</strong>.</span>
+          </div>
+          <div v-else class="pr-info-banner">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+            <span>Run results are available. Scroll down for totals, or use <strong>View Ran Payroll</strong> / <strong>Reports</strong>.</span>
+          </div>
+        </template>
+        <div v-else class="hint" style="margin-top: 10px;">Select a pay period to view details.</div>
       </div>
     </div>
 
@@ -1001,15 +1193,12 @@
       </div>
     </teleport>
 
-    <div ref="processChangesCard" class="card" v-if="agencyId" style="margin-bottom: 12px;">
-      <div class="actions" style="justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+    <div ref="processChangesCard" class="card pr-process-card" v-if="agencyId">
+      <div class="pr-process-head">
         <div>
           <h2 class="card-title" style="margin-bottom: 4px;">Process Changes</h2>
           <div class="hint">
-            Use this when you re-run a <strong>prior</strong> pay period report to catch late notes. The system will auto-detect which prior pay period the upload belongs to, compare “then vs now”, and let you add only the differences into the <strong>present</strong> pay period.
-          </div>
-          <div class="hint" style="margin-top: 6px;">
-            <strong>One-time batch catch-up:</strong> Upload 3 reports for the <strong>same pay period</strong> at 3 different times (first run, second run, latest). The system compares them and adds late notes in one step.
+            Catch late notes by comparing prior pay period reports. Differences are added into the <strong>present</strong> pay period.
           </div>
         </div>
         <button class="btn btn-secondary" type="button" @click="openManageImportsModal" :disabled="!agencyId">
@@ -1017,82 +1206,101 @@
         </button>
       </div>
 
-      <div class="card" style="margin-top: 12px; padding: 12px; background: #f8f9fa;">
-        <div class="hint" style="font-weight: 600;">Batch catch-up (same period, 2 or 3 runs)</div>
-        <div class="hint muted" style="margin-top: 4px;">Import + draft audit path: Import Run 1, do draft audit (mark drafts unpaid), create baseline run, then upload Run 2. Or use file compare (2 or 3 files) to double-check.</div>
-        <div class="field-row" style="margin-top: 8px; grid-template-columns: 1fr 1fr; gap: 8px;">
-          <div class="field">
-            <label>Prior period (runs in DB)</label>
-            <select v-model="batchCatchUpPriorPeriodId" :disabled="!agencyId || !(processPriorPeriodOptions || []).length" style="min-width: 220px;">
-              <option :value="null">None (use file compare)</option>
-              <option v-for="p in processPriorPeriodOptions" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
-            </select>
-            <div class="hint muted" style="font-size: 0.85em;">If prior has import + draft audit, select it and upload only Run 2.</div>
+      <div class="pr-process-steps">
+        <div class="pr-process-step">
+          <div class="pr-process-step-num">1</div>
+          <div class="pr-process-step-body">
+            <div class="pr-process-step-title">Select Prior Period</div>
+            <div class="field" style="margin-top: 8px;">
+              <label>Prior period (runs in DB)</label>
+              <select v-model="batchCatchUpPriorPeriodId" :disabled="!agencyId || !(processPriorPeriodOptions || []).length">
+                <option :value="null">None (use file compare)</option>
+                <option v-for="p in processPriorPeriodOptions" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+              </select>
+              <div class="hint muted" style="font-size: 0.85em; margin-top: 4px;">If prior has import + draft audit, select it and upload only Run 2.</div>
+            </div>
           </div>
         </div>
-        <div class="field-row" style="margin-top: 8px; grid-template-columns: 1fr 1fr 1fr; gap: 8px;" :key="`batch-files-${batchCatchUpResetKey}`">
-          <div class="field">
-            <label>First run</label>
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 1)" :disabled="batchCatchUpRun1Disabled" :title="batchCatchUpRun1Disabled ? 'Run 1 already in DB for this period' : ''" :key="`file1-${batchCatchUpResetKey}`" />
-              <button v-if="batchFiles[1] && !batchCatchUpRun1Disabled" type="button" class="btn btn-secondary btn-sm" @click="clearBatchFileSlot(1)">Replace</button>
-            </div>
-            <div v-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || [])[0]" class="hint" style="margin-top: 4px;">
-              <button type="button" class="btn btn-secondary btn-sm" @click="openRawModalForPeriodAndImport(batchCatchUpPriorPeriodId, (batchCatchUpPriorPeriodImports || [])[0].id)">View import</button>
+
+        <div class="pr-process-step">
+          <div class="pr-process-step-num">2</div>
+          <div class="pr-process-step-body">
+            <div class="pr-process-step-title">Upload Reports</div>
+            <div class="hint muted" style="margin-top: 4px;">Import + draft audit path, or file compare (2 or 3 files).</div>
+            <div class="pr-upload-slots" :key="`batch-files-${batchCatchUpResetKey}`">
+              <div class="field">
+                <label>First Run Report</label>
+                <div class="pr-file-row">
+                  <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 1)" :disabled="batchCatchUpRun1Disabled" :title="batchCatchUpRun1Disabled ? 'Run 1 already in DB for this period' : ''" :key="`file1-${batchCatchUpResetKey}`" />
+                  <button v-if="batchFiles[1] && !batchCatchUpRun1Disabled" type="button" class="btn btn-secondary btn-sm" @click="clearBatchFileSlot(1)">Replace</button>
+                </div>
+                <div v-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || [])[0]" class="hint" style="margin-top: 4px;">
+                  <button type="button" class="btn btn-secondary btn-sm" @click="openRawModalForPeriodAndImport(batchCatchUpPriorPeriodId, (batchCatchUpPriorPeriodImports || [])[0].id)">View import</button>
+                </div>
+              </div>
+              <div class="field">
+                <label>Second Run Report</label>
+                <div class="pr-file-row">
+                  <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 2)" :disabled="batchCatchUpRun2Disabled" :title="batchCatchUpRun2Disabled ? 'Run 2 already in DB for this period' : ''" :key="`file2-${batchCatchUpResetKey}`" />
+                  <button v-if="batchFiles[2] && !batchCatchUpRun2Disabled" type="button" class="btn btn-secondary btn-sm" @click="clearBatchFileSlot(2)">Replace</button>
+                </div>
+                <div v-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || [])[1]" class="hint" style="margin-top: 4px;">
+                  <button type="button" class="btn btn-secondary btn-sm" @click="openRawModalForPeriodAndImport(batchCatchUpPriorPeriodId, (batchCatchUpPriorPeriodImports || [])[1].id)">View import</button>
+                </div>
+                <div v-else-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || []).length >= 1 && batchFiles[2]" class="hint" style="margin-top: 4px;">
+                  <button type="button" class="btn btn-secondary btn-sm" @click="uploadRun2Only" :disabled="batchCatchUpLoading">
+                    {{ batchCatchUpLoading ? 'Uploading…' : 'Upload Run 2 only' }}
+                  </button>
+                  <span class="muted" style="font-size: 0.85em;"> Save to DB so it persists.</span>
+                </div>
+              </div>
+              <div class="field">
+                <label>Latest (optional)</label>
+                <div class="pr-file-row">
+                  <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 3)" :disabled="batchCatchUpRun3Disabled" :title="batchCatchUpRun3Disabled ? 'Run 3 already in DB for this period' : ''" :key="`file3-${batchCatchUpResetKey}`" />
+                  <button v-if="batchFiles[3] && !batchCatchUpRun3Disabled" type="button" class="btn btn-secondary btn-sm" @click="clearBatchFileSlot(3)">Replace</button>
+                </div>
+                <div class="hint muted" style="font-size: 0.85em;">Leave empty for 2-run: Run 1 vs Run 2 only.</div>
+                <div v-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || [])[2]" class="hint" style="margin-top: 4px;">
+                  <button type="button" class="btn btn-secondary btn-sm" @click="openRawModalForPeriodAndImport(batchCatchUpPriorPeriodId, (batchCatchUpPriorPeriodImports || [])[2].id)">View import</button>
+                </div>
+                <div v-else-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || []).length >= 2 && batchFiles[3]" class="hint" style="margin-top: 4px;">
+                  <button type="button" class="btn btn-secondary btn-sm" @click="uploadRun3Only" :disabled="batchCatchUpLoading">
+                    {{ batchCatchUpLoading ? 'Uploading…' : 'Upload Run 3 only' }}
+                  </button>
+                  <span class="muted" style="font-size: 0.85em;"> Save to DB so it persists after refresh.</span>
+                </div>
+              </div>
             </div>
           </div>
-          <div class="field">
-            <label>Second run</label>
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 2)" :disabled="batchCatchUpRun2Disabled" :title="batchCatchUpRun2Disabled ? 'Run 2 already in DB for this period' : ''" :key="`file2-${batchCatchUpResetKey}`" />
-              <button v-if="batchFiles[2] && !batchCatchUpRun2Disabled" type="button" class="btn btn-secondary btn-sm" @click="clearBatchFileSlot(2)">Replace</button>
+        </div>
+
+        <div class="pr-process-step">
+          <div class="pr-process-step-num">3</div>
+          <div class="pr-process-step-body">
+            <div class="pr-process-step-title">Compare & Add Differences</div>
+            <div class="field" style="margin-top: 8px;">
+              <label>Add late notes to (destination period)</label>
+              <select v-model="batchCatchUpDestinationPeriodId" :disabled="!agencyId || !(periods || []).length">
+                <option :value="null" disabled>Select pay period…</option>
+                <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+              </select>
+              <div class="hint muted" style="margin-top: 4px;">Differences will be added to the selected destination period.</div>
             </div>
-            <div v-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || [])[1]" class="hint" style="margin-top: 4px;">
-              <button type="button" class="btn btn-secondary btn-sm" @click="openRawModalForPeriodAndImport(batchCatchUpPriorPeriodId, (batchCatchUpPriorPeriodImports || [])[1].id)">View import</button>
-            </div>
-            <div v-else-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || []).length >= 1 && batchFiles[2]" class="hint" style="margin-top: 4px;">
-              <button type="button" class="btn btn-secondary btn-sm" @click="uploadRun2Only" :disabled="batchCatchUpLoading">
-                {{ batchCatchUpLoading ? 'Uploading…' : 'Upload Run 2 only' }}
+            <div class="pr-compare-actions">
+              <button v-if="batchCatchUpPriorPeriodId" class="btn btn-primary" @click="runBatchCatchUpDbBaseline" :disabled="batchCatchUpLoading || !batchCatchUpDbBaselineFileReady || !agencyId">
+                {{ batchCatchUpLoading ? 'Comparing…' : batchCatchUpDbBaselineButtonLabel }}
               </button>
-              <span class="muted" style="font-size: 0.85em;"> Save to DB so it persists.</span>
-            </div>
-          </div>
-          <div class="field">
-            <label>Latest (optional for 2-run)</label>
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 3)" :disabled="batchCatchUpRun3Disabled" :title="batchCatchUpRun3Disabled ? 'Run 3 already in DB for this period' : ''" :key="`file3-${batchCatchUpResetKey}`" />
-              <button v-if="batchFiles[3] && !batchCatchUpRun3Disabled" type="button" class="btn btn-secondary btn-sm" @click="clearBatchFileSlot(3)">Replace</button>
-            </div>
-            <div class="hint muted" style="font-size: 0.85em;">Leave empty for 2-run: Run 1 vs Run 2 only.</div>
-            <div v-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || [])[2]" class="hint" style="margin-top: 4px;">
-              <button type="button" class="btn btn-secondary btn-sm" @click="openRawModalForPeriodAndImport(batchCatchUpPriorPeriodId, (batchCatchUpPriorPeriodImports || [])[2].id)">View import</button>
-            </div>
-            <div v-else-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || []).length >= 2 && batchFiles[3]" class="hint" style="margin-top: 4px;">
-              <button type="button" class="btn btn-secondary btn-sm" @click="uploadRun3Only" :disabled="batchCatchUpLoading">
-                {{ batchCatchUpLoading ? 'Uploading…' : 'Upload Run 3 only' }}
+              <button class="btn btn-primary pr-compare-btn" @click="runBatchCatchUp" :disabled="batchCatchUpLoading || !batchFiles[1] || !batchFiles[2] || !agencyId">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px; vertical-align: -2px;"><path d="M12 3v18M3 12h18"/><path d="M5 8h4M15 16h4M8 5v4M16 15v4"/></svg>
+                {{ batchCatchUpLoading ? 'Comparing…' : (batchFiles[3] ? 'Upload & Compare' : 'Upload & Compare') }}
               </button>
-              <span class="muted" style="font-size: 0.85em;"> Save to DB so it persists after refresh.</span>
             </div>
           </div>
         </div>
-        <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr auto; gap: 12px; align-items: end;">
-          <div class="field">
-            <label>Add late notes to (destination period)</label>
-            <select v-model="batchCatchUpDestinationPeriodId" :disabled="!agencyId || !(periods || []).length" style="min-width: 260px;">
-              <option :value="null" disabled>Select pay period…</option>
-              <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
-            </select>
-            <div class="hint muted" style="margin-top: 4px;">Runs belong to the prior period above. Select destination only when applying — late add, notes to be paid, and no-note will be added here.</div>
-          </div>
-          <div class="actions" style="margin: 0; flex-wrap: wrap; gap: 8px;">
-            <button v-if="batchCatchUpPriorPeriodId" class="btn btn-primary" @click="runBatchCatchUpDbBaseline" :disabled="batchCatchUpLoading || !batchCatchUpDbBaselineFileReady || !agencyId">
-              {{ batchCatchUpLoading ? 'Comparing…' : batchCatchUpDbBaselineButtonLabel }}
-            </button>
-            <button class="btn btn-primary" @click="runBatchCatchUp" :disabled="batchCatchUpLoading || !batchFiles[1] || !batchFiles[2] || !agencyId">
-              {{ batchCatchUpLoading ? 'Comparing…' : (batchFiles[3] ? 'Upload 3 & compare (file)' : 'Upload 2 & compare (file)') }}
-            </button>
-          </div>
-        </div>
+      </div>
+
+      <div class="pr-process-results" v-if="batchCatchUpResult || batchCatchUpError || isBatchCatchUpDestPosted">
         <div v-if="batchCatchUpResult" ref="batchCatchUpResultsRef" style="margin-top: 10px;">
           <div v-if="batchCatchUpResult.applied" class="actions" style="align-items: center; gap: 12px;">
             <div class="hint" style="color: var(--success); margin: 0;">Added {{ batchCatchUpResult.carryoverRowsApplied }} rows to payroll staging{{ batchCatchUpDestPeriodLabel ? ` for ${batchCatchUpDestPeriodLabel}` : '' }}. Select the period above to review.</div>
@@ -1117,7 +1325,7 @@
           </div>
 
           <!-- ── Section 1: Late Add & Notes to be Paid ── -->
-          <div v-if="batchCatchUpResult.twoRunMode && (batchCatchUpResult.carryoverApplied || []).length > 0" class="card" style="margin-top: 16px; padding: 16px; border-left: 4px solid var(--primary, #2563eb);">
+          <div v-if="batchCatchUpResult.twoRunMode && (batchCatchUpResult.carryoverApplied || []).length > 0" class="card" style="margin-top: 16px; padding: 16px; border-left: 4px solid var(--pr-forest, #1E3A34);">
             <div style="display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
               <h3 class="card-title" style="margin: 0; font-size: 1.05em;">
                 Section 1 — Late Add &amp; Notes to be Paid
@@ -1234,39 +1442,42 @@
         <div v-else-if="batchCatchUpError" class="warn-box" style="margin-top: 10px;">{{ batchCatchUpError }}</div>
       </div>
 
-      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr 1fr;">
-        <div class="field">
-          <label>Present pay period (destination)</label>
-          <div class="hint">
-            Late notes will be added to:
-            <strong>{{ selectedPeriodForUi ? periodRangeLabel(selectedPeriodForUi) : '—' }}</strong>
-          </div>
-          <div class="hint muted">If the period in your files is already posted, select the next pay period above so late notes are added there.</div>
-        </div>
+      <details class="pr-process-advanced" style="margin-top: 16px;">
+        <summary class="hint" style="cursor: pointer; font-weight: 600;">Advanced: single-file prior period compare</summary>
+        <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr 1fr;">
           <div class="field">
-          <label>Upload updated prior pay period report</label>
-          <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onProcessFilePick" />
-          <div class="hint" v-if="processDetectedHint">{{ processDetectedHint }}</div>
+            <label>Present pay period (destination)</label>
+            <div class="hint">
+              Late notes will be added to:
+              <strong>{{ selectedPeriodForUi ? periodRangeLabel(selectedPeriodForUi) : '—' }}</strong>
+            </div>
+            <div class="hint muted">If the period in your files is already posted, select the next pay period above so late notes are added there.</div>
           </div>
           <div class="field">
-          <label>Next</label>
-          <div class="actions" style="margin: 0;">
-            <button class="btn btn-secondary" @click="processAutoImport" :disabled="processingChanges || !processImportFile || !agencyId">
-              {{ processingChanges ? 'Detecting...' : 'Detect prior period (choose)' }}
-            </button>
-            <button class="btn btn-primary" @click="processRunAndCompare" :disabled="processingChanges || !processSourcePeriodId || !selectedPeriodId">
-              {{ processingChanges ? 'Working...' : 'Run & compare (then → now)' }}
-            </button>
+            <label>Upload updated prior pay period report</label>
+            <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onProcessFilePick" />
+            <div class="hint" v-if="processDetectedHint">{{ processDetectedHint }}</div>
           </div>
-          <div class="hint" v-if="processSourcePeriodLabel">
-            Prior period detected: {{ processSourcePeriodLabel }}
-          </div>
-          <div class="hint" v-if="selectedPeriodForUi">
-            Will add differences into: {{ periodRangeLabel(selectedPeriodForUi) }}
-          </div>
-          <div class="warn-box" v-if="processError">{{ processError }}</div>
+          <div class="field">
+            <label>Next</label>
+            <div class="actions" style="margin: 0;">
+              <button class="btn btn-secondary" @click="processAutoImport" :disabled="processingChanges || !processImportFile || !agencyId">
+                {{ processingChanges ? 'Detecting...' : 'Detect prior period (choose)' }}
+              </button>
+              <button class="btn btn-primary" @click="processRunAndCompare" :disabled="processingChanges || !processSourcePeriodId || !selectedPeriodId">
+                {{ processingChanges ? 'Working...' : 'Run & compare (then → now)' }}
+              </button>
+            </div>
+            <div class="hint" v-if="processSourcePeriodLabel">
+              Prior period detected: {{ processSourcePeriodLabel }}
+            </div>
+            <div class="hint" v-if="selectedPeriodForUi">
+              Will add differences into: {{ periodRangeLabel(selectedPeriodForUi) }}
+            </div>
+            <div class="warn-box" v-if="processError">{{ processError }}</div>
           </div>
         </div>
+      </details>
 
       <!-- Manage Imports modal -->
       <div v-if="showManageImportsModal" class="modal-backdrop" @click.self="confirmClose(() => { showManageImportsModal = false; })">
@@ -1469,13 +1680,74 @@
       </div>
     </div>
 
-    <div class="card" v-if="agencyId" style="margin-bottom: 12px;">
-      <h2 class="card-title">Current Payroll Run</h2>
-      <div class="hint">
-        Import the current billing report, stage edits, run payroll, and post payroll. Providers will see posted payroll and any “prior notes included”.
+    <div class="card pr-run-card" v-if="agencyId">
+      <div class="pr-run-head">
+        <div>
+          <h2 class="card-title" style="margin-bottom: 4px;">Current Payroll Run</h2>
+          <div class="hint">
+            Import the current billing report, stage edits, run payroll, and post payroll. Providers will see posted payroll and any “prior notes included”.
+          </div>
+        </div>
       </div>
 
-      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 2fr;">
+      <div class="pr-stepper" aria-label="Payroll run progress">
+        <div class="pr-step" :class="{ done: payrollRunStepIndex > 0, active: payrollRunStepIndex === 0 }">
+          <div class="pr-step-icon">
+            <svg v-if="payrollRunStepIndex > 0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            <span v-else>1</span>
+          </div>
+          <div class="pr-step-text">
+            <div class="pr-step-title">Import Report</div>
+            <div class="pr-step-sub">Upload billing CSV</div>
+          </div>
+        </div>
+        <div class="pr-step-line" :class="{ done: payrollRunStepIndex > 0 }"></div>
+        <div class="pr-step" :class="{ done: payrollRunStepIndex > 1, active: payrollRunStepIndex === 1 }">
+          <div class="pr-step-icon">
+            <svg v-if="payrollRunStepIndex > 1" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            <span v-else>2</span>
+          </div>
+          <div class="pr-step-text">
+            <div class="pr-step-title">Stage Edits</div>
+            <div class="pr-step-sub">Review & adjust</div>
+          </div>
+        </div>
+        <div class="pr-step-line" :class="{ done: payrollRunStepIndex > 1 }"></div>
+        <div class="pr-step" :class="{ done: payrollRunStepIndex > 2, active: payrollRunStepIndex === 2 }">
+          <div class="pr-step-icon">
+            <svg v-if="payrollRunStepIndex > 2" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            <span v-else>3</span>
+          </div>
+          <div class="pr-step-text">
+            <div class="pr-step-title">Run Payroll</div>
+            <div class="pr-step-sub">Calculate payments</div>
+          </div>
+        </div>
+        <div class="pr-step-line" :class="{ done: payrollRunStepIndex > 2 }"></div>
+        <div class="pr-step" :class="{ done: payrollRunStepIndex > 3, active: payrollRunStepIndex === 3 || payrollRunStepIndex === 4 }">
+          <div class="pr-step-icon">
+            <svg v-if="payrollRunStepIndex > 3" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            <span v-else>4</span>
+          </div>
+          <div class="pr-step-text">
+            <div class="pr-step-title">Reports</div>
+            <div class="pr-step-sub">Review outputs</div>
+          </div>
+        </div>
+        <div class="pr-step-line" :class="{ done: payrollRunStepIndex > 4 }"></div>
+        <div class="pr-step" :class="{ done: payrollRunStepIndex >= 5, active: payrollRunStepIndex === 4 }">
+          <div class="pr-step-icon">
+            <svg v-if="payrollRunStepIndex >= 5" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            <span v-else>5</span>
+          </div>
+          <div class="pr-step-text">
+            <div class="pr-step-title">Post Payroll</div>
+            <div class="pr-step-sub">Publish to providers</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="field-row" style="margin-top: 16px; grid-template-columns: 1fr 2fr;">
         <div class="field">
           <label>Pay period</label>
           <select v-model="selectedPeriodId" :key="`period-top-${agencyId || 'none'}`">
@@ -1564,162 +1836,92 @@
         </div>
       </div>
 
-      <div class="actions" style="margin-top: 10px;">
-        <button class="btn btn-secondary" @click="openRawModal" :disabled="!selectedPeriodId">
-          Raw Import Audit (View)
-        </button>
-        <button class="btn btn-secondary" @click="openRunsSideBySideModal" :disabled="!selectedPeriodId">
-          Runs Side-by-Side (Audit)
-        </button>
-        <button class="btn btn-secondary" @click="openManageImportsModal" :disabled="!selectedPeriodId">
-          Manage Imports (delete/reorder)
-        </button>
-        <button class="btn btn-secondary" type="button" @click="openSubmitOnBehalfModal" :disabled="!agencyId">
-          Submit on behalf
-        </button>
-        <button class="btn btn-secondary" type="button" @click="openTodoModal" :disabled="!selectedPeriodId">
-          Add Single/Recurring Note or To Do
-        </button>
-        <button class="btn btn-secondary" @click="showStageModal = true" :disabled="!selectedPeriodId">
-          Payroll Stage
-        </button>
-        <button class="btn btn-primary" @click="runPayroll" :disabled="runningPayroll || isPeriodPosted || !selectedPeriodId">
-          {{
-            runningPayroll
-              ? 'Running...'
-              : (isPeriodPosted ? 'Locked' : (canSeeRunResults ? 'Re-run Payroll' : 'Run Payroll'))
-          }}
-        </button>
-        <button
-          v-if="canSeeRunResults"
-          class="btn btn-secondary"
-          type="button"
-          @click.prevent.stop="openRunResultsModalV2"
-          :disabled="!selectedPeriodId"
-        >
-          View Ran Payroll
-        </button>
-        <button
-          v-if="canSeeRunResults"
-          class="btn btn-secondary"
-          type="button"
-          @click.prevent.stop="openPreviewPostModalV2"
-          :disabled="!selectedPeriodId"
-        >
-          Preview Post
-        </button>
-        <button
-          class="btn btn-secondary"
-          type="button"
-          @click.prevent.stop="openPayrollReports"
-          :disabled="!selectedPeriodId"
-        >
-          Reports
-        </button>
-        <button class="btn btn-primary" @click="postPayroll" :disabled="postingPayroll || isPeriodPosted || selectedPeriodStatus !== 'ran'">
-          {{ postingPayroll ? 'Posting...' : (isPeriodPosted ? 'Posted' : 'Post Payroll') }}
-        </button>
-        <button
-          v-if="isPeriodPosted"
-          class="btn btn-danger"
-          type="button"
-          @click.prevent.stop="unpostPayroll"
-          :disabled="unpostingPayroll || !selectedPeriodId"
-          title="Revert this posted period back to Ran so you can make corrections, then re-run and re-post."
-        >
-          {{ unpostingPayroll ? 'Unposting...' : 'Unpost Pay Period' }}
-        </button>
-        <button class="btn btn-danger" @click="resetPeriod" :disabled="resettingPeriod || !selectedPeriodId">
-          {{ resettingPeriod ? 'Resetting...' : 'Reset Pay Period' }}
-        </button>
-      </div>
-    </div>
-
-    <div class="grid">
-      <div class="card">
-        <h2 class="card-title">Pay Periods (History)</h2>
-        <div class="hint">Pay periods are created automatically when you import a report.</div>
-
-        <div class="field" style="margin-top: 10px;">
-          <label style="display: inline-flex; gap: 8px; align-items: center; font-weight: 600;">
-            <input type="checkbox" v-model="showOffSchedulePeriods" />
-            Show off-schedule periods
-          </label>
-          <div class="hint" style="margin-top: 4px;">
-            Off-schedule periods are legacy/incorrect date ranges (e.g., 01/10→01/23) that don’t match this agency’s configured cadence.
-          </div>
-        </div>
-
-        <div class="field" style="margin-top: 10px;">
-          <input
-            v-model="historySearch"
-            type="text"
-            placeholder="Search pay periods…"
-            style="padding: 8px 12px; border: 1px solid var(--border, #dee2e6); border-radius: 6px; font-size: 14px; width: 100%;"
-          />
-        </div>
-
-        <div class="list">
+      <div class="pr-run-actions">
+        <div class="pr-run-actions-primary">
+          <button class="btn btn-secondary" @click="showStageModal = true" :disabled="!selectedPeriodId">
+            Payroll Stage
+          </button>
+          <button class="btn btn-primary" @click="runPayroll" :disabled="runningPayroll || isPeriodPosted || !selectedPeriodId">
+            {{
+              runningPayroll
+                ? 'Running...'
+                : (isPeriodPosted ? 'Locked' : (canSeeRunResults ? 'Re-run Payroll' : 'Run Payroll'))
+            }}
+          </button>
           <button
-            v-for="p in historyPeriodsFiltered"
-            :key="p.id"
-            class="list-item"
-            :class="{ active: selectedPeriodId === p.id }"
-            @click="selectPeriod(p.id)"
+            class="btn btn-secondary"
+            type="button"
+            @click.prevent.stop="openPayrollReports"
+            :disabled="!selectedPeriodId"
           >
-            <div class="list-item-title">{{ periodRangeLabel(p) }}</div>
-            <div class="list-item-meta">
-              {{ p.status }}
-              <span v-if="p.status === 'finalized' && (p.finalized_by_first_name || p.finalized_by_last_name || p.finalized_at)">
-                • Ran by {{ p.finalized_by_first_name }} {{ p.finalized_by_last_name }} <span v-if="p.finalized_at">({{ fmtDateTime(p.finalized_at) }})</span>
-              </span>
-            </div>
+            Reports
+          </button>
+          <button class="btn btn-primary" @click="postPayroll" :disabled="postingPayroll || isPeriodPosted || selectedPeriodStatus !== 'ran'">
+            {{ postingPayroll ? 'Posting...' : (isPeriodPosted ? 'Posted' : 'Post Payroll') }}
+          </button>
+        </div>
+        <div class="pr-run-actions-secondary">
+          <button class="btn btn-secondary btn-sm" @click="openRawModal" :disabled="!selectedPeriodId">
+            Raw Import Audit
+          </button>
+          <button class="btn btn-secondary btn-sm" @click="openRunsSideBySideModal" :disabled="!selectedPeriodId">
+            Runs Side-by-Side
+          </button>
+          <button class="btn btn-secondary btn-sm" @click="openManageImportsModal" :disabled="!selectedPeriodId">
+            Manage Imports
+          </button>
+          <button class="btn btn-secondary btn-sm" type="button" @click="openSubmitOnBehalfModal" :disabled="!agencyId">
+            Submit on behalf
+          </button>
+          <button class="btn btn-secondary btn-sm" type="button" @click="openTodoModal" :disabled="!selectedPeriodId">
+            Add Note / To-Do
+          </button>
+          <button
+            v-if="canSeeRunResults"
+            class="btn btn-secondary btn-sm"
+            type="button"
+            @click.prevent.stop="openRunResultsModalV2"
+            :disabled="!selectedPeriodId"
+          >
+            View Ran Payroll
+          </button>
+          <button
+            v-if="canSeeRunResults"
+            class="btn btn-secondary btn-sm"
+            type="button"
+            @click.prevent.stop="openPreviewPostModalV2"
+            :disabled="!selectedPeriodId"
+          >
+            Preview Post
+          </button>
+          <button
+            v-if="isPeriodPosted"
+            class="btn btn-danger btn-sm"
+            type="button"
+            @click.prevent.stop="unpostPayroll"
+            :disabled="unpostingPayroll || !selectedPeriodId"
+            title="Revert this posted period back to Ran so you can make corrections, then re-run and re-post."
+          >
+            {{ unpostingPayroll ? 'Unposting...' : 'Unpost Pay Period' }}
+          </button>
+          <button class="btn btn-danger btn-sm" @click="resetPeriod" :disabled="resettingPeriod || !selectedPeriodId">
+            {{ resettingPeriod ? 'Resetting...' : 'Reset Pay Period' }}
           </button>
         </div>
       </div>
+    </div>
 
-      <div class="card" v-if="selectedPeriodForUi">
-        <h2 class="card-title">Period Details</h2>
-        <div class="field-row" style="margin-top: 8px;">
-          <div class="field">
-            <label>Pay Period</label>
-            <select v-model="selectedPeriodId" :key="`period-details-${agencyId || 'none'}`">
-              <option :value="null" disabled>Select a pay period…</option>
-              <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
-            </select>
+    <div class="pr-below" v-if="agencyId">
+      <div class="card pr-totals-card" v-if="selectedPeriodForUi">
+        <div class="pr-totals-head">
+          <div>
+            <h2 class="card-title" style="margin-bottom: 4px;">Run Payroll (Totals)</h2>
+            <div class="hint">Filter by provider above in Period Details. Click a row to inspect.</div>
           </div>
-          <div class="field">
-            <label>Provider</label>
-            <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end;">
-              <select v-model="selectedUserId">
-                <option :value="null" disabled>Select a provider…</option>
-                <option v-for="u in sortedAgencyUsers" :key="u.id" :value="u.id">{{ u.last_name }}, {{ u.first_name }}</option>
-              </select>
-              <button class="btn btn-secondary btn-sm" @click="clearSelectedProvider" :disabled="!selectedUserId">
-                Clear
-              </button>
-            </div>
-          </div>
-          <div class="field">
-            <label>&nbsp;</label>
-            <div class="hint">Use this to filter Payroll Stage and review provider totals.</div>
-          </div>
-        </div>
-        <div class="period-meta">
-          <div><strong>Pay Period:</strong> {{ periodRangeLabel(selectedPeriodForUi) }}</div>
-          <div><strong>Status:</strong> {{ selectedPeriodStatus }}</div>
-          <div v-if="selectedPeriodStatus === 'ran'">
-            <strong>Ran:</strong>
-            <span v-if="selectedPeriodForUi?.ran_at">{{ fmtDateTime(selectedPeriodForUi.ran_at) }}</span>
-          </div>
-          <div v-if="selectedPeriodStatus === 'posted' || selectedPeriodStatus === 'finalized'">
-            <strong>Posted:</strong>
-            <span v-if="selectedPeriodForUi?.posted_at">{{ fmtDateTime(selectedPeriodForUi.posted_at) }}</span>
-          </div>
+          <span class="pr-status-pill" :class="`pr-status-${selectedPeriodStatus || 'draft'}`">{{ dashboardStatusLabel }}</span>
         </div>
 
         <div v-if="canSeeRunResults">
-          <h3 class="section-title">Run Payroll (Totals)</h3>
         <div class="table-wrap">
           <table class="table">
             <thead>
@@ -6393,6 +6595,9 @@ const savingStaging = ref(false);
 const workspaceSearch = ref('');
 const showStageModal = ref(false);
 const showRawModal = ref(false);
+
+// Fast pending counts loaded alongside period details (no Stage required).
+const dashboardPendingCounts = ref(null); // null = not yet loaded
 const showRunsSideBySideModal = ref(false);
 const runsSideBySideData = ref(null);
 const runsSideBySideLoading = ref(false);
@@ -6406,6 +6611,7 @@ const showHolidayHoursModal = ref(false);
 const showSupervisionAttendanceModal = ref(false);
 const showSupervisionConflictsModal = ref(false);
 const showPayrollWizardModal = ref(false);
+const wizardReturnPath = ref(''); // when deep-linked from wizard page, offer return CTA
 
 const holidayHoursLoading = ref(false);
 const holidayHoursError = ref('');
@@ -7634,18 +7840,18 @@ const savePayrollWizardProgress = async () => {
 };
 
 const openPayrollWizard = async () => {
-  showPayrollWizardModal.value = true;
-  if (selectedPeriodId.value) {
-    await loadPayrollWizardProgress();
-    try {
-      await savePayrollWizardProgress();
-    } catch {
-      // best-effort; don't block opening the wizard if progress save fails
-    }
-  } else {
-    wizardStepIdx.value = 0;
-    wizardState.value = null;
-  }
+  // Dedicated wizard page (keeps dashboard tools intact; resumes by period)
+  const slug = String(
+    route.params?.organizationSlug ||
+    agencyStore.currentAgency?.slug ||
+    organizationStore.organizationContext?.slug ||
+    ''
+  ).trim();
+  const pid = selectedPeriodId.value ? String(selectedPeriodId.value) : '';
+  const path = slug
+    ? (pid ? `/${slug}/admin/payroll/wizard/${pid}` : `/${slug}/admin/payroll/wizard`)
+    : (pid ? `/admin/payroll/wizard/${pid}` : '/admin/payroll/wizard');
+  await router.push({ path });
 };
 
 const wizardNext = async () => {
@@ -9636,6 +9842,94 @@ const selectedPeriodForUi = computed(() => {
 const isPeriodPosted = computed(() => selectedPeriodStatus.value === 'posted' || selectedPeriodStatus.value === 'finalized');
 
 const isPeriodRan = computed(() => selectedPeriodStatus.value === 'ran');
+
+// Strict allowlist — only roles that receive payroll (clinical/therapy staff + admin/support).
+const PAYROLL_STAFF_ROLES = new Set([
+  'provider',
+  'supervisor',
+  'clinical_practice_assistant',
+  'provider_plus',
+  'staff',
+  'facilitator',
+  'intern',
+  'admin',
+  'super_admin',
+  'support',
+]);
+
+const dashboardEmployeeCount = computed(() =>
+  (agencyUsers.value || []).filter((u) => {
+    const role = String(u?.role || '').toLowerCase();
+    return PAYROLL_STAFF_ROLES.has(role);
+  }).length
+);
+
+const dashboardPendingCount = computed(() => {
+  // Use the fast backend count loaded with period details whenever available.
+  if (dashboardPendingCounts.value != null) return Number(dashboardPendingCounts.value.total || 0);
+  // Fallback: sum from the lazy-loaded Stage arrays (will be 0 until Stage opens — intentional).
+  return (
+    (pendingMileageClaims.value || []).length
+    + (pendingMedcancelClaims.value || []).length
+    + (pendingReimbursementClaims.value || []).length
+    + (pendingTimeClaims.value || []).length
+    + (pendingHolidayBonusClaims.value || []).length
+    + (pendingPtoRequests.value || []).length
+  );
+});
+
+const dashboardNextPeriod = computed(() => {
+  const all = (periods.value || []).slice();
+  const today = new Date();
+  const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const future = all
+    .filter((p) => String(p?.period_start || '') > todayYmd)
+    .sort((a, b) => String(a?.period_start || '').localeCompare(String(b?.period_start || '')));
+  return future[0] || null;
+});
+
+const dashboardStatusLabel = computed(() => {
+  const st = selectedPeriodStatus.value;
+  if (!st) return 'Draft';
+  if (st === 'finalized') return 'Posted';
+  if (st === 'raw_imported') return 'Imported';
+  return st.charAt(0).toUpperCase() + st.slice(1);
+});
+
+const dashboardNextRunLabel = computed(() => {
+  // Find the most recently ran or posted period to anchor the +14-day schedule.
+  const ranStatuses = new Set(['ran', 'posted', 'finalized']);
+  const allPeriods = (periods.value || []).slice();
+  const ranPeriods = allPeriods
+    .filter((p) => ranStatuses.has(String(p?.status || '').toLowerCase()) && p?.period_end)
+    .sort((a, b) => String(b.period_end).localeCompare(String(a.period_end)));
+  const lastRan = ranPeriods[0] || null;
+
+  const anchorEnd = String(lastRan?.period_end || selectedPeriodForUi.value?.period_end || '').slice(0, 10);
+  if (!anchorEnd) return '—';
+  const d = new Date(`${anchorEnd}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return anchorEnd;
+  // Next run is 14 days (one biweekly period) after the last run's period end.
+  d.setDate(d.getDate() + 14);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${mm}/${dd}/${d.getFullYear()}`;
+});
+
+/** 0=Import, 1=Stage, 2=Run, 3=Reports, 4=Post; 5=all complete */
+const payrollRunStepIndex = computed(() => {
+  const st = selectedPeriodStatus.value;
+  if (st === 'posted' || st === 'finalized') return 5;
+  if (st === 'ran') return 4;
+  if (st === 'staged') return 2;
+  if (st === 'raw_imported') return 1;
+  return 0;
+});
+
+const openPendingFromDashboard = () => {
+  if (!selectedPeriodId.value) return;
+  showStageModal.value = true;
+};
 
 // V2 modal state (isolated: always fetches fresh from API on open)
 const showRunModalV2 = ref(false);
@@ -11925,17 +12219,15 @@ const showOffSchedulePeriods = ref(false);
 
 const loadPeriods = async () => {
   if (!agencyId.value) return;
+  // Fire ensure-future in the background so it never blocks the page render.
+  // It is idempotent — missing periods will be created asynchronously.
+  api.post('/payroll/periods/ensure-future', { months: 6, pastPeriods: 2 }, { params: { agencyId: agencyId.value } }).catch(() => {/* silent */});
   try {
-    // Ensure upcoming pay periods exist so claims can be approved/targeted without waiting for a billing import.
-    // Idempotent: creates only missing periods.
-    await api.post('/payroll/periods/ensure-future', { months: 6, pastPeriods: 2 }, { params: { agencyId: agencyId.value } });
-  const resp = await api.get('/payroll/periods', {
-    // Always load all periods so off-schedule/older periods resolve labels correctly.
-    // The UI toggle (showOffSchedulePeriods) hides them from the list view but they
-    // still need to be available for claim label lookups and the period picker.
-    params: { agencyId: agencyId.value, alignedOnly: 'false' }
-  });
-  periods.value = resp.data || [];
+    const resp = await api.get('/payroll/periods', {
+      // Always load all periods so off-schedule/older periods resolve labels correctly.
+      params: { agencyId: agencyId.value, alignedOnly: 'false' }
+    });
+    periods.value = resp.data || [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load pay periods';
     periods.value = [];
@@ -12072,10 +12364,16 @@ const runsSideBySideSortIndicator = (col) => {
 const loadPeriodDetails = async () => {
   if (!selectedPeriodId.value) return;
   try {
+    // Staging is intentionally NOT loaded here — it is heavy (per-provider salary/tier math)
+    // and only needed when Payroll Stage is open. See watch(showStageModal).
     const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}`);
     selectedPeriod.value = resp.data?.period || null;
     rawImportRows.value = resp.data?.rows || [];
     missedAppointmentsPaidInFull.value = resp.data?.missedAppointmentsPaidInFull || [];
+    // Persist the fast pending counts for the dashboard metric card.
+    if (resp.data?.pendingCounts != null) {
+      dashboardPendingCounts.value = resp.data.pendingCounts;
+    }
     const nextSummaries = (resp.data?.summaries || []).map((s) => {
       if (typeof s.breakdown === 'string') {
         try { s.breakdown = JSON.parse(s.breakdown); } catch { /* ignore */ }
@@ -12090,14 +12388,12 @@ const loadPeriodDetails = async () => {
     if (!previewUserId.value && summariesSortedByProvider.value.length) {
       previewUserId.value = summariesSortedByProvider.value[0].user_id;
     }
-    // Staging failures should not wipe period state or break view/export modals.
-    try {
-      await loadStaging();
-    } catch {
-      // `loadStaging` already sets `stagingError`/`error`; keep the rest of the page functional.
-    }
     if (showRawModal.value) {
       await loadRawAuditData();
+    }
+    // If Stage is already open (period switch while modal visible), refresh staging.
+    if (showStageModal.value) {
+      loadStaging().catch(() => {/* loadStaging sets stagingError */});
     }
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load pay period details';
@@ -12589,14 +12885,10 @@ const restoreSelectionFromStorage = async () => {
     const savedPeriod = localStorage.getItem(lsLastPeriodKey(agencyId.value));
     const savedId = savedPeriod ? Number(savedPeriod) : null;
     const exists = savedId && (periods.value || []).some((p) => p.id === savedId);
-    if (savedId) {
+    if (savedId && exists) {
+      // Only set the id — watch(selectedPeriodId) loads details (avoids a duplicate fetch).
       selectedPeriodId.value = savedId;
-      try {
-        await loadPeriodDetails();
-      } catch {
-        if (!exists) selectedPeriodId.value = null;
-      }
-      if (selectedPeriodId.value) return;
+      return;
     }
   } catch { /* ignore */ }
 
@@ -12606,7 +12898,6 @@ const restoreSelectionFromStorage = async () => {
   const mostRecent = mostRecentNonDraft || ordered[0] || null;
   if (mostRecent?.id) {
     selectedPeriodId.value = mostRecent.id;
-    await loadPeriodDetails();
   }
 };
 
@@ -13908,42 +14199,37 @@ watch(selectedPeriodId, async (id) => {
   try {
     if (agencyId.value) localStorage.setItem(lsLastPeriodKey(agencyId.value), String(id));
   } catch { /* ignore */ }
+  dashboardPendingCounts.value = null; // clear stale count while loading
+  // Keep the dashboard light: only period details (summaries/status). Stage-only data
+  // (staging aggregates, claims lists, manual pay, todos) loads when Stage opens.
   await loadPeriodDetails();
-  await loadApprovedMileageClaimsAmount();
-  await loadApprovedMedcancelClaimsAmount();
-  await loadApprovedHolidayBonusClaimsAmount();
-  await loadApprovedMileageClaimsList();
-  await loadApprovedMedcancelClaimsList();
-  await loadApprovedHolidayBonusClaimsList();
-  await loadManualPayLines();
-  await loadPayrollTodos();
 });
 
 watch(showStageModal, async (open) => {
   if (!open) return;
-  await loadServiceCodeRules();
-  await loadMileageRates();
-  // Default to *all* pending so nothing “disappears” between pay periods.
-  await loadAllPendingMileageClaims();
-  await loadAllPendingMedcancelClaims();
-  await loadAllPendingReimbursementClaims();
-  await loadAllPendingTimeClaims();
-  await loadPendingHolidayBonusClaims();
-  await loadAllPendingPtoRequests();
-  await loadApprovedMileageClaimsAmount();
-  await loadApprovedMedcancelClaimsAmount();
-  await loadApprovedHolidayBonusClaimsAmount();
-  await loadApprovedReimbursementClaimsAmount();
-  await loadApprovedMileageClaimsList();
-  await loadApprovedMedcancelClaimsList();
-  await loadApprovedHolidayBonusClaimsList();
-  await loadApprovedReimbursementClaimsList();
-  await loadManualPayLines();
-  await loadPayrollTodos();
-
-  // Also load prior-period still-unpaid snapshot so the red backlog indicators persist
-  // even if the user doesn’t reopen the comparison modal.
-  await loadPriorStillUnpaidForStage();
+  // Kick the heavy staging payload first, then load Stage UI data in parallel.
+  await Promise.all([
+    loadStaging(),
+    loadServiceCodeRules(),
+    loadMileageRates(),
+    loadAllPendingMileageClaims(),
+    loadAllPendingMedcancelClaims(),
+    loadAllPendingReimbursementClaims(),
+    loadAllPendingTimeClaims(),
+    loadPendingHolidayBonusClaims(),
+    loadAllPendingPtoRequests(),
+    loadApprovedMileageClaimsAmount(),
+    loadApprovedMedcancelClaimsAmount(),
+    loadApprovedHolidayBonusClaimsAmount(),
+    loadApprovedReimbursementClaimsAmount(),
+    loadApprovedMileageClaimsList(),
+    loadApprovedMedcancelClaimsList(),
+    loadApprovedHolidayBonusClaimsList(),
+    loadApprovedReimbursementClaimsList(),
+    loadManualPayLines(),
+    loadPayrollTodos(),
+    loadPriorStillUnpaidForStage()
+  ]);
 });
 
 watch(selectedUserId, async () => {
@@ -14023,24 +14309,110 @@ watch(
 );
 
 onMounted(async () => {
-  // Ensure an org list exists even if user didn't pick one elsewhere
-  // - super_admin: load all agencies
-  // - others: load assigned agencies
-  if (authStore.user?.role === 'super_admin') {
-    await agencyStore.fetchAgencies();
-  } else {
-    await agencyStore.fetchUserAgencies();
-  }
-  // Fallback: if assigned agencies are empty (some edge cases), load all.
-  if (!(agencyStore.userAgencies?.length || agencyStore.userAgencies?.value?.length) && !(agencyStore.agencies?.length || agencyStore.agencies?.value?.length)) {
-    await agencyStore.fetchAgencies();
+  // Only re-fetch agencies if the store is still empty (e.g., first page visit).
+  // Hot navigations skip this round-trip entirely.
+  const hasAgencies = (agencyStore.agencies?.length || agencyStore.userAgencies?.length);
+  if (!hasAgencies) {
+    if (authStore.user?.role === 'super_admin') {
+      await agencyStore.fetchAgencies();
+    } else {
+      await agencyStore.fetchUserAgencies();
+    }
+    // Fallback: if assigned agencies are empty (some edge cases), load all.
+    if (!(agencyStore.userAgencies?.length || agencyStore.userAgencies?.value?.length) && !(agencyStore.agencies?.length || agencyStore.agencies?.value?.length)) {
+      await agencyStore.fetchAgencies();
+    }
   }
   // Seed selector from any pre-existing context
   if (agencyId.value) selectedOrgId.value = agencyId.value;
-  await loadAgencyUsers();
-  await loadPeriods();
+  // Users and periods are independent — fetch them in parallel.
+  await Promise.all([loadAgencyUsers(), loadPeriods()]);
   await restoreSelectionFromStorage();
+  await consumeWizardDeepLink();
 });
+
+/** Deep-links from Payroll Wizard page: ?wizardOpen=stage|raw|process|import|run|post|preview|todos&periodId=&rawMode= */
+const consumeWizardDeepLink = async () => {
+  const open = String(route.query?.wizardOpen || '').trim();
+  if (!open) return;
+
+  const pid = Number(route.query?.periodId || 0) || null;
+  if (pid && pid !== Number(selectedPeriodId.value || 0)) {
+    await selectPeriod(pid);
+  }
+
+  const returnStep = String(route.query?.wizardStep || '').trim();
+  if (route.query?.wizardReturn) {
+    const slug = String(route.params?.organizationSlug || agencyStore.currentAgency?.slug || '').trim();
+    const periodPart = pid || selectedPeriodId.value;
+    wizardReturnPath.value = slug
+      ? `/${slug}/admin/payroll/wizard/${periodPart || ''}`
+      : `/admin/payroll/wizard/${periodPart || ''}`;
+    if (returnStep) {
+      try {
+        sessionStorage.setItem('payroll:wizardReturnStep', returnStep);
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  await nextTick();
+
+  if (open === 'process') {
+    try {
+      processChangesCard.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    } catch {
+      // ignore
+    }
+  } else if (open === 'import') {
+    try {
+      currentPayrollFileInput.value?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    } catch {
+      // ignore
+    }
+    triggerCurrentPayrollUpload();
+  } else if (open === 'raw') {
+    const mode = String(route.query?.rawMode || 'draft_audit').trim() || 'draft_audit';
+    rawMode.value = mode;
+    showRawModal.value = true;
+  } else if (open === 'stage') {
+    showStageModal.value = true;
+  } else if (open === 'todos') {
+    await openTodoModal();
+  } else if (open === 'run') {
+    await runPayroll();
+  } else if (open === 'preview') {
+    await openPreviewPostModalV2();
+  } else if (open === 'post') {
+    await postPayroll();
+  }
+
+  // Clear deep-link query so refresh doesn't re-trigger; keep periodId
+  const nextQuery = { ...route.query };
+  delete nextQuery.wizardOpen;
+  delete nextQuery.rawMode;
+  delete nextQuery.wizardReturn;
+  delete nextQuery.wizardStep;
+  try {
+    await router.replace({ path: route.path, query: nextQuery });
+  } catch {
+    // ignore
+  }
+};
+
+const returnToWizard = async () => {
+  const path = wizardReturnPath.value;
+  wizardReturnPath.value = '';
+  if (path) await router.push({ path });
+};
+
+watch(
+  () => route.query?.wizardOpen,
+  async (v) => {
+    if (v) await consumeWizardDeepLink();
+  }
+);
 
 const onProcessFilePick = (evt) => {
   processImportFile.value = evt.target.files?.[0] || null;
@@ -14753,6 +15125,551 @@ const processRunAndCompare = async () => {
 </script>
 
 <style scoped>
+.pr-wizard-return {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--pr-mint, #E8F5E9);
+  border: 1px solid var(--pr-mint-border, #C8E6C9);
+  color: var(--pr-forest, #1E3A34);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pr-page {
+  --pr-forest: #1E3A34;
+  --pr-forest-hover: #16302b;
+  --pr-mint: #E8F5E9;
+  --pr-mint-border: #C8E6C9;
+  --pr-mint-text: #2E7D32;
+  --pr-alert-bg: #FCE8E6;
+  --pr-alert-icon: #C62828;
+  --pr-card-shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --pr-radius: 12px;
+  background: #F7F8F7;
+  padding-bottom: 32px;
+  min-height: 100%;
+}
+
+.pr-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+.pr-header h1 {
+  margin: 0;
+  font-size: 1.85rem;
+  font-weight: 800;
+  color: var(--text-primary, #1D2633);
+  letter-spacing: -0.02em;
+}
+.pr-header-text .subtitle {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+.pr-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.pr-org-picker {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 14px;
+  box-shadow: var(--pr-card-shadow);
+}
+.pr-org-value {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+}
+.pr-org-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.pr-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.pr-metric-card {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--pr-radius);
+  padding: 16px;
+  box-shadow: var(--pr-card-shadow);
+  text-align: left;
+}
+button.pr-metric-card {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  appearance: none;
+  width: 100%;
+}
+button.pr-metric-card:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+.pr-metric-card--alert {
+  border-color: #f5c6c2;
+}
+.pr-metric-icon {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--pr-mint);
+  color: var(--pr-forest);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pr-metric-icon--alert {
+  background: var(--pr-alert-bg);
+  color: var(--pr-alert-icon);
+}
+.pr-metric-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.pr-metric-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+.pr-metric-num {
+  font-size: 1.6rem;
+  letter-spacing: -0.02em;
+}
+.pr-metric-meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pr-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: capitalize;
+  background: var(--pr-mint);
+  color: var(--pr-mint-text);
+  border: 1px solid var(--pr-mint-border);
+}
+.pr-status-posted,
+.pr-status-finalized {
+  background: var(--pr-mint);
+  color: var(--pr-mint-text);
+}
+.pr-status-staged,
+.pr-status-raw_imported,
+.pr-status-imported {
+  background: #E3F2FD;
+  color: #1565C0;
+  border-color: #BBDEFB;
+}
+.pr-status-ran {
+  background: #FFF8E1;
+  color: #F57F17;
+  border-color: #FFE082;
+}
+.pr-status-draft {
+  background: #F1F5F9;
+  color: #475569;
+  border-color: #E2E8F0;
+}
+
+.pr-command {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.15fr;
+  gap: 14px;
+  margin-bottom: 18px;
+  align-items: start;
+}
+.pr-command-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pr-wizard-card .wizard-btn {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 15px;
+  font-weight: 700;
+  border-radius: 10px;
+  background: var(--pr-forest) !important;
+  border-color: var(--pr-forest) !important;
+  color: #fff !important;
+  box-shadow: 0 8px 20px rgba(30, 58, 52, 0.22);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.pr-wizard-card .wizard-btn:hover:not(:disabled) {
+  background: var(--pr-forest-hover) !important;
+  border-color: var(--pr-forest-hover) !important;
+}
+.pr-wizard-card .wizard-btn:disabled {
+  box-shadow: none;
+  opacity: 0.55;
+}
+
+.pr-quick-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.pr-quick-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s;
+}
+.pr-quick-btn:hover:not(:disabled) {
+  background: var(--pr-mint);
+  border-color: var(--pr-mint-border);
+}
+.pr-quick-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.pr-secondary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.pr-autodetect {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: var(--pr-radius);
+  background: var(--pr-mint);
+  border: 1px solid var(--pr-mint-border);
+}
+.pr-autodetect-icon {
+  color: var(--pr-forest);
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+.pr-autodetect-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--pr-forest);
+  margin-bottom: 2px;
+}
+
+.pr-history-card,
+.pr-details-card {
+  min-height: 280px;
+}
+.pr-search-wrap {
+  position: relative;
+}
+.pr-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+.pr-search-input {
+  width: 100%;
+  padding: 9px 12px 9px 36px !important;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 14px;
+  background: #fff;
+}
+.pr-period-list {
+  margin-top: 12px;
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 2px;
+}
+.pr-period-list .list-item {
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: #fff;
+  transition: background 0.15s, border-color 0.15s;
+}
+.pr-period-list .list-item:hover {
+  background: #f8faf9;
+  border-color: var(--border);
+}
+.pr-period-list .list-item.active {
+  background: var(--pr-mint);
+  border-color: var(--pr-mint-border);
+}
+.list-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.pr-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #94a3b8;
+  flex: 0 0 auto;
+}
+.pr-dot-posted,
+.pr-dot-finalized {
+  background: #2E7D32;
+}
+.pr-dot-staged,
+.pr-dot-raw_imported {
+  background: #1565C0;
+}
+.pr-dot-ran {
+  background: #F57F17;
+}
+
+.pr-details-filters {
+  grid-template-columns: 1fr 1fr !important;
+}
+.pr-period-meta {
+  margin-top: 12px;
+  padding: 12px;
+  background: #f8faf9;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+.pr-info-banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--pr-mint);
+  border: 1px solid var(--pr-mint-border);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.pr-info-banner svg {
+  flex: 0 0 auto;
+  color: var(--pr-forest);
+  margin-top: 2px;
+}
+
+.pr-process-card,
+.pr-run-card,
+.pr-totals-card {
+  margin-bottom: 14px;
+}
+.pr-process-head,
+.pr-run-head,
+.pr-totals-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.pr-process-steps {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr 1fr;
+  gap: 14px;
+}
+.pr-process-step {
+  display: flex;
+  gap: 12px;
+  padding: 14px;
+  background: #f8faf9;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.pr-process-step-num {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--pr-forest);
+  color: #fff;
+  font-weight: 800;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pr-process-step-title {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+.pr-upload-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+.pr-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pr-compare-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.pr-compare-btn {
+  background: var(--pr-forest) !important;
+  border-color: var(--pr-forest) !important;
+  color: #fff !important;
+  display: inline-flex;
+  align-items: center;
+}
+.pr-process-advanced {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.pr-process-advanced summary {
+  list-style: none;
+}
+.pr-process-advanced summary::-webkit-details-marker {
+  display: none;
+}
+
+.pr-stepper {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 16px 8px;
+  background: #f8faf9;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow-x: auto;
+}
+.pr-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  padding: 0 8px;
+  opacity: 0.55;
+}
+.pr-step.active,
+.pr-step.done {
+  opacity: 1;
+}
+.pr-step-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+}
+.pr-step.active .pr-step-icon {
+  border-color: var(--pr-forest);
+  color: var(--pr-forest);
+  box-shadow: 0 0 0 3px rgba(30, 58, 52, 0.12);
+}
+.pr-step.done .pr-step-icon {
+  background: var(--pr-forest);
+  border-color: var(--pr-forest);
+  color: #fff;
+}
+.pr-step-title {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.pr-step-sub {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.pr-step-line {
+  flex: 1 1 24px;
+  height: 2px;
+  min-width: 16px;
+  background: var(--border);
+  border-radius: 2px;
+}
+.pr-step-line.done {
+  background: var(--pr-forest);
+}
+
+.pr-run-actions {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pr-run-actions-primary,
+.pr-run-actions-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.pr-run-actions-secondary {
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.pr-below {
+  margin-top: 4px;
+}
+
 .th-sortable {
   cursor: pointer;
   user-select: none;
@@ -14770,11 +15687,15 @@ const processRunAndCompare = async () => {
 .card {
   background: white;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--pr-radius);
   padding: 16px;
+  box-shadow: var(--pr-card-shadow);
 }
 .card-title {
   margin: 0 0 12px 0;
+  font-size: 1.05rem;
+  font-weight: 750;
+  color: var(--text-primary);
 }
 .subtitle {
   margin: 6px 0 0;
@@ -14791,14 +15712,19 @@ const processRunAndCompare = async () => {
   font-size: 12px;
   color: var(--text-secondary);
   margin-bottom: 6px;
+  font-weight: 600;
 }
 input[type='text'],
 input[type='date'],
-input[type='number'] {
+input[type='number'],
+select,
+textarea {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
+  background: #fff;
+  font: inherit;
 }
 
 .link-btn {
@@ -14825,15 +15751,35 @@ input[type='number'] {
   flex-direction: row;
 }
 
-/* Keep payroll buttons compact (text-sized) */
 .btn {
   padding: 6px 10px;
   font-size: 13px;
   line-height: 1.2;
+  border-radius: 8px;
 }
 .btn.btn-sm {
   padding: 4px 8px;
   font-size: 12px;
+}
+.pr-page :deep(.btn-primary),
+.pr-page .btn.btn-primary {
+  background: var(--pr-forest);
+  border-color: var(--pr-forest);
+  color: #fff;
+}
+.pr-page :deep(.btn-primary:hover:not(:disabled)),
+.pr-page .btn.btn-primary:hover:not(:disabled) {
+  background: var(--pr-forest-hover);
+  border-color: var(--pr-forest-hover);
+}
+.pr-page .btn.btn-secondary {
+  background: #fff;
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+.pr-page .btn.btn-secondary:hover:not(:disabled) {
+  background: var(--pr-mint);
+  border-color: var(--pr-mint-border);
 }
 .actions .btn {
   width: auto;
@@ -14861,9 +15807,9 @@ input[type='number'] {
   background: var(--bg-hover, #eee);
 }
 .tabs .tab.active {
-  background: var(--primary, #2563eb);
+  background: var(--pr-forest);
   color: white;
-  border-color: var(--primary, #2563eb);
+  border-color: var(--pr-forest);
 }
 .hint {
   font-size: 12px;
@@ -14883,7 +15829,8 @@ input[type='number'] {
   cursor: pointer;
 }
 .list-item.active {
-  border-color: #334155;
+  border-color: var(--pr-mint-border);
+  background: var(--pr-mint);
 }
 .list-item-title {
   font-weight: 600;
@@ -14952,8 +15899,8 @@ input[type='number'] {
 }
 
 .wizard-hero {
-  border: 1px solid rgba(59, 130, 246, 0.35);
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.10), rgba(99, 102, 241, 0.06));
+  border: 1px solid var(--pr-mint-border);
+  background: #fff;
 }
 .org-bar {
   display: flex;
@@ -14983,7 +15930,9 @@ input[type='number'] {
   flex-wrap: wrap;
 }
 .org-bar select,
-.org-bar input {
+.org-bar input,
+.pr-org-picker select,
+.pr-org-picker input {
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -15015,7 +15964,7 @@ input[type='number'] {
   font-weight: 800;
   letter-spacing: 0.2px;
   border-radius: 12px;
-  box-shadow: 0 10px 24px rgba(59, 130, 246, 0.25);
+  box-shadow: 0 10px 24px rgba(30, 58, 52, 0.22);
 }
 .wizard-btn:disabled {
   box-shadow: none;
@@ -15231,16 +16180,46 @@ input[type='number'] {
   border-radius: 10px;
   margin-bottom: 12px;
 }
+@media (max-width: 1100px) {
+  .pr-command {
+    grid-template-columns: 1fr 1fr;
+  }
+  .pr-command-actions {
+    grid-column: 1 / -1;
+  }
+  .pr-process-steps {
+    grid-template-columns: 1fr;
+  }
+}
 @media (max-width: 980px) {
+  .pr-metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+  .pr-command {
+    grid-template-columns: 1fr;
+  }
   .grid {
     grid-template-columns: 1fr;
   }
   .field-row {
     grid-template-columns: 1fr;
   }
+  .pr-details-filters {
+    grid-template-columns: 1fr !important;
+  }
+}
+@media (max-width: 640px) {
+  .pr-metrics {
+    grid-template-columns: 1fr;
+  }
+  .pr-quick-grid {
+    grid-template-columns: 1fr;
+  }
+  .pr-step-text {
+    display: none;
+  }
 }
 
-/* PTO request status filter chips */
 .pto-filter-bar {
   display: flex;
   flex-wrap: wrap;
@@ -15283,7 +16262,6 @@ input[type='number'] {
   color: #374151;
 }
 
-/* PTO request status badges */
 .pto-status-badge {
   display: inline-block;
   padding: 2px 8px;
@@ -15297,7 +16275,7 @@ input[type='number'] {
 .pto-status-rejected  { background: #fee2e2; color: #991b1b; }
 .pto-status-deferred  { background: #f1f5f9; color: #475569; }
 
-/* Row tinting for approved/denied */
 tr.pto-row-approved td { background: #f0fdf4; }
 tr.pto-row-rejected td { background: #fff5f5; opacity: 0.8; }
 </style>
+

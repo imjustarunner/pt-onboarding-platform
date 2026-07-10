@@ -3267,19 +3267,29 @@ export const getPayrollPeriod = async (req, res, next) => {
     const period = await PayrollPeriod.findById(id);
     if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
     if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
-    const rows = await PayrollImportRow.listForPeriod(id);
-    const summaries = await PayrollSummary.listForPeriod(id);
-    let missedAppointmentsPaidInFull = [];
-    try {
-      missedAppointmentsPaidInFull = await PayrollImportMissedAppointment.listAggregatedForPeriod({
-        payrollPeriodId: id,
-        agencyId: period.agency_id
-      });
-    } catch (e) {
-      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
-      missedAppointmentsPaidInFull = [];
-    }
-    res.json({ period, rows, summaries, missedAppointmentsPaidInFull });
+    // Fetch rows, summaries, missed appointments, and pending claim counts in parallel.
+    const [rows, summaries, missedAppointmentsPaidInFull, pendingCounts] = await Promise.all([
+      PayrollImportRow.listForPeriod(id),
+      PayrollSummary.listForPeriod(id),
+      PayrollImportMissedAppointment.listAggregatedForPeriod({ payrollPeriodId: id, agencyId: period.agency_id })
+        .catch((e) => { if (e?.code !== 'ER_NO_SUCH_TABLE') throw e; return []; }),
+      // Agency-wide pending counts (not period-specific) so the dashboard badge
+      // reflects all unreviewed submissions regardless of which period is selected.
+      (async () => {
+        const countSql = (table) =>
+          pool.execute(`SELECT COUNT(*) AS cnt FROM ${table} WHERE agency_id = ? AND status = 'submitted'`, [period.agency_id])
+            .then(([r]) => Number(r?.[0]?.cnt || 0))
+            .catch(() => 0);
+        const [mileage, medcancel, reimbursement, timeClaims] = await Promise.all([
+          countSql('payroll_mileage_claims'),
+          countSql('payroll_medcancel_claims'),
+          countSql('payroll_reimbursement_claims'),
+          countSql('payroll_time_claims'),
+        ]);
+        return { mileage, medcancel, reimbursement, timeClaims, total: mileage + medcancel + reimbursement + timeClaims };
+      })()
+    ]);
+    res.json({ period, rows, summaries, missedAppointmentsPaidInFull, pendingCounts });
   } catch (e) {
     next(e);
   }
@@ -7962,17 +7972,14 @@ export const getPayrollStaging = async (req, res, next) => {
       }
     }
 
-    const overrides = await PayrollStagingOverride.listForPeriod(payrollPeriodId);
-    const carryovers = await PayrollStageCarryover.listForPeriod(payrollPeriodId);
-    const priorUnpaidStage = await PayrollStagePriorUnpaid.listForPeriod(payrollPeriodId);
-    let manualPayLines = [];
-    try {
-      manualPayLines = await PayrollManualPayLine.listForPeriod({ payrollPeriodId, agencyId: period.agency_id });
-    } catch (e) {
-      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
-      manualPayLines = [];
-    }
-    const rules = await PayrollServiceCodeRule.listForAgency(period.agency_id);
+    const [overrides, carryovers, priorUnpaidStage, manualPayLines, rules] = await Promise.all([
+      PayrollStagingOverride.listForPeriod(payrollPeriodId),
+      PayrollStageCarryover.listForPeriod(payrollPeriodId),
+      PayrollStagePriorUnpaid.listForPeriod(payrollPeriodId),
+      PayrollManualPayLine.listForPeriod({ payrollPeriodId, agencyId: period.agency_id })
+        .catch((e) => { if (e?.code !== 'ER_NO_SUCH_TABLE') throw e; return []; }),
+      PayrollServiceCodeRule.listForAgency(period.agency_id)
+    ]);
     const ruleByCode = new Map(
       (rules || []).map((r) => [String(r.service_code || '').trim().toUpperCase(), r])
     );
@@ -8160,13 +8167,150 @@ export const getPayrollStaging = async (req, res, next) => {
       manualPayByUser.get(uid).push(l);
     }
 
+    const stagingUserIds = Array.from(byUser.keys()).map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0);
+
+    // Batch-load salary positions, rate cards, approved time claims, excess rules, and tier history
+    // so we do not issue N+1 queries per provider (was ~5–8 queries × 150+ users ≈ 20–30s).
+    const salaryPosByUserId = new Map();
+    const rateCardByUserId = new Map();
+    const timeClaimsByUserId = new Map();
+    const excessRuleByCode = new Map();
+    const tierHistByUserId = new Map();
+    const priorTierByUserId = new Map();
+
+    if (stagingUserIds.length) {
+      const [allSalaryRows, allRateCards, allTimeClaims, excessRules, tierHistRows, priorTierRows] = await Promise.all([
+        PayrollSalaryPosition.listForAgency(period.agency_id).catch(() => []),
+        pool.execute(
+          `SELECT * FROM payroll_rate_cards WHERE agency_id = ?`,
+          [period.agency_id]
+        ).then(([rows]) => rows || []).catch(() => []),
+        pool.execute(
+          `SELECT c.*,
+                  sb.first_name AS submitted_by_first_name,
+                  sb.last_name AS submitted_by_last_name,
+                  sb.email AS submitted_by_email
+           FROM payroll_time_claims c
+           LEFT JOIN users sb ON sb.id = c.submitted_by_user_id
+           WHERE c.agency_id = ?
+             AND c.status IN ('approved','paid')
+             AND c.target_payroll_period_id = ?`,
+          [period.agency_id, payrollPeriodId]
+        ).then(([rows]) => (rows || []).map((r) => PayrollTimeClaim._normalize(r))).catch(() => []),
+        PayrollExcessCompensationRule.listForAgency(period.agency_id).catch(() => []),
+        pool.execute(
+          `SELECT ps.user_id, ps.tier_credits_current, pp.period_end
+           FROM payroll_summaries ps
+           JOIN payroll_periods pp ON ps.payroll_period_id = pp.id
+           WHERE ps.agency_id = ?
+             AND ps.user_id IN (${stagingUserIds.map(() => '?').join(',')})
+             AND pp.status IN ('posted','finalized')
+             AND pp.period_end < ?
+           ORDER BY ps.user_id ASC, pp.period_end DESC`,
+          [period.agency_id, ...stagingUserIds, period.period_end]
+        ).then(([rows]) => rows || []).catch(() => []),
+        pool.execute(
+          `SELECT
+              ps.user_id,
+              COALESCE(ps.tier_credits_final, ps.tier_credits_current, 0) AS tier_credits_biweekly
+           FROM payroll_periods pp
+           LEFT JOIN payroll_summaries ps
+             ON ps.payroll_period_id = pp.id
+            AND ps.agency_id = ?
+            AND ps.user_id IN (${stagingUserIds.map(() => '?').join(',')})
+           WHERE pp.agency_id = ?
+             AND pp.period_end = DATE_SUB(?, INTERVAL 1 DAY)`,
+          [period.agency_id, ...stagingUserIds, period.agency_id, period.period_start]
+        ).then(([rows]) => rows || []).catch(() => [])
+      ]);
+
+      // Pick the active salary position per user as of period start (agency rows first, then agency_id=0 fallback).
+      const salaryCandidates = new Map(); // userId -> best row
+      const considerSalary = (row) => {
+        const uid = Number(row?.user_id || 0);
+        if (!uid || !periodStartYmd) return;
+        const es = row.effective_start ? String(row.effective_start).slice(0, 10) : null;
+        const ee = row.effective_end ? String(row.effective_end).slice(0, 10) : null;
+        if (es && es > periodStartYmd) return;
+        if (ee && ee < periodStartYmd) return;
+        const prev = salaryCandidates.get(uid);
+        if (!prev) {
+          salaryCandidates.set(uid, row);
+          return;
+        }
+        // Prefer matching agency_id over agency_id=0; then newest effective_start.
+        const prevAgency = Number(prev.agency_id || 0);
+        const rowAgency = Number(row.agency_id || 0);
+        if (prevAgency === 0 && rowAgency === Number(period.agency_id)) {
+          salaryCandidates.set(uid, row);
+          return;
+        }
+        if (prevAgency === Number(period.agency_id) && rowAgency === 0) return;
+        const prevEs = prev.effective_start ? String(prev.effective_start).slice(0, 10) : '';
+        const rowEs = es || '';
+        if (rowEs > prevEs || (rowEs === prevEs && Number(row.id || 0) > Number(prev.id || 0))) {
+          salaryCandidates.set(uid, row);
+        }
+      };
+      for (const row of allSalaryRows || []) considerSalary(row);
+      // Also pull agency_id=0 fallbacks for users still missing a position.
+      const missingSalary = stagingUserIds.filter((uid) => !salaryCandidates.has(uid));
+      if (missingSalary.length) {
+        try {
+          const [fallbackRows] = await pool.execute(
+            `SELECT * FROM payroll_salary_positions
+             WHERE agency_id = 0
+               AND user_id IN (${missingSalary.map(() => '?').join(',')})`,
+            missingSalary
+          );
+          for (const row of fallbackRows || []) considerSalary(row);
+        } catch {
+          // optional table / empty
+        }
+      }
+      for (const [uid, row] of salaryCandidates.entries()) salaryPosByUserId.set(uid, row);
+
+      for (const rc of allRateCards || []) {
+        const uid = Number(rc?.user_id || 0);
+        if (uid) rateCardByUserId.set(uid, rc);
+      }
+      for (const c of allTimeClaims || []) {
+        const uid = Number(c?.user_id || c?.userId || 0);
+        if (!uid) continue;
+        if (!timeClaimsByUserId.has(uid)) timeClaimsByUserId.set(uid, []);
+        timeClaimsByUserId.get(uid).push(c);
+      }
+      for (const rule of excessRules || []) {
+        const code = String(rule?.service_code || '').trim().toUpperCase();
+        if (code) excessRuleByCode.set(code, rule);
+      }
+
+      const histLimit = Math.max(0, Math.min(24, Number(TIER_WINDOW_PERIODS || 0)));
+      const histCounts = new Map();
+      for (const row of tierHistRows || []) {
+        const uid = Number(row?.user_id || 0);
+        if (!uid) continue;
+        const taken = histCounts.get(uid) || 0;
+        if (taken >= histLimit) continue;
+        histCounts.set(uid, taken + 1);
+        const prev = tierHistByUserId.get(uid) || { sum: 0, count: 0 };
+        const val = Number(row.tier_credits_current || 0);
+        if (Number.isFinite(val)) {
+          prev.sum += val;
+          prev.count += 1;
+          tierHistByUserId.set(uid, prev);
+        }
+      }
+      for (const row of priorTierRows || []) {
+        const uid = Number(row?.user_id || 0);
+        if (!uid) continue;
+        priorTierByUserId.set(uid, Number(row.tier_credits_biweekly || 0));
+      }
+    }
+
     for (const [uid, rows] of byUser.entries()) {
       try {
-        const pos = await PayrollSalaryPosition.findActiveForUser({
-          agencyId: period.agency_id,
-          userId: uid,
-          asOfDate: periodStartYmd
-        });
+        const pos = salaryPosByUserId.get(Number(uid)) || null;
         if (pos && Number(pos.salary_per_pay_period || 0) > 1e-9 && periodStartD && periodEndD) {
           const perPeriod = Number(pos.salary_per_pay_period || 0);
           const includeServicePay = Number(pos.include_service_pay || 0) ? 1 : 0;
@@ -8229,21 +8373,17 @@ export const getPayrollStaging = async (req, res, next) => {
       }
 
       try {
-        const approvedTimeClaims = await PayrollTimeClaim.listApprovedForPeriodUser({
-          payrollPeriodId,
-          agencyId: period.agency_id,
-          userId: uid
-        });
-        const rateCard = await PayrollRateCard.findForUser(period.agency_id, uid);
+        const approvedTimeClaims = timeClaimsByUserId.get(Number(uid)) || [];
+        const rateCard = rateCardByUserId.get(Number(uid)) || null;
         for (const c of approvedTimeClaims || []) {
           const { hrs, bucket, claimType, payload } = resolveTimeClaimHours(c);
           const items = Array.isArray(payload?.items) ? payload.items : [];
           if (claimType === 'excess_holiday' && items.length) {
             let totalExcessDirect = 0;
             for (const it of items) {
-              const code = String(it?.serviceCode || '').trim();
+              const code = String(it?.serviceCode || '').trim().toUpperCase();
               if (!code) continue;
-              const rule = await PayrollExcessCompensationRule.findByAgencyAndCode(period.agency_id, code);
+              const rule = excessRuleByCode.get(code) || null;
               const { excessDirect } = PayrollExcessCompensationRule.computeExcessMinutes({
                 actualDirectMinutes: it?.actualDirectMinutes ?? it?.directMinutes ?? 0,
                 actualIndirectMinutes: it?.actualIndirectMinutes ?? it?.indirectMinutes ?? 0,
@@ -8277,7 +8417,7 @@ export const getPayrollStaging = async (req, res, next) => {
       }
 
       const tierCreditsThisPeriod = directTierCreditsThisPeriod;
-      const hist = await getTierHistorySum({ agencyId: period.agency_id, userId: uid, periodEnd: period.period_end, limit: TIER_WINDOW_PERIODS });
+      const hist = tierHistByUserId.get(Number(uid)) || { sum: 0, count: 0 };
       const windowCount = hist.count + 1;
       const windowSum = hist.sum + tierCreditsThisPeriod;
       const biWeeklyAvg = windowCount > 0 ? (windowSum / windowCount) : 0;
@@ -8291,25 +8431,22 @@ export const getPayrollStaging = async (req, res, next) => {
       const displayBiWeeklyTotal = tierCreditsThisPeriod;
       const displayWeeklyAvg = displayBiWeeklyTotal / 2;
       const displayTierLevel = tierLevelFromWeeklyAvg(displayWeeklyAvg, tierSettings.thresholds);
-      const prior = await getImmediatePriorPeriodTierStats({
-        agencyId: period.agency_id,
-        userId: uid,
-        periodStart: period.period_start,
-        thresholds: tierSettings.thresholds,
-        defaultBiWeeklyTotal: displayBiWeeklyTotal
-      });
-      const prevPeriodWeeklyAvg = Number(prior.weeklyAvg || 0);
-      const prevPeriodTierLevel = Number(prior.tierLevel || 0);
+      const priorBiWeekly = priorTierByUserId.has(Number(uid))
+        ? Number(priorTierByUserId.get(Number(uid)) || 0)
+        : displayBiWeeklyTotal;
+      const safePriorBi = Number.isFinite(priorBiWeekly) ? priorBiWeekly : displayBiWeeklyTotal;
+      const prevPeriodWeeklyAvg = safePriorBi / 2;
+      const prevPeriodTierLevel = tierLevelFromWeeklyAvg(prevPeriodWeeklyAvg, tierSettings.thresholds);
       const graceActive = (prevPeriodTierLevel >= 1 && displayTierLevel < prevPeriodTierLevel) ? 1 : 0;
       const benefitTierLevel = graceActive ? prevPeriodTierLevel : displayTierLevel;
       tierByUserId[uid] = {
         // Back-compat fields (used elsewhere)
         tierLevel: benefitTierLevel,
         status: graceActive
-          ? `Grace (last pay period Tier ${prevPeriodTierLevel}: ${Number(prior.biWeeklyTotal || 0).toFixed(1)} bi-wk; ${Number(prevPeriodWeeklyAvg).toFixed(1)}/wk)`
+          ? `Grace (last pay period Tier ${prevPeriodTierLevel}: ${Number(safePriorBi || 0).toFixed(1)} bi-wk; ${Number(prevPeriodWeeklyAvg).toFixed(1)}/wk)`
           : tierStatusLabel({ tierLevel: benefitTierLevel, prevTierLevel: prevPeriodTierLevel }),
         label: graceActive
-          ? `Tier ${benefitTierLevel} (grace; current ${Number(displayBiWeeklyTotal).toFixed(1)} bi-wk; last ${Number(prior.biWeeklyTotal || 0).toFixed(1)} bi-wk)`
+          ? `Tier ${benefitTierLevel} (grace; current ${Number(displayBiWeeklyTotal).toFixed(1)} bi-wk; last ${Number(safePriorBi || 0).toFixed(1)} bi-wk)`
           : fmtTierLabelCurrentPeriod({ tierLevel: benefitTierLevel, biWeeklyTotal: displayBiWeeklyTotal, weeklyAvg: displayWeeklyAvg }),
         biWeeklyTotal: displayBiWeeklyTotal,
         weeklyAvg: displayWeeklyAvg,
@@ -8327,7 +8464,7 @@ export const getPayrollStaging = async (req, res, next) => {
           tierLevel,
           lastPayPeriodWeeklyAvg: prevPeriodWeeklyAvg,
           lastPayPeriod: {
-            biWeeklyTotal: Number(prior.biWeeklyTotal || 0),
+            biWeeklyTotal: Number(safePriorBi || 0),
             weeklyAvg: prevPeriodWeeklyAvg,
             tierLevel: prevPeriodTierLevel
           },
