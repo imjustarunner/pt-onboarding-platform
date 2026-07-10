@@ -121,6 +121,19 @@ class OfficeStandingAssignment {
     recurrenceGroupId = null,
     createdByUserId
   }) {
+    const existingPre = await this.findById(existingId);
+    if (existingPre) {
+      // Clear historical frequency-key twins before flipping frequency / is_active.
+      await this.retireConflictingFrequencyRows({
+        keepId: existingId,
+        roomId: Number(existingPre.room_id),
+        providerId: Number(existingPre.provider_id),
+        weekday: Number(existingPre.weekday),
+        hour: Number(existingPre.hour),
+        assignedFrequency: String(assignedFrequency || existingPre.assigned_frequency || 'WEEKLY').toUpperCase()
+      });
+    }
+
     const apply = async () => {
       await pool.execute(
         `UPDATE office_standing_assignments
@@ -149,6 +162,16 @@ class OfficeStandingAssignment {
 
       const existing = await this.findById(existingId);
       if (!existing) throw e;
+
+      // Frequency-key collision (inactive WEEKLY twin while flipping BIWEEKLY → WEEKLY).
+      await this.retireConflictingFrequencyRows({
+        keepId: existingId,
+        roomId: Number(existing.room_id),
+        providerId: Number(existing.provider_id),
+        weekday: Number(existing.weekday),
+        hour: Number(existing.hour),
+        assignedFrequency: String(assignedFrequency || existing.assigned_frequency || 'WEEKLY').toUpperCase()
+      });
 
       const [blockers] = await pool.execute(
         `SELECT id, provider_id
@@ -467,6 +490,66 @@ class OfficeStandingAssignment {
     return rows || [];
   }
 
+  /**
+   * Free uniq_office_standing_assignment_slot (room, provider, weekday, hour, frequency)
+   * held by another row for the same provider so we can change frequency on keepId.
+   * Grace Fri 3pm: active BIWEEKLY 999 + inactive WEEKLY 817 — Assign Weekly must
+   * retire 817 (migrate FKs) before 999 can become WEEKLY.
+   */
+  static async retireConflictingFrequencyRows({
+    keepId,
+    roomId,
+    providerId,
+    weekday,
+    hour,
+    assignedFrequency
+  }) {
+    const [rows] = await pool.execute(
+      `SELECT id FROM office_standing_assignments
+       WHERE room_id = ?
+         AND provider_id = ?
+         AND weekday = ?
+         AND hour = ?
+         AND assigned_frequency = ?
+         AND id <> ?
+       ORDER BY id ASC`,
+      [roomId, providerId, weekday, hour, assignedFrequency, keepId]
+    );
+    for (const row of rows || []) {
+      const retireId = Number(row.id);
+      if (!retireId) continue;
+
+      // Prefer keepId for live events / plans / resolved requests.
+      await pool.execute(
+        `UPDATE office_events
+         SET standing_assignment_id = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE standing_assignment_id = ?`,
+        [keepId, retireId]
+      );
+      await pool.execute(
+        `UPDATE office_booking_plans
+         SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+         WHERE standing_assignment_id = ? AND is_active = TRUE`,
+        [retireId]
+      );
+      try {
+        await pool.execute(
+          `UPDATE provider_office_availability_requests
+           SET resolved_standing_assignment_id = ?
+           WHERE resolved_standing_assignment_id = ?`,
+          [keepId, retireId]
+        );
+      } catch (e) {
+        if (e?.code !== 'ER_BAD_FIELD_ERROR' && e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      }
+
+      await pool.execute(`DELETE FROM office_standing_assignments WHERE id = ?`, [retireId]);
+      console.info('[OfficeStandingAssignment] retired frequency-key conflict', JSON.stringify({
+        keepId, retireId, roomId, providerId, weekday, hour, assignedFrequency
+      }));
+    }
+  }
+
   static async update(id, updates = {}) {
     const allowed = [
       'room_id',
@@ -492,9 +575,107 @@ class OfficeStandingAssignment {
       }
     }
     if (fields.length === 0) return this.findById(id);
-    values.push(id);
-    await pool.execute(`UPDATE office_standing_assignments SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, values);
-    return this.findById(id);
+
+    const apply = async () => {
+      const params = [...values, id];
+      await pool.execute(
+        `UPDATE office_standing_assignments SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        params
+      );
+      return this.findById(id);
+    };
+
+    try {
+      return await apply();
+    } catch (e) {
+      if (e?.code !== 'ER_DUP_ENTRY' && e?.errno !== 1062) throw e;
+
+      const existing = await this.findById(id);
+      if (!existing) throw e;
+
+      const nextFreq = ('assigned_frequency' in updates)
+        ? String(updates.assigned_frequency || '').toUpperCase()
+        : String(existing.assigned_frequency || '').toUpperCase();
+      const nextRoomId = ('room_id' in updates) ? Number(updates.room_id) : Number(existing.room_id);
+      const nextWeekday = ('weekday' in updates) ? Number(updates.weekday) : Number(existing.weekday);
+      const nextHour = ('hour' in updates) ? Number(updates.hour) : Number(existing.hour);
+
+      // Historical unique key: same provider+slot+frequency (often an inactive twin).
+      if (nextFreq === 'WEEKLY' || nextFreq === 'BIWEEKLY') {
+        await this.retireConflictingFrequencyRows({
+          keepId: id,
+          roomId: nextRoomId,
+          providerId: Number(existing.provider_id),
+          weekday: nextWeekday,
+          hour: nextHour,
+          assignedFrequency: nextFreq
+        });
+      }
+
+      // Active physical-slot unique key: another active row at this office/room/day/hour.
+      if (updates.is_active === true || Number(existing.is_active) === 1) {
+        const officeLocationId = Number(existing.office_location_id);
+        const [blockers] = await pool.execute(
+          `SELECT id, provider_id, assigned_frequency
+           FROM office_standing_assignments
+           WHERE office_location_id = ?
+             AND room_id = ?
+             AND weekday = ?
+             AND hour = ?
+             AND is_active = TRUE
+             AND id <> ?
+           ORDER BY id ASC`,
+          [officeLocationId, nextRoomId, nextWeekday, nextHour, id]
+        );
+        for (const blocker of blockers || []) {
+          const otherId = Number(blocker.id);
+          if (!otherId) continue;
+
+          if (Number(blocker.provider_id) === Number(existing.provider_id)) {
+            // Same provider duplicate active row — migrate FKs onto keepId and delete.
+            await pool.execute(
+              `UPDATE office_events
+               SET standing_assignment_id = ?, updated_at = CURRENT_TIMESTAMP
+               WHERE standing_assignment_id = ?`,
+              [id, otherId]
+            );
+            await pool.execute(
+              `UPDATE office_booking_plans
+               SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+               WHERE standing_assignment_id = ? AND is_active = TRUE`,
+              [otherId]
+            );
+            await pool.execute(`DELETE FROM office_standing_assignments WHERE id = ?`, [otherId]);
+            continue;
+          }
+          const [liveRows] = await pool.execute(
+            `SELECT 1 FROM office_events
+             WHERE room_id = ? AND start_at >= NOW() AND HOUR(start_at) = ?
+               AND DAYOFWEEK(start_at) = ?
+               AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
+               AND (standing_assignment_id = ? OR booked_provider_id = ? OR assigned_provider_id = ?)
+             LIMIT 1`,
+            [nextRoomId, nextHour, nextWeekday + 1, blocker.id, blocker.provider_id, blocker.provider_id]
+          );
+          if ((liveRows || []).length) throw this.conflictError(blocker);
+          await pool.execute(
+            `UPDATE office_standing_assignments
+             SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [blocker.id]
+          );
+        }
+      }
+
+      try {
+        return await apply();
+      } catch (retryErr) {
+        if (retryErr?.code === 'ER_DUP_ENTRY' || retryErr?.errno === 1062) {
+          throw this.conflictError(null);
+        }
+        throw retryErr;
+      }
+    }
   }
 }
 

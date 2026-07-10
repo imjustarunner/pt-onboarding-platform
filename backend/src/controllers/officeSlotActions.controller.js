@@ -3074,6 +3074,23 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       }
     });
   } catch (e) {
+    if (e?.status === 409 || e?.code === 'STANDING_SLOT_CONFLICT') {
+      return res.status(409).json({
+        error: {
+          code: 'STANDING_SLOT_CONFLICT',
+          message: e.message || 'That recurring office slot is already assigned.',
+          conflict: e.conflict || null
+        }
+      });
+    }
+    if (e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062 || /Duplicate entry/i.test(String(e?.message || ''))) {
+      return res.status(409).json({
+        error: {
+          code: 'STANDING_SLOT_CONFLICT',
+          message: 'That office slot is already assigned. Choose a different room or time, or clear the existing assignment first.'
+        }
+      });
+    }
     next(e);
   }
 };
