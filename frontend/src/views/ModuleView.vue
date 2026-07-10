@@ -46,9 +46,17 @@
               <span>{{ getContentTitle(item) }}</span>
             </li>
           </ul>
+          <p v-if="content.length === 0" class="content-empty-hint">No pages in this module.</p>
         </div>
         
         <div class="content-main">
+          <div v-if="content.length === 0" class="empty-module-state">
+            <h2>This form has no pages yet</h2>
+            <p>
+              The module marker is present, but no form sections are loaded for your account.
+              An admin can fix this from Module Manager → <strong>Sync Forms (Spec)</strong>.
+            </p>
+          </div>
           <FocusStepTimeTracker
             v-if="focusStepContext && currentContent && !route.query.preview"
             :focus-id="focusStepContext.focusId"
@@ -1138,6 +1146,32 @@ onMounted(() => {
 .content-sidebar h3 {
   margin-bottom: 15px;
   color: #2c3e50;
+}
+
+.content-empty-hint {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.empty-module-state {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 32px 28px;
+  box-shadow: var(--shadow);
+}
+
+.empty-module-state h2 {
+  margin: 0 0 10px;
+  font-size: 20px;
+  color: #0f172a;
+}
+
+.empty-module-state p {
+  margin: 0;
+  color: #475569;
+  line-height: 1.5;
 }
 
 .content-list {

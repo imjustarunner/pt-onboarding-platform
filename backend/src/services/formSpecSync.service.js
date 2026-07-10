@@ -45,23 +45,28 @@ function mapSpecRoleToUserRoles(specRole) {
   if (r === 'all_staff') {
     return [
       'provider',
-      // 'clinician', // legacy (removed)
+      'clinician', // legacy alias — still present for some users after role-collapse incidents
+      'provider_plus',
       'intern',
       'facilitator',
       'school_staff',
       'staff',
       'supervisor',
       'clinical_practice_assistant',
+      'qbha',
+      'assistant_admin',
       'admin',
       'support',
       'super_admin'
     ];
   }
-  if (r === 'clinical_provider') return ['provider', 'supervisor', 'admin', 'support', 'super_admin'];
-  if (r === 'clinical_intern') return ['intern', 'supervisor', 'admin', 'support', 'super_admin'];
-  if (r === 'facilitator') return ['facilitator', 'supervisor', 'admin', 'support', 'super_admin'];
-  if (r === 'admin') return ['admin', 'support', 'super_admin'];
-  if (r === 'operations') return ['admin', 'support', 'super_admin'];
+  if (r === 'clinical_provider') {
+    return ['provider', 'clinician', 'provider_plus', 'supervisor', 'admin', 'support', 'super_admin', 'assistant_admin'];
+  }
+  if (r === 'clinical_intern') return ['intern', 'supervisor', 'admin', 'support', 'super_admin', 'assistant_admin'];
+  if (r === 'facilitator') return ['facilitator', 'supervisor', 'admin', 'support', 'super_admin', 'assistant_admin'];
+  if (r === 'admin') return ['admin', 'support', 'super_admin', 'assistant_admin'];
+  if (r === 'operations') return ['admin', 'support', 'super_admin', 'assistant_admin', 'staff'];
   return [];
 }
 

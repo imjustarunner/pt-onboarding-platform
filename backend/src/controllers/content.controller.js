@@ -1,6 +1,22 @@
 import ModuleContent from '../models/ModuleContent.model.js';
 import { validationResult } from 'express-validator';
 
+/** Map legacy / alternate roles onto the roles stored in form visibleToRoles. */
+function rolesEquivalentTo(userRole) {
+  const r = String(userRole || '').trim().toLowerCase();
+  if (!r) return [];
+  const aliases = new Set([r]);
+  // Legacy collapse left many users on deprecated clinician
+  if (r === 'clinician') aliases.add('provider');
+  if (r === 'provider_plus') aliases.add('provider');
+  if (r === 'assistant_admin') {
+    aliases.add('admin');
+    aliases.add('support');
+  }
+  if (r === 'qbha') aliases.add('clinical_practice_assistant');
+  return [...aliases];
+}
+
 export const getModuleContent = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -21,13 +37,26 @@ export const getModuleContent = async (req, res, next) => {
 
     // Role-gate spec-generated form pages.
     const userRole = String(req.user?.role || '').toLowerCase();
+    const userRoleAliases = rolesEquivalentTo(userRole);
     const filtered = parsedContent.filter((item) => {
       if (item.content_type !== 'form') return true;
       if (userRole === 'super_admin') return true;
       const roles = item.content_data?.visibleToRoles;
       if (!Array.isArray(roles) || roles.length === 0) return true;
-      return roles.map((r) => String(r || '').toLowerCase()).includes(userRole);
+      const allowed = roles.map((r) => String(r || '').toLowerCase());
+      return userRoleAliases.some((alias) => allowed.includes(alias));
     });
+
+    // If role-gating wiped every form page, fall back to unfiltered forms so
+    // onboarding modules never render as a blank shell for valid staff roles.
+    const hadForms = parsedContent.some((i) => i.content_type === 'form');
+    const hasForms = filtered.some((i) => i.content_type === 'form');
+    if (hadForms && !hasForms) {
+      console.warn(
+        `getModuleContent: role "${userRole}" filtered out all form pages for module ${id}; returning unfiltered forms`
+      );
+      return res.json(parsedContent);
+    }
 
     res.json(filtered);
   } catch (error) {
