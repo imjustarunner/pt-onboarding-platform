@@ -1,5 +1,55 @@
 <template>
-  <div class="login-page" :class="{ 'login-page--sstc': isSSTCLogin, 'login-page--app-like': isAppLike, 'login-page--platform': isPlatformLogin }">
+  <div class="login-page" :class="{ 'login-page--sstc': isSSTCLogin, 'login-page--app-like': isAppLike, 'login-page--platform': isPlatformLogin, 'login-page--tenant-video': showTenantLoginVideo }">
+    <video
+      v-if="isPlatformLogin"
+      class="login-bg-video login-bg-video--wide login-bg-video--platform"
+      autoplay
+      muted
+      loop
+      playsinline
+      disablepictureinpicture
+      aria-hidden="true"
+      poster="/branding/plottwisthq-platform-bg.png"
+    >
+      <source src="/branding/webandipad.mp4" type="video/mp4" />
+    </video>
+    <video
+      v-if="isPlatformLogin"
+      class="login-bg-video login-bg-video--narrow login-bg-video--platform"
+      autoplay
+      muted
+      loop
+      playsinline
+      disablepictureinpicture
+      aria-hidden="true"
+      poster="/branding/plottwisthq-platform-bg.png"
+    >
+      <source src="/branding/plottwisthq-login-bg-mobile.mp4" type="video/mp4" />
+    </video>
+    <video
+      v-if="tenantLoginVideoWideSrc"
+      class="login-bg-video login-bg-video--wide login-bg-video--tenant"
+      autoplay
+      muted
+      loop
+      playsinline
+      disablepictureinpicture
+      aria-hidden="true"
+    >
+      <source :src="tenantLoginVideoWideSrc" type="video/mp4" />
+    </video>
+    <video
+      v-if="tenantLoginVideoNarrowSrc"
+      class="login-bg-video login-bg-video--narrow login-bg-video--tenant"
+      autoplay
+      muted
+      loop
+      playsinline
+      disablepictureinpicture
+      aria-hidden="true"
+    >
+      <source :src="tenantLoginVideoNarrowSrc" type="video/mp4" />
+    </video>
     <div v-if="showAppPreviewToggle" class="app-preview-toggle-group" aria-label="Local preview mode">
       <button
         type="button"
@@ -778,6 +828,9 @@ const loginContainerStyle = computed(() => {
       background: 'linear-gradient(180deg, #0b2447 0%, #16315f 28%, #0f172a 100%)'
     };
   }
+  if (showTenantLoginVideo.value) {
+    return { background: 'transparent' };
+  }
   return { background: loginBackground.value };
 });
 const usernameFieldLabel = computed(() => (isSSTCLogin.value ? 'Email, username, or phone number' : 'Username'));
@@ -914,6 +967,53 @@ const isPlatformLogin = computed(() => {
     !String(brandingStore.portalHostPortalUrl || '').trim()
   );
 });
+
+// Per-tenant login background videos. Main hub login only — not nested portals.
+// wide: web + iPad (481px+), narrow: phone (480px and below).
+const TENANT_LOGIN_BG_VIDEOS = Object.freeze({
+  itsco: {
+    wide: '/branding/itsco-login-bg.mp4',
+    narrow: '/branding/itsco-login-bg-mobile.mp4',
+  },
+  nlu: {
+    wide: '/branding/nlu-login-bg.mp4',
+    narrow: '/branding/nlu-login-bg-mobile.mp4',
+  },
+});
+
+const isMainTenantHubLogin = (portalSlug) => {
+  if (isPlatformLogin.value) return false;
+  if (parentOrgSlug.value) return false;
+  const target = String(portalSlug || '').trim().toLowerCase();
+  if (!target) return false;
+  const slug = String(loginSlug.value || '').trim().toLowerCase();
+  const hostSlug = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase();
+  if (slug === target) return true;
+  if (!slug && hostSlug === target) return true;
+  return false;
+};
+
+const activeTenantLoginVideos = computed(() => {
+  for (const [portalSlug, sources] of Object.entries(TENANT_LOGIN_BG_VIDEOS)) {
+    if (isMainTenantHubLogin(portalSlug)) return sources;
+  }
+  return null;
+});
+
+const tenantLoginVideoWideSrc = computed(() => {
+  if (isAppLike.value && !isIpadPreviewMode.value) return '';
+  return activeTenantLoginVideos.value?.wide || '';
+});
+
+const tenantLoginVideoNarrowSrc = computed(() => {
+  if (isAppLike.value && !isIpadPreviewMode.value) return '';
+  return activeTenantLoginVideos.value?.narrow || '';
+});
+
+const showTenantLoginVideo = computed(
+  () => !!(tenantLoginVideoWideSrc.value || tenantLoginVideoNarrowSrc.value)
+);
+
 const platformBrandName = computed(() => {
   const n = String(brandingStore.platformBranding?.organization_name || '').trim();
   return n && n.toLowerCase() !== 'plottwistco' ? n : 'PlottwistHQ';
@@ -2923,10 +3023,58 @@ const handleLogoError = (event) => {
   --pt-border:        rgba(255, 255, 255, 0.16);
   --pt-field-bg:      rgba(255, 255, 255, 0.06);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  /* Full-bleed dark background art — ipad/web mockup (assets/ipadwebbackground.png) */
+  position: relative;
+  /* PNG fallback while the video loads, and on phone / reduced-motion */
   background: #08081a url('/branding/plottwisthq-platform-bg.png') no-repeat center center / cover;
   min-height: 100vh;
   min-height: 100dvh;
+}
+
+/* Full-bleed looping background video — wide (web/iPad) vs narrow (phone) */
+.login-bg-video {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.login-bg-video--wide {
+  display: block;
+}
+
+.login-bg-video--narrow {
+  display: none;
+}
+
+/* Keep login chrome above the background video */
+.login-page--platform > *:not(.login-bg-video),
+.login-page--tenant-video > *:not(.login-bg-video) {
+  position: relative;
+  z-index: 1;
+}
+
+@media (max-width: 480px) {
+  .login-bg-video--wide {
+    display: none;
+  }
+
+  .login-bg-video--narrow {
+    display: block;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-bg-video {
+    display: none !important;
+  }
+}
+
+/* Tenant login video: let the mp4 show through the page container */
+.login-page--tenant-video .login-container {
+  background: transparent !important;
 }
 
 /* ── Page chrome fonts ── */
