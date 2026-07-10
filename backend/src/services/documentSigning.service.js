@@ -1185,6 +1185,195 @@ class DocumentSigningService {
       calculatedHash
     };
   }
+
+  /**
+   * Sign a document task from a non-authenticated context (e.g. prehire portal).
+   * Creates signed_documents + workflow records if the portal consent/intent path
+   * only wrote to tasks.audit_trail (which does not create those rows).
+   */
+  static async signTask({
+    taskId,
+    userId,
+    signerName,
+    signatureData,
+    fieldValues = {},
+    context = 'prehire_portal',
+    ipAddress = null,
+    userAgent = null
+  }) {
+    if (!taskId || !userId || !signatureData) {
+      const err = new Error('taskId, userId, and signatureData are required');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const pool = (await import('../config/database.js')).default;
+    const SignedDocument = (await import('../models/SignedDocument.model.js')).default;
+    const DocumentSignatureWorkflow = (await import('../models/DocumentSignatureWorkflow.model.js')).default;
+    const DocumentTemplate = (await import('../models/DocumentTemplate.model.js')).default;
+    const User = (await import('../models/User.model.js')).default;
+    const StorageService = (await import('./storage.service.js')).default;
+
+    const [taskRows] = await pool.execute(
+      `SELECT t.*, dt.name AS template_name, dt.html_content, dt.field_definitions,
+              dt.template_type, dt.file_path, dt.version AS template_version,
+              dt.signature_x, dt.signature_y, dt.signature_width, dt.signature_height, dt.signature_page
+       FROM tasks t
+       LEFT JOIN document_templates dt ON dt.id = t.reference_id
+       WHERE t.id = ? AND t.assigned_to_user_id = ?
+       LIMIT 1`,
+      [taskId, userId]
+    );
+    if (!taskRows.length) {
+      const err = new Error('Document task not found');
+      err.statusCode = 404;
+      throw err;
+    }
+    const task = taskRows[0];
+    if (!task.reference_id) {
+      const err = new Error('Task has no document template');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    // Idempotent: already finalized
+    let signedDoc = await SignedDocument.findByTask(taskId);
+    if (signedDoc && String(signedDoc.signed_pdf_path || '').trim()) {
+      return { alreadyFinalized: true, signedDocument: signedDoc };
+    }
+
+    const template = await DocumentTemplate.findById(task.reference_id);
+    if (!template) {
+      const err = new Error('Document template not found');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      const err = new Error('User not found');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    // Parse portal consent/intent from tasks.audit_trail if present
+    let taskAudit = {};
+    try {
+      taskAudit = typeof task.audit_trail === 'string'
+        ? JSON.parse(task.audit_trail || '{}')
+        : (task.audit_trail || {});
+    } catch {
+      taskAudit = {};
+    }
+
+    if (!signedDoc) {
+      signedDoc = await SignedDocument.create({
+        documentTemplateId: template.id,
+        templateVersion: template.version || task.template_version || 1,
+        userId,
+        taskId,
+        signedPdfPath: null,
+        pdfHash: null,
+        ipAddress,
+        userAgent,
+        auditTrail: {
+          context,
+          portalConsent: taskAudit.portalConsent || null,
+          portalIntent: taskAudit.portalIntent || null
+        }
+      });
+    }
+
+    let workflow = await DocumentSignatureWorkflow.findBySignedDocument(signedDoc.id);
+    if (!workflow) {
+      workflow = await DocumentSignatureWorkflow.create(signedDoc.id);
+    }
+    if (!workflow.consent_given_at) {
+      await DocumentSignatureWorkflow.recordConsent(signedDoc.id, ipAddress, userAgent || `via:${context}`);
+    }
+    if (!workflow.intent_to_sign_at) {
+      await DocumentSignatureWorkflow.recordIntent(signedDoc.id, ipAddress, userAgent || `via:${context}`);
+    }
+    await DocumentSignatureWorkflow.recordIdentityVerification(signedDoc.id);
+    workflow = await DocumentSignatureWorkflow.findBySignedDocument(signedDoc.id);
+
+    const templateType = template.template_type;
+    const htmlContent = templateType === 'html' ? (template.html_content || null) : null;
+    const templatePath = templateType === 'pdf' ? (template.file_path || null) : null;
+
+    let fieldDefinitions = [];
+    try {
+      const raw = template.field_definitions;
+      fieldDefinitions = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : [];
+      if (!Array.isArray(fieldDefinitions)) fieldDefinitions = [];
+    } catch {
+      fieldDefinitions = [];
+    }
+
+    const signatureCoords = this.resolveSignatureCoords(template, fieldDefinitions);
+    const documentName = template.name || task.title || 'Document';
+    const referenceNumber = `DOC-${signedDoc.id}-${Date.now().toString(36).toUpperCase()}`;
+    const nameParts = String(signerName || `${user.first_name || ''} ${user.last_name || ''}`).trim().split(/\s+/);
+    const signerInfo = {
+      firstName: nameParts[0] || user.first_name || '',
+      lastName: nameParts.slice(1).join(' ') || user.last_name || '',
+      email: user.email,
+      userId: user.id
+    };
+    const mergedAuditTrail = {
+      ...(signedDoc.audit_trail || {}),
+      context,
+      documentReference: referenceNumber,
+      documentName,
+      portalConsent: taskAudit.portalConsent || null,
+      portalIntent: taskAudit.portalIntent || null,
+      signedAt: new Date().toISOString()
+    };
+
+    const pdfBytes = await this.generateFinalizedPDF(
+      templatePath,
+      templateType,
+      htmlContent,
+      signatureData,
+      workflow,
+      signerInfo,
+      mergedAuditTrail,
+      signatureCoords,
+      {
+        referenceNumber,
+        documentName,
+        signatureOnAuditPage: false,
+        fieldDefinitions,
+        fieldValues: fieldValues && typeof fieldValues === 'object' ? fieldValues : {}
+      }
+    );
+
+    const pdfHash = this.calculatePDFHash(pdfBytes);
+    const filename = `signed-${signedDoc.id}-${Date.now()}.pdf`;
+    const storageResult = await StorageService.saveSignedDocument(
+      userId,
+      signedDoc.id,
+      pdfBytes,
+      filename
+    );
+
+    await pool.execute(
+      'UPDATE signed_documents SET signed_pdf_path = ?, pdf_hash = ?, audit_trail = ? WHERE id = ?',
+      [storageResult.relativePath, pdfHash, JSON.stringify(mergedAuditTrail), signedDoc.id]
+    );
+
+    try {
+      await DocumentSignatureWorkflow.finalize(signedDoc.id);
+    } catch (finalizeErr) {
+      console.warn('DocumentSigningService.signTask: workflow finalize failed (continuing):', finalizeErr?.message || finalizeErr);
+    }
+
+    return {
+      signedDocument: await SignedDocument.findById(signedDoc.id),
+      referenceNumber,
+      pdfHash
+    };
+  }
 }
 
 export default DocumentSigningService;
