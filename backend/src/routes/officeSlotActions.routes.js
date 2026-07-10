@@ -4,6 +4,8 @@ import {
   setBookingPlan,
   setAssignmentRecurrence,
   keepAvailable,
+  snoozeStandingReview,
+  downgradeStandingAssignment,
   setTemporary,
   extendTemporary,
   forfeitAssignment,
@@ -32,6 +34,8 @@ router.post('/:officeId/assignments/:assignmentId/recurrence', setAssignmentRecu
 router.post('/:officeId/events/:eventId/booking-plan', setEventBookingPlan);
 router.post('/:officeId/events/:eventId/recurrence', setEventRecurrence);
 router.post('/:officeId/assignments/:assignmentId/keep-available', keepAvailable);
+router.post('/:officeId/assignments/:assignmentId/snooze-review', snoozeStandingReview);
+router.post('/:officeId/assignments/:assignmentId/downgrade', downgradeStandingAssignment);
 router.post('/:officeId/assignments/:assignmentId/temporary', setTemporary);
 router.post('/:officeId/assignments/:assignmentId/extend-temporary', extendTemporary);
 router.post('/:officeId/assignments/:assignmentId/forfeit', forfeitAssignment);

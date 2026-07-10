@@ -14,6 +14,7 @@ import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.service.js';
 import { upsertBookingPlanAndMaterialize } from '../services/officeAssignmentOrchestrator.service.js';
 import * as officeSlotSeriesService from '../services/officeSlotSeries.service.js';
+import { findConflictingPendingOfficeRequest } from '../services/officeRequestSoftHold.service.js';
 import OfficeStandingAssignment from '../models/OfficeStandingAssignment.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
 import { syncOfficeEventsToGoogleBestEffort } from '../services/providerAssignmentGoogleSync.service.js';
@@ -1310,6 +1311,25 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'At least one day/time slot is required.' } });
     }
 
+    // Soft hold: block a second request for the same specific room+weekday+hour.
+    const conflict = await findConflictingPendingOfficeRequest({
+      officeIds,
+      slots: normalizedSlots
+    });
+    if (conflict) {
+      return res.status(409).json({
+        error: {
+          message: 'That office slot is already requested.',
+          code: 'ALREADY_REQUESTED',
+          conflictingRequestId: conflict.requestId,
+          roomId: conflict.roomId,
+          weekday: conflict.weekday,
+          startHour: conflict.startHour,
+          endHour: conflict.endHour
+        }
+      });
+    }
+
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
@@ -1365,8 +1385,14 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
         type: 'office_availability_request_pending',
         severity: 'info',
         title: 'Office request pending',
-        message: `${providerName} requested office availability. Assign or deny in Availability Intake.`,
-        audienceJson: { admin: true, clinicalPracticeAssistant: true, schoolStaff: false },
+        message: `${providerName} requested office availability. Assign or deny in Office & availability approvals.`,
+        audienceJson: {
+          admin: true,
+          clinicalPracticeAssistant: true,
+          schoolStaff: false,
+          provider: false,
+          supervisor: false
+        },
         userId: null,
         agencyId,
         relatedEntityType: 'provider_office_availability_request',

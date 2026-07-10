@@ -119,13 +119,17 @@ const isRequestableState = (st) => st === 'open' || st === 'assigned_available';
 const onCellClick = (dateYmd, hour, roomId, event = null) => {
   if (!props.canBook) return;
   const slot = getSlot(dateYmd, hour, roomId);
+  const pending = Number(slot?.pendingRequestCount || 0) > 0;
+  const state = String(slot?.state || '');
   emit('cell-click', {
     dateYmd: String(dateYmd).slice(0, 10),
     hour: Number(hour),
     roomId: Number(roomId),
     slot,
     event,
-    requestable: isRequestableState(String(slot?.state || ''))
+    // Soft-held open cells are not requestable (already requested).
+    requestable: isRequestableState(state) && !(pending && state === 'open'),
+    alreadyRequested: pending && state === 'open'
   });
 };
 
@@ -135,8 +139,18 @@ const slotName = (dateYmd, hour, roomId) => {
   const pending = Number(s?.pendingRequestCount || 0) || 0;
   const state = String(s.state || '');
   if (state === 'conflict') return 'Conflict';
-  if (state === 'open' && pending > 0) return 'Requested';
+  if (state === 'company_hold') return 'Company hold';
+  if (pending > 0 && (state === 'open' || !state)) return 'Requested';
   if (state === 'open') return 'Open';
+  if (state === 'assigned_booked') {
+    return String(s.bookedProviderName || s.assignedProviderName || '').trim() || 'Booked';
+  }
+  if (state === 'assigned_temporary') {
+    return String(s.assignedProviderName || '').trim() || 'Temporary';
+  }
+  if (state === 'assigned_available') {
+    return String(s.assignedProviderName || '').trim() || 'Assigned';
+  }
   const booked = String(s.bookedProviderName || '').trim();
   const assigned = String(s.assignedProviderName || '').trim();
   return booked || assigned || 'Assigned';
@@ -147,8 +161,11 @@ const slotBadge = (dateYmd, hour, roomId) => {
   const pending = Number(s?.pendingRequestCount || 0) || 0;
   const freqBadge = String(s?.frequencyBadge || '').trim();
   if (String(s?.state || '') === 'conflict') return `${Number(s?.conflictCount || 0) || 2} booked`;
-  if (pending > 0 && freqBadge) return `Requested · ${freqBadge}`;
-  if (pending > 0) return 'Requested';
+  if (pending > 0 && freqBadge) return `Pending · ${freqBadge}`;
+  if (pending > 0) return 'Pending';
+  if (String(s?.state || '') === 'assigned_booked') return freqBadge || 'Booked';
+  if (String(s?.state || '') === 'assigned_available') return freqBadge || 'Assigned';
+  if (String(s?.state || '') === 'company_hold') return 'Hold';
   return freqBadge || '';
 };
 

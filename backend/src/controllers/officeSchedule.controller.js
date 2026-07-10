@@ -29,6 +29,7 @@ import {
   scanIntegrityIssues,
   autoResolveIntegrityIssues
 } from '../services/officeScheduleIntegrity.service.js';
+import { hasPendingSoftHoldAt } from '../services/officeRequestSoftHold.service.js';
 
 const canManageSchedule = (role) =>
   role === 'clinical_practice_assistant' || role === 'provider_plus' || role === 'admin' || role === 'super_admin' || role === 'superadmin' || role === 'support' || role === 'staff';
@@ -389,11 +390,25 @@ async function isRoomOpenAt({ officeLocationId, roomId, startAt, endAt, officeTi
     if (st?.id) {
       const plan = await OfficeBookingPlan.findActiveByAssignmentId(st.id);
       const dateStr = String(startAt || '').slice(0, 10);
-      if (plan && dateStr) {
-        if (!shouldBookOnDate(plan, st, dateStr)) return true; // Off-week: slot is open
+      if (plan && dateStr && !shouldBookOnDate(plan, st, dateStr)) {
+        // Off-week: still block if a pending soft hold exists.
+      } else {
+        return false; // No plan or should book: block
       }
-      return false; // No plan or should book: block
     }
+
+    // Soft hold: pending office request for this room+weekday+hour blocks kiosk/same-day book.
+    const startHour = Number(wh.hour);
+    const endParsed = parseSlotEndHour(startAt, endAt, officeTimeZone || 'America/New_York');
+    const endHour = endParsed?.endHour || (startHour + 1);
+    const softHeld = await hasPendingSoftHoldAt({
+      officeLocationId,
+      roomId,
+      weekdayIndex: wh.weekdayIndex,
+      startHour,
+      endHour
+    });
+    if (softHeld) return false;
   }
 
   return true;
@@ -2329,6 +2344,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       const rooms = await OfficeRoom.findByLocation(loc.id);
       const candidates = room && !openToAlternativeRoom ? [room] : rooms;
       let chosen = null;
+      let blockedBySoftHold = false;
       for (const r of candidates) {
         // eslint-disable-next-line no-await-in-loop
         const open = await isRoomOpenAt({
@@ -2342,6 +2358,24 @@ export const createOfficeBookingRequest = async (req, res, next) => {
           chosen = r;
           break;
         }
+        const wh = weekdayHourFromSqlDateTime(startAt) || weekdayHourInTz(startAt, tz);
+        if (wh) {
+          // eslint-disable-next-line no-await-in-loop
+          const softHeld = await hasPendingSoftHoldAt({
+            officeLocationId: loc.id,
+            roomId: r.id,
+            weekdayIndex: wh.weekdayIndex,
+            startHour: Number(wh.hour),
+            endHour: Number(wh.hour) + 1
+          });
+          if (softHeld) blockedBySoftHold = true;
+        }
+      }
+
+      if (!chosen && blockedBySoftHold && room && !openToAlternativeRoom) {
+        return res.status(409).json({
+          error: { message: 'That office slot is already requested.', code: 'ALREADY_REQUESTED' }
+        });
       }
 
       if (chosen) {

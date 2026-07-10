@@ -164,6 +164,14 @@ const cards = computed(() => {
     emoji: '📅'
   },
   {
+    id: 'office_approvals',
+    title: 'Approve office requests',
+    description: 'One inbox to approve or deny office, booking, and availability requests.',
+    to: orgTo('/admin/availability-intake?tab=office'),
+    iconKey: 'provider_availability_dashboard',
+    emoji: '✅'
+  },
+  {
     id: 'provider_availability',
     title: 'Provider Management',
     description: 'Review and coordinate provider availability.',

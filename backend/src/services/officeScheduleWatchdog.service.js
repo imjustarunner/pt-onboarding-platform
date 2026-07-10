@@ -86,62 +86,89 @@ export class OfficeScheduleWatchdogService {
     return retryFailedProviderAssignmentGoogleSync({ horizonDays: Number(horizonDays || 28) });
   }
 
+  /**
+   * Every ~6 weeks, notify admin/CPA/provider_plus/staff to review standing office
+   * assignments (booked or assigned). Providers often do not log in, so this is an
+   * ops inbox prompt — not a provider confirm.
+   *
+   * If nobody acts, bumping last_six_week_checked_at means the provider keeps the
+   * slot and the next review is another ~6 weeks later (implicit snooze).
+   */
   static async emitSixWeekBookingConfirmReminders() {
-    // Remind providers to confirm booked plans every ~6 weeks.
-    // Use office_standing_assignments.last_six_week_checked_at to avoid spamming.
     const [rows] = await pool.execute(
       `SELECT
+         osa.id AS standing_assignment_id,
          bp.id AS booking_plan_id,
-         bp.standing_assignment_id,
          bp.last_confirmed_at,
          osa.provider_id,
+         osa.availability_mode,
          osa.last_six_week_checked_at,
+         osa.available_since_date,
          MIN(ola.agency_id) AS agency_id,
          ol.name AS office_name,
          r.name AS room_name,
          r.label AS room_label,
          osa.weekday,
-         osa.hour
-       FROM office_booking_plans bp
-       JOIN office_standing_assignments osa ON osa.id = bp.standing_assignment_id
+         osa.hour,
+         u.first_name,
+         u.last_name
+       FROM office_standing_assignments osa
        JOIN office_locations ol ON ol.id = osa.office_location_id
        JOIN office_rooms r ON r.id = osa.room_id
        JOIN office_location_agencies ola ON ola.office_location_id = osa.office_location_id
-       JOIN user_agencies ua ON ua.user_id = osa.provider_id AND ua.agency_id = ola.agency_id
-       WHERE bp.is_active = TRUE
-         AND osa.is_active = TRUE
-         AND (bp.last_confirmed_at IS NULL OR bp.last_confirmed_at <= DATE_SUB(NOW(), INTERVAL 42 DAY))
+       JOIN users u ON u.id = osa.provider_id
+       LEFT JOIN office_booking_plans bp ON bp.standing_assignment_id = osa.id AND bp.is_active = TRUE
+       WHERE osa.is_active = TRUE
          AND (osa.last_six_week_checked_at IS NULL OR osa.last_six_week_checked_at <= DATE_SUB(NOW(), INTERVAL 42 DAY))
+         AND (
+           (bp.id IS NOT NULL AND (bp.last_confirmed_at IS NULL OR bp.last_confirmed_at <= DATE_SUB(NOW(), INTERVAL 42 DAY)))
+           OR (
+             bp.id IS NULL
+             AND osa.available_since_date IS NOT NULL
+             AND osa.available_since_date <= DATE_SUB(CURDATE(), INTERVAL 42 DAY)
+           )
+         )
        GROUP BY
-         bp.id, bp.standing_assignment_id, bp.last_confirmed_at,
-         osa.provider_id, osa.last_six_week_checked_at,
-         ol.name, r.name, r.label, osa.weekday, osa.hour`
+         osa.id, bp.id, bp.last_confirmed_at,
+         osa.provider_id, osa.availability_mode, osa.last_six_week_checked_at, osa.available_since_date,
+         ol.name, r.name, r.label, osa.weekday, osa.hour, u.first_name, u.last_name`
     );
 
     let notified = 0;
     for (const r of rows || []) {
       const agencyId = Number(r.agency_id);
       const providerId = Number(r.provider_id);
-      const bookingPlanId = Number(r.booking_plan_id);
+      const bookingPlanId = Number(r.booking_plan_id || 0) || null;
       const assignmentId = Number(r.standing_assignment_id);
-      if (!agencyId || !providerId || !bookingPlanId || !assignmentId) continue;
+      if (!agencyId || !providerId || !assignmentId) continue;
 
       const roomLabel = String(r.room_label || r.room_name || '').trim() || 'Room';
       const officeName = String(r.office_name || '').trim() || 'Office';
       const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][Number(r.weekday)] || String(r.weekday);
       const hour = Number(r.hour);
       const hourLabel = Number.isFinite(hour) ? `${hour}:00` : '';
+      const providerName = `${String(r.first_name || '').trim()} ${String(r.last_name || '').trim()}`.trim()
+        || `Provider #${providerId}`;
+      const statusLabel = bookingPlanId ? 'booked' : 'assigned (not booked)';
+      const slotLabel = `${officeName} • ${roomLabel} • ${day} ${hourLabel}`;
 
       try {
         await createNotificationAndDispatch({
-          type: 'office_schedule_booking_confirm_6_weeks',
+          type: 'office_schedule_standing_review_6_weeks',
           severity: 'info',
-          title: 'Confirm office booking',
-          message: `Is this still booked? ${officeName} • ${roomLabel} • ${day} ${hourLabel}`,
-          userId: providerId,
+          title: 'Office standing assignment needs review',
+          message: `${providerName}'s ${statusLabel} slot is due for a 6-week check (${slotLabel}). Snooze 6 weeks, downgrade, or release in Buildings / approvals.`,
+          userId: null,
           agencyId,
-          relatedEntityType: 'office_booking_plan',
-          relatedEntityId: bookingPlanId,
+          audienceJson: {
+            admin: true,
+            clinicalPracticeAssistant: true,
+            schoolStaff: false,
+            provider: false,
+            supervisor: false
+          },
+          relatedEntityType: 'office_standing_assignment',
+          relatedEntityId: assignmentId,
           actorSource: 'Office Scheduling'
         });
         notified += 1;
@@ -149,7 +176,7 @@ export class OfficeScheduleWatchdogService {
         // ignore
       }
 
-      // Mark that we've prompted recently (so we don't re-prompt daily).
+      // Implicit snooze: if admin never acts, provider keeps the slot until next 6-week cycle.
       try {
         await pool.execute(
           `UPDATE office_standing_assignments
@@ -157,6 +184,14 @@ export class OfficeScheduleWatchdogService {
            WHERE id = ?`,
           [assignmentId]
         );
+        if (bookingPlanId) {
+          await pool.execute(
+            `UPDATE office_booking_plans
+             SET last_confirmed_at = NOW(), updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [bookingPlanId]
+          );
+        }
       } catch {
         // ignore
       }
@@ -255,167 +290,12 @@ export class OfficeScheduleWatchdogService {
   }
 
   /**
-   * Two-phase review pipeline for AVAILABLE standing assignments unbooked for 42+ days.
-   *
-   * Phase B1 (warn): If last_forfeit_warning_at IS NULL, send the provider a heads-up that
-   * their slot has been unbooked for 6+ weeks and ask them to act within 14 days.
-   * Set last_forfeit_warning_at = NOW(). Do NOT drop the slot.
-   *
-   * Phase B2 (queue for admin review): If last_forfeit_warning_at was set 14+ days ago and
-   * the slot is still unbooked with no pending DROP_ASSIGNMENT request already queued,
-   * create a PENDING office_booking_requests row (type = DROP_ASSIGNMENT) so that the same
-   * CPA/admin approvers who manage schedules can approve or deny the release.
-   * The assignment stays active and keeps materializing until an admin decides.
-   *
-   * Any provider action (keepAvailable, setBookingPlan, extendTemporary, forfeitAssignment)
-   * must clear last_forfeit_warning_at = NULL so the clock resets.
+   * Legacy auto-forfeit / DROP_ASSIGNMENT queue disabled.
+   * Standing assignments are reviewed via emitSixWeekBookingConfirmReminders (admin inbox).
+   * Admins snooze (+6 weeks), downgrade booked→assigned, or release assigned→open manually.
    */
   static async autoForfeitStaleAvailableSlots() {
-    // Base query fragment for stale AVAILABLE slots (no active booking plan, 42+ days stale).
-    const baseWhere = `
-      osa.is_active = TRUE
-      AND osa.availability_mode = 'AVAILABLE'
-      AND osa.available_since_date IS NOT NULL
-      AND GREATEST(
-        osa.available_since_date,
-        COALESCE(DATE(osa.last_two_week_confirmed_at), '1970-01-01')
-      ) <= DATE_SUB(CURDATE(), INTERVAL 42 DAY)
-      AND bp.id IS NULL
-    `;
-
-    const selectCols = `
-      osa.id AS standing_assignment_id,
-      osa.provider_id,
-      osa.office_location_id,
-      osa.room_id,
-      osa.last_forfeit_warning_at,
-      ola.agency_id,
-      ol.name AS office_name,
-      r.name AS room_name,
-      r.label AS room_label,
-      osa.weekday,
-      osa.hour
-    `;
-
-    const joins = `
-      JOIN office_location_agencies ola ON ola.office_location_id = osa.office_location_id
-      JOIN office_locations ol ON ol.id = osa.office_location_id
-      JOIN office_rooms r ON r.id = osa.room_id
-      LEFT JOIN office_booking_plans bp ON bp.standing_assignment_id = osa.id AND bp.is_active = TRUE
-    `;
-
-    let rows = [];
-    try {
-      [rows] = await pool.query(
-        `SELECT ${selectCols}
-         FROM office_standing_assignments osa
-         ${joins}
-         WHERE ${baseWhere}`
-      );
-    } catch (e) {
-      if (e?.code === 'ER_BAD_FIELD_ERROR') {
-        return { warned: 0, queued: 0, reason: 'column_missing_run_migration_697' };
-      }
-      throw e;
-    }
-
-    let warned = 0;
-    let queued = 0;
-
-    for (const r of rows || []) {
-      const assignmentId = Number(r.standing_assignment_id);
-      const providerId = Number(r.provider_id);
-      const agencyId = Number(r.agency_id);
-      const officeLocationId = Number(r.office_location_id);
-      const roomId = Number(r.room_id) || null;
-      if (!assignmentId || !providerId || !agencyId || !officeLocationId) continue;
-
-      const roomLabel = String(r.room_label || r.room_name || '').trim() || 'Room';
-      const officeName = String(r.office_name || '').trim() || 'Office';
-      const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][Number(r.weekday)] || String(r.weekday);
-      const hour = Number(r.hour);
-      const hourLabel = Number.isFinite(hour) ? `${hour}:00` : '';
-      const slotLabel = `${officeName} • ${roomLabel} • ${day} ${hourLabel}`;
-
-      const warnedAt = r.last_forfeit_warning_at ? new Date(r.last_forfeit_warning_at) : null;
-      const warnedDaysAgo = warnedAt ? Math.floor((Date.now() - warnedAt.getTime()) / 86400000) : null;
-
-      if (!warnedAt) {
-        // Phase B1: notify provider; do NOT drop the slot.
-        try {
-          await pool.execute(
-            `UPDATE office_standing_assignments
-             SET last_forfeit_warning_at = NOW(), updated_at = CURRENT_TIMESTAMP
-             WHERE id = ?`,
-            [assignmentId]
-          );
-
-          await createNotificationAndDispatch({
-            type: 'office_schedule_forfeit_warning',
-            severity: 'warning',
-            title: 'Office slot needs your attention',
-            message: `Your office slot has been unbooked for 6+ weeks (${slotLabel}). Please book, keep available, or release it within 14 days — otherwise an admin review will be initiated to determine whether the slot should be released.`,
-            userId: providerId,
-            agencyId,
-            relatedEntityType: 'office_standing_assignment',
-            relatedEntityId: assignmentId,
-            actorSource: 'Office Scheduling'
-          });
-          warned += 1;
-        } catch {
-          // ignore per-row errors
-        }
-      } else if (warnedDaysAgo !== null && warnedDaysAgo >= 14) {
-        // Phase B2: 14-day grace passed with no provider action.
-        // Queue a DROP_ASSIGNMENT request for admin approval instead of auto-forfeiting.
-        try {
-          // Check if a pending drop request already exists for this assignment.
-          const [existing] = await pool.query(
-            `SELECT id FROM office_booking_requests
-             WHERE request_type = 'DROP_ASSIGNMENT'
-               AND status = 'PENDING'
-               AND JSON_UNQUOTE(JSON_EXTRACT(requester_notes, '$.standingAssignmentId')) = ?
-             LIMIT 1`,
-            [String(assignmentId)]
-          );
-          if ((existing || []).length > 0) continue;
-
-          const notePayload = JSON.stringify({
-            standingAssignmentId: assignmentId,
-            slotLabel,
-            reason: 'unbooked_6_weeks',
-            warnedAt: warnedAt?.toISOString() ?? null
-          });
-
-          const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
-          await pool.execute(
-            `INSERT INTO office_booking_requests
-               (request_type, status, office_location_id, room_id, requested_provider_id,
-                start_at, end_at, recurrence, requester_notes, created_at, updated_at)
-             VALUES ('DROP_ASSIGNMENT', 'PENDING', ?, ?, ?, ?, ?, 'ONCE', ?, ?, ?)`,
-            [officeLocationId, roomId, providerId, now, now, notePayload, now, now]
-          );
-          queued += 1;
-
-          await createNotificationAndDispatch({
-            type: 'office_schedule_drop_review_queued',
-            severity: 'info',
-            title: 'Office slot pending admin review',
-            message: `Your office slot (${slotLabel}) has been unbooked for several weeks. An admin will review whether it should be released. Your slot remains active in the meantime.`,
-            userId: providerId,
-            agencyId,
-            relatedEntityType: 'office_standing_assignment',
-            relatedEntityId: assignmentId,
-            actorSource: 'Office Scheduling'
-          });
-        } catch {
-          // ignore per-row errors
-        }
-      }
-      // else: warning sent but 14-day window not yet elapsed — skip.
-    }
-
-    return { warned, queued };
+    return { warned: 0, queued: 0, disabled: true, reason: 'admin_review_only' };
   }
 
   static async run() {

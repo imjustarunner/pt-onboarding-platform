@@ -557,6 +557,10 @@ const openNotification = async (notification) => {
     router.push(`${base}/admin/availability-intake?agencyId=${agencyId}&tab=office`);
     return;
   }
+  if (notification.type === 'office_schedule_standing_review_6_weeks') {
+    router.push(`${base}/buildings/schedule`);
+    return;
+  }
   if (notification.type === 'school_availability_request_pending' && notification.agency_id) {
     const agencyId = notification.agency_id;
     router.push(`${base}/admin/availability-intake?agencyId=${agencyId}&tab=school`);

@@ -34,7 +34,7 @@
 
       <router-link class="card" :to="orgTo('/admin/availability-intake?tab=office')" data-tour="schedule-hub-card-approvals">
         <div class="card-title">Approve office requests</div>
-        <div class="card-desc">Intake, booking, and legacy room request queues in one place.</div>
+        <div class="card-desc">One inbox for CPA, Provider Plus, admin, and staff — office, booking, and school queues.</div>
         <div class="card-cta">Open</div>
       </router-link>
 

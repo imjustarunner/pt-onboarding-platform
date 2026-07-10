@@ -39,11 +39,12 @@
     <div v-if="grid" class="grid-wrap" data-tour="buildings-schedule-gridwrap">
       <div class="legend" data-tour="buildings-schedule-legend">
         <div class="legend-item"><span class="dot open"></span> Open</div>
-        <div class="legend-item"><span class="dot assigned_available"></span> Assigned available</div>
-        <div class="legend-item"><span class="dot assigned_temporary"></span> Assigned temporary</div>
-        <div class="legend-item"><span class="dot assigned_booked"></span> Assigned booked</div>
-        <div class="legend-item"><span class="dot conflict"></span> Conflict</div>
+        <div class="legend-item"><span class="dot requested"></span> Requested (pending)</div>
+        <div class="legend-item"><span class="dot assigned_available"></span> Assigned</div>
+        <div class="legend-item"><span class="dot assigned_temporary"></span> Temporary hold</div>
+        <div class="legend-item"><span class="dot assigned_booked"></span> Booked</div>
         <div class="legend-item"><span class="dot company_hold"></span> Company hold</div>
+        <div class="legend-item"><span class="dot conflict"></span> Conflict</div>
         <div class="legend-item"><span class="dot intake-ip"></span> In-person intake</div>
         <div class="legend-item"><span class="dot intake-v"></span> Virtual intake</div>
         <div class="legend-item"><span class="dot own-slot"></span> Your schedule</div>
@@ -317,7 +318,7 @@
           <div v-if="modalSlot.bookingCreatedAt"><strong>Booking plan created:</strong> {{ formatDateTime(modalSlot.bookingCreatedAt) }}</div>
           <div v-if="modalSlot.bookingCreatedByName"><strong>Booking plan set by:</strong> {{ modalSlot.bookingCreatedByName }}</div>
           <div v-if="modalSlot.bookingLastConfirmedAt"><strong>Last booked confirmation:</strong> {{ formatDateTime(modalSlot.bookingLastConfirmedAt) }}</div>
-          <div class="muted">Rule reminder: providers confirm every 2 weeks; assignments auto-fall off after 6 weeks (~3 windows) without confirmation.</div>
+          <div class="muted">Rule reminder: every 6 weeks ops reviews standing assignments. Snooze keeps them; ignore also keeps them until the next cycle. Downgrade or release when needed.</div>
         </div>
 
         <div v-if="modalSlot?.state === 'open'">
@@ -592,9 +593,17 @@
             </div>
 
             <div class="row" style="margin-top: 10px;">
-              <div class="muted">Assigned slots require a quick confirmation every 2 weeks, and unconfirmed assignments fall off after 6 weeks.</div>
+              <div class="muted">Every 6 weeks, ops reviews standing assignments. Snooze keeps the slot; downgrade moves booked→assigned or assigned→open.</div>
               <button class="btn btn-secondary" @click="keepAvailable" :disabled="saving || !modalSlot?.standingAssignmentId">
-                Confirm assigned slot
+                Confirm / keep assigned
+              </button>
+              <button
+                v-if="canManageSchedule"
+                class="btn btn-secondary"
+                @click="snoozeStandingReview"
+                :disabled="saving || !modalSlot?.standingAssignmentId"
+              >
+                Snooze 6 weeks
               </button>
             </div>
 
@@ -604,6 +613,22 @@
               </button>
               <button class="btn btn-secondary" @click="staffBook(false)" :disabled="saving || !modalSlot?.eventId || isAssignedUnbooked">
                 Set unbooked (this occurrence)
+              </button>
+              <button
+                v-if="canManageSchedule && isModalBooked"
+                class="btn btn-secondary"
+                @click="downgradeStanding('assigned')"
+                :disabled="saving || !modalSlot?.standingAssignmentId"
+              >
+                Downgrade booked → assigned
+              </button>
+              <button
+                v-if="canManageSchedule && (isModalBooked || modalSlot?.standingAssignmentId)"
+                class="btn btn-secondary"
+                @click="downgradeStanding('open')"
+                :disabled="saving || !modalSlot?.standingAssignmentId"
+              >
+                Release to open
               </button>
             </div>
 
@@ -947,16 +972,20 @@ const roomLabel = (roomId) => {
 const stateLabel = (state) => {
   const s = String(state || '');
   if (s === 'open') return 'Open';
-  if (s === 'assigned_available') return 'Assigned available';
-  if (s === 'assigned_temporary') return 'Assigned temporary';
+  if (s === 'assigned_available') return 'Assigned';
+  if (s === 'assigned_temporary') return 'Temporary hold';
   if (s === 'assigned_booked') return 'Booked';
   if (s === 'company_hold') return 'Company hold';
+  if (s === 'requested') return 'Requested (pending)';
   return s || 'Unknown';
 };
 
 const slotClass = (roomId, date, hour) => {
   const s = getSlot(roomId, date, hour);
-  return s?.state || 'open';
+  const pending = Number(s?.pendingRequestCount || 0) > 0;
+  const state = s?.state || 'open';
+  if (pending && state === 'open') return 'requested';
+  return state;
 };
 
 const slotInitials = (roomId, date, hour) => {
@@ -970,6 +999,10 @@ const slotDisplayLabel = (roomId, date, hour) => {
   if (String(s?.state || '') === 'company_hold') {
     return String(s?.holdTitle || 'Company hold').trim();
   }
+  if (Number(s?.pendingRequestCount || 0) > 0 && String(s?.state || '') === 'open') {
+    const names = Array.isArray(s?.pendingRequestNames) ? s.pendingRequestNames : [];
+    return names.length ? `Req: ${names[0]}` : 'Requested';
+  }
   const full =
     String(s?.bookedProviderFullName || s?.bookedProviderName || s?.assignedProviderFullName || s?.assignedProviderName || '').trim();
   if (full) return full;
@@ -979,15 +1012,20 @@ const slotDisplayLabel = (roomId, date, hour) => {
 const slotTitle = (roomId, date, hour) => {
   const s = getSlot(roomId, date, hour);
   if (!s) return '';
+  const pending = Number(s?.pendingRequestCount || 0) > 0;
+  const state = pending && String(s.state || '') === 'open' ? 'requested' : s.state;
   const inPersonLabel = slotHasInPersonIntake(roomId, date, hour) ? ' • in-person intake on' : '';
   const virtualLabel = s?.virtualIntakeEnabled ? ' • virtual intake on' : '';
   const ownLabel = isOwnProviderSlot(roomId, date, hour) ? ' • your schedule' : '';
-  const providerLabel = providerDisplayName(
-    s?.bookedProviderFullName || s?.bookedProviderName || s?.assignedProviderFullName || s?.assignedProviderName,
-    s?.providerInitials,
-    ''
-  );
-  return `${date} ${formatHour(hour)} — ${stateLabel(s.state)}${s.state === 'company_hold' ? '' : (providerLabel ? ` • ${providerLabel}` : '')}${inPersonLabel}${virtualLabel}${ownLabel}`;
+  const pendingNames = Array.isArray(s?.pendingRequestNames) ? s.pendingRequestNames.filter(Boolean) : [];
+  const providerLabel = pendingNames.length
+    ? pendingNames.join(', ')
+    : providerDisplayName(
+      s?.bookedProviderFullName || s?.bookedProviderName || s?.assignedProviderFullName || s?.assignedProviderName,
+      s?.providerInitials,
+      ''
+    );
+  return `${date} ${formatHour(hour)} — ${stateLabel(state)}${state === 'company_hold' ? '' : (providerLabel ? ` • ${providerLabel}` : '')}${inPersonLabel}${virtualLabel}${ownLabel}`;
 };
 
 const slotHasVirtualIntake = (roomId, date, hour) => {
@@ -2195,6 +2233,43 @@ const keepAvailable = async () => {
   }
 };
 
+const snoozeStandingReview = async () => {
+  if (!officeId.value || !modalSlot.value?.standingAssignmentId) return;
+  try {
+    saving.value = true;
+    await api.post(`/office-slots/${officeId.value}/assignments/${modalSlot.value.standingAssignmentId}/snooze-review`, {});
+    setSuccessToast('Standing review snoozed for 6 weeks.');
+    await loadGrid();
+    closeModal();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to snooze review';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const downgradeStanding = async (to = 'assigned') => {
+  if (!officeId.value || !modalSlot.value?.standingAssignmentId) return;
+  const target = String(to || 'assigned').toLowerCase();
+  if (target === 'open') {
+    const ok = window.confirm('Release this standing assignment and open the room for others?');
+    if (!ok) return;
+  }
+  try {
+    saving.value = true;
+    await api.post(`/office-slots/${officeId.value}/assignments/${modalSlot.value.standingAssignmentId}/downgrade`, {
+      to: target
+    });
+    setSuccessToast(target === 'open' ? 'Slot released to open.' : 'Booking downgraded to assigned.');
+    await loadGrid();
+    closeModal();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to downgrade slot';
+  } finally {
+    saving.value = false;
+  }
+};
+
 const setTemporary = async () => {
   if (!officeId.value || !modalSlot.value?.standingAssignmentId) return;
   try {
@@ -2637,8 +2712,9 @@ input[type='date'] {
 }
 .dot { width: 9px; height: 9px; border-radius: 999px; display: inline-block; }
 .dot.open { background: #94a3b8; box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.16); }
+.dot.requested { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.22); }
 .dot.company_hold { background: #6366f1; box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.18); }
-.dot.assigned_available { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.18); }
+.dot.assigned_available { background: #22c55e; box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.18); }
 .dot.assigned_temporary { background: #2563eb; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.16); }
 .dot.assigned_booked { background: #ef4444; box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.16); }
 .dot.conflict { background: #991b1b; box-shadow: 0 0 0 4px rgba(153, 27, 27, 0.2); }
@@ -2949,6 +3025,14 @@ input[type='date'] {
 .slot.open {
   background: linear-gradient(160deg, rgba(248, 250, 252, 0.88), rgba(241, 245, 249, 0.6));
   border-color: rgba(148, 163, 184, 0.4);
+}
+.slot.requested {
+  background: linear-gradient(165deg, rgba(255, 247, 220, 0.95), rgba(253, 230, 138, 0.5));
+  border-color: rgba(245, 158, 11, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.76),
+    0 4px 12px rgba(245, 158, 11, 0.2);
+  color: #92400e;
 }
 .slot.company_hold {
   background: rgba(99, 102, 241, 0.16);

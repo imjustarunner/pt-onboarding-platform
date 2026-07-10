@@ -719,8 +719,9 @@ export const keepAvailable = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Standing assignment not found' } });
     }
 
-    if (req.user.id !== assignment.provider_id) {
-      return res.status(403).json({ error: { message: 'Only the assigned provider can confirm availability' } });
+    const isOwner = Number(req.user.id) === Number(assignment.provider_id);
+    if (!isOwner && !canManageSchedule(req.user.role)) {
+      return res.status(403).json({ error: { message: 'Only the assigned provider or schedule managers can confirm availability' } });
     }
 
     // Keeping available clears any temporary mode and keeps booking plan inactive unless user books later.
@@ -730,8 +731,15 @@ export const keepAvailable = async (req, res, next) => {
       temporary_until_date: null,
       available_since_date: assignment.available_since_date || new Date().toISOString().slice(0, 10),
       last_two_week_confirmed_at: new Date(),
+      last_six_week_checked_at: new Date(),
       last_forfeit_warning_at: null
     });
+    try {
+      const plan = await OfficeBookingPlan.findActiveByAssignmentId(sid);
+      if (plan?.id) await OfficeBookingPlan.confirm(plan.id);
+    } catch {
+      // ignore
+    }
     OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
     try {
       await materializeOfficeWeeks({
@@ -747,6 +755,125 @@ export const keepAvailable = async (req, res, next) => {
       console.warn('[keepAvailable] materialize failed:', matErr?.message || matErr);
     }
     res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Admin/CPA snooze: push the 6-week standing review out another 6 weeks.
+ * Provider keeps the assignment (booked or assigned).
+ */
+export const snoozeStandingReview = async (req, res, next) => {
+  try {
+    const { officeId, assignmentId } = req.params;
+    const officeLocationId = parseInt(officeId, 10);
+    const sid = parseInt(assignmentId, 10);
+    if (!officeLocationId || !sid) return res.status(400).json({ error: { message: 'Invalid ids' } });
+
+    const ok = await requireOfficeAccess(req, officeLocationId);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!canManageSchedule(req.user.role)) {
+      return res.status(403).json({ error: { message: 'Only schedule managers can snooze standing reviews' } });
+    }
+
+    const assignment = await OfficeStandingAssignment.findById(sid);
+    if (!assignment || Number(assignment.office_location_id) !== Number(officeLocationId)) {
+      return res.status(404).json({ error: { message: 'Standing assignment not found' } });
+    }
+
+    await OfficeStandingAssignment.update(sid, {
+      last_six_week_checked_at: new Date(),
+      last_two_week_confirmed_at: new Date(),
+      last_forfeit_warning_at: null
+    });
+    const plan = await OfficeBookingPlan.findActiveByAssignmentId(sid);
+    if (plan?.id) await OfficeBookingPlan.confirm(plan.id);
+
+    res.json({ ok: true, snoozedWeeks: 6, standingAssignmentId: sid, bookingPlanId: plan?.id || null });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Admin downgrade:
+ * - booked → assigned (clear booking plan, keep standing)
+ * - assigned → open (deactivate standing; room becomes open)
+ */
+export const downgradeStandingAssignment = async (req, res, next) => {
+  try {
+    const { officeId, assignmentId } = req.params;
+    const officeLocationId = parseInt(officeId, 10);
+    const sid = parseInt(assignmentId, 10);
+    if (!officeLocationId || !sid) return res.status(400).json({ error: { message: 'Invalid ids' } });
+
+    const ok = await requireOfficeAccess(req, officeLocationId);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!canManageSchedule(req.user.role)) {
+      return res.status(403).json({ error: { message: 'Only schedule managers can downgrade standing assignments' } });
+    }
+
+    const assignment = await OfficeStandingAssignment.findById(sid);
+    if (!assignment || Number(assignment.office_location_id) !== Number(officeLocationId)) {
+      return res.status(404).json({ error: { message: 'Standing assignment not found' } });
+    }
+
+    const target = String(req.body?.to || req.body?.target || '').trim().toLowerCase();
+    const plan = await OfficeBookingPlan.findActiveByAssignmentId(sid);
+    const hasBooking = !!plan?.id;
+
+    if (target === 'assigned' || target === 'unbooked' || (!target && hasBooking)) {
+      if (!hasBooking) {
+        return res.status(400).json({ error: { message: 'Slot is already assigned (not booked). Use to=open to release.' } });
+      }
+      await OfficeBookingPlan.deactivateByAssignmentId(sid);
+      await pool.execute(
+        `UPDATE office_events
+         SET booking_plan_id = NULL,
+             status = 'RELEASED',
+             slot_state = 'ASSIGNED_AVAILABLE',
+             booked_provider_id = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE standing_assignment_id = ?
+           AND start_at >= NOW()
+           AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
+        [sid]
+      );
+      await OfficeStandingAssignment.update(sid, {
+        last_six_week_checked_at: new Date(),
+        last_forfeit_warning_at: null
+      });
+      OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
+      await materializeOfficeWeeks({
+        officeLocationId,
+        startDateYmd: ymdFromDateLike(assignment.available_since_date, new Date().toISOString().slice(0, 10)),
+        createdByUserId: req.user.id,
+        weeks: 12
+      });
+      return res.json({ ok: true, downgradedTo: 'assigned', standingAssignmentId: sid });
+    }
+
+    if (target === 'open' || target === 'release') {
+      await OfficeBookingPlan.deactivateByAssignmentId(sid);
+      await OfficeStandingAssignment.update(sid, { is_active: false, last_forfeit_warning_at: null });
+      OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
+      try {
+        await materializeOfficeWeeks({
+          officeLocationId,
+          startDateYmd: new Date().toISOString().slice(0, 10),
+          createdByUserId: req.user.id,
+          weeks: 12
+        });
+      } catch {
+        // best-effort
+      }
+      return res.json({ ok: true, downgradedTo: 'open', standingAssignmentId: sid });
+    }
+
+    return res.status(400).json({
+      error: { message: 'to must be "assigned" (booked→assigned) or "open" (assigned→open)' }
+    });
   } catch (e) {
     next(e);
   }
@@ -981,11 +1108,11 @@ export const staffBookEvent = async (req, res, next) => {
         }
       }
     }
+    const standingId = Number(ev.standing_assignment_id || 0);
     if (shouldBook) {
       await promoteTemporaryAssignmentIfBooked(ev.standing_assignment_id);
       // Align booking plan so materializer keeps future weeks ASSIGNED_BOOKED
       // (event-only book previously left My Schedule / Buildings out of sync).
-      const standingId = Number(ev.standing_assignment_id || 0);
       if (standingId) {
         const standing = await OfficeStandingAssignment.findById(standingId);
         const bookingStartDate = ymdFromDateLike(
@@ -1025,6 +1152,32 @@ export const staffBookEvent = async (req, res, next) => {
         } catch (planErr) {
           console.warn('[staffBookEvent] booking plan upsert failed:', planErr?.message || planErr);
         }
+      }
+    } else if (standingId && canManageSchedule(req.user.role)) {
+      // Admin downgrade booked → assigned: clear active booking plan so future weeks stay assigned-open.
+      try {
+        await OfficeBookingPlan.deactivateByAssignmentId(standingId);
+        await pool.execute(
+          `UPDATE office_events
+           SET booking_plan_id = NULL,
+               status = 'RELEASED',
+               slot_state = 'ASSIGNED_AVAILABLE',
+               booked_provider_id = NULL,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE standing_assignment_id = ?
+             AND start_at >= ?
+             AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
+          [standingId, ev.start_at]
+        );
+        OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
+        await materializeOfficeWeeks({
+          officeLocationId,
+          startDateYmd: ymdFromDateLike(ev.start_at, new Date().toISOString().slice(0, 10)),
+          createdByUserId: req.user.id,
+          weeks: 12
+        });
+      } catch (planErr) {
+        console.warn('[staffBookEvent] unbook plan clear failed:', planErr?.message || planErr);
       }
     }
     const targetEventId = updated?.id || eid;

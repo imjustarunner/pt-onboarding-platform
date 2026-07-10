@@ -481,13 +481,13 @@
         </template>
         <template v-else>
           <div class="legend-note muted" style="font-size: 11px; margin-bottom: 6px;">Block color = booking/event type; dot = agency</div>
-          <div class="legend-item"><span class="swatch swatch-request"></span> Pending request</div>
+          <div class="legend-item"><span class="swatch swatch-request"></span> Requested (pending)</div>
           <div class="legend-item"><span class="swatch swatch-school"></span> School assigned</div>
           <div class="legend-item"><span class="swatch swatch-supv"></span> Supervision</div>
           <div class="legend-item"><span class="swatch swatch-sevt"></span> Schedule event</div>
-          <div class="legend-item"><span class="swatch swatch-oa"></span> Office assigned</div>
-          <div class="legend-item"><span class="swatch swatch-ot"></span> Office temporary</div>
-          <div class="legend-item"><span class="swatch swatch-ob"></span> Office booked</div>
+          <div class="legend-item"><span class="swatch swatch-oa"></span> Assigned</div>
+          <div class="legend-item"><span class="swatch swatch-ot"></span> Temporary hold</div>
+          <div class="legend-item"><span class="swatch swatch-ob"></span> Booked</div>
           <div class="legend-item"><span class="swatch swatch-intake-ip"></span> In-person intake</div>
           <div class="legend-item"><span class="swatch swatch-intake-vi"></span> Virtual intake</div>
           <div class="legend-item" v-if="showGoogleBusy"><span class="swatch swatch-gbusy"></span> Google busy</div>
@@ -2764,11 +2764,25 @@ const dayNameForDateYmd = (dateYmd) => {
   return ALL_DAYS[diff] ?? null;
 };
 
-const onOfficeLayoutCellClick = ({ dateYmd, hour, roomId, slot, event }) => {
+const onOfficeLayoutCellClick = ({ dateYmd, hour, roomId, slot, event, alreadyRequested }) => {
+  const st = String(slot?.state || slot?.slotState || '').toLowerCase();
+  const pending = Number(slot?.pendingRequestCount || 0) > 0 || alreadyRequested === true;
+  if (pending && st === 'open') {
+    const names = Array.isArray(slot?.pendingRequestNames) ? slot.pendingRequestNames.filter(Boolean) : [];
+    const roomName = String(slot?.roomLabel || slot?.room_label || `Room ${roomId}`).trim();
+    slotInfoModalData.value = {
+      roomLabel: roomName,
+      providerLabel: names.length ? names.join(', ') : '—',
+      state: 'requested',
+      statusLabel: 'Already requested (pending approval)',
+      slot,
+    };
+    showSlotInfoModal.value = true;
+    return;
+  }
   // If a non-admin without office management rights clicks someone else's booked slot → read-only info.
   if (!isAdminMode.value && !canManageOffices.value) {
     const currentUserId = Number(authStore.user?.id || 0);
-    const st = String(slot?.state || slot?.slotState || '').toLowerCase();
     const isOtherPersonsBooked = st === 'assigned_booked' && currentUserId > 0
       && Number(slot?.bookedProviderId || slot?.assignedProviderId || 0) !== currentUserId;
     if (isOtherPersonsBooked) {
@@ -4899,6 +4913,8 @@ const modalOfficeRoomOptions = computed(() => {
 
   const currentUserId = Number(authStore.user?.id || 0);
   const isRequestableState = (st, slot) => {
+    // Soft hold: open cells with a pending request are not requestable.
+    if (st === 'open' && Number(slot?.pendingRequestCount || 0) > 0) return false;
     if (st === 'open' || st === 'assigned_available') return true;
     // Assigned to me: allow booking my assigned_temporary slot (convert to booked)
     if (st === 'assigned_temporary' && currentUserId > 0) {
@@ -6045,10 +6061,11 @@ const quickGlanceRows = computed(() => {
     const pending = Number(slot?.pendingRequestCount || 0) || 0;
     let statusLabel =
       st === 'assigned_booked' ? 'Booked'
-        : st === 'assigned_available' ? 'Assigned available'
-          : st === 'assigned_temporary' ? 'Assigned temporary'
-            : 'Open';
-    if (pending > 0) statusLabel = `Requested${statusLabel !== 'Open' ? ` (${statusLabel})` : ''}`;
+        : st === 'assigned_available' ? 'Assigned'
+          : st === 'assigned_temporary' ? 'Temporary hold'
+            : st === 'company_hold' ? 'Company hold'
+              : 'Open';
+    if (pending > 0) statusLabel = statusLabel === 'Open' ? 'Requested (pending)' : `Requested (${statusLabel})`;
     const providerLabel = String(slot?.bookedProviderName || slot?.assignedProviderName || slot?.providerInitials || '').trim() || '—';
     const roomLabel = `${r?.roomNumber ? `#${r.roomNumber} ` : ''}${r?.label || r?.name || `Room ${r?.id || ''}`}`.trim();
     const bookedByMe = st === 'assigned_booked' && currentUserId > 0 && Number(slot?.bookedProviderId || 0) === currentUserId;
