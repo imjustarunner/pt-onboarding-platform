@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import config from '../config/config.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
-import { getUserCapabilities } from '../utils/capabilities.js';
+import { getUserCapabilities, buildAgencyAccessCaps } from '../utils/capabilities.js';
 import { isSupervisorActor, supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
 import { canUserManageClub, getUserClubMembership, inferLegacyClubRole } from '../utils/sscClubAccess.js';
 
@@ -430,22 +430,21 @@ export const requireCapability = (required) => {
       const needsPayrollCaps = requiredList.some((k) => k === 'canManagePayroll' || k === 'canAccessBudgetManagement');
       const needsCredentialingCap = requiredList.some((k) => k === 'canManageCredentialing');
       if ((needsPayrollCaps || needsCredentialingCap) && userForCaps?.id) {
-        const [payrollAgencyIds, departmentAgencyIds, credentialingAgencyIds] = await Promise.all([
-          User.listPayrollAgencyIds(userForCaps.id),
-          User.listDepartmentAgencyIds(userForCaps.id),
-          User.listCredentialingAgencyIds(userForCaps.id)
-        ]);
-        if (needsPayrollCaps) {
-          const canManagePayroll = userForCaps.role === 'super_admin' || payrollAgencyIds.length > 0;
-          const canAccessBudgetManagement =
-            canManagePayroll ||
-            ((userForCaps.role === 'assistant_admin' || userForCaps.role === 'provider_plus') &&
-              departmentAgencyIds.length > 0);
-          caps = { ...caps, canManagePayroll, canAccessBudgetManagement };
-        }
-        if (needsCredentialingCap) {
-          caps = { ...caps, canManageCredentialing: userForCaps.role === 'super_admin' || credentialingAgencyIds.length > 0 };
-        }
+        const agencyAccessCaps = await buildAgencyAccessCaps(userForCaps, {
+          effectiveRole: req.user?.effectiveRole || userForCaps.role
+        });
+        caps = {
+          ...caps,
+          ...(needsPayrollCaps
+            ? {
+                canManagePayroll: agencyAccessCaps.capabilities.canManagePayroll,
+                canAccessBudgetManagement: agencyAccessCaps.capabilities.canAccessBudgetManagement
+              }
+            : {}),
+          ...(needsCredentialingCap
+            ? { canManageCredentialing: agencyAccessCaps.capabilities.canManageCredentialing }
+            : {})
+        };
       }
 
       req.userCapabilities = caps;

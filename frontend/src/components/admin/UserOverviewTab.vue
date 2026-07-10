@@ -631,8 +631,10 @@ import { ref, computed, onMounted, inject, watch, nextTick } from 'vue';
 import api from '../../services/api';
 import AcceptedInsuranceBadges from './AcceptedInsuranceBadges.vue';
 import { supervisorTypeLabel } from '../../constants/supervisorTypes.js';
+import { useAuthStore } from '../../store/auth';
 
 const refreshOverview = inject('refreshProfileOverview', null);
+const authStore = useAuthStore();
 
 const props = defineProps({
   userId: { type: Number, required: true },
@@ -648,7 +650,7 @@ const props = defineProps({
   preloadedOverviewLoading: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['navigate']);
+const emit = defineEmits(['navigate', 'perms-saved']);
 
 // ─── State ───────────────────────────────────────────────────────────────────
 const loading = ref(true);
@@ -840,7 +842,16 @@ const savePerms = async () => {
     await api.put(`/users/${props.userId}`, Object.fromEntries(permToggles.map((p) => [p.key, permsDraft.value[p.key]])));
     if (ai.value) ai.value = { ...ai.value, ...permsDraft.value };
     editingPerms.value = false;
+    emit('perms-saved', { ...permsDraft.value });
     if (refreshOverview) void refreshOverview();
+    // If granting/revoking own access, refresh session caps so nav/route gates update immediately.
+    if (Number(authStore.user?.id || 0) === Number(props.userId || 0)) {
+      try {
+        await authStore.refreshUser();
+      } catch {
+        // ignore
+      }
+    }
   } catch (err) {
     permsSaveError.value = err.response?.data?.error?.message || 'Failed to save permissions.';
   } finally {

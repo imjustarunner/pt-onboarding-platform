@@ -188,6 +188,7 @@
           :preloadedOverview="overview"
           :preloadedOverviewLoading="overviewLoading"
           @navigate="selectTab"
+          @perms-saved="onOverviewPermsSaved"
         />
 
         <div v-if="activeTab === 'account'" class="tab-panel">
@@ -6641,6 +6642,21 @@ const selectTab = (tabId, sectionId = '') => {
     }
   };
   nextTick(() => tryScroll());
+};
+
+/** Keep Account tab permission checkboxes in sync after Overview quick-save. */
+const onOverviewPermsSaved = (perms = {}) => {
+  if (!perms || typeof perms !== 'object') return;
+  if (Object.prototype.hasOwnProperty.call(perms, 'hasCredentialingAccess')) {
+    accountForm.value.hasCredentialingAccess = Boolean(perms.hasCredentialingAccess);
+  }
+  if (Object.prototype.hasOwnProperty.call(perms, 'hasPayrollAccess')) {
+    accountForm.value.hasPayrollAccess = Boolean(perms.hasPayrollAccess);
+  }
+  if (accountInfo.value) {
+    accountInfo.value = { ...accountInfo.value, ...perms };
+  }
+  void fetchAccountInfo();
 };
 
 // Ensure activeTab is always valid for the currently computed tabs.

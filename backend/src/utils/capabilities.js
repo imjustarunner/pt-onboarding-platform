@@ -1,4 +1,82 @@
 import { checkAccess } from './accessControl.js';
+import User from '../models/User.model.js';
+import { listAgencyIdsInTenantTree, resolveTenantRootAgencyId } from './meDashboardTenantScope.js';
+
+/**
+ * Expand credentialed agency IDs to the full tenant tree (parent + affiliated orgs)
+ * so credentialing access granted on any membership applies across affiliated tenants.
+ */
+export async function expandCredentialingAgencyIds(agencyIds) {
+  const seed = [...new Set((agencyIds || []).map((id) => Number(id)).filter((n) => n > 0))];
+  if (!seed.length) return [];
+  const expanded = new Set(seed);
+  await Promise.all(
+    seed.map(async (id) => {
+      try {
+        const root = await resolveTenantRootAgencyId(id);
+        const tree = await listAgencyIdsInTenantTree(root || id);
+        for (const tid of tree || []) {
+          const n = Number(tid);
+          if (n > 0) expanded.add(n);
+        }
+      } catch {
+        // best-effort; keep the seed id
+      }
+    })
+  );
+  return [...expanded];
+}
+
+/**
+ * Agency-scoped access caps used by login and GET /users/me.
+ * Keeps payroll / budget / credentialing flags consistent across auth surfaces.
+ */
+export async function buildAgencyAccessCaps(user, { effectiveRole } = {}) {
+  const roleForCaps = effectiveRole ?? user?.role ?? null;
+  const userForCaps = user ? { ...user, role: roleForCaps } : null;
+  const [payrollAgencyIds, departmentAgencyIds, rawCredentialingAgencyIds] = userForCaps?.id
+    ? await Promise.all([
+        User.listPayrollAgencyIds(userForCaps.id),
+        User.listDepartmentAgencyIds(userForCaps.id),
+        User.listCredentialingAgencyIds(userForCaps.id)
+      ])
+    : [[], [], []];
+  const credentialingAgencyIds = await expandCredentialingAgencyIds(rawCredentialingAgencyIds);
+  const baseCaps = getUserCapabilities(userForCaps);
+  const canManagePayroll = roleForCaps === 'super_admin' || payrollAgencyIds.length > 0;
+  const canAccessBudgetManagement =
+    canManagePayroll ||
+    (roleForCaps === 'assistant_admin' && departmentAgencyIds.length > 0) ||
+    (roleForCaps === 'provider_plus' && departmentAgencyIds.length > 0);
+  const canManageCredentialing = roleForCaps === 'super_admin' || credentialingAgencyIds.length > 0;
+  return {
+    payrollAgencyIds,
+    departmentAgencyIds,
+    credentialingAgencyIds,
+    capabilities: {
+      ...baseCaps,
+      canManagePayroll,
+      canAccessBudgetManagement,
+      canManageCredentialing,
+      canViewMyPayroll: true
+    }
+  };
+}
+
+/**
+ * True when the user may manage credentialing for the given agency
+ * (direct grant or same affiliated tenant tree).
+ */
+export async function userHasCredentialingAccessForAgency(userId, agencyId, { role } = {}) {
+  if (String(role || '').toLowerCase() === 'super_admin') return true;
+  const aid = Number(agencyId || 0);
+  const uid = Number(userId || 0);
+  if (!uid || !aid) return false;
+  const credAgencyIds = await User.listCredentialingAgencyIds(uid);
+  if ((credAgencyIds || []).some((id) => Number(id) === aid)) return true;
+  const expanded = await expandCredentialingAgencyIds(credAgencyIds);
+  return expanded.includes(aid);
+}
 
 /**
  * Derive a consistent set of capabilities from a user record.

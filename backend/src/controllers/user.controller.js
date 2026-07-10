@@ -11,7 +11,7 @@ import ActivityLogService from '../services/activityLog.service.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { getUserCapabilities } from '../utils/capabilities.js';
+import { getUserCapabilities, buildAgencyAccessCaps } from '../utils/capabilities.js';
 import { calcPasswordExpiry } from '../utils/passwordPolicy.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.service.js';
@@ -301,13 +301,10 @@ export const getCurrentUser = async (req, res, next) => {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: { message: 'User not found' } });
 
-    const payrollAgencyIds = user?.id ? await User.listPayrollAgencyIds(user.id) : [];
     const isDemoMode = req.user?.demoMode === true;
     const effectiveRole = isDemoMode ? String(req.user?.role || user.role || '').toLowerCase() : user.role;
-    const baseCaps = getUserCapabilities({ ...user, role: effectiveRole });
-    // Payroll management is gated by user_agencies.has_payroll_access (except super_admin).
-    // This keeps UI capability checks consistent with payroll controller enforcement.
-    const canManagePayroll = effectiveRole === 'super_admin' || payrollAgencyIds.length > 0;
+    // Keep agency-scoped caps (payroll / budget / credentialing) aligned with login.
+    const agencyAccessCaps = await buildAgencyAccessCaps(user, { effectiveRole });
 
     const pw = calcPasswordExpiry(user);
     const tempActive = (() => {
@@ -361,12 +358,7 @@ export const getCurrentUser = async (req, res, next) => {
         user.skill_builder_confirm_required_next_login === 1 ||
         user.skill_builder_confirm_required_next_login === '1'
       ),
-      payrollAgencyIds,
-      capabilities: {
-        ...baseCaps,
-        canManagePayroll,
-        canViewMyPayroll: true
-      },
+      ...agencyAccessCaps,
       demoMode: isDemoMode,
       demoRealRole: isDemoMode ? (req.user?.demoRealRole || user.role) : null
     });

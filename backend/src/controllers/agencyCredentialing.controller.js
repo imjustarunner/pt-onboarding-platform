@@ -12,6 +12,7 @@ import StorageService from '../services/storage.service.js';
 import { encryptChatText, decryptChatText } from '../services/chatEncryption.service.js';
 import { validationResult } from 'express-validator';
 import crypto from 'crypto';
+import { userHasCredentialingAccessForAgency } from '../utils/capabilities.js';
 
 function csvEscape(v) {
   const s = v === null || v === undefined ? '' : String(v);
@@ -246,8 +247,8 @@ async function assertCredentialPrivilege(req, agencyId) {
     err.statusCode = 403;
     throw err;
   }
-  const credAgencyIds = await User.listCredentialingAgencyIds(req.user.id);
-  if (credAgencyIds.includes(Number(agencyId))) return;
+  const allowed = await userHasCredentialingAccessForAgency(req.user.id, agencyId, { role });
+  if (allowed) return;
   const err = new Error('Access denied');
   err.statusCode = 403;
   throw err;

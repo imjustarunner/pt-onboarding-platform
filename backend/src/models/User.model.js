@@ -1947,7 +1947,7 @@ class User {
         'SELECT agency_id FROM user_agencies WHERE user_id = ? AND can_manage_credentialing = 1',
         [userId]
       );
-      return (rows || []).map((r) => r.agency_id);
+      return (rows || []).map((r) => Number(r.agency_id)).filter((n) => n > 0);
     } catch {
       return [];
     }

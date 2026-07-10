@@ -6,7 +6,7 @@ import User from '../models/User.model.js';
 import UserActivityLog from '../models/UserActivityLog.model.js';
 import ActivityLogService from '../services/activityLog.service.js';
 import config from '../config/config.js';
-import { getUserCapabilities } from '../utils/capabilities.js';
+import { getUserCapabilities, buildAgencyAccessCaps } from '../utils/capabilities.js';
 import { calcPasswordExpiry } from '../utils/passwordPolicy.js';
 import Agency from '../models/Agency.model.js';
 import { createSignedState as createGoogleState, verifySignedState as verifyGoogleState, exchangeCodeForTokens, getGoogleAuthorizeUrl, getGoogleOAuthClient } from '../services/googleOAuth.service.js';
@@ -23,34 +23,7 @@ import { SUPPORT_TICKET_SOURCE_KEYS, normalizeSupportTicketSourceKey } from '../
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 import { isSstcInviteOnlyMemberSignup } from '../utils/sstcInviteOnly.js';
 
-async function buildPayrollCaps(user) {
-  const [payrollAgencyIds, departmentAgencyIds, credentialingAgencyIds] = user?.id
-    ? await Promise.all([
-        User.listPayrollAgencyIds(user.id),
-        User.listDepartmentAgencyIds(user.id),
-        User.listCredentialingAgencyIds(user.id)
-      ])
-    : [[], [], []];
-  const baseCaps = getUserCapabilities(user);
-  const canManagePayroll = user?.role === 'super_admin' || payrollAgencyIds.length > 0;
-  const canAccessBudgetManagement =
-    canManagePayroll ||
-    (user?.role === 'assistant_admin' && departmentAgencyIds.length > 0) ||
-    (user?.role === 'provider_plus' && departmentAgencyIds.length > 0);
-  const canManageCredentialing = user?.role === 'super_admin' || credentialingAgencyIds.length > 0;
-  return {
-    payrollAgencyIds,
-    departmentAgencyIds,
-    credentialingAgencyIds,
-    capabilities: {
-      ...baseCaps,
-      canManagePayroll,
-      canAccessBudgetManagement,
-      canManageCredentialing,
-      canViewMyPayroll: true
-    }
-  };
-}
+const buildPayrollCaps = buildAgencyAccessCaps;
 
 const SSO_EXCLUDED_ROLES = new Set(['school_staff', 'client_guardian', 'client', 'guardian', 'kiosk']);
 const normalizeTenantSlug = (value) => String(value || '').trim().toLowerCase();

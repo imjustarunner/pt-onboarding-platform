@@ -191,8 +191,28 @@ export const useAuthStore = defineStore('auth', () => {
       // Fetch current user data from backend to get updated role
       const response = await api.get('/users/me');
       if (response.data) {
-        // Merge to avoid dropping client-side-only fields (e.g., approved employee agencyIds)
-        const merged = { ...(user.value || {}), ...(response.data || {}) };
+        // Merge to avoid dropping client-side-only fields (e.g., approved employee agencyIds).
+        // Deep-merge capabilities so a partial /users/me response cannot wipe agency-scoped flags.
+        const prev = user.value || {};
+        const next = response.data || {};
+        const merged = {
+          ...prev,
+          ...next,
+          capabilities: {
+            ...(prev.capabilities || {}),
+            ...(next.capabilities || {})
+          }
+        };
+        // Prefer server agency-id lists when present; otherwise keep prior session values.
+        if (!Array.isArray(next.credentialingAgencyIds) && Array.isArray(prev.credentialingAgencyIds)) {
+          merged.credentialingAgencyIds = prev.credentialingAgencyIds;
+        }
+        if (!Array.isArray(next.payrollAgencyIds) && Array.isArray(prev.payrollAgencyIds)) {
+          merged.payrollAgencyIds = prev.payrollAgencyIds;
+        }
+        if (!Array.isArray(next.departmentAgencyIds) && Array.isArray(prev.departmentAgencyIds)) {
+          merged.departmentAgencyIds = prev.departmentAgencyIds;
+        }
         user.value = merged;
         localStorage.setItem('user', JSON.stringify(merged));
         console.log('User data refreshed. New role:', merged.role);
