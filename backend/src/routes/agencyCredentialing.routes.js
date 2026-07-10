@@ -27,7 +27,10 @@ import {
   listInsuranceInteractions,
   createInsuranceInteraction,
   updateInsuranceInteraction,
-  deleteInsuranceInteraction
+  deleteInsuranceInteraction,
+  uploadProviderLicenseCredentialing,
+  ocrProviderLicenseCredentialing,
+  licenseUploadMulter
 } from '../controllers/agencyCredentialing.controller.js';
 
 const router = express.Router();
@@ -42,6 +45,17 @@ const validatePatch = [
 router.get('/:agencyId/credentialing/providers', authenticate, listAgencyProvidersCredentialing);
 router.patch('/:agencyId/credentialing/providers', authenticate, validatePatch, patchAgencyProvidersCredentialing);
 router.get('/:agencyId/credentialing/providers.csv', authenticate, downloadAgencyProvidersCredentialingCsv);
+router.post(
+  '/:agencyId/credentialing/providers/:userId/license',
+  authenticate,
+  licenseUploadMulter.single('file'),
+  uploadProviderLicenseCredentialing
+);
+router.post(
+  '/:agencyId/credentialing/providers/:userId/license/ocr',
+  authenticate,
+  ocrProviderLicenseCredentialing
+);
 
 // Optional cleanup endpoint (purge stored values by field_key across providers in an agency)
 router.delete('/:agencyId/credentialing/field/:fieldKey', authenticate, deleteAgencyProvidersCredentialingField);

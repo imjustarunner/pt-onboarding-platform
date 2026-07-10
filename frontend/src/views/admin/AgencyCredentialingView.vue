@@ -5,11 +5,11 @@
         <router-link :to="orgTo('/admin')" class="back-link">← Back to Admin Dashboard</router-link>
         <h1>Agency Credentialing</h1>
         <div class="muted" style="margin-top: 6px;">
-          Edit credentialing fields for active providers and export to CSV.
+          Provider credentialing overview — edit deliberately, upload licenses, and export CSV.
         </div>
       </div>
 
-      <div class="header-actions" style="display:flex; gap:10px; align-items:center; flex-wrap: wrap;">
+      <div class="header-actions">
         <button class="btn btn-secondary" type="button" @click="refresh" :disabled="loading || saving">
           Refresh
         </button>
@@ -19,8 +19,8 @@
       </div>
     </div>
 
-    <div class="card" style="margin-top: 14px;">
-      <div class="field-row" style="grid-template-columns: 1fr 1fr; gap: 12px;">
+    <div class="card filters-card">
+      <div class="field-row">
         <div class="field">
           <label>Agency</label>
           <select v-model.number="selectedAgencyId" :disabled="loading || agencies.length === 0">
@@ -32,20 +32,18 @@
           <input v-model="search" type="text" placeholder="Search name/email…" />
         </div>
       </div>
-      <div style="margin-top: 10px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center;">
-        <label style="display:flex; align-items:center; gap:8px; margin:0;">
+      <div class="filters-meta">
+        <label class="inline-check">
           <input type="checkbox" v-model="showSources" :disabled="loading" />
-          <span class="muted" style="font-size: 13px;">Show field keys / sources</span>
+          <span class="muted">Show field keys / sources</span>
         </label>
-        <div class="view-toggle">
-          <label style="display:flex; align-items:center; gap:8px; margin:0;">
-            <span class="muted" style="font-size: 13px;">View:</span>
-            <select v-model="viewMode" :disabled="loading">
-              <option value="by_provider">By Provider</option>
-              <option value="by_insurance">By Insurance</option>
-            </select>
-          </label>
-        </div>
+        <label class="inline-check">
+          <span class="muted">View:</span>
+          <select v-model="viewMode" :disabled="loading">
+            <option value="by_provider">By Provider</option>
+            <option value="by_insurance">By Insurance</option>
+          </select>
+        </label>
       </div>
     </div>
 
@@ -66,340 +64,449 @@
       </div>
     </div>
 
-    <div v-if="error" class="error" style="margin-top: 12px;">{{ error }}</div>
-    <div v-if="info" class="success" style="margin-top: 12px;">{{ info }}</div>
+    <div v-if="error" class="error banner">{{ error }}</div>
+    <div v-if="info" class="success banner">{{ info }}</div>
 
-    <details ref="insuranceDefinitionsDetails" class="card insurance-definitions-card" style="margin-top: 14px;" :open="insuranceDefinitionsOpen">
+    <details ref="insuranceDefinitionsDetails" class="card insurance-definitions-card" :open="insuranceDefinitionsOpen">
       <summary>Insurance definitions</summary>
       <InsuranceDefinitionsPanel :agency-id="selectedAgencyId" />
     </details>
 
-    <details class="card timeline-card" style="margin-top: 14px;">
+    <details class="card timeline-card">
       <summary>Credentialing timeline</summary>
       <CredentialingTimeline :agency-id="selectedAgencyId" />
     </details>
 
-    <div class="card" style="margin-top: 14px;">
-      <div class="muted" v-if="!loading">
-        {{ viewMode === 'by_provider' ? `Providers: ${filteredRows.length}` : `Insurances: ${byInsuranceData.length}` }}
-      </div>
-      <div v-if="loading" class="loading" style="margin-top: 10px;">Loading…</div>
-
-      <!-- View 2: By Insurance -->
-      <div v-else-if="viewMode === 'by_insurance'" class="by-insurance-view" style="margin-top: 12px;">
-        <div v-if="byInsuranceLoading" class="loading">Loading by insurance…</div>
-        <div v-else-if="byInsuranceData.length === 0" class="empty-state muted">No insurance credentialing data.</div>
-        <div v-else class="insurance-sections">
-          <details
-            v-for="ins in byInsuranceData"
-            :key="ins.insurance.id"
-            class="insurance-section"
-            :open="byInsuranceData.length <= 5"
-          >
-            <summary>
-              <strong>{{ ins.insurance.name }}</strong>
-              <span class="muted">({{ ins.providers.length }} provider{{ ins.providers.length !== 1 ? 's' : '' }})</span>
-            </summary>
-            <table class="table" style="margin-top: 8px;">
-              <thead>
-                <tr>
-                  <th>Provider</th>
-                  <th>Effective</th>
-                  <th>Submitted</th>
-                  <th>Resubmitted</th>
-                  <th>PIN/Ref</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="p in ins.providers" :key="p.user_id">
-                  <td>
-                    <router-link :to="orgTo(`/admin/users/${p.user_id}?tab=credentialing`)">
-                      {{ p.first_name }} {{ p.last_name }}
-                    </router-link>
-                  </td>
-                  <td>{{ p.effective_date || '—' }}</td>
-                  <td>{{ p.submitted_date || '—' }}</td>
-                  <td>{{ p.resubmitted_date || '—' }}</td>
-                  <td>{{ p.pin_or_reference || '—' }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </details>
+    <template v-if="viewMode === 'by_provider'">
+      <div class="stats-row" v-if="!loading">
+        <div class="stat-card">
+          <div class="stat-icon total">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+          </div>
+          <div>
+            <div class="stat-label">Total Providers</div>
+            <div class="stat-value">{{ stats.total }}</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon active">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+          </div>
+          <div>
+            <div class="stat-label">Active</div>
+            <div class="stat-value">{{ stats.active }}</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon soon">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+          </div>
+          <div>
+            <div class="stat-label">Expiring Soon (&lt; 90 days)</div>
+            <div class="stat-value">{{ stats.expiringSoon }}</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon expired">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+          </div>
+          <div>
+            <div class="stat-label">Expired</div>
+            <div class="stat-value">{{ stats.expired }}</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon progress">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+          </div>
+          <div>
+            <div class="stat-label">In Progress</div>
+            <div class="stat-value">{{ stats.inProgress }}</div>
+          </div>
         </div>
       </div>
 
-      <!-- View 1: By Provider -->
-      <div v-else class="table-wrap" style="overflow:auto; margin-top: 10px;">
-        <table class="table" style="min-width: 1400px;">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>DOB</th>
-              <th>First client date</th>
-              <th>NPI number</th>
-              <th>NPI id</th>
-              <th>Taxonomy</th>
-              <th>Zip</th>
-              <th>License type/number</th>
-              <th>Issued</th>
-              <th>Expires</th>
-              <th>Medicaid provider type</th>
-              <th>Tax ID</th>
-              <th>Medicaid location id</th>
-              <th>Medicaid effective</th>
-              <th>Medicaid revalidation</th>
-              <th>Medicare #</th>
-              <th>CAQH id</th>
-              <th>Personal email</th>
-              <th>Cell</th>
-              <th class="right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in filteredRows" :key="r.userId">
-              <td style="min-width: 220px;">
-                <router-link :to="orgTo(`/admin/users/${r.userId}?tab=credentialing`)">
-                  {{ r.first_name }} {{ r.last_name }}
-                </router-link>
-                <div v-if="(r.in_network || []).length" class="in-network-badges">
-                  <span
-                    v-for="name in (r.in_network || []).slice(0, 5)"
-                    :key="name"
-                    class="badge"
-                  >{{ name }}</span>
-                  <span v-if="(r.in_network || []).length > 5" class="muted">+{{ (r.in_network || []).length - 5 }}</span>
-                </div>
-              </td>
+      <div class="card table-card">
+        <div class="table-toolbar">
+          <h2>Providers ({{ filteredRows.length }})</h2>
+          <div class="toolbar-actions">
+            <button class="icon-btn" type="button" @click="showColumnMenu = !showColumnMenu" title="Columns">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 0h8v8h-8v-8z"/></svg>
+              Columns
+            </button>
+            <div v-if="showColumnMenu" class="column-menu">
+              <label v-for="col in toggleableColumns" :key="col.key" class="checkbox-label">
+                <input type="checkbox" v-model="visibleColumns" :value="col.key" />
+                {{ col.label }}
+              </label>
+            </div>
+          </div>
+        </div>
 
-              <td>
-                <input
-                  type="date"
-                  :readonly="!isEditingRow(r.userId)"
-                  :title="cellTitle(r,'date_of_birth')"
-                  :value="getValue(r.userId, 'date_of_birth')"
-                  @focus="beginEdit(r.userId)"
-                  @input="setValue(r.userId, 'date_of_birth', $event.target.value)"
-                />
-                <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'date_of_birth') }}</div>
-              </td>
-              <td>
-                <input
-                  type="date"
-                  :readonly="!isEditingRow(r.userId)"
-                  :title="cellTitle(r,'first_client_date')"
-                  :value="getValue(r.userId, 'first_client_date')"
-                  @focus="beginEdit(r.userId)"
-                  @input="setValue(r.userId, 'first_client_date', $event.target.value)"
-                />
-              </td>
-              <td>
-                <input
-                  type="text"
-                  :readonly="!isEditingRow(r.userId)"
-                  :title="cellTitle(r,'npi_number')"
-                  :value="getValue(r.userId, 'npi_number')"
-                  @focus="beginEdit(r.userId)"
-                  @input="setValue(r.userId, 'npi_number', $event.target.value)"
-                />
-                <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'npi_number') }}</div>
-              </td>
-              <td>
-                <input
-                  type="text"
-                  :readonly="!isEditingRow(r.userId)"
-                  :title="cellTitle(r,'npi_id')"
-                  :value="getValue(r.userId, 'npi_id')"
-                  @focus="beginEdit(r.userId)"
-                  @input="setValue(r.userId, 'npi_id', $event.target.value)"
-                />
-              </td>
-              <td>
-                <input
-                  type="text"
-                  :readonly="!isEditingRow(r.userId)"
-                  :title="cellTitle(r,'taxonomy_code')"
-                  :value="getValue(r.userId, 'taxonomy_code')"
-                  @focus="beginEdit(r.userId)"
-                  @input="setValue(r.userId, 'taxonomy_code', $event.target.value)"
-                />
-                <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'taxonomy_code') }}</div>
-              </td>
-              <td>
-                <input
-                  type="text"
-                  :readonly="!isEditingRow(r.userId)"
-                  :title="cellTitle(r,'zipcode')"
-                  :value="getValue(r.userId, 'zipcode')"
-                  @focus="beginEdit(r.userId)"
-                  @input="setValue(r.userId, 'zipcode', $event.target.value)"
-                />
-              </td>
+        <div v-if="loading" class="loading">Loading…</div>
+        <div v-else class="table-wrap">
+          <table class="cred-table">
+            <thead>
+              <tr>
+                <th class="sticky-name">Provider Name</th>
+                <th v-if="isColVisible('date_of_birth')">DOB</th>
+                <th v-if="isColVisible('first_client_date')">First Client Date</th>
+                <th v-if="isColVisible('npi_status')">Has NPI?</th>
+                <th v-if="isColVisible('npi_number')">NPI Number</th>
+                <th v-if="isColVisible('npi_id')">NPI ID</th>
+                <th v-if="isColVisible('taxonomy_code')">Taxonomy</th>
+                <th v-if="isColVisible('zipcode')">Zip</th>
+                <th v-if="isColVisible('license_type_number')">License Type / Number</th>
+                <th v-if="isColVisible('license_issued')">Issued</th>
+                <th v-if="isColVisible('license_expires')">Expires</th>
+                <th v-if="isColVisible('license_upload')">License Copy</th>
+                <th v-if="isColVisible('medicaid_location_id')">Medicaid Location ID</th>
+                <th v-if="isColVisible('medicaid_effective_date')">Medicaid Effective</th>
+                <th v-if="isColVisible('medicaid_revalidation')">Medicaid Revalidation</th>
+                <th v-if="isColVisible('medicare_number')">Medicare #</th>
+                <th v-if="isColVisible('caqh_provider_id')">CAQH ID</th>
+                <th v-if="isColVisible('personal_email')">Personal Email</th>
+                <th v-if="isColVisible('cell_number')">Cell</th>
+                <th>Status</th>
+                <th class="right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="r in pagedRows"
+                :key="r.userId"
+                :class="{ 'row-editing': isEditingRow(r.userId) }"
+              >
+                <td class="sticky-name provider-cell">
+                  <div class="provider-identity">
+                    <img
+                      v-if="photoUrl(r)"
+                      class="avatar"
+                      :src="photoUrl(r)"
+                      :alt="`${r.first_name} ${r.last_name}`"
+                    />
+                    <div v-else class="avatar avatar-fallback" :style="{ background: avatarColor(r) }">
+                      {{ initials(r) }}
+                    </div>
+                    <div class="provider-text">
+                      <router-link class="provider-name" :to="orgTo(`/admin/users/${r.userId}?tab=credentialing`)">
+                        {{ displayName(r) }}
+                      </router-link>
+                      <div v-if="(r.in_network || []).length" class="in-network-badges">
+                        <span v-for="name in (r.in_network || []).slice(0, 3)" :key="name" class="badge">{{ name }}</span>
+                        <span v-if="(r.in_network || []).length > 3" class="muted">+{{ (r.in_network || []).length - 3 }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </td>
 
-              <td>
-                <input
-                  type="text"
-                  :readonly="!isEditingRow(r.userId)"
-                  :title="cellTitle(r,'license_type_number')"
-                  :value="getValue(r.userId, 'license_type_number')"
-                  @focus="beginEdit(r.userId)"
-                  @input="setValue(r.userId, 'license_type_number', $event.target.value)"
-                />
-                <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'license_type_number') }}</div>
-              </td>
-              <td>
-                <input
-                  type="date"
-                  :readonly="!isEditingRow(r.userId)"
-                  :title="cellTitle(r,'license_issued')"
-                  :value="getValue(r.userId, 'license_issued')"
-                  @focus="beginEdit(r.userId)"
-                  @input="setValue(r.userId, 'license_issued', $event.target.value)"
-                />
-                <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'license_issued') }}</div>
-              </td>
-              <td>
-                <input
-                  type="date"
-                  :readonly="!isEditingRow(r.userId)"
-                  :title="cellTitle(r,'license_expires')"
-                  :value="getValue(r.userId, 'license_expires')"
-                  @focus="beginEdit(r.userId)"
-                  @input="setValue(r.userId, 'license_expires', $event.target.value)"
-                />
-                <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'license_expires') }}</div>
-              </td>
-
-              <td>
-                <input
-                  type="text"
-                  :readonly="!isEditingRow(r.userId)"
-                  :title="cellTitle(r,'medicaid_provider_type')"
-                  :value="getValue(r.userId, 'medicaid_provider_type')"
-                  @focus="beginEdit(r.userId)"
-                  @input="setValue(r.userId, 'medicaid_provider_type', $event.target.value)"
-                />
-              </td>
-              <td>
-                <input
-                  type="text"
-                  :readonly="!isEditingRow(r.userId)"
-                  :title="cellTitle(r,'tax_id')"
-                  :value="getValue(r.userId, 'tax_id')"
-                  @focus="beginEdit(r.userId)"
-                  @input="setValue(r.userId, 'tax_id', $event.target.value)"
-                />
-              </td>
-              <td>
-                <input
-                  type="text"
-                  :readonly="!isEditingRow(r.userId)"
-                  :title="cellTitle(r,'medicaid_location_id')"
-                  :value="getValue(r.userId, 'medicaid_location_id')"
-                  @focus="beginEdit(r.userId)"
-                  @input="setValue(r.userId, 'medicaid_location_id', $event.target.value)"
-                />
-                <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'medicaid_location_id') }}</div>
-              </td>
-              <td>
-                <input
-                  type="date"
-                  :readonly="!isEditingRow(r.userId)"
-                  :title="cellTitle(r,'medicaid_effective_date')"
-                  :value="getValue(r.userId, 'medicaid_effective_date')"
-                  @focus="beginEdit(r.userId)"
-                  @input="setValue(r.userId, 'medicaid_effective_date', $event.target.value)"
-                />
-              </td>
-              <td>
-                <input
-                  type="date"
-                  :readonly="!isEditingRow(r.userId)"
-                  :title="cellTitle(r,'medicaid_revalidation')"
-                  :value="getValue(r.userId, 'medicaid_revalidation')"
-                  @focus="beginEdit(r.userId)"
-                  @input="setValue(r.userId, 'medicaid_revalidation', $event.target.value)"
-                />
-                <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'medicaid_revalidation') }}</div>
-              </td>
-              <td>
-                <input
-                  type="text"
-                  :readonly="!isEditingRow(r.userId)"
-                  :title="cellTitle(r,'medicare_number')"
-                  :value="getValue(r.userId, 'medicare_number')"
-                  @focus="beginEdit(r.userId)"
-                  @input="setValue(r.userId, 'medicare_number', $event.target.value)"
-                />
-              </td>
-              <td>
-                <input
-                  type="text"
-                  :readonly="!isEditingRow(r.userId)"
-                  :title="cellTitle(r,'caqh_provider_id')"
-                  :value="getValue(r.userId, 'caqh_provider_id')"
-                  @focus="beginEdit(r.userId)"
-                  @input="setValue(r.userId, 'caqh_provider_id', $event.target.value)"
-                />
-                <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'caqh_provider_id') }}</div>
-              </td>
-
-              <td>
-                <input
-                  type="email"
-                  :readonly="!isEditingRow(r.userId)"
-                  :title="cellTitle(r,'personal_email')"
-                  :value="getValue(r.userId, 'personal_email')"
-                  @focus="beginEdit(r.userId)"
-                  @input="setValue(r.userId, 'personal_email', $event.target.value)"
-                />
-                <div v-if="showSources" class="muted" style="font-size: 11px;">src: users.personal_email</div>
-              </td>
-              <td>
-                <input
-                  type="tel"
-                  :readonly="!isEditingRow(r.userId)"
-                  :title="cellTitle(r,'cell_number')"
-                  :value="getValue(r.userId, 'cell_number')"
-                  @focus="beginEdit(r.userId)"
-                  @input="setValue(r.userId, 'cell_number', $event.target.value)"
-                />
-                <div v-if="showSources" class="muted" style="font-size: 11px;">src: users.personal_phone</div>
-              </td>
-
-              <td class="right" style="white-space: nowrap;">
-                <button
-                  v-if="!isEditingRow(r.userId)"
-                  class="btn btn-secondary btn-sm"
-                  type="button"
-                  @click="beginEdit(r.userId)"
-                  :disabled="saving || loading"
-                >
-                  Edit
-                </button>
-                <template v-else>
-                  <button class="btn btn-primary btn-sm" type="button" @click="saveRow(r.userId)" :disabled="saving || loading">
-                    Save
+                <td v-if="isColVisible('date_of_birth')">
+                  <EditableCell
+                    :editing="isEditingRow(r.userId)"
+                    type="date"
+                    :value="getValue(r.userId, 'date_of_birth')"
+                    :title="cellTitle(r, 'date_of_birth')"
+                    @change="setValue(r.userId, 'date_of_birth', $event)"
+                  />
+                  <div v-if="showSources" class="src">{{ sourceLabel(r, 'date_of_birth') }}</div>
+                </td>
+                <td v-if="isColVisible('first_client_date')">
+                  <EditableCell
+                    :editing="isEditingRow(r.userId)"
+                    type="date"
+                    :value="getValue(r.userId, 'first_client_date')"
+                    @change="setValue(r.userId, 'first_client_date', $event)"
+                  />
+                </td>
+                <td v-if="isColVisible('npi_status')">
+                  <template v-if="isEditingRow(r.userId)">
+                    <select
+                      class="cell-input"
+                      :value="getValue(r.userId, 'npi_status')"
+                      @change="setValue(r.userId, 'npi_status', $event.target.value)"
+                    >
+                      <option value="">—</option>
+                      <option v-for="opt in npiStatusOptions" :key="opt" :value="opt">{{ shortNpiStatus(opt) }}</option>
+                    </select>
+                  </template>
+                  <span v-else class="cell-text" :class="{ 'cell-missing': !getValue(r.userId, 'npi_status') }">
+                    {{ shortNpiStatus(getValue(r.userId, 'npi_status')) || '—' }}
+                  </span>
+                  <div v-if="showSources" class="src">{{ sourceLabel(r, 'npi_status') }}</div>
+                </td>
+                <td v-if="isColVisible('npi_number')">
+                  <EditableCell
+                    :editing="isEditingRow(r.userId)"
+                    :value="getValue(r.userId, 'npi_number')"
+                    :title="cellTitle(r, 'npi_number')"
+                    @change="setValue(r.userId, 'npi_number', $event)"
+                  />
+                </td>
+                <td v-if="isColVisible('npi_id')">
+                  <EditableCell
+                    :editing="isEditingRow(r.userId)"
+                    :value="getValue(r.userId, 'npi_id')"
+                    @change="setValue(r.userId, 'npi_id', $event)"
+                  />
+                </td>
+                <td v-if="isColVisible('taxonomy_code')">
+                  <EditableCell
+                    :editing="isEditingRow(r.userId)"
+                    :value="getValue(r.userId, 'taxonomy_code')"
+                    @change="setValue(r.userId, 'taxonomy_code', $event)"
+                  />
+                </td>
+                <td v-if="isColVisible('zipcode')">
+                  <EditableCell
+                    :editing="isEditingRow(r.userId)"
+                    :value="getValue(r.userId, 'zipcode')"
+                    @change="setValue(r.userId, 'zipcode', $event)"
+                  />
+                </td>
+                <td v-if="isColVisible('license_type_number')">
+                  <EditableCell
+                    :editing="isEditingRow(r.userId)"
+                    :value="getValue(r.userId, 'license_type_number')"
+                    @change="setValue(r.userId, 'license_type_number', $event)"
+                  />
+                </td>
+                <td v-if="isColVisible('license_issued')" :class="dateCellClass(r, 'issued')">
+                  <EditableCell
+                    :editing="isEditingRow(r.userId)"
+                    type="date"
+                    :value="getValue(r.userId, 'license_issued')"
+                    :display="formatDisplayDate(getValue(r.userId, 'license_issued'))"
+                    @change="setValue(r.userId, 'license_issued', $event)"
+                  />
+                </td>
+                <td v-if="isColVisible('license_expires')" :class="dateCellClass(r, 'expires')">
+                  <EditableCell
+                    :editing="isEditingRow(r.userId)"
+                    type="date"
+                    :value="getValue(r.userId, 'license_expires')"
+                    :display="formatDisplayDate(getValue(r.userId, 'license_expires'))"
+                    @change="setValue(r.userId, 'license_expires', $event)"
+                  />
+                </td>
+                <td v-if="isColVisible('license_upload')" :class="{ 'cell-alert': !licenseUrl(r) }">
+                  <div class="license-actions">
+                    <a
+                      v-if="licenseUrl(r)"
+                      class="link-btn"
+                      :href="licenseUrl(r)"
+                      target="_blank"
+                      rel="noopener"
+                    >View</a>
+                    <span v-else class="missing-pill">Missing</span>
+                    <label class="link-btn upload-label" :class="{ disabled: uploadingUserId === r.userId }">
+                      {{ uploadingUserId === r.userId ? 'Uploading…' : 'Upload' }}
+                      <input
+                        type="file"
+                        accept="application/pdf,image/*"
+                        hidden
+                        :disabled="uploadingUserId === r.userId || ocrUserId === r.userId"
+                        @change="onLicenseFileSelected(r, $event)"
+                      />
+                    </label>
+                    <button
+                      v-if="licenseUrl(r)"
+                      class="link-btn"
+                      type="button"
+                      :disabled="ocrUserId === r.userId || uploadingUserId === r.userId"
+                      @click="runLicenseOcr(r)"
+                    >
+                      {{ ocrUserId === r.userId ? 'Reading…' : 'Read w/ AI' }}
+                    </button>
+                  </div>
+                </td>
+                <td v-if="isColVisible('medicaid_location_id')">
+                  <EditableCell
+                    :editing="isEditingRow(r.userId)"
+                    :value="getValue(r.userId, 'medicaid_location_id')"
+                    @change="setValue(r.userId, 'medicaid_location_id', $event)"
+                  />
+                </td>
+                <td v-if="isColVisible('medicaid_effective_date')">
+                  <EditableCell
+                    :editing="isEditingRow(r.userId)"
+                    type="date"
+                    :value="getValue(r.userId, 'medicaid_effective_date')"
+                    :display="formatDisplayDate(getValue(r.userId, 'medicaid_effective_date'))"
+                    @change="setValue(r.userId, 'medicaid_effective_date', $event)"
+                  />
+                </td>
+                <td v-if="isColVisible('medicaid_revalidation')">
+                  <EditableCell
+                    :editing="isEditingRow(r.userId)"
+                    type="date"
+                    :value="getValue(r.userId, 'medicaid_revalidation')"
+                    :display="formatDisplayDate(getValue(r.userId, 'medicaid_revalidation'))"
+                    @change="setValue(r.userId, 'medicaid_revalidation', $event)"
+                  />
+                </td>
+                <td v-if="isColVisible('medicare_number')">
+                  <EditableCell
+                    :editing="isEditingRow(r.userId)"
+                    :value="getValue(r.userId, 'medicare_number')"
+                    @change="setValue(r.userId, 'medicare_number', $event)"
+                  />
+                </td>
+                <td v-if="isColVisible('caqh_provider_id')">
+                  <EditableCell
+                    :editing="isEditingRow(r.userId)"
+                    :value="getValue(r.userId, 'caqh_provider_id')"
+                    @change="setValue(r.userId, 'caqh_provider_id', $event)"
+                  />
+                </td>
+                <td v-if="isColVisible('personal_email')">
+                  <EditableCell
+                    :editing="isEditingRow(r.userId)"
+                    type="email"
+                    :value="getValue(r.userId, 'personal_email')"
+                    @change="setValue(r.userId, 'personal_email', $event)"
+                  />
+                </td>
+                <td v-if="isColVisible('cell_number')">
+                  <EditableCell
+                    :editing="isEditingRow(r.userId)"
+                    type="tel"
+                    :value="getValue(r.userId, 'cell_number')"
+                    @change="setValue(r.userId, 'cell_number', $event)"
+                  />
+                </td>
+                <td>
+                  <span class="status-pill" :class="licenseStatus(r).tone">{{ licenseStatus(r).label }}</span>
+                </td>
+                <td class="right actions-cell">
+                  <button
+                    v-if="!isEditingRow(r.userId)"
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    @click="beginEdit(r.userId)"
+                    :disabled="saving || loading || !!editingUserId"
+                  >
+                    Edit
                   </button>
-                  <button class="btn btn-secondary btn-sm" type="button" @click="cancelEdit" :disabled="saving || loading" style="margin-left: 6px;">
-                    Cancel
-                  </button>
-                </template>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+                  <template v-else>
+                    <button class="btn btn-primary btn-sm" type="button" @click="saveRow(r.userId)" :disabled="saving || loading">
+                      Save
+                    </button>
+                    <button class="btn btn-secondary btn-sm" type="button" @click="cancelEdit" :disabled="saving || loading">
+                      Cancel
+                    </button>
+                  </template>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-if="!loading" class="table-footer">
+          <div class="muted">
+            Showing {{ pageStart }} to {{ pageEnd }} of {{ filteredRows.length }} providers
+          </div>
+          <div class="pager">
+            <button type="button" class="page-btn" :disabled="page <= 1" @click="page -= 1">‹</button>
+            <button
+              v-for="p in visiblePages"
+              :key="p"
+              type="button"
+              class="page-btn"
+              :class="{ active: p === page }"
+              @click="page = p"
+            >{{ p }}</button>
+            <button type="button" class="page-btn" :disabled="page >= totalPages" @click="page += 1">›</button>
+          </div>
+          <select v-model.number="pageSize" class="page-size">
+            <option :value="10">10 per page</option>
+            <option :value="25">25 per page</option>
+            <option :value="50">50 per page</option>
+          </select>
+        </div>
+      </div>
+    </template>
+
+    <div v-else class="card">
+      <div class="muted" v-if="!loading">Insurances: {{ byInsuranceData.length }}</div>
+      <div v-if="loading || byInsuranceLoading" class="loading">Loading by insurance…</div>
+      <div v-else-if="byInsuranceData.length === 0" class="empty-state muted">No insurance credentialing data.</div>
+      <div v-else class="insurance-sections">
+        <details
+          v-for="ins in byInsuranceData"
+          :key="ins.insurance.id"
+          class="insurance-section"
+          :open="byInsuranceData.length <= 5"
+        >
+          <summary>
+            <strong>{{ ins.insurance.name }}</strong>
+            <span class="muted">({{ ins.providers.length }} provider{{ ins.providers.length !== 1 ? 's' : '' }})</span>
+          </summary>
+          <table class="table" style="margin-top: 8px;">
+            <thead>
+              <tr>
+                <th>Provider</th>
+                <th>Effective</th>
+                <th>Submitted</th>
+                <th>Resubmitted</th>
+                <th>PIN/Ref</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="p in ins.providers" :key="p.user_id">
+                <td>
+                  <router-link :to="orgTo(`/admin/users/${p.user_id}?tab=credentialing`)">
+                    {{ p.first_name }} {{ p.last_name }}
+                  </router-link>
+                </td>
+                <td>{{ p.effective_date || '—' }}</td>
+                <td>{{ p.submitted_date || '—' }}</td>
+                <td>{{ p.resubmitted_date || '—' }}</td>
+                <td>{{ p.pin_or_reference || '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </details>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch, nextTick } from 'vue';
+import { computed, defineComponent, h, onMounted, ref, watch, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 import CredentialingTimeline from '../../components/admin/CredentialingTimeline.vue';
 import InsuranceDefinitionsPanel from '../../components/admin/InsuranceDefinitionsPanel.vue';
+
+/** Read-only by default; only renders an input when the row is explicitly in edit mode. */
+const EditableCell = defineComponent({
+  name: 'EditableCell',
+  props: {
+    editing: { type: Boolean, default: false },
+    value: { type: [String, Number], default: '' },
+    display: { type: String, default: '' },
+    type: { type: String, default: 'text' },
+    title: { type: String, default: '' }
+  },
+  emits: ['change'],
+  setup(props, { emit }) {
+    return () => {
+      if (props.editing) {
+        return h('input', {
+          class: 'cell-input',
+          type: props.type,
+          value: props.value ?? '',
+          title: props.title || undefined,
+          onInput: (e) => emit('change', e.target.value)
+        });
+      }
+      const text = props.display || props.value || '—';
+      return h('span', { class: 'cell-text', title: props.title || undefined }, text);
+    };
+  }
+});
 
 const route = useRoute();
 const agencyStore = useAgencyStore();
@@ -410,7 +517,9 @@ const orgTo = (path) => {
   return path;
 };
 
-const agencies = computed(() => (agencyStore.userAgencies || []).filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency'));
+const agencies = computed(() =>
+  (agencyStore.userAgencies || []).filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency')
+);
 const selectedAgencyId = ref(null);
 
 const loading = ref(false);
@@ -418,23 +527,51 @@ const saving = ref(false);
 const error = ref('');
 const info = ref('');
 const search = ref('');
-
 const rows = ref([]);
 const showSources = ref(false);
 const viewMode = ref('by_provider');
-
 const byInsuranceData = ref([]);
 const byInsuranceLoading = ref(false);
-
 const insuranceDefinitionsDetails = ref(null);
 const insuranceDefinitionsOpen = ref(String(route.query?.panel || '') === 'insurance-definitions');
-
 const showCsvModal = ref(false);
+const showColumnMenu = ref(false);
+const uploadingUserId = ref(null);
+const ocrUserId = ref(null);
+
+const npiStatusOptions = [
+  'Yes',
+  'No, but I have registered and will list the number below and have added ITSCO as a surrogate.',
+  'Yes, I will list the number below and have added ITSCO as a surrogate.',
+  'No, and ITSCO can make me one (please contact me).'
+];
+
+const EDITABLE_KEYS = [
+  'date_of_birth',
+  'first_client_date',
+  'npi_status',
+  'npi_number',
+  'npi_id',
+  'taxonomy_code',
+  'zipcode',
+  'license_type_number',
+  'license_issued',
+  'license_expires',
+  'medicaid_location_id',
+  'medicaid_effective_date',
+  'medicaid_revalidation',
+  'medicare_number',
+  'caqh_provider_id',
+  'personal_email',
+  'cell_number'
+];
+
 const csvColumnOptions = [
   { key: 'first_name', label: 'First name' },
   { key: 'last_name', label: 'Last name' },
   { key: 'date_of_birth', label: 'DOB' },
   { key: 'first_client_date', label: 'First client date' },
+  { key: 'npi_status', label: 'Has NPI?' },
   { key: 'npi_number', label: 'NPI number' },
   { key: 'npi_id', label: 'NPI id' },
   { key: 'taxonomy_code', label: 'Taxonomy' },
@@ -442,8 +579,7 @@ const csvColumnOptions = [
   { key: 'license_type_number', label: 'License type/number' },
   { key: 'license_issued', label: 'Issued' },
   { key: 'license_expires', label: 'Expires' },
-  { key: 'medicaid_provider_type', label: 'Medicaid provider type' },
-  { key: 'tax_id', label: 'Tax ID' },
+  { key: 'license_upload', label: 'License copy' },
   { key: 'medicaid_location_id', label: 'Medicaid location id' },
   { key: 'medicaid_effective_date', label: 'Medicaid effective' },
   { key: 'medicaid_revalidation', label: 'Medicaid revalidation' },
@@ -454,9 +590,47 @@ const csvColumnOptions = [
 ];
 const csvSelectedColumns = ref(csvColumnOptions.map((c) => c.key));
 
+const toggleableColumns = [
+  { key: 'date_of_birth', label: 'DOB' },
+  { key: 'first_client_date', label: 'First Client Date' },
+  { key: 'npi_status', label: 'Has NPI?' },
+  { key: 'npi_number', label: 'NPI Number' },
+  { key: 'npi_id', label: 'NPI ID' },
+  { key: 'taxonomy_code', label: 'Taxonomy' },
+  { key: 'zipcode', label: 'Zip' },
+  { key: 'license_type_number', label: 'License Type / Number' },
+  { key: 'license_issued', label: 'Issued' },
+  { key: 'license_expires', label: 'Expires' },
+  { key: 'license_upload', label: 'License Copy' },
+  { key: 'medicaid_location_id', label: 'Medicaid Location ID' },
+  { key: 'medicaid_effective_date', label: 'Medicaid Effective' },
+  { key: 'medicaid_revalidation', label: 'Medicaid Revalidation' },
+  { key: 'medicare_number', label: 'Medicare #' },
+  { key: 'caqh_provider_id', label: 'CAQH ID' },
+  { key: 'personal_email', label: 'Personal Email' },
+  { key: 'cell_number', label: 'Cell' }
+];
+
+const DEFAULT_VISIBLE = [
+  'date_of_birth',
+  'first_client_date',
+  'npi_status',
+  'npi_number',
+  'npi_id',
+  'taxonomy_code',
+  'zipcode',
+  'license_type_number',
+  'license_issued',
+  'license_expires',
+  'license_upload'
+];
+const visibleColumns = ref([...DEFAULT_VISIBLE]);
+const isColVisible = (key) => visibleColumns.value.includes(key);
+
 const editingUserId = ref(null);
-// draftValues: Map<fieldKey, value> for the currently-edited user row.
 const draftValues = ref(new Map());
+const page = ref(1);
+const pageSize = ref(10);
 
 const filteredRows = computed(() => {
   const q = String(search.value || '').trim().toLowerCase();
@@ -465,21 +639,127 @@ const filteredRows = computed(() => {
     return (
       String(r.first_name || '').toLowerCase().includes(q) ||
       String(r.last_name || '').toLowerCase().includes(q) ||
-      String(r.personal_email || '').toLowerCase().includes(q)
+      String(r.personal_email || '').toLowerCase().includes(q) ||
+      String(r.credential || '').toLowerCase().includes(q)
     );
   });
 });
+
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredRows.value.length / pageSize.value)));
+const pageStart = computed(() => (filteredRows.value.length ? (page.value - 1) * pageSize.value + 1 : 0));
+const pageEnd = computed(() => Math.min(filteredRows.value.length, page.value * pageSize.value));
+const pagedRows = computed(() => {
+  const start = (page.value - 1) * pageSize.value;
+  return filteredRows.value.slice(start, start + pageSize.value);
+});
+const visiblePages = computed(() => {
+  const total = totalPages.value;
+  const cur = page.value;
+  const pages = [];
+  const from = Math.max(1, cur - 2);
+  const to = Math.min(total, from + 4);
+  for (let i = from; i <= to; i += 1) pages.push(i);
+  return pages;
+});
+
+watch([search, pageSize], () => {
+  page.value = 1;
+});
+
+const parseDate = (raw) => {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  const d = new Date(s.includes('T') ? s : `${s}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+const daysUntil = (raw) => {
+  const d = parseDate(raw);
+  if (!d) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((d.getTime() - today.getTime()) / 86400000);
+};
+
+const hasLicenseNumber = (row) => {
+  const v = getValue(row.userId, 'license_type_number');
+  return !!String(v || '').trim();
+};
+
+const licenseStatus = (row) => {
+  const expires = getValue(row.userId, 'license_expires');
+  const issued = getValue(row.userId, 'license_issued');
+  const days = daysUntil(expires);
+  if (hasLicenseNumber(row) && (!expires || !issued)) return { label: 'Missing dates', tone: 'expired' };
+  if (days != null && days < 0) return { label: 'Expired', tone: 'expired' };
+  if (days != null && days <= 90) return { label: 'Expiring Soon', tone: 'soon' };
+  if (!licenseUrl(row) && hasLicenseNumber(row)) return { label: 'Needs upload', tone: 'progress' };
+  if (hasLicenseNumber(row) && expires) return { label: 'Active', tone: 'active' };
+  return { label: 'In Progress', tone: 'progress' };
+};
+
+const dateCellClass = (row, which) => {
+  if (!hasLicenseNumber(row)) return {};
+  const issued = getValue(row.userId, 'license_issued');
+  const expires = getValue(row.userId, 'license_expires');
+  if (!issued || !expires) return { 'cell-alert': true };
+  if (which === 'expires') {
+    const days = daysUntil(expires);
+    if (days != null && days < 0) return { 'cell-expired': true };
+    if (days != null && days <= 90) return { 'cell-soon': true };
+  }
+  return {};
+};
+
+const stats = computed(() => {
+  const list = filteredRows.value || [];
+  let active = 0;
+  let expiringSoon = 0;
+  let expired = 0;
+  let inProgress = 0;
+  for (const r of list) {
+    const st = licenseStatus(r).tone;
+    if (st === 'active') active += 1;
+    else if (st === 'soon') expiringSoon += 1;
+    else if (st === 'expired') expired += 1;
+    else inProgress += 1;
+  }
+  return { total: list.length, active, expiringSoon, expired, inProgress };
+});
+
+const mapUiFieldKeyToStorageKey = (uiKey) => {
+  switch (uiKey) {
+    case 'npi_status':
+      return 'provider_identity_npi_status';
+    case 'npi_number':
+      return 'provider_identity_npi_number';
+    case 'taxonomy_code':
+      return 'provider_identity_taxonomy_code';
+    case 'license_type_number':
+      return 'provider_credential_license_type_number';
+    case 'license_issued':
+      return 'provider_credential_license_issued_date';
+    case 'license_expires':
+      return 'provider_credential_license_expiration_date';
+    case 'medicaid_location_id':
+      return 'provider_credential_medicaid_location_id';
+    case 'medicaid_revalidation':
+      return 'provider_credential_medicaid_revalidation_date';
+    case 'caqh_provider_id':
+      return 'provider_credential_caqh_provider_id';
+    default:
+      return uiKey;
+  }
+};
+
+const isEditingRow = (userId) => Number(editingUserId.value || 0) === Number(userId);
 
 const getValue = (userId, fieldKey) => {
   if (isEditingRow(userId) && draftValues.value.has(fieldKey)) return draftValues.value.get(fieldKey) ?? '';
   const r = (rows.value || []).find((x) => Number(x.userId) === Number(userId));
   if (!r) return '';
-
-  // users-backed columns
   if (fieldKey === 'personal_email') return r.personal_email || '';
   if (fieldKey === 'cell_number') return r.cell_number || '';
-
-  // uiv-backed columns
   const colKey = mapUiFieldKeyToStorageKey(fieldKey);
   return (r.fields || {})[colKey] ?? '';
 };
@@ -489,43 +769,22 @@ const setValue = (userId, fieldKey, value) => {
   error.value = '';
   if (!isEditingRow(userId)) return;
   draftValues.value.set(fieldKey, value);
-  // Replace map reference so Vue reacts
   draftValues.value = new Map(draftValues.value);
 };
-
-const isEditingRow = (userId) => Number(editingUserId.value || 0) === Number(userId);
 
 const beginEdit = (userId) => {
   const uid = Number(userId);
   if (!uid) return;
+  if (editingUserId.value && Number(editingUserId.value) !== uid) {
+    if (!confirm('You have unsaved edits on another provider. Discard them and edit this row?')) return;
+  }
   const r = (rows.value || []).find((x) => Number(x.userId) === uid);
   if (!r) return;
+  // Clear any prior draft before seeding so we never copy values across rows.
+  draftValues.value = new Map();
   editingUserId.value = uid;
-
   const initial = new Map();
-  const keys = [
-    'date_of_birth',
-    'first_client_date',
-    'npi_number',
-    'npi_id',
-    'taxonomy_code',
-    'zipcode',
-    'license_type_number',
-    'license_issued',
-    'license_expires',
-    'medicaid_provider_type',
-    'tax_id',
-    'medicaid_location_id',
-    'medicaid_effective_date',
-    'medicaid_revalidation',
-    'medicare_number',
-    'caqh_provider_id',
-    'personal_email',
-    'cell_number'
-  ];
-  for (const k of keys) {
-    initial.set(k, getValue(uid, k));
-  }
+  for (const k of EDITABLE_KEYS) initial.set(k, baseValueForRow(r, k));
   draftValues.value = initial;
 };
 
@@ -582,37 +841,67 @@ const saveRow = async (userId) => {
   }
 };
 
-const mapUiFieldKeyToStorageKey = (uiKey) => {
-  switch (uiKey) {
-    case 'npi_number':
-      return 'provider_identity_npi_number';
-    case 'taxonomy_code':
-      return 'provider_identity_taxonomy_code';
-    case 'license_type_number':
-      return 'provider_credential_license_type_number';
-    case 'license_issued':
-      return 'provider_credential_license_issued_date';
-    case 'license_expires':
-      return 'provider_credential_license_expiration_date';
-    case 'medicaid_location_id':
-      return 'provider_credential_medicaid_location_id';
-    case 'medicaid_revalidation':
-      return 'provider_credential_medicaid_revalidation_date';
-    case 'caqh_provider_id':
-      return 'provider_credential_caqh_provider_id';
-    default:
-      return uiKey;
-  }
-};
-
 const cellTitle = (row, uiKey) => {
   if (!row) return '';
-  // For uiv-backed cells, backend returns the source field_key used (if any).
   if (uiKey !== 'personal_email' && uiKey !== 'cell_number') {
     const src = String(row?.sources?.[uiKey] || '').trim();
     return src ? `Source field_key: ${src}` : 'No value found in any known field keys for this column.';
   }
   return '';
+};
+
+const sourceLabel = (row, uiKey) => {
+  const src = String(row?.sources?.[uiKey] || '').trim();
+  if (!src) return 'src: (none found)';
+  const list = Array.isArray(row?.debug?.[src]) ? row.debug[src] : [];
+  const picked = list?.[0] || null;
+  const defId = picked?.fieldDefinitionId ? String(picked.fieldDefinitionId) : '';
+  const dup = list?.length > 1 ? ` (dups: ${list.length})` : '';
+  return `src: ${src}${defId ? ` (#${defId})` : ''}${dup}`;
+};
+
+const photoUrl = (row) => {
+  const raw = row?.profilePhotoUrl || row?.profile_photo_path || null;
+  return raw ? toUploadsUrl(raw) : null;
+};
+
+const licenseUrl = (row) => {
+  const raw = row?.licenseUploadUrl || row?.fields?.license_upload || null;
+  return raw ? toUploadsUrl(raw) : null;
+};
+
+const initials = (row) => {
+  const a = String(row?.first_name || '').trim().charAt(0);
+  const b = String(row?.last_name || '').trim().charAt(0);
+  return `${a}${b}`.toUpperCase() || '?';
+};
+
+const AVATAR_COLORS = ['#0f766e', '#1d4ed8', '#7c3aed', '#b45309', '#be123c', '#0369a1', '#15803d'];
+const avatarColor = (row) => AVATAR_COLORS[Number(row?.userId || 0) % AVATAR_COLORS.length];
+
+const displayName = (row) => {
+  const name = `${row.first_name || ''} ${row.last_name || ''}`.trim();
+  const cred = String(row.credential || '').trim();
+  return cred ? `${name}, ${cred}` : name;
+};
+
+const formatDisplayDate = (raw) => {
+  const d = parseDate(raw);
+  if (!d) return '';
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${mm}/${dd}/${d.getFullYear()}`;
+};
+
+const shortNpiStatus = (raw) => {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  const lower = s.toLowerCase();
+  if (lower === 'yes') return 'Yes';
+  if (lower.startsWith('yes')) return 'Yes (ITSCO surrogate)';
+  if (lower.includes('make me one') || lower.includes('no_itsco_create')) return 'No — ITSCO can create';
+  if (lower.startsWith('no')) return 'No — registered / surrogate';
+  return s.length > 42 ? `${s.slice(0, 40)}…` : s;
 };
 
 const refresh = async () => {
@@ -646,22 +935,61 @@ const fetchByInsurance = async () => {
   }
 };
 
-watch(
-  () => showSources.value,
-  async () => {
-    if (!selectedAgencyId.value) return;
+const onLicenseFileSelected = async (row, event) => {
+  const file = event?.target?.files?.[0];
+  event.target.value = '';
+  if (!file || !selectedAgencyId.value) return;
+  try {
+    uploadingUserId.value = row.userId;
+    error.value = '';
+    info.value = '';
+    const form = new FormData();
+    form.append('file', file);
+    const res = await api.post(
+      `/agencies/${selectedAgencyId.value}/credentialing/providers/${row.userId}/license`,
+      form,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+    const extracted = res.data?.extracted;
+    const bits = [];
+    if (extracted?.license_type_number) bits.push(`number ${extracted.license_type_number}`);
+    if (extracted?.license_issued) bits.push(`issued ${extracted.license_issued}`);
+    if (extracted?.license_expires) bits.push(`expires ${extracted.license_expires}`);
+    info.value = bits.length
+      ? `License uploaded and AI filled: ${bits.join(', ')}.`
+      : res.data?.ocrError
+        ? `License uploaded. AI read failed: ${res.data.ocrError}`
+        : 'License uploaded.';
     await refresh();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to upload license';
+  } finally {
+    uploadingUserId.value = null;
   }
-);
+};
 
-const sourceLabel = (row, uiKey) => {
-  const src = String(row?.sources?.[uiKey] || '').trim();
-  if (!src) return 'src: (none found)';
-  const list = Array.isArray(row?.debug?.[src]) ? row.debug[src] : [];
-  const picked = list?.[0] || null;
-  const defId = picked?.fieldDefinitionId ? String(picked.fieldDefinitionId) : '';
-  const dup = list?.length > 1 ? ` (dups: ${list.length})` : '';
-  return `src: ${src}${defId ? ` (#${defId})` : ''}${dup}`;
+const runLicenseOcr = async (row) => {
+  if (!selectedAgencyId.value) return;
+  try {
+    ocrUserId.value = row.userId;
+    error.value = '';
+    info.value = '';
+    const res = await api.post(
+      `/agencies/${selectedAgencyId.value}/credentialing/providers/${row.userId}/license/ocr`,
+      { apply: true }
+    );
+    const extracted = res.data?.extracted || {};
+    const bits = [];
+    if (extracted.license_type_number) bits.push(`number ${extracted.license_type_number}`);
+    if (extracted.license_issued) bits.push(`issued ${extracted.license_issued}`);
+    if (extracted.license_expires) bits.push(`expires ${extracted.license_expires}`);
+    info.value = bits.length ? `AI filled: ${bits.join(', ')}.` : 'AI ran but found no clear license fields.';
+    await refresh();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to read license with AI';
+  } finally {
+    ocrUserId.value = null;
+  }
 };
 
 const doExportCsv = async () => {
@@ -691,22 +1019,26 @@ const doExportCsv = async () => {
 const applyRoutePanelPrefs = async () => {
   const panel = String(route.query?.panel || '').trim();
   insuranceDefinitionsOpen.value = panel === 'insurance-definitions';
-
   const queryAgencyId = parseInt(String(route.query?.agencyId || ''), 10);
   if (Number.isInteger(queryAgencyId) && queryAgencyId > 0) {
     const match = (agencies.value || []).find((a) => Number(a.id) === queryAgencyId);
     if (match) selectedAgencyId.value = queryAgencyId;
   }
-
   if (insuranceDefinitionsOpen.value) {
     await nextTick();
     insuranceDefinitionsDetails.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
   }
 };
 
+watch(
+  () => showSources.value,
+  async () => {
+    if (!selectedAgencyId.value) return;
+    await refresh();
+  }
+);
+
 onMounted(async () => {
-  // Use the agency list scoped to the current user (works for admin/support/staff).
-  // `fetchAgencies()` hits /agencies which may be restricted for staff.
   await agencyStore.fetchUserAgencies();
   if (!selectedAgencyId.value && agencies.value.length) {
     selectedAgencyId.value = agencies.value[0].id;
@@ -745,12 +1077,343 @@ watch(viewMode, (mode) => {
 .credentialing-page {
   font-family: var(--agency-font-family, var(--font-body));
   font-size: 1rem;
+  --cred-border: #e5e7eb;
+  --cred-muted: #6b7280;
+  --cred-surface: #ffffff;
+  --cred-bg: #f3f4f6;
 }
-.credentialing-page .table,
-.credentialing-page input,
-.credentialing-page select,
-.credentialing-page .card {
-  font-family: var(--agency-font-family, var(--font-body));
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.filters-card,
+.insurance-definitions-card,
+.timeline-card,
+.table-card {
+  margin-top: 14px;
+}
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.filters-meta {
+  margin-top: 10px;
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.inline-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.banner {
+  margin-top: 12px;
+}
+.stats-row {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+.stat-card {
+  background: var(--cred-surface);
+  border: 1px solid var(--cred-border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.stat-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.stat-icon svg {
+  width: 20px;
+  height: 20px;
+}
+.stat-icon.total { background: #dcfce7; color: #15803d; }
+.stat-icon.active { background: #dbeafe; color: #1d4ed8; }
+.stat-icon.soon { background: #ffedd5; color: #c2410c; }
+.stat-icon.expired { background: #fee2e2; color: #b91c1c; }
+.stat-icon.progress { background: #ede9fe; color: #6d28d9; }
+.stat-label {
+  font-size: 12px;
+  color: var(--cred-muted);
+}
+.stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #111827;
+}
+.table-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.table-toolbar h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.toolbar-actions {
+  position: relative;
+}
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--cred-border);
+  background: #fff;
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  color: #374151;
+}
+.column-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  background: #fff;
+  border: 1px solid var(--cred-border);
+  border-radius: 10px;
+  padding: 10px;
+  min-width: 220px;
+  max-height: 320px;
+  overflow: auto;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+  display: grid;
+  gap: 6px;
+}
+.table-wrap {
+  overflow: auto;
+  border: 1px solid var(--cred-border);
+  border-radius: 12px;
+}
+.cred-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 1400px;
+  background: #fff;
+}
+.cred-table th,
+.cred-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--cred-border);
+  text-align: left;
+  vertical-align: middle;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.cred-table th {
+  background: #f9fafb;
+  color: #6b7280;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.cred-table tbody tr:hover {
+  background: #fafafa;
+}
+.cred-table tr.row-editing {
+  background: #f0fdf4;
+}
+.sticky-name {
+  position: sticky;
+  left: 0;
+  background: #fff;
+  z-index: 1;
+  min-width: 240px;
+}
+.cred-table th.sticky-name {
+  z-index: 3;
+  background: #f9fafb;
+}
+.provider-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 auto;
+}
+.avatar-fallback {
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+}
+.provider-name {
+  font-weight: 600;
+  color: #111827;
+  text-decoration: none;
+}
+.provider-name:hover {
+  text-decoration: underline;
+}
+.cell-text {
+  color: #111827;
+  user-select: text;
+}
+.cell-input {
+  width: 100%;
+  min-width: 110px;
+  border: 1px solid #86efac;
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: #fff;
+}
+.cell-missing {
+  color: #b91c1c;
+  font-weight: 600;
+}
+.cell-alert {
+  background: #fef2f2 !important;
+}
+.cell-alert .cell-text {
+  color: #b91c1c;
+  font-weight: 700;
+}
+.cell-expired {
+  background: #fef2f2 !important;
+}
+.cell-expired .cell-text {
+  color: #b91c1c;
+  font-weight: 700;
+}
+.cell-soon {
+  background: #fffbeb !important;
+}
+.cell-soon .cell-text {
+  color: #b45309;
+  font-weight: 700;
+}
+.license-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.link-btn {
+  border: none;
+  background: none;
+  color: #0f766e;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: none;
+  font-size: 12px;
+}
+.link-btn.disabled,
+.link-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.upload-label {
+  cursor: pointer;
+}
+.missing-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-weight: 700;
+  font-size: 11px;
+}
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.status-pill.active {
+  background: #dcfce7;
+  color: #15803d;
+}
+.status-pill.soon {
+  background: #ffedd5;
+  color: #c2410c;
+}
+.status-pill.expired {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.status-pill.progress {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+.actions-cell {
+  white-space: nowrap;
+}
+.actions-cell .btn + .btn {
+  margin-left: 6px;
+}
+.table-footer {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.pager {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.page-btn {
+  min-width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--cred-border);
+  background: #fff;
+  cursor: pointer;
+}
+.page-btn.active {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: #fff;
+}
+.page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.page-size {
+  border: 1px solid var(--cred-border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: #fff;
 }
 .in-network-badges {
   display: flex;
@@ -759,24 +1422,26 @@ watch(viewMode, (mode) => {
   margin-top: 4px;
 }
 .in-network-badges .badge {
-  font-family: var(--agency-font-family, var(--font-body));
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   padding: 2px 6px;
-  background: var(--bg-alt);
-  border: 1px solid var(--border);
+  background: var(--bg-alt, #f3f4f6);
+  border: 1px solid var(--border, #e5e7eb);
   border-radius: 4px;
-  color: var(--text-primary);
+  color: var(--text-primary, #111827);
+}
+.src {
+  font-size: 11px;
+  color: var(--cred-muted);
+  margin-top: 2px;
 }
 .insurance-section {
   margin-bottom: 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--cred-border);
   border-radius: 6px;
   padding: 8px 12px;
-  font-family: var(--agency-font-family, var(--font-body));
 }
 .insurance-section summary {
   cursor: pointer;
-  font-family: var(--agency-font-family, var(--font-header));
 }
 .modal-overlay {
   position: fixed;
@@ -791,28 +1456,35 @@ watch(viewMode, (mode) => {
   max-width: 480px;
   max-height: 80vh;
   overflow: auto;
-  font-family: var(--agency-font-family, var(--font-body));
 }
 .csv-columns {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 8px;
   margin: 12px 0;
-  max-height: 240px;
-  overflow-y: auto;
 }
 .checkbox-label {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0;
-  cursor: pointer;
-  font-family: var(--agency-font-family, var(--font-body));
+  font-size: 13px;
 }
 .modal-actions {
   display: flex;
-  gap: 8px;
   justify-content: flex-end;
-  margin-top: 16px;
+  gap: 8px;
+}
+@media (max-width: 1100px) {
+  .stats-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .field-row {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 640px) {
+  .stats-row {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

@@ -13,6 +13,10 @@ import { encryptChatText, decryptChatText } from '../services/chatEncryption.ser
 import { validationResult } from 'express-validator';
 import crypto from 'crypto';
 import { userHasCredentialingAccessForAgency } from '../utils/capabilities.js';
+import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import UserComplianceDocument from '../models/UserComplianceDocument.model.js';
+import { syncLicenseUploadToProfile } from '../services/licenseCredentialSync.service.js';
+import { extractLicenseFieldsFromStoredPath } from '../services/licenseOcr.service.js';
 
 function csvEscape(v) {
   const s = v === null || v === undefined ? '' : String(v);
@@ -56,6 +60,13 @@ export const CREDENTIALING_COLUMNS = [
   { key: 'date_of_birth', label: 'date_of_birth', kind: 'uiv', fieldKey: 'date_of_birth', readFieldKeys: ['date_of_birth', 'dob', 'birthdate', 'birth_date'] },
   { key: 'first_client_date', label: 'first_client_date', kind: 'uiv', fieldKey: 'first_client_date', readFieldKeys: ['first_client_date', 'first_client_start_date', 'start_date_first_client'] },
   {
+    key: 'npi_status',
+    label: 'npi_status',
+    kind: 'uiv',
+    fieldKey: 'provider_identity_npi_status',
+    readFieldKeys: ['provider_identity_npi_status', 'npi_status']
+  },
+  {
     key: 'npi_number',
     label: 'npi_number',
     kind: 'uiv',
@@ -98,8 +109,13 @@ export const CREDENTIALING_COLUMNS = [
     fieldKey: 'provider_credential_license_expiration_date',
     readFieldKeys: ['provider_credential_license_expiration_date', 'license_expires', 'license_expiration_date', 'license_expires_date']
   },
-  { key: 'medicaid_provider_type', label: 'medicaid_provider_type', kind: 'uiv', fieldKey: 'medicaid_provider_type', readFieldKeys: ['medicaid_provider_type'] },
-  { key: 'tax_id', label: 'tax_id', kind: 'uiv', fieldKey: 'tax_id', readFieldKeys: ['tax_id', 'ein'] },
+  {
+    key: 'license_upload',
+    label: 'license_upload',
+    kind: 'uiv',
+    fieldKey: 'license_upload',
+    readFieldKeys: ['license_upload']
+  },
   {
     key: 'medicaid_location_id',
     label: 'medicaid_location_id',
@@ -295,7 +311,8 @@ export const listAgencyProvidersCredentialing = async (req, res, next) => {
     const includeDebug = String(req.query.debug || '').toLowerCase() === 'true';
 
     const [users] = await pool.execute(
-      `SELECT u.id AS userId, u.first_name, u.last_name, u.role, u.status, u.personal_email, u.personal_phone
+      `SELECT u.id AS userId, u.first_name, u.last_name, u.role, u.status, u.personal_email, u.personal_phone,
+              u.profile_photo_path, u.credential
        FROM users u
        JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
        WHERE UPPER(COALESCE(u.status,'')) IN ('ACTIVE_EMPLOYEE','ACTIVE')
@@ -332,10 +349,14 @@ export const listAgencyProvidersCredentialing = async (req, res, next) => {
         userId: Number(u.userId),
         first_name: u.first_name || '',
         last_name: u.last_name || '',
+        credential: u.credential || '',
         status: u.status || '',
         role: u.role || '',
         personal_email: u.personal_email || '',
         cell_number: u.personal_phone || '',
+        profile_photo_path: u.profile_photo_path || null,
+        profilePhotoUrl: publicUploadsUrlFromStoredPath(u.profile_photo_path),
+        licenseUploadUrl: null,
         fields: {},
         ...(includeDebug ? { debug: {} } : null)
       });
@@ -395,10 +416,17 @@ export const listAgencyProvidersCredentialing = async (req, res, next) => {
       }
     }
 
+    const normalizedRows = Array.from(rowsByUserId.values()).map((r) => {
+      const row = normalizeRowFieldsToCanonical(r);
+      const uploadPath = String(row.fields?.license_upload || '').trim();
+      row.licenseUploadUrl = uploadPath ? publicUploadsUrlFromStoredPath(uploadPath) : null;
+      return row;
+    });
+
     res.json({
       agencyId,
       columns: CREDENTIALING_COLUMNS.map((c) => ({ key: c.key, label: c.label })),
-      rows: Array.from(rowsByUserId.values()).map((r) => normalizeRowFieldsToCanonical(r))
+      rows: normalizedRows
     });
   } catch (e) {
     next(e);
@@ -477,8 +505,10 @@ export const patchAgencyProvidersCredentialing = async (req, res, next) => {
         .map((u) => Number(u.userId))
     );
 
-    // Normalize updates: only accept known keys.
-    const allowedUpdateKeys = new Set(CREDENTIALING_COLUMNS.map((c) => c.key));
+    // Normalize updates: only accept known keys (license_upload is file-only via upload endpoint).
+    const allowedUpdateKeys = new Set(
+      CREDENTIALING_COLUMNS.map((c) => c.key).filter((k) => k !== 'license_upload')
+    );
     const normalized = updates
       .map((u) => ({
         userId: Number(u?.userId),
@@ -577,6 +607,212 @@ export const patchAgencyProvidersCredentialing = async (req, res, next) => {
     // Give a stable error id for admins to report.
     const errorId = crypto.randomUUID?.() || crypto.randomBytes(8).toString('hex');
     console.error('patchAgencyProvidersCredentialing error', errorId, e);
+    next(e);
+  }
+};
+
+export const licenseUploadMulter = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = [
+      'application/pdf',
+      'image/png',
+      'image/jpeg',
+      'image/jpg',
+      'image/webp',
+      'image/gif'
+    ];
+    if (allowed.includes(String(file.mimetype || '').toLowerCase())) cb(null, true);
+    else cb(new Error('Only PDF or image files are allowed'));
+  }
+});
+
+async function assertProviderInAgency(agencyId, userId) {
+  const [rows] = await pool.execute(
+    `SELECT u.id AS userId, u.role, u.status
+     FROM users u
+     JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+     WHERE u.id = ?
+     LIMIT 1`,
+    [agencyId, userId]
+  );
+  const row = rows?.[0];
+  if (!row || !isProviderRow(row) || !isActiveUserRow(row)) {
+    const err = new Error('Provider not found in this agency');
+    err.statusCode = 404;
+    throw err;
+  }
+  return row;
+}
+
+export const uploadProviderLicenseCredentialing = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const userId = parseInt(req.params.userId, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0 || !Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId or userId' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    await assertProviderInAgency(agencyId, userId);
+    if (!req.file?.buffer?.length) {
+      return res.status(400).json({ error: { message: 'License file is required' } });
+    }
+
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    const ext = path.extname(req.file.originalname || '') || (String(req.file.mimetype || '').includes('pdf') ? '.pdf' : '.jpg');
+    const filename = `credential-${userId}-${uniqueSuffix}${ext}`;
+    const storageResult = await StorageService.saveComplianceDocument(
+      req.file.buffer,
+      filename,
+      req.file.mimetype || 'application/pdf'
+    );
+
+    const uploadedAt = new Date();
+    await UserComplianceDocument.create({
+      userId,
+      agencyId,
+      documentType: 'license',
+      expirationDate: null,
+      isBlocking: false,
+      filePath: storageResult.relativePath,
+      notes: 'Uploaded from agency credentialing grid',
+      uploadedAt,
+      createdByUserId: req.user?.id || null
+    });
+
+    await syncLicenseUploadToProfile(userId, storageResult.relativePath);
+
+    let extracted = null;
+    let ocrError = null;
+    try {
+      extracted = await extractLicenseFieldsFromStoredPath(storageResult.relativePath);
+      const fieldWrites = [];
+      if (extracted?.license_type_number) {
+        fieldWrites.push({ key: 'provider_credential_license_type_number', value: extracted.license_type_number });
+      }
+      if (extracted?.license_issued) {
+        fieldWrites.push({ key: 'provider_credential_license_issued_date', value: extracted.license_issued });
+      }
+      if (extracted?.license_expires) {
+        fieldWrites.push({ key: 'provider_credential_license_expiration_date', value: extracted.license_expires });
+      }
+      if (fieldWrites.length) {
+        await ensureAgencyFieldDefinitions({
+          agencyId,
+          fieldKeys: fieldWrites.map((f) => f.key),
+          createdByUserId: req.user?.id || null
+        });
+        const defIdByFieldKey = await resolveBestDefinitionIdsForAgency({
+          agencyId,
+          fieldKeys: fieldWrites.map((f) => f.key)
+        });
+        for (const fw of fieldWrites) {
+          const defId = defIdByFieldKey.get(fw.key);
+          if (!defId) continue;
+          await UserInfoValue.createOrUpdate(userId, defId, fw.value);
+        }
+      }
+    } catch (e) {
+      ocrError = e?.message || 'OCR failed';
+    }
+
+    res.json({
+      ok: true,
+      licenseUploadPath: storageResult.relativePath,
+      licenseUploadUrl: publicUploadsUrlFromStoredPath(storageResult.relativePath),
+      extracted,
+      ocrError
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const ocrProviderLicenseCredentialing = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const userId = parseInt(req.params.userId, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0 || !Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId or userId' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    await assertProviderInAgency(agencyId, userId);
+
+    const apply = String(req.body?.apply || req.query?.apply || '').toLowerCase() === 'true';
+
+    const [vals] = await pool.execute(
+      `SELECT uiv.value
+       FROM user_info_values uiv
+       JOIN user_info_field_definitions uifd ON uiv.field_definition_id = uifd.id
+       WHERE uiv.user_id = ? AND uifd.field_key = 'license_upload'
+       ORDER BY uiv.updated_at DESC, uiv.id DESC
+       LIMIT 1`,
+      [userId]
+    );
+    let uploadPath = String(vals?.[0]?.value || '').trim();
+    if (!uploadPath) {
+      const docs = await UserComplianceDocument.findByUser(userId);
+      const licenseDoc = (docs || []).find((d) =>
+        ['license', 'license_upload'].includes(String(d.document_type || '').toLowerCase())
+      );
+      uploadPath = String(licenseDoc?.file_path || '').trim();
+    }
+    if (!uploadPath) {
+      return res.status(404).json({ error: { message: 'No license upload on file for this provider' } });
+    }
+
+    const extracted = await extractLicenseFieldsFromStoredPath(uploadPath);
+    if (apply) {
+      const fieldWrites = [];
+      if (extracted?.license_type_number) {
+        fieldWrites.push({ key: 'provider_credential_license_type_number', value: extracted.license_type_number });
+      }
+      if (extracted?.license_issued) {
+        fieldWrites.push({ key: 'provider_credential_license_issued_date', value: extracted.license_issued });
+      }
+      if (extracted?.license_expires) {
+        fieldWrites.push({ key: 'provider_credential_license_expiration_date', value: extracted.license_expires });
+      }
+      if (fieldWrites.length) {
+        await ensureAgencyFieldDefinitions({
+          agencyId,
+          fieldKeys: fieldWrites.map((f) => f.key),
+          createdByUserId: req.user?.id || null
+        });
+        const defIdByFieldKey = await resolveBestDefinitionIdsForAgency({
+          agencyId,
+          fieldKeys: fieldWrites.map((f) => f.key)
+        });
+        for (const fw of fieldWrites) {
+          const defId = defIdByFieldKey.get(fw.key);
+          if (!defId) continue;
+          await UserInfoValue.createOrUpdate(userId, defId, fw.value);
+          try {
+            await CredentialingChangeLog.create({
+              userId,
+              agencyId,
+              fieldChanged: fw.key,
+              oldValue: null,
+              newValue: String(fw.value),
+              changedByUserId: req.user?.id || null,
+              insuranceCredentialingDefinitionId: null
+            });
+          } catch {
+            // best-effort
+          }
+        }
+      }
+    }
+
+    res.json({
+      ok: true,
+      licenseUploadPath: uploadPath,
+      licenseUploadUrl: publicUploadsUrlFromStoredPath(uploadPath),
+      extracted,
+      applied: apply
+    });
+  } catch (e) {
     next(e);
   }
 };
