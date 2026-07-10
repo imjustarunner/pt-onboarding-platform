@@ -1,5 +1,5 @@
 <template>
-  <div class="login-page" :class="{ 'login-page--sstc': isSSTCLogin, 'login-page--app-like': isAppLike, 'login-page--platform': isPlatformLogin, 'login-page--tenant-video': showTenantLoginVideo }">
+  <div class="login-page" :class="{ 'login-page--sstc': isSSTCLogin, 'login-page--app-like': isAppLike, 'login-page--platform': isPlatformLogin, 'login-page--tenant-video': showTenantLoginVideo, 'login-page--video-auth': useVideoAuthLayout }">
     <video
       v-if="isPlatformLogin"
       class="login-bg-video login-bg-video--wide login-bg-video--platform"
@@ -144,6 +144,21 @@
           </div>
         </div>
       </aside>
+      <aside v-else-if="showTenantVideoHero" class="video-auth-hero">
+        <div class="video-auth-hero__brand">
+          <img
+            v-if="displayLogoUrl"
+            :src="displayLogoUrl"
+            :alt="displayTitle"
+            class="video-auth-hero__logo"
+            @error="handleLogoError"
+          />
+        </div>
+        <div class="video-auth-hero__content">
+          <h1 class="video-auth-hero__title">Welcome back</h1>
+          <p class="video-auth-hero__subtitle">{{ tenantVideoAuthSubtitle }}</p>
+        </div>
+      </aside>
       <div class="login-card" :class="{ 'login-card--wide': intakesPanelOpen && showIntakesTrigger, 'login-card--app': isAppLike, 'login-card--ipad': isIpadPreviewMode }">
         <div v-if="isIpadPreviewMode && !loginParentBranding" class="ipad-hero-panel">
           <img
@@ -236,13 +251,13 @@
           <p class="platform-cardhead__subtitle">Log in to your {{ platformBrandName }} account</p>
         </div>
 
-        <div v-else-if="!isIpadPreviewMode" class="login-logo">
+        <div v-else-if="!isIpadPreviewMode && !isPlatformLogin && !showTenantVideoHero" class="login-logo">
           <img :src="displayLogoUrl" alt="Logo" class="logo-image" @error="handleLogoError" v-if="displayLogoUrl" />
         </div>
         <h2 v-if="!isAppLike && !isSSTCLogin && !isPlatformLogin && loginParentBranding">{{ portalLoginHeadline }}</h2>
-        <h2 v-else-if="!isAppLike && !isSSTCLogin && !isPlatformLogin">{{ primaryLoginTitle }}</h2>
+        <h2 v-else-if="!isAppLike && !isSSTCLogin && !isPlatformLogin && !showTenantVideoHero">{{ primaryLoginTitle }}</h2>
         <p v-if="!isAppLike && !isSSTCLogin && !isPlatformLogin && loginParentBranding" class="subtitle">{{ portalLoginSubtitle }}</p>
-        <p v-else-if="!isAppLike && !isPlatformLogin" class="subtitle">{{ primaryLoginSubtitle }}</p>
+        <p v-else-if="!isAppLike && !isPlatformLogin && !showTenantVideoHero" class="subtitle">{{ primaryLoginSubtitle }}</p>
         
         <div v-if="error" class="error" v-html="formatError(error)"></div>
         <div v-if="showSignupSuggestion" class="login-signup-suggestion">
@@ -1013,6 +1028,22 @@ const tenantLoginVideoNarrowSrc = computed(() => {
 const showTenantLoginVideo = computed(
   () => !!(tenantLoginVideoWideSrc.value || tenantLoginVideoNarrowSrc.value)
 );
+
+const useVideoAuthLayout = computed(() => isPlatformLogin.value || showTenantLoginVideo.value);
+
+const showTenantVideoHero = computed(
+  () =>
+    showTenantLoginVideo.value &&
+    !loginParentBranding.value &&
+    !isSSTCLogin.value &&
+    !isAppLike.value
+);
+
+const tenantVideoAuthSubtitle = computed(() => {
+  const name = String(loginTheme.value?.agency?.name || brandingStore.portalAgency?.name || '').trim();
+  if (name) return `Log in to your ${name} account`;
+  return 'Sign in to continue';
+});
 
 const platformBrandName = computed(() => {
   const n = String(brandingStore.platformBranding?.organization_name || '').trim();
@@ -3006,28 +3037,30 @@ const handleLogoError = (event) => {
   background: rgba(255,255,255,0.2);
 }
 
-/* ══ Platform login — plottwisthq.com only ═══════════════════════════════════
-   Single unified dark theme across ALL screen sizes: phone, iPad, desktop.
-   Scoped entirely under .login-page--platform so every tenant login
-   (/itsco/login, app.itsco.health, native app shell) is completely untouched.
-   The username-first → automatic SSO flow is unchanged — only the presentation. */
+/* ══ Video-auth login (platform + tenant video backgrounds) ═══════════════════
+   Transparent card, glass inputs, dark-on-video typography. Platform keeps its
+   own hero/footer; tenants with video get a matching hero + tenant accent colors. */
 
-/* ── Design tokens ── */
-.login-page--platform {
-  --pt-primary:       #6c4df6;
-  --pt-primary-hover: #7c5cff;
-  --pt-accent:        #8B6BFF;
-  --pt-white:         #ffffff;
-  --pt-muted:         rgba(255, 255, 255, 0.72);
-  --pt-subtle:        rgba(255, 255, 255, 0.45);
-  --pt-border:        rgba(255, 255, 255, 0.16);
-  --pt-field-bg:      rgba(255, 255, 255, 0.06);
+/* ── Shared design tokens ── */
+.login-page--video-auth {
+  --va-primary: var(--primary, #6c4df6);
+  --va-accent: var(--accent, #8B6BFF);
+  --va-white: #ffffff;
+  --va-muted: rgba(255, 255, 255, 0.72);
+  --va-subtle: rgba(255, 255, 255, 0.45);
+  --va-border: rgba(255, 255, 255, 0.16);
+  --va-field-bg: rgba(255, 255, 255, 0.06);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   position: relative;
-  /* PNG fallback while the video loads, and on phone / reduced-motion */
-  background: #08081a url('/branding/plottwisthq-platform-bg.png') no-repeat center center / cover;
   min-height: 100vh;
   min-height: 100dvh;
+}
+
+.login-page--platform {
+  --va-primary: #6c4df6;
+  --va-accent: #8B6BFF;
+  /* PNG fallback while the video loads, and on reduced-motion */
+  background: #08081a url('/branding/plottwisthq-platform-bg.png') no-repeat center center / cover;
 }
 
 /* Full-bleed looping background video — wide (web/iPad) vs narrow (phone) */
@@ -3050,8 +3083,7 @@ const handleLogoError = (event) => {
 }
 
 /* Keep login chrome above the background video */
-.login-page--platform > *:not(.login-bg-video),
-.login-page--tenant-video > *:not(.login-bg-video) {
+.login-page--video-auth > *:not(.login-bg-video) {
   position: relative;
   z-index: 1;
 }
@@ -3077,23 +3109,85 @@ const handleLogoError = (event) => {
   background: transparent !important;
 }
 
-/* ── Page chrome fonts ── */
-.login-page--platform .login-form,
-.login-page--platform .login-card,
-.login-page--platform .platform-footer {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-}
-
-/* ── Layout: single column, centered ── */
-.login-page--platform .login-container {
+/* ── Shared layout: single column, centered ── */
+.login-page--video-auth .login-container {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
   padding: 0 clamp(20px, 5vw, 40px) 0;
   background: transparent !important;
-  /* Override any grid set by base styles */
   grid-template-columns: none;
+}
+
+/* ── Shared login card: no white box ── */
+.login-page--video-auth .login-card {
+  margin: clamp(20px, 3vh, 32px) auto 0;
+  width: 100%;
+  max-width: 480px;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0;
+  justify-self: unset;
+  align-self: unset;
+}
+
+/* ── Tenant video hero (ITSCO / NLU hub logins) ── */
+.video-auth-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  background: none;
+  padding: clamp(40px, 8vh, 80px) 0 0;
+  width: 100%;
+  max-width: 520px;
+}
+
+.video-auth-hero__brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.video-auth-hero__logo {
+  height: clamp(64px, 12vw, 120px);
+  width: auto;
+  max-width: min(280px, 70vw);
+  object-fit: contain;
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.35));
+}
+
+.video-auth-hero__title {
+  margin: 0 0 10px;
+  font-family: 'Manrope', 'Inter', sans-serif;
+  font-size: clamp(30px, 4.5vw, 42px);
+  line-height: 1.1;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--va-white);
+}
+
+.video-auth-hero__subtitle {
+  margin: 0 auto;
+  max-width: 400px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 400;
+  font-size: clamp(15px, 2vw, 17px);
+  line-height: 1.55;
+  color: var(--va-muted);
+}
+
+/* ── Page chrome fonts ── */
+.login-page--video-auth .login-form,
+.login-page--video-auth .login-card {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.login-page--platform .platform-footer {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 /* ── Hero: always visible, centered ── */
@@ -3146,7 +3240,7 @@ const handleLogoError = (event) => {
   font-size: clamp(22px, 4vw, 34px);
   letter-spacing: 0.28em;
   text-indent: 0.28em; /* optical center offset for wide tracking */
-  color: var(--pt-white);
+  color: var(--va-white);
   line-height: 1;
 }
 
@@ -3159,7 +3253,7 @@ const handleLogoError = (event) => {
   font-size: 13px;
   letter-spacing: 0.4em;
   text-indent: 0.4em;
-  color: var(--pt-accent);
+  color: var(--va-accent);
   line-height: 1;
   margin-top: 10px;
 }
@@ -3170,7 +3264,7 @@ const handleLogoError = (event) => {
   display: block;
   width: 28px;
   height: 1px;
-  background: var(--pt-accent);
+  background: var(--va-accent);
   opacity: 0.55;
 }
 
@@ -3187,11 +3281,11 @@ const handleLogoError = (event) => {
   line-height: 1.08;
   font-weight: 800;
   letter-spacing: -0.04em;
-  color: var(--pt-white);
+  color: var(--va-white);
 }
 
 .platform-hero__title-accent {
-  color: var(--pt-accent);
+  color: var(--va-accent);
 }
 
 .platform-hero__subtitle {
@@ -3201,7 +3295,7 @@ const handleLogoError = (event) => {
   font-weight: 400;
   font-size: clamp(15px, 2vw, 18px);
   line-height: 1.6;
-  color: var(--pt-muted);
+  color: var(--va-muted);
 }
 
 /* Dashboard SVG art — not used in the dark layout */
@@ -3209,52 +3303,128 @@ const handleLogoError = (event) => {
   display: none;
 }
 
-/* ── Login card ── */
-.login-page--platform .login-card {
-  margin: clamp(20px, 3vh, 32px) auto 0;
-  width: 100%;
-  max-width: 480px;
-  background: transparent;
-  border: none;
-  box-shadow: none;
-  padding: 0;
-  /* Override any grid alignment */
-  justify-self: unset;
-  align-self: unset;
-}
-
 /* Cardhead (used on old light layout) — hidden; hero carries the branding */
 .platform-cardhead {
   display: none;
 }
 
-/* ── Form labels ── */
-.login-page--platform .login-form .form-group label {
+/* ── Shared video-auth form chrome ── */
+.login-page--video-auth .login-card h2 {
+  color: var(--va-white);
+}
+
+.login-page--video-auth .subtitle {
+  color: var(--va-muted);
+}
+
+.login-page--video-auth .login-dual-brand {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--va-border);
+  backdrop-filter: blur(12px);
+}
+
+.login-page--video-auth .login-dual-brand__label {
+  color: var(--va-subtle);
+}
+
+.login-page--video-auth .login-dual-brand__name {
+  color: var(--va-white);
+}
+
+.login-page--video-auth .login-dual-brand__divider {
+  background: var(--va-border);
+}
+
+.login-page--video-auth .error {
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.45);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+}
+
+.login-page--video-auth .success {
+  color: #bbf7d0;
+  background: rgba(20, 83, 45, 0.45);
+  border: 1px solid rgba(74, 222, 128, 0.35);
+}
+
+.login-page--video-auth .google-quick-login {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--va-white);
+  border: 1px solid var(--va-border);
+  box-shadow: none;
+}
+
+.login-page--video-auth .google-quick-login:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.login-page--video-auth .login-signup-suggestion {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--va-border);
+  color: var(--va-muted);
+}
+
+.login-page--video-auth .login-signup-suggestion__text {
+  color: var(--va-muted);
+}
+
+.login-page--video-auth .staff-intake-panel,
+.login-page--video-auth .staff-intake-card {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--va-border);
+  color: var(--va-white);
+}
+
+.login-page--video-auth .staff-intake-panel__lead,
+.login-page--video-auth .staff-intake-panel__muted,
+.login-page--video-auth .staff-intake-panel__empty {
+  color: var(--va-muted);
+}
+
+.login-page--video-auth :deep(.powered-by-footer) {
+  background: transparent;
+  border-top-color: var(--va-border);
+}
+
+.login-page--video-auth :deep(.powered-by-text),
+.login-page--video-auth :deep(.powered-by-name),
+.login-page--video-auth :deep(.legal-title),
+.login-page--video-auth :deep(.legal-link),
+.login-page--video-auth :deep(.legal-sep) {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.login-page--video-auth :deep(.legal-link:hover) {
+  color: var(--va-white);
+}
+
+.login-page--video-auth .login-form .form-group label {
   color: rgba(255, 255, 255, 0.88);
   font-family: 'Inter', sans-serif;
   font-weight: 500;
   font-size: 15px;
 }
 
-/* ── Inputs ── */
-.login-page--platform .login-form .form-group input,
-.login-page--platform .login-form .form-group select {
+.login-page--video-auth .login-form .form-group input,
+.login-page--video-auth .login-form .form-group select,
+.login-page--video-auth .login-form .form-group textarea {
   border-radius: 14px;
-  border: 1px solid var(--pt-border);
+  border: 1px solid var(--va-border);
   padding: 15px 16px;
   font-size: 17px;
-  background: var(--pt-field-bg);
-  color: var(--pt-white);
+  background: var(--va-field-bg);
+  color: var(--va-white);
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
-.login-page--platform .login-form .form-group input::placeholder {
+.login-page--video-auth .login-form .form-group input::placeholder,
+.login-page--video-auth .login-form .form-group textarea::placeholder {
   font-size: 17px;
   font-weight: 400;
-  color: var(--pt-subtle);
+  color: var(--va-subtle);
 }
 
-.login-page--platform .login-credentials-username input {
+.login-page--video-auth .login-credentials-username input {
   padding-left: 46px;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23a99cff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='12' cy='7' r='4'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
@@ -3262,40 +3432,40 @@ const handleLogoError = (event) => {
   background-size: 18px 18px;
 }
 
-.login-page--platform .login-form .form-group input:focus,
-.login-page--platform .login-form .form-group select:focus {
+.login-page--video-auth .login-form .form-group input:focus,
+.login-page--video-auth .login-form .form-group select:focus,
+.login-page--video-auth .login-form .form-group textarea:focus {
   background: rgba(255, 255, 255, 0.09);
-  border-color: var(--pt-accent);
-  box-shadow: 0 0 0 3px rgba(139, 107, 255, 0.25);
+  border-color: var(--va-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--va-accent) 25%, transparent);
   outline: none;
 }
 
-.login-page--platform .password-toggle-btn {
-  color: var(--pt-accent);
+.login-page--video-auth .password-toggle-btn {
+  color: var(--va-accent);
 }
 
-/* ── Primary button ── */
-.login-page--platform .login-form .btn-primary {
+.login-page--video-auth .login-form .btn-primary {
   position: relative;
-  background: linear-gradient(135deg, #7c5cff 0%, #6248ee 100%);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--va-accent) 88%, white) 0%, var(--va-primary) 100%);
   border: none;
   border-radius: 14px;
   min-height: 56px;
   font-family: 'Inter', sans-serif;
   font-size: 18px;
   font-weight: 600;
-  color: var(--pt-white);
-  box-shadow: 0 14px 32px rgba(108, 77, 246, 0.42);
+  color: var(--va-white);
+  box-shadow: 0 14px 32px color-mix(in srgb, var(--va-primary) 42%, transparent);
   transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
 }
 
-.login-page--platform .login-form .btn-primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, #8b6bff 0%, #7055f8 100%);
-  box-shadow: 0 16px 36px rgba(108, 77, 246, 0.52);
+.login-page--video-auth .login-form .btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 16px 36px color-mix(in srgb, var(--va-primary) 52%, transparent);
   transform: translateY(-1px);
 }
 
-.login-page--platform .login-form .btn-primary::after {
+.login-page--video-auth .login-form .btn-primary::after {
   content: "→";
   position: absolute;
   right: 20px;
@@ -3305,39 +3475,43 @@ const handleLogoError = (event) => {
   font-weight: 700;
 }
 
-/* ── Secondary button ── */
-.login-page--platform .btn-secondary {
+.login-page--video-auth .btn-secondary {
   border-radius: 14px;
   min-height: 50px;
   background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--pt-border);
+  border: 1px solid var(--va-border);
   color: rgba(255, 255, 255, 0.88);
 }
 
-/* ── Form chrome ── */
-.login-page--platform .remember-me {
+.login-page--video-auth .remember-me {
   color: rgba(255, 255, 255, 0.6);
   font-size: 13px;
 }
 
-.login-page--platform .remember-me input[type="checkbox"] {
-  accent-color: var(--pt-accent);
+.login-page--video-auth .remember-me input[type="checkbox"] {
+  accent-color: var(--va-accent);
 }
 
-.login-page--platform .help-link,
-.login-page--platform .help-link-button {
-  color: #b9a6ff;
+.login-page--video-auth .help-link,
+.login-page--video-auth .help-link-button {
+  color: color-mix(in srgb, var(--va-accent) 72%, white);
 }
 
-.login-page--platform .help-link:hover {
-  color: var(--pt-white);
+.login-page--video-auth .help-link:hover,
+.login-page--video-auth .help-link-button:hover {
+  color: var(--va-white);
 }
 
-.login-page--platform .help-separator {
+.login-page--video-auth .help-separator {
   color: rgba(255, 255, 255, 0.25);
 }
 
-/* ── Footer ── */
+.login-page--video-auth .biometric-divider,
+.login-page--video-auth .biometric-error {
+  color: var(--va-muted);
+}
+
+/* ── Platform footer ── */
 .login-page--platform .platform-footer {
   display: flex;
   align-items: center;
@@ -3367,21 +3541,24 @@ const handleLogoError = (event) => {
 }
 
 /* ── Responsive tweaks ── */
-/* Tablet: tighten vertical spacing */
 @media (max-width: 900px) {
-  .platform-hero {
+  .platform-hero,
+  .video-auth-hero {
     padding-top: clamp(40px, 7vh, 72px);
   }
 }
 
-/* Phone: a little more compact */
 @media (max-width: 480px) {
-  .login-page--platform .login-card {
+  .login-page--video-auth .login-card {
     max-width: 100%;
   }
 
   .platform-hero__wordmark-main {
     font-size: 26px;
+  }
+
+  .video-auth-hero__logo {
+    height: clamp(56px, 16vw, 88px);
   }
 }
 </style>
