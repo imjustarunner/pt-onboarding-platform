@@ -16,7 +16,8 @@ import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.s
 import {
   materializeOfficeWeeks,
   assignOneTimeOfficeBlock,
-  cleanupOrphanLegacyAssignment
+  cleanupOrphanLegacyAssignment,
+  upsertBookingPlanAndMaterialize
 } from '../services/officeAssignmentOrchestrator.service.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 import { validateSchedulingSelection } from '../services/schedulingTaxonomy.service.js';
@@ -682,13 +683,20 @@ export const setAssignmentRecurrence = async (req, res, next) => {
     });
 
     OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
-    const bookingStartDate = String(assignment.available_since_date || new Date().toISOString().slice(0, 10)).slice(0, 10);
-    materializeOfficeWeeks({
-      officeLocationId,
-      startDateYmd: bookingStartDate,
-      createdByUserId: req.user.id,
-      weeks: 4
-    }).catch(() => {});
+    const bookingStartDate = ymdFromDateLike(
+      assignment.available_since_date,
+      new Date().toISOString().slice(0, 10)
+    );
+    try {
+      await materializeOfficeWeeks({
+        officeLocationId,
+        startDateYmd: bookingStartDate,
+        createdByUserId: req.user.id,
+        weeks: 12
+      });
+    } catch (matErr) {
+      console.warn('[setAssignmentRecurrence] materialize failed:', matErr?.message || matErr);
+    }
 
     return res.json({ ok: true, recurrenceFrequency, standingAssignment: updated });
   } catch (e) {
@@ -725,12 +733,19 @@ export const keepAvailable = async (req, res, next) => {
       last_forfeit_warning_at: null
     });
     OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
-    materializeOfficeWeeks({
-      officeLocationId,
-      startDateYmd: String(assignment.available_since_date || new Date().toISOString().slice(0, 10)).slice(0, 10),
-      createdByUserId: req.user.id,
-      weeks: 4
-    }).catch(() => {});
+    try {
+      await materializeOfficeWeeks({
+        officeLocationId,
+        startDateYmd: ymdFromDateLike(
+          assignment.available_since_date,
+          new Date().toISOString().slice(0, 10)
+        ),
+        createdByUserId: req.user.id,
+        weeks: 12
+      });
+    } catch (matErr) {
+      console.warn('[keepAvailable] materialize failed:', matErr?.message || matErr);
+    }
     res.json({ ok: true });
   } catch (e) {
     next(e);
@@ -767,12 +782,19 @@ export const setTemporary = async (req, res, next) => {
       last_two_week_confirmed_at: new Date()
     });
     OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
-    materializeOfficeWeeks({
-      officeLocationId,
-      startDateYmd: untilDate,
-      createdByUserId: req.user.id,
-      weeks: 4
-    }).catch(() => {});
+    try {
+      await materializeOfficeWeeks({
+        officeLocationId,
+        startDateYmd: ymdFromDateLike(
+          assignment.available_since_date,
+          untilDate
+        ),
+        createdByUserId: req.user.id,
+        weeks: 12
+      });
+    } catch (matErr) {
+      console.warn('[setTemporary] materialize failed:', matErr?.message || matErr);
+    }
     res.json({ ok: true, temporaryUntilDate: untilDate });
   } catch (e) {
     next(e);
@@ -823,12 +845,19 @@ export const extendTemporary = async (req, res, next) => {
       last_forfeit_warning_at: null
     });
     OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
-    materializeOfficeWeeks({
-      officeLocationId,
-      startDateYmd: untilDate,
-      createdByUserId: req.user.id,
-      weeks: 4
-    }).catch(() => {});
+    try {
+      await materializeOfficeWeeks({
+        officeLocationId,
+        startDateYmd: ymdFromDateLike(
+          assignment.available_since_date,
+          untilDate
+        ),
+        createdByUserId: req.user.id,
+        weeks: 12
+      });
+    } catch (matErr) {
+      console.warn('[extendTemporary] materialize failed:', matErr?.message || matErr);
+    }
     res.json({ ok: true, temporaryUntilDate: untilDate, extensionCount: extCount + 1 });
   } catch (e) {
     next(e);
@@ -954,6 +983,49 @@ export const staffBookEvent = async (req, res, next) => {
     }
     if (shouldBook) {
       await promoteTemporaryAssignmentIfBooked(ev.standing_assignment_id);
+      // Align booking plan so materializer keeps future weeks ASSIGNED_BOOKED
+      // (event-only book previously left My Schedule / Buildings out of sync).
+      const standingId = Number(ev.standing_assignment_id || 0);
+      if (standingId) {
+        const standing = await OfficeStandingAssignment.findById(standingId);
+        const bookingStartDate = ymdFromDateLike(
+          ev.start_at,
+          ymdFromDateLike(standing?.available_since_date, new Date().toISOString().slice(0, 10))
+        );
+        const bookedFrequency = String(standing?.assigned_frequency || 'WEEKLY').toUpperCase() === 'BIWEEKLY'
+          ? 'BIWEEKLY'
+          : 'WEEKLY';
+        try {
+          await upsertBookingPlanAndMaterialize({
+            standingAssignmentId: standingId,
+            officeLocationId,
+            bookedFrequency,
+            bookingStartDate,
+            activeUntilDate: standing?.availability_mode === 'TEMPORARY'
+              ? ymdFromDateLike(standing.temporary_until_date, null)
+              : null,
+            createdByUserId: req.user.id,
+            bookingOrigin: 'user',
+            materializeWeeks: 12
+          });
+          try {
+            await pool.execute(
+              `UPDATE office_events
+               SET booking_plan_id = (
+                 SELECT id FROM office_booking_plans
+                 WHERE standing_assignment_id = ? AND is_active = TRUE
+                 LIMIT 1
+               ), updated_at = CURRENT_TIMESTAMP
+               WHERE id = ?`,
+              [standingId, updated?.id || eid]
+            );
+          } catch {
+            // best-effort link
+          }
+        } catch (planErr) {
+          console.warn('[staffBookEvent] booking plan upsert failed:', planErr?.message || planErr);
+        }
+      }
     }
     const targetEventId = updated?.id || eid;
     // Best-effort: mirror to Google Calendar (provider + room resource).
@@ -2791,6 +2863,21 @@ export const staffAssignOpenSlot = async (req, res, next) => {
       });
     }
 
+    // Standing assignments are for providers. Staff/admin should use Company hold
+    // (or pass allowStaffHold=true for intentional test holds).
+    const assigneeRole = String(user.role || '').toLowerCase();
+    const isProviderLike = ['provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant'].includes(assigneeRole)
+      || Number(user.has_provider_access || 0) === 1;
+    const allowStaffHold = String(req.body?.allowStaffHold || '').toLowerCase() === 'true'
+      || req.body?.allowStaffHold === true;
+    if (!isProviderLike && !allowStaffHold) {
+      return res.status(400).json({
+        error: {
+          message: `Cannot create a standing office assignment for ${user.first_name} ${user.last_name} (${assigneeRole || 'staff'}). Use Company hold for staff blocks, or assign a provider.`
+        }
+      });
+    }
+
     // Avoid double-booking: check live events; clean up orphan legacy assignment rows if present.
     try {
       const cleanedLegacy = await cleanupOrphanLegacyAssignment({
@@ -3003,19 +3090,18 @@ export const staffAssignOpenSlot = async (req, res, next) => {
         }
       }
 
-      // Drop the short-lived materialize cache so a grid refresh re-materializes from the
-      // new assignment rows (rather than a stale cached pass) even before the background job finishes.
+      // Await materialization so weeks 2–12 appear before the client refreshes the grid.
       OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
-
-      // Fire-and-forget: the clicked-day event was already created above; future-week
-      // materialization runs in the background so a transient DB hiccup (e.g. Cloud SQL
-      // proxy auth lapse) never converts a successful assignment into a 500.
-      materializeOfficeWeeks({
-        officeLocationId,
-        startDateYmd: date,
-        createdByUserId: req.user.id,
-        weeks: 12
-      }).catch((e) => console.warn('[officeSlotActions] background materialization failed:', e?.message || e));
+      try {
+        await materializeOfficeWeeks({
+          officeLocationId,
+          startDateYmd: date,
+          createdByUserId: req.user.id,
+          weeks: 12
+        });
+      } catch (matErr) {
+        console.warn('[staffAssignOpenSlot] materializeOfficeWeeks failed:', matErr?.message || matErr);
+      }
 
       const createdEventIds = createdEvents.map((e) => Number(e?.id || 0)).filter((n) => n > 0);
       syncOfficeEventsToGoogleBestEffort(createdEventIds).catch(() => {});

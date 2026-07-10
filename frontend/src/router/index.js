@@ -1286,8 +1286,10 @@ const routes = [
   {
     path: '/:organizationSlug/admin/schedule-approvals',
     name: 'OrganizationOfficeScheduleApprovals',
-    component: () => import('../views/admin/OfficeScheduleApprovalsView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'schedule_manager', organizationSlug: true }
+    redirect: (to) => ({
+      path: `/${to.params.organizationSlug}/admin/availability-intake`,
+      query: { ...to.query, tab: to.query?.tab || 'booking' }
+    })
   },
   {
     path: '/:organizationSlug/admin/external-calendar-audit',
@@ -2086,8 +2088,10 @@ const routes = [
   {
     path: '/admin/schedule-approvals',
     name: 'OfficeScheduleApprovals',
-    component: () => import('../views/admin/OfficeScheduleApprovalsView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
+    redirect: (to) => ({
+      path: '/admin/availability-intake',
+      query: { ...to.query, tab: to.query?.tab || 'booking' }
+    })
   },
   {
     path: '/admin/external-calendar-audit',

@@ -1,8 +1,11 @@
 <template>
   <div class="availability-intake-view container">
     <div class="page-header">
-      <h1>Provider Availability</h1>
-      <p class="subtitle">Review provider availability submissions and search by office/school/skills.</p>
+      <h1>Office &amp; availability approvals</h1>
+      <p class="subtitle">
+        One place to approve office requests, booking requests, and school availability.
+        My Schedule remains the primary day-to-day schedule surface.
+      </p>
     </div>
 
     <div v-if="shouldShowAgencySelector" class="agency-selector">
@@ -13,7 +16,17 @@
       </select>
     </div>
 
-    <AvailabilityIntakeManagement :show-header="false" :initial-tab="initialTab" />
+    <OfficeScheduleApprovalsView
+      v-if="isBookingQueueTab"
+      :embedded="true"
+      :initial-queue-tab="initialTab"
+    />
+    <AvailabilityIntakeManagement
+      v-else
+      :show-header="false"
+      :initial-tab="initialTab"
+      :show-booking-queue-tabs="true"
+    />
   </div>
 </template>
 
@@ -23,6 +36,7 @@ import { useRoute } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import AvailabilityIntakeManagement from '../../components/admin/AvailabilityIntakeManagement.vue';
+import OfficeScheduleApprovalsView from './OfficeScheduleApprovalsView.vue';
 
 const route = useRoute();
 const agencyStore = useAgencyStore();
@@ -30,6 +44,7 @@ const authStore = useAuthStore();
 
 const selectedAgencyId = ref(null);
 const initialTab = computed(() => String(route.query.tab || '').trim().toLowerCase());
+const isBookingQueueTab = computed(() => ['booking', 'legacy'].includes(initialTab.value));
 
 const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
 

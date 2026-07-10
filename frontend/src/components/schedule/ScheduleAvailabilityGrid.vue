@@ -73,6 +73,16 @@
               </select>
             </label>
 
+            <router-link
+              v-if="canManageOffices"
+              class="btn btn-secondary btn-sm sched-btn"
+              :to="officeRequestsApproveLink"
+              data-tour="my-schedule-approve-office-requests"
+              title="Approve pending office availability requests"
+            >
+              Approve office requests
+            </router-link>
+
             <button
               v-if="selectedOfficeLocationId"
               class="sched-icon-btn"
@@ -2925,6 +2935,11 @@ const toggleScheduleAgencyFilter = (agencyId) => {
 const canManageOffices = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return ['clinical_practice_assistant', 'provider_plus', 'admin', 'super_admin', 'superadmin', 'support', 'staff'].includes(role);
+});
+const officeRequestsApproveLink = computed(() => {
+  const orgSlug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '';
+  const path = orgSlug ? `/${orgSlug}/admin/availability-intake` : '/admin/availability-intake';
+  return { path, query: { tab: 'office' } };
 });
 const currentUserRole = computed(() => String(authStore.user?.role || '').trim().toLowerCase());
 const isProviderPlus = computed(() => currentUserRole.value === 'provider_plus');

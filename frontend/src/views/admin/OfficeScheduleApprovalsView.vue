@@ -1,18 +1,32 @@
 <template>
-  <div class="container approvals-view">
+  <div class="container approvals-view" :class="{ embedded }">
     <div class="header">
       <div>
-        <h2>Office booking approvals</h2>
-        <p class="subtitle">Review booking context, room timelines, conflicts, and release requests before deciding.</p>
+        <h2 v-if="!embedded">Office booking approvals</h2>
+        <p v-if="!embedded" class="subtitle">Review booking context, room timelines, conflicts, and release requests before deciding.</p>
         <div class="queue-tabs">
           <button type="button" class="queue-tab" :class="{ active: queueTab === 'booking' }" @click="switchTab('booking')">
             Booking requests
             <span v-if="queueSummary.booking" class="tab-count">{{ queueSummary.booking }}</span>
           </button>
-          <button type="button" class="queue-tab" :class="{ active: queueTab === 'intake' }" @click="switchTab('intake')">
+          <button
+            v-if="!embedded"
+            type="button"
+            class="queue-tab"
+            :class="{ active: queueTab === 'intake' }"
+            @click="switchTab('intake')"
+          >
             Availability intake
             <span v-if="queueSummary.intake" class="tab-count">{{ queueSummary.intake }}</span>
           </button>
+          <router-link
+            v-else
+            class="queue-tab"
+            :to="{ query: { tab: 'office' } }"
+          >
+            Office intake
+            <span v-if="queueSummary.intake" class="tab-count">{{ queueSummary.intake }}</span>
+          </router-link>
           <button type="button" class="queue-tab" :class="{ active: queueTab === 'legacy' }" @click="switchTab('legacy')">
             Legacy room requests
             <span v-if="queueSummary.legacy" class="tab-count">{{ queueSummary.legacy }}</span>
@@ -220,18 +234,32 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import OfficeRequestAssignModal from '../../components/admin/OfficeRequestAssignModal.vue';
+
+const props = defineProps({
+  embedded: { type: Boolean, default: false },
+  initialQueueTab: { type: String, default: '' }
+});
 
 const authStore = useAuthStore();
 const router = useRouter();
+const route = useRoute();
 
 const loading = ref(true);
 const error = ref('');
-const queueTab = ref('booking');
+const initial = String(props.initialQueueTab || '').toLowerCase();
+const queueTab = ref(['booking', 'intake', 'legacy'].includes(initial) ? initial : 'booking');
+
+watch(
+  () => String(props.initialQueueTab || '').toLowerCase(),
+  (t) => {
+    if (['booking', 'intake', 'legacy'].includes(t)) queueTab.value = t;
+  }
+);
 const queueSummary = ref({ booking: 0, intake: 0, legacy: 0, total: 0 });
 const requests = ref([]);
 const intakeRequests = ref([]);
@@ -381,7 +409,14 @@ const load = async () => {
 };
 
 const switchTab = (tab) => {
+  if (props.embedded && tab === 'intake') {
+    router.replace({ query: { ...route.query, tab: 'office' } });
+    return;
+  }
   queueTab.value = tab;
+  if (props.embedded) {
+    router.replace({ query: { ...route.query, tab } });
+  }
 };
 
 const openIntakeModal = (r) => {

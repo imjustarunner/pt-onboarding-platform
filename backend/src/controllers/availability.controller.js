@@ -3405,6 +3405,8 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
         ? parseIntSafe(req.query.hour)
         : null; // 0..23
     const includeInactive = String(req.query.includeInactive || 'false').toLowerCase() === 'true';
+    // Staff/admin standing holds (e.g. Super Admin test assigns) are hidden by default.
+    const includeStaffHolds = String(req.query.includeStaffHolds || 'false').toLowerCase() === 'true';
 
     // Providers list (for filter dropdowns)
     const [providers] = await pool.execute(
@@ -3509,6 +3511,8 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
     }));
 
     // ---- Office standing assignments (repeating office availability)
+    // Hold type (availability_mode) is NOT booking status. Booking comes from
+    // office_booking_plans + future ASSIGNED_BOOKED events.
     const officeWhere = ['ola.agency_id = ?', includeInactive ? '1=1' : 'osa.is_active = TRUE'];
     const officeParams = [agencyId];
     if (providerId) {
@@ -3528,6 +3532,11 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
       officeWhere.push('osa.hour = ?');
       officeParams.push(hour);
     }
+    if (!includeStaffHolds) {
+      officeWhere.push(
+        `(LOWER(COALESCE(u.role, '')) IN ('provider', 'provider_plus') OR u.has_provider_access = TRUE)`
+      );
+    }
 
     const [officeRows] = await pool.execute(
       `SELECT
@@ -3542,19 +3551,32 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
          osa.provider_id,
          u.first_name AS provider_first_name,
          u.last_name AS provider_last_name,
+         u.role AS provider_role,
          osa.weekday,
          osa.hour,
          osa.assigned_frequency,
          osa.availability_mode,
          osa.temporary_until_date,
          osa.available_since_date,
-         osa.is_active
+         osa.is_active,
+         bp.id AS booking_plan_id,
+         bp.booked_frequency,
+         (
+           SELECT COUNT(*)
+           FROM office_events e
+           WHERE e.standing_assignment_id = osa.id
+             AND e.start_at >= NOW()
+             AND UPPER(COALESCE(e.slot_state, '')) = 'ASSIGNED_BOOKED'
+             AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+         ) AS future_booked_event_count
        FROM office_standing_assignments osa
        JOIN office_locations ol ON ol.id = osa.office_location_id
        JOIN office_location_agencies ola ON ola.office_location_id = ol.id
        JOIN office_rooms r ON r.id = osa.room_id
        JOIN users u ON u.id = osa.provider_id
        JOIN user_agencies ua ON ua.user_id = osa.provider_id AND ua.agency_id = ?
+       LEFT JOIN office_booking_plans bp
+         ON bp.standing_assignment_id = osa.id AND bp.is_active = TRUE
        WHERE ${officeWhere.join(' AND ')}
          AND (u.is_archived IS NULL OR u.is_archived = FALSE)
          AND (u.is_active IS NULL OR u.is_active = TRUE)
@@ -3570,6 +3592,18 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
       const startTime = hh ? `${hh}:00` : '';
       const endTime = hh ? `${String((h + 1) % 24).padStart(2, '0')}:00` : '';
       const roomLabel = String(r.room_label || '').trim() || String(r.room_number || '').trim() || String(r.room_name || '').trim();
+      const mode = String(r.availability_mode || 'AVAILABLE').toUpperCase();
+      const holdTypeLabel = mode === 'TEMPORARY' ? 'Temporary' : 'Standing';
+      const futureBooked = Number(r.future_booked_event_count || 0);
+      const hasPlan = !!r.booking_plan_id;
+      const isBooked = hasPlan || futureBooked > 0;
+      let bookingLabel = 'Not booked';
+      if (isBooked) {
+        const freq = String(r.booked_frequency || r.assigned_frequency || '').toUpperCase();
+        bookingLabel = futureBooked > 0
+          ? `Booked (${futureBooked} upcoming)`
+          : (freq ? `Booked (${freq.toLowerCase()})` : 'Booked');
+      }
       return {
         id: r.id,
         officeLocationId: r.office_location_id,
@@ -3579,6 +3613,7 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
         roomLabel,
         providerId: r.provider_id,
         providerName: `${r.provider_first_name || ''} ${r.provider_last_name || ''}`.trim(),
+        providerRole: r.provider_role || null,
         weekday: Number(r.weekday),
         dayOfWeek: dayName,
         hour: Number(r.hour),
@@ -3586,9 +3621,16 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
         endTime,
         assignedFrequency: r.assigned_frequency,
         availabilityMode: r.availability_mode,
+        holdType: holdTypeLabel,
+        holdTypeKey: mode === 'TEMPORARY' ? 'TEMPORARY' : 'STANDING',
         temporaryUntilDate: r.temporary_until_date ? String(r.temporary_until_date).slice(0, 10) : null,
         availableSinceDate: r.available_since_date ? String(r.available_since_date).slice(0, 10) : null,
-        isActive: !!r.is_active
+        isActive: !!r.is_active,
+        hasBookingPlan: hasPlan,
+        bookedFrequency: r.booked_frequency || null,
+        futureBookedEventCount: futureBooked,
+        isBooked,
+        bookingLabel
       };
     });
 
@@ -3647,7 +3689,16 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
     res.json({
       ok: true,
       agencyId,
-      filters: { providerId, schoolOrganizationId, officeLocationId, dayOfWeek, weekday: effectiveWeekday, hour, includeInactive },
+      filters: {
+        providerId,
+        schoolOrganizationId,
+        officeLocationId,
+        dayOfWeek,
+        weekday: effectiveWeekday,
+        hour,
+        includeInactive,
+        includeStaffHolds
+      },
       providers: providers || [],
       organizations: organizations || [],
       offices: offices || [],

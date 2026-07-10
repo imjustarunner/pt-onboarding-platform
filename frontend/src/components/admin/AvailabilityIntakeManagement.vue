@@ -16,6 +16,10 @@
         <button class="tab" :class="{ active: tab === 'appointments' }" @click="tab = 'appointments'">Appointments</button>
         <button class="tab" :class="{ active: tab === 'search' }" @click="tab = 'search'">Search</button>
         <button class="tab" :class="{ active: tab === 'skills' }" @click="tab = 'skills'">Skills</button>
+        <template v-if="showBookingQueueTabs">
+          <router-link class="tab tab-link" :to="bookingQueueLink('booking')">Booking requests</router-link>
+          <router-link class="tab tab-link" :to="bookingQueueLink('legacy')">Legacy room requests</router-link>
+        </template>
         <button class="btn btn-secondary btn-sm" style="margin-left:auto;" @click="reload" :disabled="loading">Refresh</button>
       </div>
 
@@ -351,6 +355,10 @@ const props = defineProps({
   initialTab: {
     type: String,
     default: ''
+  },
+  showBookingQueueTabs: {
+    type: Boolean,
+    default: false
   }
 });
 
@@ -358,6 +366,11 @@ const agencyStore = useAgencyStore();
 const agencyId = computed(() => agencyStore.currentAgency?.id || null);
 
 const tab = ref('office'); // office | school | appointments | search | skills
+
+const bookingQueueLink = (queueTab) => {
+  // Relative to current availability-intake route (org-scoped or bare).
+  return { query: { tab: queueTab } };
+};
 const loading = ref(false);
 const saving = ref(false);
 const error = ref('');
@@ -909,6 +922,7 @@ watch(
 .panel { margin-top: 16px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
 .tabs { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
 .tab { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); font-weight: 800; }
+.tab-link { text-decoration: none; color: inherit; display: inline-flex; align-items: center; }
 .tab.active { border-color: var(--accent); background: white; }
 .btn-sm { padding: 8px 10px; font-size: 13px; }
 .loading { color: var(--text-secondary); }

@@ -22,7 +22,8 @@ import { OfficeScheduleWatchdogService } from '../services/officeScheduleWatchdo
 import { validateOfficeSlotSeries, generateOccurrenceDates, recurrenceLabel as officeRecurrenceLabel, normalizeOfficeRequestRecurrence } from '../services/officeSlotSeries.service.js';
 import {
   materializeOfficeWeeks,
-  assignOneTimeOfficeBlock
+  assignOneTimeOfficeBlock,
+  upsertBookingPlanAndMaterialize
 } from '../services/officeAssignmentOrchestrator.service.js';
 import {
   scanIntegrityIssues,
@@ -811,6 +812,10 @@ export const listLocationProviders = async (req, res, next) => {
       if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
+    // Standing assigns should target providers by default. Staff/admin holds pollute
+    // the office-availability report (Super Admin × many rooms). Opt in via includeStaff=1.
+    const includeStaffAssignTargets = String(req.query?.includeStaff || 'false').toLowerCase() === 'true' ? 1 : 0;
+
     // Phase 2 foundation: if explicit user_office_locations links exist, include them as canonical.
     // Backward compatible fallback to agency-based linkage when the table is not present yet.
     try {
@@ -839,12 +844,13 @@ export const listLocationProviders = async (req, res, next) => {
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
            AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
            AND (
-             u.role IN ('provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant', 'admin', 'super_admin', 'staff')
+             u.role IN ('provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant')
              OR (u.has_provider_access = TRUE)
+             OR (? = 1 AND u.role IN ('admin', 'super_admin', 'superadmin', 'staff', 'support'))
            )
            AND LOWER(COALESCE(u.role, '')) NOT IN ('guardian', 'school_support')
          ORDER BY u.last_name ASC, u.first_name ASC`,
-        [officeLocationId, officeLocationId]
+        [officeLocationId, officeLocationId, includeStaffAssignTargets]
       );
       return res.json(rows || []);
     } catch (e) {
@@ -868,12 +874,13 @@ export const listLocationProviders = async (req, res, next) => {
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
            AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
            AND (
-             u.role IN ('provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant', 'admin', 'super_admin', 'staff')
+             u.role IN ('provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant')
              OR (u.has_provider_access = TRUE)
+             OR (? = 1 AND u.role IN ('admin', 'super_admin', 'superadmin', 'staff', 'support'))
            )
            AND LOWER(COALESCE(u.role, '')) NOT IN ('guardian', 'school_support')
          ORDER BY u.last_name ASC, u.first_name ASC`,
-        [officeLocationId]
+        [officeLocationId, includeStaffAssignTargets]
       );
       return res.json(rows || []);
     }
@@ -1322,29 +1329,11 @@ export const getWeeklyGrid = async (req, res, next) => {
           }
           const a = assignedBySlot.get(k);
           if (a) {
-            let assignmentEventId = null;
+            // Display-only legacy overlay. Do NOT create office_events without a
+            // standing_assignment_id (that parallel write path caused grid drift).
             const slotStartAt = `${date} ${String(hour).padStart(2, '0')}:00:00`;
             const slotEndAt = `${date} ${String(hour + 1).padStart(2, '0')}:00:00`;
-            try {
-              // Backfill hourly event rows for legacy assignment-only slots so admin actions
-              // (booked/virtual/cancel) always have a stable event id to operate on.
-              // eslint-disable-next-line no-await-in-loop
-              const ev = await OfficeEvent.upsertSlotState({
-                officeLocationId: officeLocationIdNum,
-                roomId: room.id,
-                startAt: slotStartAt,
-                endAt: slotEndAt,
-                slotState: 'ASSIGNED_AVAILABLE',
-                standingAssignmentId: null,
-                bookingPlanId: null,
-                assignedProviderId: a.assigned_user_id || null,
-                bookedProviderId: null,
-                createdByUserId: req.user.id
-              });
-              assignmentEventId = ev?.id || null;
-            } catch (err) {
-              if (err?.code !== 'ER_NO_SUCH_TABLE') throw err;
-            }
+            const assignmentEventId = null;
 
             const initials = `${String(a.first_name || '').slice(0, 1)}${String(a.last_name || '').slice(0, 1)}`.toUpperCase();
             const virtualIntakeEnabled =
@@ -1364,6 +1353,7 @@ export const getWeeklyGrid = async (req, res, next) => {
               state: 'assigned_available',
               displayStatus: 'AVAILABLE',
               eventId: assignmentEventId,
+              legacyAssignmentOnly: true,
               learningSessionId: null,
               learningLinked: false,
               recurrenceGroupId: null,
@@ -2905,24 +2895,28 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
       const reqOccurrenceCount = Number.isInteger(Number(reqRow.booked_occurrence_count)) && Number(reqRow.booked_occurrence_count) > 0
         ? Number(reqRow.booked_occurrence_count)
         : null;
-      createdBookingPlan = await OfficeBookingPlan.upsertActive({
+      // Normalize DATE objects from mysql2 — String(date).slice(0,10) yields "Sat Jun 27".
+      const bookingStartDate = (() => {
+        const v = reqRow.start_at;
+        if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+        const m = String(v || '').match(/^(\d{4}-\d{2}-\d{2})/);
+        return m ? m[1] : new Date().toISOString().slice(0, 10);
+      })();
+      // Open-ended weekly: do not pass occurrence caps that recreate the Gini fall-off.
+      const openEndedWeekly = String(normalizedRecurrence || '').toUpperCase() === 'WEEKLY';
+      await upsertBookingPlanAndMaterialize({
         standingAssignmentId: createdStandingAssignment.id,
-        bookedFrequency: normalizedRecurrence,
-        bookingStartDate: String(reqRow.start_at || '').slice(0, 10),
-        bookedOccurrenceCount: reqOccurrenceCount,
-        createdByUserId: req.user.id
+        officeLocationId: loc.id,
+        bookedFrequency: normalizedRecurrence === 'MONTHLY' ? 'MONTHLY'
+          : normalizedRecurrence === 'BIWEEKLY' ? 'BIWEEKLY'
+            : 'WEEKLY',
+        bookingStartDate,
+        bookedOccurrenceCount: openEndedWeekly ? null : reqOccurrenceCount,
+        createdByUserId: req.user.id,
+        bookingOrigin: 'user',
+        materializeWeeks: 12
       });
-      OfficeScheduleMaterializer.invalidateOffice(loc.id);
-      try {
-        await materializeOfficeWeeks({
-          officeLocationId: loc.id,
-          startDateYmd: String(reqRow.start_at || '').slice(0, 10),
-          createdByUserId: req.user.id,
-          weeks: 12
-        });
-      } catch (matErr) {
-        console.warn('[approveOfficeBookingRequest] materializeOfficeWeeks failed:', matErr?.message || matErr);
-      }
+      createdBookingPlan = await OfficeBookingPlan.findActiveByAssignmentId(createdStandingAssignment.id);
     }
 
     const updatedReq = await OfficeBookingRequest.markDecided({

@@ -9,8 +9,8 @@
 
     <div class="grid" data-tour="schedule-hub-grid">
       <router-link class="card" :to="orgTo('/dashboard?tab=my_schedule')" data-tour="schedule-hub-card-full">
-        <div class="card-title">Full schedule</div>
-        <div class="card-desc">Your schedule grid (with requests, school assignments, office, and overlays).</div>
+        <div class="card-title">My Schedule</div>
+        <div class="card-desc">Primary schedule: your grid, office/room booking, requests, school assignments, and overlays.</div>
         <div class="card-cta">Open</div>
       </router-link>
 
@@ -27,13 +27,19 @@
       </router-link>
 
       <router-link class="card" :to="orgTo('/buildings/schedule')" data-tour="schedule-hub-card-buildings-schedule">
-        <div class="card-title">Buildings / offices schedule</div>
-        <div class="card-desc">Master building schedule grid (rooms, slot states, booking actions).</div>
+        <div class="card-title">Buildings master grid</div>
+        <div class="card-desc">All rooms in a building — same data as My Schedule, building-centric view (find availability, company holds).</div>
+        <div class="card-cta">Open</div>
+      </router-link>
+
+      <router-link class="card" :to="orgTo('/admin/availability-intake?tab=office')" data-tour="schedule-hub-card-approvals">
+        <div class="card-title">Approve office requests</div>
+        <div class="card-desc">Intake, booking, and legacy room request queues in one place.</div>
         <div class="card-cta">Open</div>
       </router-link>
 
       <router-link class="card" :to="orgTo('/buildings')" data-tour="schedule-hub-card-buildings-admin">
-        <div class="card-title">Buildings / offices admin</div>
+        <div class="card-title">Buildings settings</div>
         <div class="card-desc">Building selection, review workflows, and building settings.</div>
         <div class="card-cta">Open</div>
       </router-link>

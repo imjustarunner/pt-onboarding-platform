@@ -486,7 +486,20 @@
               <span />
             </label>
           </div>
+
+          <div v-if="tab === 'office'" class="field">
+            <label>Include staff holds</label>
+            <label class="toggle">
+              <input type="checkbox" v-model="filters.includeStaffHolds" />
+              <span />
+            </label>
+          </div>
         </div>
+
+        <p v-if="tab === 'office'" class="muted" style="font-size: 12px; margin: 0 0 10px;">
+          Hold type is the recurring commitment (Standing vs Temporary), not whether the hour is booked.
+          Booking status comes from the active booking plan and upcoming booked occurrences.
+        </p>
 
         <div v-if="tab === 'school'" class="school-actions" data-tour="avail-school-actions">
           <button class="btn btn-secondary btn-sm" type="button" @click="expandAllSchools" :disabled="schoolGroups.length === 0">
@@ -569,9 +582,11 @@
                 <th @click="setSort('dayOfWeek')">Day</th>
                 <th @click="setSort('startTime')">Time</th>
                 <th @click="setSort('assignedFrequency')">Frequency</th>
-                <th @click="setSort('availabilityMode')">Mode</th>
+                <th @click="setSort('holdType')">Hold type</th>
+                <th @click="setSort('bookingLabel')">Booking</th>
                 <th @click="setSort('temporaryUntilDate')">Temporary until</th>
                 <th @click="setSort('isActive')">Active</th>
+                <th>Edit</th>
               </tr>
             </thead>
             <tbody>
@@ -582,12 +597,21 @@
                 <td>{{ r.dayOfWeek }}</td>
                 <td>{{ formatRange(r.startTime, r.endTime) }}</td>
                 <td>{{ r.assignedFrequency }}</td>
-                <td>{{ r.availabilityMode }}</td>
+                <td>{{ r.holdType || (String(r.availabilityMode || '').toUpperCase() === 'TEMPORARY' ? 'Temporary' : 'Standing') }}</td>
+                <td>{{ r.bookingLabel || (r.isBooked ? 'Booked' : 'Not booked') }}</td>
                 <td>{{ r.temporaryUntilDate || '—' }}</td>
                 <td>{{ r.isActive ? 'Yes' : 'No' }}</td>
+                <td>
+                  <router-link
+                    class="btn btn-secondary btn-sm"
+                    :to="officeEditLink(r)"
+                  >
+                    Open schedule
+                  </router-link>
+                </td>
               </tr>
               <tr v-if="sortedOfficeRows.length === 0">
-                <td colspan="9" class="muted">No matching office availability rows.</td>
+                <td colspan="11" class="muted">No matching office availability rows.</td>
               </tr>
             </tbody>
           </table>
@@ -737,8 +761,16 @@ const filters = ref({
   officeLocationId: '',
   dayOfWeek: '',
   search: '',
-  includeInactive: false
+  includeInactive: false,
+  includeStaffHolds: false
 });
+
+const officeEditLink = (r) => {
+  const officeId = Number(r?.officeLocationId || 0);
+  const orgSlug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '';
+  const base = orgSlug ? `/${orgSlug}/buildings/schedule` : '/buildings/schedule';
+  return officeId ? { path: base, query: { officeId: String(officeId) } } : { path: base };
+};
 
 const sortKey = ref('schoolName');
 const sortDir = ref('asc'); // asc | desc
@@ -1292,7 +1324,8 @@ const reload = async () => {
     const resp = await api.get('/availability/admin/provider-availability-dashboard', {
       params: {
         agencyId: agencyId.value,
-        includeInactive: filters.value.includeInactive ? 'true' : 'false'
+        includeInactive: filters.value.includeInactive ? 'true' : 'false',
+        includeStaffHolds: filters.value.includeStaffHolds ? 'true' : 'false'
       }
     });
     data.value = resp.data || data.value;
@@ -1481,6 +1514,13 @@ watch(tab, (t) => {
 watch(agencyId, async () => {
   await reload();
 });
+
+watch(
+  () => [filters.value.includeInactive, filters.value.includeStaffHolds],
+  async () => {
+    if (['school', 'office', 'virtual'].includes(tab.value)) await reload();
+  }
+);
 
 watch(schoolGroups, (next) => {
   // Default to expanded for newly visible schools, without clobbering existing toggles.

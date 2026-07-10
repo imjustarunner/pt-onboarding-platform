@@ -5,6 +5,33 @@
 
 ---
 
+## Glossary — Assigned vs Booked vs Open
+
+Staff often confuse three different concepts. They live on different tables:
+
+| Concept | Where it lives | Meaning |
+|---------|----------------|---------|
+| **Hold type** (was “Mode”) | `office_standing_assignments.availability_mode` | Recurring commitment: **Standing** (`AVAILABLE` = open-ended weekly/biweekly) vs **Temporary** (finite window with `temporary_until_date`). Does **not** mean the hour is free or booked. |
+| **Booking** | `office_booking_plans` + `office_events.slot_state` | Whether occurrences are booked for client work. Grid red / `ASSIGNED_BOOKED` = this occurrence is booked. |
+| **Open** | No active standing owner (or company hold / cancelled) | Room hour free for assign/request. |
+
+A provider can be **Standing + Booked** at the same time: they own the weekly slot, and this week’s occurrence is booked.
+
+**Primary UX:** My Schedule (`/dashboard?tab=my_schedule`). Buildings schedule is the master building grid of the same data. Provider Management → Office availability is a **report**, not the booking calendar.
+
+---
+
+## Phase 2e — Consolidation (July 9, 2026)
+
+- Provider Management office table: Mode → Hold type; Booking column; hide staff/admin holds by default (`includeStaffHolds`).
+- Slot modal Assign: frequency-key twin retirement on standing `update` (Grace BIWEEKLY→WEEKLY).
+- Write pipeline: await materialize on staff assign / keep-available / temporary / recurrence; `staffBookEvent` upserts booking plan; booking-request approve uses `upsertBookingPlanAndMaterialize`.
+- Nav: `/admin/schedule-approvals` redirects to `/admin/availability-intake`; Schedule hub cards clarify My Schedule vs Buildings master grid; My Schedule toolbar link to approve office requests.
+- Legacy: `getWeeklyGrid` no longer creates events from `office_room_assignments` without standing ids; provider picker excludes admin/super_admin by default; standing assign rejects non-providers unless `allowStaffHold`.
+- Script: `backend/src/scripts/inventoryStaffOfficeHolds.js` (dry-run; `--apply` to deactivate).
+
+---
+
 ## Phase 2d — Weekly Reliability (July 9, 2026)
 
 Root cause of “weekly rooms fall off every week”: watchdog `deactivateStaleStandingAssignments` killed AVAILABLE weekly standing rows when week-2+ events were missing (often after a non-blocking booking-plan failure or TEMPORARY/until-date caps). Staff re-approved → one week appeared → repeat.
