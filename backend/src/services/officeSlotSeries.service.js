@@ -162,7 +162,9 @@ async function validateOfficeSlotSeries({
       const startAt = `${occDate} ${String(h).padStart(2, '0')}:00:00`;
       const endAt   = `${occDate} ${String(h + 1).padStart(2, '0')}:00:00`;
 
-      // Check for a concrete office_event blocking this slot (from a different provider)
+      // Check for a concrete office_event blocking this slot (from a different provider).
+      // Only real bookings / company holds block — not ASSIGNED_AVAILABLE materializations
+      // from leftover staff/admin standing holds (those are hidden on the grid).
       const [evConflicts] = await pool.execute(
         `SELECT e.id, u.first_name, u.last_name, r.label AS room_label, r.room_number
          FROM office_events e
@@ -173,6 +175,10 @@ async function validateOfficeSlotSeries({
            AND e.end_at > ?
            AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
            AND COALESCE(e.booked_provider_id, e.assigned_provider_id) != ?
+           AND (
+             UPPER(COALESCE(e.status, '')) = 'BOOKED'
+             OR UPPER(COALESCE(e.slot_state, '')) IN ('ASSIGNED_BOOKED', 'COMPANY_HOLD')
+           )
          LIMIT 1`,
         [roomId, endAt, startAt, providerId]
       );
@@ -204,7 +210,7 @@ async function validateOfficeSlotSeries({
       // assignments with no future events should not block new approvals.
       if (officeLocationId) {
         const [saConflicts] = await pool.execute(
-          `SELECT a.id, a.provider_id, a.office_location_id, u.first_name, u.last_name,
+          `SELECT a.id, a.provider_id, a.office_location_id, u.first_name, u.last_name, u.role,
                   ol.name AS office_name
            FROM office_standing_assignments a
            JOIN users u ON u.id = a.provider_id
@@ -222,22 +228,37 @@ async function validateOfficeSlotSeries({
         );
         if (saConflicts?.length) {
           const c = saConflicts[0];
-          // Verify the blocking provider actually has a live event at this exact
+          // Staff/admin standing holds are not real provider occupancy — do not block approve.
+          const staffRoles = new Set([
+            'super_admin', 'superadmin', 'admin', 'staff', 'support', 'clinical_practice_assistant'
+          ]);
+          if (staffRoles.has(String(c.role || '').trim().toLowerCase())) {
+            continue;
+          }
+          // Verify the blocking provider actually has a live BOOKED event at this exact
           // weekday + hour in the same room on or after the first occurrence date.
-          // If not, the standing assignment is orphaned and should not block.
+          // Materialized ASSIGNED_AVAILABLE placeholders must not block.
           // MySQL DAYOFWEEK: 1=Sun … 7=Sat (our weekday is 0-based, so +1).
           const slotStart = `${occDate} ${String(h).padStart(2, '0')}:00:00`;
           const [liveEvents] = await pool.execute(
             `SELECT 1
              FROM office_events
              WHERE room_id = ?
-               AND booked_provider_id = ?
                AND start_at >= ?
                AND DAYOFWEEK(start_at) = ?
                AND HOUR(start_at) = ?
                AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
+               AND (
+                 UPPER(COALESCE(status, '')) = 'BOOKED'
+                 OR UPPER(COALESCE(slot_state, '')) = 'ASSIGNED_BOOKED'
+               )
+               AND (
+                 standing_assignment_id = ?
+                 OR booked_provider_id = ?
+                 OR assigned_provider_id = ?
+               )
              LIMIT 1`,
-            [roomId, c.provider_id, slotStart, weekday + 1, h]
+            [roomId, slotStart, weekday + 1, h, c.id, c.provider_id, c.provider_id]
           );
           if (liveEvents?.length) {
             const blocker = `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'another provider';
