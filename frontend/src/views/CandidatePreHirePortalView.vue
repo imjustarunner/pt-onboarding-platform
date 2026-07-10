@@ -111,6 +111,7 @@
                   <div class="task-card-v2-icon" :style="{ background: taskAccentBg(idx), color: taskAccentColor(idx) }">
                     <span v-if="task.status === 'completed'">✓</span>
                     <span v-else-if="task.taskType === 'intake_form'">📝</span>
+                    <span v-else-if="task.taskType === 'training'">📋</span>
                     <span v-else-if="task.actionType === 'review'">📋</span>
                     <span v-else>✍️</span>
                   </div>
@@ -143,6 +144,28 @@
                         @click="markIntakeFormDone(task)"
                       >
                         {{ intakeFormSubmitting ? 'Saving…' : "I've submitted this form ✓" }}
+                      </button>
+                    </div>
+                  </template>
+                  <!-- Training/module tasks: open the module page -->
+                  <template v-else-if="task.taskType === 'training' && task.status !== 'completed'">
+                    <div class="intake-form-actions">
+                      <button
+                        type="button"
+                        class="task-card-v2-action"
+                        :style="{ borderColor: taskAccentColor(idx), color: taskAccentColor(idx) }"
+                        @click="openModuleTask(task)"
+                      >
+                        Open Form <span aria-hidden="true">↗</span>
+                      </button>
+                      <button
+                        v-if="moduleTaskOpened === task.id"
+                        type="button"
+                        class="task-card-v2-action task-card-v2-action--confirm"
+                        :disabled="moduleTaskSubmitting"
+                        @click="markModuleTaskDone(task)"
+                      >
+                        {{ moduleTaskSubmitting ? 'Saving…' : "I've completed this form ✓" }}
                       </button>
                     </div>
                   </template>
@@ -354,6 +377,7 @@ const orgInitials = computed(() => {
 });
 
 const taskDescription = (task) => {
+  if (task.taskType === 'training') return task.description || 'Please complete this form to continue.';
   if (task.description) return task.description;
   if (task.taskType === 'intake_form') return 'Please complete this digital form.';
   if (task.actionType === 'review') return 'Please review and acknowledge this document.';
@@ -361,6 +385,7 @@ const taskDescription = (task) => {
 };
 const taskActionLabel = (task) => {
   if (task.taskType === 'intake_form') return 'Fill Out Form';
+  if (task.taskType === 'training') return 'Open Form';
   return task.actionType === 'review' ? 'Review & Acknowledge' : 'View & Sign';
 };
 
@@ -385,6 +410,32 @@ const markIntakeFormDone = async (task) => {
     /* non-fatal */
   } finally {
     intakeFormSubmitting.value = false;
+  }
+};
+
+// ─── Training/module task handling ────────────────────────────────────────────
+const moduleTaskSubmitting = ref(false);
+const moduleTaskOpened = ref(null);
+
+const openModuleTask = (task) => {
+  // referenceId is the module ID; open in a new tab so the portal stays open
+  const moduleId = task.referenceId;
+  if (!moduleId) return;
+  moduleTaskOpened.value = task.id;
+  window.open(`/module/${moduleId}`, '_blank', 'noopener,noreferrer');
+};
+
+const markModuleTaskDone = async (task) => {
+  moduleTaskSubmitting.value = true;
+  try {
+    // Re-use the complete-form endpoint — it simply marks the task completed
+    await portalApi.post(`/prehire-portal/${token.value}/tasks/${task.id}/complete-form`);
+    await reloadPortal();
+    moduleTaskOpened.value = null;
+  } catch {
+    /* non-fatal */
+  } finally {
+    moduleTaskSubmitting.value = false;
   }
 };
 
@@ -451,11 +502,13 @@ const sanitizedHtml = computed(() => {
 
 const pillClass = (t) => {
   if (t.status === 'completed') return 'pill-done';
+  if (t.taskType === 'training') return 'pill-review';
   if (t.actionType === 'review') return 'pill-review';
   return 'pill-sign';
 };
 const pillLabel = (t) => {
   if (t.status === 'completed') return 'Done';
+  if (t.taskType === 'training') return 'Form to complete';
   if (t.actionType === 'review') return 'Review & acknowledge';
   return 'Signature required';
 };

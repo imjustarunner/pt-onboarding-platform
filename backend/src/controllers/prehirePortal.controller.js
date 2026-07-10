@@ -565,8 +565,8 @@ export const completeIntakeFormTask = async (req, res, next) => {
     );
     const task = rows[0];
     if (!task) return res.status(404).json({ error: { message: 'Task not found.' } });
-    if (task.task_type !== 'intake_form') {
-      return res.status(400).json({ error: { message: 'Task is not an intake form task.' } });
+    if (!['intake_form', 'training'].includes(task.task_type)) {
+      return res.status(400).json({ error: { message: 'Task is not a form or training task.' } });
     }
     if (task.status === 'completed') {
       return res.json({ ok: true, already: true });
