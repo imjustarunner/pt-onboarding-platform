@@ -2923,8 +2923,8 @@ const handleLogoError = (event) => {
   --pt-border:        rgba(255, 255, 255, 0.16);
   --pt-field-bg:      rgba(255, 255, 255, 0.06);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  /* Full-bleed dark background art — same image works for all orientations with cover */
-  background: #08081a url('/branding/plottwisthq-mobile-bg.png') no-repeat center center / cover;
+  /* Full-bleed dark background art — ipad/web mockup (assets/ipadwebbackground.png) */
+  background: #08081a url('/branding/plottwisthq-platform-bg.png') no-repeat center center / cover;
   min-height: 100vh;
   min-height: 100dvh;
 }
