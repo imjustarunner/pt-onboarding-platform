@@ -1530,6 +1530,12 @@
               Your submission is in — we'll follow up as soon as possible to welcome you
               and confirm the next steps.
             </p>
+            <div v-if="prehireReturnTo" class="intake-thankyou-return" style="margin: 14px 0;">
+              <p class="muted" style="margin-bottom: 8px;">
+                Return to your secure pre-hire portal (no login needed) to continue tasks or save your personal link.
+              </p>
+              <a class="btn btn-primary" :href="prehireReturnTo">Return to your portal</a>
+            </div>
             <ul
               v-if="intakeRegisteredNames.length"
               class="intake-thankyou-list"
@@ -2124,6 +2130,13 @@ const INTAKE_TRANSLATIONS = {
 const route = useRoute();
 const router = useRouter();
 const publicKey = route.params.publicKey;
+const prehireReturnTo = computed(() => {
+  const raw = String(route.query.returnTo || '').trim();
+  if (!raw.startsWith('/pre-hire/')) return '';
+  // Only allow same-origin relative portal paths
+  if (raw.includes('://') || raw.includes('//')) return '';
+  return raw;
+});
 const isLocalhostRecaptcha = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 const LOCALHOST_TEST_RECAPTCHA_SITE_KEY = '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI';
 const authStore = useAuthStore();

@@ -174,6 +174,9 @@ export const getPortal = async (req, res, next) => {
     const requiredTasks = tasks.filter(t => t.isRequired);
     const completedRequired = requiredTasks.filter(t => t.status === 'completed').length;
     const allDone = totalTasks > 0 && completedTasks === totalTasks;
+    const token = String(req.params.token || '');
+    const portalPath = token ? `/pre-hire/${token}` : null;
+    const portalLink = portalPath ? `${resolveBaseUrl(req)}${portalPath}` : null;
 
     res.json({
       candidate: {
@@ -187,6 +190,9 @@ export const getPortal = async (req, res, next) => {
       agency,
       supportTeam,
       tasks,
+      portalLink,
+      portalPath,
+      tokenExpiresAt: user.passwordless_token_expires_at || null,
       progress: {
         total: totalTasks,
         completed: completedTasks,
@@ -577,6 +583,8 @@ export const completeIntakeFormTask = async (req, res, next) => {
       [taskId]
     );
 
+    await maybeAdvanceCandidateStatus(userId);
+
     // Trigger search index rebuild asynchronously so the new form data is searchable
     setImmediate(async () => {
       try {
@@ -637,4 +645,167 @@ export const sendPortalMessage = async (req, res, next) => {
       authorName: null
     });
   } catch (e) { next(e); }
+};
+
+// ─── Token-scoped module / employee-info form ────────────────────────────────
+
+async function assertPortalModuleAssigned(userId, moduleId) {
+  const mid = Number(moduleId);
+  if (!Number.isInteger(mid) || mid < 1) {
+    const err = new Error('Invalid module ID.');
+    err.status = 400;
+    throw err;
+  }
+  const [rows] = await pool.execute(
+    `SELECT id, status
+     FROM tasks
+     WHERE assigned_to_user_id = ?
+       AND task_type = 'training'
+       AND reference_id = ?
+       AND status NOT IN ('overridden', 'archived')
+     ORDER BY id DESC
+     LIMIT 1`,
+    [userId, mid]
+  );
+  if (!rows?.[0]) {
+    const err = new Error('This form is not assigned to you.');
+    err.status = 403;
+    throw err;
+  }
+  return { moduleId: mid, taskId: Number(rows[0].id), taskStatus: rows[0].status };
+}
+
+export const getPortalModule = async (req, res, next) => {
+  try {
+    const { id: userId } = req.portalUser;
+    const { moduleId } = await assertPortalModuleAssigned(userId, req.params.moduleId);
+    const Module = (await import('../models/Module.model.js')).default;
+    const module = await Module.findById(moduleId);
+    if (!module) return res.status(404).json({ error: { message: 'Module not found.' } });
+    res.json(module);
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const getPortalModuleContent = async (req, res, next) => {
+  try {
+    const { id: userId } = req.portalUser;
+    const { moduleId } = await assertPortalModuleAssigned(userId, req.params.moduleId);
+    const ModuleContent = (await import('../models/ModuleContent.model.js')).default;
+    const content = await ModuleContent.findByModuleId(moduleId);
+    res.json(content || []);
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const getPortalModuleFormDefinition = async (req, res, next) => {
+  try {
+    const { id: userId } = req.portalUser;
+    const { moduleId } = await assertPortalModuleAssigned(userId, req.params.moduleId);
+    // Reuse authenticated form definition logic with portal user as req.user
+    req.user = { id: userId, role: req.portalUser.role };
+    req.params.moduleId = String(moduleId);
+    const { getModuleFormDefinition } = await import('./moduleForm.controller.js');
+    return getModuleFormDefinition(req, res, next);
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const submitPortalModuleForm = async (req, res, next) => {
+  try {
+    const { id: userId } = req.portalUser;
+    const { moduleId } = await assertPortalModuleAssigned(userId, req.params.moduleId);
+    req.user = { id: userId, role: req.portalUser.role };
+    req.params.moduleId = String(moduleId);
+    const { submitModuleForm } = await import('./moduleForm.controller.js');
+    return submitModuleForm(req, res, next);
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const uploadPortalModuleFormFile = async (req, res, next) => {
+  try {
+    const { id: userId } = req.portalUser;
+    const { moduleId } = await assertPortalModuleAssigned(userId, req.params.moduleId);
+    req.user = { id: userId, role: req.portalUser.role };
+    req.params.moduleId = String(moduleId);
+    const { uploadModuleFormFile } = await import('./moduleForm.controller.js');
+    // uploadModuleFormFile is an array middleware [multer, handler]
+    if (Array.isArray(uploadModuleFormFile)) {
+      let i = 0;
+      const run = (err) => {
+        if (err) return next(err);
+        const mw = uploadModuleFormFile[i++];
+        if (!mw) return;
+        return mw(req, res, run);
+      };
+      return run();
+    }
+    return uploadModuleFormFile(req, res, next);
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const startPortalModule = async (req, res, next) => {
+  try {
+    const { id: userId } = req.portalUser;
+    const { moduleId, taskId } = await assertPortalModuleAssigned(userId, req.params.moduleId);
+    const UserProgress = (await import('../models/UserProgress.model.js')).default;
+    const progress = await UserProgress.createOrUpdate(userId, moduleId, { status: 'in_progress' });
+    try {
+      await pool.execute(
+        `UPDATE tasks SET status = 'in_progress' WHERE id = ? AND status = 'pending'`,
+        [taskId]
+      );
+    } catch { /* non-fatal */ }
+    res.json(progress);
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const completePortalModule = async (req, res, next) => {
+  try {
+    const { id: userId } = req.portalUser;
+    const { moduleId, taskId } = await assertPortalModuleAssigned(userId, req.params.moduleId);
+    const UserProgress = (await import('../models/UserProgress.model.js')).default;
+    const Task = (await import('../models/Task.model.js')).default;
+
+    const progress = await UserProgress.createOrUpdate(userId, moduleId, { status: 'completed' });
+    try {
+      await Task.markComplete(taskId, userId);
+    } catch (taskErr) {
+      console.error('[prehirePortal] mark training task complete failed:', taskErr);
+      await pool.execute(
+        `UPDATE tasks SET status = 'completed', completed_at = NOW() WHERE id = ?`,
+        [taskId]
+      );
+    }
+
+    await maybeAdvanceCandidateStatus(userId);
+
+    const token = String(req.params.token || '');
+    const portalPath = token ? `/pre-hire/${token}` : null;
+    res.json({
+      ok: true,
+      progress,
+      portalPath,
+      portalLink: portalPath ? `${resolveBaseUrl(req)}${portalPath}` : null,
+      message: 'Form completed. You can return to your portal anytime with your personal link.'
+    });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
 };

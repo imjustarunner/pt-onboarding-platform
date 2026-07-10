@@ -2414,6 +2414,12 @@ const routes = [
     meta: { requiresGuest: false, isPublicPortal: true }
   },
   {
+    path: '/pre-hire/:token/module/:id',
+    name: 'CandidatePreHireModule',
+    component: () => import('../views/ModuleView.vue'),
+    meta: { requiresGuest: false, isPublicPortal: true, isPrehireModule: true }
+  },
+  {
     path: '/reset-password/:token',
     name: 'ResetPassword',
     component: () => import('../views/ResetPasswordView.vue'),

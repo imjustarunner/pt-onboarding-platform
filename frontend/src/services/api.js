@@ -162,13 +162,14 @@ api.interceptors.response.use(
       reqUrl.includes('/members/directory/public') ||
       reqUrl.includes('/public-intake') ||
       reqUrl.startsWith('/public-intake');
-    const publicPathPrefixes = ['/intake/', '/schools', '/kiosk', '/p/'];
+    const publicPathPrefixes = ['/intake/', '/schools', '/kiosk', '/p/', '/pre-hire/'];
     const isBrandedKioskPath =
       /\/[^/]+\/kiosk\/?$/.test(path) || path.includes('/skill-builders/kiosk/');
     const isPublicPath =
       publicPathPrefixes.some((prefix) => path.startsWith(prefix)) ||
       path.includes('/clubs') ||
       isBrandedKioskPath;
+    const isPrehirePortalApi = reqUrl.includes('/prehire-portal/');
     
     if (
       error.response?.status === 401 &&
@@ -177,7 +178,8 @@ api.interceptors.response.use(
       !isInitialSetup &&
       !skipAuthRedirect &&
       !isPublicApi &&
-      !isPublicPath
+      !isPublicPath &&
+      !isPrehirePortalApi
     ) {
       // If we just logged in, this might be a cookie timing issue
       // Give it one retry before logging out

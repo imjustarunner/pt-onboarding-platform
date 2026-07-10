@@ -11,7 +11,14 @@ import {
   portalComplete,
   listPortalMessages,
   sendPortalMessage,
-  completeIntakeFormTask
+  completeIntakeFormTask,
+  getPortalModule,
+  getPortalModuleContent,
+  getPortalModuleFormDefinition,
+  submitPortalModuleForm,
+  uploadPortalModuleFormFile,
+  completePortalModule,
+  startPortalModule
 } from '../controllers/prehirePortal.controller.js';
 
 const router = express.Router();
@@ -37,5 +44,14 @@ router.post(
 );
 router.post('/:token/tasks/:taskId/acknowledge', portalAcknowledge);
 router.post('/:token/tasks/:taskId/complete-form', completeIntakeFormTask);
+
+// Token-scoped module / employee-info form (no login required)
+router.get('/:token/modules/:moduleId', getPortalModule);
+router.get('/:token/modules/:moduleId/content', getPortalModuleContent);
+router.get('/:token/modules/:moduleId/form-definition', getPortalModuleFormDefinition);
+router.post('/:token/modules/:moduleId/form-submit', submitPortalModuleForm);
+router.post('/:token/modules/:moduleId/form-upload', uploadPortalModuleFormFile);
+router.post('/:token/modules/:moduleId/complete', completePortalModule);
+router.post('/:token/modules/:moduleId/progress/start', startPortalModule);
 
 export default router;

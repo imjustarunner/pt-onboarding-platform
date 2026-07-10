@@ -5,9 +5,27 @@
     
     <div v-else-if="module">
       <div class="module-header">
-        <button v-if="!route.query.preview" @click="$router.push(getDashboardRoute())" class="btn btn-secondary">← Back to Dashboard</button>
+        <button
+          v-if="!route.query.preview"
+          @click="goBackFromModule"
+          class="btn btn-secondary"
+        >
+          {{ isPrehireMode ? '← Back to your portal' : '← Back to Dashboard' }}
+        </button>
         <div v-else class="preview-banner">
           <span class="preview-badge">👁️ Preview Mode</span>
+        </div>
+        <div v-if="isPrehireMode && portalReturnLink" class="prehire-return-banner">
+          <div>
+            <strong>Save your personal link</strong>
+            <div class="muted" style="font-size: 13px; margin-top: 2px;">
+              Bookmark or copy this link to return anytime — no login needed.
+            </div>
+            <code class="prehire-return-url">{{ portalReturnLink }}</code>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" @click="copyPortalLink">
+            {{ portalLinkCopied ? 'Copied!' : 'Copy link' }}
+          </button>
         </div>
         <h1>{{ module.title }}</h1>
         <p class="module-description">{{ module.description }}</p>
@@ -16,16 +34,21 @@
       <!-- Start splash (only for real user sessions, not preview, and not completed) -->
       <div v-if="!route.query.preview && !hasStarted && !isCompleted" class="module-start-splash">
         <div class="splash-card">
-          <h2>Start Module</h2>
+          <h2>{{ isPrehireMode ? 'Start Form' : 'Start Module' }}</h2>
           <p class="splash-subtitle">
-            When you click Start, your timer begins. You can leave and come back—your time will be saved.
+            <template v-if="isPrehireMode">
+              Complete this form to continue your pre-hire steps. You can leave and come back with your personal portal link.
+            </template>
+            <template v-else>
+              When you click Start, your timer begins. You can leave and come back—your time will be saved.
+            </template>
           </p>
           <div class="splash-actions">
             <button class="btn btn-primary btn-lg" @click="startModule" :disabled="starting">
               {{ starting ? 'Starting...' : 'Start' }}
             </button>
-            <button class="btn btn-secondary" @click="$router.push(getDashboardRoute())" :disabled="starting">
-              Back to Dashboard
+            <button class="btn btn-secondary" @click="goBackFromModule" :disabled="starting">
+              {{ isPrehireMode ? 'Back to your portal' : 'Back to Dashboard' }}
             </button>
           </div>
         </div>
@@ -58,7 +81,7 @@
             </p>
           </div>
           <FocusStepTimeTracker
-            v-if="focusStepContext && currentContent && !route.query.preview"
+            v-if="focusStepContext && currentContent && !route.query.preview && !isPrehireMode"
             :focus-id="focusStepContext.focusId"
             :step-id="focusStepContext.stepId"
             :agency-id="focusStepContext.agencyId"
@@ -69,7 +92,7 @@
             @session-seconds="handleSessionSeconds"
           />
           <TimeTracker
-            v-else-if="currentContent && !route.query.preview"
+            v-else-if="currentContent && !route.query.preview && !isPrehireMode"
             :module-id="module.id"
             :enabled="hasStarted"
             @time-update="handleTimeUpdate"
@@ -330,7 +353,7 @@
                 <p>This module has been completed. You cannot navigate through it again.</p>
               </div>
           
-          <div v-if="needsSignature && !route.query.preview" class="signature-section">
+          <div v-if="needsSignature && !route.query.preview && !isPrehireMode" class="signature-section">
             <h3>Digital Signature</h3>
             <SignaturePad
               :module-id="module.id"
@@ -349,7 +372,7 @@
             </button>
             <div v-if="isCompleted" class="success">
               <div class="completion-message">
-                <h3>✓ Module completed successfully!</h3>
+                <h3>✓ {{ isPrehireMode ? 'Form completed successfully!' : 'Module completed successfully!' }}</h3>
                 <div v-if="quizResults" class="quiz-results">
                   <p class="quiz-score">
                     Quiz Score: {{ quizResults.correctCount }}/{{ quizResults.totalQuestions }} questions correct 
@@ -362,6 +385,21 @@
                 </div>
                 <div v-if="progress?.completed_at" class="completion-date">
                   Completed: {{ formatDate(progress.completed_at) }}
+                </div>
+                <div v-if="isPrehireMode" class="prehire-complete-actions" style="margin-top: 16px;">
+                  <p class="muted" style="margin-bottom: 10px;">
+                    You're still in your secure pre-hire portal — no login required.
+                    Keep your personal link to return for verification, viewing documents, or adding another copy of a task.
+                  </p>
+                  <code v-if="portalReturnLink" class="prehire-return-url" style="display:block;margin-bottom:10px;">{{ portalReturnLink }}</code>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button type="button" class="btn btn-primary" @click="goBackFromModule">
+                      Return to your portal
+                    </button>
+                    <button type="button" class="btn btn-secondary" @click="copyPortalLink">
+                      {{ portalLinkCopied ? 'Copied!' : 'Copy personal link' }}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -400,6 +438,7 @@ import AcknowledgmentForm from '../components/AcknowledgmentForm.vue';
 import PoweredByFooter from '../components/PoweredByFooter.vue';
 import { getDashboardRoute } from '../utils/router';
 import { useAuthStore } from '../store/auth';
+import axios from 'axios';
 import {
   parseModuleContentData,
   isIntroTextContent,
@@ -410,6 +449,31 @@ import {
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+
+const isPrehireMode = computed(() =>
+  route.meta?.isPrehireModule === true || Boolean(route.params.token && String(route.path || '').includes('/pre-hire/'))
+);
+const prehireToken = computed(() => String(route.params.token || '').trim());
+const portalReturnPath = computed(() => (prehireToken.value ? `/pre-hire/${prehireToken.value}` : ''));
+const portalReturnLink = computed(() => {
+  if (!portalReturnPath.value) return '';
+  return `${window.location.origin}${portalReturnPath.value}`;
+});
+
+const portalApi = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || '/api',
+  withCredentials: false
+});
+
+const moduleApiBase = computed(() =>
+  isPrehireMode.value && prehireToken.value
+    ? `/prehire-portal/${prehireToken.value}/modules`
+    : '/modules'
+);
+
+/** Axios client + path helpers for authenticated vs pre-hire token module access */
+const moduleHttp = () => (isPrehireMode.value ? portalApi : api);
+const modulePath = (suffix = '') => `${moduleApiBase.value}/${route.params.id}${suffix}`;
 
 const module = ref(null);
 const content = ref([]);
@@ -424,6 +488,27 @@ const responseAnswers = ref({});
 const quizResults = ref(null);
 const hasStarted = ref(false);
 const starting = ref(false);
+const portalLinkCopied = ref(false);
+
+const goBackFromModule = () => {
+  if (isPrehireMode.value && portalReturnPath.value) {
+    router.push(portalReturnPath.value);
+    return;
+  }
+  router.push(getDashboardRoute());
+};
+
+const copyPortalLink = async () => {
+  const link = portalReturnLink.value;
+  if (!link) return;
+  try {
+    await navigator.clipboard.writeText(link);
+    portalLinkCopied.value = true;
+    setTimeout(() => { portalLinkCopied.value = false; }, 2000);
+  } catch {
+    window.prompt('Copy your personal portal link:', link);
+  }
+};
 
 const focusStepContext = computed(() => {
   const focusId = route.query.focusId;
@@ -523,7 +608,7 @@ const onFileSelected = async (evt, field) => {
     fd.append('file', f);
     fd.append('fieldDefinitionId', String(fid));
 
-    const r = await api.post(`/modules/${module.value.id}/form-upload`, fd, {
+    const r = await moduleHttp().post(modulePath('/form-upload'), fd, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
 
@@ -623,7 +708,9 @@ const normalizeBoolean = (v) => {
 
 const fetchFormDefinition = async (moduleId) => {
   try {
-    const res = await api.get(`/modules/${moduleId}/form-definition`);
+    const res = isPrehireMode.value
+      ? await moduleHttp().get(modulePath('/form-definition'))
+      : await api.get(`/modules/${moduleId}/form-definition`);
     formDefinition.value = res.data;
 
     const nextValues = { ...(formValues.value || {}) };
@@ -670,10 +757,17 @@ const fetchModule = async () => {
     const moduleId = route.params.id;
     const isPreview = route.query.preview === 'true';
     
-    const [moduleRes, contentRes] = await Promise.all([
-      api.get(`/modules/${moduleId}`),
-      api.get(`/modules/${moduleId}/content`)
-    ]);
+    const [moduleRes, contentRes] = await Promise.all(
+      isPrehireMode.value
+        ? [
+          moduleHttp().get(modulePath('')),
+          moduleHttp().get(modulePath('/content'))
+        ]
+        : [
+          api.get(`/modules/${moduleId}`),
+          api.get(`/modules/${moduleId}/content`)
+        ]
+    );
     
     module.value = moduleRes.data;
     content.value = (contentRes.data || []).map((item) => ({
@@ -695,6 +789,13 @@ const fetchModule = async () => {
     
     // Skip progress tracking and other user-specific operations in preview mode
     if (!isPreview) {
+      if (isPrehireMode.value) {
+        // Pre-hire: no authenticated progress list; start fresh unless already completed via task.
+        progress.value = null;
+        signatureSaved.value = true; // employee-info forms typically don't need signature pad
+        acknowledgmentSaved.value = true;
+        hasStarted.value = false;
+      } else {
       // Fetch progress
       try {
         const progressRes = await api.get('/progress');
@@ -729,6 +830,7 @@ const fetchModule = async () => {
       } catch (e) {
         // No acknowledgment yet
       }
+      }
     } else {
       // Preview mode - set defaults
       progress.value = null;
@@ -749,7 +851,11 @@ const startModule = async () => {
     starting.value = true;
     error.value = '';
     const moduleId = parseInt(route.params.id);
-    await api.post('/progress/start', { moduleId });
+    if (isPrehireMode.value) {
+      await moduleHttp().post(modulePath('/progress/start'));
+    } else {
+      await api.post('/progress/start', { moduleId });
+    }
     progress.value = { ...(progress.value || {}), status: 'in_progress', module_id: moduleId };
     hasStarted.value = true;
   } catch (err) {
@@ -888,17 +994,25 @@ const completeModule = async () => {
       if (!ok) return;
     }
 
-    await api.post('/progress/complete', {
-      moduleId: module.value.id,
-      focusId: focusStepContext.value?.focusId,
-      agencyId: focusStepContext.value?.agencyId,
-      stepId: focusStepContext.value?.stepId
-    });
-    progress.value = { ...progress.value, status: 'completed' };
+    if (isPrehireMode.value) {
+      const res = await moduleHttp().post(modulePath('/complete'));
+      progress.value = { ...(progress.value || {}), status: 'completed', completed_at: new Date().toISOString() };
+      if (res?.data?.portalLink) {
+        // keep local return link in sync if server returns absolute URL
+      }
+    } else {
+      await api.post('/progress/complete', {
+        moduleId: module.value.id,
+        focusId: focusStepContext.value?.focusId,
+        agencyId: focusStepContext.value?.agencyId,
+        stepId: focusStepContext.value?.stepId
+      });
+      progress.value = { ...progress.value, status: 'completed' };
     
-    // Fetch quiz results after completion
-    if (hasQuiz.value) {
-      await fetchQuizResults();
+      // Fetch quiz results after completion
+      if (hasQuiz.value) {
+        await fetchQuizResults();
+      }
     }
     
     // Note: We don't redirect after completion - user stays on module page
@@ -968,7 +1082,11 @@ async function saveFormValues(validate) {
     const suffix = validate ? '?validate=true' : '';
     // Important: do not overwrite existing values with blanks when re-sending forms to active users.
     // This lets users submit partial updates without wiping previously captured data.
-    await api.post(`/modules/${moduleId}/form-submit${suffix}`, { values, skipBlanks: true });
+    if (isPrehireMode.value) {
+      await moduleHttp().post(`${modulePath('/form-submit')}${suffix}`, { values, skipBlanks: true });
+    } else {
+      await api.post(`/modules/${moduleId}/form-submit${suffix}`, { values, skipBlanks: true });
+    }
     formSaveMessage.value = validate ? 'Validated' : 'Saved';
     return true;
   } catch (err) {
@@ -1045,6 +1163,25 @@ onMounted(() => {
   color: var(--text-secondary);
   font-size: 18px;
   line-height: 1.7;
+}
+
+.prehire-return-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0 8px;
+  padding: 12px 14px;
+  border: 1px solid rgba(37, 99, 235, 0.25);
+  background: rgba(37, 99, 235, 0.06);
+  border-radius: 10px;
+}
+.prehire-return-url {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  word-break: break-all;
+  color: var(--text-primary);
 }
 
 .intro-screen {

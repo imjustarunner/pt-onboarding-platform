@@ -18,7 +18,10 @@
       <div v-if="agency?.logoUrl" class="splash-logo"><img :src="agency.logoUrl" :alt="agency.name" /></div>
       <div class="done-icon">✓</div>
       <h2>You're all set!</h2>
-      <p>Your pre-hire documents have been submitted. Your hiring team will be in touch with next steps and your login information.</p>
+      <p>Your pre-hire documents have been submitted. Your hiring team will be in touch with next steps.</p>
+      <p class="contact-line">
+        Keep this page bookmarked if you still have the link — once your account is activated, you'll receive login details separately.
+      </p>
       <p v-if="agency?.phoneNumber" class="contact-line">Questions? Call us at <strong>{{ agency.phoneNumber }}</strong></p>
     </div>
 
@@ -75,6 +78,21 @@
               <p>We're excited to have you join {{ agency?.name || 'the team' }}.</p>
             </div>
 
+            <section class="portal-link-card" aria-label="Your personal portal link">
+              <div class="portal-link-card-head">
+                <strong>Your personal portal link</strong>
+                <button type="button" class="portal-link-copy" @click="copyPortalLink">
+                  {{ portalLinkCopied ? 'Copied!' : 'Copy link' }}
+                </button>
+              </div>
+              <p class="portal-link-help">
+                Bookmark or save this link. Use it anytime to return — no login needed — for verification,
+                viewing your documents, or adding another copy of a task.
+              </p>
+              <code class="portal-link-url">{{ portalLinkDisplay }}</code>
+              <p v-if="tokenExpiresLabel" class="portal-link-expiry">Link valid until {{ tokenExpiresLabel }}</p>
+            </section>
+
             <section class="portal-tasks-section">
               <div class="portal-tasks-head">
                 <div>
@@ -93,7 +111,10 @@
                 <div class="all-done-icon">🎉</div>
                 <div>
                   <strong>All items complete!</strong>
-                  <div class="all-done-sub">Your documents are under review. We'll reach out shortly with next steps.</div>
+                  <div class="all-done-sub">
+                    Your documents are under review. Save your personal link above so you can return anytime
+                    for verification or to add another copy of a task — no login required.
+                  </div>
                 </div>
               </div>
 
@@ -335,12 +356,14 @@
 
 <script setup>
 import { ref, computed, onMounted, nextTick, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import DOMPurify from 'dompurify';
 import axios from 'axios';
 import PreHirePortalChat from '../components/prehire/PreHirePortalChat.vue';
+import { buildFormUrl } from '../utils/publicIntakeUrl.js';
 
 const route = useRoute();
+const router = useRouter();
 const token = computed(() => route.params.token);
 
 // Use a base axios instance (no auth cookies needed — token is in URL)
@@ -353,9 +376,36 @@ const portalApi = axios.create({
 const loading = ref(true);
 const errorCode = ref('');
 const portalData = ref(null);
+const portalLinkCopied = ref(false);
 
 const candidate = computed(() => portalData.value?.candidate || {});
 const agency = computed(() => portalData.value?.agency || null);
+const portalLinkDisplay = computed(() => {
+  if (portalData.value?.portalLink) return portalData.value.portalLink;
+  if (!token.value) return '';
+  return `${window.location.origin}/pre-hire/${token.value}`;
+});
+const tokenExpiresLabel = computed(() => {
+  const raw = portalData.value?.tokenExpiresAt;
+  if (!raw) return '';
+  try {
+    return new Date(raw).toLocaleString();
+  } catch {
+    return '';
+  }
+});
+
+const copyPortalLink = async () => {
+  const link = portalLinkDisplay.value;
+  if (!link) return;
+  try {
+    await navigator.clipboard.writeText(link);
+    portalLinkCopied.value = true;
+    setTimeout(() => { portalLinkCopied.value = false; }, 2000);
+  } catch {
+    window.prompt('Copy your personal portal link:', link);
+  }
+};
 const supportTeam = computed(() => portalData.value?.supportTeam || { label: 'People Operations', members: [] });
 const tasks = computed(() => portalData.value?.tasks || []);
 const progress = computed(() => portalData.value?.progress || { total: 0, completed: 0, allDone: false });
@@ -397,7 +447,10 @@ const openIntakeForm = (task) => {
   const pk = task.metadata?.intakeLinkPublicKey;
   if (!pk) return;
   intakeFormOpened.value = task.id;
-  window.open(`/intake/${pk}`, '_blank', 'noopener,noreferrer');
+  const base = buildFormUrl(pk, task.metadata?.formType || task.metadata?.form_type);
+  const returnTo = encodeURIComponent(`/pre-hire/${token.value}`);
+  const url = `${base}${base.includes('?') ? '&' : '?'}returnTo=${returnTo}`;
+  window.open(url, '_blank', 'noopener,noreferrer');
 };
 
 const markIntakeFormDone = async (task) => {
@@ -418,11 +471,11 @@ const moduleTaskSubmitting = ref(false);
 const moduleTaskOpened = ref(null);
 
 const openModuleTask = (task) => {
-  // referenceId is the module ID; open in a new tab so the portal stays open
+  // referenceId is the module ID; stay in the tokened portal (no login required)
   const moduleId = task.referenceId;
-  if (!moduleId) return;
+  if (!moduleId || !token.value) return;
   moduleTaskOpened.value = task.id;
-  window.open(`/module/${moduleId}`, '_blank', 'noopener,noreferrer');
+  router.push(`/pre-hire/${token.value}/module/${moduleId}`);
 };
 
 const markModuleTaskDone = async (task) => {
@@ -893,6 +946,58 @@ onMounted(async () => {
   margin: 0 0 24px;
   color: #64748b;
   font-size: 15px;
+}
+
+.portal-link-card {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(37, 99, 235, 0.22);
+  background: rgba(37, 99, 235, 0.06);
+}
+
+.portal-link-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.portal-link-help {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.portal-link-url {
+  display: block;
+  font-size: 12px;
+  word-break: break-all;
+  color: #0f172a;
+}
+
+.portal-link-expiry {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.portal-link-copy {
+  border: 1px solid rgba(37, 99, 235, 0.35);
+  background: #fff;
+  color: #1d4ed8;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.portal-link-copy:hover {
+  background: rgba(37, 99, 235, 0.08);
 }
 
 .portal-tasks-section {
