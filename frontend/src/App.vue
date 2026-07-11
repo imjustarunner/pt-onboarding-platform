@@ -580,22 +580,42 @@
                         Payroll
                         <span v-if="payrollPendingCount > 0" class="nav-payroll-badge">{{ payrollPendingCount }}</span>
                       </router-link>
-                      <!-- Inline pending list — no fly-out needed, avoids overflow clipping -->
-                      <div v-if="payrollPendingItems.length" class="nav-payroll-inline">
+                      <!-- Hover-only inline pending list -->
+                      <div v-if="payrollPendingCount > 0" class="nav-payroll-inline">
                         <div class="nav-payroll-inline-head">Pending submissions</div>
+                        <!-- PTO items — go directly to PTO approval section -->
                         <button
                           v-for="item in payrollPendingItems.slice(0, 8)"
                           :key="item.userId"
                           type="button"
                           class="nav-payroll-inline-row"
-                          @click.stop="goToPayrollStage"
+                          @click.stop="$router.push(orgTo('/admin/payroll') + '?wizardOpen=pto')"
                         >
                           <span class="nav-payroll-sub-name">{{ item.name }}</span>
                           <span class="nav-payroll-sub-types">{{ item.types.join(', ') }}</span>
                         </button>
                         <div v-if="payrollPendingItems.length > 8" class="nav-payroll-sub-more">
-                          +{{ payrollPendingItems.length - 8 }} more
+                          +{{ payrollPendingItems.length - 8 }} more PTO
                         </div>
+                        <!-- Non-PTO claim type summaries -->
+                        <template v-if="payrollPendingTypeCounts">
+                          <button v-if="payrollPendingTypeCounts.time > 0" type="button" class="nav-payroll-inline-row" @click.stop="$router.push(orgTo('/admin/payroll') + '?wizardOpen=stage')">
+                            <span class="nav-payroll-sub-name">Time Claims</span>
+                            <span class="nav-payroll-sub-types">{{ payrollPendingTypeCounts.time }} pending</span>
+                          </button>
+                          <button v-if="payrollPendingTypeCounts.mileage > 0" type="button" class="nav-payroll-inline-row" @click.stop="$router.push(orgTo('/admin/payroll') + '?wizardOpen=stage')">
+                            <span class="nav-payroll-sub-name">Mileage Claims</span>
+                            <span class="nav-payroll-sub-types">{{ payrollPendingTypeCounts.mileage }} pending</span>
+                          </button>
+                          <button v-if="payrollPendingTypeCounts.reimbursement > 0" type="button" class="nav-payroll-inline-row" @click.stop="$router.push(orgTo('/admin/payroll') + '?wizardOpen=stage')">
+                            <span class="nav-payroll-sub-name">Reimbursements</span>
+                            <span class="nav-payroll-sub-types">{{ payrollPendingTypeCounts.reimbursement }} pending</span>
+                          </button>
+                          <button v-if="payrollPendingTypeCounts.medcancel > 0" type="button" class="nav-payroll-inline-row" @click.stop="$router.push(orgTo('/admin/payroll') + '?wizardOpen=stage')">
+                            <span class="nav-payroll-sub-name">Med Cancel</span>
+                            <span class="nav-payroll-sub-types">{{ payrollPendingTypeCounts.medcancel }} pending</span>
+                          </button>
+                        </template>
                       </div>
                     </div>
                     <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" >Receivables</router-link>
@@ -5434,9 +5454,13 @@ onUnmounted(() => {
   line-height: 1;
 }
 .nav-payroll-inline {
+  display: none;
   margin: 4px 0 2px 10px;
   border-left: 2px solid #b2dfce;
   padding-left: 8px;
+}
+.nav-payroll-item:hover .nav-payroll-inline {
+  display: block;
 }
 .nav-payroll-inline-head {
   font-size: 10px;

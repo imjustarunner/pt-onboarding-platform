@@ -3090,7 +3090,7 @@
               </div>
             </div>
 
-            <div class="card" style="margin-top: 12px;">
+            <div ref="ptoSectionRef" class="card" style="margin-top: 12px;">
               <div style="display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 6px;">
                 <div>
                   <h3 class="card-title" style="margin: 0 0 4px 0;">PTO Requests</h3>
@@ -7814,6 +7814,7 @@ const loadPayrollWizardProgress = async () => {
 };
 
 const processChangesCard = ref(null);
+const ptoSectionRef = ref(null);
 const wizardGoToProcessChanges = async () => {
   // Wizard is a modal; close it then scroll to the Process Changes section.
   showPayrollWizardModal.value = false;
@@ -14398,6 +14399,12 @@ const consumeWizardDeepLink = async () => {
     showRawModal.value = true;
   } else if (open === 'stage') {
     showStageModal.value = true;
+  } else if (open === 'pto') {
+    showStageModal.value = true;
+    await nextTick();
+    setTimeout(() => {
+      ptoSectionRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    }, 350);
   } else if (open === 'todos') {
     await openTodoModal();
   } else if (open === 'run') {
