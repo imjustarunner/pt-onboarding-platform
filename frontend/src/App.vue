@@ -5435,7 +5435,7 @@ onUnmounted(() => {
 .nav-payroll-sub {
   display: none;
   position: absolute;
-  left: 100%;
+  right: 100%;
   top: 0;
   min-width: 220px;
   max-width: 300px;
