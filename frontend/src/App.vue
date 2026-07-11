@@ -1637,7 +1637,7 @@
         class="payroll-pending-toast-wrap"
         role="alert"
       >
-        <button type="button" class="payroll-pending-toast" @click="goToPayrollStage">
+        <button type="button" class="payroll-pending-toast" @click="goToPayrollPending()">
           <span class="payroll-pending-toast-icon" aria-hidden="true">💼</span>
           <span>
             <strong>{{ payrollPendingCount }}</strong> pending payroll submission{{ payrollPendingCount !== 1 ? 's' : '' }}

@@ -65,7 +65,7 @@
         class="pr-metric-card pr-metric-card--action"
         :class="{ 'pr-metric-card--alert': dashboardPendingCount > 0 }"
         @click="openPendingFromDashboard"
-        :disabled="!selectedPeriodId"
+        title="Open Pending Submissions"
       >
         <div class="pr-metric-icon pr-metric-icon--alert" aria-hidden="true">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
@@ -9948,8 +9948,9 @@ const payrollRunStepIndex = computed(() => {
 });
 
 const openPendingFromDashboard = () => {
-  if (!selectedPeriodId.value) return;
-  showStageModal.value = true;
+  const slug = String(route.params?.organizationSlug || agencyStore.currentAgency?.slug || '').trim();
+  const path = slug ? `/${slug}/admin/payroll/pending` : '/admin/payroll/pending';
+  router.push({ path });
 };
 
 // V2 modal state (isolated: always fetches fresh from API on open)
