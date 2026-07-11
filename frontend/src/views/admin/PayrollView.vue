@@ -7024,9 +7024,12 @@ const processPriorPeriodOptions = computed(() => {
     const pid = Number(p.id || 0);
     if (destId && pid === destId) return false;
     if (String(p?.status || '').toLowerCase() === 'draft') return false;
+    // Exclude periods that START on or after the destination — they are not prior periods.
+    // We intentionally allow periods whose end overlaps the destination start (e.g. a 14-day
+    // period ending after the destination begins) because they are still valid "prior" sources.
     if (destStart) {
-      const end = String(p?.period_end || '').slice(0, 10);
-      if (end && end >= destStart) return false;
+      const pStart = String(p?.period_start || '').slice(0, 10);
+      if (pStart && pStart >= destStart) return false;
     }
     return true;
   });
