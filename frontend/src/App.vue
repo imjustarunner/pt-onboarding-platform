@@ -1632,28 +1632,30 @@
           @click.stop="dismissKudosToast"
         >×</button>
       </div>
-      <div
-        v-if="payrollPendingToastVisible && payrollPendingCount > 0"
-        class="payroll-pending-toast-wrap"
-        role="alert"
-      >
-        <button type="button" class="payroll-pending-toast" @click="goToPayrollPending()">
-          <span class="payroll-pending-toast-icon" aria-hidden="true">💼</span>
-          <span>
-            <strong>{{ payrollPendingCount }}</strong> pending payroll submission{{ payrollPendingCount !== 1 ? 's' : '' }}
-            <span v-if="payrollPendingItems.length" class="payroll-pending-toast-names">
-              — {{ payrollPendingItems.slice(0, 3).map((p) => p.name.split(' ')[0]).join(', ') }}{{ payrollPendingItems.length > 3 ? ` +${payrollPendingItems.length - 3} more` : '' }}
+      <Teleport to="body">
+        <div
+          v-if="payrollPendingToastVisible && payrollPendingCount > 0 && !payrollToastSnoozedReactive"
+          class="payroll-pending-toast-wrap"
+          role="alert"
+        >
+          <button type="button" class="payroll-pending-toast" @click="goToPayrollPending()">
+            <span class="payroll-pending-toast-icon" aria-hidden="true">💼</span>
+            <span>
+              <strong>{{ payrollPendingCount }}</strong> pending payroll submission{{ payrollPendingCount !== 1 ? 's' : '' }}
+              <span v-if="payrollPendingItems.length" class="payroll-pending-toast-names">
+                — {{ payrollPendingItems.slice(0, 3).map((p) => p.name.split(' ')[0]).join(', ') }}{{ payrollPendingItems.length > 3 ? ` +${payrollPendingItems.length - 3} more` : '' }}
+              </span>
             </span>
-          </span>
-        </button>
-        <button
-          type="button"
-          class="toast-dismiss-btn"
-          aria-label="Snooze for 3 hours"
-          title="Snooze for 3 hours"
-          @click.stop="dismissPayrollPendingToast"
-        >×</button>
-      </div>
+          </button>
+          <button
+            type="button"
+            class="toast-dismiss-btn"
+            aria-label="Snooze for 3 hours"
+            title="Snooze for 3 hours"
+            @click.stop="dismissPayrollPendingToast"
+          >&times;</button>
+        </div>
+      </Teleport>
       <div
         v-if="joinReminderToast.visible"
         class="join-reminder-toast"
@@ -2932,6 +2934,8 @@ const payrollPendingCount = ref(0);
 const payrollPendingItems = ref([]); // [{ userId, name, types, count }]
 const payrollPendingTypeCounts = ref({});
 const payrollPendingToastVisible = ref(false);
+const payrollToastSnoozedUntilMs = ref(0); // in-memory snooze end timestamp
+const payrollToastSnoozedReactive = computed(() => Date.now() < payrollToastSnoozedUntilMs.value);
 let payrollPendingInterval = null;
 
 const fetchPayrollPendingSubmissions = async () => {
@@ -2949,13 +2953,14 @@ const fetchPayrollPendingSubmissions = async () => {
     payrollPendingItems.value = Array.isArray(resp.data?.ptoSubmissions) ? resp.data.ptoSubmissions : [];
     payrollPendingTypeCounts.value = resp.data?.typeCounts || {};
     if (payrollPendingCount.value > 0) {
-      // Show toast unless currently snoozed via localStorage
-      if (!isPayrollToastSnoozed()) {
+      // Show toast unless snoozed (check both reactive ref and localStorage)
+      if (!isPayrollToastSnoozed() && !payrollToastSnoozedReactive.value) {
         payrollPendingToastVisible.value = true;
       }
     } else {
-      // Queue cleared — hide toast and clear any snooze so it reappears with future submissions
+      // Queue cleared — hide toast and clear snooze so it reappears with future submissions
       payrollPendingToastVisible.value = false;
+      payrollToastSnoozedUntilMs.value = 0;
       try { localStorage.removeItem(PAYROLL_TOAST_SNOOZE_KEY); } catch { /* ignore */ }
     }
   } catch {
@@ -2964,8 +2969,9 @@ const fetchPayrollPendingSubmissions = async () => {
 };
 
 const dismissPayrollPendingToast = () => {
+  payrollToastSnoozedUntilMs.value = Date.now() + 3 * 60 * 60 * 1000; // reactive snooze
   payrollPendingToastVisible.value = false;
-  snoozePayrollToast(3); // snooze for 3 hours via localStorage
+  snoozePayrollToast(3); // persist snooze to localStorage for page reloads
 };
 
 const goToPayrollPending = (opts = {}) => {
