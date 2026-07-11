@@ -91,7 +91,7 @@
             </select>
           </div>
           <div class="wizard-cta" data-tour="payroll-open-wizard" style="margin-top: 12px;">
-            <button class="btn btn-primary wizard-btn" type="button" @click="openPayrollWizard" :disabled="!agencyId || !(periods || []).length">
+            <button class="btn btn-primary wizard-btn" type="button" @click="openPayrollWizard" :disabled="!agencyId || !periodsForSelect.length">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px; vertical-align: -2px;"><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8 19 13M17.8 6.2 19 5M3 21l9-9M12.2 6.2 11 5"/></svg>
               {{ selectedPeriodId ? 'Open / Resume Wizard' : 'Open Payroll Wizard' }}
             </button>
@@ -469,7 +469,7 @@
                   <label>Start at pay period</label>
                   <select v-model="templateDraft.startPayrollPeriodId">
                     <option :value="null">Start immediately</option>
-                    <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                    <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
                   </select>
                 </div>
                 <div class="field">
@@ -584,7 +584,7 @@
               <label>Start at pay period</label>
               <select v-model="editTodoTemplateDraft.startPayrollPeriodId">
                 <option :value="null">Start immediately</option>
-                <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
               </select>
             </div>
             <div class="field">
@@ -719,9 +719,9 @@
                 </div>
                 <div class="field" style="margin-top: 10px;">
                   <label>Add late notes to</label>
-                  <select v-model="batchCatchUpDestinationPeriodId" :disabled="!agencyId || !(periods || []).length" style="min-width: 260px;">
+                  <select v-model="batchCatchUpDestinationPeriodId" :disabled="!agencyId || !periodsForSelect.length" style="min-width: 260px;">
                     <option :value="null" disabled>Select pay period…</option>
-                    <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                    <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
                   </select>
                 </div>
                 <div v-if="wizardPriorPeriodId" class="card" style="margin-top: 10px; padding: 10px; background: #f0f8ff;">
@@ -1281,9 +1281,9 @@
             <div class="pr-process-step-title">Compare & Add Differences</div>
             <div class="field" style="margin-top: 8px;">
               <label>Add late notes to (destination period)</label>
-              <select v-model="batchCatchUpDestinationPeriodId" :disabled="!agencyId || !(periods || []).length">
+              <select v-model="batchCatchUpDestinationPeriodId" :disabled="!agencyId || !periodsForSelect.length">
                 <option :value="null" disabled>Select pay period…</option>
-                <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
               </select>
               <div class="hint muted" style="margin-top: 4px;">Differences will be added to the selected destination period.</div>
             </div>
@@ -1493,7 +1493,7 @@
             <label>Pay period</label>
             <select v-model="manageImportsPeriodId" @change="loadManageImportsList" style="min-width: 280px;">
               <option :value="null" disabled>Select a pay period…</option>
-              <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+              <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
             </select>
           </div>
           <div v-if="manageImportsError" class="warn-box" style="margin-top: 10px;">{{ manageImportsError }}</div>
@@ -1815,7 +1815,7 @@
               <label>Existing pay period</label>
               <select v-model="autoImportExistingPeriodId">
                 <option :value="null" disabled>Select a pay period…</option>
-                <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
               </select>
             </div>
             <div class="field" v-else-if="autoImportChoiceMode === 'detected'">
@@ -2610,7 +2610,7 @@
                       </td>
                       <td class="right">
                         <select v-model="mileageTargetPeriodByClaimId[c.id]" :disabled="approvingMileageClaimId === c.id">
-                          <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                          <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
                         </select>
                       </td>
                       <td class="right" :title="estimateMileageTitle(c)">
@@ -2678,7 +2678,7 @@
                       <td class="right">{{ fmtNum(Number(c.units ?? 0)) }}</td>
                       <td class="right">
                         <select v-model="medcancelTargetPeriodByClaimId[c.id]" :disabled="approvingMedcancelClaimId === c.id">
-                          <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                          <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
                         </select>
                       </td>
                       <td class="right">
@@ -2758,7 +2758,7 @@
                       </td>
                       <td class="right">
                         <select v-model="reimbursementTargetPeriodByClaimId[c.id]" :disabled="approvingReimbursementClaimId === c.id">
-                          <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                          <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
                         </select>
                       </td>
                       <td class="right">
@@ -2853,7 +2853,7 @@
                       <td class="right">
                         <div>
                           <select v-model="timeTargetPeriodByClaimId[c.id]" :disabled="approvingTimeClaimId === c.id">
-                            <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                            <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
                           </select>
                           <div
                             v-if="timeClaimNeedsLateOverrideWarning(c)"
@@ -3196,7 +3196,7 @@
                           <div class="muted" style="font-size: 11px; margin-bottom: 3px;">Select pay period to post to:</div>
                           <select v-model="ptoTargetPeriodByRequestId[r.id]" :disabled="approvingPtoRequestId === r.id">
                             <option :value="null" disabled>— choose period —</option>
-                            <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                            <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
                           </select>
                         </template>
                         <span v-else-if="r.approved_period_start" class="muted" style="font-size: 12px;">
@@ -3292,7 +3292,7 @@
                             v-model="approvedMileageMoveTargetByClaimId[c.id]"
                             :disabled="movingMileageClaimId === c.id"
                           >
-                            <option v-for="p in periods" :key="p.id" :value="p.id">
+                            <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">
                               {{ periodRangeLabel(p) }}
                             </option>
                           </select>
@@ -3410,7 +3410,7 @@
                       <td class="right">
                         <div class="actions" style="justify-content: flex-end; margin: 0;">
                           <select v-model="approvedReimbursementMoveTargetByClaimId[c.id]" :disabled="movingReimbursementClaimId === c.id">
-                            <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                            <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
                           </select>
                           <button
                             class="btn btn-secondary btn-sm"
@@ -3528,7 +3528,7 @@
                       <td class="right">
                         <div class="actions" style="justify-content: flex-end; margin: 0;">
                           <select v-model="approvedTimeMoveTargetByClaimId[c.id]" :disabled="movingTimeClaimId === c.id">
-                            <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                            <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
                           </select>
                           <button
                             class="btn btn-secondary btn-sm"
@@ -5789,7 +5789,7 @@
                     <label>Start at pay period</label>
                     <select v-model="templateDraft.startPayrollPeriodId">
                       <option :value="null">Start immediately</option>
-                      <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                      <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
                     </select>
                   </div>
                   <div class="field">
@@ -9774,12 +9774,29 @@ const sortedPeriods = computed(() => {
 
 // Ensures the selected period is always in the dropdown (e.g. when filtered out by alignedOnly).
 const periodsForSelect = computed(() => {
-  const list = periods.value || [];
+  const source = periods.value || [];
+
+  // Filter to org-relevant (schedule-aligned) periods only, same as the wizard.
+  let aligned = source.filter((p) => Number(p.schedule_aligned) === 1);
+  // Fallback: if no periods have the flag set yet, show everything
+  if (!aligned.length) aligned = source.slice();
+
+  // Sort newest first
+  aligned.sort((a, b) => {
+    const ae = String(a?.period_end || '');
+    const be = String(b?.period_end || '');
+    if (ae !== be) return be.localeCompare(ae);
+    return (b?.id || 0) - (a?.id || 0);
+  });
+
+  // Always keep the currently selected period visible even if filtered out
   const selId = selectedPeriodId.value;
   const selPeriod = selectedPeriod.value;
-  if (!selId || !selPeriod) return list;
-  if (list.some((p) => p?.id === selId)) return list;
-  return [...list, selPeriod];
+  if (selId && selPeriod && !aligned.some((p) => Number(p.id) === Number(selId))) {
+    aligned = [...aligned, selPeriod];
+  }
+
+  return aligned;
 });
 
 // History list should show past + at most one upcoming pay period.
