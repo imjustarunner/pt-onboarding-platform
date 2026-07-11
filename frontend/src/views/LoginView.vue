@@ -986,6 +986,10 @@ const isPlatformLogin = computed(() => {
 // Per-tenant login background videos. Main hub login only — not nested portals.
 // wide: web + iPad (481px+), narrow: phone (480px and below).
 const TENANT_LOGIN_BG_VIDEOS = Object.freeze({
+  plottwistco: {
+    wide: '/branding/plottwistco-login-bg.mp4',
+    narrow: '/branding/plottwistco-login-bg-mobile.mp4',
+  },
   itsco: {
     wide: '/branding/itsco-login-bg.mp4',
     narrow: '/branding/itsco-login-bg-mobile.mp4',
