@@ -141,58 +141,79 @@
                   </div>
 
                   <div class="pw-upload-slots" :key="`wizard-files-${uploadResetKey}`">
+                    <!-- Current period slot -->
                     <div class="field">
                       <label>Current payroll file</label>
                       <div class="hint muted" style="margin-bottom: 6px;">
                         Import into <strong>{{ selectedPeriod ? periodRangeLabel(selectedPeriod) : 'current period' }}</strong>
                       </div>
-                      <div class="pw-file-row">
-                        <input
-                          type="file"
-                          accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-                          @change="onUploadPick($event, 'current')"
-                          :disabled="!selectedPeriodId || uploading"
-                        />
-                        <button v-if="uploadFiles.current" type="button" class="btn btn-secondary btn-sm" @click="clearUploadSlot('current')" :disabled="uploading">Replace</button>
+                      <div v-if="existingImports.current && !uploadFiles.current" class="pw-existing-import">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg>
+                        <div class="pw-existing-import-info">
+                          <span class="pw-existing-import-name">{{ existingImports.current.original_filename || 'Imported file' }}</span>
+                          <span class="pw-existing-import-meta">{{ existingImports.current.row_count ?? '?' }} rows· {{ importUploadedLabel(existingImports.current) || 'previously uploaded' }}</span>
+                        </div>
+                        <label class="btn btn-secondary btn-xs pw-replace-btn" :class="{ disabled: uploading }">
+                          Replace
+                          <input type="file" style="display:none" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onUploadPick($event, 'current')" :disabled="!selectedPeriodId || uploading" />
+                        </label>
+                      </div>
+                      <div v-else class="pw-file-row">
+                        <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onUploadPick($event, 'current')" :disabled="!selectedPeriodId || uploading" />
+                        <button v-if="uploadFiles.current" type="button" class="btn btn-secondary btn-sm" @click="clearUploadSlot('current')" :disabled="uploading">Clear</button>
                       </div>
                       <div v-if="uploadFiles.current" class="hint" style="margin-top: 4px;">Selected: <strong>{{ uploadFiles.current.name }}</strong></div>
                       <div v-if="uploadResults.current" class="hint pw-ok">{{ uploadResults.current }}</div>
                     </div>
 
+                    <!-- Prior period slot (Run 2) -->
                     <div class="field">
                       <label>Last pay period — today’s report (Run 2)</label>
                       <div class="hint muted" style="margin-bottom: 6px;">
                         Version 2 for
                         <strong>{{ priorPeriod ? periodRangeLabel(priorPeriod) : 'prior period' }}</strong>
                       </div>
-                      <div class="pw-file-row">
-                        <input
-                          type="file"
-                          accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-                          @change="onUploadPick($event, 'prior')"
-                          :disabled="!priorPeriod || uploading"
-                        />
-                        <button v-if="uploadFiles.prior" type="button" class="btn btn-secondary btn-sm" @click="clearUploadSlot('prior')" :disabled="uploading">Replace</button>
+                      <div v-if="existingImports.prior && !uploadFiles.prior" class="pw-existing-import">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg>
+                        <div class="pw-existing-import-info">
+                          <span class="pw-existing-import-name">{{ existingImports.prior.original_filename || 'Imported file' }}</span>
+                          <span class="pw-existing-import-meta">{{ existingImports.prior.row_count ?? '?' }} rows · {{ importUploadedLabel(existingImports.prior) || 'previously uploaded' }}</span>
+                        </div>
+                        <label class="btn btn-secondary btn-xs pw-replace-btn" :class="{ disabled: !priorPeriod || uploading }">
+                          Replace
+                          <input type="file" style="display:none" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onUploadPick($event, 'prior')" :disabled="!priorPeriod || uploading" />
+                        </label>
+                      </div>
+                      <div v-else class="pw-file-row">
+                        <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onUploadPick($event, 'prior')" :disabled="!priorPeriod || uploading" />
+                        <button v-if="uploadFiles.prior" type="button" class="btn btn-secondary btn-sm" @click="clearUploadSlot('prior')" :disabled="uploading">Clear</button>
                       </div>
                       <div v-if="!priorPeriod && selectedPeriodId" class="hint muted" style="margin-top: 4px;">No contiguous prior period found for this selection.</div>
                       <div v-if="uploadFiles.prior" class="hint" style="margin-top: 4px;">Selected: <strong>{{ uploadFiles.prior.name }}</strong></div>
                       <div v-if="uploadResults.prior" class="hint pw-ok">{{ uploadResults.prior }}</div>
                     </div>
 
+                    <!-- Two-ago period slot (Run 3) -->
                     <div class="field">
                       <label>Two pay periods ago — today’s report (Run 3)</label>
                       <div class="hint muted" style="margin-bottom: 6px;">
                         Version 3 for
                         <strong>{{ twoAgoPeriod ? periodRangeLabel(twoAgoPeriod) : 'period two back' }}</strong>
                       </div>
-                      <div class="pw-file-row">
-                        <input
-                          type="file"
-                          accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-                          @change="onUploadPick($event, 'twoAgo')"
-                          :disabled="!twoAgoPeriod || uploading"
-                        />
-                        <button v-if="uploadFiles.twoAgo" type="button" class="btn btn-secondary btn-sm" @click="clearUploadSlot('twoAgo')" :disabled="uploading">Replace</button>
+                      <div v-if="existingImports.twoAgo && !uploadFiles.twoAgo" class="pw-existing-import">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg>
+                        <div class="pw-existing-import-info">
+                          <span class="pw-existing-import-name">{{ existingImports.twoAgo.original_filename || 'Imported file' }}</span>
+                          <span class="pw-existing-import-meta">{{ existingImports.twoAgo.row_count ?? '?' }} rows · {{ importUploadedLabel(existingImports.twoAgo) || 'previously uploaded' }}</span>
+                        </div>
+                        <label class="btn btn-secondary btn-xs pw-replace-btn" :class="{ disabled: !twoAgoPeriod || uploading }">
+                          Replace
+                          <input type="file" style="display:none" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onUploadPick($event, 'twoAgo')" :disabled="!twoAgoPeriod || uploading" />
+                        </label>
+                      </div>
+                      <div v-else class="pw-file-row">
+                        <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onUploadPick($event, 'twoAgo')" :disabled="!twoAgoPeriod || uploading" />
+                        <button v-if="uploadFiles.twoAgo" type="button" class="btn btn-secondary btn-sm" @click="clearUploadSlot('twoAgo')" :disabled="uploading">Clear</button>
                       </div>
                       <div class="hint muted" style="margin-top: 4px;">Optional if you only need current + prior Run 2.</div>
                       <div v-if="uploadFiles.twoAgo" class="hint" style="margin-top: 4px;">Selected: <strong>{{ uploadFiles.twoAgo.name }}</strong></div>
@@ -340,25 +361,32 @@
             </div>
             <div class="pw-timeline" v-if="selectedPeriod">
               <h3>What these files mean</h3>
-              <div class="pw-timeline-item done">
-                <span class="pw-timeline-dot"></span>
+              <div class="pw-timeline-item" :class="{ done: !!existingImports.current }">
+                <span class="pw-timeline-dot" :class="{ empty: !existingImports.current }"></span>
                 <div>
                   <strong>Current</strong>
                   <div class="muted">{{ periodRangeLabel(selectedPeriod) }} — new payroll import</div>
+                  <div v-if="existingImports.current" class="pw-timeline-imported">✔ {{ existingImports.current.row_count ?? '?' }} rows imported</div>
+                  <div v-else-if="loadingExistingImports" class="muted" style="font-size:11px">Checking…</div>
+                  <div v-else class="muted" style="font-size:11px;color:#c97a00">⚠ Not yet imported</div>
                 </div>
               </div>
-              <div class="pw-timeline-item" :class="{ done: !!priorPeriod }">
+              <div class="pw-timeline-item" :class="{ done: !!existingImports.prior }">
                 <span class="pw-timeline-dot" :class="{ empty: !priorPeriod }"></span>
                 <div>
                   <strong>Prior (Run 2)</strong>
                   <div class="muted">{{ priorPeriod ? periodRangeLabel(priorPeriod) : '—' }} — catch late notes from last period</div>
+                  <div v-if="existingImports.prior" class="pw-timeline-imported">✔ {{ existingImports.prior.row_count ?? '?' }} rows imported</div>
+                  <div v-else-if="priorPeriod && !loadingExistingImports" class="muted" style="font-size:11px;color:#c97a00">⚠ Not yet imported</div>
                 </div>
               </div>
-              <div class="pw-timeline-item" :class="{ done: !!twoAgoPeriod }">
+              <div class="pw-timeline-item" :class="{ done: !!existingImports.twoAgo }">
                 <span class="pw-timeline-dot" :class="{ empty: !twoAgoPeriod }"></span>
                 <div>
                   <strong>Two ago (Run 3)</strong>
                   <div class="muted">{{ twoAgoPeriod ? periodRangeLabel(twoAgoPeriod) : '—' }} — catch remaining late notes</div>
+                  <div v-if="existingImports.twoAgo" class="pw-timeline-imported">✔ {{ existingImports.twoAgo.row_count ?? '?' }} rows imported</div>
+                  <div v-else-if="twoAgoPeriod && !loadingExistingImports" class="muted" style="font-size:11px">— optional</div>
                 </div>
               </div>
             </div>
@@ -474,6 +502,9 @@ const uploadResults = ref({ current: '', prior: '', twoAgo: '' });
 const uploadError = ref('');
 const uploading = ref(false);
 const uploadResetKey = ref(0);
+// Existing imports already on the server for each slot
+const existingImports = ref({ current: null, prior: null, twoAgo: null });
+const loadingExistingImports = ref(false);
 
 // In-wizard Raw Import overlay (same APIs as Payroll page — stays in sync)
 const showRawPanel = ref(false);
@@ -531,6 +562,46 @@ const canUploadReports = computed(() => {
   return !!(uploadFiles.value.current || uploadFiles.value.prior || uploadFiles.value.twoAgo);
 });
 
+/** Fetch existing imports for all three slots so the UI shows what's already on the server. */
+const loadExistingImports = async () => {
+  const ids = {
+    current: selectedPeriod.value?.id || null,
+    prior: priorPeriod.value?.id || null,
+    twoAgo: twoAgoPeriod.value?.id || null,
+  };
+  if (!ids.current) {
+    existingImports.value = { current: null, prior: null, twoAgo: null };
+    return;
+  }
+  loadingExistingImports.value = true;
+  try {
+    const fetchSlot = async (periodId) => {
+      if (!periodId) return null;
+      try {
+        const resp = await api.get(`/payroll/periods/${periodId}/imports`);
+        const list = resp.data?.imports || [];
+        // slot_number 1 = current, 2 = prior (Run 2), 3 = two-ago (Run 3)
+        return list;
+      } catch {
+        return null;
+      }
+    };
+    const [currentList, priorList, twoAgoList] = await Promise.all([
+      fetchSlot(ids.current),
+      fetchSlot(ids.prior),
+      fetchSlot(ids.twoAgo),
+    ]);
+    // For "current" period slot 1, for "prior" period the latest import, for "twoAgo" the latest import
+    existingImports.value = {
+      current: (currentList || []).find((i) => Number(i.slot_number) === 1) || (currentList || [])[0] || null,
+      prior:   (priorList || []).slice(-1)[0] || null,
+      twoAgo:  (twoAgoList || []).slice(-1)[0] || null,
+    };
+  } finally {
+    loadingExistingImports.value = false;
+  }
+};
+
 const onUploadPick = (evt, slot) => {
   const file = evt.target.files?.[0] || null;
   uploadFiles.value = { ...uploadFiles.value, [slot]: file };
@@ -542,6 +613,8 @@ const clearUploadSlot = (slot) => {
   uploadFiles.value = { ...uploadFiles.value, [slot]: null };
   uploadResults.value = { ...uploadResults.value, [slot]: '' };
   uploadResetKey.value += 1;
+  // Re-show the existing import banner if one was present
+  // (clearUploadSlot is called after "Clear" — banner will reappear since uploadFiles slot is null again)
 };
 
 const importFileToPeriod = async (periodId, file, label) => {
@@ -591,6 +664,7 @@ const uploadAllReports = async () => {
     };
     await loadPeriodDetails();
     await saveProgress();
+    await loadExistingImports();
   } catch (e) {
     uploadError.value = e?.response?.data?.error?.message || e?.message || 'Upload failed';
   } finally {
@@ -922,6 +996,20 @@ const payDateLabel = (p) => {
   return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 };
 
+/** Format the upload timestamp for an existing import record. */
+const importUploadedLabel = (imp) => {
+  if (!imp) return '';
+  const ts = imp.created_at || imp.uploaded_at || imp.importedAt || '';
+  if (!ts) return '';
+  try {
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+};
+
 const payrollBasePath = () => {
   const slug = String(route.params?.organizationSlug || agencyStore.currentAgency?.slug || '').trim();
   return slug ? `/${slug}/admin/payroll` : '/admin/payroll';
@@ -1193,8 +1281,10 @@ const onPeriodChange = async () => {
   uploadResults.value = { current: '', prior: '', twoAgo: '' };
   uploadError.value = '';
   uploadResetKey.value += 1;
+  existingImports.value = { current: null, prior: null, twoAgo: null };
   await loadPeriodDetails();
   await loadProgress();
+  await loadExistingImports();
   // Keep prior ids in sync for deep-links even before upload
   wizardState.value = {
     ...(wizardState.value || {}),
@@ -1251,6 +1341,7 @@ const bootstrap = async () => {
     if (selectedPeriodId.value) {
       await loadPeriodDetails();
       await loadProgress();
+      loadExistingImports().catch(() => {/* non-critical */});
       // Prefer return step from payroll tool deep-link
       try {
         const returnStep = sessionStorage.getItem('payroll:wizardReturnStep');
@@ -1608,6 +1699,54 @@ onMounted(bootstrap);
   margin-top: 4px;
 }
 
+/* Existing import status banner (shown when a file is already on the server) */
+.pw-existing-import {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #f0faf5;
+  border: 1px solid #b2dfce;
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #1E3A34;
+}
+.pw-existing-import > svg {
+  flex-shrink: 0;
+  color: #2F8F83;
+}
+.pw-existing-import-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pw-existing-import-name {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pw-existing-import-meta {
+  font-size: 11px;
+  color: #4a7c6a;
+}
+.btn-xs {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.pw-replace-btn {
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.pw-replace-btn.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 .field label {
   display: block;
   font-size: 12px;
@@ -1726,6 +1865,12 @@ onMounted(bootstrap);
 .pw-timeline-item .muted {
   color: var(--text-secondary);
   font-size: 12px;
+  margin-top: 2px;
+}
+.pw-timeline-imported {
+  font-size: 11px;
+  color: #2F8F83;
+  font-weight: 600;
   margin-top: 2px;
 }
 
