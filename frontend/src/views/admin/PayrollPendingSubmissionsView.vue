@@ -366,7 +366,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { useAgencyStore } from '../../stores/agency';
+import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 
 const route = useRoute();
