@@ -1632,30 +1632,29 @@
           @click.stop="dismissKudosToast"
         >×</button>
       </div>
-      <Teleport to="body">
-        <div
-          v-if="payrollPendingToastVisible && payrollPendingCount > 0 && !payrollToastSnoozedReactive"
-          class="payroll-pending-toast-wrap"
-          role="alert"
-        >
-          <button type="button" class="payroll-pending-toast" @click="goToPayrollPending()">
-            <span class="payroll-pending-toast-icon" aria-hidden="true">💼</span>
-            <span>
-              <strong>{{ payrollPendingCount }}</strong> pending payroll submission{{ payrollPendingCount !== 1 ? 's' : '' }}
-              <span v-if="payrollPendingItems.length" class="payroll-pending-toast-names">
-                — {{ payrollPendingItems.slice(0, 3).map((p) => p.name.split(' ')[0]).join(', ') }}{{ payrollPendingItems.length > 3 ? ` +${payrollPendingItems.length - 3} more` : '' }}
-              </span>
+      <div
+        v-if="showPayrollPendingToast"
+        class="payroll-pending-toast-wrap"
+        role="status"
+      >
+        <button type="button" class="payroll-pending-toast" @click="goToPayrollPending()">
+          <span class="payroll-pending-toast-icon" aria-hidden="true">💼</span>
+          <span>
+            <strong>{{ payrollPendingCount }}</strong> pending payroll submission{{ payrollPendingCount !== 1 ? 's' : '' }}
+            <span v-if="payrollPendingItems.length" class="payroll-pending-toast-names">
+              — {{ payrollPendingItems.slice(0, 3).map((p) => p.name.split(' ')[0]).join(', ') }}{{ payrollPendingItems.length > 3 ? ` +${payrollPendingItems.length - 3} more` : '' }}
             </span>
-          </button>
-          <button
-            type="button"
-            class="toast-dismiss-btn"
-            aria-label="Snooze for 3 hours"
-            title="Snooze for 3 hours"
-            @click.stop="dismissPayrollPendingToast"
-          >&times;</button>
-        </div>
-      </Teleport>
+          </span>
+        </button>
+        <button
+          type="button"
+          class="toast-dismiss-btn payroll-pending-toast-dismiss"
+          aria-label="Snooze for 3 hours"
+          title="Snooze for 3 hours"
+          @pointerdown.prevent.stop="dismissPayrollPendingToast"
+          @click.prevent.stop="dismissPayrollPendingToast"
+        >✕</button>
+      </div>
       <div
         v-if="joinReminderToast.visible"
         class="join-reminder-toast"
@@ -2917,26 +2916,36 @@ let schoolClientsPendingInterval = null;
 // ---- Pending payroll submissions badge + toast ----
 const PAYROLL_TOAST_SNOOZE_KEY = 'payrollPendingToastSnoozedUntil';
 
-const isPayrollToastSnoozed = () => {
+const readPayrollToastSnoozeUntil = () => {
   try {
-    const until = Number(localStorage.getItem(PAYROLL_TOAST_SNOOZE_KEY) || 0);
-    return until > Date.now();
-  } catch { return false; }
-};
-
-const snoozePayrollToast = (hours = 3) => {
-  try {
-    localStorage.setItem(PAYROLL_TOAST_SNOOZE_KEY, String(Date.now() + hours * 60 * 60 * 1000));
-  } catch { /* ignore */ }
+    return Number(localStorage.getItem(PAYROLL_TOAST_SNOOZE_KEY) || 0) || 0;
+  } catch {
+    return 0;
+  }
 };
 
 const payrollPendingCount = ref(0);
 const payrollPendingItems = ref([]); // [{ userId, name, types, count }]
 const payrollPendingTypeCounts = ref({});
 const payrollPendingToastVisible = ref(false);
-const payrollToastSnoozedUntilMs = ref(0); // in-memory snooze end timestamp
-const payrollToastSnoozedReactive = computed(() => Date.now() < payrollToastSnoozedUntilMs.value);
+/** Session + persisted snooze. Boolean so dismiss is immediate and cannot race a refetch. */
+const payrollToastSnoozed = ref(readPayrollToastSnoozeUntil() > Date.now());
+const showPayrollPendingToast = computed(
+  () => payrollPendingToastVisible.value && payrollPendingCount.value > 0 && !payrollToastSnoozed.value
+);
 let payrollPendingInterval = null;
+
+const snoozePayrollToast = (hours = 3) => {
+  payrollToastSnoozed.value = true;
+  try {
+    localStorage.setItem(PAYROLL_TOAST_SNOOZE_KEY, String(Date.now() + hours * 60 * 60 * 1000));
+  } catch { /* ignore */ }
+};
+
+const clearPayrollToastSnooze = () => {
+  payrollToastSnoozed.value = false;
+  try { localStorage.removeItem(PAYROLL_TOAST_SNOOZE_KEY); } catch { /* ignore */ }
+};
 
 const fetchPayrollPendingSubmissions = async () => {
   if (!isAuthenticated.value || !canSeePayrollManagement.value || !currentAgencyId.value) {
@@ -2952,16 +2961,18 @@ const fetchPayrollPendingSubmissions = async () => {
     payrollPendingCount.value = Number(resp.data?.totalCount || 0);
     payrollPendingItems.value = Array.isArray(resp.data?.ptoSubmissions) ? resp.data.ptoSubmissions : [];
     payrollPendingTypeCounts.value = resp.data?.typeCounts || {};
+    // Keep in-memory flag aligned with localStorage (e.g. after refresh / other tab)
+    if (!payrollToastSnoozed.value && readPayrollToastSnoozeUntil() > Date.now()) {
+      payrollToastSnoozed.value = true;
+    }
     if (payrollPendingCount.value > 0) {
-      // Show toast unless snoozed (check both reactive ref and localStorage)
-      if (!isPayrollToastSnoozed() && !payrollToastSnoozedReactive.value) {
+      if (!payrollToastSnoozed.value) {
         payrollPendingToastVisible.value = true;
       }
     } else {
-      // Queue cleared — hide toast and clear snooze so it reappears with future submissions
+      // Queue cleared — allow toast to reappear for future submissions
       payrollPendingToastVisible.value = false;
-      payrollToastSnoozedUntilMs.value = 0;
-      try { localStorage.removeItem(PAYROLL_TOAST_SNOOZE_KEY); } catch { /* ignore */ }
+      clearPayrollToastSnooze();
     }
   } catch {
     // best-effort
@@ -2969,9 +2980,8 @@ const fetchPayrollPendingSubmissions = async () => {
 };
 
 const dismissPayrollPendingToast = () => {
-  payrollToastSnoozedUntilMs.value = Date.now() + 3 * 60 * 60 * 1000; // reactive snooze
+  snoozePayrollToast(3);
   payrollPendingToastVisible.value = false;
-  snoozePayrollToast(3); // persist snooze to localStorage for page reloads
 };
 
 const goToPayrollPending = (opts = {}) => {
@@ -5416,9 +5426,9 @@ onUnmounted(() => {
 /* ── Payroll pending submissions toast ── */
 .payroll-pending-toast-wrap {
   position: fixed;
-  top: 60px;
+  top: 72px;
   right: 20px;
-  z-index: 1540;
+  z-index: 10050;
   display: inline-flex;
   align-items: stretch;
   max-width: min(440px, calc(100vw - 40px));
@@ -5426,8 +5436,9 @@ onUnmounted(() => {
   border: 1px solid #b6d4b3;
   background: #f0fdf0;
   box-shadow: 0 8px 24px rgba(22, 101, 52, 0.18);
-  overflow: hidden;
+  overflow: visible;
   animation: newNotificationToastIn 0.3s ease-out;
+  pointer-events: auto;
 }
 .payroll-pending-toast {
   flex: 1;
@@ -5447,6 +5458,15 @@ onUnmounted(() => {
 .payroll-pending-toast:hover { background: #dcfce7; }
 .payroll-pending-toast-icon { font-size: 18px; flex-shrink: 0; }
 .payroll-pending-toast-names { font-weight: 400; color: #166534; font-size: 13px; }
+.payroll-pending-toast-dismiss {
+  position: relative;
+  z-index: 3;
+  pointer-events: auto;
+  min-width: 44px;
+  background: rgba(254, 226, 226, 0.55);
+  color: #b91c1c;
+  border-left: 1px solid #b6d4b3;
+}
 
 /* ── Nav payroll item with pending badge + sub-dropdown ── */
 .nav-payroll-item {
