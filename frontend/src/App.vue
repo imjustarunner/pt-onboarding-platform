@@ -580,16 +580,15 @@
                         Payroll
                         <span v-if="payrollPendingCount > 0" class="nav-payroll-badge">{{ payrollPendingCount }}</span>
                       </router-link>
-                      <!-- Hover-only inline pending list -->
+                      <!-- Hover-only inline pending list → dedicated Pending Submissions page -->
                       <div v-if="payrollPendingCount > 0" class="nav-payroll-inline">
                         <div class="nav-payroll-inline-head">Pending submissions</div>
-                        <!-- PTO items — go directly to PTO approval section -->
                         <button
                           v-for="item in payrollPendingItems.slice(0, 8)"
                           :key="item.userId"
                           type="button"
                           class="nav-payroll-inline-row"
-                          @click.stop="$router.push(orgTo('/admin/payroll') + '?wizardOpen=pto')"
+                          @click.stop="goToPayrollPending({ tab: 'pto', userId: item.userId })"
                         >
                           <span class="nav-payroll-sub-name">{{ item.name }}</span>
                           <span class="nav-payroll-sub-types">{{ item.types.join(', ') }}</span>
@@ -597,21 +596,20 @@
                         <div v-if="payrollPendingItems.length > 8" class="nav-payroll-sub-more">
                           +{{ payrollPendingItems.length - 8 }} more PTO
                         </div>
-                        <!-- Non-PTO claim type summaries -->
                         <template v-if="payrollPendingTypeCounts">
-                          <button v-if="payrollPendingTypeCounts.time > 0" type="button" class="nav-payroll-inline-row" @click.stop="$router.push(orgTo('/admin/payroll') + '?wizardOpen=stage')">
+                          <button v-if="payrollPendingTypeCounts.time > 0" type="button" class="nav-payroll-inline-row" @click.stop="goToPayrollPending({ tab: 'time' })">
                             <span class="nav-payroll-sub-name">Time Claims</span>
                             <span class="nav-payroll-sub-types">{{ payrollPendingTypeCounts.time }} pending</span>
                           </button>
-                          <button v-if="payrollPendingTypeCounts.mileage > 0" type="button" class="nav-payroll-inline-row" @click.stop="$router.push(orgTo('/admin/payroll') + '?wizardOpen=stage')">
+                          <button v-if="payrollPendingTypeCounts.mileage > 0" type="button" class="nav-payroll-inline-row" @click.stop="goToPayrollPending({ tab: 'mileage' })">
                             <span class="nav-payroll-sub-name">Mileage Claims</span>
                             <span class="nav-payroll-sub-types">{{ payrollPendingTypeCounts.mileage }} pending</span>
                           </button>
-                          <button v-if="payrollPendingTypeCounts.reimbursement > 0" type="button" class="nav-payroll-inline-row" @click.stop="$router.push(orgTo('/admin/payroll') + '?wizardOpen=stage')">
+                          <button v-if="payrollPendingTypeCounts.reimbursement > 0" type="button" class="nav-payroll-inline-row" @click.stop="goToPayrollPending({ tab: 'reimbursement' })">
                             <span class="nav-payroll-sub-name">Reimbursements</span>
                             <span class="nav-payroll-sub-types">{{ payrollPendingTypeCounts.reimbursement }} pending</span>
                           </button>
-                          <button v-if="payrollPendingTypeCounts.medcancel > 0" type="button" class="nav-payroll-inline-row" @click.stop="$router.push(orgTo('/admin/payroll') + '?wizardOpen=stage')">
+                          <button v-if="payrollPendingTypeCounts.medcancel > 0" type="button" class="nav-payroll-inline-row" @click.stop="goToPayrollPending({ tab: 'medcancel' })">
                             <span class="nav-payroll-sub-name">Med Cancel</span>
                             <span class="nav-payroll-sub-types">{{ payrollPendingTypeCounts.medcancel }} pending</span>
                           </button>
@@ -1373,6 +1371,14 @@
                   <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">
                     <span>Payroll</span>
                     <span v-if="payrollPendingCount > 0" class="nav-badge nav-badge-pulse" style="margin-left: 8px;">{{ payrollPendingCount }}</span>
+                  </router-link>
+                  <router-link
+                    v-if="canSeePayrollManagement && payrollPendingCount > 0"
+                    :to="orgTo('/admin/payroll/pending')"
+                    @click="closeMobileMenu"
+                    class="mobile-nav-link mobile-nav-sublink"
+                  >
+                    Pending Submissions ({{ payrollPendingCount }})
                   </router-link>
                   <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Receivables</router-link>
                   <router-link :to="orgTo('/admin/learning-billing')" v-if="canSeePayrollManagement && learningBillingNavEnabled" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Learning Billing</router-link>
@@ -2962,10 +2968,16 @@ const dismissPayrollPendingToast = () => {
   snoozePayrollToast(3); // snooze for 3 hours via localStorage
 };
 
-const goToPayrollStage = () => {
+const goToPayrollPending = (opts = {}) => {
   payrollPendingToastVisible.value = false;
-  const to = orgTo('/admin/payroll');
-  router.push(to);
+  const query = {};
+  if (opts.tab) query.tab = String(opts.tab);
+  if (opts.userId) query.userId = String(opts.userId);
+  router.push({ path: orgTo('/admin/payroll/pending'), query });
+};
+
+const goToPayrollStage = () => {
+  goToPayrollPending({ tab: 'pto' });
 };
 const MIN_PENDING_DATE = '2026-02-01';
 const fetchSchoolClientsPendingCount = async () => {

@@ -1477,6 +1477,12 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canManagePayroll', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/payroll/pending',
+    name: 'OrganizationPayrollPendingSubmissions',
+    component: () => import('../views/admin/PayrollPendingSubmissionsView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManagePayroll', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/payroll',
     name: 'OrganizationPayroll',
     component: () => import('../views/admin/PayrollView.vue'),
@@ -2285,6 +2291,12 @@ const routes = [
     path: '/admin/payroll/wizard/:periodId?',
     name: 'PayrollWizard',
     component: () => import('../views/admin/PayrollWizardView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManagePayroll' }
+  },
+  {
+    path: '/admin/payroll/pending',
+    name: 'PayrollPendingSubmissions',
+    component: () => import('../views/admin/PayrollPendingSubmissionsView.vue'),
     meta: { requiresAuth: true, requiresCapability: 'canManagePayroll' }
   },
   {
