@@ -580,20 +580,21 @@
                         Payroll
                         <span v-if="payrollPendingCount > 0" class="nav-payroll-badge">{{ payrollPendingCount }}</span>
                       </router-link>
-                      <div v-if="payrollPendingItems.length" class="nav-payroll-sub">
-                        <div class="nav-payroll-sub-head">Pending submissions</div>
+                      <!-- Inline pending list — no fly-out needed, avoids overflow clipping -->
+                      <div v-if="payrollPendingItems.length" class="nav-payroll-inline">
+                        <div class="nav-payroll-inline-head">Pending submissions</div>
                         <button
-                          v-for="item in payrollPendingItems.slice(0, 10)"
+                          v-for="item in payrollPendingItems.slice(0, 8)"
                           :key="item.userId"
                           type="button"
-                          class="nav-payroll-sub-row"
+                          class="nav-payroll-inline-row"
                           @click.stop="goToPayrollStage"
                         >
                           <span class="nav-payroll-sub-name">{{ item.name }}</span>
                           <span class="nav-payroll-sub-types">{{ item.types.join(', ') }}</span>
                         </button>
-                        <div v-if="payrollPendingItems.length > 10" class="nav-payroll-sub-more">
-                          +{{ payrollPendingItems.length - 10 }} more
+                        <div v-if="payrollPendingItems.length > 8" class="nav-payroll-sub-more">
+                          +{{ payrollPendingItems.length - 8 }} more
                         </div>
                       </div>
                     </div>
@@ -5432,52 +5433,40 @@ onUnmounted(() => {
   font-weight: 700;
   line-height: 1;
 }
-.nav-payroll-sub {
-  display: none;
-  position: absolute;
-  right: 100%;
-  top: 0;
-  min-width: 220px;
-  max-width: 300px;
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
-  z-index: 2000;
-  overflow: hidden;
+.nav-payroll-inline {
+  margin: 4px 0 2px 10px;
+  border-left: 2px solid #b2dfce;
+  padding-left: 8px;
 }
-.nav-payroll-item:hover .nav-payroll-sub {
-  display: block;
-}
-.nav-payroll-sub-head {
-  padding: 8px 12px 4px;
-  font-size: 11px;
+.nav-payroll-inline-head {
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   color: var(--text-muted, #6b7280);
-  border-bottom: 1px solid var(--border);
+  padding: 2px 0 3px;
 }
-.nav-payroll-sub-row {
+.nav-payroll-inline-row {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   width: 100%;
-  gap: 8px;
-  padding: 7px 12px;
+  gap: 6px;
+  padding: 3px 6px 3px 0;
   border: none;
   background: transparent;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   text-align: left;
   color: var(--text-primary);
+  border-radius: 4px;
 }
-.nav-payroll-sub-row:hover { background: var(--bg-secondary); }
-.nav-payroll-sub-name { font-weight: 600; }
-.nav-payroll-sub-types { font-size: 12px; color: var(--text-muted, #6b7280); }
+.nav-payroll-inline-row:hover { background: var(--bg-secondary); }
+.nav-payroll-sub-name { font-weight: 600; font-size: 12px; }
+.nav-payroll-sub-types { font-size: 11px; color: var(--text-muted, #6b7280); }
 .nav-payroll-sub-more {
-  padding: 5px 12px 8px;
-  font-size: 12px;
+  padding: 2px 0 4px;
+  font-size: 11px;
   color: var(--text-muted, #6b7280);
 }
 
