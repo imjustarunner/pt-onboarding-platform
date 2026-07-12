@@ -1533,13 +1533,12 @@ export const getSessionLockConfig = async (req, res, next) => {
           const n = parseInt(am, 10);
           if (!isNaN(n) && n >= 1) agencyMax = Math.min(platformMax, n);
         }
-        const idleRaw =
-          parsed.idleBeforeTimedownSeconds ??
-          (parsed.inactivityTimeoutMinutes != null ? Number(parsed.inactivityTimeoutMinutes) * 60 : null);
-        const tdRaw = parsed.timedownSeconds ?? (parsed.timedownMinutes != null ? Number(parsed.timedownMinutes) * 60 : null);
-        if (idleRaw != null && Number.isFinite(Number(idleRaw))) {
-          idleBeforeTimedownSeconds = Math.min(3600, Math.max(30, Math.floor(Number(idleRaw))));
+        // Only explicit Timedown keys — do NOT map legacy inactivityTimeoutMinutes
+        // (often 8–30) onto the branded 3-minute idle flow.
+        if (parsed.idleBeforeTimedownSeconds != null && Number.isFinite(Number(parsed.idleBeforeTimedownSeconds))) {
+          idleBeforeTimedownSeconds = Math.min(3600, Math.max(30, Math.floor(Number(parsed.idleBeforeTimedownSeconds))));
         }
+        const tdRaw = parsed.timedownSeconds ?? (parsed.timedownMinutes != null ? Number(parsed.timedownMinutes) * 60 : null);
         if (tdRaw != null && Number.isFinite(Number(tdRaw))) {
           timedownSeconds = Math.min(3600, Math.max(30, Math.floor(Number(tdRaw))));
         }

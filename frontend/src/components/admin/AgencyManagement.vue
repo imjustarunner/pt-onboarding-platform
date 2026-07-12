@@ -7777,11 +7777,10 @@ const editAgency = async (agency) => {
     : 14;
 
   const sessionSettingsRaw = safeJsonObject(agency.session_settings_json, {});
+  // Prefer explicit Timedown keys; do not inherit legacy inactivityTimeoutMinutes (often 8–30).
   const sessionIdleSeconds = Number.isFinite(Number(sessionSettingsRaw.idleBeforeTimedownSeconds))
     ? Number(sessionSettingsRaw.idleBeforeTimedownSeconds)
-    : (Number.isFinite(Number(sessionSettingsRaw.inactivityTimeoutMinutes))
-      ? Number(sessionSettingsRaw.inactivityTimeoutMinutes) * 60
-      : 180);
+    : 180;
   const sessionTimedownSeconds = Number.isFinite(Number(sessionSettingsRaw.timedownSeconds))
     ? Number(sessionSettingsRaw.timedownSeconds)
     : (Number.isFinite(Number(sessionSettingsRaw.timedownMinutes))

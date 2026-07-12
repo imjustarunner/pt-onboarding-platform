@@ -35,19 +35,22 @@ export const useSessionLockStore = defineStore('sessionLock', () => {
   }
 
   /**
-   * Show the "Are you still here?" warning with a countdown.
+   * Show the Timedown warning with a wall-clock countdown.
+   * Uses endsAt so background-tab interval throttling cannot freeze the timer at 10:00.
    * @param {number} seconds  - seconds to count down before calling onExpire
    * @param {Function} onExpire - called when countdown reaches 0 (should trigger logout)
    */
   function showWarning(seconds, onExpire) {
-    warningSecondsLeft.value = seconds;
+    const total = Math.max(1, Math.floor(Number(seconds) || 0));
+    warningSecondsLeft.value = total;
     warningActive.value = true;
     _warningOnExpire = onExpire;
+    const endsAt = Date.now() + total * 1000;
     if (_warningInterval) clearInterval(_warningInterval);
     _warningInterval = setInterval(() => {
-      if (warningSecondsLeft.value > 0) {
-        warningSecondsLeft.value -= 1;
-      } else {
+      const left = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+      warningSecondsLeft.value = left;
+      if (left <= 0) {
         _clearWarningTimer();
         // Keep warningActive true until logout unmounts the modal so the user
         // does not briefly see the dashboard again at 0:00.
@@ -56,7 +59,7 @@ export const useSessionLockStore = defineStore('sessionLock', () => {
         if (typeof cb === 'function') cb();
         else warningActive.value = false;
       }
-    }, 1000);
+    }, 250);
   }
 
   /** Dismiss the warning (user clicked "Stay Logged In"). */
