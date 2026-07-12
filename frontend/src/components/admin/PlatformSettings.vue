@@ -8,15 +8,15 @@
     <div class="settings-section">
       <h3>Global Terminology</h3>
       <p class="section-description">
-        Configure platform-wide terminology that applies to all agencies. These settings can be overridden at the agency level.
+        Configure platform-wide terminology that applies to all agencies. The agency title suffix is optional — leave it blank so headers show the tenant name only. Agencies can still set their own title override.
       </p>
       
       <form @submit.prevent="saveSettings">
         <div class="terminology-grid">
           <div class="form-group">
-            <label>People Operations Term</label>
-            <input v-model="settings.peopleOpsTerm" type="text" placeholder="People Operations" />
-            <small>Default: "People Operations" (replaces "HR")</small>
+            <label>Agency Title Suffix</label>
+            <input v-model="settings.peopleOpsTerm" type="text" placeholder="Leave blank — tenant name only" />
+            <small>Optional. Leave blank so the header shows only the tenant name. Agencies can set their own title override.</small>
           </div>
           
           <div class="form-group">
@@ -321,7 +321,7 @@ import { AVAILABLE_AGENCY_FEATURE_KEYS } from '../../config/availableAgencyFeatu
 const brandingStore = useBrandingStore();
 
 const settings = ref({
-  peopleOpsTerm: 'People Operations',
+  peopleOpsTerm: '',
   trainingModulesTerm: 'Training Modules',
   trainingFocusTerm: 'Training Focus',
   onboardingTerm: 'Onboarding',
@@ -382,11 +382,11 @@ const schoolPortalIcons = ref({
 // Platform name - use platform branding or fallback
 const platformName = computed(() => {
   const orgName = brandingStore.platformBranding?.organization_name || '';
-  const term = brandingStore.peopleOpsTerm || 'People Operations';
+  const term = (brandingStore.peopleOpsTerm || '').trim();
   if (!orgName || orgName === 'PlotTwistCo') {
-    return `${term} Platform`;
+    return term ? `${term} Platform` : 'Platform';
   }
-  return `${orgName} ${term} Platform`;
+  return term ? `${orgName} ${term} Platform` : `${orgName} Platform`;
 });
 
 const fetchSettings = async () => {
@@ -395,6 +395,7 @@ const fetchSettings = async () => {
     await brandingStore.fetchPlatformBranding();
     const pb = brandingStore.platformBranding;
     if (pb) {
+      settings.value.peopleOpsTerm = pb.people_ops_term || '';
       myDashboardIcons.value = {
         checklistIconId: pb.my_dashboard_checklist_icon_id ?? null,
         trainingIconId: pb.my_dashboard_training_icon_id ?? null,
@@ -568,11 +569,15 @@ const fetchStats = async () => {
 const saveSettings = async () => {
   try {
     saving.value = true;
-    // In a real implementation, this would save to a settings API
-    // For now, we'll just show a success message
-    alert('Settings saved successfully! (Note: This is a placeholder - settings API to be implemented)');
+    await api.put('/platform-branding', {
+      peopleOpsTerm: settings.value.peopleOpsTerm?.trim() || null
+    });
+    await brandingStore.fetchPlatformBranding(true);
+    alert('Terminology settings saved. The header will show the tenant name' +
+      (settings.value.peopleOpsTerm?.trim() ? ` plus “${settings.value.peopleOpsTerm.trim()}”.` : ' only.'));
   } catch (err) {
-    alert('Failed to save settings');
+    console.error('Failed to save terminology settings:', err);
+    alert(err.response?.data?.error?.message || 'Failed to save settings');
   } finally {
     saving.value = false;
   }

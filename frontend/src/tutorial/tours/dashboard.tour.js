@@ -1,5 +1,5 @@
 export const DASHBOARD_TOUR_ID = 'dashboard';
-export const DASHBOARD_TOUR_VERSION = 4;
+export const DASHBOARD_TOUR_VERSION = 6;
 
 const dashboardTour = {
   id: DASHBOARD_TOUR_ID,
@@ -23,6 +23,33 @@ const dashboardTour = {
       }
     },
     {
+      element: '[data-tour="dash-overview"]',
+      popover: {
+        title: 'Overview',
+        description: 'Your new home landing: today’s schedule, pay-period snapshot, events, and quick actions. Use any card to jump into the full section.',
+        side: 'bottom',
+        align: 'start'
+      }
+    },
+    {
+      element: '[data-tour="dash-overview-metrics"]',
+      popover: {
+        title: 'At-a-glance metrics',
+        description: 'These cards summarize schedule, payroll, notes, supervision, and claims. Click one to open that section in the rail.',
+        side: 'bottom',
+        align: 'start'
+      }
+    },
+    {
+      element: '[data-tour="dash-overview-schedule"]',
+      popover: {
+        title: "Today's schedule",
+        description: 'A quick look at today’s appointments. Use “View Full Schedule” for the full week grid and availability tools.',
+        side: 'bottom',
+        align: 'start'
+      }
+    },
+    {
       element: '[data-tour="dash-onboarding-card"]',
       popover: {
         title: 'Onboarding checklist',
@@ -32,10 +59,10 @@ const dashboardTour = {
       }
     },
     {
-      element: '[data-tour="dash-snapshot"]',
+      element: '[data-tour="dash-overview-pay"]',
       popover: {
-        title: 'My Snapshot (providers)',
-        description: 'This quick snapshot summarizes key provider metrics at a glance. You can collapse/expand it anytime.',
+        title: 'Pay period overview',
+        description: 'Paycheck comparison, incomplete notes, D/I, PTO, supervisor, and office — the former My Snapshot metrics, built into Overview.',
         side: 'bottom',
         align: 'start'
       }
@@ -44,7 +71,16 @@ const dashboardTour = {
       element: '[data-tour="dash-rail"]',
       popover: {
         title: 'Sections',
-        description: 'Use the left rail to switch sections. Tip: if something “seems missing”, it may be in a different card here.',
+        description: 'Use the left rail to switch sections. Tip: if something “seems missing”, it may be in a different card here. Overview is the default landing; everything else is one click away.',
+        side: 'right',
+        align: 'center'
+      }
+    },
+    {
+      element: '[data-tour="dash-rail-card-overview"]',
+      popover: {
+        title: 'Overview',
+        description: 'Return here anytime for your day-at-a-glance home.',
         side: 'right',
         align: 'center'
       }

@@ -246,7 +246,7 @@ export const previewTemplate = async (req, res, next) => {
       USERNAME: 'john.doe@example.com',
       TEMP_PASSWORD: 'TempPass123!',
       AGENCY_NAME: 'Example Agency',
-      TERMINOLOGY_SETTINGS: 'People Operations',
+      TERMINOLOGY_SETTINGS: 'Example Agency',
       PEOPLE_OPS_EMAIL: 'onboarding@example.com',
       PORTAL_URL: 'example.app.plottwistco.com',
       PORTAL_LOGIN_LINK: 'https://example.app.plottwistco.com/example-org/login',

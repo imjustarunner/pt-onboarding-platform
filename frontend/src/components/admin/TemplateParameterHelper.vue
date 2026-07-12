@@ -55,7 +55,7 @@ const availableParameters = [
   { name: 'USERNAME', description: "User's email/username", category: 'user', example: 'john.doe@example.com' },
   { name: 'TEMP_PASSWORD', description: 'Generated temporary password', category: 'user', example: 'Xk9mP2qR7vN4wL8t' },
   { name: 'AGENCY_NAME', description: 'Name of the agency', category: 'agency', example: 'IT Solutions Co' },
-  { name: 'TERMINOLOGY_SETTINGS', description: 'Agency-specific terminology', category: 'agency', example: 'People Operations' },
+  { name: 'TERMINOLOGY_SETTINGS', description: 'Agency title / team label (falls back to agency name)', category: 'agency', example: 'Acme Therapy' },
   { name: 'PEOPLE_OPS_EMAIL', description: 'Onboarding team/People Ops email address', category: 'agency', example: 'onboarding@agency.com' },
   { name: 'PORTAL_URL', description: 'Portal subdomain URL', category: 'links', example: 'itsco.app.plottwistco.com' },
   { name: 'PORTAL_LOGIN_LINK', description: 'Full URL to portal login page', category: 'links', example: 'https://itsco.app.plottwistco.com/login' },

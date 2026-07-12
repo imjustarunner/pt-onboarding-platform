@@ -2726,9 +2726,9 @@
           
           <div class="terminology-grid">
             <div class="terminology-item">
-            <label>People Operations Term</label>
-            <input v-model="agencyForm.terminologySettings.peopleOpsTerm" type="text" placeholder="Leave blank for platform default" />
-            <small>Platform default: "People Operations"</small>
+            <label>Agency Title Suffix</label>
+            <input v-model="agencyForm.terminologySettings.peopleOpsTerm" type="text" placeholder="Leave blank — tenant name only" />
+            <small>Optional. Leave blank so the header shows only this agency’s name.</small>
           </div>
             <div class="terminology-item">
             <label>Training Modules Term</label>

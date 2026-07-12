@@ -128,9 +128,9 @@
           </div>
         </div>
         <div class="form-group">
-          <label>People Operations Term</label>
-          <input v-model="platformForm.peopleOpsTerm" type="text" placeholder="People Operations" />
-          <small>This term appears in the navigation bar (e.g., "Human Resources", "People Operations")</small>
+          <label>Agency Title Suffix</label>
+          <input v-model="platformForm.peopleOpsTerm" type="text" placeholder="Leave blank — tenant name only" />
+          <small>Optional suffix after the tenant name in the header. Leave blank to show the tenant name only; agencies can override.</small>
         </div>
         
         <div class="form-section-divider">
@@ -2516,7 +2516,7 @@ const platformForm = ref({
   bodyFont: 'Source Sans 3',
   numericFont: 'IBM Plex Mono',
   displayFont: 'Montserrat',
-  peopleOpsTerm: 'People Operations',
+  peopleOpsTerm: '',
   trainingFocusDefaultIconId: null,
   moduleDefaultIconId: null,
   userDefaultIconId: null,

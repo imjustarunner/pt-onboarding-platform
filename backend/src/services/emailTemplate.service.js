@@ -137,26 +137,27 @@ class EmailTemplateService {
   }
 
   /**
-   * Get terminology settings for an agency
+   * Get terminology label for an agency (optional title / team name for emails).
+   * Prefers agency override; falls back to agency name when unset.
    */
   static getTerminologySettings(agency) {
-    if (!agency) return 'People Operations';
-    
-    // Check if agency has terminology_settings
+    const agencyName = String(agency?.name || agency?.official_name || '').trim();
+    if (!agency) return agencyName || 'our team';
+
     if (agency.terminology_settings) {
       try {
-        const settings = typeof agency.terminology_settings === 'string' 
-          ? JSON.parse(agency.terminology_settings) 
+        const settings = typeof agency.terminology_settings === 'string'
+          ? JSON.parse(agency.terminology_settings)
           : agency.terminology_settings;
-        
-        // Return the people ops term or default
-        return settings.people_ops_term || 'People Operations';
+
+        const term = String(settings.peopleOpsTerm || settings.people_ops_term || '').trim();
+        if (term) return term;
       } catch (e) {
-        return 'People Operations';
+        /* ignore */
       }
     }
-    
-    return 'People Operations';
+
+    return agencyName || 'our team';
   }
 
   /**

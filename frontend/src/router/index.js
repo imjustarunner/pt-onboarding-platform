@@ -1599,6 +1599,18 @@ const routes = [
     meta: { requiresGuest: true }
   },
   {
+    path: '/session-ended',
+    name: 'SessionEnded',
+    component: () => import('../views/SessionEndedView.vue'),
+    meta: { requiresGuest: true }
+  },
+  {
+    path: '/:organizationSlug/session-ended',
+    name: 'OrganizationSessionEnded',
+    component: () => import('../views/SessionEndedView.vue'),
+    meta: { requiresGuest: true, agencySlug: true }
+  },
+  {
     path: '/signup/club-manager',
     name: 'ClubManagerSignup',
     component: () => import('../views/ClubManagerSignupView.vue'),

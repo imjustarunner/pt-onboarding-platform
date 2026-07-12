@@ -9,43 +9,47 @@
         aria-labelledby="iw-title"
         aria-describedby="iw-desc"
       >
-        <div class="iw-card" :style="cardStyle">
-          <!-- Animated ring countdown -->
-          <div class="iw-ring-wrap" aria-hidden="true">
-            <svg class="iw-ring-svg" viewBox="0 0 80 80">
-              <circle class="iw-ring-track" cx="40" cy="40" r="34" />
-              <circle
-                class="iw-ring-progress"
-                cx="40"
-                cy="40"
-                r="34"
-                :stroke-dashoffset="ringOffset"
-              />
-            </svg>
-            <span class="iw-countdown-num">{{ formattedSeconds }}</span>
+        <div class="iw-stage">
+          <video
+            v-if="useVideo"
+            ref="videoRef"
+            class="iw-media"
+            autoplay
+            muted
+            loop
+            playsinline
+            :poster="posterUrl"
+            @error="onVideoError"
+          >
+            <source :src="videoUrl" type="video/mp4" />
+          </video>
+          <img
+            v-else
+            class="iw-media"
+            :src="posterUrl"
+            alt=""
+          />
+
+          <!-- Covers baked-in "Timing out in" and supplies live countdown -->
+          <div class="iw-timer" aria-live="polite">
+            <span class="iw-timer-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3 2" />
+              </svg>
+            </span>
+            <span class="iw-timer-label">Timing out in</span>
+            <span class="iw-timer-value">{{ clock }}</span>
           </div>
 
-          <div class="iw-body">
-            <h2 id="iw-title" class="iw-title">Are you still there?</h2>
-            <p id="iw-desc" class="iw-message">
-              You'll be automatically signed out in
-              <strong>{{ formattedTime }}</strong> due to inactivity.
-            </p>
+          <h2 id="iw-title" class="sr-only">We're protecting your information</h2>
+          <p id="iw-desc" class="sr-only">
+            Your session has been inactive. Timing out in {{ clock }}.
+          </p>
 
-            <div class="iw-actions">
-              <button
-                type="button"
-                class="iw-btn iw-btn--stay"
-                @click="stayLoggedIn"
-                autofocus
-              >Stay Logged In</button>
-              <button
-                type="button"
-                class="iw-btn iw-btn--logout"
-                @click="logoutNow"
-              >Log Out Now</button>
-            </div>
-          </div>
+          <button type="button" class="iw-stay" @click="stayLoggedIn">
+            I'm still here — stay logged in
+          </button>
         </div>
       </div>
     </Transition>
@@ -53,186 +57,177 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, watch, nextTick } from 'vue';
 import { useSessionLockStore } from '../store/sessionLock.js';
 import { resetActivityTimer } from '../utils/activityTracker.js';
-import { useAuthStore } from '../store/auth.js';
-import { useBrandingStore } from '../store/branding.js';
+import { useAgencyStore } from '../store/agency.js';
+import {
+  resolveSessionTimeoutTenantKey,
+  getTimedownVideoUrl,
+  getTimedownPosterUrl,
+  formatCountdownClock
+} from '../utils/sessionTimeoutBranding.js';
+import { getCurrentPortalSlugFromHostCache, getCurrentPortalSlugFromPath } from '../utils/loginRedirect.js';
 
 const sessionLockStore = useSessionLockStore();
-const authStore = useAuthStore();
-const brandingStore = useBrandingStore();
+const agencyStore = useAgencyStore();
 
-const TOTAL_WARNING_SECONDS = 180; // must match activityTracker WARNING_SECONDS
+const useVideo = ref(true);
+const videoRef = ref(null);
 
-const cardStyle = computed(() => {
-  const primary = brandingStore.effectivePrimaryColor || '#ff6b35';
-  return { '--iw-accent': primary };
+const tenantKey = computed(() => {
+  const agency = agencyStore.currentAgency || {};
+  return resolveSessionTimeoutTenantKey({
+    slug: agency.slug || agency.portal_url || agency.portalUrl,
+    portalUrl: agency.portal_url || agency.portalUrl,
+    agencyName: agency.name,
+    hostSlug: getCurrentPortalSlugFromHostCache() || getCurrentPortalSlugFromPath() || ''
+  });
 });
 
-/** Ring circumference = 2π × r = 2π × 34 ≈ 213.6 */
-const CIRCUMFERENCE = 2 * Math.PI * 34;
+const videoUrl = computed(() => getTimedownVideoUrl(tenantKey.value));
+const posterUrl = computed(() => getTimedownPosterUrl(tenantKey.value));
+const clock = computed(() => formatCountdownClock(sessionLockStore.warningSecondsLeft));
 
-const ringOffset = computed(() => {
-  const pct = sessionLockStore.warningSecondsLeft / TOTAL_WARNING_SECONDS;
-  return CIRCUMFERENCE * (1 - pct);
-});
-
-const formattedSeconds = computed(() => {
-  const s = sessionLockStore.warningSecondsLeft;
-  return s > 0 ? s : 0;
-});
-
-const formattedTime = computed(() => {
-  const s = sessionLockStore.warningSecondsLeft;
-  if (s <= 0) return '0 seconds';
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
-  if (m > 0 && sec > 0) return `${m}m ${sec}s`;
-  if (m > 0) return `${m} minute${m !== 1 ? 's' : ''}`;
-  return `${sec} second${sec !== 1 ? 's' : ''}`;
-});
+function onVideoError() {
+  useVideo.value = false;
+}
 
 function stayLoggedIn() {
   sessionLockStore.dismissWarning();
   resetActivityTimer();
 }
 
-async function logoutNow() {
-  sessionLockStore.dismissWarning();
-  const { getLoginUrlForRedirect } = await import('../utils/loginRedirect.js');
-  const redirectTo = getLoginUrlForRedirect(authStore.user, null, { timeout: true });
-  await authStore.logout('user_logout', { redirectTo });
-}
+watch(
+  () => sessionLockStore.warningActive,
+  async (active) => {
+    if (!active) return;
+    useVideo.value = true;
+    await nextTick();
+    try {
+      await videoRef.value?.play?.();
+    } catch {
+      /* autoplay may be blocked; poster still shows */
+    }
+  }
+);
 </script>
 
 <style scoped>
-/* Overlay */
 .iw-overlay {
   position: fixed;
   inset: 0;
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(4px);
-  padding: 16px;
+  z-index: 10000;
+  background: #000;
 }
 
-/* Card */
-.iw-card {
-  background: #fff;
-  border-radius: 20px;
-  padding: 32px 28px 28px;
-  max-width: 380px;
-  width: 100%;
-  text-align: center;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.25);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 20px;
-  border-top: 4px solid var(--iw-accent, #ff6b35);
-}
-
-/* Ring */
-.iw-ring-wrap {
+.iw-stage {
   position: relative;
-  width: 80px;
-  height: 80px;
-  flex-shrink: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
-.iw-ring-svg {
-  width: 80px;
-  height: 80px;
-  transform: rotate(-90deg);
-}
-.iw-ring-track {
-  fill: none;
-  stroke: #f0f0f0;
-  stroke-width: 6;
-}
-.iw-ring-progress {
-  fill: none;
-  stroke: var(--iw-accent, #ff6b35);
-  stroke-width: 6;
-  stroke-linecap: round;
-  stroke-dasharray: 213.6;
-  transition: stroke-dashoffset 1s linear;
-}
-.iw-countdown-num {
+
+.iw-media {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+/* Bottom-left cluster matching the Timedown artboards */
+.iw-timer {
+  position: absolute;
+  left: clamp(24px, 6vw, 72px);
+  bottom: clamp(28px, 8vh, 72px);
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: #1a1a2e;
-}
-
-/* Text */
-.iw-body { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; }
-.iw-title {
-  font-size: 1.35rem;
-  font-weight: 700;
-  color: #1a1a2e;
-  margin: 0;
-}
-.iw-message {
-  font-size: 0.92rem;
-  color: #555;
-  margin: 0;
-  line-height: 1.5;
-}
-.iw-message strong { color: #1a1a2e; }
-
-/* Actions */
-.iw-actions {
-  display: flex;
-  flex-direction: column;
   gap: 10px;
-  width: 100%;
-  margin-top: 6px;
-}
-.iw-btn {
-  width: 100%;
-  padding: 13px 20px;
-  border-radius: 12px;
-  font-size: 0.95rem;
-  font-weight: 700;
-  cursor: pointer;
-  border: none;
-  transition: opacity 0.15s, transform 0.1s;
-}
-.iw-btn:hover { opacity: 0.88; }
-.iw-btn:active { transform: scale(0.98); }
-.iw-btn--stay {
-  background: var(--iw-accent, #ff6b35);
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
   color: #fff;
-  box-shadow: 0 4px 14px rgba(255,107,53,0.3);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  pointer-events: none;
+  z-index: 2;
 }
-.iw-btn--logout {
-  background: transparent;
-  color: #888;
-  border: 1.5px solid #e0e0e0;
+
+.iw-timer-icon {
+  display: grid;
+  place-items: center;
+  opacity: 0.95;
+}
+
+.iw-timer-label {
+  font-size: clamp(0.95rem, 1.6vw, 1.15rem);
   font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
 }
-.iw-btn--logout:hover { color: #444; border-color: #bbb; }
 
-/* Transition */
+.iw-timer-value {
+  font-size: clamp(1.15rem, 2.2vw, 1.55rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  min-width: 4.2ch;
+}
+
+.iw-stay {
+  position: absolute;
+  right: clamp(16px, 3vw, 32px);
+  top: clamp(16px, 3vw, 32px);
+  z-index: 3;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+.iw-stay:hover {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .iw-fade-enter-active,
-.iw-fade-leave-active { transition: opacity 0.25s ease; }
+.iw-fade-leave-active {
+  transition: opacity 0.3s ease;
+}
 .iw-fade-enter-from,
-.iw-fade-leave-to { opacity: 0; }
+.iw-fade-leave-to {
+  opacity: 0;
+}
 
-/* Mobile */
-@media (max-width: 480px) {
-  .iw-card {
-    padding: 24px 20px 22px;
-    border-radius: 16px;
+@media (max-width: 640px) {
+  .iw-timer {
+    left: 16px;
+    right: 16px;
+    bottom: 20px;
+    justify-content: flex-start;
   }
-  .iw-title { font-size: 1.2rem; }
+  .iw-stay {
+    top: auto;
+    bottom: calc(20px + 56px + 12px);
+    right: 16px;
+    left: 16px;
+  }
 }
 </style>

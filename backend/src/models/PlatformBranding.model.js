@@ -32,7 +32,7 @@ class PlatformBranding {
           body_font: 'Source Sans 3',
           numeric_font: 'IBM Plex Mono',
           display_font: 'Montserrat',
-          people_ops_term: 'People Operations'
+          people_ops_term: null
         };
       }
 
@@ -536,7 +536,7 @@ class PlatformBranding {
           body_font: 'Source Sans 3',
           numeric_font: 'IBM Plex Mono',
           display_font: 'Montserrat',
-          people_ops_term: 'People Operations'
+          people_ops_term: null
         };
       }
       
@@ -609,7 +609,7 @@ class PlatformBranding {
           body_font: 'Source Sans 3',
           numeric_font: 'IBM Plex Mono',
           display_font: 'Montserrat',
-          people_ops_term: 'People Operations'
+          people_ops_term: null
         };
       }
       throw error;

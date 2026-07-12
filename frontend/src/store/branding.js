@@ -1239,7 +1239,7 @@ export const useBrandingStore = defineStore('branding', () => {
     return agencyStore.currentAgency?.name || platformBranding.value?.organization_name || '';
   });
 
-  // Get terminology setting (e.g., "People Operations", "Human Resources", etc.)
+  // Optional agency title suffix (e.g. "Human Resources"). Empty by default — nav shows tenant name only.
   const peopleOpsTerm = computed(() => {
     // For super admins, selected org terminology first (agency switcher), then platform
     if (isSuperAdmin.value) {
@@ -1259,7 +1259,7 @@ export const useBrandingStore = defineStore('branding', () => {
       if (platformBranding.value?.people_ops_term && platformBranding.value.people_ops_term.trim()) {
         return platformBranding.value.people_ops_term.trim();
       }
-      return 'People Operations'; // Default for super admin
+      return '';
     }
     
     // For login page (not authenticated), use platform branding
@@ -1267,7 +1267,7 @@ export const useBrandingStore = defineStore('branding', () => {
       if (platformBranding.value?.people_ops_term && platformBranding.value.people_ops_term.trim()) {
         return platformBranding.value.people_ops_term.trim();
       }
-      return 'People Operations'; // Default for login page
+      return '';
     }
     
     // For regular users/admins, check agency terminology first, then platform branding
@@ -1286,23 +1286,21 @@ export const useBrandingStore = defineStore('branding', () => {
       return platformBranding.value.people_ops_term.trim();
     }
     
-    return 'People Operations'; // Default fallback
+    return '';
   });
 
-  // Navigation title: "Company Name People Operations" or "Company Name Human Resources", etc.
+  // Navigation title: tenant name, optionally with an agency/platform title suffix
   const navigationTitle = computed(() => {
     try {
       const name = displayName.value || platformBranding.value?.organization_name || '';
-      const term = peopleOpsTerm.value || 'People Operations';
+      const term = (peopleOpsTerm.value || '').trim();
       if (!name) {
-        return term; // Just return the term if no organization name is set
+        return term;
       }
-      const title = `${name} ${term}`;
-      // Ensure we always return a non-empty string
-      return title.trim() || term;
+      return term ? `${name} ${term}`.trim() : name.trim();
     } catch (error) {
       console.error('Error computing navigation title:', error);
-      return peopleOpsTerm.value || 'People Operations';
+      return displayName.value || (peopleOpsTerm.value || '').trim() || '';
     }
   });
 

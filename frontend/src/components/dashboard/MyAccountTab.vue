@@ -13,6 +13,9 @@
     <div v-if="flags.workforce" v-show="activeSection === 'credentials'" class="acct-hub__pane">
       <CredentialsView />
     </div>
+    <div v-show="activeSection === 'documents'" class="acct-hub__pane">
+      <DocumentsTab @update-count="$emit('documents-count', $event)" />
+    </div>
     <div
       v-if="flags.workforce"
       v-show="activeSection === 'payroll'"
@@ -38,6 +41,7 @@ import { computed } from 'vue';
 import AccountHubPanel from './AccountHubPanel.vue';
 import AccountInfoView from '../../views/AccountInfoView.vue';
 import CredentialsView from '../../views/CredentialsView.vue';
+import DocumentsTab from './DocumentsTab.vue';
 import MyPayrollTab from './MyPayrollTab.vue';
 import MyCompensationTab from './MyCompensationTab.vue';
 import MyKudosTab from './MyKudosTab.vue';
@@ -53,7 +57,7 @@ const props = defineProps({
   userId: { type: [Number, String], default: null },
 });
 
-defineEmits(['select-section']);
+defineEmits(['select-section', 'documents-count']);
 
 const authStore = useAuthStore();
 

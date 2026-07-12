@@ -1,5 +1,5 @@
 <template>
-  <div class="container" :class="{ 'container-wide': activeTab === 'my_schedule' }">
+  <div class="container" :class="{ 'container-wide': activeTab === 'my_schedule' || activeTab === 'overview' }">
     <!-- Dashboard Header with Logo (shown in preview mode) -->
     <div v-if="previewMode" class="dashboard-header-preview">
       <div class="header-content">
@@ -9,10 +9,14 @@
         </div>
       </div>
     </div>
-    <div v-else class="dashboard-header-user">
+    <div
+      v-else
+      class="dashboard-header-user"
+      :class="{ 'dashboard-header-user--compact': activeTab === 'overview' }"
+    >
       <div class="dashboard-header-user__titles">
         <h1 data-tour="dash-header-title">{{ isPending && !isClubContext ? 'Pre-Hire Checklist' : 'My Dashboard' }}</h1>
-        <span class="badge badge-user">Personal</span>
+        <span v-if="activeTab !== 'overview'" class="badge badge-user">Personal</span>
         <span v-if="tierBadgeText" class="badge badge-tier" :class="tierBadgeKind">{{ tierBadgeText }}</span>
       </div>
       <button
@@ -101,7 +105,7 @@
     <FacilitatorAvailabilityPromptCard v-if="!previewMode && isOnboardingComplete && !isClubContext" />
     <SurveyPromptCard v-if="!previewMode && isOnboardingComplete && !isClubContext" />
     <ClubEmployerSharePromptCard v-if="showEmployerClubSharePromptsShell" />
-    <BookClubPromptCard v-if="!previewMode && isOnboardingComplete && !isClubContext" />
+    <!-- Book Club moved to top portals strip (BookClubPortalChip) -->
     
     <!-- Pending Completion Button -->
     <div v-if="isPending && pendingCompletionStatus?.allComplete && !pendingCompletionStatus?.accessLocked && (userStatus === 'PREHIRE_OPEN' || userStatus === 'pending')" class="pending-completion-banner">
@@ -169,35 +173,11 @@
       <button v-else class="btn btn-primary" disabled>View Checklist</button>
     </div>
     
-    <!-- Top row: My Snapshot + My Status + Your Team (saves vertical space) -->
+    <!-- Status / team widgets (snapshot metrics live in Overview pay-period card) -->
     <div
-      v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && (providerSurfacesEnabled || canSeePresenceWidget || (currentAgencyId && canSeeKudosWidget))"
+      v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && activeTab !== 'overview' && activeTab !== 'my_supervision' && activeTab !== 'supervision' && (canSeePresenceWidget || (currentAgencyId && canSeeKudosWidget))"
       class="top-snapshot-row"
-      :class="{ 'snapshot-collapsed': topCardCollapsed && providerSurfacesEnabled }"
     >
-      <!-- Provider top summary card -->
-      <div
-        v-if="!isPending && providerSurfacesEnabled"
-        class="top-snapshot-wrap top-snapshot-cell"
-        data-tour="dash-snapshot"
-      >
-        <div
-          class="top-snapshot-head"
-          :class="{ 'dash-attn-pulse': snapshotAttentionPulse }"
-        >
-          <div class="top-snapshot-title">My Snapshot</div>
-          <button
-            type="button"
-            class="btn btn-secondary btn-sm top-snapshot-toggle"
-            @click="toggleTopCardCollapsed"
-          >
-            {{ topCardCollapsed ? 'Expand' : 'Collapse' }}
-          </button>
-        </div>
-        <ProviderTopSummaryCard v-if="!topCardCollapsed" @open-last-paycheck="openLastPaycheckModal" />
-      </div>
-
-      <!-- My Status + Your Team stacked (compact column beside My Snapshot) -->
       <div
         v-if="canSeePresenceWidget || (currentAgencyId && canSeeKudosWidget)"
         class="top-snapshot-status-team-stack"
@@ -301,9 +281,10 @@
           aria-label="Dashboard sections"
         >
         <div
-          v-for="card in railCards"
+          v-for="card in railCardsForDisplay"
           :key="card.id"
           class="rail-card-row"
+          :class="{ 'rail-card-row--nested': !!card.nestedUnder }"
         >
           <button
             type="button"
@@ -314,9 +295,12 @@
             :class="{
               active: isRailCardActive(card),
               'rail-card-submit': card.id === 'submit',
-              'rail-card-pending-alert': card.id === 'clients' && providerPendingClientsCount > 0
+              'rail-card-pending-alert': card.id === 'clients' && providerPendingClientsCount > 0,
+              'rail-card--nest': card.kind === 'nest',
+              'rail-card--nested': !!card.nestedUnder
             }"
             :aria-current="isRailCardActive(card) ? 'page' : undefined"
+            :aria-expanded="card.kind === 'nest' ? (portalsNestExpanded ? 'true' : 'false') : undefined"
             :disabled="previewMode"
             :title="card.label"
             :data-label="card.label"
@@ -347,7 +331,10 @@
               >
                 {{ card.badgeCount }}
               </span>
-              <span class="rail-card-cta">{{ card.kind === 'link' || card.kind === 'modal' ? 'Open' : (card.kind === 'action' ? 'Open' : 'View') }}</span>
+              <span v-if="card.kind === 'nest'" class="rail-card-cta" aria-hidden="true">
+                {{ portalsNestExpanded ? '▾' : '▸' }}
+              </span>
+              <span v-else class="rail-card-cta">{{ card.kind === 'link' || card.kind === 'modal' ? 'Open' : (card.kind === 'action' ? 'Open' : 'View') }}</span>
             </div>
           </button>
           <div v-if="tutorialStore.enabled && railCardDescriptor(card.id)" class="rail-card-help">
@@ -404,9 +391,36 @@
             'card-content--schedule-hub': activeTab === 'my_schedule',
             'card-content--sstc-account': isSummitStatsSurface && activeTab === 'my',
             'card-content--account-hub': activeTab === 'my',
-            'card-content--documents': activeTab === 'documents'
+            'card-content--documents': activeTab === 'documents',
+            'card-content--overview': activeTab === 'overview'
           }"
         >
+          <div
+            v-if="!previewMode && isOnboardingComplete && !isClubContext && activeTab === 'overview'"
+            class="my-panel my-panel--overview"
+            data-tour="dash-overview-panel"
+          >
+            <DashboardOverviewHome
+              :agency-id="currentAgencyId"
+              :company-events="companyEvents"
+              :supervision-prompts="optionalSupervisionPrompts"
+              :show-schedule="overviewFlags.showSchedule"
+              :show-payroll="overviewFlags.showPayroll"
+              :show-notes="overviewFlags.showNotes"
+              :show-claims="overviewFlags.showClaims"
+              :show-supervision="overviewFlags.showSupervision"
+              :show-my-supervision="overviewFlags.showMySupervision"
+              :show-chats="overviewFlags.showChats"
+              :is-supervisor="overviewFlags.isSupervisor"
+              :enabled="activeTab === 'overview'"
+              @navigate="onOverviewNavigate"
+              @open-last-paycheck="openLastPaycheckModal"
+              @open-company-events="openCompanyEventsCalendar"
+              @open-submit-action="onOverviewSubmitAction"
+              @join-event="onOverviewJoinEvent"
+            />
+          </div>
+
           <div v-if="!previewMode && activeTab === PROGRAM_WORKSPACE_TAB && inlineProgramHubState.mode" class="my-panel">
             <ProgramHubModal
               :mode="inlineProgramHubState.mode"
@@ -874,6 +888,7 @@
               :agency-id="currentAgencyId"
               :user-id="authStore.user?.id"
               @select-section="setMyTab"
+              @documents-count="updateDocumentsCount"
             />
           </div>
           
@@ -1103,7 +1118,7 @@ import DocumentsTab from '../components/dashboard/DocumentsTab.vue';
 import MomentumListTab from '../components/dashboard/MomentumListTab.vue';
 import UnifiedChecklistTab from '../components/dashboard/UnifiedChecklistTab.vue';
 import { useMomentumListAddon } from '../composables/useMomentumListAddon';
-import ProviderTopSummaryCard from '../components/dashboard/ProviderTopSummaryCard.vue';
+import DashboardOverviewHome from '../components/dashboard/DashboardOverviewHome.vue';
 import PendingCompletionButton from '../components/PendingCompletionButton.vue';
 import BrandingLogo from '../components/BrandingLogo.vue';
 import MySstcClubsCard from '../components/sstc/MySstcClubsCard.vue';
@@ -1135,7 +1150,6 @@ import PreHireAttentionWidget from '../components/dashboard/PreHireAttentionWidg
 import StaffCard from '../components/dashboard/StaffCard.vue';
 import SurveyPromptCard from '../components/dashboard/SurveyPromptCard.vue';
 import FacilitatorAvailabilityPromptCard from '../components/dashboard/FacilitatorAvailabilityPromptCard.vue';
-import BookClubPromptCard from '../components/bookClub/BookClubPromptCard.vue';
 import ClubEmployerSharePromptCard from '../components/club/ClubEmployerSharePromptCard.vue';
 import { isNativePlatform } from '../utils/biometricAuth.js';
 import { isSummitScopedOrg } from '../utils/summitRoutingContext.js';
@@ -1210,7 +1224,8 @@ const PROGRAM_WORKSPACE_TAB = '__program_workspace__';
 const activeTab = ref('checklist');
 const previousContentTab = ref('checklist');
 const selectedRailCardId = ref('checklist');
-const myTab = ref('account'); // 'account' | 'credentials' | 'payroll' | 'compensation' | 'kudos'
+const myTab = ref('account'); // 'account' | 'credentials' | 'documents' | 'payroll' | 'compensation' | 'kudos' | 'preferences'
+
 const onboardingCompletion = ref(100);
 const trainingCount = ref(0);
 const documentsCount = ref(0);
@@ -1239,6 +1254,14 @@ const inlineProgramHubState = ref({
 function isRailCardActive(card) {
   const id = String(card?.id || '');
   if (!id) return false;
+  if (id === 'portals_nest' && Array.isArray(card.children)) {
+    return card.children.some((c) => isRailCardActive(c));
+  }
+  if (card?.kind === 'link' && card?.to) {
+    const path = String(route.path || '');
+    const to = String(card.to || '');
+    if (to && (path === to || path.startsWith(`${to}/`))) return true;
+  }
   if (activeTab.value === PROGRAM_WORKSPACE_TAB) return selectedRailCardId.value === id;
   if (card?.kind === 'content') return activeTab.value === id;
   return selectedRailCardId.value === id;
@@ -1473,6 +1496,36 @@ const canShowBudgetSubmitExpenses = computed(() => {
   return currentAgencyId.value && deptIds.includes(Number(currentAgencyId.value));
 });
 
+/** Role / feature gates for Overview landing widgets (mirrors rail card visibility). */
+const overviewFlags = computed(() => {
+  const u = authStore.user;
+  const role = String(u?.role || '').toLowerCase();
+  const caps = u?.capabilities || {};
+  const isTrueAdmin = role === 'admin' || role === 'super_admin';
+  const isProviderLike =
+    role === 'provider' ||
+    role === 'provider_plus' ||
+    role === 'intern' ||
+    role === 'intern_plus' ||
+    role === 'clinical_practice_assistant';
+  const isSup = isSupervisor(u);
+  const isLimitedAccessNonProvider =
+    !isTrueAdmin && !isProviderLike && (isSup || !!caps?.canManageHiring || !!caps?.canManagePayroll);
+  const club = isClubContext.value;
+  const school = isSchoolStaff.value;
+
+  return {
+    isSupervisor: isSup,
+    showSchedule: !school && !club,
+    showPayroll: !school && !club && !isLimitedAccessNonProvider,
+    showNotes: !school && !club && !isLimitedAccessNonProvider && (isProviderLike || isTrueAdmin),
+    showClaims: !school && !club && !isLimitedAccessNonProvider && providerSurfacesEnabled.value,
+    showSupervision: !club && isSup,
+    showMySupervision: !club && !isSup && !isLimitedAccessNonProvider,
+    showChats: !isLimitedAccessNonProvider
+  };
+});
+
 const openLastPaycheckModal = ({ payrollPeriodId } = {}) => {
   const agencyId = Number(currentAgencyId.value || 0);
   const pid = Number(payrollPeriodId || 0);
@@ -1614,6 +1667,7 @@ const railIconFallback = (card) => {
 };
 
 const CARD_HUE_PRESETS = {
+  overview: 262,
   checklist: 168,
   training: 289,
   documents: 207,
@@ -1656,24 +1710,9 @@ const dashboardBanner = ref(null); // { type, message, agencyId, names } | null
 const scheduledBannerItems = ref([]);
 const companyEvents = ref([]);
 
-// Legacy global key (pre–per-user); migrated once for super_admin/admin.
-const SNAPSHOT_COLLAPSE_LEGACY_KEY = 'dashboard.snapshotCollapsed.v1';
-
-// Anyone can collapse for the session; only these roles persist across logout/login (localStorage).
-const persistMySnapshotCollapsed = computed(() => {
-  const r = String(authStore.user?.role || '').toLowerCase();
-  return r === 'super_admin' || r === 'admin';
-});
-
-const snapshotCollapseStorageKeyForUser = () => {
-  const uid = Number(authStore.user?.id || 0);
-  return uid ? `${SNAPSHOT_COLLAPSE_LEGACY_KEY}:${uid}` : '';
-};
-
 const SKILL_BUILDERS_SERIES_COLLAPSE_KEY = 'dashboard.skillBuildersSeriesCollapsed.v1';
 
 const skillBuildersSeriesCollapsed = ref(false);
-const snapshotAttentionPulse = ref(false);
 const socialFeedsAttentionPulse = ref(false);
 const skillBuildersSeriesAttentionPulse = ref(false);
 
@@ -1682,30 +1721,6 @@ const isSeriesCompanyEvent = (e) => String(e?.eventType || '').toLowerCase() ===
 const seriesCompanyEvents = computed(() =>
   (companyEvents.value || []).filter((e) => isSeriesCompanyEvent(e)).slice(0, 8)
 );
-
-const loadSnapshotCollapsed = () => {
-  if (!persistMySnapshotCollapsed.value) {
-    topCardCollapsed.value = false;
-    return;
-  }
-  const key = snapshotCollapseStorageKeyForUser();
-  try {
-    if (key && window.localStorage.getItem(key) === '1') {
-      topCardCollapsed.value = true;
-      return;
-    }
-    const legacy = window.localStorage.getItem(SNAPSHOT_COLLAPSE_LEGACY_KEY);
-    if (legacy === '1' && key) {
-      topCardCollapsed.value = true;
-      window.localStorage.setItem(key, '1');
-      window.localStorage.removeItem(SNAPSHOT_COLLAPSE_LEGACY_KEY);
-      return;
-    }
-    topCardCollapsed.value = false;
-  } catch {
-    topCardCollapsed.value = false;
-  }
-};
 
 const loadSkillBuildersSeriesCollapsed = () => {
   try {
@@ -2708,11 +2723,17 @@ const scheduleViewContextLine = computed(() => {
   return `Your calendar · ${you}`;
 });
 
-const tabs = computed(() => [
-  { id: 'checklist', label: momentumListEnabled.value ? 'Momentum List' : 'Checklist', badgeCount: checklistCount.value },
-  { id: 'training', label: 'Training', badgeCount: trainingCount.value },
-  { id: 'documents', label: 'Documents', badgeCount: documentsCount.value }
-]);
+const tabs = computed(() => {
+  const list = [
+    { id: 'checklist', label: momentumListEnabled.value ? 'Momentum List' : 'Checklist', badgeCount: checklistCount.value },
+    { id: 'training', label: 'Training', badgeCount: trainingCount.value }
+  ];
+  // Documents live under My Account once onboarding is complete; keep rail access for pre-hire.
+  if (!isOnboardingComplete.value) {
+    list.push({ id: 'documents', label: 'Documents', badgeCount: documentsCount.value });
+  }
+  return list;
+});
 
 const isOnboardingComplete = computed(() => {
   // Club context: no HR onboarding; treat as complete so club members see full dashboard
@@ -2913,8 +2934,8 @@ const previewAgencyLogoUrl = computed(() => {
 });
 
 const filteredTabs = computed(() => {
-  // Club context (SSTC/affiliation): hide Checklist and Training; show only Documents
-  if (isClubContext.value) return tabs.value.filter(tab => tab.id !== 'checklist' && tab.id !== 'training');
+  // Club context (SSTC/affiliation): hide Checklist and Training (Documents are under My Account)
+  if (isClubContext.value) return [];
   // PREHIRE_OPEN, PREHIRE_REVIEW, and ONBOARDING users see limited tabs
   if (isPending.value || userStatus.value === 'PREHIRE_REVIEW' || userStatus.value === 'ONBOARDING' ||
       userStatus.value === 'ready_for_review') {
@@ -3043,6 +3064,19 @@ const isAgencyOrgType = (org) => String(org?.organization_type || org?.organizat
 /** School portal rail cards only: matches DB enum `agencies.organization_type = 'school'`. Program, learning, clinical, etc. are not schools. */
 const isSchoolPortalOrganization = (org) =>
   String(org?.organization_type || org?.organizationType || '').toLowerCase() === 'school';
+
+/** Book Club lives in the top portals strip — never duplicate it on the left rail. */
+const isBookClubPortalOrg = (org) => {
+  const kind = String(org?.club_kind || org?.clubKind || '').toLowerCase();
+  if (kind === 'book_club') return true;
+  const slug = String(org?.slug || org?.portal_url || org?.portalUrl || '').toLowerCase();
+  if (slug.includes('book-club') || slug.includes('book_club')) return true;
+  const name = String(org?.name || '').toLowerCase();
+  return name.includes('book club');
+};
+
+const portalOrgType = (org) =>
+  String(org?.organization_type || org?.organizationType || '').toLowerCase().trim();
 const portalShortTitle = (org) => {
   return String(
     org?.portal_short_title ||
@@ -3105,11 +3139,12 @@ const programPortalRailIconUrl = (org) => {
 const providerPortalCards = computed(() => {
   const list = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
   return list
-    .filter((org) => !isAgencyOrgType(org))
+    .filter((org) => !isAgencyOrgType(org) && !isBookClubPortalOrg(org))
     .map((org) => {
       const slug = String(org?.slug || org?.portal_url || org?.portalUrl || '').trim();
       if (!slug) return null;
       const label = portalShortTitle(org);
+      const orgType = portalOrgType(org);
       return {
         id: `portal_org_${String(org?.id || slug)}`,
         label,
@@ -3118,47 +3153,147 @@ const providerPortalCards = computed(() => {
         badgeCount: 0,
         iconUrl: programPortalRailIconUrl(org),
         isSchoolPortal: isSchoolPortalOrganization(org),
+        orgType,
         description: `Open ${String(org?.name || label)} portal.`
       };
     })
     .filter(Boolean);
 });
-// Anything that is not organization_type 'school' stays visible for admins (program, learning, clinical, unknown slug-only rows, etc.).
-const nonSchoolPortalRailCards = computed(() =>
-  providerPortalCards.value.filter((c) => !c.isSchoolPortal)
-);
-const schoolOnlyPortalRailCards = computed(() =>
-  providerPortalCards.value.filter((c) => c.isSchoolPortal)
-);
-const shouldCollapseSchoolPortalCards = computed(() => {
-  const role = String(authStore.user?.role || '').toLowerCase();
-  return role === 'admin' || role === 'support' || role === 'super_admin';
+
+/** Dynamic nest title: Schools / Programs / Learning / combinations. */
+const portalsNestLabel = computed(() => {
+  const types = new Set(providerPortalCards.value.map((c) => String(c.orgType || '')));
+  const parts = [];
+  if (types.has('school')) parts.push('Schools');
+  if (types.has('program')) parts.push('Programs');
+  if (types.has('learning')) parts.push('Learning');
+  if (!parts.length) return providerPortalCards.value.length ? 'Portals' : '';
+  if (parts.length === 1) return parts[0];
+  if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+  return `${parts[0]}, ${parts[1]}, and ${parts[2]}`;
 });
-const schoolPortalCardsExpanded = ref(false);
-const schoolPortalToggleCard = computed(() => {
+
+const portalsNestExpanded = ref(false);
+
+/** Admin / provider hub cards that belong under the portals nest (not top-level rail). */
+const portalsNestHubChildren = computed(() => {
+  if (isClubContext.value) return [];
+  const u = authStore.user;
+  const role = String(u?.role || '').toLowerCase();
+  const caps = u?.capabilities || {};
+  const isTrueAdmin = role === 'admin' || role === 'super_admin';
+  const isProviderLikeForSubmissions =
+    role === 'provider' ||
+    role === 'provider_plus' ||
+    role === 'intern' ||
+    role === 'intern_plus' ||
+    role === 'clinical_practice_assistant';
+  const isSup = isSupervisor(u);
+  const isLimitedAccessNonProvider =
+    !isTrueAdmin && !isProviderLikeForSubmissions && (isSup || !!caps?.canManageHiring || !!caps?.canManagePayroll);
+  const iconOrg = cardIconOrgOverride.value;
+  const children = [];
+
+  if (!isLimitedAccessNonProvider) {
+    if (isSkillBuilderEligible.value) {
+      children.push({
+        id: 'skill_builders_provider_hub',
+        label: 'Skill Builders',
+        kind: 'modal',
+        badgeCount: 0,
+        iconUrl: brandingStore.getAdminQuickActionIconUrl('skill_builders_availability', iconOrg),
+        description: 'Availability, events, and Skill Builders work schedule.'
+      });
+    }
+    if (
+      isProviderLikeForSkillBuildersSchedule.value &&
+      providerAssignedProgramOrgs.value.length > 0
+    ) {
+      children.push({
+        id: 'provider_program_portals',
+        label: 'Program Portals',
+        kind: 'content',
+        badgeCount: 0,
+        iconUrl: brandingStore.getAdminQuickActionIconUrl('program_overview', iconOrg),
+        description: 'Programs you are assigned to — open one to access event portals.'
+      });
+    }
+  }
+
+  const sbSchoolProgramOn = canAccessSkillBuildersSchoolProgramTenantDashboard.value;
+  if (
+    !isSkillBuilderEligible.value &&
+    (role === 'super_admin' || (sbSchoolProgramOn && (role === 'admin' || isSkillBuilderCoordinator.value)))
+  ) {
+    const sbIconOrg = agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
+    children.push({
+      id: 'skill_builders_availability',
+      label: 'Skill Builders',
+      kind: 'link',
+      to: '/admin/skill-builders-availability',
+      badgeCount: 0,
+      iconUrl: brandingStore.getAdminQuickActionIconUrl('skill_builders_availability', sbIconOrg),
+      description: 'Manage Skill Builder provider availability and settings.'
+    });
+  }
+
+  if (hasSkillBuilderCoordinatorToolsAccess.value) {
+    const orgOverride = agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
+    if (canSeeSchoolPortalsForCoordinator.value) {
+      children.push({
+        id: 'sub_coordinator_school_portals',
+        label: 'School Portals',
+        kind: 'link',
+        to: '/admin/school-portals-hub',
+        badgeCount: 0,
+        iconUrl: brandingStore.getAdminQuickActionIconUrl('school_overview', orgOverride),
+        description: 'School overview, all school portals, and add-school entry when enabled for this tenant.'
+      });
+    }
+    children.push({
+      id: 'sub_coordinator_program_overview',
+      label: 'Program Portals',
+      kind: 'link',
+      to: '/admin/schools/overview?orgType=program',
+      badgeCount: 0,
+      iconUrl: brandingStore.getAdminQuickActionIconUrl('program_overview', orgOverride),
+      description: 'Manage affiliated program + learning dashboards.'
+    });
+    for (const org of subCoordinatorProgramOrgs.value || []) {
+      const oid = Number(org.id);
+      if (!Number.isFinite(oid) || oid <= 0) continue;
+      const name = String(org.name || '').trim() || `Program ${oid}`;
+      children.push({
+        id: `sub_coord_program_${oid}`,
+        label: name,
+        kind: 'modal',
+        programOrganizationId: oid,
+        badgeCount: 0,
+        iconUrl: programPortalRailIconUrl(org),
+        description: `Portal, availability, events, enrollments, and work schedule for ${name}.`
+      });
+    }
+  }
+
+  return children;
+});
+
+const portalsNestCard = computed(() => {
   if (isClubContext.value) return null;
-  const count = schoolOnlyPortalRailCards.value.length;
-  if (!count || !shouldCollapseSchoolPortalCards.value) return null;
+  const children = [...providerPortalCards.value, ...portalsNestHubChildren.value];
+  if (!children.length) return null;
   return {
-    id: 'show_all_school_portals',
-    label: schoolPortalCardsExpanded.value ? 'Hide School Portals' : 'Show All School Portals',
-    kind: 'action',
-    badgeCount: count,
+    id: 'portals_nest',
+    label: portalsNestLabel.value || 'Portals',
+    kind: 'nest',
+    badgeCount: children.length,
+    children,
     iconUrl:
-      brandingStore.getDashboardCardIconUrl('my_schedule') ||
-      brandingStore.getDashboardCardIconUrl('my'),
-    description: schoolPortalCardsExpanded.value
-      ? 'Collapse school portal cards.'
-      : 'Expand all school portal cards.'
+      brandingStore.getAdminQuickActionIconUrl('school_overview', cardIconOrgOverride.value) ||
+      brandingStore.getDashboardCardIconUrl('my_schedule', cardIconOrgOverride.value) ||
+      brandingStore.getDashboardCardIconUrl('my', cardIconOrgOverride.value),
+    description: 'Assigned portals plus school/program hubs and Skill Builders.'
   };
-});
-const visibleProviderPortalCards = computed(() => {
-  const nonSchool = nonSchoolPortalRailCards.value;
-  const schools =
-    !shouldCollapseSchoolPortalCards.value || schoolPortalCardsExpanded.value
-      ? schoolOnlyPortalRailCards.value
-      : [];
-  return [...nonSchool, ...schools];
 });
 
 const dashboardCards = computed(() => {
@@ -3196,6 +3331,17 @@ const dashboardCards = computed(() => {
 
   // Post-onboarding cards
   if (isOnboardingComplete.value) {
+    // Overview landing — agency HR dashboard only (not club / Summit surfaces)
+    if (!isClubContext.value) {
+      cards.unshift({
+        id: 'overview',
+        label: 'Overview',
+        kind: 'content',
+        badgeCount: 0,
+        iconUrl: brandingStore.getDashboardCardIconUrl('my', iconOrg),
+        description: 'Your day at a glance: schedule, pay period, events, and quick actions.'
+      });
+    }
     // School staff should not see payroll/claims submission surfaces.
     if (!isSchoolStaff.value) {
       // My Schedule is personal and should be visible to everyone using the dashboard.
@@ -3207,8 +3353,7 @@ const dashboardCards = computed(() => {
         iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', iconOrg),
         description: 'View weekly schedule and request availability from the grid.'
       });
-      if (schoolPortalToggleCard.value) cards.push(schoolPortalToggleCard.value);
-      if (!isClubContext.value) cards.push(...visibleProviderPortalCards.value);
+      if (!isClubContext.value && portalsNestCard.value) cards.push(portalsNestCard.value);
 
       // Provider-only surfaces: hide these for limited-access non-provider users and club context.
       if (!isLimitedAccessNonProvider && !isClubContext.value) {
@@ -3230,16 +3375,6 @@ const dashboardCards = computed(() => {
             description: 'Submit mileage, in-school claims, and more.'
           });
         }
-        if (!isClubContext.value) {
-          cards.push({
-            id: 'payroll',
-            label: 'Payroll',
-            kind: 'content',
-            badgeCount: 0,
-            iconUrl: brandingStore.getDashboardCardIconUrl('payroll', iconOrg),
-            description: 'Your payroll history by pay period.'
-          });
-        }
         if (shiftProgramsEnabledForAgency.value) {
           cards.push({
             id: 'program_shifts',
@@ -3248,16 +3383,6 @@ const dashboardCards = computed(() => {
             badgeCount: 0,
             iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', iconOrg),
             description: 'Program shift schedule, sign up, and call-off.'
-          });
-        }
-        if (isSkillBuilderEligible.value) {
-          cards.push({
-            id: 'skill_builders_provider_hub',
-            label: 'Skill Builders',
-            kind: 'modal',
-            badgeCount: 0,
-            iconUrl: brandingStore.getAdminQuickActionIconUrl('skill_builders_availability', iconOrg),
-            description: 'Availability, events, and Skill Builders work schedule.'
           });
         }
         if (
@@ -3270,23 +3395,8 @@ const dashboardCards = computed(() => {
             label: 'Clinical Aid',
             kind: 'content',
             badgeCount: 0,
-            iconUrl: brandingStore.getDashboardCardIconUrl('supervision', iconOrg),
+            iconUrl: brandingStore.getDashboardCardIconUrl('tools_aids', iconOrg),
             description: 'H2014 group notes: Skill Builders program hub or event portal (Client management).'
-          });
-        }
-        // Single "Program Portals" overview card for providers assigned to program events
-        if (
-          isProviderLikeForSkillBuildersSchedule.value &&
-          !isClubContext.value &&
-          providerAssignedProgramOrgs.value.length > 0
-        ) {
-          cards.push({
-            id: 'provider_program_portals',
-            label: 'Program Portals',
-            kind: 'content',
-            badgeCount: 0,
-            iconUrl: brandingStore.getAdminQuickActionIconUrl('program_overview', iconOrg),
-            description: 'Programs you are assigned to — open one to access event portals.'
           });
         }
       }
@@ -3443,69 +3553,13 @@ const dashboardCards = computed(() => {
         label: 'Providers',
         kind: 'content',
         badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('supervision', iconOrg),
+        iconUrl: brandingStore.getDashboardCardIconUrl('clients', iconOrg)
+          || brandingStore.getDashboardCardIconUrl('staff', iconOrg),
         description: 'View and support all providers in your organization.'
       });
     }
 
-    // Program coordinator access (users.has_skill_builder_coordinator_access)
-    // grants elevated affiliated-org tools.
-    // Skill Builders *school program* admin card (availability grid): only when that tenant program is on,
-    // except super admins (QA). Admins / program coordinators use Program Overview + per-program hubs otherwise.
-    const sbSchoolProgramOn = canAccessSkillBuildersSchoolProgramTenantDashboard.value;
-    if (
-      !isSkillBuilderEligible.value &&
-      (role === 'super_admin' || (sbSchoolProgramOn && (role === 'admin' || isSkillBuilderCoordinator.value)))
-    ) {
-      const sbIconOrg = agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
-      cards.push({
-        id: 'skill_builders_availability',
-        label: 'Skill Builders',
-        kind: 'link',
-        to: '/admin/skill-builders-availability',
-        badgeCount: 0,
-        iconUrl: brandingStore.getAdminQuickActionIconUrl('skill_builders_availability', sbIconOrg),
-        description: 'Manage Skill Builder provider availability and settings.'
-      });
-    }
-
-    if (hasSkillBuilderCoordinatorToolsAccess.value) {
-      const orgOverride = agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
-      if (canSeeSchoolPortalsForCoordinator.value) {
-        cards.push({
-          id: 'sub_coordinator_school_portals',
-          label: 'School Portals',
-          kind: 'link',
-          to: '/admin/school-portals-hub',
-          badgeCount: 0,
-          iconUrl: brandingStore.getAdminQuickActionIconUrl('school_overview', orgOverride),
-          description: 'School overview, all school portals, and add-school entry when enabled for this tenant.'
-        });
-      }
-      cards.push({
-        id: 'sub_coordinator_program_overview',
-        label: 'Program Portals',
-        kind: 'link',
-        to: '/admin/schools/overview?orgType=program',
-        badgeCount: 0,
-        iconUrl: brandingStore.getAdminQuickActionIconUrl('program_overview', orgOverride),
-        description: 'Manage affiliated program + learning dashboards.'
-      });
-      for (const org of subCoordinatorProgramOrgs.value || []) {
-        const oid = Number(org.id);
-        if (!Number.isFinite(oid) || oid <= 0) continue;
-        const name = String(org.name || '').trim() || `Program ${oid}`;
-        cards.push({
-          id: `sub_coord_program_${oid}`,
-          label: name,
-          kind: 'modal',
-          programOrganizationId: oid,
-          badgeCount: 0,
-          iconUrl: programPortalRailIconUrl(org),
-          description: `Portal, availability, events, enrollments, and work schedule for ${name}.`
-        });
-      }
-    }
+    // Program coordinator + Skill Builders admin hubs live under portalsNestCard children.
   }
 
   return cards;
@@ -3517,15 +3571,17 @@ const railCards = computed(() => {
 
   const orderIndex = (id) => {
     const k = String(id || '');
-    if (k === 'show_all_school_portals') return hasMy ? 2 : 4;
-    if (hasMy && k.startsWith('portal_org_')) return 2;
-    if (!hasMy && k.startsWith('portal_org_')) return 4;
+    if (k === 'portals_nest') return hasMy ? 2 : 4;
+    if (hasMy && k.startsWith('portal_org_')) return 2.1;
+    if (!hasMy && k.startsWith('portal_org_')) return 4.1;
     // Stable rail order:
-    // - If My Account exists (post-onboarding), keep it first and Checklist second.
+    // - Overview first when present (post-onboarding agency dashboard).
+    // - If My Account exists (post-onboarding), keep it near the top after Overview.
     // - If My Account doesn't exist yet (during onboarding), Checklist stays first.
     if (hasMy) {
       if (k.startsWith('sub_coord_program_')) return 4;
       return ({
+        overview: -1,
         my: 0,
         my_schedule: 1,
         program_shifts: 2,
@@ -3589,22 +3645,29 @@ const railCards = computed(() => {
   });
 });
 
-const topCardCollapsed = ref(false);
+/** Flatten nest children into the rail when expanded. */
+const railCardsForDisplay = computed(() => {
+  const out = [];
+  for (const card of railCards.value || []) {
+    out.push(card);
+    if (
+      card?.id === 'portals_nest' &&
+      portalsNestExpanded.value &&
+      Array.isArray(card.children) &&
+      card.children.length
+    ) {
+      for (const child of card.children) {
+        out.push({ ...child, nestedUnder: 'portals_nest' });
+      }
+    }
+  }
+  return out;
+});
 
 const SOCIAL_FEEDS_COLLAPSE_KEY = 'dashboard.socialFeedsCollapsed.v1';
 const socialFeedsCollapsed = ref(false);
 const dashboardSocialFeeds = ref([]);
 const selectedSocialFeedId = ref(null);
-const toggleTopCardCollapsed = () => {
-  topCardCollapsed.value = !topCardCollapsed.value;
-  if (!persistMySnapshotCollapsed.value) return;
-  const sk = snapshotCollapseStorageKeyForUser();
-  try {
-    if (sk) window.localStorage.setItem(sk, topCardCollapsed.value ? '1' : '0');
-  } catch {
-    /* ignore */
-  }
-};
 
 const loadSocialFeedsCollapsed = () => {
   try {
@@ -3657,6 +3720,9 @@ function openSocialFeedInDetail(feed) {
 const handleCardClick = (card) => {
   closeCardDescriptor();
   if (props.previewMode) return;
+  // When leaving Overview push a new history entry so Back returns here.
+  const leavingOverview = activeTab.value === 'overview';
+  const navFn = (loc) => leavingOverview ? router.push(loc) : router.replace(loc);
   selectedRailCardId.value = String(card?.id || '');
   if (card.id === 'start_new_season' && isClubContext.value) {
     closeInlineProgramHub();
@@ -3668,8 +3734,8 @@ const handleCardClick = (card) => {
     router.push(String(card.to));
     return;
   }
-  if (card.id === 'show_all_school_portals') {
-    schoolPortalCardsExpanded.value = !schoolPortalCardsExpanded.value;
+  if (card.id === 'portals_nest' || card.kind === 'nest') {
+    portalsNestExpanded.value = !portalsNestExpanded.value;
     return;
   }
   if (card.id === 'skill_builders_provider_hub') {
@@ -3718,14 +3784,14 @@ const handleCardClick = (card) => {
     activeTab.value = 'submit';
     previousContentTab.value = 'submit';
     loadMyAssignedSchools();
-    router.replace({ query: { ...route.query, tab: 'submit' } });
+    navFn({ query: { ...route.query, tab: 'submit' } });
     return;
   }
   if (card.id === 'on_demand_training') {
     closeInlineProgramHub();
     activeTab.value = 'on_demand_training';
     previousContentTab.value = 'on_demand_training';
-    router.replace({ query: { ...route.query, tab: 'on_demand_training' } });
+    navFn({ query: { ...route.query, tab: 'on_demand_training' } });
     return;
   }
   closeInlineProgramHub();
@@ -3733,9 +3799,81 @@ const handleCardClick = (card) => {
   previousContentTab.value = card.id;
   if (props.previewMode) return;
   if (card.id === 'my') {
-    router.replace({ query: { ...route.query, tab: 'my', my: myTab.value } });
+    navFn({ query: { ...route.query, tab: 'my', my: myTab.value } });
   } else {
-    router.replace({ query: { ...route.query, tab: card.id } });
+    navFn({ query: { ...route.query, tab: card.id } });
+  }
+};
+
+const onOverviewNavigate = (tab) => {
+  const id = String(tab || '').trim();
+  if (!id) return;
+  if (id === 'payroll') {
+    openMyPayrollSection();
+    return;
+  }
+  if (id === 'documents') {
+    closeInlineProgramHub();
+    activeTab.value = 'my';
+    previousContentTab.value = 'my';
+    selectedRailCardId.value = 'my';
+    myTab.value = 'documents';
+    if (!props.previewMode) {
+      router.push({ query: { ...route.query, tab: 'my', my: 'documents' } }).catch(() => {});
+    }
+    return;
+  }
+  const card = (railCards.value || []).find((c) => String(c?.id) === id);
+  if (card) {
+    // handleCardClick detects leavingOverview itself
+    handleCardClick(card);
+    return;
+  }
+  // Nested portal hub children
+  const nestChild = portalsNestCard.value?.children?.find((c) => String(c?.id) === id);
+  if (nestChild) {
+    portalsNestExpanded.value = true;
+    handleCardClick(nestChild);
+    return;
+  }
+  closeInlineProgramHub();
+  activeTab.value = id;
+  previousContentTab.value = id;
+  selectedRailCardId.value = id;
+  if (!props.previewMode) {
+    // Always push when navigating away from overview so Back returns here
+    router.push({ query: { ...route.query, tab: id } }).catch(() => {});
+  }
+};
+
+const onOverviewSubmitAction = ({ event, tab } = {}) => {
+  const targetTab = String(tab || 'submit');
+  const card = (railCards.value || []).find((c) => String(c?.id) === targetTab);
+  if (card) handleCardClick(card);
+  else {
+    submitPanelView.value = 'root';
+    activeTab.value = 'submit';
+    previousContentTab.value = 'submit';
+    selectedRailCardId.value = 'submit';
+    router.replace({ query: { ...route.query, tab: 'submit' } }).catch(() => {});
+  }
+  nextTick(() => {
+    const ev = String(event || '').trim();
+    if (ev === 'availability') openAdditionalAvailability();
+    else if (ev === 'virtual-hours') openVirtualWorkingHours();
+    else if (ev === 'open-time') openTimeClaims();
+    else if (ev === 'open-in-school') openInSchoolClaims();
+    else submitPanelView.value = 'root';
+  });
+};
+
+const onOverviewJoinEvent = (ev) => {
+  const url = String(ev?.joinUrl || '').trim();
+  if (!url) return;
+  try {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  } catch {
+    window.location.href = url;
   }
 };
 
@@ -3751,18 +3889,57 @@ const setMyTab = (tab) => {
 
 const syncFromQuery = () => {
   if (props.previewMode) return;
-  const qTab = route.query?.tab;
+  let qTab = route.query?.tab;
+
+  // Legacy deep links: payroll/documents rail tabs → My Account sections
+  if (qTab === 'payroll' || qTab === 'documents') {
+    const section = qTab;
+    myTab.value = section;
+    activeTab.value = 'my';
+    previousContentTab.value = 'my';
+    selectedRailCardId.value = 'my';
+    router.replace({ query: { ...route.query, tab: 'my', my: section } }).catch(() => {});
+    return;
+  }
+
   if (typeof qTab === 'string') {
     const allowed = new Set((railCards.value || []).map((c) => String(c?.id || '')).filter(Boolean));
     if (allowed.has(qTab)) {
       activeTab.value = qTab;
       previousContentTab.value = qTab;
       selectedRailCardId.value = qTab;
+    } else if (portalsNestCard.value?.children?.some((c) => String(c.id) === qTab)) {
+      // Nested hub opened via query — expand nest and activate child
+      portalsNestExpanded.value = true;
+      const child = portalsNestCard.value.children.find((c) => String(c.id) === qTab);
+      if (child?.kind === 'content') {
+        activeTab.value = qTab;
+        previousContentTab.value = qTab;
+        selectedRailCardId.value = qTab;
+      } else if (child) {
+        selectedRailCardId.value = qTab;
+      }
+    }
+  } else if (!qTab) {
+    // Tab query cleared (e.g. top-nav "Dashboard") → return to Overview when available
+    const allowed = new Set((railCards.value || []).map((c) => String(c?.id || '')).filter(Boolean));
+    if (
+      allowed.has('overview') &&
+      isOnboardingComplete.value &&
+      onboardingCompletion.value >= 100 &&
+      !isClubContext.value
+    ) {
+      activeTab.value = 'overview';
+      previousContentTab.value = 'overview';
+      selectedRailCardId.value = 'overview';
     }
   }
 
   const qMy = route.query?.my;
-  if (typeof qMy === 'string' && ['account', 'credentials', 'payroll', 'compensation', 'kudos', 'preferences'].includes(qMy)) {
+  if (
+    typeof qMy === 'string' &&
+    ['account', 'credentials', 'documents', 'payroll', 'compensation', 'kudos', 'preferences'].includes(qMy)
+  ) {
     const hiddenInClub = ['credentials', 'payroll', 'compensation'];
     if (isClubContext.value && hiddenInClub.includes(qMy)) {
       myTab.value = 'account';
@@ -3968,13 +4145,18 @@ const openSchoolMileageModal = () => {
   pendingMileageModalOpen.value = 'school_travel';
 };
 
+const openMyPayrollSection = () => {
+  closeInlineProgramHub();
+  activeTab.value = 'my';
+  previousContentTab.value = 'my';
+  selectedRailCardId.value = 'my';
+  myTab.value = 'payroll';
+  router.replace({ query: { ...route.query, tab: 'my', my: 'payroll' } });
+};
+
 const onMileageSubmittedFromModal = () => {
   pendingMileageModalOpen.value = null;
-  closeInlineProgramHub();
-  activeTab.value = 'payroll';
-  previousContentTab.value = 'payroll';
-  selectedRailCardId.value = 'payroll';
-  router.replace({ query: { ...route.query, tab: 'payroll' } });
+  openMyPayrollSection();
 };
 
 const openReimbursementModal = () => {
@@ -3983,11 +4165,7 @@ const openReimbursementModal = () => {
 
 const onReimbursementSubmittedFromModal = () => {
   pendingReimbursementModalOpen.value = false;
-  closeInlineProgramHub();
-  activeTab.value = 'payroll';
-  previousContentTab.value = 'payroll';
-  selectedRailCardId.value = 'payroll';
-  router.replace({ query: { ...route.query, tab: 'payroll' } });
+  openMyPayrollSection();
 };
 
 const openMedcancelModal = () => {
@@ -4004,11 +4182,7 @@ const openMedcancelModal = () => {
 
 const onMedcancelSubmittedFromModal = () => {
   pendingMedcancelModalOpen.value = false;
-  closeInlineProgramHub();
-  activeTab.value = 'payroll';
-  previousContentTab.value = 'payroll';
-  selectedRailCardId.value = 'payroll';
-  router.replace({ query: { ...route.query, tab: 'payroll' } });
+  openMyPayrollSection();
 };
 
 const openPtoModal = () => {
@@ -4017,11 +4191,7 @@ const openPtoModal = () => {
 
 const onPtoSubmittedFromModal = () => {
   pendingPtoModalOpen.value = false;
-  closeInlineProgramHub();
-  activeTab.value = 'payroll';
-  previousContentTab.value = 'payroll';
-  selectedRailCardId.value = 'payroll';
-  router.replace({ query: { ...route.query, tab: 'payroll' } });
+  openMyPayrollSection();
 };
 
 const openCompanyCardModal = () => {
@@ -4034,20 +4204,12 @@ const openCompanyCarMileage = () => {
 
 const onCompanyCardSubmittedFromModal = () => {
   pendingCompanyCardModalOpen.value = false;
-  closeInlineProgramHub();
-  activeTab.value = 'payroll';
-  previousContentTab.value = 'payroll';
-  selectedRailCardId.value = 'payroll';
-  router.replace({ query: { ...route.query, tab: 'payroll' } });
+  openMyPayrollSection();
 };
 
 const onBudgetExpensesSubmitted = () => {
   showBudgetSubmitExpensesModal.value = false;
-  closeInlineProgramHub();
-  activeTab.value = 'payroll';
-  previousContentTab.value = 'payroll';
-  selectedRailCardId.value = 'payroll';
-  router.replace({ query: { ...route.query, tab: 'payroll' } });
+  openMyPayrollSection();
 };
 
 const openTimeMeetingModal = () => { pendingTimeModalOpen.value = 'meeting'; };
@@ -4063,21 +4225,13 @@ const openTimeOvertimeModal = () => { pendingTimeModalOpen.value = 'overtime'; }
 
 const onTimeSubmittedFromModal = () => {
   pendingTimeModalOpen.value = null;
-  closeInlineProgramHub();
-  activeTab.value = 'payroll';
-  previousContentTab.value = 'payroll';
-  selectedRailCardId.value = 'payroll';
-  router.replace({ query: { ...route.query, tab: 'payroll' } });
+  openMyPayrollSection();
 };
 
 const goToSubmission = async (kind) => {
-  // Use direct Payroll tab (same MyPayrollTab, simpler mount path).
   submitPanelView.value = 'root';
-  closeInlineProgramHub();
-  activeTab.value = 'payroll';
-  previousContentTab.value = 'payroll';
-  selectedRailCardId.value = 'payroll';
-  await router.replace({ query: { ...route.query, tab: 'payroll', submission: kind } });
+  openMyPayrollSection();
+  await router.replace({ query: { ...route.query, tab: 'my', my: 'payroll', submission: kind } });
 };
 
 const updateTrainingCount = (count) => {
@@ -4478,17 +4632,10 @@ onMounted(async () => {
     router.replace({ query: nextQuery }).catch(() => {});
   }
 
-  loadSnapshotCollapsed();
   loadSkillBuildersSeriesCollapsed();
   loadSocialFeedsCollapsed();
 
   const runCollapsedAttentionPulse = () => {
-    if (topCardCollapsed.value) {
-      snapshotAttentionPulse.value = true;
-      window.setTimeout(() => {
-        snapshotAttentionPulse.value = false;
-      }, 3200);
-    }
     if (socialFeedsCollapsed.value && dashboardSocialFeeds.value.length > 0) {
       socialFeedsAttentionPulse.value = true;
       window.setTimeout(() => {
@@ -4529,12 +4676,18 @@ onMounted(async () => {
         setTimeout(defer, 0);
       }
     } else if (landing === 'dashboard' || !allowed.has(landing)) {
-      // Default: My Account when onboarding complete, else first content card
+      // Default: Overview when available (post-onboarding agency), else My Account, else first content card
       if (onboardingCompletion.value >= 100 && isOnboardingComplete.value) {
-        activeTab.value = 'my';
-        previousContentTab.value = 'my';
-        selectedRailCardId.value = 'my';
-        myTab.value = 'account';
+        if (allowed.has('overview')) {
+          activeTab.value = 'overview';
+          previousContentTab.value = 'overview';
+          selectedRailCardId.value = 'overview';
+        } else {
+          activeTab.value = 'my';
+          previousContentTab.value = 'my';
+          selectedRailCardId.value = 'my';
+          myTab.value = 'account';
+        }
       }
     }
   }
@@ -4774,29 +4927,11 @@ h1 {
   align-items: flex-start;
   margin-bottom: 16px;
 }
-.top-snapshot-cell {
-  flex: 1 1 200px;
-  min-width: 0;
-}
-/* When snapshot collapsed: shrink cell to header only, let status/team slide over and go side-by-side */
-.top-snapshot-row.snapshot-collapsed .top-snapshot-cell {
-  flex: 0 0 auto;
-  min-width: 0;
-}
 .top-snapshot-status-team-stack {
   display: flex;
   flex-direction: column;
   gap: 12px;
   flex: 0 1 260px;
-  min-width: 0;
-}
-.top-snapshot-row.snapshot-collapsed .top-snapshot-status-team-stack {
-  flex: 1 1 auto;
-  flex-direction: row;
-  flex-wrap: wrap;
-}
-.top-snapshot-row.snapshot-collapsed .top-snapshot-status-team-stack .top-snapshot-wrap {
-  flex: 1 1 240px;
   min-width: 0;
 }
 .top-snapshot-row .top-snapshot-wrap {
@@ -4876,10 +5011,18 @@ h1 {
   margin-bottom: 16px;
 }
 
-/* My Schedule focus mode: maximize schedule space */
+/* My Schedule / Overview: maximize horizontal space */
 .container-wide {
   max-width: none;
   width: 100%;
+  padding-left: 16px;
+  padding-right: 16px;
+}
+@media (min-width: 1200px) {
+  .container-wide {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
 }
 .dashboard-shell.schedule-focus {
   grid-template-columns: 88px minmax(0, 1fr);
@@ -5354,6 +5497,26 @@ h1 {
   display: flex;
   align-items: stretch;
   gap: 8px;
+}
+.rail-card-row--nested {
+  margin-left: 10px;
+  padding-left: 8px;
+  border-left: 2px solid color-mix(in srgb, var(--primary, #0f766e) 35%, transparent);
+}
+.rail-card--nested {
+  min-height: 44px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.rail-card--nest .rail-card-cta {
+  font-size: 14px;
+  min-width: 1.2em;
+  text-align: center;
+}
+.dashboard-rail.rail-collapsed .rail-card-row--nested {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: none;
 }
 
 .dashboard-rail.rail-collapsed {
@@ -5875,6 +6038,15 @@ h1 {
 .card-content.card-content--account-hub {
   background: #f3f4f6;
   padding: 20px 24px 28px;
+  border: none;
+  box-shadow: none;
+  border-radius: 12px;
+}
+
+.card-content.card-content--overview,
+.my-panel.my-panel--overview {
+  background: #f3f4f6;
+  padding: 16px 18px 24px;
   border: none;
   box-shadow: none;
   border-radius: 12px;
@@ -6758,6 +6930,22 @@ h1 {
   margin-bottom: 30px;
   padding-bottom: 20px;
   border-bottom: 2px solid var(--border);
+}
+
+.dashboard-header-user--compact {
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  gap: 8px 12px;
+}
+
+.dashboard-header-user--compact .dashboard-header-user__titles h1 {
+  font-size: 1.25rem;
+  font-weight: 750;
+}
+
+.dashboard-header-user--compact .badge-tier {
+  font-size: 11px;
 }
 
 .dashboard-header-user__titles {

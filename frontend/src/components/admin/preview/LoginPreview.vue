@@ -72,11 +72,11 @@ const loginTheme = ref(null);
 const displayTitle = computed(() => {
   const agency = agencyStore.currentAgency;
   const agencyName = agency?.name || brandingStore.platformBranding?.organization_name || '';
-  const term = brandingStore.peopleOpsTerm || 'People Operations';
+  const term = (brandingStore.peopleOpsTerm || '').trim();
   if (!agencyName) {
-    return `${term} Platform`;
+    return term ? `${term} Platform` : 'Platform';
   }
-  return `${agencyName} ${term} Platform`;
+  return term ? `${agencyName} ${term} Platform` : `${agencyName} Platform`;
 });
 
 const agencyLogoUrl = computed(() => {

@@ -5,7 +5,7 @@ export const useSessionLockStore = defineStore('sessionLock', () => {
   const isLocked = ref(false);
   const lockConfig = ref(null);
 
-  // Inactivity warning state (shown 3 min before auto-logout)
+  // Inactivity warning state (shown 10 min before Session Ended / logout)
   const warningActive = ref(false);
   const warningSecondsLeft = ref(0);
   let _warningInterval = null;

@@ -852,8 +852,11 @@
         <img :src="sstcClubBannerImageUrl" alt="" class="sstc-club-banner-img" />
       </div>
       <SummitStatsContextBar :visible="showSummitStatsClubContextBar" />
-      <!-- Welcome tag (hangs under navbar); omitted on SSTC / club portals to avoid a dead band under the header -->
-      <div v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && !isSummitStatsChallengeChrome" class="welcome-hang-wrap">
+      <!-- Welcome tag (hangs under navbar); hide on My Dashboard — redundant with Overview greeting -->
+      <div
+        v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && !isSummitStatsChallengeChrome && !isMyDashboardRoute"
+        class="welcome-hang-wrap"
+      >
         <router-link
           class="welcome-hang-link"
           :to="myDashboardTo"
@@ -2400,13 +2403,12 @@ watch(() => route.path, () => {
 // Hidden on SSTC / club portals: the logo alone + context bar serves as identity there.
 const navTitleText = computed(() => {
   if (isSummitStatsChallengeChrome.value) return null;
-  const title = brandingStore.navigationTitle || (brandingStore.displayName + ' ' + (brandingStore.peopleOpsTerm || 'People Operations'));
-  // Don't show if it contains "PlotTwistCo" or if it's just the default term
-  if (!title || title.includes('PlotTwistCo') || title.trim() === 'People Operations') {
+  const term = (brandingStore.peopleOpsTerm || '').trim();
+  const orgName = brandingStore.displayName || brandingStore.platformBranding?.organization_name || '';
+  const title = brandingStore.navigationTitle || (term ? `${orgName} ${term}`.trim() : orgName.trim());
+  if (!title || title.includes('PlotTwistCo')) {
     return null;
   }
-  // Only show if there's a valid organization name (not empty)
-  const orgName = brandingStore.displayName || brandingStore.platformBranding?.organization_name || '';
   if (!orgName || orgName === 'PlotTwistCo') {
     return null;
   }
@@ -3626,6 +3628,12 @@ const myDashboardTo = computed(() => {
   return orgTo('/dashboard');
 });
 
+/** Personal My Dashboard surfaces — hide the Welcome hang tag here (redundant). */
+const isMyDashboardRoute = computed(() => {
+  const p = String(route.path || '');
+  return /(^|\/)(dashboard|mydashboard)(\/|$)/i.test(p);
+});
+
 /** "My Account" = personal account/security page; "My Dashboard" = club home. */
 const myAccountNavTo = computed(() => {
   if (isSscSstcTenant.value) {
@@ -3645,14 +3653,25 @@ const showOperationsDashboardLink = computed(() => {
 
 const operationsDashboardTo = computed(() => orgTo('/operations-dashboard'));
 
-// When already on the target route, router-link does nothing; handle click so the button still does something (e.g. scroll to top).
+// When already on My Dashboard (possibly a drill-in tab), force Overview / clear tab query.
 const onMyDashboardClick = (e) => {
   const target = myDashboardTo.value;
-  const current = route.fullPath || route.path || '/';
-  if (current === target) {
-    e.preventDefault();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+  const targetPath = typeof target === 'string' ? target : (target?.path || '/dashboard');
+  const curPath = String(route.path || '').replace(/\/$/, '') || '/';
+  const wantPath = String(targetPath || '').replace(/\/$/, '') || '/';
+  const onSameDashboard = curPath === wantPath || isMyDashboardRoute.value;
+
+  if (!onSameDashboard) return;
+
+  e.preventDefault();
+  const q = { ...(route.query || {}) };
+  const hadDrillIn = q.tab != null || q.my != null;
+  delete q.tab;
+  delete q.my;
+  if (hadDrillIn || route.fullPath !== wantPath) {
+    router.push({ path: wantPath, query: q }).catch(() => {});
   }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 };
 
 const handleLogout = async () => {

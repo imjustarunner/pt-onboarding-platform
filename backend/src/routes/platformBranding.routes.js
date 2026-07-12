@@ -31,7 +31,7 @@ router.put(
     body('backgroundColor').optional().matches(/^#[0-9A-Fa-f]{6}$/).withMessage('Invalid background color format'),
     body('errorColor').optional().matches(/^#[0-9A-Fa-f]{6}$/).withMessage('Invalid error color format'),
     body('warningColor').optional().matches(/^#[0-9A-Fa-f]{6}$/).withMessage('Invalid warning color format'),
-    body('peopleOpsTerm').optional().isLength({ max: 100 }).withMessage('People Operations Term must be 100 characters or less'),
+    body('peopleOpsTerm').optional({ nullable: true }).isLength({ max: 100 }).withMessage('Agency title suffix must be 100 characters or less'),
     body('privacyPolicyUrl').optional({ checkFalsy: true }).isURL().withMessage('Privacy policy URL must be a valid URL'),
     body('termsUrl').optional({ checkFalsy: true }).isURL().withMessage('Terms URL must be a valid URL'),
     body('platformHipaaUrl').optional({ checkFalsy: true }).isURL().withMessage('Platform HIPAA URL must be a valid URL'),

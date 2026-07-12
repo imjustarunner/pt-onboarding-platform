@@ -1,51 +1,72 @@
 <template>
-  <div class="agency-selector">
-    <div
-      v-if="agencies.length > 0 && !(roleNorm === 'school_staff' && agencies.length === 1)"
-      class="selector-group"
-    >
-      <label>Organization</label>
-      <select v-model.number="selectedAgencyId" @change="handleAgencyChange" class="selector">
-        <option v-for="agency in agencies" :key="agency.id" :value="agency.id">
-          {{ agency.name }}
-        </option>
-      </select>
-    </div>
-
-    <div v-if="!hidePortalCards && organizationPortalCards.length > 0" class="portal-cards-wrap">
-      <div class="portal-cards-header">Assigned portals</div>
-      <div class="portal-cards-grid">
-        <button
-          v-for="card in organizationPortalCards"
-          :key="card.id"
-          type="button"
-          class="portal-card"
-          :class="{ active: Number(selectedAgencyId) === Number(card.id) }"
-          @click="openOrganizationPortal(card.org)"
+  <div
+    class="agency-selector"
+    :class="{ 'agency-selector--dashboard': isDashboardRoute }"
+  >
+    <div class="agency-bar">
+      <div
+        v-if="agencies.length > 0 && !(roleNorm === 'school_staff' && agencies.length === 1)"
+        class="org-pick"
+      >
+        <label class="org-pick-label" for="agency-selector-org">Org</label>
+        <select
+          id="agency-selector-org"
+          v-model.number="selectedAgencyId"
+          class="org-pick-select"
+          @change="handleAgencyChange"
         >
-          <div class="portal-card-logo">
-            <img
-              v-if="card.logoUrl && !failedCardLogoIds.has(String(card.id))"
-              :src="card.logoUrl"
-              :alt="`${card.name} logo`"
-              class="portal-card-logo-img"
-              @error="onCardLogoError(card.id)"
-            />
-            <div v-else class="portal-card-logo-fallback" aria-hidden="true">
-              {{ card.initials }}
-            </div>
-          </div>
-          <div class="portal-card-body">
-            <div class="portal-card-name">{{ card.name }}</div>
-            <div class="portal-card-type">{{ card.typeLabel }}</div>
-          </div>
-          <div class="portal-card-cta">Open portal</div>
-        </button>
+          <option v-for="agency in agencies" :key="agency.id" :value="agency.id">
+            {{ agency.name }}
+          </option>
+        </select>
+      </div>
+
+      <div
+        v-if="!hidePortalCards"
+        class="portal-strip"
+        :class="{ 'portal-strip--empty': organizationPortalCards.length === 0 && !bookClubChipVisible }"
+        aria-label="Assigned portals"
+      >
+        <span class="portal-strip-label">Portals</span>
+        <div class="portal-chips" role="list">
+          <button
+            v-for="card in organizationPortalCards"
+            :key="card.id"
+            type="button"
+            class="portal-chip"
+            role="listitem"
+            :class="{ active: Number(selectedAgencyId) === Number(card.id) }"
+            :title="`${card.name} · ${card.typeLabel}`"
+            @click="openOrganizationPortal(card.org)"
+          >
+            <span class="portal-chip-logo">
+              <img
+                v-if="card.logoUrl && !failedCardLogoIds.has(String(card.id))"
+                :src="card.logoUrl"
+                alt=""
+                class="portal-chip-logo-img"
+                @error="onCardLogoError(card.id)"
+              />
+              <span v-else class="portal-chip-logo-fallback" aria-hidden="true">
+                {{ card.initials }}
+              </span>
+            </span>
+            <span class="portal-chip-text">
+              <span class="portal-chip-name">{{ card.name }}</span>
+              <span class="portal-chip-type">{{ card.typeLabel }}</span>
+            </span>
+          </button>
+          <BookClubPortalChip
+            v-if="!hidePortalCards"
+            role="listitem"
+            @visibility="onBookClubVisibility"
+          />
+        </div>
       </div>
     </div>
 
     <!-- SSTC clubs the user belongs to (any role). Always visible if they have any. -->
-    <MySstcClubsCard v-if="!hidePortalCards" />
+    <MySstcClubsCard v-if="!hidePortalCards" class="agency-sstc" />
   </div>
 </template>
 
@@ -56,6 +77,7 @@ import { useAuthStore } from '../store/auth';
 import { useRoute, useRouter } from 'vue-router';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import MySstcClubsCard from './sstc/MySstcClubsCard.vue';
+import BookClubPortalChip from './bookClub/BookClubPortalChip.vue';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -64,19 +86,29 @@ const route = useRoute();
 
 const selectedAgencyId = ref(agencyStore.currentAgency?.id || null);
 const failedCardLogoIds = ref(new Set());
+const bookClubChipVisible = ref(false);
+
+const onBookClubVisibility = (visible) => {
+  bookClubChipVisible.value = !!visible;
+};
 
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const hidePortalCards = computed(() => {
   const r = roleNorm.value;
   return r === 'admin' || r === 'support' || r === 'super_admin';
 });
+
+const isDashboardRoute = computed(() => {
+  const p = String(route.path || '');
+  return /(^|\/)(dashboard|mydashboard)(\/|$)/i.test(p);
+});
+
 const isPortalOrg = (a) => {
   const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
   return t === 'school' || t === 'program' || t === 'learning';
 };
 const isAgencyOrg = (a) => {
   const t = String(a?.organization_type || a?.organizationType || '').toLowerCase().trim();
-  // Agency = parent org that can have schools; exclude school/program/learning children.
   return !t || !['school', 'program', 'learning'].includes(t);
 };
 const toTypeLabel = (orgType) => {
@@ -123,7 +155,6 @@ const agencies = computed(() => {
   const list = Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [];
   if (roleNorm.value !== 'school_staff') return list;
   const portal = list.filter(isPortalOrg);
-  // Best-effort fallback for older payloads missing organization_type.
   return portal.length ? portal : list;
 });
 
@@ -144,18 +175,15 @@ const navigateToOrganization = (agency) => {
   if (!agency) return;
   agencyStore.setCurrentAgency(agency);
 
-  // Keep URL slug + branding in sync with the selected organization.
   const slug = getPortalSlug(agency);
   if (!slug) return;
 
-  // Switching into a non-agency portal should always land on its portal dashboard.
   const nextDashboard = `/${slug}/dashboard`;
   if (!isAgencyOrg(agency)) {
     router.push(nextDashboard);
     return;
   }
 
-  // For non-admin surfaces, default to dashboard as well.
   const onAdminSurface = String(route.path || '').includes('/admin/');
   const onTickets = String(route.path || '').includes('/tickets');
   if (!onAdminSurface && !onTickets) {
@@ -163,14 +191,12 @@ const navigateToOrganization = (agency) => {
     return;
   }
 
-  // Admin surfaces or /tickets: preserve current route when possible.
   if (route.params.organizationSlug) {
     const nextParams = { ...route.params, organizationSlug: slug };
     router.push({ name: route.name, params: nextParams, query: route.query });
     return;
   }
 
-  // On /tickets (no slug): stay on tickets, just update agency context.
   if (onTickets) {
     router.push({ path: '/tickets', query: route.query });
     return;
@@ -198,19 +224,14 @@ const onCardLogoError = (cardId) => {
 };
 
 onMounted(async () => {
-  // Fetch user's assigned agencies and set default
   await agencyStore.fetchUserAgencies();
 
-  // For super_admin, load all agencies (not just assigned)
   if (authStore.user?.role === 'super_admin') {
     await agencyStore.fetchAgencies();
   } else if (roleNorm.value !== 'school_staff' && authStore.user?.id && authStore.user?.type !== 'approved_employee') {
-    // Regular users/admins: load assigned agencies
     await agencyStore.fetchAgencies(authStore.user.id);
   }
-  
-  // For approved employees, agencies are already loaded from fetchUserAgencies
-  // Ensure current agency is set
+
   if (agencyStore.currentAgency) {
     selectedAgencyId.value = agencyStore.currentAgency.id;
   } else if (agencies.value.length > 0) {
@@ -230,163 +251,220 @@ watch(() => agencyStore.currentAgency, (newAgency) => {
 .agency-selector {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  align-items: stretch;
-  padding: 20px;
-  background: white;
-  border-radius: 12px;
-  box-shadow: var(--shadow);
-  margin-bottom: 24px;
-  border: 1px solid var(--border);
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
-.selector-group {
-  flex: 0 0 auto;
-  max-width: 300px;
+.agency-selector--dashboard {
+  margin-bottom: 6px;
 }
 
-.selector-group label {
-  display: block;
-  margin-bottom: 5px;
-  font-weight: 500;
-  color: #1e293b;
-  font-size: 14px;
-}
-
-.selector {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  font-size: 14px;
-  background: white;
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: border-color 0.2s;
-}
-
-.selector option {
-  color: var(--text-primary);
-  background: white;
-}
-
-.selector:focus {
-  outline: none;
-  border-color: #4f46e5;
-  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
-}
-
-.portal-cards-wrap {
+.agency-bar {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  align-items: center;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: #fff;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  min-width: 0;
 }
 
-.portal-cards-header {
+.agency-selector--dashboard .agency-bar {
+  padding: 4px 8px;
+  gap: 8px 10px;
+  border-radius: 8px;
+}
+
+.org-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.org-pick-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+  white-space: nowrap;
+}
+
+.org-pick-select {
+  min-width: 140px;
+  max-width: 220px;
+  padding: 6px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
   font-size: 13px;
   font-weight: 600;
-  color: #475569;
-  letter-spacing: 0.01em;
-}
-
-.portal-cards-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 12px;
-}
-
-.portal-card {
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  border-radius: 10px;
-  padding: 12px;
-  display: grid;
-  grid-template-columns: 40px 1fr auto;
-  gap: 10px;
-  align-items: center;
-  text-align: left;
+  background: #f9fafb;
+  color: var(--text-primary, #111827);
   cursor: pointer;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 
-.portal-card:hover {
+.org-pick-select:focus {
+  outline: none;
+  border-color: #166534;
+  box-shadow: 0 0 0 2px rgba(22, 101, 52, 0.15);
+  background: #fff;
+}
+
+.portal-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.portal-strip--empty {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  pointer-events: none;
+}
+
+.portal-strip-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+  flex-shrink: 0;
+}
+
+.portal-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0;
+  min-width: 0;
+  flex: 1;
+  scrollbar-width: thin;
+}
+
+.portal-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  max-width: 180px;
+  padding: 4px 10px 4px 4px;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.portal-chip:hover {
   border-color: #cbd5e1;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
-  transform: translateY(-1px);
-}
-
-.portal-card.active {
-  border-color: #4f46e5;
-  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
-}
-
-.portal-card-logo {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
   background: #f8fafc;
-  border: 1px solid #e2e8f0;
+}
+
+.portal-chip.active {
+  border-color: #166534;
+  background: #f0fdf4;
+  box-shadow: 0 0 0 1px rgba(22, 101, 52, 0.2);
+}
+
+.portal-chip-logo {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
+  flex-shrink: 0;
 }
 
-.portal-card-logo-img {
+.portal-chip-logo-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.portal-card-logo-fallback {
-  width: 100%;
-  height: 100%;
+.portal-chip-logo-fallback {
+  font-size: 9px;
+  font-weight: 800;
+  color: #374151;
+}
+
+.portal-chip-text {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 700;
-  color: #334155;
-  text-transform: uppercase;
-}
-
-.portal-card-body {
+  flex-direction: column;
   min-width: 0;
+  line-height: 1.15;
 }
 
-.portal-card-name {
-  font-weight: 600;
-  color: #0f172a;
-  font-size: 14px;
-  line-height: 1.25;
+.portal-chip-name {
+  font-size: 12px;
+  font-weight: 650;
+  color: #111827;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 120px;
 }
 
-.portal-card-type {
-  margin-top: 2px;
-  color: #64748b;
-  font-size: 12px;
+.portal-chip-type {
+  font-size: 9px;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
+  color: #6b7280;
 }
 
-.portal-card-cta {
-  color: #4f46e5;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
+.agency-sstc {
+  margin: 0;
 }
 
-@media (max-width: 768px) {
-  .selector-group {
+.agency-selector--dashboard :deep(.my-sstc-card) {
+  padding: 10px 12px;
+  margin-bottom: 0;
+}
+
+@media (max-width: 640px) {
+  .agency-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .org-pick {
+    width: 100%;
+  }
+
+  .org-pick-select {
+    flex: 1;
     max-width: none;
   }
 
-  .portal-cards-grid {
-    grid-template-columns: 1fr;
+  .portal-strip {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .portal-chip {
+    max-width: none;
+  }
+
+  .portal-chip-name {
+    max-width: none;
   }
 }
 </style>
-

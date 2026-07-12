@@ -891,15 +891,15 @@ const displayTitle = computed(() => {
     if (isSchoolPortalOrg.value) {
       return `${loginTheme.value.agency.name} — School Portal`;
     }
-    const term = brandingStore.peopleOpsTerm || 'People Operations';
-    return `${loginTheme.value.agency.name} ${term}`;
+    const term = (brandingStore.peopleOpsTerm || '').trim();
+    return term ? `${loginTheme.value.agency.name} ${term}` : loginTheme.value.agency.name;
   }
   const agencyName = brandingStore.portalAgency?.name || brandingStore.platformBranding?.organization_name || '';
-  const term = brandingStore.peopleOpsTerm || 'People Operations';
+  const term = (brandingStore.peopleOpsTerm || '').trim();
   if (!agencyName) {
-    return `${term}`;
+    return term;
   }
-  return `${agencyName} ${term}`;
+  return term ? `${agencyName} ${term}` : agencyName;
 });
 
 const loginParentBranding = computed(() => loginTheme.value?.agency?.parentBranding || null);
@@ -907,8 +907,8 @@ const loginParentBranding = computed(() => loginTheme.value?.agency?.parentBrand
 /** Dual-brand header: school sites use “School Portal”, not “Staff …”. */
 const portalLoginHeadline = computed(() => {
   if (isSchoolPortalOrg.value) return 'School Portal';
-  const term = String(brandingStore.peopleOpsTerm || 'People Operations').trim();
-  return `Staff ${term}`;
+  const term = String(brandingStore.peopleOpsTerm || '').trim();
+  return term ? `Staff ${term}` : 'Staff Portal';
 });
 
 const portalLoginSubtitle = computed(() => {
