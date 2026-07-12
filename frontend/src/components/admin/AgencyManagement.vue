@@ -533,16 +533,22 @@
             </div>
 
             <div class="form-section-divider" style="margin-top: 18px; margin-bottom: 12px; padding-top: 18px; border-top: 1px solid var(--border);">
-              <h4 style="margin: 0; font-size: 16px;">Session Timeout & Lock</h4>
+              <h4 style="margin: 0; font-size: 16px;">Session Timeout (Timedown)</h4>
               <p class="section-description" style="margin-top: 6px;">
-                Inactivity logout (when session lock is off) and presence heartbeat. Session lock max caps how long users with lock enabled can set their timeout.
+                Controls the branded inactivity flow: idle wait → Timedown countdown video → Session Ended.
+                These values are the source of truth for when the timeout overlay appears and how long it runs.
               </p>
             </div>
             <div class="form-grid">
               <div class="form-group">
-                <label>Inactivity logout timeout (minutes)</label>
-                <input v-model.number="agencyForm.sessionSettings.inactivityTimeoutMinutes" type="number" min="1" max="240" />
-                <small>When session lock is disabled: logout after this many minutes of inactivity.</small>
+                <label>Idle before Timedown (seconds)</label>
+                <input v-model.number="agencyForm.sessionSettings.idleBeforeTimedownSeconds" type="number" min="30" max="3600" />
+                <small>No activity for this long before the Timedown overlay appears. Default 180 (3 min).</small>
+              </div>
+              <div class="form-group">
+                <label>Timedown duration (seconds)</label>
+                <input v-model.number="agencyForm.sessionSettings.timedownSeconds" type="number" min="30" max="3600" />
+                <small>How long the countdown runs before Session Ended / logout. Default 600 (10 min).</small>
               </div>
               <div class="form-group">
                 <label>Heartbeat interval (seconds)</label>
@@ -551,7 +557,7 @@
               <div class="form-group">
                 <label>Session lock max (minutes)</label>
                 <input v-model.number="agencyForm.sessionSettings.maxInactivityTimeoutMinutes" type="number" min="1" max="240" placeholder="Use platform max" />
-                <small>Cap for users with session lock enabled. Leave blank to use platform max. Cannot exceed platform setting.</small>
+                <small>Legacy PIN lock preference cap only. Leave blank to use platform max.</small>
               </div>
             </div>
 
@@ -6539,7 +6545,9 @@ const defaultAgencyForm = () => ({
     days: 14
   },
   sessionSettings: {
-    inactivityTimeoutMinutes: 8,
+    inactivityTimeoutMinutes: 3,
+    idleBeforeTimedownSeconds: 180,
+    timedownSeconds: 600,
     heartbeatIntervalSeconds: 30,
     maxInactivityTimeoutMinutes: null
   },
@@ -7769,9 +7777,17 @@ const editAgency = async (agency) => {
     : 14;
 
   const sessionSettingsRaw = safeJsonObject(agency.session_settings_json, {});
-  const sessionInactivityMinutes = Number.isFinite(Number(sessionSettingsRaw.inactivityTimeoutMinutes))
-    ? Number(sessionSettingsRaw.inactivityTimeoutMinutes)
-    : 8;
+  const sessionIdleSeconds = Number.isFinite(Number(sessionSettingsRaw.idleBeforeTimedownSeconds))
+    ? Number(sessionSettingsRaw.idleBeforeTimedownSeconds)
+    : (Number.isFinite(Number(sessionSettingsRaw.inactivityTimeoutMinutes))
+      ? Number(sessionSettingsRaw.inactivityTimeoutMinutes) * 60
+      : 180);
+  const sessionTimedownSeconds = Number.isFinite(Number(sessionSettingsRaw.timedownSeconds))
+    ? Number(sessionSettingsRaw.timedownSeconds)
+    : (Number.isFinite(Number(sessionSettingsRaw.timedownMinutes))
+      ? Number(sessionSettingsRaw.timedownMinutes) * 60
+      : 600);
+  const sessionInactivityMinutes = Math.max(1, Math.round(sessionIdleSeconds / 60));
   const sessionHeartbeatSeconds = Number.isFinite(Number(sessionSettingsRaw.heartbeatIntervalSeconds))
     ? Number(sessionSettingsRaw.heartbeatIntervalSeconds)
     : 30;
@@ -7968,6 +7984,8 @@ const editAgency = async (agency) => {
     },
     sessionSettings: {
       inactivityTimeoutMinutes: sessionInactivityMinutes,
+      idleBeforeTimedownSeconds: sessionIdleSeconds,
+      timedownSeconds: sessionTimedownSeconds,
       heartbeatIntervalSeconds: sessionHeartbeatSeconds,
       maxInactivityTimeoutMinutes: sessionLockMaxMinutes != null && Number.isFinite(Number(sessionLockMaxMinutes)) ? Number(sessionLockMaxMinutes) : null
     },
@@ -8691,23 +8709,35 @@ const saveAgency = async () => {
     const sessionSettingsRaw = agencyForm.value.sessionSettings || null;
     const sessionSettings =
       sessionSettingsRaw && typeof sessionSettingsRaw === 'object'
-        ? {
-            inactivityTimeoutMinutes: clampNumber(
-              sessionSettingsRaw.inactivityTimeoutMinutes,
-              1,
-              240,
-              8
-            ),
-            heartbeatIntervalSeconds: clampNumber(
-              sessionSettingsRaw.heartbeatIntervalSeconds,
-              10,
-              300,
-              30
-            ),
-            maxInactivityTimeoutMinutes: (sessionSettingsRaw.maxInactivityTimeoutMinutes != null && sessionSettingsRaw.maxInactivityTimeoutMinutes !== '')
-              ? clampNumber(sessionSettingsRaw.maxInactivityTimeoutMinutes, 1, 240, 30)
-              : null
-          }
+        ? (() => {
+            const idleBeforeTimedownSeconds = clampNumber(
+              sessionSettingsRaw.idleBeforeTimedownSeconds,
+              30,
+              3600,
+              180
+            );
+            const timedownSeconds = clampNumber(
+              sessionSettingsRaw.timedownSeconds,
+              30,
+              3600,
+              600
+            );
+            return {
+              idleBeforeTimedownSeconds,
+              timedownSeconds,
+              // Keep legacy minutes field in sync for older readers
+              inactivityTimeoutMinutes: Math.max(1, Math.round(idleBeforeTimedownSeconds / 60)),
+              heartbeatIntervalSeconds: clampNumber(
+                sessionSettingsRaw.heartbeatIntervalSeconds,
+                10,
+                300,
+                30
+              ),
+              maxInactivityTimeoutMinutes: (sessionSettingsRaw.maxInactivityTimeoutMinutes != null && sessionSettingsRaw.maxInactivityTimeoutMinutes !== '')
+                ? clampNumber(sessionSettingsRaw.maxInactivityTimeoutMinutes, 1, 240, 30)
+                : null
+            };
+          })()
         : null;
     
     // Build custom parameters object

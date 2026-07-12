@@ -1350,3 +1350,94 @@ export const exportAgencyActivityLogCsv = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Read-only platform session ledger for Audit Center.
+ * GET /activity-log/agency/:agencyId/sessions
+ */
+export const getAgencyPlatformSessions = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    if (!Number.isFinite(agencyId)) {
+      return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    }
+    const access = await assertAgencyAuditAccess(req, agencyId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const UserPlatformSession = (await import('../models/UserPlatformSession.model.js')).default;
+    const limit = clamp(req.query.limit, 1, 200, 50);
+    const offset = clamp(req.query.offset, 0, 100000, 0);
+    const userId = req.query.userId ? parseInt(req.query.userId, 10) : null;
+    const minSuspicion = req.query.minSuspicion != null ? Number(req.query.minSuspicion) : null;
+
+    const { rows, total } = await UserPlatformSession.listForAgency({
+      agencyId,
+      userId: Number.isFinite(userId) ? userId : null,
+      startDate: req.query.startDate || null,
+      endDate: req.query.endDate || null,
+      limit,
+      offset,
+      minSuspicion: Number.isFinite(minSuspicion) ? minSuspicion : null
+    });
+
+    const mapped = (rows || []).map((r) => {
+      let flags = r.suspicion_flags;
+      if (typeof flags === 'string') {
+        try {
+          flags = JSON.parse(flags);
+        } catch {
+          flags = [];
+        }
+      }
+      return {
+        id: r.id,
+        sessionId: r.session_id,
+        userId: r.user_id,
+        userEmail: r.user_email,
+        userUsername: r.user_username,
+        userName: String(r.user_name || '').trim(),
+        agencyId: r.agency_id,
+        startedAt: r.started_at,
+        endedAt: r.ended_at,
+        endReason: r.end_reason,
+        activeSeconds: Number(r.active_seconds || 0),
+        inactiveSeconds: Number(r.inactive_seconds || 0),
+        billableActiveSeconds: Number(r.billable_active_seconds || 0),
+        timedownCount: Number(r.timedown_count || 0),
+        meaningfulEventCount: Number(r.meaningful_event_count || 0),
+        passiveEventCount: Number(r.passive_event_count || 0),
+        suspicionScore: Number(r.suspicion_score || 0),
+        suspicionFlags: Array.isArray(flags) ? flags : [],
+        phase: r.phase,
+        ipAddress: r.ip_address,
+        // Wall clock convenience
+        wallSeconds: r.ended_at
+          ? Math.max(0, Math.floor((new Date(r.ended_at) - new Date(r.started_at)) / 1000))
+          : Math.max(0, Math.floor((Date.now() - new Date(r.started_at).getTime()) / 1000))
+      };
+    });
+
+    res.json({
+      sessions: mapped,
+      total,
+      limit,
+      offset,
+      readOnly: true,
+      sourceOfTruth: 'user_platform_sessions'
+    });
+  } catch (error) {
+    if (isMissingDbArtifactError(error)) {
+      return res.json({
+        sessions: [],
+        total: 0,
+        limit: 50,
+        offset: 0,
+        readOnly: true,
+        sourceOfTruth: 'user_platform_sessions',
+        notice: 'Run migration 902_user_platform_sessions.sql to enable session tracking.'
+      });
+    }
+    next(error);
+  }
+};
+

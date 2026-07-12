@@ -421,12 +421,41 @@ class UserActivityLog {
         }
       }
 
+      // Prefer platform session ledger (source of truth) over legacy logout duration sums
+      let totalSessionTimeSeconds = parseInt(sessionTime[0]?.total_seconds || 0);
+      let totalBillableActiveSeconds = 0;
+      let totalInactiveSeconds = 0;
+      try {
+        const [plat] = await pool.execute(
+          `SELECT
+             COALESCE(SUM(active_seconds), 0) AS active_seconds,
+             COALESCE(SUM(inactive_seconds), 0) AS inactive_seconds,
+             COALESCE(SUM(billable_active_seconds), 0) AS billable_seconds
+           FROM user_platform_sessions
+           WHERE user_id = ?`,
+          [userId]
+        );
+        const active = parseInt(plat[0]?.active_seconds || 0, 10);
+        const inactive = parseInt(plat[0]?.inactive_seconds || 0, 10);
+        const billable = parseInt(plat[0]?.billable_seconds || 0, 10);
+        if (active + inactive > 0) {
+          totalSessionTimeSeconds = active + inactive;
+          totalBillableActiveSeconds = billable;
+          totalInactiveSeconds = inactive;
+        }
+      } catch (err) {
+        if (err.code !== 'ER_NO_SUCH_TABLE') throw err;
+      }
+
       return {
         totalLogins: parseInt(loginCount[0]?.count || 0),
         firstLogin: firstLogin[0]?.created_at || null,
         lastLogin: lastLogin[0]?.created_at || null,
         totalModuleTimeSeconds: parseInt(moduleTime[0]?.total_seconds || 0),
-        totalSessionTimeSeconds: parseInt(sessionTime[0]?.total_seconds || 0)
+        totalSessionTimeSeconds,
+        totalBillableActiveSeconds,
+        totalInactiveSeconds,
+        sessionSourceOfTruth: 'user_platform_sessions'
       };
     } catch (error) {
       console.error('Error in getActivitySummary:', error);

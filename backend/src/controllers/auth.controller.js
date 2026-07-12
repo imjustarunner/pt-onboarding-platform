@@ -781,6 +781,20 @@ export const login = async (req, res, next) => {
       }
     }, req);
 
+    // Start platform session ledger (source of truth for active/inactive/billable time)
+    try {
+      const UserPlatformSession = (await import('../models/UserPlatformSession.model.js')).default;
+      await UserPlatformSession.startSession({
+        sessionId,
+        userId: user.id,
+        agencyId,
+        ipAddress,
+        userAgent
+      });
+    } catch (err) {
+      console.error('Failed to start platform session:', err);
+    }
+
     // Create first login notification if this is the first login
     if (isFirstLogin) {
       setTimeout(async () => {
@@ -1373,16 +1387,40 @@ export const logout = async (req, res, next) => {
     const ipAddress = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
     const userAgent = req.headers['user-agent'] || 'unknown';
     
-    // Calculate session duration if we have a session ID
+    // Finalize platform session ledger first (source of truth), then log logout event
     let sessionDuration = null;
+    let platformSessionMeta = null;
     if (sessionId) {
       try {
-        sessionDuration = await UserActivityLog.calculateSessionDuration(sessionId);
+        const UserPlatformSession = (await import('../models/UserPlatformSession.model.js')).default;
+        const ended = await UserPlatformSession.endSession({
+          sessionId,
+          reason: reason === 'timeout' ? 'timeout' : 'logout',
+          finalPhase: reason === 'timeout' ? 'timedown' : 'active'
+        });
+        if (ended) {
+          sessionDuration =
+            Number(ended.active_seconds || 0) + Number(ended.inactive_seconds || 0);
+          platformSessionMeta = {
+            activeSeconds: Number(ended.active_seconds || 0),
+            inactiveSeconds: Number(ended.inactive_seconds || 0),
+            billableActiveSeconds: Number(ended.billable_active_seconds || 0),
+            timedownCount: Number(ended.timedown_count || 0),
+            suspicionScore: Number(ended.suspicion_score || 0)
+          };
+        }
       } catch (err) {
-        console.error('Failed to calculate session duration:', err);
+        console.error('Failed to end platform session:', err);
+      }
+      if (sessionDuration == null) {
+        try {
+          sessionDuration = await UserActivityLog.calculateSessionDuration(sessionId);
+        } catch (err) {
+          console.error('Failed to calculate session duration:', err);
+        }
       }
     }
-    
+
     // Log logout activity using centralized service
     if (userId || sessionId) {
       ActivityLogService.logActivity({
@@ -1390,7 +1428,8 @@ export const logout = async (req, res, next) => {
         userId: userId || null,
         durationSeconds: sessionDuration,
         metadata: {
-          reason
+          reason,
+          ...(platformSessionMeta || {})
         }
       }, req);
     }
@@ -1479,6 +1518,8 @@ export const getSessionLockConfig = async (req, res, next) => {
     }
 
     let agencyMax = platformMax;
+    let idleBeforeTimedownSeconds = 180;
+    let timedownSeconds = 600;
     if (agencyId) {
       try {
         const [aRows] = await pool.execute(
@@ -1492,8 +1533,18 @@ export const getSessionLockConfig = async (req, res, next) => {
           const n = parseInt(am, 10);
           if (!isNaN(n) && n >= 1) agencyMax = Math.min(platformMax, n);
         }
+        const idleRaw =
+          parsed.idleBeforeTimedownSeconds ??
+          (parsed.inactivityTimeoutMinutes != null ? Number(parsed.inactivityTimeoutMinutes) * 60 : null);
+        const tdRaw = parsed.timedownSeconds ?? (parsed.timedownMinutes != null ? Number(parsed.timedownMinutes) * 60 : null);
+        if (idleRaw != null && Number.isFinite(Number(idleRaw))) {
+          idleBeforeTimedownSeconds = Math.min(3600, Math.max(30, Math.floor(Number(idleRaw))));
+        }
+        if (tdRaw != null && Number.isFinite(Number(tdRaw))) {
+          timedownSeconds = Math.min(3600, Math.max(30, Math.floor(Number(tdRaw))));
+        }
       } catch {
-        /* use platform max */
+        /* use platform max / defaults */
       }
     }
 
@@ -1510,7 +1561,71 @@ export const getSessionLockConfig = async (req, res, next) => {
       inactivityTimeoutMinutes: userTimeout,
       hasPin,
       effectiveTimeoutMinutes: userTimeout,
-      useLockScreen: sessionLockEnabled && hasPin
+      useLockScreen: sessionLockEnabled && hasPin,
+      idleBeforeTimedownSeconds,
+      timedownSeconds
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Heartbeat for platform session ledger (active / timedown / billable accrual).
+ * POST /auth/platform-session/heartbeat
+ * Body: { sessionId?: string, meaningful?: boolean, passive?: boolean, phase?: 'active'|'timedown', agencyId?: number }
+ */
+export const platformSessionHeartbeat = async (req, res, next) => {
+  try {
+    let jwtSessionId = null;
+    try {
+      const token = req.headers.authorization?.substring(7) || req.cookies?.authToken;
+      if (token) {
+        const decoded = jwt.verify(token, config.jwt.secret);
+        jwtSessionId = decoded.sessionId || null;
+      }
+    } catch {
+      /* ignore */
+    }
+    const sid = String(jwtSessionId || req.body?.sessionId || '').trim();
+    if (!sid) {
+      return res.status(400).json({ error: { message: 'sessionId required' } });
+    }
+
+    const UserPlatformSession = (await import('../models/UserPlatformSession.model.js')).default;
+    let row = await UserPlatformSession.findBySessionId(sid);
+    if (!row) {
+      const agencies = await User.getAgencies(req.user.id);
+      row = await UserPlatformSession.startSession({
+        sessionId: sid,
+        userId: req.user.id,
+        agencyId: agencies?.[0]?.id || null,
+        ipAddress: req.ip || req.headers['x-forwarded-for'] || null,
+        userAgent: req.headers['user-agent'] || null
+      });
+    }
+
+    const phase = String(req.body?.phase || '').toLowerCase() === 'timedown' ? 'timedown' : 'active';
+    const updated = await UserPlatformSession.heartbeat({
+      sessionId: sid,
+      meaningful: !!req.body?.meaningful,
+      passive: !!req.body?.passive,
+      phase,
+      agencyId: req.body?.agencyId || null
+    });
+
+    res.json({
+      ok: true,
+      session: updated
+        ? {
+            sessionId: updated.session_id,
+            phase: updated.phase,
+            activeSeconds: Number(updated.active_seconds || 0),
+            inactiveSeconds: Number(updated.inactive_seconds || 0),
+            billableActiveSeconds: Number(updated.billable_active_seconds || 0),
+            suspicionScore: Number(updated.suspicion_score || 0)
+          }
+        : null
     });
   } catch (e) {
     next(e);

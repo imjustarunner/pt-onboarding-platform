@@ -13,6 +13,7 @@ import {
   logActivity,
   verifySessionPin,
   getSessionLockConfig,
+  platformSessionHeartbeat,
   passwordlessTokenLogin,
   passwordlessTokenLoginFromBody,
   verifyPendingIdentity,
@@ -166,6 +167,7 @@ router.post('/demo/switch-view', authenticate, [
   body('agencyId').isInt({ min: 1 }).withMessage('agencyId must be a positive integer')
 ], demoSwitchView);
 router.get('/session-lock-config', authenticate, getSessionLockConfig);
+router.post('/platform-session/heartbeat', authenticate, platformSessionHeartbeat);
 router.post('/verify-session-pin', authenticate, [
   body('pin').isString().trim().matches(/^\d{4}$/).withMessage('PIN must be exactly 4 digits')
 ], verifySessionPin);

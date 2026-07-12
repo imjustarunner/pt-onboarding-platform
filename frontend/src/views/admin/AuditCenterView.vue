@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h1>Audit Center</h1>
-        <p class="subtitle">Agency-scoped immutable audit feed with export support.</p>
+        <p class="subtitle">Agency-scoped immutable audit feed with export support. Session times are read-only.</p>
       </div>
     </div>
 
@@ -81,16 +81,29 @@
     <div class="view-toggle">
       <button
         :class="['btn', 'btn-sm', viewMode === 'table' ? 'btn-primary' : 'btn-secondary']"
-        @click="viewMode = 'table'"
+        @click="setViewMode('table')"
       >
-        Table
+        Activity table
       </button>
       <button
         :class="['btn', 'btn-sm', viewMode === 'grouped' ? 'btn-primary' : 'btn-secondary']"
-        @click="viewMode = 'grouped'"
+        @click="setViewMode('grouped')"
       >
         Grouped by category
       </button>
+      <button
+        :class="['btn', 'btn-sm', viewMode === 'sessions' ? 'btn-primary' : 'btn-secondary']"
+        @click="setViewMode('sessions')"
+      >
+        Platform sessions
+      </button>
+    </div>
+
+    <div v-if="viewMode === 'sessions'" class="sessions-banner">
+      <strong>Source of truth for login session time.</strong>
+      Active = visible &amp; not in Timedown. Inactive = Timedown countdown time.
+      Billable active = meaningful activity only (clicks/keys/scroll — not mousemove-only keep-alive).
+      Rows are never editable.
     </div>
 
     <div class="table-wrap" v-if="viewMode === 'table'">
@@ -185,6 +198,52 @@
       </template>
     </div>
 
+    <div class="table-wrap" v-else-if="viewMode === 'sessions'">
+      <div v-if="error" class="error-banner">{{ error }}</div>
+      <div v-if="sessionsNotice" class="hint-banner">{{ sessionsNotice }}</div>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Login</th>
+            <th>End</th>
+            <th>User</th>
+            <th>Email</th>
+            <th>Active</th>
+            <th>Inactive (Timedown)</th>
+            <th>Billable active</th>
+            <th>Timedowns</th>
+            <th>End reason</th>
+            <th>Suspicion</th>
+            <th>Session</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="loading">
+            <td colspan="11" class="empty">Loading…</td>
+          </tr>
+          <tr v-else-if="sessionRows.length === 0">
+            <td colspan="11" class="empty">No platform sessions found for current filters.</td>
+          </tr>
+          <tr v-for="s in sessionRows" :key="s.id">
+            <td>{{ formatDate(s.startedAt) }}</td>
+            <td>{{ s.endedAt ? formatDate(s.endedAt) : 'In progress' }}</td>
+            <td>{{ s.userName || `User #${s.userId}` }}</td>
+            <td>{{ s.userEmail || '-' }}</td>
+            <td>{{ formatDuration(s.activeSeconds) }}</td>
+            <td>{{ formatDuration(s.inactiveSeconds) }}</td>
+            <td>{{ formatDuration(s.billableActiveSeconds) }}</td>
+            <td>{{ s.timedownCount }}</td>
+            <td>{{ s.endReason || (s.phase === 'ended' ? 'ended' : s.phase) }}</td>
+            <td>
+              <span :class="['badge', suspicionClass(s.suspicionScore)]">{{ Math.round(s.suspicionScore || 0) }}</span>
+              <small v-if="(s.suspicionFlags || []).length" class="flags">{{ (s.suspicionFlags || []).join(', ') }}</small>
+            </td>
+            <td>{{ shortenSession(s.sessionId) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
     <div class="footer-bar">
       <div class="summary">
         <span>Total: {{ pagination.total }}</span>
@@ -223,6 +282,8 @@ const isAgencyOrg = (org) => {
 const actionOptions = getActionOptions();
 
 const rows = ref([]);
+const sessionRows = ref([]);
+const sessionsNotice = ref('');
 const loading = ref(false);
 const exporting = ref(false);
 const error = ref('');
@@ -341,25 +402,52 @@ const reload = async () => {
   if (!agencyId.value) {
     error.value = 'No agency context found. Select an agency and retry.';
     rows.value = [];
+    sessionRows.value = [];
     pagination.total = 0;
     return;
   }
   loading.value = true;
   error.value = '';
+  sessionsNotice.value = '';
   try {
-    const resp = await api.get(`/activity-log/agency/${agencyId.value}`, { params: currentParams() });
-    rows.value = Array.isArray(resp.data?.items) ? resp.data.items : [];
-    const pg = resp.data?.pagination || {};
-    pagination.total = Number(pg.total || 0);
-    pagination.hasNextPage = !!pg.hasNextPage;
+    if (viewMode.value === 'sessions') {
+      const resp = await api.get(`/activity-log/agency/${agencyId.value}/sessions`, {
+        params: {
+          userId: filters.userId || undefined,
+          startDate: filters.startDate || undefined,
+          endDate: filters.endDate || undefined,
+          limit: pagination.limit,
+          offset: pagination.offset
+        }
+      });
+      sessionRows.value = Array.isArray(resp.data?.sessions) ? resp.data.sessions : [];
+      pagination.total = Number(resp.data?.total || 0);
+      pagination.hasNextPage = pagination.offset + sessionRows.value.length < pagination.total;
+      if (resp.data?.notice) sessionsNotice.value = String(resp.data.notice);
+      rows.value = [];
+    } else {
+      const resp = await api.get(`/activity-log/agency/${agencyId.value}`, { params: currentParams() });
+      rows.value = Array.isArray(resp.data?.items) ? resp.data.items : [];
+      const pg = resp.data?.pagination || {};
+      pagination.total = Number(pg.total || 0);
+      pagination.hasNextPage = !!pg.hasNextPage;
+      sessionRows.value = [];
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load audit activity.';
     rows.value = [];
+    sessionRows.value = [];
     pagination.total = 0;
     pagination.hasNextPage = false;
   } finally {
     loading.value = false;
   }
+};
+
+const setViewMode = async (mode) => {
+  viewMode.value = mode;
+  pagination.offset = 0;
+  await reload();
 };
 
 const handleAgencyChange = async () => {
@@ -399,6 +487,10 @@ const prevPage = async () => {
 
 const exportCsv = async () => {
   if (!agencyId.value) return;
+  if (viewMode.value === 'sessions') {
+    error.value = 'CSV export for platform sessions is not available yet — use the read-only table view.';
+    return;
+  }
   exporting.value = true;
   error.value = '';
   try {
@@ -425,6 +517,23 @@ const exportCsv = async () => {
 const formatDate = (value) => {
   if (!value) return '-';
   return new Date(value).toLocaleString();
+};
+
+const formatDuration = (seconds) => {
+  const s = Math.max(0, Math.floor(Number(seconds) || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}h ${m}m ${sec}s`;
+  if (m > 0) return `${m}m ${sec}s`;
+  return `${sec}s`;
+};
+
+const suspicionClass = (score) => {
+  const n = Number(score) || 0;
+  if (n >= 50) return 'badge-danger';
+  if (n >= 25) return 'badge-warn';
+  return 'badge-ok';
 };
 
 const formatUser = (row) => {
@@ -520,7 +629,26 @@ onMounted(async () => {
 .summary { display: flex; gap: 1rem; color: var(--text-secondary); }
 .pager { display: flex; gap: 0.5rem; }
 .error-banner { color: #a33; padding: 0.75rem; }
-.view-toggle { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+.view-toggle { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+.sessions-banner {
+  margin-bottom: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-alt, #f8fafc);
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+.hint-banner {
+  padding: 0.65rem 0.85rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+.badge-ok { border-color: #86efac; color: #166534; }
+.badge-warn { border-color: #fcd34d; color: #92400e; }
+.badge-danger { border-color: #fca5a5; color: #991b1b; }
+.flags { display: block; margin-top: 2px; color: var(--text-secondary); font-size: 0.75rem; }
 .grouped-list-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
 .audit-category-section { margin-bottom: 1.5rem; }
 .audit-category-section:last-child { margin-bottom: 0; }

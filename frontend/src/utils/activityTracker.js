@@ -1,13 +1,16 @@
 /**
- * Activity tracker: inactivity → branded Timedown (10 min) → Session Ended.
+ * Activity tracker: inactivity → branded Timedown → Session Ended + platform session ledger.
  *
  * Flow:
- *  1. DOM events (mouse, keyboard, scroll, touch) reset the inactivity clock.
- *  2. After 3 minutes idle, the branded Timedown overlay appears (looping MP4 + countdown).
- *  3. User can click "I'm still here" to dismiss; incidental mouse moves do NOT dismiss.
- *  4. When the 10-min countdown expires → logout → Session Ended (not login) → CTA to log back in.
+ *  1. DOM events reset the idle clock. Meaningful events (click/key/scroll/touch) vs passive (mousemove).
+ *  2. After configurable idle (default 3 min), Timedown overlay appears (configurable, default 10 min).
+ *  3. "I'm still here" dismisses; incidental mouse moves do NOT.
+ *  4. Countdown expiry → logout → Session Ended (tenant login CTA).
  *
- * Presence heartbeat updates server-side presence but does NOT reset the inactivity clock.
+ * Anti-gamification:
+ *  - Server accrues billable time only on meaningful heartbeats (not mousemove-only).
+ *  - Hidden tabs do not send meaningful ticks.
+ *  - Server caps each tick and clamps totals to wall clock.
  */
 import { unref } from 'vue';
 import { useAuthStore } from '../store/auth';
@@ -22,32 +25,75 @@ import {
   markSessionEndedRedirecting
 } from './sessionTimeoutBranding';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
 const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30;
 const MIN_HEARTBEAT_INTERVAL_SECONDS = 10;
 const MAX_HEARTBEAT_INTERVAL_SECONDS = 300;
 
 const LAST_ACTIVITY_KEY = 'presence:lastActivityAt';
 
-// ─── Module state ─────────────────────────────────────────────────────────────
-
-let warningTimer = null; // fires after idle → shows Timedown
+let warningTimer = null;
 let heartbeatTimer = null;
+let sessionLedgerTimer = null;
 let lastActivityTime = Date.now();
 let isTracking = false;
 let timeoutInFlight = false;
 
-const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
+/** Runtime timeouts from agency settings (fall back to branding defaults). */
+let idleBeforeTimedownMs = IDLE_BEFORE_TIMEDOWN_MS;
+let timedownSeconds = TIMEDOWN_SECONDS;
 
-// ─── Internal helpers ─────────────────────────────────────────────────────────
+/** Pending flags flushed on next platform-session heartbeat. */
+let pendingMeaningful = false;
+let pendingPassive = false;
 
-/** Always 3 minutes idle before Timedown (product requirement). */
+const MEANINGFUL_EVENTS = ['mousedown', 'keypress', 'keydown', 'scroll', 'touchstart', 'click'];
+const PASSIVE_EVENTS = ['mousemove'];
+
 function getWarningDelayMs() {
-  return IDLE_BEFORE_TIMEDOWN_MS;
+  return idleBeforeTimedownMs;
 }
 
-/** Logout → Session Ended (never bare login). */
+function getTimedownSeconds() {
+  return timedownSeconds;
+}
+
+function currentSessionPhase() {
+  try {
+    return useSessionLockStore().warningActive ? 'timedown' : 'active';
+  } catch {
+    return 'active';
+  }
+}
+
+async function sendPlatformSessionHeartbeat({ forceMeaningful = false } = {}) {
+  const authStore = useAuthStore();
+  if (!authStore.isAuthenticated) return;
+  const sessionId = localStorage.getItem('sessionId');
+  if (!sessionId) return;
+
+  const meaningful = forceMeaningful || pendingMeaningful;
+  const passive = !meaningful && pendingPassive;
+  pendingMeaningful = false;
+  pendingPassive = false;
+
+  const agencyStore = useAgencyStore();
+  try {
+    await api.post(
+      '/auth/platform-session/heartbeat',
+      {
+        sessionId,
+        meaningful,
+        passive,
+        phase: currentSessionPhase(),
+        agencyId: agencyStore.currentAgency?.id || null
+      },
+      { skipGlobalLoading: true, skipAuthRedirect: true }
+    );
+  } catch {
+    /* best-effort */
+  }
+}
+
 async function handleTimeout() {
   if (timeoutInFlight) return;
   timeoutInFlight = true;
@@ -55,8 +101,6 @@ async function handleTimeout() {
   const authStore = useAuthStore();
   const agencyStore = useAgencyStore();
 
-  // Stop heartbeats FIRST so a 401 cannot race to /login before Session Ended.
-  // Keep Timedown visible until the hard redirect lands on Session Ended.
   stopActivityTracking({ dismissWarning: false });
 
   if (!authStore.isAuthenticated) {
@@ -82,8 +126,8 @@ async function handleTimeout() {
             sessionId,
             metadata: {
               reason: 'inactivity_timeout',
-              idleMinutes: IDLE_BEFORE_TIMEDOWN_MS / 60000,
-              warningSeconds: TIMEDOWN_SECONDS
+              idleSeconds: Math.round(idleBeforeTimedownMs / 1000),
+              warningSeconds: getTimedownSeconds()
             }
           },
           { skipAuthRedirect: true }
@@ -110,7 +154,7 @@ async function handleTimeout() {
       });
       rememberSessionEndedContext({ loginUrl, tenantKey });
 
-      const endedPath = `/session-ended?tenant=${encodeURIComponent(tenantKey)}`;
+      const endedPath = `/session-ended?tenant=${encodeURIComponent(tenantKey)}&login=${encodeURIComponent(loginUrl)}`;
       await authStore.logout('timeout', { redirectTo: endedPath });
     } catch (err) {
       console.error('[activityTracker] failed to reach Session Ended:', err);
@@ -132,12 +176,11 @@ function resetTimer() {
   }
 
   const sessionLockStore = useSessionLockStore();
-
-  // Do not clear an active Timedown from incidental mouse movement.
   if (sessionLockStore.warningActive) return;
   if (sessionLockStore.isLocked) return;
-  if (!isTracking || document.visibilityState !== 'visible') return;
+  if (!isTracking) return;
 
+  // Timer runs whether or not the tab is visible; switching desktops is still idle time.
   const delay = getWarningDelayMs();
 
   warningTimer = setTimeout(() => {
@@ -146,18 +189,41 @@ function resetTimer() {
     const auth = useAuthStore();
     if (!auth.isAuthenticated) return;
 
-    // Always show branded Timedown (10 min) → Session Ended. Do not skip to PIN lock.
-    store.showWarning(TIMEDOWN_SECONDS, () => {
+    // Mark timedown phase for session ledger
+    pendingPassive = false;
+    sendPlatformSessionHeartbeat();
+
+    store.showWarning(getTimedownSeconds(), () => {
       handleTimeout();
     });
+
+    // Flush a timedown-phase heartbeat immediately
+    setTimeout(() => {
+      sendPlatformSessionHeartbeat();
+    }, 0);
   }, delay);
 }
 
-function onActivity() {
+function onMeaningfulActivity() {
   const sessionLockStore = useSessionLockStore();
   if (sessionLockStore.isLocked) return;
-  // While Timedown is up, ignore passive activity so the 10-min spin-down can finish
   if (sessionLockStore.warningActive) return;
+  pendingMeaningful = true;
+  lastActivityTime = Date.now();
+  try {
+    localStorage.setItem(LAST_ACTIVITY_KEY, String(lastActivityTime));
+  } catch {
+    /* ignore */
+  }
+  resetTimer();
+}
+
+function onPassiveActivity() {
+  const sessionLockStore = useSessionLockStore();
+  if (sessionLockStore.isLocked) return;
+  if (sessionLockStore.warningActive) return;
+  pendingPassive = true;
+  // Passive mouse movement still resets idle (user is present) but is not billable
   lastActivityTime = Date.now();
   try {
     localStorage.setItem(LAST_ACTIVITY_KEY, String(lastActivityTime));
@@ -180,18 +246,43 @@ function onStorageActivity(event) {
 function onVisibilityChange() {
   if (!isTracking) return;
   if (document.visibilityState === 'visible') {
+    // Tab is visible again — check whether idle time already elapsed while hidden.
     const store = useSessionLockStore();
     if (store.warningActive) return;
-    onActivity();
-    sendPresenceHeartbeat();
-  } else {
-    // Tab hidden — pause idle countdown. Do not dismiss an already-visible Timedown.
-    if (useSessionLockStore().warningActive) return;
-    if (warningTimer) {
-      clearTimeout(warningTimer);
-      warningTimer = null;
+
+    const idleSinceMs = Date.now() - lastActivityTime;
+    if (idleSinceMs >= getWarningDelayMs()) {
+      // Already idle long enough; fire the Timedown immediately.
+      if (warningTimer) {
+        clearTimeout(warningTimer);
+        warningTimer = null;
+      }
+      const auth = useAuthStore();
+      if (auth.isAuthenticated) {
+        store.showWarning(getTimedownSeconds(), () => {
+          handleTimeout();
+        });
+      }
+    } else {
+      // Resume the countdown for the remaining idle window.
+      if (warningTimer) {
+        clearTimeout(warningTimer);
+        warningTimer = null;
+      }
+      const remaining = getWarningDelayMs() - idleSinceMs;
+      warningTimer = setTimeout(() => {
+        warningTimer = null;
+        const s = useSessionLockStore();
+        const auth = useAuthStore();
+        if (!auth.isAuthenticated) return;
+        s.showWarning(getTimedownSeconds(), () => handleTimeout());
+      }, remaining);
     }
+
+    sendPresenceHeartbeat();
+    sendPlatformSessionHeartbeat({ forceMeaningful: false });
   }
+  // Hidden: do NOT cancel the timer. Switching desktops / losing focus is still inactivity.
 }
 
 async function sendPresenceHeartbeat() {
@@ -199,8 +290,7 @@ async function sendPresenceHeartbeat() {
   const agencyStore = useAgencyStore();
   if (!authStore.isAuthenticated) return;
   const roleNorm = String(authStore.user?.role || '').toLowerCase();
-  if (!roleNorm) return;
-  if (roleNorm === 'school_staff') return;
+  if (!roleNorm || roleNorm === 'school_staff') return;
 
   const agencyId = agencyStore.currentAgency?.id || null;
   try {
@@ -213,11 +303,24 @@ async function sendPresenceHeartbeat() {
       { skipGlobalLoading: true, skipAuthRedirect: true }
     );
   } catch {
-    /* ignore — presence is best-effort */
+    /* ignore */
   }
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
+function applyTimeoutConfig(config) {
+  const idleSec = Number(config?.idleBeforeTimedownSeconds);
+  const tdSec = Number(config?.timedownSeconds);
+  if (Number.isFinite(idleSec) && idleSec >= 30) {
+    idleBeforeTimedownMs = Math.min(3600, Math.floor(idleSec)) * 1000;
+  } else {
+    idleBeforeTimedownMs = IDLE_BEFORE_TIMEDOWN_MS;
+  }
+  if (Number.isFinite(tdSec) && tdSec >= 30) {
+    timedownSeconds = Math.min(3600, Math.floor(tdSec));
+  } else {
+    timedownSeconds = TIMEDOWN_SECONDS;
+  }
+}
 
 export async function startActivityTracking({ force = false } = {}) {
   if (isTracking && !force) return;
@@ -228,31 +331,36 @@ export async function startActivityTracking({ force = false } = {}) {
   const storedActivity = Number(localStorage.getItem(LAST_ACTIVITY_KEY));
   lastActivityTime = Number.isFinite(storedActivity) ? storedActivity : Date.now();
 
-  // Still fetch session config (PIN lock for manual lock) but idle always uses 3 min.
   try {
     const res = await api.get('/auth/session-lock-config', { skipGlobalLoading: true, skipAuthRedirect: true });
     useSessionLockStore().setLockConfig(res.data || null);
+    applyTimeoutConfig(res.data || {});
   } catch {
     useSessionLockStore().setLockConfig(null);
+    applyTimeoutConfig({});
   }
 
-  activityEvents.forEach((event) => document.addEventListener(event, onActivity, true));
+  MEANINGFUL_EVENTS.forEach((event) => document.addEventListener(event, onMeaningfulActivity, true));
+  PASSIVE_EVENTS.forEach((event) => document.addEventListener(event, onPassiveActivity, true));
   document.addEventListener('visibilitychange', onVisibilityChange);
   window.addEventListener('storage', onStorageActivity);
 
   resetTimer();
   sendPresenceHeartbeat();
+  sendPlatformSessionHeartbeat({ forceMeaningful: true });
   heartbeatTimer = setInterval(sendPresenceHeartbeat, getHeartbeatIntervalMs());
+  sessionLedgerTimer = setInterval(() => sendPlatformSessionHeartbeat(), 20000);
 }
 
 export function stopActivityTracking({ dismissWarning: shouldDismiss = true } = {}) {
-  if (!isTracking && !warningTimer && !heartbeatTimer) {
+  if (!isTracking && !warningTimer && !heartbeatTimer && !sessionLedgerTimer) {
     if (shouldDismiss) useSessionLockStore().dismissWarning();
     return;
   }
   isTracking = false;
 
-  activityEvents.forEach((event) => document.removeEventListener(event, onActivity, true));
+  MEANINGFUL_EVENTS.forEach((event) => document.removeEventListener(event, onMeaningfulActivity, true));
+  PASSIVE_EVENTS.forEach((event) => document.removeEventListener(event, onPassiveActivity, true));
   document.removeEventListener('visibilitychange', onVisibilityChange);
   window.removeEventListener('storage', onStorageActivity);
 
@@ -264,6 +372,10 @@ export function stopActivityTracking({ dismissWarning: shouldDismiss = true } = 
     clearInterval(heartbeatTimer);
     heartbeatTimer = null;
   }
+  if (sessionLedgerTimer) {
+    clearInterval(sessionLedgerTimer);
+    sessionLedgerTimer = null;
+  }
 
   if (shouldDismiss) useSessionLockStore().dismissWarning();
 }
@@ -272,7 +384,6 @@ export function getLastActivityTime() {
   return lastActivityTime;
 }
 
-/** Called when user confirms they are still active (e.g. "Stay Logged In"). */
 export function resetActivityTimer() {
   lastActivityTime = Date.now();
   try {
@@ -283,18 +394,22 @@ export function resetActivityTimer() {
   resetTimer();
 }
 
-/** Refetch session lock config (e.g. after user changes preferences). */
+/** Called when user dismisses Timedown — counts as meaningful engagement. */
+export function reportTimedownDismissed() {
+  pendingMeaningful = true;
+  sendPlatformSessionHeartbeat({ forceMeaningful: true });
+}
+
 export async function refetchSessionLockConfig() {
   try {
     const res = await api.get('/auth/session-lock-config', { skipGlobalLoading: true, skipAuthRedirect: true });
     useSessionLockStore().setLockConfig(res.data || null);
+    applyTimeoutConfig(res.data || {});
   } catch {
     useSessionLockStore().setLockConfig(null);
   }
   resetTimer();
 }
-
-// ─── Private helpers ──────────────────────────────────────────────────────────
 
 function getSessionSettings() {
   try {

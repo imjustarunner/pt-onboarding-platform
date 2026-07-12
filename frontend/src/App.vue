@@ -3708,7 +3708,7 @@ const onSessionLockLogout = async () => {
   });
   rememberSessionEndedContext({ loginUrl, tenantKey });
   await authStore.logout('timeout', {
-    redirectTo: `/session-ended?tenant=${encodeURIComponent(tenantKey)}`
+    redirectTo: `/session-ended?tenant=${encodeURIComponent(tenantKey)}&login=${encodeURIComponent(loginUrl)}`
   });
 };
 

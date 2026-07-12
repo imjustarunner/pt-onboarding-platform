@@ -10,6 +10,7 @@ const AUDIT_ACTION_REGISTRY = {
   login: { label: 'User logged in', category: 'Authentication' },
   logout: { label: 'User logged out', category: 'Authentication' },
   timeout: { label: 'Session timed out', category: 'Authentication' },
+  session_end: { label: 'Platform session ended', category: 'Authentication' },
   password_change: { label: 'Password changed', category: 'Authentication' },
   password_reset_link_sent: { label: 'Password reset link sent', category: 'Authentication' },
   grant_payroll_access: { label: 'Payroll access granted', category: 'Staff' },

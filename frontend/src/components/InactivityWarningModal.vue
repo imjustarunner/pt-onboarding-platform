@@ -30,10 +30,7 @@
             alt=""
           />
 
-          <!--
-            Art already includes "Timing out in" + clock icon.
-            We only overlay the live MM:SS countdown immediately after that label.
-          -->
+          <!-- Live MM:SS sits immediately after the baked-in "Timing out in" (top-left on all tenants) -->
           <div class="iw-timer" aria-live="polite" aria-atomic="true">
             <span class="iw-timer-value">{{ clock }}</span>
           </div>
@@ -55,7 +52,7 @@
 <script setup>
 import { computed, ref, watch, nextTick } from 'vue';
 import { useSessionLockStore } from '../store/sessionLock.js';
-import { resetActivityTimer } from '../utils/activityTracker.js';
+import { resetActivityTimer, reportTimedownDismissed } from '../utils/activityTracker.js';
 import { useAgencyStore } from '../store/agency.js';
 import {
   resolveSessionTimeoutTenantKey,
@@ -91,6 +88,7 @@ function onVideoError() {
 
 function stayLoggedIn() {
   sessionLockStore.dismissWarning();
+  reportTimedownDismissed();
   resetActivityTimer();
 }
 
@@ -137,11 +135,11 @@ watch(
   object-position: center;
 }
 
-/* Sit immediately after the baked-in "Timing out in" label (bottom-left of art). */
+/* All tenants: clock + "Timing out in" sit in the upper-left of the timedown art */
 .iw-timer {
   position: absolute;
-  left: clamp(11.5rem, 22vw, 18rem);
-  bottom: clamp(1.75rem, 7.5vh, 4.25rem);
+  top: clamp(1.15rem, 3.2vh, 2.4rem);
+  left: clamp(10.25rem, 17.5vw, 15.5rem);
   display: flex;
   align-items: center;
   pointer-events: none;
@@ -151,7 +149,7 @@ watch(
 .iw-timer-value {
   color: #fff;
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  font-size: clamp(1.2rem, 2.4vw, 1.7rem);
+  font-size: clamp(1.15rem, 2.2vw, 1.55rem);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.06em;
@@ -202,8 +200,8 @@ watch(
 
 @media (max-width: 640px) {
   .iw-timer {
-    left: clamp(9.5rem, 42vw, 14rem);
-    bottom: clamp(1.25rem, 5vh, 2rem);
+    top: clamp(0.85rem, 2.5vh, 1.5rem);
+    left: clamp(8.75rem, 46vw, 13rem);
   }
   .iw-stay {
     top: auto;

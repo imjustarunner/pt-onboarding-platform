@@ -426,6 +426,7 @@
                   :disabled="loading || verifying"
                   @input="onUsernameInput"
                   @blur="maybeVerify"
+                  @keydown.enter.prevent="handleSubmit"
                 />
               </div>
 
@@ -454,6 +455,7 @@
                     autocorrect="off"
                     spellcheck="false"
                     :disabled="loading"
+                    @keydown.enter.prevent="handleSubmit"
                   />
                   <button
                     type="button"
