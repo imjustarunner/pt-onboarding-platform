@@ -8,8 +8,45 @@
 
 export const SESSION_ENDED_STORAGE = {
   loginUrl: 'pt.sessionEnded.loginUrl',
-  tenant: 'pt.sessionEnded.tenant'
+  tenant: 'pt.sessionEnded.tenant',
+  /** Set while navigating to Session Ended so 401 handlers don't steal redirect to /login. */
+  redirecting: 'pt.sessionEnded.redirecting'
 };
+
+/** Idle period before the branded Timedown overlay appears. */
+export const IDLE_BEFORE_TIMEDOWN_MS = 3 * 60 * 1000; // 3 minutes
+
+/** Length of the Timedown countdown before Session Ended. */
+export const TIMEDOWN_SECONDS = 600; // 10 minutes
+
+export function markSessionEndedRedirecting() {
+  try {
+    sessionStorage.setItem(SESSION_ENDED_STORAGE.redirecting, '1');
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearSessionEndedRedirecting() {
+  try {
+    sessionStorage.removeItem(SESSION_ENDED_STORAGE.redirecting);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function isSessionEndedRedirecting() {
+  try {
+    return sessionStorage.getItem(SESSION_ENDED_STORAGE.redirecting) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function isSessionEndedPath(pathname = '') {
+  const p = String(pathname || '');
+  return p === '/session-ended' || p.endsWith('/session-ended') || p.includes('/session-ended');
+}
 
 const TENANT_KEYS = ['PlotTwistCo', 'ITSCO', 'NLU', 'Platform'];
 
@@ -94,6 +131,7 @@ export function clearSessionEndedContext() {
   try {
     sessionStorage.removeItem(SESSION_ENDED_STORAGE.loginUrl);
     sessionStorage.removeItem(SESSION_ENDED_STORAGE.tenant);
+    sessionStorage.removeItem(SESSION_ENDED_STORAGE.redirecting);
   } catch {
     /* ignore */
   }

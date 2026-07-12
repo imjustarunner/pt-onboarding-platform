@@ -1501,7 +1501,7 @@
         @unlock="onSessionUnlock"
         @logout="onSessionLockLogout"
       />
-      <InactivityWarningModal v-if="isAuthenticated" />
+      <InactivityWarningModal v-if="isAuthenticated || sessionLockStore.warningActive" />
       <LoginSplashModal
         v-if="loginSplashVisible && loginSplashSeasons.length"
         :seasons="loginSplashSeasons"
@@ -3690,9 +3690,26 @@ const onSessionLockLogout = async () => {
   sessionLockStore.unlock();
   stopActivityTracking();
   mobileMenuOpen.value = false;
-  const { getLoginUrlForRedirect } = await import('./utils/loginRedirect');
-  const redirectTo = getLoginUrlForRedirect(unref(authStore.user), null, { timeout: true });
-  await authStore.logout('timeout', { redirectTo });
+  const { getLoginUrlForRedirect, getCurrentPortalSlugFromHostCache, getCurrentPortalSlugFromPath } =
+    await import('./utils/loginRedirect');
+  const {
+    resolveSessionTimeoutTenantKey,
+    rememberSessionEndedContext,
+    markSessionEndedRedirecting
+  } = await import('./utils/sessionTimeoutBranding');
+  markSessionEndedRedirecting();
+  const loginUrl = getLoginUrlForRedirect(unref(authStore.user), null, { timeout: true });
+  const agency = agencyStore.currentAgency || {};
+  const tenantKey = resolveSessionTimeoutTenantKey({
+    slug: agency.slug || agency.portal_url || agency.portalUrl,
+    portalUrl: agency.portal_url || agency.portalUrl,
+    agencyName: agency.name,
+    hostSlug: getCurrentPortalSlugFromHostCache() || getCurrentPortalSlugFromPath() || ''
+  });
+  rememberSessionEndedContext({ loginUrl, tenantKey });
+  await authStore.logout('timeout', {
+    redirectTo: `/session-ended?tenant=${encodeURIComponent(tenantKey)}`
+  });
 };
 
 // ---- Buildings pending availability badge (admin/staff/CPA) ----

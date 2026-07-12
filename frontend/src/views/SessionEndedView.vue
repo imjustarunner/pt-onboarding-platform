@@ -4,15 +4,15 @@
       class="se-stage"
       :style="{ backgroundImage: `url(${imageUrl})` }"
     >
-      <!-- Hotspot over the designed CTA; visible focus ring for a11y -->
+      <!-- Hotspot over the designed "Click here to log back in" CTA -->
       <button
         type="button"
         class="se-hotspot"
-        :aria-label="'Click here to log back in'"
+        aria-label="Click here to log back in"
         @click="goLogin"
       />
 
-      <!-- Fallback CTA if image layout differs on narrow screens -->
+      <!-- Always-visible fallback so login is reachable if hotspot misses -->
       <button type="button" class="se-fallback-btn" @click="goLogin">
         <span class="se-fallback-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
@@ -27,11 +27,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { computed, onMounted, onUnmounted } from 'vue';
+import { useRoute } from 'vue-router';
 import {
   readSessionEndedContext,
   clearSessionEndedContext,
+  clearSessionEndedRedirecting,
   normalizeSessionTimeoutTenantKey,
   getSessionEndedImageUrl,
   resolveSessionTimeoutTenantKey
@@ -39,8 +40,6 @@ import {
 import { getCurrentPortalSlugFromHostCache, getCurrentPortalSlugFromPath } from '../utils/loginRedirect.js';
 
 const route = useRoute();
-const router = useRouter();
-
 const stored = readSessionEndedContext();
 
 const tenantKey = computed(() => {
@@ -68,19 +67,33 @@ const loginUrl = computed(() => {
 function goLogin() {
   const target = loginUrl.value || '/login';
   clearSessionEndedContext();
-  router.replace(target).catch(() => {
-    window.location.href = target;
-  });
+  // Hard navigation so we leave Session Ended fully and land on tenant login.
+  window.location.assign(target);
+}
+
+function blockBack(e) {
+  // Keep user on Session Ended until they choose to log back in.
+  e.preventDefault();
+  history.pushState(null, '', window.location.href);
 }
 
 onMounted(() => {
-  // Ensure we never leave a stale auth shell on this public page
+  clearSessionEndedRedirecting();
   document.title = 'Session timed out';
+  history.pushState(null, '', window.location.href);
+  window.addEventListener('popstate', blockBack);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('popstate', blockBack);
 });
 </script>
 
 <style scoped>
 .se-page {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
   min-height: 100vh;
   min-height: 100dvh;
   background: #000;
@@ -88,6 +101,8 @@ onMounted(() => {
 
 .se-stage {
   position: relative;
+  width: 100%;
+  height: 100%;
   min-height: 100vh;
   min-height: 100dvh;
   background-color: #0a0a12;
@@ -96,13 +111,13 @@ onMounted(() => {
   background-repeat: no-repeat;
 }
 
-/* Transparent clickable region over the designed pill button (left column). */
+/* Align with the designed green-bordered CTA on SessionEnded art (left column). */
 .se-hotspot {
   position: absolute;
-  left: clamp(4%, 6vw, 9%);
-  top: clamp(52%, 58%, 64%);
-  width: min(420px, 46vw);
-  height: clamp(48px, 7vh, 64px);
+  left: clamp(4%, 5.5vw, 8%);
+  top: clamp(48%, 54%, 58%);
+  width: min(380px, 42vw);
+  height: clamp(52px, 7.5vh, 68px);
   border: 2px solid transparent;
   border-radius: 14px;
   background: transparent;
@@ -114,10 +129,9 @@ onMounted(() => {
   outline-offset: 3px;
 }
 
-/* Always-available fallback so login is reachable if hotspot misses */
 .se-fallback-btn {
   position: absolute;
-  left: clamp(4%, 6vw, 9%);
+  left: clamp(4%, 5.5vw, 8%);
   bottom: clamp(18px, 4vh, 40px);
   z-index: 3;
   display: inline-flex;
@@ -125,8 +139,8 @@ onMounted(() => {
   gap: 10px;
   padding: 12px 20px;
   border-radius: 12px;
-  border: 1.5px solid rgba(255, 255, 255, 0.55);
-  background: rgba(0, 0, 0, 0.45);
+  border: 1.5px solid rgba(134, 239, 172, 0.65);
+  background: rgba(0, 0, 0, 0.5);
   color: #fff;
   font-size: 0.95rem;
   font-weight: 700;
@@ -134,7 +148,7 @@ onMounted(() => {
   backdrop-filter: blur(6px);
 }
 .se-fallback-btn:hover {
-  background: rgba(0, 0, 0, 0.65);
+  background: rgba(0, 0, 0, 0.7);
 }
 .se-fallback-icon {
   display: grid;
@@ -146,7 +160,7 @@ onMounted(() => {
     width: min(92vw, 420px);
     left: 4%;
     top: auto;
-    bottom: 22%;
+    bottom: 24%;
   }
 }
 </style>

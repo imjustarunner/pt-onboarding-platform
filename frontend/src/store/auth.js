@@ -302,15 +302,18 @@ export const useAuthStore = defineStore('auth', () => {
       clearStoredAgencies(); // Clear stored agencies on logout
       
       // Prefer SPA navigation; fallback to hard redirect if router is unavailable.
+      // Session Ended must be a hard navigation so a racing 401 cannot send the user to /login.
       try {
-        if (options.useRouter === false) {
-          window.location.href = loginUrl;
+        const isSessionEndedTarget =
+          typeof loginUrl === 'string' && String(loginUrl).includes('/session-ended');
+        if (options.useRouter === false || isSessionEndedTarget) {
+          window.location.assign(loginUrl);
           return;
         }
         const { default: router } = await import('../router');
         await router.replace(loginUrl);
       } catch {
-        window.location.href = loginUrl;
+        window.location.assign(loginUrl || '/login');
       }
     } catch (err) {
       console.error('Error during logout:', err);

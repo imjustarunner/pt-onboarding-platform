@@ -155,6 +155,14 @@ api.interceptors.response.use(
     const isInitialSetup = window.location.pathname.includes('/initial-setup');
     const justLoggedIn = sessionStorage.getItem('justLoggedIn') === 'true';
     const skipAuthRedirect = !!error?.config?.skipAuthRedirect;
+    // Inactivity timeout → Session Ended must win over a bare /login hard redirect
+    let isSessionEndedFlow = path.includes('/session-ended');
+    try {
+      const { isSessionEndedRedirecting, isSessionEndedPath } = await import('../utils/sessionTimeoutBranding');
+      isSessionEndedFlow = isSessionEndedFlow || isSessionEndedRedirecting() || isSessionEndedPath(path);
+    } catch {
+      /* ignore */
+    }
     const reqUrl = String(error?.config?.url || '');
     const isPublicApi =
       reqUrl.includes('/public/') ||
@@ -176,6 +184,7 @@ api.interceptors.response.use(
       !isLoginPage &&
       !isPasswordlessLogin &&
       !isInitialSetup &&
+      !isSessionEndedFlow &&
       !skipAuthRedirect &&
       !isPublicApi &&
       !isPublicPath &&

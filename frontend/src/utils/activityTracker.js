@@ -1,37 +1,28 @@
 /**
- * Activity tracker: inactivity timeout with a pre-logout warning phase, plus presence heartbeat.
+ * Activity tracker: inactivity → branded Timedown (10 min) → Session Ended.
  *
  * Flow:
  *  1. DOM events (mouse, keyboard, scroll, touch) reset the inactivity clock.
- *  2. After the configured idle period, the branded Timedown warning fires (10 min countdown).
- *  3. The user can click "I'm still here" to dismiss; incidental mouse moves do NOT dismiss.
- *  4. When the countdown expires → logout → Session Ended screen → tenant login.
+ *  2. After 3 minutes idle, the branded Timedown overlay appears (looping MP4 + countdown).
+ *  3. User can click "I'm still here" to dismiss; incidental mouse moves do NOT dismiss.
+ *  4. When the 10-min countdown expires → logout → Session Ended (not login) → CTA to log back in.
  *
- * SSTC note: affiliation-type tenants get SSTC_TIMEOUT_MINUTES (30 min) idle regardless of
- * server config, because members often leave dashboards open while training.
- *
- * The presence heartbeat updates server-side presence (chat online/idle/offline) but
- * intentionally does NOT reset the inactivity clock — network activity ≠ user activity.
+ * Presence heartbeat updates server-side presence but does NOT reset the inactivity clock.
  */
 import { unref } from 'vue';
 import { useAuthStore } from '../store/auth';
 import { useSessionLockStore } from '../store/sessionLock';
 import api from '../services/api';
 import { useAgencyStore } from '../store/agency';
+import {
+  IDLE_BEFORE_TIMEDOWN_MS,
+  TIMEDOWN_SECONDS,
+  resolveSessionTimeoutTenantKey,
+  rememberSessionEndedContext,
+  markSessionEndedRedirecting
+} from './sessionTimeoutBranding';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-/** Timeout for SSTC (affiliation) tenants regardless of server config. */
-const SSTC_TIMEOUT_MINUTES = 30;
-
-/** How long the branded Timedown countdown runs before Session Ended. */
-const WARNING_SECONDS = 600; // 10 minutes
-
-/** Fallback for non-SSTC tenants when server sends no config. */
-const DEFAULT_INACTIVITY_TIMEOUT_MINUTES = 30;
-
-const MIN_INACTIVITY_TIMEOUT_MINUTES = 1;
-const MAX_INACTIVITY_TIMEOUT_MINUTES = 240;
 
 const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30;
 const MIN_HEARTBEAT_INTERVAL_SECONDS = 10;
@@ -41,68 +32,39 @@ const LAST_ACTIVITY_KEY = 'presence:lastActivityAt';
 
 // ─── Module state ─────────────────────────────────────────────────────────────
 
-let warningTimer = null;     // fires after idle period → shows Timedown warning
+let warningTimer = null; // fires after idle → shows Timedown
 let heartbeatTimer = null;
 let lastActivityTime = Date.now();
 let isTracking = false;
+let timeoutInFlight = false;
 
-// Events that count as real user activity
 const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
-/** True when the current agency is an SSTC affiliation club. */
-function isSSTC() {
-  try {
-    const agencyStore = useAgencyStore();
-    const orgType = String(
-      agencyStore.currentAgency?.organization_type ||
-      agencyStore.currentAgency?.organizationType ||
-      ''
-    ).toLowerCase();
-    return orgType === 'affiliation';
-  } catch {
-    return false;
-  }
-}
-
-/** Effective idle period in milliseconds before Timedown appears. */
-function getInactivityTimeoutMs() {
-  if (isSSTC()) return SSTC_TIMEOUT_MINUTES * 60 * 1000;
-
-  const sessionLockStore = useSessionLockStore();
-  const config = sessionLockStore.lockConfig;
-  if (config?.effectiveTimeoutMinutes != null) {
-    return clampNumber(config.effectiveTimeoutMinutes, MIN_INACTIVITY_TIMEOUT_MINUTES, MAX_INACTIVITY_TIMEOUT_MINUTES, DEFAULT_INACTIVITY_TIMEOUT_MINUTES) * 60 * 1000;
-  }
-  const settings = getSessionSettings();
-  const minutes = clampNumber(
-    settings.inactivityTimeoutMinutes,
-    MIN_INACTIVITY_TIMEOUT_MINUTES,
-    MAX_INACTIVITY_TIMEOUT_MINUTES,
-    DEFAULT_INACTIVITY_TIMEOUT_MINUTES
-  );
-  return minutes * 60 * 1000;
-}
-
-/** Idle fully, then show the 10-minute Timedown (do not subtract warning from idle). */
+/** Always 3 minutes idle before Timedown (product requirement). */
 function getWarningDelayMs() {
-  return getInactivityTimeoutMs();
+  return IDLE_BEFORE_TIMEDOWN_MS;
 }
 
-/** Actually perform the logout after the warning expires. */
+/** Logout → Session Ended (never bare login). */
 async function handleTimeout() {
+  if (timeoutInFlight) return;
+  timeoutInFlight = true;
+
   const authStore = useAuthStore();
-  const sessionLockStore = useSessionLockStore();
   const agencyStore = useAgencyStore();
 
-  if (!authStore.isAuthenticated) return;
+  // Stop heartbeats FIRST so a 401 cannot race to /login before Session Ended.
+  // Keep Timedown visible until the hard redirect lands on Session Ended.
+  stopActivityTracking({ dismissWarning: false });
 
-  // Lock screen path (PIN-based tenants) — skip the warning modal flow entirely
-  if (sessionLockStore.useLockScreen) {
-    sessionLockStore.lock();
+  if (!authStore.isAuthenticated) {
+    timeoutInFlight = false;
     return;
   }
+
+  markSessionEndedRedirecting();
 
   try {
     const sessionId = localStorage.getItem('sessionId');
@@ -113,12 +75,19 @@ async function handleTimeout() {
         if (err?.response?.status !== 401) console.error('[activityTracker] logout call failed:', err);
       }
       try {
-        const timeoutMinutes = Math.round(getInactivityTimeoutMs() / 60000);
-        await api.post('/auth/activity-log', {
-          actionType: 'timeout',
-          sessionId,
-          metadata: { reason: 'inactivity_timeout', timeoutMinutes, warningSeconds: WARNING_SECONDS }
-        }, { skipAuthRedirect: true });
+        await api.post(
+          '/auth/activity-log',
+          {
+            actionType: 'timeout',
+            sessionId,
+            metadata: {
+              reason: 'inactivity_timeout',
+              idleMinutes: IDLE_BEFORE_TIMEDOWN_MS / 60000,
+              warningSeconds: TIMEDOWN_SECONDS
+            }
+          },
+          { skipAuthRedirect: true }
+        );
       } catch {
         /* ignore */
       }
@@ -126,33 +95,36 @@ async function handleTimeout() {
   } catch (err) {
     console.error('[activityTracker] error during timeout handling:', err);
   } finally {
-    const { getLoginUrlForRedirect, getCurrentPortalSlugFromHostCache, getCurrentPortalSlugFromPath } =
-      await import('../utils/loginRedirect');
-    const {
-      resolveSessionTimeoutTenantKey,
-      rememberSessionEndedContext
-    } = await import('../utils/sessionTimeoutBranding');
+    try {
+      const { getLoginUrlForRedirect, getCurrentPortalSlugFromHostCache, getCurrentPortalSlugFromPath } =
+        await import('../utils/loginRedirect');
 
-    const user = unref(authStore.user);
-    const loginUrl = getLoginUrlForRedirect(user, null, { timeout: true });
-    const agency = agencyStore.currentAgency || {};
-    const tenantKey = resolveSessionTimeoutTenantKey({
-      slug: agency.slug || agency.portal_url || agency.portalUrl,
-      portalUrl: agency.portal_url || agency.portalUrl,
-      agencyName: agency.name,
-      hostSlug: getCurrentPortalSlugFromHostCache() || getCurrentPortalSlugFromPath() || ''
-    });
-    rememberSessionEndedContext({ loginUrl, tenantKey });
+      const user = unref(authStore.user);
+      const loginUrl = getLoginUrlForRedirect(user, null, { timeout: true });
+      const agency = agencyStore.currentAgency || {};
+      const tenantKey = resolveSessionTimeoutTenantKey({
+        slug: agency.slug || agency.portal_url || agency.portalUrl,
+        portalUrl: agency.portal_url || agency.portalUrl,
+        agencyName: agency.name,
+        hostSlug: getCurrentPortalSlugFromHostCache() || getCurrentPortalSlugFromPath() || ''
+      });
+      rememberSessionEndedContext({ loginUrl, tenantKey });
 
-    const endedPath = `/session-ended?tenant=${encodeURIComponent(tenantKey)}`;
-    await authStore.logout('timeout', { redirectTo: endedPath });
+      const endedPath = `/session-ended?tenant=${encodeURIComponent(tenantKey)}`;
+      await authStore.logout('timeout', { redirectTo: endedPath });
+    } catch (err) {
+      console.error('[activityTracker] failed to reach Session Ended:', err);
+      try {
+        window.location.href = '/session-ended';
+      } catch {
+        /* ignore */
+      }
+    } finally {
+      timeoutInFlight = false;
+    }
   }
 }
 
-/**
- * Schedules the warning timer (which then triggers the modal, which then
- * auto-triggers logout if ignored).
- */
 function resetTimer() {
   if (warningTimer) {
     clearTimeout(warningTimer);
@@ -161,10 +133,8 @@ function resetTimer() {
 
   const sessionLockStore = useSessionLockStore();
 
-  // Explicit Stay Logged In calls dismissWarning + resetActivityTimer; do not
-  // clear an active Timedown from incidental mouse movement here.
+  // Do not clear an active Timedown from incidental mouse movement.
   if (sessionLockStore.warningActive) return;
-
   if (sessionLockStore.isLocked) return;
   if (!isTracking || document.visibilityState !== 'visible') return;
 
@@ -176,14 +146,8 @@ function resetTimer() {
     const auth = useAuthStore();
     if (!auth.isAuthenticated) return;
 
-    // PIN lock-screen tenants skip the warning and lock immediately
-    if (store.useLockScreen) {
-      store.lock();
-      return;
-    }
-
-    // Branded Timedown with a 10-min countdown that expires into Session Ended
-    store.showWarning(WARNING_SECONDS, () => {
+    // Always show branded Timedown (10 min) → Session Ended. Do not skip to PIN lock.
+    store.showWarning(TIMEDOWN_SECONDS, () => {
       handleTimeout();
     });
   }, delay);
@@ -216,14 +180,12 @@ function onStorageActivity(event) {
 function onVisibilityChange() {
   if (!isTracking) return;
   if (document.visibilityState === 'visible') {
-    // Returned to tab — if Timedown is already showing, leave it alone
     const store = useSessionLockStore();
     if (store.warningActive) return;
     onActivity();
     sendPresenceHeartbeat();
   } else {
-    // Tab hidden — pause idle countdown so background tabs don't log out active sessions.
-    // Do not dismiss an already-visible Timedown.
+    // Tab hidden — pause idle countdown. Do not dismiss an already-visible Timedown.
     if (useSessionLockStore().warningActive) return;
     if (warningTimer) {
       clearTimeout(warningTimer);
@@ -242,12 +204,14 @@ async function sendPresenceHeartbeat() {
 
   const agencyId = agencyStore.currentAgency?.id || null;
   try {
-    await api.post('/presence/heartbeat', {
-      agencyId,
-      lastActivityAt: new Date(lastActivityTime).toISOString()
-    }, { skipGlobalLoading: true, skipAuthRedirect: true });
-    // Note: heartbeat success intentionally does NOT call onActivity() or resetTimer().
-    // Network ping ≠ user activity. The inactivity clock is reset only by DOM events.
+    await api.post(
+      '/presence/heartbeat',
+      {
+        agencyId,
+        lastActivityAt: new Date(lastActivityTime).toISOString()
+      },
+      { skipGlobalLoading: true, skipAuthRedirect: true }
+    );
   } catch {
     /* ignore — presence is best-effort */
   }
@@ -260,10 +224,11 @@ export async function startActivityTracking({ force = false } = {}) {
   if (isTracking) stopActivityTracking();
 
   isTracking = true;
+  timeoutInFlight = false;
   const storedActivity = Number(localStorage.getItem(LAST_ACTIVITY_KEY));
   lastActivityTime = Number.isFinite(storedActivity) ? storedActivity : Date.now();
 
-  // Fetch session config (pin lock, effective timeout for non-SSTC)
+  // Still fetch session config (PIN lock for manual lock) but idle always uses 3 min.
   try {
     const res = await api.get('/auth/session-lock-config', { skipGlobalLoading: true, skipAuthRedirect: true });
     useSessionLockStore().setLockConfig(res.data || null);
@@ -280,8 +245,11 @@ export async function startActivityTracking({ force = false } = {}) {
   heartbeatTimer = setInterval(sendPresenceHeartbeat, getHeartbeatIntervalMs());
 }
 
-export function stopActivityTracking() {
-  if (!isTracking) return;
+export function stopActivityTracking({ dismissWarning: shouldDismiss = true } = {}) {
+  if (!isTracking && !warningTimer && !heartbeatTimer) {
+    if (shouldDismiss) useSessionLockStore().dismissWarning();
+    return;
+  }
   isTracking = false;
 
   activityEvents.forEach((event) => document.removeEventListener(event, onActivity, true));
@@ -297,14 +265,14 @@ export function stopActivityTracking() {
     heartbeatTimer = null;
   }
 
-  useSessionLockStore().dismissWarning();
+  if (shouldDismiss) useSessionLockStore().dismissWarning();
 }
 
 export function getLastActivityTime() {
   return lastActivityTime;
 }
 
-/** Called when user confirms they are still active (e.g. by clicking "Stay Logged In"). */
+/** Called when user confirms they are still active (e.g. "Stay Logged In"). */
 export function resetActivityTimer() {
   lastActivityTime = Date.now();
   try {
@@ -338,7 +306,11 @@ function getSessionSettings() {
     if (!raw) return {};
     if (typeof raw === 'object') return raw || {};
     if (typeof raw === 'string') {
-      try { return JSON.parse(raw) || {}; } catch { return {}; }
+      try {
+        return JSON.parse(raw) || {};
+      } catch {
+        return {};
+      }
     }
     return {};
   } catch {

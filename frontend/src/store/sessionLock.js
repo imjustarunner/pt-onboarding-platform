@@ -49,9 +49,12 @@ export const useSessionLockStore = defineStore('sessionLock', () => {
         warningSecondsLeft.value -= 1;
       } else {
         _clearWarningTimer();
-        warningActive.value = false;
-        if (typeof _warningOnExpire === 'function') _warningOnExpire();
+        // Keep warningActive true until logout unmounts the modal so the user
+        // does not briefly see the dashboard again at 0:00.
+        const cb = _warningOnExpire;
         _warningOnExpire = null;
+        if (typeof cb === 'function') cb();
+        else warningActive.value = false;
       }
     }, 1000);
   }

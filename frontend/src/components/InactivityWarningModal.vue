@@ -30,15 +30,11 @@
             alt=""
           />
 
-          <!-- Covers baked-in "Timing out in" and supplies live countdown -->
-          <div class="iw-timer" aria-live="polite">
-            <span class="iw-timer-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="9" />
-                <path d="M12 7v5l3 2" />
-              </svg>
-            </span>
-            <span class="iw-timer-label">Timing out in</span>
+          <!--
+            Art already includes "Timing out in" + clock icon.
+            We only overlay the live MM:SS countdown immediately after that label.
+          -->
+          <div class="iw-timer" aria-live="polite" aria-atomic="true">
             <span class="iw-timer-value">{{ clock }}</span>
           </div>
 
@@ -104,8 +100,12 @@ watch(
     if (!active) return;
     useVideo.value = true;
     await nextTick();
+    const el = videoRef.value;
+    if (!el) return;
     try {
-      await videoRef.value?.play?.();
+      el.muted = true;
+      el.loop = true;
+      await el.play();
     } catch {
       /* autoplay may be blocked; poster still shows */
     }
@@ -137,43 +137,27 @@ watch(
   object-position: center;
 }
 
-/* Bottom-left cluster matching the Timedown artboards */
+/* Sit immediately after the baked-in "Timing out in" label (bottom-left of art). */
 .iw-timer {
   position: absolute;
-  left: clamp(24px, 6vw, 72px);
-  bottom: clamp(28px, 8vh, 72px);
+  left: clamp(11.5rem, 22vw, 18rem);
+  bottom: clamp(1.75rem, 7.5vh, 4.25rem);
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(6px);
-  color: #fff;
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   pointer-events: none;
   z-index: 2;
 }
 
-.iw-timer-icon {
-  display: grid;
-  place-items: center;
-  opacity: 0.95;
-}
-
-.iw-timer-label {
-  font-size: clamp(0.95rem, 1.6vw, 1.15rem);
-  font-weight: 500;
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-}
-
 .iw-timer-value {
-  font-size: clamp(1.15rem, 2.2vw, 1.55rem);
+  color: #fff;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: clamp(1.2rem, 2.4vw, 1.7rem);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.04em;
-  min-width: 4.2ch;
+  letter-spacing: 0.06em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55), 0 0 12px rgba(0, 0, 0, 0.35);
+  min-width: 4.5ch;
+  line-height: 1;
 }
 
 .iw-stay {
@@ -218,14 +202,12 @@ watch(
 
 @media (max-width: 640px) {
   .iw-timer {
-    left: 16px;
-    right: 16px;
-    bottom: 20px;
-    justify-content: flex-start;
+    left: clamp(9.5rem, 42vw, 14rem);
+    bottom: clamp(1.25rem, 5vh, 2rem);
   }
   .iw-stay {
     top: auto;
-    bottom: calc(20px + 56px + 12px);
+    bottom: calc(20px + 48px);
     right: 16px;
     left: 16px;
   }
