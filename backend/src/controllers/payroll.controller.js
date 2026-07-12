@@ -3249,11 +3249,36 @@ export const listPayrollPeriods = async (req, res, next) => {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
       sched = null;
     }
+    // Import counts drive "Not started" vs "Staged" UX — a period can be marked staged
+    // by carryovers/claims before any billing CSV is uploaded.
+    const importCountByPeriodId = new Map();
+    try {
+      const periodIds = (rows || []).map((p) => Number(p.id)).filter((id) => id > 0);
+      if (periodIds.length) {
+        const ph = periodIds.map(() => '?').join(',');
+        const [importCounts] = await pool.execute(
+          `SELECT payroll_period_id, COUNT(*) AS import_count
+           FROM payroll_imports
+           WHERE payroll_period_id IN (${ph})
+           GROUP BY payroll_period_id`,
+          periodIds
+        );
+        for (const r of importCounts || []) {
+          importCountByPeriodId.set(Number(r.payroll_period_id), Number(r.import_count || 0));
+        }
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
     const decorated = (rows || []).map((p) => {
       const ps = ymdFromDbDate(p.period_start);
       const pe = ymdFromDbDate(p.period_end);
       const ok = sched ? isScheduleAlignedForPeriod({ sched, periodStartYmd: ps, periodEndYmd: pe }) : true;
-      return { ...p, schedule_aligned: ok ? 1 : 0 };
+      return {
+        ...p,
+        schedule_aligned: ok ? 1 : 0,
+        import_count: importCountByPeriodId.get(Number(p.id)) || 0
+      };
     });
     res.json(alignedOnly ? decorated.filter((p) => Number(p.schedule_aligned) === 1) : decorated);
   } catch (e) {

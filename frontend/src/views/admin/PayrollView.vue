@@ -26,6 +26,15 @@
       </div>
     </div>
 
+    <div v-if="selectedPeriodForUi" class="pr-active-period-banner" role="status" aria-live="polite">
+      <div class="pr-active-period-banner-inner">
+        <div class="pr-active-period-kicker">Working pay period</div>
+        <div class="pr-active-period-range">{{ periodRangeLabel(selectedPeriodForUi) }}</div>
+        <span class="pr-status-pill" :class="`pr-status-${dashboardStatusKey || 'draft'}`">{{ dashboardStatusLabel }}</span>
+        <span v-if="!hasBillingImport" class="pr-active-period-note">Billing report not uploaded yet</span>
+      </div>
+    </div>
+
     <div class="pr-metrics" v-if="agencyId">
       <div class="pr-metric-card">
         <div class="pr-metric-icon" aria-hidden="true">
@@ -36,7 +45,7 @@
           <div class="pr-metric-value">{{ selectedPeriodForUi ? periodRangeLabel(selectedPeriodForUi) : '—' }}</div>
           <div class="pr-metric-meta">
             Status:
-            <span class="pr-status-pill" :class="`pr-status-${selectedPeriodStatus || 'draft'}`">{{ dashboardStatusLabel }}</span>
+            <span class="pr-status-pill" :class="`pr-status-${dashboardStatusKey || 'draft'}`">{{ dashboardStatusLabel }}</span>
           </div>
         </div>
       </div>
@@ -83,17 +92,17 @@
         <div class="card pr-wizard-card">
           <h2 class="card-title">Payroll Wizard</h2>
           <p class="hint">Step-by-step guide for submitting payroll. Select a pay period; it drives the whole page.</p>
-          <div class="field wizard-period" data-tour="payroll-period-picker" style="margin-top: 12px;">
+          <div class="field wizard-period pr-period-field" data-tour="payroll-period-picker" style="margin-top: 12px;">
             <label>Pay period</label>
             <select v-model="selectedPeriodId" :disabled="!agencyId || !(periodsForSelect || []).length" :key="`period-wizard-${agencyId || 'none'}`">
               <option :value="null" disabled>Select a pay period…</option>
-              <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+              <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }} · {{ periodStatusForDisplay(p).label }}</option>
             </select>
           </div>
           <div class="wizard-cta" data-tour="payroll-open-wizard" style="margin-top: 12px;">
             <button class="btn btn-primary wizard-btn" type="button" @click="openPayrollWizard" :disabled="!agencyId || !periodsForSelect.length">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px; vertical-align: -2px;"><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8 19 13M17.8 6.2 19 5M3 21l9-9M12.2 6.2 11 5"/></svg>
-              {{ selectedPeriodId ? 'Open / Resume Wizard' : 'Open Payroll Wizard' }}
+              {{ selectedPeriodId && hasBillingImport ? 'Open / Resume Wizard' : 'Open Payroll Wizard' }}
             </button>
           </div>
           <div class="hint" style="margin-top: 10px;" v-if="selectedPeriodForUi">
@@ -187,9 +196,9 @@
           >
             <div class="list-item-title">{{ periodRangeLabel(p) }}</div>
             <div class="list-item-meta">
-              <span class="pr-status-dot" :class="`pr-dot-${String(p.status || '').toLowerCase()}`"></span>
-              <span class="pr-status-pill" :class="`pr-status-${String(p.status || 'draft').toLowerCase()}`">
-                {{ String(p.status || '').toLowerCase() === 'finalized' ? 'Posted' : (p.status || 'draft') }}
+              <span class="pr-status-dot" :class="`pr-dot-${periodStatusForDisplay(p).key}`"></span>
+              <span class="pr-status-pill" :class="`pr-status-${periodStatusForDisplay(p).key}`">
+                {{ periodStatusForDisplay(p).label }}
               </span>
               <span v-if="p.status === 'finalized' && (p.finalized_by_first_name || p.finalized_by_last_name || p.finalized_at)" class="muted">
                 · {{ p.finalized_by_first_name }} {{ p.finalized_by_last_name }}
@@ -204,11 +213,11 @@
         <h2 class="card-title">Period Details</h2>
         <template v-if="selectedPeriodForUi">
           <div class="field-row pr-details-filters" style="margin-top: 8px;">
-            <div class="field">
+            <div class="field pr-period-field">
               <label>Pay Period</label>
               <select v-model="selectedPeriodId" :key="`period-details-top-${agencyId || 'none'}`">
                 <option :value="null" disabled>Select a pay period…</option>
-                <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }} · {{ periodStatusForDisplay(p).label }}</option>
               </select>
             </div>
             <div class="field">
@@ -223,10 +232,10 @@
             </div>
           </div>
           <div class="period-meta pr-period-meta">
-            <div><strong>Pay Period:</strong> {{ periodRangeLabel(selectedPeriodForUi) }}</div>
+            <div class="pr-period-meta-range"><strong>Pay Period:</strong> <span class="pr-period-chip">{{ periodRangeLabel(selectedPeriodForUi) }}</span></div>
             <div>
               <strong>Status:</strong>
-              <span class="pr-status-pill" :class="`pr-status-${selectedPeriodStatus || 'draft'}`">{{ dashboardStatusLabel }}</span>
+              <span class="pr-status-pill" :class="`pr-status-${dashboardStatusKey || 'draft'}`">{{ dashboardStatusLabel }}</span>
             </div>
             <div v-if="selectedPeriodStatus === 'ran' && selectedPeriodForUi?.ran_at">
               <strong>Ran:</strong> {{ fmtDateTime(selectedPeriodForUi.ran_at) }}
@@ -1687,6 +1696,11 @@
           <div class="hint">
             Import the current billing report, stage edits, run payroll, and post payroll. Providers will see posted payroll and any “prior notes included”.
           </div>
+          <div v-if="selectedPeriodForUi" class="pr-run-period-chip">
+            <span class="pr-active-period-kicker" style="opacity: 1; color: var(--pr-forest);">Pay period</span>
+            <strong>{{ periodRangeLabel(selectedPeriodForUi) }}</strong>
+            <span class="pr-status-pill" :class="`pr-status-${dashboardStatusKey || 'draft'}`">{{ dashboardStatusLabel }}</span>
+          </div>
         </div>
       </div>
 
@@ -1748,11 +1762,11 @@
       </div>
 
       <div class="field-row" style="margin-top: 16px; grid-template-columns: 1fr 2fr;">
-        <div class="field">
+        <div class="field pr-period-field">
           <label>Pay period</label>
           <select v-model="selectedPeriodId" :key="`period-top-${agencyId || 'none'}`">
             <option :value="null" disabled>Select a pay period…</option>
-            <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+            <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }} · {{ periodStatusForDisplay(p).label }}</option>
           </select>
         </div>
         <div class="field">
@@ -1918,7 +1932,7 @@
             <h2 class="card-title" style="margin-bottom: 4px;">Run Payroll (Totals)</h2>
             <div class="hint">Filter by provider above in Period Details. Click a row to inspect.</div>
           </div>
-          <span class="pr-status-pill" :class="`pr-status-${selectedPeriodStatus || 'draft'}`">{{ dashboardStatusLabel }}</span>
+          <span class="pr-status-pill" :class="`pr-status-${dashboardStatusKey || 'draft'}`">{{ dashboardStatusLabel }}</span>
         </div>
 
         <div v-if="canSeeRunResults">
@@ -9909,12 +9923,36 @@ const dashboardNextPeriod = computed(() => {
   return future[0] || null;
 });
 
-const dashboardStatusLabel = computed(() => {
-  const st = selectedPeriodStatus.value;
-  if (!st) return 'Draft';
-  if (st === 'finalized') return 'Posted';
-  if (st === 'raw_imported') return 'Imported';
-  return st.charAt(0).toUpperCase() + st.slice(1);
+/**
+ * Human-facing status for a period.
+ * DB status can be "staged" from carryovers/claims before any billing CSV exists —
+ * those periods should show as "Not started", not mid-review.
+ */
+const periodDisplayStatus = (p) => {
+  const st = String(p?.status || '').trim().toLowerCase();
+  const hasImport = Number(p?.import_count || 0) > 0
+    || (selectedPeriodForUi.value && Number(p?.id) === Number(selectedPeriodForUi.value?.id)
+      && Array.isArray(rawImportRows.value) && rawImportRows.value.length > 0);
+  if (st === 'posted' || st === 'finalized') return { key: 'posted', label: 'Posted' };
+  if (st === 'ran') return { key: 'ran', label: 'Ran' };
+  if (!hasImport && (!st || st === 'draft' || st === 'staged' || st === 'raw_imported')) {
+    return { key: 'not_started', label: 'Not started' };
+  }
+  if (st === 'raw_imported') return { key: 'raw_imported', label: 'Imported' };
+  if (st === 'staged') return { key: 'staged', label: 'Staged' };
+  if (!st) return { key: 'draft', label: 'Draft' };
+  return { key: st, label: st.charAt(0).toUpperCase() + st.slice(1) };
+};
+
+const dashboardStatusLabel = computed(() => periodDisplayStatus(selectedPeriodForUi.value).label);
+const dashboardStatusKey = computed(() => periodDisplayStatus(selectedPeriodForUi.value).key);
+
+/** True when this period has at least one billing import (CSV upload). */
+const hasBillingImport = computed(() => {
+  const fromList = Number(selectedPeriodForUi.value?.import_count || 0) > 0;
+  if (fromList) return true;
+  // Live rows from period details (more current right after an upload).
+  return Array.isArray(rawImportRows.value) && rawImportRows.value.length > 0;
 });
 
 const dashboardNextRunLabel = computed(() => {
@@ -9937,15 +9975,23 @@ const dashboardNextRunLabel = computed(() => {
   return `${mm}/${dd}/${d.getFullYear()}`;
 });
 
-/** 0=Import, 1=Stage, 2=Run, 3=Reports, 4=Post; 5=all complete */
+/**
+ * 0=Import, 1=Stage, 2=Run, 3=Reports, 4=Post; 5=all complete.
+ * Import/Stage must not show as done until a billing CSV exists — a period can
+ * be DB-status "staged" from carryovers/claims before any report is uploaded.
+ */
 const payrollRunStepIndex = computed(() => {
   const st = selectedPeriodStatus.value;
   if (st === 'posted' || st === 'finalized') return 5;
   if (st === 'ran') return 4;
+  if (!hasBillingImport.value) return 0;
   if (st === 'staged') return 2;
   if (st === 'raw_imported') return 1;
-  return 0;
+  return 1;
 });
+
+/** Display status for history list / pills (accounts for missing billing import). */
+const periodStatusForDisplay = (p) => periodDisplayStatus(p);
 
 const openPendingFromDashboard = () => {
   const slug = String(route.params?.organizationSlug || agencyStore.currentAgency?.slug || '').trim();
@@ -12391,6 +12437,18 @@ const loadPeriodDetails = async () => {
     const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}`);
     selectedPeriod.value = resp.data?.period || null;
     rawImportRows.value = resp.data?.rows || [];
+    // Keep import_count in sync so display status / stepper stay accurate after upload.
+    if (selectedPeriod.value) {
+      const countFromRows = Array.isArray(rawImportRows.value) && rawImportRows.value.length > 0 ? 1 : 0;
+      selectedPeriod.value = {
+        ...selectedPeriod.value,
+        import_count: Number(selectedPeriod.value.import_count || 0) || countFromRows
+      };
+      const idx = (periods.value || []).findIndex((p) => Number(p?.id) === Number(selectedPeriod.value.id));
+      if (idx >= 0) {
+        periods.value[idx] = { ...periods.value[idx], import_count: selectedPeriod.value.import_count };
+      }
+    }
     missedAppointmentsPaidInFull.value = resp.data?.missedAppointmentsPaidInFull || [];
     // Persist the fast pending counts for the dashboard metric card.
     if (resp.data?.pendingCounts != null) {
@@ -15209,6 +15267,103 @@ const processRunAndCompare = async () => {
   align-items: center;
   gap: 10px;
 }
+
+.pr-active-period-banner {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #1E3A34 0%, #2A5248 100%);
+  color: #fff;
+  box-shadow: 0 10px 28px rgba(30, 58, 52, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.pr-active-period-banner-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+.pr-active-period-kicker {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+.pr-active-period-range {
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.pr-active-period-banner .pr-status-pill {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.28);
+}
+.pr-active-period-note {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.9;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 193, 7, 0.22);
+  border: 1px solid rgba(255, 193, 7, 0.45);
+}
+
+.pr-period-field label {
+  font-weight: 800 !important;
+  color: var(--pr-forest) !important;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 11px !important;
+}
+.pr-period-field select {
+  border: 2px solid var(--pr-forest) !important;
+  background: #F3FBF6 !important;
+  font-weight: 700 !important;
+  font-size: 15px !important;
+  color: var(--pr-forest) !important;
+  box-shadow: 0 0 0 3px rgba(30, 58, 52, 0.08);
+}
+.pr-period-field select:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(30, 58, 52, 0.18);
+}
+.pr-period-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: #E8F5E9;
+  border: 1px solid #A5D6A7;
+  color: var(--pr-forest);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.pr-period-meta {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #F3FBF6;
+  border: 1px solid #C8E6C9;
+}
+.pr-period-meta-range {
+  margin-bottom: 6px;
+}
+
+.pr-status-not_started {
+  background: #F1F5F9;
+  color: #475569;
+  border-color: #E2E8F0;
+}
+.pr-dot-not_started {
+  background: #94A3B8;
+}
+
 .pr-org-picker {
   background: #fff;
   border: 1px solid var(--border);
@@ -15288,9 +15443,14 @@ button.pr-metric-card:disabled {
   color: var(--text-primary);
   line-height: 1.3;
 }
-.pr-metric-num {
-  font-size: 1.6rem;
-  letter-spacing: -0.02em;
+.pr-metric-card:first-child {
+  border: 2px solid var(--pr-forest);
+  box-shadow: 0 6px 18px rgba(30, 58, 52, 0.12);
+}
+.pr-metric-card:first-child .pr-metric-value {
+  color: var(--pr-forest);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 .pr-metric-meta {
   margin-top: 6px;
@@ -15471,8 +15631,13 @@ button.pr-metric-card:disabled {
   border-color: var(--border);
 }
 .pr-period-list .list-item.active {
-  background: var(--pr-mint);
-  border-color: var(--pr-mint-border);
+  background: linear-gradient(135deg, #E8F5E9 0%, #F1F8F4 100%);
+  border: 2px solid var(--pr-forest);
+  box-shadow: 0 4px 14px rgba(30, 58, 52, 0.12);
+}
+.pr-period-list .list-item.active .list-item-title {
+  color: var(--pr-forest);
+  font-weight: 800;
 }
 .list-item-meta {
   display: flex;
@@ -15608,6 +15773,23 @@ button.pr-metric-card:disabled {
 }
 .pr-process-advanced summary::-webkit-details-marker {
   display: none;
+}
+
+.pr-run-period-chip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #F3FBF6;
+  border: 2px solid var(--pr-forest);
+  color: var(--pr-forest);
+  font-size: 15px;
+}
+.pr-run-period-chip .pr-active-period-kicker {
+  font-size: 10px;
 }
 
 .pr-stepper {
