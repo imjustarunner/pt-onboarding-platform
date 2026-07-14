@@ -14942,13 +14942,13 @@ export const createMyReimbursementClaim = [
         }
       }
 
-      // Enforce submission deadlines (and choose suggested period accordingly).
+      // Reimbursements (incl. background checks) have no 60-day hard stop; still assign pay period via Sunday cutoff.
       const win = await computeSubmissionWindow({
         agencyId,
         effectiveDateYmd: expenseDate,
         submittedAt: new Date(),
         timeZone: resolveClaimTimeZone(),
-        hardStopPolicy: '60_days'
+        hardStopPolicy: 'none'
       });
       if (!win.ok) {
         return res.status(win.status || 409).json({ error: { message: win.errorMessage || CLAIM_DEADLINE_ERROR_MESSAGE } });
@@ -15155,13 +15155,13 @@ export const updateMyReimbursementClaim = [
         }
       }
 
-      // Enforce submission deadlines (and choose suggested period accordingly).
+      // Reimbursements (incl. background checks) have no 60-day hard stop; still assign pay period via Sunday cutoff.
       const win = await computeSubmissionWindow({
         agencyId,
         effectiveDateYmd: expenseDate,
         submittedAt: new Date(),
         timeZone: resolveClaimTimeZone(),
-        hardStopPolicy: '60_days'
+        hardStopPolicy: 'none'
       });
       if (!win.ok) {
         return res.status(win.status || 409).json({ error: { message: win.errorMessage || CLAIM_DEADLINE_ERROR_MESSAGE } });

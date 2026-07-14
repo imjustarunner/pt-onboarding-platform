@@ -1640,8 +1640,7 @@
 
       <div class="hint" style="margin-top: 10px;">
         To be paid in the pay period that ends Friday, submit by Sunday 11:59 PM. After that, it will be considered for the next pay period.
-        If you submit more than 60 days after the expense date, you can’t submit it in-app.
-        If you are requesting an extension or consideration of an extension to submit a past claim, please reach out directly to your administrative team.
+        Background check and other reimbursements are not limited to 60 days from the expense date.
       </div>
 
       <div class="actions" style="margin-top: 12px; justify-content: flex-end;">

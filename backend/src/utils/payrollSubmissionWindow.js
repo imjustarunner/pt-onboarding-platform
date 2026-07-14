@@ -117,7 +117,8 @@ function fmtLocalCutoff({ ymd, hour, minute, second }) {
  * - After that cutoff, eligible for next pay period only (grace window)
  * - Hard stop depends on claim category:
  *   - In-school: after the next pay period’s Sunday 11:59 PM cutoff => not allowed in-app
- *   - Other: after 60 days from effective date => not allowed in-app
+ *   - Other (default): after 60 days from effective date => not allowed in-app
+ *   - None (e.g. reimbursements / background checks): no absolute day hard stop; Sunday cutoff still applies
  */
 export async function computeSubmissionWindow({
   agencyId,

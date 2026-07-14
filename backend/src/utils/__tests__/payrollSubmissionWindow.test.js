@@ -83,6 +83,29 @@ test('computeSubmissionWindow: after next period Sunday cutoff => reject', async
   }
 });
 
+test('computeSubmissionWindow: hardStopPolicy none allows past 60 days', async () => {
+  const restore = stubPeriods({
+    period: { id: 501, agency_id: 1, period_start: '2025-10-04', period_end: '2025-10-17' },
+    next: { id: 502, agency_id: 1, period_start: '2025-10-18', period_end: '2025-10-31' }
+  });
+  try {
+    // ~6 months after expense date (background check reimbursement case)
+    const submittedAt = new Date('2026-04-15T16:00:00Z');
+    const out = await computeSubmissionWindow({
+      agencyId: 1,
+      effectiveDateYmd: '2025-10-10',
+      submittedAt,
+      timeZone: 'America/New_York',
+      hardStopPolicy: 'none'
+    });
+    assert.equal(out.ok, true);
+    assert.equal(out.hardStopPolicy, 'none');
+    assert.ok(out.suggestedPayrollPeriodId);
+  } finally {
+    restore();
+  }
+});
+
 test('computeSubmissionWindow: handles DST boundary (America/New_York)', async () => {
   const restore = stubPeriods({
     period: { id: 401, agency_id: 1, period_start: '2026-02-21', period_end: '2026-03-06' },
