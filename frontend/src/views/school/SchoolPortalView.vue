@@ -948,7 +948,7 @@
               <span class="announcement-field-label">Title (optional)</span>
               <input
                 v-model="announcementDraftTitle"
-                class="school-selector"
+                class="announcement-input"
                 type="text"
                 maxlength="255"
                 placeholder="e.g., School closed Monday"
@@ -956,11 +956,11 @@
             </label>
             <label class="announcement-field">
               <span class="announcement-field-label">Starts</span>
-              <input v-model="announcementDraftStartsAt" class="school-selector" type="datetime-local" />
+              <input v-model="announcementDraftStartsAt" class="announcement-input" type="datetime-local" />
             </label>
             <label class="announcement-field">
               <span class="announcement-field-label">Ends (max 2 weeks)</span>
-              <input v-model="announcementDraftEndsAt" class="school-selector" type="datetime-local" />
+              <input v-model="announcementDraftEndsAt" class="announcement-input" type="datetime-local" />
             </label>
             <label class="announcement-field announcement-field-wide">
               <span class="announcement-field-label">Message</span>
@@ -3475,7 +3475,7 @@ watch(() => store.selectedWeekday, async (weekday) => {
   color: var(--header-text-color, rgba(255, 255, 255, 0.9));
   white-space: nowrap;
 }
-.school-selector {
+.school-selector-wrap .school-selector {
   padding: 6px 10px;
   font-size: 0.875rem;
   border: 1px solid rgba(255, 255, 255, 0.3);
@@ -3485,10 +3485,10 @@ watch(() => store.selectedWeekday, async (weekday) => {
   min-width: 160px;
   cursor: pointer;
 }
-.school-selector:hover {
+.school-selector-wrap .school-selector:hover {
   background: rgba(255, 255, 255, 0.22);
 }
-.school-selector:focus {
+.school-selector-wrap .school-selector:focus {
   outline: 2px solid rgba(255, 255, 255, 0.5);
   outline-offset: 2px;
 }
@@ -4112,16 +4112,22 @@ watch(() => store.selectedWeekday, async (weekday) => {
   letter-spacing: 0.04em;
 }
 
+.announcement-input,
 .announcement-textarea {
   width: 100%;
-  min-height: 112px;
-  resize: vertical;
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px 12px;
   background: white;
   color: var(--text-primary);
   font: inherit;
+}
+.announcement-textarea {
+  min-height: 112px;
+  resize: vertical;
+}
+.announcement-input[type='datetime-local'] {
+  color-scheme: light;
 }
 
 @media (max-width: 720px) {
