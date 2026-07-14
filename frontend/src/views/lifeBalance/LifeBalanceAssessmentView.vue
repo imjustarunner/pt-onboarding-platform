@@ -241,7 +241,12 @@
 
         <p class="lbw-privacy">
           <img src="/assets/life-balance/lock.png" alt="" class="lbw-privacy__icon" />
-          Your answers are private and will only be seen by you and your coach.
+          <template v-if="isGuest">
+            Your answers stay on this device only — nothing is saved to an account or shared with a coach.
+          </template>
+          <template v-else>
+            Your answers are private and will only be seen by you and your coach.
+          </template>
         </p>
       </section>
 
@@ -341,7 +346,12 @@
       <section v-else-if="step === 'goals'" class="lbw-shell lbw-shell--narrow">
         <h1 class="lbw-page-title">Optional goals</h1>
         <p class="lbw-lead">
-          Your assessment is complete. Add a goal for each priority, or submit when you are ready.
+          <template v-if="isGuest">
+            Your assessment is complete. Add optional goals, then download your results.
+          </template>
+          <template v-else>
+            Your assessment is complete. Add a goal for each priority, or submit when you are ready.
+          </template>
         </p>
         <div v-for="key in priorities" :key="key" class="lbw-goal-block">
           <h2>{{ labelFor(key) }}</h2>
@@ -360,15 +370,22 @@
             Skip goals
           </button>
           <button type="button" class="lbw-btn primary" :disabled="submitting" @click="submitAndFinish">
-            {{ submitting ? 'Submitting…' : 'Submit & finish' }}
+            {{ submitting ? 'Saving…' : isGuest ? 'Save & view results' : 'Submit & finish' }}
           </button>
         </footer>
       </section>
 
       <!-- Done -->
-      <section v-else-if="step === 'done'" class="lbw-shell lbw-shell--narrow lbw-shell--center">
-        <h1 class="lbw-page-title">Assessment complete</h1>
-        <p class="lbw-lead">Thank you. Your Life Balance Wheel is saved and ready for review.</p>
+      <section v-else-if="step === 'done'" class="lbw-shell lbw-shell--narrow lbw-shell--center lbw-print-results">
+        <h1 class="lbw-page-title">{{ isGuest ? 'Your Life Balance results' : 'Assessment complete' }}</h1>
+        <p class="lbw-lead">
+          <template v-if="isGuest">
+            Download or print your results for yourself. Nothing was linked to an account.
+          </template>
+          <template v-else>
+            Thank you. Your Life Balance Wheel is saved and ready for review.
+          </template>
+        </p>
         <LifeBalanceWheel
           :categories="wheelCategories"
           :interactive="false"
@@ -377,9 +394,27 @@
           :center-value="avgDisplay"
           center-caption="Average"
         />
+        <ul v-if="isGuest" class="lbw-guest-score-list">
+          <li v-for="c in wheelCategories" :key="c.key">
+            <span class="lbw-guest-score-swatch" :style="{ background: c.color }" />
+            <span>{{ c.label }}</span>
+            <strong>{{ c.score ?? '—' }}</strong>
+          </li>
+        </ul>
+        <p v-if="isGuest && priorities.length" class="lbw-guest-priorities">
+          Focus areas:
+          <strong>{{ priorities.map(labelFor).join(', ') }}</strong>
+        </p>
         <div class="lbw-actions" style="justify-content: center;">
-          <button v-if="returnTo" type="button" class="lbw-btn primary" @click="goReturn">Return</button>
-          <button v-else type="button" class="lbw-btn ghost" @click="step = 'review'">View snapshot</button>
+          <template v-if="isGuest">
+            <button type="button" class="lbw-btn primary" @click="downloadResultsPdf">Download / print PDF</button>
+            <button type="button" class="lbw-btn ghost" @click="downloadResultsJson">Download JSON</button>
+            <button type="button" class="lbw-btn ghost" @click="resetGuestAssessment">Start over</button>
+          </template>
+          <template v-else>
+            <button v-if="returnTo" type="button" class="lbw-btn primary" @click="goReturn">Return</button>
+            <button v-else type="button" class="lbw-btn ghost" @click="step = 'review'">View snapshot</button>
+          </template>
         </div>
       </section>
     </template>
@@ -426,7 +461,76 @@ let pulseTimer = null;
 
 const token = computed(() => props.accessToken || String(route.params.accessToken || ''));
 const authId = computed(() => props.assessmentId || route.params.assessmentId || null);
-const isPublic = computed(() => !!token.value && !authId.value);
+const isGuest = computed(() => !!route.meta?.guestLifeBalance);
+const isPublic = computed(() => !isGuest.value && !!token.value && !authId.value);
+
+const GUEST_STORAGE_KEY = 'lbw-guest-assessment-v1';
+
+function buildGuestAssessment(template) {
+  const categories = template?.categories || [];
+  return {
+    id: null,
+    status: 'in_progress',
+    isGuest: true,
+    agencyId: null,
+    clientId: null,
+    subjectUserId: null,
+    accessToken: null,
+    template,
+    responses: categories.map((c) => ({
+      categoryKey: c.key,
+      score: null,
+      note: '',
+      selectedOptionIds: [],
+      desiredScore: null
+    })),
+    priorities: [],
+    goals: [],
+    summary: null
+  };
+}
+
+function guestSummaryFrom(a) {
+  const scored = (a?.responses || []).filter((r) => r.score != null);
+  if (!scored.length) return { average: null, scoredCount: 0 };
+  const avg = scored.reduce((s, r) => s + Number(r.score), 0) / scored.length;
+  return { average: Math.round(avg * 10) / 10, scoredCount: scored.length };
+}
+
+function persistGuestLocal(a, currentStep) {
+  try {
+    localStorage.setItem(
+      GUEST_STORAGE_KEY,
+      JSON.stringify({
+        assessment: a,
+        step: currentStep,
+        priorities: priorities.value,
+        goalDrafts: { ...goalDrafts },
+        savedAt: new Date().toISOString()
+      })
+    );
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+function loadGuestLocal() {
+  try {
+    const raw = localStorage.getItem(GUEST_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function clearGuestLocal() {
+  try {
+    localStorage.removeItem(GUEST_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
 
 const returnTo = computed(() => {
   const raw = String(route.query.returnTo || '').trim();
@@ -702,7 +806,7 @@ const quiet = { skipGlobalLoading: true };
 
 async function loadPreviousScores(a) {
   previousByKey.value = {};
-  if (!a?.agencyId || isPublic.value) return;
+  if (!a?.agencyId || isPublic.value || isGuest.value) return;
   try {
     const params = { agencyId: a.agencyId };
     let url = null;
@@ -729,6 +833,35 @@ async function load() {
   loading.value = true;
   error.value = '';
   try {
+    if (isGuest.value) {
+      const cached = loadGuestLocal();
+      if (cached?.assessment?.template?.categories?.length) {
+        assessment.value = cached.assessment;
+        priorities.value = Array.isArray(cached.priorities) ? cached.priorities : [];
+        Object.keys(goalDrafts).forEach((k) => delete goalDrafts[k]);
+        for (const [k, v] of Object.entries(cached.goalDrafts || {})) {
+          goalDrafts[k] = { statement: v?.statement || '', step: v?.step || '' };
+        }
+        step.value = cached.step || 'intro';
+        if (step.value === 'category') {
+          const firstOpen = categories.value.findIndex((c) => !responseMap.value[c.key]?.score);
+          categoryIndex.value = firstOpen >= 0 ? firstOpen : 0;
+        }
+        loading.value = false;
+        return;
+      }
+      const res = await api.get('/life-balance/guest/template', quiet);
+      const template = res.data?.template;
+      if (!template?.categories?.length) {
+        error.value = 'Life Balance template is not available yet.';
+        return;
+      }
+      assessment.value = buildGuestAssessment(template);
+      step.value = 'intro';
+      loading.value = false;
+      return;
+    }
+
     const intakeKey = String(route.params.publicKey || route.query.intakeKey || '').trim();
     if (intakeKey && !token.value && !authId.value) {
       const res = await api.post(
@@ -784,6 +917,31 @@ let saveTimer = null;
 async function persistCategory(payload) {
   saveStatus.value = 'Saving…';
   try {
+    if (isGuest.value) {
+      const key = activeCategory.value?.key;
+      if (!key || !assessment.value) return;
+      const responses = [...(assessment.value.responses || [])];
+      const idx = responses.findIndex((r) => r.categoryKey === key);
+      const patch = {
+        categoryKey: key,
+        score: payload.score ?? null,
+        note: payload.note ?? '',
+        selectedOptionIds: Array.isArray(payload.selectedOptionIds) ? payload.selectedOptionIds : []
+      };
+      if (idx >= 0) responses[idx] = { ...responses[idx], ...patch };
+      else responses.push(patch);
+      const next = {
+        ...assessment.value,
+        status: 'in_progress',
+        responses,
+        summary: guestSummaryFrom({ ...assessment.value, responses })
+      };
+      assessment.value = next;
+      persistGuestLocal(next, step.value);
+      saveStatus.value = 'Saved';
+      lastSavedAt.value = Date.now();
+      return;
+    }
     const res = await api.put(
       `${apiBase()}/categories/${encodeURIComponent(activeCategory.value.key)}`,
       payload,
@@ -895,6 +1053,25 @@ async function completeAssessment({ goToGoals = true } = {}) {
   completing.value = true;
   error.value = '';
   try {
+    if (isGuest.value) {
+      const next = {
+        ...assessment.value,
+        status: 'completed',
+        priorities: priorities.value.map((categoryKey, i) => ({
+          categoryKey,
+          displayOrder: i
+        })),
+        summary: guestSummaryFrom(assessment.value),
+        completedAt: new Date().toISOString()
+      };
+      assessment.value = next;
+      for (const key of priorities.value) {
+        if (!goalDrafts[key]) goalDrafts[key] = { statement: '', step: '' };
+      }
+      persistGuestLocal(next, goToGoals ? 'goals' : 'done');
+      step.value = goToGoals ? 'goals' : 'done';
+      return;
+    }
     const res = await api.post(
       `${apiBase()}/complete`,
       { priorityCategoryKeys: priorities.value },
@@ -917,6 +1094,18 @@ async function saveGoal(key) {
   if (!draft?.statement?.trim()) return;
   savingGoal.value = true;
   try {
+    if (isGuest.value) {
+      const goals = [...(assessment.value.goals || [])].filter((g) => g.categoryKey !== key);
+      goals.push({
+        categoryKey: key,
+        goalStatement: draft.statement,
+        actionSteps: draft.step ? [{ stepText: draft.step }] : []
+      });
+      const next = { ...assessment.value, goals };
+      assessment.value = next;
+      persistGuestLocal(next, step.value);
+      return;
+    }
     const res = await api.post(
       `${apiBase()}/goals`,
       {
@@ -939,6 +1128,15 @@ async function submitAndFinish() {
   submitting.value = true;
   error.value = '';
   try {
+    if (isGuest.value) {
+      for (const key of priorities.value) {
+        const draft = goalDrafts[key];
+        if (draft?.statement?.trim()) await saveGoal(key);
+      }
+      persistGuestLocal(assessment.value, 'done');
+      step.value = 'done';
+      return;
+    }
     for (const key of priorities.value) {
       const draft = goalDrafts[key];
       if (draft?.statement?.trim()) {
@@ -962,7 +1160,63 @@ async function submitAndFinish() {
 }
 
 function finishAssessment() {
+  if (isGuest.value) persistGuestLocal(assessment.value, 'done');
   step.value = 'done';
+}
+
+function buildGuestExportPayload() {
+  return {
+    type: 'life_balance_wheel_guest',
+    exportedAt: new Date().toISOString(),
+    average: assessment.value?.summary?.average ?? guestSummaryFrom(assessment.value).average,
+    priorities: priorities.value.map((key) => ({
+      key,
+      label: labelFor(key),
+      score: responseMap.value[key]?.score ?? null,
+      goal: goalDrafts[key]?.statement || '',
+      firstStep: goalDrafts[key]?.step || ''
+    })),
+    categories: wheelCategories.value.map((c) => ({
+      key: c.key,
+      label: c.label,
+      score: c.score,
+      note: responseMap.value[c.key]?.note || '',
+      selectedOptionIds: responseMap.value[c.key]?.selectedOptionIds || []
+    }))
+  };
+}
+
+function downloadResultsJson() {
+  const payload = buildGuestExportPayload();
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `life-balance-results-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadResultsPdf() {
+  window.print();
+}
+
+async function resetGuestAssessment() {
+  clearGuestLocal();
+  loading.value = true;
+  error.value = '';
+  try {
+    const res = await api.get('/life-balance/guest/template', quiet);
+    assessment.value = buildGuestAssessment(res.data?.template);
+    priorities.value = [];
+    Object.keys(goalDrafts).forEach((k) => delete goalDrafts[k]);
+    categoryIndex.value = 0;
+    step.value = 'intro';
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e.message || 'Could not reset assessment';
+  } finally {
+    loading.value = false;
+  }
 }
 
 function goReturn() {
@@ -1576,5 +1830,36 @@ onMounted(load);
 @media print {
   .lbw-footer, .lbw-btn, .lbw-privacy { display: none !important; }
   .lbw-page { background: #fff; }
+  .lbw-print-results {
+    max-width: 100% !important;
+  }
+}
+
+.lbw-guest-score-list {
+  list-style: none;
+  margin: 1.25rem auto 0;
+  padding: 0;
+  width: min(100%, 420px);
+  display: grid;
+  gap: 0.45rem;
+  text-align: left;
+}
+.lbw-guest-score-list li {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.92rem;
+  color: var(--lbw-ink);
+}
+.lbw-guest-score-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.lbw-guest-priorities {
+  margin: 1rem 0 0;
+  color: var(--lbw-muted);
+  font-size: 0.95rem;
 }
 </style>

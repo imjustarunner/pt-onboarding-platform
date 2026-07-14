@@ -2,6 +2,7 @@ import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
   getDefaultTemplateHandler,
+  getGuestTemplateHandler,
   createAssessmentHandler,
   getAssessmentHandler,
   putCategoryHandler,
@@ -18,6 +19,7 @@ import {
 const router = express.Router();
 
 // Public
+router.get('/guest/template', getGuestTemplateHandler);
 router.get('/public/:accessToken', getPublicAssessmentHandler);
 router.put('/public/:accessToken/categories/:categoryKey', putPublicCategoryHandler);
 router.post('/public/:accessToken/complete', completePublicAssessmentHandler);

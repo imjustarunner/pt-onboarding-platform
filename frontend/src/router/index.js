@@ -226,6 +226,12 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/life-balance',
+    name: 'LifeBalanceGuest',
+    component: () => import('../views/lifeBalance/LifeBalanceAssessmentView.vue'),
+    meta: { requiresGuest: false, guestLifeBalance: true }
+  },
+  {
     path: '/life-balance-form/:publicKey',
     name: 'LifeBalanceIntakeStart',
     component: () => import('../views/lifeBalance/LifeBalanceAssessmentView.vue'),

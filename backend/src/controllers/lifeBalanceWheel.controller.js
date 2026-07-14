@@ -37,6 +37,17 @@ export const getDefaultTemplateHandler = async (req, res, next) => {
   }
 };
 
+/** Anonymous public template — platform default only; no agency/client linkage. */
+export const getGuestTemplateHandler = async (req, res, next) => {
+  try {
+    const template = await getDefaultTemplate({ agencyId: null });
+    res.json({ ok: true, template, guest: true });
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
 export const createAssessmentHandler = async (req, res, next) => {
   try {
     const agencyId = Number(req.body?.agencyId || req.user?.agencyId || 0);
