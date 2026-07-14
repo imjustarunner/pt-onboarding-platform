@@ -159,8 +159,10 @@ function parseJsonColumn(raw) {
 
 function defaultBookingPageSettings(orgType) {
   const t = String(orgType || '').toLowerCase();
+  const styleDefaults = { fontFamily: '', headingFontFamily: '', accentColor: '' };
   if (t === 'consultant') {
     return {
+      ...styleDefaults,
       brandDisplayName: '',
       ctaLabel: 'Book a Session',
       showNav: false,
@@ -189,6 +191,7 @@ function defaultBookingPageSettings(orgType) {
     };
   }
   return {
+    ...styleDefaults,
     brandDisplayName: '',
     ctaLabel: 'Book a Discovery Call',
     showNav: true,
@@ -282,6 +285,9 @@ function resolveBookingPageSettings(orgType, stored = {}) {
   return {
     ...defaults,
     ...raw,
+    fontFamily: String(raw.fontFamily || defaults.fontFamily || '').trim().toLowerCase(),
+    headingFontFamily: String(raw.headingFontFamily || defaults.headingFontFamily || '').trim().toLowerCase(),
+    accentColor: String(raw.accentColor || defaults.accentColor || '').trim(),
     brandDisplayName: String(raw.brandDisplayName ?? defaults.brandDisplayName ?? '').trim(),
     ctaLabel: String(raw.ctaLabel || defaults.ctaLabel).trim() || defaults.ctaLabel,
     showNav: raw.showNav === undefined ? defaults.showNav : !!raw.showNav,
@@ -785,6 +791,7 @@ export const listCounselors = async (req, res, next) => {
 
       return {
         providerId: Number(row.id),
+        id: Number(row.id),
         firstName: row.first_name || '',
         lastName: row.last_name || '',
         displayName,
@@ -930,6 +937,7 @@ export const listTutors = async (req, res, next) => {
 
       return {
         providerId: Number(row.id),
+        id: Number(row.id),
         firstName: row.first_name || '',
         lastName: row.last_name || '',
         displayName,
@@ -1029,6 +1037,7 @@ export const listEvaluators = async (req, res, next) => {
 
       return {
         providerId: Number(row.id),
+        id: Number(row.id),
         firstName: row.first_name || '',
         lastName: row.last_name || '',
         displayName,
@@ -1121,7 +1130,7 @@ export const getProviderDetail = async (req, res, next) => {
     let tutoringProfile = null;
     if (serviceType === 'counseling') {
       specialtyData = await getCounselingSpecialties(providerId);
-    } else {
+    } else if (serviceType === 'tutoring') {
       tutoringProfile = await getTutoringProfile(providerId, agency.id);
     }
 
@@ -1130,6 +1139,7 @@ export const getProviderDetail = async (req, res, next) => {
       serviceType,
       provider: {
         providerId,
+        id: providerId,
         firstName: user.first_name || '',
         lastName: user.last_name || '',
         displayName: `${user.first_name || ''} ${user.last_name || ''}`.trim(),

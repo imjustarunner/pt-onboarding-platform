@@ -88,6 +88,32 @@
           <input v-model="bookingForm.backgroundImageUrl" type="url" placeholder="https://…" />
         </div>
 
+        <h4 class="section-label">Typography &amp; color</h4>
+        <p class="status-note">
+          These also appear in the live-page editor when you view your public booking page while logged in as the tenant owner.
+        </p>
+        <div class="form-row-2">
+          <div class="form-group">
+            <label>Body font</label>
+            <select v-model="bookingForm.fontFamily">
+              <option v-for="f in fontOptions" :key="`admin-body-${f.id || 'default'}`" :value="f.id">{{ f.label }}</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Heading font</label>
+            <select v-model="bookingForm.headingFontFamily">
+              <option v-for="f in fontOptions" :key="`admin-head-${f.id || 'default'}`" :value="f.id">{{ f.label }}</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Accent color <span class="hint">(overrides agency primary on this page when set)</span></label>
+          <div class="color-row">
+            <input v-model="bookingForm.accentColor" type="color" class="color-swatch" />
+            <input v-model="bookingForm.accentColor" type="text" placeholder="#1b4332" />
+          </div>
+        </div>
+
         <label class="toggle-row booking-toggle">
           <input v-model="bookingForm.showNav" type="checkbox" />
           <span>Show top navigation links</span>
@@ -300,12 +326,9 @@
         <div class="enrollment-grid">
           <div v-for="svc in enrollmentCounts" :key="svc.serviceType" class="enrollment-item">
             <strong>{{ svc.count }}</strong>
-            <span>{{ svc.serviceType === 'counseling' ? 'Counselor(s)' : svc.serviceType === 'tutoring' ? 'Tutor(s)' : 'Evaluator(s)' }} enrolled</span>
-            <span v-if="svc.serviceType === 'counseling'">
-              <a :href="`/${agencySlug}/find-counselor`" target="_blank" class="enrollment-link">View public page</a>
-            </span>
-            <span v-else-if="svc.serviceType === 'tutoring'">
-              <a :href="`/${agencySlug}/find-tutor`" target="_blank" class="enrollment-link">View public page</a>
+            <span>{{ enrollmentLabel(svc.serviceType) }} enrolled</span>
+            <span v-if="previewPath(svc.serviceType) !== '#'">
+              <a :href="previewPath(svc.serviceType)" target="_blank" class="enrollment-link">View public page</a>
             </span>
           </div>
         </div>
@@ -329,10 +352,12 @@ import { ref, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
-import { resolveBookingPageSettings } from '../../utils/practitionerBooking.js';
+import { resolveBookingPageSettings, compactBookingPageForSave } from '../../utils/practitionerBooking.js';
+import { CAREERS_FONT_OPTIONS } from '../../utils/careersAssets.js';
 
 const route = useRoute();
 const agencyStore = useAgencyStore();
+const fontOptions = CAREERS_FONT_OPTIONS;
 
 const agencySlug = computed(() =>
   String(route.params.organizationSlug || agencyStore.currentAgency?.slug || '').trim()
@@ -447,6 +472,17 @@ function serviceTypeFinderLabel(t) {
     consulting: 'Book Consulting'
   };
   return map[t] || t;
+}
+
+function enrollmentLabel(t) {
+  const map = {
+    counseling: 'Counselor(s)',
+    tutoring: 'Tutor(s)',
+    evaluation: 'Evaluator(s)',
+    coaching: 'Coach(es)',
+    consulting: 'Consultant(s)'
+  };
+  return map[t] || 'Provider(s)';
 }
 
 function previewPath(t) {
@@ -610,11 +646,11 @@ async function saveBookingPageSettings() {
   saveSuccess.value = '';
   saveError.value = '';
   try {
-    const payload = resolveBookingPageSettings(orgType.value, bookingForm.value);
+    const payload = compactBookingPageForSave(orgType.value, bookingForm.value);
     await api.put(`/agencies/${agencyId.value}`, {
       publicBookingSettings: payload
     });
-    bookingForm.value = payload;
+    bookingForm.value = resolveBookingPageSettings(orgType.value, payload);
     saveSuccess.value = 'Booking page content saved.';
     setTimeout(() => (saveSuccess.value = ''), 3000);
   } catch (e) {
@@ -736,6 +772,20 @@ onMounted(load);
 .dot--on { background: #16a34a; }
 .dot--off { background: #9ca3af; }
 .status-note { font-size: 0.8rem; color: #9ca3af; margin-top: 0.35rem; }
+.color-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+.color-swatch {
+  width: 2.5rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
 
 /* Service type list */
 .service-type-list { display: flex; flex-direction: column; gap: 1rem; }

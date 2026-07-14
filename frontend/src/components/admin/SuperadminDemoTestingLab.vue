@@ -66,6 +66,24 @@
             Client shell preview ↗
           </button>
         </div>
+
+        <div v-if="group.tenant && group.publicPages?.length" class="demo-lab__public">
+          <div class="demo-lab__public-label">Public booking pages</div>
+          <div class="demo-lab__public-links">
+            <button
+              v-for="page in group.publicPages"
+              :key="page.id"
+              type="button"
+              class="demo-lab__public-btn"
+              @click="openPublicPage(group, page)"
+            >
+              {{ page.label }}
+            </button>
+          </div>
+          <p class="demo-lab__public-hint">
+            Opens in this browser session — use Edit on the page (superadmin) or Public Services settings.
+          </p>
+        </div>
       </article>
     </div>
 
@@ -143,6 +161,11 @@ const surfaceGroups = computed(() => {
         { id: 'itsco_provider_plus', label: 'Provider+', meta: 'New window · provider_plus', role: 'provider_plus', pathSuffix: 'dashboard', variant: 'ghost' },
         { id: 'itsco_staff', label: 'Staff', meta: 'New window · staff', role: 'staff', pathSuffix: 'dashboard', variant: 'ghost' },
         { id: 'itsco_admin', label: 'Admin', meta: 'New window · admin', role: 'admin', pathSuffix: 'admin', variant: 'ghost' }
+      ],
+      publicPages: [
+        { id: 'hub', label: 'Services hub', pathSuffix: 'services' },
+        { id: 'counselor', label: 'Find counselor (team)', pathSuffix: 'find-counselor' },
+        { id: 'settings', label: 'Public Services settings', pathSuffix: 'admin/public-services' }
       ]
     },
     {
@@ -155,6 +178,11 @@ const surfaceGroups = computed(() => {
       actions: [
         { id: 'tutor_provider', label: 'Tutor', meta: 'New window · provider', role: 'provider', pathSuffix: 'dashboard', variant: 'primary' },
         { id: 'tutor_admin', label: 'Learning Admin', meta: 'New window · admin', role: 'admin', pathSuffix: 'admin', variant: 'ghost' }
+      ],
+      publicPages: [
+        { id: 'hub', label: 'Services hub', pathSuffix: 'services' },
+        { id: 'tutor', label: 'Find tutor (team)', pathSuffix: 'find-tutor' },
+        { id: 'settings', label: 'Public Services settings', pathSuffix: 'admin/public-services' }
       ]
     },
     {
@@ -168,6 +196,10 @@ const surfaceGroups = computed(() => {
       actions: [
         { id: 'consultant_owner', label: 'Consultant', meta: 'New window · admin shell', role: 'admin', pathSuffix: 'dashboard', variant: 'primary' },
         { id: 'consultant_provider', label: 'Practitioner', meta: 'New window · provider', role: 'provider', pathSuffix: 'dashboard', variant: 'ghost' }
+      ],
+      publicPages: [
+        { id: 'book', label: 'Book consulting (solo)', pathSuffix: 'find-consultant' },
+        { id: 'settings', label: 'Public Services settings', pathSuffix: 'admin/public-services' }
       ]
     },
     {
@@ -181,6 +213,10 @@ const surfaceGroups = computed(() => {
       actions: [
         { id: 'coach_owner', label: 'Life Coach', meta: 'New window · admin shell', role: 'admin', pathSuffix: 'dashboard', variant: 'primary' },
         { id: 'coach_provider', label: 'Practitioner', meta: 'New window · provider', role: 'provider', pathSuffix: 'dashboard', variant: 'ghost' }
+      ],
+      publicPages: [
+        { id: 'book', label: 'Book coaching (solo)', pathSuffix: 'find-coach' },
+        { id: 'settings', label: 'Public Services settings', pathSuffix: 'admin/public-services' }
       ]
     }
   ];
@@ -265,6 +301,17 @@ const openPreview = (group, mode) => {
   }).href;
   window.open(href, `pt-preview-${mode}-${tenant.id}`, 'noopener,noreferrer');
   lastLaunch.value = `Opened superadmin preview (${mode}) for ${tenant.name}.`;
+};
+
+const openPublicPage = (group, page) => {
+  const tenant = group?.tenant;
+  if (!tenant || !page?.pathSuffix) return;
+  const slug = slugOf(tenant);
+  if (!slug) return;
+  const path = `/${slug}/${page.pathSuffix}`.replace(/\/+/g, '/');
+  const href = router.resolve({ path }).href;
+  window.open(href, `pt-public-${page.id}-${tenant.id}`, 'noopener,noreferrer');
+  lastLaunch.value = `Opened ${page.label} for ${tenant.name}.`;
 };
 
 onMounted(loadTenants);
@@ -422,6 +469,44 @@ onMounted(loadTenants);
   display: flex;
   flex-wrap: wrap;
   gap: 0.65rem;
+}
+.demo-lab__public {
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+  padding-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.demo-lab__public-label {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: #94a3b8;
+}
+.demo-lab__public-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.demo-lab__public-btn {
+  border: 1px solid rgba(125, 211, 252, 0.35);
+  background: rgba(14, 165, 233, 0.12);
+  color: #bae6fd;
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.demo-lab__public-btn:hover {
+  background: rgba(14, 165, 233, 0.22);
+}
+.demo-lab__public-hint {
+  margin: 0;
+  font-size: 0.72rem;
+  color: #64748b;
+  line-height: 1.35;
 }
 .demo-lab__link {
   background: transparent;

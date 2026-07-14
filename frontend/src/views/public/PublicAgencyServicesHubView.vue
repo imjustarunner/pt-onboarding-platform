@@ -1,5 +1,29 @@
 <template>
-  <div class="services-hub">
+  <div class="services-hub" :class="{ 'services-hub--editing': canEditPage }">
+    <div v-if="canEditPage" class="hub-editor-bar" :class="{ 'hub-editor-bar--active': editing }">
+      <template v-if="!editing">
+        <span class="hub-editor-hint">Editor</span>
+        <button class="hub-editor-btn hub-editor-btn--primary" type="button" @click="startEdit">
+          Edit this page
+        </button>
+        <a v-if="adminSettingsPath" class="hub-editor-link" :href="adminSettingsPath" target="_blank" rel="noopener">
+          Full settings
+        </a>
+      </template>
+      <template v-else>
+        <span class="hub-editor-hint">Editing hub</span>
+        <button class="hub-editor-btn" type="button" :disabled="savingEdit" @click="cancelEdit">Cancel</button>
+        <button class="hub-editor-btn hub-editor-btn--primary" type="button" :disabled="savingEdit" @click="saveEdit">
+          {{ savingEdit ? 'Saving…' : 'Save' }}
+        </button>
+        <a v-if="adminSettingsPath" class="hub-editor-link" :href="adminSettingsPath" target="_blank" rel="noopener">
+          Full settings
+        </a>
+        <p v-if="editError" class="hub-editor-error">{{ editError }}</p>
+        <p v-if="editOk" class="hub-editor-ok">{{ editOk }}</p>
+      </template>
+    </div>
+
     <header class="hub-header">
       <div class="hub-header-inner">
         <img v-if="agency.logoUrl" :src="agency.logoUrl" :alt="agency.name" class="agency-logo" />
@@ -20,27 +44,41 @@
     </div>
 
     <main v-else class="hub-main">
-      <div v-if="serviceTypes.length === 0" class="hub-empty">
+      <div v-if="visibleServices.length === 0" class="hub-empty">
         <p>No services are currently available for online booking. Please check back soon.</p>
       </div>
 
       <div v-else class="service-cards">
-        <button
-          v-for="svc in serviceTypes"
+        <div
+          v-for="svc in visibleServices"
           :key="svc.serviceType"
           class="service-card"
-          :class="`service-card--${svc.serviceType}`"
-          type="button"
-          @click="navigate(svc.serviceType)"
+          :class="[`service-card--${svc.serviceType}`, { 'service-card--edit': editing }]"
+          role="button"
+          tabindex="0"
+          @click="!editing && navigate(svc.serviceType)"
+          @keydown.enter="!editing && navigate(svc.serviceType)"
         >
           <div class="service-card-icon">
             <component :is="iconForType(svc.serviceType)" />
           </div>
-          <h2 class="service-card-title">{{ svc.displayName }}</h2>
-          <p v-if="svc.introBlurb" class="service-card-blurb">{{ svc.introBlurb }}</p>
-          <p v-else class="service-card-blurb">{{ defaultBlurb(svc.serviceType) }}</p>
-          <span class="service-card-cta">Browse providers &rarr;</span>
-        </button>
+          <template v-if="editing">
+            <label class="hub-card-edit">
+              <span>Display name</span>
+              <input v-model="svc.displayName" type="text" @click.stop />
+            </label>
+            <label class="hub-card-edit">
+              <span>Intro blurb</span>
+              <textarea v-model="svc.introBlurb" rows="3" @click.stop />
+            </label>
+          </template>
+          <template v-else>
+            <h2 class="service-card-title">{{ svc.displayName }}</h2>
+            <p v-if="svc.introBlurb" class="service-card-blurb">{{ svc.introBlurb }}</p>
+            <p v-else class="service-card-blurb">{{ defaultBlurb(svc.serviceType) }}</p>
+            <span class="service-card-cta">Browse providers &rarr;</span>
+          </template>
+        </div>
       </div>
 
       <section class="hub-trust">
@@ -69,18 +107,30 @@
 import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
+import { isPractitionerOrgType } from '../../utils/practitionerVertical.js';
 
 const route = useRoute();
 const router = useRouter();
+const authStore = useAuthStore();
 
 const slug = computed(() =>
   String(route.params.organizationSlug || route.params.agencySlug || '').trim()
 );
+const adminSettingsPath = computed(() => (slug.value ? `/${slug.value}/admin/public-services` : ''));
 
 const loading = ref(false);
 const error = ref('');
-const agency = ref({ name: '', logoUrl: null });
+const agency = ref({ name: '', logoUrl: null, id: null, organizationType: 'agency' });
 const serviceTypes = ref([]);
+const canEditPage = ref(false);
+const editing = ref(false);
+const savingEdit = ref(false);
+const editError = ref('');
+const editOk = ref('');
+const editSnapshot = ref([]);
+
+const visibleServices = computed(() => (editing.value ? editSnapshot.value : serviceTypes.value));
 
 const CounselingIcon = {
   template: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="svc-icon">
@@ -129,6 +179,80 @@ function navigate(serviceType) {
   }
 }
 
+async function resolveEditAccess() {
+  canEditPage.value = false;
+  if (!authStore.isAuthenticated) return;
+  const role = String(authStore.user?.role || '').toLowerCase();
+  if (role === 'super_admin' || role === 'support') {
+    canEditPage.value = true;
+    return;
+  }
+  if (['provider', 'provider_plus', 'client_guardian', 'kiosk'].includes(role)) return;
+  if (['admin', 'agency_admin', 'staff'].includes(role)) {
+    canEditPage.value = true;
+    return;
+  }
+  if (isPractitionerOrgType(agency.value.organizationType)) {
+    try {
+      const res = await api.get('/practitioner-team/me', {
+        params: { agencyId: agency.value.id },
+        skipGlobalLoading: true
+      });
+      canEditPage.value = !!res.data?.isOwner;
+    } catch {
+      canEditPage.value = false;
+    }
+  }
+}
+
+function startEdit() {
+  editSnapshot.value = serviceTypes.value.map((s) => ({ ...s }));
+  editing.value = true;
+  editError.value = '';
+  editOk.value = '';
+}
+
+function cancelEdit() {
+  editing.value = false;
+  editSnapshot.value = [];
+  editError.value = '';
+}
+
+async function saveEdit() {
+  if (!slug.value) return;
+  savingEdit.value = true;
+  editError.value = '';
+  editOk.value = '';
+  try {
+    await Promise.all(
+      editSnapshot.value.map((svc, idx) =>
+        api.post(
+          `/public/agency-services/${encodeURIComponent(slug.value)}/service-types`,
+          {
+            serviceType: svc.serviceType,
+            displayName: svc.displayName || null,
+            introBlurb: svc.introBlurb || null,
+            heroImageUrl: svc.heroImageUrl || null,
+            isEnabled: true,
+            sortOrder: svc.sortOrder ?? idx
+          },
+          { skipAuthRedirect: true }
+        )
+      )
+    );
+    serviceTypes.value = editSnapshot.value.map((s) => ({ ...s }));
+    editing.value = false;
+    editOk.value = 'Saved';
+    setTimeout(() => {
+      editOk.value = '';
+    }, 2500);
+  } catch (e) {
+    editError.value = e.response?.data?.error?.message || e.message || 'Could not save';
+  } finally {
+    savingEdit.value = false;
+  }
+}
+
 async function load() {
   if (!slug.value) return;
   loading.value = true;
@@ -137,6 +261,7 @@ async function load() {
     const res = await api.get(`/public/agency-services/${encodeURIComponent(slug.value)}`, { skipAuthRedirect: true });
     agency.value = res.data?.agency || { name: '', logoUrl: null };
     serviceTypes.value = Array.isArray(res.data?.serviceTypes) ? res.data.serviceTypes : [];
+    await resolveEditAccess();
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load agency services.';
   } finally {
@@ -155,8 +280,50 @@ onMounted(load);
   background: #f8f9fa;
   font-family: var(--agency-font-family, system-ui, -apple-system, sans-serif);
 }
+.services-hub--editing { padding-bottom: 120px; }
+.hub-editor-bar {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 60;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 10px 16px;
+  background: #0f172a;
+  color: #f8fafc;
+  border-radius: 14px;
+  box-shadow: 0 16px 40px -18px rgba(15, 23, 42, 0.65);
+}
+.hub-editor-bar--active { background: #14532d; }
+.hub-editor-hint {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.hub-editor-btn {
+  border: 1px solid rgba(248, 250, 252, 0.35);
+  background: transparent;
+  color: inherit;
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.hub-editor-btn--primary {
+  background: #f8fafc;
+  color: #0f172a;
+  border-color: transparent;
+}
+.hub-editor-btn:disabled { opacity: 0.55; cursor: wait; }
+.hub-editor-link { color: #bae6fd; font-size: 0.82rem; }
+.hub-editor-error { margin: 0; width: 100%; color: #fecaca; font-size: 0.82rem; }
+.hub-editor-ok { margin: 0; width: 100%; color: #bbf7d0; font-size: 0.82rem; }
 
-/* Header */
 .hub-header {
   background: linear-gradient(135deg, var(--hub-p) 0%, color-mix(in srgb, var(--hub-p) 55%, white) 100%);
   padding: 2rem 1.5rem;
@@ -185,7 +352,6 @@ onMounted(load);
   font-size: 0.975rem;
 }
 
-/* Loading / error */
 .hub-loading {
   display: flex;
   align-items: center;
@@ -206,14 +372,12 @@ onMounted(load);
 .hub-error { padding: 3rem; text-align: center; color: #dc2626; }
 .hub-empty { padding: 3rem; text-align: center; color: #6b7280; }
 
-/* Main */
 .hub-main {
   max-width: 960px;
   margin: 0 auto;
   padding: 3rem 1.5rem;
 }
 
-/* Service cards */
 .service-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -221,43 +385,36 @@ onMounted(load);
   margin-bottom: 3rem;
 }
 .service-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 1rem;
+  padding: 1.75rem;
+  text-align: left;
+  cursor: pointer;
+  transition: box-shadow 0.15s, border-color 0.15s, transform 0.15s;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
   gap: 0.75rem;
-  background: #fff;
-  border: 2px solid transparent;
-  border-radius: 1rem;
-  padding: 2rem;
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.07);
 }
-.service-card:hover {
+.service-card:hover:not(.service-card--edit) {
+  border-color: var(--hub-a);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.08);
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0,0,0,0.1);
 }
-.service-card--counseling:hover { border-color: #5a7a6e; }
-.service-card--tutoring:hover { border-color: #1e3a5f; }
-
+.service-card--edit { cursor: default; }
 .service-card-icon {
-  width: 3rem;
-  height: 3rem;
+  width: 2.75rem;
+  height: 2.75rem;
   border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--hub-a) 12%, white);
+  color: var(--hub-a);
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.service-card--counseling .service-card-icon { background: #e8f4f0; color: #3d6b5f; }
-.service-card--tutoring .service-card-icon { background: #e8eef7; color: #1e3a5f; }
-:deep(.svc-icon) {
-  width: 1.75rem;
-  height: 1.75rem;
-}
-
+.service-card-icon :deep(.svc-icon) { width: 1.5rem; height: 1.5rem; }
 .service-card-title {
-  font-size: 1.35rem;
+  font-size: 1.2rem;
   font-weight: 700;
   color: #111827;
   margin: 0;
@@ -270,41 +427,47 @@ onMounted(load);
   flex: 1;
 }
 .service-card-cta {
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   font-weight: 600;
-  margin-top: 0.5rem;
+  color: var(--hub-a);
 }
-.service-card--counseling .service-card-cta { color: #3d6b5f; }
-.service-card--tutoring .service-card-cta { color: #1e3a5f; }
-
-/* Trust bar */
-.hub-trust {
+.hub-card-edit {
   display: flex;
-  flex-wrap: wrap;
-  gap: 1.5rem;
-  justify-content: center;
-  padding: 2rem;
-  background: #fff;
-  border-radius: 1rem;
-  border: 1px solid #e5e7eb;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  font-weight: 650;
+  color: #64748b;
+}
+.hub-card-edit input,
+.hub-card-edit textarea {
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.9rem;
+  color: #0f172a;
+  font-weight: 500;
+}
+
+.hub-trust {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1.25rem;
+  padding-top: 2rem;
+  border-top: 1px solid #e5e7eb;
 }
 .trust-item {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.65rem;
   font-size: 0.875rem;
-  color: #374151;
+  color: #4b5563;
   font-weight: 500;
 }
-.trust-icon {
-  width: 1.125rem;
-  height: 1.125rem;
-  color: rgba(255,255,255,0.8);
-}
+.trust-icon { width: 1.35rem; height: 1.35rem; color: var(--hub-a); flex-shrink: 0; }
 
 @media (max-width: 600px) {
-  .hub-header-inner { flex-direction: column; align-items: flex-start; }
-  .hub-main { padding: 2rem 1rem; }
-  .service-cards { grid-template-columns: 1fr; }
+  .hub-header-inner { flex-direction: column; text-align: center; }
+  .hub-headline h1 { font-size: 1.4rem; }
 }
 </style>

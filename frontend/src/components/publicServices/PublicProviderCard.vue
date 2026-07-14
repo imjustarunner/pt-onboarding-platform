@@ -58,8 +58,14 @@
 
     <!-- Right: Actions -->
     <div class="card-actions">
-      <button class="btn-outline" type="button" @click="$emit('view-profile', provider)">View Profile</button>
-      <button class="btn-book" type="button" :disabled="!hasSlots" @click="bookFirst">Book Now</button>
+      <button class="btn-outline" type="button" @click="$emit('view-profile', provider)">View profile</button>
+      <button
+        class="btn-book"
+        type="button"
+        @click="hasSlots ? bookFirst() : $emit('view-profile', provider)"
+      >
+        {{ hasSlots ? 'Book' : 'See availability' }}
+      </button>
     </div>
   </article>
 </template>

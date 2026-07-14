@@ -1,20 +1,87 @@
 <template>
-  <div class="pb" :data-mode="bookingMode" :data-theme="themeId" :style="brandStyle">
+  <div class="pb" :class="{ 'pb--editing': canEditBookingPage }" :data-mode="bookingMode" :data-theme="themeId" :style="brandStyle">
+    <div v-if="canEditBookingPage" class="pb-editor-bar" :class="{ 'pb-editor-bar--active': editing }">
+      <template v-if="!editing">
+        <span class="pb-editor-hint">Owner</span>
+        <button class="pb-editor-btn pb-editor-btn--primary" type="button" @click="startEdit">
+          Edit this page
+        </button>
+        <router-link v-if="adminSettingsPath" class="pb-editor-link" :to="adminSettingsPath">
+          Full settings
+        </router-link>
+      </template>
+      <template v-else>
+        <span class="pb-editor-hint">Editing</span>
+        <button class="pb-editor-btn" type="button" :disabled="savingEdit" @click="cancelEdit">Cancel</button>
+        <button class="pb-editor-btn pb-editor-btn--primary" type="button" :disabled="savingEdit" @click="saveEdit">
+          {{ savingEdit ? 'Saving…' : 'Save' }}
+        </button>
+        <router-link v-if="adminSettingsPath" class="pb-editor-link" :to="adminSettingsPath">
+          Full settings
+        </router-link>
+        <div class="pb-style-strip">
+          <label class="pb-style-field">
+            Accent
+            <input
+              :value="editDraft.accentColor || '#1b4332'"
+              type="color"
+              class="pb-style-color"
+              @input="editDraft.accentColor = $event.target.value"
+            />
+          </label>
+          <label class="pb-style-field">
+            Body font
+            <select v-model="editDraft.fontFamily" class="pb-style-select">
+              <option v-for="f in fontOptions" :key="`body-${f.id || 'default'}`" :value="f.id">{{ f.label }}</option>
+            </select>
+          </label>
+          <label class="pb-style-field">
+            Heading font
+            <select v-model="editDraft.headingFontFamily" class="pb-style-select">
+              <option v-for="f in fontOptions" :key="`head-${f.id || 'default'}`" :value="f.id">{{ f.label }}</option>
+            </select>
+          </label>
+          <label class="pb-style-field pb-style-field--grow">
+            Background image URL
+            <input v-model="editDraft.backgroundImageUrl" type="url" class="pb-style-input" placeholder="https://…" />
+          </label>
+        </div>
+        <p v-if="editError" class="pb-editor-error">{{ editError }}</p>
+        <p v-if="editOk" class="pb-editor-ok">{{ editOk }}</p>
+      </template>
+    </div>
+
     <!-- Consultant Elevate-style header -->
     <header v-if="isConsultant" class="pb-hero pb-hero--consultant">
       <div class="pb-hero-bar">
         <div class="pb-brand">
           <img v-if="agency.logoUrl" class="pb-logo" :src="agency.logoUrl" :alt="brandName" />
           <span v-else class="pb-mark">◆</span>
-          <span>{{ brandName }}</span>
+          <span v-if="editing">
+            <input v-model="editDraft.brandDisplayName" class="pb-inline-input" type="text" :placeholder="agency.name || 'Practice name'" />
+          </span>
+          <span v-else>{{ brandName }}</span>
         </div>
         <a class="pb-signin" href="/login">Sign in</a>
       </div>
       <div class="pb-hero-copy">
         <h1>Book a Session with {{ providerDisplayName }}</h1>
-        <p>{{ bookingPage.consultantTagline }}</p>
+        <p v-if="editing">
+          <input v-model="editDraft.consultantTagline" class="pb-inline-input pb-inline-input--wide" type="text" />
+        </p>
+        <p v-else>{{ page.consultantTagline }}</p>
         <div class="pb-benefits">
-          <span v-for="(b, i) in bookingPage.consultantBenefits" :key="i">✓ {{ b }}</span>
+          <template v-if="editing">
+            <input
+              v-for="(_, i) in editDraft.consultantBenefits"
+              :key="`ben-${i}`"
+              v-model="editDraft.consultantBenefits[i]"
+              class="pb-inline-input"
+              type="text"
+              placeholder="Benefit"
+            />
+          </template>
+          <span v-else v-for="(b, i) in page.consultantBenefits" :key="i">✓ {{ b }}</span>
         </div>
       </div>
     </header>
@@ -27,17 +94,48 @@
           <span v-else class="pb-mark coach" aria-hidden="true">
             <svg viewBox="0 0 40 40" width="28" height="28"><path fill="currentColor" d="M4 30 L20 8 L36 30 Z"/><circle cx="28" cy="10" r="5" fill="#d4a017"/></svg>
           </span>
-          <span>{{ brandName }}</span>
+          <span v-if="editing">
+            <input v-model="editDraft.brandDisplayName" class="pb-inline-input" type="text" :placeholder="agency.name || 'Practice name'" />
+          </span>
+          <span v-else>{{ brandName }}</span>
         </div>
-        <nav v-if="bookingPage.showNav && bookingPage.navLinks.length" class="coach-nav-links" aria-label="Practice">
-          <a v-for="link in bookingPage.navLinks" :key="link.label" :href="link.href">{{ link.label }}</a>
+        <nav v-if="(editing ? editDraft.showNav : page.showNav) && (editing ? editDraft.navLinks : page.navLinks).length" class="coach-nav-links" aria-label="Practice">
+          <template v-if="editing">
+            <span v-for="(link, i) in editDraft.navLinks" :key="`nav-${i}`" class="pb-nav-edit">
+              <input v-model="link.label" class="pb-inline-input" type="text" placeholder="Label" />
+            </span>
+          </template>
+          <a v-else v-for="link in page.navLinks" :key="link.label" :href="link.href">{{ link.label }}</a>
         </nav>
-        <button type="button" class="pb-cta-pill" @click="step = 1">{{ bookingPage.ctaLabel }}</button>
+        <button v-if="!editing" type="button" class="pb-cta-pill" @click="step = 1">{{ page.ctaLabel }}</button>
+        <input v-else v-model="editDraft.ctaLabel" class="pb-inline-input pb-cta-edit" type="text" placeholder="CTA label" />
+      </div>
+      <div v-if="showTeamBack" class="pb-team-back">
+        <router-link :to="teamFinderPath">← Back to all providers</router-link>
       </div>
       <div class="pb-hero-copy coach">
-        <div v-if="bookingPage.coachEyebrow" class="pb-eyebrow">{{ bookingPage.coachEyebrow }}</div>
-        <h1>{{ coachHeroTitle }}</h1>
-        <p>{{ coachHeroSub }}</p>
+        <div v-if="editing || page.coachEyebrow" class="pb-eyebrow">
+          <input v-if="editing" v-model="editDraft.coachEyebrow" class="pb-inline-input" type="text" placeholder="Eyebrow" />
+          <template v-else>{{ page.coachEyebrow }}</template>
+        </div>
+        <h1 v-if="editing">
+          <input
+            v-model="editDraft.coachHeroTitles[`step${step}`]"
+            class="pb-inline-input pb-inline-input--hero"
+            type="text"
+            placeholder="Hero title"
+          />
+        </h1>
+        <h1 v-else>{{ coachHeroTitle }}</h1>
+        <p v-if="editing">
+          <textarea
+            v-model="editDraft.coachHeroSubtitles[`step${step}`]"
+            class="pb-inline-input pb-inline-input--area"
+            rows="2"
+            placeholder="Hero subtitle"
+          />
+        </p>
+        <p v-else>{{ coachHeroSub }}</p>
       </div>
       <div class="pb-steps">
         <div class="pb-step" :class="{ done: step > 1, active: step === 1 }">
@@ -76,7 +174,7 @@
       <aside class="pb-profile">
         <div class="avatar" :style="avatarStyle">{{ providerInitials }}</div>
         <h2>{{ providerDisplayName }}</h2>
-        <p class="title">{{ provider?.title || bookingPage.providerTitleFallback || 'Senior Consultant' }}</p>
+        <p class="title">{{ provider?.title || page.providerTitleFallback || 'Senior Consultant' }}</p>
         <p class="bio">{{ providerBio }}</p>
         <ul class="stats">
           <li><strong>1:1 Sessions</strong><span>Strategy, operations &amp; growth</span></li>
@@ -171,7 +269,7 @@
         <aside class="pb-profile coach">
           <div class="avatar" :style="avatarStyle">{{ providerInitials }}</div>
           <h2>{{ providerDisplayName }}</h2>
-          <p class="title">{{ provider?.title || bookingPage.providerTitleFallback || 'Life Coach' }}</p>
+          <p class="title">{{ provider?.title || page.providerTitleFallback || 'Life Coach' }}</p>
           <p class="bio">{{ providerBio }}</p>
           <ul v-if="step === 1 && coachSpecialties.length" class="specialties">
             <li v-for="item in coachSpecialties" :key="item">✓ {{ item }}</li>
@@ -181,12 +279,12 @@
               <span class="mi" aria-hidden="true">⏱</span>
               {{ discoverySettings.discoveryDurationMin || 20 }} minute discovery call
             </li>
-            <li><span class="mi" aria-hidden="true">💻</span> {{ bookingPage.modalityLabel || 'Virtual' }}</li>
+            <li><span class="mi" aria-hidden="true">💻</span> {{ page.modalityLabel || 'Virtual' }}</li>
             <li v-if="step !== 1"><span class="mi" aria-hidden="true">🏷</span> 100% Free</li>
           </ul>
           <div class="expect">
-            <strong>{{ bookingPage.whatToExpectTitle || 'What to expect' }}</strong>
-            <p>{{ bookingPage.whatToExpectBody }}</p>
+            <strong>{{ page.whatToExpectTitle || 'What to expect' }}</strong>
+            <p>{{ page.whatToExpectBody }}</p>
           </div>
         </aside>
 
@@ -341,7 +439,7 @@
           <ol class="next-list">
             <li><strong>You share your availability.</strong><span>You let me know when you're typically free.</span></li>
             <li><strong>I'll review and reach out.</strong><span>I'll find the best time and send a calendar invite.</span></li>
-            <li><strong>We connect.</strong><span>We'll meet for a {{ discoverySettings.discoveryDurationMin || 20 }}-minute discovery call ({{ bookingPage.modalityLabel || 'Virtual' }}).</span></li>
+            <li><strong>We connect.</strong><span>We'll meet for a {{ discoverySettings.discoveryDurationMin || 20 }}-minute discovery call ({{ page.modalityLabel || 'Virtual' }}).</span></li>
           </ol>
           <div class="no-obligation">
             <strong>No Obligation</strong>
@@ -353,10 +451,10 @@
           <h3>Your Discovery Call</h3>
           <div><span>Selected Time</span><strong>{{ selectedSlotLabel }}</strong></div>
           <div><span>Duration</span><strong>{{ discoverySettings.discoveryDurationMin || 20 }} minutes</strong></div>
-          <div><span>Location</span><strong>{{ bookingPage.modalityLabel || 'Virtual' }}</strong></div>
+          <div><span>Location</span><strong>{{ page.modalityLabel || 'Virtual' }}</strong></div>
           <div><span>Investment</span><strong class="free">100% Free</strong></div>
-          <blockquote v-if="bookingPage.coachQuote" class="coach-quote">
-            “{{ bookingPage.coachQuote }}”
+          <blockquote v-if="page.coachQuote" class="coach-quote">
+            “{{ page.coachQuote }}”
             <cite>— {{ providerDisplayName }}</cite>
           </blockquote>
         </aside>
@@ -368,11 +466,26 @@
           <span>{{ vp.body }}</span>
         </div>
       </div>
+
+      <p v-if="isTutoring && !editing" class="pb-eval-link">
+        Need a full academic evaluation?
+        <button type="button" class="pb-eval-btn" @click="openEvalWizard">Start evaluation booking</button>
+      </p>
     </main>
+
+    <PublicBookingWizard
+      v-if="evalWizard.open"
+      :provider="evalWizard.provider"
+      :slot="evalWizard.slot"
+      :agency-slug="slug"
+      service-type="tutoring"
+      @close="closeEvalWizard"
+      @submitted="closeEvalWizard"
+    />
 
     <footer class="pb-footer" :class="{ coach: !isConsultant }">
       <div v-if="isConsultant" class="pb-footer-row">
-        <div v-for="(vp, i) in bookingPage.valueProps" :key="i">
+        <div v-for="(vp, i) in page.valueProps" :key="i">
           <strong>{{ vp.title }}</strong>
           <span>{{ vp.body }}</span>
         </div>
@@ -383,24 +496,47 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
 import {
   addDaysYmd,
+  compactBookingPageForSave,
   formatPriceCents,
   resolveBookingPageSettings,
   resolveDiscoverySettings,
   resolveServiceCatalog,
   startOfWeekMondayYmd
 } from '../../utils/practitionerBooking.js';
+import { isPractitionerOrgType } from '../../utils/practitionerVertical.js';
+import {
+  CAREERS_FONT_OPTIONS,
+  ensureCareersGoogleFonts,
+  resolveCareersFontCss
+} from '../../utils/careersAssets.js';
+import {
+  listPathForServiceType,
+  normalizePublicProvider,
+  normalizePublicProviders,
+  resolvePublicServiceType
+} from '../../utils/publicAgencyServices.js';
+import PublicBookingWizard from '../../components/publicServices/PublicBookingWizard.vue';
 
 const route = useRoute();
+const authStore = useAuthStore();
 const slug = computed(() => String(route.params.organizationSlug || '').trim());
-const serviceType = computed(() => {
-  const meta = String(route.meta?.serviceType || '').toLowerCase();
-  if (meta === 'coaching' || meta === 'consulting') return meta;
-  return String(route.path || '').includes('find-consultant') ? 'consulting' : 'coaching';
+const routeProviderId = computed(() => Number(route.params.providerId || 0) || 0);
+const serviceType = computed(() =>
+  resolvePublicServiceType({
+    query: route.query,
+    meta: route.meta,
+    path: route.path
+  })
+);
+const slotsProgramType = computed(() => {
+  const q = String(route.query.programType || '').toUpperCase();
+  return q === 'IN_PERSON' ? 'IN_PERSON' : 'VIRTUAL';
 });
 
 const loading = ref(true);
@@ -408,6 +544,13 @@ const error = ref('');
 const agency = ref({ name: '', organizationType: '', logoUrl: null, colorPalette: {} });
 const discoverySettings = ref(resolveDiscoverySettings('life_coach'));
 const bookingPage = ref(resolveBookingPageSettings('life_coach'));
+const editDraft = ref(null);
+const editing = ref(false);
+const savingEdit = ref(false);
+const editError = ref('');
+const editOk = ref('');
+const canEditBookingPage = ref(false);
+const fontOptions = CAREERS_FONT_OPTIONS;
 const serviceCatalog = ref([]);
 const providers = ref([]);
 const provider = ref(null);
@@ -422,6 +565,7 @@ const submitted = ref(false);
 const submitError = ref('');
 const findingFirst = ref(false);
 const firstAvailableHint = ref('');
+const evalWizard = ref({ open: false, provider: null, slot: null });
 const form = ref({
   name: '',
   email: '',
@@ -439,30 +583,55 @@ const prefDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const year = new Date().getFullYear();
 const thisWeekStartYmd = startOfWeekMondayYmd(new Date().toISOString().slice(0, 10));
 
-const isConsultant = computed(() => serviceType.value === 'consulting' || agency.value.organizationType === 'consultant');
+const isConsultant = computed(
+  () =>
+    serviceType.value === 'consulting' ||
+    (agency.value.organizationType === 'consultant' &&
+      !['counseling', 'tutoring', 'coaching'].includes(serviceType.value))
+);
+const isTutoring = computed(() => serviceType.value === 'tutoring');
 const bookingMode = computed(() => (isConsultant.value ? 'consultant' : 'life_coach'));
 const themeId = computed(() => (isConsultant.value ? 'consultant' : 'life_coach'));
+const orgTypeKey = computed(
+  () => agency.value.organizationType || (isConsultant.value ? 'consultant' : 'life_coach')
+);
+const teamFinderPath = computed(() => {
+  const s = slug.value;
+  if (!s) return '';
+  if (serviceType.value === 'counseling') return `/${s}/find-counselor`;
+  if (serviceType.value === 'tutoring') return `/${s}/find-tutor`;
+  if (serviceType.value === 'coaching') return `/${s}/find-coach`;
+  if (serviceType.value === 'consulting') return `/${s}/find-consultant`;
+  return `/${s}/services`;
+});
+const showTeamBack = computed(() => routeProviderId.value > 0 && !!teamFinderPath.value);
+const page = computed(() => editDraft.value || bookingPage.value);
 
 const brandName = computed(
-  () => bookingPage.value.brandDisplayName || agency.value.name || (isConsultant.value ? 'Consulting' : 'Life Coaching')
+  () => page.value.brandDisplayName || agency.value.name || (isConsultant.value ? 'Consulting' : 'Life Coaching')
 );
 const coachSpecialties = computed(() =>
-  Array.isArray(bookingPage.value.specialties) ? bookingPage.value.specialties.filter(Boolean) : []
+  Array.isArray(page.value.specialties) ? page.value.specialties.filter(Boolean) : []
 );
 const activeValueProps = computed(() => {
-  if (step.value === 1) return bookingPage.value.valuePropsStep1 || [];
-  return bookingPage.value.valuePropsLater || [];
+  if (step.value === 1) return page.value.valuePropsStep1 || [];
+  return page.value.valuePropsLater || [];
 });
 const brandStyle = computed(() => {
   const palette = agency.value.colorPalette || {};
-  const primary = palette.primary || (isConsultant.value ? '#5a32ea' : '#1b4332');
+  const pageAccent = String(page.value.accentColor || '').trim();
+  const primary = pageAccent || palette.primary || (isConsultant.value ? '#5a32ea' : '#1b4332');
   const secondary = palette.secondary || (isConsultant.value ? '#0a1024' : '#1b4332');
   const accent = palette.accent || primary;
-  const bg = bookingPage.value.backgroundImageUrl || '';
+  const bg = page.value.backgroundImageUrl || '';
+  const bodyFont = resolveCareersFontCss(page.value.fontFamily) || "'DM Sans', system-ui, sans-serif";
+  const headingFont = resolveCareersFontCss(page.value.headingFontFamily) || bodyFont;
   const style = {
     '--pb-accent': primary,
     '--pb-ink': secondary,
-    '--pb-accent-soft': accent
+    '--pb-accent-soft': accent,
+    '--pb-font': bodyFont,
+    '--pb-heading-font': headingFont
   };
   if (bg && !isConsultant.value) {
     style['--pb-bg-image'] = `url(${bg})`;
@@ -471,17 +640,30 @@ const brandStyle = computed(() => {
 });
 
 const coachHeroTitle = computed(() => {
-  const titles = bookingPage.value.coachHeroTitles || {};
+  const titles = page.value.coachHeroTitles || {};
   if (step.value === 1) return titles.step1 || "Let's find a time that works for you";
   if (step.value === 2) return titles.step2 || 'Almost there!';
   return titles.step3 || "You're almost all set!";
 });
 const coachHeroSub = computed(() => {
-  const subs = bookingPage.value.coachHeroSubtitles || {};
+  const subs = page.value.coachHeroSubtitles || {};
   if (step.value === 1) return subs.step1 || '';
   if (step.value === 2) return subs.step2 || '';
   return subs.step3 || '';
 });
+
+const adminSettingsPath = computed(() => {
+  const s = slug.value;
+  return s ? `/${encodeURIComponent(s)}/admin/public-services` : '';
+});
+
+watch(
+  () => [page.value.fontFamily, page.value.headingFontFamily],
+  ([body, heading]) => {
+    ensureCareersGoogleFonts([body, heading]);
+  },
+  { immediate: true }
+);
 
 const providerDisplayName = computed(() => {
   if (provider.value?.displayName) return provider.value.displayName;
@@ -501,7 +683,7 @@ const providerBio = computed(
   () =>
     provider.value?.profile?.publicBlurb ||
     provider.value?.serviceFocus ||
-    bookingPage.value.providerBioFallback ||
+    page.value.providerBioFallback ||
     ''
 );
 const avatarStyle = computed(() => {
@@ -573,7 +755,7 @@ const selectedSlotLabel = computed(() => {
 const canGoPrevWeek = computed(() => weekStart.value > thisWeekStartYmd);
 
 const enabledStep3Fields = computed(() =>
-  (bookingPage.value.step3Fields || []).filter((f) => f && f.enabled !== false)
+  (page.value.step3Fields || []).filter((f) => f && f.enabled !== false)
 );
 
 const preferenceReady = computed(
@@ -618,7 +800,7 @@ async function fetchSlotsForWeek(weekYmd) {
       params: {
         weekStart: weekYmd,
         bookingMode: 'NEW_CLIENT',
-        programType: 'VIRTUAL'
+        programType: slotsProgramType.value
       },
       skipAuthRedirect: true
     }
@@ -703,7 +885,7 @@ async function loadSlots() {
         params: {
           weekStart: weekStart.value,
           bookingMode: 'NEW_CLIENT',
-          programType: 'VIRTUAL'
+          programType: slotsProgramType.value
         },
         skipAuthRedirect: true
       }
@@ -733,6 +915,7 @@ async function load() {
     for (const field of bookingPage.value.step3Fields || []) {
       if (form.value[field.id] === undefined) form.value[field.id] = '';
     }
+    await resolveEditAccess();
     serviceCatalog.value = hubRes.data?.serviceCatalog?.length
       ? hubRes.data.serviceCatalog
       : resolveServiceCatalog(orgType, {
@@ -742,17 +925,48 @@ async function load() {
           discoveryLabel: discoverySettings.value.discoveryLabel
         });
 
-    const listPath = serviceType.value === 'consulting' ? 'consultants' : 'coaches';
+    const listPath = listPathForServiceType(serviceType.value);
     const listRes = await api.get(`/public/agency-services/${encodeURIComponent(slug.value)}/${listPath}`, {
       params: {
         bookingMode: 'NEW_CLIENT',
-        programType: 'VIRTUAL',
+        programType: slotsProgramType.value,
         weekStart: weekStart.value
       },
       skipAuthRedirect: true
     });
-    providers.value = Array.isArray(listRes.data?.providers) ? listRes.data.providers : [];
-    provider.value = providers.value[0] || null;
+    providers.value = normalizePublicProviders(listRes.data?.providers);
+    const wantedId = routeProviderId.value;
+    provider.value =
+      (wantedId
+        ? providers.value.find((p) => Number(p.id) === wantedId)
+        : null) ||
+      providers.value[0] ||
+      null;
+
+    if (wantedId && !provider.value) {
+      // Fall back to detail endpoint when list filters hide the provider
+      try {
+        const detailRes = await api.get(
+          `/public/agency-services/${encodeURIComponent(slug.value)}/providers/${wantedId}`,
+          {
+            params: {
+              serviceType: serviceType.value,
+              bookingMode: 'NEW_CLIENT',
+              programType: slotsProgramType.value,
+              weekStart: weekStart.value
+            },
+            skipAuthRedirect: true
+          }
+        );
+        provider.value = normalizePublicProvider({
+          ...(detailRes.data?.provider || {}),
+          profile: detailRes.data?.profile,
+          availability: detailRes.data?.availability
+        });
+      } catch {
+        error.value = 'That provider is not available for booking.';
+      }
+    }
 
     if (isConsultant.value) {
       const requiredDiscovery = discoverySettings.value.discoveryBookingRequired;
@@ -763,6 +977,15 @@ async function load() {
     }
 
     await loadSlots();
+
+    const slotStartQ = String(route.query.slotStart || '').trim();
+    if (slotStartQ && slots.value.length) {
+      const match = slots.value.find((s) => String(s.startAt) === slotStartQ);
+      if (match) {
+        pickCoachSlot(match, String(match.startAt).slice(0, 10));
+        if (!isConsultant.value) step.value = 1;
+      }
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load booking page.';
   } finally {
@@ -825,9 +1048,9 @@ async function submitBooking() {
       {
         serviceType: serviceType.value,
         providerId: provider.value.id,
-        modality: 'VIRTUAL',
+        modality: selectedSlot.value.programType || slotsProgramType.value || 'VIRTUAL',
         bookingMode: 'NEW_CLIENT',
-        programType: 'VIRTUAL',
+        programType: selectedSlot.value.programType || slotsProgramType.value || 'VIRTUAL',
         startAt: selectedSlot.value.startAt,
         endAt: selectedSlot.value.endAt,
         name: form.value.name,
@@ -851,7 +1074,124 @@ async function submitBooking() {
   }
 }
 
-onMounted(load);
+onMounted(async () => {
+  if (authStore.isAuthenticated) {
+    try {
+      await authStore.refreshUser();
+    } catch {
+      // best effort
+    }
+  }
+  await load();
+});
+
+watch(
+  () => [
+    String(route.params.providerId || ''),
+    String(route.query.serviceType || ''),
+    String(route.query.slotStart || '')
+  ],
+  async (curr, prev) => {
+    if (!prev || curr.join('|') === prev.join('|')) return;
+    if (!slug.value) return;
+    await load();
+  }
+);
+
+function openEvalWizard() {
+  if (!provider.value) return;
+  evalWizard.value = {
+    open: true,
+    provider: provider.value,
+    slot: selectedSlot.value || provider.value?.availability?.slots?.[0] || null
+  };
+}
+
+function closeEvalWizard() {
+  evalWizard.value = { open: false, provider: null, slot: null };
+}
+
+async function resolveEditAccess() {
+  canEditBookingPage.value = false;
+  if (!authStore.isAuthenticated) return;
+  const agencyId = Number(agency.value.id || 0);
+  if (!agencyId) return;
+  const role = String(authStore.user?.role || '').toLowerCase();
+  if (role === 'super_admin' || role === 'support') {
+    canEditBookingPage.value = true;
+    return;
+  }
+  if (['provider', 'provider_plus', 'client_guardian', 'kiosk'].includes(role)) {
+    canEditBookingPage.value = false;
+    return;
+  }
+  const orgType = agency.value.organizationType || orgTypeKey.value;
+  // Team / agency admins can edit booking copy for clinical & tutoring tenants.
+  if (!isPractitionerOrgType(orgType)) {
+    if (['admin', 'agency_admin', 'staff'].includes(role)) {
+      canEditBookingPage.value = true;
+    }
+    return;
+  }
+  try {
+    const res = await api.get('/practitioner-team/me', {
+      params: { agencyId },
+      skipGlobalLoading: true
+    });
+    canEditBookingPage.value = !!res.data?.isOwner;
+  } catch {
+    canEditBookingPage.value = false;
+  }
+}
+
+function startEdit() {
+  const orgType = orgTypeKey.value;
+  editDraft.value = resolveBookingPageSettings(orgType, {
+    ...bookingPage.value,
+    coachHeroTitles: { ...(bookingPage.value.coachHeroTitles || {}) },
+    coachHeroSubtitles: { ...(bookingPage.value.coachHeroSubtitles || {}) },
+    navLinks: (bookingPage.value.navLinks || []).map((l) => ({ ...l })),
+    consultantBenefits: [...(bookingPage.value.consultantBenefits || [])],
+    specialties: [...(bookingPage.value.specialties || [])],
+    step3Fields: (bookingPage.value.step3Fields || []).map((f) => ({ ...f, options: [...(f.options || [])] }))
+  });
+  if (!editDraft.value.consultantBenefits.length && isConsultant.value) {
+    editDraft.value.consultantBenefits = ['', '', ''];
+  }
+  editing.value = true;
+  editError.value = '';
+  editOk.value = '';
+}
+
+function cancelEdit() {
+  editing.value = false;
+  editDraft.value = null;
+  editError.value = '';
+  editOk.value = '';
+}
+
+async function saveEdit() {
+  const agencyId = Number(agency.value.id || 0);
+  if (!agencyId || !editDraft.value) return;
+  savingEdit.value = true;
+  editError.value = '';
+  editOk.value = '';
+  try {
+    const payload = compactBookingPageForSave(orgTypeKey.value, editDraft.value);
+    await api.put(`/agencies/${agencyId}`, { publicBookingSettings: payload });
+    bookingPage.value = resolveBookingPageSettings(orgTypeKey.value, payload);
+    editing.value = false;
+    editDraft.value = null;
+    editOk.value = 'Saved';
+    setTimeout(() => {
+      editOk.value = '';
+    }, 2500);
+  } catch (e) {
+    editError.value = e?.response?.data?.error?.message || e.message || 'Could not save';
+  } finally {
+    savingEdit.value = false;
+  }
+}
 </script>
 
 <style scoped>
@@ -865,8 +1205,129 @@ onMounted(load);
   min-height: 100vh;
   background: var(--surface);
   color: #111827;
-  font-family: 'DM Sans', system-ui, sans-serif;
+  font-family: var(--pb-font, 'DM Sans', system-ui, sans-serif);
 }
+.pb h1, .pb h2, .pb h3 {
+  font-family: var(--pb-heading-font, var(--pb-font, 'DM Sans', system-ui, sans-serif));
+}
+.pb--editing {
+  padding-bottom: 160px;
+}
+.pb-editor-bar {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 60;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 10px 16px;
+  background: #0f172a;
+  color: #f8fafc;
+  border-radius: 14px;
+  box-shadow: 0 16px 40px -18px rgba(15, 23, 42, 0.65);
+  max-height: min(42vh, 340px);
+  overflow: auto;
+}
+.pb-editor-bar--active { background: #14532d; }
+.pb-editor-hint {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-right: 4px;
+}
+.pb-editor-btn {
+  border: 1px solid rgba(248, 250, 252, 0.35);
+  background: transparent;
+  color: inherit;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.pb-editor-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.pb-editor-btn--primary { background: #fff; color: #0f172a; border-color: #fff; }
+.pb-editor-bar--active .pb-editor-btn--primary {
+  background: #bbf7d0;
+  color: #14532d;
+  border-color: #bbf7d0;
+}
+.pb-editor-link {
+  color: #cbd5e1;
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-left: auto;
+  text-decoration: none;
+}
+.pb-editor-error { flex-basis: 100%; margin: 0; color: #fecaca; font-size: 0.82rem; }
+.pb-editor-ok { flex-basis: 100%; margin: 0; color: #bbf7d0; font-size: 0.82rem; }
+.pb-style-strip {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(248, 250, 252, 0.18);
+}
+.pb-style-field {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #cbd5e1;
+}
+.pb-style-field--grow { flex: 1 1 220px; min-width: 180px; }
+.pb-style-select,
+.pb-style-input {
+  border: 1px solid rgba(248, 250, 252, 0.28);
+  background: rgba(15, 23, 42, 0.35);
+  color: #f8fafc;
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 0.8rem;
+  min-width: 110px;
+}
+.pb-style-color {
+  width: 36px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(248, 250, 252, 0.28);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+.pb-inline-input {
+  border: 1px dashed rgba(15, 23, 42, 0.25);
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 8px;
+  padding: 0.35rem 0.55rem;
+  font: inherit;
+  color: inherit;
+  width: min(100%, 28rem);
+}
+.pb-inline-input--wide { width: min(100%, 36rem); }
+.pb-inline-input--hero {
+  width: min(100%, 40rem);
+  font-size: inherit;
+  font-weight: inherit;
+}
+.pb-inline-input--area {
+  width: min(100%, 40rem);
+  resize: vertical;
+}
+.pb-cta-edit {
+  max-width: 12rem;
+  border-radius: 999px;
+}
+.pb-nav-edit { display: inline-flex; }
 .pb[data-theme='life_coach'] {
   --accent: var(--pb-accent, #1b4332);
   --ink: var(--pb-ink, #1b4332);
@@ -917,6 +1378,35 @@ onMounted(load);
 }
 .coach-nav-links a { color: inherit; text-decoration: none; }
 .coach-nav-links a:hover { color: var(--accent); }
+.pb-team-back {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0.5rem 1.5rem 0;
+}
+.pb-team-back a {
+  color: inherit;
+  opacity: 0.85;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+.pb-team-back a:hover { opacity: 1; text-decoration: underline; }
+.pb-eval-link {
+  max-width: 1100px;
+  margin: 1.5rem auto 0;
+  padding: 0 1.5rem;
+  text-align: center;
+  font-size: 0.95rem;
+  color: #475569;
+}
+.pb-eval-btn {
+  margin-left: 0.35rem;
+  border: none;
+  background: none;
+  color: var(--pb-accent, #1b4332);
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+}
 .pb-hero-bar {
   max-width: 1180px;
   margin: 0 auto 1.5rem;

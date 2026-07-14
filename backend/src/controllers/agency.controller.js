@@ -5,6 +5,11 @@ import AgencySchool from '../models/AgencySchool.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import pool from '../config/database.js';
 import { syncTenantState } from '../services/featureEntitlement.service.js';
+import {
+  isPractitionerOrgType,
+  requirePractitionerOwner
+} from '../utils/practitionerAssistantAccess.js';
+import { sanitizePublicBookingSettings } from '../utils/publicBookingSettingsSanitize.js';
 
 const parseJsonField = (raw) => {
   if (raw === null || raw === undefined || raw === '') return null;
@@ -721,6 +726,26 @@ export const updateAgency = async (req, res, next) => {
       ? parseJsonField(reviewPromptConfig)
       : undefined;
 
+    // Practitioner tenants: only the owner may update public booking page branding/copy.
+    let sanitizedPublicBookingSettings = undefined;
+    if (req.body?.publicBookingSettings !== undefined || req.body?.public_booking_settings !== undefined) {
+      const existingAgency = await Agency.findById(id);
+      if (!existingAgency) {
+        return res.status(404).json({ error: { message: 'Agency not found' } });
+      }
+      const orgType = String(existingAgency.organization_type || '').toLowerCase();
+      if (isPractitionerOrgType(orgType)) {
+        try {
+          requirePractitionerOwner(req);
+        } catch (e) {
+          return res.status(e.status || 403).json({ error: { message: e.message || 'Owner access required' } });
+        }
+      }
+      sanitizedPublicBookingSettings = sanitizePublicBookingSettings(
+        req.body.publicBookingSettings ?? req.body.public_booking_settings
+      );
+    }
+
     // Platform-only fields: only super_admin can change these. Agency admins cannot edit isActive, slug.
     const isSuperAdmin = req.user?.role === 'super_admin';
     const effectiveIsActive = isSuperAdmin ? isActive : undefined;
@@ -817,7 +842,7 @@ export const updateAgency = async (req, res, next) => {
       themeSettings: formattedThemeSettings,
       customParameters: formattedCustomParameters,
       reviewPromptConfig: formattedReviewPromptConfig,
-      publicBookingSettings: req.body?.publicBookingSettings,
+      publicBookingSettings: sanitizedPublicBookingSettings,
       featureFlags: formattedFeatureFlags,
       tenantAvailableAgencyFeaturesJson: effectiveTenantAvailableFeatures,
       publicAvailabilityEnabled,

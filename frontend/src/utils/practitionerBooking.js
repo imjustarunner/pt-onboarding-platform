@@ -149,10 +149,17 @@ export function resolveServiceCatalog(orgType, featureFlags = {}) {
  * Pathway (3-step discovery vs consultant service+calendar) stays by org type;
  * every copy/visual area here is overridable per tenant.
  */
+const BOOKING_PAGE_STYLE_DEFAULTS = Object.freeze({
+  fontFamily: '',
+  headingFontFamily: '',
+  accentColor: ''
+});
+
 export function defaultBookingPageSettings(orgType) {
   const t = String(orgType || '').toLowerCase();
   if (t === 'consultant') {
     return {
+      ...BOOKING_PAGE_STYLE_DEFAULTS,
       brandDisplayName: '',
       ctaLabel: 'Book a Session',
       showNav: false,
@@ -188,6 +195,7 @@ export function defaultBookingPageSettings(orgType) {
   }
   // life_coach (+ fallback)
   return {
+    ...BOOKING_PAGE_STYLE_DEFAULTS,
     brandDisplayName: '',
     ctaLabel: 'Book a Discovery Call',
     showNav: true,
@@ -386,6 +394,9 @@ export function resolveBookingPageSettings(orgType, stored = {}) {
   const titles = { ...defaults.coachHeroTitles, ...(raw.coachHeroTitles || {}) };
   const subs = { ...defaults.coachHeroSubtitles, ...(raw.coachHeroSubtitles || {}) };
   return {
+    fontFamily: String(raw.fontFamily || defaults.fontFamily || '').trim().toLowerCase(),
+    headingFontFamily: String(raw.headingFontFamily || defaults.headingFontFamily || '').trim().toLowerCase(),
+    accentColor: String(raw.accentColor || defaults.accentColor || '').trim(),
     brandDisplayName: String(raw.brandDisplayName ?? defaults.brandDisplayName).trim(),
     ctaLabel: String(raw.ctaLabel || defaults.ctaLabel).trim() || defaults.ctaLabel,
     showNav: raw.showNav === undefined ? defaults.showNav : !!raw.showNav,
@@ -415,6 +426,39 @@ export function resolveBookingPageSettings(orgType, stored = {}) {
     valuePropsStep1: asValueProps(raw.valuePropsStep1, defaults.valuePropsStep1),
     valuePropsLater: asValueProps(raw.valuePropsLater, defaults.valuePropsLater),
     step3Fields: resolveStep3Fields(raw.step3Fields || defaults.step3Fields)
+  };
+}
+
+/**
+ * Shape a booking page draft into the JSON payload for PUT /agencies/:id publicBookingSettings.
+ */
+export function compactBookingPageForSave(orgType, draft = {}) {
+  const resolved = resolveBookingPageSettings(orgType, draft);
+  return {
+    fontFamily: resolved.fontFamily,
+    headingFontFamily: resolved.headingFontFamily,
+    accentColor: resolved.accentColor,
+    brandDisplayName: resolved.brandDisplayName,
+    ctaLabel: resolved.ctaLabel,
+    showNav: resolved.showNav,
+    navLinks: resolved.navLinks,
+    backgroundImageUrl: resolved.backgroundImageUrl,
+    consultantTagline: resolved.consultantTagline,
+    consultantBenefits: resolved.consultantBenefits,
+    providerTitleFallback: resolved.providerTitleFallback,
+    providerBioFallback: resolved.providerBioFallback,
+    specialties: resolved.specialties,
+    whatToExpectTitle: resolved.whatToExpectTitle,
+    whatToExpectBody: resolved.whatToExpectBody,
+    coachQuote: resolved.coachQuote,
+    modalityLabel: resolved.modalityLabel,
+    coachEyebrow: resolved.coachEyebrow,
+    coachHeroTitles: resolved.coachHeroTitles,
+    coachHeroSubtitles: resolved.coachHeroSubtitles,
+    valueProps: resolved.valueProps,
+    valuePropsStep1: resolved.valuePropsStep1,
+    valuePropsLater: resolved.valuePropsLater,
+    step3Fields: resolved.step3Fields
   };
 }
 

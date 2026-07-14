@@ -485,7 +485,7 @@ const routes = [
   {
     path: '/:organizationSlug/find-coach',
     name: 'PublicCoachFinder',
-    component: () => import('../views/public/PublicPractitionerBookingView.vue'),
+    component: () => import('../views/public/PublicCoachFinderGate.vue'),
     meta: { requiresGuest: false, organizationSlug: true, serviceType: 'coaching' }
   },
   {
@@ -493,6 +493,12 @@ const routes = [
     name: 'PublicConsultantFinder',
     component: () => import('../views/public/PublicPractitionerBookingView.vue'),
     meta: { requiresGuest: false, organizationSlug: true, serviceType: 'consulting' }
+  },
+  {
+    path: '/:organizationSlug/book/:providerId',
+    name: 'PublicProviderBook',
+    component: () => import('../views/public/PublicPractitionerBookingView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true, publicProviderBook: true }
   },
   {
     path: '/:organizationSlug/discovery/:token',
