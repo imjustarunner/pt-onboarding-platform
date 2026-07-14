@@ -294,6 +294,7 @@ import { toUploadsUrl } from '../../utils/uploadsUrl';
 import {
   getFeatureIconUrl,
   getHeroPresetByUrl,
+  resolveDefaultHeroPreset,
   resolveDefaultJobIconUrl
 } from '../../utils/careersAssets';
 
@@ -359,22 +360,34 @@ const eyebrow = computed(() => String(agencyCareersPage.value?.eyebrow || '').tr
 const heroHeadline = computed(() => String(agencyCareersPage.value?.heroHeadline || '').trim());
 const heroSubheadline = computed(() => String(agencyCareersPage.value?.heroSubheadline || '').trim());
 const careersSubtitle = computed(() => String(agencyCareersPage.value?.lead || '').trim());
+const defaultHeroPreset = computed(() =>
+  resolveDefaultHeroPreset({ slug: slug.value, agencyName: agencyName.value })
+);
 const careersHeroImageUrl = computed(() => {
   const raw = String(agencyCareersPage.value?.heroImageUrl || '').trim();
-  if (!raw) return '';
-  if (raw.startsWith('/assets/')) return raw;
-  return toUploadsUrl(raw) || raw;
+  if (raw) {
+    if (raw.startsWith('/assets/')) return raw;
+    return toUploadsUrl(raw) || raw;
+  }
+  // Always show the branded framed hero when none is configured:
+  // ITSCO → itsco-framed, NLU → nlu-framed, others → neutral-framed
+  return defaultHeroPreset.value?.url || '';
 });
 const careersHeroImageAlt = computed(() => String(agencyCareersPage.value?.heroImageAlt || `${agencyName.value || 'Agency'} careers`).trim());
 const careersHeroImagePosition = computed(() => String(agencyCareersPage.value?.heroImagePosition || 'center center').trim());
 const heroFrameStyle = computed(() => {
   const explicit = String(agencyCareersPage.value?.heroFrameStyle || '').trim().toLowerCase();
   if (['preframed', 'organic', 'rounded'].includes(explicit)) return explicit;
-  const preset = getHeroPresetByUrl(String(agencyCareersPage.value?.heroImageUrl || '').trim());
+  const configuredUrl = String(agencyCareersPage.value?.heroImageUrl || '').trim();
+  const preset = getHeroPresetByUrl(configuredUrl) || (!configuredUrl ? defaultHeroPreset.value : null);
   if (preset?.frameStyle) return preset.frameStyle;
   return careersHeroImageUrl.value ? 'rounded' : 'rounded';
 });
-const showLeafAccent = computed(() => agencyCareersPage.value?.showLeafAccent !== false);
+const showLeafAccent = computed(() => {
+  // Preframed assets already include the leaf/frame artwork
+  if (heroFrameStyle.value === 'preframed') return false;
+  return agencyCareersPage.value?.showLeafAccent !== false;
+});
 const agencyFeatureCards = computed(() =>
   (Array.isArray(agencyCareersPage.value?.featureCards) ? agencyCareersPage.value.featureCards : [])
     .map((c) => ({ icon: String(c?.icon || ''), title: String(c?.title || '').trim(), body: String(c?.body || '').trim() }))
@@ -542,10 +555,21 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-hero-img { display: block; width: 100%; aspect-ratio: 1.45 / 1; object-fit: cover; border-radius: 40% 48% 36% 52% / 42% 38% 48% 44%; box-shadow: 0 28px 60px -30px rgba(15, 23, 42, 0.5); }
 .cr-hero-fig--preframed .cr-hero-img {
   aspect-ratio: auto;
+  width: 100%;
+  max-width: 560px;
+  margin-left: auto;
   object-fit: contain;
   border-radius: 0;
   box-shadow: none;
   background: transparent;
+}
+.cr-hero-fig--preframed {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+.cr-hero-fig--preframed .cr-hero-frame {
+  width: 100%;
 }
 .cr-hero-fig--organic .cr-hero-img {
   border-radius: 42% 58% 40% 60% / 48% 40% 55% 45%;

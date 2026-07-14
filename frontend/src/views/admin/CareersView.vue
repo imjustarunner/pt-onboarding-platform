@@ -93,14 +93,17 @@
             Show decorative leaf accent near hero photo (custom rounded photos only)
           </label>
           <div class="hero-upload-field" style="grid-column: 1 / -1;">
-            <label class="field-label">Hero frame presets <span class="field-hint">— branded organic frames, or upload your own</span></label>
+            <label class="field-label">Hero frame presets <span class="field-hint">— auto: ITSCO uses ITSCO frame, NLU uses NLU frame, others use Neutral until you override</span></label>
+            <p v-if="!agencyPageForm.heroImageUrl && agencyDefaultHero" class="muted small" style="margin:0 0 8px;">
+              Currently using default: <strong>{{ agencyDefaultHero.label }}</strong> (shown on the public page automatically)
+            </p>
             <div class="hero-preset-grid">
               <button
                 v-for="preset in heroPresets"
                 :key="preset.id"
                 type="button"
                 class="hero-preset-card"
-                :class="{ 'hero-preset-card--active': agencyPageForm.heroImageUrl === preset.url }"
+                :class="{ 'hero-preset-card--active': (agencyPageForm.heroImageUrl || agencyDefaultHero?.url) === preset.url }"
                 @click="applyHeroPreset(agencyPageForm, preset)"
               >
                 <img :src="preset.url" :alt="preset.label" />
@@ -566,7 +569,8 @@ import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import {
   CAREERS_HERO_PRESETS,
-  CAREERS_JOB_ICONS
+  CAREERS_JOB_ICONS,
+  resolveDefaultHeroPreset
 } from '../../utils/careersAssets';
 const router = useRouter();
 const route = useRoute();
@@ -604,6 +608,12 @@ const cardIconOptions = [
 ];
 const heroPresets = CAREERS_HERO_PRESETS;
 const jobIconLibrary = CAREERS_JOB_ICONS;
+const agencyDefaultHero = computed(() =>
+  resolveDefaultHeroPreset({
+    slug: selectedAgency.value?.slug || '',
+    agencyName: selectedAgency.value?.name || selectedAgency.value?.official_name || ''
+  })
+);
 const blankDisplayCard = () => ({ icon: 'none', title: '', body: '' });
 const blankApplicationPage = () => ({
   heroHeadline: '',

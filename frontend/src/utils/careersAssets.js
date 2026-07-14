@@ -25,7 +25,7 @@ export const CAREERS_HERO_PRESETS = [
     label: 'Neutral framed',
     url: `${BASE}/heroes/neutral-framed.png`,
     frameStyle: 'preframed',
-    description: 'Agency-neutral framed hero for future branding'
+    description: 'Agency-neutral framed hero for future agencies'
   },
   {
     id: 'colorado-photo',
@@ -35,6 +35,23 @@ export const CAREERS_HERO_PRESETS = [
     description: 'Full landscape photo — clipped to an organic shape on the page'
   }
 ];
+
+const HERO_BY_ID = Object.fromEntries(CAREERS_HERO_PRESETS.map((h) => [h.id, h]));
+
+/**
+ * Default framed hero by agency:
+ * - ITSCO → itsco-framed
+ * - NLU → nlu-framed
+ * - everyone else → neutral-framed (for future agencies)
+ */
+export function resolveDefaultHeroPreset({ slug = '', agencyName = '' } = {}) {
+  const hay = `${slug || ''} ${agencyName || ''}`.trim().toLowerCase();
+  if (hay.includes('itsco')) return HERO_BY_ID['itsco-framed'];
+  if (/(^|[^a-z])nlu([^a-z]|$)/.test(hay) || hay.includes('new life') || hay.includes('newlife')) {
+    return HERO_BY_ID['nlu-framed'];
+  }
+  return HERO_BY_ID['neutral-framed'];
+}
 
 /** Page 2 — colorful circular icons for job cards (primary picker). */
 export const CAREERS_JOB_ICONS = [
