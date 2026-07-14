@@ -1,9 +1,9 @@
 <template>
   <div class="credentialing-tab">
-    <h2>Insurance Credentialing</h2>
+    <h2>Payer Credentialing</h2>
     <p class="hint intro-hint">
-      <strong>Step 1:</strong> Define which insurances your agency credentials with (once, agency-wide).
-      <strong>Step 2:</strong> For each fully licensed provider, mark which insurances they are credentialed with and record tracking dates.
+      <strong>Step 1:</strong> Define which payers your agency credentials with (once, agency-wide).
+      <strong>Step 2:</strong> For each fully licensed provider, create credentials for the payers they are with and record tracking dates.
     </p>
 
     <div v-if="!agencyId" class="empty-state">
@@ -22,7 +22,7 @@
       <div class="credentialing-card" style="margin-bottom: 14px;">
         <div class="card-header card-header--actions">
           <div>
-            <h3>Agency insurance list</h3>
+            <h3>Agency payer list</h3>
             <p class="hint card-subhint">Shared across all fully licensed providers in this agency.</p>
           </div>
           <button
@@ -35,9 +35,9 @@
         </div>
         <div v-if="showDefinitionsPanel || insurances.length === 0" class="card-body">
           <div v-if="insurances.length === 0 && !showDefinitionsPanel" class="empty-definitions">
-            <span class="muted">No insurances defined yet for this agency.</span>
+            <span class="muted">No payers defined yet for this agency.</span>
             <button type="button" class="btn btn-primary btn-sm" @click="showDefinitionsPanel = true">
-              Add insurances
+              Add payers
             </button>
           </div>
           <div v-else class="definitions-panel-wrap">

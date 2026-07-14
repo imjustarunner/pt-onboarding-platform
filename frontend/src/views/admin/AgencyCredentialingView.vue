@@ -39,10 +39,10 @@
         </label>
         <label class="inline-check">
           <span class="muted">View:</span>
-          <select v-model="viewMode" :disabled="loading">
-            <option value="by_provider">By Provider</option>
-            <option value="by_insurance">By Insurance</option>
-          </select>
+            <select v-model="viewMode" :disabled="loading">
+              <option value="by_provider">By Provider</option>
+              <option value="by_insurance">By Payer</option>
+            </select>
         </label>
       </div>
     </div>
@@ -68,7 +68,10 @@
     <div v-if="info" class="success banner">{{ info }}</div>
 
     <details ref="insuranceDefinitionsDetails" class="card insurance-definitions-card" :open="insuranceDefinitionsOpen">
-      <summary>Insurance definitions</summary>
+      <summary>Payer Credentialing</summary>
+      <p class="muted payer-defs-hint">
+        Define the payers this agency credentials with (logo included). These appear when creating a credential for each provider below.
+      </p>
       <InsuranceDefinitionsPanel :agency-id="selectedAgencyId" />
     </details>
 
@@ -150,6 +153,7 @@
               <tr>
                 <th class="sticky-name">Provider Name</th>
                 <th v-if="isColVisible('date_of_birth')">DOB</th>
+                <th v-if="isColVisible('state_of_birth')">State of Birth</th>
                 <th v-if="isColVisible('first_client_date')">First Client Date</th>
                 <th v-if="isColVisible('npi_status')">Has NPI?</th>
                 <th v-if="isColVisible('npi_number')">NPI Number</th>
@@ -168,14 +172,14 @@
                 <th v-if="isColVisible('personal_email')">Personal Email</th>
                 <th v-if="isColVisible('cell_number')">Cell</th>
                 <th>Status</th>
+                <th>Payers</th>
                 <th class="right">Actions</th>
               </tr>
             </thead>
-            <tbody>
+              <tbody>
+              <template v-for="r in pagedRows" :key="r.userId">
               <tr
-                v-for="r in pagedRows"
-                :key="r.userId"
-                :class="{ 'row-editing': isEditingRow(r.userId) }"
+                :class="{ 'row-editing': isEditingRow(r.userId), 'row-expanded': expandedUserId === r.userId }"
               >
                 <td class="sticky-name provider-cell">
                   <div class="provider-identity">
@@ -209,6 +213,15 @@
                     @change="setValue(r.userId, 'date_of_birth', $event)"
                   />
                   <div v-if="showSources" class="src">{{ sourceLabel(r, 'date_of_birth') }}</div>
+                </td>
+                <td v-if="isColVisible('state_of_birth')">
+                  <EditableCell
+                    :editing="isEditingRow(r.userId)"
+                    :value="getValue(r.userId, 'state_of_birth')"
+                    :title="cellTitle(r, 'state_of_birth')"
+                    @change="setValue(r.userId, 'state_of_birth', $event)"
+                  />
+                  <div v-if="showSources" class="src">{{ sourceLabel(r, 'state_of_birth') }}</div>
                 </td>
                 <td v-if="isColVisible('first_client_date')">
                   <EditableCell
@@ -377,6 +390,16 @@
                 <td>
                   <span class="status-pill" :class="licenseStatus(r).tone">{{ licenseStatus(r).label }}</span>
                 </td>
+                <td>
+                  <button
+                    class="btn btn-secondary btn-sm payers-toggle"
+                    type="button"
+                    @click="togglePayerExpand(r.userId)"
+                  >
+                    {{ expandedUserId === r.userId ? 'Hide payers' : 'Payers' }}
+                    <span v-if="(r.in_network || []).length" class="payer-count">{{ (r.in_network || []).length }}</span>
+                  </button>
+                </td>
                 <td class="right actions-cell">
                   <button
                     v-if="!isEditingRow(r.userId)"
@@ -397,6 +420,18 @@
                   </template>
                 </td>
               </tr>
+              <tr v-if="expandedUserId === r.userId" class="expand-row">
+                <td :colspan="expandColspan" class="expand-cell">
+                  <ProviderPayerCredentialsPanel
+                    :agency-id="selectedAgencyId"
+                    :user-id="r.userId"
+                    :provider-notes="getValue(r.userId, 'credentialing_provider_notes')"
+                    @changed="onPayerCredsChanged"
+                    @provider-notes-saved="(val) => onProviderNotesSaved(r.userId, val)"
+                  />
+                </td>
+              </tr>
+              </template>
             </tbody>
           </table>
         </div>
@@ -427,9 +462,9 @@
     </template>
 
     <div v-else class="card">
-      <div class="muted" v-if="!loading">Insurances: {{ byInsuranceData.length }}</div>
-      <div v-if="loading || byInsuranceLoading" class="loading">Loading by insurance…</div>
-      <div v-else-if="byInsuranceData.length === 0" class="empty-state muted">No insurance credentialing data.</div>
+      <div class="muted" v-if="!loading">Payers: {{ byInsuranceData.length }}</div>
+      <div v-if="loading || byInsuranceLoading" class="loading">Loading by payer…</div>
+      <div v-else-if="byInsuranceData.length === 0" class="empty-state muted">No payer credentialing data.</div>
       <div v-else class="insurance-sections">
         <details
           v-for="ins in byInsuranceData"
@@ -479,6 +514,7 @@ import { useAgencyStore } from '../../store/agency';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import CredentialingTimeline from '../../components/admin/CredentialingTimeline.vue';
 import InsuranceDefinitionsPanel from '../../components/admin/InsuranceDefinitionsPanel.vue';
+import ProviderPayerCredentialsPanel from '../../components/admin/ProviderPayerCredentialsPanel.vue';
 
 /** Read-only by default; only renders an input when the row is explicitly in edit mode. */
 const EditableCell = defineComponent({
@@ -548,6 +584,7 @@ const npiStatusOptions = [
 
 const EDITABLE_KEYS = [
   'date_of_birth',
+  'state_of_birth',
   'first_client_date',
   'npi_status',
   'npi_number',
@@ -563,13 +600,15 @@ const EDITABLE_KEYS = [
   'medicare_number',
   'caqh_provider_id',
   'personal_email',
-  'cell_number'
+  'cell_number',
+  'credentialing_provider_notes'
 ];
 
 const csvColumnOptions = [
   { key: 'first_name', label: 'First name' },
   { key: 'last_name', label: 'Last name' },
   { key: 'date_of_birth', label: 'DOB' },
+  { key: 'state_of_birth', label: 'State of birth' },
   { key: 'first_client_date', label: 'First client date' },
   { key: 'npi_status', label: 'Has NPI?' },
   { key: 'npi_number', label: 'NPI number' },
@@ -586,12 +625,14 @@ const csvColumnOptions = [
   { key: 'medicare_number', label: 'Medicare #' },
   { key: 'caqh_provider_id', label: 'CAQH id' },
   { key: 'personal_email', label: 'Personal email' },
-  { key: 'cell_number', label: 'Cell' }
+  { key: 'cell_number', label: 'Cell' },
+  { key: 'credentialing_provider_notes', label: 'Provider notes' }
 ];
 const csvSelectedColumns = ref(csvColumnOptions.map((c) => c.key));
 
 const toggleableColumns = [
   { key: 'date_of_birth', label: 'DOB' },
+  { key: 'state_of_birth', label: 'State of Birth' },
   { key: 'first_client_date', label: 'First Client Date' },
   { key: 'npi_status', label: 'Has NPI?' },
   { key: 'npi_number', label: 'NPI Number' },
@@ -613,6 +654,7 @@ const toggleableColumns = [
 
 const DEFAULT_VISIBLE = [
   'date_of_birth',
+  'state_of_birth',
   'first_client_date',
   'npi_status',
   'npi_number',
@@ -626,6 +668,31 @@ const DEFAULT_VISIBLE = [
 ];
 const visibleColumns = ref([...DEFAULT_VISIBLE]);
 const isColVisible = (key) => visibleColumns.value.includes(key);
+
+const expandedUserId = ref(null);
+const expandColspan = computed(() => {
+  // Provider + visible cols + Status + Payers + Actions
+  return 1 + visibleColumns.value.length + 3;
+});
+
+const togglePayerExpand = (userId) => {
+  const uid = Number(userId);
+  expandedUserId.value = Number(expandedUserId.value) === uid ? null : uid;
+};
+
+const onPayerCredsChanged = async () => {
+  // Refresh in_network badges without collapsing the expand panel.
+  const keep = expandedUserId.value;
+  await refresh({ keepEdit: true });
+  expandedUserId.value = keep;
+};
+
+const onProviderNotesSaved = (userId, value) => {
+  const row = (rows.value || []).find((x) => Number(x.userId) === Number(userId));
+  if (!row) return;
+  if (!row.fields) row.fields = {};
+  row.fields.credentialing_provider_notes = value;
+};
 
 const editingUserId = ref(null);
 const draftValues = ref(new Map());
@@ -904,7 +971,7 @@ const shortNpiStatus = (raw) => {
   return s.length > 42 ? `${s.slice(0, 40)}…` : s;
 };
 
-const refresh = async () => {
+const refresh = async (opts = {}) => {
   try {
     if (!selectedAgencyId.value) return;
     loading.value = true;
@@ -914,7 +981,7 @@ const refresh = async () => {
       params: { debug: showSources.value ? 'true' : 'false' }
     });
     rows.value = res.data?.rows || [];
-    cancelEdit();
+    if (!opts.keepEdit) cancelEdit();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load credentialing grid';
   } finally {
@@ -1018,7 +1085,8 @@ const doExportCsv = async () => {
 
 const applyRoutePanelPrefs = async () => {
   const panel = String(route.query?.panel || '').trim();
-  insuranceDefinitionsOpen.value = panel === 'insurance-definitions';
+  insuranceDefinitionsOpen.value =
+    panel === 'insurance-definitions' || panel === 'payer-credentialing';
   const queryAgencyId = parseInt(String(route.query?.agencyId || ''), 10);
   if (Number.isInteger(queryAgencyId) && queryAgencyId > 0) {
     const match = (agencies.value || []).find((a) => Number(a.id) === queryAgencyId);
@@ -1378,6 +1446,39 @@ watch(viewMode, (mode) => {
 }
 .actions-cell .btn + .btn {
   margin-left: 6px;
+}
+.payers-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.payer-count {
+  display: inline-flex;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #0f766e;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+}
+.expand-row td {
+  background: #f8fafc;
+  border-bottom: 1px solid #e5e7eb;
+}
+.expand-cell {
+  padding: 12px 14px !important;
+  white-space: normal !important;
+}
+.row-expanded {
+  background: #f0fdf4;
+}
+.payer-defs-hint {
+  margin: 8px 0 12px;
+  font-size: 13px;
 }
 .table-footer {
   margin-top: 14px;

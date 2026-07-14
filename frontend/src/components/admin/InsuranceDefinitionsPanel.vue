@@ -2,9 +2,9 @@
   <div class="insurance-definitions-panel">
     <div class="panel-header">
       <div>
-        <h3>Insurance definitions</h3>
+        <h3>Payer Credentialing</h3>
         <p class="hint" style="margin: 4px 0 0;">
-          Configure insurances agency-wide: logo, contacts, and call history. Each appears on every fully licensed provider's credentialing tab.
+          Configure payers agency-wide: logo, contacts, and call history. Each payer can be attached to a provider with Create credential.
         </p>
       </div>
       <button class="btn btn-secondary btn-sm" type="button" :disabled="loading" @click="fetchDefinitions">
@@ -12,14 +12,14 @@
       </button>
     </div>
 
-    <div v-if="!agencyId" class="muted" style="margin-top: 12px;">Select an agency to manage insurance definitions.</div>
-    <div v-else-if="loading" class="loading" style="margin-top: 12px;">Loading insurance definitions…</div>
+    <div v-if="!agencyId" class="muted" style="margin-top: 12px;">Select an agency to manage payer credentialing.</div>
+    <div v-else-if="loading" class="loading" style="margin-top: 12px;">Loading payers…</div>
     <div v-else-if="error" class="error" style="margin-top: 12px;">{{ error }}</div>
 
     <template v-else-if="agencyId">
       <form class="add-form" @submit.prevent="addDefinition">
         <div class="form-group" style="margin: 0;">
-          <label for="new-insurance-name">Add insurance</label>
+          <label for="new-insurance-name">Add payer</label>
           <div class="add-row">
             <input
               id="new-insurance-name"
@@ -37,7 +37,7 @@
       </form>
 
       <div v-if="definitions.length === 0" class="empty-state muted" style="margin-top: 14px;">
-        No insurance definitions yet. Add one above to enable per-provider credentialing.
+        No payers yet. Add one above to enable per-provider credentialing.
       </div>
 
       <div v-else class="definition-list">

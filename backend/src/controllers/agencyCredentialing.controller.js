@@ -58,6 +58,13 @@ export const CREDENTIALING_COLUMNS = [
   { key: 'first_name', label: 'first_name', kind: 'users', usersCol: 'first_name' },
   { key: 'last_name', label: 'last_name', kind: 'users', usersCol: 'last_name' },
   { key: 'date_of_birth', label: 'date_of_birth', kind: 'uiv', fieldKey: 'date_of_birth', readFieldKeys: ['date_of_birth', 'dob', 'birthdate', 'birth_date'] },
+  {
+    key: 'state_of_birth',
+    label: 'state_of_birth',
+    kind: 'uiv',
+    fieldKey: 'state_of_birth',
+    readFieldKeys: ['state_of_birth', 'birth_state', 'place_of_birth']
+  },
   { key: 'first_client_date', label: 'first_client_date', kind: 'uiv', fieldKey: 'first_client_date', readFieldKeys: ['first_client_date', 'first_client_start_date', 'start_date_first_client'] },
   {
     key: 'npi_status',
@@ -146,7 +153,14 @@ export const CREDENTIALING_COLUMNS = [
     readFieldKeys: ['provider_credential_caqh_provider_id', 'caqh_provider_id', 'caqh_id']
   },
   { key: 'personal_email', label: 'personal_email', kind: 'users', usersCol: 'personal_email' },
-  { key: 'cell_number', label: 'cell_number', kind: 'users', usersCol: 'personal_phone' }
+  { key: 'cell_number', label: 'cell_number', kind: 'users', usersCol: 'personal_phone' },
+  {
+    key: 'credentialing_provider_notes',
+    label: 'credentialing_provider_notes',
+    kind: 'uiv',
+    fieldKey: 'credentialing_provider_notes',
+    readFieldKeys: ['credentialing_provider_notes', 'provider_credentialing_notes']
+  }
 ];
 
 // Best-effort typing for auto-created field definitions (when migrations haven't been run yet).
@@ -1171,11 +1185,17 @@ export const listUserCredentialing = async (req, res, next) => {
       insurance_credentialing_definition_id: r.insurance_credentialing_definition_id,
       insurance_name: r.insurance_name,
       insurance_logo_path: r.insurance_logo_path || null,
+      insurance_logo_url: r.insurance_logo_path ? publicUploadsUrlFromStoredPath(r.insurance_logo_path) : null,
       effective_date: r.effective_date,
       submitted_date: r.submitted_date,
       resubmitted_date: r.resubmitted_date,
+      returned_date: r.returned_date || null,
       pin_or_reference: r.pin_or_reference,
       notes: r.notes,
+      welcome_letter_path: r.welcome_letter_path || null,
+      welcome_letter_url: r.welcome_letter_path ? publicUploadsUrlFromStoredPath(r.welcome_letter_path) : null,
+      contract_path: r.contract_path || null,
+      contract_url: r.contract_path ? publicUploadsUrlFromStoredPath(r.contract_path) : null,
       has_user_credentials: !!(r.user_level_username_ciphertext || r.user_level_password_ciphertext)
     }));
     res.json({ credentialing: safe });
@@ -1191,7 +1211,7 @@ export const upsertUserInsuranceCredentialing = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Invalid agencyId' } });
     }
     await assertCredentialPrivilege(req, agencyId);
-    const { userId, insuranceCredentialingDefinitionId, effectiveDate, submittedDate, resubmittedDate, pinOrReference, notes } = req.body || {};
+    const { userId, insuranceCredentialingDefinitionId, effectiveDate, submittedDate, resubmittedDate, returnedDate, pinOrReference, notes } = req.body || {};
     if (!userId || !insuranceCredentialingDefinitionId) {
       return res.status(400).json({ error: { message: 'userId and insuranceCredentialingDefinitionId required' } });
     }
@@ -1205,6 +1225,7 @@ export const upsertUserInsuranceCredentialing = async (req, res, next) => {
       effectiveDate: effectiveDate || null,
       submittedDate: submittedDate || null,
       resubmittedDate: resubmittedDate || null,
+      returnedDate: returnedDate || null,
       pinOrReference: pinOrReference ? String(pinOrReference).trim() : null,
       notes: notes ? String(notes).trim() : null,
       updatedByUserId: req.user.id
@@ -1238,16 +1259,34 @@ export const updateUserInsuranceCredentialing = async (req, res, next) => {
     if (body.effectiveDate != null) updates.effective_date = body.effectiveDate || null;
     if (body.submittedDate != null) updates.submitted_date = body.submittedDate || null;
     if (body.resubmittedDate != null) updates.resubmitted_date = body.resubmittedDate || null;
+    if (body.returnedDate != null) updates.returned_date = body.returnedDate || null;
     if (body.pinOrReference != null) updates.pin_or_reference = body.pinOrReference ? String(body.pinOrReference).trim() : null;
     if (body.notes != null) updates.notes = body.notes ? String(body.notes).trim() : null;
     if (Object.keys(updates).length) {
-      const setClauses = Object.keys(updates).map((k) => `${k} = ?`);
-      const vals = Object.values(updates);
-      vals.push(req.user.id, id);
-      await pool.execute(
-        `UPDATE user_insurance_credentialing SET ${setClauses.join(', ')}, updated_by_user_id = ? WHERE id = ?`,
-        vals
-      );
+      try {
+        const setClauses = Object.keys(updates).map((k) => `${k} = ?`);
+        const vals = Object.values(updates);
+        vals.push(req.user.id, id);
+        await pool.execute(
+          `UPDATE user_insurance_credentialing SET ${setClauses.join(', ')}, updated_by_user_id = ? WHERE id = ?`,
+          vals
+        );
+      } catch (err) {
+        if (err?.code === 'ER_BAD_FIELD_ERROR' && updates.returned_date !== undefined) {
+          delete updates.returned_date;
+          if (Object.keys(updates).length) {
+            const setClauses = Object.keys(updates).map((k) => `${k} = ?`);
+            const vals = Object.values(updates);
+            vals.push(req.user.id, id);
+            await pool.execute(
+              `UPDATE user_insurance_credentialing SET ${setClauses.join(', ')}, updated_by_user_id = ? WHERE id = ?`,
+              vals
+            );
+          }
+        } else {
+          throw err;
+        }
+      }
     }
     if (body.loginUsername != null && body.loginUsername !== '' || body.loginPassword != null && body.loginPassword !== '') {
       const usernameEnc = body.loginUsername != null && body.loginUsername !== ''
@@ -1279,6 +1318,93 @@ export const deleteUserInsuranceCredentialing = async (req, res, next) => {
     }
     await UserInsuranceCredentialing.delete(parseInt(userId, 10), parseInt(insuranceCredentialingDefinitionId, 10));
     res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const payerCredentialDocUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 12 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = [
+      'application/pdf',
+      'image/png',
+      'image/jpeg',
+      'image/jpg',
+      'image/webp',
+      'image/gif'
+    ];
+    if (allowed.includes(String(file.mimetype || '').toLowerCase())) cb(null, true);
+    else cb(new Error('Only PDF or image files are allowed'));
+  }
+});
+
+export const uploadUserInsuranceCredentialDocument = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const id = parseInt(req.params.id, 10);
+    const docType = String(req.params.docType || req.body?.docType || '').trim().toLowerCase();
+    if (!Number.isInteger(agencyId) || agencyId <= 0 || !Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId or id' } });
+    }
+    if (!['welcome_letter', 'contract'].includes(docType)) {
+      return res.status(400).json({ error: { message: 'docType must be welcome_letter or contract' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    if (!req.file?.buffer?.length) {
+      return res.status(400).json({ error: { message: 'File is required' } });
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT uic.*, icd.agency_id FROM user_insurance_credentialing uic
+       JOIN insurance_credentialing_definitions icd ON icd.id = uic.insurance_credentialing_definition_id
+       WHERE uic.id = ?`,
+      [id]
+    );
+    const row = rows?.[0];
+    if (!row || Number(row.agency_id) !== agencyId) {
+      return res.status(404).json({ error: { message: 'User insurance credentialing not found' } });
+    }
+
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    const ext = path.extname(req.file.originalname || '') || (String(req.file.mimetype || '').includes('pdf') ? '.pdf' : '.jpg');
+    const filename = `payer-${docType}-${row.user_id}-${id}-${uniqueSuffix}${ext}`;
+    const storageResult = await StorageService.saveComplianceDocument(
+      req.file.buffer,
+      filename,
+      req.file.mimetype || 'application/pdf'
+    );
+
+    const patch =
+      docType === 'welcome_letter'
+        ? { welcomeLetterPath: storageResult.relativePath }
+        : { contractPath: storageResult.relativePath };
+
+    try {
+      await UserInsuranceCredentialing.updateDocumentPath(id, patch, req.user?.id || null);
+    } catch (err) {
+      if (err?.code === 'ER_BAD_FIELD_ERROR') {
+        return res.status(503).json({
+          error: {
+            message: 'Payer document columns are not available yet. Run migration 916 and retry.'
+          }
+        });
+      }
+      throw err;
+    }
+
+    const updated = await UserInsuranceCredentialing.findByUserAndInsurance(
+      row.user_id,
+      row.insurance_credentialing_definition_id
+    );
+    res.json({
+      ok: true,
+      docType,
+      path: storageResult.relativePath,
+      url: publicUploadsUrlFromStoredPath(storageResult.relativePath),
+      record: updated
+    });
   } catch (e) {
     next(e);
   }

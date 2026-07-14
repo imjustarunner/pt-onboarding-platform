@@ -30,7 +30,8 @@ class UserInsuranceCredentialing {
 
   static async listByAgencyId(agencyId) {
     const [rows] = await pool.execute(
-      `SELECT uic.*, icd.name AS insurance_name, u.first_name, u.last_name, u.role
+      `SELECT uic.*, icd.name AS insurance_name, icd.logo_path AS insurance_logo_path,
+              u.first_name, u.last_name, u.role
        FROM user_insurance_credentialing uic
        JOIN insurance_credentialing_definitions icd ON icd.id = uic.insurance_credentialing_definition_id
        JOIN users u ON u.id = uic.user_id
@@ -59,6 +60,7 @@ class UserInsuranceCredentialing {
     effectiveDate = null,
     submittedDate = null,
     resubmittedDate = null,
+    returnedDate = null,
     pinOrReference = null,
     notes = null,
     updatedByUserId = null
@@ -68,23 +70,113 @@ class UserInsuranceCredentialing {
       [userId, insuranceCredentialingDefinitionId]
     );
     if (existing?.length) {
-      await pool.execute(
-        `UPDATE user_insurance_credentialing
-         SET effective_date = ?, submitted_date = ?, resubmitted_date = ?,
-             pin_or_reference = ?, notes = ?, updated_by_user_id = ?
-         WHERE user_id = ? AND insurance_credentialing_definition_id = ?`,
-        [effectiveDate, submittedDate, resubmittedDate, pinOrReference, notes, updatedByUserId, userId, insuranceCredentialingDefinitionId]
-      );
+      try {
+        await pool.execute(
+          `UPDATE user_insurance_credentialing
+           SET effective_date = ?, submitted_date = ?, resubmitted_date = ?, returned_date = ?,
+               pin_or_reference = ?, notes = ?, updated_by_user_id = ?
+           WHERE user_id = ? AND insurance_credentialing_definition_id = ?`,
+          [
+            effectiveDate,
+            submittedDate,
+            resubmittedDate,
+            returnedDate,
+            pinOrReference,
+            notes,
+            updatedByUserId,
+            userId,
+            insuranceCredentialingDefinitionId
+          ]
+        );
+      } catch (err) {
+        // Older DBs may not have returned_date yet.
+        if (err?.code === 'ER_BAD_FIELD_ERROR') {
+          await pool.execute(
+            `UPDATE user_insurance_credentialing
+             SET effective_date = ?, submitted_date = ?, resubmitted_date = ?,
+                 pin_or_reference = ?, notes = ?, updated_by_user_id = ?
+             WHERE user_id = ? AND insurance_credentialing_definition_id = ?`,
+            [
+              effectiveDate,
+              submittedDate,
+              resubmittedDate,
+              pinOrReference,
+              notes,
+              updatedByUserId,
+              userId,
+              insuranceCredentialingDefinitionId
+            ]
+          );
+        } else {
+          throw err;
+        }
+      }
       return await this.findByUserAndInsurance(userId, insuranceCredentialingDefinitionId);
     }
-    const [result] = await pool.execute(
-      `INSERT INTO user_insurance_credentialing
-       (user_id, insurance_credentialing_definition_id, effective_date, submitted_date, resubmitted_date,
-        pin_or_reference, notes, updated_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [userId, insuranceCredentialingDefinitionId, effectiveDate, submittedDate, resubmittedDate, pinOrReference, notes, updatedByUserId]
+    try {
+      const [result] = await pool.execute(
+        `INSERT INTO user_insurance_credentialing
+         (user_id, insurance_credentialing_definition_id, effective_date, submitted_date, resubmitted_date,
+          returned_date, pin_or_reference, notes, updated_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          userId,
+          insuranceCredentialingDefinitionId,
+          effectiveDate,
+          submittedDate,
+          resubmittedDate,
+          returnedDate,
+          pinOrReference,
+          notes,
+          updatedByUserId
+        ]
+      );
+      return result?.insertId ? await this.findByUserAndInsurance(userId, insuranceCredentialingDefinitionId) : null;
+    } catch (err) {
+      if (err?.code !== 'ER_BAD_FIELD_ERROR') throw err;
+      const [result] = await pool.execute(
+        `INSERT INTO user_insurance_credentialing
+         (user_id, insurance_credentialing_definition_id, effective_date, submitted_date, resubmitted_date,
+          pin_or_reference, notes, updated_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          userId,
+          insuranceCredentialingDefinitionId,
+          effectiveDate,
+          submittedDate,
+          resubmittedDate,
+          pinOrReference,
+          notes,
+          updatedByUserId
+        ]
+      );
+      return result?.insertId ? await this.findByUserAndInsurance(userId, insuranceCredentialingDefinitionId) : null;
+    }
+  }
+
+  static async updateDocumentPath(id, { welcomeLetterPath, contractPath }, updatedByUserId = null) {
+    const updates = [];
+    const values = [];
+    if (welcomeLetterPath !== undefined) {
+      updates.push('welcome_letter_path = ?');
+      values.push(welcomeLetterPath);
+    }
+    if (contractPath !== undefined) {
+      updates.push('contract_path = ?');
+      values.push(contractPath);
+    }
+    if (!updates.length) {
+      const [rows] = await pool.execute('SELECT * FROM user_insurance_credentialing WHERE id = ?', [id]);
+      return rows?.[0] || null;
+    }
+    updates.push('updated_by_user_id = ?');
+    values.push(updatedByUserId, id);
+    await pool.execute(
+      `UPDATE user_insurance_credentialing SET ${updates.join(', ')} WHERE id = ?`,
+      values
     );
-    return result?.insertId ? await this.findByUserAndInsurance(userId, insuranceCredentialingDefinitionId) : null;
+    const [rows] = await pool.execute('SELECT * FROM user_insurance_credentialing WHERE id = ?', [id]);
+    return rows?.[0] || null;
   }
 
   static async updateCredentials(id, { usernameEnc, passwordEnc }, updatedByUserId) {

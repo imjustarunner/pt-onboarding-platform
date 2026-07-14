@@ -30,7 +30,9 @@ import {
   deleteInsuranceInteraction,
   uploadProviderLicenseCredentialing,
   ocrProviderLicenseCredentialing,
-  licenseUploadMulter
+  licenseUploadMulter,
+  uploadUserInsuranceCredentialDocument,
+  payerCredentialDocUpload
 } from '../controllers/agencyCredentialing.controller.js';
 
 const router = express.Router();
@@ -91,6 +93,12 @@ router.get('/:agencyId/credentialing/users/:userId', authenticate, listUserCrede
 router.post('/:agencyId/credentialing/user-insurance', authenticate, upsertUserInsuranceCredentialing);
 router.patch('/:agencyId/credentialing/user-insurance/:id', authenticate, updateUserInsuranceCredentialing);
 router.delete('/:agencyId/credentialing/user-insurance', authenticate, deleteUserInsuranceCredentialing);
+router.post(
+  '/:agencyId/credentialing/user-insurance/:id/documents/:docType',
+  authenticate,
+  payerCredentialDocUpload.single('file'),
+  uploadUserInsuranceCredentialDocument
+);
 
 // Credential reveal (decrypt)
 router.post('/:agencyId/credentialing/reveal', authenticate, revealCredential);
