@@ -190,6 +190,10 @@ const sanitizeApplicationPageJson = (raw) => {
     heroImageUrl: compactText(obj.heroImageUrl || obj.hero_image_url, 1024),
     heroImageAlt: compactText(obj.heroImageAlt || obj.hero_image_alt, 160),
     heroImagePosition: compactText(obj.heroImagePosition || obj.hero_image_position, 80),
+    heroFrameStyle: (() => {
+      const style = String(obj.heroFrameStyle || obj.hero_frame_style || '').trim().toLowerCase();
+      return ['preframed', 'organic', 'rounded'].includes(style) ? style : '';
+    })(),
     secureTitle: compactText(obj.secureTitle || obj.secure_title, 80),
     secureSubtitle: compactText(obj.secureSubtitle || obj.secure_subtitle, 120),
     startHeading: compactText(obj.startHeading || obj.start_heading, 120),
@@ -227,6 +231,7 @@ const mergeApplicationPageJson = (agencyPage, jobPage) => {
     heroImageUrl: pick('heroImageUrl'),
     heroImageAlt: pick('heroImageAlt'),
     heroImagePosition: pick('heroImagePosition'),
+    heroFrameStyle: pick('heroFrameStyle'),
     secureTitle: pick('secureTitle'),
     secureSubtitle: pick('secureSubtitle'),
     startHeading: pick('startHeading'),

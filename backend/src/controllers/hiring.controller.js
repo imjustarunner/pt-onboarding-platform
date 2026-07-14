@@ -141,6 +141,10 @@ function sanitizeApplicationPageJson(raw) {
     heroImageUrl: compactText(raw.heroImageUrl || raw.hero_image_url, 1024),
     heroImageAlt: compactText(raw.heroImageAlt || raw.hero_image_alt, 160),
     heroImagePosition: compactText(raw.heroImagePosition || raw.hero_image_position, 80),
+    heroFrameStyle: (() => {
+      const style = String(raw.heroFrameStyle || raw.hero_frame_style || '').trim().toLowerCase();
+      return ['preframed', 'organic', 'rounded'].includes(style) ? style : '';
+    })(),
     secureTitle: compactText(raw.secureTitle || raw.secure_title, 80),
     secureSubtitle: compactText(raw.secureSubtitle || raw.secure_subtitle, 120),
     startHeading: compactText(raw.startHeading || raw.start_heading, 120),

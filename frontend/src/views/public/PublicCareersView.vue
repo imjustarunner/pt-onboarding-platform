@@ -42,7 +42,10 @@
           <p v-if="careersSubtitle" class="cr-hero-lead">{{ careersSubtitle }}</p>
           <div v-if="agencyFeatureCards.length" class="cr-feature-cards">
             <div v-for="card in agencyFeatureCards" :key="card.title" class="cr-feature-card">
-              <span class="cr-feature-icon" aria-hidden="true">{{ cardIconEmoji(card.icon) }}</span>
+              <span class="cr-feature-icon" aria-hidden="true">
+                <img v-if="featureIconSrc(card.icon)" class="cr-feature-icon-img" :src="featureIconSrc(card.icon)" alt="" />
+                <template v-else>{{ cardIconEmoji(card.icon) }}</template>
+              </span>
               <div>
                 <strong class="cr-feature-title">{{ card.title }}</strong>
                 <span v-if="card.body" class="cr-feature-body">{{ card.body }}</span>
@@ -51,15 +54,24 @@
           </div>
         </div>
 
-        <figure v-if="careersHeroImageUrl" class="cr-hero-fig">
-          <img
-            class="cr-hero-img"
-            :src="careersHeroImageUrl"
-            :alt="careersHeroImageAlt"
-            :style="{ objectPosition: careersHeroImagePosition }"
-            loading="eager"
-          />
-          <svg v-if="showLeafAccent" class="cr-leaf" viewBox="0 0 180 300" fill="none" aria-hidden="true">
+        <figure
+          v-if="careersHeroImageUrl"
+          class="cr-hero-fig"
+          :class="{
+            'cr-hero-fig--preframed': heroFrameStyle === 'preframed',
+            'cr-hero-fig--organic': heroFrameStyle === 'organic'
+          }"
+        >
+          <div class="cr-hero-frame">
+            <img
+              class="cr-hero-img"
+              :src="careersHeroImageUrl"
+              :alt="careersHeroImageAlt"
+              :style="{ objectPosition: careersHeroImagePosition }"
+              loading="eager"
+            />
+          </div>
+          <svg v-if="showLeafAccent && heroFrameStyle === 'rounded'" class="cr-leaf" viewBox="0 0 180 300" fill="none" aria-hidden="true">
             <path d="M90 290 C40 240 10 180 30 110 C50 40 110 10 150 50 C190 90 170 160 130 210 C110 240 90 270 90 290Z" fill="currentColor" opacity="0.13"/>
             <path d="M90 290 C60 250 50 200 70 150 C90 100 130 70 155 90" stroke="currentColor" stroke-width="2" opacity="0.25"/>
           </svg>
@@ -123,9 +135,16 @@
 
     <template v-else>
       <!-- ── BANNER ── -->
-      <div v-if="bannerText" class="cr-banner">
-        <div class="cr-banner-inner">
-          <svg class="cr-banner-icon" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+      <div v-if="bannerText" class="cr-banner-wrap">
+        <div class="cr-banner">
+          <img
+            v-if="bannerIconUrl"
+            class="cr-banner-icon-img"
+            :src="bannerIconUrl"
+            alt=""
+            aria-hidden="true"
+          />
+          <svg v-else class="cr-banner-icon" viewBox="0 0 40 40" fill="none" aria-hidden="true">
             <circle cx="20" cy="20" r="19" stroke="currentColor" stroke-width="1.5" opacity="0.25"/>
             <path d="M12 26 C12 18 20 12 28 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
             <circle cx="20" cy="20" r="4" fill="currentColor" opacity="0.2"/>
@@ -155,15 +174,13 @@
           <article class="cr-card" :class="{ 'cr-card--featured': job.isFeatured }">
             <span v-if="job.isFeatured" class="cr-featured-badge">FEATURED</span>
 
-            <!-- Job card icon: uploaded image or emoji fallback -->
-            <div class="cr-card-icon" :class="`cr-card-icon--${roleTypeKey(job.roleType || job.educationLevel)}`">
+            <!-- Job card icon: library / upload / role-based default -->
+            <div class="cr-card-icon" :class="jobIconToneClass(job)">
               <img
-                v-if="job.iconUrl"
-                :src="resolveIconUrl(job.iconUrl)"
+                :src="jobIconSrc(job)"
                 :alt="job.roleType || 'Role icon'"
                 class="cr-card-icon-img"
               />
-              <span v-else aria-hidden="true">{{ roleTypeEmoji(job.roleType || job.educationLevel) }}</span>
             </div>
 
             <div class="cr-card-body">
@@ -191,6 +208,7 @@
             <div class="cr-card-actions">
               <a
                 class="cr-apply-btn"
+                :class="{ 'cr-apply-btn--solid': job.isFeatured, 'cr-apply-btn--outline': !job.isFeatured }"
                 :href="buildPublicIntakeUrl(job.applicationPublicKey)"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -267,14 +285,20 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useBrandingStore } from '../../store/branding';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import {
+  getFeatureIconUrl,
+  getHeroPresetByUrl,
+  resolveDefaultJobIconUrl
+} from '../../utils/careersAssets';
 
 const PER_PAGE = 5;
+const SAVED_JOBS_KEY = 'pt_careers_saved_jobs';
 
 const route = useRoute();
 const brandingStore = useBrandingStore();
@@ -292,6 +316,14 @@ const learnMoreJob = ref(null);
 const savedJobs = ref(new Set());
 const currentPage = ref(1);
 const showAll = ref(false);
+
+onMounted(() => {
+  try {
+    const raw = localStorage.getItem(SAVED_JOBS_KEY);
+    const ids = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(ids)) savedJobs.value = new Set(ids.map(Number).filter(Boolean));
+  } catch { /* ignore */ }
+});
 
 /* ── Brand color (careers page explicit → branding store primary → default) ── */
 const hexToRgba = (hex, alpha) => {
@@ -317,6 +349,7 @@ const accentColor = computed(() => {
 const rootStyle = computed(() => ({
   '--accent': accentColor.value,
   '--accent-light': hexToRgba(accentColor.value, 0.1),
+  '--accent-mid': hexToRgba(accentColor.value, 0.18),
   '--accent-border': hexToRgba(accentColor.value, 0.28),
 }));
 
@@ -328,10 +361,19 @@ const heroSubheadline = computed(() => String(agencyCareersPage.value?.heroSubhe
 const careersSubtitle = computed(() => String(agencyCareersPage.value?.lead || '').trim());
 const careersHeroImageUrl = computed(() => {
   const raw = String(agencyCareersPage.value?.heroImageUrl || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('/assets/')) return raw;
   return toUploadsUrl(raw) || raw;
 });
 const careersHeroImageAlt = computed(() => String(agencyCareersPage.value?.heroImageAlt || `${agencyName.value || 'Agency'} careers`).trim());
 const careersHeroImagePosition = computed(() => String(agencyCareersPage.value?.heroImagePosition || 'center center').trim());
+const heroFrameStyle = computed(() => {
+  const explicit = String(agencyCareersPage.value?.heroFrameStyle || '').trim().toLowerCase();
+  if (['preframed', 'organic', 'rounded'].includes(explicit)) return explicit;
+  const preset = getHeroPresetByUrl(String(agencyCareersPage.value?.heroImageUrl || '').trim());
+  if (preset?.frameStyle) return preset.frameStyle;
+  return careersHeroImageUrl.value ? 'rounded' : 'rounded';
+});
 const showLeafAccent = computed(() => agencyCareersPage.value?.showLeafAccent !== false);
 const agencyFeatureCards = computed(() =>
   (Array.isArray(agencyCareersPage.value?.featureCards) ? agencyCareersPage.value.featureCards : [])
@@ -342,6 +384,7 @@ const bannerText = computed(() => String(agencyCareersPage.value?.bannerText || 
 const bannerBullets = computed(() => Array.isArray(agencyCareersPage.value?.bannerBullets) ? agencyCareersPage.value.bannerBullets.filter(Boolean) : []);
 const bannerLinkText = computed(() => String(agencyCareersPage.value?.bannerLinkText || '').trim());
 const bannerLinkHref = computed(() => String(agencyCareersPage.value?.bannerLinkHref || '').trim());
+const bannerIconUrl = computed(() => getFeatureIconUrl('team'));
 const pageTitle = computed(() => agencyName.value ? `${agencyName.value} Careers` : 'Careers');
 
 const headerLogoUrl = computed(() => {
@@ -393,14 +436,28 @@ const cardIconEmoji = (icon) => {
   const map = { school: '🏫', office: '🏢', people: '👥', growth: '📈', heart: '❤️', shield: '🛡️', lock: '🔒', handshake: '🤝', star: '⭐' };
   return map[String(icon || '').toLowerCase()] || '✦';
 };
-const ROLE_EMOJIS = { provider: '🩺', facilitator: '📖', intern: '🎓', clinician: '💼', admin: '📋' };
+const featureIconSrc = (icon) => getFeatureIconUrl(icon);
 const roleTypeKey = (rt) => String(rt || '').toLowerCase().replace(/[^a-z]/g, '') || 'default';
-const roleTypeEmoji = (rt) => {
-  const key = String(rt || '').toLowerCase();
-  for (const [k, v] of Object.entries(ROLE_EMOJIS)) { if (key.includes(k)) return v; }
-  return '👤';
+const resolveIconUrl = (url) => {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('/assets/')) return raw;
+  return toUploadsUrl(raw) || raw;
 };
-const resolveIconUrl = (url) => toUploadsUrl(String(url || '').trim()) || String(url || '').trim();
+const jobIconSrc = (job) => {
+  const custom = resolveIconUrl(job?.iconUrl);
+  if (custom) return custom;
+  return resolveDefaultJobIconUrl(job?.roleType, job?.educationLevel);
+};
+const jobIconToneClass = (job) => {
+  const key = roleTypeKey(job?.roleType || job?.educationLevel);
+  if (job?.isFeatured) return 'cr-card-icon--featured';
+  if (key.includes('facilitat')) return 'cr-card-icon--facilitator';
+  if (key.includes('intern') || key.includes('student')) return 'cr-card-icon--intern';
+  if (key.includes('provider') || key.includes('clinic') || key.includes('therap')) return 'cr-card-icon--provider';
+  if (key.includes('admin') || key.includes('office')) return 'cr-card-icon--admin';
+  return 'cr-card-icon--default';
+};
 
 const formatDate = (v) => {
   const raw = String(v || '').trim();
@@ -414,10 +471,16 @@ const trimText = (text, max = 220) => {
   if (!raw) return 'No description provided.';
   return raw.length <= max ? raw : `${raw.slice(0, max).trim()}…`;
 };
+const persistSavedJobs = () => {
+  try {
+    localStorage.setItem(SAVED_JOBS_KEY, JSON.stringify([...savedJobs.value]));
+  } catch { /* ignore */ }
+};
 const toggleSave = (jobId) => {
   const s = new Set(savedJobs.value);
   if (s.has(jobId)) s.delete(jobId); else s.add(jobId);
   savedJobs.value = s;
+  persistSavedJobs();
 };
 
 const loadCareers = async () => {
@@ -444,7 +507,7 @@ watch(slug, () => loadCareers(), { immediate: true });
 
 <style scoped>
 /* ── TOKENS (set via :style binding) ── */
-.cr { --accent: #1a8c54; --accent-light: rgba(26,140,84,0.1); --accent-border: rgba(26,140,84,0.28); --dark: #0f172a; --muted: #64748b; --border: #e2e8f0; --card-radius: 16px; min-height: 100vh; background: #f8fafc; color: var(--dark); font-family: inherit; }
+.cr { --accent: #1a8c54; --accent-light: rgba(26,140,84,0.1); --accent-mid: rgba(26,140,84,0.18); --accent-border: rgba(26,140,84,0.28); --dark: #0f172a; --muted: #64748b; --border: #e2e8f0; --card-radius: 18px; min-height: 100vh; background: #f7faf8; color: var(--dark); font-family: inherit; }
 
 /* ── NAV ── */
 .cr-nav { background: #fff; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 20; }
@@ -460,32 +523,53 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-nav-btn:hover { background: var(--accent); color: #fff; }
 
 /* ── HERO ── */
-.cr-hero { background: #fff; padding: 48px 24px 36px; border-bottom: 1px solid var(--border); }
-.cr-hero-inner { max-width: 1160px; margin: 0 auto; display: grid; grid-template-columns: 1fr 0.85fr; align-items: center; gap: 40px; }
+.cr-hero { background: linear-gradient(180deg, #ffffff 0%, #f7faf8 100%); padding: 48px 24px 40px; }
+.cr-hero-inner { max-width: 1160px; margin: 0 auto; display: grid; grid-template-columns: 1fr 0.95fr; align-items: center; gap: 44px; }
 .cr-hero-inner--no-image { grid-template-columns: minmax(0, 760px); justify-content: center; }
 .cr-eyebrow { display: inline-block; background: var(--accent-light); color: var(--accent); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 12px; border-radius: 99px; margin-bottom: 14px; }
 .cr-hero-h1 { margin: 0 0 14px; line-height: 1.05; display: flex; flex-direction: column; gap: 2px; }
-.cr-hero-headline { font-size: clamp(1.8rem, 4vw, 2.8rem); font-weight: 800; color: var(--dark); }
-.cr-hero-subheadline { font-size: clamp(1.8rem, 4vw, 2.8rem); font-weight: 800; color: var(--accent); }
-.cr-hero-lead { margin: 0 0 28px; font-size: 1rem; line-height: 1.6; color: var(--muted); max-width: 520px; }
-.cr-feature-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.cr-feature-card { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; background: var(--accent-light); border-radius: 12px; }
-.cr-feature-icon { font-size: 1.4rem; flex-shrink: 0; }
-.cr-feature-title { display: block; font-size: 0.88rem; font-weight: 700; color: var(--dark); margin-bottom: 3px; }
+.cr-hero-headline { font-size: clamp(1.9rem, 4.2vw, 3rem); font-weight: 800; color: var(--dark); letter-spacing: -0.02em; }
+.cr-hero-subheadline { font-size: clamp(1.9rem, 4.2vw, 3rem); font-weight: 800; color: var(--accent); letter-spacing: -0.02em; }
+.cr-hero-lead { margin: 0 0 28px; font-size: 1.02rem; line-height: 1.65; color: var(--muted); max-width: 520px; }
+.cr-feature-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.cr-feature-card { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; background: #fff; border: 1px solid var(--accent-border); border-radius: 14px; box-shadow: 0 8px 20px -16px rgba(15, 23, 42, 0.35); }
+.cr-feature-icon { width: 40px; height: 40px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 1.35rem; }
+.cr-feature-icon-img { width: 40px; height: 40px; object-fit: contain; display: block; }
+.cr-feature-title { display: block; font-size: 0.9rem; font-weight: 700; color: var(--dark); margin-bottom: 3px; }
 .cr-feature-body { display: block; font-size: 0.82rem; color: var(--muted); line-height: 1.4; }
 .cr-hero-fig { position: relative; margin: 0; }
-.cr-hero-img { display: block; width: 100%; aspect-ratio: 1.5 / 1; object-fit: cover; border-radius: 32px 32px 32px 8px; box-shadow: 0 24px 56px -28px rgba(15, 23, 42, 0.55); }
-.cr-leaf { position: absolute; bottom: -20px; left: -28px; width: 90px; height: 150px; color: var(--accent); pointer-events: none; }
+.cr-hero-frame { position: relative; }
+.cr-hero-img { display: block; width: 100%; aspect-ratio: 1.45 / 1; object-fit: cover; border-radius: 40% 48% 36% 52% / 42% 38% 48% 44%; box-shadow: 0 28px 60px -30px rgba(15, 23, 42, 0.5); }
+.cr-hero-fig--preframed .cr-hero-img {
+  aspect-ratio: auto;
+  object-fit: contain;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.cr-hero-fig--organic .cr-hero-img {
+  border-radius: 42% 58% 40% 60% / 48% 40% 55% 45%;
+  box-shadow: 0 28px 60px -30px rgba(15, 23, 42, 0.45);
+}
+.cr-hero-fig--organic .cr-hero-frame::before {
+  content: '';
+  position: absolute;
+  inset: 6% 8% 4% -4%;
+  background: var(--accent-light);
+  border-radius: 42% 50% 40% 55% / 45% 40% 50% 48%;
+  z-index: -1;
+}
+.cr-leaf { position: absolute; bottom: -12px; left: -24px; width: 90px; height: 150px; color: var(--accent); pointer-events: none; }
 
 /* ── FILTERS ── */
-.cr-filters-wrap { background: #fff; border-bottom: 1px solid var(--border); padding: 12px 24px; }
+.cr-filters-wrap { background: #fff; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 14px 24px; }
 .cr-filters { max-width: 1160px; margin: 0 auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cr-pill-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding-right: 12px; border-right: 1px solid var(--border); }
 .cr-pill-group--location { display: flex; align-items: center; gap: 6px; }
 .cr-loc-icon { width: 14px; height: 14px; color: var(--muted); flex-shrink: 0; }
 .cr-pill { font-size: 0.82rem; font-weight: 500; padding: 6px 14px; border-radius: 99px; border: 1.5px solid var(--border); background: #fff; color: var(--dark); cursor: pointer; transition: all 0.12s; white-space: nowrap; }
 .cr-pill:hover { border-color: var(--accent); color: var(--accent); }
-.cr-pill--active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.cr-pill--active { background: var(--accent-mid); border-color: var(--accent); color: var(--accent); font-weight: 700; }
 .cr-sort-wrap { display: flex; align-items: center; gap: 6px; margin-left: auto; }
 .cr-sort-icon { width: 14px; height: 14px; color: var(--muted); flex-shrink: 0; }
 .cr-select { font-size: 0.82rem; border: 1.5px solid var(--border); border-radius: 8px; padding: 7px 10px; color: var(--dark); background: #fff; cursor: pointer; }
@@ -495,9 +579,10 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-status--error { color: #b91c1c; }
 
 /* ── BANNER ── */
-.cr-banner { background: var(--accent-light); border-top: 1px solid var(--accent-border); border-bottom: 1px solid var(--accent-border); padding: 16px 24px; }
-.cr-banner-inner { max-width: 1160px; margin: 0 auto; display: flex; align-items: center; gap: 16px; }
+.cr-banner-wrap { max-width: 1000px; margin: 22px auto 0; padding: 0 24px; }
+.cr-banner { display: flex; align-items: center; gap: 16px; padding: 16px 20px; background: var(--accent-light); border: 1px solid var(--accent-border); border-radius: 16px; }
 .cr-banner-icon { width: 40px; height: 40px; color: var(--accent); flex-shrink: 0; }
+.cr-banner-icon-img { width: 44px; height: 44px; object-fit: contain; flex-shrink: 0; }
 .cr-banner-body { flex: 1; min-width: 0; }
 .cr-banner-text { margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--dark); }
 .cr-banner-bullets { margin: 3px 0 0; font-size: 0.82rem; color: var(--muted); }
@@ -505,29 +590,39 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-banner-link:hover { text-decoration: underline; }
 
 /* ── JOB LIST ── */
-.cr-list { list-style: none; margin: 20px auto; padding: 0 24px; max-width: 1000px; display: flex; flex-direction: column; gap: 12px; }
+.cr-list { list-style: none; margin: 18px auto; padding: 0 24px; max-width: 1000px; display: flex; flex-direction: column; gap: 14px; }
 .cr-item { display: block; }
-.cr-card { position: relative; display: grid; grid-template-columns: 64px 1fr auto; align-items: start; gap: 18px; padding: 22px 20px; background: #fff; border: 1.5px solid var(--border); border-radius: var(--card-radius); transition: box-shadow 0.15s, border-color 0.15s; }
-.cr-card:hover { box-shadow: 0 6px 24px -8px rgba(15, 23, 42, 0.12); border-color: var(--accent-border); }
-.cr-card--featured { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 6px 24px -8px rgba(26, 140, 84, 0.2); }
-.cr-featured-badge { position: absolute; top: 0; left: 16px; background: var(--accent); color: #fff; font-size: 0.65rem; font-weight: 800; letter-spacing: 0.1em; padding: 3px 10px; border-radius: 0 0 8px 8px; text-transform: uppercase; }
-.cr-card-icon { width: 56px; height: 56px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 1.6rem; flex-shrink: 0; margin-top: 4px; overflow: hidden; background: var(--accent-light); border: 1.5px solid var(--accent-border); }
-.cr-card-icon--facilitator { background: #ede9fe; border-color: #c4b5fd; }
-.cr-card-icon--intern { background: #fef9c3; border-color: #fde047; }
-.cr-card-icon--clinician { background: #ffe4e6; border-color: #fca5a5; }
+.cr-card { position: relative; display: grid; grid-template-columns: 72px 1fr auto; align-items: start; gap: 18px; padding: 22px 22px; background: #fff; border: 1.5px solid var(--border); border-radius: var(--card-radius); transition: box-shadow 0.15s, border-color 0.15s, transform 0.15s; overflow: hidden; }
+.cr-card:hover { box-shadow: 0 10px 28px -12px rgba(15, 23, 42, 0.16); border-color: var(--accent-border); transform: translateY(-1px); }
+.cr-card--featured { background: linear-gradient(135deg, var(--accent-light), #fff 55%); border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-border), 0 10px 28px -14px rgba(26, 140, 84, 0.28); }
+.cr-featured-badge { position: absolute; top: 0; left: 18px; background: var(--accent); color: #fff; font-size: 0.65rem; font-weight: 800; letter-spacing: 0.1em; padding: 4px 12px; border-radius: 0 0 10px 10px; text-transform: uppercase; }
+.cr-card-icon { width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; overflow: hidden; background: #f1f5f9; border: 2px solid #e2e8f0; }
+.cr-card-icon--featured { background: #ecfdf5; border-color: var(--accent-border); }
+.cr-card-icon--provider { background: #ecfdf5; border-color: #a7f3d0; }
+.cr-card-icon--facilitator { background: #f5f3ff; border-color: #ddd6fe; }
+.cr-card-icon--intern { background: #eff6ff; border-color: #bfdbfe; }
+.cr-card-icon--admin { background: #fff7ed; border-color: #fed7aa; }
+.cr-card-icon--default { background: #f8fafc; border-color: #e2e8f0; }
 .cr-card-icon-img { width: 100%; height: 100%; object-fit: cover; }
 .cr-card-body { min-width: 0; }
-.cr-card-title { margin: 0 0 6px; font-size: 1.05rem; font-weight: 700; color: var(--dark); }
+.cr-card-title { margin: 0 0 6px; font-size: 1.08rem; font-weight: 700; color: var(--dark); }
 .cr-card-meta { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 0.8rem; color: var(--muted); margin-bottom: 8px; }
 .cr-meta-item { display: inline-flex; align-items: center; gap: 4px; }
 .cr-meta-item svg { width: 12px; height: 12px; flex-shrink: 0; }
 .cr-card-desc { margin: 0 0 10px; font-size: 0.88rem; color: var(--muted); line-height: 1.5; }
 .cr-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.cr-tag { font-size: 0.75rem; font-weight: 500; padding: 3px 10px; border-radius: 99px; background: var(--accent-light); color: var(--accent); border: 1px solid var(--accent-border); }
-.cr-card-actions { display: flex; flex-direction: column; gap: 8px; align-items: stretch; min-width: 120px; }
-.cr-apply-btn { display: inline-flex; align-items: center; justify-content: center; font-size: 0.88rem; font-weight: 700; padding: 10px 18px; border-radius: 10px; background: var(--accent); color: #fff; text-decoration: none; border: none; cursor: pointer; white-space: nowrap; transition: opacity 0.15s; }
-.cr-apply-btn:hover { opacity: 0.88; }
-.cr-save-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.8rem; font-weight: 500; padding: 8px 14px; border-radius: 8px; background: #fff; color: var(--muted); border: 1.5px solid var(--border); cursor: pointer; transition: all 0.12s; white-space: nowrap; }
+.cr-tag { font-size: 0.75rem; font-weight: 600; padding: 3px 10px; border-radius: 99px; background: var(--accent-light); color: var(--accent); border: 1px solid var(--accent-border); }
+.cr-card--featured .cr-tag { background: #fff; }
+.cr-card-icon--facilitator ~ .cr-card-body .cr-tag { background: #f5f3ff; color: #6d28d9; border-color: #ddd6fe; }
+.cr-card-icon--intern ~ .cr-card-body .cr-tag { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+.cr-card-icon--admin ~ .cr-card-body .cr-tag { background: #fff7ed; color: #c2410c; border-color: #fed7aa; }
+.cr-card-actions { display: flex; flex-direction: column; gap: 8px; align-items: stretch; min-width: 128px; }
+.cr-apply-btn { display: inline-flex; align-items: center; justify-content: center; font-size: 0.88rem; font-weight: 700; padding: 10px 18px; border-radius: 12px; text-decoration: none; cursor: pointer; white-space: nowrap; transition: opacity 0.15s, background 0.15s, color 0.15s; }
+.cr-apply-btn--solid { background: var(--accent); color: #fff; border: 1.5px solid var(--accent); }
+.cr-apply-btn--solid:hover { opacity: 0.9; }
+.cr-apply-btn--outline { background: #fff; color: var(--accent); border: 1.5px solid var(--accent); }
+.cr-apply-btn--outline:hover { background: var(--accent); color: #fff; }
+.cr-save-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.8rem; font-weight: 500; padding: 8px 14px; border-radius: 10px; background: #fff; color: var(--muted); border: 1.5px solid var(--border); cursor: pointer; transition: all 0.12s; white-space: nowrap; }
 .cr-save-btn svg { width: 14px; height: 16px; }
 .cr-save-btn:hover { border-color: var(--accent); color: var(--accent); }
 .cr-save-btn--saved { color: var(--accent); border-color: var(--accent); background: var(--accent-light); }
@@ -560,20 +655,22 @@ watch(slug, () => loadCareers(), { immediate: true });
 /* ── RESPONSIVE ── */
 @media (max-width: 840px) {
   .cr-hero-inner { grid-template-columns: 1fr; }
-  .cr-hero-fig { order: -1; }
-  .cr-hero-img { aspect-ratio: 2 / 1; border-radius: 20px; }
+  .cr-hero-fig { order: -1; max-width: 520px; margin: 0 auto; }
+  .cr-hero-img { aspect-ratio: 1.6 / 1; }
+  .cr-hero-fig--preframed .cr-hero-img { aspect-ratio: auto; }
   .cr-leaf { display: none; }
   .cr-hero-lead { max-width: 100%; }
-  .cr-card { grid-template-columns: 48px 1fr; }
+  .cr-card { grid-template-columns: 56px 1fr; }
   .cr-card-actions { grid-column: 1 / -1; flex-direction: row; }
   .cr-feature-cards { grid-template-columns: 1fr; }
+  .cr-banner { flex-wrap: wrap; }
 }
 @media (max-width: 560px) {
   .cr-nav-inner { flex-direction: column; align-items: flex-start; gap: 10px; }
   .cr-hero { padding: 28px 16px 24px; }
-  .cr-list, .cr-pagination { padding: 0 12px; }
+  .cr-list, .cr-pagination, .cr-banner-wrap { padding-left: 12px; padding-right: 12px; }
   .cr-card { padding: 18px 14px; gap: 12px; grid-template-columns: 1fr; }
-  .cr-card-icon { display: none; }
+  .cr-card-icon { width: 52px; height: 52px; }
   .cr-card-actions { flex-direction: row; }
   .cr-pill-group { padding-right: 0; border-right: 0; }
   .cr-pagination { flex-direction: column; align-items: flex-start; }

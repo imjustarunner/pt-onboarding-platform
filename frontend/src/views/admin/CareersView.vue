@@ -90,11 +90,24 @@
           </div>
           <label class="checkbox-inline">
             <input v-model="agencyPageForm.showLeafAccent" type="checkbox" />
-            Show decorative leaf accent near hero photo
+            Show decorative leaf accent near hero photo (custom rounded photos only)
           </label>
           <div class="hero-upload-field" style="grid-column: 1 / -1;">
-            <label class="field-label">Hero photo <span class="field-hint">— large image shown to the right of your hero text</span></label>
-            <div class="upload-row">
+            <label class="field-label">Hero frame presets <span class="field-hint">— branded organic frames, or upload your own</span></label>
+            <div class="hero-preset-grid">
+              <button
+                v-for="preset in heroPresets"
+                :key="preset.id"
+                type="button"
+                class="hero-preset-card"
+                :class="{ 'hero-preset-card--active': agencyPageForm.heroImageUrl === preset.url }"
+                @click="applyHeroPreset(agencyPageForm, preset)"
+              >
+                <img :src="preset.url" :alt="preset.label" />
+                <span>{{ preset.label }}</span>
+              </button>
+            </div>
+            <div class="upload-row" style="margin-top:10px;">
               <input v-model="agencyPageForm.heroImageUrl" class="input" type="text" placeholder="Paste image URL or use the upload button →" style="flex:1" />
               <button type="button" class="btn btn-secondary btn-sm" @click="triggerAgencyHeroUpload">📷 Upload photo</button>
             </div>
@@ -195,7 +208,20 @@
         <input v-model="createForm.title" class="input" type="text" placeholder="Job title" />
         <input v-model="createForm.roleType" class="input" type="text" placeholder="Role type label, e.g. Provider, Facilitator, Intern" />
         <div class="job-icon-field">
-          <label class="field-label">Job card icon <span class="field-hint">— small image shown in the circle on the job card</span></label>
+          <label class="field-label">Job card icon <span class="field-hint">— pick from the careers icon library (page 2) or upload your own</span></label>
+          <div class="job-icon-picker">
+            <button
+              v-for="icon in jobIconLibrary"
+              :key="icon.id"
+              type="button"
+              class="job-icon-option"
+              :class="{ 'job-icon-option--active': createForm.iconUrl === icon.url }"
+              :title="icon.label"
+              @click="selectJobIcon(createForm, icon)"
+            >
+              <img :src="icon.url" :alt="icon.label" />
+            </button>
+          </div>
           <div class="upload-row">
             <input v-model="createForm.iconUrl" class="input" type="text" placeholder="Paste icon URL or upload →" style="flex:1" />
             <button type="button" class="btn btn-secondary btn-sm" @click="createIconFileRef?.click()">📷 Upload icon</button>
@@ -387,7 +413,20 @@
             <input v-model="editForm.title" class="input" type="text" placeholder="Job title" />
             <input v-model="editForm.roleType" class="input" type="text" placeholder="Role type label, e.g. Provider, Facilitator, Intern" />
             <div class="job-icon-field">
-              <label class="field-label">Job card icon <span class="field-hint">— small image shown in the circle on the job card</span></label>
+              <label class="field-label">Job card icon <span class="field-hint">— pick from the careers icon library (page 2) or upload your own</span></label>
+              <div class="job-icon-picker">
+                <button
+                  v-for="icon in jobIconLibrary"
+                  :key="`edit-${icon.id}`"
+                  type="button"
+                  class="job-icon-option"
+                  :class="{ 'job-icon-option--active': editForm.iconUrl === icon.url }"
+                  :title="icon.label"
+                  @click="selectJobIcon(editForm, icon)"
+                >
+                  <img :src="icon.url" :alt="icon.label" />
+                </button>
+              </div>
               <div class="upload-row">
                 <input v-model="editForm.iconUrl" class="input" type="text" placeholder="Paste icon URL or upload →" style="flex:1" />
                 <button type="button" class="btn btn-secondary btn-sm" @click="editIconFileRef?.click()">📷 Upload icon</button>
@@ -525,7 +564,10 @@ import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
-
+import {
+  CAREERS_HERO_PRESETS,
+  CAREERS_JOB_ICONS
+} from '../../utils/careersAssets';
 const router = useRouter();
 const route = useRoute();
 const agencyStore = useAgencyStore();
@@ -542,17 +584,26 @@ const applicantCounts = ref({});
 const agencyHeroImageFile = ref(null);
 
 const cardIconOptions = [
-  { value: 'school', label: 'School' },
-  { value: 'office', label: 'Office' },
-  { value: 'people', label: 'People' },
-  { value: 'growth', label: 'Growth' },
-  { value: 'heart', label: 'Heart' },
-  { value: 'shield', label: 'Shield' },
-  { value: 'lock', label: 'Lock' },
-  { value: 'handshake', label: 'Handshake' },
-  { value: 'star', label: 'Star' },
+  { value: 'team', label: 'Team (illustration)' },
+  { value: 'care', label: 'Care (illustration)' },
+  { value: 'growth', label: 'Growth (illustration)' },
+  { value: 'learning', label: 'Learning (illustration)' },
+  { value: 'list', label: 'List (illustration)' },
+  { value: 'location', label: 'Location (illustration)' },
+  { value: 'clock', label: 'Clock (illustration)' },
+  { value: 'bookmark', label: 'Bookmark (illustration)' },
+  { value: 'school', label: 'School (emoji)' },
+  { value: 'office', label: 'Office (emoji)' },
+  { value: 'people', label: 'People (emoji)' },
+  { value: 'heart', label: 'Heart (emoji)' },
+  { value: 'shield', label: 'Shield (emoji)' },
+  { value: 'lock', label: 'Lock (emoji)' },
+  { value: 'handshake', label: 'Handshake (emoji)' },
+  { value: 'star', label: 'Star (emoji)' },
   { value: 'none', label: 'No icon' }
 ];
+const heroPresets = CAREERS_HERO_PRESETS;
+const jobIconLibrary = CAREERS_JOB_ICONS;
 const blankDisplayCard = () => ({ icon: 'none', title: '', body: '' });
 const blankApplicationPage = () => ({
   heroHeadline: '',
@@ -565,6 +616,7 @@ const blankApplicationPage = () => ({
   heroImageUrl: '',
   heroImageAlt: '',
   heroImagePosition: '',
+  heroFrameStyle: '',
   secureTitle: '',
   secureSubtitle: '',
   startHeading: '',
@@ -604,6 +656,7 @@ const normalizeApplicationPage = (page) => {
     heroImageUrl: String(page?.heroImageUrl || '').trim(),
     heroImageAlt: String(page?.heroImageAlt || '').trim(),
     heroImagePosition: String(page?.heroImagePosition || page?.hero_image_position || '').trim(),
+    heroFrameStyle: String(page?.heroFrameStyle || page?.hero_frame_style || '').trim(),
     secureTitle: String(page?.secureTitle || page?.secure_title || '').trim(),
     secureSubtitle: String(page?.secureSubtitle || page?.secure_subtitle || '').trim(),
     startHeading: String(page?.startHeading || page?.start_heading || '').trim(),
@@ -635,6 +688,7 @@ const compactApplicationPage = (page) => {
     heroImageUrl: normalized.heroImageUrl,
     heroImageAlt: normalized.heroImageAlt,
     heroImagePosition: normalized.heroImagePosition,
+    heroFrameStyle: normalized.heroFrameStyle,
     secureTitle: normalized.secureTitle,
     secureSubtitle: normalized.secureSubtitle,
     startHeading: normalized.startHeading,
@@ -773,7 +827,12 @@ const onCreateFileChange = (e) => {
 const onEditFileChange = (e) => {
   editForm.value.file = e?.target?.files?.[0] || null;
 };
-const displayAssetUrl = (url) => toUploadsUrl(String(url || '').trim()) || String(url || '').trim();
+const displayAssetUrl = (url) => {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('/assets/') || raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('data:')) return raw;
+  return toUploadsUrl(raw) || raw;
+};
 const triggerCreateHeroUpload = () => {
   createHeroFileRef.value?.click?.();
 };
@@ -786,7 +845,10 @@ const triggerAgencyHeroUpload = () => {
 const onAgencyHeroFileChange = (e) => {
   const file = e?.target?.files?.[0] || null;
   agencyHeroImageFile.value = file;
-  if (file) agencyPageForm.value.heroImageUrl = file.name;
+  if (file) {
+    agencyPageForm.value.heroImageUrl = file.name;
+    agencyPageForm.value.heroFrameStyle = 'rounded';
+  }
 };
 const onCreateHeroFileChange = (e) => {
   const file = e?.target?.files?.[0] || null;
@@ -807,6 +869,19 @@ const onEditIconFileChange = (e) => {
   const file = e?.target?.files?.[0] || null;
   editForm.value.iconFile = file;
   if (file) editForm.value.iconUrl = file.name;
+};
+const applyHeroPreset = (form, preset) => {
+  if (!form || !preset) return;
+  form.heroImageUrl = preset.url;
+  form.heroFrameStyle = preset.frameStyle || 'preframed';
+  form.heroImageAlt = form.heroImageAlt || preset.label;
+  if (preset.frameStyle === 'preframed') form.showLeafAccent = false;
+  agencyHeroImageFile.value = null;
+};
+const selectJobIcon = (form, icon) => {
+  if (!form || !icon) return;
+  form.iconUrl = icon.url;
+  form.iconFile = null;
 };
 
 const buildDefaultJobApplicationSteps = () => ([
@@ -934,7 +1009,11 @@ const createJob = async () => {
     if (String(createForm.value.roleType || '').trim()) fd.append('roleType', String(createForm.value.roleType || '').trim());
     fd.append('isFeatured', createForm.value.isFeatured ? '1' : '0');
     fd.append('tagsJson', JSON.stringify(createForm.value.tags || []));
-    fd.append('applicationPageJson', JSON.stringify(compactApplicationPage(createForm.value.applicationPage)));
+    const createPage = {
+      ...compactApplicationPage(createForm.value.applicationPage),
+      iconUrl: String(createForm.value.iconUrl || '').trim()
+    };
+    fd.append('applicationPageJson', JSON.stringify(createPage));
     if (createForm.value.heroImageFile) fd.append('heroImage', createForm.value.heroImageFile);
     if (createForm.value.iconFile) fd.append('jobIcon', createForm.value.iconFile);
     if (createForm.value.file) fd.append('file', createForm.value.file);
@@ -1032,7 +1111,11 @@ const saveEdit = async () => {
     fd.append('roleType', String(editForm.value.roleType || '').trim());
     fd.append('isFeatured', editForm.value.isFeatured ? '1' : '0');
     fd.append('tagsJson', JSON.stringify(editForm.value.tags || []));
-    fd.append('applicationPageJson', JSON.stringify(compactApplicationPage(editForm.value.applicationPage)));
+    const editPage = {
+      ...compactApplicationPage(editForm.value.applicationPage),
+      iconUrl: String(editForm.value.iconUrl || '').trim()
+    };
+    fd.append('applicationPageJson', JSON.stringify(editPage));
     if (editForm.value.heroImageFile) fd.append('heroImage', editForm.value.heroImageFile);
     if (editForm.value.iconFile) fd.append('jobIcon', editForm.value.iconFile);
     if (editForm.value.file) fd.append('file', editForm.value.file);
@@ -1170,7 +1253,24 @@ onMounted(async () => {
 .hero-upload-field { display: grid; gap: 8px; }
 .hidden-file { display: none; }
 .hero-thumb { width: 100%; max-width: 260px; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: #fff; }
-.hero-thumb img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.hero-thumb img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #0f172a; }
+.hero-preset-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.hero-preset-card {
+  display: flex; flex-direction: column; gap: 6px; align-items: stretch;
+  border: 1.5px solid #e5e7eb; border-radius: 12px; padding: 8px; background: #fff; cursor: pointer; text-align: left;
+}
+.hero-preset-card img { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: #0f172a; border-radius: 8px; }
+.hero-preset-card span { font-size: 12px; font-weight: 600; color: #374151; }
+.hero-preset-card--active { border-color: #16a34a; box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.15); }
+.job-icon-picker { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.job-icon-option {
+  width: 52px; height: 52px; border-radius: 50%; border: 2px solid #e5e7eb; background: #f8fafc;
+  padding: 0; overflow: hidden; cursor: pointer;
+}
+.job-icon-option img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.job-icon-option--active { border-color: #16a34a; box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.18); }
+.icon-thumb { width: 56px; height: 56px; border-radius: 50%; overflow: hidden; border: 1px solid #e5e7eb; }
+.icon-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .checkbox-inline { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #374151; }
 .actions { margin-top: 10px; display: flex; gap: 8px; }
 .table { width: 100%; border-collapse: collapse; }
@@ -1202,8 +1302,6 @@ onMounted(async () => {
 .field-hint { font-size: 0.77rem; color: #9ca3af; font-weight: 400; }
 .field-with-hint { display: flex; flex-direction: column; gap: 3px; }
 .job-icon-field { display: flex; flex-direction: column; gap: 5px; grid-column: 1 / -1; }
-.icon-thumb { width: 56px; height: 56px; border-radius: 10px; overflow: hidden; border: 1px solid #e2e8f0; background: #f8fafc; }
-.icon-thumb img { width: 100%; height: 100%; object-fit: cover; }
 /* Page layout diagram */
 .page-diagram { display: flex; flex-direction: column; gap: 0; margin: 0 0 20px; font-size: 0.78rem; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
 .page-diagram > div { padding: 7px 14px; border-bottom: 1px solid #e2e8f0; color: #374151; }
@@ -1227,6 +1325,7 @@ onMounted(async () => {
   .form-grid { grid-template-columns: 1fr; }
   .display-card-grid,
   .display-card-grid-trust { grid-template-columns: 1fr; }
+  .hero-preset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .config-header { align-items: flex-start; flex-direction: column; }
   .nav-item-row { flex-wrap: wrap; }
 }
