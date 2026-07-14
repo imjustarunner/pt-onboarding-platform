@@ -28,8 +28,22 @@
           </select>
         </div>
         <div class="field">
-          <label>Search</label>
-          <input v-model="search" type="text" placeholder="Search name/email…" />
+          <label>Smart search</label>
+          <div class="smart-search-wrap">
+            <input
+              v-model="search"
+              type="search"
+              placeholder="Type a name, NPI, license, email, zip, state…"
+              autocomplete="off"
+            />
+            <button
+              v-if="search"
+              class="clear-search"
+              type="button"
+              title="Clear search"
+              @click="search = ''"
+            >×</button>
+          </div>
         </div>
       </div>
       <div class="filters-meta">
@@ -82,7 +96,12 @@
 
     <template v-if="viewMode === 'by_provider'">
       <div class="stats-row" v-if="!loading">
-        <div class="stat-card">
+        <button
+          type="button"
+          class="stat-card"
+          :class="{ active: statusFilter === 'all' || !statusFilter }"
+          @click="setStatusFilter('all')"
+        >
           <div class="stat-icon total">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
           </div>
@@ -90,8 +109,8 @@
             <div class="stat-label">Total Providers</div>
             <div class="stat-value">{{ stats.total }}</div>
           </div>
-        </div>
-        <div class="stat-card">
+        </button>
+        <button type="button" class="stat-card" :class="{ active: statusFilter === 'active' }" @click="setStatusFilter('active')">
           <div class="stat-icon active">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
           </div>
@@ -99,8 +118,8 @@
             <div class="stat-label">Active</div>
             <div class="stat-value">{{ stats.active }}</div>
           </div>
-        </div>
-        <div class="stat-card">
+        </button>
+        <button type="button" class="stat-card" :class="{ active: statusFilter === 'soon' }" @click="setStatusFilter('soon')">
           <div class="stat-icon soon">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
           </div>
@@ -108,8 +127,8 @@
             <div class="stat-label">Expiring Soon (&lt; 90 days)</div>
             <div class="stat-value">{{ stats.expiringSoon }}</div>
           </div>
-        </div>
-        <div class="stat-card">
+        </button>
+        <button type="button" class="stat-card" :class="{ active: statusFilter === 'expired' }" @click="setStatusFilter('expired')">
           <div class="stat-icon expired">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
           </div>
@@ -117,8 +136,8 @@
             <div class="stat-label">Expired</div>
             <div class="stat-value">{{ stats.expired }}</div>
           </div>
-        </div>
-        <div class="stat-card">
+        </button>
+        <button type="button" class="stat-card" :class="{ active: statusFilter === 'progress' }" @click="setStatusFilter('progress')">
           <div class="stat-icon progress">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
           </div>
@@ -126,12 +145,32 @@
             <div class="stat-label">In Progress</div>
             <div class="stat-value">{{ stats.inProgress }}</div>
           </div>
-        </div>
+        </button>
+      </div>
+
+      <div class="quick-filters" v-if="!loading">
+        <span class="quick-label">Quick filters:</span>
+        <button type="button" class="chip" :class="{ active: statusFilter === 'all' || !statusFilter }" @click="setStatusFilter('all')">All</button>
+        <button type="button" class="chip" :class="{ active: statusFilter === 'licensed' }" @click="setStatusFilter('licensed')" title="LPC, LCSW, MFT/LMFT, LAC, Licensed Psychologist">Fully licensed</button>
+        <button type="button" class="chip" :class="{ active: statusFilter === 'unlicensed' }" @click="setStatusFilter('unlicensed')" title="Candidates / pre-licensed and other non-credentialable statuses">Not fully licensed</button>
+        <button type="button" class="chip chip-expired" :class="{ active: statusFilter === 'expired' }" @click="setStatusFilter('expired')">Expired</button>
+        <button type="button" class="chip chip-soon" :class="{ active: statusFilter === 'soon' }" @click="setStatusFilter('soon')">Expiring soon</button>
+        <button type="button" class="chip chip-active" :class="{ active: statusFilter === 'active' }" @click="setStatusFilter('active')">Active license</button>
+        <button type="button" class="chip chip-progress" :class="{ active: statusFilter === 'progress' }" @click="setStatusFilter('progress')">In progress</button>
+        <button
+          v-if="statusFilter && statusFilter !== 'all'"
+          type="button"
+          class="chip chip-clear"
+          @click="setStatusFilter('all')"
+        >Clear filter</button>
       </div>
 
       <div class="card table-card">
         <div class="table-toolbar">
-          <h2>Providers ({{ filteredRows.length }})</h2>
+          <div>
+            <h2>Providers ({{ filteredRows.length }}<span v-if="filteredRows.length !== stats.total" class="muted"> of {{ stats.total }}</span>)</h2>
+            <div v-if="activeFilterLabel" class="filter-pill">Showing: {{ activeFilterLabel }}</div>
+          </div>
           <div class="toolbar-actions">
             <button class="icon-btn" type="button" @click="showColumnMenu = !showColumnMenu" title="Columns">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 0h8v8h-8v-8z"/></svg>
@@ -151,28 +190,70 @@
           <table class="cred-table">
             <thead>
               <tr>
-                <th class="sticky-name">Provider Name</th>
-                <th v-if="isColVisible('date_of_birth')">DOB</th>
-                <th v-if="isColVisible('state_of_birth')">State of Birth</th>
-                <th v-if="isColVisible('first_client_date')">First Client Date</th>
-                <th v-if="isColVisible('npi_status')">Has NPI?</th>
-                <th v-if="isColVisible('npi_number')">NPI Number</th>
-                <th v-if="isColVisible('npi_id')">NPI ID</th>
-                <th v-if="isColVisible('taxonomy_code')">Taxonomy</th>
-                <th v-if="isColVisible('zipcode')">Zip</th>
-                <th v-if="isColVisible('license_type_number')">License Type / Number</th>
-                <th v-if="isColVisible('license_issued')">Issued</th>
-                <th v-if="isColVisible('license_expires')">Expires</th>
+                <th class="sticky-name sortable" @click="toggleSort('name')">
+                  Provider Name <span class="sort-ind">{{ sortIndicator('name') }}</span>
+                </th>
+                <th v-if="isColVisible('date_of_birth')" class="sortable" @click="toggleSort('date_of_birth')">
+                  DOB <span class="sort-ind">{{ sortIndicator('date_of_birth') }}</span>
+                </th>
+                <th v-if="isColVisible('state_of_birth')" class="sortable" @click="toggleSort('state_of_birth')">
+                  State of Birth <span class="sort-ind">{{ sortIndicator('state_of_birth') }}</span>
+                </th>
+                <th v-if="isColVisible('first_client_date')" class="sortable" @click="toggleSort('first_client_date')">
+                  First Client Date <span class="sort-ind">{{ sortIndicator('first_client_date') }}</span>
+                </th>
+                <th v-if="isColVisible('npi_status')" class="sortable" @click="toggleSort('npi_status')">
+                  Has NPI? <span class="sort-ind">{{ sortIndicator('npi_status') }}</span>
+                </th>
+                <th v-if="isColVisible('npi_number')" class="sortable" @click="toggleSort('npi_number')">
+                  NPI Number <span class="sort-ind">{{ sortIndicator('npi_number') }}</span>
+                </th>
+                <th v-if="isColVisible('npi_id')" class="sortable" @click="toggleSort('npi_id')">
+                  NPI ID <span class="sort-ind">{{ sortIndicator('npi_id') }}</span>
+                </th>
+                <th v-if="isColVisible('taxonomy_code')" class="sortable" @click="toggleSort('taxonomy_code')">
+                  Taxonomy <span class="sort-ind">{{ sortIndicator('taxonomy_code') }}</span>
+                </th>
+                <th v-if="isColVisible('zipcode')" class="sortable" @click="toggleSort('zipcode')">
+                  Zip <span class="sort-ind">{{ sortIndicator('zipcode') }}</span>
+                </th>
+                <th v-if="isColVisible('license_type_number')" class="sortable" @click="toggleSort('license_type_number')">
+                  License Type / Number <span class="sort-ind">{{ sortIndicator('license_type_number') }}</span>
+                </th>
+                <th v-if="isColVisible('license_issued')" class="sortable" @click="toggleSort('license_issued')">
+                  Issued <span class="sort-ind">{{ sortIndicator('license_issued') }}</span>
+                </th>
+                <th v-if="isColVisible('license_expires')" class="sortable" @click="toggleSort('license_expires')">
+                  Expires <span class="sort-ind">{{ sortIndicator('license_expires') }}</span>
+                </th>
                 <th v-if="isColVisible('license_upload')">License Copy</th>
-                <th v-if="isColVisible('medicaid_location_id')">Medicaid Location ID</th>
-                <th v-if="isColVisible('medicaid_effective_date')">Medicaid Effective</th>
-                <th v-if="isColVisible('medicaid_revalidation')">Medicaid Revalidation</th>
-                <th v-if="isColVisible('medicare_number')">Medicare #</th>
-                <th v-if="isColVisible('caqh_provider_id')">CAQH ID</th>
-                <th v-if="isColVisible('personal_email')">Personal Email</th>
-                <th v-if="isColVisible('cell_number')">Cell</th>
-                <th>Status</th>
-                <th>Payers</th>
+                <th v-if="isColVisible('medicaid_location_id')" class="sortable" @click="toggleSort('medicaid_location_id')">
+                  Medicaid Location ID <span class="sort-ind">{{ sortIndicator('medicaid_location_id') }}</span>
+                </th>
+                <th v-if="isColVisible('medicaid_effective_date')" class="sortable" @click="toggleSort('medicaid_effective_date')">
+                  Medicaid Effective <span class="sort-ind">{{ sortIndicator('medicaid_effective_date') }}</span>
+                </th>
+                <th v-if="isColVisible('medicaid_revalidation')" class="sortable" @click="toggleSort('medicaid_revalidation')">
+                  Medicaid Revalidation <span class="sort-ind">{{ sortIndicator('medicaid_revalidation') }}</span>
+                </th>
+                <th v-if="isColVisible('medicare_number')" class="sortable" @click="toggleSort('medicare_number')">
+                  Medicare # <span class="sort-ind">{{ sortIndicator('medicare_number') }}</span>
+                </th>
+                <th v-if="isColVisible('caqh_provider_id')" class="sortable" @click="toggleSort('caqh_provider_id')">
+                  CAQH ID <span class="sort-ind">{{ sortIndicator('caqh_provider_id') }}</span>
+                </th>
+                <th v-if="isColVisible('personal_email')" class="sortable" @click="toggleSort('personal_email')">
+                  Personal Email <span class="sort-ind">{{ sortIndicator('personal_email') }}</span>
+                </th>
+                <th v-if="isColVisible('cell_number')" class="sortable" @click="toggleSort('cell_number')">
+                  Cell <span class="sort-ind">{{ sortIndicator('cell_number') }}</span>
+                </th>
+                <th class="sortable" @click="toggleSort('status')">
+                  Status <span class="sort-ind">{{ sortIndicator('status') }}</span>
+                </th>
+                <th class="sortable" @click="toggleSort('payers')">
+                  Payers <span class="sort-ind">{{ sortIndicator('payers') }}</span>
+                </th>
                 <th class="right">Actions</th>
               </tr>
             </thead>
@@ -512,6 +593,7 @@ import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import { isFullyLicensedCredentialText } from '../../utils/credentialNormalization.js';
 import CredentialingTimeline from '../../components/admin/CredentialingTimeline.vue';
 import InsuranceDefinitionsPanel from '../../components/admin/InsuranceDefinitionsPanel.vue';
 import ProviderPayerCredentialsPanel from '../../components/admin/ProviderPayerCredentialsPanel.vue';
@@ -698,101 +780,9 @@ const editingUserId = ref(null);
 const draftValues = ref(new Map());
 const page = ref(1);
 const pageSize = ref(10);
-
-const filteredRows = computed(() => {
-  const q = String(search.value || '').trim().toLowerCase();
-  if (!q) return rows.value || [];
-  return (rows.value || []).filter((r) => {
-    return (
-      String(r.first_name || '').toLowerCase().includes(q) ||
-      String(r.last_name || '').toLowerCase().includes(q) ||
-      String(r.personal_email || '').toLowerCase().includes(q) ||
-      String(r.credential || '').toLowerCase().includes(q)
-    );
-  });
-});
-
-const totalPages = computed(() => Math.max(1, Math.ceil(filteredRows.value.length / pageSize.value)));
-const pageStart = computed(() => (filteredRows.value.length ? (page.value - 1) * pageSize.value + 1 : 0));
-const pageEnd = computed(() => Math.min(filteredRows.value.length, page.value * pageSize.value));
-const pagedRows = computed(() => {
-  const start = (page.value - 1) * pageSize.value;
-  return filteredRows.value.slice(start, start + pageSize.value);
-});
-const visiblePages = computed(() => {
-  const total = totalPages.value;
-  const cur = page.value;
-  const pages = [];
-  const from = Math.max(1, cur - 2);
-  const to = Math.min(total, from + 4);
-  for (let i = from; i <= to; i += 1) pages.push(i);
-  return pages;
-});
-
-watch([search, pageSize], () => {
-  page.value = 1;
-});
-
-const parseDate = (raw) => {
-  const s = String(raw || '').trim();
-  if (!s) return null;
-  const d = new Date(s.includes('T') ? s : `${s}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? null : d;
-};
-
-const daysUntil = (raw) => {
-  const d = parseDate(raw);
-  if (!d) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return Math.round((d.getTime() - today.getTime()) / 86400000);
-};
-
-const hasLicenseNumber = (row) => {
-  const v = getValue(row.userId, 'license_type_number');
-  return !!String(v || '').trim();
-};
-
-const licenseStatus = (row) => {
-  const expires = getValue(row.userId, 'license_expires');
-  const issued = getValue(row.userId, 'license_issued');
-  const days = daysUntil(expires);
-  if (hasLicenseNumber(row) && (!expires || !issued)) return { label: 'Missing dates', tone: 'expired' };
-  if (days != null && days < 0) return { label: 'Expired', tone: 'expired' };
-  if (days != null && days <= 90) return { label: 'Expiring Soon', tone: 'soon' };
-  if (!licenseUrl(row) && hasLicenseNumber(row)) return { label: 'Needs upload', tone: 'progress' };
-  if (hasLicenseNumber(row) && expires) return { label: 'Active', tone: 'active' };
-  return { label: 'In Progress', tone: 'progress' };
-};
-
-const dateCellClass = (row, which) => {
-  if (!hasLicenseNumber(row)) return {};
-  const issued = getValue(row.userId, 'license_issued');
-  const expires = getValue(row.userId, 'license_expires');
-  if (!issued || !expires) return { 'cell-alert': true };
-  if (which === 'expires') {
-    const days = daysUntil(expires);
-    if (days != null && days < 0) return { 'cell-expired': true };
-    if (days != null && days <= 90) return { 'cell-soon': true };
-  }
-  return {};
-};
-
-const stats = computed(() => {
-  const list = filteredRows.value || [];
-  let active = 0;
-  let expiringSoon = 0;
-  let expired = 0;
-  let inProgress = 0;
-  for (const r of list) {
-    const st = licenseStatus(r).tone;
-    if (st === 'active') active += 1;
-    else if (st === 'soon') expiringSoon += 1;
-    else if (st === 'expired') expired += 1;
-    else inProgress += 1;
-  }
-  return { total: list.length, active, expiringSoon, expired, inProgress };
-});
+const statusFilter = ref('all'); // all | active | soon | expired | progress | licensed | unlicensed
+const sortKey = ref('name');
+const sortDir = ref('asc'); // asc | desc
 
 const mapUiFieldKeyToStorageKey = (uiKey) => {
   switch (uiKey) {
@@ -830,6 +820,282 @@ const getValue = (userId, fieldKey) => {
   const colKey = mapUiFieldKeyToStorageKey(fieldKey);
   return (r.fields || {})[colKey] ?? '';
 };
+
+const parseDate = (raw) => {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  const d = new Date(s.includes('T') ? s : `${s}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+const daysUntil = (raw) => {
+  const d = parseDate(raw);
+  if (!d) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((d.getTime() - today.getTime()) / 86400000);
+};
+
+const hasLicenseNumber = (row) => {
+  const v = getValue(row.userId, 'license_type_number');
+  return !!String(v || '').trim();
+};
+
+/** Fully licensed / insurance-credentialable (LPC, LCSW, MFT/LMFT, LAC, psychologist). */
+const isFullyLicensedProvider = (row) => {
+  const cred = String(row?.credential || '').trim();
+  const licenseTypeNumber = String(getValue(row.userId, 'license_type_number') || '').trim();
+  return isFullyLicensedCredentialText(cred) || isFullyLicensedCredentialText(licenseTypeNumber);
+};
+
+const licenseUrl = (row) => {
+  const raw = row?.licenseUploadUrl || row?.fields?.license_upload || null;
+  return raw ? toUploadsUrl(raw) : null;
+};
+
+const licenseStatus = (row) => {
+  const expires = getValue(row.userId, 'license_expires');
+  const issued = getValue(row.userId, 'license_issued');
+  const days = daysUntil(expires);
+  if (hasLicenseNumber(row) && (!expires || !issued)) return { label: 'Missing dates', tone: 'expired' };
+  if (days != null && days < 0) return { label: 'Expired', tone: 'expired' };
+  if (days != null && days <= 90) return { label: 'Expiring Soon', tone: 'soon' };
+  if (!licenseUrl(row) && hasLicenseNumber(row)) return { label: 'Needs upload', tone: 'progress' };
+  if (hasLicenseNumber(row) && expires) return { label: 'Active', tone: 'active' };
+  return { label: 'In Progress', tone: 'progress' };
+};
+
+const dateCellClass = (row, which) => {
+  if (!hasLicenseNumber(row)) return {};
+  const issued = getValue(row.userId, 'license_issued');
+  const expires = getValue(row.userId, 'license_expires');
+  if (!issued || !expires) return { 'cell-alert': true };
+  if (which === 'expires') {
+    const days = daysUntil(expires);
+    if (days != null && days < 0) return { 'cell-expired': true };
+    if (days != null && days <= 90) return { 'cell-soon': true };
+  }
+  return {};
+};
+
+/** Smart / fuzzy relevance score — higher is closer to the typed query. */
+const smartSearchScore = (row, query) => {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return 1;
+
+  const fields = [
+    { text: `${row.first_name || ''} ${row.last_name || ''}`.trim(), weight: 100 },
+    { text: `${row.last_name || ''}, ${row.first_name || ''}`.trim(), weight: 95 },
+    { text: String(row.last_name || ''), weight: 90 },
+    { text: String(row.first_name || ''), weight: 85 },
+    { text: String(row.credential || ''), weight: 70 },
+    { text: String(row.personal_email || ''), weight: 60 },
+    { text: String(getValue(row.userId, 'npi_number') || ''), weight: 75 },
+    { text: String(getValue(row.userId, 'license_type_number') || ''), weight: 75 },
+    { text: String(getValue(row.userId, 'state_of_birth') || ''), weight: 50 },
+    { text: String(getValue(row.userId, 'zipcode') || ''), weight: 45 },
+    { text: String(getValue(row.userId, 'taxonomy_code') || ''), weight: 40 },
+    { text: String(getValue(row.userId, 'npi_id') || ''), weight: 40 },
+    { text: String(getValue(row.userId, 'cell_number') || ''), weight: 35 },
+    { text: (row.in_network || []).join(' '), weight: 30 }
+  ];
+
+  let best = 0;
+  for (const f of fields) {
+    const t = String(f.text || '').toLowerCase().trim();
+    if (!t) continue;
+
+    if (t === q) {
+      best = Math.max(best, f.weight + 50);
+      continue;
+    }
+    if (t.startsWith(q)) {
+      best = Math.max(best, f.weight + 35);
+      continue;
+    }
+    // Word-start match (e.g. "alb" matches "Aunya Albinana")
+    const words = t.split(/[^a-z0-9]+/).filter(Boolean);
+    if (words.some((w) => w.startsWith(q))) {
+      best = Math.max(best, f.weight + 25);
+      continue;
+    }
+    if (t.includes(q)) {
+      best = Math.max(best, f.weight + 10);
+      continue;
+    }
+
+    // Ordered fuzzy letter match (type "aun" → Aunya)
+    let ti = 0;
+    let matched = 0;
+    let gaps = 0;
+    let last = -1;
+    for (const c of q) {
+      const idx = t.indexOf(c, ti);
+      if (idx === -1) {
+        matched = -1;
+        break;
+      }
+      if (last >= 0) gaps += idx - last - 1;
+      last = idx;
+      ti = idx + 1;
+      matched += 1;
+    }
+    if (matched === q.length) {
+      const fuzzy = Math.max(1, f.weight - 40 - gaps);
+      best = Math.max(best, fuzzy);
+    }
+  }
+  return best;
+};
+
+const rowSortValue = (row, key) => {
+  switch (key) {
+    case 'name':
+      return `${row.last_name || ''} ${row.first_name || ''}`.trim().toLowerCase();
+    case 'status':
+      return licenseStatus(row).label.toLowerCase();
+    case 'payers':
+      return (row.in_network || []).length;
+    case 'personal_email':
+      return String(row.personal_email || '').toLowerCase();
+    case 'cell_number':
+      return String(row.cell_number || '').toLowerCase();
+    case 'date_of_birth':
+    case 'first_client_date':
+    case 'license_issued':
+    case 'license_expires':
+    case 'medicaid_effective_date':
+    case 'medicaid_revalidation': {
+      const d = parseDate(getValue(row.userId, key));
+      return d ? d.getTime() : 0;
+    }
+    default:
+      return String(getValue(row.userId, key) || '').toLowerCase();
+  }
+};
+
+const compareRows = (a, b, key, dir) => {
+  const av = rowSortValue(a, key);
+  const bv = rowSortValue(b, key);
+  let cmp = 0;
+  if (typeof av === 'number' && typeof bv === 'number') cmp = av - bv;
+  else cmp = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' });
+  return dir === 'desc' ? -cmp : cmp;
+};
+
+const matchesStatusFilter = (row, filter) => {
+  const f = String(filter || 'all');
+  if (!f || f === 'all') return true;
+  if (f === 'licensed') return isFullyLicensedProvider(row);
+  if (f === 'unlicensed') return !isFullyLicensedProvider(row);
+  return licenseStatus(row).tone === f;
+};
+
+/** Search-ranked rows (before status filter). Stats are based on this set. */
+const searchRankedRows = computed(() => {
+  const q = String(search.value || '').trim();
+  const list = rows.value || [];
+  if (!q) return list.slice();
+  return list
+    .map((r) => ({ row: r, score: smartSearchScore(r, q) }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return compareRows(a.row, b.row, 'name', 'asc');
+    })
+    .map((x) => x.row);
+});
+
+const stats = computed(() => {
+  const list = searchRankedRows.value || [];
+  let active = 0;
+  let expiringSoon = 0;
+  let expired = 0;
+  let inProgress = 0;
+  let licensed = 0;
+  let unlicensed = 0;
+  for (const r of list) {
+    if (isFullyLicensedProvider(r)) licensed += 1;
+    else unlicensed += 1;
+    const st = licenseStatus(r).tone;
+    if (st === 'active') active += 1;
+    else if (st === 'soon') expiringSoon += 1;
+    else if (st === 'expired') expired += 1;
+    else inProgress += 1;
+  }
+  return { total: list.length, active, expiringSoon, expired, inProgress, licensed, unlicensed };
+});
+
+const filteredRows = computed(() => {
+  const q = String(search.value || '').trim();
+  let list = (searchRankedRows.value || []).filter((r) => matchesStatusFilter(r, statusFilter.value));
+  // When searching, keep relevance order unless user picked a non-name column sort.
+  if (q && (!sortKey.value || sortKey.value === 'name') && sortDir.value === 'asc') {
+    return list;
+  }
+  return list.slice().sort((a, b) => compareRows(a, b, sortKey.value || 'name', sortDir.value || 'asc'));
+});
+
+const activeFilterLabel = computed(() => {
+  switch (statusFilter.value) {
+    case 'active':
+      return 'Active license';
+    case 'soon':
+      return 'Expiring soon';
+    case 'expired':
+      return 'Expired';
+    case 'progress':
+      return 'In progress';
+    case 'licensed':
+      return 'Fully licensed (LPC / LCSW / MFT / LAC / psychologist)';
+    case 'unlicensed':
+      return 'Not fully licensed (still shown for process tracking)';
+    default:
+      return '';
+  }
+});
+
+const setStatusFilter = (next) => {
+  const n = String(next || 'all');
+  statusFilter.value = statusFilter.value === n && n !== 'all' ? 'all' : n;
+  page.value = 1;
+};
+
+const toggleSort = (key) => {
+  if (sortKey.value === key) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortKey.value = key;
+    sortDir.value = 'asc';
+  }
+  page.value = 1;
+};
+
+const sortIndicator = (key) => {
+  if (sortKey.value !== key) return '↕';
+  return sortDir.value === 'asc' ? '↑' : '↓';
+};
+
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredRows.value.length / pageSize.value)));
+const pageStart = computed(() => (filteredRows.value.length ? (page.value - 1) * pageSize.value + 1 : 0));
+const pageEnd = computed(() => Math.min(filteredRows.value.length, page.value * pageSize.value));
+const pagedRows = computed(() => {
+  const start = (page.value - 1) * pageSize.value;
+  return filteredRows.value.slice(start, start + pageSize.value);
+});
+const visiblePages = computed(() => {
+  const total = totalPages.value;
+  const cur = page.value;
+  const pages = [];
+  const from = Math.max(1, cur - 2);
+  const to = Math.min(total, from + 4);
+  for (let i = from; i <= to; i += 1) pages.push(i);
+  return pages;
+});
+
+watch([search, pageSize, statusFilter, sortKey, sortDir], () => {
+  page.value = 1;
+});
 
 const setValue = (userId, fieldKey, value) => {
   info.value = '';
@@ -929,11 +1195,6 @@ const sourceLabel = (row, uiKey) => {
 
 const photoUrl = (row) => {
   const raw = row?.profilePhotoUrl || row?.profile_photo_path || null;
-  return raw ? toUploadsUrl(raw) : null;
-};
-
-const licenseUrl = (row) => {
-  const raw = row?.licenseUploadUrl || row?.fields?.license_upload || null;
   return raw ? toUploadsUrl(raw) : null;
 };
 
@@ -1205,6 +1466,97 @@ watch(viewMode, (mode) => {
   gap: 12px;
   align-items: center;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+}
+.stat-card:hover {
+  border-color: #99f6e4;
+  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.08);
+}
+.stat-card.active {
+  border-color: #0f766e;
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.15);
+  background: #f0fdf4;
+}
+.smart-search-wrap {
+  position: relative;
+}
+.smart-search-wrap input {
+  width: 100%;
+  padding-right: 32px;
+}
+.clear-search {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  font-size: 18px;
+  cursor: pointer;
+  line-height: 1;
+}
+.quick-filters {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.quick-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  margin-right: 2px;
+}
+.chip {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  cursor: pointer;
+}
+.chip:hover {
+  border-color: #99f6e4;
+}
+.chip.active {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: #fff;
+}
+.chip-expired.active { background: #b91c1c; border-color: #b91c1c; }
+.chip-soon.active { background: #c2410c; border-color: #c2410c; }
+.chip-active.active { background: #15803d; border-color: #15803d; }
+.chip-progress.active { background: #6d28d9; border-color: #6d28d9; }
+.chip-clear {
+  border-style: dashed;
+  color: #6b7280;
+}
+.filter-pill {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #0f766e;
+  font-weight: 600;
+}
+.sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.sortable:hover {
+  color: #0f766e;
+}
+.sort-ind {
+  font-size: 11px;
+  opacity: 0.55;
+  margin-left: 2px;
 }
 .stat-icon {
   width: 40px;
