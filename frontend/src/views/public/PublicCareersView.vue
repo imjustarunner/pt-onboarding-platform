@@ -3,41 +3,49 @@
     <!-- ── NAV ── -->
     <nav class="cr-nav">
       <div class="cr-nav-inner">
-        <a class="cr-nav-brand" href="#">
+        <a class="cr-nav-brand" href="#top" @click.prevent="scrollToId('top')">
           <img v-if="headerLogoUrl" class="cr-nav-logo" :src="headerLogoUrl" :alt="headerLogoAlt" loading="eager" />
-          <span v-else class="cr-nav-name">{{ agencyName || 'Careers' }}</span>
-          <span v-if="headerLogoUrl" class="cr-nav-careers-label">CAREERS</span>
+          <span class="cr-nav-wordmark">
+            <span class="cr-nav-wordmark-name">{{ brandWordmark }}</span>
+            <span class="cr-nav-careers-label">CAREERS</span>
+          </span>
         </a>
         <div class="cr-nav-links">
           <template v-for="item in navItems" :key="item.label">
             <a
               v-if="item.style === 'button'"
               class="cr-nav-btn"
-              :href="item.href || '#'"
-              target="_blank"
-              rel="noopener noreferrer"
+              :href="item.href || '#jobs'"
+              @click="onNavClick($event, item.href)"
             >{{ item.label }}</a>
             <a
               v-else
               class="cr-nav-link"
               :href="item.href || '#'"
-              target="_blank"
-              rel="noopener noreferrer"
-            >{{ item.label }}</a>
+              @click="onNavClick($event, item.href)"
+            >
+              <img
+                v-if="featureIconSrc(item.icon)"
+                class="cr-nav-link-icon"
+                :src="featureIconSrc(item.icon)"
+                alt=""
+                aria-hidden="true"
+              />
+              {{ item.label }}
+            </a>
           </template>
         </div>
       </div>
     </nav>
 
     <!-- ── HERO ── -->
-    <header class="cr-hero">
-      <div class="cr-hero-inner" :class="{ 'cr-hero-inner--no-image': !careersHeroImageUrl }">
-        <div class="cr-hero-copy">
+    <header id="top" class="cr-hero">
+      <div class="cr-hero-inner">
+        <div id="why" class="cr-hero-copy">
           <span v-if="eyebrow" class="cr-eyebrow">{{ eyebrow }}</span>
           <h1 class="cr-hero-h1">
             <span v-if="heroHeadline" class="cr-hero-headline">{{ heroHeadline }}</span>
             <span v-if="heroSubheadline" class="cr-hero-subheadline">{{ heroSubheadline }}</span>
-            <span v-if="!heroHeadline && !heroSubheadline" class="cr-hero-headline">{{ pageTitle }}</span>
           </h1>
           <p v-if="careersSubtitle" class="cr-hero-lead">{{ careersSubtitle }}</p>
           <div v-if="agencyFeatureCards.length" class="cr-feature-cards">
@@ -55,7 +63,6 @@
         </div>
 
         <figure
-          v-if="careersHeroImageUrl"
           class="cr-hero-fig"
           :class="{
             'cr-hero-fig--preframed': heroFrameStyle === 'preframed',
@@ -71,10 +78,6 @@
               loading="eager"
             />
           </div>
-          <svg v-if="showLeafAccent && heroFrameStyle === 'rounded'" class="cr-leaf" viewBox="0 0 180 300" fill="none" aria-hidden="true">
-            <path d="M90 290 C40 240 10 180 30 110 C50 40 110 10 150 50 C190 90 170 160 130 210 C110 240 90 270 90 290Z" fill="currentColor" opacity="0.13"/>
-            <path d="M90 290 C60 250 50 200 70 150 C90 100 130 70 155 90" stroke="currentColor" stroke-width="2" opacity="0.25"/>
-          </svg>
         </figure>
       </div>
     </header>
@@ -82,7 +85,6 @@
     <!-- ── FILTERS ── -->
     <div class="cr-filters-wrap">
       <div class="cr-filters">
-        <!-- Role type pills -->
         <div class="cr-pill-group">
           <button class="cr-pill" :class="{ 'cr-pill--active': !selectedRoleType }" type="button" @click="selectedRoleType = ''">All Roles</button>
           <button
@@ -95,7 +97,6 @@
           >{{ rt }}</button>
         </div>
 
-        <!-- Location pills (cities) -->
         <div class="cr-pill-group cr-pill-group--location">
           <svg class="cr-loc-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M8 1.5A4.5 4.5 0 0 1 12.5 6c0 3.5-4.5 8.5-4.5 8.5S3.5 9.5 3.5 6A4.5 4.5 0 0 1 8 1.5Z" stroke="currentColor" stroke-width="1.3"/>
@@ -112,7 +113,6 @@
           >{{ loc }}</button>
         </div>
 
-        <!-- Sort dropdown (fixed: outer is div, not select) -->
         <div class="cr-sort-wrap">
           <svg class="cr-sort-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <rect x="2" y="4" width="12" height="1.3" rx="0.65" fill="currentColor"/>
@@ -128,14 +128,12 @@
       </div>
     </div>
 
-    <!-- ── LOADING / ERROR ── -->
     <div v-if="loading" class="cr-status">Loading open positions…</div>
     <div v-else-if="error" class="cr-status cr-status--error">{{ error }}</div>
-    <div v-else-if="!jobs.length" class="cr-status">No open positions right now.</div>
+    <div v-else-if="!jobs.length" id="jobs" class="cr-status">No open positions right now.</div>
 
     <template v-else>
-      <!-- ── BANNER ── -->
-      <div v-if="bannerText" class="cr-banner-wrap">
+      <div v-if="bannerText" id="impact" class="cr-banner-wrap">
         <div class="cr-banner">
           <img
             v-if="bannerIconUrl"
@@ -144,12 +142,6 @@
             alt=""
             aria-hidden="true"
           />
-          <svg v-else class="cr-banner-icon" viewBox="0 0 40 40" fill="none" aria-hidden="true">
-            <circle cx="20" cy="20" r="19" stroke="currentColor" stroke-width="1.5" opacity="0.25"/>
-            <path d="M12 26 C12 18 20 12 28 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <circle cx="20" cy="20" r="4" fill="currentColor" opacity="0.2"/>
-            <path d="M17 23 L20 16 L23 23" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
           <div class="cr-banner-body">
             <p class="cr-banner-text">{{ bannerText }}</p>
             <p v-if="bannerBullets.length" class="cr-banner-bullets">
@@ -160,21 +152,18 @@
             v-if="bannerLinkText && bannerLinkHref"
             class="cr-banner-link"
             :href="bannerLinkHref"
-            target="_blank"
-            rel="noopener noreferrer"
+            @click="onNavClick($event, bannerLinkHref)"
           >{{ bannerLinkText }} →</a>
         </div>
       </div>
 
-      <!-- ── JOB LIST ── -->
-      <div v-if="!filteredJobs.length" class="cr-status">No roles match the selected filters.</div>
+      <div v-if="!filteredJobs.length" id="jobs" class="cr-status">No roles match the selected filters.</div>
 
-      <ul v-else class="cr-list">
+      <ul v-else id="jobs" class="cr-list">
         <li v-for="job in pagedJobs" :key="job.jobId" class="cr-item">
           <article class="cr-card" :class="{ 'cr-card--featured': job.isFeatured }">
             <span v-if="job.isFeatured" class="cr-featured-badge">FEATURED</span>
 
-            <!-- Job card icon: library / upload / role-based default -->
             <div class="cr-card-icon" :class="jobIconToneClass(job)">
               <img
                 :src="jobIconSrc(job)"
@@ -230,7 +219,6 @@
         </li>
       </ul>
 
-      <!-- ── PAGINATION ── -->
       <div v-if="filteredJobs.length > 0" class="cr-pagination">
         <p class="cr-pagination-count">
           Showing {{ pageStart + 1 }}–{{ pageEnd }} of {{ filteredJobs.length }} role{{ filteredJobs.length !== 1 ? 's' : '' }}
@@ -257,7 +245,6 @@
       </div>
     </template>
 
-    <!-- ── LEARN MORE MODAL ── -->
     <div v-if="learnMoreJob" class="cr-modal-overlay" @click.self="learnMoreJob = null">
       <div class="cr-modal">
         <div class="cr-modal-header">
@@ -272,7 +259,7 @@
           <div v-else class="cr-modal-nodoc">No attached job description document.</div>
           <div class="cr-modal-actions">
             <a
-              class="cr-apply-btn"
+              class="cr-apply-btn cr-apply-btn--solid"
               :href="buildPublicIntakeUrl(learnMoreJob.applicationPublicKey)"
               target="_blank"
               rel="noopener noreferrer"
@@ -294,7 +281,7 @@ import { toUploadsUrl } from '../../utils/uploadsUrl';
 import {
   getFeatureIconUrl,
   getHeroPresetByUrl,
-  resolveDefaultHeroPreset,
+  mergeCareersPageWithDefaults,
   resolveDefaultJobIconUrl
 } from '../../utils/careersAssets';
 
@@ -309,7 +296,7 @@ const loading = ref(false);
 const error = ref('');
 const jobs = ref([]);
 const agencyName = ref('');
-const agencyCareersPage = ref({});
+const agencyCareersPageRaw = ref({});
 const selectedLocation = ref('');
 const selectedRoleType = ref('');
 const sortBy = ref('featured_desc');
@@ -326,7 +313,13 @@ onMounted(() => {
   } catch { /* ignore */ }
 });
 
-/* ── Brand color (careers page explicit → branding store primary → default) ── */
+const page = computed(() =>
+  mergeCareersPageWithDefaults(agencyCareersPageRaw.value, {
+    slug: slug.value,
+    agencyName: agencyName.value
+  })
+);
+
 const hexToRgba = (hex, alpha) => {
   const clean = String(hex || '').replace(/^#/, '');
   const full = clean.length === 3 ? clean.split('').map((c) => c + c).join('') : clean.padEnd(6, '0');
@@ -337,7 +330,7 @@ const hexToRgba = (hex, alpha) => {
 };
 
 const accentColor = computed(() => {
-  const explicit = String(agencyCareersPage.value?.accentColor || '').trim();
+  const explicit = String(page.value?.accentColor || '').trim();
   if (explicit && /^#[0-9a-fA-F]{3,8}$/.test(explicit)) return explicit;
   const brand =
     brandingStore.portalTheme?.colorPalette?.primary ||
@@ -351,54 +344,50 @@ const rootStyle = computed(() => ({
   '--accent': accentColor.value,
   '--accent-light': hexToRgba(accentColor.value, 0.1),
   '--accent-mid': hexToRgba(accentColor.value, 0.18),
-  '--accent-border': hexToRgba(accentColor.value, 0.28),
+  '--accent-border': hexToRgba(accentColor.value, 0.28)
 }));
 
-/* ── Careers page data accessors ── */
-const navItems = computed(() => Array.isArray(agencyCareersPage.value?.navItems) ? agencyCareersPage.value.navItems : []);
-const eyebrow = computed(() => String(agencyCareersPage.value?.eyebrow || '').trim());
-const heroHeadline = computed(() => String(agencyCareersPage.value?.heroHeadline || '').trim());
-const heroSubheadline = computed(() => String(agencyCareersPage.value?.heroSubheadline || '').trim());
-const careersSubtitle = computed(() => String(agencyCareersPage.value?.lead || '').trim());
-const defaultHeroPreset = computed(() =>
-  resolveDefaultHeroPreset({ slug: slug.value, agencyName: agencyName.value })
-);
+const brandWordmark = computed(() => String(page.value?.brandWordmark || agencyName.value || 'Careers').trim());
+const navItems = computed(() => (Array.isArray(page.value?.navItems) ? page.value.navItems : []));
+const eyebrow = computed(() => String(page.value?.eyebrow || '').trim());
+const heroHeadline = computed(() => String(page.value?.heroHeadline || '').trim());
+const heroSubheadline = computed(() => String(page.value?.heroSubheadline || '').trim());
+const careersSubtitle = computed(() => String(page.value?.lead || '').trim());
 const careersHeroImageUrl = computed(() => {
-  const raw = String(agencyCareersPage.value?.heroImageUrl || '').trim();
-  if (raw) {
-    if (raw.startsWith('/assets/')) return raw;
-    return toUploadsUrl(raw) || raw;
-  }
-  // Always show the branded framed hero when none is configured:
-  // ITSCO → itsco-framed, NLU → nlu-framed, others → neutral-framed
-  return defaultHeroPreset.value?.url || '';
+  const raw = String(page.value?.heroImageUrl || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('/assets/')) return raw;
+  return toUploadsUrl(raw) || raw;
 });
-const careersHeroImageAlt = computed(() => String(agencyCareersPage.value?.heroImageAlt || `${agencyName.value || 'Agency'} careers`).trim());
-const careersHeroImagePosition = computed(() => String(agencyCareersPage.value?.heroImagePosition || 'center center').trim());
+const careersHeroImageAlt = computed(() =>
+  String(page.value?.heroImageAlt || `${agencyName.value || 'Agency'} careers`).trim()
+);
+const careersHeroImagePosition = computed(() =>
+  String(page.value?.heroImagePosition || 'center center').trim()
+);
 const heroFrameStyle = computed(() => {
-  const explicit = String(agencyCareersPage.value?.heroFrameStyle || '').trim().toLowerCase();
+  const explicit = String(page.value?.heroFrameStyle || '').trim().toLowerCase();
   if (['preframed', 'organic', 'rounded'].includes(explicit)) return explicit;
-  const configuredUrl = String(agencyCareersPage.value?.heroImageUrl || '').trim();
-  const preset = getHeroPresetByUrl(configuredUrl) || (!configuredUrl ? defaultHeroPreset.value : null);
-  if (preset?.frameStyle) return preset.frameStyle;
-  return careersHeroImageUrl.value ? 'rounded' : 'rounded';
-});
-const showLeafAccent = computed(() => {
-  // Preframed assets already include the leaf/frame artwork
-  if (heroFrameStyle.value === 'preframed') return false;
-  return agencyCareersPage.value?.showLeafAccent !== false;
+  const preset = getHeroPresetByUrl(String(page.value?.heroImageUrl || '').trim());
+  return preset?.frameStyle || 'preframed';
 });
 const agencyFeatureCards = computed(() =>
-  (Array.isArray(agencyCareersPage.value?.featureCards) ? agencyCareersPage.value.featureCards : [])
-    .map((c) => ({ icon: String(c?.icon || ''), title: String(c?.title || '').trim(), body: String(c?.body || '').trim() }))
-    .filter((c) => c.title || c.body).slice(0, 4)
+  (Array.isArray(page.value?.featureCards) ? page.value.featureCards : [])
+    .map((c) => ({
+      icon: String(c?.icon || ''),
+      title: String(c?.title || '').trim(),
+      body: String(c?.body || '').trim()
+    }))
+    .filter((c) => c.title || c.body)
+    .slice(0, 4)
 );
-const bannerText = computed(() => String(agencyCareersPage.value?.bannerText || '').trim());
-const bannerBullets = computed(() => Array.isArray(agencyCareersPage.value?.bannerBullets) ? agencyCareersPage.value.bannerBullets.filter(Boolean) : []);
-const bannerLinkText = computed(() => String(agencyCareersPage.value?.bannerLinkText || '').trim());
-const bannerLinkHref = computed(() => String(agencyCareersPage.value?.bannerLinkHref || '').trim());
+const bannerText = computed(() => String(page.value?.bannerText || '').trim());
+const bannerBullets = computed(() =>
+  Array.isArray(page.value?.bannerBullets) ? page.value.bannerBullets.filter(Boolean) : []
+);
+const bannerLinkText = computed(() => String(page.value?.bannerLinkText || '').trim());
+const bannerLinkHref = computed(() => String(page.value?.bannerLinkHref || '').trim());
 const bannerIconUrl = computed(() => getFeatureIconUrl('team'));
-const pageTitle = computed(() => agencyName.value ? `${agencyName.value} Careers` : 'Careers');
 
 const headerLogoUrl = computed(() => {
   const t = brandingStore.portalTheme;
@@ -410,12 +399,9 @@ const headerLogoAlt = computed(() => {
   return n ? `${n} logo` : 'Organization logo';
 });
 
-/* ── Filters ── */
 const availableRoleTypes = computed(() =>
   Array.from(new Set((jobs.value || []).map((j) => String(j?.roleType || '').trim()).filter(Boolean))).sort()
 );
-
-// Cities as location pills
 const availableLocations = computed(() =>
   Array.from(new Set((jobs.value || []).map((j) => String(j?.city || '').trim()).filter(Boolean))).sort()
 );
@@ -439,12 +425,13 @@ const filteredJobs = computed(() => {
 
 watch([selectedRoleType, selectedLocation, sortBy], () => { currentPage.value = 1; });
 
-const totalPages = computed(() => showAll.value ? 1 : Math.max(1, Math.ceil(filteredJobs.value.length / PER_PAGE)));
-const pageStart = computed(() => showAll.value ? 0 : (currentPage.value - 1) * PER_PAGE);
-const pageEnd = computed(() => showAll.value ? filteredJobs.value.length : Math.min(currentPage.value * PER_PAGE, filteredJobs.value.length));
+const totalPages = computed(() => (showAll.value ? 1 : Math.max(1, Math.ceil(filteredJobs.value.length / PER_PAGE))));
+const pageStart = computed(() => (showAll.value ? 0 : (currentPage.value - 1) * PER_PAGE));
+const pageEnd = computed(() =>
+  (showAll.value ? filteredJobs.value.length : Math.min(currentPage.value * PER_PAGE, filteredJobs.value.length))
+);
 const pagedJobs = computed(() => filteredJobs.value.slice(pageStart.value, pageEnd.value));
 
-/* ── Icon helpers ── */
 const cardIconEmoji = (icon) => {
   const map = { school: '🏫', office: '🏢', people: '👥', growth: '📈', heart: '❤️', shield: '🛡️', lock: '🔒', handshake: '🤝', star: '⭐' };
   return map[String(icon || '').toLowerCase()] || '✦';
@@ -496,20 +483,37 @@ const toggleSave = (jobId) => {
   persistSavedJobs();
 };
 
+const scrollToId = (id) => {
+  const el = document.getElementById(String(id || '').replace(/^#/, ''));
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+const onNavClick = (event, href) => {
+  const raw = String(href || '').trim();
+  if (!raw.startsWith('#')) return;
+  event.preventDefault();
+  scrollToId(raw.slice(1));
+};
+
 const loadCareers = async () => {
   if (!slug.value) return;
   loading.value = true;
   error.value = '';
   try {
     try { await brandingStore.fetchAgencyTheme(slug.value, { pageContext: 'public_events' }); } catch { /* best effort */ }
-    const r = await api.get(`/public-intake/careers/${encodeURIComponent(slug.value)}`, { skipAuthRedirect: true, timeout: 15000 });
+    const r = await api.get(`/public-intake/careers/${encodeURIComponent(slug.value)}`, {
+      skipAuthRedirect: true,
+      timeout: 15000
+    });
     agencyName.value = String(r.data?.agency?.officialName || r.data?.agency?.name || '').trim();
-    agencyCareersPage.value = r.data?.agency?.careersPage && typeof r.data.agency.careersPage === 'object' ? r.data.agency.careersPage : {};
+    agencyCareersPageRaw.value =
+      r.data?.agency?.careersPage && typeof r.data.agency.careersPage === 'object'
+        ? r.data.agency.careersPage
+        : {};
     jobs.value = Array.isArray(r.data?.jobs) ? r.data.jobs : [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Unable to load careers at this time.';
     jobs.value = [];
-    agencyCareersPage.value = {};
+    agencyCareersPageRaw.value = {};
   } finally {
     loading.value = false;
   }
@@ -519,75 +523,73 @@ watch(slug, () => loadCareers(), { immediate: true });
 </script>
 
 <style scoped>
-/* ── TOKENS (set via :style binding) ── */
-.cr { --accent: #1a8c54; --accent-light: rgba(26,140,84,0.1); --accent-mid: rgba(26,140,84,0.18); --accent-border: rgba(26,140,84,0.28); --dark: #0f172a; --muted: #64748b; --border: #e2e8f0; --card-radius: 18px; min-height: 100vh; background: #f7faf8; color: var(--dark); font-family: inherit; }
+.cr {
+  --accent: #1a8c54;
+  --accent-light: rgba(26,140,84,0.1);
+  --accent-mid: rgba(26,140,84,0.18);
+  --accent-border: rgba(26,140,84,0.28);
+  --dark: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --card-radius: 18px;
+  min-height: 100vh;
+  background: #f7faf8;
+  color: var(--dark);
+  font-family: inherit;
+}
 
-/* ── NAV ── */
 .cr-nav { background: #fff; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 20; }
 .cr-nav-inner { max-width: 1160px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .cr-nav-brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: inherit; }
-.cr-nav-logo { height: 40px; width: auto; object-fit: contain; }
-.cr-nav-name { font-size: 1.1rem; font-weight: 700; color: var(--dark); }
-.cr-nav-careers-label { font-size: 0.65rem; font-weight: 800; letter-spacing: 0.12em; color: var(--accent); text-transform: uppercase; }
-.cr-nav-links { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
-.cr-nav-link { font-size: 0.88rem; font-weight: 500; color: var(--dark); text-decoration: none; display: flex; align-items: center; gap: 5px; transition: color 0.15s; }
+.cr-nav-logo { height: 42px; width: auto; object-fit: contain; }
+.cr-nav-wordmark { display: inline-flex; align-items: baseline; gap: 8px; }
+.cr-nav-wordmark-name { font-size: 1.05rem; font-weight: 800; letter-spacing: 0.04em; color: var(--dark); text-transform: uppercase; }
+.cr-nav-careers-label { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.14em; color: var(--accent); text-transform: uppercase; }
+.cr-nav-links { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.cr-nav-link { font-size: 0.9rem; font-weight: 600; color: var(--dark); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; transition: color 0.15s; }
+.cr-nav-link-icon { width: 18px; height: 18px; object-fit: contain; }
 .cr-nav-link:hover { color: var(--accent); }
-.cr-nav-btn { font-size: 0.88rem; font-weight: 600; color: var(--accent); border: 1.5px solid var(--accent); border-radius: 24px; padding: 7px 18px; text-decoration: none; transition: background 0.15s, color 0.15s; }
+.cr-nav-btn { font-size: 0.88rem; font-weight: 700; color: var(--accent); border: 1.5px solid var(--accent); border-radius: 999px; padding: 8px 18px; text-decoration: none; transition: background 0.15s, color 0.15s; }
 .cr-nav-btn:hover { background: var(--accent); color: #fff; }
 
-/* ── HERO ── */
-.cr-hero { background: linear-gradient(180deg, #ffffff 0%, #f7faf8 100%); padding: 48px 24px 40px; }
-.cr-hero-inner { max-width: 1160px; margin: 0 auto; display: grid; grid-template-columns: 1fr 0.95fr; align-items: center; gap: 44px; }
-.cr-hero-inner--no-image { grid-template-columns: minmax(0, 760px); justify-content: center; }
+.cr-hero { background: linear-gradient(180deg, #ffffff 0%, #f7faf8 100%); padding: 52px 24px 44px; }
+.cr-hero-inner { max-width: 1160px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr); align-items: center; gap: 36px; }
 .cr-eyebrow { display: inline-block; background: var(--accent-light); color: var(--accent); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 12px; border-radius: 99px; margin-bottom: 14px; }
-.cr-hero-h1 { margin: 0 0 14px; line-height: 1.05; display: flex; flex-direction: column; gap: 2px; }
-.cr-hero-headline { font-size: clamp(1.9rem, 4.2vw, 3rem); font-weight: 800; color: var(--dark); letter-spacing: -0.02em; }
-.cr-hero-subheadline { font-size: clamp(1.9rem, 4.2vw, 3rem); font-weight: 800; color: var(--accent); letter-spacing: -0.02em; }
-.cr-hero-lead { margin: 0 0 28px; font-size: 1.02rem; line-height: 1.65; color: var(--muted); max-width: 520px; }
+.cr-hero-h1 { margin: 0 0 16px; line-height: 1.05; display: flex; flex-direction: column; gap: 4px; }
+.cr-hero-headline { font-size: clamp(2rem, 4.4vw, 3.15rem); font-weight: 800; color: var(--dark); letter-spacing: -0.03em; }
+.cr-hero-subheadline { font-size: clamp(2rem, 4.4vw, 3.15rem); font-weight: 800; color: var(--accent); letter-spacing: -0.03em; }
+.cr-hero-lead { margin: 0 0 28px; font-size: 1.05rem; line-height: 1.65; color: var(--muted); max-width: 540px; }
 .cr-feature-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .cr-feature-card { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; background: #fff; border: 1px solid var(--accent-border); border-radius: 14px; box-shadow: 0 8px 20px -16px rgba(15, 23, 42, 0.35); }
-.cr-feature-icon { width: 40px; height: 40px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 1.35rem; }
-.cr-feature-icon-img { width: 40px; height: 40px; object-fit: contain; display: block; }
-.cr-feature-title { display: block; font-size: 0.9rem; font-weight: 700; color: var(--dark); margin-bottom: 3px; }
+.cr-feature-icon { width: 42px; height: 42px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 1.35rem; }
+.cr-feature-icon-img { width: 42px; height: 42px; object-fit: contain; display: block; }
+.cr-feature-title { display: block; font-size: 0.92rem; font-weight: 700; color: var(--dark); margin-bottom: 3px; }
 .cr-feature-body { display: block; font-size: 0.82rem; color: var(--muted); line-height: 1.4; }
-.cr-hero-fig { position: relative; margin: 0; }
-.cr-hero-frame { position: relative; }
-.cr-hero-img { display: block; width: 100%; aspect-ratio: 1.45 / 1; object-fit: cover; border-radius: 40% 48% 36% 52% / 42% 38% 48% 44%; box-shadow: 0 28px 60px -30px rgba(15, 23, 42, 0.5); }
-.cr-hero-fig--preframed .cr-hero-img {
-  aspect-ratio: auto;
-  width: 100%;
-  max-width: 560px;
-  margin-left: auto;
-  object-fit: contain;
-  border-radius: 0;
-  box-shadow: none;
-  background: transparent;
-}
-.cr-hero-fig--preframed {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-}
-.cr-hero-fig--preframed .cr-hero-frame {
-  width: 100%;
-}
+.cr-hero-fig { position: relative; margin: 0; display: flex; justify-content: flex-end; align-items: center; }
+.cr-hero-frame { position: relative; width: 100%; }
+.cr-hero-img { display: block; width: 100%; max-width: 560px; margin-left: auto; object-fit: contain; background: transparent; }
+.cr-hero-fig--preframed .cr-hero-img { border-radius: 0; box-shadow: none; }
 .cr-hero-fig--organic .cr-hero-img {
+  aspect-ratio: 1.45 / 1;
+  object-fit: cover;
   border-radius: 42% 58% 40% 60% / 48% 40% 55% 45%;
   box-shadow: 0 28px 60px -30px rgba(15, 23, 42, 0.45);
 }
-.cr-hero-fig--organic .cr-hero-frame::before {
-  content: '';
-  position: absolute;
-  inset: 6% 8% 4% -4%;
-  background: var(--accent-light);
-  border-radius: 42% 50% 40% 55% / 45% 40% 50% 48%;
-  z-index: -1;
-}
-.cr-leaf { position: absolute; bottom: -12px; left: -24px; width: 90px; height: 150px; color: var(--accent); pointer-events: none; }
 
-/* ── FILTERS ── */
-.cr-filters-wrap { background: #fff; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 14px 24px; }
-.cr-filters { max-width: 1160px; margin: 0 auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cr-filters-wrap { padding: 0 24px 8px; }
+.cr-filters {
+  max-width: 1160px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 8px 24px -18px rgba(15, 23, 42, 0.35);
+}
 .cr-pill-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding-right: 12px; border-right: 1px solid var(--border); }
 .cr-pill-group--location { display: flex; align-items: center; gap: 6px; }
 .cr-loc-icon { width: 14px; height: 14px; color: var(--muted); flex-shrink: 0; }
@@ -598,14 +600,11 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-sort-icon { width: 14px; height: 14px; color: var(--muted); flex-shrink: 0; }
 .cr-select { font-size: 0.82rem; border: 1.5px solid var(--border); border-radius: 8px; padding: 7px 10px; color: var(--dark); background: #fff; cursor: pointer; }
 
-/* ── STATUS ── */
 .cr-status { max-width: 760px; margin: 40px auto; padding: 0 24px; text-align: center; color: var(--muted); }
 .cr-status--error { color: #b91c1c; }
 
-/* ── BANNER ── */
 .cr-banner-wrap { max-width: 1000px; margin: 22px auto 0; padding: 0 24px; }
 .cr-banner { display: flex; align-items: center; gap: 16px; padding: 16px 20px; background: var(--accent-light); border: 1px solid var(--accent-border); border-radius: 16px; }
-.cr-banner-icon { width: 40px; height: 40px; color: var(--accent); flex-shrink: 0; }
 .cr-banner-icon-img { width: 44px; height: 44px; object-fit: contain; flex-shrink: 0; }
 .cr-banner-body { flex: 1; min-width: 0; }
 .cr-banner-text { margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--dark); }
@@ -613,10 +612,9 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-banner-link { font-size: 0.85rem; font-weight: 600; color: var(--accent); text-decoration: none; white-space: nowrap; flex-shrink: 0; }
 .cr-banner-link:hover { text-decoration: underline; }
 
-/* ── JOB LIST ── */
-.cr-list { list-style: none; margin: 18px auto; padding: 0 24px; max-width: 1000px; display: flex; flex-direction: column; gap: 14px; }
+.cr-list { list-style: none; margin: 18px auto; padding: 0 24px; max-width: 1000px; display: flex; flex-direction: column; gap: 14px; scroll-margin-top: 88px; }
 .cr-item { display: block; }
-.cr-card { position: relative; display: grid; grid-template-columns: 72px 1fr auto; align-items: start; gap: 18px; padding: 22px 22px; background: #fff; border: 1.5px solid var(--border); border-radius: var(--card-radius); transition: box-shadow 0.15s, border-color 0.15s, transform 0.15s; overflow: hidden; }
+.cr-card { position: relative; display: grid; grid-template-columns: 72px 1fr auto; align-items: start; gap: 18px; padding: 22px; background: #fff; border: 1.5px solid var(--border); border-radius: var(--card-radius); transition: box-shadow 0.15s, border-color 0.15s, transform 0.15s; overflow: hidden; }
 .cr-card:hover { box-shadow: 0 10px 28px -12px rgba(15, 23, 42, 0.16); border-color: var(--accent-border); transform: translateY(-1px); }
 .cr-card--featured { background: linear-gradient(135deg, var(--accent-light), #fff 55%); border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-border), 0 10px 28px -14px rgba(26, 140, 84, 0.28); }
 .cr-featured-badge { position: absolute; top: 0; left: 18px; background: var(--accent); color: #fff; font-size: 0.65rem; font-weight: 800; letter-spacing: 0.1em; padding: 4px 12px; border-radius: 0 0 10px 10px; text-transform: uppercase; }
@@ -651,7 +649,6 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-save-btn:hover { border-color: var(--accent); color: var(--accent); }
 .cr-save-btn--saved { color: var(--accent); border-color: var(--accent); background: var(--accent-light); }
 
-/* ── PAGINATION ── */
 .cr-pagination { max-width: 1000px; margin: 24px auto 48px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
 .cr-pagination-count { font-size: 0.85rem; color: var(--muted); margin: 0; }
 .cr-pagination-pages { display: flex; align-items: center; gap: 4px; }
@@ -662,7 +659,6 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-view-all-link { font-size: 0.85rem; font-weight: 600; color: var(--accent); background: none; border: none; cursor: pointer; padding: 0; }
 .cr-view-all-link:hover { text-decoration: underline; }
 
-/* ── MODAL ── */
 .cr-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px; }
 .cr-modal { width: min(960px, 100%); background: #fff; border-radius: 16px; border: 1px solid var(--border); overflow: hidden; display: flex; flex-direction: column; max-height: 90vh; }
 .cr-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); gap: 12px; }
@@ -676,13 +672,9 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-modal-nodoc { color: var(--muted); font-size: 0.85rem; font-style: italic; }
 .cr-modal-actions { margin-top: 16px; }
 
-/* ── RESPONSIVE ── */
 @media (max-width: 840px) {
   .cr-hero-inner { grid-template-columns: 1fr; }
   .cr-hero-fig { order: -1; max-width: 520px; margin: 0 auto; }
-  .cr-hero-img { aspect-ratio: 1.6 / 1; }
-  .cr-hero-fig--preframed .cr-hero-img { aspect-ratio: auto; }
-  .cr-leaf { display: none; }
   .cr-hero-lead { max-width: 100%; }
   .cr-card { grid-template-columns: 56px 1fr; }
   .cr-card-actions { grid-column: 1 / -1; flex-direction: row; }
@@ -692,7 +684,7 @@ watch(slug, () => loadCareers(), { immediate: true });
 @media (max-width: 560px) {
   .cr-nav-inner { flex-direction: column; align-items: flex-start; gap: 10px; }
   .cr-hero { padding: 28px 16px 24px; }
-  .cr-list, .cr-pagination, .cr-banner-wrap { padding-left: 12px; padding-right: 12px; }
+  .cr-filters-wrap, .cr-list, .cr-pagination, .cr-banner-wrap { padding-left: 12px; padding-right: 12px; }
   .cr-card { padding: 18px 14px; gap: 12px; grid-template-columns: 1fr; }
   .cr-card-icon { width: 52px; height: 52px; }
   .cr-card-actions { flex-direction: row; }
