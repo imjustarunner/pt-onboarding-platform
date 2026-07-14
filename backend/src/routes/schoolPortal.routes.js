@@ -61,7 +61,10 @@ import {
   addProviderToDay,
   getSoftScheduleSlots,
   putSoftScheduleSlots,
-  moveSoftScheduleSlot
+  moveSoftScheduleSlot,
+  getClientDayAssignmentContext,
+  setClientAssignedDay,
+  placeClientInOpenSoftSlot
 } from '../controllers/schoolSoftSchedule.controller.js';
 import {
   getProviderSchoolProfile,
@@ -198,7 +201,11 @@ router.put('/:schoolId/providers/:providerId/schedule-entries/:entryId', authent
 router.post('/:schoolId/providers/:providerId/schedule-entries/:entryId/move', authenticate, moveScheduleEntry);
 router.delete('/:schoolId/providers/:providerId/schedule-entries/:entryId', authenticate, deleteScheduleEntry);
 
-// School-scoped provider assignment (slot-safe)
+// School-scoped provider assignment (slot-safe) — roster Assigned Day editor
+router.get('/:schoolId/clients/:clientId/day-assignment-context', authenticate, getClientDayAssignmentContext);
+router.post('/:schoolId/clients/:clientId/assigned-day', authenticate, setClientAssignedDay);
+router.post('/:schoolId/clients/:clientId/place-in-open-slot', authenticate, placeClientInOpenSoftSlot);
+
 // Skills Groups / Skill Builders (org-scoped; school portal UI)
 router.get('/:orgId/skill-builders-program', authenticate, getSkillBuildersProgramLink);
 router.get('/:orgId/skills-groups', authenticate, listSkillsGroups);

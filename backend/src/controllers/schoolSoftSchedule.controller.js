@@ -4,6 +4,7 @@ import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import { adjustProviderSlots } from '../services/providerSlots.service.js';
 import {
   getSupervisorSuperviseeIds,
   isSupervisorActor,
@@ -89,6 +90,82 @@ function canEditSoftSchedule(req, providerUserId) {
   if (role === 'admin' || role === 'support' || role === 'super_admin') return true;
   if (role === 'provider') return parseInt(req.user?.id, 10) === parseInt(providerUserId, 10);
   return false;
+}
+
+/** Who can edit roster Assigned Day for a provider at this school. */
+function canEditClientAssignedDay(req, providerUserId) {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff') return true;
+  if (role === 'school_staff') return true;
+  if (role === 'provider' || role === 'provider_plus') {
+    return parseInt(req.user?.id, 10) === parseInt(providerUserId, 10);
+  }
+  return false;
+}
+
+async function ensureClientAffiliatedToSchool({ clientId, schoolId }) {
+  const sid = parseInt(schoolId, 10);
+  const cid = parseInt(clientId, 10);
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 AS ok
+       FROM client_organization_assignments
+       WHERE client_id = ? AND organization_id = ? AND is_active = TRUE
+       LIMIT 1`,
+      [cid, sid]
+    );
+    if (rows?.[0]) return { ok: true };
+  } catch (e) {
+    const msg = String(e?.message || '');
+    if (!msg.includes("doesn't exist") && !msg.includes('ER_NO_SUCH_TABLE')) throw e;
+  }
+  const [legacy] = await pool.execute(
+    `SELECT id FROM clients WHERE id = ? AND organization_id = ? LIMIT 1`,
+    [cid, sid]
+  );
+  return legacy?.[0] ? { ok: true } : { ok: false };
+}
+
+async function ensureProviderOnSchoolDay({ schoolId, weekday, providerUserId, actorUserId }) {
+  const sid = parseInt(schoolId, 10);
+  const puid = parseInt(providerUserId, 10);
+  const meta = await getProviderSchoolAssignmentMeta({ schoolId: sid, weekday, providerUserId: puid });
+  if (!meta) {
+    return { ok: false, message: 'Provider is not scheduled (active) for this school/day. Set work hours first.' };
+  }
+  await pool.execute(
+    `INSERT INTO school_day_schedules (school_organization_id, weekday, is_active, created_by_user_id)
+     VALUES (?, ?, TRUE, ?)
+     ON DUPLICATE KEY UPDATE is_active = TRUE`,
+    [sid, weekday, actorUserId || null]
+  );
+  await pool.execute(
+    `INSERT INTO school_day_provider_assignments (school_organization_id, weekday, provider_user_id, is_active, created_by_user_id)
+     VALUES (?, ?, ?, TRUE, ?)
+     ON DUPLICATE KEY UPDATE is_active = TRUE`,
+    [sid, weekday, puid, actorUserId || null]
+  );
+  return { ok: true, meta };
+}
+
+async function loadSoftSlotsOrDefaults({ schoolId, weekday, providerUserId }) {
+  const sid = parseInt(schoolId, 10);
+  const puid = parseInt(providerUserId, 10);
+  const [rows] = await pool.execute(
+    `SELECT id, slot_index, start_time, end_time, client_id, note
+     FROM soft_schedule_slots
+     WHERE school_organization_id = ? AND weekday = ? AND provider_user_id = ?
+     ORDER BY slot_index ASC`,
+    [sid, weekday, puid]
+  );
+  if ((rows || []).length > 0) {
+    return { persisted: true, slots: rows || [] };
+  }
+  const meta = await getProviderSchoolAssignmentMeta({ schoolId: sid, weekday, providerUserId: puid });
+  const slotCount = meta?.slots_total ? parseInt(meta.slots_total, 10) : 7;
+  const startTime = meta?.start_time ? String(meta.start_time) : '08:00:00';
+  const endTime = meta?.end_time ? String(meta.end_time) : '15:00:00';
+  return { persisted: false, slots: buildDefaultSlots({ slotCount, startTime, endTime }) };
 }
 
 async function ensureSupervisorCanAccessProvider({ req, access, providerUserId }) {
@@ -686,6 +763,497 @@ export const moveSoftScheduleSlot = async (req, res, next) => {
     next(e);
   } finally {
     connection.release();
+  }
+};
+
+/**
+ * Context for roster "Assigned Day" editor.
+ * GET /api/school-portal/:schoolId/clients/:clientId/day-assignment-context?providerUserId=
+ */
+export const getClientDayAssignmentContext = async (req, res, next) => {
+  try {
+    const schoolId = parseInt(req.params.schoolId, 10);
+    const clientId = parseInt(req.params.clientId, 10);
+    const providerUserId = parseInt(req.query?.providerUserId || req.query?.provider_user_id, 10);
+    if (!schoolId || !clientId || !providerUserId) {
+      return res.status(400).json({ error: { message: 'schoolId, clientId, and providerUserId are required' } });
+    }
+
+    const access = await ensureSchoolAccess(req, schoolId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    if (!canEditClientAssignedDay(req, providerUserId)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const providerAllowed = await ensureSupervisorCanAccessProvider({ req, access, providerUserId });
+    if (!providerAllowed) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const affiliated = await ensureClientAffiliatedToSchool({ clientId, schoolId });
+    if (!affiliated.ok) {
+      return res.status(404).json({ error: { message: 'Client is not affiliated with this school' } });
+    }
+
+    const [provRows] = await pool.execute(
+      `SELECT id, first_name, last_name FROM users WHERE id = ? LIMIT 1`,
+      [providerUserId]
+    );
+    const provider = provRows?.[0] || null;
+    if (!provider) return res.status(404).json({ error: { message: 'Provider not found' } });
+
+    const [workRows] = await pool.execute(
+      `SELECT day_of_week, slots_total, slots_available, start_time, end_time
+       FROM provider_school_assignments
+       WHERE school_organization_id = ? AND provider_user_id = ? AND is_active = TRUE
+         AND day_of_week IN (${allowedDays.map(() => '?').join(',')})
+       ORDER BY FIELD(day_of_week, ${allowedDays.map(() => '?').join(',')})`,
+      [schoolId, providerUserId, ...allowedDays, ...allowedDays]
+    );
+
+    let assignedDays = [];
+    try {
+      const [aRows] = await pool.execute(
+        `SELECT id, service_day
+         FROM client_provider_assignments
+         WHERE client_id = ? AND organization_id = ? AND provider_user_id = ? AND is_active = TRUE`,
+        [clientId, schoolId, providerUserId]
+      );
+      assignedDays = (aRows || [])
+        .map((r) => ({
+          assignment_id: Number(r.id),
+          service_day: r.service_day ? String(r.service_day) : null
+        }))
+        .filter((r) => r.service_day && allowedDays.includes(r.service_day));
+    } catch (e) {
+      const msg = String(e?.message || '');
+      if (!msg.includes("doesn't exist") && !msg.includes('ER_NO_SUCH_TABLE')) throw e;
+      const [legacy] = await pool.execute(
+        `SELECT provider_id, service_day FROM clients WHERE id = ? LIMIT 1`,
+        [clientId]
+      );
+      const day = legacy?.[0]?.service_day ? String(legacy[0].service_day) : null;
+      if (
+        parseInt(legacy?.[0]?.provider_id || 0, 10) === providerUserId &&
+        day &&
+        allowedDays.includes(day)
+      ) {
+        assignedDays = [{ assignment_id: null, service_day: day }];
+      }
+    }
+
+    const workDays = (workRows || []).map((r) => ({
+      day_of_week: String(r.day_of_week),
+      slots_total: r.slots_total == null ? null : Number(r.slots_total),
+      slots_available: r.slots_available == null ? null : Number(r.slots_available),
+      start_time: r.start_time || null,
+      end_time: r.end_time || null,
+      assigned: assignedDays.some((a) => a.service_day === String(r.day_of_week))
+    }));
+
+    res.json({
+      client_id: clientId,
+      school_organization_id: schoolId,
+      provider: {
+        provider_user_id: providerUserId,
+        first_name: provider.first_name || '',
+        last_name: provider.last_name || ''
+      },
+      work_days: workDays,
+      assigned_days: assignedDays.map((a) => a.service_day)
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Toggle a client's assigned service day for a provider (slot-safe).
+ * When assigning, also ensures the provider appears on that school day and returns soft-schedule open slots.
+ * POST /api/school-portal/:schoolId/clients/:clientId/assigned-day
+ * body: { providerUserId, serviceDay, assigned: true|false }
+ */
+export const setClientAssignedDay = async (req, res, next) => {
+  const connection = await pool.getConnection();
+  try {
+    const schoolId = parseInt(req.params.schoolId, 10);
+    const clientId = parseInt(req.params.clientId, 10);
+    const providerUserId = parseInt(req.body?.providerUserId ?? req.body?.provider_user_id, 10);
+    const serviceDay = normalizeDay(req.body?.serviceDay ?? req.body?.service_day);
+    const assigned =
+      req.body?.assigned === true ||
+      req.body?.assigned === 1 ||
+      req.body?.assigned === '1' ||
+      req.body?.assigned === 'true';
+
+    if (!schoolId || !clientId || !providerUserId || !serviceDay) {
+      return res.status(400).json({
+        error: { message: 'schoolId, clientId, providerUserId, and a valid serviceDay are required' }
+      });
+    }
+
+    const access = await ensureSchoolAccess(req, schoolId);
+    if (!access.ok) {
+      return res.status(access.status).json({ error: { message: access.message } });
+    }
+    if (!canEditClientAssignedDay(req, providerUserId)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const providerAllowed = await ensureSupervisorCanAccessProvider({ req, access, providerUserId });
+    if (!providerAllowed) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const affiliated = await ensureClientAffiliatedToSchool({ clientId, schoolId });
+    if (!affiliated.ok) {
+      return res.status(404).json({ error: { message: 'Client is not affiliated with this school' } });
+    }
+
+    const actorUserId = req.user?.id || null;
+
+    if (assigned) {
+      const onDay = await ensureProviderOnSchoolDay({
+        schoolId,
+        weekday: serviceDay,
+        providerUserId,
+        actorUserId
+      });
+      if (!onDay.ok) {
+        return res.status(409).json({ error: { message: onDay.message } });
+      }
+    }
+
+    await connection.beginTransaction();
+
+    let existing = null;
+    try {
+      const [rows] = await connection.execute(
+        `SELECT id, service_day, is_active
+         FROM client_provider_assignments
+         WHERE client_id = ? AND organization_id = ? AND provider_user_id = ?
+           AND service_day = ? AND is_active = TRUE
+         LIMIT 1
+         FOR UPDATE`,
+        [clientId, schoolId, providerUserId, serviceDay]
+      );
+      existing = rows?.[0] || null;
+    } catch (e) {
+      const msg = String(e?.message || '');
+      if (!msg.includes("doesn't exist") && !msg.includes('ER_NO_SUCH_TABLE')) throw e;
+    }
+
+    if (assigned) {
+      if (!existing) {
+        // Prefer converting a single Unknown/null-day row into this weekday.
+        let nullDayRow = null;
+        try {
+          const [nullRows] = await connection.execute(
+            `SELECT id, service_day
+             FROM client_provider_assignments
+             WHERE client_id = ? AND organization_id = ? AND provider_user_id = ?
+               AND is_active = TRUE AND service_day IS NULL
+             LIMIT 1
+             FOR UPDATE`,
+            [clientId, schoolId, providerUserId]
+          );
+          nullDayRow = nullRows?.[0] || null;
+        } catch {
+          nullDayRow = null;
+        }
+
+        const take = await adjustProviderSlots(connection, {
+          providerUserId,
+          schoolId,
+          dayOfWeek: serviceDay,
+          delta: -1,
+          allowNegative: false
+        });
+        if (!take.ok) {
+          await connection.rollback();
+          return res.status(400).json({ error: { message: take.reason || 'No available slots for that day' } });
+        }
+
+        if (nullDayRow?.id) {
+          await connection.execute(
+            `UPDATE client_provider_assignments
+             SET service_day = ?, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [serviceDay, actorUserId, nullDayRow.id]
+          );
+        } else {
+          await connection.execute(
+            `INSERT INTO client_provider_assignments
+              (client_id, organization_id, provider_user_id, service_day, is_active, created_by_user_id, updated_by_user_id)
+             VALUES (?, ?, ?, ?, TRUE, ?, ?)`,
+            [clientId, schoolId, providerUserId, serviceDay, actorUserId, actorUserId]
+          );
+        }
+
+        // Best-effort legacy sync when this is the only active assignment for the client at this org.
+        try {
+          const [cntRows] = await connection.execute(
+            `SELECT COUNT(*) AS cnt
+             FROM client_provider_assignments
+             WHERE client_id = ? AND organization_id = ? AND is_active = TRUE`,
+            [clientId, schoolId]
+          );
+          if (Number(cntRows?.[0]?.cnt || 0) <= 1) {
+            await connection.execute(
+              `UPDATE clients
+               SET provider_id = ?, service_day = ?, updated_by_user_id = ?, last_activity_at = CURRENT_TIMESTAMP
+               WHERE id = ?`,
+              [providerUserId, serviceDay, actorUserId, clientId]
+            );
+          }
+        } catch {
+          // ignore
+        }
+      }
+    } else if (existing?.id) {
+      await adjustProviderSlots(connection, {
+        providerUserId,
+        schoolId,
+        dayOfWeek: serviceDay,
+        delta: +1
+      });
+      await connection.execute(
+        `UPDATE client_provider_assignments
+         SET is_active = FALSE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [actorUserId, existing.id]
+      );
+      try {
+        await connection.execute(
+          `UPDATE soft_schedule_slots
+           SET client_id = NULL, updated_by_user_id = ?
+           WHERE school_organization_id = ? AND weekday = ? AND provider_user_id = ? AND client_id = ?`,
+          [actorUserId, schoolId, serviceDay, providerUserId, clientId]
+        );
+      } catch {
+        // ignore if soft schedule table missing
+      }
+    }
+
+    await connection.commit();
+
+    let soft = { persisted: false, slots: [] };
+    if (assigned) {
+      soft = await loadSoftSlotsOrDefaults({ schoolId, weekday: serviceDay, providerUserId });
+    }
+
+    const openSlots = (soft.slots || []).filter((s) => !s.client_id);
+
+    // Refresh assigned days list for UI
+    let assignedDays = [];
+    try {
+      const [aRows] = await pool.execute(
+        `SELECT service_day
+         FROM client_provider_assignments
+         WHERE client_id = ? AND organization_id = ? AND provider_user_id = ?
+           AND is_active = TRUE AND service_day IS NOT NULL`,
+        [clientId, schoolId, providerUserId]
+      );
+      assignedDays = (aRows || [])
+        .map((r) => String(r.service_day))
+        .filter((d) => allowedDays.includes(d));
+    } catch {
+      assignedDays = assigned ? [serviceDay] : [];
+    }
+
+    res.json({
+      ok: true,
+      assigned,
+      service_day: serviceDay,
+      assigned_days: assignedDays,
+      soft_schedule: soft,
+      open_slots: openSlots
+    });
+  } catch (e) {
+    try {
+      await connection.rollback();
+    } catch {
+      // ignore
+    }
+    next(e);
+  } finally {
+    connection.release();
+  }
+};
+
+/**
+ * Place a client into an open soft-schedule slot (after day assignment).
+ * POST /api/school-portal/:schoolId/clients/:clientId/place-in-open-slot
+ * body: { providerUserId, serviceDay, slotIndex? } — uses first open slot if slotIndex omitted
+ */
+export const placeClientInOpenSoftSlot = async (req, res, next) => {
+  try {
+    const schoolId = parseInt(req.params.schoolId, 10);
+    const clientId = parseInt(req.params.clientId, 10);
+    const providerUserId = parseInt(req.body?.providerUserId ?? req.body?.provider_user_id, 10);
+    const serviceDay = normalizeDay(req.body?.serviceDay ?? req.body?.service_day);
+    const requestedIndex = req.body?.slotIndex != null ? parseInt(req.body.slotIndex, 10) : null;
+
+    if (!schoolId || !clientId || !providerUserId || !serviceDay) {
+      return res.status(400).json({
+        error: { message: 'schoolId, clientId, providerUserId, and a valid serviceDay are required' }
+      });
+    }
+
+    const access = await ensureSchoolAccess(req, schoolId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    if (!canEditClientAssignedDay(req, providerUserId)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const onDay = await ensureProviderOnSchoolDay({
+      schoolId,
+      weekday: serviceDay,
+      providerUserId,
+      actorUserId: req.user?.id
+    });
+    if (!onDay.ok) return res.status(409).json({ error: { message: onDay.message } });
+
+    // Client must be assigned to this provider/day.
+    let eligible = false;
+    try {
+      const [rows] = await pool.execute(
+        `SELECT 1 AS ok
+         FROM client_provider_assignments
+         WHERE client_id = ? AND organization_id = ? AND provider_user_id = ?
+           AND service_day = ? AND is_active = TRUE
+         LIMIT 1`,
+        [clientId, schoolId, providerUserId, serviceDay]
+      );
+      eligible = !!rows?.[0];
+    } catch (e) {
+      const msg = String(e?.message || '');
+      if (!msg.includes("doesn't exist") && !msg.includes('ER_NO_SUCH_TABLE')) throw e;
+    }
+    if (!eligible) {
+      const [legacy] = await pool.execute(
+        `SELECT provider_id, service_day, organization_id FROM clients WHERE id = ? LIMIT 1`,
+        [clientId]
+      );
+      const c = legacy?.[0];
+      eligible =
+        !!c &&
+        parseInt(c.organization_id, 10) === schoolId &&
+        parseInt(c.provider_id || 0, 10) === providerUserId &&
+        String(c.service_day || '') === serviceDay;
+    }
+    if (!eligible) {
+      return res.status(409).json({
+        error: { message: 'Client is not assigned to this provider/day yet.' }
+      });
+    }
+
+    const soft = await loadSoftSlotsOrDefaults({ schoolId, weekday: serviceDay, providerUserId });
+    const slots = (soft.slots || []).map((s) => ({
+      id: s.id || null,
+      start_time: s.start_time || null,
+      end_time: s.end_time || null,
+      note: s.note || null,
+      client_id: s.client_id == null ? null : Number(s.client_id)
+    }));
+
+    // If client already placed, treat as success.
+    if (slots.some((s) => Number(s.client_id) === clientId)) {
+      return res.json({ ok: true, already_placed: true, slots });
+    }
+
+    let targetIdx = -1;
+    if (requestedIndex != null && Number.isFinite(requestedIndex)) {
+      const i = requestedIndex - 1;
+      if (i >= 0 && i < slots.length && !slots[i].client_id) targetIdx = i;
+    }
+    if (targetIdx < 0) {
+      targetIdx = slots.findIndex((s) => !s.client_id);
+    }
+    if (targetIdx < 0) {
+      return res.status(409).json({ error: { message: 'No open soft-schedule slots for that day' } });
+    }
+
+    slots[targetIdx] = { ...slots[targetIdx], client_id: clientId };
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [existingRows] = await connection.execute(
+        `SELECT id
+         FROM soft_schedule_slots
+         WHERE school_organization_id = ? AND weekday = ? AND provider_user_id = ?
+         FOR UPDATE`,
+        [schoolId, serviceDay, providerUserId]
+      );
+      const existingIds = new Set((existingRows || []).map((r) => Number(r.id)));
+      const keptIds = new Set();
+
+      for (let i = 0; i < slots.length; i++) {
+        const slot = slots[i];
+        const slotIndex = i + 1;
+        const isExisting = slot.id && existingIds.has(Number(slot.id));
+        if (isExisting) {
+          await connection.execute(
+            `UPDATE soft_schedule_slots
+             SET slot_index = ?, start_time = ?, end_time = ?, client_id = ?, note = ?, updated_by_user_id = ?
+             WHERE id = ?`,
+            [slotIndex, slot.start_time, slot.end_time, slot.client_id, slot.note, req.user.id, slot.id]
+          );
+          keptIds.add(Number(slot.id));
+        } else {
+          const [ins] = await connection.execute(
+            `INSERT INTO soft_schedule_slots
+              (school_organization_id, weekday, provider_user_id, slot_index, start_time, end_time, client_id, note, created_by_user_id, updated_by_user_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              schoolId,
+              serviceDay,
+              providerUserId,
+              slotIndex,
+              slot.start_time,
+              slot.end_time,
+              slot.client_id,
+              slot.note,
+              req.user.id,
+              req.user.id
+            ]
+          );
+          keptIds.add(Number(ins.insertId));
+        }
+      }
+
+      const toDelete = Array.from(existingIds).filter((id) => !keptIds.has(id));
+      if (toDelete.length > 0) {
+        const placeholders = toDelete.map(() => '?').join(',');
+        await connection.execute(
+          `DELETE FROM soft_schedule_slots WHERE school_organization_id = ? AND weekday = ? AND provider_user_id = ? AND id IN (${placeholders})`,
+          [schoolId, serviceDay, providerUserId, ...toDelete]
+        );
+      }
+
+      await connection.commit();
+      const [outRows] = await pool.execute(
+        `SELECT id, slot_index, start_time, end_time, client_id, note
+         FROM soft_schedule_slots
+         WHERE school_organization_id = ? AND weekday = ? AND provider_user_id = ?
+         ORDER BY slot_index ASC`,
+        [schoolId, serviceDay, providerUserId]
+      );
+      res.json({
+        ok: true,
+        already_placed: false,
+        slot_index: targetIdx + 1,
+        slots: outRows || []
+      });
+    } catch (e) {
+      try {
+        await connection.rollback();
+      } catch {
+        // ignore
+      }
+      throw e;
+    } finally {
+      connection.release();
+    }
+  } catch (e) {
+    next(e);
   }
 };
 

@@ -354,7 +354,18 @@
               <div class="roi-status-hint">{{ roiStatusDateHint(client) }}</div>
             </td>
             <td>{{ client.skills ? 'Yes' : 'No' }}</td>
-            <td>{{ client.service_day || '—' }}</td>
+            <td>
+              <button
+                v-if="canEditAssignedDay(client)"
+                type="button"
+                class="btn-link assigned-day-btn"
+                :title="assignedDayButtonTitle(client)"
+                @click.stop="openAssignDay(client)"
+              >
+                {{ formatAssignedDayLabel(client) }}
+              </button>
+              <span v-else>{{ formatAssignedDayLabel(client) }}</span>
+            </td>
             <td v-if="showContinuationServicesColumn" class="continuation-cell">
               <button
                 v-if="client.user_is_assigned_provider"
@@ -441,6 +452,16 @@
       :client-label-mode="clientLabelMode"
       @saved="onWaitlistSaved"
       @close="waitlistClient = null"
+    />
+
+    <AssignDayModal
+      v-if="assignDayClient && assignDayProviderUserId && assignDayOrgId"
+      :organization-id="assignDayOrgId"
+      :client="assignDayClient"
+      :provider-user-id="assignDayProviderUserId"
+      :client-label-mode="clientLabelMode"
+      @updated="onAssignDayUpdated"
+      @close="closeAssignDay"
     />
 
     <QuickChecklistModal
@@ -540,6 +561,7 @@ import api from '../../services/api';
 import SchoolClientChatModal from './SchoolClientChatModal.vue';
 import WaitlistNoteModal from './WaitlistNoteModal.vue';
 import QuickChecklistModal from './QuickChecklistModal.vue';
+import AssignDayModal from './AssignDayModal.vue';
 import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
@@ -632,6 +654,9 @@ const roiStatusData = ref({
   staff: []
 });
 const waitlistClient = ref(null);
+const assignDayClient = ref(null);
+const assignDayProviderUserId = ref(null);
+const assignDayOrgId = ref(null);
 const searchQuery = ref('');
 const router = useRouter();
 const authStore = useAuthStore();
@@ -852,6 +877,83 @@ const toggleSort = (key) => {
 };
 
 const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+const formatAssignedDayLabel = (client) => {
+  const raw = String(client?.service_day || '').trim();
+  return raw || '—';
+};
+
+const resolveProviderIdsForClient = (client) => {
+  const ids = [];
+  const raw = String(client?.provider_ids || '').trim();
+  if (raw) {
+    for (const part of raw.split(',')) {
+      const n = parseInt(String(part).trim(), 10);
+      if (n) ids.push(n);
+    }
+  }
+  const legacy = parseInt(client?.provider_id, 10);
+  if (legacy && !ids.includes(legacy)) ids.unshift(legacy);
+  return ids;
+};
+
+const resolveProviderUserIdForClient = (client) => {
+  const ids = resolveProviderIdsForClient(client);
+  if (!ids.length) return null;
+  const me = parseInt(authStore.user?.id, 10);
+  if (me && ids.includes(me)) return me;
+  return ids[0] || null;
+};
+
+const canEditAssignedDay = (client) => {
+  if (!client?.id) return false;
+  const orgId = Number(client?.organization_id || props.organizationId || 0);
+  if (!orgId) return false;
+  if (!resolveProviderUserIdForClient(client)) return false;
+  const role = String(authStore.user?.role || '').toLowerCase();
+  if (['super_admin', 'admin', 'support', 'staff', 'school_staff'].includes(role)) return true;
+  if (role === 'provider' || role === 'provider_plus') {
+    return !!client.user_is_assigned_provider || resolveProviderIdsForClient(client).includes(parseInt(authStore.user?.id, 10));
+  }
+  return false;
+};
+
+const assignedDayButtonTitle = (client) => {
+  if (!resolveProviderUserIdForClient(client)) return 'Assign a provider before setting a day';
+  return client?.service_day
+    ? 'Edit assigned day / soft schedule slot'
+    : 'Assign day (provider work days)';
+};
+
+const openAssignDay = (client) => {
+  const providerUserId = resolveProviderUserIdForClient(client);
+  const orgId = Number(client?.organization_id || props.organizationId || 0);
+  if (!providerUserId || !orgId) return;
+  assignDayClient.value = client;
+  assignDayProviderUserId.value = providerUserId;
+  assignDayOrgId.value = orgId;
+};
+
+const closeAssignDay = () => {
+  assignDayClient.value = null;
+  assignDayProviderUserId.value = null;
+  assignDayOrgId.value = null;
+};
+
+const onAssignDayUpdated = ({ clientId, assignedDays }) => {
+  const cid = Number(clientId || 0);
+  if (!cid) return;
+  const label = Array.isArray(assignedDays) && assignedDays.length
+    ? assignedDays.join(', ')
+    : '';
+  const apply = (list) => {
+    if (!Array.isArray(list)) return;
+    const row = list.find((c) => Number(c?.id) === cid);
+    if (row) row.service_day = label || null;
+  };
+  apply(clients.value);
+  if (Array.isArray(props.clientsOverride)) apply(props.clientsOverride);
+};
 
 const NEWLY_ASSIGNED_DAYS = 7;
 const isNewlyAssigned = (client) => {
@@ -1930,6 +2032,12 @@ onMounted(() => {
   color: var(--primary);
   cursor: pointer;
   font-size: 0.75rem;
+}
+.assigned-day-btn {
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-align: left;
 }
 .roi-status-link {
   font-weight: 800;
