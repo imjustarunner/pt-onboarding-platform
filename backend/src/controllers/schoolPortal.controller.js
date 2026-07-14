@@ -1030,7 +1030,18 @@ export const getSchoolClients = async (req, res, next) => {
         waitlist_started_at: client.waitlist_started_at || null,
         grade: client.grade || null,
         school_year: client.school_year || null,
-        provider_id: null,
+        // Keep provider IDs so roster can open Assigned Day editor (slot/day assignment).
+        // Prefer multi-provider assignment ids; fall back to legacy clients.provider_id.
+        provider_ids: client.provider_ids || null,
+        provider_id: (() => {
+          const raw = String(client?.provider_ids || '').trim();
+          if (raw) {
+            const first = parseInt(raw.split(',')[0], 10);
+            if (Number.isFinite(first) && first > 0) return first;
+          }
+          const legacy = parseInt(client?.provider_id, 10);
+          return Number.isFinite(legacy) && legacy > 0 ? legacy : null;
+        })(),
         provider_name: client.provider_name || null,
         service_day: client.service_day || null,
         user_is_assigned_provider: client.user_is_assigned_provider === 1 || client.user_is_assigned_provider === true,

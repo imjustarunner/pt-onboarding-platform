@@ -909,26 +909,42 @@ const canEditAssignedDay = (client) => {
   if (!client?.id) return false;
   const orgId = Number(client?.organization_id || props.organizationId || 0);
   if (!orgId) return false;
-  if (!resolveProviderUserIdForClient(client)) return false;
+  // Need a provider on the row (by id or name) to know whose work days to show.
+  const hasProvider =
+    !!resolveProviderUserIdForClient(client) || !!String(client?.provider_name || '').trim();
+  if (!hasProvider) return false;
   const role = String(authStore.user?.role || '').toLowerCase();
   if (['super_admin', 'admin', 'support', 'staff', 'school_staff'].includes(role)) return true;
+  if (canEditClients.value) return true;
   if (role === 'provider' || role === 'provider_plus') {
-    return !!client.user_is_assigned_provider || resolveProviderIdsForClient(client).includes(parseInt(authStore.user?.id, 10));
+    return (
+      !!client.user_is_assigned_provider ||
+      resolveProviderIdsForClient(client).includes(parseInt(authStore.user?.id, 10))
+    );
   }
   return false;
 };
 
 const assignedDayButtonTitle = (client) => {
-  if (!resolveProviderUserIdForClient(client)) return 'Assign a provider before setting a day';
+  if (!resolveProviderUserIdForClient(client) && !String(client?.provider_name || '').trim()) {
+    return 'Assign a provider before setting a day';
+  }
   return client?.service_day
     ? 'Edit assigned day / soft schedule slot'
     : 'Assign day (provider work days)';
 };
 
 const openAssignDay = (client) => {
-  const providerUserId = resolveProviderUserIdForClient(client);
+  let providerUserId = resolveProviderUserIdForClient(client);
   const orgId = Number(client?.organization_id || props.organizationId || 0);
-  if (!providerUserId || !orgId) return;
+  if (!orgId) return;
+  // If roster stripped provider ids but name is present, still open — modal will error clearly.
+  if (!providerUserId) {
+    // Last resort: assigned provider viewing their own roster row.
+    const me = parseInt(authStore.user?.id, 10);
+    if (client?.user_is_assigned_provider && me) providerUserId = me;
+  }
+  if (!providerUserId) return;
   assignDayClient.value = client;
   assignDayProviderUserId.value = providerUserId;
   assignDayOrgId.value = orgId;
