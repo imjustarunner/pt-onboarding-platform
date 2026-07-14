@@ -46,6 +46,9 @@
           <h3>Careers page settings</h3>
           <div class="muted small">Customize how your public careers page looks and the defaults used on every job application form.</div>
         </div>
+        <button class="btn btn-secondary btn-sm" type="button" :disabled="savingAgencyCareers" @click="applyBrandStarterContent">
+          Load starter content
+        </button>
         <button class="btn btn-primary btn-sm" type="button" :disabled="savingAgencyCareers" @click="saveAgencyCareersPage">
           {{ savingAgencyCareers ? 'Saving...' : 'Save defaults' }}
         </button>
@@ -128,12 +131,21 @@
           <h5>🔗 Navigation items</h5>
           <p class="muted small" style="margin:0 0 8px;">Links shown in the top nav bar next to your logo. Use "Button" style for the primary call-to-action (e.g. "Join Our Team").</p>
           <div class="nav-items-list">
-            <div v-for="(item, idx) in agencyPageForm.navItems" :key="idx" class="nav-item-row">
-              <input v-model="item.label" class="input" type="text" placeholder="Label, e.g. Why ITSCO" style="flex:2" />
-              <input v-model="item.href" class="input" type="url" placeholder="URL" style="flex:3" />
-              <select v-model="item.style" class="input" style="flex:1">
+            <div v-for="(item, idx) in agencyPageForm.navItems" :key="idx" class="nav-item-row nav-item-row--rich">
+              <input v-model="item.label" class="input" type="text" placeholder="Label, e.g. Why ITSCO" />
+              <select v-model="item.action" class="input">
+                <option value="">Open URL</option>
+                <option value="why">Open Why modal</option>
+                <option value="impact">Open Impact modal</option>
+                <option value="jobs">Scroll to jobs</option>
+              </select>
+              <input v-model="item.href" class="input" type="text" placeholder="URL (only if Open URL)" :disabled="!!item.action && item.action !== 'link'" />
+              <select v-model="item.style" class="input">
                 <option value="link">Link</option>
                 <option value="button">Button</option>
+              </select>
+              <select v-model="item.icon" class="input">
+                <option v-for="opt in cardIconOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
               </select>
               <button type="button" class="btn btn-secondary btn-sm" @click="agencyPageForm.navItems.splice(idx, 1)">✕</button>
             </div>
@@ -141,16 +153,95 @@
               v-if="agencyPageForm.navItems.length < 6"
               type="button"
               class="btn btn-secondary btn-sm"
-              @click="agencyPageForm.navItems.push({ label: '', href: '', style: 'link' })"
+              @click="agencyPageForm.navItems.push({ label: '', href: '', style: 'link', action: '', icon: 'none' })"
             >+ Add nav item</button>
           </div>
+        </div>
+
+        <h5 class="config-section-label" style="margin-top:14px;">💬 Why modal <span class="field-hint">— opens when a nav item uses “Open Why modal”</span></h5>
+        <label class="checkbox-inline" style="margin-bottom:8px;">
+          <input v-model="agencyPageForm.whyModal.enabled" type="checkbox" />
+          Enable Why modal
+        </label>
+        <div class="form-grid">
+          <input v-model="agencyPageForm.whyModal.title" class="input" type="text" placeholder="Modal title, e.g. Why ITSCO" />
+          <select v-model="agencyPageForm.whyModal.icon" class="input">
+            <option v-for="opt in cardIconOptions" :key="`why-icon-${opt.value}`" :value="opt.value">{{ opt.label }}</option>
+          </select>
+          <textarea v-model="agencyPageForm.whyModal.subtitle" class="textarea" rows="2" placeholder="Modal subtitle" style="grid-column:1 / -1;" />
+          <input v-model="agencyPageForm.whyModal.ctaText" class="input" type="text" placeholder="CTA button text" />
+          <select v-model="agencyPageForm.whyModal.ctaAction" class="input">
+            <option value="jobs">Scroll to jobs</option>
+            <option value="impact">Open Impact modal</option>
+            <option value="">Open URL</option>
+          </select>
+          <input v-model="agencyPageForm.whyModal.ctaHref" class="input" type="text" placeholder="CTA URL (optional)" style="grid-column:1 / -1;" />
+        </div>
+        <div class="display-card-grid" style="margin-top:10px;">
+          <div v-for="(card, idx) in agencyPageForm.whyModal.cards" :key="`why-card-${idx}`" class="display-card-draft">
+            <select v-model="card.icon" class="input">
+              <option v-for="opt in cardIconOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
+            <input v-model="card.title" class="input" type="text" :placeholder="`Why card ${idx + 1} title`" />
+            <textarea v-model="card.body" class="textarea" rows="2" :placeholder="`Why card ${idx + 1} detail`" />
+          </div>
+        </div>
+
+        <h5 class="config-section-label" style="margin-top:14px;">📈 Impact modal <span class="field-hint">— opens when a nav item uses “Open Impact modal”</span></h5>
+        <label class="checkbox-inline" style="margin-bottom:8px;">
+          <input v-model="agencyPageForm.impactModal.enabled" type="checkbox" />
+          Enable Impact modal
+        </label>
+        <div class="form-grid">
+          <input v-model="agencyPageForm.impactModal.title" class="input" type="text" placeholder="Modal title, e.g. Our Impact on Colorado" />
+          <select v-model="agencyPageForm.impactModal.icon" class="input">
+            <option v-for="opt in cardIconOptions" :key="`impact-icon-${opt.value}`" :value="opt.value">{{ opt.label }}</option>
+          </select>
+          <textarea v-model="agencyPageForm.impactModal.subtitle" class="textarea" rows="2" placeholder="Modal subtitle" style="grid-column:1 / -1;" />
+        </div>
+        <div class="display-card-grid" style="margin-top:10px;">
+          <div v-for="(stat, idx) in agencyPageForm.impactModal.stats" :key="`impact-stat-${idx}`" class="display-card-draft">
+            <select v-model="stat.icon" class="input">
+              <option v-for="opt in cardIconOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
+            <input v-model="stat.value" class="input" type="text" placeholder="Stat value, e.g. 15,000+" />
+            <input v-model="stat.label" class="input" type="text" placeholder="Stat label, e.g. Students Supported" />
+            <textarea v-model="stat.body" class="textarea" rows="2" placeholder="Short description" />
+          </div>
+        </div>
+        <div class="form-grid" style="margin-top:10px;">
+          <input v-model="agencyPageForm.impactModal.growthTitle" class="input" type="text" placeholder="Growth chart title" style="grid-column:1 / -1;" />
+          <input v-model="agencyPageForm.impactModal.growthLabel" class="input" type="text" placeholder="Growth legend label" style="grid-column:1 / -1;" />
+        </div>
+        <div class="nav-items-list" style="margin-top:8px;">
+          <div v-for="(pt, idx) in agencyPageForm.impactModal.growthPoints" :key="`growth-${idx}`" class="nav-item-row">
+            <input v-model="pt.label" class="input" type="text" placeholder="Year label" style="flex:1" />
+            <input v-model.number="pt.value" class="input" type="number" min="0" placeholder="Value" style="flex:1" />
+          </div>
+        </div>
+        <div class="form-grid" style="margin-top:10px;">
+          <input v-model="agencyPageForm.impactModal.sidebarTitle" class="input" type="text" placeholder="Sidebar title" />
+          <input v-model="agencyPageForm.impactModal.sidebarButtonText" class="input" type="text" placeholder="Sidebar button text" />
+          <textarea v-model="agencyPageForm.impactModal.sidebarBody" class="textarea" rows="3" placeholder="Sidebar body" style="grid-column:1 / -1;" />
+          <select v-model="agencyPageForm.impactModal.sidebarButtonAction" class="input">
+            <option value="why">Open Why modal</option>
+            <option value="jobs">Scroll to jobs</option>
+            <option value="">Open URL</option>
+          </select>
+          <input v-model="agencyPageForm.impactModal.sidebarButtonHref" class="input" type="text" placeholder="Sidebar button URL (optional)" />
         </div>
 
         <h5 class="config-section-label" style="margin-top:14px;">📣 Banner strip <span class="field-hint">— full-width tinted row shown above job listings</span></h5>
         <div class="form-grid">
           <input v-model="agencyPageForm.bannerText" class="input" type="text" placeholder="Banner headline, e.g. Join a team supporting 1,000+ students" style="grid-column: 1 / -1;" />
           <input v-model="agencyPageForm.bannerLinkText" class="input" type="text" placeholder="Banner link text, e.g. Learn more about ITSCO" />
-          <input v-model="agencyPageForm.bannerLinkHref" class="input" type="url" placeholder="Banner link URL" />
+          <select v-model="agencyPageForm.bannerLinkAction" class="input">
+            <option value="">Open URL</option>
+            <option value="why">Open Why modal</option>
+            <option value="impact">Open Impact modal</option>
+            <option value="jobs">Scroll to jobs</option>
+          </select>
+          <input v-model="agencyPageForm.bannerLinkHref" class="input" type="text" placeholder="Banner link URL (optional)" style="grid-column: 1 / -1;" />
         </div>
         <div class="display-card-editor">
           <h5>Banner bullet points</h5>
@@ -570,6 +661,11 @@ import { toUploadsUrl } from '../../utils/uploadsUrl';
 import {
   CAREERS_HERO_PRESETS,
   CAREERS_JOB_ICONS,
+  blankImpactModal,
+  blankWhyModal,
+  normalizeImpactModal,
+  normalizeWhyModal,
+  resolveDefaultCareersPage,
   resolveDefaultHeroPreset
 } from '../../utils/careersAssets';
 const router = useRouter();
@@ -596,6 +692,8 @@ const cardIconOptions = [
   { value: 'location', label: 'Location (illustration)' },
   { value: 'clock', label: 'Clock (illustration)' },
   { value: 'bookmark', label: 'Bookmark (illustration)' },
+  { value: 'community', label: 'Community (job icon)' },
+  { value: 'badge', label: 'Badge (job icon)' },
   { value: 'school', label: 'School (emoji)' },
   { value: 'office', label: 'Office (emoji)' },
   { value: 'people', label: 'People (emoji)' },
@@ -638,8 +736,11 @@ const blankApplicationPage = () => ({
   bannerBullets: [],
   bannerLinkText: '',
   bannerLinkHref: '',
+  bannerLinkAction: '',
   featureCards: [blankDisplayCard(), blankDisplayCard(), blankDisplayCard(), blankDisplayCard()],
-  trustItems: [blankDisplayCard(), blankDisplayCard(), blankDisplayCard()]
+  trustItems: [blankDisplayCard(), blankDisplayCard(), blankDisplayCard()],
+  whyModal: blankWhyModal(),
+  impactModal: blankImpactModal()
 });
 const normalizeDisplayCard = (card) => ({
   icon: String(card?.icon || 'none').trim() || 'none',
@@ -658,7 +759,9 @@ const normalizeApplicationPage = (page) => {
     navItems: rawNav.map((n) => ({
       label: String(n?.label || '').trim(),
       href: String(n?.href || '').trim(),
-      style: String(n?.style || 'link').trim() === 'button' ? 'button' : 'link'
+      style: String(n?.style || 'link').trim() === 'button' ? 'button' : 'link',
+      action: String(n?.action || '').trim(),
+      icon: String(n?.icon || 'none').trim() || 'none'
     })).filter((n) => n.label),
     eyebrow: String(page?.eyebrow || '').trim(),
     lead: String(page?.lead || '').trim(),
@@ -678,8 +781,11 @@ const normalizeApplicationPage = (page) => {
     bannerBullets: rawBullets.map((b) => String(b || '').trim()).filter(Boolean),
     bannerLinkText: String(page?.bannerLinkText || '').trim(),
     bannerLinkHref: String(page?.bannerLinkHref || '').trim(),
+    bannerLinkAction: String(page?.bannerLinkAction || '').trim(),
     featureCards: rawFeatures.map(normalizeDisplayCard).slice(0, 4),
-    trustItems: rawTrust.map(normalizeDisplayCard).slice(0, 3)
+    trustItems: rawTrust.map(normalizeDisplayCard).slice(0, 3),
+    whyModal: normalizeWhyModal(page?.whyModal),
+    impactModal: normalizeImpactModal(page?.impactModal)
   };
   while (next.featureCards.length < 4) next.featureCards.push(blankDisplayCard());
   while (next.trustItems.length < 3) next.trustItems.push(blankDisplayCard());
@@ -710,8 +816,17 @@ const compactApplicationPage = (page) => {
     bannerBullets: normalized.bannerBullets,
     bannerLinkText: normalized.bannerLinkText,
     bannerLinkHref: normalized.bannerLinkHref,
+    bannerLinkAction: normalized.bannerLinkAction,
     featureCards: normalized.featureCards.filter((card) => card.title || card.body),
-    trustItems: normalized.trustItems.filter((card) => card.title || card.body)
+    trustItems: normalized.trustItems.filter((card) => card.title || card.body),
+    whyModal: {
+      ...normalized.whyModal,
+      cards: normalized.whyModal.cards.filter((c) => c.title || c.body)
+    },
+    impactModal: {
+      ...normalized.impactModal,
+      stats: normalized.impactModal.stats.filter((s) => s.value || s.label || s.body)
+    }
   };
 };
 const agencyPageForm = ref(blankApplicationPage());
@@ -886,6 +1001,26 @@ const applyHeroPreset = (form, preset) => {
   form.heroFrameStyle = preset.frameStyle || 'preframed';
   form.heroImageAlt = form.heroImageAlt || preset.label;
   if (preset.frameStyle === 'preframed') form.showLeafAccent = false;
+  agencyHeroImageFile.value = null;
+};
+const applyBrandStarterContent = () => {
+  const starter = resolveDefaultCareersPage({
+    slug: selectedAgency.value?.slug || '',
+    agencyName: selectedAgency.value?.name || selectedAgency.value?.official_name || ''
+  });
+  agencyPageForm.value = normalizeApplicationPage({
+    ...agencyPageForm.value,
+    ...starter,
+    // Keep any already-saved application landing defaults
+    titleHighlight: agencyPageForm.value.titleHighlight,
+    secureTitle: agencyPageForm.value.secureTitle,
+    secureSubtitle: agencyPageForm.value.secureSubtitle,
+    startHeading: agencyPageForm.value.startHeading,
+    startSubtitle: agencyPageForm.value.startSubtitle,
+    startButtonText: agencyPageForm.value.startButtonText,
+    startTimeNote: agencyPageForm.value.startTimeNote,
+    trustItems: agencyPageForm.value.trustItems
+  });
   agencyHeroImageFile.value = null;
 };
 const selectJobIcon = (form, icon) => {
@@ -1304,7 +1439,10 @@ onMounted(async () => {
 .color-row { display: flex; align-items: center; gap: 8px; }
 .color-swatch { width: 40px; height: 38px; padding: 2px; border: 1px solid #d1d5db; border-radius: 8px; cursor: pointer; flex-shrink: 0; }
 .nav-items-list { display: flex; flex-direction: column; gap: 8px; }
-.nav-item-row { display: flex; align-items: center; gap: 8px; }
+.nav-item-row--rich { display: grid; grid-template-columns: 1.4fr 1fr 1.4fr 0.8fr 1.1fr auto; gap: 8px; align-items: center; }
+@media (max-width: 900px) {
+  .nav-item-row--rich { grid-template-columns: 1fr; }
+}
 /* Upload / icon helpers */
 .upload-row { display: flex; gap: 8px; align-items: center; }
 .upload-preview-label { font-size: 0.8rem; color: #16a34a; font-weight: 500; }

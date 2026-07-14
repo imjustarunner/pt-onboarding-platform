@@ -31,6 +31,7 @@ import HiringReferenceRequest from '../models/HiringReferenceRequest.model.js';
 import EmailService from '../services/email.service.js';
 import UserActivityLog from '../models/UserActivityLog.model.js';
 import { createAndSendReferenceRequests } from '../services/hiringReferenceRequests.service.js';
+import { sanitizeCareersPageJson } from '../utils/careersPageSanitize.js';
 
 function parseIntParam(v) {
   const n = parseInt(v, 10);
@@ -100,74 +101,7 @@ function compactText(value, max = 240) {
 }
 
 function sanitizeApplicationPageJson(raw) {
-  if (raw === undefined) return undefined;
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-
-  const normalizeItems = (items, maxItems) => {
-    if (!Array.isArray(items)) return [];
-    return items
-      .map((item) => {
-        if (!item || typeof item !== 'object') return null;
-        const title = compactText(item.title, 80);
-        const body = compactText(item.body || item.description, 180);
-        if (!title && !body) return null;
-        return {
-          icon: compactText(item.icon, 32),
-          title,
-          body
-        };
-      })
-      .filter(Boolean)
-      .slice(0, maxItems);
-  };
-
-  const out = {
-    heroHeadline: compactText(raw.heroHeadline || raw.hero_headline, 120),
-    heroSubheadline: compactText(raw.heroSubheadline || raw.hero_subheadline, 120),
-    accentColor: compactText(raw.accentColor || raw.accent_color, 24),
-    navItems: Array.isArray(raw.navItems || raw.nav_items)
-      ? (raw.navItems || raw.nav_items)
-          .map((n) => ({
-            label: compactText(n?.label, 60),
-            href: compactText(n?.href || n?.url, 512),
-            style: String(n?.style || 'link').trim() === 'button' ? 'button' : 'link'
-          }))
-          .filter((n) => n.label)
-          .slice(0, 6)
-      : [],
-    eyebrow: compactText(raw.eyebrow, 80),
-    lead: compactText(raw.lead, 160),
-    titleHighlight: compactText(raw.titleHighlight || raw.title_highlight, 120),
-    heroImageUrl: compactText(raw.heroImageUrl || raw.hero_image_url, 1024),
-    heroImageAlt: compactText(raw.heroImageAlt || raw.hero_image_alt, 160),
-    heroImagePosition: compactText(raw.heroImagePosition || raw.hero_image_position, 80),
-    heroFrameStyle: (() => {
-      const style = String(raw.heroFrameStyle || raw.hero_frame_style || '').trim().toLowerCase();
-      return ['preframed', 'organic', 'rounded'].includes(style) ? style : '';
-    })(),
-    secureTitle: compactText(raw.secureTitle || raw.secure_title, 80),
-    secureSubtitle: compactText(raw.secureSubtitle || raw.secure_subtitle, 120),
-    startHeading: compactText(raw.startHeading || raw.start_heading, 120),
-    startSubtitle: compactText(raw.startSubtitle || raw.start_subtitle, 180),
-    startButtonText: compactText(raw.startButtonText || raw.start_button_text, 80),
-    startTimeNote: compactText(raw.startTimeNote || raw.start_time_note, 120),
-    showLeafAccent: raw.showLeafAccent !== false && raw.show_leaf_accent !== false,
-    bannerText: compactText(raw.bannerText || raw.banner_text, 240),
-    bannerBullets: Array.isArray(raw.bannerBullets || raw.banner_bullets)
-      ? (raw.bannerBullets || raw.banner_bullets)
-          .map((b) => compactText(String(b || ''), 120))
-          .filter(Boolean)
-          .slice(0, 6)
-      : [],
-    bannerLinkText: compactText(raw.bannerLinkText || raw.banner_link_text, 80),
-    bannerLinkHref: compactText(raw.bannerLinkHref || raw.banner_link_href, 512),
-    iconUrl: compactText(raw.iconUrl || raw.icon_url, 512),
-    iconAlt: compactText(raw.iconAlt || raw.icon_alt, 120),
-    featureCards: normalizeItems(raw.featureCards || raw.feature_cards, 4),
-    trustItems: normalizeItems(raw.trustItems || raw.trust_items, 3)
-  };
-
-  return Object.values(out).some((v) => (Array.isArray(v) ? v.length > 0 : !!v)) ? out : null;
+  return sanitizeCareersPageJson(raw);
 }
 
 async function saveJobIconImageUpload({ req, agencyId, applicationPageJson }) {

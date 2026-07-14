@@ -3,6 +3,8 @@
  * Served from frontend/public/assets/careers/
  */
 
+import { ITSCO_CAREERS_DEFAULTS, NLU_CAREERS_DEFAULTS } from './careersBrandDefaults.js';
+
 const BASE = '/assets/careers';
 
 export const CAREERS_HERO_PRESETS = [
@@ -47,12 +49,6 @@ export function resolveCareersBrandKey({ slug = '', agencyName = '' } = {}) {
   return 'neutral';
 }
 
-/**
- * Default framed hero by agency:
- * - ITSCO → itsco-framed
- * - NLU → nlu-framed
- * - everyone else → neutral-framed
- */
 export function resolveDefaultHeroPreset({ slug = '', agencyName = '' } = {}) {
   const brand = resolveCareersBrandKey({ slug, agencyName });
   if (brand === 'itsco') return HERO_BY_ID['itsco-framed'];
@@ -60,85 +56,115 @@ export function resolveDefaultHeroPreset({ slug = '', agencyName = '' } = {}) {
   return HERO_BY_ID['neutral-framed'];
 }
 
+const clone = (v) => JSON.parse(JSON.stringify(v));
+
+export function blankWhyModal() {
+  return {
+    enabled: true,
+    title: '',
+    subtitle: '',
+    icon: 'care',
+    cards: [
+      { icon: 'team', title: '', body: '' },
+      { icon: 'growth', title: '', body: '' },
+      { icon: 'learning', title: '', body: '' },
+      { icon: 'care', title: '', body: '' }
+    ],
+    ctaText: 'View open roles',
+    ctaAction: 'jobs',
+    ctaHref: '#jobs'
+  };
+}
+
+export function blankImpactModal() {
+  return {
+    enabled: true,
+    title: '',
+    subtitle: '',
+    icon: 'community',
+    stats: [
+      { icon: 'team', value: '', label: '', body: '' },
+      { icon: 'learning', value: '', label: '', body: '' },
+      { icon: 'care', value: '', label: '', body: '' },
+      { icon: 'badge', value: '', label: '', body: '' }
+    ],
+    growthTitle: '',
+    growthLabel: '',
+    growthPoints: [
+      { label: '2021', value: 0 },
+      { label: '2022', value: 0 },
+      { label: '2023', value: 0 },
+      { label: '2024', value: 0 }
+    ],
+    sidebarTitle: '',
+    sidebarBody: '',
+    sidebarButtonText: '',
+    sidebarButtonHref: '',
+    sidebarButtonAction: 'why'
+  };
+}
+
+export function normalizeWhyModal(raw) {
+  const blank = blankWhyModal();
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const cards = Array.isArray(src.cards) ? src.cards : [];
+  return {
+    enabled: src.enabled !== false,
+    title: String(src.title || '').trim(),
+    subtitle: String(src.subtitle || '').trim(),
+    icon: String(src.icon || blank.icon).trim() || blank.icon,
+    cards: [0, 1, 2, 3].map((i) => ({
+      icon: String(cards[i]?.icon || blank.cards[i].icon).trim(),
+      title: String(cards[i]?.title || '').trim(),
+      body: String(cards[i]?.body || '').trim()
+    })),
+    ctaText: String(src.ctaText || '').trim(),
+    ctaAction: String(src.ctaAction || 'jobs').trim() || 'jobs',
+    ctaHref: String(src.ctaHref || '#jobs').trim()
+  };
+}
+
+export function normalizeImpactModal(raw) {
+  const blank = blankImpactModal();
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const stats = Array.isArray(src.stats) ? src.stats : [];
+  const points = Array.isArray(src.growthPoints) ? src.growthPoints : [];
+  return {
+    enabled: src.enabled !== false,
+    title: String(src.title || '').trim(),
+    subtitle: String(src.subtitle || '').trim(),
+    icon: String(src.icon || blank.icon).trim() || blank.icon,
+    stats: [0, 1, 2, 3].map((i) => ({
+      icon: String(stats[i]?.icon || blank.stats[i].icon).trim(),
+      value: String(stats[i]?.value || '').trim(),
+      label: String(stats[i]?.label || '').trim(),
+      body: String(stats[i]?.body || '').trim()
+    })),
+    growthTitle: String(src.growthTitle || '').trim(),
+    growthLabel: String(src.growthLabel || '').trim(),
+    growthPoints: [0, 1, 2, 3].map((i) => ({
+      label: String(points[i]?.label || blank.growthPoints[i].label).trim(),
+      value: Number(points[i]?.value || 0) || 0
+    })),
+    sidebarTitle: String(src.sidebarTitle || '').trim(),
+    sidebarBody: String(src.sidebarBody || '').trim(),
+    sidebarButtonText: String(src.sidebarButtonText || '').trim(),
+    sidebarButtonHref: String(src.sidebarButtonHref || '').trim(),
+    sidebarButtonAction: String(src.sidebarButtonAction || 'why').trim() || 'why'
+  };
+}
+
 /**
- * Full public-page defaults so ITSCO/NLU look like the designed careers layout
- * even before admins fill in careers page settings. Saved settings always win.
+ * Full public-page defaults. Prefer DB-seeded careers_page_json (Admin → Careers).
+ * These are fallbacks / starter content for the admin form.
  */
 export function resolveDefaultCareersPage({ slug = '', agencyName = '' } = {}) {
   const brand = resolveCareersBrandKey({ slug, agencyName });
+  if (brand === 'itsco') return clone(ITSCO_CAREERS_DEFAULTS);
+  if (brand === 'nlu') return clone(NLU_CAREERS_DEFAULTS);
+
   const hero = resolveDefaultHeroPreset({ slug, agencyName });
-  const name = String(agencyName || '').trim() || (brand === 'itsco' ? 'ITSCO' : brand === 'nlu' ? 'NLU' : 'Our team');
-
-  if (brand === 'itsco') {
-    return {
-      accentColor: '#1a8c54',
-      brandWordmark: 'ITSCO',
-      heroHeadline: 'Make a difference.',
-      heroSubheadline: 'Build brighter futures.',
-      lead: 'Join a supportive, purpose-driven team providing mental health services to children, adolescents, and families across Colorado.',
-      heroImageUrl: hero.url,
-      heroImageAlt: 'Colorado landscape — ITSCO careers',
-      heroFrameStyle: 'preframed',
-      showLeafAccent: false,
-      navItems: [
-        { label: 'Why ITSCO', href: '#why', style: 'link', icon: 'care' },
-        { label: 'Our Impact', href: '#impact', style: 'link', icon: 'team' },
-        { label: 'Join Our Team', href: '#jobs', style: 'button' }
-      ],
-      featureCards: [
-        {
-          icon: 'team',
-          title: 'Community Focused',
-          body: 'We partner with schools and families to create lasting impact.'
-        },
-        {
-          icon: 'growth',
-          title: 'Grow with Us',
-          body: 'Clear pathways for learning, licensure, and advancement.'
-        }
-      ],
-      bannerText: 'Join a team supporting 1,000+ students across Colorado.',
-      bannerBullets: ['School-based and office-based roles', 'Flexible schedules', 'Meaningful work'],
-      bannerLinkText: 'Learn more about ITSCO',
-      bannerLinkHref: '#why'
-    };
-  }
-
-  if (brand === 'nlu') {
-    return {
-      accentColor: '#1e3a5f',
-      brandWordmark: 'NLU',
-      heroHeadline: 'Grow with purpose.',
-      heroSubheadline: 'Serve with heart.',
-      lead: 'Join New Life Unlimited and help families build stronger, healthier futures through compassionate mental health care.',
-      heroImageUrl: hero.url,
-      heroImageAlt: 'Mountain landscape — NLU careers',
-      heroFrameStyle: 'preframed',
-      showLeafAccent: false,
-      navItems: [
-        { label: 'Why NLU', href: '#why', style: 'link', icon: 'care' },
-        { label: 'Our Impact', href: '#impact', style: 'link', icon: 'team' },
-        { label: 'Join Our Team', href: '#jobs', style: 'button' }
-      ],
-      featureCards: [
-        {
-          icon: 'care',
-          title: 'People First',
-          body: 'Supportive supervision and a culture built around care for clients and clinicians.'
-        },
-        {
-          icon: 'growth',
-          title: 'Room to Grow',
-          body: 'Mentorship, licensure support, and clear next steps in your career.'
-        }
-      ],
-      bannerText: 'Build a career that makes a measurable difference for families.',
-      bannerBullets: ['Collaborative teams', 'Meaningful caseloads', 'Growth pathways'],
-      bannerLinkText: 'Learn more about NLU',
-      bannerLinkHref: '#why'
-    };
-  }
-
+  const name = String(agencyName || '').trim() || 'Our team';
   return {
     accentColor: '#1a8c54',
     brandWordmark: name,
@@ -150,25 +176,37 @@ export function resolveDefaultCareersPage({ slug = '', agencyName = '' } = {}) {
     heroFrameStyle: 'preframed',
     showLeafAccent: false,
     navItems: [
-      { label: 'Why join us', href: '#why', style: 'link', icon: 'care' },
-      { label: 'Open roles', href: '#jobs', style: 'button' }
+      { label: 'Why join us', href: '', style: 'link', action: 'why', icon: 'care' },
+      { label: 'Our Impact', href: '', style: 'link', action: 'impact', icon: 'team' },
+      { label: 'Open roles', href: '#jobs', style: 'button', action: 'jobs' }
     ],
     featureCards: [
-      {
-        icon: 'team',
-        title: 'Mission-driven work',
-        body: 'Join a team focused on meaningful outcomes for the people we serve.'
-      },
-      {
-        icon: 'growth',
-        title: 'Grow with us',
-        body: 'Support, learning, and room to advance as you build your career.'
-      }
+      { icon: 'team', title: 'Mission-driven work', body: 'Join a team focused on meaningful outcomes for the people we serve.' },
+      { icon: 'growth', title: 'Grow with us', body: 'Support, learning, and room to advance as you build your career.' }
     ],
     bannerText: `Explore open roles and find your next step with ${name}.`,
     bannerBullets: ['Flexible opportunities', 'Supportive teams', 'Meaningful work'],
     bannerLinkText: 'View open roles',
-    bannerLinkHref: '#jobs'
+    bannerLinkHref: '#jobs',
+    bannerLinkAction: 'jobs',
+    whyModal: {
+      ...blankWhyModal(),
+      title: `Why ${name}`,
+      subtitle: 'Learn what makes this a meaningful place to build your career.',
+      cards: [
+        { icon: 'team', title: 'Mission-driven work', body: 'Meaningful outcomes for the people we serve.' },
+        { icon: 'growth', title: 'Room to grow', body: 'Support and pathways as you advance.' },
+        { icon: 'learning', title: 'Learning culture', body: 'Training and collaboration built into the work.' },
+        { icon: 'care', title: 'Supportive teams', body: 'People who care about clients and each other.' }
+      ]
+    },
+    impactModal: {
+      ...blankImpactModal(),
+      title: 'Our Impact',
+      subtitle: 'A snapshot of the communities and people we serve.',
+      sidebarTitle: 'Growing together',
+      sidebarBody: `We are growing carefully so ${name} can keep delivering quality care.`
+    }
   };
 }
 
@@ -179,12 +217,10 @@ export function resolveDefaultCareersPage({ slug = '', agencyName = '' } = {}) {
 export function mergeCareersPageWithDefaults(saved, { slug = '', agencyName = '' } = {}) {
   const defaults = resolveDefaultCareersPage({ slug, agencyName });
   const raw = saved && typeof saved === 'object' ? saved : {};
-
   const pickText = (key) => {
     const v = String(raw[key] ?? '').trim();
     return v || defaults[key] || '';
   };
-
   const savedNav = Array.isArray(raw.navItems) ? raw.navItems.filter((n) => String(n?.label || '').trim()) : [];
   const savedFeatures = Array.isArray(raw.featureCards)
     ? raw.featureCards.filter((c) => String(c?.title || '').trim() || String(c?.body || '').trim())
@@ -195,16 +231,6 @@ export function mergeCareersPageWithDefaults(saved, { slug = '', agencyName = ''
 
   return {
     ...defaults,
-    ...Object.fromEntries(
-      Object.keys(defaults).map((key) => {
-        if (key === 'navItems' || key === 'featureCards' || key === 'bannerBullets') return [key, defaults[key]];
-        if (typeof defaults[key] === 'boolean') {
-          return [key, raw[key] !== undefined ? raw[key] : defaults[key]];
-        }
-        const v = String(raw[key] ?? '').trim();
-        return [key, v || defaults[key]];
-      })
-    ),
     accentColor: pickText('accentColor') || defaults.accentColor,
     heroHeadline: pickText('heroHeadline'),
     heroSubheadline: pickText('heroSubheadline'),
@@ -217,10 +243,13 @@ export function mergeCareersPageWithDefaults(saved, { slug = '', agencyName = ''
     eyebrow: String(raw.eyebrow || '').trim(),
     bannerText: pickText('bannerText'),
     bannerLinkText: pickText('bannerLinkText'),
-    bannerLinkHref: pickText('bannerLinkHref'),
+    bannerLinkHref: String(raw.bannerLinkHref || '').trim() || defaults.bannerLinkHref || '',
+    bannerLinkAction: String(raw.bannerLinkAction || defaults.bannerLinkAction || '').trim(),
     bannerBullets: savedBullets.length ? savedBullets : defaults.bannerBullets,
     navItems: savedNav.length ? savedNav : defaults.navItems,
     featureCards: savedFeatures.length ? savedFeatures : defaults.featureCards,
+    whyModal: raw.whyModal ? normalizeWhyModal(raw.whyModal) : normalizeWhyModal(defaults.whyModal),
+    impactModal: raw.impactModal ? normalizeImpactModal(raw.impactModal) : normalizeImpactModal(defaults.impactModal),
     brandWordmark: defaults.brandWordmark
   };
 }
@@ -259,6 +288,10 @@ const HERO_BY_URL = Object.fromEntries(CAREERS_HERO_PRESETS.map((h) => [h.url, h
 export function getFeatureIconUrl(iconKey) {
   const key = String(iconKey || '').trim().toLowerCase();
   if (!key || key === 'none') return '';
+  if (key === 'community' || key === 'badge') {
+    const job = CAREERS_JOB_ICONS.find((i) => i.id === key);
+    if (job) return job.url;
+  }
   return FEATURE_ICON_BY_ID[key]?.url || '';
 }
 
@@ -272,7 +305,6 @@ export function getHeroPresetByUrl(url) {
   return HERO_BY_URL[u] || null;
 }
 
-/** Pick a default page-2 icon from role type / education label when no custom icon is set. */
 export function resolveDefaultJobIconUrl(roleType, educationLevel) {
   const hay = `${roleType || ''} ${educationLevel || ''}`.toLowerCase();
   for (const icon of CAREERS_JOB_ICONS) {

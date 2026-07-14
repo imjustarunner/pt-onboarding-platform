@@ -47,6 +47,7 @@ import {
   resolveIntakeFieldLabel,
   resolveIntakeFormLocale
 } from '../utils/intakeFieldLabels.js';
+import { sanitizeCareersPageJson } from '../utils/careersPageSanitize.js';
 
 /** Fetch the Stripe Connect account ID for an agency (null if not connected). */
 async function getAgencyStripeConnectAccountId(agencyId) {
@@ -153,69 +154,7 @@ const compactText = (value, max = 240) => {
 const sanitizeApplicationPageJson = (raw) => {
   const obj = parseJsonObjectSafe(raw);
   if (!obj) return null;
-  const normalizeItems = (items, maxItems) => {
-    if (!Array.isArray(items)) return [];
-    return items
-      .map((item) => {
-        if (!item || typeof item !== 'object') return null;
-        const title = compactText(item.title, 80);
-        const body = compactText(item.body || item.description, 180);
-        if (!title && !body) return null;
-        return {
-          icon: compactText(item.icon, 32),
-          title,
-          body
-        };
-      })
-      .filter(Boolean)
-      .slice(0, maxItems);
-  };
-  const out = {
-    heroHeadline: compactText(obj.heroHeadline || obj.hero_headline, 120),
-    heroSubheadline: compactText(obj.heroSubheadline || obj.hero_subheadline, 120),
-    accentColor: compactText(obj.accentColor || obj.accent_color, 24),
-    navItems: Array.isArray(obj.navItems || obj.nav_items)
-      ? (obj.navItems || obj.nav_items)
-          .map((n) => ({
-            label: compactText(n?.label, 60),
-            href: compactText(n?.href || n?.url, 512),
-            style: String(n?.style || 'link').trim() === 'button' ? 'button' : 'link'
-          }))
-          .filter((n) => n.label)
-          .slice(0, 6)
-      : [],
-    eyebrow: compactText(obj.eyebrow, 80),
-    lead: compactText(obj.lead, 160),
-    titleHighlight: compactText(obj.titleHighlight || obj.title_highlight, 120),
-    heroImageUrl: compactText(obj.heroImageUrl || obj.hero_image_url, 1024),
-    heroImageAlt: compactText(obj.heroImageAlt || obj.hero_image_alt, 160),
-    heroImagePosition: compactText(obj.heroImagePosition || obj.hero_image_position, 80),
-    heroFrameStyle: (() => {
-      const style = String(obj.heroFrameStyle || obj.hero_frame_style || '').trim().toLowerCase();
-      return ['preframed', 'organic', 'rounded'].includes(style) ? style : '';
-    })(),
-    secureTitle: compactText(obj.secureTitle || obj.secure_title, 80),
-    secureSubtitle: compactText(obj.secureSubtitle || obj.secure_subtitle, 120),
-    startHeading: compactText(obj.startHeading || obj.start_heading, 120),
-    startSubtitle: compactText(obj.startSubtitle || obj.start_subtitle, 180),
-    startButtonText: compactText(obj.startButtonText || obj.start_button_text, 80),
-    startTimeNote: compactText(obj.startTimeNote || obj.start_time_note, 120),
-    showLeafAccent: obj.showLeafAccent !== false && obj.show_leaf_accent !== false,
-    bannerText: compactText(obj.bannerText || obj.banner_text, 240),
-    bannerBullets: Array.isArray(obj.bannerBullets || obj.banner_bullets)
-      ? (obj.bannerBullets || obj.banner_bullets)
-          .map((b) => compactText(String(b || ''), 120))
-          .filter(Boolean)
-          .slice(0, 6)
-      : [],
-    bannerLinkText: compactText(obj.bannerLinkText || obj.banner_link_text, 80),
-    bannerLinkHref: compactText(obj.bannerLinkHref || obj.banner_link_href, 512),
-    iconUrl: compactText(obj.iconUrl || obj.icon_url, 512),
-    iconAlt: compactText(obj.iconAlt || obj.icon_alt, 120),
-    featureCards: normalizeItems(obj.featureCards || obj.feature_cards, 4),
-    trustItems: normalizeItems(obj.trustItems || obj.trust_items, 3)
-  };
-  return Object.values(out).some((v) => (Array.isArray(v) ? v.length > 0 : !!v)) ? out : null;
+  return sanitizeCareersPageJson(obj);
 };
 const mergeApplicationPageJson = (agencyPage, jobPage) => {
   const base = sanitizeApplicationPageJson(agencyPage) || null;
@@ -240,7 +179,11 @@ const mergeApplicationPageJson = (agencyPage, jobPage) => {
     startTimeNote: pick('startTimeNote'),
     showLeafAccent: override.showLeafAccent !== undefined ? override.showLeafAccent : base.showLeafAccent,
     featureCards: override.featureCards?.length ? override.featureCards : (base.featureCards || []),
-    trustItems: override.trustItems?.length ? override.trustItems : (base.trustItems || [])
+    trustItems: override.trustItems?.length ? override.trustItems : (base.trustItems || []),
+    whyModal: override.whyModal || base.whyModal || null,
+    impactModal: override.impactModal || base.impactModal || null,
+    bannerLinkAction: pick('bannerLinkAction'),
+    navItems: override.navItems?.length ? override.navItems : (base.navItems || [])
   };
   return sanitizeApplicationPageJson(merged);
 };

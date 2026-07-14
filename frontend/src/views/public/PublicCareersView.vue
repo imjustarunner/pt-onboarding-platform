@@ -15,14 +15,14 @@
             <a
               v-if="item.style === 'button'"
               class="cr-nav-btn"
-              :href="item.href || '#jobs'"
-              @click="onNavClick($event, item.href)"
+              href="#"
+              @click.prevent="handleNavAction(item)"
             >{{ item.label }}</a>
             <a
               v-else
               class="cr-nav-link"
-              :href="item.href || '#'"
-              @click="onNavClick($event, item.href)"
+              href="#"
+              @click.prevent="handleNavAction(item)"
             >
               <img
                 v-if="featureIconSrc(item.icon)"
@@ -149,10 +149,10 @@
             </p>
           </div>
           <a
-            v-if="bannerLinkText && bannerLinkHref"
+            v-if="bannerLinkText && (bannerLinkHref || bannerLinkAction)"
             class="cr-banner-link"
-            :href="bannerLinkHref"
-            @click="onNavClick($event, bannerLinkHref)"
+            href="#"
+            @click.prevent="handleNavAction({ action: bannerLinkAction, href: bannerLinkHref })"
           >{{ bannerLinkText }} →</a>
         </div>
       </div>
@@ -268,6 +268,86 @@
         </div>
       </div>
     </div>
+
+    <!-- Why modal -->
+    <div v-if="activeStoryModal === 'why' && whyModal?.enabled !== false" class="cr-modal-overlay" @click.self="activeStoryModal = null">
+      <div class="cr-story-modal" role="dialog" aria-modal="true" :aria-label="whyModal.title || 'Why join us'">
+        <button class="cr-story-close" type="button" aria-label="Close" @click="activeStoryModal = null">✕</button>
+        <div class="cr-story-header">
+          <img v-if="featureIconSrc(whyModal.icon)" class="cr-story-hero-icon" :src="featureIconSrc(whyModal.icon)" alt="" />
+          <div>
+            <h3>{{ whyModal.title }}</h3>
+            <p v-if="whyModal.subtitle">{{ whyModal.subtitle }}</p>
+          </div>
+        </div>
+        <div class="cr-why-grid">
+          <div v-for="card in whyModal.cards" :key="card.title" class="cr-why-card">
+            <img v-if="featureIconSrc(card.icon)" :src="featureIconSrc(card.icon)" alt="" />
+            <strong>{{ card.title }}</strong>
+            <span>{{ card.body }}</span>
+          </div>
+        </div>
+        <button
+          v-if="whyModal.ctaText"
+          class="cr-apply-btn cr-apply-btn--solid cr-story-cta"
+          type="button"
+          @click="handleNavAction({ action: whyModal.ctaAction, href: whyModal.ctaHref })"
+        >{{ whyModal.ctaText }}</button>
+      </div>
+    </div>
+
+    <!-- Impact modal -->
+    <div v-if="activeStoryModal === 'impact' && impactModal?.enabled !== false" class="cr-modal-overlay" @click.self="activeStoryModal = null">
+      <div class="cr-story-modal cr-story-modal--impact" role="dialog" aria-modal="true" :aria-label="impactModal.title || 'Our Impact'">
+        <button class="cr-story-close" type="button" aria-label="Close" @click="activeStoryModal = null">✕</button>
+        <div class="cr-story-header">
+          <img v-if="featureIconSrc(impactModal.icon || 'community')" class="cr-story-hero-icon" :src="featureIconSrc(impactModal.icon || 'community')" alt="" />
+          <div>
+            <h3>{{ impactModal.title }}</h3>
+            <p v-if="impactModal.subtitle">{{ impactModal.subtitle }}</p>
+          </div>
+        </div>
+        <div class="cr-impact-stats">
+          <div v-for="stat in impactModal.stats" :key="stat.label" class="cr-impact-stat">
+            <img v-if="featureIconSrc(stat.icon)" :src="featureIconSrc(stat.icon)" alt="" />
+            <div class="cr-impact-value">{{ stat.value }}</div>
+            <div class="cr-impact-label">{{ stat.label }}</div>
+            <p>{{ stat.body }}</p>
+          </div>
+        </div>
+        <div class="cr-impact-bottom">
+          <div class="cr-growth">
+            <h4>{{ impactModal.growthTitle }}</h4>
+            <div class="cr-growth-chart" aria-hidden="true">
+              <div
+                v-for="pt in impactModal.growthPoints"
+                :key="pt.label"
+                class="cr-growth-col"
+              >
+                <span class="cr-growth-val">{{ formatGrowthValue(pt.value) }}</span>
+                <div class="cr-growth-bar" :style="{ height: growthBarHeight(pt.value) }"></div>
+                <span class="cr-growth-year">{{ pt.label }}</span>
+              </div>
+            </div>
+            <div class="cr-growth-legend">
+              <span class="cr-growth-swatch"></span>
+              {{ impactModal.growthLabel }}
+            </div>
+          </div>
+          <aside class="cr-impact-side">
+            <img v-if="featureIconSrc('growth')" :src="featureIconSrc('growth')" alt="" />
+            <h4>{{ impactModal.sidebarTitle }}</h4>
+            <p>{{ impactModal.sidebarBody }}</p>
+            <button
+              v-if="impactModal.sidebarButtonText"
+              class="cr-apply-btn cr-apply-btn--solid"
+              type="button"
+              @click="handleNavAction({ action: impactModal.sidebarButtonAction, href: impactModal.sidebarButtonHref })"
+            >{{ impactModal.sidebarButtonText }}</button>
+          </aside>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -301,6 +381,7 @@ const selectedLocation = ref('');
 const selectedRoleType = ref('');
 const sortBy = ref('featured_desc');
 const learnMoreJob = ref(null);
+const activeStoryModal = ref(null);
 const savedJobs = ref(new Set());
 const currentPage = ref(1);
 const showAll = ref(false);
@@ -387,7 +468,10 @@ const bannerBullets = computed(() =>
 );
 const bannerLinkText = computed(() => String(page.value?.bannerLinkText || '').trim());
 const bannerLinkHref = computed(() => String(page.value?.bannerLinkHref || '').trim());
+const bannerLinkAction = computed(() => String(page.value?.bannerLinkAction || '').trim());
 const bannerIconUrl = computed(() => getFeatureIconUrl('team'));
+const whyModal = computed(() => page.value?.whyModal || null);
+const impactModal = computed(() => page.value?.impactModal || null);
 
 const headerLogoUrl = computed(() => {
   const t = brandingStore.portalTheme;
@@ -487,11 +571,43 @@ const scrollToId = (id) => {
   const el = document.getElementById(String(id || '').replace(/^#/, ''));
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
-const onNavClick = (event, href) => {
-  const raw = String(href || '').trim();
-  if (!raw.startsWith('#')) return;
-  event.preventDefault();
-  scrollToId(raw.slice(1));
+const handleNavAction = (item = {}) => {
+  const action = String(item?.action || '').trim().toLowerCase();
+  const href = String(item?.href || '').trim();
+  if (action === 'why') {
+    activeStoryModal.value = 'why';
+    return;
+  }
+  if (action === 'impact') {
+    activeStoryModal.value = 'impact';
+    return;
+  }
+  if (action === 'jobs' || href === '#jobs') {
+    activeStoryModal.value = null;
+    scrollToId('jobs');
+    return;
+  }
+  if (href.startsWith('#')) {
+    activeStoryModal.value = null;
+    scrollToId(href.slice(1));
+    return;
+  }
+  if (href) {
+    window.open(href, '_blank', 'noopener,noreferrer');
+  }
+};
+const growthMax = computed(() => {
+  const pts = impactModal.value?.growthPoints || [];
+  return Math.max(1, ...pts.map((p) => Number(p.value) || 0));
+});
+const growthBarHeight = (value) => {
+  const pct = Math.max(8, Math.round(((Number(value) || 0) / growthMax.value) * 100));
+  return `${pct}%`;
+};
+const formatGrowthValue = (value) => {
+  const n = Number(value) || 0;
+  if (n >= 1000) return `${Math.round(n / 100) / 10}k`.replace('.0k', 'k');
+  return String(n);
 };
 
 const loadCareers = async () => {
@@ -672,6 +788,61 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-modal-nodoc { color: var(--muted); font-size: 0.85rem; font-style: italic; }
 .cr-modal-actions { margin-top: 16px; }
 
+.cr-story-modal {
+  width: min(980px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  background: #fff;
+  border-radius: 22px;
+  border: 1px solid var(--border);
+  box-shadow: 0 30px 80px -36px rgba(15, 23, 42, 0.55);
+  padding: 28px;
+  position: relative;
+}
+.cr-story-close {
+  position: absolute; top: 14px; right: 14px;
+  border: none; background: #f1f5f9; color: #64748b;
+  width: 34px; height: 34px; border-radius: 999px; cursor: pointer; font-size: 1rem;
+}
+.cr-story-header { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 22px; padding-right: 36px; }
+.cr-story-hero-icon { width: 56px; height: 56px; object-fit: contain; flex-shrink: 0; }
+.cr-story-header h3 { margin: 0 0 6px; font-size: 1.45rem; font-weight: 800; color: var(--dark); }
+.cr-story-header p { margin: 0; color: var(--muted); line-height: 1.5; }
+.cr-why-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.cr-why-card {
+  background: #fff; border: 1px solid var(--border); border-radius: 16px; padding: 16px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.cr-why-card img { width: 36px; height: 36px; object-fit: contain; }
+.cr-why-card strong { color: var(--dark); font-size: 0.98rem; }
+.cr-why-card span { color: var(--muted); font-size: 0.86rem; line-height: 1.45; }
+.cr-story-cta { margin-top: 18px; width: 100%; max-width: 280px; }
+.cr-impact-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+.cr-impact-stat {
+  border: 1px solid var(--border); border-radius: 16px; padding: 14px; background: #fff;
+}
+.cr-impact-stat img { width: 30px; height: 30px; object-fit: contain; margin-bottom: 8px; }
+.cr-impact-value { font-size: 1.55rem; font-weight: 800; color: var(--accent); line-height: 1.1; }
+.cr-impact-label { font-size: 0.88rem; font-weight: 700; color: var(--dark); margin: 4px 0 6px; }
+.cr-impact-stat p { margin: 0; font-size: 0.8rem; color: var(--muted); line-height: 1.4; }
+.cr-impact-bottom { display: grid; grid-template-columns: 1.35fr 0.85fr; gap: 14px; }
+.cr-growth { border: 1px solid var(--border); border-radius: 16px; padding: 16px; background: #fff; }
+.cr-growth h4 { margin: 0 0 14px; font-size: 1rem; }
+.cr-growth-chart { display: flex; align-items: flex-end; gap: 14px; height: 180px; padding: 0 8px 8px; }
+.cr-growth-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; height: 100%; }
+.cr-growth-bar { width: 100%; max-width: 48px; border-radius: 10px 10px 4px 4px; background: var(--accent); min-height: 12px; }
+.cr-growth-val { font-size: 0.75rem; font-weight: 700; color: var(--dark); }
+.cr-growth-year { font-size: 0.78rem; color: var(--muted); }
+.cr-growth-legend { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 0.82rem; color: var(--muted); }
+.cr-growth-swatch { width: 12px; height: 12px; border-radius: 3px; background: var(--accent); }
+.cr-impact-side {
+  border-radius: 16px; padding: 18px; background: var(--accent-light); border: 1px solid var(--accent-border);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.cr-impact-side img { width: 36px; height: 36px; object-fit: contain; }
+.cr-impact-side h4 { margin: 0; color: var(--accent); font-size: 1.05rem; }
+.cr-impact-side p { margin: 0; color: var(--dark); line-height: 1.5; font-size: 0.9rem; flex: 1; }
+
 @media (max-width: 840px) {
   .cr-hero-inner { grid-template-columns: 1fr; }
   .cr-hero-fig { order: -1; max-width: 520px; margin: 0 auto; }
@@ -680,6 +851,7 @@ watch(slug, () => loadCareers(), { immediate: true });
   .cr-card-actions { grid-column: 1 / -1; flex-direction: row; }
   .cr-feature-cards { grid-template-columns: 1fr; }
   .cr-banner { flex-wrap: wrap; }
+  .cr-why-grid, .cr-impact-stats, .cr-impact-bottom { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 560px) {
   .cr-nav-inner { flex-direction: column; align-items: flex-start; gap: 10px; }
@@ -690,5 +862,7 @@ watch(slug, () => loadCareers(), { immediate: true });
   .cr-card-actions { flex-direction: row; }
   .cr-pill-group { padding-right: 0; border-right: 0; }
   .cr-pagination { flex-direction: column; align-items: flex-start; }
+  .cr-why-grid, .cr-impact-stats, .cr-impact-bottom { grid-template-columns: 1fr; }
+  .cr-story-modal { padding: 18px; }
 }
 </style>
