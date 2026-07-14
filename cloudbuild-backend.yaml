@@ -162,9 +162,9 @@ steps:
       - '--timeout'
       - '300'
       - '--max-instances'
-      - '10'
+      - '40'
       - '--min-instances'
-      - '1'
+      - '2'
 
 substitutions:
   _CLOUD_SQL_CONNECTION_NAME: 'PROJECT_ID:REGION:INSTANCE_NAME'  # Replace with your actual connection name

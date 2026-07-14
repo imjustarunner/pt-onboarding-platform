@@ -68,8 +68,10 @@ export default class UserPlatformSession {
     const now = new Date();
     const lastHb = row.last_heartbeat_at ? new Date(row.last_heartbeat_at) : new Date(row.started_at);
     let deltaSec = Math.max(0, Math.floor((now - lastHb) / 1000));
-    // Cap single tick (tab sleep / clock skew / cheating) at 2 minutes
-    deltaSec = Math.min(deltaSec, 120);
+    // Cap single tick (tab sleep / clock skew / cheating).
+    // Must stay ≥ client keep-alive (~90s) so honest visible-tab time is not lost;
+    // still blocks "I was gone 20 minutes, credit me all of it" claims.
+    deltaSec = Math.min(deltaSec, 180);
 
     const currentPhase = phase || row.phase || 'active';
     let active = Number(row.active_seconds || 0);

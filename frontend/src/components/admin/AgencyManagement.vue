@@ -554,7 +554,7 @@
               </div>
               <div class="form-group">
                 <label>Heartbeat interval (seconds)</label>
-                <input v-model.number="agencyForm.sessionSettings.heartbeatIntervalSeconds" type="number" min="10" max="300" />
+                <input v-model.number="agencyForm.sessionSettings.heartbeatIntervalSeconds" type="number" min="30" max="300" />
               </div>
               <div class="form-group">
                 <label>Session lock max (minutes)</label>
@@ -6552,7 +6552,7 @@ const defaultAgencyForm = () => ({
     inactivityTimeoutMinutes: 3,
     idleBeforeTimedownSeconds: 180,
     timedownSeconds: 600,
-    heartbeatIntervalSeconds: 30,
+    heartbeatIntervalSeconds: 60,
     maxInactivityTimeoutMinutes: null
   },
   featureFlags: {
@@ -7791,9 +7791,12 @@ const editAgency = async (agency) => {
       ? Number(sessionSettingsRaw.timedownMinutes) * 60
       : 600);
   const sessionInactivityMinutes = Math.max(1, Math.round(sessionIdleSeconds / 60));
-  const sessionHeartbeatSeconds = Number.isFinite(Number(sessionSettingsRaw.heartbeatIntervalSeconds))
-    ? Number(sessionSettingsRaw.heartbeatIntervalSeconds)
-    : 30;
+  const sessionHeartbeatSeconds = clampNumber(
+    sessionSettingsRaw.heartbeatIntervalSeconds,
+    30,
+    300,
+    60
+  );
   const sessionLockMaxMinutes = sessionSettingsRaw.maxInactivityTimeoutMinutes ?? sessionSettingsRaw.max_inactivity_timeout_minutes ?? null;
   
   // Parse custom parameters if they exist
@@ -8732,9 +8735,9 @@ const saveAgency = async () => {
               inactivityTimeoutMinutes: Math.max(1, Math.round(idleBeforeTimedownSeconds / 60)),
               heartbeatIntervalSeconds: clampNumber(
                 sessionSettingsRaw.heartbeatIntervalSeconds,
-                10,
+                30,
                 300,
-                30
+                60
               ),
               maxInactivityTimeoutMinutes: (sessionSettingsRaw.maxInactivityTimeoutMinutes != null && sessionSettingsRaw.maxInactivityTimeoutMinutes !== '')
                 ? clampNumber(sessionSettingsRaw.maxInactivityTimeoutMinutes, 1, 240, 30)

@@ -380,9 +380,10 @@ jobs:
               --cpu=1 \
               --cpu-boost \
               --timeout=300 \
-              --max-instances=10 \
-              --min-instances=1 \
-              --startup-probe=tcpSocket.port=8080,initialDelaySeconds=90,failureThreshold=20,periodSeconds=10,timeoutSeconds=5 \
+              --max-instances=40 \
+              --min-instances=2 \
+              --concurrency=40 \
+              --startup-probe=tcpSocket.port=8080,initialDelaySeconds=15,failureThreshold=24,periodSeconds=5,timeoutSeconds=5 \
             && break
             echo "Deploy attempt $attempt failed"
             if [ "$attempt" -eq 3 ]; then exit 1; fi

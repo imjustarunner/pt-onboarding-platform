@@ -41,9 +41,57 @@ const _stormError = (scope) => {
   return err;
 };
 
+// --- Global 429 backoff ----------------------------------------------------
+// Cloud Run returns plain-text "Rate exceeded." at the edge when instances
+// cannot scale fast enough. If every open tab keeps hammering (heartbeats,
+// dashboard bursts, refresh loops), the service never recovers. When we see
+// 429s, pause ALL outbound API calls for a short cooldown so capacity can
+// come back online.
+const RATE_LIMIT_COOLDOWN_MS = 20000;
+const RATE_LIMIT_TRIP_THRESHOLD = 3; // 429s within the window before global pause
+const RATE_LIMIT_WINDOW_MS = 10000;
+let _rateLimitHits = [];
+let _rateLimitedUntil = 0;
+let _rateLimitLastLogAt = 0;
+
+const _rateLimitError = () => {
+  const err = new Error('API rate-limited (Cloud Run 429); cooling down');
+  err.code = 'ERR_RATE_LIMITED';
+  err.__rateLimited = true;
+  err.response = { status: 429, data: { error: { message: 'Too many requests — cooling down' } } };
+  return err;
+};
+
+/** True while the client is in a 429 cooldown (heartbeats / polls should skip). */
+export function isApiRateLimited() {
+  return Date.now() < _rateLimitedUntil;
+}
+
+function noteRateLimitResponse() {
+  const now = Date.now();
+  _rateLimitHits = _rateLimitHits.filter((t) => now - t <= RATE_LIMIT_WINDOW_MS);
+  _rateLimitHits.push(now);
+  if (_rateLimitHits.length < RATE_LIMIT_TRIP_THRESHOLD && now >= _rateLimitedUntil) {
+    // Single 429: still apply a short pause so we don't immediately re-flood.
+    _rateLimitedUntil = Math.max(_rateLimitedUntil, now + Math.min(5000, RATE_LIMIT_COOLDOWN_MS));
+  }
+  if (_rateLimitHits.length >= RATE_LIMIT_TRIP_THRESHOLD) {
+    _rateLimitedUntil = now + RATE_LIMIT_COOLDOWN_MS;
+    if (now - _rateLimitLastLogAt > 5000) {
+      _rateLimitLastLogAt = now;
+      console.warn(
+        `[api] Cloud Run 429 Rate exceeded — pausing requests for ${RATE_LIMIT_COOLDOWN_MS / 1000}s so the service can recover.`
+      );
+    }
+  }
+}
+
 function checkRequestStorm(config) {
   const now = Date.now();
   const key = _stormKeyOf(config);
+
+  // Global 429 cooldown — fail fast, do not touch the network.
+  if (now < _rateLimitedUntil) throw _rateLimitError();
 
   // Honor active cooldowns first — fail fast with no network usage.
   if (now < (_stormTrippedUntil.get('__global__') || 0)) throw _stormError('__global__');
@@ -148,6 +196,11 @@ api.interceptors.response.use(
       if (id) endGlobalLoading(id);
     } catch {
       // ignore
+    }
+
+    // Cloud Run / edge 429 — trip global cooldown so tabs stop the death spiral.
+    if (error?.response?.status === 429 && !error?.__rateLimited) {
+      noteRateLimitResponse();
     }
 
     // Don't redirect on 401 if we're already on the login page or setup pages

@@ -10,11 +10,19 @@
  * Reliability:
  *  - Wall-clock idle watchdog (every 10s) so background-tab setTimeout throttling cannot skip Timedown.
  *  - Switching desktops / hiding the tab does NOT pause or cancel idle.
+ *
+ * Heartbeat strategy (long-term, scales with users):
+ *  - Do NOT poll the API on a tight fixed timer for every user forever.
+ *  - Ledger: send on real changes (activity flush, phase change, tab visible again),
+ *    plus a slow keep-alive (~90s) while the tab is visible so time still accrues.
+ *  - Presence: slower when idle, a bit faster when recently active; never while hidden.
+ *  - Hidden tabs and Cloud Run 429 cooldowns skip network heartbeats entirely.
+ *  - Local scheduler ticks often; network calls stay rare. WebSockets are not needed yet.
  */
 import { unref } from 'vue';
 import { useAuthStore } from '../store/auth';
 import { useSessionLockStore } from '../store/sessionLock';
-import api from '../services/api';
+import api, { isApiRateLimited } from '../services/api';
 import { useAgencyStore } from '../store/agency';
 import {
   IDLE_BEFORE_TIMEDOWN_MS,
@@ -24,18 +32,36 @@ import {
   markSessionEndedRedirecting
 } from './sessionTimeoutBranding';
 
-const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30;
-const MIN_HEARTBEAT_INTERVAL_SECONDS = 10;
+/** Presence cadence when the user was active recently (agency setting can raise this). */
+const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 60;
+const MIN_HEARTBEAT_INTERVAL_SECONDS = 30;
 const MAX_HEARTBEAT_INTERVAL_SECONDS = 300;
+/** Presence cadence when idle (no DOM activity for IDLE_FOR_PRESENCE_MS). */
+const PRESENCE_IDLE_INTERVAL_MS = 90 * 1000;
+const IDLE_FOR_PRESENCE_MS = 2 * 60 * 1000;
+
+/**
+ * Ledger keep-alive while tab is visible. Must stay under the server delta cap (180s)
+ * so honest time is not truncated between ticks.
+ */
+const LEDGER_KEEPALIVE_MS = 90 * 1000;
+/** Batch rapid clicks into one ledger POST. */
+const LEDGER_ACTIVITY_FLUSH_MS = 2 * 1000;
+/** Local-only tick — cheap; decides whether a network call is due. */
+const HEARTBEAT_SCHEDULER_MS = 15 * 1000;
+
 const IDLE_WATCHDOG_MS = 10 * 1000;
 
 const LAST_ACTIVITY_KEY = 'presence:lastActivityAt';
 
 let warningTimer = null;
 let heartbeatTimer = null;
-let sessionLedgerTimer = null;
 let idleWatchdog = null;
+let ledgerFlushTimer = null;
 let lastActivityTime = Date.now();
+let lastLedgerSentAt = 0;
+let lastPresenceSentAt = 0;
+let lastSentPhase = null;
 let isTracking = false;
 let timeoutInFlight = false;
 
@@ -66,9 +92,35 @@ function currentSessionPhase() {
   }
 }
 
-async function sendPlatformSessionHeartbeat({ forceMeaningful = false } = {}) {
+function canSendHeartbeat() {
+  if (isApiRateLimited()) return false;
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return false;
+  return true;
+}
+
+function shouldSendLedger({ force = false } = {}) {
+  if (force) return true;
+  if (pendingMeaningful || pendingPassive) return true;
+  const phase = currentSessionPhase();
+  if (phase !== lastSentPhase) return true;
+  if (!lastLedgerSentAt || Date.now() - lastLedgerSentAt >= LEDGER_KEEPALIVE_MS) return true;
+  return false;
+}
+
+function scheduleLedgerFlush() {
+  if (ledgerFlushTimer) return;
+  ledgerFlushTimer = setTimeout(() => {
+    ledgerFlushTimer = null;
+    sendPlatformSessionHeartbeat();
+  }, LEDGER_ACTIVITY_FLUSH_MS);
+}
+
+async function sendPlatformSessionHeartbeat({ forceMeaningful = false, force = false } = {}) {
   const authStore = useAuthStore();
   if (!authStore.isAuthenticated) return;
+  if (!canSendHeartbeat()) return;
+  if (!shouldSendLedger({ force: force || forceMeaningful })) return;
+
   const sessionId = localStorage.getItem('sessionId');
   if (!sessionId) return;
 
@@ -77,6 +129,7 @@ async function sendPlatformSessionHeartbeat({ forceMeaningful = false } = {}) {
   pendingMeaningful = false;
   pendingPassive = false;
 
+  const phase = currentSessionPhase();
   const agencyStore = useAgencyStore();
   try {
     await api.post(
@@ -85,13 +138,15 @@ async function sendPlatformSessionHeartbeat({ forceMeaningful = false } = {}) {
         sessionId,
         meaningful,
         passive,
-        phase: currentSessionPhase(),
+        phase,
         agencyId: agencyStore.currentAgency?.id || null
       },
       { skipGlobalLoading: true, skipAuthRedirect: true }
     );
+    lastLedgerSentAt = Date.now();
+    lastSentPhase = phase;
   } catch {
-    /* best-effort */
+    /* best-effort — leave pending flags cleared; next keep-alive still accrues wall time */
   }
 }
 
@@ -183,15 +238,12 @@ function fireTimedown() {
   }
 
   pendingPassive = false;
-  sendPlatformSessionHeartbeat();
+  // Phase change → force ledger tick so timedown time accrues correctly.
+  sendPlatformSessionHeartbeat({ force: true });
 
   store.showWarning(getTimedownSeconds(), () => {
     handleTimeout();
   });
-
-  setTimeout(() => {
-    sendPlatformSessionHeartbeat();
-  }, 0);
 }
 
 function resetTimer() {
@@ -248,6 +300,9 @@ function markActivity({ meaningful }) {
     /* ignore */
   }
   resetTimer();
+  // Only flush on meaningful interaction — mousemove waits for keep-alive / next flush
+  // so idle mouse jitter cannot spam the API.
+  if (meaningful) scheduleLedgerFlush();
 }
 
 function onMeaningfulActivity() {
@@ -280,14 +335,25 @@ function onVisibilityChange() {
     resetTimer();
   }
 
-  sendPresenceHeartbeat();
-  sendPlatformSessionHeartbeat({ forceMeaningful: false });
+  // Catch up once; capped server-side so long hidden gaps are not fully credited.
+  sendPresenceHeartbeat({ force: true });
+  sendPlatformSessionHeartbeat({ force: true });
 }
 
-async function sendPresenceHeartbeat() {
+function presenceIntervalMs() {
+  const activeMs = getHeartbeatIntervalMs();
+  const idleMs = Math.max(activeMs, PRESENCE_IDLE_INTERVAL_MS);
+  if (Date.now() - lastActivityTime >= IDLE_FOR_PRESENCE_MS) return idleMs;
+  return activeMs;
+}
+
+async function sendPresenceHeartbeat({ force = false } = {}) {
   const authStore = useAuthStore();
   const agencyStore = useAgencyStore();
   if (!authStore.isAuthenticated) return;
+  if (!canSendHeartbeat()) return;
+  if (!force && lastPresenceSentAt && Date.now() - lastPresenceSentAt < presenceIntervalMs()) return;
+
   const roleNorm = String(authStore.user?.role || '').toLowerCase();
   if (!roleNorm || roleNorm === 'school_staff') return;
 
@@ -301,9 +367,17 @@ async function sendPresenceHeartbeat() {
       },
       { skipGlobalLoading: true, skipAuthRedirect: true }
     );
+    lastPresenceSentAt = Date.now();
   } catch {
     /* ignore */
   }
+}
+
+/** Local scheduler: decide if presence/ledger network calls are due. */
+function runHeartbeatScheduler() {
+  if (!isTracking) return;
+  sendPresenceHeartbeat();
+  sendPlatformSessionHeartbeat();
 }
 
 /**
@@ -332,6 +406,9 @@ export async function startActivityTracking({ force = false } = {}) {
 
   isTracking = true;
   timeoutInFlight = false;
+  lastLedgerSentAt = 0;
+  lastPresenceSentAt = 0;
+  lastSentPhase = null;
   // Always start idle clock from now — stale localStorage must not skew the first schedule.
   lastActivityTime = Date.now();
   try {
@@ -355,15 +432,14 @@ export async function startActivityTracking({ force = false } = {}) {
   window.addEventListener('storage', onStorageActivity);
 
   resetTimer();
-  sendPresenceHeartbeat();
-  sendPlatformSessionHeartbeat({ forceMeaningful: true });
-  heartbeatTimer = setInterval(sendPresenceHeartbeat, getHeartbeatIntervalMs());
-  sessionLedgerTimer = setInterval(() => sendPlatformSessionHeartbeat(), 20000);
+  sendPresenceHeartbeat({ force: true });
+  sendPlatformSessionHeartbeat({ forceMeaningful: true, force: true });
+  heartbeatTimer = setInterval(runHeartbeatScheduler, HEARTBEAT_SCHEDULER_MS);
   idleWatchdog = setInterval(checkIdleWatchdog, IDLE_WATCHDOG_MS);
 }
 
 export function stopActivityTracking({ dismissWarning: shouldDismiss = true } = {}) {
-  if (!isTracking && !warningTimer && !heartbeatTimer && !sessionLedgerTimer && !idleWatchdog) {
+  if (!isTracking && !warningTimer && !heartbeatTimer && !idleWatchdog && !ledgerFlushTimer) {
     if (shouldDismiss) useSessionLockStore().dismissWarning();
     return;
   }
@@ -382,13 +458,13 @@ export function stopActivityTracking({ dismissWarning: shouldDismiss = true } = 
     clearInterval(heartbeatTimer);
     heartbeatTimer = null;
   }
-  if (sessionLedgerTimer) {
-    clearInterval(sessionLedgerTimer);
-    sessionLedgerTimer = null;
-  }
   if (idleWatchdog) {
     clearInterval(idleWatchdog);
     idleWatchdog = null;
+  }
+  if (ledgerFlushTimer) {
+    clearTimeout(ledgerFlushTimer);
+    ledgerFlushTimer = null;
   }
 
   if (shouldDismiss) useSessionLockStore().dismissWarning();
@@ -411,7 +487,7 @@ export function resetActivityTimer() {
 /** Called when user dismisses Timedown — counts as meaningful engagement. */
 export function reportTimedownDismissed() {
   pendingMeaningful = true;
-  sendPlatformSessionHeartbeat({ forceMeaningful: true });
+  sendPlatformSessionHeartbeat({ forceMeaningful: true, force: true });
 }
 
 export async function refetchSessionLockConfig() {
@@ -433,6 +509,8 @@ export function getIdleTimeoutDebug() {
     idleBeforeTimedownMs,
     timedownSeconds,
     lastActivityTime,
+    lastLedgerSentAt,
+    lastPresenceSentAt,
     idleElapsedMs: Date.now() - lastActivityTime,
     warningActive: (() => {
       try {
