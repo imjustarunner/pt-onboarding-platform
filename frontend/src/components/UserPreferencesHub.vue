@@ -118,12 +118,12 @@
               <div class="field-help">Toast shown when other users log in or out of the account.</div>
               <div class="toast-type-controls">
                 <label class="field checkbox">
-                  <input v-model="toastPrefs.login_logout.toast_enabled" type="checkbox" :disabled="notificationDisabled" />
+                  <input v-model="toastPrefs.login_logout.toast_enabled" type="checkbox" :disabled="viewOnly" />
                   Show toast
                 </label>
                 <div class="field" v-if="toastPrefs.login_logout.toast_enabled">
                   <label>Duration</label>
-                  <select v-model="toastPrefs.login_logout.duration_mode" :disabled="notificationDisabled">
+                  <select v-model="toastPrefs.login_logout.duration_mode" :disabled="viewOnly">
                     <option value="dismissable">Dismissable (stays until dismissed)</option>
                     <option value="timed">Auto-dismiss after timeout</option>
                   </select>
@@ -135,11 +135,11 @@
                     type="number"
                     min="3"
                     max="120"
-                    :disabled="notificationDisabled"
+                    :disabled="viewOnly"
                   />
                 </div>
                 <label class="field checkbox" v-if="toastPrefs.login_logout.toast_enabled">
-                  <input v-model="toastPrefs.login_logout.sound_enabled" type="checkbox" :disabled="notificationDisabled" />
+                  <input v-model="toastPrefs.login_logout.sound_enabled" type="checkbox" :disabled="viewOnly" />
                   Play sound
                 </label>
               </div>
@@ -150,12 +150,12 @@
               <div class="field-help">Toast shown when a new packet is uploaded or an intake link submission is received.</div>
               <div class="toast-type-controls">
                 <label class="field checkbox">
-                  <input v-model="toastPrefs.new_packet.toast_enabled" type="checkbox" :disabled="notificationDisabled" />
+                  <input v-model="toastPrefs.new_packet.toast_enabled" type="checkbox" :disabled="viewOnly" />
                   Show toast
                 </label>
                 <div class="field" v-if="toastPrefs.new_packet.toast_enabled">
                   <label>Duration</label>
-                  <select v-model="toastPrefs.new_packet.duration_mode" :disabled="notificationDisabled">
+                  <select v-model="toastPrefs.new_packet.duration_mode" :disabled="viewOnly">
                     <option value="dismissable">Dismissable (stays until dismissed)</option>
                     <option value="timed">Auto-dismiss after timeout</option>
                   </select>
@@ -167,11 +167,11 @@
                     type="number"
                     min="3"
                     max="120"
-                    :disabled="notificationDisabled"
+                    :disabled="viewOnly"
                   />
                 </div>
                 <label class="field checkbox" v-if="toastPrefs.new_packet.toast_enabled">
-                  <input v-model="toastPrefs.new_packet.sound_enabled" type="checkbox" :disabled="notificationDisabled" />
+                  <input v-model="toastPrefs.new_packet.sound_enabled" type="checkbox" :disabled="viewOnly" />
                   Play sound
                 </label>
               </div>
@@ -1422,7 +1422,8 @@ const load = async () => {
         enforceDefaults: data.agencyNotificationSettings.enforceDefaults === true
       };
     } else {
-      agencyNotificationSettings.value = { defaults: null, userEditable: false, enforceDefaults: true };
+      // Missing agency settings → allow edits (same default as backend when no row exists)
+      agencyNotificationSettings.value = { defaults: null, userEditable: true, enforceDefaults: false };
     }
 
     if (data?.sessionLockMaxMinutes) {

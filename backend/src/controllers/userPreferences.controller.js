@@ -188,8 +188,9 @@ export const getUserPreferences = async (req, res, next) => {
     const AgencyNotificationPreferences = (await import('../models/AgencyNotificationPreferences.model.js')).default;
     const agencyPrefs = agencyId ? await AgencyNotificationPreferences.getByAgencyId(agencyId) : null;
     const agencyDefaults = agencyPrefs?.defaults || null;
-    const agencyUserEditable = agencyPrefs ? agencyPrefs.userEditable !== false : false;
-    const agencyEnforceDefaults = agencyPrefs ? agencyPrefs.enforceDefaults === true : true;
+    // No agency defaults row → staff can edit (match update path). Only lock when explicitly disabled.
+    const agencyUserEditable = agencyPrefs ? agencyPrefs.userEditable !== false : true;
+    const agencyEnforceDefaults = agencyPrefs ? agencyPrefs.enforceDefaults === true : false;
     
     const { platformMax, agencyMax } = await getSessionLockMaxMinutes(agencyId);
 
