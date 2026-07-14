@@ -535,10 +535,6 @@ const packetForm = ref({
   notes: ''
 });
 
-function formatMoney(cents) {
-  return `$${(Number(cents || 0) / 100).toFixed(Number(cents || 0) % 100 === 0 ? 0 : 2)}`;
-}
-
 async function openPacket(c) {
   packetClient.value = c;
   packetError.value = '';
