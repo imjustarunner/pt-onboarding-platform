@@ -16,6 +16,10 @@ export const SESSION_ENDED_STORAGE = {
 /** Idle period before the branded Timedown overlay appears. */
 export const IDLE_BEFORE_TIMEDOWN_MS = 3 * 60 * 1000; // 3 minutes
 
+/** Longer idle for admin / super_admin before Timedown. */
+export const IDLE_BEFORE_TIMEDOWN_ADMIN_MS = 5 * 60 * 1000; // 5 minutes
+export const IDLE_BEFORE_TIMEDOWN_ADMIN_SECONDS = 300;
+
 /** Length of the Timedown countdown before Session Ended. */
 export const TIMEDOWN_SECONDS = 600; // 10 minutes
 

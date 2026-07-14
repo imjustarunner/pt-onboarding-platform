@@ -26,6 +26,7 @@ import api, { isApiRateLimited } from '../services/api';
 import { useAgencyStore } from '../store/agency';
 import {
   IDLE_BEFORE_TIMEDOWN_MS,
+  IDLE_BEFORE_TIMEDOWN_ADMIN_MS,
   TIMEDOWN_SECONDS,
   resolveSessionTimeoutTenantKey,
   rememberSessionEndedContext,
@@ -385,13 +386,28 @@ function runHeartbeatScheduler() {
  * Do NOT fall back to legacy inactivityTimeoutMinutes (that was 8–30 min session-lock config
  * and was incorrectly overriding the 3-minute Timedown default).
  */
+function isAdminRole() {
+  try {
+    const role = String(useAuthStore().user?.role || '').toLowerCase();
+    return role === 'admin' || role === 'super_admin';
+  } catch {
+    return false;
+  }
+}
+
+function defaultIdleBeforeTimedownMs() {
+  return isAdminRole() ? IDLE_BEFORE_TIMEDOWN_ADMIN_MS : IDLE_BEFORE_TIMEDOWN_MS;
+}
+
 function applyTimeoutConfig(config) {
   const idleSec = Number(config?.idleBeforeTimedownSeconds);
   const tdSec = Number(config?.timedownSeconds);
   if (Number.isFinite(idleSec) && idleSec >= 30) {
-    idleBeforeTimedownMs = Math.min(3600, Math.floor(idleSec)) * 1000;
+    let ms = Math.min(3600, Math.floor(idleSec)) * 1000;
+    if (isAdminRole()) ms = Math.max(ms, IDLE_BEFORE_TIMEDOWN_ADMIN_MS);
+    idleBeforeTimedownMs = ms;
   } else {
-    idleBeforeTimedownMs = IDLE_BEFORE_TIMEDOWN_MS;
+    idleBeforeTimedownMs = defaultIdleBeforeTimedownMs();
   }
   if (Number.isFinite(tdSec) && tdSec >= 30) {
     timedownSeconds = Math.min(3600, Math.floor(tdSec));

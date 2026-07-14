@@ -1547,6 +1547,11 @@ export const getSessionLockConfig = async (req, res, next) => {
       }
     }
 
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (roleNorm === 'admin' || roleNorm === 'super_admin') {
+      idleBeforeTimedownSeconds = Math.max(idleBeforeTimedownSeconds, 300);
+    }
+
     const sessionLockEnabled = prefs?.session_lock_enabled === true || prefs?.session_lock_enabled === 1;
     const userTimeout = prefs?.inactivity_timeout_minutes != null
       ? Math.min(agencyMax, Math.max(1, parseInt(prefs.inactivity_timeout_minutes, 10) || agencyMax))
