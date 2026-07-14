@@ -144,6 +144,10 @@ import skillBuildersProviderHubRoutes from './routes/skillBuildersProviderHub.ro
 import publicSkillBuildersRoutes from './routes/publicSkillBuilders.routes.js';
 import publicProgramEventKioskRoutes from './routes/publicProgramEventKiosk.routes.js';
 import publicHiringReferenceRoutes from './routes/publicHiringReference.routes.js';
+import discoverySessionsRoutes from './routes/discoverySessions.routes.js';
+import practitionerPackagesRoutes from './routes/practitionerPackages.routes.js';
+import practitionerTeamRoutes from './routes/practitionerTeam.routes.js';
+import lifeBalanceWheelRoutes from './routes/lifeBalanceWheel.routes.js';
 import communicationTrackingRoutes from './routes/communicationTracking.routes.js';
 import publicMarketingPagesRoutes from './routes/publicMarketingPages.routes.js';
 import publicMarketingPagesAdminRoutes from './routes/publicMarketingPagesAdmin.routes.js';
@@ -604,6 +608,10 @@ app.use('/api/public/program-event', publicProgramEventKioskRoutes);
 app.use('/api/public/marketing-pages', publicMarketingPagesRoutes);
 app.use('/api/public/translations', publicTranslationsRoutes);
 app.use('/api/public/hiring/reference', publicHiringReferenceRoutes);
+app.use('/api/discovery-sessions', discoverySessionsRoutes);
+app.use('/api/practitioner-packages', practitionerPackagesRoutes);
+app.use('/api/practitioner-team', practitionerTeamRoutes);
+app.use('/api/life-balance', lifeBalanceWheelRoutes);
 app.use('/api/email', communicationTrackingRoutes);
 app.use('/api/company-events', companyEventsPublicRoutes);
 

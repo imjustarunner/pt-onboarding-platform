@@ -10,7 +10,7 @@ const readArray = (value) => {
 const pickParentAgencyId = (row) => {
   const type = String(row?.organization_type || row?.organizationType || '').toLowerCase();
   const id = Number(row?.id || 0);
-  if (type === 'agency' && id > 0) return id;
+  if ((type === 'agency' || type === 'life_coach' || type === 'consultant') && id > 0) return id;
   const parentId = Number(row?.affiliated_agency_id || row?.affiliatedAgencyId || 0);
   return parentId > 0 ? parentId : null;
 };
@@ -42,7 +42,7 @@ export const resolveRouteTenantAgency = (organizationSlug, organizationsInput) =
     organizations.find((row) => {
       const id = Number(row?.id || 0);
       const type = String(row?.organization_type || row?.organizationType || '').toLowerCase();
-      return id === parentAgencyId && type === 'agency';
+      return id === parentAgencyId && (type === 'agency' || type === 'life_coach' || type === 'consultant');
     }) || null;
 
   return {

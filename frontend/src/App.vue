@@ -2312,6 +2312,19 @@ const selectPlatformBrand = async () => {
   closeBrandMenu();
   agencyStore.setPlatformMode();
 
+  // Drop route-slug theme authority and force platform palette onto :root
+  // (otherwise ITSCO host portal colors stick after choosing Platform).
+  try {
+    brandingStore.setActiveRouteSlug('');
+  } catch {
+    // ignore
+  }
+  try {
+    await brandingStore.syncDocumentThemeFromPlatformBranding();
+  } catch {
+    // ignore
+  }
+
   // Ensure super admins still have agency options after returning to Platform.
   if (brandingStore.isSuperAdmin) {
     try {
@@ -2505,7 +2518,27 @@ const hideGlobalNavForSchoolStaff = computed(() => {
   if (!isAuthenticated.value) return false;
   const role = String(user.value?.role || '').toLowerCase();
   // School staff should only use the School Portal UX (no global nav / personal dashboard).
-  return role === 'school_staff';
+  if (role === 'school_staff') return true;
+  // Life coach / consultant verticals use their own sidebar shells (no typical header).
+  const orgType = String(
+    organizationStore.organizationContext?.organizationType ||
+      agencyStore.currentAgency?.organization_type ||
+      agencyStore.currentAgency?.organizationType ||
+      ''
+  ).toLowerCase();
+  if (orgType === 'life_coach' || orgType === 'consultant') return true;
+  // Plot Twist HQ platform command center owns its chrome (override tenant/custom header).
+  if (
+    (role === 'super_admin' || role === 'superadmin') &&
+    !agencyStore.currentAgency &&
+    String(route.query?.classic || '') !== '1' &&
+    (String(route.path || '') === '/admin' ||
+      String(route.path || '') === '/admin-dashboard' ||
+      route.meta?.platformCommandCenter === true)
+  ) {
+    return true;
+  }
+  return false;
 });
 
 /** Full-screen office booking / forfeit gate for clinical roles with pending assigned-available slots */

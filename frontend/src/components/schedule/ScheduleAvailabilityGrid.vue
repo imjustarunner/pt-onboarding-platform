@@ -8612,6 +8612,14 @@ const buildScheduleEventDetailText = (ev) => {
   const lines = [];
   const rc = String(ev?.reasonCode || '').trim();
   if (rc) lines.push(`Reason code: ${rc}`);
+  if (ev?.sessionOfLabel) lines.push(String(ev.sessionOfLabel));
+  if (ev?.packageName) lines.push(`Package: ${ev.packageName}`);
+  if (ev?.payment?.id) {
+    const amt = Number(ev.payment.amountCents || 0);
+    const money = `$${(amt / 100).toFixed(amt % 100 === 0 ? 0 : 2)}`;
+    lines.push(`Payment: ${money} (${ev.payment.paymentMode || 'attached'})`);
+  }
+  if (ev?.clientId) lines.push(`Client profile: Packages tab (client #${ev.clientId})`);
   if (ev?.isPrivate) lines.push('Marked private on your calendar');
   const rf = String(ev?.recurrenceFrequency || '').trim();
   if (rf && rf !== 'ONCE') lines.push(`Recurrence: ${rf}`);

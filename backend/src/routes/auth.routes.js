@@ -26,7 +26,8 @@ import {
   requestPasswordReset,
   recoverUsername,
   getRecoveryStatus,
-  demoSwitchView
+  demoSwitchView,
+  demoLaunchWindow
 } from '../controllers/auth.controller.js';
 import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
 import { requireAdminOrFirstUser } from '../middleware/conditionalAdmin.middleware.js';
@@ -166,6 +167,12 @@ router.post('/demo/switch-view', authenticate, [
   body('role').isString().trim().notEmpty(),
   body('agencyId').isInt({ min: 1 }).withMessage('agencyId must be a positive integer')
 ], demoSwitchView);
+router.post('/demo/launch-window', authenticate, [
+  body('role').isString().trim().notEmpty(),
+  body('agencyId').isInt({ min: 1 }).withMessage('agencyId must be a positive integer'),
+  body('surface').optional().isString().trim(),
+  body('targetPath').optional().isString().trim()
+], demoLaunchWindow);
 router.get('/session-lock-config', authenticate, getSessionLockConfig);
 router.post('/platform-session/heartbeat', authenticate, platformSessionHeartbeat);
 router.post('/verify-session-pin', authenticate, [

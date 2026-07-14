@@ -1,0 +1,15 @@
+---
+description: After practitioner phases 0–7 are complete, remind about Life Balance Wheel
+alwaysApply: true
+---
+
+# Life Balance Wheel (deferred)
+
+When work on **Individual Practitioner Tenants** phases **0–7** is complete (or the user asks what remains after those phases), **remind them** about the **Life Balance Wheel**:
+
+- Planned as a post-discovery / onboarding assessment for life coaches
+- Explicitly deferred during Phase 4 — not built yet
+- Should integrate into the coach-sent packet / additional information flow later
+- See `docs/INDIVIDUAL_PRACTITIONER_TENANTS_PLAN.md` → Phase 4 deferred note and Future Work
+
+Do **not** start building the Life Balance Wheel unless the user explicitly asks for it.

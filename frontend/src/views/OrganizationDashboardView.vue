@@ -1,6 +1,9 @@
 <template>
-  <!-- Programs get a dedicated dashboard tuned for events; schools/learning use the school portal; agencies use the standard dashboard. -->
-  <ProgramPortalView v-if="isProgramPortal" :preview-mode="isSuperadminPreview" />
+  <!-- Programs get a dedicated dashboard; schools/learning use school portal;
+       life_coach/consultant use practitioner shells; agencies use standard dashboard. -->
+  <LifeCoachPractitionerDashboardView v-if="isLifeCoach" />
+  <ConsultantPractitionerDashboardView v-else-if="isConsultant" />
+  <ProgramPortalView v-else-if="isProgramPortal" :preview-mode="isSuperadminPreview" />
   <SchoolPortalView v-else-if="isPortalOrg" :preview-mode="isSuperadminPreview" />
   <DashboardView
     v-else
@@ -16,9 +19,12 @@ import { useRoute } from 'vue-router';
 import { useOrganizationStore } from '../store/organization';
 import { useSuperadminPlatformPreview } from '../composables/useSuperadminPlatformPreview';
 import { createMockDashboardData } from '../utils/previewUtils';
+import { isConsultantOrgType, isLifeCoachOrgType } from '../utils/practitionerVertical.js';
 import DashboardView from './DashboardView.vue';
 import SchoolPortalView from './school/SchoolPortalView.vue';
 import ProgramPortalView from './program/ProgramPortalView.vue';
+import LifeCoachPractitionerDashboardView from './practitioner/LifeCoachPractitionerDashboardView.vue';
+import ConsultantPractitionerDashboardView from './practitioner/ConsultantPractitionerDashboardView.vue';
 
 const route = useRoute();
 const organizationStore = useOrganizationStore();
@@ -39,6 +45,9 @@ const previewData = computed(() => {
 const organizationType = computed(() => {
   return organizationStore.organizationContext?.organizationType || 'agency';
 });
+
+const isLifeCoach = computed(() => isLifeCoachOrgType(organizationType.value));
+const isConsultant = computed(() => isConsultantOrgType(organizationType.value));
 
 const isPortalOrg = computed(() => {
   const t = String(organizationType.value || '').toLowerCase();

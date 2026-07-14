@@ -468,9 +468,16 @@ async function getAgencyEnabledClientTypes(agencyId) {
   }
 
   // Portal variant gates non-clinical client type availability.
-  // Only "employee" portal agencies should see/use basic_nonclinical.
+  // "employee" portal agencies and individual practitioner tenants (life_coach / consultant)
+  // use basic_nonclinical clients.
   try {
     const agency = await Agency.findById(parsedAgencyId);
+    const agencyOrgType = String(agency?.organization_type || agency?.organizationType || '')
+      .trim()
+      .toLowerCase();
+    if (agencyOrgType === 'life_coach' || agencyOrgType === 'consultant') {
+      out.add('basic_nonclinical');
+    }
     let featureFlags = agency?.feature_flags ?? agency?.featureFlags ?? null;
     if (typeof featureFlags === 'string' && featureFlags.trim()) {
       try { featureFlags = JSON.parse(featureFlags); } catch { featureFlags = null; }
@@ -516,6 +523,7 @@ async function getSkillBuilderEligibilityForUser(userId) {
 export const getClients = async (req, res, next) => {
   try {
     const { status, organization_id, provider_id, search, client_status_id, paperwork_status_id, insurance_type_id, skills, agency_id } = req.query;
+    const clientStatusKeyRaw = String(req.query.client_status_key || req.query.clientStatusKey || '').trim().toLowerCase();
     // agency_ids: comma-separated list of agency IDs for platform-mode filtered queries (super_admin only).
     const agencyIdsParam = req.query.agency_ids
       ? String(req.query.agency_ids).split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isFinite(n) && n > 0)
@@ -581,7 +589,20 @@ export const getClients = async (req, res, next) => {
     // Get clients for all user's agencies
     let allClients = [];
     for (const agencyId of agencyIds) {
-      const clients = await Client.findByAgencyId(agencyId, options);
+      const agencyOptions = { ...options };
+      if (!agencyOptions.client_status_id && clientStatusKeyRaw) {
+        try {
+          const resolvedId = await getClientStatusIdByKey({ agencyId, statusKey: clientStatusKeyRaw });
+          if (resolvedId) agencyOptions.client_status_id = Number(resolvedId);
+          else {
+            // No matching status for this agency — skip rather than returning unfiltered
+            continue;
+          }
+        } catch {
+          continue;
+        }
+      }
+      const clients = await Client.findByAgencyId(agencyId, agencyOptions);
       allClients = allClients.concat(clients);
     }
 
@@ -973,7 +994,7 @@ export const createClient = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'organization_id must be a valid integer' } });
     }
 
-    // Resolve agency_id (must be an agency org). Prefer explicit agency_id, but fall back to the org affiliation.
+    // Resolve agency_id (must be a root tenant). Prefer explicit agency_id, but fall back to the org affiliation.
     let parsedAgencyId = agency_id ? parseInt(agency_id, 10) : null;
     if (!parsedAgencyId) {
       // Try org->agency affiliation
@@ -981,6 +1002,14 @@ export const createClient = async (req, res, next) => {
       // Legacy fallback for school links (if org affiliations are not yet migrated)
       if (!parsedAgencyId) {
         parsedAgencyId = await AgencySchool.getActiveAgencyIdForSchool(parsedOrganizationId);
+      }
+    }
+    // Solo practitioner: organization_id IS the tenant root
+    if (!parsedAgencyId) {
+      const orgPeek = await Agency.findById(parsedOrganizationId);
+      const peekType = String(orgPeek?.organization_type || '').toLowerCase();
+      if (peekType === 'life_coach' || peekType === 'consultant') {
+        parsedAgencyId = parsedOrganizationId;
       }
     }
     if (!parsedAgencyId) {
@@ -1000,7 +1029,7 @@ export const createClient = async (req, res, next) => {
       }
     }
 
-    // Verify agency exists and is an agency-type organization (clients can't be created "directly for agency")
+    // Verify agency exists and is a root tenant type
     const agencyOrg = await Agency.findById(parsedAgencyId);
     if (!agencyOrg) {
       return res.status(404).json({
@@ -1008,13 +1037,14 @@ export const createClient = async (req, res, next) => {
       });
     }
     const agencyOrgType = (agencyOrg.organization_type || 'agency').toLowerCase();
-    if (agencyOrgType !== 'agency') {
+    const rootTenantTypes = ['agency', 'life_coach', 'consultant'];
+    if (!rootTenantTypes.includes(agencyOrgType)) {
       return res.status(400).json({
-        error: { message: 'agency_id must refer to an agency organization' }
+        error: { message: 'agency_id must refer to a root tenant organization (agency, life_coach, or consultant)' }
       });
     }
 
-    // Verify organization exists and is NOT an agency (allow school/program/learning/clinical)
+    // Verify organization exists (child affiliation OR practitioner root self)
     const organization = await Agency.findById(parsedOrganizationId);
     if (!organization) {
       return res.status(404).json({ 
@@ -1024,7 +1054,7 @@ export const createClient = async (req, res, next) => {
 
     const orgType = organization.organization_type || 'agency';
     const normalizedOrgType = String(orgType).toLowerCase();
-    const allowedOrgTypes = ['school', 'program', 'learning', 'clinical'];
+    const allowedOrgTypes = ['school', 'program', 'learning', 'clinical', 'life_coach', 'consultant'];
     if (!allowedOrgTypes.includes(normalizedOrgType)) {
       return res.status(400).json({ 
         error: { message: `Clients must be associated with an organization of type: ${allowedOrgTypes.join(', ')}` } 
@@ -1055,13 +1085,18 @@ export const createClient = async (req, res, next) => {
     }
 
     // Verify organization is linked to the agency (enforces nested/associated rule).
-    // Prefer organization_affiliations (supports schools + programs + learning). Fall back to legacy agency_schools.
-    let isLinked = false;
-    try {
-      const orgs = await OrganizationAffiliation.listActiveOrganizationsForAgency(parsedAgencyId);
-      isLinked = (orgs || []).some((o) => parseInt(o?.id, 10) === parsedOrganizationId);
-    } catch {
-      isLinked = false;
+    // Practitioner roots may use themselves as organization_id (no affiliation row required).
+    const isPractitionerSelfOrg =
+      (normalizedOrgType === 'life_coach' || normalizedOrgType === 'consultant') &&
+      parsedOrganizationId === parsedAgencyId;
+    let isLinked = isPractitionerSelfOrg;
+    if (!isLinked) {
+      try {
+        const orgs = await OrganizationAffiliation.listActiveOrganizationsForAgency(parsedAgencyId);
+        isLinked = (orgs || []).some((o) => parseInt(o?.id, 10) === parsedOrganizationId);
+      } catch {
+        isLinked = false;
+      }
     }
     if (!isLinked) {
       try {
@@ -2324,11 +2359,15 @@ export const updateClient = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'Selected organization not found' } });
       }
       const t = String(org.organization_type || 'agency').toLowerCase();
-      if (!['school', 'program', 'learning', 'clinical'].includes(t)) {
-        return res.status(400).json({ error: { message: 'Clients can only be assigned to a school/program/learning/clinical organization' } });
+      if (!['school', 'program', 'learning', 'clinical', 'life_coach', 'consultant'].includes(t)) {
+        return res.status(400).json({ error: { message: 'Clients can only be assigned to a school/program/learning/clinical/life_coach/consultant organization' } });
       }
+      // Practitioner self-org: organization_id equals agency_id — always allowed.
+      const isSelfPractitioner =
+        (t === 'life_coach' || t === 'consultant') &&
+        requestedOrgId === parseInt(currentClient.agency_id, 10);
       // Ensure org is linked to the client's agency for non-super-admins.
-      if (String(userRole || '').toLowerCase() !== 'super_admin') {
+      if (!isSelfPractitioner && String(userRole || '').toLowerCase() !== 'super_admin') {
         const connection = await pool.getConnection();
         try {
           const linked = await isOrgLinkedToAgency({

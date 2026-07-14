@@ -168,13 +168,17 @@ export const useBrandingStore = defineStore('branding', () => {
    * Returns true when portalAgency's theme should override currentAgency.
    *  1. No portal agency loaded             → false
    *  2. Not authenticated                    → true  (portal/login page)
-   *  3. activeRouteSlug matches portalSlug   → true  (e.g. /nlu/... with nlu portal loaded)
-   *  4. activeRouteSlug set but no match    → false  (portal data is stale from previous nav)
-   *  5. No route slug (platform/unscoped)    → true only when no currentAgency set
+   *  3. Superadmin Platform chip             → false (platform branding must win over host portal e.g. ITSCO)
+   *  4. activeRouteSlug matches portalSlug   → true  (e.g. /nlu/... with nlu portal loaded)
+   *  5. activeRouteSlug set but no match    → false  (portal data is stale from previous nav)
+   *  6. No route slug (platform/unscoped)    → true only when no currentAgency and not platformMode
    */
   const shouldApplyPortalAgencyThemeFirst = () => {
     if (!portalAgency.value) return false;
     if (!authStore.isAuthenticated) return true;
+
+    // Explicit Platform context must never keep host-portal (e.g. ITSCO) colors.
+    if (agencyStore.platformMode && !agencyStore.currentAgency) return false;
 
     const routeSlug = activeRouteSlug.value; // reactive — updates on every navigation ✓
     const portalSlug = String(portalAgency.value.slug || '').trim().toLowerCase();

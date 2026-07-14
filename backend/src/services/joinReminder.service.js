@@ -20,27 +20,33 @@ function toSqlDatetime(d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-async function alreadySent(sessionType, sessionId, userId) {
+async function alreadySent(sessionType, sessionId, recipientKey) {
+  const key = String(recipientKey || '').trim();
+  if (!key) return true;
   const [rows] = await pool.execute(
     `SELECT 1 FROM join_reminder_sent
-     WHERE session_type = ? AND session_id = ? AND user_id = ?
+     WHERE session_type = ? AND session_id = ? AND recipient_key = ?
      LIMIT 1`,
-    [sessionType, sessionId, userId]
+    [sessionType, sessionId, key]
   );
   return (rows || []).length > 0;
 }
 
-async function recordSent(sessionType, sessionId, userId) {
+async function recordSent(sessionType, sessionId, recipientKey, userId = null) {
+  const key = String(recipientKey || '').trim();
+  if (!key) return;
   await pool.execute(
-    `INSERT INTO join_reminder_sent (session_type, session_id, user_id)
-     VALUES (?, ?, ?)
+    `INSERT INTO join_reminder_sent (session_type, session_id, user_id, recipient_key)
+     VALUES (?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE sent_at = CURRENT_TIMESTAMP`,
-    [sessionType, sessionId, userId]
+    [sessionType, sessionId, userId == null ? null : Number(userId), key]
   );
 }
 
 async function sendJoinReminderToUser({ userId, agencyId, joinUrl, label, sessionType, sessionId }) {
   if (!joinUrl || !userId || !agencyId) return { email: false, sms: false };
+  const recipientKey = `u:${userId}`;
+  if (await alreadySent(sessionType, sessionId, recipientKey)) return { email: false, sms: false };
 
   const user = await User.findById(userId);
   if (!user) return { email: false, sms: false };
@@ -100,9 +106,59 @@ async function sendJoinReminderToUser({ userId, agencyId, joinUrl, label, sessio
   }
 
   if (emailSent || smsSent) {
-    await recordSent(sessionType, sessionId, userId);
+    await recordSent(sessionType, sessionId, recipientKey, userId);
   }
 
+  return { email: emailSent, sms: smsSent };
+}
+
+async function sendDiscoveryClientReminder({ agencyId, email, phone, joinUrl, label, sessionId }) {
+  if (!joinUrl || !agencyId || !email) return { email: false, sms: false };
+  const recipientKey = `e:${String(email).trim().toLowerCase()}`;
+  if (await alreadySent('discovery', sessionId, recipientKey)) return { email: false, sms: false };
+
+  let emailSent = false;
+  let smsSent = false;
+
+  try {
+    const result = await sendNotificationEmail({
+      agencyId,
+      triggerKey: 'meeting_join_reminder',
+      to: email,
+      subject: `Join reminder: ${label}`,
+      text: `${label} is starting soon.\n\nJoin here: ${joinUrl}`,
+      html: `<p>${label} is starting soon.</p><p><a href="${joinUrl}">Join here</a></p>`,
+      source: 'auto',
+      templateType: 'meeting_join_reminder'
+    });
+    if (!result?.skipped) emailSent = true;
+  } catch (e) {
+    console.warn('Discovery client reminder email failed:', e?.message || e);
+  }
+
+  if (phone) {
+    try {
+      const toPhoneNorm = PhoneNumber.normalizePhone(phone);
+      const resolved = await resolveReminderNumber({ providerUserId: null, clientId: null });
+      const from = resolved?.number?.phone_number
+        ? PhoneNumber.normalizePhone(resolved.number.phone_number) || resolved.number.phone_number
+        : null;
+      if (from && toPhoneNorm) {
+        await VonageService.sendSms({
+          to: toPhoneNorm,
+          from,
+          body: `${label} starting soon. Join: ${joinUrl}`.slice(0, 480)
+        });
+        smsSent = true;
+      }
+    } catch (e) {
+      console.warn('Discovery client reminder SMS failed:', e?.message || e);
+    }
+  }
+
+  if (emailSent || smsSent) {
+    await recordSent('discovery', sessionId, recipientKey, null);
+  }
   return { email: emailSent, sms: smsSent };
 }
 
@@ -152,7 +208,6 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
 
       for (const uid of userIds) {
         if (!uid) continue;
-        if (await alreadySent('supervision', sessionId, uid)) continue;
         await sendJoinReminderToUser({
           userId: uid,
           agencyId,
@@ -200,13 +255,56 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
 
       for (const uid of userIds) {
         if (!uid) continue;
-        if (await alreadySent('team_meeting', sessionId, uid)) continue;
         await sendJoinReminderToUser({
           userId: uid,
           agencyId,
           joinUrl,
           label,
           sessionType: 'team_meeting',
+          sessionId
+        });
+      }
+    }
+
+    // Discovery sessions starting in 5-8 min
+    const [discRows] = await pool.execute(
+      `SELECT id, agency_id, provider_id, access_token, client_email, client_phone, client_name, booked_start_at
+       FROM discovery_sessions
+       WHERE status = 'BOOKED'
+         AND booked_start_at >= ? AND booked_start_at < ?
+       ORDER BY booked_start_at ASC`,
+      [startSql, endSql]
+    );
+
+    for (const r of discRows || []) {
+      const sessionId = Number(r.id);
+      const agencyId = Number(r.agency_id || 0);
+      const label = `Discovery call with ${String(r.client_name || 'client').trim()}`;
+      let joinUrl = null;
+      if (useAppJoin && r.access_token) {
+        const [agencyRows] = await pool.execute(`SELECT slug FROM agencies WHERE id = ? LIMIT 1`, [agencyId]);
+        const slug = agencyRows?.[0]?.slug;
+        if (slug) joinUrl = `${FRONTEND_URL}/${encodeURIComponent(slug)}/discovery/${encodeURIComponent(r.access_token)}`;
+      }
+      if (!joinUrl) continue;
+
+      if (r.provider_id) {
+        await sendJoinReminderToUser({
+          userId: Number(r.provider_id),
+          agencyId,
+          joinUrl,
+          label,
+          sessionType: 'discovery',
+          sessionId
+        });
+      }
+      if (r.client_email) {
+        await sendDiscoveryClientReminder({
+          agencyId,
+          email: r.client_email,
+          phone: r.client_phone,
+          joinUrl,
+          label: 'Your discovery call',
           sessionId
         });
       }

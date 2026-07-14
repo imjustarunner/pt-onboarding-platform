@@ -2,7 +2,11 @@ import pool from '../config/database.js';
 import ProviderAvailabilityService from '../services/providerAvailability.service.js';
 import PublicAppointmentRequest from '../models/PublicAppointmentRequest.model.js';
 import ProviderPublicProfile from '../models/ProviderPublicProfile.model.js';
-import PublicIntakeClientService from '../services/publicIntakeClient.service.js';
+import PublicIntakeClientService, {
+  PUBLIC_BOOKING_INQUIRY_CLIENT_OPTIONS,
+  isPractitionerOrgType as isPractitionerOrgTypeShared,
+  resolveOrganizationIdForPublicBooking
+} from '../services/publicIntakeClient.service.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import EmailService from '../services/email.service.js';
 import {
@@ -96,9 +100,261 @@ function normalizeProgramType(raw) {
 
 function normalizeServiceType(raw) {
   const s = String(raw || '').trim().toLowerCase();
-  if (s === 'tutoring') return 'tutoring';
+  const allowed = new Set(['counseling', 'tutoring', 'evaluation', 'coaching', 'consulting']);
+  if (allowed.has(s)) return s;
   return 'counseling';
 }
+
+function defaultDisplayNameForServiceType(serviceType) {
+  const t = String(serviceType || '').toLowerCase();
+  if (t === 'tutoring') return 'Find a Tutor';
+  if (t === 'coaching') return 'Life Coaching';
+  if (t === 'consulting') return 'Consulting';
+  if (t === 'evaluation') return 'Evaluation';
+  return 'Find a Counselor';
+}
+
+function isPractitionerOrgType(orgType) {
+  return isPractitionerOrgTypeShared(orgType);
+}
+
+function parseAgencyFeatureFlags(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(String(raw));
+  } catch {
+    return {};
+  }
+}
+
+function resolveDiscoverySettings(orgType, featureFlags = {}) {
+  const t = String(orgType || '').toLowerCase();
+  const defaults = t === 'life_coach'
+    ? { discoveryBookingEnabled: true, discoveryBookingRequired: true, discoveryDurationMin: 20, discoveryLabel: 'Discovery Call' }
+    : t === 'consultant'
+      ? { discoveryBookingEnabled: true, discoveryBookingRequired: false, discoveryDurationMin: 30, discoveryLabel: 'Quick Clarity Call' }
+      : { discoveryBookingEnabled: false, discoveryBookingRequired: false, discoveryDurationMin: 30, discoveryLabel: 'Discovery Call' };
+  return {
+    discoveryBookingEnabled: featureFlags.discoveryBookingEnabled === undefined
+      ? defaults.discoveryBookingEnabled
+      : !!featureFlags.discoveryBookingEnabled,
+    discoveryBookingRequired: featureFlags.discoveryBookingRequired === undefined
+      ? defaults.discoveryBookingRequired
+      : !!featureFlags.discoveryBookingRequired,
+    discoveryDurationMin: Number(featureFlags.discoveryDurationMin || defaults.discoveryDurationMin) || defaults.discoveryDurationMin,
+    discoveryLabel: String(featureFlags.discoveryLabel || defaults.discoveryLabel).trim() || defaults.discoveryLabel
+  };
+}
+
+function parseJsonColumn(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(String(raw));
+  } catch {
+    return {};
+  }
+}
+
+function defaultBookingPageSettings(orgType) {
+  const t = String(orgType || '').toLowerCase();
+  if (t === 'consultant') {
+    return {
+      brandDisplayName: '',
+      ctaLabel: 'Book a Session',
+      showNav: false,
+      navLinks: [],
+      backgroundImageUrl: '',
+      consultantTagline: 'Strategic guidance. Practical solutions. Real results.',
+      consultantBenefits: ['Personalized 1:1 Sessions', 'Flexible Scheduling', 'Secure & Confidential'],
+      providerTitleFallback: 'Senior Consultant',
+      providerBioFallback: 'I help leaders and organizations grow with clarity, strategy, and systems that scale.',
+      specialties: [],
+      whatToExpectTitle: 'What to expect',
+      whatToExpectBody: 'A focused working session tailored to the service you select.',
+      coachQuote: '',
+      modalityLabel: 'Virtual',
+      valueProps: [
+        { title: 'Easy scheduling', body: 'Book from live calendar availability' },
+        { title: 'Calendar sync', body: 'Works with your calendar' },
+        { title: "You're in control", body: 'Decide next steps after you connect' }
+      ],
+      coachEyebrow: '',
+      coachHeroTitles: { step1: '', step2: '', step3: '' },
+      coachHeroSubtitles: { step1: '', step2: '', step3: '' },
+      valuePropsStep1: [],
+      valuePropsLater: [],
+      step3Fields: []
+    };
+  }
+  return {
+    brandDisplayName: '',
+    ctaLabel: 'Book a Discovery Call',
+    showNav: true,
+    navLinks: [
+      { label: 'About Me', href: '#booking' },
+      { label: 'Coaching', href: '#booking' },
+      { label: 'Programs', href: '#booking' },
+      { label: 'Resources', href: '#booking' },
+      { label: 'Contact', href: '#booking' }
+    ],
+    backgroundImageUrl: '',
+    consultantTagline: '',
+    consultantBenefits: [],
+    providerTitleFallback: 'Life Coach',
+    providerBioFallback: 'Helping you rise, revive, and create lasting change.',
+    specialties: [
+      'Life & Personal Growth',
+      'Mindset & Confidence',
+      'Goal Setting & Accountability',
+      'Work-Life Balance'
+    ],
+    whatToExpectTitle: 'What to expect',
+    whatToExpectBody: 'A friendly, no-pressure conversation to explore your goals and see how I can support you.',
+    coachQuote: "Sometimes the first step is the hardest, but it's also the most powerful. I'm honored you're taking it.",
+    modalityLabel: 'Virtual (Zoom)',
+    coachEyebrow: 'Discovery Call',
+    coachHeroTitles: {
+      step1: "Let's find a time that works for you",
+      step2: 'Almost there!',
+      step3: "You're almost all set!"
+    },
+    coachHeroSubtitles: {
+      step1: 'This is the first step toward lasting change. Select a time that works best for you for our discovery call.',
+      step2: 'Share the days and times that usually work for you — this is submitted with your request.',
+      step3: 'Just a few quick details so I can personalize our call and make the most of our time together.'
+    },
+    valueProps: [],
+    valuePropsStep1: [
+      { title: 'No Obligation', body: 'This discovery call is 100% free with no pressure.' },
+      { title: 'Get to Know Each Other', body: "A chance to connect and see if we're a good fit." },
+      { title: 'Next Steps', body: "If it feels right, we'll talk about how I can support you." }
+    ],
+    valuePropsLater: [
+      { title: 'Get to know each other', body: "A chance to connect and see if we're a good fit." },
+      { title: 'Explore your goals', body: "We'll talk about what's on your mind and what you want to create." },
+      { title: "You're in control", body: 'You decide what happens next after our call.' }
+    ],
+    step3Fields: [
+      { id: 'name', type: 'text', label: 'Full Name', required: true, enabled: true, placeholder: '', options: [] },
+      { id: 'email', type: 'email', label: 'Email Address', required: true, enabled: true, placeholder: 'you@example.com', options: [] },
+      { id: 'phone', type: 'tel', label: 'Phone Number', required: false, enabled: true, placeholder: '(555) 123-4567', options: [] },
+      {
+        id: 'referralSource',
+        type: 'select',
+        label: 'How did you hear about me?',
+        required: false,
+        enabled: true,
+        placeholder: 'Select one…',
+        options: ['Google / search', 'Social media', 'Friend or family', 'Podcast / media', 'Other']
+      },
+      {
+        id: 'goals',
+        type: 'textarea',
+        label: 'What are you hoping to get out of our discovery call?',
+        required: true,
+        enabled: true,
+        placeholder: '',
+        maxLength: 500,
+        options: []
+      },
+      {
+        id: 'notes',
+        type: 'textarea',
+        label: 'Anything else I should know before our call?',
+        required: false,
+        enabled: true,
+        placeholder: '',
+        maxLength: 500,
+        options: []
+      }
+    ]
+  };
+}
+
+function resolveBookingPageSettings(orgType, stored = {}) {
+  const defaults = defaultBookingPageSettings(orgType);
+  const raw = stored && typeof stored === 'object' ? stored : {};
+  const pickList = (v, fb) => (Array.isArray(v) ? v : fb);
+  const titles = { ...defaults.coachHeroTitles, ...(raw.coachHeroTitles || {}) };
+  const subs = { ...defaults.coachHeroSubtitles, ...(raw.coachHeroSubtitles || {}) };
+  return {
+    ...defaults,
+    ...raw,
+    brandDisplayName: String(raw.brandDisplayName ?? defaults.brandDisplayName ?? '').trim(),
+    ctaLabel: String(raw.ctaLabel || defaults.ctaLabel).trim() || defaults.ctaLabel,
+    showNav: raw.showNav === undefined ? defaults.showNav : !!raw.showNav,
+    navLinks: pickList(raw.navLinks, defaults.navLinks),
+    backgroundImageUrl: String(raw.backgroundImageUrl || '').trim(),
+    consultantTagline: String(raw.consultantTagline || defaults.consultantTagline).trim(),
+    consultantBenefits: pickList(raw.consultantBenefits, defaults.consultantBenefits),
+    providerTitleFallback: String(raw.providerTitleFallback || defaults.providerTitleFallback).trim(),
+    providerBioFallback: String(raw.providerBioFallback || defaults.providerBioFallback).trim(),
+    specialties: pickList(raw.specialties, defaults.specialties),
+    whatToExpectTitle: String(raw.whatToExpectTitle || defaults.whatToExpectTitle).trim(),
+    whatToExpectBody: String(raw.whatToExpectBody || defaults.whatToExpectBody).trim(),
+    coachQuote: String(raw.coachQuote ?? defaults.coachQuote).trim(),
+    modalityLabel: String(raw.modalityLabel || defaults.modalityLabel).trim(),
+    coachEyebrow: String(raw.coachEyebrow || defaults.coachEyebrow).trim(),
+    coachHeroTitles: {
+      step1: String(titles.step1 || '').trim(),
+      step2: String(titles.step2 || '').trim(),
+      step3: String(titles.step3 || '').trim()
+    },
+    coachHeroSubtitles: {
+      step1: String(subs.step1 || '').trim(),
+      step2: String(subs.step2 || '').trim(),
+      step3: String(subs.step3 || '').trim()
+    },
+    valueProps: pickList(raw.valueProps, defaults.valueProps),
+    valuePropsStep1: pickList(raw.valuePropsStep1, defaults.valuePropsStep1),
+    valuePropsLater: pickList(raw.valuePropsLater, defaults.valuePropsLater),
+    step3Fields: Array.isArray(raw.step3Fields) && raw.step3Fields.length
+      ? raw.step3Fields
+      : defaults.step3Fields
+  };
+}
+
+function resolveServiceCatalog(orgType, featureFlags = {}) {
+  const discovery = resolveDiscoverySettings(orgType, featureFlags);
+  if (Array.isArray(featureFlags.practitionerServiceCatalog) && featureFlags.practitionerServiceCatalog.length) {
+    return featureFlags.practitionerServiceCatalog;
+  }
+  if (String(orgType || '').toLowerCase() === 'consultant') {
+    const catalog = [
+      { id: 'strategy', name: 'Strategy Session', durationMin: 60, priceCents: 25000, description: 'Deep dive into your challenges and opportunities.', icon: 'chart', isDiscovery: false },
+      { id: 'growth', name: 'Growth Planning Session', durationMin: 90, priceCents: 37500, description: 'Build a customized growth plan for your business.', icon: 'group', isDiscovery: false },
+      { id: 'ops', name: 'Operations Review', durationMin: 60, priceCents: 25000, description: 'Optimize systems and improve operational efficiency.', icon: 'gear', isDiscovery: false },
+      { id: 'workshop', name: 'Team Workshop', durationMin: 120, priceCents: 75000, description: 'Collaborative session for your leadership team.', icon: 'team', isDiscovery: false }
+    ];
+    if (discovery.discoveryBookingEnabled) {
+      catalog.push({
+        id: 'discovery',
+        name: discovery.discoveryLabel,
+        durationMin: discovery.discoveryDurationMin,
+        priceCents: 0,
+        description: 'Short call to get quick answers to your top questions.',
+        icon: 'chat',
+        isDiscovery: true
+      });
+    }
+    return catalog;
+  }
+  if (String(orgType || '').toLowerCase() === 'life_coach') {
+    return [{
+      id: 'discovery',
+      name: discovery.discoveryLabel,
+      durationMin: discovery.discoveryDurationMin,
+      priceCents: 0,
+      description: 'A free, no-pressure conversation to explore your goals.',
+      icon: 'chat',
+      isDiscovery: true
+    }];
+  }
+  return [];
+}
+
 
 async function runWithConcurrency(items, limit, worker) {
   const queue = [...items];
@@ -143,15 +399,31 @@ function dedupeSlots(slots) {
 // ---------------------------------------------------------------------------
 
 async function requireAgencyBySlug(res, agencySlug) {
-  const [rows] = await pool.execute(
-    `SELECT id, name, slug, logo_url, logo_path, color_palette, theme_settings,
-            public_availability_enabled, feature_flags, onboarding_team_email, phone_number
-     FROM agencies
-     WHERE slug = ?
-       AND (is_archived IS NULL OR is_archived = FALSE)
-     LIMIT 1`,
-    [String(agencySlug || '').trim()]
-  );
+  const slug = String(agencySlug || '').trim();
+  let rows;
+  try {
+    [rows] = await pool.execute(
+      `SELECT id, name, slug, logo_url, logo_path, color_palette, theme_settings,
+              public_availability_enabled, feature_flags, onboarding_team_email, phone_number,
+              organization_type, public_booking_settings
+       FROM agencies
+       WHERE slug = ?
+         AND (is_archived IS NULL OR is_archived = FALSE)
+       LIMIT 1`,
+      [slug]
+    );
+  } catch {
+    [rows] = await pool.execute(
+      `SELECT id, name, slug, logo_url, logo_path, color_palette, theme_settings,
+              public_availability_enabled, feature_flags, onboarding_team_email, phone_number,
+              organization_type
+       FROM agencies
+       WHERE slug = ?
+         AND (is_archived IS NULL OR is_archived = FALSE)
+       LIMIT 1`,
+      [slug]
+    );
+  }
   const a = rows?.[0] || null;
   if (!a) {
     res.status(404).json({ error: { message: 'Agency not found' } });
@@ -189,7 +461,28 @@ async function getEnrolledProviderIds(agencyId, serviceType) {
      WHERE agency_id = ? AND service_type = ? AND is_active = 1`,
     [Number(agencyId), String(serviceType)]
   );
-  return new Set((rows || []).map((r) => Number(r.user_id)));
+  const ids = new Set((rows || []).map((r) => Number(r.user_id)));
+  if (ids.size > 0) return ids;
+
+  // Solo practitioner tenants: if no explicit enrollments yet, treat active staff as bookable.
+  const st = String(serviceType || '').toLowerCase();
+  if (st === 'coaching' || st === 'consulting') {
+    const [fallback] = await pool.execute(
+      `SELECT u.id
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id
+       JOIN agencies a ON a.id = ua.agency_id
+       WHERE ua.agency_id = ?
+         AND LOWER(COALESCE(a.organization_type, '')) IN ('life_coach', 'consultant')
+         AND (u.is_active IS NULL OR u.is_active = TRUE)
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+         AND UPPER(COALESCE(u.status, '')) = 'ACTIVE_EMPLOYEE'
+         AND LOWER(COALESCE(u.role, '')) IN ('admin', 'provider', 'provider_plus', 'super_admin', 'staff')`,
+      [Number(agencyId)]
+    );
+    for (const r of fallback || []) ids.add(Number(r.id));
+  }
+  return ids;
 }
 
 async function listEnrolledProviders(agencyId, serviceType) {
@@ -205,7 +498,27 @@ async function listEnrolledProviders(agencyId, serviceType) {
      ORDER BY u.last_name ASC, u.first_name ASC`,
     [Number(agencyId), String(serviceType)]
   );
-  return rows || [];
+  if ((rows || []).length > 0) return rows;
+
+  const st = String(serviceType || '').toLowerCase();
+  if (st !== 'coaching' && st !== 'consulting') return rows || [];
+
+  const [fallback] = await pool.execute(
+    `SELECT u.id, u.first_name, u.last_name, u.role, u.profile_photo_path,
+            u.service_focus, u.provider_accepting_new_clients, u.title
+     FROM users u
+     JOIN user_agencies ua ON ua.user_id = u.id
+     JOIN agencies a ON a.id = ua.agency_id
+     WHERE ua.agency_id = ?
+       AND LOWER(COALESCE(a.organization_type, '')) IN ('life_coach', 'consultant')
+       AND (u.is_active IS NULL OR u.is_active = TRUE)
+       AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+       AND UPPER(COALESCE(u.status, '')) = 'ACTIVE_EMPLOYEE'
+       AND LOWER(COALESCE(u.role, '')) IN ('admin', 'provider', 'provider_plus', 'super_admin', 'staff')
+     ORDER BY u.last_name ASC, u.first_name ASC`,
+    [Number(agencyId)]
+  );
+  return fallback || [];
 }
 
 async function getTutoringProfile(userId, agencyId) {
@@ -363,6 +676,12 @@ export const getAgencyServicesHub = async (req, res, next) => {
       ? publicUploadsUrlFromStoredPath(agency.logo_path)
       : (agency.logo_url || null);
 
+    const featureFlags = parseAgencyFeatureFlags(agency.feature_flags);
+    const orgType = String(agency.organization_type || 'agency').toLowerCase();
+    const discoverySettings = resolveDiscoverySettings(orgType, featureFlags);
+    const serviceCatalog = resolveServiceCatalog(orgType, featureFlags);
+    const bookingPage = resolveBookingPageSettings(orgType, parseJsonColumn(agency.public_booking_settings));
+
     res.json({
       ok: true,
       agency: {
@@ -370,13 +689,17 @@ export const getAgencyServicesHub = async (req, res, next) => {
         name: agency.name || '',
         slug: agency.slug || '',
         logoUrl,
-        colorPalette: agency.color_palette || null,
-        themeSettings: agency.theme_settings || null,
-        contactPhone: agency.phone_number || null
+        colorPalette: parseJsonColumn(agency.color_palette),
+        themeSettings: parseJsonColumn(agency.theme_settings),
+        contactPhone: agency.phone_number || null,
+        organizationType: orgType
       },
+      discoverySettings,
+      serviceCatalog,
+      bookingPage,
       serviceTypes: serviceTypes.map((st) => ({
         serviceType: st.service_type,
-        displayName: st.display_name || (st.service_type === 'tutoring' ? 'Find a Tutor' : 'Find a Counselor'),
+        displayName: st.display_name || defaultDisplayNameForServiceType(st.service_type),
         introBlurb: st.intro_blurb || null,
         heroImageUrl: st.hero_image_url || null,
         sortOrder: st.sort_order || 0
@@ -396,6 +719,7 @@ export const listCounselors = async (req, res, next) => {
     const agency = await requireAgencyBySlug(res, req.params.agencySlug);
     if (!agency) return;
 
+    const serviceType = normalizeServiceType(req.query.serviceType || req._forcedServiceType || 'counseling');
     const bookingMode = normalizeBookingMode(req.query.bookingMode || req.query.mode);
     const programType = normalizeProgramType(req.query.programType || req.query.program);
     const weekStartRaw = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
@@ -408,9 +732,9 @@ export const listCounselors = async (req, res, next) => {
     const normalizedQueryAge = queryAgeBucket ? normalizeAgeFilterValue(queryAgeBucket) : '';
 
     const agencySettings = await ProviderPublicProfile.getAgencySettings({ agencyId: agency.id });
-    const serviceTypeRow = (await getAgencyServiceTypes(agency.id)).find((st) => st.service_type === 'counseling');
+    const serviceTypeRow = (await getAgencyServiceTypes(agency.id)).find((st) => st.service_type === serviceType);
 
-    const providerRows = await listEnrolledProviders(agency.id, 'counseling');
+    const providerRows = await listEnrolledProviders(agency.id, serviceType);
 
     const providers = await runWithConcurrency(providerRows, 6, async (row) => {
       const heldSlots = await getHeldSlotStartsForProvider(agency.id, Number(row.id));
@@ -497,7 +821,7 @@ export const listCounselors = async (req, res, next) => {
 
     res.json({
       ok: true,
-      serviceType: 'counseling',
+      serviceType,
       agencyId: Number(agency.id),
       agencySlug: agency.slug,
       agencyName: agency.name || '',
@@ -542,6 +866,16 @@ export const listCounselors = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+};
+
+export const listCoaches = async (req, res, next) => {
+  req.query.serviceType = 'coaching';
+  return listCounselors(req, res, next);
+};
+
+export const listConsultants = async (req, res, next) => {
+  req.query.serviceType = 'consulting';
+  return listCounselors(req, res, next);
 };
 
 // ---------------------------------------------------------------------------
@@ -1094,27 +1428,51 @@ export const createBookingRequest = async (req, res, next) => {
       const guardianEmail = String(req.body?.guardianEmail || email).trim();
       const guardianFirstName = String(req.body?.guardianFirstName || '').trim();
       if (fullName && guardianEmail && guardianFirstName) {
+        // Phase 6: all NEW_CLIENT public bookings (coaching/consulting/tutoring/counseling/eval)
+        // create at prospective. Intake-link packet flows keep default packet.
+        const selfContact =
+          isPractitionerOrgType(agency.organization_type)
+          || serviceType === 'coaching'
+          || serviceType === 'consulting';
         try {
-          const result = await PublicIntakeClientService.createClientAndGuardian({
-            link: { scope_type: 'agency', organization_id: agency.id, create_guardian: true, create_client: true },
-            payload: {
-              organizationId: agency.id,
-              client: { fullName, initials: clientInitials || null, contactPhone: String(req.body?.phone || '').trim() || null },
-              guardian: {
-                firstName: guardianFirstName,
-                lastName: String(req.body?.guardianLastName || '').trim() || null,
-                email: guardianEmail,
-                phone: String(req.body?.guardianPhone || req.body?.phone || '').trim() || null,
-                relationship: String(req.body?.guardianRelationship || 'Guardian').trim()
-              }
-            }
+          const organizationId = await resolveOrganizationIdForPublicBooking({
+            agencyId: agency.id,
+            organizationIdHint: agency.id
           });
-          createdClientId = Number(result?.clients?.[0]?.id || 0) || null;
-          createdGuardianUserId = Number(result?.guardianUser?.id || 0) || null;
-          if (createdClientId) {
-            await pool.execute(`UPDATE clients SET provider_id = ? WHERE id = ?`, [providerId, createdClientId]);
+          if (!organizationId) {
+            console.warn('[createBookingRequest] no intake-capable organization for agency', {
+              agencyId: agency.id,
+              serviceType
+            });
+          } else {
+            const result = await PublicIntakeClientService.createClientAndGuardian({
+              link: { scope_type: 'agency', organization_id: organizationId, create_guardian: true, create_client: true },
+              payload: {
+                organizationId,
+                client: { fullName, initials: clientInitials || null, contactPhone: String(req.body?.phone || '').trim() || null },
+                guardian: {
+                  firstName: guardianFirstName,
+                  lastName: String(req.body?.guardianLastName || '').trim() || null,
+                  email: guardianEmail,
+                  phone: String(req.body?.guardianPhone || req.body?.phone || '').trim() || null,
+                  relationship: String(req.body?.guardianRelationship || (selfContact ? 'Self / Contact' : 'Guardian')).trim()
+                }
+              },
+              options: { ...PUBLIC_BOOKING_INQUIRY_CLIENT_OPTIONS }
+            });
+            createdClientId = Number(result?.clients?.[0]?.id || 0) || null;
+            createdGuardianUserId = Number(result?.guardianUser?.id || 0) || null;
+            if (createdClientId) {
+              await pool.execute(`UPDATE clients SET provider_id = ? WHERE id = ?`, [providerId, createdClientId]);
+            }
           }
-        } catch { /* non-fatal */ }
+        } catch (err) {
+          console.warn('[createBookingRequest] client provision failed', {
+            agencyId: agency.id,
+            serviceType,
+            message: err?.message || err
+          });
+        }
       }
     }
 

@@ -25,10 +25,25 @@ export const buildPreferencesFormUrl = (publicKey) => {
   return `${getPublicIntakeBaseUrl()}/preferences-form/${key}`;
 };
 
+export const buildLifeBalanceFormUrl = (publicKey, query = {}) => {
+  const key = String(publicKey || '').trim();
+  if (!key) return '';
+  const base = `${getPublicIntakeBaseUrl()}/life-balance-form/${encodeURIComponent(key)}`;
+  const params = new URLSearchParams();
+  Object.entries(query || {}).forEach(([k, v]) => {
+    if (v != null && String(v).trim() !== '') params.set(k, String(v));
+  });
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
+};
+
 /** Returns the correct public URL for any form type */
-export const buildFormUrl = (publicKey, formType) => {
+export const buildFormUrl = (publicKey, formType, query = {}) => {
   if (String(formType || '') === 'internal_preferences') {
     return buildPreferencesFormUrl(publicKey);
+  }
+  if (String(formType || '') === 'life_balance_wheel') {
+    return buildLifeBalanceFormUrl(publicKey, query);
   }
   return buildPublicIntakeUrl(publicKey);
 };

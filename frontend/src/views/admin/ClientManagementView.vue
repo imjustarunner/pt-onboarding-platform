@@ -1206,8 +1206,8 @@ const activeAgencyId = computed(() => {
   }
   const currentType = String(current?.organization_type || current?.organizationType || 'agency').toLowerCase();
 
-  // Direct agency: use its id
-  if (current?.id && currentType === 'agency') return current.id;
+  // Direct root tenant (agency / life_coach / consultant): use its id
+  if (current?.id && ['agency', 'life_coach', 'consultant'].includes(currentType)) return current.id;
 
   // School/program/learning: resolve parent agency (clients belong to the agency, not the school)
   if (['school', 'program', 'learning', 'clinical'].includes(currentType)) {
@@ -1223,9 +1223,11 @@ const activeAgencyId = computed(() => {
     }
   }
 
-  // Fallback: pick first agency-type org from the user's list
+  // Fallback: pick first root-tenant org from the user's list
   const fromStore = isSuperAdmin.value ? agencyStore.agencies : agencyStore.userAgencies;
-  const firstAgency = (fromStore || []).find((a) => String(a?.organization_type || a?.organizationType || 'agency').toLowerCase() === 'agency');
+  const firstAgency = (fromStore || []).find((a) =>
+    ['agency', 'life_coach', 'consultant'].includes(String(a?.organization_type || a?.organizationType || 'agency').toLowerCase())
+  );
   return firstAgency?.id || null;
 });
 const usingServerPagination = computed(() => isSuperAdmin.value && !activeAgencyId.value);
@@ -1375,6 +1377,28 @@ const fetchLinkedOrganizations = async () => {
         affiliated_agency_id: Number(agencyId)
       }));
     }
+
+    // Solo practitioner tenants: allow the tenant itself as the client organization.
+    const createAgency = selectedCreateAgency.value || agencyStore.currentAgency?.value || agencyStore.currentAgency;
+    const createType = String(createAgency?.organization_type || createAgency?.organizationType || '').toLowerCase();
+    if (
+      (createType === 'life_coach' || createType === 'consultant') &&
+      Number(createAgency?.id || 0) === Number(agencyId) &&
+      !(linkedOrganizations.value || []).some((o) => Number(o?.id) === Number(agencyId))
+    ) {
+      linkedOrganizations.value = [
+        {
+          id: Number(agencyId),
+          name: createAgency?.name || 'Practice',
+          slug: createAgency?.slug || createAgency?.portal_url || null,
+          organization_type: createType,
+          is_active: true,
+          district_name: null,
+          affiliated_agency_id: Number(agencyId)
+        },
+        ...(linkedOrganizations.value || [])
+      ];
+    }
   } catch (err) {
     console.error('Failed to fetch linked organizations:', err);
     linkedOrganizations.value = [];
@@ -1383,7 +1407,7 @@ const fetchLinkedOrganizations = async () => {
   }
 };
 
-// Get available organizations (school/program/learning only; never agency)
+// Get available organizations (school/program/learning/clinical + practitioner self)
 const availableOrganizations = computed(() => {
   // We intentionally show only orgs linked to the active agency, so client creation is valid.
   return linkedOrganizations.value || [];
@@ -1399,6 +1423,7 @@ const allowedCreateClientTypes = computed(() => {
       set.add('clinical');
     }
     if (t === 'clinical' || t === 'program') set.add('clinical');
+    if (t === 'life_coach' || t === 'consultant') set.add('basic_nonclinical');
   }
   if (currentPortalVariant.value === 'employee') set.add('basic_nonclinical');
   const order = ['school', 'learning', 'clinical', 'basic_nonclinical'];
@@ -2308,6 +2333,12 @@ onMounted(async () => {
   }
   await fetchLinkedOrganizations();
   await fetchClientStatuses();
+  // Deep-link: /admin/clients?client_status_key=prospective
+  const statusKeyQ = String(route.query?.client_status_key || route.query?.clientStatusKey || '').trim().toLowerCase();
+  if (statusKeyQ && Array.isArray(clientStatuses.value) && clientStatuses.value.length) {
+    const match = clientStatuses.value.find((s) => String(s.status_key || '').toLowerCase() === statusKeyQ);
+    if (match?.id) clientStatusFilter.value = String(match.id);
+  }
   await fetchProviders();
   await fetchClients();
   await openClientFromQuery();

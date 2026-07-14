@@ -27,6 +27,208 @@
         <div v-if="!publicBookingEnabled" class="status-note">
           Enable "Public Availability" in the provider portal settings or contact support to activate public booking.
         </div>
+        <div v-else class="status-note">
+          Public booking uses <strong>new-client / intake availability</strong> from the practitioner calendar
+          (same pool as “available for intake”). Discovery can be required, optional, or off — see settings below.
+        </div>
+      </div>
+
+      <div class="card discovery-card">
+        <h3>Discovery booking</h3>
+        <p class="status-note">
+          Life coaches typically require a free discovery call first. Consultants can offer discovery optionally
+          alongside paid sessions. Customize below for this tenant.
+        </p>
+        <div class="discovery-grid">
+          <label class="toggle-row">
+            <input v-model="discoveryForm.enabled" type="checkbox" />
+            <span>Enable free discovery booking</span>
+          </label>
+          <label class="toggle-row">
+            <input v-model="discoveryForm.required" type="checkbox" :disabled="!discoveryForm.enabled" />
+            <span>Require discovery before paid services</span>
+          </label>
+          <label>
+            Discovery label
+            <input v-model="discoveryForm.label" type="text" placeholder="Discovery Call" />
+          </label>
+          <label>
+            Duration (minutes)
+            <input v-model.number="discoveryForm.durationMin" type="number" min="10" max="120" step="5" />
+          </label>
+        </div>
+        <button class="btn btn-primary btn-sm" type="button" :disabled="savingDiscovery" @click="saveDiscoverySettings">
+          {{ savingDiscovery ? 'Saving…' : 'Save discovery settings' }}
+        </button>
+      </div>
+
+      <div class="card booking-brand-card">
+        <h3>Booking page branding &amp; copy</h3>
+        <p class="status-note">
+          Pathway stays standard (life coach = 3-step discovery; consultant = services + calendar).
+          Logo and brand colors come from Agency branding settings — everything below is editable page copy for this tenant.
+        </p>
+
+        <div class="form-group">
+          <label>Brand display name <span class="hint">(defaults to agency name)</span></label>
+          <input v-model="bookingForm.brandDisplayName" type="text" :placeholder="agencyName || 'Your practice name'" />
+        </div>
+        <div class="form-row-2">
+          <div class="form-group">
+            <label>CTA button label</label>
+            <input v-model="bookingForm.ctaLabel" type="text" />
+          </div>
+          <div class="form-group">
+            <label>Modality label</label>
+            <input v-model="bookingForm.modalityLabel" type="text" placeholder="Virtual (Zoom)" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Background image URL <span class="hint">(optional; life coach page)</span></label>
+          <input v-model="bookingForm.backgroundImageUrl" type="url" placeholder="https://…" />
+        </div>
+
+        <label class="toggle-row booking-toggle">
+          <input v-model="bookingForm.showNav" type="checkbox" />
+          <span>Show top navigation links</span>
+        </label>
+        <div v-if="bookingForm.showNav" class="form-group">
+          <label>Nav links <span class="hint">(one per line: Label | url)</span></label>
+          <textarea v-model="navLinksText" rows="4" placeholder="About Me | #booking" />
+        </div>
+
+        <h4 class="section-label">Profile defaults</h4>
+        <div class="form-row-2">
+          <div class="form-group">
+            <label>Default title</label>
+            <input v-model="bookingForm.providerTitleFallback" type="text" placeholder="Life Coach" />
+          </div>
+          <div class="form-group">
+            <label>Eyebrow / section label</label>
+            <input v-model="bookingForm.coachEyebrow" type="text" placeholder="Discovery Call" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Default bio / tagline <span class="hint">(used if provider profile bio is empty)</span></label>
+          <textarea v-model="bookingForm.providerBioFallback" rows="2" />
+        </div>
+        <div class="form-group">
+          <label>Specialties <span class="hint">(one per line)</span></label>
+          <textarea v-model="specialtiesText" rows="4" />
+        </div>
+        <div class="form-group">
+          <label>What to expect — title</label>
+          <input v-model="bookingForm.whatToExpectTitle" type="text" />
+        </div>
+        <div class="form-group">
+          <label>What to expect — body</label>
+          <textarea v-model="bookingForm.whatToExpectBody" rows="2" />
+        </div>
+        <div class="form-group">
+          <label>Closing quote <span class="hint">(step 3 sidebar)</span></label>
+          <textarea v-model="bookingForm.coachQuote" rows="2" />
+        </div>
+
+        <h4 class="section-label">Hero copy (life coach steps)</h4>
+        <div class="form-group">
+          <label>Step 1 title</label>
+          <input v-model="bookingForm.coachHeroTitles.step1" type="text" />
+        </div>
+        <div class="form-group">
+          <label>Step 1 subtitle</label>
+          <textarea v-model="bookingForm.coachHeroSubtitles.step1" rows="2" />
+        </div>
+        <div class="form-group">
+          <label>Step 2 title</label>
+          <input v-model="bookingForm.coachHeroTitles.step2" type="text" />
+        </div>
+        <div class="form-group">
+          <label>Step 2 subtitle</label>
+          <textarea v-model="bookingForm.coachHeroSubtitles.step2" rows="2" />
+        </div>
+        <div class="form-group">
+          <label>Step 3 title</label>
+          <input v-model="bookingForm.coachHeroTitles.step3" type="text" />
+        </div>
+        <div class="form-group">
+          <label>Step 3 subtitle</label>
+          <textarea v-model="bookingForm.coachHeroSubtitles.step3" rows="2" />
+        </div>
+
+        <h4 class="section-label">Consultant header</h4>
+        <div class="form-group">
+          <label>Tagline</label>
+          <input v-model="bookingForm.consultantTagline" type="text" />
+        </div>
+        <div class="form-group">
+          <label>Benefits <span class="hint">(one per line)</span></label>
+          <textarea v-model="consultantBenefitsText" rows="3" />
+        </div>
+
+        <h4 class="section-label">Value props</h4>
+        <div class="form-group">
+          <label>Step 1 row <span class="hint">(Title | body — one per line)</span></label>
+          <textarea v-model="valuePropsStep1Text" rows="3" />
+        </div>
+        <div class="form-group">
+          <label>Steps 2–3 row <span class="hint">(Title | body — one per line)</span></label>
+          <textarea v-model="valuePropsLaterText" rows="3" />
+        </div>
+        <div class="form-group">
+          <label>Consultant footer props <span class="hint">(Title | body — one per line)</span></label>
+          <textarea v-model="valuePropsText" rows="3" />
+        </div>
+
+        <h4 class="section-label">Step 3 intake questions</h4>
+        <p class="status-note">Defaults match the discovery example. Edit labels, required/optional, options, or hide a question.</p>
+        <div v-for="(field, idx) in bookingForm.step3Fields" :key="field.id" class="step3-field-card">
+          <div class="form-row-2">
+            <div class="form-group">
+              <label>Label</label>
+              <input v-model="field.label" type="text" />
+            </div>
+            <div class="form-group">
+              <label>Type</label>
+              <select v-model="field.type">
+                <option value="text">Text</option>
+                <option value="email">Email</option>
+                <option value="tel">Phone</option>
+                <option value="select">Dropdown</option>
+                <option value="textarea">Long text</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row-2">
+            <label class="toggle-row">
+              <input v-model="field.enabled" type="checkbox" />
+              <span>Show on booking form</span>
+            </label>
+            <label class="toggle-row">
+              <input v-model="field.required" type="checkbox" :disabled="!field.enabled" />
+              <span>Required</span>
+            </label>
+          </div>
+          <div class="form-group">
+            <label>Placeholder</label>
+            <input v-model="field.placeholder" type="text" />
+          </div>
+          <div v-if="field.type === 'select'" class="form-group">
+            <label>Options <span class="hint">(one per line)</span></label>
+            <textarea
+              :value="(field.options || []).join('\n')"
+              rows="3"
+              @input="field.options = String($event.target.value || '').split('\n').map((s) => s.trim()).filter(Boolean)"
+            />
+          </div>
+          <button v-if="idx > 1" type="button" class="btn btn-secondary btn-sm" @click="bookingForm.step3Fields.splice(idx, 1)">
+            Remove question
+          </button>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" @click="addStep3Field">+ Add question</button>
+
+        <button class="btn btn-primary btn-sm" type="button" :disabled="savingBookingPage" @click="saveBookingPageSettings">
+          {{ savingBookingPage ? 'Saving…' : 'Save booking page content' }}
+        </button>
       </div>
 
       <!-- Service type cards -->
@@ -47,8 +249,8 @@
                 <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342M6.75 15a.75.75 0 100-1.5.75.75 0 000 1.5zm0 0v-3.675A55.378 55.378 0 0112 8.443m-7.007 11.55A5.981 5.981 0 006.75 15.75v-1.5" /></svg>
               </div>
               <div>
-                <h3>{{ svc.serviceType === 'counseling' ? 'Counseling' : 'Tutoring' }}</h3>
-                <p class="stc-type-label">{{ svc.serviceType === 'counseling' ? 'Find a Counselor' : 'Find a Tutor' }} finder page</p>
+                <h3>{{ serviceTypeTitle(svc.serviceType) }}</h3>
+                <p class="stc-type-label">{{ serviceTypeFinderLabel(svc.serviceType) }}</p>
               </div>
             </div>
             <div class="stc-header-right">
@@ -64,7 +266,7 @@
             <div class="form-row">
               <div class="form-group">
                 <label>Display name <span class="hint">(shown on the hub page button)</span></label>
-                <input v-model="svc.displayName" type="text" :placeholder="svc.serviceType === 'counseling' ? 'Find a Counselor' : 'Find a Tutor'" />
+                <input v-model="svc.displayName" type="text" :placeholder="serviceTypeFinderLabel(svc.serviceType)" />
               </div>
               <div class="form-group">
                 <label>Sort order</label>
@@ -83,7 +285,7 @@
               <button class="btn btn-primary btn-sm" :disabled="saving" @click="saveServiceType(svc)">
                 {{ saving ? 'Saving…' : 'Save' }}
               </button>
-              <a v-if="agencySlug" :href="`/${agencySlug}/find-${svc.serviceType === 'counseling' ? 'counselor' : 'tutor'}`" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">
+              <a v-if="agencySlug" :href="previewPath(svc.serviceType)" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">
                 Preview &rarr;
               </a>
             </div>
@@ -127,6 +329,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import { resolveBookingPageSettings } from '../../utils/practitionerBooking.js';
 
 const route = useRoute();
 const agencyStore = useAgencyStore();
@@ -142,8 +345,118 @@ const saveSuccess = ref('');
 const saveError = ref('');
 const copied = ref(false);
 const publicBookingEnabled = ref(false);
+const agencyId = ref(null);
+const agencyName = ref('');
+const orgType = ref('life_coach');
+const savingDiscovery = ref(false);
+const savingBookingPage = ref(false);
+const discoveryForm = ref({
+  enabled: true,
+  required: false,
+  label: 'Discovery Call',
+  durationMin: 20
+});
+const existingFeatureFlags = ref({});
+const bookingForm = ref(resolveBookingPageSettings('life_coach'));
 
-const SERVICE_TYPE_DEFS = ['counseling', 'tutoring', 'evaluation'];
+const specialtiesText = computed({
+  get: () => (bookingForm.value.specialties || []).join('\n'),
+  set: (v) => {
+    bookingForm.value.specialties = String(v || '')
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+});
+const consultantBenefitsText = computed({
+  get: () => (bookingForm.value.consultantBenefits || []).join('\n'),
+  set: (v) => {
+    bookingForm.value.consultantBenefits = String(v || '')
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+});
+const navLinksText = computed({
+  get: () =>
+    (bookingForm.value.navLinks || [])
+      .map((l) => `${l.label} | ${l.href || '#booking'}`)
+      .join('\n'),
+  set: (v) => {
+    bookingForm.value.navLinks = String(v || '')
+      .split('\n')
+      .map((line) => {
+        const [label, href] = line.split('|').map((s) => s.trim());
+        return label ? { label, href: href || '#booking' } : null;
+      })
+      .filter(Boolean);
+  }
+});
+
+function valuePropsToText(list) {
+  return (list || []).map((v) => `${v.title || ''} | ${v.body || ''}`).join('\n');
+}
+function textToValueProps(v) {
+  return String(v || '')
+    .split('\n')
+    .map((line) => {
+      const [title, ...rest] = line.split('|').map((s) => s.trim());
+      if (!title) return null;
+      return { title, body: rest.join(' | ').trim() };
+    })
+    .filter(Boolean);
+}
+const valuePropsStep1Text = computed({
+  get: () => valuePropsToText(bookingForm.value.valuePropsStep1),
+  set: (v) => {
+    bookingForm.value.valuePropsStep1 = textToValueProps(v);
+  }
+});
+const valuePropsLaterText = computed({
+  get: () => valuePropsToText(bookingForm.value.valuePropsLater),
+  set: (v) => {
+    bookingForm.value.valuePropsLater = textToValueProps(v);
+  }
+});
+const valuePropsText = computed({
+  get: () => valuePropsToText(bookingForm.value.valueProps),
+  set: (v) => {
+    bookingForm.value.valueProps = textToValueProps(v);
+  }
+});
+
+const SERVICE_TYPE_DEFS = ['counseling', 'tutoring', 'evaluation', 'coaching', 'consulting'];
+
+function serviceTypeTitle(t) {
+  const map = {
+    counseling: 'Counseling',
+    tutoring: 'Tutoring',
+    evaluation: 'Evaluation',
+    coaching: 'Life Coaching',
+    consulting: 'Consulting'
+  };
+  return map[t] || t;
+}
+
+function serviceTypeFinderLabel(t) {
+  const map = {
+    counseling: 'Find a Counselor',
+    tutoring: 'Find a Tutor',
+    evaluation: 'Find an Evaluator',
+    coaching: 'Book Discovery / Coaching',
+    consulting: 'Book Consulting'
+  };
+  return map[t] || t;
+}
+
+function previewPath(t) {
+  if (!agencySlug.value) return '#';
+  if (t === 'counseling') return `/${agencySlug.value}/find-counselor`;
+  if (t === 'tutoring') return `/${agencySlug.value}/find-tutor`;
+  if (t === 'coaching') return `/${agencySlug.value}/find-coach`;
+  if (t === 'consulting') return `/${agencySlug.value}/find-consultant`;
+  return `/${agencySlug.value}/services`;
+}
 
 const serviceTypeConfigs = ref(
   SERVICE_TYPE_DEFS.map((serviceType) => ({
@@ -180,6 +493,29 @@ async function load() {
     // Hub + service types
     const existingTypes = hubRes?.data?.serviceTypes || [];
     publicBookingEnabled.value = !!hubRes?.data;
+    agencyId.value = hubRes?.data?.agency?.id || null;
+    agencyName.value = hubRes?.data?.agency?.name || '';
+    orgType.value = hubRes?.data?.agency?.organizationType || 'life_coach';
+    const disc = hubRes?.data?.discoverySettings;
+    if (disc) {
+      discoveryForm.value = {
+        enabled: !!disc.discoveryBookingEnabled,
+        required: !!disc.discoveryBookingRequired,
+        label: disc.discoveryLabel || 'Discovery Call',
+        durationMin: Number(disc.discoveryDurationMin || 20)
+      };
+    }
+    bookingForm.value = hubRes?.data?.bookingPage || resolveBookingPageSettings(orgType.value);
+    // Keep other feature flags when saving discovery settings
+    try {
+      if (agencyId.value) {
+        const agencyRes = await api.get(`/agencies/${agencyId.value}`);
+        const raw = agencyRes.data?.feature_flags || agencyRes.data?.featureFlags || {};
+        existingFeatureFlags.value = typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
+      }
+    } catch {
+      existingFeatureFlags.value = {};
+    }
 
     for (const svc of serviceTypeConfigs.value) {
       const existing = existingTypes.find((st) => st.serviceType === svc.serviceType);
@@ -231,6 +567,76 @@ async function saveServiceType(svc) {
   }
 }
 
+async function saveDiscoverySettings() {
+  if (!agencyId.value) {
+    saveError.value = 'Agency id not loaded — open this page from a tenant context.';
+    return;
+  }
+  savingDiscovery.value = true;
+  saveSuccess.value = '';
+  saveError.value = '';
+  try {
+    await api.put(`/agencies/${agencyId.value}`, {
+      featureFlags: {
+        ...(existingFeatureFlags.value || {}),
+        discoveryBookingEnabled: !!discoveryForm.value.enabled,
+        discoveryBookingRequired: !!discoveryForm.value.required,
+        discoveryLabel: discoveryForm.value.label || 'Discovery Call',
+        discoveryDurationMin: Number(discoveryForm.value.durationMin || 20)
+      }
+    });
+    existingFeatureFlags.value = {
+      ...(existingFeatureFlags.value || {}),
+      discoveryBookingEnabled: !!discoveryForm.value.enabled,
+      discoveryBookingRequired: !!discoveryForm.value.required,
+      discoveryLabel: discoveryForm.value.label || 'Discovery Call',
+      discoveryDurationMin: Number(discoveryForm.value.durationMin || 20)
+    };
+    saveSuccess.value = 'Discovery settings saved.';
+    setTimeout(() => (saveSuccess.value = ''), 3000);
+  } catch (e) {
+    saveError.value = e.response?.data?.error?.message || 'Failed to save discovery settings.';
+  } finally {
+    savingDiscovery.value = false;
+  }
+}
+
+async function saveBookingPageSettings() {
+  if (!agencyId.value) {
+    saveError.value = 'Agency id not loaded — open this page from a tenant context.';
+    return;
+  }
+  savingBookingPage.value = true;
+  saveSuccess.value = '';
+  saveError.value = '';
+  try {
+    const payload = resolveBookingPageSettings(orgType.value, bookingForm.value);
+    await api.put(`/agencies/${agencyId.value}`, {
+      publicBookingSettings: payload
+    });
+    bookingForm.value = payload;
+    saveSuccess.value = 'Booking page content saved.';
+    setTimeout(() => (saveSuccess.value = ''), 3000);
+  } catch (e) {
+    saveError.value = e.response?.data?.error?.message || 'Failed to save booking page content.';
+  } finally {
+    savingBookingPage.value = false;
+  }
+}
+
+function addStep3Field() {
+  if (!Array.isArray(bookingForm.value.step3Fields)) bookingForm.value.step3Fields = [];
+  bookingForm.value.step3Fields.push({
+    id: `custom_${Date.now().toString(36)}`,
+    type: 'text',
+    label: 'New question',
+    required: false,
+    enabled: true,
+    placeholder: '',
+    options: []
+  });
+}
+
 async function copyHubUrl() {
   if (!hubUrl.value) return;
   try {
@@ -277,6 +683,54 @@ onMounted(load);
 
 /* Status bar */
 .status-bar { padding: 0.875rem 1.25rem; }
+.discovery-card h3 { margin: 0 0 0.5rem; }
+.booking-brand-card h3 { margin: 0 0 0.5rem; }
+.booking-brand-card .form-group { margin-top: 0.75rem; }
+.booking-brand-card .section-label {
+  margin: 1.25rem 0 0.35rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #111827;
+}
+.form-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+.booking-toggle { margin: 0.85rem 0 0.35rem; }
+.step3-field-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 0.75rem;
+  margin: 0.65rem 0;
+  display: grid;
+  gap: 0.5rem;
+  background: #fafafa;
+}
+.discovery-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin: 0.85rem 0 1rem;
+}
+.discovery-grid label { display: grid; gap: 0.3rem; font-size: 0.82rem; font-weight: 700; color: #475569; }
+.discovery-grid input[type='text'],
+.discovery-grid input[type='number'] {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+  font: inherit;
+}
+.toggle-row {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600 !important;
+}
+@media (max-width: 700px) {
+  .discovery-grid, .form-row-2 { grid-template-columns: 1fr; }
+}
 .status-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
 .status-dot { width: 10px; height: 10px; border-radius: 50%; }
 .dot--on { background: #16a34a; }

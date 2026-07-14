@@ -1,5 +1,11 @@
 <template>
   <div class="container">
+    <div v-if="!previewMode && currentAgency" class="tenant-beta-banner">
+      <span>✨ New tenant admin dashboard available for {{ currentAgency.name }}.</span>
+      <button type="button" class="tenant-beta-try" @click="goTenantBetaDashboard">
+        Try New Dashboard →
+      </button>
+    </div>
     <PlatformPreviewBanner
       v-if="previewMode"
       :title="`Previewing ${currentAgency?.name || 'tenant'} admin dashboard`"
@@ -259,6 +265,19 @@ const ticketsLink = computed(() => {
   return `${base}?mine=1&status=open`;
 });
 const currentAgency = computed(() => agencyStore.currentAgency);
+
+const goTenantBetaDashboard = () => {
+  const a = currentAgency.value;
+  const slug = String(
+    route.params?.organizationSlug ||
+      a?.slug ||
+      a?.portal_url ||
+      a?.portalUrl ||
+      ''
+  ).trim();
+  if (slug) router.push(`/${slug}/admin-dashboard`);
+  else router.push('/admin-dashboard?keepTenant=1');
+};
 
 // Summit platform org slug (sstc / sstc / summit-stats / env) — same as club-manager dashboard route
 const isSscAdminRoute = computed(() => isSummitPlatformRouteSlug(route.params?.organizationSlug));
@@ -1614,5 +1633,34 @@ onMounted(loadMyOpenTickets);
   transform: none;
   box-shadow: var(--shadow);
   border-color: var(--border);
+}
+
+.tenant-beta-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(90deg, #0f172a 0%, #4c1d95 100%);
+  color: white;
+  padding: 10px 16px;
+  font-size: 14px;
+  border-radius: 10px;
+  margin-bottom: 16px;
+}
+
+.tenant-beta-banner span {
+  flex: 1;
+  font-weight: 500;
+}
+
+.tenant-beta-try {
+  background: #8b5cf6;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
 }
 </style>

@@ -12,6 +12,39 @@ import {
   isDualHomedSummitUser
 } from './summitRoutingContext.js';
 import { getSstcSurfaceChoice, getPreferredWorkAgencyId } from './sstcSurfaceChoice.js';
+import { isPractitionerOrgType } from './practitionerVertical.js';
+
+/**
+ * Resolve preferred org slug + type for practitioner vertical landing.
+ * Only returns a hit when org context / current agency is practitioner,
+ * or the user belongs to exactly one org and it is practitioner.
+ */
+function resolvePractitionerOrg(user, agencyStore, organizationStore) {
+  const orgContext = organizationStore.organizationContext || null;
+  if (orgContext && isPractitionerOrgType(orgContext.organizationType)) {
+    return {
+      slug: orgContext.slug,
+      orgType: String(orgContext.organizationType || '').toLowerCase()
+    };
+  }
+  const currentAgency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? null;
+  if (currentAgency && isPractitionerOrgType(currentAgency.organization_type || currentAgency.organizationType)) {
+    return {
+      slug: currentAgency.slug || currentAgency.portal_url || currentAgency.portalUrl,
+      orgType: String(currentAgency.organization_type || currentAgency.organizationType || '').toLowerCase()
+    };
+  }
+  const fromUser = user?.agencies || [];
+  const fromStore = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
+  const orgs = fromUser.length > 0 ? fromUser : (Array.isArray(fromStore) ? fromStore : []);
+  if (orgs.length !== 1) return null;
+  const hit = orgs[0];
+  if (!isPractitionerOrgType(hit?.organization_type || hit?.organizationType)) return null;
+  return {
+    slug: hit.slug || hit.portal_url || hit.portalUrl,
+    orgType: String(hit.organization_type || hit.organizationType || '').toLowerCase()
+  };
+}
 
 /**
  * Returns the correct dashboard route based on user role and organization type
@@ -136,13 +169,27 @@ export function getDashboardRoute() {
     return '/kiosk/app';
   }
 
-  // Guardian portal accounts go to the guardian portal (prefer branded slug if available)
+  // Guardian portal accounts go to the guardian portal (prefer branded slug if available).
+  // Life coach / consultant clients land on the practitioner client dashboard shell.
   if (String(user.role || '').toLowerCase() === 'client_guardian') {
+    const practitioner = resolvePractitionerOrg(user, agencyStore, organizationStore);
+    if (practitioner?.slug) {
+      return `/${practitioner.slug}/client-dashboard`;
+    }
     const slug =
       organizationStore.organizationContext?.slug ||
       user.agencies?.[0]?.slug ||
       null;
     return slug ? `/${slug}/guardian` : '/guardian';
+  }
+
+  // Life coach / consultant practitioners land on org dashboard shell.
+  // Skip platform super_admin/support so they retain /admin as home.
+  if (userRole !== 'super_admin' && userRole !== 'superadmin' && userRole !== 'support') {
+    const practitioner = resolvePractitionerOrg(user, agencyStore, organizationStore);
+    if (practitioner?.slug && userRole !== 'client_guardian') {
+      return `/${practitioner.slug}/dashboard`;
+    }
   }
 
   if (userRole === 'club_manager') {

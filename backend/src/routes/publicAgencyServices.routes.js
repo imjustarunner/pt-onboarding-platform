@@ -2,6 +2,8 @@ import express from 'express';
 import {
   getAgencyServicesHub,
   listCounselors,
+  listCoaches,
+  listConsultants,
   listTutors,
   listEvaluators,
   getProviderDetail,
@@ -20,6 +22,8 @@ const router = express.Router();
 // Public — no auth
 router.get('/:agencySlug', getAgencyServicesHub);
 router.get('/:agencySlug/counselors', listCounselors);
+router.get('/:agencySlug/coaches', listCoaches);
+router.get('/:agencySlug/consultants', listConsultants);
 router.get('/:agencySlug/tutors', listTutors);
 router.get('/:agencySlug/evaluators', listEvaluators);
 router.get('/:agencySlug/providers/:providerId', getProviderDetail);

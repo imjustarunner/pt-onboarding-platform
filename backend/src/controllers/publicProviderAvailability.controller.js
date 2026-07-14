@@ -3,7 +3,11 @@ import ProviderAvailabilityService from '../services/providerAvailability.servic
 import PublicAppointmentRequest from '../models/PublicAppointmentRequest.model.js';
 import { checkPublicAvailabilityGate } from '../services/publicAvailabilityGate.service.js';
 import ProviderPublicProfile from '../models/ProviderPublicProfile.model.js';
-import PublicIntakeClientService from '../services/publicIntakeClient.service.js';
+import PublicIntakeClientService, {
+  PUBLIC_BOOKING_INQUIRY_CLIENT_OPTIONS,
+  isPractitionerOrgType,
+  resolveOrganizationIdForPublicBooking
+} from '../services/publicIntakeClient.service.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import Notification from '../models/Notification.model.js';
 
@@ -344,22 +348,23 @@ async function maybeCreateClientForPublicRequest({ agencyId, providerId, body })
     return { createdClientId: null, createdGuardianUserId: null };
   }
 
-  let organizationId = parseIntSafe(body?.organizationId);
-  if (!organizationId) {
-    const [orgRows] = await pool.execute(
-      `SELECT a.id
-       FROM organization_affiliations oa
-       JOIN agencies a ON a.id = oa.organization_id
-       WHERE oa.agency_id = ?
-         AND oa.is_active = TRUE
-         AND LOWER(COALESCE(a.organization_type, '')) IN ('program', 'school', 'learning')
-       ORDER BY FIELD(LOWER(COALESCE(a.organization_type, '')), 'program', 'school', 'learning'), a.id ASC
-       LIMIT 1`,
-      [Number(agencyId)]
-    );
-    organizationId = Number(orgRows?.[0]?.id || 0) || null;
-  }
+  const organizationId = await resolveOrganizationIdForPublicBooking({
+    agencyId,
+    organizationIdHint: body?.organizationId
+  });
   if (!organizationId) return { createdClientId: null, createdGuardianUserId: null };
+
+  let orgType = '';
+  try {
+    const [orgRows] = await pool.execute(
+      `SELECT organization_type FROM agencies WHERE id = ? LIMIT 1`,
+      [Number(organizationId)]
+    );
+    orgType = String(orgRows?.[0]?.organization_type || '').toLowerCase();
+  } catch {
+    orgType = '';
+  }
+  const selfContact = isPractitionerOrgType(orgType);
 
   try {
     const linkLike = {
@@ -380,12 +385,15 @@ async function maybeCreateClientForPublicRequest({ agencyId, providerId, body })
         lastName: String(body?.guardianLastName || '').trim() || null,
         email: guardianEmail,
         phone: String(body?.guardianPhone || body?.phone || '').trim() || null,
-        relationship: String(body?.guardianRelationship || 'Guardian').trim()
+        relationship: String(body?.guardianRelationship || (selfContact ? 'Self / Contact' : 'Guardian')).trim()
       }
     };
+    // Phase 6: tutoring/counseling/eval share prospective with practitioner inquiries.
+    // Intake-link finalization still defaults to packet via createClientAndGuardian.
     const { clients, guardianUser } = await PublicIntakeClientService.createClientAndGuardian({
       link: linkLike,
-      payload
+      payload,
+      options: { ...PUBLIC_BOOKING_INQUIRY_CLIENT_OPTIONS }
     });
     const createdClientId = Number(clients?.[0]?.id || 0) || null;
     if (createdClientId) {

@@ -27,6 +27,8 @@ async function getAgencySchemaColumns() {
  * - 'clinical': Clinical practice organizations
  * - 'affiliation': Affiliated clubs (e.g., Summit Stats Team Challenge clubs)
  * - 'ClubWebApp': Specialized platform organizations (e.g., Summit Stats Team Challenge)
+ * - 'life_coach': Solo/small-practice life coaching SaaS tenant
+ * - 'consultant': Solo/small-practice consulting SaaS tenant
  */
 class Agency {
   /**
@@ -2389,6 +2391,25 @@ class Agency {
       if (hasFeatureFlags) {
         updates.push('feature_flags = ?');
         values.push(featureFlags ? JSON.stringify(featureFlags) : null);
+      }
+    }
+    if (agencyData.publicBookingSettings !== undefined) {
+      let hasPublicBookingSettings = false;
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'public_booking_settings'"
+        );
+        hasPublicBookingSettings = columns.length > 0;
+      } catch (e) {
+        hasPublicBookingSettings = false;
+      }
+      if (hasPublicBookingSettings) {
+        updates.push('public_booking_settings = ?');
+        values.push(
+          agencyData.publicBookingSettings
+            ? JSON.stringify(agencyData.publicBookingSettings)
+            : null
+        );
       }
     }
 

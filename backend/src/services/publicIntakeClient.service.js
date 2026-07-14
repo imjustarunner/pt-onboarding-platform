@@ -85,11 +85,19 @@ export const deriveInitials = (fullName) => {
 const resolveAgencyId = async (organizationId) => {
   const orgId = Number(organizationId);
   if (!orgId) return null;
-  return (
+  const affiliated =
     (await OrganizationAffiliation.getActiveAgencyIdForOrganization(orgId)) ||
     (await AgencySchool.getActiveAgencyIdForSchool(orgId)) ||
-    null
-  );
+    null;
+  if (affiliated) return affiliated;
+
+  // Solo practitioner / root agency: the organization row IS the tenant.
+  const org = await Agency.findById(orgId);
+  const orgType = String(org?.organization_type || '').toLowerCase();
+  if (orgType === 'agency' || orgType === 'life_coach' || orgType === 'consultant') {
+    return orgId;
+  }
+  return null;
 };
 
 const buildGuardianPasswordlessLoginUrl = (agencyRecord, token) => {
@@ -101,14 +109,76 @@ const buildGuardianPasswordlessLoginUrl = (agencyRecord, token) => {
     : `${frontendBase}/passwordless-login/${token}`;
 };
 
-const ensureOrganizationIsChild = async (organizationId) => {
+/** Org types valid as clients.organization_id for intake / public booking. */
+export const PUBLIC_INTAKE_ORG_TYPES = ['school', 'program', 'learning', 'clinical', 'life_coach', 'consultant'];
+
+const CHILD_ORG_TYPES = ['school', 'program', 'learning', 'clinical'];
+const PRACTITIONER_ROOT_TYPES = ['life_coach', 'consultant'];
+
+/**
+ * Phase 6: NEW_CLIENT public booking inquiries (all service types) land at
+ * prospective. Intake-link packet finalization keeps default `packet`.
+ */
+export const PUBLIC_BOOKING_INQUIRY_CLIENT_OPTIONS = Object.freeze({
+  clientStatusKey: 'prospective',
+  workflowStatus: 'PENDING_REVIEW',
+  source: 'PUBLIC_BOOKING_INQUIRY'
+});
+
+export function isPublicIntakeOrgType(orgType) {
+  return PUBLIC_INTAKE_ORG_TYPES.includes(String(orgType || '').toLowerCase());
+}
+
+export function isPractitionerOrgType(orgType) {
+  const t = String(orgType || '').toLowerCase();
+  return t === 'life_coach' || t === 'consultant';
+}
+
+/**
+ * Resolve organization_id for a public NEW_CLIENT booking.
+ * Prefer body hint → agency when it is an intake-capable org type → affiliated children.
+ */
+export async function resolveOrganizationIdForPublicBooking({ agencyId, organizationIdHint = null }) {
+  const aid = Number(agencyId || 0) || null;
+  if (!aid) return null;
+
+  const hint = Number(organizationIdHint || 0) || null;
+  if (hint) {
+    const org = await Agency.findById(hint);
+    if (org && isPublicIntakeOrgType(org.organization_type)) return hint;
+  }
+
+  const [agencyRows] = await pool.execute(
+    `SELECT id, organization_type FROM agencies WHERE id = ? LIMIT 1`,
+    [aid]
+  );
+  const orgType = String(agencyRows?.[0]?.organization_type || '').toLowerCase();
+  if (isPublicIntakeOrgType(orgType)) {
+    return aid;
+  }
+
+  const [orgRows] = await pool.execute(
+    `SELECT a.id
+     FROM organization_affiliations oa
+     JOIN agencies a ON a.id = oa.organization_id
+     WHERE oa.agency_id = ?
+       AND oa.is_active = TRUE
+       AND LOWER(COALESCE(a.organization_type, '')) IN ('program', 'school', 'learning', 'clinical')
+     ORDER BY FIELD(LOWER(COALESCE(a.organization_type, '')), 'program', 'school', 'learning', 'clinical'), a.id ASC
+     LIMIT 1`,
+    [aid]
+  );
+  return Number(orgRows?.[0]?.id || 0) || null;
+}
+
+const ensureOrganizationForIntake = async (organizationId) => {
   const org = await Agency.findById(organizationId);
   if (!org) throw new Error('Organization not found');
   const orgType = String(org.organization_type || 'agency').toLowerCase();
-  if (!['school', 'program', 'learning', 'clinical'].includes(orgType)) {
-    throw new Error('Organization must be a school, program, learning, or clinical org');
+  if (CHILD_ORG_TYPES.includes(orgType) || PRACTITIONER_ROOT_TYPES.includes(orgType)) {
+    return org;
   }
-  return org;
+  throw new Error('Organization must be a school, program, learning, clinical, life_coach, or consultant org');
 };
 
 /**
@@ -132,6 +202,9 @@ const ensureOrganizationIsChild = async (organizationId) => {
  * @param {number} params.agencyId        - resolved agency id (resolveAgencyId)
  * @param {object} params.clientPayload   - { firstName, lastName, fullName?, initials?, contactPhone? }
  * @param {boolean} [params.createGuardian=false] - whether to flag guardian_portal_enabled on the row
+ * @param {string} [params.clientStatusKey='packet'] - client_statuses.status_key
+ * @param {string} [params.workflowStatus='PACKET'] - clients.status workflow enum
+ * @param {string} [params.source='PUBLIC_INTAKE_LINK']
  * @returns {Promise<object>} the created Client row
  */
 const provisionSingleIntakeClient = async ({
@@ -142,7 +215,10 @@ const provisionSingleIntakeClient = async ({
   organizationId,
   agencyId,
   clientPayload,
-  createGuardian = false
+  createGuardian = false,
+  clientStatusKey = 'packet',
+  workflowStatus = 'PACKET',
+  source = 'PUBLIC_INTAKE_LINK'
 }) => {
   const firstName = String(clientPayload?.firstName || '').trim();
   const lastName = String(clientPayload?.lastName || '').trim();
@@ -152,7 +228,10 @@ const provisionSingleIntakeClient = async ({
 
   const identifierCode = await generateUniqueSixDigitClientCode({ agencyId });
   const paperworkStatusId = await resolvePaperworkStatusId({ agencyId });
-  const clientStatusId = await getClientStatusIdByKey({ agencyId, statusKey: 'packet' });
+  const statusKey = String(clientStatusKey || 'packet').trim().toLowerCase() || 'packet';
+  const clientStatusId = await getClientStatusIdByKey({ agencyId, statusKey });
+  const wfStatus = String(workflowStatus || 'PACKET').trim().toUpperCase() || 'PACKET';
+  const clientSource = String(source || 'PUBLIC_INTAKE_LINK').trim() || 'PUBLIC_INTAKE_LINK';
   const clientType =
     scopeType === 'school' || orgType === 'school'
       ? 'school'
@@ -170,13 +249,13 @@ const provisionSingleIntakeClient = async ({
     full_name: fullName || null,
     contact_phone: contactPhone,
     identifier_code: identifierCode,
-    status: 'PACKET',
+    status: wfStatus,
     submission_date: new Date().toISOString().split('T')[0],
     document_status: 'UPLOADED',
     paperwork_status_id: paperworkStatusId,
     client_status_id: clientStatusId,
     client_type: clientType,
-    source: 'PUBLIC_INTAKE_LINK',
+    source: clientSource,
     created_by_user_id: null,
     ...(createGuardian ? { guardian_portal_enabled: true } : {})
   });
@@ -193,15 +272,15 @@ const provisionSingleIntakeClient = async ({
     changed_by_user_id: null,
     field_changed: 'created',
     from_value: null,
-    to_value: JSON.stringify({ source: 'PUBLIC_INTAKE_LINK', status: 'PACKET' }),
-    note: `Client created via public intake link${organization?.name ? ` (org=${organization.name})` : ''}`
+    to_value: JSON.stringify({ source: clientSource, status: wfStatus, clientStatusKey: statusKey }),
+    note: `Client created via public intake${organization?.name ? ` (org=${organization.name})` : ''}`
   });
 
   return client;
 };
 
 class PublicIntakeClientService {
-  static async createClientAndGuardian({ link, payload }) {
+  static async createClientAndGuardian({ link, payload, options = {} }) {
     const scopeType = String(link.scope_type || 'agency').toLowerCase();
     let organizationId = link.organization_id;
 
@@ -214,12 +293,16 @@ class PublicIntakeClientService {
       throw new Error('organizationId is required to create a client for this intake link');
     }
 
-    const organization = await ensureOrganizationIsChild(organizationId);
+    const organization = await ensureOrganizationForIntake(organizationId);
     const orgType = String(organization?.organization_type || 'agency').toLowerCase();
     const agencyId = await resolveAgencyId(organizationId);
     if (!agencyId) {
       throw new Error('Unable to resolve agency for intake organization');
     }
+
+    const clientStatusKey = options.clientStatusKey || 'packet';
+    const workflowStatus = options.workflowStatus || 'PACKET';
+    const source = options.source || 'PUBLIC_INTAKE_LINK';
 
     const rawClients = Array.isArray(payload?.clients) && payload.clients.length
       ? payload.clients
@@ -236,7 +319,10 @@ class PublicIntakeClientService {
         organizationId,
         agencyId,
         clientPayload,
-        createGuardian
+        createGuardian,
+        clientStatusKey,
+        workflowStatus,
+        source
       });
       createdClients.push(client);
     }
@@ -376,7 +462,7 @@ class PublicIntakeClientService {
       throw new Error('organizationId is required to create sibling clients for this intake link');
     }
 
-    const organization = await ensureOrganizationIsChild(organizationId);
+    const organization = await ensureOrganizationForIntake(organizationId);
     const orgType = String(organization?.organization_type || 'agency').toLowerCase();
     const agencyId = await resolveAgencyId(organizationId);
     if (!agencyId) {

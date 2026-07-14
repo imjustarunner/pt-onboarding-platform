@@ -3891,6 +3891,14 @@ export const getUserScheduleSummary = async (req, res, next) => {
           appJoinUrl
         };
       });
+      try {
+        const { enrichScheduleEventsWithPackageContext } = await import(
+          '../services/practitionerPackage.service.js'
+        );
+        scheduleEvents = await enrichScheduleEventsWithPackageContext(scheduleEvents);
+      } catch {
+        /* package enrichment optional */
+      }
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
       scheduleEvents = [];

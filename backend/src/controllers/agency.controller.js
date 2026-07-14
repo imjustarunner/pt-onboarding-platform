@@ -282,10 +282,18 @@ export const createAgency = async (req, res, next) => {
 
     const { name, slug, officialName, logoUrl, logoPath, colorPalette, terminologySettings, intakeRetentionPolicy, sessionSettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardSupervisionIconId, myDashboardClinicalNoteGeneratorIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalFaqIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId, schoolPortalPublicDocumentsIconId, schoolPortalAnnouncementsIconId, tierSystemEnabled, tierThresholds } = req.body;
 
-    // Only super admins can create "agency" organizations. Admins can create school/program/learning.
+    // Only super admins can create root tenant organizations (agency, life_coach, consultant).
+    // Admins can create school/program/learning/clinical child orgs.
     const requestedType = (organizationType || 'agency').toLowerCase();
-    if (req.user?.role !== 'super_admin' && requestedType === 'agency') {
-      return res.status(403).json({ error: { message: 'Only super admins can create agency organizations' } });
+    const isPractitionerRootType = requestedType === 'life_coach' || requestedType === 'consultant';
+    if (req.user?.role !== 'super_admin' && (requestedType === 'agency' || isPractitionerRootType)) {
+      return res.status(403).json({
+        error: {
+          message: isPractitionerRootType
+            ? 'Only super admins can create life coach or consultant tenants'
+            : 'Only super admins can create agency organizations'
+        }
+      });
     }
 
     // For child org types, affiliated agency is required and must be allowed for this user.
@@ -471,6 +479,66 @@ export const createAgency = async (req, res, next) => {
         // best effort; do not block creation
       }
     }
+
+    // Life coach / consultant solo tenants: enable public booking surface + practitioner chrome flags,
+    // and seed core client_statuses including prospective (pipeline foundation).
+    if (isPractitionerRootType && agency?.id) {
+      try {
+        await Agency.update(agency.id, {
+          publicAvailabilityEnabled: true,
+          featureFlags: {
+            practitionerVertical: requestedType,
+            portalVariant: 'employee',
+            publicAvailabilityEnabled: true,
+            discoveryBookingEnabled: true,
+            discoveryBookingRequired: requestedType === 'life_coach'
+          }
+        });
+      } catch (e) {
+        // best effort
+      }
+      try {
+        const statusSeeds = [
+          ['prospective', 'Prospective', 'Inquiry received; awaiting discovery session and/or client onboarding.'],
+          ['screener', 'Screener', 'Discovery scheduled or completed; not yet onboarded.'],
+          ['packet', 'Packet', 'Client onboarding package sent / awaiting completion.'],
+          ['current', 'Current', 'Actively engaged client.'],
+          ['pending', 'Pending', 'Pending assignment and/or paperwork.'],
+          ['waitlist', 'Waitlist', 'Waiting for an opening/availability.'],
+          ['inactive', 'Inactive', 'Not active currently; may resume later.']
+        ];
+        for (const [statusKey, label, description] of statusSeeds) {
+          await pool.execute(
+            `INSERT INTO client_statuses (agency_id, status_key, label, description, is_active)
+             VALUES (?, ?, ?, ?, TRUE)
+             ON DUPLICATE KEY UPDATE label = VALUES(label), description = VALUES(description), is_active = TRUE`,
+            [agency.id, statusKey, label, description]
+          );
+        }
+      } catch (e) {
+        // best effort
+      }
+      try {
+        const serviceType = requestedType === 'life_coach' ? 'coaching' : 'consulting';
+        const displayName = requestedType === 'life_coach' ? 'Life Coaching' : 'Consulting';
+        const introBlurb = requestedType === 'life_coach'
+          ? 'Book a discovery session with your coach. Share a bit about your goals and pick a time that works.'
+          : 'Request a discovery call with your consultant. Tell us what you need help with and choose a time.';
+        await pool.execute(
+          `INSERT INTO agency_public_service_types
+             (agency_id, service_type, display_name, intro_blurb, is_enabled, sort_order)
+           VALUES (?, ?, ?, ?, 1, 0)
+           ON DUPLICATE KEY UPDATE
+             display_name = VALUES(display_name),
+             intro_blurb = VALUES(intro_blurb),
+             is_enabled = 1`,
+          [agency.id, serviceType, displayName, introBlurb]
+        );
+      } catch (e) {
+        // best effort
+      }
+    }
+
     res.status(201).json(agency);
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
@@ -749,6 +817,7 @@ export const updateAgency = async (req, res, next) => {
       themeSettings: formattedThemeSettings,
       customParameters: formattedCustomParameters,
       reviewPromptConfig: formattedReviewPromptConfig,
+      publicBookingSettings: req.body?.publicBookingSettings,
       featureFlags: formattedFeatureFlags,
       tenantAvailableAgencyFeaturesJson: effectiveTenantAvailableFeatures,
       publicAvailabilityEnabled,

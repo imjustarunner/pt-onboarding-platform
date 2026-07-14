@@ -1255,6 +1255,27 @@
           />
         </div>
 
+        <!-- Practitioner Packages & Payments Tab -->
+        <div v-if="activeTab === 'packages'" class="detail-section">
+          <PractitionerClientPackagesTab
+            :agency-id="Number(props.client?.agency_id || 0)"
+            :client-id="Number(props.client?.id || 0)"
+            :focus-payment-id="routePaymentFocus"
+            :focus-entitlement-id="routeEntitlementFocus"
+            @reup="onPractitionerReup"
+            @send-packet="onPractitionerSendPacket"
+            @pay-per-session="onPractitionerPayPerSession"
+          />
+        </div>
+
+        <div v-if="activeTab === 'life-balance'" class="detail-section">
+          <ClientLifeBalanceTab
+            :agency-id="Number(props.client?.agency_id || 0)"
+            :client-id="Number(props.client?.id || 0)"
+            :organization-slug="String(route.params?.organizationSlug || '')"
+          />
+        </div>
+
         <!-- Messages/Notes Tab -->
         <div v-if="activeTab === 'messages'" class="detail-section">
           <div v-if="notesLoading" class="loading">Loading messages…</div>
@@ -2273,6 +2294,9 @@ import PhiDocumentsPanel from './PhiDocumentsPanel.vue';
 import ClientSchoolRoiAccessTab from './ClientSchoolRoiAccessTab.vue';
 import ClientCommunicationsTab from './ClientCommunicationsTab.vue';
 import GuardianBillingTab from '../guardian/GuardianBillingTab.vue';
+import PractitionerClientPackagesTab from './PractitionerClientPackagesTab.vue';
+import ClientLifeBalanceTab from './ClientLifeBalanceTab.vue';
+import { isPractitionerOrgType } from '../../utils/practitionerVertical';
 import ClientSkillBuildersProgramTab from '../skillBuilders/ClientSkillBuildersProgramTab.vue';
 import { isSkillsClientFlag } from '../../utils/skillsClientFlag.js';
 import {
@@ -2315,6 +2339,23 @@ const emit = defineEmits(['close', 'updated', 'navigate', 'tab-change']);
 const authStore = useAuthStore();
 const route = useRoute();
 const router = useRouter();
+
+const routePaymentFocus = computed(() => Number(route.query.paymentId || 0) || null);
+const routeEntitlementFocus = computed(() => Number(route.query.entitlementId || 0) || null);
+
+const onPractitionerReup = () => {
+  window.dispatchEvent(new CustomEvent('practitioner-client-reup', {
+    detail: { clientId: Number(props.client?.id || 0), agencyId: Number(props.client?.agency_id || 0) }
+  }));
+  // Coaches re-up by sending another packet with the same package subset from the dashboard
+  alert('To re-up: open Send packet on the coach dashboard and offer the same package again.');
+};
+const onPractitionerSendPacket = () => {
+  alert('Open the coach dashboard → Send packet to offer a new package subset.');
+};
+const onPractitionerPayPerSession = () => {
+  alert('Send a packet that includes a pay-per-session package, or book sessions with PER_SESSION payment mode.');
+};
 
 const activeTab = ref('overview');
 const hasClientNavigation = computed(() => Number(props.navigationCount || 0) > 1 && Number(props.currentClientIndex || -1) >= 0);
@@ -2396,6 +2437,15 @@ const learningBillingEnabledForClient = computed(() => {
     })()
     : (raw || {});
   return flags.learningProgramBillingEnabled === true;
+});
+
+const practitionerPackagesEnabledForClient = computed(() => {
+  const orgType = String(
+    props.client?.organization_type
+    || props.client?.agency_organization_type
+    || ''
+  ).toLowerCase();
+  return isPractitionerOrgType(orgType);
 });
 
 // Overview tab state
@@ -2933,6 +2983,10 @@ const tabs = computed(() => {
     const idx = base.findIndex((t) => t.id === 'messages');
     base.splice(idx < 0 ? base.length : idx, 0, { id: 'billing', label: 'Billing' });
   }
+  if (practitionerPackagesEnabledForClient.value) {
+    const idx = base.findIndex((t) => t.id === 'messages');
+    base.splice(idx < 0 ? base.length : idx, 0, { id: 'packages', label: 'Packages' });
+  }
   if (canEditAccount.value) {
     const idx = base.findIndex((t) => t.id === 'phi');
     base.splice(idx < 0 ? base.length : idx, 0, { id: 'assignments', label: 'Assignments' });
@@ -2957,6 +3011,10 @@ const tabs = computed(() => {
   if (['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value)) {
     const surveysIdx = base.findIndex((t) => t.id === 'messages');
     base.splice(surveysIdx < 0 ? base.length : surveysIdx, 0, { id: 'surveys', label: 'Surveys' });
+  }
+  if (['super_admin', 'admin', 'support', 'staff', 'provider', 'provider_plus', 'supervisor'].includes(roleNorm.value)) {
+    const idx = base.findIndex((t) => t.id === 'messages');
+    base.splice(idx < 0 ? base.length : idx, 0, { id: 'life-balance', label: 'Life Balance' });
   }
   return base;
 });
@@ -4615,6 +4673,7 @@ const formatCategory = (c) => {
     status: 'Status',
     administrative: 'Admin',
     billing: 'Billing',
+    packages: 'Packages',
     clinical: 'Clinical'
   };
   return map[c] || c;

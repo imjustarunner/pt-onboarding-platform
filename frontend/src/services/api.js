@@ -92,10 +92,12 @@ api.interceptors.request.use(
       // ignore
     }
 
-    // Prefer a stored JWT token (needed for Capacitor/iOS where WKWebView cannot reliably
-    // send cross-origin HttpOnly cookies). Falls back to cookie-only auth on web browsers.
+    // Prefer window-scoped demo lab token (sessionStorage) so a launched demo
+    // window does not share / overwrite the parent Platform cookie session.
+    // Then fall back to localStorage JWT (Capacitor), then cookie-only auth.
     try {
-      const storedToken = localStorage.getItem('authToken');
+      const demoToken = sessionStorage.getItem('__pt_demo_window_token__');
+      const storedToken = demoToken || localStorage.getItem('authToken');
       if (storedToken) {
         config.headers['Authorization'] = `Bearer ${storedToken}`;
       }
@@ -104,9 +106,10 @@ api.interceptors.request.use(
     }
 
     // Attach the active agency context so the backend can resolve the correct effectiveRole
-    // (club context vs work context). currentAgency is persisted to localStorage by agencyStore.
+    // (club context vs work context). Demo windows prefer sessionStorage agency.
     try {
-      const raw = localStorage.getItem('currentAgency');
+      const demoAgencyRaw = sessionStorage.getItem('__pt_demo_window_agency__');
+      const raw = demoAgencyRaw || localStorage.getItem('currentAgency');
       const currentAgency = raw ? JSON.parse(raw) : null;
       const id = Number.parseInt(String(currentAgency?.id ?? ''), 10);
       if (Number.isFinite(id) && id > 0) {

@@ -454,6 +454,8 @@
               >
                 {{ agencyOptionLabel }}
               </option>
+              <option v-if="userRole === 'super_admin'" value="life_coach">Life Coach</option>
+              <option v-if="userRole === 'super_admin'" value="consultant">Consultant</option>
               <option value="school">School</option>
               <option value="program">Program</option>
               <option value="learning">Learning</option>
@@ -4147,6 +4149,8 @@ const settingsRoleSummary = computed(() => {
 });
 const orgTypeDisplay = (type) => {
   const t = String(type || 'agency').toLowerCase();
+  if (t === 'life_coach') return 'life coach';
+  if (t === 'consultant') return 'consultant';
   return userRole.value === 'super_admin' && t === 'agency' ? 'tenant' : t;
 };
 const agencyOptionLabel = computed(() => (userRole.value === 'super_admin' ? 'Tenant' : 'Agency'));

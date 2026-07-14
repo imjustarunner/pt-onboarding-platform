@@ -31,6 +31,13 @@ function isBackofficeAdminRole(role) {
 async function resolveEffectiveRole(req) {
   if (!req.user) return;
 
+  // Window-scoped / allowlist demo JWTs already carry the intended role — do not
+  // remap from DB club/work roles or the demo view collapses back to super_admin.
+  if (req.user.demoMode === true) {
+    req.user.effectiveRole = req.user.role;
+    return;
+  }
+
   const agencyIdHeader = req.headers['x-agency-id'];
   const agencyId = agencyIdHeader ? parseInt(agencyIdHeader, 10) : NaN;
 
@@ -151,8 +158,12 @@ export const authenticate = async (req, res, next) => {
       return next();
     }
 
-    // Try cookie first (new method), then fall back to Authorization header (for backward compatibility)
-    const token = req.cookies?.authToken || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.substring(7) : null);
+    // Prefer Authorization Bearer when present (Capacitor + window-scoped demo launches).
+    // Cookie alone still works for normal browser sessions without a stored token.
+    const bearer = req.headers.authorization?.startsWith('Bearer ')
+      ? req.headers.authorization.substring(7)
+      : null;
+    const token = bearer || req.cookies?.authToken || null;
     
     if (!token) {
       return res.status(401).json({ error: { message: 'No token provided' } });
@@ -219,7 +230,10 @@ export const authenticate = async (req, res, next) => {
 // Useful for endpoints that support alternative auth (ex: a one-time ops token).
 export const authenticateOptional = (req, res, next) => {
   try {
-    const token = req.cookies?.authToken || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.substring(7) : null);
+    const bearer = req.headers.authorization?.startsWith('Bearer ')
+      ? req.headers.authorization.substring(7)
+      : null;
+    const token = bearer || req.cookies?.authToken || null;
     if (!token) return next();
 
     const decoded = jwt.verify(token, config.jwt.secret);

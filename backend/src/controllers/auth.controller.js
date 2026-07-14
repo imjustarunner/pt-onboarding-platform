@@ -3423,6 +3423,148 @@ export const demoSwitchView = async (req, res, next) => {
   }
 };
 
+/**
+ * Superadmin / allowlisted demo lab: issue a window-scoped JWT without overwriting
+ * the caller's HttpOnly cookie. The new browser window stores this token in
+ * sessionStorage only so the parent Platform session stays intact.
+ */
+export const demoLaunchWindow = async (req, res, next) => {
+  try {
+    const requestedRole = String(req.body?.role || '').trim().toLowerCase();
+    const requestedAgencyId = Number.parseInt(req.body?.agencyId, 10);
+    const surface = String(req.body?.surface || '').trim().toLowerCase() || null;
+    const targetPath = String(req.body?.targetPath || '').trim() || null;
+
+    if (!DEMO_ALLOWED_VIEW_ROLES.has(requestedRole)) {
+      return res.status(400).json({ error: { message: 'Invalid demo role' } });
+    }
+    if (!Number.isInteger(requestedAgencyId) || requestedAgencyId < 1) {
+      return res.status(400).json({ error: { message: 'Valid agencyId is required' } });
+    }
+
+    const actor = await User.findById(req.user?.id);
+    if (!actor) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    const actorRole = String(actor.role || '').trim().toLowerCase();
+    const isSuperAdmin = actorRole === 'super_admin' || actorRole === 'superadmin';
+    const allowlistedEmails = parseCsvSet(process.env.DEMO_MODE_USER_ALLOWLIST);
+    const actorEmail = String(actor.email || '').trim().toLowerCase();
+    const allowlisted = allowlistedEmails.size > 0 && allowlistedEmails.has(actorEmail);
+
+    if (!isSuperAdmin && !(isTruthy(process.env.DEMO_MODE_ENABLED) && allowlisted)) {
+      return res.status(403).json({
+        error: { message: 'Only super admins (or allowlisted demo users) can launch demo windows' }
+      });
+    }
+
+    // Super admins may launch against any agency; allowlisted demo users still need membership.
+    let selectedAgency = null;
+    if (isSuperAdmin) {
+      selectedAgency = await Agency.findById(requestedAgencyId);
+    } else {
+      const agencies = await User.getAgencies(actor.id);
+      selectedAgency = (agencies || []).find((a) => Number(a?.id) === requestedAgencyId) || null;
+    }
+    if (!selectedAgency) {
+      return res.status(404).json({ error: { message: 'Agency not found or not accessible' } });
+    }
+
+    const fakeAgencyIds = parseCsvIntSet(process.env.DEMO_MODE_FAKE_AGENCY_IDS);
+    const fakeAllowed = fakeAgencyIds.size > 0
+      ? fakeAgencyIds.has(requestedAgencyId)
+      : isLikelyFakeAgency(selectedAgency);
+    // Superadmin lab can also open life_coach / consultant tenants that are not named "demo".
+    const orgType = String(selectedAgency.organization_type || '').toLowerCase();
+    const practitionerVertical = orgType === 'life_coach' || orgType === 'consultant';
+    if (!isSuperAdmin && !fakeAllowed) {
+      return res.status(403).json({ error: { message: 'Demo launching is only allowed in fake/demo agencies' } });
+    }
+    if (isSuperAdmin && !fakeAllowed && !practitionerVertical) {
+      // Still allow any agency for superadmin testing, but prefer demo-named ones in the UI.
+    }
+
+    const sessionId = crypto.randomUUID();
+    const token = jwt.sign(
+      {
+        id: actor.id,
+        email: actor.email,
+        role: requestedRole,
+        agencyId: requestedAgencyId,
+        sessionId,
+        demoMode: true,
+        demoWindowScoped: true,
+        demoRealRole: actor.role,
+        demoSurface: surface
+      },
+      config.jwt.secret,
+      { expiresIn: '4h' }
+    );
+
+    // Intentionally do NOT set authToken cookie — parent window must keep its session.
+
+    const payrollAgencyIds = actor?.id ? await User.listPayrollAgencyIds(actor.id) : [];
+    const baseCaps = getUserCapabilities({ ...actor, role: requestedRole });
+    const canManagePayroll = requestedRole === 'super_admin' || payrollAgencyIds.length > 0;
+    const agencies = isSuperAdmin
+      ? [selectedAgency]
+      : (await User.getAgencies(actor.id));
+
+    ActivityLogService.logActivity({
+      actionType: 'demo_launch_window',
+      userId: actor.id,
+      sessionId,
+      metadata: {
+        toRole: requestedRole,
+        agencyId: requestedAgencyId,
+        surface,
+        targetPath,
+        actorEmail
+      }
+    }, req);
+
+    const slug = selectedAgency.slug || selectedAgency.portal_url || null;
+    const defaultPath = slug ? `/${slug}/dashboard` : '/dashboard';
+
+    res.json({
+      message: 'Demo window launch ready',
+      sessionId,
+      token,
+      targetPath: targetPath || defaultPath,
+      selectedAgency: {
+        id: selectedAgency.id,
+        name: selectedAgency.name,
+        slug: selectedAgency.slug || null,
+        portal_url: selectedAgency.portal_url || null,
+        organization_type: selectedAgency.organization_type || null
+      },
+      user: {
+        id: actor.id,
+        email: actor.email,
+        role: requestedRole,
+        status: actor.status,
+        firstName: actor.first_name,
+        lastName: actor.last_name,
+        username: actor.username || actor.personal_email || actor.email,
+        demoMode: true,
+        demoWindowScoped: true,
+        demoRealRole: actor.role,
+        demoSurface: surface,
+        payrollAgencyIds,
+        capabilities: {
+          ...baseCaps,
+          canManagePayroll,
+          canViewMyPayroll: true
+        },
+        agencies
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const register = async (req, res, next) => {
   try {
     const errors = validationResult(req);

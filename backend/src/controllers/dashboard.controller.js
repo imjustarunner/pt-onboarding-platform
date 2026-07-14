@@ -332,19 +332,74 @@ export const getPlatformTenantSummary = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Super admin access required' } });
     }
 
-    // Get all root agencies (organization_type = 'agency')
+    // Root tenants for platform usage + individuals (exclude affiliations/schools as roots)
     const [agencyRows] = await pool.execute(
       `SELECT id, name, slug, portal_url, logo_url, organization_type
        FROM agencies
-       WHERE LOWER(COALESCE(organization_type, 'agency')) = 'agency'
+       WHERE LOWER(COALESCE(organization_type, 'agency')) IN (
+         'agency', 'life_coach', 'consultant', 'learning', 'clubwebapp'
+       )
+         AND COALESCE(is_archived, 0) = 0
        ORDER BY name ASC`
     );
     const tenants = agencyRows || [];
+
+    const isLikelyDemo = (agency) => {
+      const hay = [agency?.name, agency?.slug, agency?.portal_url]
+        .map((v) => String(v || '').trim().toLowerCase())
+        .join(' ');
+      return ['demo', 'fake', 'sandbox', 'training', 'sample', 'test'].some((k) => hay.includes(k));
+    };
+
+    const emptySubOrgs = () => ({
+      school: 0,
+      program: 0,
+      learning: 0,
+      clinical: 0,
+      affiliation: 0,
+      other: 0,
+      total: 0
+    });
+
+    // Scoped sub-orgs (schools/programs/etc.) live in agencies but are affiliated under a parent tenant
+    const subOrgsByAgencyId = new Map();
+    const tenantIds = tenants.map((t) => Number(t.id)).filter((n) => Number.isFinite(n) && n > 0);
+    if (tenantIds.length) {
+      try {
+        const placeholders = tenantIds.map(() => '?').join(',');
+        const [affRows] = await pool.execute(
+          `SELECT oa.agency_id AS agencyId,
+                  LOWER(TRIM(COALESCE(NULLIF(org.organization_type, ''), 'school'))) AS orgType,
+                  COUNT(*) AS cnt
+           FROM organization_affiliations oa
+           INNER JOIN agencies org ON org.id = oa.organization_id
+           WHERE oa.is_active = TRUE
+             AND COALESCE(org.is_archived, 0) = 0
+             AND oa.agency_id IN (${placeholders})
+           GROUP BY oa.agency_id, orgType`,
+          tenantIds
+        );
+        for (const row of affRows || []) {
+          const aid = Number(row.agencyId);
+          if (!aid) continue;
+          if (!subOrgsByAgencyId.has(aid)) subOrgsByAgencyId.set(aid, emptySubOrgs());
+          const bucket = subOrgsByAgencyId.get(aid);
+          const t = String(row.orgType || 'other').toLowerCase();
+          const n = Number(row.cnt || 0);
+          if (Object.prototype.hasOwnProperty.call(bucket, t) && t !== 'total') bucket[t] += n;
+          else bucket.other += n;
+          bucket.total += n;
+        }
+      } catch { /* affiliation table may be missing */ }
+    }
 
     // For each tenant, get real aggregated metrics in parallel
     const summaries = await Promise.all(tenants.map(async (agency) => {
       const aid = Number(agency.id);
       let activePatients = 0, activeEmployees = 0, openTasks = 0, unreadNotifications = 0;
+      const orgType = String(agency.organization_type || 'agency').toLowerCase();
+      const sandbox = isLikelyDemo(agency);
+      const subOrganizations = subOrgsByAgencyId.get(aid) || emptySubOrgs();
 
       try {
         const [[pr]] = await pool.execute(
@@ -378,19 +433,59 @@ export const getPlatformTenantSummary = async (req, res, next) => {
         unreadNotifications = Number(counts?.[aid] || 0);
       } catch { /* notifications table may be missing */ }
 
+      // Solo practitioner → organization once they have multiple active employees
+      const practitioner = orgType === 'life_coach' || orgType === 'consultant';
+      const tenantSegment = sandbox
+        ? 'sandbox'
+        : (practitioner && activeEmployees <= 1 ? 'individual' : 'organization');
+
       return {
         id: aid,
         name: agency.name,
         slug: agency.slug || agency.portal_url || '',
         logoUrl: agency.logo_url || null,
+        organizationType: orgType,
+        isSandbox: sandbox,
+        tenantSegment,
         activePatients,
         activeEmployees,
         openTasks,
-        unreadNotifications
+        unreadNotifications,
+        subOrganizations
       };
     }));
 
-    res.json({ refreshedAt: new Date().toISOString(), tenants: summaries });
+    const rootTypeCounts = {
+      agency: 0,
+      learning: 0,
+      life_coach: 0,
+      consultant: 0,
+      clubwebapp: 0,
+      other: 0
+    };
+    const subOrgTotals = emptySubOrgs();
+    for (const t of summaries) {
+      if (t.tenantSegment === 'sandbox') continue;
+      const rt = String(t.organizationType || 'agency').toLowerCase();
+      if (Object.prototype.hasOwnProperty.call(rootTypeCounts, rt)) rootTypeCounts[rt] += 1;
+      else rootTypeCounts.other += 1;
+      const sub = t.subOrganizations || emptySubOrgs();
+      for (const key of Object.keys(subOrgTotals)) {
+        subOrgTotals[key] += Number(sub[key] || 0);
+      }
+    }
+
+    res.json({
+      refreshedAt: new Date().toISOString(),
+      tenants: summaries,
+      counts: {
+        organization: summaries.filter((t) => t.tenantSegment === 'organization').length,
+        individual: summaries.filter((t) => t.tenantSegment === 'individual').length,
+        sandbox: summaries.filter((t) => t.tenantSegment === 'sandbox').length
+      },
+      rootTypeCounts,
+      subOrgTotals
+    });
   } catch (error) {
     next(error);
   }

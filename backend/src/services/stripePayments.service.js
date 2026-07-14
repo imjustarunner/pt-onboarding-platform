@@ -262,6 +262,39 @@ class StripePaymentsService {
     return stripe.paymentIntents.create(intentParams, opts);
   }
 
+  /**
+   * Create an on-session PaymentIntent for Stripe Elements (confirmCardPayment).
+   * Money flows to the connected agency account when connectedAccountId is set.
+   */
+  static async createPaymentIntent({
+    amountCents,
+    currency = 'usd',
+    customerId = null,
+    description = null,
+    metadata = {},
+    connectedAccountId = null,
+    applicationFeeAmountCents = 0
+  }) {
+    const stripe = getStripe();
+    const opts = connectOpts(connectedAccountId);
+    const amount = Math.max(0, Math.round(Number(amountCents || 0)));
+    if (amount < 1) throw new Error('amountCents must be at least 1');
+
+    const intentParams = {
+      amount,
+      currency: String(currency || 'usd').toLowerCase(),
+      description: description || undefined,
+      metadata,
+      automatic_payment_methods: { enabled: true }
+    };
+    if (customerId) intentParams.customer = customerId;
+    if (connectedAccountId && applicationFeeAmountCents > 0) {
+      intentParams.application_fee_amount = applicationFeeAmountCents;
+    }
+
+    return stripe.paymentIntents.create(intentParams, opts);
+  }
+
   static async retrievePaymentIntent(paymentIntentId, connectedAccountId = null) {
     const stripe = getStripe();
     return stripe.paymentIntents.retrieve(paymentIntentId, {}, connectOpts(connectedAccountId));

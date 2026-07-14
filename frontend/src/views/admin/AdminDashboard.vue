@@ -1,25 +1,24 @@
 <template>
   <div>
-    <!-- Dashboard switcher bar — always visible, no opt-in required -->
-    <div v-if="user && !isSstcContext" class="beta-banner">
-      <span class="beta-banner-text">
-        ✨ New admin dashboard available.
-      </span>
-      <button class="beta-banner-try" @click="goToBetaDashboard">
-        Try New Dashboard →
-      </button>
-    </div>
-
     <!-- Classic dashboards (default experience) -->
     <div v-if="!user">
       <div class="container">
         <div class="loading">Loading...</div>
       </div>
     </div>
-    <!-- SuperAdmin with no tenant selected → Platform Dashboard -->
-    <SuperAdminDashboard
-      v-else-if="isSuperAdmin && !currentAgency && !isSuperadminPreview"
+
+    <!-- Platform superadmin: dark Plot Twist HQ command center (opt into classic via ?classic=1) -->
+    <SuperadminPlatformDashboard
+      v-else-if="isSuperAdmin && !currentAgency && !isSuperadminPreview && !useClassicPlatform"
     />
+    <div v-else-if="isSuperAdmin && !currentAgency && !isSuperadminPreview && useClassicPlatform">
+      <div class="beta-banner">
+        <span class="beta-banner-text">Classic platform dashboard</span>
+        <button class="beta-banner-try" @click="goModernPlatform">Use Plot Twist HQ dashboard →</button>
+      </div>
+      <SuperAdminDashboard />
+    </div>
+
     <!-- SuperAdmin with a tenant selected → show that tenant's classic dashboard -->
     <AgencyAdminDashboard
       v-else-if="isSuperAdmin && currentAgency && !isSuperadminPreview"
@@ -43,10 +42,10 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useSuperadminPlatformPreview } from '../../composables/useSuperadminPlatformPreview';
-import { useSummitStatsChallengeChrome } from '../../composables/useSummitStatsChallengeChrome';
 import { isSupervisor } from '../../utils/helpers.js';
 import api from '../../services/api';
 import SuperAdminDashboard from './SuperAdminDashboard.vue';
+import SuperadminPlatformDashboard from './SuperadminPlatformDashboard.vue';
 import AgencyAdminDashboard from './AgencyAdminDashboard.vue';
 
 const authStore = useAuthStore();
@@ -54,13 +53,15 @@ const agencyStore = useAgencyStore();
 const route = useRoute();
 const router = useRouter();
 const user = computed(() => authStore.user);
+const currentAgency = computed(() => agencyStore.currentAgency);
 const { isSuperadminPreview } = useSuperadminPlatformPreview({ route, authStore, agencyStore });
-const isSstcContext = useSummitStatsChallengeChrome();
 
 const isSuperAdmin = computed(() => {
   const role = String(user.value?.role || '').toLowerCase();
   return role === 'super_admin' || role === 'superadmin';
 });
+
+const useClassicPlatform = computed(() => String(route.query.classic || '') === '1');
 
 const isTenantAdminRole = computed(() => {
   const role = String(user.value?.role || '').toLowerCase();
@@ -84,16 +85,8 @@ onMounted(() => {
   }).catch(() => {});
 });
 
-const goToBetaDashboard = () => {
-  // Super admins go to the global new dashboard; tenant admins go to their scoped one
-  const slug = route.params.organizationSlug
-    || agencyStore.currentAgency?.slug
-    || agencyStore.currentAgency?.portal_url;
-  if (slug) {
-    router.push(`/${slug}/admin-dashboard`);
-  } else {
-    router.push('/admin-dashboard');
-  }
+const goModernPlatform = () => {
+  router.push('/admin');
 };
 </script>
 
@@ -117,7 +110,7 @@ const goToBetaDashboard = () => {
 }
 
 .beta-banner-try {
-  background: #0ea5e9;
+  background: #7c3aed;
   color: white;
   border: none;
   border-radius: 6px;
@@ -126,11 +119,5 @@ const goToBetaDashboard = () => {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s;
 }
-
-.beta-banner-try:hover {
-  background: #0284c7;
-}
-
 </style>

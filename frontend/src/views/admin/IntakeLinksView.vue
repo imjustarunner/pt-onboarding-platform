@@ -191,6 +191,7 @@
         <option value="job_application">Job Application</option>
         <option value="medical_records_request">Medical Records</option>
         <option value="internal_preferences">Internal Preferences</option>
+        <option value="life_balance_wheel">Life Balance Wheel</option>
       </select>
       <select v-model="filterOrgId">
         <option value="all">All Orgs</option>
@@ -370,6 +371,7 @@
                 <option value="job_application">Job Application</option>
                 <option value="medical_records_request">Medical Records Request</option>
                 <option value="internal_preferences">Internal Preferences (staff)</option>
+                <option value="life_balance_wheel">Life Balance Wheel</option>
               </select>
               <small v-if="form.formType === 'public_form'" class="form-help">
                 Standalone forms (e.g. additional driver, consent) are externally clickable and not tied to a person. Completed documents land in Submitted Documents for staff to assign to a client.
@@ -394,6 +396,9 @@
               </small>
               <small v-if="form.formType === 'internal_preferences'" class="form-help">
                 Shareable link for staff to update their own notification and communication preferences (including Campaign 4 workforce SMS opt-in) without logging in. Scoped to an agency.
+              </small>
+              <small v-if="form.formType === 'life_balance_wheel'" class="form-help">
+                Interactive Life Balance Wheel assessment. Assign via this link, onboarding packets, or client detail. No PDF documents required.
               </small>
             </div>
             <div v-if="form.formType === 'job_application'" class="form-group">
@@ -3361,7 +3366,8 @@ const getFormTypeLabel = (t) => {
     smart_registration: 'Smart Registration',
     job_application: 'Job Application',
     medical_records_request: 'Medical Records',
-    internal_preferences: 'Internal Preferences'
+    internal_preferences: 'Internal Preferences',
+    life_balance_wheel: 'Life Balance Wheel'
   };
   return m[t] || t || 'Intake';
 };
@@ -3383,6 +3389,7 @@ const getFormTypeBadgeClass = (t) => {
   if (t === 'job_application') return 'badge-success';
   if (t === 'medical_records_request') return 'badge-warning';
   if (t === 'internal_preferences') return 'badge-purple';
+  if (t === 'life_balance_wheel') return 'badge-success';
   return 'badge-secondary';
 };
 const getLanguageLabel = (code) => {

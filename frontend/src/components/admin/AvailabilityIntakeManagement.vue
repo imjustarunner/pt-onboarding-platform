@@ -188,8 +188,17 @@
                 <div class="meta" v-if="r.clientPhone">Phone: {{ r.clientPhone }}</div>
                 <div class="meta" v-if="r.matchedClientId || r.createdClientId">
                   Client link:
-                  <span v-if="r.matchedClientId">matched #{{ r.matchedClientId }}</span>
-                  <span v-if="r.createdClientId" style="margin-left: 8px;">created #{{ r.createdClientId }}</span>
+                  <router-link
+                    v-if="r.matchedClientId"
+                    class="client-deep-link"
+                    :to="clientProfileLink(r.matchedClientId)"
+                  >matched #{{ r.matchedClientId }}</router-link>
+                  <router-link
+                    v-if="r.createdClientId"
+                    class="client-deep-link"
+                    :to="clientProfileLink(r.createdClientId)"
+                    style="margin-left: 8px;"
+                  >created #{{ r.createdClientId }}</router-link>
                 </div>
                 <div class="meta" v-if="r.notes">Notes: {{ r.notes }}</div>
                 <div class="meta">Submitted: {{ fmtDateTime(r.createdAt) }}</div>
@@ -343,6 +352,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { formatTimeRange12h } from '../../utils/timeFormat';
 import { useAgencyStore } from '../../store/agency';
@@ -362,6 +372,7 @@ const props = defineProps({
   }
 });
 
+const route = useRoute();
 const agencyStore = useAgencyStore();
 const agencyId = computed(() => agencyStore.currentAgency?.id || null);
 
@@ -370,6 +381,14 @@ const tab = ref('office'); // office | school | appointments | search | skills
 const bookingQueueLink = (queueTab) => {
   // Relative to current availability-intake route (org-scoped or bare).
   return { query: { tab: queueTab } };
+};
+
+const clientProfileLink = (clientId) => {
+  const id = Number(clientId || 0);
+  if (!id) return { path: '/admin/clients' };
+  const slug = String(route.params.organizationSlug || '').trim();
+  const base = slug ? `/${slug}/admin/clients` : '/admin/clients';
+  return { path: base, query: { clientId: String(id) } };
 };
 const loading = ref(false);
 const saving = ref(false);
@@ -933,6 +952,8 @@ watch(
 @media (min-width: 1100px) { .row { grid-template-columns: 1.6fr 1fr; } }
 .title { font-weight: 900; }
 .meta { color: var(--text-secondary); font-size: 12px; margin-top: 6px; }
+.client-deep-link { color: var(--accent, #4f46e5); font-weight: 700; text-decoration: none; }
+.client-deep-link:hover { text-decoration: underline; }
 .pill { display: inline-block; margin: 4px 6px 0 0; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-alt); }
 .pill--eval { background: #fff7ed; color: #92400e; border-color: #fed7aa; }
 .pill--tutoring { background: #eff6ff; color: #1e40af; border-color: #bfdbfe; }

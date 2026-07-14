@@ -27,7 +27,10 @@ export async function resolveTenantRootAgencyId(agencyId) {
   const row = rows?.[0];
   if (!row) return null;
   const t = String(row.organization_type || 'agency').toLowerCase();
-  if (t === 'agency') return Number(row.id);
+  // Root tenant types (no parent affiliation required)
+  if (t === 'agency' || t === 'clubwebapp' || t === 'life_coach' || t === 'consultant') {
+    return Number(row.id);
+  }
 
   const [parents] = await pool.execute(
     `SELECT agency_id FROM organization_affiliations

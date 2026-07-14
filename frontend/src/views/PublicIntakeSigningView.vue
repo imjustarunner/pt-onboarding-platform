@@ -1530,11 +1530,15 @@
               Your submission is in — we'll follow up as soon as possible to welcome you
               and confirm the next steps.
             </p>
-            <div v-if="prehireReturnTo" class="intake-thankyou-return" style="margin: 14px 0;">
+            <div v-if="returnToPath" class="intake-thankyou-return" style="margin: 14px 0;">
               <p class="muted" style="margin-bottom: 8px;">
-                Return to your secure pre-hire portal (no login needed) to continue tasks or save your personal link.
+                {{ returnToPath.includes('/packet/')
+                  ? 'Return to your coaching onboarding packet to finish the remaining steps.'
+                  : 'Return to your secure pre-hire portal (no login needed) to continue tasks or save your personal link.' }}
               </p>
-              <a class="btn btn-primary" :href="prehireReturnTo">Return to your portal</a>
+              <a class="btn btn-primary" :href="returnToPath">
+                {{ returnToPath.includes('/packet/') ? 'Return to your onboarding packet' : 'Return to your portal' }}
+              </a>
             </div>
             <ul
               v-if="intakeRegisteredNames.length"
@@ -2130,13 +2134,18 @@ const INTAKE_TRANSLATIONS = {
 const route = useRoute();
 const router = useRouter();
 const publicKey = route.params.publicKey;
-const prehireReturnTo = computed(() => {
+const returnToPath = computed(() => {
   const raw = String(route.query.returnTo || '').trim();
-  if (!raw.startsWith('/pre-hire/')) return '';
-  // Only allow same-origin relative portal paths
+  if (!raw.startsWith('/')) return '';
+  // Only allow same-origin relative paths (no protocol / open redirect)
   if (raw.includes('://') || raw.includes('//')) return '';
-  return raw;
+  // Pre-hire portal return OR practitioner packet wizard return
+  if (raw.startsWith('/pre-hire/')) return raw;
+  if (/^\/[^/]+\/packet\/[A-Za-z0-9_-]+/.test(raw)) return raw;
+  return '';
 });
+// Back-compat alias used by thank-you CTA
+const prehireReturnTo = returnToPath;
 const isLocalhostRecaptcha = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 const LOCALHOST_TEST_RECAPTCHA_SITE_KEY = '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI';
 const authStore = useAuthStore();

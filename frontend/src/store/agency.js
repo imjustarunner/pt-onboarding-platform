@@ -2,6 +2,11 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import api from '../services/api';
 import { getCached, setCached } from '../utils/adminApiCache';
+import {
+  DEMO_WINDOW_AGENCY_KEY,
+  getDemoWindowAgency,
+  isDemoWindowSession
+} from '../utils/demoWindowSession';
 
 export const useAgencyStore = defineStore('agency', () => {
   const agencies = ref([]);
@@ -17,7 +22,11 @@ export const useAgencyStore = defineStore('agency', () => {
       return fallback;
     }
   };
-  const currentAgency = ref(safeJsonParse(localStorage.getItem('currentAgency') || 'null', null));
+  const currentAgency = ref(
+    isDemoWindowSession()
+      ? (getDemoWindowAgency() || null)
+      : safeJsonParse(localStorage.getItem('currentAgency') || 'null', null)
+  );
   /**
    * platformMode: true when the super-admin explicitly chose "Platform" (no tenant scoping).
    * Prevents fetchUserAgencies from snapping currentAgency back to a default tenant.
@@ -145,12 +154,23 @@ export const useAgencyStore = defineStore('agency', () => {
 
   const setCurrentAgency = (agency) => {
     currentAgency.value = agency;
-    localStorage.setItem('currentAgency', JSON.stringify(agency));
+    if (isDemoWindowSession()) {
+      try {
+        if (agency) sessionStorage.setItem(DEMO_WINDOW_AGENCY_KEY, JSON.stringify(agency));
+        else sessionStorage.removeItem(DEMO_WINDOW_AGENCY_KEY);
+      } catch {
+        // ignore
+      }
+    } else {
+      localStorage.setItem('currentAgency', JSON.stringify(agency));
+    }
     bumpBrandingContextGeneration();
     if (agency?.id) {
       // Switching to a specific tenant clears explicit platform mode.
       platformMode.value = false;
-      sessionStorage.removeItem('__pt_platform_mode__');
+      if (!isDemoWindowSession()) {
+        sessionStorage.removeItem('__pt_platform_mode__');
+      }
       hydrateAgencyById(agency.id);
     }
   };
@@ -160,7 +180,9 @@ export const useAgencyStore = defineStore('agency', () => {
     platformMode.value = true;
     sessionStorage.setItem('__pt_platform_mode__', '1');
     currentAgency.value = null;
-    localStorage.setItem('currentAgency', JSON.stringify(null));
+    if (!isDemoWindowSession()) {
+      localStorage.setItem('currentAgency', JSON.stringify(null));
+    }
     bumpBrandingContextGeneration();
   };
 

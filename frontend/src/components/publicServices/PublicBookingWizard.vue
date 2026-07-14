@@ -93,49 +93,64 @@
               <input v-model="form.phone" type="tel" placeholder="(555) 000-0000" autocomplete="tel" />
             </label>
             <div class="booking-type-toggle">
-              <p class="field-label">Are you a new or existing client?</p>
+              <p class="field-label">{{ isDiscoveryService ? 'What are you booking?' : 'Are you a new or existing client?' }}</p>
               <div class="toggle-row">
-                <button class="toggle-btn" :class="{ active: form.bookingMode === 'NEW_CLIENT' }" type="button" @click="form.bookingMode = 'NEW_CLIENT'">New client</button>
-                <button class="toggle-btn" :class="{ active: form.bookingMode === 'CURRENT_CLIENT' }" type="button" @click="form.bookingMode = 'CURRENT_CLIENT'">Existing client</button>
+                <button class="toggle-btn" :class="{ active: form.bookingMode === 'NEW_CLIENT' }" type="button" @click="form.bookingMode = 'NEW_CLIENT'">
+                  {{ isDiscoveryService ? 'Free discovery call' : 'New client' }}
+                </button>
+                <button class="toggle-btn" :class="{ active: form.bookingMode === 'CURRENT_CLIENT' }" type="button" @click="form.bookingMode = 'CURRENT_CLIENT'">
+                  {{ isDiscoveryService ? 'Existing client' : 'Existing client' }}
+                </button>
               </div>
+              <p v-if="isDiscoveryService && form.bookingMode === 'NEW_CLIENT'" class="discovery-free-note">
+                Discovery meetings are free — no payment required. You can enroll in services afterward if it’s a fit.
+              </p>
             </div>
           </div>
 
           <!-- Step: client info (new) -->
           <div v-if="currentStep.id === 'client_new'" class="step-form">
-            <p class="step-hint">Please provide information about the person receiving services.</p>
+            <p class="step-hint">
+              {{ isDiscoveryService
+                ? 'Tell us who the discovery call is for (often yourself).'
+                : 'Please provide information about the person receiving services.' }}
+            </p>
             <div class="form-row">
               <label class="field">
-                <span>Client full name <span class="req">*</span></span>
+                <span>{{ isDiscoveryService ? 'Your full name' : 'Client full name' }} <span class="req">*</span></span>
                 <input v-model="form.clientFullName" type="text" placeholder="Full name" />
                 <span v-if="fieldError('clientFullName')" class="field-error">{{ fieldError('clientFullName') }}</span>
               </label>
             </div>
             <div class="form-row">
               <label class="field">
-                <span>Guardian first name <span class="req">*</span></span>
+                <span>{{ isDiscoveryService ? 'Contact first name' : 'Guardian first name' }} <span class="req">*</span></span>
                 <input v-model="form.guardianFirstName" type="text" placeholder="First name" />
                 <span v-if="fieldError('guardianFirstName')" class="field-error">{{ fieldError('guardianFirstName') }}</span>
               </label>
               <label class="field">
-                <span>Guardian last name</span>
+                <span>{{ isDiscoveryService ? 'Contact last name' : 'Guardian last name' }}</span>
                 <input v-model="form.guardianLastName" type="text" placeholder="Last name" />
               </label>
             </div>
             <div class="form-row">
               <label class="field">
-                <span>Guardian email <span class="req">*</span></span>
-                <input v-model="form.guardianEmail" type="email" placeholder="guardian@example.com" />
+                <span>{{ isDiscoveryService ? 'Contact email' : 'Guardian email' }} <span class="req">*</span></span>
+                <input v-model="form.guardianEmail" type="email" :placeholder="isDiscoveryService ? 'you@example.com' : 'guardian@example.com'" />
                 <span v-if="fieldError('guardianEmail')" class="field-error">{{ fieldError('guardianEmail') }}</span>
               </label>
               <label class="field">
-                <span>Guardian phone</span>
+                <span>{{ isDiscoveryService ? 'Contact phone' : 'Guardian phone' }}</span>
                 <input v-model="form.guardianPhone" type="tel" />
               </label>
             </div>
             <label class="field">
-              <span>Relationship to client</span>
-              <input v-model="form.guardianRelationship" type="text" placeholder="Parent, Guardian…" />
+              <span>{{ isDiscoveryService ? 'Relationship' : 'Relationship to client' }}</span>
+              <input
+                v-model="form.guardianRelationship"
+                type="text"
+                :placeholder="isDiscoveryService ? 'Self, Partner…' : 'Parent, Guardian…'"
+              />
             </label>
           </div>
 
@@ -437,6 +452,10 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'submitted']);
 
+const isDiscoveryService = computed(() =>
+  props.serviceType === 'coaching' || props.serviceType === 'consulting'
+);
+
 const SUBJECT_OPTIONS = ['Math', 'Reading', 'Writing', 'Science', 'History', 'SAT/ACT Prep', 'Spanish', 'English', 'Study Skills', 'Other'];
 const GRADE_OPTIONS = ['K–2', '3–5', '6–8', '9–12', 'College'];
 
@@ -452,7 +471,7 @@ const gradeLevelOptions = computed(() => {
 const ALL_STEPS = [
   { id: 'confirm', title: 'Confirm your appointment' },
   { id: 'about', title: 'About you' },
-  { id: 'client_new', title: 'Client information', forBookingMode: 'NEW_CLIENT' },
+  { id: 'client_new', title: 'Your information', forBookingMode: 'NEW_CLIENT' },
   { id: 'client_existing', title: 'Client verification', forBookingMode: 'CURRENT_CLIENT' },
   { id: 'tutoring_details', title: 'Session details', forServiceType: 'tutoring' },
   { id: 'notes', title: 'Additional notes' },
@@ -665,6 +684,8 @@ const visibleSteps = computed(() => {
     if (s.forServiceType) return s.forServiceType === props.serviceType;
     // assessment_check: only for new tutoring clients
     if (s.forNewTutoring) return props.serviceType === 'tutoring' && form.value.bookingMode === 'NEW_CLIENT';
+    // Discovery (coaching/consulting): no intake/eval — free discovery only
+    if (s.id === 'intake' && isDiscoveryService.value) return false;
     // Hide the old optional intake step when eval path is active (eval-required path handles it)
     if (s.id === 'intake') return !(props.serviceType === 'tutoring' && form.value.bookingMode === 'NEW_CLIENT');
     return true;
@@ -797,7 +818,7 @@ async function submit() {
       guardianLastName: f.guardianLastName || null,
       guardianEmail: f.guardianEmail || null,
       guardianPhone: f.guardianPhone || null,
-      guardianRelationship: f.guardianRelationship || 'Parent',
+      guardianRelationship: f.guardianRelationship || (isDiscoveryService.value ? 'Self / Contact' : 'Parent'),
       subjectArea: props.serviceType === 'tutoring' ? (f.subjectArea || null) : null,
       clientGradeLevel: props.serviceType === 'tutoring' ? (f.clientGradeLevel || null) : null,
       // Evaluation gate fields (migration 868)
@@ -967,6 +988,15 @@ async function submit() {
 }
 .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--wiz-a); }
 .field-label { font-size: 0.8125rem; font-weight: 500; color: #374151; margin: 0 0 0.5rem; }
+.discovery-free-note {
+  margin: 0.65rem 0 0;
+  font-size: 0.8rem;
+  color: #047857;
+  background: rgba(5, 150, 105, 0.08);
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  line-height: 1.4;
+}
 .field-error { font-size: 0.78rem; color: #dc2626; }
 .req { color: #dc2626; }
 .optional { color: #9ca3af; font-weight: 400; }

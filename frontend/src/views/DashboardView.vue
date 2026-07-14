@@ -1224,7 +1224,7 @@ const PROGRAM_WORKSPACE_TAB = '__program_workspace__';
 const activeTab = ref('checklist');
 const previousContentTab = ref('checklist');
 const selectedRailCardId = ref('checklist');
-const myTab = ref('account'); // 'account' | 'credentials' | 'documents' | 'payroll' | 'compensation' | 'kudos' | 'preferences'
+const myTab = ref('account'); // 'account' | 'credentials' | 'documents' | 'life-balance' | 'payroll' | 'compensation' | 'kudos' | 'preferences'
 
 const onboardingCompletion = ref(100);
 const trainingCount = ref(0);

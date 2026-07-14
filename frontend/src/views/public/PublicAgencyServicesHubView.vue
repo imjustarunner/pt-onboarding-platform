@@ -103,12 +103,15 @@ const DefaultIcon = {
 function iconForType(serviceType) {
   if (serviceType === 'counseling') return CounselingIcon;
   if (serviceType === 'tutoring') return TutoringIcon;
+  if (serviceType === 'coaching' || serviceType === 'consulting') return CounselingIcon;
   return DefaultIcon;
 }
 
 function defaultBlurb(serviceType) {
   if (serviceType === 'counseling') return 'Browse licensed therapists and counselors. View availability, specialties, and request an appointment online.';
   if (serviceType === 'tutoring') return 'Find the right tutor for your student. Filter by subject, grade level, and schedule to book a session that fits.';
+  if (serviceType === 'coaching') return 'Book a discovery session with your coach. Share your goals and pick a time that works.';
+  if (serviceType === 'consulting') return 'Request a discovery call with your consultant. Tell us what you need and choose a time.';
   return 'Browse available providers and book a session online.';
 }
 
@@ -119,6 +122,10 @@ function navigate(serviceType) {
     router.push(`/${s}/find-counselor`);
   } else if (serviceType === 'tutoring') {
     router.push(`/${s}/find-tutor`);
+  } else if (serviceType === 'coaching') {
+    router.push(`/${s}/find-coach`);
+  } else if (serviceType === 'consulting') {
+    router.push(`/${s}/find-consultant`);
   }
 }
 

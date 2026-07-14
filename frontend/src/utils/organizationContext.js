@@ -55,6 +55,9 @@ export function getOrganizationDashboardRoute(organizationType, slug) {
   if (organizationType === 'school') {
     return `/${slug}/dashboard`; // School portal dashboard
   }
+  if (organizationType === 'life_coach' || organizationType === 'consultant') {
+    return slug ? `/${slug}/dashboard` : '/dashboard';
+  }
   // For agencies, programs, and learning, use standard routes
   return '/dashboard';
 }

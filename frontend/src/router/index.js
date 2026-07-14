@@ -226,6 +226,36 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/life-balance-form/:publicKey',
+    name: 'LifeBalanceIntakeStart',
+    component: () => import('../views/lifeBalance/LifeBalanceAssessmentView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/lbw/:accessToken',
+    name: 'LifeBalancePublicShort',
+    component: () => import('../views/lifeBalance/LifeBalanceAssessmentView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/life-balance/:accessToken',
+    name: 'LifeBalancePublic',
+    component: () => import('../views/lifeBalance/LifeBalanceAssessmentView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/life-balance/assessment/:assessmentId',
+    name: 'LifeBalanceAuthAssessmentGlobal',
+    component: () => import('../views/lifeBalance/LifeBalanceAssessmentView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/:organizationSlug/life-balance/assessment/:assessmentId',
+    name: 'LifeBalanceAuthAssessment',
+    component: () => import('../views/lifeBalance/LifeBalanceAssessmentView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
     path: '/careers/:agencySlug',
     name: 'PublicCareers',
     component: () => import('../views/public/PublicCareersView.vue'),
@@ -452,6 +482,24 @@ const routes = [
     component: () => import('../views/public/PublicTutorFinderView.vue'),
     meta: { requiresGuest: false, organizationSlug: true }
   },
+  {
+    path: '/:organizationSlug/find-coach',
+    name: 'PublicCoachFinder',
+    component: () => import('../views/public/PublicPractitionerBookingView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true, serviceType: 'coaching' }
+  },
+  {
+    path: '/:organizationSlug/find-consultant',
+    name: 'PublicConsultantFinder',
+    component: () => import('../views/public/PublicPractitionerBookingView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true, serviceType: 'consulting' }
+  },
+  {
+    path: '/:organizationSlug/discovery/:token',
+    name: 'PublicDiscoverySession',
+    component: () => import('../views/public/PublicDiscoverySessionView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true, publicDiscovery: true }
+  },
   // Short public URL: /{agencySlug}/events (same data as /open-events/{agencySlug})
   {
     path: '/:organizationSlug/events',
@@ -632,6 +680,12 @@ const routes = [
     name: 'OrganizationDashboard',
     component: () => import('../views/OrganizationDashboardView.vue'),
     meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/client-dashboard',
+    name: 'OrganizationPractitionerClientDashboard',
+    component: () => import('../views/PractitionerClientDashboardView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true, requiresRole: ['client_guardian', 'admin', 'super_admin', 'support'] }
   },
   {
     path: '/:organizationSlug/my_club_dashboard',
@@ -1037,10 +1091,11 @@ const routes = [
   {
     path: '/admin-dashboard',
     name: 'TenantAdminDashboard',
-    component: () => import('../views/admin/TenantAdminDashboard.vue'),
-    meta: { 
-      requiresAuth: true, 
-      requiresRole: ['admin', 'support', 'super_admin', 'club_manager', 'provider_plus', 'clinical_practice_assistant'] 
+    component: () => import('../views/admin/AdminDashboardBetaRouter.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'super_admin', 'club_manager', 'provider_plus', 'clinical_practice_assistant'],
+      platformCommandCenter: true
     }
   },
   {
@@ -1207,6 +1262,18 @@ const routes = [
     name: 'OrganizationPublicServices',
     component: () => import('../views/admin/PublicServicesAdminView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/session-packages',
+    name: 'OrganizationSessionPackages',
+    component: () => import('../views/admin/PractitionerPackagesAdminView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/packet/:token',
+    name: 'PublicPractitionerPacket',
+    component: () => import('../views/public/PublicPractitionerPacketView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true, publicPacket: true }
   },
   {
     path: '/:organizationSlug/admin/club-settings',
@@ -1836,7 +1903,7 @@ const routes = [
     path: '/admin',
     name: 'AdminDashboard',
     component: () => import('../views/admin/AdminDashboard.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], platformCommandCenter: true }
   },
   {
     path: '/admin/modules',
@@ -2442,6 +2509,12 @@ const routes = [
     name: 'PasswordlessTokenLogin',
     component: () => import('../views/PasswordlessTokenLoginView.vue'),
     meta: { requiresGuest: true }
+  },
+  {
+    path: '/demo-launch',
+    name: 'DemoLaunch',
+    component: () => import('../views/DemoLaunchView.vue'),
+    meta: { requiresAuth: false, requiresGuest: false }
   },
   {
     path: '/pre-hire/:token',
@@ -3543,8 +3616,12 @@ router.beforeEach(async (to, from, next) => {
     if (String(authStore.user?.role || '').toLowerCase() === 'client_guardian') {
       const p = String(to.path || '');
       const isGuardianPath = p === '/guardian' || p.endsWith('/guardian') || p.includes('/guardian/');
+      const isPractitionerClientDashboard = p.endsWith('/client-dashboard') || p.includes('/client-dashboard');
       const GUARDIAN_ALLOWED_EXTERNAL = ['/tutoring-session/', '/in-person-tutoring-session/'];
-      const pathOk = isGuardianPath || GUARDIAN_ALLOWED_EXTERNAL.some((prefix) => p.includes(prefix));
+      const pathOk =
+        isGuardianPath ||
+        isPractitionerClientDashboard ||
+        GUARDIAN_ALLOWED_EXTERNAL.some((prefix) => p.includes(prefix));
       if (!pathOk) {
         next(getDashboardRoute());
         return;

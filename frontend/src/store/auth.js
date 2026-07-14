@@ -3,12 +3,33 @@ import { ref, computed } from 'vue';
 import api from '../services/api';
 import { storeUserAgencies, clearStoredAgencies } from '../utils/loginRedirect';
 import { saveBiometricToken, clearBiometricToken } from '../utils/biometricAuth';
+import {
+  clearDemoWindowSession,
+  getDemoWindowToken,
+  getDemoWindowUser,
+  getDemoWindowAgency,
+  isDemoWindowSession,
+  persistDemoWindowSession
+} from '../utils/demoWindowSession';
 
 export const useAuthStore = defineStore('auth', () => {
   // Token is now stored in HttpOnly cookie, not localStorage
   const token = ref(null); // Keep for backward compatibility check, but not used
-  const storedUser = localStorage.getItem('user');
-  const user = ref(storedUser ? JSON.parse(storedUser) : null);
+  // Demo lab windows hydrate from sessionStorage so they never clobber the parent login.
+  const storedUser = isDemoWindowSession()
+    ? (getDemoWindowUser() || null)
+    : (() => {
+        try {
+          const raw = localStorage.getItem('user');
+          return raw ? JSON.parse(raw) : null;
+        } catch {
+          return null;
+        }
+      })();
+  const user = ref(storedUser);
+  if (isDemoWindowSession()) {
+    token.value = getDemoWindowToken();
+  }
 
   const isAuthenticated = computed(() => {
     // Token is in HttpOnly cookie, so we check user object only
@@ -20,6 +41,19 @@ export const useAuthStore = defineStore('auth', () => {
   });
 
   const setAuth = (newToken, newUser, sessionId = null) => {
+    // Never persist parent-shared storage from a window-scoped demo lab session.
+    if (isDemoWindowSession()) {
+      persistDemoWindowSession({
+        token: newToken,
+        user: newUser,
+        agency: getDemoWindowAgency(),
+        targetPath: null
+      });
+      token.value = newToken || null;
+      user.value = newUser || null;
+      return;
+    }
+
     // Store JWT for Capacitor/iOS (WKWebView can't reliably forward HttpOnly cookies cross-origin).
     // On web browsers the cookie is the primary auth mechanism; on native the header takes over.
     if (newToken) {
@@ -49,7 +83,22 @@ export const useAuthStore = defineStore('auth', () => {
     }
   };
 
+  /** Demo lab: bind auth to this browser window only (sessionStorage). */
+  const setWindowScopedAuth = ({ token: launchToken, user: launchUser, agency = null, targetPath = null }) => {
+    persistDemoWindowSession({
+      token: launchToken,
+      user: launchUser,
+      agency,
+      targetPath
+    });
+    token.value = launchToken || null;
+    user.value = launchUser || null;
+  };
+
   const clearAuth = () => {
+    if (isDemoWindowSession()) {
+      clearDemoWindowSession();
+    }
     token.value = null;
     user.value = null;
     localStorage.removeItem('user');
@@ -335,6 +384,7 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     isAuthenticated,
     setAuth,
+    setWindowScopedAuth,
     clearAuth,
     login,
     passwordlessLogin,
