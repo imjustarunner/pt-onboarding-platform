@@ -1176,13 +1176,21 @@ const routes = [
     path: '/:organizationSlug/admin/users/:userId',
     name: 'OrganizationUserProfile',
     component: () => import('../views/admin/UserProfileView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'club_manager'], organizationSlug: true }
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'super_admin', 'club_manager', 'clinical_practice_assistant'],
+      organizationSlug: true
+    }
   },
   {
     path: '/:organizationSlug/admin/users',
     name: 'OrganizationUserManager',
     component: () => import('../views/admin/UserManager.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'club_manager'], organizationSlug: true }
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'super_admin', 'club_manager', 'clinical_practice_assistant'],
+      organizationSlug: true
+    }
   },
   {
     path: '/:organizationSlug/admin/guardians',
@@ -1973,13 +1981,19 @@ const routes = [
     path: '/admin/users/:userId',
     name: 'UserProfile',
     component: () => import('../views/admin/UserProfileView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant']
+    }
   },
   {
     path: '/admin/users',
     name: 'UserManager',
     component: () => import('../views/admin/UserManager.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant']
+    }
   },
   {
     path: '/admin/guardians',

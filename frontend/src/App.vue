@@ -277,7 +277,7 @@
                 Browse Clubs
               </router-link>
               <router-link
-                v-if="showOperationsDashboardLink && user?.role === 'provider_plus' && !isSscSstcTenant"
+                v-if="showOperationsDashboardLink && (user?.role === 'provider_plus' || user?.role === 'clinical_practice_assistant') && !isSscSstcTenant"
                 :to="operationsDashboardTo"
                 @click="closeMobileMenu"
               >
@@ -573,6 +573,10 @@
                   </button>
                   <div v-if="managementMenuOpen" class="nav-dropdown-menu">
                     <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" >Admin Dashboard</router-link>
+                    <router-link
+                      :to="operationsDashboardTo"
+                      v-if="showOperationsDashboardLink"
+                    >Operations Dashboard</router-link>
                     <div class="nav-dropdown-sep" />
                     <router-link :to="orgTo('/admin/executive-report')" v-if="user?.role === 'super_admin'" >Executive Report</router-link>
                     <div class="nav-payroll-item" v-if="canSeePayrollManagement">
@@ -1076,7 +1080,7 @@
               class="mobile-nav-link"
             >Browse Clubs</router-link>
             <router-link
-              v-if="showOperationsDashboardLink && user?.role === 'provider_plus' && !isSscSstcTenant"
+              v-if="showOperationsDashboardLink && (user?.role === 'provider_plus' || user?.role === 'clinical_practice_assistant') && !isSscSstcTenant"
               :to="operationsDashboardTo"
               @click="closeMobileMenu"
               class="mobile-nav-link"
@@ -1370,6 +1374,12 @@
                 </button>
                 <template v-if="mobileManagementExpanded">
                   <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Admin Dashboard</router-link>
+                  <router-link
+                    :to="operationsDashboardTo"
+                    v-if="showOperationsDashboardLink"
+                    @click="closeMobileMenu"
+                    class="mobile-nav-link mobile-nav-sublink"
+                  >Operations Dashboard</router-link>
                   <router-link :to="orgTo('/admin/executive-report')" v-if="user?.role === 'super_admin'" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Executive Report</router-link>
                   <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">
                     <span>Payroll</span>
@@ -2623,11 +2633,17 @@ const showSummitStatsClubContextBar = computed(() => {
 });
 
 const canSeeFullPortalNav = computed(() => {
-  // Keep the “full” admin dropdown navigation for backoffice roles.
-  // Limited-access users (payroll/hiring/supervisors) should not see it.
+  // Full Directory / Management / People Ops menus for backoffice and operations roles.
+  // Limited-access users (payroll/hiring-only, plain supervisors) should not see it.
   if (isSscSstcTenant.value) return false;
   const role = user.value?.role;
-  return role === 'admin' || role === 'super_admin' || role === 'support';
+  return (
+    role === 'admin' ||
+    role === 'super_admin' ||
+    role === 'support' ||
+    role === 'clinical_practice_assistant' ||
+    role === 'provider_plus'
+  );
 });
 
 /** Referral directory in Directory / Management menus: only under `canSeePortalNav && canSeeFullPortalNav` parents; excludes affiliation. */

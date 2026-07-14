@@ -204,6 +204,14 @@ const cards = computed(() => {
     emoji: '🩺'
   },
   {
+    id: 'users',
+    title: 'Users',
+    description: 'Browse team profiles and lifecycle status.',
+    to: orgTo('/admin/users'),
+    iconKey: 'users',
+    emoji: '👤'
+  },
+  {
     id: 'submit',
     title: 'Submit',
     description: 'Mileage, in-school claims, availability, PTO, and other payroll submissions.',

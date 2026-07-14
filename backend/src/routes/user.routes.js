@@ -20,7 +20,7 @@ import {
   getAgencyProviderPortalSettings,
   upsertAgencyProviderPortalSettings
 } from '../controllers/providerPublicProfile.controller.js';
-import { authenticate, requireAdmin, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireAdmin, requireBackofficeAdmin, requireBackofficeAdminOrCpa } from '../middleware/auth.middleware.js';
 import {
   getUserLifecycle,
   updateLifecycleDates,
@@ -128,14 +128,15 @@ router.delete('/:id', authenticate, requireBackofficeAdmin, deleteUser);
 router.get('/:id/onboarding-document', authenticate, getOnboardingDocument);
 
 // Lifecycle tab routes (admin, support, super_admin + hiring-capable staff)
-router.get('/:id/lifecycle', authenticate, requireBackofficeAdmin, getUserLifecycle);
-router.patch('/:id/lifecycle/dates', authenticate, requireBackofficeAdmin, updateLifecycleDates);
-router.patch('/:id/lifecycle/separation', authenticate, requireBackofficeAdmin, updateSeparationInfo);
-router.post('/:id/lifecycle/checklist/:definitionId/toggle', authenticate, requireBackofficeAdmin, toggleLifecycleChecklistItem);
-router.post('/:id/lifecycle/checklist/:definitionId/attachment', authenticate, requireBackofficeAdmin, uploadLifecycleChecklistAttachment);
-router.get('/:id/lifecycle/checklist/:definitionId/attachment', authenticate, requireBackofficeAdmin, downloadLifecycleChecklistAttachment);
-router.delete('/:id/lifecycle/checklist/:definitionId/attachment', authenticate, requireBackofficeAdmin, deleteLifecycleChecklistAttachment);
-router.post('/:id/lifecycle/sync', authenticate, requireBackofficeAdmin, syncLifecycle);
+// Lifecycle: backoffice admins + clinical practice assistants
+router.get('/:id/lifecycle', authenticate, requireBackofficeAdminOrCpa, getUserLifecycle);
+router.patch('/:id/lifecycle/dates', authenticate, requireBackofficeAdminOrCpa, updateLifecycleDates);
+router.patch('/:id/lifecycle/separation', authenticate, requireBackofficeAdminOrCpa, updateSeparationInfo);
+router.post('/:id/lifecycle/checklist/:definitionId/toggle', authenticate, requireBackofficeAdminOrCpa, toggleLifecycleChecklistItem);
+router.post('/:id/lifecycle/checklist/:definitionId/attachment', authenticate, requireBackofficeAdminOrCpa, uploadLifecycleChecklistAttachment);
+router.get('/:id/lifecycle/checklist/:definitionId/attachment', authenticate, requireBackofficeAdminOrCpa, downloadLifecycleChecklistAttachment);
+router.delete('/:id/lifecycle/checklist/:definitionId/attachment', authenticate, requireBackofficeAdminOrCpa, deleteLifecycleChecklistAttachment);
+router.post('/:id/lifecycle/sync', authenticate, requireBackofficeAdminOrCpa, syncLifecycle);
 
 // Pending status endpoints
 router.get('/:id/pending/status', authenticate, checkPendingCompletionStatus);

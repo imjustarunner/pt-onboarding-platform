@@ -295,6 +295,35 @@ export const requireAdmin = async (req, res, next) => {
 };
 
 /**
+ * Backoffice admin or clinical practice assistant.
+ * Use for surfaces CPAs need (e.g. user lifecycle) without opening to supervisors/provider_plus.
+ */
+export const requireBackofficeAdminOrCpa = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+    const role = normalizeAuthRole(req.user.role);
+    if (isBackofficeAdminRole(role) || role === 'clinical_practice_assistant') {
+      return next();
+    }
+    const uid = req.user.id;
+    if (!uid) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+    const row = await User.findById(uid);
+    const dbRole = normalizeAuthRole(row?.role);
+    if (row && (isBackofficeAdminRole(dbRole) || dbRole === 'clinical_practice_assistant')) {
+      return next();
+    }
+    return res.status(403).json({ error: { message: 'Admin access required' } });
+  } catch (err) {
+    console.error('requireBackofficeAdminOrCpa error:', err);
+    return res.status(403).json({ error: { message: 'Admin access required' } });
+  }
+};
+
+/**
  * Backoffice admin access only (no supervisors/CPAs).
  * Use this for actions that should be limited to true admins/support/super admins.
  *

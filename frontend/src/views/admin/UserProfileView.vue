@@ -2795,8 +2795,15 @@ const canViewLifecycleTab = computed(() => {
   const u = authStore.user;
   if (!u) return false;
   const role = String(u.role || '');
-  // Backoffice admins always see it
-  if (role === 'admin' || role === 'super_admin' || role === 'support') return true;
+  // Backoffice admins and clinical practice assistants always see it
+  if (
+    role === 'admin' ||
+    role === 'super_admin' ||
+    role === 'support' ||
+    role === 'clinical_practice_assistant'
+  ) {
+    return true;
+  }
   // Staff/hiring-capable users with People Ops or hiring feature enabled
   const caps = u.capabilities || {};
   const canHire = caps.canManageHiring || u.has_hiring_access === 1 || u.has_hiring_access === '1' || u.has_hiring_access === true;
