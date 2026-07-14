@@ -232,6 +232,9 @@ export function mergeCareersPageWithDefaults(saved, { slug = '', agencyName = ''
   return {
     ...defaults,
     accentColor: pickText('accentColor') || defaults.accentColor,
+    fontFamily: String(raw.fontFamily || '').trim().toLowerCase(),
+    headingFontFamily: String(raw.headingFontFamily || '').trim().toLowerCase(),
+    textStyles: normalizeTextStyles(raw.textStyles),
     heroHeadline: pickText('heroHeadline'),
     heroSubheadline: pickText('heroSubheadline'),
     lead: pickText('lead'),
@@ -315,4 +318,178 @@ export function resolveDefaultJobIconUrl(roleType, educationLevel) {
 
 export function isCareersStaticAssetUrl(url) {
   return String(url || '').startsWith('/assets/careers/');
+}
+
+/** Curated fonts for public careers page editing (Google Fonts where noted). */
+export const CAREERS_FONT_OPTIONS = [
+  { id: '', label: 'Default', css: '', google: '' },
+  { id: 'dm-sans', label: 'DM Sans', css: '"DM Sans", system-ui, sans-serif', google: 'DM+Sans:wght@400;600;700;800' },
+  { id: 'manrope', label: 'Manrope', css: 'Manrope, system-ui, sans-serif', google: 'Manrope:wght@400;600;700;800' },
+  { id: 'space-grotesk', label: 'Space Grotesk', css: '"Space Grotesk", system-ui, sans-serif', google: 'Space+Grotesk:wght@400;600;700' },
+  { id: 'outfit', label: 'Outfit', css: 'Outfit, system-ui, sans-serif', google: 'Outfit:wght@400;600;700;800' },
+  { id: 'fraunces', label: 'Fraunces', css: 'Fraunces, Georgia, serif', google: 'Fraunces:opsz,wght@9..144,500;700;800' },
+  { id: 'source-serif', label: 'Source Serif 4', css: '"Source Serif 4", Georgia, serif', google: 'Source+Serif+4:opsz,wght@8..60,400;600;700' },
+  { id: 'libre-baskerville', label: 'Libre Baskerville', css: '"Libre Baskerville", Georgia, serif', google: 'Libre+Baskerville:ital,wght@0,400;0,700;1,400' },
+  { id: 'newsreader', label: 'Newsreader', css: 'Newsreader, Georgia, serif', google: 'Newsreader:opsz,ital,wght@6..72,0,400;0,600;0,700;1,400' }
+];
+
+export const CAREERS_SIZE_PRESETS = [
+  { id: '', label: 'Default', css: '' },
+  { id: 'xs', label: 'XS', css: '0.75rem' },
+  { id: 'sm', label: 'Small', css: '0.9rem' },
+  { id: 'md', label: 'Medium', css: '1.05rem' },
+  { id: 'lg', label: 'Large', css: '1.2rem' },
+  { id: 'xl', label: 'XL', css: '1.35rem' },
+  { id: '2xl', label: '2XL', css: '1.75rem' },
+  { id: '3xl', label: '3XL', css: '2.25rem' },
+  { id: 'hero', label: 'Hero', css: 'clamp(2rem, 4.4vw, 3.15rem)' },
+  { id: 'hero-lg', label: 'Hero XL', css: 'clamp(2.4rem, 5vw, 3.75rem)' }
+];
+
+export const CAREERS_TEXT_STYLE_KEYS = [
+  { id: 'eyebrow', label: 'Eyebrow' },
+  { id: 'heroHeadline', label: 'Headline' },
+  { id: 'heroSubheadline', label: 'Subheadline' },
+  { id: 'lead', label: 'Lead' },
+  { id: 'bannerText', label: 'Banner' },
+  { id: 'featureTitle', label: 'Feature titles' },
+  { id: 'featureBody', label: 'Feature body' }
+];
+
+const FONT_BY_ID = Object.fromEntries(CAREERS_FONT_OPTIONS.map((f) => [f.id, f]));
+
+export function blankTextStyle() {
+  return { bold: false, italic: false, fontSize: '', color: '', fontFamily: '' };
+}
+
+export function normalizeTextStyle(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  return {
+    bold: src.bold === true,
+    italic: src.italic === true,
+    fontSize: String(src.fontSize || '').trim(),
+    color: String(src.color || '').trim(),
+    fontFamily: String(src.fontFamily || '').trim().toLowerCase()
+  };
+}
+
+export function normalizeTextStyles(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const out = {};
+  for (const { id } of CAREERS_TEXT_STYLE_KEYS) {
+    if (src[id]) out[id] = normalizeTextStyle(src[id]);
+  }
+  return out;
+}
+
+export function resolveCareersFontCss(fontId) {
+  const id = String(fontId || '').trim().toLowerCase();
+  return FONT_BY_ID[id]?.css || '';
+}
+
+export function resolveCareersFontGoogle(fontId) {
+  const id = String(fontId || '').trim().toLowerCase();
+  return FONT_BY_ID[id]?.google || '';
+}
+
+export function textStyleToCss(style, { pageFont = '', headingFont = '', asHeading = false } = {}) {
+  const s = normalizeTextStyle(style);
+  const css = {};
+  if (s.bold) css.fontWeight = '800';
+  if (s.italic) css.fontStyle = 'italic';
+  if (s.fontSize) css.fontSize = s.fontSize;
+  if (s.color) css.color = s.color;
+  const family =
+    resolveCareersFontCss(s.fontFamily) ||
+    (asHeading ? resolveCareersFontCss(headingFont) : '') ||
+    resolveCareersFontCss(pageFont);
+  if (family) css.fontFamily = family;
+  return css;
+}
+
+export function ensureCareersGoogleFonts(fontIds = []) {
+  if (typeof document === 'undefined') return;
+  const families = [...new Set(
+    (fontIds || []).map(resolveCareersFontGoogle).filter(Boolean)
+  )];
+  if (!families.length) return;
+  const href = `https://fonts.googleapis.com/css2?${families.map((f) => `family=${f}`).join('&')}&display=swap`;
+  const existing = document.getElementById('careers-google-fonts');
+  if (existing) {
+    if (existing.getAttribute('href') !== href) existing.setAttribute('href', href);
+    return;
+  }
+  const link = document.createElement('link');
+  link.id = 'careers-google-fonts';
+  link.rel = 'stylesheet';
+  link.href = href;
+  document.head.appendChild(link);
+}
+
+/**
+ * Shape a merged/public careers page into the JSON payload accepted by PUT /hiring/careers-page.
+ */
+export function compactCareersPageForSave(page) {
+  const p = page && typeof page === 'object' ? page : {};
+  const why = normalizeWhyModal(p.whyModal);
+  const impact = normalizeImpactModal(p.impactModal);
+  const navItems = (Array.isArray(p.navItems) ? p.navItems : [])
+    .map((n) => ({
+      label: String(n?.label || '').trim(),
+      href: String(n?.href || '').trim(),
+      style: String(n?.style || 'link').trim() === 'button' ? 'button' : 'link',
+      action: String(n?.action || '').trim(),
+      icon: String(n?.icon || 'none').trim() || 'none'
+    }))
+    .filter((n) => n.label)
+    .slice(0, 6);
+  const featureCards = (Array.isArray(p.featureCards) ? p.featureCards : [])
+    .map((c) => ({
+      icon: String(c?.icon || '').trim(),
+      title: String(c?.title || '').trim(),
+      body: String(c?.body || '').trim()
+    }))
+    .filter((c) => c.title || c.body)
+    .slice(0, 4);
+  const textStyles = normalizeTextStyles(p.textStyles);
+  const compactStyles = {};
+  for (const [key, style] of Object.entries(textStyles)) {
+    if (style.bold || style.italic || style.fontSize || style.color || style.fontFamily) {
+      compactStyles[key] = style;
+    }
+  }
+
+  return {
+    accentColor: String(p.accentColor || '').trim(),
+    fontFamily: String(p.fontFamily || '').trim().toLowerCase(),
+    headingFontFamily: String(p.headingFontFamily || '').trim().toLowerCase(),
+    textStyles: compactStyles,
+    heroHeadline: String(p.heroHeadline || '').trim(),
+    heroSubheadline: String(p.heroSubheadline || '').trim(),
+    eyebrow: String(p.eyebrow || '').trim(),
+    lead: String(p.lead || '').trim(),
+    heroImageUrl: String(p.heroImageUrl || '').trim(),
+    heroImageAlt: String(p.heroImageAlt || '').trim(),
+    heroImagePosition: String(p.heroImagePosition || '').trim(),
+    heroFrameStyle: String(p.heroFrameStyle || '').trim(),
+    showLeafAccent: p.showLeafAccent !== false,
+    bannerText: String(p.bannerText || '').trim(),
+    bannerBullets: (Array.isArray(p.bannerBullets) ? p.bannerBullets : [])
+      .map((b) => String(b || '').trim())
+      .filter(Boolean)
+      .slice(0, 6),
+    bannerLinkText: String(p.bannerLinkText || '').trim(),
+    bannerLinkHref: String(p.bannerLinkHref || '').trim(),
+    bannerLinkAction: String(p.bannerLinkAction || '').trim(),
+    navItems,
+    featureCards,
+    whyModal: {
+      ...why,
+      cards: why.cards.filter((c) => c.title || c.body)
+    },
+    impactModal: {
+      ...impact,
+      stats: impact.stats.filter((s) => s.value || s.label || s.body)
+    }
+  };
 }

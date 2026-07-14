@@ -165,13 +165,97 @@ export function sanitizeCareersPageJson(raw) {
     featureCards,
     trustItems,
     whyModal: sanitizeWhyModal(raw.whyModal || raw.why_modal),
-    impactModal: sanitizeImpactModal(raw.impactModal || raw.impact_modal)
+    impactModal: sanitizeImpactModal(raw.impactModal || raw.impact_modal),
+    fontFamily: sanitizeFontFamilyId(raw.fontFamily || raw.font_family),
+    headingFontFamily: sanitizeFontFamilyId(raw.headingFontFamily || raw.heading_font_family),
+    textStyles: sanitizeTextStyles(raw.textStyles || raw.text_styles)
   };
 
   const hasContent = Object.values(out).some((v) => {
     if (Array.isArray(v)) return v.length > 0;
-    if (v && typeof v === 'object') return true;
+    if (v && typeof v === 'object') return Object.keys(v).length > 0;
     return !!v;
   });
   return hasContent ? out : null;
+}
+
+const TEXT_STYLE_KEYS = new Set([
+  'eyebrow',
+  'heroHeadline',
+  'heroSubheadline',
+  'lead',
+  'bannerText',
+  'featureTitle',
+  'featureBody'
+]);
+
+const ALLOWED_FONT_FAMILY_IDS = new Set([
+  '',
+  'dm-sans',
+  'manrope',
+  'space-grotesk',
+  'fraunces',
+  'source-serif',
+  'libre-baskerville',
+  'outfit',
+  'newsreader'
+]);
+
+const ALLOWED_FONT_SIZES = new Set([
+  '',
+  '0.75rem',
+  '0.9rem',
+  '1.05rem',
+  '1.2rem',
+  '1.35rem',
+  '1.75rem',
+  '2.25rem',
+  'clamp(2rem, 4.4vw, 3.15rem)',
+  'clamp(2.4rem, 5vw, 3.75rem)'
+]);
+
+function sanitizeHexColor(value) {
+  const raw = String(value || '').trim();
+  if (/^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?([0-9a-fA-F]{2})?$/.test(raw)) return raw;
+  return '';
+}
+
+function sanitizeFontFamilyId(value) {
+  const id = String(value || '').trim().toLowerCase();
+  return ALLOWED_FONT_FAMILY_IDS.has(id) ? id : '';
+}
+
+function sanitizeFontSize(value) {
+  const size = String(value || '').trim();
+  if (ALLOWED_FONT_SIZES.has(size)) return size;
+  // Allow simple rem sizes like 1.5rem
+  if (/^\d+(\.\d+)?rem$/.test(size)) {
+    const n = parseFloat(size);
+    if (n >= 0.6 && n <= 5) return size;
+  }
+  return '';
+}
+
+function sanitizeOneTextStyle(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out = {
+    bold: raw.bold === true,
+    italic: raw.italic === true,
+    fontSize: sanitizeFontSize(raw.fontSize || raw.font_size),
+    color: sanitizeHexColor(raw.color),
+    fontFamily: sanitizeFontFamilyId(raw.fontFamily || raw.font_family)
+  };
+  if (!out.bold && !out.italic && !out.fontSize && !out.color && !out.fontFamily) return null;
+  return out;
+}
+
+function sanitizeTextStyles(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out = {};
+  for (const key of Object.keys(raw)) {
+    if (!TEXT_STYLE_KEYS.has(key)) continue;
+    const style = sanitizeOneTextStyle(raw[key]);
+    if (style) out[key] = style;
+  }
+  return out;
 }

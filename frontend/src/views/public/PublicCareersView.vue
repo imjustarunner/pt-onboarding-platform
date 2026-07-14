@@ -1,5 +1,93 @@
 <template>
-  <div class="cr" :style="rootStyle">
+  <div class="cr" :class="{ 'cr--editing': canEditCareers }" :style="rootStyle">
+    <!-- Logged-in hiring managers: edit this public page in place -->
+    <div v-if="canEditCareers" class="cr-editor-bar" :class="{ 'cr-editor-bar--active': editing }">
+      <template v-if="!editing">
+        <button class="cr-editor-btn cr-editor-btn--primary" type="button" @click="startEdit">
+          Edit page
+        </button>
+        <router-link class="cr-editor-link" :to="adminCareersPath">Full editor</router-link>
+      </template>
+      <template v-else>
+        <span class="cr-editor-hint">Editing</span>
+        <button class="cr-editor-btn" type="button" @click="showPhotoPicker = !showPhotoPicker">
+          {{ showPhotoPicker ? 'Hide photo' : 'Change photo' }}
+        </button>
+        <button class="cr-editor-btn" type="button" @click="openStoryForEdit('why')">Why</button>
+        <button class="cr-editor-btn" type="button" @click="openStoryForEdit('impact')">Impact / stats</button>
+        <button
+          class="cr-editor-btn cr-editor-btn--primary"
+          type="button"
+          :disabled="savingEdit"
+          @click="saveEdit"
+        >{{ savingEdit ? 'Saving…' : 'Save' }}</button>
+        <button class="cr-editor-btn" type="button" :disabled="savingEdit" @click="cancelEdit">Cancel</button>
+        <router-link class="cr-editor-link" :to="adminCareersPath">Full editor</router-link>
+
+        <div class="cr-style-strip">
+          <label class="cr-style-field">
+            <span>Accent</span>
+            <input v-model="editDraft.accentColor" type="color" class="cr-style-color" />
+          </label>
+          <label class="cr-style-field">
+            <span>Body font</span>
+            <select v-model="editDraft.fontFamily" class="cr-style-select">
+              <option v-for="f in fontOptions" :key="`body-${f.id || 'default'}`" :value="f.id">{{ f.label }}</option>
+            </select>
+          </label>
+          <label class="cr-style-field">
+            <span>Headings</span>
+            <select v-model="editDraft.headingFontFamily" class="cr-style-select">
+              <option v-for="f in fontOptions" :key="`head-${f.id || 'default'}`" :value="f.id">{{ f.label }}</option>
+            </select>
+          </label>
+          <label class="cr-style-field">
+            <span>Style target</span>
+            <select v-model="styleTarget" class="cr-style-select">
+              <option v-for="t in textStyleKeys" :key="t.id" :value="t.id">{{ t.label }}</option>
+            </select>
+          </label>
+          <button
+            class="cr-style-toggle"
+            type="button"
+            :class="{ 'cr-style-toggle--on': activeTextStyle.bold }"
+            title="Bold"
+            @click="toggleStyleFlag('bold')"
+          >B</button>
+          <button
+            class="cr-style-toggle cr-style-toggle--italic"
+            type="button"
+            :class="{ 'cr-style-toggle--on': activeTextStyle.italic }"
+            title="Italic"
+            @click="toggleStyleFlag('italic')"
+          >I</button>
+          <label class="cr-style-field">
+            <span>Size</span>
+            <select :value="activeTextStyle.fontSize" class="cr-style-select" @change="setStyleFontSize($event.target.value)">
+              <option v-for="s in sizePresets" :key="`size-${s.id || 'default'}`" :value="s.css">{{ s.label }}</option>
+            </select>
+          </label>
+          <label class="cr-style-field">
+            <span>Color</span>
+            <input
+              :value="activeTextStyle.color || '#0f172a'"
+              type="color"
+              class="cr-style-color"
+              @input="setStyleColor($event.target.value)"
+            />
+          </label>
+          <label class="cr-style-field">
+            <span>Field font</span>
+            <select :value="activeTextStyle.fontFamily" class="cr-style-select" @change="setStyleFontFamily($event.target.value)">
+              <option v-for="f in fontOptions" :key="`field-${f.id || 'default'}`" :value="f.id">{{ f.label }}</option>
+            </select>
+          </label>
+        </div>
+      </template>
+      <p v-if="editError" class="cr-editor-error">{{ editError }}</p>
+      <p v-if="editSavedFlash" class="cr-editor-ok">Saved</p>
+    </div>
+
     <!-- ── NAV ── -->
     <nav class="cr-nav">
       <div class="cr-nav-inner">
@@ -11,28 +99,40 @@
           </span>
         </a>
         <div class="cr-nav-links">
-          <template v-for="item in navItems" :key="item.label">
-            <a
-              v-if="item.style === 'button'"
-              class="cr-nav-btn"
-              href="#"
-              @click.prevent="handleNavAction(item)"
-            >{{ item.label }}</a>
-            <a
-              v-else
-              class="cr-nav-link"
-              href="#"
-              @click.prevent="handleNavAction(item)"
+          <template v-if="editing && editDraft">
+            <div
+              v-for="(item, i) in editDraft.navItems"
+              :key="`nav-edit-${i}`"
+              class="cr-nav-edit"
+              :class="{ 'cr-nav-edit--button': item.style === 'button' }"
             >
-              <img
-                v-if="featureIconSrc(item.icon)"
-                class="cr-nav-link-icon"
-                :src="featureIconSrc(item.icon)"
-                alt=""
-                aria-hidden="true"
-              />
-              {{ item.label }}
-            </a>
+              <input v-model="item.label" class="cr-inline-input cr-inline-input--nav" type="text" :aria-label="`Nav label ${i + 1}`" />
+            </div>
+          </template>
+          <template v-else>
+            <template v-for="item in navItems" :key="item.label">
+              <a
+                v-if="item.style === 'button'"
+                class="cr-nav-btn"
+                href="#"
+                @click.prevent="handleNavAction(item)"
+              >{{ item.label }}</a>
+              <a
+                v-else
+                class="cr-nav-link"
+                href="#"
+                @click.prevent="handleNavAction(item)"
+              >
+                <img
+                  v-if="featureIconSrc(item.icon)"
+                  class="cr-nav-link-icon"
+                  :src="featureIconSrc(item.icon)"
+                  alt=""
+                  aria-hidden="true"
+                />
+                {{ item.label }}
+              </a>
+            </template>
           </template>
         </div>
       </div>
@@ -42,41 +142,153 @@
     <header id="top" class="cr-hero">
       <div class="cr-hero-inner">
         <div id="why" class="cr-hero-copy">
-          <span v-if="eyebrow" class="cr-eyebrow">{{ eyebrow }}</span>
-          <h1 class="cr-hero-h1">
-            <span v-if="heroHeadline" class="cr-hero-headline">{{ heroHeadline }}</span>
-            <span v-if="heroSubheadline" class="cr-hero-subheadline">{{ heroSubheadline }}</span>
-          </h1>
-          <p v-if="careersSubtitle" class="cr-hero-lead">{{ careersSubtitle }}</p>
-          <div v-if="agencyFeatureCards.length" class="cr-feature-cards">
-            <div v-for="card in agencyFeatureCards" :key="card.title" class="cr-feature-card">
-              <span class="cr-feature-icon" aria-hidden="true">
-                <img v-if="featureIconSrc(card.icon)" class="cr-feature-icon-img" :src="featureIconSrc(card.icon)" alt="" />
-                <template v-else>{{ cardIconEmoji(card.icon) }}</template>
-              </span>
-              <div>
-                <strong class="cr-feature-title">{{ card.title }}</strong>
-                <span v-if="card.body" class="cr-feature-body">{{ card.body }}</span>
+          <template v-if="editing && editDraft">
+            <input
+              v-model="editDraft.eyebrow"
+              class="cr-inline-input cr-eyebrow cr-inline-input--block"
+              type="text"
+              placeholder="Eyebrow (optional)"
+              :style="fieldStyle('eyebrow')"
+              @focus="styleTarget = 'eyebrow'"
+            />
+            <h1 class="cr-hero-h1">
+              <input
+                v-model="editDraft.heroHeadline"
+                class="cr-inline-input cr-hero-headline cr-inline-input--block"
+                type="text"
+                placeholder="Headline"
+                :style="fieldStyle('heroHeadline', { asHeading: true })"
+                @focus="styleTarget = 'heroHeadline'"
+              />
+              <input
+                v-model="editDraft.heroSubheadline"
+                class="cr-inline-input cr-hero-subheadline cr-inline-input--block"
+                type="text"
+                placeholder="Subheadline"
+                :style="fieldStyle('heroSubheadline', { asHeading: true })"
+                @focus="styleTarget = 'heroSubheadline'"
+              />
+            </h1>
+            <textarea
+              v-model="editDraft.lead"
+              class="cr-inline-input cr-hero-lead cr-inline-input--area"
+              rows="3"
+              placeholder="Lead paragraph"
+              :style="fieldStyle('lead')"
+              @focus="styleTarget = 'lead'"
+            />
+            <div class="cr-feature-cards">
+              <div
+                v-for="(card, i) in editDraft.featureCards"
+                :key="`feat-${i}`"
+                class="cr-feature-card cr-feature-card--editing"
+              >
+                <span class="cr-feature-icon" aria-hidden="true">
+                  <img v-if="featureIconSrc(card.icon)" class="cr-feature-icon-img" :src="featureIconSrc(card.icon)" alt="" />
+                  <template v-else>{{ cardIconEmoji(card.icon) }}</template>
+                </span>
+                <div class="cr-feature-edit">
+                  <input
+                    v-model="card.title"
+                    class="cr-inline-input cr-inline-input--block"
+                    type="text"
+                    placeholder="Feature title"
+                    :style="fieldStyle('featureTitle', { asHeading: true })"
+                    @focus="styleTarget = 'featureTitle'"
+                  />
+                  <textarea
+                    v-model="card.body"
+                    class="cr-inline-input cr-inline-input--area"
+                    rows="2"
+                    placeholder="Feature body"
+                    :style="fieldStyle('featureBody')"
+                    @focus="styleTarget = 'featureBody'"
+                  />
+                </div>
               </div>
             </div>
-          </div>
+          </template>
+          <template v-else>
+            <span v-if="eyebrow" class="cr-eyebrow" :style="fieldStyle('eyebrow')">{{ eyebrow }}</span>
+            <h1 class="cr-hero-h1">
+              <span v-if="heroHeadline" class="cr-hero-headline" :style="fieldStyle('heroHeadline', { asHeading: true })">{{ heroHeadline }}</span>
+              <span v-if="heroSubheadline" class="cr-hero-subheadline" :style="fieldStyle('heroSubheadline', { asHeading: true })">{{ heroSubheadline }}</span>
+            </h1>
+            <p v-if="careersSubtitle" class="cr-hero-lead" :style="fieldStyle('lead')">{{ careersSubtitle }}</p>
+            <div v-if="agencyFeatureCards.length" class="cr-feature-cards">
+              <div v-for="card in agencyFeatureCards" :key="card.title" class="cr-feature-card">
+                <span class="cr-feature-icon" aria-hidden="true">
+                  <img v-if="featureIconSrc(card.icon)" class="cr-feature-icon-img" :src="featureIconSrc(card.icon)" alt="" />
+                  <template v-else>{{ cardIconEmoji(card.icon) }}</template>
+                </span>
+                <div>
+                  <strong class="cr-feature-title" :style="fieldStyle('featureTitle', { asHeading: true })">{{ card.title }}</strong>
+                  <span v-if="card.body" class="cr-feature-body" :style="fieldStyle('featureBody')">{{ card.body }}</span>
+                </div>
+              </div>
+            </div>
+          </template>
         </div>
 
         <figure
           class="cr-hero-fig"
           :class="{
             'cr-hero-fig--preframed': heroFrameStyle === 'preframed',
-            'cr-hero-fig--organic': heroFrameStyle === 'organic'
+            'cr-hero-fig--organic': heroFrameStyle === 'organic',
+            'cr-hero-fig--editing': editing
           }"
         >
           <div class="cr-hero-frame">
             <img
               class="cr-hero-img"
-              :src="careersHeroImageUrl"
+              :src="heroDisplayUrl"
               :alt="careersHeroImageAlt"
               :style="{ objectPosition: careersHeroImagePosition }"
               loading="eager"
             />
+            <div v-if="editing" class="cr-hero-photo-overlay">
+              <button class="cr-editor-btn cr-editor-btn--primary" type="button" @click="showPhotoPicker = !showPhotoPicker">
+                {{ showPhotoPicker ? 'Close photo tools' : 'Replace photo' }}
+              </button>
+            </div>
+          </div>
+
+          <div v-if="editing && showPhotoPicker && editDraft" class="cr-photo-picker">
+            <p class="cr-photo-picker-title">Hero photo</p>
+            <div class="cr-photo-presets">
+              <button
+                v-for="preset in heroPresets"
+                :key="preset.id"
+                type="button"
+                class="cr-photo-preset"
+                :class="{ 'cr-photo-preset--active': editDraft.heroImageUrl === preset.url }"
+                @click="applyHeroPreset(preset)"
+              >
+                <img :src="preset.url" :alt="preset.label" />
+                <span>{{ preset.label }}</span>
+              </button>
+            </div>
+            <label class="cr-photo-upload">
+              <span>Upload your own</span>
+              <input ref="heroFileInputRef" type="file" accept="image/*" @change="onHeroFileChange" />
+            </label>
+            <p v-if="pendingHeroFileName" class="cr-photo-upload-name">Selected: {{ pendingHeroFileName }}</p>
+            <label class="cr-style-field cr-style-field--block">
+              <span>Alt text</span>
+              <input v-model="editDraft.heroImageAlt" class="cr-inline-input" type="text" placeholder="Describe the photo" />
+            </label>
+            <label class="cr-style-field cr-style-field--block">
+              <span>Focal point</span>
+              <input v-model="editDraft.heroImagePosition" class="cr-inline-input" type="text" placeholder="center center" />
+            </label>
+            <label class="cr-style-field cr-style-field--block">
+              <span>Frame style</span>
+              <select v-model="editDraft.heroFrameStyle" class="cr-style-select">
+                <option value="preframed">Pre-framed artwork</option>
+                <option value="organic">Organic photo crop</option>
+                <option value="rounded">Rounded</option>
+              </select>
+            </label>
           </div>
         </figure>
       </div>
@@ -128,35 +340,56 @@
       </div>
     </div>
 
+    <div v-if="editing || bannerText" id="impact" class="cr-banner-wrap">
+      <div class="cr-banner" :class="{ 'cr-banner--editing': editing }">
+        <img
+          v-if="bannerIconUrl"
+          class="cr-banner-icon-img"
+          :src="bannerIconUrl"
+          alt=""
+          aria-hidden="true"
+        />
+        <div class="cr-banner-body">
+          <template v-if="editing && editDraft">
+            <textarea
+              v-model="editDraft.bannerText"
+              class="cr-inline-input cr-inline-input--area cr-banner-text"
+              rows="2"
+              placeholder="Banner message"
+              :style="fieldStyle('bannerText')"
+              @focus="styleTarget = 'bannerText'"
+            />
+            <textarea
+              v-model="bannerBulletsText"
+              class="cr-inline-input cr-inline-input--area"
+              rows="3"
+              placeholder="Bullets (one per line)"
+            />
+            <div class="cr-banner-link-edit">
+              <input v-model="editDraft.bannerLinkText" class="cr-inline-input" type="text" placeholder="Link text" />
+            </div>
+          </template>
+          <template v-else>
+            <p class="cr-banner-text" :style="fieldStyle('bannerText')">{{ bannerText }}</p>
+            <p v-if="bannerBullets.length" class="cr-banner-bullets">
+              <span v-for="(b, i) in bannerBullets" :key="b">{{ i > 0 ? ' • ' : '' }}{{ b }}</span>
+            </p>
+          </template>
+        </div>
+        <a
+          v-if="!editing && bannerLinkText && (bannerLinkHref || bannerLinkAction)"
+          class="cr-banner-link"
+          href="#"
+          @click.prevent="handleNavAction({ action: bannerLinkAction, href: bannerLinkHref })"
+        >{{ bannerLinkText }} →</a>
+      </div>
+    </div>
+
     <div v-if="loading" class="cr-status">Loading open positions…</div>
     <div v-else-if="error" class="cr-status cr-status--error">{{ error }}</div>
     <div v-else-if="!jobs.length" id="jobs" class="cr-status">No open positions right now.</div>
 
     <template v-else>
-      <div v-if="bannerText" id="impact" class="cr-banner-wrap">
-        <div class="cr-banner">
-          <img
-            v-if="bannerIconUrl"
-            class="cr-banner-icon-img"
-            :src="bannerIconUrl"
-            alt=""
-            aria-hidden="true"
-          />
-          <div class="cr-banner-body">
-            <p class="cr-banner-text">{{ bannerText }}</p>
-            <p v-if="bannerBullets.length" class="cr-banner-bullets">
-              <span v-for="(b, i) in bannerBullets" :key="b">{{ i > 0 ? ' • ' : '' }}{{ b }}</span>
-            </p>
-          </div>
-          <a
-            v-if="bannerLinkText && (bannerLinkHref || bannerLinkAction)"
-            class="cr-banner-link"
-            href="#"
-            @click.prevent="handleNavAction({ action: bannerLinkAction, href: bannerLinkHref })"
-          >{{ bannerLinkText }} →</a>
-        </div>
-      </div>
-
       <div v-if="!filteredJobs.length" id="jobs" class="cr-status">No roles match the selected filters.</div>
 
       <ul v-else id="jobs" class="cr-list">
@@ -273,26 +506,45 @@
     <div v-if="activeStoryModal === 'why' && whyModal?.enabled !== false" class="cr-modal-overlay" @click.self="activeStoryModal = null">
       <div class="cr-story-modal" role="dialog" aria-modal="true" :aria-label="whyModal.title || 'Why join us'">
         <button class="cr-story-close" type="button" aria-label="Close" @click="activeStoryModal = null">✕</button>
-        <div class="cr-story-header">
-          <img v-if="featureIconSrc(whyModal.icon)" class="cr-story-hero-icon" :src="featureIconSrc(whyModal.icon)" alt="" />
-          <div>
-            <h3>{{ whyModal.title }}</h3>
-            <p v-if="whyModal.subtitle">{{ whyModal.subtitle }}</p>
+        <template v-if="editing && editDraft?.whyModal">
+          <div class="cr-story-header">
+            <img v-if="featureIconSrc(editDraft.whyModal.icon)" class="cr-story-hero-icon" :src="featureIconSrc(editDraft.whyModal.icon)" alt="" />
+            <div class="cr-story-edit-head">
+              <input v-model="editDraft.whyModal.title" class="cr-inline-input cr-inline-input--block" type="text" placeholder="Modal title" />
+              <textarea v-model="editDraft.whyModal.subtitle" class="cr-inline-input cr-inline-input--area" rows="2" placeholder="Subtitle" />
+            </div>
           </div>
-        </div>
-        <div class="cr-why-grid">
-          <div v-for="card in whyModal.cards" :key="card.title" class="cr-why-card">
-            <img v-if="featureIconSrc(card.icon)" :src="featureIconSrc(card.icon)" alt="" />
-            <strong>{{ card.title }}</strong>
-            <span>{{ card.body }}</span>
+          <div class="cr-why-grid">
+            <div v-for="(card, i) in editDraft.whyModal.cards" :key="`why-${i}`" class="cr-why-card cr-why-card--editing">
+              <img v-if="featureIconSrc(card.icon)" :src="featureIconSrc(card.icon)" alt="" />
+              <input v-model="card.title" class="cr-inline-input cr-inline-input--block" type="text" placeholder="Card title" />
+              <textarea v-model="card.body" class="cr-inline-input cr-inline-input--area" rows="3" placeholder="Card body" />
+            </div>
           </div>
-        </div>
-        <button
-          v-if="whyModal.ctaText"
-          class="cr-apply-btn cr-apply-btn--solid cr-story-cta"
-          type="button"
-          @click="handleNavAction({ action: whyModal.ctaAction, href: whyModal.ctaHref })"
-        >{{ whyModal.ctaText }}</button>
+          <input v-model="editDraft.whyModal.ctaText" class="cr-inline-input cr-inline-input--block" type="text" placeholder="CTA button text" />
+        </template>
+        <template v-else>
+          <div class="cr-story-header">
+            <img v-if="featureIconSrc(whyModal.icon)" class="cr-story-hero-icon" :src="featureIconSrc(whyModal.icon)" alt="" />
+            <div>
+              <h3>{{ whyModal.title }}</h3>
+              <p v-if="whyModal.subtitle">{{ whyModal.subtitle }}</p>
+            </div>
+          </div>
+          <div class="cr-why-grid">
+            <div v-for="card in whyModal.cards" :key="card.title" class="cr-why-card">
+              <img v-if="featureIconSrc(card.icon)" :src="featureIconSrc(card.icon)" alt="" />
+              <strong>{{ card.title }}</strong>
+              <span>{{ card.body }}</span>
+            </div>
+          </div>
+          <button
+            v-if="whyModal.ctaText"
+            class="cr-apply-btn cr-apply-btn--solid cr-story-cta"
+            type="button"
+            @click="handleNavAction({ action: whyModal.ctaAction, href: whyModal.ctaHref })"
+          >{{ whyModal.ctaText }}</button>
+        </template>
       </div>
     </div>
 
@@ -300,81 +552,137 @@
     <div v-if="activeStoryModal === 'impact' && impactModal?.enabled !== false" class="cr-modal-overlay" @click.self="activeStoryModal = null">
       <div class="cr-story-modal cr-story-modal--impact" role="dialog" aria-modal="true" :aria-label="impactModal.title || 'Our Impact'">
         <button class="cr-story-close" type="button" aria-label="Close" @click="activeStoryModal = null">✕</button>
-        <div class="cr-story-header">
-          <img v-if="featureIconSrc(impactModal.icon || 'community')" class="cr-story-hero-icon" :src="featureIconSrc(impactModal.icon || 'community')" alt="" />
-          <div>
-            <h3>{{ impactModal.title }}</h3>
-            <p v-if="impactModal.subtitle">{{ impactModal.subtitle }}</p>
+        <template v-if="editing && editDraft?.impactModal">
+          <div class="cr-story-header">
+            <img v-if="featureIconSrc(editDraft.impactModal.icon || 'community')" class="cr-story-hero-icon" :src="featureIconSrc(editDraft.impactModal.icon || 'community')" alt="" />
+            <div class="cr-story-edit-head">
+              <input v-model="editDraft.impactModal.title" class="cr-inline-input cr-inline-input--block" type="text" placeholder="Impact title" />
+              <textarea v-model="editDraft.impactModal.subtitle" class="cr-inline-input cr-inline-input--area" rows="2" placeholder="Subtitle" />
+            </div>
           </div>
-        </div>
-        <div class="cr-impact-stats">
-          <div v-for="stat in impactModal.stats" :key="stat.label" class="cr-impact-stat">
-            <img v-if="featureIconSrc(stat.icon)" :src="featureIconSrc(stat.icon)" alt="" />
-            <div class="cr-impact-value">{{ stat.value }}</div>
-            <div class="cr-impact-label">{{ stat.label }}</div>
-            <p>{{ stat.body }}</p>
+          <div class="cr-impact-stats">
+            <div v-for="(stat, i) in editDraft.impactModal.stats" :key="`stat-${i}`" class="cr-impact-stat cr-impact-stat--editing">
+              <img v-if="featureIconSrc(stat.icon)" :src="featureIconSrc(stat.icon)" alt="" />
+              <input v-model="stat.value" class="cr-inline-input cr-impact-value cr-inline-input--block" type="text" placeholder="Value" />
+              <input v-model="stat.label" class="cr-inline-input cr-impact-label cr-inline-input--block" type="text" placeholder="Label" />
+              <textarea v-model="stat.body" class="cr-inline-input cr-inline-input--area" rows="2" placeholder="Description" />
+            </div>
           </div>
-        </div>
-        <div class="cr-impact-bottom">
-          <div class="cr-growth">
-            <h4>{{ impactModal.growthTitle }}</h4>
-            <div class="cr-growth-chart" aria-hidden="true">
-              <div
-                v-for="pt in impactModal.growthPoints"
-                :key="pt.label"
-                class="cr-growth-col"
-              >
-                <span class="cr-growth-val">{{ formatGrowthValue(pt.value) }}</span>
-                <div class="cr-growth-bar" :style="{ height: growthBarHeight(pt.value) }"></div>
-                <span class="cr-growth-year">{{ pt.label }}</span>
+          <div class="cr-impact-bottom">
+            <div class="cr-growth">
+              <input v-model="editDraft.impactModal.growthTitle" class="cr-inline-input cr-inline-input--block" type="text" placeholder="Growth chart title" />
+              <div class="cr-growth-chart cr-growth-chart--editing" aria-hidden="true">
+                <div
+                  v-for="(pt, i) in editDraft.impactModal.growthPoints"
+                  :key="`gp-${i}`"
+                  class="cr-growth-col cr-growth-col--editing"
+                >
+                  <input v-model.number="pt.value" class="cr-inline-input" type="number" min="0" :aria-label="`Growth value ${i + 1}`" />
+                  <div class="cr-growth-bar" :style="{ height: growthBarHeight(pt.value) }"></div>
+                  <input v-model="pt.label" class="cr-inline-input" type="text" placeholder="Year" />
+                </div>
+              </div>
+              <input v-model="editDraft.impactModal.growthLabel" class="cr-inline-input cr-inline-input--block" type="text" placeholder="Legend label" />
+            </div>
+            <aside class="cr-impact-side">
+              <img v-if="featureIconSrc('growth')" :src="featureIconSrc('growth')" alt="" />
+              <input v-model="editDraft.impactModal.sidebarTitle" class="cr-inline-input cr-inline-input--block" type="text" placeholder="Sidebar title" />
+              <textarea v-model="editDraft.impactModal.sidebarBody" class="cr-inline-input cr-inline-input--area" rows="4" placeholder="Sidebar body" />
+              <input v-model="editDraft.impactModal.sidebarButtonText" class="cr-inline-input cr-inline-input--block" type="text" placeholder="Sidebar button text" />
+            </aside>
+          </div>
+        </template>
+        <template v-else>
+          <div class="cr-story-header">
+            <img v-if="featureIconSrc(impactModal.icon || 'community')" class="cr-story-hero-icon" :src="featureIconSrc(impactModal.icon || 'community')" alt="" />
+            <div>
+              <h3>{{ impactModal.title }}</h3>
+              <p v-if="impactModal.subtitle">{{ impactModal.subtitle }}</p>
+            </div>
+          </div>
+          <div class="cr-impact-stats">
+            <div v-for="stat in impactModal.stats" :key="stat.label" class="cr-impact-stat">
+              <img v-if="featureIconSrc(stat.icon)" :src="featureIconSrc(stat.icon)" alt="" />
+              <div class="cr-impact-value">{{ stat.value }}</div>
+              <div class="cr-impact-label">{{ stat.label }}</div>
+              <p>{{ stat.body }}</p>
+            </div>
+          </div>
+          <div class="cr-impact-bottom">
+            <div class="cr-growth">
+              <h4>{{ impactModal.growthTitle }}</h4>
+              <div class="cr-growth-chart" aria-hidden="true">
+                <div
+                  v-for="pt in impactModal.growthPoints"
+                  :key="pt.label"
+                  class="cr-growth-col"
+                >
+                  <span class="cr-growth-val">{{ formatGrowthValue(pt.value) }}</span>
+                  <div class="cr-growth-bar" :style="{ height: growthBarHeight(pt.value) }"></div>
+                  <span class="cr-growth-year">{{ pt.label }}</span>
+                </div>
+              </div>
+              <div class="cr-growth-legend">
+                <span class="cr-growth-swatch"></span>
+                {{ impactModal.growthLabel }}
               </div>
             </div>
-            <div class="cr-growth-legend">
-              <span class="cr-growth-swatch"></span>
-              {{ impactModal.growthLabel }}
-            </div>
+            <aside class="cr-impact-side">
+              <img v-if="featureIconSrc('growth')" :src="featureIconSrc('growth')" alt="" />
+              <h4>{{ impactModal.sidebarTitle }}</h4>
+              <p>{{ impactModal.sidebarBody }}</p>
+              <button
+                v-if="impactModal.sidebarButtonText"
+                class="cr-apply-btn cr-apply-btn--solid"
+                type="button"
+                @click="handleNavAction({ action: impactModal.sidebarButtonAction, href: impactModal.sidebarButtonHref })"
+              >{{ impactModal.sidebarButtonText }}</button>
+            </aside>
           </div>
-          <aside class="cr-impact-side">
-            <img v-if="featureIconSrc('growth')" :src="featureIconSrc('growth')" alt="" />
-            <h4>{{ impactModal.sidebarTitle }}</h4>
-            <p>{{ impactModal.sidebarBody }}</p>
-            <button
-              v-if="impactModal.sidebarButtonText"
-              class="cr-apply-btn cr-apply-btn--solid"
-              type="button"
-              @click="handleNavAction({ action: impactModal.sidebarButtonAction, href: impactModal.sidebarButtonHref })"
-            >{{ impactModal.sidebarButtonText }}</button>
-          </aside>
-        </div>
+        </template>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import {
+  blankTextStyle,
+  CAREERS_FONT_OPTIONS,
+  CAREERS_HERO_PRESETS,
+  CAREERS_SIZE_PRESETS,
+  CAREERS_TEXT_STYLE_KEYS,
+  compactCareersPageForSave,
+  ensureCareersGoogleFonts,
   getFeatureIconUrl,
   getHeroPresetByUrl,
   mergeCareersPageWithDefaults,
-  resolveDefaultJobIconUrl
+  normalizeImpactModal,
+  normalizeTextStyles,
+  normalizeWhyModal,
+  resolveDefaultJobIconUrl,
+  textStyleToCss
 } from '../../utils/careersAssets';
 
 const PER_PAGE = 5;
 const SAVED_JOBS_KEY = 'pt_careers_saved_jobs';
 
 const route = useRoute();
+const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 
 const slug = computed(() => String(route.params?.agencySlug || '').trim());
 const loading = ref(false);
 const error = ref('');
 const jobs = ref([]);
+const agencyId = ref(null);
 const agencyName = ref('');
 const agencyCareersPageRaw = ref({});
 const selectedLocation = ref('');
@@ -386,20 +694,230 @@ const savedJobs = ref(new Set());
 const currentPage = ref(1);
 const showAll = ref(false);
 
-onMounted(() => {
+const editDraft = ref(null);
+const savingEdit = ref(false);
+const editError = ref('');
+const editSavedFlash = ref(false);
+const editing = computed(() => !!editDraft.value);
+const showPhotoPicker = ref(false);
+const styleTarget = ref('heroHeadline');
+const pendingHeroFile = ref(null);
+const pendingHeroPreviewUrl = ref('');
+const pendingHeroFileName = ref('');
+const heroFileInputRef = ref(null);
+const fontOptions = CAREERS_FONT_OPTIONS;
+const sizePresets = CAREERS_SIZE_PRESETS;
+const textStyleKeys = CAREERS_TEXT_STYLE_KEYS;
+const heroPresets = CAREERS_HERO_PRESETS;
+
+const userBelongsToAgency = (user, id) => {
+  if (!user || !id) return false;
+  if (String(user.role || '').toLowerCase() === 'super_admin') return true;
+  const lists = [
+    user.agencyIds,
+    user.agencies
+  ];
+  try {
+    const stored = JSON.parse(localStorage.getItem('userAgencies') || 'null');
+    if (stored) lists.push(stored);
+  } catch { /* ignore */ }
+  return lists.some((list) =>
+    Array.isArray(list) && list.some((a) => Number(a?.id ?? a) === Number(id))
+  );
+};
+
+const canEditCareers = computed(() => {
+  if (!authStore.isAuthenticated || !agencyId.value) return false;
+  const user = authStore.user;
+  if (!user) return false;
+  const role = String(user.role || '').toLowerCase();
+  if (role === 'super_admin') return true;
+  const caps = user.capabilities;
+  if (caps && typeof caps === 'object' && Object.keys(caps).length > 0 && !caps.canManageHiring) {
+    return false;
+  }
+  return userBelongsToAgency(user, agencyId.value);
+});
+
+const adminCareersPath = computed(() => {
+  const s = slug.value;
+  return s ? `/${encodeURIComponent(s)}/admin/careers` : '/admin/careers';
+});
+
+onMounted(async () => {
   try {
     const raw = localStorage.getItem(SAVED_JOBS_KEY);
     const ids = raw ? JSON.parse(raw) : [];
     if (Array.isArray(ids)) savedJobs.value = new Set(ids.map(Number).filter(Boolean));
   } catch { /* ignore */ }
+  if (authStore.isAuthenticated) {
+    try { await authStore.refreshUser(); } catch { /* best effort */ }
+  }
 });
 
-const page = computed(() =>
+onUnmounted(() => {
+  clearPendingHeroFile();
+});
+
+const savedPage = computed(() =>
   mergeCareersPageWithDefaults(agencyCareersPageRaw.value, {
     slug: slug.value,
     agencyName: agencyName.value
   })
 );
+
+const page = computed(() => editDraft.value || savedPage.value);
+
+const startEdit = () => {
+  editError.value = '';
+  editSavedFlash.value = false;
+  showPhotoPicker.value = false;
+  clearPendingHeroFile();
+  const draft = JSON.parse(JSON.stringify(savedPage.value));
+  draft.whyModal = normalizeWhyModal(draft.whyModal);
+  draft.impactModal = normalizeImpactModal(draft.impactModal);
+  draft.textStyles = normalizeTextStyles(draft.textStyles);
+  draft.fontFamily = String(draft.fontFamily || '').trim().toLowerCase();
+  draft.headingFontFamily = String(draft.headingFontFamily || '').trim().toLowerCase();
+  draft.accentColor = String(draft.accentColor || '#1a8c54').trim() || '#1a8c54';
+  const features = Array.isArray(draft.featureCards) ? draft.featureCards : [];
+  while (features.length < 4) features.push({ icon: 'team', title: '', body: '' });
+  draft.featureCards = features.slice(0, 4);
+  if (!Array.isArray(draft.navItems) || !draft.navItems.length) {
+    draft.navItems = [
+      { label: 'Why join us', href: '', style: 'link', action: 'why', icon: 'care' },
+      { label: 'Our Impact', href: '', style: 'link', action: 'impact', icon: 'team' },
+      { label: 'Open roles', href: '#jobs', style: 'button', action: 'jobs' }
+    ];
+  }
+  if (!Array.isArray(draft.bannerBullets)) draft.bannerBullets = [];
+  editDraft.value = draft;
+  styleTarget.value = 'heroHeadline';
+};
+
+const clearPendingHeroFile = () => {
+  if (pendingHeroPreviewUrl.value) {
+    try { URL.revokeObjectURL(pendingHeroPreviewUrl.value); } catch { /* ignore */ }
+  }
+  pendingHeroFile.value = null;
+  pendingHeroPreviewUrl.value = '';
+  pendingHeroFileName.value = '';
+  if (heroFileInputRef.value) heroFileInputRef.value.value = '';
+};
+
+const cancelEdit = () => {
+  editDraft.value = null;
+  editError.value = '';
+  editSavedFlash.value = false;
+  showPhotoPicker.value = false;
+  clearPendingHeroFile();
+};
+
+const openStoryForEdit = (which) => {
+  if (!editing.value) startEdit();
+  activeStoryModal.value = which;
+};
+
+const ensureActiveTextStyle = () => {
+  if (!editDraft.value) return blankTextStyle();
+  if (!editDraft.value.textStyles || typeof editDraft.value.textStyles !== 'object') {
+    editDraft.value.textStyles = {};
+  }
+  const key = styleTarget.value;
+  if (!editDraft.value.textStyles[key]) {
+    editDraft.value.textStyles[key] = blankTextStyle();
+  }
+  return editDraft.value.textStyles[key];
+};
+
+const activeTextStyle = computed(() => {
+  if (!editDraft.value) return blankTextStyle();
+  const key = styleTarget.value;
+  return editDraft.value.textStyles?.[key] || blankTextStyle();
+});
+
+const toggleStyleFlag = (flag) => {
+  const style = ensureActiveTextStyle();
+  style[flag] = !style[flag];
+};
+
+const setStyleFontSize = (value) => {
+  ensureActiveTextStyle().fontSize = String(value || '');
+};
+
+const setStyleColor = (value) => {
+  ensureActiveTextStyle().color = String(value || '');
+};
+
+const setStyleFontFamily = (value) => {
+  ensureActiveTextStyle().fontFamily = String(value || '').trim().toLowerCase();
+};
+
+const fieldStyle = (key, { asHeading = false } = {}) =>
+  textStyleToCss(page.value?.textStyles?.[key], {
+    pageFont: page.value?.fontFamily,
+    headingFont: page.value?.headingFontFamily,
+    asHeading
+  });
+
+const applyHeroPreset = (preset) => {
+  if (!editDraft.value || !preset) return;
+  clearPendingHeroFile();
+  editDraft.value.heroImageUrl = preset.url;
+  editDraft.value.heroFrameStyle = preset.frameStyle || 'preframed';
+  if (!String(editDraft.value.heroImageAlt || '').trim()) {
+    editDraft.value.heroImageAlt = preset.label;
+  }
+};
+
+const onHeroFileChange = (event) => {
+  const file = event?.target?.files?.[0];
+  if (!file || !editDraft.value) return;
+  clearPendingHeroFile();
+  pendingHeroFile.value = file;
+  pendingHeroFileName.value = file.name;
+  pendingHeroPreviewUrl.value = URL.createObjectURL(file);
+  editDraft.value.heroFrameStyle = editDraft.value.heroFrameStyle === 'preframed'
+    ? 'organic'
+    : (editDraft.value.heroFrameStyle || 'organic');
+};
+
+const bannerBulletsText = computed({
+  get: () => (editDraft.value?.bannerBullets || []).join('\n'),
+  set: (v) => {
+    if (!editDraft.value) return;
+    editDraft.value.bannerBullets = String(v || '')
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 6);
+  }
+});
+
+const saveEdit = async () => {
+  if (!editDraft.value || !agencyId.value) return;
+  savingEdit.value = true;
+  editError.value = '';
+  editSavedFlash.value = false;
+  try {
+    const fd = new FormData();
+    fd.append('agencyId', String(agencyId.value));
+    fd.append('careersPageJson', JSON.stringify(compactCareersPageForSave(editDraft.value)));
+    if (pendingHeroFile.value) fd.append('agencyHeroImage', pendingHeroFile.value);
+    const r = await api.put('/hiring/careers-page', fd);
+    agencyCareersPageRaw.value =
+      r.data?.careersPage && typeof r.data.careersPage === 'object' ? r.data.careersPage : compactCareersPageForSave(editDraft.value);
+    clearPendingHeroFile();
+    editDraft.value = null;
+    showPhotoPicker.value = false;
+    editSavedFlash.value = true;
+    setTimeout(() => { editSavedFlash.value = false; }, 2500);
+  } catch (e) {
+    editError.value = e.response?.data?.error?.message || 'Failed to save careers page';
+  } finally {
+    savingEdit.value = false;
+  }
+};
 
 const hexToRgba = (hex, alpha) => {
   const clean = String(hex || '').replace(/^#/, '');
@@ -421,12 +939,35 @@ const accentColor = computed(() => {
   return '#1a8c54';
 });
 
-const rootStyle = computed(() => ({
-  '--accent': accentColor.value,
-  '--accent-light': hexToRgba(accentColor.value, 0.1),
-  '--accent-mid': hexToRgba(accentColor.value, 0.18),
-  '--accent-border': hexToRgba(accentColor.value, 0.28)
-}));
+const rootStyle = computed(() => {
+  const bodyFont = textStyleToCss({}, { pageFont: page.value?.fontFamily }).fontFamily;
+  const headingFont = textStyleToCss({}, {
+    pageFont: page.value?.fontFamily,
+    headingFont: page.value?.headingFontFamily,
+    asHeading: true
+  }).fontFamily;
+  return {
+    '--accent': accentColor.value,
+    '--accent-light': hexToRgba(accentColor.value, 0.1),
+    '--accent-mid': hexToRgba(accentColor.value, 0.18),
+    '--accent-border': hexToRgba(accentColor.value, 0.28),
+    ...(bodyFont ? { fontFamily: bodyFont, '--cr-body-font': bodyFont } : {}),
+    ...(headingFont ? { '--cr-heading-font': headingFont } : {})
+  };
+});
+
+watch(
+  () => page.value,
+  (p) => {
+    if (!p) return;
+    const ids = [p.fontFamily, p.headingFontFamily];
+    for (const s of Object.values(p.textStyles || {})) {
+      if (s?.fontFamily) ids.push(s.fontFamily);
+    }
+    ensureCareersGoogleFonts(ids);
+  },
+  { immediate: true, deep: true }
+);
 
 const brandWordmark = computed(() => String(page.value?.brandWordmark || agencyName.value || 'Careers').trim());
 const navItems = computed(() => (Array.isArray(page.value?.navItems) ? page.value.navItems : []));
@@ -440,6 +981,7 @@ const careersHeroImageUrl = computed(() => {
   if (raw.startsWith('/assets/')) return raw;
   return toUploadsUrl(raw) || raw;
 });
+const heroDisplayUrl = computed(() => pendingHeroPreviewUrl.value || careersHeroImageUrl.value);
 const careersHeroImageAlt = computed(() =>
   String(page.value?.heroImageAlt || `${agencyName.value || 'Agency'} careers`).trim()
 );
@@ -597,7 +1139,9 @@ const handleNavAction = (item = {}) => {
   }
 };
 const growthMax = computed(() => {
-  const pts = impactModal.value?.growthPoints || [];
+  const pts = (editing.value ? editDraft.value?.impactModal?.growthPoints : null)
+    || impactModal.value?.growthPoints
+    || [];
   return Math.max(1, ...pts.map((p) => Number(p.value) || 0));
 });
 const growthBarHeight = (value) => {
@@ -612,6 +1156,7 @@ const formatGrowthValue = (value) => {
 
 const loadCareers = async () => {
   if (!slug.value) return;
+  cancelEdit();
   loading.value = true;
   error.value = '';
   try {
@@ -620,6 +1165,7 @@ const loadCareers = async () => {
       skipAuthRedirect: true,
       timeout: 15000
     });
+    agencyId.value = r.data?.agency?.id != null ? Number(r.data.agency.id) : null;
     agencyName.value = String(r.data?.agency?.officialName || r.data?.agency?.name || '').trim();
     agencyCareersPageRaw.value =
       r.data?.agency?.careersPage && typeof r.data.agency.careersPage === 'object'
@@ -629,6 +1175,7 @@ const loadCareers = async () => {
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Unable to load careers at this time.';
     jobs.value = [];
+    agencyId.value = null;
     agencyCareersPageRaw.value = {};
   } finally {
     loading.value = false;
@@ -672,8 +1219,8 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-hero-inner { max-width: 1160px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr); align-items: center; gap: 36px; }
 .cr-eyebrow { display: inline-block; background: var(--accent-light); color: var(--accent); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 12px; border-radius: 99px; margin-bottom: 14px; }
 .cr-hero-h1 { margin: 0 0 16px; line-height: 1.05; display: flex; flex-direction: column; gap: 4px; }
-.cr-hero-headline { font-size: clamp(2rem, 4.4vw, 3.15rem); font-weight: 800; color: var(--dark); letter-spacing: -0.03em; }
-.cr-hero-subheadline { font-size: clamp(2rem, 4.4vw, 3.15rem); font-weight: 800; color: var(--accent); letter-spacing: -0.03em; }
+.cr-hero-headline { font-size: clamp(2rem, 4.4vw, 3.15rem); font-weight: 800; color: var(--dark); letter-spacing: -0.03em; font-family: var(--cr-heading-font, inherit); }
+.cr-hero-subheadline { font-size: clamp(2rem, 4.4vw, 3.15rem); font-weight: 800; color: var(--accent); letter-spacing: -0.03em; font-family: var(--cr-heading-font, inherit); }
 .cr-hero-lead { margin: 0 0 28px; font-size: 1.05rem; line-height: 1.65; color: var(--muted); max-width: 540px; }
 .cr-feature-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .cr-feature-card { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; background: #fff; border: 1px solid var(--accent-border); border-radius: 14px; box-shadow: 0 8px 20px -16px rgba(15, 23, 42, 0.35); }
@@ -842,6 +1389,159 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-impact-side img { width: 36px; height: 36px; object-fit: contain; }
 .cr-impact-side h4 { margin: 0; color: var(--accent); font-size: 1.05rem; }
 .cr-impact-side p { margin: 0; color: var(--dark); line-height: 1.5; font-size: 0.9rem; flex: 1; }
+
+.cr--editing { padding-bottom: 140px; }
+.cr-editor-bar {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 60;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 10px 16px;
+  background: #0f172a;
+  color: #f8fafc;
+  border-radius: 14px;
+  box-shadow: 0 16px 40px -18px rgba(15, 23, 42, 0.65);
+  max-height: min(42vh, 320px);
+  overflow: auto;
+}
+.cr-editor-bar--active { background: #14532d; }
+.cr-editor-hint { font-size: 0.82rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; margin-right: 4px; }
+.cr-editor-btn {
+  border: 1px solid rgba(248, 250, 252, 0.35);
+  background: transparent;
+  color: inherit;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.cr-editor-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.cr-editor-btn--primary { background: #fff; color: #0f172a; border-color: #fff; }
+.cr-editor-bar--active .cr-editor-btn--primary { background: #bbf7d0; color: #14532d; border-color: #bbf7d0; }
+.cr-editor-link { color: #cbd5e1; font-size: 0.82rem; font-weight: 600; margin-left: auto; }
+.cr-editor-error { flex-basis: 100%; margin: 0; color: #fecaca; font-size: 0.82rem; }
+.cr-editor-ok { flex-basis: 100%; margin: 0; color: #bbf7d0; font-size: 0.82rem; }
+
+.cr-style-strip {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(248, 250, 252, 0.18);
+}
+.cr-style-field { display: inline-flex; flex-direction: column; gap: 3px; font-size: 0.68rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #cbd5e1; }
+.cr-style-field--block { display: flex; width: 100%; margin-top: 8px; color: var(--dark); text-transform: none; letter-spacing: 0; font-size: 0.8rem; }
+.cr-style-select {
+  border: 1px solid rgba(248, 250, 252, 0.28);
+  background: rgba(15, 23, 42, 0.35);
+  color: #f8fafc;
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 0.8rem;
+  min-width: 110px;
+}
+.cr-style-color {
+  width: 36px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(248, 250, 252, 0.28);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+.cr-style-toggle {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(248, 250, 252, 0.28);
+  background: transparent;
+  color: #f8fafc;
+  font-weight: 800;
+  cursor: pointer;
+}
+.cr-style-toggle--italic { font-style: italic; font-family: Georgia, serif; }
+.cr-style-toggle--on { background: #bbf7d0; color: #14532d; border-color: #bbf7d0; }
+
+.cr-hero-photo-overlay {
+  position: absolute;
+  inset: auto 12px 12px auto;
+  display: flex;
+  gap: 8px;
+}
+.cr-photo-picker {
+  margin-top: 14px;
+  padding: 14px;
+  background: #fff;
+  border: 1px dashed var(--accent-border);
+  border-radius: 14px;
+  box-shadow: 0 12px 28px -20px rgba(15, 23, 42, 0.45);
+}
+.cr-photo-picker-title { margin: 0 0 10px; font-size: 0.85rem; font-weight: 800; color: var(--dark); }
+.cr-photo-presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.cr-photo-preset {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+}
+.cr-photo-preset img { width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 8px; }
+.cr-photo-preset span { font-size: 0.72rem; font-weight: 700; color: var(--muted); }
+.cr-photo-preset--active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-light); }
+.cr-photo-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--dark);
+  margin-bottom: 8px;
+}
+.cr-photo-upload input { font-size: 0.8rem; }
+.cr-photo-upload-name { margin: 0 0 8px; font-size: 0.78rem; color: var(--accent); font-weight: 600; }
+
+.cr-inline-input {
+  font: inherit;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1.5px dashed var(--accent-border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.cr-inline-input:focus {
+  outline: none;
+  border-style: solid;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
+.cr-inline-input--block { display: block; margin-bottom: 8px; }
+.cr-inline-input--area { resize: vertical; line-height: 1.45; }
+.cr-inline-input--nav { width: auto; min-width: 96px; max-width: 160px; font-size: 0.88rem; font-weight: 600; }
+.cr-nav-edit { display: inline-flex; }
+.cr-nav-edit--button .cr-inline-input--nav { border-radius: 999px; border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.cr-feature-edit { flex: 1; min-width: 0; }
+.cr-feature-card--editing { align-items: stretch; }
+.cr-banner--editing { align-items: flex-start; }
+.cr-banner-link-edit { margin-top: 8px; max-width: 220px; }
+.cr-story-edit-head { flex: 1; min-width: 0; }
+.cr-why-card--editing, .cr-impact-stat--editing { align-items: stretch; }
+.cr-growth-chart--editing { align-items: flex-end; }
+.cr-growth-col--editing { gap: 6px; }
+.cr-growth-col--editing .cr-inline-input { text-align: center; font-size: 0.75rem; padding: 4px 6px; }
 
 @media (max-width: 840px) {
   .cr-hero-inner { grid-template-columns: 1fr; }
