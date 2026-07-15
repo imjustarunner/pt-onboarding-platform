@@ -228,6 +228,7 @@ const surfaceGroups = computed(() => {
         { id: 'burden-purpose', label: 'Burden & Purpose (public)', pathSuffix: 'burden-purpose', absolute: true },
         { id: 'family-functioning', label: 'Family Functioning (public)', pathSuffix: 'family-functioning', absolute: true },
         { id: 'savage-blueprint', label: 'The Savage Blueprint (public)', pathSuffix: 'savage-blueprint', absolute: true },
+        { id: 'reward-regulation', label: 'Reward Regulation (public)', pathSuffix: 'reward-regulation', absolute: true },
         { id: 'readiness', label: 'Athlete Readiness (public)', pathSuffix: 'athlete-readiness', absolute: true },
         { id: 'student', label: 'Student Success (public)', pathSuffix: 'student-success', absolute: true },
         { id: 'college', label: 'College Readiness (public)', pathSuffix: 'college-readiness', absolute: true },

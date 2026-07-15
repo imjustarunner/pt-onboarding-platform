@@ -162,6 +162,7 @@ import parentingConfidenceRoutes from './routes/parentingConfidence.routes.js';
 import burdenPurposeRoutes from './routes/burdenPurpose.routes.js';
 import familyFunctioningRoutes from './routes/familyFunctioning.routes.js';
 import savageBlueprintRoutes from './routes/savageBlueprint.routes.js';
+import rewardRegulationRoutes from './routes/rewardRegulation.routes.js';
 import communicationTrackingRoutes from './routes/communicationTracking.routes.js';
 import publicMarketingPagesRoutes from './routes/publicMarketingPages.routes.js';
 import publicMarketingPagesAdminRoutes from './routes/publicMarketingPagesAdmin.routes.js';
@@ -640,6 +641,7 @@ app.use('/api/parenting-confidence', parentingConfidenceRoutes);
 app.use('/api/burden-purpose', burdenPurposeRoutes);
 app.use('/api/family-functioning', familyFunctioningRoutes);
 app.use('/api/savage-blueprint', savageBlueprintRoutes);
+app.use('/api/reward-regulation', rewardRegulationRoutes);
 app.use('/api/email', communicationTrackingRoutes);
 app.use('/api/company-events', companyEventsPublicRoutes);
 

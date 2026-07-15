@@ -310,6 +310,12 @@ const routes = [
     meta: { requiresGuest: false, guestSavageBlueprint: true }
   },
   {
+    path: '/reward-regulation',
+    name: 'RewardRegulationGuest',
+    component: () => import('../views/rewardRegulation/RewardRegulationAssessmentView.vue'),
+    meta: { requiresGuest: false, guestRewardRegulation: true }
+  },
+  {
     path: '/life-balance',
     name: 'LifeBalanceGuest',
     component: () => import('../views/lifeBalance/LifeBalanceAssessmentView.vue'),
