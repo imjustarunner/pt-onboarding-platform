@@ -160,6 +160,7 @@ import mensLifeRoutes from './routes/mensLife.routes.js';
 import marriageAlignmentRoutes from './routes/marriageAlignment.routes.js';
 import parentingConfidenceRoutes from './routes/parentingConfidence.routes.js';
 import burdenPurposeRoutes from './routes/burdenPurpose.routes.js';
+import familyFunctioningRoutes from './routes/familyFunctioning.routes.js';
 import communicationTrackingRoutes from './routes/communicationTracking.routes.js';
 import publicMarketingPagesRoutes from './routes/publicMarketingPages.routes.js';
 import publicMarketingPagesAdminRoutes from './routes/publicMarketingPagesAdmin.routes.js';
@@ -636,6 +637,7 @@ app.use('/api/mens-life', mensLifeRoutes);
 app.use('/api/marriage-alignment', marriageAlignmentRoutes);
 app.use('/api/parenting-confidence', parentingConfidenceRoutes);
 app.use('/api/burden-purpose', burdenPurposeRoutes);
+app.use('/api/family-functioning', familyFunctioningRoutes);
 app.use('/api/email', communicationTrackingRoutes);
 app.use('/api/company-events', companyEventsPublicRoutes);
 
