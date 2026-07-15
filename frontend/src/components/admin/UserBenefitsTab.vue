@@ -509,7 +509,7 @@ const loadMileage = async () => {
       skipGlobalLoading: true
     });
     const rates = Array.isArray(data?.rates) ? data.rates : [];
-    const byTier = new Map(rates.map((r) => [Number(r.tierLevel ?? r.tier_level), Number(r.ratePerMile ?? r.rate_per_mile || 0)]));
+    const byTier = new Map(rates.map((r) => [Number(r.tierLevel ?? r.tier_level), Number((r.ratePerMile ?? r.rate_per_mile) || 0)]));
     mileageRates.tier1 = byTier.has(1) ? byTier.get(1) : null;
     mileageRates.tier2 = byTier.has(2) ? byTier.get(2) : null;
     mileageRates.tier3 = byTier.has(3) ? byTier.get(3) : null;
