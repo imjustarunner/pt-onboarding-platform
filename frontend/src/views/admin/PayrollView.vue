@@ -9903,11 +9903,17 @@ const dashboardPendingCount = computed(() => {
   // Use the fast backend count loaded with period details whenever available.
   if (dashboardPendingCounts.value != null) return Number(dashboardPendingCounts.value.total || 0);
   // Fallback: sum from the lazy-loaded Stage arrays (will be 0 until Stage opens — intentional).
+  const eventPending = (eventTimeSubmissions.value || []).filter((s) => {
+    const pending = new Set(['submitted', 'deferred']);
+    return pending.has(String(s?.directClaim?.status || '').toLowerCase())
+      || pending.has(String(s?.indirectClaim?.status || '').toLowerCase());
+  }).length;
   return (
     (pendingMileageClaims.value || []).length
     + (pendingMedcancelClaims.value || []).length
     + (pendingReimbursementClaims.value || []).length
     + (pendingTimeClaims.value || []).length
+    + eventPending
     + (pendingHolidayBonusClaims.value || []).length
     + (pendingPtoRequests.value || []).length
   );
@@ -9996,7 +10002,18 @@ const periodStatusForDisplay = (p) => periodDisplayStatus(p);
 const openPendingFromDashboard = () => {
   const slug = String(route.params?.organizationSlug || agencyStore.currentAgency?.slug || '').trim();
   const path = slug ? `/${slug}/admin/payroll/pending` : '/admin/payroll/pending';
-  router.push({ path });
+  const counts = dashboardPendingCounts.value || {};
+  const order = [
+    ['pto', 'pto'],
+    ['eventTime', 'event_time'],
+    ['timeClaims', 'time'],
+    ['mileage', 'mileage'],
+    ['reimbursement', 'reimbursement'],
+    ['medcancel', 'medcancel']
+  ];
+  const first = order.find(([key]) => Number(counts[key] || 0) > 0);
+  const query = first ? { tab: first[1] } : {};
+  router.push({ path, query });
 };
 
 // V2 modal state (isolated: always fetches fresh from API on open)

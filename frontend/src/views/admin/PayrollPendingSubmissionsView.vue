@@ -8,7 +8,7 @@
         </button>
         <h1>Pending Submissions</h1>
         <p class="pps-subtitle">
-          Approve PTO, time, mileage, reimbursements, and MedCancel — then apply them to an upcoming pay period.
+          Approve PTO, time, event time, mileage, reimbursements, and MedCancel — then apply them to an upcoming pay period.
           Changes use the same APIs as Payroll Stage, so they appear everywhere immediately.
         </p>
       </div>
@@ -40,6 +40,7 @@
         <div class="pps-stat"><span class="pps-stat-n">{{ totalPending }}</span><span class="pps-stat-l">Pending</span></div>
         <div class="pps-stat"><span class="pps-stat-n">{{ ptoPendingCount }}</span><span class="pps-stat-l">PTO</span></div>
         <div class="pps-stat"><span class="pps-stat-n">{{ timeClaims.length }}</span><span class="pps-stat-l">Time</span></div>
+        <div class="pps-stat"><span class="pps-stat-n">{{ eventTimePendingCount }}</span><span class="pps-stat-l">Event</span></div>
         <div class="pps-stat"><span class="pps-stat-n">{{ mileageClaims.length }}</span><span class="pps-stat-l">Mileage</span></div>
         <div class="pps-stat"><span class="pps-stat-n">{{ reimbClaims.length }}</span><span class="pps-stat-l">Reimb.</span></div>
         <div class="pps-stat"><span class="pps-stat-n">{{ medClaims.length }}</span><span class="pps-stat-l">MedCancel</span></div>
@@ -52,6 +53,9 @@
       </button>
       <button type="button" class="pps-tab" :class="{ active: tab === 'time' }" @click="setTab('time')">
         Time Claims <span v-if="timeClaims.length" class="pps-count">{{ timeClaims.length }}</span>
+      </button>
+      <button type="button" class="pps-tab" :class="{ active: tab === 'event_time' }" @click="setTab('event_time')">
+        Event Times <span v-if="eventTimePendingCount" class="pps-count">{{ eventTimePendingCount }}</span>
       </button>
       <button type="button" class="pps-tab" :class="{ active: tab === 'mileage' }" @click="setTab('mileage')">
         Mileage <span v-if="mileageClaims.length" class="pps-count">{{ mileageClaims.length }}</span>
@@ -223,6 +227,150 @@
         </div>
       </div>
 
+      <!-- Event Times -->
+      <div v-else-if="tab === 'event_time'" class="card pps-panel">
+        <div class="pps-panel-head">
+          <div>
+            <h2>Event Times</h2>
+            <p class="hint">
+              Skill Builders / program event kiosk check-in/out with direct and indirect hour split.
+              Each session appears as two rows (direct + indirect). Approving posts to the selected pay period.
+            </p>
+          </div>
+          <div class="pps-filter-bar">
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="eventTimeLoading" @click="toggleEventTimeShowApproved">
+              {{ eventTimeShowApproved ? 'Show pending only' : 'Show approved / history' }}
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="eventTimeLoading" @click="loadEventTimeSubmissions">
+              {{ eventTimeLoading ? 'Refreshing…' : 'Refresh' }}
+            </button>
+          </div>
+        </div>
+        <div v-if="actionError" class="pps-error">{{ actionError }}</div>
+        <div v-if="eventTimeLoading && !eventTimeSubmissions.length" class="muted">Loading event time submissions…</div>
+        <div v-else-if="!eventTimeSubmissions.length" class="muted">
+          {{ eventTimeShowApproved ? 'No event time submissions.' : 'No pending event time submissions.' }}
+        </div>
+        <div v-else class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Provider</th>
+                <th>Event</th>
+                <th>Clock in</th>
+                <th>Clock out</th>
+                <th class="right">Worked</th>
+                <th>Bucket</th>
+                <th class="right">Hours</th>
+                <th>Status</th>
+                <th>Suggested period</th>
+                <th class="right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="row in eventTimeBucketRows"
+                :key="row.rowKey"
+                :class="{
+                  'row-approved': row.claim?.status === 'approved',
+                  'row-rejected': row.claim?.status === 'rejected',
+                  'row-highlight': focusUserId && Number(row.submission.userId) === focusUserId
+                }"
+              >
+                <td>{{ row.submission.providerName || nameForUserId(row.submission.userId) }}</td>
+                <td>{{ row.submission.eventTitle || '—' }}</td>
+                <td>
+                  {{ formatEventTimeIso(row.submission.clockInAt) }}
+                  <span
+                    v-if="row.bucket === 'direct' && row.lateMinutes > 0"
+                    class="pps-late-badge"
+                    title="Expected report time on this date"
+                  >+{{ row.lateMinutes }}m late</span>
+                </td>
+                <td>{{ formatEventTimeIso(row.submission.clockOutAt) }}</td>
+                <td class="right">{{ row.submission.workedHours ?? '—' }}</td>
+                <td>{{ row.bucketLabel }}</td>
+                <td class="right">{{ row.bucketHours ?? '—' }}</td>
+                <td>
+                  <span :class="['status-badge', `st-${String(row.claim?.status || 'submitted').toLowerCase()}`]">
+                    {{ statusLabel(row.claim?.status || 'submitted') }}
+                  </span>
+                  <span
+                    v-if="row.submission.wasEdited && row.bucket === 'direct'"
+                    class="pps-edited-mark"
+                    title="Values changed from auto-submitted"
+                  >✎ Edited</span>
+                </td>
+                <td class="muted" style="font-size:12px;">{{ eventTimePeriodLabel(row.claim) }}</td>
+                <td class="right">
+                  <div class="actions" style="justify-content:flex-end;margin:0;">
+                    <template v-if="row.canApprove">
+                      <select
+                        v-model="eventTimeTargetPeriodByPunchId[row.submission.punchInId]"
+                        :disabled="busyId === `event-${row.submission.punchInId}`"
+                        style="font-size:11px;max-width:160px;"
+                        title="Pay period to post to when approving"
+                      >
+                        <option :value="null" disabled>— select period —</option>
+                        <option v-for="p in periodsForSelect" :key="p.id" :value="p.id" :disabled="isPeriodLocked(p)">
+                          {{ periodRangeLabel(p) }}{{ isPeriodLocked(p) ? ' (locked)' : '' }}
+                        </option>
+                      </select>
+                    </template>
+                    <button
+                      v-if="row.bucket === 'direct' && row.canApprove"
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="busyId === `event-${row.submission.punchInId}`"
+                      @click="openEventTimeEdit(row.submission)"
+                    >
+                      Edit time
+                    </button>
+                    <button
+                      v-if="row.canApprove"
+                      type="button"
+                      class="btn btn-primary btn-sm"
+                      :disabled="busyId === `event-${row.submission.punchInId}` || !isValidOpenPeriod(eventTimeTargetPeriodByPunchId[row.submission.punchInId])"
+                      @click="approveEventTimeSubmission(row.submission, row.bucket)"
+                    >
+                      {{ busyId === `event-${row.submission.punchInId}` ? '…' : `Approve ${row.bucketLabel.toLowerCase()}` }}
+                    </button>
+                    <button
+                      v-if="row.bucket === 'direct' && row.canApprove"
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="busyId === `event-${row.submission.punchInId}`"
+                      @click="returnEventTimeSubmission(row.submission)"
+                    >
+                      Send back…
+                    </button>
+                    <button
+                      v-if="row.bucket === 'direct' && row.canApprove"
+                      type="button"
+                      class="btn btn-danger btn-sm"
+                      :disabled="busyId === `event-${row.submission.punchInId}`"
+                      @click="rejectEventTimeSubmission(row.submission)"
+                    >
+                      Reject
+                    </button>
+                    <button
+                      v-if="row.bucket === 'direct' && !row.canApprove && row.claim?.status === 'approved'"
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="busyId === `event-${row.submission.punchInId}`"
+                      @click="unapproveEventTimeSubmission(row.submission)"
+                    >
+                      Unapprove
+                    </button>
+                    <span v-if="!row.canApprove && row.claim?.status === 'rejected'" class="muted" style="font-size:12px;">Rejected</span>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Mileage -->
       <div v-else-if="tab === 'mileage'" class="card pps-panel">
         <div class="pps-panel-head">
@@ -316,7 +464,7 @@
       </div>
 
       <!-- MedCancel -->
-      <div v-else class="card pps-panel">
+      <div v-else-if="tab === 'medcancel'" class="card pps-panel">
         <div class="pps-panel-head">
           <div>
             <h2>MedCancel</h2>
@@ -360,6 +508,80 @@
         </div>
       </div>
     </template>
+
+    <!-- Event time edit modal -->
+    <teleport to="body">
+      <div v-if="eventTimeEditOpen" class="pps-modal-backdrop" @click.self="closeEventTimeEdit">
+        <div class="pps-modal">
+          <div class="pps-modal-header">
+            <div>
+              <div class="pps-modal-title">Edit event time</div>
+              <div class="hint" v-if="eventTimeEditSubmission">
+                {{ eventTimeEditSubmission.providerName || nameForUserId(eventTimeEditSubmission.userId) }}
+                · {{ eventTimeEditSubmission.eventTitle || 'Event' }}
+              </div>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" @click="closeEventTimeEdit">Close</button>
+          </div>
+          <div class="pps-modal-body">
+            <div v-if="eventTimeEditError" class="pps-error">{{ eventTimeEditError }}</div>
+            <div v-if="eventTimeEditOriginal" class="pps-edit-notice">
+              <strong>⚠ Changed from auto-submitted</strong>
+              ({{ eventTimeEditSubmission?.lastEditedByRole || 'unknown' }} edited{{ eventTimeEditSubmission?.lastEditedAt ? ' ' + new Date(eventTimeEditSubmission.lastEditedAt).toLocaleString() : '' }})<br>
+              Original: Direct {{ eventTimeEditOriginal.directHours ?? '—' }} h · Indirect {{ eventTimeEditOriginal.indirectHours ?? '—' }} h ·
+              In {{ eventTimeEditOriginal.clockInAt ? new Date(eventTimeEditOriginal.clockInAt).toLocaleTimeString() : '—' }} ·
+              Out {{ eventTimeEditOriginal.clockOutAt ? new Date(eventTimeEditOriginal.clockOutAt).toLocaleTimeString() : '—' }}
+            </div>
+            <div v-if="eventTimeEditLateArrival" class="pps-late-notice">
+              <strong>⏰ Late arrival detected</strong> — event started at {{ eventTimeEditLateArrival.eventStartDisplay }},
+              employee clocked in <strong>{{ eventTimeEditLateArrival.lateMinutes }} min late</strong>.
+              <span v-if="eventTimeEditLateArrival.adjustedCap != null">
+                Adjusted direct cap: <strong>{{ eventTimeEditLateArrival.adjustedCap }} h</strong>
+                (reduced from {{ eventTimeEditDirectCap }} h).
+              </span>
+              <div style="margin-top:6px;">
+                <button type="button" class="btn btn-secondary btn-sm" :disabled="eventTimeEditSaving" @click="applyLateArrivalDeduction">
+                  Apply late arrival deduction
+                </button>
+              </div>
+            </div>
+            <label class="field">
+              <span>Clock in</span>
+              <input v-model="eventTimeEditClockIn" class="input" type="datetime-local" :disabled="eventTimeEditSaving">
+            </label>
+            <label class="field">
+              <span>Clock out</span>
+              <input v-model="eventTimeEditClockOut" class="input" type="datetime-local" :disabled="eventTimeEditSaving">
+            </label>
+            <label class="field">
+              <span>Direct hours cap</span>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <input
+                  v-model="eventTimeEditDirectCap"
+                  class="input"
+                  type="number"
+                  min="0"
+                  step="0.25"
+                  style="width:100px;"
+                  :disabled="eventTimeEditSaving"
+                  placeholder="e.g. 3"
+                >
+                <span class="hint" style="margin:0;">h — defaulted from event settings; edit to override for this submission</span>
+              </div>
+            </label>
+            <div v-if="eventTimeEditPreview" class="hint">
+              Worked {{ eventTimeEditPreview.workedHours }} h · Direct {{ eventTimeEditPreview.directHours }} h · Indirect {{ eventTimeEditPreview.indirectHours }} h
+            </div>
+            <div class="actions" style="justify-content:flex-end;margin:0;">
+              <button type="button" class="btn btn-secondary" :disabled="eventTimeEditSaving" @click="closeEventTimeEdit">Cancel</button>
+              <button type="button" class="btn btn-primary" :disabled="eventTimeEditSaving || !eventTimeEditPreview" @click="saveEventTimeEdit">
+                {{ eventTimeEditSaving ? 'Saving…' : 'Save & recalculate' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </teleport>
   </div>
 </template>
 
@@ -399,6 +621,18 @@ const reimbClaims = ref([]);
 const medClaims = ref([]);
 const claimTargetByKey = reactive({});
 
+const eventTimeSubmissions = ref([]);
+const eventTimeLoading = ref(false);
+const eventTimeShowApproved = ref(false);
+const eventTimeTargetPeriodByPunchId = reactive({});
+const eventTimeEditOpen = ref(false);
+const eventTimeEditSubmission = ref(null);
+const eventTimeEditClockIn = ref('');
+const eventTimeEditClockOut = ref('');
+const eventTimeEditDirectCap = ref('');
+const eventTimeEditSaving = ref(false);
+const eventTimeEditError = ref('');
+
 const periodsForSelect = computed(() => {
   const source = periods.value || [];
   let aligned = source.filter((p) => Number(p.schedule_aligned) === 1);
@@ -431,9 +665,179 @@ const ptoVisible = computed(() => {
   return list;
 });
 
+const eventTimePendingCount = computed(() => {
+  const pendingStatuses = new Set(['submitted', 'deferred']);
+  return (eventTimeSubmissions.value || []).filter((s) => {
+    const stDirect = String(s?.directClaim?.status || '').toLowerCase();
+    const stIndirect = String(s?.indirectClaim?.status || '').toLowerCase();
+    return pendingStatuses.has(stDirect) || pendingStatuses.has(stIndirect);
+  }).length;
+});
+
 const totalPending = computed(
-  () => ptoPendingCount.value + timeClaims.value.length + mileageClaims.value.length + reimbClaims.value.length + medClaims.value.length
+  () =>
+    ptoPendingCount.value +
+    timeClaims.value.length +
+    eventTimePendingCount.value +
+    mileageClaims.value.length +
+    reimbClaims.value.length +
+    medClaims.value.length
 );
+
+const calcLateMinutes = (clockInAt, eventStartsAt, employeeReportTime) => {
+  if (!clockInAt) return 0;
+  const cin = new Date(clockInAt);
+  if (!Number.isFinite(cin.getTime())) return 0;
+  let h = null;
+  let m = 0;
+  let s = 0;
+  if (employeeReportTime) {
+    const parts = String(employeeReportTime).split(':');
+    h = Number(parts[0]);
+    m = Number(parts[1] || 0);
+    s = Number(parts[2] || 0);
+  } else if (eventStartsAt) {
+    const start = new Date(eventStartsAt);
+    if (Number.isFinite(start.getTime())) {
+      h = start.getHours();
+      m = start.getMinutes();
+      s = start.getSeconds();
+    }
+  }
+  if (h === null || !Number.isFinite(h)) return 0;
+  const expected = new Date(cin.getFullYear(), cin.getMonth(), cin.getDate(), h, m, s, 0);
+  return Math.max(0, Math.round((cin.getTime() - expected.getTime()) / 60000));
+};
+
+const eventTimeBucketRows = computed(() => {
+  const rows = [];
+  const pendingStatuses = new Set(['submitted', 'deferred']);
+  const canApproveBucket = (claim) =>
+    !!claim?.id && pendingStatuses.has(String(claim?.status || '').toLowerCase());
+  for (const s of eventTimeSubmissions.value || []) {
+    const lateMinutes = calcLateMinutes(s.clockInAt, s.eventStartsAt, s.eventEmployeeReportTime);
+    rows.push({
+      submission: s,
+      rowKey: `${s.punchInId}-direct`,
+      bucket: 'direct',
+      bucketLabel: 'Direct',
+      bucketHours: s.directHours,
+      claim: s.directClaim,
+      canApprove: canApproveBucket(s.directClaim),
+      lateMinutes
+    });
+    rows.push({
+      submission: s,
+      rowKey: `${s.punchInId}-indirect`,
+      bucket: 'indirect',
+      bucketLabel: 'Indirect',
+      bucketHours: s.indirectHours,
+      claim: s.indirectClaim,
+      canApprove: canApproveBucket(s.indirectClaim),
+      lateMinutes
+    });
+  }
+  return rows;
+});
+
+const isoToDatetimeLocalInput = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+const datetimeLocalInputToIso = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+};
+
+const eventTimeEditOriginal = computed(() => {
+  const sub = eventTimeEditSubmission.value;
+  if (!sub?.wasEdited || !sub.originalValues) return null;
+  return sub.originalValues;
+});
+
+const eventTimeEditLateArrival = computed(() => {
+  const sub = eventTimeEditSubmission.value;
+  if (!sub?.clockInAt) return null;
+  const cin = new Date(sub.clockInAt);
+  if (!Number.isFinite(cin.getTime())) return null;
+  let h = null;
+  let m = 0;
+  let s = 0;
+  if (sub.eventEmployeeReportTime) {
+    const parts = String(sub.eventEmployeeReportTime).split(':');
+    h = Number(parts[0]);
+    m = Number(parts[1] || 0);
+    s = Number(parts[2] || 0);
+  } else if (sub.eventStartsAt) {
+    const start = new Date(sub.eventStartsAt);
+    if (Number.isFinite(start.getTime())) {
+      h = start.getHours();
+      m = start.getMinutes();
+      s = start.getSeconds();
+    }
+  }
+  if (h === null || !Number.isFinite(h)) return null;
+  const expected = new Date(cin.getFullYear(), cin.getMonth(), cin.getDate(), h, m, s, 0);
+  const lateMs = cin.getTime() - expected.getTime();
+  if (lateMs <= 0) return null;
+  const lateMinutes = Math.round(lateMs / 60000);
+  const cap = Number(eventTimeEditDirectCap.value);
+  const adjustedCap =
+    Number.isFinite(cap) && cap > 0 ? Math.max(0, Math.round((cap - lateMinutes / 60) * 100) / 100) : null;
+  return {
+    lateMinutes,
+    eventStartDisplay: expected.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    adjustedCap
+  };
+});
+
+const applyLateArrivalDeduction = () => {
+  const la = eventTimeEditLateArrival.value;
+  if (la?.adjustedCap != null) eventTimeEditDirectCap.value = String(la.adjustedCap);
+};
+
+const eventTimeEditPreview = computed(() => {
+  const clockInAt = datetimeLocalInputToIso(eventTimeEditClockIn.value);
+  const clockOutAt = datetimeLocalInputToIso(eventTimeEditClockOut.value);
+  if (!clockInAt || !clockOutAt) return null;
+  const tIn = new Date(clockInAt);
+  const tOut = new Date(clockOutAt);
+  if (!Number.isFinite(tIn.getTime()) || !Number.isFinite(tOut.getTime()) || tOut <= tIn) return null;
+  const capRaw = Number(eventTimeEditDirectCap.value);
+  const cap = Number.isFinite(capRaw) && capRaw > 0 ? capRaw : 0;
+  const workedHours = Math.max(0, (tOut.getTime() - tIn.getTime()) / 3600000);
+  const directHours = Math.min(cap, workedHours);
+  const indirectHours = Math.max(0, workedHours - directHours);
+  const round2 = (n) => Math.round(n * 100) / 100;
+  return {
+    workedHours: round2(workedHours),
+    directHours: round2(directHours),
+    indirectHours: round2(indirectHours)
+  };
+});
+
+const formatEventTimeIso = (iso) => {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return String(iso);
+  }
+};
+
+const eventTimePeriodLabel = (claim) => {
+  if (!claim) return '—';
+  const pid = claim.targetPayrollPeriodId || claim.suggestedPayrollPeriodId || null;
+  if (!pid) return '—';
+  const p = (periods.value || []).find((x) => Number(x.id) === Number(pid));
+  return p ? periodRangeLabel(p) : `#${pid}`;
+};
 
 const payrollBasePath = () => {
   const slug = String(route.params?.organizationSlug || agencyStore.currentAgency?.slug || '').trim();
@@ -669,6 +1073,52 @@ const loadClaims = async () => {
   seedClaimTargets('med', medClaims.value);
 };
 
+const loadEventTimeSubmissions = async () => {
+  if (!agencyId.value) return;
+  try {
+    eventTimeLoading.value = true;
+    const resp = await api.get('/payroll/event-time-submissions', {
+      params: {
+        agencyId: agencyId.value,
+        status: eventTimeShowApproved.value ? 'submitted,approved,rejected,deferred' : 'submitted'
+      }
+    });
+    const submissions = Array.isArray(resp.data?.submissions) ? resp.data.submissions : [];
+    eventTimeSubmissions.value = submissions;
+    const aligned = (periods.value || []).filter((p) => Number(p.schedule_aligned) === 1);
+    const def = Number(defaultTargetPeriodId.value || 0) || null;
+    for (const s of submissions) {
+      if (eventTimeTargetPeriodByPunchId[s.punchInId] != null) continue;
+      const claim = s.directClaim || s.indirectClaim;
+      const suggestedId = Number(claim?.suggestedPayrollPeriodId || 0);
+      const suggestedPeriod = suggestedId ? (periods.value || []).find((p) => Number(p.id) === suggestedId) : null;
+      if (suggestedPeriod && Number(suggestedPeriod.schedule_aligned) === 1 && !isPeriodLocked(suggestedPeriod)) {
+        eventTimeTargetPeriodByPunchId[s.punchInId] = suggestedId;
+        continue;
+      }
+      const dateStr = String(s.clockOutAt || s.clockInAt || '').slice(0, 10);
+      const matchedAligned = dateStr
+        ? aligned.find((p) => {
+            const ps = String(p.period_start || '').slice(0, 10);
+            const pe = String(p.period_end || '').slice(0, 10);
+            return dateStr >= ps && dateStr <= pe && !isPeriodLocked(p);
+          })
+        : null;
+      eventTimeTargetPeriodByPunchId[s.punchInId] = matchedAligned ? matchedAligned.id : def;
+    }
+  } catch (e) {
+    actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load event time submissions';
+    eventTimeSubmissions.value = [];
+  } finally {
+    eventTimeLoading.value = false;
+  }
+};
+
+const toggleEventTimeShowApproved = async () => {
+  eventTimeShowApproved.value = !eventTimeShowApproved.value;
+  await loadEventTimeSubmissions();
+};
+
 const reloadAll = async () => {
   if (!agencyId.value) return;
   loading.value = true;
@@ -676,7 +1126,7 @@ const reloadAll = async () => {
   actionError.value = '';
   try {
     await Promise.all([loadPeriods(), loadUsers()]);
-    await Promise.all([loadPto(), loadClaims()]);
+    await Promise.all([loadPto(), loadClaims(), loadEventTimeSubmissions()]);
   } catch (e) {
     pageError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load pending submissions';
   } finally {
@@ -872,10 +1322,132 @@ const rejectMed = (c) => {
   );
 };
 
+const openEventTimeEdit = (submission) => {
+  if (!submission?.punchInId) return;
+  eventTimeEditSubmission.value = submission;
+  eventTimeEditClockIn.value = isoToDatetimeLocalInput(submission.clockInAt);
+  eventTimeEditClockOut.value = isoToDatetimeLocalInput(submission.clockOutAt);
+  eventTimeEditDirectCap.value = submission.directHoursCap != null ? String(submission.directHoursCap) : '';
+  eventTimeEditError.value = '';
+  eventTimeEditOpen.value = true;
+};
+
+const closeEventTimeEdit = () => {
+  eventTimeEditOpen.value = false;
+  eventTimeEditSubmission.value = null;
+  eventTimeEditClockIn.value = '';
+  eventTimeEditClockOut.value = '';
+  eventTimeEditDirectCap.value = '';
+  eventTimeEditError.value = '';
+};
+
+const saveEventTimeEdit = async () => {
+  const submission = eventTimeEditSubmission.value;
+  if (!submission?.punchInId || !agencyId.value) return;
+  const clockInAt = datetimeLocalInputToIso(eventTimeEditClockIn.value);
+  const clockOutAt = datetimeLocalInputToIso(eventTimeEditClockOut.value);
+  if (!clockInAt || !clockOutAt) {
+    eventTimeEditError.value = 'Enter valid clock in and clock out times.';
+    return;
+  }
+  eventTimeEditSaving.value = true;
+  eventTimeEditError.value = '';
+  try {
+    const capRaw = Number(eventTimeEditDirectCap.value);
+    await api.patch(`/payroll/event-time-submissions/${submission.punchInId}`, {
+      agencyId: agencyId.value,
+      clockInAt,
+      clockOutAt,
+      ...(Number.isFinite(capRaw) && capRaw >= 0 ? { directHoursCap: capRaw } : {})
+    });
+    closeEventTimeEdit();
+    await loadEventTimeSubmissions();
+  } catch (e) {
+    eventTimeEditError.value = e?.response?.data?.error?.message || e?.message || 'Failed to save event time';
+  } finally {
+    eventTimeEditSaving.value = false;
+  }
+};
+
+const approveEventTimeSubmission = (submission, bucket) => {
+  if (!agencyId.value || !submission) return;
+  const targetPayrollPeriodId = Number(eventTimeTargetPeriodByPunchId[submission.punchInId] || 0);
+  if (!isValidOpenPeriod(targetPayrollPeriodId)) {
+    actionError.value = 'Select an open pay period before approving.';
+    return;
+  }
+  const claim = bucket === 'direct' ? submission.directClaim : submission.indirectClaim;
+  if (!claim?.id) return;
+  return withBusy(
+    `event-${submission.punchInId}`,
+    (override = {}) =>
+      api.patch(`/payroll/time-claims/${claim.id}`, {
+        action: 'approve',
+        targetPayrollPeriodId,
+        bucket,
+        creditsHours: bucket === 'direct' ? submission.directHours : submission.indirectHours,
+        ...override
+      }),
+    loadEventTimeSubmissions
+  );
+};
+
+const rejectEventTimeSubmission = async (submission) => {
+  if (!agencyId.value || !submission) return;
+  const reason = window.prompt('Reject this event time? Enter a reason (required):', '') || '';
+  if (!String(reason).trim()) return;
+  const claimIds = [submission.directClaim?.id, submission.indirectClaim?.id].filter(Boolean);
+  if (!claimIds.length) return;
+  return withBusy(
+    `event-${submission.punchInId}`,
+    async () => {
+      for (const id of claimIds) {
+        await api.patch(`/payroll/time-claims/${id}`, { action: 'reject', rejectionReason: String(reason).trim() });
+      }
+    },
+    loadEventTimeSubmissions
+  );
+};
+
+const unapproveEventTimeSubmission = async (submission) => {
+  if (!agencyId.value || !submission) return;
+  const ok = window.confirm('Unapprove this event time? It will return to Pending so it can be edited or re-approved.');
+  if (!ok) return;
+  const claimIds = [submission.directClaim?.id, submission.indirectClaim?.id].filter(Boolean);
+  if (!claimIds.length) return;
+  return withBusy(
+    `event-${submission.punchInId}`,
+    async () => {
+      for (const id of claimIds) {
+        await api.patch(`/payroll/time-claims/${id}`, { action: 'unapprove' });
+      }
+    },
+    loadEventTimeSubmissions
+  );
+};
+
+const returnEventTimeSubmission = async (submission) => {
+  if (!agencyId.value || !submission) return;
+  const note = window.prompt('Send back to employee. Enter a note (required):', '') || '';
+  if (!String(note).trim()) return;
+  const claimIds = [submission.directClaim?.id, submission.indirectClaim?.id].filter(Boolean);
+  if (!claimIds.length) return;
+  return withBusy(
+    `event-${submission.punchInId}`,
+    async () => {
+      for (const id of claimIds) {
+        await api.patch(`/payroll/time-claims/${id}`, { action: 'return', note: String(note).trim() });
+      }
+    },
+    loadEventTimeSubmissions
+  );
+};
+
 const applyRouteQuery = () => {
   const t = String(route.query?.tab || '').toLowerCase();
-  if (['pto', 'time', 'mileage', 'reimbursement', 'medcancel'].includes(t)) tab.value = t;
+  if (['pto', 'time', 'event_time', 'mileage', 'reimbursement', 'medcancel'].includes(t)) tab.value = t;
   else if (String(route.query?.type || '').toLowerCase().includes('pto') || String(route.query?.type || '').toLowerCase().includes('sick')) tab.value = 'pto';
+  else if (String(route.query?.type || '').toLowerCase().includes('event')) tab.value = 'event_time';
   else if (String(route.query?.type || '').toLowerCase() === 'time') tab.value = 'time';
   else if (String(route.query?.type || '').toLowerCase() === 'mileage') tab.value = 'mileage';
   else if (String(route.query?.type || '').toLowerCase().includes('reimb')) tab.value = 'reimbursement';
@@ -885,9 +1457,29 @@ const applyRouteQuery = () => {
   focusUserId.value = Number.isFinite(uid) && uid > 0 ? uid : null;
 };
 
+/** When landing without an explicit tab, open the first category that has pending items. */
+const selectFirstPendingTabIfNeeded = () => {
+  if (String(route.query?.tab || route.query?.type || '').trim()) return;
+  const order = [
+    ['pto', ptoPendingCount.value],
+    ['event_time', eventTimePendingCount.value],
+    ['time', timeClaims.value.length],
+    ['mileage', mileageClaims.value.length],
+    ['reimbursement', reimbClaims.value.length],
+    ['medcancel', medClaims.value.length]
+  ];
+  const first = order.find(([, n]) => Number(n || 0) > 0);
+  if (first) setTab(first[0]);
+};
+
 watch(agencyId, async (id, prev) => {
   if (id && id !== prev) await reloadAll();
 });
+
+watch(
+  () => [route.query?.tab, route.query?.type, route.query?.userId],
+  () => applyRouteQuery()
+);
 
 watch(defaultTargetPeriodId, (pid) => {
   const def = Number(pid || 0) || null;
@@ -895,11 +1487,15 @@ watch(defaultTargetPeriodId, (pid) => {
     // only fill blanks / keep existing overrides
     if (claimTargetByKey[key] == null) claimTargetByKey[key] = def;
   }
+  for (const punchId of Object.keys(eventTimeTargetPeriodByPunchId)) {
+    if (eventTimeTargetPeriodByPunchId[punchId] == null) eventTimeTargetPeriodByPunchId[punchId] = def;
+  }
 });
 
 onMounted(async () => {
   applyRouteQuery();
   await reloadAll();
+  selectFirstPendingTabIfNeeded();
 });
 </script>
 
@@ -1079,6 +1675,75 @@ onMounted(async () => {
 .field label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; }
 .hint { font-size: 13px; color: var(--text-secondary, #64748b); }
 .muted { color: #64748b; font-size: 13px; }
+.pps-late-badge {
+  margin-left: 4px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.pps-edited-mark {
+  margin-left: 4px;
+  color: #b45309;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.pps-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+  padding: 16px;
+}
+.pps-modal {
+  width: min(560px, 100%);
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.18);
+  overflow: hidden;
+}
+.pps-modal-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.pps-modal-title { font-weight: 700; color: var(--pps-forest); }
+.pps-modal-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pps-edit-notice {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 0.875rem;
+}
+.pps-late-notice {
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 0.875rem;
+}
+.input {
+  width: 100%;
+  border: 1px solid #d1d9d4;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
 @media (max-width: 900px) {
   .pps-toolbar { grid-template-columns: 1fr; }
   .pps-toolbar-stats { justify-content: flex-start; }

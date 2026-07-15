@@ -605,6 +605,10 @@
                             <span class="nav-payroll-sub-name">Time Claims</span>
                             <span class="nav-payroll-sub-types">{{ payrollPendingTypeCounts.time }} pending</span>
                           </button>
+                          <button v-if="payrollPendingTypeCounts.event_time > 0" type="button" class="nav-payroll-inline-row" @click.stop="goToPayrollPending({ tab: 'event_time' })">
+                            <span class="nav-payroll-sub-name">Event Times</span>
+                            <span class="nav-payroll-sub-types">{{ payrollPendingTypeCounts.event_time }} pending</span>
+                          </button>
                           <button v-if="payrollPendingTypeCounts.mileage > 0" type="button" class="nav-payroll-inline-row" @click.stop="goToPayrollPending({ tab: 'mileage' })">
                             <span class="nav-payroll-sub-name">Mileage Claims</span>
                             <span class="nav-payroll-sub-types">{{ payrollPendingTypeCounts.mileage }} pending</span>
@@ -3038,7 +3042,16 @@ const dismissPayrollPendingToast = () => {
 const goToPayrollPending = (opts = {}) => {
   payrollPendingToastVisible.value = false;
   const query = {};
-  if (opts.tab) query.tab = String(opts.tab);
+  if (opts.tab) {
+    query.tab = String(opts.tab);
+  } else {
+    // Land on the first tab that actually has pending items so event times
+    // (and other non-PTO types) are visible after clicking the toast.
+    const tc = payrollPendingTypeCounts.value || {};
+    const order = ['pto', 'event_time', 'time', 'mileage', 'reimbursement', 'medcancel'];
+    const first = order.find((k) => Number(tc[k] || 0) > 0);
+    if (first) query.tab = first;
+  }
   if (opts.userId) query.userId = String(opts.userId);
   router.push({ path: orgTo('/admin/payroll/pending'), query });
 };

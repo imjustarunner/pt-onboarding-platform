@@ -168,7 +168,7 @@
       <!-- Force full remount when switching tabs to avoid Vue patch edge-cases across radically different subtrees -->
       <div
         class="tab-content"
-        :class="{ 'tab-content--flush': activeTab === 'overview' || activeTab === 'account' || activeTab === 'provider_info' }"
+        :class="{ 'tab-content--flush': activeTab === 'overview' || activeTab === 'account' || activeTab === 'benefits' || activeTab === 'provider_info' }"
         :key="activeTab"
         data-tour="user-profile-tab-content"
       >
@@ -189,6 +189,18 @@
           :preloadedOverviewLoading="overviewLoading"
           @navigate="selectTab"
           @perms-saved="onOverviewPermsSaved"
+        />
+
+        <UserBenefitsTab
+          v-if="activeTab === 'benefits' && !isViewingGuardian && !isSscMemberProfileMode && !isViewingSchoolStaff && user"
+          :userId="userId"
+          :user="user"
+          :canEditUser="canEditUser"
+          :canViewPayroll="canViewPayroll"
+          :agencyId="agencyStore.currentAgency?.id"
+          :isHourlyWorker="!!accountForm?.isHourlyWorker"
+          @navigate="selectTab"
+          @updated="onBenefitsUpdated"
         />
 
         <div v-if="activeTab === 'account'" class="tab-panel">
@@ -2460,6 +2472,7 @@ import UserPayrollTab from '../../components/admin/UserPayrollTab.vue';
 import UserDepartmentTab from '../../components/admin/UserDepartmentTab.vue';
 import UserSupervisionTab from '../../components/admin/UserSupervisionTab.vue';
 import UserLifecycleTab from '../../components/admin/UserLifecycleTab.vue';
+import UserBenefitsTab from '../../components/admin/UserBenefitsTab.vue';
 import SupervisorAssignmentManager from '../../components/admin/SupervisorAssignmentManager.vue';
 import MovePendingToActiveModal from '../../components/admin/MovePendingToActiveModal.vue';
 import LeaveOfAbsenceModal from '../../components/admin/LeaveOfAbsenceModal.vue';
@@ -3443,6 +3456,7 @@ const tabs = computed(() => {
   const baseTabs = [
     { id: 'overview', label: 'Overview' },
     { id: 'account', label: 'Account' },
+    { id: 'benefits', label: 'Benefits' },
     ...(canViewLifecycleTab.value ? [{ id: 'lifecycle', label: 'Lifecycle' }] : []),
     ...(canViewProviderInfo.value ? [{ id: 'provider_info', label: 'Clinical Information' }] : []),
     ...(canViewCredentialingTab.value ? [{ id: 'credentialing', label: 'Credentialing' }] : []),
@@ -6664,6 +6678,38 @@ const onOverviewPermsSaved = (perms = {}) => {
     accountInfo.value = { ...accountInfo.value, ...perms };
   }
   void fetchAccountInfo();
+};
+
+/** Refresh user after Benefits tab save (employment type, medcancel, notes). */
+const onBenefitsUpdated = async (payload = {}) => {
+  if (payload?.medcancelRateSchedule !== undefined) {
+    accountForm.value.medcancelRateSchedule = String(payload.medcancelRateSchedule || 'none');
+  }
+  if (user.value && payload?.employmentType !== undefined) {
+    user.value = { ...user.value, employment_type: payload.employmentType };
+  }
+  if (user.value && payload?.benefitsNotes !== undefined) {
+    user.value = { ...user.value, benefits_notes: payload.benefitsNotes };
+  }
+  if (user.value && payload?.benefitsEligibilityOverrides !== undefined) {
+    user.value = {
+      ...user.value,
+      benefits_eligibility_overrides_json: payload.benefitsEligibilityOverrides
+    };
+  }
+  if (user.value && payload?.medcancelRateSchedule !== undefined) {
+    user.value = {
+      ...user.value,
+      medcancel_rate_schedule: payload.medcancelRateSchedule,
+      medcancelRateSchedule: payload.medcancelRateSchedule
+    };
+  }
+  try {
+    await fetchUser();
+  } catch {
+    // local merge above is enough if reload fails
+  }
+  void refreshOverview?.();
 };
 
 // Ensure activeTab is always valid for the currently computed tabs.

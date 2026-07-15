@@ -262,7 +262,13 @@
                 <div class="ov-field-list">
                   <div class="ov-field-row"><span class="ov-fl">Job Title</span><span class="ov-fv">{{ user.title || '—' }}</span></div>
                   <div class="ov-field-row"><span class="ov-fl">Department</span><span class="ov-fv">{{ user.department || '—' }}</span></div>
-                  <div class="ov-field-row"><span class="ov-fl">Employment Type</span><span class="ov-fv">{{ employmentTypeLabel }}</span></div>
+                  <div class="ov-field-row">
+                    <span class="ov-fl">Employment Type</span>
+                    <span class="ov-fv">
+                      {{ employmentTypeLabel }}
+                      <button type="button" class="ov-btn-viewall" style="margin-left: 8px;" @click="$emit('navigate', 'benefits')">Benefits</button>
+                    </span>
+                  </div>
                   <div class="ov-field-row"><span class="ov-fl">Work Location</span><span class="ov-fv">{{ user.work_location || '—' }}</span></div>
                   <div class="ov-field-row"><span class="ov-fl">Pay Rate</span><span class="ov-fv">{{ user.pay_rate ? `$${Number(user.pay_rate).toLocaleString()}.00 / year` : '—' }}</span></div>
                   <div class="ov-field-row"><span class="ov-fl">Pay Type</span><span class="ov-fv">{{ user.pay_type || '—' }}</span></div>
@@ -301,6 +307,7 @@
                       <option value="intern">Intern</option>
                       <option value="per_diem">Per Diem</option>
                     </select>
+                    <small class="muted" style="margin-top: 4px; display: block;">Part-time / tier eligibility is managed on the Benefits tab.</small>
                   </label>
                   <label class="ov-eg-row"><span class="ov-fl">Work Location</span><input v-model="jobDraft.workLocation" class="ov-input" type="text"/></label>
                 </div>

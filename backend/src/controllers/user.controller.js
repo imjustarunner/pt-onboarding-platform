@@ -2301,7 +2301,10 @@ export const updateUser = async (req, res, next) => {
       hasGamesAccess,
       externalBusyIcsUrl,
       providerStartDate,
-      work_role: workRoleRaw
+      work_role: workRoleRaw,
+      employmentType,
+      benefitsNotes,
+      benefitsEligibilityOverrides
     } = req.body;
     const loginEmailAliases = req.body?.loginEmailAliases;
 
@@ -2735,9 +2738,14 @@ export const updateUser = async (req, res, next) => {
     if (homeState !== undefined) updateData.homeState = homeState;
     if (homePostalCode !== undefined) updateData.homePostalCode = homePostalCode;
 
-    // Med Cancel flags (contract feature)
+    // Med Cancel flags (contract feature / Benefits tab)
     if (medcancelEnabled !== undefined) updateData.medcancelEnabled = Boolean(medcancelEnabled);
     if (medcancelRateSchedule !== undefined) updateData.medcancelRateSchedule = medcancelRateSchedule;
+
+    // Benefits tab: employment classification, notes, eligibility overrides
+    if (employmentType !== undefined) updateData.employmentType = employmentType;
+    if (benefitsNotes !== undefined) updateData.benefitsNotes = benefitsNotes;
+    if (benefitsEligibilityOverrides !== undefined) updateData.benefitsEligibilityOverrides = benefitsEligibilityOverrides;
 
     // Company Card (contract feature)
     if (companyCardEnabled !== undefined) updateData.companyCardEnabled = Boolean(companyCardEnabled);
@@ -6844,6 +6852,17 @@ export const getAccountInfo = async (req, res, next) => {
       companyCarSubmitAccess: !!(user.company_car_submit_access === 1 || user.company_car_submit_access === true || user.company_car_submit_access === '1'),
       companyCarManageAccess: !!(user.company_car_manage_access === 1 || user.company_car_manage_access === true || user.company_car_manage_access === '1'),
       skillBuilderEligible: !!(user.skill_builder_eligible === 1 || user.skill_builder_eligible === true || user.skill_builder_eligible === '1'),
+      medcancelRateSchedule: ['low', 'high', 'none'].includes(String(user.medcancel_rate_schedule || '').toLowerCase())
+        ? String(user.medcancel_rate_schedule).toLowerCase()
+        : 'none',
+      employmentType: user.employment_type || null,
+      benefitsNotes: user.benefits_notes ?? null,
+      benefitsEligibilityOverrides: (() => {
+        const raw = user.benefits_eligibility_overrides_json;
+        if (!raw) return {};
+        if (typeof raw === 'object') return raw;
+        try { return JSON.parse(raw); } catch { return {}; }
+      })(),
       ...(resetLinkSent && {
         resetLinkSentAt: resetLinkSent.resetLinkSentAt,
         resetLinkSentByUserId: resetLinkSent.resetLinkSentByUserId,
@@ -8962,6 +8981,10 @@ export const getProfileOverview = async (req, res, next) => {
         manager_name: user.manager_name,
         manager_first_name: user.manager_first_name,
         manager_last_name: user.manager_last_name,
+        benefits_notes: user.benefits_notes ?? null,
+        benefits_eligibility_overrides_json: user.benefits_eligibility_overrides_json ?? null,
+        medcancel_rate_schedule: user.medcancel_rate_schedule ?? null,
+        is_hourly_worker: user.is_hourly_worker,
       },
       accountInfo,
       lifecycle,

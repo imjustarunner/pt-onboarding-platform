@@ -195,7 +195,20 @@
             <div class="portal-card-name">{{ s.school_name }}</div>
             <div class="portal-card-type">{{ formatOrgType(s.organization_type) }}</div>
           </div>
-          <div class="portal-card-cta">Open portal</div>
+          <div class="portal-card-actions">
+            <div class="portal-card-cta">Open portal</div>
+            <div
+              v-if="canOpenSchoolInternalNotes"
+              class="portal-card-cta portal-card-cta-secondary"
+              role="link"
+              tabindex="0"
+              @click.stop="openSchoolNotes(s)"
+              @keydown.enter.prevent.stop="openSchoolNotes(s)"
+              @keydown.space.prevent.stop="openSchoolNotes(s)"
+            >
+              Open notes
+            </div>
+          </div>
         </button>
       </div>
 
@@ -614,6 +627,60 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showSchoolNotesModal" class="modal-overlay" @click.self="closeSchoolNotesModal">
+      <div class="modal school-notes-modal" @click.stop>
+        <div class="modal-header">
+          <div>
+            <strong>Internal notes</strong>
+            <div class="modal-subtitle">
+              {{ schoolNotesTarget?.school_name || 'School' }} — admin team only
+            </div>
+          </div>
+          <button class="close" type="button" aria-label="Close" @click="closeSchoolNotesModal">×</button>
+        </div>
+        <div class="modal-body school-notes-modal-body">
+          <div v-if="schoolNotesError" class="error">{{ schoolNotesError }}</div>
+          <div v-if="schoolNotesLoading" class="loading">Loading notes…</div>
+          <div v-else-if="schoolNotes.length === 0" class="empty-state school-notes-empty">
+            No internal notes yet for this school.
+          </div>
+          <div v-else class="school-notes-list">
+            <div v-for="n in schoolNotes" :key="n.id" class="school-note-item">
+              <div class="school-note-meta">
+                <strong>{{ schoolNoteAuthorLabel(n) }}</strong>
+                <span class="muted">{{ formatAnnouncementDate(n.created_at) }}</span>
+              </div>
+              <div class="school-note-message">{{ n.message }}</div>
+            </div>
+          </div>
+
+          <div class="form-group school-notes-compose">
+            <label>Add note</label>
+            <textarea
+              v-model="schoolNotesDraft"
+              class="announcement-textarea"
+              rows="3"
+              maxlength="8000"
+              placeholder="Internal note visible only to admin, super admin, and CPA…"
+            />
+          </div>
+          <div class="announcement-actions">
+            <button
+              type="button"
+              class="btn btn-primary"
+              :disabled="schoolNotesSaving || !String(schoolNotesDraft || '').trim()"
+              @click="submitSchoolNote"
+            >
+              {{ schoolNotesSaving ? 'Saving…' : 'Save note' }}
+            </button>
+            <button type="button" class="btn btn-secondary" :disabled="schoolNotesSaving" @click="closeSchoolNotesModal">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -671,6 +738,14 @@ const deleteTarget = ref(null);
 const deleteSaving = ref(false);
 const deleteError = ref('');
 const showAddSchoolModal = ref(false);
+
+const showSchoolNotesModal = ref(false);
+const schoolNotesTarget = ref(null);
+const schoolNotes = ref([]);
+const schoolNotesDraft = ref('');
+const schoolNotesLoading = ref(false);
+const schoolNotesSaving = ref(false);
+const schoolNotesError = ref('');
 
 const schoolEventsOverview = ref({ year: new Date().getFullYear(), schools: [], events: [], missingBySchool: {} });
 const showSchoolEventRequestModal = ref(false);
@@ -815,6 +890,25 @@ const isBackofficeManager = computed(() => {
 const canManageSchoolsHere = computed(() => {
   if (!isBackofficeManager.value) return false;
   if (orgType.value === 'program' || orgType.value === 'learning') return false;
+  if (isSuperAdmin.value) return true;
+  const row = overviewAgencyRowForGate.value;
+  if (!row) return false;
+  const pb = brandingStore.platformBranding || {};
+  return canAccessSchoolPortalsSurfaces({
+    userRole: authStore.user?.role,
+    agencyFeatureFlags: row.feature_flags ?? row.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      row.tenant_available_agency_features_json ?? row.tenantAvailableAgencyFeaturesJson
+  });
+});
+
+/** Open notes: admin + super_admin always; CPA only when School Portals surfaces are enabled. */
+const canOpenSchoolInternalNotes = computed(() => {
+  if (!isAllPortalsPage.value) return false;
+  const role = String(authStore.user?.role || '').toLowerCase();
+  if (role === 'admin' || role === 'super_admin') return true;
+  if (role !== 'clinical_practice_assistant') return false;
   if (isSuperAdmin.value) return true;
   const row = overviewAgencyRowForGate.value;
   if (!row) return false;
@@ -1206,6 +1300,75 @@ const openSchool = (school) => {
   router.push(`/${slug}/dashboard`);
 };
 
+const schoolNoteAuthorLabel = (note) => {
+  const first = String(note?.author_first_name || '').trim();
+  const last = String(note?.author_last_name || '').trim();
+  const name = `${first} ${last}`.trim();
+  if (name) return name;
+  return String(note?.author_email || 'Admin').trim() || 'Admin';
+};
+
+const closeSchoolNotesModal = () => {
+  showSchoolNotesModal.value = false;
+  schoolNotesTarget.value = null;
+  schoolNotes.value = [];
+  schoolNotesDraft.value = '';
+  schoolNotesError.value = '';
+  schoolNotesLoading.value = false;
+  schoolNotesSaving.value = false;
+};
+
+const openSchoolNotes = async (school) => {
+  if (!canOpenSchoolInternalNotes.value) return;
+  const schoolId = parseInt(String(school?.school_id || ''), 10);
+  const agencyId = selectedAgencyId.value ? parseInt(String(selectedAgencyId.value), 10) : null;
+  if (!Number.isFinite(schoolId) || schoolId < 1 || !Number.isFinite(agencyId) || agencyId < 1) return;
+
+  schoolNotesTarget.value = school;
+  schoolNotesDraft.value = '';
+  schoolNotesError.value = '';
+  schoolNotes.value = [];
+  showSchoolNotesModal.value = true;
+  schoolNotesLoading.value = true;
+  try {
+    const res = await api.get(`/dashboard/school-overview/${schoolId}/internal-notes`, {
+      params: { agencyId }
+    });
+    schoolNotes.value = Array.isArray(res.data?.notes) ? res.data.notes : [];
+  } catch (e) {
+    schoolNotesError.value = e?.response?.data?.error?.message || 'Failed to load notes';
+  } finally {
+    schoolNotesLoading.value = false;
+  }
+};
+
+const submitSchoolNote = async () => {
+  const schoolId = parseInt(String(schoolNotesTarget.value?.school_id || ''), 10);
+  const agencyId = selectedAgencyId.value ? parseInt(String(selectedAgencyId.value), 10) : null;
+  const message = String(schoolNotesDraft.value || '').trim();
+  if (!Number.isFinite(schoolId) || schoolId < 1 || !Number.isFinite(agencyId) || agencyId < 1 || !message) return;
+
+  schoolNotesSaving.value = true;
+  schoolNotesError.value = '';
+  try {
+    const res = await api.post(`/dashboard/school-overview/${schoolId}/internal-notes`, {
+      agencyId,
+      message
+    });
+    const created = res.data?.note;
+    if (created) {
+      schoolNotes.value = [created, ...(schoolNotes.value || [])];
+    } else {
+      await openSchoolNotes(schoolNotesTarget.value);
+    }
+    schoolNotesDraft.value = '';
+  } catch (e) {
+    schoolNotesError.value = e?.response?.data?.error?.message || 'Failed to save note';
+  } finally {
+    schoolNotesSaving.value = false;
+  }
+};
+
 const skillBuildersIconUrl = computed(() => {
   try {
     return brandingStore.getAdminQuickActionIconUrl('skill_builders_availability', agencyStore.currentAgency || null);
@@ -1455,11 +1618,68 @@ onMounted(async () => {
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
+.portal-card-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
 .portal-card-cta {
   color: var(--primary);
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
+}
+.portal-card-cta-secondary {
+  line-height: 1.2;
+}
+.portal-card-cta-secondary:hover {
+  text-decoration: underline;
+}
+.school-notes-modal {
+  max-width: 560px;
+  width: min(560px, 94vw);
+}
+.school-notes-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.school-notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: min(360px, 45vh);
+  overflow: auto;
+  padding-right: 2px;
+}
+.school-note-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--bg-alt, #f8fafc);
+}
+.school-note-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.school-note-message {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+.school-notes-empty {
+  margin: 0;
+  padding: 12px 0;
+}
+.school-notes-compose {
+  margin-top: 4px;
 }
 
 .cards-grid {

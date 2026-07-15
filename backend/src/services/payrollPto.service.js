@@ -6,6 +6,9 @@ import PayrollPtoRequest from '../models/PayrollPtoRequest.model.js';
 import PayrollAdjustment from '../models/PayrollAdjustment.model.js';
 import PayrollPeriod from '../models/PayrollPeriod.model.js';
 import { computeSubmissionWindow, resolveClaimTimeZone } from '../utils/payrollSubmissionWindow.js';
+import { computeAccrualFromBasisHours } from '../utils/payrollPtoAccrual.util.js';
+
+export { computeAccrualFromBasisHours } from '../utils/payrollPtoAccrual.util.js';
 
 const DEFAULT_PTO_POLICY = {
   sickAccrualPer30: 1.0,
@@ -588,6 +591,206 @@ export async function approvePtoRequestAndPostToPayroll({
   };
 }
 
+/**
+ * Reverse balances and delete any ledger rows tied to a manual pay line
+ * (PTO adjustment lines or direct-pay accrual credits).
+ */
+export async function clearPtoLedgerForManualPayLine({
+  agencyId,
+  userId,
+  manualPayLineId,
+  updatedByUserId
+}) {
+  if (!agencyId || !userId || !manualPayLineId) return { ok: false };
+
+  const [bucketRows] = await pool.execute(
+    `SELECT pto_bucket, COALESCE(SUM(hours_delta), 0) AS hours
+     FROM payroll_pto_ledger
+     WHERE agency_id = ? AND manual_pay_line_id = ?
+     GROUP BY pto_bucket`,
+    [agencyId, manualPayLineId]
+  );
+
+  if ((bucketRows || []).length) {
+    const acct = await PayrollPtoAccount.findForAgencyUser({ agencyId, userId });
+    if (acct) {
+      let sickBal = Number(acct.sick_balance_hours || 0);
+      let trainingBal = Number(acct.training_balance_hours || 0);
+      for (const r of bucketRows || []) {
+        const bucket = String(r?.pto_bucket || '').toLowerCase() === 'training' ? 'training' : 'sick';
+        const hours = Number(r?.hours || 0);
+        if (Math.abs(hours) < 1e-9) continue;
+        if (bucket === 'training') trainingBal -= hours;
+        else sickBal -= hours;
+      }
+      await PayrollPtoAccount.upsert({
+        agencyId,
+        userId,
+        employmentType: acct.employment_type,
+        trainingPtoEligible: acct.training_pto_eligible ? 1 : 0,
+        sickStartHours: acct.sick_start_hours,
+        sickStartEffectiveDate: acct.sick_start_effective_date,
+        trainingStartHours: acct.training_start_hours,
+        trainingStartEffectiveDate: acct.training_start_effective_date,
+        sickBalanceHours: sickBal,
+        trainingBalanceHours: trainingBal,
+        lastAccruedPayrollPeriodId: acct.last_accrued_payroll_period_id,
+        lastSickRolloverYear: acct.last_sick_rollover_year,
+        trainingForfeitedAt: acct.training_forfeited_at,
+        updatedByUserId
+      });
+    }
+  }
+
+  await PayrollPtoLedger.deleteForManualPayLine({ agencyId, manualPayLineId });
+  return { ok: true };
+}
+
+/**
+ * When a manual pay line is Direct, credit PTO using the same basis/30 formula as
+ * payroll posting. Indirect / PTO-adjustment lines are no-ops here (PTO adjustments
+ * are handled separately). Re-running replaces prior ledger rows for this line id
+ * so edits do not double-credit.
+ */
+export async function syncPtoAccrualForManualDirectPayLine({
+  agencyId,
+  userId,
+  manualPayLineId,
+  lineType = 'pay',
+  category = 'indirect',
+  creditsHours = null,
+  label = null,
+  payrollPeriodId = null,
+  effectiveDate = null,
+  createdByUserId
+}) {
+  if (!agencyId || !userId || !manualPayLineId) return { ok: false };
+
+  // Always clear prior linked ledger first (covers edit / category change / hour change).
+  await clearPtoLedgerForManualPayLine({
+    agencyId,
+    userId,
+    manualPayLineId,
+    updatedByUserId: createdByUserId
+  });
+
+  const lt = String(lineType || 'pay').trim().toLowerCase();
+  const cat = String(category || '').trim().toLowerCase();
+  const hrs = Number(creditsHours);
+  if (lt !== 'pay' || cat !== 'direct' || !Number.isFinite(hrs) || hrs <= 1e-9) {
+    return { ok: true, skipped: true, sickEarn: 0, trainingEarn: 0 };
+  }
+
+  const { policy } = await getAgencyPtoPolicy({ agencyId });
+  if (policy.ptoEnabled === false) return { ok: true, skipped: 'pto_disabled', sickEarn: 0, trainingEarn: 0 };
+
+  const acct = await ensurePtoAccount({ agencyId, userId, updatedByUserId: createdByUserId });
+  const { sickEarn, trainingEarn } = computeAccrualFromBasisHours({
+    basisHours: hrs,
+    policy,
+    employmentType: acct.employment_type,
+    trainingPtoEligible: Boolean(acct.training_pto_eligible)
+  });
+
+  if (sickEarn <= 1e-9 && trainingEarn <= 1e-9) {
+    return { ok: true, skipped: 'no_earn', sickEarn: 0, trainingEarn: 0 };
+  }
+
+  const eff =
+    String(effectiveDate || '').slice(0, 10) ||
+    String(acct.sick_start_effective_date || '').slice(0, 10) ||
+    todayYmd();
+  const noteLabel = String(label || 'Manual').trim().slice(0, 80) || 'Manual';
+
+  let sickBal = Number(acct.sick_balance_hours || 0);
+  let trainingBal = Number(acct.training_balance_hours || 0);
+
+  if (sickEarn > 1e-9) {
+    await PayrollPtoLedger.create({
+      agencyId,
+      userId,
+      entryType: 'manual_adjustment',
+      ptoBucket: 'sick',
+      hoursDelta: sickEarn,
+      effectiveDate: eff,
+      payrollPeriodId,
+      requestId: null,
+      manualPayLineId,
+      note: `PTO accrual from manual direct pay (${noteLabel})`,
+      createdByUserId
+    });
+    sickBal += sickEarn;
+  }
+  if (trainingEarn > 1e-9) {
+    await PayrollPtoLedger.create({
+      agencyId,
+      userId,
+      entryType: 'manual_adjustment',
+      ptoBucket: 'training',
+      hoursDelta: trainingEarn,
+      effectiveDate: eff,
+      payrollPeriodId,
+      requestId: null,
+      manualPayLineId,
+      note: `Training PTO accrual from manual direct pay (${noteLabel})`,
+      createdByUserId
+    });
+    trainingBal += trainingEarn;
+  }
+
+  const sickCap = Number(policy.sickAnnualMaxAccrual ?? DEFAULT_PTO_POLICY.sickAnnualMaxAccrual);
+  const trainingCap = Number(policy.trainingMaxBalance ?? DEFAULT_PTO_POLICY.trainingMaxBalance);
+  if (Number.isFinite(sickCap) && sickBal > sickCap + 1e-9) sickBal = sickCap;
+  if (Number.isFinite(trainingCap) && trainingBal > trainingCap + 1e-9) trainingBal = trainingCap;
+
+  await PayrollPtoAccount.upsert({
+    agencyId,
+    userId,
+    employmentType: acct.employment_type,
+    trainingPtoEligible: acct.training_pto_eligible ? 1 : 0,
+    sickStartHours: acct.sick_start_hours,
+    sickStartEffectiveDate: acct.sick_start_effective_date,
+    trainingStartHours: acct.training_start_hours,
+    trainingStartEffectiveDate: acct.training_start_effective_date,
+    sickBalanceHours: sickBal,
+    trainingBalanceHours: trainingBal,
+    lastAccruedPayrollPeriodId: acct.last_accrued_payroll_period_id,
+    lastSickRolloverYear: acct.last_sick_rollover_year,
+    trainingForfeitedAt: acct.training_forfeited_at,
+    updatedByUserId: createdByUserId
+  });
+
+  return { ok: true, sickEarn, trainingEarn };
+}
+
+async function sumManualDirectBasisAlreadyCredited({ agencyId, payrollPeriodId, userId }) {
+  // Hours on direct manual pay lines that already received ledger PTO credits
+  // (so posting-time accrual does not double-count them).
+  try {
+    const [rows] = await pool.execute(
+      `SELECT COALESCE(SUM(mpl.credits_hours), 0) AS hrs
+       FROM payroll_manual_pay_lines mpl
+       WHERE mpl.agency_id = ?
+         AND mpl.payroll_period_id = ?
+         AND mpl.user_id = ?
+         AND LOWER(COALESCE(mpl.category, '')) = 'direct'
+         AND LOWER(COALESCE(mpl.line_type, 'pay')) = 'pay'
+         AND mpl.credits_hours IS NOT NULL
+         AND EXISTS (
+           SELECT 1
+           FROM payroll_pto_ledger l
+           WHERE l.agency_id = mpl.agency_id
+             AND l.manual_pay_line_id = mpl.id
+         )`,
+      [agencyId, payrollPeriodId, userId]
+    );
+    const hrs = Number(rows?.[0]?.hrs || 0);
+    return Number.isFinite(hrs) && hrs > 0 ? hrs : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export async function runPtoAccrualForPostedPeriod({
   agencyId,
   payrollPeriodId,
@@ -656,24 +859,25 @@ export async function runPtoAccrualForPostedPeriod({
 
     const employment = String(acct.employment_type || 'hourly');
     // Both hourly and fee_for_service accrue on direct + indirect hours/credits.
+    // Exclude manual-direct hours already credited at line-create time to avoid double accrual.
+    const alreadyCreditedManualDirect = await sumManualDirectBasisAlreadyCredited({
+      agencyId,
+      payrollPeriodId,
+      userId
+    });
+    const rawBasis = directHours + indirectHours - alreadyCreditedManualDirect;
     const basis = (employment === 'hourly' || employment === 'fee_for_service')
-      ? (directHours + indirectHours)
+      ? Math.max(0, rawBasis)
       : 0;
 
-    // Sick accrual (1 per 30 units of basis).
-    let sickEarn = 0;
-    if (employment === 'hourly' || employment === 'fee_for_service') {
-      sickEarn = (basis / 30) * Number(policy.sickAccrualPer30 ?? DEFAULT_PTO_POLICY.sickAccrualPer30);
-    }
-    // Training accrual (eligible users only, same basis).
-    let trainingEarn = 0;
-    if (policy.trainingPtoEnabled && acct.training_pto_eligible) {
-      trainingEarn = (basis / 30) * Number(policy.trainingAccrualPer30 ?? DEFAULT_PTO_POLICY.trainingAccrualPer30);
-    }
-
-    // Round to 2 decimals.
-    sickEarn = Math.round(sickEarn * 100) / 100;
-    trainingEarn = Math.round(trainingEarn * 100) / 100;
+    const earned = computeAccrualFromBasisHours({
+      basisHours: basis,
+      policy,
+      employmentType: employment,
+      trainingPtoEligible: Boolean(acct.training_pto_eligible)
+    });
+    let sickEarn = earned.sickEarn;
+    let trainingEarn = earned.trainingEarn;
 
     if (sickEarn > 0) {
       await PayrollPtoLedger.create({

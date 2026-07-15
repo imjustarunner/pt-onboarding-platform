@@ -213,7 +213,7 @@
                   :key="`l-${n}`"
                   type="button"
                   class="bp-score soft"
-                  :class="{ on: load === n }"
+                  :class="{ on: currentLoad === n }"
                   @click="patchResponse(activeKey, { currentLoadScore: n })"
                 >
                   {{ n }}
@@ -567,7 +567,7 @@ const importance = computed(
 const capacity = computed(
   () => responseMap.value[activeKey.value]?.sustainableCapacityScore ?? null
 );
-const load = computed(() => responseMap.value[activeKey.value]?.currentLoadScore ?? null);
+const currentLoad = computed(() => responseMap.value[activeKey.value]?.currentLoadScore ?? null);
 const currentChips = computed(() => responseMap.value[activeKey.value]?.reflectionChips || []);
 const statusLabel = computed(() => pillarStatusLabel(practice.value));
 const interpretation = computed(() =>
@@ -856,7 +856,7 @@ async function resetGuest() {
   step.value = 'welcome';
 }
 
-async function load() {
+async function loadAssessmentTemplate() {
   loading.value = true;
   error.value = '';
   try {
@@ -896,7 +896,7 @@ async function load() {
   }
 }
 
-onMounted(load);
+onMounted(loadAssessmentTemplate);
 </script>
 
 <style scoped>

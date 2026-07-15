@@ -2,7 +2,11 @@ import express from 'express';
 import { authenticate, requireAgencyAccess, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 import { requireAgencyAccess as tenantAccess } from '../middleware/agencyAccess.middleware.js';
 import { getAgencySpecs, getOrgOverviewSummary, getScheduleSnapshot, getPlatformTenantSummary } from '../controllers/dashboard.controller.js';
-import { getSchoolOverview } from '../controllers/schoolOverview.controller.js';
+import {
+  getSchoolOverview,
+  listSchoolInternalNotes,
+  createSchoolInternalNote
+} from '../controllers/schoolOverview.controller.js';
 import { listForDashboard } from '../controllers/socialFeedLinks.controller.js';
 
 const router = express.Router();
@@ -21,6 +25,20 @@ router.get('/org-overview-summary', authenticate, requireAgencyAccess, getOrgOve
 
 // School overview (admin/staff dashboards)
 router.get('/school-overview', authenticate, requireAgencyAccess, getSchoolOverview);
+
+// School org internal notes (admin / super_admin / CPA only — enforced in controller)
+router.get(
+  '/school-overview/:schoolOrganizationId/internal-notes',
+  authenticate,
+  requireAgencyAccess,
+  listSchoolInternalNotes
+);
+router.post(
+  '/school-overview/:schoolOrganizationId/internal-notes',
+  authenticate,
+  requireAgencyAccess,
+  createSchoolInternalNote
+);
 
 // Social feeds for My Dashboard (agency + optional org/program scope)
 router.get('/social-feeds', authenticate, listForDashboard);

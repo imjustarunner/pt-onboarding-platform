@@ -369,7 +369,7 @@
           <AccountDashboardCard
             section-id="access-permissions"
             title="Access & Permissions"
-            subtitle="System access, contracts, and operational flags."
+            subtitle="System access, contracts, and operational flags. Benefits / Med Cancel live on the Benefits tab."
             :can-edit="canEditUser"
             :editing="isEditing('access-permissions')"
             :saving="saving"
@@ -586,7 +586,7 @@ const permissionGroups = computed(() => {
       id: 'contracts',
       label: 'Contracts & Operations',
       items: [
-        { key: 'medcancelRateSchedule', label: 'Med Cancel', type: 'select', options: [{ value: 'none', label: 'None' }, { value: 'low', label: 'Low' }, { value: 'high', label: 'High' }] },
+        // Med Cancel moved to Benefits tab (tier / benefits eligibility)
         { key: 'companyCardEnabled', label: 'Company card', type: 'checkbox' },
         { key: 'companyCarSubmitAccess', label: 'Company car submit', type: 'checkbox' },
         { key: 'companyCarManageAccess', label: 'Company car manage', type: 'checkbox' },

@@ -750,7 +750,10 @@ class User {
       externalBusyIcsUrl,
       providerStartDate,
       username,
-      work_role
+      work_role,
+      employmentType,
+      benefitsNotes,
+      benefitsEligibilityOverrides
     } = userData;
     
     // Get current user to check if it's superadmin
@@ -1333,6 +1336,76 @@ class User {
         }
       } catch (err) {
         console.warn('is_hourly_worker column check failed:', err.message);
+      }
+    }
+
+    // Employment classification (Benefits tab — full_time / part_time / etc.)
+    if (employmentType !== undefined) {
+      const allowed = new Set(['full_time', 'part_time', 'contractor', 'intern', 'per_diem', '']);
+      const raw = employmentType === null ? '' : String(employmentType || '').trim().toLowerCase();
+      if (!allowed.has(raw)) {
+        throw new Error('employmentType must be full_time, part_time, contractor, intern, per_diem, or empty');
+      }
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'employment_type'"
+        );
+        if (columns.length > 0) {
+          updates.push('employment_type = ?');
+          values.push(raw || null);
+        } else {
+          throw new Error('Database is missing users.employment_type. Run migrations (see database/migrations/935_user_benefits_employment_type.sql).');
+        }
+      } catch (err) {
+        throw err;
+      }
+    }
+
+    // Internal benefits notes (HR/admin)
+    if (benefitsNotes !== undefined) {
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'benefits_notes'"
+        );
+        if (columns.length > 0) {
+          updates.push('benefits_notes = ?');
+          values.push(benefitsNotes === null || benefitsNotes === undefined ? null : String(benefitsNotes));
+        } else {
+          throw new Error('Database is missing users.benefits_notes. Run migrations (see database/migrations/935_user_benefits_employment_type.sql).');
+        }
+      } catch (err) {
+        throw err;
+      }
+    }
+
+    // Per-benefit eligibility overrides
+    if (benefitsEligibilityOverrides !== undefined) {
+      let jsonVal = null;
+      if (benefitsEligibilityOverrides !== null && benefitsEligibilityOverrides !== '') {
+        if (typeof benefitsEligibilityOverrides === 'string') {
+          try {
+            jsonVal = JSON.parse(benefitsEligibilityOverrides);
+          } catch {
+            throw new Error('benefitsEligibilityOverrides must be valid JSON');
+          }
+        } else if (typeof benefitsEligibilityOverrides === 'object') {
+          jsonVal = benefitsEligibilityOverrides;
+        } else {
+          throw new Error('benefitsEligibilityOverrides must be an object or JSON string');
+        }
+      }
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'benefits_eligibility_overrides_json'"
+        );
+        if (columns.length > 0) {
+          updates.push('benefits_eligibility_overrides_json = ?');
+          values.push(jsonVal === null ? null : JSON.stringify(jsonVal));
+        } else {
+          throw new Error('Database is missing users.benefits_eligibility_overrides_json. Run migrations (see database/migrations/935_user_benefits_employment_type.sql).');
+        }
+      } catch (err) {
+        throw err;
       }
     }
 

@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import Agency from '../models/Agency.model.js';
 import PlatformBranding from '../models/PlatformBranding.model.js';
+import SchoolOrganizationInternalNote from '../models/SchoolOrganizationInternalNote.model.js';
 import { mapSkillBuildersSchoolProgramActiveForOrganizations } from '../utils/skillBuildersSchoolProgramFeature.js';
 
 function safeInt(v) {
@@ -672,6 +673,100 @@ export const getSchoolOverview = async (req, res, next) => {
 
     res.json({ agencyId, refreshedAt, schools: out });
   } catch (e) {
+    next(e);
+  }
+};
+
+function normalizeRole(role) {
+  let r = String(role || '').toLowerCase().trim();
+  if (r === 'superadmin' || r === 'super-admin' || r === 'super admin') r = 'super_admin';
+  return r;
+}
+
+/** admin, super_admin, and CPA only (CPA must still pass agency access middleware). */
+function canAccessSchoolInternalNotes(role) {
+  const r = normalizeRole(role);
+  return r === 'admin' || r === 'super_admin' || r === 'clinical_practice_assistant';
+}
+
+async function assertSchoolAffiliatedWithAgency(agencyId, schoolOrganizationId) {
+  const affiliated = await OrganizationAffiliation.listActiveOrganizationsForAgency(agencyId);
+  return (affiliated || []).some((o) => safeInt(o?.id) === schoolOrganizationId);
+}
+
+/**
+ * GET /api/dashboard/school-overview/:schoolOrganizationId/internal-notes?agencyId=
+ * Internal notes for a school org (admin / super_admin / CPA only).
+ */
+export const listSchoolInternalNotes = async (req, res, next) => {
+  try {
+    if (!canAccessSchoolInternalNotes(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const agencyId = safeInt(req.query.agencyId);
+    const schoolOrganizationId = safeInt(req.params.schoolOrganizationId);
+    if (!agencyId || !schoolOrganizationId) {
+      return res.status(400).json({ error: { message: 'agencyId and schoolOrganizationId are required' } });
+    }
+
+    const ok = await assertSchoolAffiliatedWithAgency(agencyId, schoolOrganizationId);
+    if (!ok) {
+      return res.status(404).json({ error: { message: 'School not found for this agency' } });
+    }
+
+    const notes = await SchoolOrganizationInternalNote.listBySchoolOrganizationId(schoolOrganizationId);
+    res.json({ schoolOrganizationId, notes });
+  } catch (e) {
+    if (isMissingSchemaError(e)) {
+      return res.status(503).json({
+        error: { message: 'School internal notes are not available yet. Run database migrations.' }
+      });
+    }
+    next(e);
+  }
+};
+
+/**
+ * POST /api/dashboard/school-overview/:schoolOrganizationId/internal-notes
+ * Body: { agencyId, message }
+ */
+export const createSchoolInternalNote = async (req, res, next) => {
+  try {
+    if (!canAccessSchoolInternalNotes(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const agencyId = safeInt(req.body?.agencyId);
+    const schoolOrganizationId = safeInt(req.params.schoolOrganizationId);
+    const message = String(req.body?.message || '').trim();
+    if (!agencyId || !schoolOrganizationId) {
+      return res.status(400).json({ error: { message: 'agencyId and schoolOrganizationId are required' } });
+    }
+    if (!message) {
+      return res.status(400).json({ error: { message: 'message is required' } });
+    }
+    if (message.length > 8000) {
+      return res.status(400).json({ error: { message: 'message is too long' } });
+    }
+
+    const ok = await assertSchoolAffiliatedWithAgency(agencyId, schoolOrganizationId);
+    if (!ok) {
+      return res.status(404).json({ error: { message: 'School not found for this agency' } });
+    }
+
+    const note = await SchoolOrganizationInternalNote.create({
+      schoolOrganizationId,
+      authorUserId: req.user.id,
+      message
+    });
+    res.status(201).json({ note });
+  } catch (e) {
+    if (isMissingSchemaError(e)) {
+      return res.status(503).json({
+        error: { message: 'School internal notes are not available yet. Run database migrations.' }
+      });
+    }
     next(e);
   }
 };

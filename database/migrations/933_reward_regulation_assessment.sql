@@ -222,7 +222,7 @@ FROM (
     JSON_ARRAY('Create one protected focus block','Silence nonessential alerts','Single-task one priority window','Place the phone out of reach during deep work','Name the pull before opening a channel') AS action_suggestions_json,
     JSON_ARRAY('digital-wellness','savage-blueprint') AS related_assessment_ids_json,
     'How well can you currently direct and reclaim your attention when rewarding options compete?' AS primary_question,
-    'What most captures your attention right now?'
+    'What most captures your attention right now?' AS reflection_prompt
   UNION ALL SELECT
     'impulse_control','Impulse Control','Impulse',
     'Pause between urge and action around rewarding or relieving behaviors. Impulse control is skill and environment — not moral purity.',

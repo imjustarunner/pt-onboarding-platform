@@ -104,7 +104,9 @@ import {
   setCurrentBalances,
   computePtoPolicyWarnings,
   approvePtoRequestAndPostToPayroll,
-  runPtoAccrualForPostedPeriod
+  runPtoAccrualForPostedPeriod,
+  syncPtoAccrualForManualDirectPayLine,
+  clearPtoLedgerForManualPayLine
 } from '../services/payrollPto.service.js';
 import {
   aggregateShiftTimePunchesByUser,
@@ -3301,17 +3303,28 @@ export const getPayrollPeriod = async (req, res, next) => {
       // Agency-wide pending counts (not period-specific) so the dashboard badge
       // reflects all unreviewed submissions regardless of which period is selected.
       (async () => {
-        const countSql = (table) =>
-          pool.execute(`SELECT COUNT(*) AS cnt FROM ${table} WHERE agency_id = ? AND status = 'submitted'`, [period.agency_id])
+        const aid = period.agency_id;
+        const countSql = (sql) =>
+          pool.execute(sql, [aid])
             .then(([r]) => Number(r?.[0]?.cnt || 0))
             .catch(() => 0);
-        const [mileage, medcancel, reimbursement, timeClaims] = await Promise.all([
-          countSql('payroll_mileage_claims'),
-          countSql('payroll_medcancel_claims'),
-          countSql('payroll_reimbursement_claims'),
-          countSql('payroll_time_claims'),
+        const [mileage, medcancel, reimbursement, timeClaims, eventTime, pto] = await Promise.all([
+          countSql(`SELECT COUNT(*) AS cnt FROM payroll_mileage_claims WHERE agency_id = ? AND status = 'submitted'`),
+          countSql(`SELECT COUNT(*) AS cnt FROM payroll_medcancel_claims WHERE agency_id = ? AND status = 'submitted'`),
+          countSql(`SELECT COUNT(*) AS cnt FROM payroll_reimbursement_claims WHERE agency_id = ? AND status = 'submitted'`),
+          countSql(`SELECT COUNT(*) AS cnt FROM payroll_time_claims WHERE agency_id = ? AND status = 'submitted' AND claim_type <> 'skill_builder_event'`),
+          countSql(`SELECT COUNT(DISTINCT JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.kioskPunchInId'))) AS cnt FROM payroll_time_claims WHERE agency_id = ? AND status = 'submitted' AND claim_type = 'skill_builder_event' AND JSON_EXTRACT(payload_json, '$.kioskPunchInId') IS NOT NULL`),
+          countSql(`SELECT COUNT(*) AS cnt FROM payroll_pto_requests WHERE agency_id = ? AND status = 'submitted'`),
         ]);
-        return { mileage, medcancel, reimbursement, timeClaims, total: mileage + medcancel + reimbursement + timeClaims };
+        return {
+          mileage,
+          medcancel,
+          reimbursement,
+          timeClaims,
+          eventTime,
+          pto,
+          total: mileage + medcancel + reimbursement + timeClaims + eventTime + pto
+        };
       })()
     ]);
     res.json({ period, rows, summaries, missedAppointmentsPaidInFull, pendingCounts });
@@ -9153,6 +9166,24 @@ export const createPayrollManualPayLine = async (req, res, next) => {
         trainingForfeitedAt: acct.training_forfeited_at,
         updatedByUserId: req.user.id
       });
+    } else {
+      // Direct pay lines: credit PTO using the same basis/30 formula as posting-time accrual.
+      try {
+        await syncPtoAccrualForManualDirectPayLine({
+          agencyId: period.agency_id,
+          userId,
+          manualPayLineId: id,
+          lineType: 'pay',
+          category,
+          creditsHours: resolvedCreditsHours,
+          label,
+          payrollPeriodId,
+          effectiveDate: String(period.period_end || period.period_start || '').slice(0, 10),
+          createdByUserId: req.user.id
+        });
+      } catch {
+        // Best-effort: do not block creating the pay line if PTO sync fails.
+      }
     }
 
     // Keep run view consistent if already ran.
@@ -9207,7 +9238,7 @@ export const updatePayrollManualPayLine = async (req, res, next) => {
     const amount = req.body?.amount;
 
     const [existingRows] = await pool.execute(
-      `SELECT user_id, category, credits_hours, amount, line_type
+      `SELECT user_id, category, credits_hours, amount, line_type, label
        FROM payroll_manual_pay_lines
        WHERE id = ? AND payroll_period_id = ? AND agency_id = ?
        LIMIT 1`,
@@ -9249,6 +9280,29 @@ export const updatePayrollManualPayLine = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'No valid updates provided (creditsHours and/or amount)' } });
     }
 
+    // Re-sync PTO credits for direct pay lines when hours/amount change (avoids double-credit).
+    if (String(existing?.line_type || 'pay').toLowerCase() !== 'pto') {
+      try {
+        const nextHrs = (resolvedCreditsHours !== undefined && Number.isFinite(resolvedCreditsHours))
+          ? resolvedCreditsHours
+          : Number(existing?.credits_hours);
+        await syncPtoAccrualForManualDirectPayLine({
+          agencyId: period.agency_id,
+          userId: Number(existing?.user_id || 0),
+          manualPayLineId: lineId,
+          lineType: 'pay',
+          category: String(existing?.category || 'indirect'),
+          creditsHours: nextHrs,
+          label: existing?.label,
+          payrollPeriodId,
+          effectiveDate: String(period.period_end || period.period_start || '').slice(0, 10),
+          createdByUserId: req.user.id
+        });
+      } catch {
+        // Best-effort
+      }
+    }
+
     if (st === 'ran') {
       await recomputeSummariesFromStaging({
         payrollPeriodId,
@@ -9281,45 +9335,23 @@ export const deletePayrollManualPayLine = async (req, res, next) => {
       return res.status(409).json({ error: { message: 'Pay period is posted/finalized' } });
     }
 
-    // If this is a PTO adjustment line, roll back the PTO ledger/balance before deleting.
+    // Roll back any PTO ledger/balance tied to this line (PTO adjustments or direct-pay accruals).
     try {
       const [rows] = await pool.execute(
-        `SELECT id, user_id, line_type, pto_bucket
+        `SELECT id, user_id, line_type, pto_bucket, category
          FROM payroll_manual_pay_lines
          WHERE id = ? AND payroll_period_id = ? AND agency_id = ?
          LIMIT 1`,
         [lineId, payrollPeriodId, period.agency_id]
       );
       const line = rows?.[0] || null;
-      if (line && String(line.line_type || '').toLowerCase() === 'pto') {
-        const ptoBucket = String(line.pto_bucket || 'sick').toLowerCase() === 'training' ? 'training' : 'sick';
-        const delta = await PayrollPtoLedger.sumHoursForManualPayLine({ agencyId: period.agency_id, manualPayLineId: lineId });
-        if (Math.abs(delta) > 1e-9) {
-          const acct = await PayrollPtoAccount.findForAgencyUser({ agencyId: period.agency_id, userId: Number(line.user_id) });
-          if (acct) {
-            const sickBal = Number(acct?.sick_balance_hours || 0);
-            const trainingBal = Number(acct?.training_balance_hours || 0);
-            const nextSickBal = ptoBucket === 'training' ? sickBal : (sickBal - delta);
-            const nextTrainingBal = ptoBucket === 'training' ? (trainingBal - delta) : trainingBal;
-            await PayrollPtoAccount.upsert({
-              agencyId: period.agency_id,
-              userId: Number(line.user_id),
-              employmentType: acct.employment_type,
-              trainingPtoEligible: acct.training_pto_eligible ? 1 : 0,
-              sickStartHours: acct.sick_start_hours,
-              sickStartEffectiveDate: acct.sick_start_effective_date,
-              trainingStartHours: acct.training_start_hours,
-              trainingStartEffectiveDate: acct.training_start_effective_date,
-              sickBalanceHours: nextSickBal,
-              trainingBalanceHours: nextTrainingBal,
-              lastAccruedPayrollPeriodId: acct.last_accrued_payroll_period_id,
-              lastSickRolloverYear: acct.last_sick_rollover_year,
-              trainingForfeitedAt: acct.training_forfeited_at,
-              updatedByUserId: req.user.id
-            });
-          }
-        }
-        await PayrollPtoLedger.deleteForManualPayLine({ agencyId: period.agency_id, manualPayLineId: lineId });
+      if (line?.user_id) {
+        await clearPtoLedgerForManualPayLine({
+          agencyId: period.agency_id,
+          userId: Number(line.user_id),
+          manualPayLineId: lineId,
+          updatedByUserId: req.user.id
+        });
       }
     } catch { /* best-effort */ }
 
@@ -9505,7 +9537,27 @@ export const createPayrollManualBulk = async (req, res, next) => {
         amount: m.amount,
         createdByUserId: req.user.id
       });
-      if (id) ids.push(id);
+      if (id) {
+        ids.push(id);
+        if (manualCategory === 'direct') {
+          try {
+            await syncPtoAccrualForManualDirectPayLine({
+              agencyId: period.agency_id,
+              userId: m.userId,
+              manualPayLineId: id,
+              lineType: 'pay',
+              category: 'direct',
+              creditsHours: m.creditsHours,
+              label,
+              payrollPeriodId,
+              effectiveDate: String(period.period_end || period.period_start || '').slice(0, 10),
+              createdByUserId: req.user.id
+            });
+          } catch {
+            // Best-effort
+          }
+        }
+      }
     }
 
     if (st === 'ran') {
@@ -18248,11 +18300,14 @@ export const getPendingSubmissionsSummary = async (req, res, next) => {
     );
 
     // Count other pending claim types (simple counts only).
+    // Event kiosk time (skill_builder_event) is reviewed under Event Times, not Time Claims —
+    // exclude it from `time` and count distinct punch sessions as `event_time`.
     const claimQueries = [
       ['mileage', `SELECT COUNT(*) AS cnt FROM payroll_mileage_claims WHERE agency_id = ? AND status = 'submitted'`],
       ['medcancel', `SELECT COUNT(*) AS cnt FROM payroll_medcancel_claims WHERE agency_id = ? AND status = 'submitted'`],
       ['reimbursement', `SELECT COUNT(*) AS cnt FROM payroll_reimbursement_claims WHERE agency_id = ? AND status = 'submitted'`],
-      ['time', `SELECT COUNT(*) AS cnt FROM payroll_time_claims WHERE agency_id = ? AND status = 'submitted'`],
+      ['time', `SELECT COUNT(*) AS cnt FROM payroll_time_claims WHERE agency_id = ? AND status = 'submitted' AND claim_type <> 'skill_builder_event'`],
+      ['event_time', `SELECT COUNT(DISTINCT JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.kioskPunchInId'))) AS cnt FROM payroll_time_claims WHERE agency_id = ? AND status = 'submitted' AND claim_type = 'skill_builder_event' AND JSON_EXTRACT(payload_json, '$.kioskPunchInId') IS NOT NULL`],
     ];
     const typeCounts = { pto: (ptoRows || []).length };
     await Promise.all(claimQueries.map(async ([type, sql]) => {
