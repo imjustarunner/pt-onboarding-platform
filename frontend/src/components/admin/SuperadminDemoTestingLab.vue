@@ -220,6 +220,7 @@ const surfaceGroups = computed(() => {
         { id: 'lbw', label: 'Life Balance (public)', pathSuffix: 'life-balance', absolute: true },
         { id: 'values', label: 'Values Alignment / Life Wheel (public)', pathSuffix: 'values-alignment', absolute: true },
         { id: 'teen-wellbeing', label: 'Teen Well-Being (public)', pathSuffix: 'teen-wellbeing', absolute: true },
+        { id: 'personal-fulfillment', label: 'Personal Fulfillment (public)', pathSuffix: 'personal-fulfillment', absolute: true },
         { id: 'readiness', label: 'Athlete Readiness (public)', pathSuffix: 'athlete-readiness', absolute: true },
         { id: 'student', label: 'Student Success (public)', pathSuffix: 'student-success', absolute: true },
         { id: 'college', label: 'College Readiness (public)', pathSuffix: 'college-readiness', absolute: true },
