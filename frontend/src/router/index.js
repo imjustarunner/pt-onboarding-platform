@@ -286,6 +286,12 @@ const routes = [
     meta: { requiresGuest: false, guestMarriageAlignment: true }
   },
   {
+    path: '/parenting-confidence',
+    name: 'ParentingConfidenceGuest',
+    component: () => import('../views/parentingConfidence/ParentingConfidenceAssessmentView.vue'),
+    meta: { requiresGuest: false, guestParentingConfidence: true }
+  },
+  {
     path: '/life-balance',
     name: 'LifeBalanceGuest',
     component: () => import('../views/lifeBalance/LifeBalanceAssessmentView.vue'),
