@@ -218,7 +218,8 @@ const surfaceGroups = computed(() => {
         { id: 'book', label: 'Book coaching (solo)', pathSuffix: 'find-coach' },
         { id: 'settings', label: 'Public Services settings', pathSuffix: 'admin/public-services' },
         { id: 'lbw', label: 'Life Balance (public)', pathSuffix: 'life-balance', absolute: true },
-        { id: 'values', label: 'Values Alignment (public)', pathSuffix: 'values-alignment', absolute: true }
+        { id: 'values', label: 'Values Alignment (public)', pathSuffix: 'values-alignment', absolute: true },
+        { id: 'readiness', label: 'Athlete Readiness (public)', pathSuffix: 'athlete-readiness', absolute: true }
       ]
     }
   ];
