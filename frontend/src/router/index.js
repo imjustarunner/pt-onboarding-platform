@@ -280,6 +280,12 @@ const routes = [
     meta: { requiresGuest: false, guestMensLife: true }
   },
   {
+    path: '/marriage-alignment',
+    name: 'MarriageAlignmentGuest',
+    component: () => import('../views/marriageAlignment/MarriageAlignmentAssessmentView.vue'),
+    meta: { requiresGuest: false, guestMarriageAlignment: true }
+  },
+  {
     path: '/life-balance',
     name: 'LifeBalanceGuest',
     component: () => import('../views/lifeBalance/LifeBalanceAssessmentView.vue'),
