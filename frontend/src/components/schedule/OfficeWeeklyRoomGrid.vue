@@ -27,6 +27,8 @@
               :title="slotTitle(dateYmd, h, r.id)"
               :role="canBook ? 'button' : undefined"
               :tabindex="canBook ? 0 : undefined"
+              @mousedown.left="onCellMouseDown(dateYmd, h, r.id, $event)"
+              @mouseenter="onCellMouseEnter(dateYmd, h, r.id, $event)"
               @click="onCellClick(dateYmd, h, r.id, $event)"
               @keydown.enter.prevent="onCellClick(dateYmd, h, r.id, $event)"
               @keydown.space.prevent="onCellClick(dateYmd, h, r.id, $event)"
@@ -58,10 +60,26 @@ const props = defineProps({
   selectedKeys: { type: Array, default: () => [] }
 });
 
-const emit = defineEmits(['cell-click']);
+const emit = defineEmits(['cell-click', 'cell-mousedown', 'cell-mouseenter']);
 
 const grid = computed(() => props.officeGrid);
-const rooms = computed(() => (Array.isArray(grid.value?.rooms) ? grid.value.rooms : []));
+const rooms = computed(() => {
+  const list = Array.isArray(grid.value?.rooms) ? [...grid.value.rooms] : [];
+  const numVal = (x) => {
+    const n = x?.roomNumber ?? x?.room_number ?? null;
+    const parsed = parseInt(n, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  list.sort((a, b) => {
+    const an = numVal(a);
+    const bn = numVal(b);
+    if (an !== null && bn !== null && an !== bn) return an - bn;
+    if (an !== null && bn === null) return -1;
+    if (an === null && bn !== null) return 1;
+    return String(a?.label || a?.name || '').localeCompare(String(b?.label || b?.name || ''));
+  });
+  return list;
+});
 const days = computed(() => (Array.isArray(grid.value?.days) ? grid.value.days : []));
 const hours = computed(() => (Array.isArray(grid.value?.hours) ? grid.value.hours : []));
 
@@ -115,6 +133,28 @@ const slotsByKey = computed(() => {
 const getSlot = (dateYmd, hour, roomId) => slotsByKey.value.get(slotKey(dateYmd, hour, roomId)) || null;
 
 const isRequestableState = (st) => st === 'open' || st === 'assigned_available';
+
+const onCellMouseDown = (dateYmd, hour, roomId, event = null) => {
+  if (!props.canBook) return;
+  if (Number(event?.button) !== 0) return;
+  event?.preventDefault?.();
+  emit('cell-mousedown', {
+    dateYmd: String(dateYmd).slice(0, 10),
+    hour: Number(hour),
+    roomId: Number(roomId),
+    event
+  });
+};
+
+const onCellMouseEnter = (dateYmd, hour, roomId, event = null) => {
+  if (!props.canBook) return;
+  emit('cell-mouseenter', {
+    dateYmd: String(dateYmd).slice(0, 10),
+    hour: Number(hour),
+    roomId: Number(roomId),
+    event
+  });
+};
 
 const onCellClick = (dateYmd, hour, roomId, event = null) => {
   if (!props.canBook) return;
@@ -203,24 +243,37 @@ const slotTitle = (dateYmd, hour, roomId) => {
   if (!s) return '';
   const parts = [];
   parts.push(roomLabel(rooms.value.find((r) => Number(r.id) === Number(roomId)) || { id: roomId }));
-  parts.push(`${String(dateYmd).slice(0, 10)} ${hourLabel(hour)}`);
-  parts.push(`State: ${String(s.state || '')}`);
+  parts.push(`${hourLabel(hour)}`);
   const name = slotName(dateYmd, hour, roomId);
-  if (name) parts.push(`Person: ${name}`);
-  if (s.frequencyLabel) parts.push(`Frequency: ${s.frequencyLabel}`);
+  const state = String(s.state || '');
+  if (state === 'assigned_available') parts.push(name ? `${name} · Assigned (available)` : 'Assigned (available)');
+  else if (state === 'assigned_temporary') parts.push(name ? `${name} · Temporary` : 'Temporary assignment');
+  else if (state === 'assigned_booked') parts.push(name ? `${name} · Booked` : 'Booked');
+  else if (state === 'company_hold') parts.push('Company hold');
+  else if (state === 'conflict') parts.push('Conflict');
+  else if (state === 'open') parts.push('Open');
+  else if (name) parts.push(name);
+  if (s.frequencyLabel) parts.push(String(s.frequencyLabel));
+  const sessionBits = [
+    s.appointmentType && String(s.appointmentType).toUpperCase() !== 'NONE'
+      ? String(s.appointmentType).replace(/_/g, ' ')
+      : '',
+    s.modality ? String(s.modality).replace(/_/g, ' ') : '',
+    s.serviceCode ? String(s.serviceCode) : ''
+  ].filter(Boolean);
+  if (sessionBits.length) parts.push(sessionBits.join(' · '));
   if (String(s?.state || '') === 'conflict' && Array.isArray(s?.conflictEvents)) {
-    parts.push('Conflicting bookings:');
     for (const ev of s.conflictEvents) {
-      parts.push(`- ${ev.providerName || 'Unknown provider'} (event ${ev.eventId || 'n/a'})`);
+      if (ev?.providerName) parts.push(ev.providerName);
     }
   }
   const pending = Number(s?.pendingRequestCount || 0) || 0;
   if (pending > 0 && Array.isArray(s?.pendingRequestNames) && s.pendingRequestNames.length) {
-    parts.push(`Requested by: ${s.pendingRequestNames.join(', ')}`);
+    parts.push(`Requested by ${s.pendingRequestNames.join(', ')}`);
   } else if (pending > 0) {
-    parts.push('Requested (pending approval)');
+    parts.push('Pending request');
   }
-  return parts.join('\n');
+  return parts.join(' — ');
 };
 
 const slotClass = (dateYmd, hour, roomId) => {
@@ -258,7 +311,7 @@ const dayGridStyle = computed(() => ({
 
 .hour { background: var(--bg-alt); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 8px 10px; font-weight: 900; font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
 .cell { border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); padding: 6px 8px; min-height: 44px; display: flex; flex-direction: column; gap: 2px; }
-.cell.clickable { cursor: pointer; }
+.cell.clickable { cursor: pointer; user-select: none; }
 .cell.clickable:hover { outline: 2px solid rgba(59, 130, 246, 0.22); outline-offset: -2px; }
 .cell.today { background: rgba(59, 130, 246, 0.03); }
 .day-head.today {

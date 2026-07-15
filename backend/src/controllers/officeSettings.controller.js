@@ -42,11 +42,39 @@ async function requireOfficeAccess(req, officeLocationId) {
   return await OfficeLocationAgency.userHasAccess({ officeLocationId, agencyIds: agencies.map((a) => a.id) });
 }
 
+/** Attach agencyIds[] to each office location for tenant filtering in schedule UI. */
+async function withOfficeAgencyIds(locations) {
+  const rows = Array.isArray(locations) ? locations : [];
+  if (!rows.length) return [];
+  const ids = rows.map((r) => Number(r?.id || 0)).filter((n) => Number.isInteger(n) && n > 0);
+  if (!ids.length) return rows.map((r) => ({ ...r, agencyIds: [] }));
+  const placeholders = ids.map(() => '?').join(', ');
+  const [links] = await pool.execute(
+    `SELECT office_location_id, agency_id
+     FROM office_location_agencies
+     WHERE office_location_id IN (${placeholders})`,
+    ids
+  );
+  const byOffice = new Map();
+  for (const link of links || []) {
+    const oid = Number(link.office_location_id || 0);
+    const aid = Number(link.agency_id || 0);
+    if (!oid || !aid) continue;
+    if (!byOffice.has(oid)) byOffice.set(oid, []);
+    byOffice.get(oid).push(aid);
+  }
+  return rows.map((r) => {
+    const oid = Number(r?.id || 0);
+    const agencyIds = Array.from(new Set(byOffice.get(oid) || []));
+    return { ...r, agencyIds };
+  });
+}
+
 export const listOffices = async (req, res, next) => {
   try {
     if (req.user.role === 'super_admin') {
       const rows = await OfficeLocation.listAll({ includeInactive: false });
-      return res.json(rows || []);
+      return res.json(await withOfficeAgencyIds(rows || []));
     }
 
     const agencies = await User.getAgencies(req.user.id);
@@ -60,7 +88,8 @@ export const listOffices = async (req, res, next) => {
     }
     const byId = new Map();
     for (const r of all) byId.set(r.id, r);
-    res.json(Array.from(byId.values()).sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''))));
+    const deduped = Array.from(byId.values()).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    res.json(await withOfficeAgencyIds(deduped));
   } catch (e) {
     next(e);
   }

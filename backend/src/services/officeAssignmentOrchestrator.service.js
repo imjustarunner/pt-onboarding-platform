@@ -230,11 +230,15 @@ async function assignOneTimeOfficeBlock({
   }
 
   OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
-  await materializeOfficeWeeks({
+  // Events for this date were already upserted above. Rematerializing the whole office
+  // through Cloud SQL can take tens of seconds — do it in the background so assign returns fast.
+  void materializeOfficeWeeks({
     officeLocationId,
     startDateYmd: date,
     createdByUserId,
     weeks: 1
+  }).catch((err) => {
+    console.warn('[assignOneTimeOfficeBlock] background materialize failed:', err?.message || err);
   });
 
   return { standingAssignments, events: createdEvents };

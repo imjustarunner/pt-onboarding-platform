@@ -473,6 +473,8 @@
         :can-book="canBookFromGrid"
         :selected-keys="selectedActionKeys"
         @cell-click="onOfficeLayoutCellClick"
+        @cell-mousedown="onOfficeLayoutCellMouseDown"
+        @cell-mouseenter="onOfficeLayoutCellMouseEnter"
       />
     </div>
 
@@ -616,7 +618,7 @@
             <span class="slot-info-value">{{ slotInfoModalData.roomLabel }}</span>
           </div>
           <div class="slot-info-row">
-            <span class="slot-info-label">Booked by</span>
+            <span class="slot-info-label">Provider</span>
             <span class="slot-info-value slot-info-value--provider">{{ slotInfoModalData.providerLabel || '—' }}</span>
           </div>
           <div class="slot-info-row" v-if="slotInfoModalData.slot?.assignedFrequency || slotInfoModalData.slot?.frequencyLabel">
@@ -628,6 +630,14 @@
           <div class="slot-info-row" v-if="slotInfoModalData.slot?.appointmentType && slotInfoModalData.slot?.appointmentType !== 'NONE'">
             <span class="slot-info-label">Session type</span>
             <span class="slot-info-value">{{ slotInfoModalData.slot.appointmentType }}</span>
+          </div>
+          <div class="slot-info-row" v-if="slotInfoModalData.slot?.modality">
+            <span class="slot-info-label">Modality</span>
+            <span class="slot-info-value">{{ slotInfoModalData.slot.modality }}</span>
+          </div>
+          <div class="slot-info-row" v-if="slotInfoModalData.slot?.serviceCode">
+            <span class="slot-info-label">Service</span>
+            <span class="slot-info-value">{{ slotInfoModalData.slot.serviceCode }}</span>
           </div>
           <div class="slot-info-row">
             <span class="slot-info-label">Status</span>
@@ -662,18 +672,31 @@
           </button>
         </div>
 
-        <!-- Admin slot info header: shows booked provider info when viewing another user's slot -->
-        <div v-if="isAdminMode && modalContext.assignedProviderId && (modalContext.assignedProviderName || modalContext.bookedProviderName)" class="admin-slot-info-header">
+        <!-- Occupied-slot summary: who/what for the selected office cell -->
+        <div
+          v-if="modalOccupiedSlotSummary.visible"
+          class="admin-slot-info-header"
+        >
           <div class="admin-slot-info-row">
-            <span class="admin-slot-info-icon">👤</span>
-            <span><strong>{{ modalContext.bookedProviderName || modalContext.assignedProviderName }}</strong></span>
-            <span v-if="modalContext.frequencyLabel" class="admin-slot-info-pill">{{ modalContext.frequencyLabel }}</span>
-            <span v-if="modalContext.assignmentAvailabilityMode" class="admin-slot-info-pill admin-slot-info-pill--mode">{{ modalContext.assignmentAvailabilityMode === 'PERMANENT' ? 'Permanent' : 'Temporary' }}</span>
-            <span v-if="modalContext.appointmentType && modalContext.appointmentType !== 'NONE'" class="admin-slot-info-pill admin-slot-info-pill--type">{{ modalContext.appointmentType }}</span>
+            <span class="admin-slot-info-icon" aria-hidden="true">👤</span>
+            <span><strong>{{ modalOccupiedSlotSummary.providerLabel }}</strong></span>
+            <span v-if="modalOccupiedSlotSummary.statusLabel" class="admin-slot-info-pill">{{ modalOccupiedSlotSummary.statusLabel }}</span>
+            <span v-if="modalOccupiedSlotSummary.frequencyLabel" class="admin-slot-info-pill">{{ modalOccupiedSlotSummary.frequencyLabel }}</span>
+            <span v-if="modalOccupiedSlotSummary.assignmentModeLabel" class="admin-slot-info-pill admin-slot-info-pill--mode">{{ modalOccupiedSlotSummary.assignmentModeLabel }}</span>
+            <span v-if="modalOccupiedSlotSummary.sessionTypeLabel" class="admin-slot-info-pill admin-slot-info-pill--type">{{ modalOccupiedSlotSummary.sessionTypeLabel }}</span>
           </div>
-          <div v-if="modalContext.assignmentAvailableSinceDate" class="admin-slot-info-dates">
-            Active since {{ modalContext.assignmentAvailableSinceDate }}
-            <template v-if="modalContext.assignmentTemporaryUntilDate"> · Until {{ modalContext.assignmentTemporaryUntilDate }}</template>
+          <div v-if="modalOccupiedSlotSummary.roomLabel || modalOccupiedSlotSummary.dateRangeLabel" class="admin-slot-info-dates">
+            <template v-if="modalOccupiedSlotSummary.roomLabel">{{ modalOccupiedSlotSummary.roomLabel }}</template>
+            <template v-if="modalOccupiedSlotSummary.roomLabel && modalOccupiedSlotSummary.dateRangeLabel"> · </template>
+            <template v-if="modalOccupiedSlotSummary.dateRangeLabel">{{ modalOccupiedSlotSummary.dateRangeLabel }}</template>
+            <template v-if="modalOccupiedSlotSummary.createdByLabel"> · Assigned by {{ modalOccupiedSlotSummary.createdByLabel }}</template>
+          </div>
+          <div
+            v-if="modalOccupiedSlotSummary.blockSpanNote"
+            class="admin-slot-info-block-note"
+            :class="{ 'is-partial': modalOccupiedSlotSummary.isPartialOfLongerBlock }"
+          >
+            {{ modalOccupiedSlotSummary.blockSpanNote }}
           </div>
         </div>
 
@@ -814,7 +837,21 @@
               </select>
             </div>
             <div class="muted nr-help">
-              Chooses which organization this action is created under.
+              <template v-if="actionAgencyFilteredToOffice">
+                Only organizations linked to this office are listed
+                <template v-if="isScheduleSuperAdmin"> (superadmin can pick any linked tenant)</template>
+                <template v-else> (and that you belong to)</template>.
+              </template>
+              <template v-else>
+                Chooses which organization this action is created under.
+              </template>
+            </div>
+          </div>
+
+          <!-- Slot details: summary lives in the green header; main pane stays action-focused -->
+          <div v-if="requestType === 'slot_details'" class="slot-details-panel">
+            <div class="slot-details-lead">
+              Use the actions on the left to book, forfeit, reassign, or cancel this selection.
             </div>
           </div>
 
@@ -1632,34 +1669,51 @@
               Switch to office layout view and click a specific room cell to assign directly. Make sure an office location is selected in the toolbar.
             </div>
 
-            <!-- Mode radio -->
-            <div class="aa-mode-row">
-              <label class="check">
-                <input type="radio" v-model="adminAssignMode" value="provider" />
-                <span>Assign to person</span>
-              </label>
-              <label class="check">
-                <input type="radio" v-model="adminAssignMode" value="company_hold" />
-                <span>Company hold</span>
-              </label>
+            <!-- Mode: person vs company hold -->
+            <div class="aa-mode-block">
+              <div class="lbl">Assignment type</div>
+              <div class="aa-mode-row" role="radiogroup" aria-label="Assignment type">
+                <button
+                  type="button"
+                  class="aa-mode-card"
+                  :class="{ on: adminAssignMode === 'provider' }"
+                  role="radio"
+                  :aria-checked="adminAssignMode === 'provider'"
+                  @click="adminAssignMode = 'provider'"
+                >
+                  <span class="aa-mode-card-title">Assign to person</span>
+                  <span class="aa-mode-card-desc">Give this slot to a provider</span>
+                </button>
+                <button
+                  type="button"
+                  class="aa-mode-card"
+                  :class="{ on: adminAssignMode === 'company_hold' }"
+                  role="radio"
+                  :aria-checked="adminAssignMode === 'company_hold'"
+                  @click="adminAssignMode = 'company_hold'"
+                >
+                  <span class="aa-mode-card-title">Company hold</span>
+                  <span class="aa-mode-card-desc">Block the room for the company</span>
+                </button>
+              </div>
             </div>
 
             <!-- Company hold label -->
-            <div v-if="adminAssignMode === 'company_hold'" style="margin-top: 8px;">
-              <label class="lbl">Label</label>
-              <input v-model="adminAssignHoldTitle" class="input" type="text" maxlength="255" placeholder="Company hold" />
+            <div v-if="adminAssignMode === 'company_hold'" class="aa-field">
+              <label class="lbl">Hold label</label>
+              <input v-model="adminAssignHoldTitle" class="input aa-input" type="text" maxlength="255" placeholder="Company hold" />
             </div>
 
             <!-- Person search -->
-            <div v-else style="margin-top: 8px; position: relative;">
+            <div v-else class="aa-field aa-person-field">
               <label class="lbl">
                 Person
                 <span v-if="adminAssignProvidersLoading" class="muted" style="font-weight:400;"> (loading…)</span>
               </label>
-              <div style="position: relative;">
+              <div class="aa-person-search-wrap">
                 <input
                   v-model="adminAssignPersonSearch"
-                  class="input"
+                  class="input aa-input"
                   :class="{ 'aa-has-selection': adminAssignPersonId }"
                   type="text"
                   autocomplete="off"
@@ -1682,26 +1736,42 @@
                 </div>
               </div>
               <div v-if="adminAssignPersonId" class="aa-selected-person">
-                ✓ {{ adminAssignPersonName }}
-                <button type="button" class="aa-clear-person" @click="adminAssignPersonId = 0; adminAssignPersonName = ''; adminAssignPersonSearch = ''">×</button>
+                <span class="aa-selected-person-name">✓ {{ adminAssignPersonName }}</span>
+                <button type="button" class="aa-clear-person" title="Clear selection" @click="adminAssignPersonId = 0; adminAssignPersonName = ''; adminAssignPersonSearch = ''">Clear</button>
               </div>
               <div v-if="!adminAssignProvidersLoading && !adminAssignProviders.length && selectedOfficeLocationId" class="muted" style="margin-top: 4px; font-size: 12px;">
                 No providers found for this office location.
               </div>
             </div>
 
-            <!-- End time -->
-            <div style="margin-top: 8px;">
-              <label class="lbl">End time</label>
-              <select v-model.number="officeAssignEndHour" class="input">
-                <option v-for="h in officeAssignEndHourOptions" :key="`aa-end-${h}`" :value="h">{{ hourLabel(h) }}</option>
-              </select>
+            <!-- Start / end time (editable after drag-select) -->
+            <div class="aa-field aa-time-row">
+              <div>
+                <label class="lbl">Start time</label>
+                <select
+                  v-model.number="officeAssignStartHour"
+                  class="input aa-input"
+                  @change="onOfficeAssignStartHourChange"
+                >
+                  <option v-for="h in officeAssignStartHourOptions" :key="`aa-start-${h}`" :value="h">{{ hourLabel(h) }}</option>
+                </select>
+              </div>
+              <div>
+                <label class="lbl">End time</label>
+                <select
+                  v-model.number="officeAssignEndHour"
+                  class="input aa-input"
+                  @change="syncOfficeAssignTimesToModal"
+                >
+                  <option v-for="h in officeAssignEndHourOptions" :key="`aa-end-${h}`" :value="h">{{ hourLabel(h) }}</option>
+                </select>
+              </div>
             </div>
 
             <!-- Recurrence -->
-            <div style="margin-top: 8px;">
+            <div class="aa-field">
               <label class="lbl">Recurrence</label>
-              <select v-model="adminAssignRecurrence" class="input">
+              <select v-model="adminAssignRecurrence" class="input aa-input">
                 <option value="ONCE">Single occurrence</option>
                 <option value="WEEKLY">Weekly</option>
                 <option value="BIWEEKLY">Biweekly</option>
@@ -1735,8 +1805,8 @@
                 <label class="lbl">Recurring until</label>
                 <input v-model="adminAssignRecurringUntil" type="date" class="input" />
               </div>
-              <div v-if="adminAssignMode === 'provider'" style="margin-top: 8px;">
-                <label class="check">
+              <div v-if="adminAssignMode === 'provider'" class="aa-field">
+                <label class="check aa-temp-check">
                   <input type="checkbox" v-model="adminAssignTemporary4Weeks" />
                   <span>Temporary 4-week hold</span>
                 </label>
@@ -1762,7 +1832,7 @@
           </div><!-- /.nr-main -->
         </div><!-- /.nr-layout -->
 
-        <div v-if="!intakeConfirmStep && requestType !== 'admin_assign' && requestType !== 'cancel_booking'" class="nr-footer">
+        <div v-if="!intakeConfirmStep && requestType !== 'admin_assign' && requestType !== 'cancel_booking' && requestType !== 'slot_details'" class="nr-footer">
           <button class="btn btn-secondary nr-btn-cancel" type="button" @click="closeModal">
             Cancel
           </button>
@@ -3054,12 +3124,15 @@ onMounted(() => {
   void loadSelfScheduleAgencies();
   const handleMouseUp = () => {
     const wasDragging = isCellDragSelecting.value;
+    // Preserve anchor across nextTick — mouseup clears drag state before auto-open runs.
+    const preservedAnchorKey = String(dragAnchorSlot.value?.key || mouseDownCellKey.value || lastSelectedActionKey.value || '');
     isCellDragSelecting.value = false;
     dragAnchorSlot.value = null;
     mouseDownCellKey.value = '';
     if (wasDragging) {
-      nextTick(() => maybeAutoOpenSelectionActions());
-      suppressClickAfterDrag.value = false;
+      // Keep suppress true so the trailing click does not overwrite the multi-hour selection.
+      suppressClickAfterDrag.value = true;
+      nextTick(() => maybeAutoOpenSelectionActions({ preferredFirstKey: preservedAnchorKey }));
     }
   };
   window.addEventListener('mouseup', handleMouseUp);
@@ -3319,6 +3392,200 @@ const onOfficeLayoutCellClick = ({ dateYmd, hour, roomId, slot, event, alreadyRe
   onCellClick(dn, Number(hour), event, { dateYmd, roomId, slot });
 };
 
+/** Look up the weekly-grid slot for an office-layout cell (may be null for truly empty). */
+const lookupOfficeGridSlot = (dateYmd, hour, roomId) => {
+  const slots = Array.isArray(officeGrid.value?.slots) ? officeGrid.value.slots : [];
+  const ymd = String(dateYmd || '').slice(0, 10);
+  const h = Number(hour);
+  const rid = Number(roomId || 0);
+  return slots.find((s) =>
+    String(s?.date || s?.dateYmd || '').slice(0, 10) === ymd
+    && Number(s?.hour) === h
+    && Number(s?.roomId || s?.room_id || 0) === rid
+  ) || null;
+};
+
+const officeLayoutSelectionItem = (dateYmd, hour, roomId, slot = null) => {
+  const ymd = String(dateYmd || '').slice(0, 10);
+  const rid = Number(roomId || 0);
+  const h = Number(hour);
+  const resolved = slot || lookupOfficeGridSlot(ymd, h, rid);
+  return {
+    key: `${ymd}|${h}|${rid}`,
+    dateYmd: ymd,
+    dayName: String(dayNameForDateYmd(ymd) || ''),
+    hour: h,
+    roomId: rid,
+    slot: resolved
+  };
+};
+
+const enrichOfficeSelectionItem = (item) => {
+  if (!item) return item;
+  if (item.slot) return item;
+  if (viewMode.value !== 'office_layout') return item;
+  const slot = lookupOfficeGridSlot(item.dateYmd, item.hour, item.roomId);
+  return slot ? { ...item, slot } : item;
+};
+
+/** open = requestable blank cell; occupied = any assignment/booking/hold. */
+const officeSelectionOccupancy = (item) => {
+  const slot = item?.slot || null;
+  const st = String(slot?.state || slot?.slotState || slot?.slot_state || '').trim().toLowerCase();
+  if (!st || st === 'open') return 'open';
+  return 'occupied';
+};
+
+/**
+ * Logical booking identity for contiguous hourly events: same room/day/provider.
+ * Architecture remains one event per hour; UX treats a multi-hour span as one booking when identity matches.
+ */
+const officeLogicalBookingKey = (item) => {
+  const slot = item?.slot || null;
+  const st = String(slot?.state || slot?.slotState || slot?.slot_state || '').trim().toLowerCase();
+  const providerId = Number(
+    slot?.bookedProviderId
+    || slot?.booked_provider_id
+    || slot?.assignedProviderId
+    || slot?.assigned_provider_id
+    || 0
+  );
+  const providerName = String(
+    slot?.bookedProviderName
+    || slot?.bookedProviderFullName
+    || slot?.assignedProviderName
+    || slot?.assignedProviderFullName
+    || ''
+  ).trim().toLowerCase();
+  const roomId = Number(item?.roomId || slot?.roomId || 0);
+  const dateYmd = String(item?.dateYmd || '').slice(0, 10);
+  if (st === 'company_hold') return `hold|${dateYmd}|${roomId}`;
+  // Same person + room + day = one logical booking (even across hourly event rows).
+  if (providerId > 0) return `p${providerId}|${dateYmd}|${roomId}`;
+  if (providerName) return `n:${providerName}|${dateYmd}|${roomId}`;
+  const standingId = Number(slot?.standingAssignmentId || 0);
+  if (standingId > 0) return `s${standingId}|${dateYmd}|${roomId}`;
+  const eventId = Number(slot?.eventId || slot?.officeEventId || 0);
+  if (eventId > 0) return `e${eventId}|${dateYmd}|${roomId}`;
+  return `unknown|${dateYmd}|${roomId}|${item?.hour || 0}`;
+};
+
+const isSameOfficeLogicalBooking = (a, b) => {
+  if (!a || !b) return false;
+  return officeLogicalBookingKey(a) === officeLogicalBookingKey(b);
+};
+
+/** Prefer the drag/click anchor as "first selected"; fall back to chronological order. */
+const firstSelectedOfficeItem = (rows, preferredFirstKey = '') => {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return null;
+  const anchorKey = String(
+    preferredFirstKey
+    || dragAnchorSlot.value?.key
+    || mouseDownCellKey.value
+    || lastSelectedActionKey.value
+    || ''
+  );
+  if (anchorKey) {
+    const hit = list.find((r) => String(r?.key || '') === anchorKey);
+    if (hit) return hit;
+  }
+  return list[0];
+};
+
+const openOfficeOccupiedSelectionModal = (focusItem, bookingRows) => {
+  const focus = enrichOfficeSelectionItem(focusItem);
+  const rows = (Array.isArray(bookingRows) && bookingRows.length ? bookingRows : [focus])
+    .map(enrichOfficeSelectionItem);
+  selectedActionSlots.value = rows;
+  lastSelectedActionKey.value = String(focus?.key || rows[0]?.key || '');
+  openSlotActionModal({
+    dayName: focus.dayName,
+    hour: focus.hour,
+    roomId: focus.roomId,
+    dateYmd: focus.dateYmd,
+    slot: focus.slot,
+    preserveSelectionRange: rows.length > 1,
+    initialRequestType: 'slot_details',
+    actionSource: 'office_block'
+  });
+};
+
+const resolveOfficeMultiSelectionActions = (rawRows, preferredFirstKey = '') => {
+  const rows = (Array.isArray(rawRows) ? rawRows : []).map(enrichOfficeSelectionItem);
+  if (rows.length <= 1) return false;
+
+  const openRows = rows.filter((r) => officeSelectionOccupancy(r) === 'open');
+  const occupiedRows = rows.filter((r) => officeSelectionOccupancy(r) === 'occupied');
+
+  // Mixed open + booked/assigned → keep only open slots (assign/request flow).
+  if (openRows.length && occupiedRows.length) {
+    selectedActionSlots.value = openRows;
+    lastSelectedActionKey.value = String(openRows[0]?.key || '');
+    lastAutoOpenedSelectionSignature.value = selectedActionSignature(openRows);
+    openSlotActionModal({
+      ...openRows[0],
+      preserveSelectionRange: openRows.length > 1,
+      actionSource: 'plus_or_blank'
+    });
+    return true;
+  }
+
+  // All open → assign / request.
+  if (openRows.length && !occupiedRows.length) {
+    openSlotActionModal({
+      ...openRows[0],
+      preserveSelectionRange: openRows.length > 1,
+      actionSource: 'plus_or_blank'
+    });
+    return true;
+  }
+
+  // All occupied: same contiguous booking → open that booking; else open the first selected booking only.
+  if (occupiedRows.length) {
+    const first = firstSelectedOfficeItem(occupiedRows, preferredFirstKey);
+    const sameAsFirst = occupiedRows.filter((r) => isSameOfficeLogicalBooking(first, r));
+    const allSameBooking = occupiedRows.every((r) => isSameOfficeLogicalBooking(occupiedRows[0], r));
+    const bookingRows = allSameBooking ? occupiedRows : sameAsFirst;
+    openOfficeOccupiedSelectionModal(first, bookingRows.length ? bookingRows : [first]);
+    return true;
+  }
+
+  return false;
+};
+
+const onOfficeLayoutCellMouseDown = ({ dateYmd, hour, roomId, event }) => {
+  if (!canBookFromGrid.value) return;
+  if (Number(event?.button) !== 0) return;
+  mouseDownClient.value = { x: event?.clientX ?? 0, y: event?.clientY ?? 0 };
+  const item = officeLayoutSelectionItem(dateYmd, hour, roomId);
+  isCellDragSelecting.value = false;
+  dragAnchorSlot.value = item;
+  mouseDownCellKey.value = item.key;
+  suppressClickAfterDrag.value = false;
+};
+
+const onOfficeLayoutCellMouseEnter = ({ dateYmd, hour, roomId, event }) => {
+  if (!dragAnchorSlot.value) return;
+  if (Number(event?.buttons || 0) !== 1) return;
+  // Multi-hour drag stays within a single room column.
+  if (Number(dragAnchorSlot.value.roomId || 0) !== Number(roomId || 0)) return;
+  const dx = (event?.clientX ?? 0) - mouseDownClient.value.x;
+  const dy = (event?.clientY ?? 0) - mouseDownClient.value.y;
+  if (dx * dx + dy * dy < DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) return;
+  const current = officeLayoutSelectionItem(dateYmd, hour, roomId);
+  if (current.key === dragAnchorSlot.value.key) return;
+  if (!isCellDragSelecting.value) {
+    isCellDragSelecting.value = true;
+    selectedActionSlots.value = [dragAnchorSlot.value];
+    lastSelectedActionKey.value = dragAnchorSlot.value.key;
+  }
+  selectedActionSlots.value = [dragAnchorSlot.value];
+  lastSelectedActionKey.value = dragAnchorSlot.value.key;
+  applyShiftSelection(current);
+  suppressClickAfterDrag.value = true;
+};
+
 const propAgencyId = computed(() => {
   const n = Number(props.agencyId || 0);
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -3399,6 +3666,22 @@ const agencyFilterOptions = computed(() => {
   }));
 });
 
+/** Actions tied to a specific office/room — agency list must be office-affiliated tenants only. */
+const OFFICE_AGENCY_SCOPED_ACTIONS = new Set([
+  'admin_assign',
+  'office_request_only',
+  'office',
+  'forfeit_slot',
+  'unbook_slot',
+  'cancel_booking',
+  'extend_assignment',
+  'booked_note',
+  'intake_virtual_on',
+  'intake_inperson_on',
+  'intake_virtual_off',
+  'intake_inperson_off'
+]);
+
 const showClinicalBookingFields = computed(() => {
   const effId = Number(effectiveAgencyId.value || 0);
   if (!effId) return false;
@@ -3418,11 +3701,8 @@ const effectiveAgencyFeatureFlags = computed(() => {
   };
 });
 
-const actionAgencyOptions = computed(() => {
-  const active = new Set((activeScheduleAgencyIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0));
-  const rows = agencyFilterOptions.value.filter((row) => active.has(Number(row.id)));
-  return rows.length ? rows : agencyFilterOptions.value;
-});
+// NOTE: actionAgencyOptions is declared later (after officeLocations / requestType / modalContext)
+// to avoid TDZ crashes during setup when watchers evaluate the computed.
 
 const activeScheduleAgencyIdSet = computed(
   () => new Set((activeScheduleAgencyIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0))
@@ -4873,8 +5153,24 @@ const AGENCY_OPTIONAL_ACTIONS = new Set([
   'forfeit_slot',
   'personal_event',
   'schedule_hold',
-  'schedule_hold_all_day'
+  'schedule_hold_all_day',
+  'slot_details',
+  'cancel_booking',
+  'admin_assign',
+  'extend_assignment'
 ]);
+
+const officeSlotStatusLabel = (rawState) => {
+  const st = String(rawState || '').trim().toUpperCase();
+  if (st === 'ASSIGNED_AVAILABLE') return 'Assigned (open to book)';
+  if (st === 'ASSIGNED_TEMPORARY') return 'Temporary assignment';
+  if (st === 'ASSIGNED_BOOKED') return 'Booked';
+  if (st === 'COMPANY_HOLD') return 'Company hold';
+  if (st === 'OPEN') return 'Open';
+  if (st === 'CONFLICT') return 'Conflict';
+  if (!st) return '';
+  return st.replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
+};
 const SCHEDULE_HOLD_REASON_OPTIONS = [
   { code: 'DOCUMENTATION', label: 'Documentation' },
   { code: 'TEAM_MEETING', label: 'Team meeting' },
@@ -5007,7 +5303,18 @@ const availableQuickActions = computed(() => {
   // Admins with office-management rights can still see all office actions when viewing another user's schedule.
   const supervisionOnlyMode = isViewingOtherUserSchedule.value && !canManageOffices.value;
   const hasClinicalOrLearningOrg = effectiveAgencyFeatureFlags.value.hasClinicalOrg || effectiveAgencyFeatureFlags.value.hasLearningOrg;
+  const actorId = Number(authStore.user?.id || 0);
+  const assignedId = Number(ctx.assignedProviderId || 0);
+  const isOwnAssignedSlot = actorId > 0 && assignedId > 0 && actorId === assignedId;
   return [
+    {
+      id: 'slot_details',
+      label: 'Slot details',
+      description: 'Provider, room, and session info for the hour(s) you selected',
+      disabledReason: '',
+      visible: !supervisionOnlyMode && (hasAssignedOffice || state === 'COMPANY_HOLD'),
+      tone: 'slate'
+    },
     {
       id: 'individual_session',
       label: 'Individual session',
@@ -5040,10 +5347,10 @@ const availableQuickActions = computed(() => {
       description: hasAssignedOffice
         ? 'Mark your assigned office as booked — once or recurring'
         : 'Mark assigned office slot as booked/busy',
-      disabledReason: hasEvent && ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(state)
+      disabledReason: hasEvent && ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(state) && isOwnAssignedSlot
         ? ''
-        : 'Select an assigned office slot',
-      visible: !supervisionOnlyMode && hasEvent && ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(state),
+        : (!isOwnAssignedSlot ? 'Only the assigned provider can book this slot' : 'Select an assigned office slot'),
+      visible: !supervisionOnlyMode && hasEvent && ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(state) && isOwnAssignedSlot,
       tone: 'blue'
     },
     {
@@ -5237,6 +5544,7 @@ const availableQuickActions = computed(() => {
 });
 
 const OFFICE_LAYOUT_ONLY_ACTIONS = new Set([
+  'slot_details',
   'supervision',
   'forfeit_slot',
   'extend_assignment',
@@ -5255,6 +5563,7 @@ const OFFICE_LAYOUT_ONLY_ACTIONS = new Set([
 ]);
 
 const OFFICE_BLOCK_ONLY_ACTIONS = new Set([
+  'slot_details',
   'supervision',
   'forfeit_slot',
   'extend_assignment',
@@ -5370,6 +5679,7 @@ const selectedQuickActionLabel = computed(() => {
 const modalScheduleSubtitle = computed(() => {
   const t = String(requestType.value || '');
   if (!t) return 'Book time or schedule an event.';
+  if (t === 'slot_details') return 'Selected office slot details.';
   if (['office', 'office_request_only'].includes(t)) return 'Send an office or room request for approval.';
   if (t === 'portal_intake') return 'Publish open hours for new clients on the portal.';
   if (t === 'school') return 'Mark school daytime availability (not virtual).';
@@ -5463,7 +5773,7 @@ const isVirtualGroupFromClients = computed(() => (
 ));
 
 const quickActionDisplayLabel = (act) => {
-  if (hideOfficeAndCalendarIntegration.value && act.id === 'agency_meeting') return 'Team meeting';
+  if (props.hideOfficeAndCalendarIntegration && act.id === 'agency_meeting') return 'Team meeting';
   if (act.id === 'individual_session' && isVirtualGroupFromClients.value) return 'Group session';
   return act.label;
 };
@@ -5498,6 +5808,7 @@ const quickActionIconKey = (actionId) => {
     admin_assign: 'office',
     cancel_booking: 'close',
     extend_assignment: 'check',
+    slot_details: 'person',
     intake_virtual_on: 'school',
     intake_virtual_off: 'school',
     intake_inperson_on: 'office',
@@ -5739,7 +6050,97 @@ const modalLockedRoomLabel = computed(() => {
   const rid = Number(modalContext.value?.roomId || 0);
   if (!rid) return 'Assigned room';
   const opt = (modalOfficeRoomOptions.value || []).find((x) => Number(x.roomId) === rid);
-  return String(opt?.label || '').trim() || `Room ${rid}`;
+  return String(opt?.label || modalContext.value?.roomLabel || '').trim() || `Room ${rid}`;
+});
+
+const resolveOfficeContiguousBookingSpan = ({ dateYmd, roomId, hour, slot = null } = {}) => {
+  const ymd = String(dateYmd || '').slice(0, 10);
+  const rid = Number(roomId || 0);
+  const focusHour = Number(hour);
+  if (!ymd || !rid || !Number.isFinite(focusHour)) return null;
+  const focusSlot = slot || lookupOfficeGridSlot(ymd, focusHour, rid);
+  const focusKey = officeLogicalBookingKey({ dateYmd: ymd, hour: focusHour, roomId: rid, slot: focusSlot });
+  if (!focusKey || String(focusKey).startsWith('unknown')) return null;
+
+  const dayRoomSlots = (Array.isArray(officeGrid.value?.slots) ? officeGrid.value.slots : [])
+    .filter((s) =>
+      String(s?.date || s?.dateYmd || '').slice(0, 10) === ymd
+      && Number(s?.roomId || s?.room_id || 0) === rid
+    );
+  const byHour = new Map();
+  for (const s of dayRoomSlots) byHour.set(Number(s?.hour), s);
+
+  const matchesHour = (h) => {
+    const s = byHour.get(Number(h));
+    if (!s) return false;
+    return officeLogicalBookingKey({ dateYmd: ymd, hour: h, roomId: rid, slot: s }) === focusKey;
+  };
+
+  let startHour = focusHour;
+  let endHourInclusive = focusHour;
+  while (matchesHour(startHour - 1)) startHour -= 1;
+  while (matchesHour(endHourInclusive + 1)) endHourInclusive += 1;
+  return {
+    startHour,
+    endHourExclusive: endHourInclusive + 1,
+    hourCount: endHourInclusive - startHour + 1,
+    rangeLabel: `${hourLabel(startHour)}–${hourLabel(endHourInclusive + 1)}`
+  };
+};
+
+const modalOccupiedSlotSummary = computed(() => {
+  const ctx = modalContext.value || {};
+  const st = String(ctx.slotState || '').toUpperCase();
+  const occupied = ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'ASSIGNED_BOOKED', 'COMPANY_HOLD'].includes(st);
+  const providerLabel = String(ctx.bookedProviderName || ctx.assignedProviderName || '').trim()
+    || (st === 'COMPANY_HOLD' ? 'Company hold' : '');
+  const mode = String(ctx.assignmentAvailabilityMode || '').toUpperCase();
+
+  const selectedStart = Number(modalHour.value ?? ctx.hour ?? 0);
+  const selectedEndExclusive = Math.max(
+    Number(modalEndHour.value || 0),
+    selectedStart + 1
+  );
+  const selectedHourCount = Math.max(1, selectedEndExclusive - selectedStart);
+  const selectedRangeLabel = `${hourLabel(selectedStart)}–${hourLabel(selectedEndExclusive)}`;
+
+  const fullBlock = occupied
+    ? resolveOfficeContiguousBookingSpan({
+      dateYmd: ctx.dateYmd,
+      roomId: ctx.roomId,
+      hour: Number.isFinite(selectedStart) ? selectedStart : ctx.hour,
+      slot: null
+    })
+    : null;
+
+  let isPartialOfLongerBlock = false;
+  let blockSpanNote = '';
+  if (fullBlock && fullBlock.hourCount > 1) {
+    isPartialOfLongerBlock =
+      selectedStart > fullBlock.startHour
+      || selectedEndExclusive < fullBlock.endHourExclusive
+      || selectedHourCount < fullBlock.hourCount;
+    if (isPartialOfLongerBlock) {
+      blockSpanNote = `Part of a longer booking (${fullBlock.rangeLabel}). You selected ${selectedRangeLabel}.`;
+    } else {
+      blockSpanNote = `Multi-hour booking · ${fullBlock.rangeLabel}`;
+    }
+  }
+
+  return {
+    visible: occupied && (!!providerLabel || st === 'COMPANY_HOLD'),
+    providerLabel: providerLabel || '—',
+    statusLabel: officeSlotStatusLabel(st),
+    frequencyLabel: String(ctx.frequencyLabel || '').trim() || '',
+    assignmentModeLabel: mode === 'PERMANENT' ? 'Permanent' : (mode === 'TEMPORARY' ? 'Temporary' : ''),
+    sessionTypeLabel: String(ctx.appointmentTypeLabel || '').trim() || '',
+    roomLabel: String(ctx.roomLabel || '').trim() || '',
+    dateRangeLabel: `${String(ctx.dayName || modalDay.value || '')} • ${modalTimeRangeLabel.value || ''}`.trim(),
+    createdByLabel: String(ctx.assignmentCreatedByName || ctx.bookingCreatedByName || '').trim() || '',
+    isPartialOfLongerBlock,
+    blockSpanNote,
+    fullBlockRangeLabel: fullBlock?.rangeLabel || ''
+  };
 });
 
 const isTelehealthModality = computed(
@@ -6494,6 +6895,20 @@ const buildModalContext = ({ dayName, hour, roomId = 0, slot = null, dateYmd = n
     || top?.slot_state
     || ''
   ).trim().toUpperCase();
+  const resolvedRoomId = Number(roomId || slot?.roomId || slot?.room_id || top?.roomId || 0) || null;
+  const rooms = Array.isArray(officeGrid.value?.rooms) ? officeGrid.value.rooms : [];
+  const roomRow = resolvedRoomId
+    ? rooms.find((r) => Number(r?.id) === Number(resolvedRoomId))
+    : null;
+  const roomNum = roomRow?.roomNumber ?? roomRow?.room_number ?? null;
+  const roomLabel = roomRow
+    ? [`${roomNum != null && String(roomNum).trim() !== '' ? `#${String(roomNum).trim()} ` : ''}${String(roomRow?.label || roomRow?.name || '').trim()}`.trim()].filter(Boolean)[0]
+    : (String(slot?.roomLabel || slot?.room_label || '').trim() || null);
+  const prettyType = (code) => {
+    const c = String(code || '').trim();
+    if (!c || c.toUpperCase() === 'NONE') return null;
+    return c.replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
+  };
   return {
     dayName: String(dayName),
     dateYmd: String(dateYmd || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName))).slice(0, 10),
@@ -6507,21 +6922,36 @@ const buildModalContext = ({ dayName, hour, roomId = 0, slot = null, dateYmd = n
       || selectedOfficeLocationId.value
       || 0
     ) || null,
-    roomId: Number(roomId || slot?.roomId || slot?.room_id || top?.roomId || 0) || null,
+    roomId: resolvedRoomId,
+    roomLabel: roomLabel || (resolvedRoomId ? `Room ${resolvedRoomId}` : null),
     assignedProviderId: Number(slot?.assignedProviderId || top?.assignedProviderId || 0) || null,
+    bookedProviderId: Number(slot?.bookedProviderId || top?.bookedProviderId || 0) || null,
     assignedFrequency: String(slot?.assignedFrequency || top?.assignedFrequency || '').toUpperCase() || null,
+    bookedFrequency: String(slot?.bookedFrequency || '').toUpperCase() || null,
     frequencyLabel: String(slot?.frequencyLabel || top?.frequencyLabel || '').trim() || null,
     standingAssignmentId: Number(slot?.standingAssignmentId || top?.standingAssignmentId || 0) || null,
+    bookingPlanId: Number(slot?.bookingPlanId || 0) || null,
+    learningSessionId: Number(slot?.learningSessionId || 0) || null,
+    clinicalSessionId: Number(slot?.clinicalSessionId || 0) || null,
     assignmentAvailabilityMode: String(slot?.assignmentAvailabilityMode || top?.assignmentAvailabilityMode || '').toUpperCase() || null,
     assignmentAvailableSinceDate: String(slot?.assignmentAvailableSinceDate || top?.assignmentAvailableSinceDate || '').slice(0, 10) || null,
     assignmentTemporaryUntilDate: String(slot?.assignmentTemporaryUntilDate || top?.assignmentTemporaryUntilDate || '').slice(0, 10) || null,
     assignmentTemporaryExtensionCount: Number(slot?.assignmentTemporaryExtensionCount ?? top?.assignmentTemporaryExtensionCount ?? 0),
+    assignmentCreatedByName: String(slot?.assignmentCreatedByName || '').trim() || null,
+    bookingCreatedByName: String(slot?.bookingCreatedByName || '').trim() || null,
     slotState: rawState,
     virtualIntakeEnabled: (slot?.virtualIntakeEnabled === true) || (top?.virtualIntakeEnabled === true),
     inPersonIntakeEnabled: (slot?.inPersonIntakeEnabled === true) || (top?.inPersonIntakeEnabled === true),
     assignedProviderName: String(slot?.assignedProviderFullName || slot?.assignedProviderName || top?.assignedProviderFullName || top?.assignedProviderName || '').trim() || null,
     bookedProviderName: String(slot?.bookedProviderFullName || slot?.bookedProviderName || top?.bookedProviderFullName || top?.bookedProviderName || '').trim() || null,
     appointmentType: String(slot?.appointmentType || top?.appointmentType || '').trim().toUpperCase() || null,
+    appointmentTypeLabel: prettyType(slot?.appointmentType || top?.appointmentType),
+    appointmentSubtype: String(slot?.appointmentSubtype || top?.appointmentSubtype || '').trim().toUpperCase() || null,
+    appointmentSubtypeLabel: prettyType(slot?.appointmentSubtype || top?.appointmentSubtype),
+    serviceCode: String(slot?.serviceCode || top?.serviceCode || '').trim().toUpperCase() || null,
+    modality: String(slot?.modality || top?.modality || '').trim().toUpperCase() || null,
+    modalityLabel: prettyType(slot?.modality || top?.modality),
+    statusOutcome: String(slot?.statusOutcome || '').trim().toUpperCase() || null
   };
 };
 
@@ -6546,13 +6976,16 @@ const selectedActionSignature = (rows) => {
     .join('|');
 };
 
-const maybeAutoOpenSelectionActions = () => {
+const maybeAutoOpenSelectionActions = (opts = {}) => {
   if (!canBookFromGrid.value || showRequestModal.value) return;
   const rows = sortedSelectedActionSlots();
   if (rows.length <= 1) return;
   const sig = selectedActionSignature(rows);
   if (!sig || sig === lastAutoOpenedSelectionSignature.value) return;
   lastAutoOpenedSelectionSignature.value = sig;
+  if (viewMode.value === 'office_layout') {
+    if (resolveOfficeMultiSelectionActions(rows, opts?.preferredFirstKey || '')) return;
+  }
   openSlotActionModal({ ...rows[0], actionSource: 'plus_or_blank' });
 };
 
@@ -6573,9 +7006,31 @@ const openSlotActionModal = ({
   modalHour.value = Number(hour);
   modalStartHour.value = Number(hour);
   // Default to a 1-hour range; clamp to end-of-grid.
+  // Multi-hour highlight is applied below BEFORE requestType so admin_assign syncs the full span.
   const maxEnd = modalGridMaxEnd.value;
   const nextEnd = Math.min(Number(hour) + 1, maxEnd);
   modalEndHour.value = nextEnd > Number(hour) ? nextEnd : Math.min(Number(hour) + 1, maxEnd);
+  if (preserveSelectionRange) {
+    const rows = sortedSelectedActionSlots();
+    if (rows.length > 1) {
+      const sameDay = rows.every((x) => String(x.dateYmd || '') === String(rows[0]?.dateYmd || ''));
+      if (sameDay) {
+        const minHour = Math.min(...rows.map((x) => Number(x.hour || 0)));
+        const maxHour = Math.max(...rows.map((x) => Number(x.hour || 0)));
+        if (Number.isFinite(minHour) && Number.isFinite(maxHour)) {
+          modalHour.value = minHour;
+          modalStartHour.value = minHour;
+          modalEndHour.value = Math.min(maxHour + 1, maxEnd);
+        }
+      }
+    }
+  }
+  // Keep admin-assign end time in lockstep with the modal range (header uses modal*; form uses officeAssign*).
+  officeAssignStartHour.value = Number(modalHour.value || 0);
+  officeAssignEndHour.value = Math.max(
+    Number(modalEndHour.value || 0),
+    Number(modalHour.value || 0) + 1
+  );
   const normalizedInitialRequestType = String(initialRequestType || '').trim();
   requestType.value = normalizedInitialRequestType || '';
   requestTypeChosenByUser.value = Boolean(normalizedInitialRequestType);
@@ -6644,48 +7099,31 @@ const openSlotActionModal = ({
   } else if (!selectedActionAgencyId.value || !effectiveAgencyIds.value.includes(Number(selectedActionAgencyId.value))) {
     selectedActionAgencyId.value = Number(effectiveAgencyIds.value[0] || 0) || 0;
   }
-  if (!normalizedInitialRequestType && viewMode.value === 'office_layout') {
+  if (!normalizedInitialRequestType && (viewMode.value === 'office_layout' || modalActionSource.value === 'office_block')) {
     const ss = String(modalContext.value.slotState || '').toUpperCase();
-    if (ss === 'ASSIGNED_BOOKED') {
-      // Booked slot: admin gets cancel/edit options, owner gets unbook
-      requestType.value = canManageOffices.value ? 'cancel_booking' : 'unbook_slot';
-    } else if (['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(ss)) {
-      // Assigned but not yet booked: everyone can book it directly
-      requestType.value = 'office';
-      // Default to weekly / 6 sessions so they can pick immediately
-      officeBookingRecurrence.value = 'WEEKLY';
-      officeBookingOccurrenceCount.value = 6;
+    if (['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'COMPANY_HOLD'].includes(ss)) {
+      // Occupied cell: show selected slot details first (actions remain in the sidebar).
+      requestType.value = 'slot_details';
     } else {
       // Open slot: admin can assign, others can request
       requestType.value = canManageOffices.value ? 'admin_assign' : 'office_request_only';
     }
   }
-  // If user selected a contiguous range on one day, use it as the default modal duration.
   const rows = preserveSelectionRange ? sortedSelectedActionSlots() : [];
-  if (preserveSelectionRange && rows.length > 1) {
-    const sameDay = rows.every((x) => String(x.dateYmd || '') === String(rows[0]?.dateYmd || ''));
-    if (sameDay) {
-      const minHour = Math.min(...rows.map((x) => Number(x.hour || 0)));
-      const maxHour = Math.max(...rows.map((x) => Number(x.hour || 0)));
-      if (Number.isFinite(minHour) && Number.isFinite(maxHour)) {
-        modalHour.value = minHour;
-        modalStartHour.value = minHour;
-        modalEndHour.value = Math.min(maxHour + 1, modalGridMaxEnd.value);
-      }
-    }
-  }
+  // Signature still keyed off selection rows (duration already applied above).
   const fallbackDate = String(dateYmd || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName))).slice(0, 10);
   const fallbackRow = {
-    key: actionSlotKey({ dateYmd: fallbackDate, hour, roomId }),
+    key: actionSlotKey({ dateYmd: fallbackDate, hour: Number(modalHour.value || hour), roomId }),
     dateYmd: fallbackDate,
     dayName: String(dayName || ''),
-    hour: Number(hour || 0),
+    hour: Number(modalHour.value || hour || 0),
     roomId: Number(roomId || 0)
   };
   lastAutoOpenedSelectionSignature.value = selectedActionSignature(rows.length ? rows : [fallbackRow]);
   showRequestModal.value = true;
   void loadBookingMetadataForProvider();
   void loadSupervisionProviders();
+  void ensureOfficeAgencyIds(Number(modalContext.value?.officeLocationId || selectedOfficeLocationId.value || 0));
 };
 
 const applyShiftSelection = (current) => {
@@ -6705,14 +7143,17 @@ const applyShiftSelection = (current) => {
     for (let h = minHour; h <= maxHour; h += 1) {
       const key = actionSlotKey({ dateYmd: ymd, hour: h, roomId: current.roomId });
       if (next.has(key)) continue;
-      next.set(key, {
-        key,
-        dateYmd: ymd,
-        dayName: dayNameForDateYmd(ymd) || current.dayName,
-        hour: h,
-        roomId: Number(current.roomId || 0),
-        slot: null
-      });
+      const item = viewMode.value === 'office_layout'
+        ? officeLayoutSelectionItem(ymd, h, current.roomId)
+        : {
+          key,
+          dateYmd: ymd,
+          dayName: dayNameForDateYmd(ymd) || current.dayName,
+          hour: h,
+          roomId: Number(current.roomId || 0),
+          slot: null
+        };
+      next.set(key, item);
       added += 1;
     }
   }
@@ -6771,12 +7212,6 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
     // Prefer the exact clicked room slot from weekly-grid when it has actionable context.
     // Using summary-derived top events here can mismatch room/state and break forfeit actions.
     if (slot && clickedSlotHasContext && clickedSlotState && clickedSlotState !== 'OPEN') {
-      const initialRequestType =
-        clickedSlotState === 'ASSIGNED_BOOKED'
-          ? 'booked_note'
-          : ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(clickedSlotState)
-            ? 'forfeit_slot'
-            : 'office_request_only';
       openSlotActionModal({
         dayName,
         hour,
@@ -6784,17 +7219,14 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
         dateYmd,
         slot,
         preserveSelectionRange: false,
-        initialRequestType,
+        initialRequestType: 'slot_details',
         actionSource: 'office_block'
       });
       return;
     }
     const officeTop = officeId ? officeTopEvent(dayName, hour, officeId, roomId) : null;
     if (officeTop) {
-      // User has assignment in this room – show forfeit/extend modal
-      const slotState = String(officeTop?.slotState || '').toUpperCase();
-      const initialRequestType =
-        slotState === 'ASSIGNED_BOOKED' ? 'booked_note' : ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(slotState) ? 'forfeit_slot' : 'office_request_only';
+      // User has assignment in this room – show selected slot details first
       openSlotActionModal({
         dayName,
         hour,
@@ -6802,7 +7234,7 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
         dateYmd,
         slot: officeTop,
         preserveSelectionRange: false,
-        initialRequestType,
+        initialRequestType: 'slot_details',
         actionSource: 'office_block'
       });
     } else {
@@ -6819,9 +7251,6 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
       const officeId = Number(officeBlock?.buildingId || selectedOfficeLocationId.value || 0) || null;
       const blockRoomId = Number(officeBlock?.roomId || 0) || null;
       const officeTop = officeTopEvent(dayName, hour, officeId, blockRoomId) || null;
-      const slotState = String(officeTop?.slotState || '').toUpperCase();
-      const initialRequestType =
-        slotState === 'ASSIGNED_BOOKED' ? 'booked_note' : ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(slotState) ? 'forfeit_slot' : 'office_request_only';
       openSlotActionModal({
         dayName,
         hour,
@@ -6829,7 +7258,7 @@ const onCellClick = (dayName, hour, event = null, options = {}) => {
         dateYmd,
         slot: officeTop,
         preserveSelectionRange: false,
-        initialRequestType,
+        initialRequestType: 'slot_details',
         actionSource: 'office_block'
       });
     }
@@ -6951,6 +7380,68 @@ const selectedOfficeLocationId = ref(0);
 const officeGridLoading = ref(false);
 const officeGridError = ref('');
 const officeGrid = ref(null); // { location, weekStart, days, hours, rooms, slots }
+
+const actionAgencyOptions = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  const isSuperAdmin = role === 'super_admin' || role === 'superadmin';
+  const active = new Set((activeScheduleAgencyIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0));
+  let rows = agencyFilterOptions.value.filter((row) => active.has(Number(row.id)));
+  if (!rows.length) rows = agencyFilterOptions.value.slice();
+
+  // Office-locked actions: only tenants affiliated with this building.
+  const t = String(requestType.value || '');
+  if (OFFICE_AGENCY_SCOPED_ACTIONS.has(t)) {
+    const officeId = Number(modalContext.value?.officeLocationId || selectedOfficeLocationId.value || 0);
+    if (officeId > 0) {
+      const office = (officeLocations.value || []).find((o) => Number(o?.id || 0) === officeId);
+      const affiliated = Array.isArray(office?.agencyIds)
+        ? office.agencyIds.map((n) => Number(n || 0)).filter((n) => n > 0)
+        : [];
+      if (affiliated.length) {
+        const allowed = new Set(affiliated);
+        // Superadmin can pick any office-linked tenant (not only personal memberships).
+        if (isSuperAdmin) {
+          return affiliated.map((id) => {
+            const existing = rows.find((row) => Number(row.id) === id)
+              || agencyFilterOptions.value.find((row) => Number(row.id) === id);
+            return {
+              id,
+              label: existing?.label || agencyLabel(id) || `Agency ${id}`,
+              hasClinicalOrg: existing?.hasClinicalOrg ?? null,
+              hasLearningOrg: existing?.hasLearningOrg ?? null
+            };
+          });
+        }
+        const filtered = rows.filter((row) => allowed.has(Number(row.id)));
+        if (filtered.length) return filtered;
+      }
+    }
+  }
+  return rows;
+});
+
+const actionAgencyFilteredToOffice = computed(() => {
+  const t = String(requestType.value || '');
+  if (!OFFICE_AGENCY_SCOPED_ACTIONS.has(t)) return false;
+  const officeId = Number(modalContext.value?.officeLocationId || selectedOfficeLocationId.value || 0);
+  if (!officeId) return false;
+  const office = (officeLocations.value || []).find((o) => Number(o?.id || 0) === officeId);
+  return Array.isArray(office?.agencyIds) && office.agencyIds.length > 0;
+});
+
+const isScheduleSuperAdmin = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'super_admin' || role === 'superadmin';
+});
+
+// Keep selected agency inside the (possibly office-filtered) option list.
+watch(actionAgencyOptions, (opts) => {
+  const ids = (opts || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0);
+  if (!ids.length) return;
+  if (!ids.includes(Number(selectedActionAgencyId.value || 0))) {
+    selectedActionAgencyId.value = ids[0];
+  }
+});
 
 const officePalette = [
   '#2563eb', // blue
@@ -7081,9 +7572,9 @@ const onQuickGlanceRowClick = (row) => {
   if (!dateYmd || !Number.isFinite(hour) || !dayName) return;
   const st = String(row?.state || 'open').toUpperCase();
   const initialRequestType =
-    st === 'ASSIGNED_BOOKED' ? 'booked_note'
-      : ['OPEN', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(st) ? 'office_request_only'
-        : '';
+    ['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'COMPANY_HOLD'].includes(st)
+      ? 'slot_details'
+      : (st === 'OPEN' ? 'office_request_only' : '');
   openSlotActionModal({
     dayName,
     hour,
@@ -7235,13 +7726,42 @@ const agencyBadgeTitle = (block) => {
   return `Agency: ${agencyLabel(id) || `Agency ${id}`}`;
 };
 
-const officeAssignEndHourOptions = computed(() => {
-  const start = Number(officeAssignStartHour.value || 0);
-  const maxEnd = 22;
+const officeAssignStartHourOptions = computed(() => {
+  const min = Number(gridMinHour.value || 7);
+  const max = Math.max(Number(gridMaxHour.value || 22) - 1, min);
   const out = [];
-  for (let h = start + 1; h <= maxEnd; h++) out.push(h);
+  for (let h = min; h <= max; h += 1) out.push(h);
   return out;
 });
+
+const officeAssignEndHourOptions = computed(() => {
+  const start = Number(officeAssignStartHour.value || 0);
+  const maxEnd = Math.max(Number(gridMaxHour.value || 22), start + 1);
+  const out = [];
+  for (let h = start + 1; h <= maxEnd; h += 1) out.push(h);
+  return out;
+});
+
+const syncOfficeAssignTimesToModal = () => {
+  const start = Number(officeAssignStartHour.value || 0);
+  let end = Number(officeAssignEndHour.value || 0);
+  if (!Number.isFinite(start)) return;
+  if (!Number.isFinite(end) || end <= start) {
+    end = Math.min(start + 1, Number(gridMaxHour.value || 22));
+    officeAssignEndHour.value = end;
+  }
+  modalHour.value = start;
+  modalStartHour.value = start;
+  modalEndHour.value = end;
+};
+
+const onOfficeAssignStartHourChange = () => {
+  const start = Number(officeAssignStartHour.value || 0);
+  if (Number(officeAssignEndHour.value || 0) <= start) {
+    officeAssignEndHour.value = Math.min(start + 1, Number(gridMaxHour.value || 22));
+  }
+  syncOfficeAssignTimesToModal();
+};
 
 const adminAssignPersonResults = computed(() => {
   const list = adminAssignProviders.value || [];
@@ -7275,7 +7795,12 @@ const loadOfficeLocations = async () => {
   try {
     const r = await api.get('/offices');
     const rows = Array.isArray(r.data) ? r.data : [];
-    officeLocations.value = rows;
+    officeLocations.value = rows.map((row) => ({
+      ...row,
+      agencyIds: Array.isArray(row?.agencyIds)
+        ? row.agencyIds.map((n) => Number(n || 0)).filter((n) => n > 0)
+        : []
+    }));
 
     // Default to user's assigned office when none selected (most have just 1)
     if (Number(selectedOfficeLocationId.value || 0) === 0 && props.mode === 'self' && rows.length > 0) {
@@ -7297,6 +7822,26 @@ const loadOfficeLocations = async () => {
     }
   } catch {
     officeLocations.value = [];
+  }
+};
+
+/** Ensure office→agency affiliations are loaded (for tenant filtering in the booking modal). */
+const ensureOfficeAgencyIds = async (officeLocationId) => {
+  const id = Number(officeLocationId || 0);
+  if (!id) return;
+  const idx = (officeLocations.value || []).findIndex((o) => Number(o?.id || 0) === id);
+  if (idx < 0) return;
+  const existing = officeLocations.value[idx]?.agencyIds;
+  if (Array.isArray(existing) && existing.length) return;
+  try {
+    const r = await api.get(`/offices/${id}`, { skipGlobalLoading: true });
+    const agencies = Array.isArray(r.data?.agencies) ? r.data.agencies : [];
+    const agencyIds = agencies
+      .map((a) => Number(a?.id || a?.agency_id || 0))
+      .filter((n) => n > 0);
+    officeLocations.value[idx] = { ...officeLocations.value[idx], agencyIds };
+  } catch {
+    /* keep existing row */
   }
 };
 
@@ -7345,23 +7890,39 @@ watch(officeAssignBuildingId, async (id) => {
 });
 
 const submitCancelBooking = async () => {
-  const ctx = modalContext.value || {};
-  const locId = Number(ctx.officeLocationId || selectedOfficeLocationId.value || 0);
+  const contexts = selectedActionContexts().filter(
+    (x) => Number(x?.officeLocationId || 0) > 0
+      && (Number(x?.officeEventId || 0) > 0 || Number(x?.standingAssignmentId || 0) > 0)
+  );
   cancelBookingError.value = '';
-  if (!locId) { cancelBookingError.value = 'No office location found for this slot.'; return; }
-  if (!ctx.officeEventId && !ctx.standingAssignmentId) { cancelBookingError.value = 'No booking data found for this slot.'; return; }
+  if (!contexts.length) {
+    cancelBookingError.value = 'No booking data found for this slot.';
+    return;
+  }
   try {
     cancelBookingLoading.value = true;
     const scope = cancelBookingScope.value || 'occurrence';
-    if (ctx.officeEventId) {
-      await api.post(`/office-slots/${locId}/events/${ctx.officeEventId}/cancel`, { scope });
-    }
-    if (scope === 'future' && ctx.standingAssignmentId) {
-      await api.post(`/office-slots/${locId}/assignments/${ctx.standingAssignmentId}/cancel`, {
-        scope: 'future',
-        date: String(ctx.dateYmd || '').slice(0, 10),
-        hour: Number(ctx.hour || 0)
-      });
+    const seenEvents = new Set();
+    const seenStandings = new Set();
+    for (const ctx of contexts) {
+      const locId = Number(ctx.officeLocationId || selectedOfficeLocationId.value || 0);
+      if (!locId) continue;
+      const eventId = Number(ctx.officeEventId || 0);
+      if (eventId > 0 && !seenEvents.has(eventId)) {
+        seenEvents.add(eventId);
+        // eslint-disable-next-line no-await-in-loop
+        await api.post(`/office-slots/${locId}/events/${eventId}/cancel`, { scope });
+      }
+      const standingId = Number(ctx.standingAssignmentId || 0);
+      if (scope === 'future' && standingId > 0 && !seenStandings.has(standingId)) {
+        seenStandings.add(standingId);
+        // eslint-disable-next-line no-await-in-loop
+        await api.post(`/office-slots/${locId}/assignments/${standingId}/cancel`, {
+          scope: 'future',
+          date: String(ctx.dateYmd || '').slice(0, 10),
+          hour: Number(ctx.hour || 0)
+        });
+      }
     }
     invalidateScheduleSummaryCacheForUser(props.userId);
     closeModal();
@@ -7407,16 +7968,18 @@ const submitAdminAssign = async () => {
     const slots = sortedSelectedActionSlots();
     const firstSlot = slots[0] || {};
     const dateYmd = String(firstSlot.dateYmd || modalContext.value?.dateYmd || '').slice(0, 10);
-    const startHour = Number(firstSlot.hour ?? modalContext.value?.hour ?? 0);
+    const startHour = Number(officeAssignStartHour.value ?? firstSlot.hour ?? modalContext.value?.hour ?? 0);
+    const endHour = Number(officeAssignEndHour.value || 0);
     const roomId = Number(firstSlot.roomId || modalContext.value?.roomId || 0);
     if (!roomId) throw new Error('No room selected. Click on a specific room cell in the office layout grid.');
     if (!dateYmd || !/^\d{4}-\d{2}-\d{2}$/.test(dateYmd)) throw new Error('Invalid date. Please try clicking the slot again.');
+    if (!(endHour > startHour)) throw new Error('End time must be after start time.');
     if (adminAssignMode.value === 'provider' && !adminAssignPersonId.value) throw new Error('Please select a person to assign.');
     const body = {
       roomId,
       date: dateYmd,
       hour: startHour,
-      endHour: officeAssignEndHour.value,
+      endHour,
       recurrenceFrequency: adminAssignRecurrence.value,
       assignmentMode: adminAssignMode.value === 'company_hold' ? 'COMPANY_HOLD' : 'PROVIDER',
     };
@@ -7453,11 +8016,12 @@ watch(requestType, (newType) => {
   if (!adminAssignRecurringUntil.value) {
     adminAssignRecurringUntil.value = addDaysYmd(todayLocalYmd.value, 90);
   }
-  // Sync end hour
+  // Sync end hour from the highlighted modal range (not a leftover 1-hour default).
   officeAssignStartHour.value = Number(modalHour.value || 0);
-  if (!officeAssignEndHour.value || officeAssignEndHour.value <= officeAssignStartHour.value) {
-    officeAssignEndHour.value = Math.min(officeAssignStartHour.value + 1, 22);
-  }
+  const rangeEnd = Number(modalEndHour.value || 0);
+  officeAssignEndHour.value = rangeEnd > officeAssignStartHour.value
+    ? rangeEnd
+    : Math.min(officeAssignStartHour.value + 1, 22);
   // Pre-fill person from already-booked/assigned slot
   const ctx = modalContext.value || {};
   const bookedId = Number(ctx.assignedProviderId || 0);
@@ -7673,7 +8237,9 @@ const ensureVirtualWorkingHoursForRange = async ({ dayName, startHour, endHour }
 };
 
 const selectedActionContexts = () => {
-  const rows = sortedSelectedActionSlots();
+  const rows = sortedSelectedActionSlots().map((row) => (
+    viewMode.value === 'office_layout' ? enrichOfficeSelectionItem(row) : row
+  ));
   if (!rows.length) return [modalContext.value];
   return rows.map((x) => buildModalContext({
     dayName: x.dayName,
@@ -7985,20 +8551,33 @@ const submitRequest = async () => {
       refreshInBackground = true;
       needsOfficeRefresh = true;
     } else if (requestType.value === 'cancel_booking') {
-      const ctx = modalContext.value || {};
-      const locId = Number(ctx.officeLocationId || selectedOfficeLocationId.value || 0);
-      if (!locId) throw new Error('No office location found for this slot.');
+      const contexts = selectedActionContexts().filter(
+        (x) => Number(x?.officeLocationId || 0) > 0
+          && (Number(x?.officeEventId || 0) > 0 || Number(x?.standingAssignmentId || 0) > 0)
+      );
+      if (!contexts.length) throw new Error('No booking found for this slot.');
       const scope = cancelBookingScope.value || 'occurrence';
-      if (!ctx.officeEventId && !ctx.standingAssignmentId) throw new Error('No booking found for this slot.');
-      if (ctx.officeEventId) {
-        await api.post(`/office-slots/${locId}/events/${ctx.officeEventId}/cancel`, { scope });
-      }
-      if (scope === 'future' && ctx.standingAssignmentId) {
-        await api.post(`/office-slots/${locId}/assignments/${ctx.standingAssignmentId}/cancel`, {
-          scope: 'future',
-          date: String(ctx.dateYmd || '').slice(0, 10),
-          hour: Number(ctx.hour || 0)
-        });
+      const seenEvents = new Set();
+      const seenStandings = new Set();
+      for (const ctx of contexts) {
+        const locId = Number(ctx.officeLocationId || selectedOfficeLocationId.value || 0);
+        if (!locId) continue;
+        const eventId = Number(ctx.officeEventId || 0);
+        if (eventId > 0 && !seenEvents.has(eventId)) {
+          seenEvents.add(eventId);
+          // eslint-disable-next-line no-await-in-loop
+          await api.post(`/office-slots/${locId}/events/${eventId}/cancel`, { scope });
+        }
+        const standingId = Number(ctx.standingAssignmentId || 0);
+        if (scope === 'future' && standingId > 0 && !seenStandings.has(standingId)) {
+          seenStandings.add(standingId);
+          // eslint-disable-next-line no-await-in-loop
+          await api.post(`/office-slots/${locId}/assignments/${standingId}/cancel`, {
+            scope: 'future',
+            date: String(ctx.dateYmd || '').slice(0, 10),
+            hour: Number(ctx.hour || 0)
+          });
+        }
       }
       refreshInBackground = true;
       needsOfficeRefresh = true;
@@ -9433,9 +10012,11 @@ const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
       selectedOfficeLocationId.value = officeLocationId;
     }
     const slotState = String(officeTop?.slotState || '').toUpperCase();
-    // Assigned (available/temporary): default to forfeit so user can release slot; booked -> note
+    // Occupied office cells open on selected-slot details; manage actions stay in the sidebar.
     const initialRequestType =
-      slotState === 'ASSIGNED_BOOKED' ? 'booked_note' : ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(slotState) ? 'forfeit_slot' : 'office_request_only';
+      ['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'COMPANY_HOLD'].includes(slotState)
+        ? 'slot_details'
+        : 'office_request_only';
     openSlotActionModal({
       dayName,
       hour,
@@ -11496,6 +12077,26 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   max-height: min(70vh, 640px);
   background: #fff;
 }
+.nr-main .lbl {
+  color: #334155;
+}
+.nr-main .input,
+.nr-main select.input,
+.modal--new-request .input,
+.modal--new-request select.input {
+  color: #0f172a;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 14px;
+  line-height: 1.35;
+}
+.nr-main select.input option,
+.modal--new-request select.input option {
+  color: #0f172a;
+  background: #fff;
+}
 .nr-field { margin-top: 14px; }
 .nr-field:first-child { margin-top: 0; }
 .nr-input-wrap {
@@ -12029,6 +12630,31 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   font-size: 12px;
   color: #6b7280;
 }
+.admin-slot-info-block-note {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+}
+.admin-slot-info-block-note.is-partial {
+  background: #fff7ed;
+  border-color: #fdba74;
+  color: #9a3412;
+}
+.slot-details-panel {
+  margin-top: 4px;
+}
+.slot-details-lead {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
 
 /* Admin assign inline form */
 .book-slot-help {
@@ -12093,19 +12719,90 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: #374151;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  padding: 6px 10px;
-  margin-bottom: 10px;
+  color: #1f2937;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
 }
-.aa-room-label { font-weight: 600; }
+.aa-room-label { font-weight: 700; color: #475569; }
+.aa-field {
+  margin-top: 12px;
+}
+.aa-time-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.aa-input {
+  width: 100%;
+  display: block;
+  color: #0f172a !important;
+  background: #fff !important;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 14px;
+  line-height: 1.35;
+}
+.aa-input:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+.aa-mode-block {
+  margin-top: 12px;
+}
 .aa-mode-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.aa-mode-card {
   display: flex;
-  gap: 16px;
-  margin-top: 8px;
-  margin-bottom: 4px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #0f172a;
+  cursor: pointer;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+.aa-mode-card:hover {
+  border-color: #c7d2fe;
+  background: #fafafe;
+}
+.aa-mode-card.on {
+  border-color: transparent;
+  background: #eef2ff;
+  box-shadow: 0 0 0 2px #6366f1;
+}
+.aa-mode-card-title {
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.25;
+  color: #0f172a;
+}
+.aa-mode-card.on .aa-mode-card-title {
+  color: #3730a3;
+}
+.aa-mode-card-desc {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: #64748b;
+}
+.aa-person-field {
+  position: relative;
+}
+.aa-person-search-wrap {
+  position: relative;
 }
 .aa-has-selection {
   border-color: #16a34a !important;
@@ -12115,9 +12812,9 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   z-index: 200;
   background: #fff;
   border: 1px solid #d1d5db;
-  border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.13);
-  top: calc(100% + 2px);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  top: calc(100% + 4px);
   left: 0;
   right: 0;
   max-height: 240px;
@@ -12127,44 +12824,63 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
+  padding: 9px 12px;
   width: 100%;
   text-align: left;
   background: none;
   border: none;
   cursor: pointer;
   font-size: 14px;
+  color: #0f172a;
   gap: 8px;
 }
 .aa-person-option:hover,
 .aa-person-option--selected { background: #f0fdf4; }
 .aa-role-badge {
   font-size: 11px;
-  color: #6b7280;
-  background: #f3f4f6;
-  padding: 2px 6px;
-  border-radius: 3px;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 2px 7px;
+  border-radius: 4px;
   white-space: nowrap;
 }
 .aa-selected-person {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 5px;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
   font-size: 13px;
-  color: #15803d;
-  font-weight: 500;
+  color: #166534;
+  font-weight: 600;
+}
+.aa-selected-person-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .aa-clear-person {
-  background: none;
-  border: none;
+  flex-shrink: 0;
+  background: #fff;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
   cursor: pointer;
-  color: #9ca3af;
-  font-size: 17px;
+  color: #166534;
+  font-size: 12px;
+  font-weight: 700;
   line-height: 1;
-  padding: 0 2px;
+  padding: 5px 8px;
 }
-.aa-clear-person:hover { color: #ef4444; }
+.aa-clear-person:hover {
+  color: #b91c1c;
+  border-color: #fecaca;
+  background: #fef2f2;
+}
 .aa-weekday-row {
   display: flex;
   gap: 5px;
@@ -12186,6 +12902,20 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   background: #15803d;
   color: #fff;
   border-color: #15803d;
+}
+.aa-temp-check {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  line-height: 1.35;
+}
+.aa-temp-check input {
+  margin-top: 2px;
+  flex-shrink: 0;
 }
 </style>
 

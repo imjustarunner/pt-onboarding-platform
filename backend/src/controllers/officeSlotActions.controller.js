@@ -3243,18 +3243,27 @@ export const staffAssignOpenSlot = async (req, res, next) => {
         }
       }
 
-      // Await materialization so weeks 2–12 appear before the client refreshes the grid.
+      // Await current week only so today's grid is coherent; push remaining weeks to background.
+      // Awaiting 12 weeks through Cloud SQL was taking ~40s on assign.
       OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
       try {
         await materializeOfficeWeeks({
           officeLocationId,
           startDateYmd: date,
           createdByUserId: req.user.id,
-          weeks: 12
+          weeks: 1
         });
       } catch (matErr) {
-        console.warn('[staffAssignOpenSlot] materializeOfficeWeeks failed:', matErr?.message || matErr);
+        console.warn('[staffAssignOpenSlot] materializeOfficeWeeks (week 1) failed:', matErr?.message || matErr);
       }
+      void materializeOfficeWeeks({
+        officeLocationId,
+        startDateYmd: addDaysYmd(date, 7),
+        createdByUserId: req.user.id,
+        weeks: 11
+      }).catch((matErr) => {
+        console.warn('[staffAssignOpenSlot] background materializeOfficeWeeks failed:', matErr?.message || matErr);
+      });
 
       const createdEventIds = createdEvents.map((e) => Number(e?.id || 0)).filter((n) => n > 0);
       syncOfficeEventsToGoogleBestEffort(createdEventIds).catch(() => {});

@@ -5,7 +5,11 @@ class OfficeRoom {
     const [rows] = await pool.execute(
       `SELECT * FROM office_rooms
        WHERE location_id = ? AND is_active = TRUE
-       ORDER BY sort_order ASC, name ASC`,
+       ORDER BY
+         (room_number IS NULL) ASC,
+         room_number ASC,
+         sort_order ASC,
+         COALESCE(NULLIF(TRIM(label), ''), name) ASC`,
       [locationId]
     );
     return rows;
