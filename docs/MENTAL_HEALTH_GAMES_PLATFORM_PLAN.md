@@ -2,6 +2,8 @@
 
 A copy of this document for collaborators working in the games repository lives at `games/docs/MENTAL_HEALTH_GAMES_PLATFORM_PLAN.md` (git submodule). Technical submodule setup is in `docs/GAMES_SUBMODULE_INTEGRATION.md`.
 
+**Telehealth-embedded activities** (Mood Check-In, future Emotion Dice, etc.) and the unified activity registry are specified in [`docs/COUNSELING_SESSION_ACTIVITY_SYSTEM_SPEC.md`](./COUNSELING_SESSION_ACTIVITY_SYSTEM_SPEC.md). Standalone games such as Thought Explorer register in that same registry with `launch_mode: standalone`.
+
 This document is the working north star for the mental health games initiative. It is written against **this repository**: the PlotTwistCo People Operations platform (Vue 3 + Pinia frontend, Express + MySQL backend, multi-organization `agencies` model). Use it when scoping features, integrations, and handoffs with collaborators.
 
 ---

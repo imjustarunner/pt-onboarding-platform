@@ -17,7 +17,24 @@
     </div>
 
     <div v-if="loading" class="ov-empty">Loading schedule…</div>
-    <div v-else-if="!items.length" class="ov-empty">No appointments scheduled for today.</div>
+    <div v-else-if="!items.length" class="ov-empty ov-empty--cta">
+      <p class="ov-empty-title">No appointments scheduled for today.</p>
+      <p class="ov-empty-invite">Book a session — office or virtual — to get something on the calendar.</p>
+      <div class="ov-cta-row">
+        <button type="button" class="ov-cta ov-cta--primary" data-tour="dash-overview-book" @click="$emit('book')">
+          Book
+        </button>
+        <button
+          v-if="showVirtualBook"
+          type="button"
+          class="ov-cta ov-cta--virtual"
+          data-tour="dash-overview-book-virtual"
+          @click="$emit('book-virtual')"
+        >
+          Book virtual
+        </button>
+      </div>
+    </div>
     <ul v-else class="ov-timeline">
       <li v-for="item in items" :key="item.id" class="ov-timeline-row" :class="`is-${item.status}`">
         <div class="ov-timeline-rail" aria-hidden="true">
@@ -32,16 +49,33 @@
       </li>
     </ul>
 
-    <footer class="ov-card-foot">{{ items.length }} appointment{{ items.length === 1 ? '' : 's' }} today</footer>
+    <footer class="ov-card-foot">
+      <span>{{ items.length }} appointment{{ items.length === 1 ? '' : 's' }} today</span>
+      <!-- Footer CTAs only when the timeline has items; empty state already shows Book / Book virtual. -->
+      <div v-if="items.length" class="ov-foot-actions">
+        <button type="button" class="ov-link" data-tour="dash-overview-book-foot" @click="$emit('book')">Book</button>
+        <button
+          v-if="showVirtualBook"
+          type="button"
+          class="ov-link"
+          data-tour="dash-overview-book-virtual-foot"
+          @click="$emit('book-virtual')"
+        >
+          Book virtual
+        </button>
+      </div>
+    </footer>
   </section>
 </template>
 
 <script setup>
 defineProps({
   items: { type: Array, default: () => [] },
-  loading: { type: Boolean, default: false }
+  loading: { type: Boolean, default: false },
+  /** When true, show Book virtual (calendar telehealth booking) CTA. */
+  showVirtualBook: { type: Boolean, default: false }
 });
-defineEmits(['navigate']);
+defineEmits(['navigate', 'book', 'book-virtual']);
 
 const statusLabel = (s) => {
   if (s === 'completed') return 'Completed';
@@ -123,6 +157,52 @@ const statusLabel = (s) => {
   padding: 18px 0;
   text-align: center;
 }
+.ov-empty--cta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 0 8px;
+}
+.ov-empty-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+.ov-empty-invite {
+  margin: 0;
+  font-size: 12px;
+  color: #6b7280;
+  max-width: 260px;
+  line-height: 1.4;
+}
+.ov-cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 8px;
+}
+.ov-cta {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ov-cta--primary {
+  background: #7c3aed;
+  color: #fff;
+}
+.ov-cta--primary:hover { background: #6d28d9; }
+.ov-cta--virtual {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+.ov-cta--virtual:hover { background: #d1fae5; }
 .ov-timeline {
   list-style: none;
   margin: 0;
@@ -195,6 +275,16 @@ const statusLabel = (s) => {
   border-top: 1px solid #f3f4f6;
   font-size: 12px;
   color: #6b7280;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ov-foot-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 @media (max-width: 560px) {
   .ov-timeline-row {
@@ -229,6 +319,14 @@ const statusLabel = (s) => {
   color: #fff;
 }
 [data-theme="dark"] .ov-empty { color: var(--text-secondary, #94a3b8); }
+[data-theme="dark"] .ov-empty-title { color: var(--text-primary, #cbd5e1); }
+[data-theme="dark"] .ov-empty-invite { color: var(--text-secondary, #94a3b8); }
+[data-theme="dark"] .ov-cta--virtual {
+  background: #14291e;
+  color: #6ee7b7;
+  border-color: #166534;
+}
+[data-theme="dark"] .ov-cta--virtual:hover { background: #1a3324; }
 [data-theme="dark"] .ov-timeline-row { border-bottom-color: #2d3240; }
 [data-theme="dark"] .ov-timeline-row.is-in_progress {
   background: #1e1a2e;

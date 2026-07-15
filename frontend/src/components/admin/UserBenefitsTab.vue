@@ -1,6 +1,6 @@
 <template>
   <div class="ub-tab">
-    <div class="ub-header">
+    <div v-if="!isSelfView" class="ub-header">
       <div>
         <h2>Benefits Management</h2>
         <p class="ub-subtitle">Manage employee benefits, eligibility, and enrollment details.</p>
@@ -42,35 +42,46 @@
       </div>
 
       <div class="ub-summary-controls">
-        <div class="ub-field">
-          <label>Part-time employee</label>
-          <ToggleSwitch
-            v-model="isPartTime"
-            :disabled="!canEditUser || saving"
-            :label="isPartTime ? 'Part Time (non-tiered)' : 'Full Time (tier system)'"
-          />
+        <div v-if="isSelfView" class="ub-field">
+          <label>Employee Type</label>
+          <div class="ub-readonly">{{ employmentTypeLabel }}</div>
           <small class="ub-hint">
             {{ isPartTime
-              ? 'Part-time employees are non-tiered and not eligible for tier-based benefits.'
-              : 'Full-time employees are eligible for tier-based benefits.' }}
+              ? 'Part-time status is non-tiered; tier-based benefits do not apply.'
+              : 'Full-time / tiered employees are evaluated against the benefit tier system.' }}
           </small>
         </div>
+        <template v-else>
+          <div class="ub-field">
+            <label>Part-time employee</label>
+            <ToggleSwitch
+              v-model="isPartTime"
+              :disabled="!canEditUser || saving"
+              :label="isPartTime ? 'Part Time (non-tiered)' : 'Full Time (tier system)'"
+            />
+            <small class="ub-hint">
+              {{ isPartTime
+                ? 'Part-time employees are non-tiered and not eligible for tier-based benefits.'
+                : 'Full-time employees are eligible for tier-based benefits.' }}
+            </small>
+          </div>
 
-        <div class="ub-field">
-          <label for="ub-employment-type">Employee Type</label>
-          <select
-            id="ub-employment-type"
-            v-model="draft.employmentType"
-            class="ub-select"
-            :disabled="!canEditUser || saving"
-          >
-            <option value="full_time">Full Time</option>
-            <option value="part_time">Part Time</option>
-            <option value="contractor">Contractor</option>
-            <option value="intern">Intern</option>
-            <option value="per_diem">Per Diem</option>
-          </select>
-        </div>
+          <div class="ub-field">
+            <label for="ub-employment-type">Employee Type</label>
+            <select
+              id="ub-employment-type"
+              v-model="draft.employmentType"
+              class="ub-select"
+              :disabled="!canEditUser || saving"
+            >
+              <option value="full_time">Full Time</option>
+              <option value="part_time">Part Time</option>
+              <option value="contractor">Contractor</option>
+              <option value="intern">Intern</option>
+              <option value="per_diem">Per Diem</option>
+            </select>
+          </div>
+        </template>
 
         <div class="ub-field">
           <label>Current Tier Status</label>
@@ -79,7 +90,7 @@
             <span v-else-if="tierLabel" class="ub-pill ub-pill--tier">{{ tierLabel }}</span>
             <span v-else class="ub-pill ub-pill--muted">{{ tierLoading ? 'Loading…' : 'No tier data' }}</span>
             <button
-              v-if="canViewPayroll"
+              v-if="!isSelfView && canViewPayroll"
               type="button"
               class="ub-link"
               @click="$emit('navigate', 'payroll')"
@@ -94,11 +105,15 @@
         </div>
       </div>
 
-      <dl class="ub-summary-dl">
+      <dl v-if="!isSelfView" class="ub-summary-dl">
         <div><dt>Start Date</dt><dd>{{ fmtDate(user?.start_date || user?.provider_start_date) }}</dd></div>
         <div><dt>Work Phone</dt><dd>{{ user?.work_phone || '—' }}</dd></div>
         <div><dt>Login Email</dt><dd>{{ user?.email || '—' }}</dd></div>
         <div><dt>Personal Email</dt><dd>{{ user?.personal_email || '—' }}</dd></div>
+        <div><dt>Schedule Type</dt><dd>{{ scheduleTypeLabel }}</dd></div>
+      </dl>
+      <dl v-else class="ub-summary-dl">
+        <div><dt>Login Email</dt><dd>{{ user?.email || '—' }}</dd></div>
         <div><dt>Schedule Type</dt><dd>{{ scheduleTypeLabel }}</dd></div>
       </dl>
     </section>
@@ -109,7 +124,9 @@
         <div class="ub-card-head">
           <h3>Benefit Eligibility &amp; Enrollment</h3>
           <p v-if="isPartTime" class="ub-banner">
-            Part-time: tier-based benefits are disabled. Eligibility overrides cannot make this employee tier-eligible.
+            {{ isSelfView
+              ? 'Part-time: tier-based benefits are disabled for your account.'
+              : 'Part-time: tier-based benefits are disabled. Eligibility overrides cannot make this employee tier-eligible.' }}
           </p>
         </div>
 
@@ -119,7 +136,7 @@
               <tr>
                 <th>Benefit</th>
                 <th>Eligibility Rule</th>
-                <th>Employee Eligible</th>
+                <th>{{ isSelfView ? 'Eligible' : 'Employee Eligible' }}</th>
                 <th>Status</th>
                 <th>Employer Contribution</th>
               </tr>
@@ -131,7 +148,11 @@
                 </td>
                 <td class="muted">{{ row.rule }}</td>
                 <td>
+                  <span v-if="isSelfView" :class="['ub-eligible', row.eligible ? 'ub-eligible--yes' : 'ub-eligible--no']">
+                    {{ row.eligible ? 'Yes' : 'No' }}
+                  </span>
                   <ToggleSwitch
+                    v-else
                     :model-value="row.eligible"
                     :disabled="!canEditUser || saving || isPartTime"
                     :label="row.eligible ? 'Yes' : 'No'"
@@ -149,8 +170,13 @@
           </table>
         </div>
         <p class="ub-footnote">
-          Eligibility is automatically determined based on tier status and title. Use toggles to override eligibility when necessary.
-          Part-time employees are always treated as non-eligible for tier-based benefits.
+          <template v-if="isSelfView">
+            Eligibility is based on your tier status and role. Contact HR or payroll if something looks incorrect.
+          </template>
+          <template v-else>
+            Eligibility is automatically determined based on tier status and title. Use toggles to override eligibility when necessary.
+            Part-time employees are always treated as non-eligible for tier-based benefits.
+          </template>
         </p>
       </section>
 
@@ -158,8 +184,17 @@
         <!-- Med Cancel (moved from Account) -->
         <section class="ub-card" :class="{ 'ub-card--disabled': isPartTime }">
           <h3>Medicare Cancel Reimbursement</h3>
-          <p class="ub-card-sub">Managed here (moved from Account → Contracts). Controls Med Cancel rate schedule for this employee.</p>
-          <label class="ub-field">
+          <p class="ub-card-sub">
+            {{ isSelfView
+              ? 'Your Med Cancel reimbursement schedule for this organization.'
+              : 'Managed here (moved from Account → Contracts). Controls Med Cancel rate schedule for this employee.' }}
+          </p>
+          <div v-if="isSelfView" class="ub-field">
+            <span>Rate schedule</span>
+            <div class="ub-readonly">{{ medcancelScheduleLabel }}</div>
+            <small v-if="isPartTime" class="ub-hint">Disabled while part-time (non-tiered).</small>
+          </div>
+          <label v-else class="ub-field">
             <span>Rate schedule</span>
             <select v-model="draft.medcancelRateSchedule" class="ub-select" :disabled="!canEditUser || saving || isPartTime">
               <option value="none">None</option>
@@ -167,7 +202,7 @@
               <option value="high">High</option>
             </select>
           </label>
-          <small class="ub-hint">{{ isPartTime ? 'Cleared / disabled while part-time (non-tiered).' : 'Save Changes to persist.' }}</small>
+          <small v-if="!isSelfView" class="ub-hint">{{ isPartTime ? 'Cleared / disabled while part-time (non-tiered).' : 'Save Changes to persist.' }}</small>
         </section>
 
         <!-- Tier overview -->
@@ -219,8 +254,8 @@
           <p class="ub-footnote">Mileage rates from agency payroll settings. Other contribution columns are handbook reference until enrollment is wired.</p>
         </section>
 
-        <!-- Notes -->
-        <section class="ub-card">
+        <!-- Notes (admin only) -->
+        <section v-if="!isSelfView" class="ub-card">
           <h3>Notes</h3>
           <textarea
             v-model="draft.benefitsNotes"
@@ -247,10 +282,14 @@ const props = defineProps({
   canEditUser: { type: Boolean, default: false },
   canViewPayroll: { type: Boolean, default: false },
   agencyId: { type: [Number, String], default: null },
-  isHourlyWorker: { type: Boolean, default: false }
+  isHourlyWorker: { type: Boolean, default: false },
+  /** 'admin' = staff profile editor; 'self' = My Account read-only view */
+  mode: { type: String, default: 'admin' }
 });
 
 const emit = defineEmits(['navigate', 'updated']);
+
+const isSelfView = computed(() => String(props.mode || 'admin') === 'self');
 
 const BENEFIT_DEFS = [
   {
@@ -333,8 +372,28 @@ const isPartTime = computed({
 });
 
 const scheduleTypeLabel = computed(() => {
-  if (props.isHourlyWorker || props.user?.is_hourly_worker) return 'Hourly (Direct / Indirect)';
+  if (props.isHourlyWorker || props.user?.is_hourly_worker || props.user?.isHourlyWorker) return 'Hourly (Direct / Indirect)';
   return 'Standard';
+});
+
+const EMPLOYMENT_TYPE_LABELS = {
+  full_time: 'Full Time',
+  part_time: 'Part Time',
+  contractor: 'Contractor',
+  intern: 'Intern',
+  per_diem: 'Per Diem'
+};
+
+const employmentTypeLabel = computed(() => {
+  const key = String(draft.employmentType || 'full_time');
+  return EMPLOYMENT_TYPE_LABELS[key] || key;
+});
+
+const medcancelScheduleLabel = computed(() => {
+  const s = String(draft.medcancelRateSchedule || 'none').toLowerCase();
+  if (s === 'low') return 'Low';
+  if (s === 'high') return 'High';
+  return 'None';
 });
 
 const tierLevel = computed(() => {
@@ -479,14 +538,22 @@ const fmtMoney = (n) => {
 const loadTier = async () => {
   const agencyId = Number(props.agencyId || 0);
   const userId = Number(props.userId || 0);
-  if (!agencyId || !userId || !props.canViewPayroll) {
+  if (!agencyId || !userId) {
+    tier.value = null;
+    graceActive.value = false;
+    return;
+  }
+  if (!isSelfView.value && !props.canViewPayroll) {
     tier.value = null;
     graceActive.value = false;
     return;
   }
   tierLoading.value = true;
   try {
-    const { data } = await api.get(`/payroll/users/${userId}/current-tier`, {
+    const url = isSelfView.value
+      ? '/payroll/me/current-tier'
+      : `/payroll/users/${userId}/current-tier`;
+    const { data } = await api.get(url, {
       params: { agencyId },
       skipGlobalLoading: true
     });
@@ -502,9 +569,11 @@ const loadTier = async () => {
 
 const loadMileage = async () => {
   const agencyId = Number(props.agencyId || 0);
-  if (!agencyId || !props.canViewPayroll) return;
+  if (!agencyId) return;
+  if (!isSelfView.value && !props.canViewPayroll) return;
   try {
-    const { data } = await api.get('/payroll/mileage-rates', {
+    const url = isSelfView.value ? '/payroll/me/mileage-rates' : '/payroll/mileage-rates';
+    const { data } = await api.get(url, {
       params: { agencyId },
       skipGlobalLoading: true
     });
@@ -520,7 +589,7 @@ const loadMileage = async () => {
       settings.standard_rate_per_mile ??
       mileageRates.tier1;
   } catch {
-    // best-effort (requires payroll access)
+    // best-effort (requires payroll access in admin mode)
   }
 };
 
@@ -551,13 +620,23 @@ const saveAll = async () => {
 };
 
 watch(
-  () => [props.userId, props.user?.employment_type, props.user?.benefits_notes, props.user?.medcancel_rate_schedule, props.user?.benefits_eligibility_overrides_json],
+  () => [
+    props.userId,
+    props.user?.employment_type,
+    props.user?.employmentType,
+    props.user?.benefits_notes,
+    props.user?.benefitsNotes,
+    props.user?.medcancel_rate_schedule,
+    props.user?.medcancelRateSchedule,
+    props.user?.benefits_eligibility_overrides_json,
+    props.user?.benefitsEligibilityOverrides
+  ],
   () => hydrateFromUser(),
   { immediate: true }
 );
 
 watch(
-  () => [props.userId, props.agencyId, props.canViewPayroll],
+  () => [props.userId, props.agencyId, props.canViewPayroll, props.mode],
   () => {
     loadTier();
     loadMileage();
@@ -691,6 +770,17 @@ watch(
   font: inherit;
   background: var(--bg, #fff);
 }
+.ub-readonly {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #111827;
+}
+.ub-eligible {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+.ub-eligible--yes { color: #15803d; }
+.ub-eligible--no { color: #b45309; }
 .ub-hint {
   font-size: 0.8rem;
   color: var(--text-secondary, #64748b);

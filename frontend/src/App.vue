@@ -762,8 +762,14 @@
                     <span class="nav-dropdown-label">Games</span> <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="gamesMenuOpen" class="nav-dropdown-menu">
-                    <a href="#" role="menuitem" @click.prevent="openTestGameWindow">Test Game</a>
-                    <a href="#" role="menuitem" @click.prevent="openThoughtExplorerWindow">Thought Explorer</a>
+                    <a
+                      v-for="game in standaloneGamesForNav"
+                      :key="game.id"
+                      href="#"
+                      role="menuitem"
+                      @click.prevent="openRegistryGame(game)"
+                    >{{ game.displayName }}</a>
+                    <span v-if="!standaloneGamesForNav.length" class="nav-dropdown-empty">No games available</span>
                   </div>
                 </div>
               
@@ -1124,17 +1130,12 @@
             >Office</router-link>
 
             <button
-              v-if="canSeeGamesNav"
+              v-for="game in standaloneGamesForNav"
+              :key="`m-${game.id}`"
               type="button"
               class="mobile-nav-link mobile-nav-button"
-              @click="openTestGameWindow(); closeMobileMenu()"
-            >Games — Test Game</button>
-            <button
-              v-if="canSeeGamesNav"
-              type="button"
-              class="mobile-nav-link mobile-nav-button"
-              @click="openThoughtExplorerWindow(); closeMobileMenu()"
-            >Games — Thought Explorer</button>
+              @click="openRegistryGame(game); closeMobileMenu()"
+            >Games — {{ game.displayName }}</button>
 
             <template v-if="canSeePortalNav && canSeeFullPortalNav">
               <!-- People Ops (mirrors top-nav dropdown) -->
@@ -1480,7 +1481,9 @@
       <main :class="{ 'main-no-global-chrome': hideGlobalNavForSchoolStaff }">
         <!-- Keep legacy selector for non-super-admin users; super admins use the top-nav switcher.
              Hidden on SSTC / affiliation portals: the context bar below the navbar replaces it. -->
-        <AgencySelector v-if="isAuthenticated && !brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff && !isSummitStatsChallengeChrome && !String(route.path || '').includes('/tickets')" />
+        <AgencySelector
+          v-if="isAuthenticated && !brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff && !isSummitStatsChallengeChrome && !String(route.path || '').includes('/tickets') && !String(route.path || '').includes('/counseling')"
+        />
 
         <!-- Password expiry warning banner (shown 14 days before expiry, dismissible per session) -->
         <div
@@ -1523,50 +1526,52 @@
         @dismiss="loginSplashVisible = false"
       />
       <PoweredByFooter v-if="isAuthenticated" />
-      <div
-        v-if="showLoginNotificationsModal"
-        class="notifications-alert-overlay"
-        @click.self="dismissLoginNotifications"
-      >
-        <div class="notifications-alert-card" role="dialog" aria-modal="true" aria-live="polite" @click.stop>
-          <div class="notifications-alert-title">
-            You have {{ notificationsUnreadCount }} {{ notificationsUnreadLabel }}
-          </div>
-          <div class="notifications-alert-body">
-            Review what needs your attention, or snooze until you're ready.
-          </div>
-          <div class="notifications-alert-actions notifications-alert-actions-column">
-            <button class="btn btn-primary" type="button" @click="goToNotifications">
-              View notifications
-            </button>
-            <div class="snooze-row">
-              <span class="snooze-label">Snooze:</span>
-              <button class="btn btn-secondary btn-sm" type="button" @click="snoozeReminder1h">
-                1 hour
-              </button>
-              <button class="btn btn-secondary btn-sm" type="button" @click="snoozeReminder3h">
-                3 hours
-              </button>
-              <button class="btn btn-secondary btn-sm" type="button" @click="snoozeReminderTomorrow">
-                Tomorrow
-              </button>
+      <Teleport to="body">
+        <div
+          v-if="showLoginNotificationsModal"
+          class="notifications-alert-overlay"
+          @click.self="remindMeNextLogin"
+        >
+          <div class="notifications-alert-card" role="dialog" aria-modal="true" aria-live="polite">
+            <div class="notifications-alert-title">
+              You have {{ notificationsUnreadCount }} {{ notificationsUnreadLabel }}
             </div>
-            <div class="snooze-row">
-              <button class="btn btn-secondary btn-sm" type="button" @click="dismissLoginNotifications">
-                Remind me later (next login)
+            <div class="notifications-alert-body">
+              Review what needs your attention, or snooze until you're ready.
+            </div>
+            <div class="notifications-alert-actions notifications-alert-actions-column">
+              <button class="btn btn-primary" type="button" @click.stop="goToNotifications">
+                View notifications
               </button>
-              <button
-                class="btn btn-secondary btn-sm"
-                type="button"
-                :disabled="sendingTextReminder"
-                @click="textMeReminder"
-              >
-                {{ sendingTextReminder ? 'Sending…' : 'Text me this' }}
-              </button>
+              <div class="snooze-row">
+                <span class="snooze-label">Snooze:</span>
+                <button class="btn btn-secondary btn-sm" type="button" @click.stop="snoozeReminder1h">
+                  1 hour
+                </button>
+                <button class="btn btn-secondary btn-sm" type="button" @click.stop="snoozeReminder3h">
+                  3 hours
+                </button>
+                <button class="btn btn-secondary btn-sm" type="button" @click.stop="snoozeReminderTomorrow">
+                  Tomorrow
+                </button>
+              </div>
+              <div class="snooze-row">
+                <button class="btn btn-secondary btn-sm" type="button" @click.stop="remindMeNextLogin">
+                  Remind me later (next login)
+                </button>
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  :disabled="sendingTextReminder"
+                  @click.stop="textMeReminder"
+                >
+                  {{ sendingTextReminder ? 'Sending…' : 'Text me this' }}
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      </Teleport>
       <button
         v-if="showNotificationsNudge"
         class="notifications-nudge"
@@ -1722,6 +1727,8 @@ import { startActivityTracking, stopActivityTracking, resetActivityTimer } from 
 import { isSupervisor } from './utils/helpers.js';
 import { buildFormUrl } from './utils/publicIntakeUrl.js';
 import api from './services/api';
+import { listActivities } from './services/counselingApi.js';
+import { launchActivity, isStandaloneLaunchable } from './services/launchActivity.js';
 import AgencySelector from './components/AgencySelector.vue';
 import PlatformChatDrawer from './components/PlatformChatDrawer.vue';
 import BrandingProvider from './components/BrandingProvider.vue';
@@ -1735,7 +1742,7 @@ import MomentumStickiesOverlay from './components/momentum/MomentumStickiesOverl
 import AddStickyFab from './components/momentum/AddStickyFab.vue';
 import AddToStickyContextMenu from './components/momentum/AddToStickyContextMenu.vue';
 import { useMomentumListAddon } from './composables/useMomentumListAddon';
-import { useReminderSnooze } from './composables/useReminderSnooze';
+import { useReminderSnooze, isLoginNotificationDismissed, markLoginNotificationDismissed } from './composables/useReminderSnooze';
 import WeatherChip from './components/WeatherChip.vue';
 import AskAssistantLauncher from './components/assistant/AskAssistantLauncher.vue';
 import SessionLockScreen from './components/SessionLockScreen.vue';
@@ -1754,6 +1761,7 @@ import { toUploadsUrl } from './utils/uploadsUrl';
 import { buildSuperadminAgencyBrandUrl } from './utils/brandSwitchUrl';
 import { begin as beginLoading, end as endLoading, isLoading as globalLoading, getLoadingTextRef } from './utils/pageLoader';
 import { useSummitStatsChallengeChrome } from './composables/useSummitStatsChallengeChrome';
+import { isBookClubAgency } from './utils/bookClubAgency.js';
 import { isSummitPlatformRouteSlug } from './utils/summitPlatformSlugs.js';
 import { isStandalonePwa } from './utils/pwa';
 import { getDashboardRoute } from './utils/router';
@@ -1782,7 +1790,21 @@ const summitTeamBrandLabel = SUMMIT_STATS_TEAM_CHALLENGE_NAME;
 const currentAgencyIdForAddon = computed(() => agencyStore.currentAgency?.id ?? null);
 const { momentumListEnabled } = useMomentumListAddon(currentAgencyIdForAddon);
 const userIdForSnooze = computed(() => authStore.user?.id ?? null);
-const { isSnoozed, snooze1h, snooze3h, snoozeTomorrow } = useReminderSnooze(userIdForSnooze);
+const sessionIdForDefer = computed(() => {
+  try {
+    return localStorage.getItem('sessionId') || null;
+  } catch {
+    return null;
+  }
+});
+const {
+  isSnoozed,
+  isDeferredForSession,
+  snooze1h,
+  snooze3h,
+  snoozeTomorrow,
+  deferUntilNextLogin
+} = useReminderSnooze(userIdForSnooze, sessionIdForDefer);
 const sendingTextReminder = ref(false);
 const organizationStore = useOrganizationStore();
 const tutorialStore = useTutorialStore();
@@ -2224,22 +2246,44 @@ const toggleGamesMenu = () => {
   gamesMenuOpen.value = next;
 };
 
-const gamesStaticOrigin = computed(() => {
-  const base = String(import.meta.env.VITE_API_URL || 'http://localhost:3000/api').trim();
-  const stripped = base.replace(/\/?api\/?$/i, '');
-  return stripped || 'http://localhost:3000';
-});
+const registryGames = ref([]);
 
-const openTestGameWindow = () => {
-  gamesMenuOpen.value = false;
-  const url = `${gamesStaticOrigin.value}/games-content/test-game/index.html`;
-  window.open(url, 'PlotTwistTestGame', 'noopener,noreferrer,width=800,height=680');
+const standaloneGamesForNav = computed(() =>
+  (registryGames.value || []).filter((a) => isStandaloneLaunchable(a))
+);
+
+const loadRegistryGames = async () => {
+  if (!authStore.isAuthenticated) {
+    registryGames.value = [];
+    return;
+  }
+  try {
+    const agencyId = agencyStore.currentAgency?.id || agencyStore.currentAgency?.value?.id || user.value?.agencyId;
+    const role = String(user.value?.role || '').toLowerCase();
+    const list = await listActivities({
+      agencyId,
+      launchMode: 'standalone',
+      includeDisabled: role === 'super_admin' ? 'true' : undefined
+    });
+    registryGames.value = list;
+  } catch (err) {
+    console.warn('[games-nav] failed to load activity registry', err);
+    // Fallback so Thought Explorer remains reachable if API/migration is not applied yet
+    registryGames.value = [
+      {
+        id: 'thought-explorer',
+        displayName: 'Thought Explorer',
+        status: 'live_current',
+        launchMode: 'standalone',
+        entryUrl: '/games-content/thought-explorer-main/dist/index.html'
+      }
+    ];
+  }
 };
 
-const openThoughtExplorerWindow = () => {
+const openRegistryGame = (game) => {
   gamesMenuOpen.value = false;
-  const url = `${gamesStaticOrigin.value}/games-content/thought-explorer-main/dist/index.html`;
-  window.open(url, 'PlotTwistThoughtExplorer', 'noopener,noreferrer,width=1280,height=820');
+  launchActivity(game, { mode: 'standalone' });
 };
 
 const pushWithSlug = (slug) => {
@@ -2632,6 +2676,7 @@ const showSummitStatsClubContextBar = computed(() => {
   if (!isSummitStatsChallengeChrome.value || hideGlobalNavForSchoolStaff.value) return false;
   const a = agencyStore.currentAgency;
   if (!a?.id) return false;
+  if (isBookClubAgency(a)) return false;
   const t = String(a.organization_type || a.organizationType || '').toLowerCase();
   return t === 'affiliation';
 });
@@ -2697,6 +2742,15 @@ const canSeeGamesNav = computed(() => {
   if (role === 'super_admin') return true;
   return isTruthyFlag(user.value?.has_games_access) || isTruthyFlag(user.value?.hasGamesAccess);
 });
+
+watch(
+  canSeeGamesNav,
+  (v) => {
+    if (v) loadRegistryGames();
+    else registryGames.value = [];
+  },
+  { immediate: true }
+);
 
 /** School Portals hub (overview + all portals). Same roles as prior School Overview links; gated by platform + tenant flags. */
 const canSeeSchoolPortalsNav = computed(() => {
@@ -3892,6 +3946,27 @@ const notificationsUnreadLabel = computed(() => (
 ));
 const showLoginNotificationsModal = ref(false);
 const notificationsNudgeVisible = ref(false);
+const loginNotificationGateConsumed = ref(false);
+
+const resetLoginNotificationGate = () => {
+  loginNotificationGateConsumed.value = false;
+};
+
+const closeLoginNotificationsPrompt = ({ showNudge = false, defer = false } = {}) => {
+  if (defer) deferUntilNextLogin();
+  // Always mark dismissed in sessionStorage so any gate reset can't re-open the modal.
+  // signalFreshLogin() clears this on the next fresh login, so it is safe to always set.
+  markLoginNotificationDismissed();
+  loginNotificationGateConsumed.value = true;
+  showLoginNotificationsModal.value = false;
+  if (showNudge && notificationsUnreadCount.value > 0) {
+    notificationsNudgeVisible.value = true;
+    triggerNotificationsNudgeFlash();
+  } else {
+    notificationsNudgeVisible.value = false;
+  }
+  clearJustLoggedIn();
+};
 
 // ── Login splash (SSTC: team delta stats since last logout) ──────────────────
 const loginSplashVisible = ref(false);
@@ -4115,27 +4190,47 @@ const showNewNotificationToast = async () => {
 const maybeShowLoginNotificationsModal = () => {
   if (!isAuthenticated.value) return;
   if (!notificationsCountsLoadedOnce.value) return;
+  // sessionStorage flag is the most reliable dismiss signal — check it first.
+  if (isLoginNotificationDismissed()) return;
+
   let justLoggedIn = false;
   try {
     justLoggedIn = window.sessionStorage.getItem('justLoggedIn') === 'true';
   } catch {
     justLoggedIn = false;
   }
-  if (!justLoggedIn) return;
-  if (isSnoozed.value) return;
-  if (shouldUseLoginNotificationsModal.value && notificationsUnreadCount.value > 0 && !isOnNotificationsRoute.value) {
-    showLoginNotificationsModal.value = true;
-    notificationsNudgeVisible.value = false;
+
+  if (loginNotificationGateConsumed.value) {
+    if (justLoggedIn) clearJustLoggedIn();
+    return;
   }
-  clearJustLoggedIn();
+  if (!justLoggedIn) return;
+
+  // Consume immediately so duplicate count fetches cannot re-open the modal.
+  loginNotificationGateConsumed.value = true;
+
+  try {
+    if (isDeferredForSession.value) return;
+    if (isSnoozed.value) return;
+    if (
+      shouldUseLoginNotificationsModal.value &&
+      notificationsUnreadCount.value > 0 &&
+      !isOnNotificationsRoute.value
+    ) {
+      showLoginNotificationsModal.value = true;
+      notificationsNudgeVisible.value = false;
+    }
+  } finally {
+    clearJustLoggedIn();
+  }
 };
 
 const dismissLoginNotifications = () => {
-  showLoginNotificationsModal.value = false;
-  if (notificationsUnreadCount.value > 0) {
-    notificationsNudgeVisible.value = true;
-    triggerNotificationsNudgeFlash();
-  }
+  closeLoginNotificationsPrompt({ showNudge: true });
+};
+
+const remindMeNextLogin = () => {
+  closeLoginNotificationsPrompt({ defer: true });
 };
 
 const snoozeReminder1h = () => {
@@ -4197,6 +4292,9 @@ const joinReminderToastJoin = () => {
 };
 
 const goToNotifications = () => {
+  markLoginNotificationDismissed();
+  loginNotificationGateConsumed.value = true;
+  clearJustLoggedIn();
   showLoginNotificationsModal.value = false;
   notificationsNudgeVisible.value = false;
   newNotificationToastVisible.value = false;
@@ -4220,6 +4318,7 @@ const goToNotifications = () => {
 };
 
 let notificationsInterval = null;
+let notificationsCountsFetchInFlight = false;
 const shouldFetchNotificationsCounts = computed(() => {
   if (!isAuthenticated.value) return false;
   if (hideGlobalNavForSchoolStaff.value) return false;
@@ -4227,12 +4326,16 @@ const shouldFetchNotificationsCounts = computed(() => {
 });
 const fetchNotificationsCounts = async () => {
   if (!shouldFetchNotificationsCounts.value) return;
+  if (notificationsCountsFetchInFlight) return;
+  notificationsCountsFetchInFlight = true;
   try {
     await notificationStore.fetchCounts();
     notificationsCountsLoadedOnce.value = true;
     maybeShowLoginNotificationsModal();
   } catch {
     // best-effort badge; ignore errors
+  } finally {
+    notificationsCountsFetchInFlight = false;
   }
 };
 
@@ -4346,6 +4449,7 @@ watch(() => route.params.organizationSlug, async (newSlug) => {
 
 onMounted(async () => {
   document.addEventListener('click', onDocumentClick);
+  window.addEventListener('app:just-logged-in', resetLoginNotificationGate);
   router.afterEach(() => closeAllNavMenus());
 
   // Run all initial syncs that were previously `{ immediate: true }` watchers.
@@ -4497,6 +4601,7 @@ router.afterEach(() => {
 
 onUnmounted(() => {
   document.removeEventListener('click', onDocumentClick);
+  window.removeEventListener('app:just-logged-in', resetLoginNotificationGate);
   window.removeEventListener('superadmin-preview-updated', onPreviewUpdated);
   stopActivityTracking();
   if (buildingsPendingInterval) clearInterval(buildingsPendingInterval);
@@ -4854,6 +4959,13 @@ onUnmounted(() => {
 
 .nav-dropdown-menu a:hover {
   background: #f8fafc;
+}
+
+.nav-dropdown-empty {
+  display: block;
+  padding: 8px 10px;
+  color: var(--text-secondary, #64748b);
+  font-size: 0.85rem;
 }
 
 .nav-dropdown-menu-wide {
@@ -5365,8 +5477,9 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1600;
+  z-index: 10060;
   padding: 20px;
+  pointer-events: auto;
 }
 
 .notifications-alert-card {
@@ -5379,6 +5492,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  pointer-events: auto;
 }
 
 .notifications-alert-title {

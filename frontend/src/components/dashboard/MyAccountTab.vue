@@ -29,6 +29,9 @@
     <div v-if="flags.workforce" v-show="activeSection === 'compensation'" class="acct-hub__pane">
       <MyCompensationTab />
     </div>
+    <div v-if="flags.workforce" v-show="activeSection === 'benefits'" class="acct-hub__pane">
+      <MyBenefitsTab />
+    </div>
     <div v-show="activeSection === 'kudos'" class="acct-hub__pane">
       <MyKudosTab v-if="flags.kudos && agencyId" :agency-id="Number(agencyId)" />
       <p v-else class="acct-hub__empty">Kudos are not enabled for this organization.</p>
@@ -48,6 +51,7 @@ import DocumentsTab from './DocumentsTab.vue';
 import MyLifeBalanceTab from './MyLifeBalanceTab.vue';
 import MyPayrollTab from './MyPayrollTab.vue';
 import MyCompensationTab from './MyCompensationTab.vue';
+import MyBenefitsTab from './MyBenefitsTab.vue';
 import MyKudosTab from './MyKudosTab.vue';
 import UserPreferencesHub from '../UserPreferencesHub.vue';
 import { ACCOUNT_SECTIONS } from '../../config/accountDisplaySections';

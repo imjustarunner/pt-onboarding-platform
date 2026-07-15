@@ -94,6 +94,7 @@ export function resolveNavigateRouteNameFromPrompt(promptLower) {
   if (!s) return null;
 
   // Prefer more specific intents first.
+  // Keep in sync with frontend `quickNavCatalog.js` account + app destinations.
   if (/\b(note ?aid|note generator|clinical note|generate note)\b/.test(s)) return 'NoteAid';
   if (/\b(compliance corner|compliance|hipaa)\b/.test(s)) return 'ComplianceCorner';
   if (/\b(presence|team board|who is in|who's in)\b/.test(s)) return 'PresenceTeamBoard';
@@ -104,13 +105,20 @@ export function resolveNavigateRouteNameFromPrompt(promptLower) {
   if (/\b(program events|program event|skill builders|events)\b/.test(s)) return 'SkillBuildersProgramsEvents';
   if (/\b(provider directory|provider list)\b/.test(s)) return 'ProviderDirectory';
   if (/\b(hiring|candidates|hire)\b/.test(s)) return 'HiringCandidates';
+  if (/\b(admin payroll|payroll management|payroll admin)\b/.test(s)) return 'AdminPayroll';
+  if (/\b(my payroll|pay stubs?|paycheck|pay check|payroll)\b/.test(s)) return 'MyPayroll';
+  if (/\b(compensation|pay rates?|my rates?)\b/.test(s)) return 'MyCompensation';
+  if (/\b(benefits?|eligibility|benefit tier)\b/.test(s)) return 'MyBenefits';
+  if (/\b(kudos|recognition)\b/.test(s)) return 'MyKudos';
+  if (/\b(life balance|well-?being wheel)\b/.test(s)) return 'LifeBalance';
+  if (/\b(my documents|documents to sign)\b/.test(s)) return 'MyDocuments';
   if (/\b(notification|notifications)\b/.test(s)) return 'Notifications';
   if (/\b(user manager|users)\b/.test(s)) return 'UserManager';
   if (/\b(credentials)\b/.test(s)) return 'Credentials';
   if (/\b(preferences)\b/.test(s)) return 'Preferences';
   if (/\b(account|profile|my account|account info)\b/.test(s)) return 'AccountInfo';
   if (/\b(schedule|calendar)\b/.test(s)) return 'Schedule';
-  if (/\b(dashboard|home)\b/.test(s)) return 'Dashboard';
+  if (/\b(dashboard|home|overview)\b/.test(s)) return 'Dashboard';
   return null;
 }
 

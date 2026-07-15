@@ -1,6 +1,25 @@
 import { Vonage } from '@vonage/server-sdk';
 import { readFileSync } from 'fs';
 
+function normalizePrivateKey(raw) {
+  if (raw == null) return null;
+  let key = Buffer.isBuffer(raw) ? raw.toString('utf8') : String(raw);
+  // Cloud Run / secret managers often store PEM with literal \n sequences.
+  if (key.includes('\\n') && !key.includes('\n')) {
+    key = key.replace(/\\n/g, '\n');
+  }
+  return key.trim();
+}
+
+/** Client OT.initSession project id: Application ID (unified) or legacy OpenTok project key. */
+export function resolveVideoProjectId() {
+  const applicationId = String(process.env.VONAGE_APPLICATION_ID || '').trim() || null;
+  // Optional legacy OpenTok project API key (numeric). Never fall back to account VONAGE_API_KEY —
+  // that is the Vonage dashboard account key and will cause OT_AUTHENTICATION_ERROR with JWT tokens.
+  const legacyProjectKey = String(process.env.VONAGE_VIDEO_API_KEY || '').trim() || null;
+  return applicationId || legacyProjectKey || null;
+}
+
 class VonageVideoService {
   static getClient() {
     const apiKey = process.env.VONAGE_API_KEY;
@@ -19,11 +38,11 @@ class VonageVideoService {
 
     const options = { apiKey, apiSecret };
     options.applicationId = applicationId;
-    
+
     if (privateKeyPath) {
-      options.privateKey = readFileSync(privateKeyPath);
+      options.privateKey = normalizePrivateKey(readFileSync(privateKeyPath));
     } else if (privateKeyString) {
-      options.privateKey = privateKeyString;
+      options.privateKey = normalizePrivateKey(privateKeyString);
     }
 
     return new Vonage(options);

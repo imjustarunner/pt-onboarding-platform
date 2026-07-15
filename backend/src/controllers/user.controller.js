@@ -340,6 +340,14 @@ export const getCurrentUser = async (req, res, next) => {
           : Boolean(user.provider_accepting_new_clients),
       medcancelEnabled: ['low', 'high'].includes(String(user.medcancel_rate_schedule || '').toLowerCase()),
       medcancelRateSchedule: user.medcancel_rate_schedule || null,
+      employmentType: user.employment_type || null,
+      benefitsEligibilityOverrides: (() => {
+        const raw = user.benefits_eligibility_overrides_json;
+        if (!raw) return {};
+        if (typeof raw === 'object') return raw;
+        try { return JSON.parse(raw); } catch { return {}; }
+      })(),
+      isHourlyWorker: !!(user.is_hourly_worker === 1 || user.is_hourly_worker === true || user.is_hourly_worker === '1'),
       companyCardEnabled: Boolean(user.company_card_enabled),
       companyCarSubmitAccess: Boolean(user.company_car_submit_access),
       companyCarManageAccess: Boolean(user.company_car_manage_access),
@@ -3874,7 +3882,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const startAtOut = isAllDay ? null : (toIsoUtcForSchedule(r.start_at) || toMysqlDateTimeWall(r.start_at) || r.start_at || null);
         const endAtOut = isAllDay ? null : (toIsoUtcForSchedule(r.end_at) || toMysqlDateTimeWall(r.end_at) || r.end_at || null);
         const kind = String(r.kind || '').trim().toUpperCase() || 'PERSONAL_EVENT';
-        const appJoinUrl = ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && isVideoConfigured && frontendUrl)
+        const appJoinUrl = ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && isVideoConfigured && frontendUrl
+          && (r.platform_video_link == null || Number(r.platform_video_link) === 1))
           ? `${frontendUrl}/join/team-meeting/${Number(r.id || 0)}`
           : null;
         return {
@@ -4581,8 +4590,18 @@ export const createUserScheduleEvent = async (req, res, next) => {
     if (!['TEAM_MEETING', 'HUDDLE'].includes(kind) && attendeeUserIds.length) {
       return res.status(400).json({ error: { message: 'attendeeUserIds are only supported for TEAM_MEETING and HUDDLE.' } });
     }
+    let videoConfiguredForMeeting = false;
+    try {
+      const { isVideoConfigured: videoOk } = await import('../services/video.service.js');
+      videoConfiguredForMeeting = videoOk();
+    } catch {
+      videoConfiguredForMeeting = false;
+    }
+    const createPlatformVideoLink = (kind === 'TEAM_MEETING' || kind === 'HUDDLE')
+      ? (videoConfiguredForMeeting && req.body?.createPlatformVideoLink !== false)
+      : false;
     const createMeetLink = (kind === 'TEAM_MEETING' || kind === 'HUDDLE')
-      ? req.body?.createMeetLink !== false
+      ? (createPlatformVideoLink ? false : req.body?.createMeetLink !== false)
       : false;
 
     let attendeeEmails = [];
@@ -4648,6 +4667,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
     const storedEndAt = allDay ? null : (result.endAt ? toMysqlUtc(result.endAt) : endAt);
 
     let saved = null;
+    let appJoinUrl = null;
     try {
       saved = await ProviderScheduleEvent.create({
         agencyId,
@@ -4669,17 +4689,17 @@ export const createUserScheduleEvent = async (req, res, next) => {
         googleEventId: result.eventId || null,
         googleHtmlLink: result.htmlLink || null,
         googleMeetLink: result.meetLink || null,
+        platformVideoLink: (kind === 'TEAM_MEETING' || kind === 'HUDDLE') ? createPlatformVideoLink : null,
         createdByUserId: actorUserId
       });
       if (saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE') && attendeeUserIds?.length) {
         const ProviderScheduleEventAttendee = (await import('../models/ProviderScheduleEventAttendee.model.js')).default;
         await ProviderScheduleEventAttendee.upsertForEvent(saved.id, attendeeUserIds);
       }
-      if (saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE') && result?.eventId) {
-        const { isVideoConfigured } = await import('../services/video.service.js');
+      if (saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE') && result?.eventId && createPlatformVideoLink) {
         const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
-        if (isVideoConfigured() && frontendUrl) {
-          const appJoinUrl = `${frontendUrl}/join/team-meeting/${saved.id}`;
+        if (frontendUrl) {
+          appJoinUrl = `${frontendUrl}/join/team-meeting/${saved.id}`;
           await GoogleCalendarService.appendToEventDescription({
             subjectEmail,
             googleEventId: result.eventId,
@@ -4699,6 +4719,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
         googleEventId: result.eventId || null,
         htmlLink: result.htmlLink || null,
         meetLink: result.meetLink || null,
+        appJoinUrl: appJoinUrl || null,
         agencyId,
         kind,
         title: summaryText,
@@ -4887,6 +4908,177 @@ export const listUserMeetingCandidates = async (req, res, next) => {
       agencyIds: scopedAgencyIds,
       allAgencies,
       users
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+function virtualSessionClientDisplayName(row = {}) {
+  const full = String(row.full_name || '').trim();
+  if (full) return full.slice(0, 200);
+  const initials = String(row.initials || '').trim();
+  if (initials) return initials.slice(0, 32);
+  const code = String(row.identifier_code || '').trim();
+  if (code) return code.slice(0, 64);
+  const id = Number(row.id || 0);
+  return id > 0 ? `Client ${id}` : 'Client';
+}
+
+/** Clients (and optional guardians) eligible for individual virtual session attendees. */
+export const listUserVirtualSessionClients = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+
+    const actorUserId = Number(req.user?.id || 0);
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    const isSelf = actorUserId === userId;
+    if (!isSelf && !canCreateProviderScheduleEvent(actorRole)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    if (!isSelf) {
+      const sharedOk = await requireSharedAgencyAccessOrSuperAdmin({
+        actorUserId,
+        targetUserId: userId,
+        actorRole
+      });
+      if (!sharedOk) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const agencyId = Number(req.query?.agencyId || 0);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    const targetAgencies = await User.getAgencies(userId);
+    const targetAgencyIds = Array.from(new Set((targetAgencies || []).map((a) => Number(a?.id || 0)).filter((n) => n > 0)));
+    if (!targetAgencyIds.includes(agencyId)) {
+      return res.status(403).json({ error: { message: 'Provider is not assigned to this agency' } });
+    }
+
+    const actorAgencies = await User.getAgencies(actorUserId);
+    const actorAgencyIds = Array.from(new Set((actorAgencies || []).map((a) => Number(a?.id || 0)).filter((n) => n > 0)));
+    if (!actorAgencyIds.includes(agencyId) && actorRole !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Access denied for this agency' } });
+    }
+
+    const includeGuardians = String(req.query?.includeGuardians || '').trim().toLowerCase() === 'true';
+
+    let clientRows = [];
+    try {
+      const [rows] = await pool.execute(
+        `SELECT DISTINCT
+           c.id,
+           c.full_name,
+           c.initials,
+           c.identifier_code,
+           c.client_type,
+           cs.status_key AS client_status_key,
+           cs.label AS client_status_label
+         FROM clients c
+         LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+         WHERE UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
+           AND (
+             (c.agency_id = ? AND c.provider_id = ?)
+             OR EXISTS (
+               SELECT 1
+               FROM client_provider_assignments cpa
+               JOIN clients cx ON cx.id = cpa.client_id
+               WHERE cpa.client_id = c.id
+                 AND cpa.provider_user_id = ?
+                 AND cpa.is_active = TRUE
+                 AND cx.agency_id = ?
+             )
+           )
+         ORDER BY COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code) ASC, c.id ASC`,
+        [agencyId, userId, userId, agencyId]
+      );
+      clientRows = rows || [];
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const missing =
+        msg.includes("doesn't exist") ||
+        msg.includes('ER_NO_SUCH_TABLE') ||
+        msg.includes('Unknown column');
+      if (!missing) throw e;
+      const [rows] = await pool.execute(
+        `SELECT DISTINCT
+           c.id,
+           c.full_name,
+           c.initials,
+           c.identifier_code,
+           c.client_type,
+           NULL AS client_status_key,
+           NULL AS client_status_label
+         FROM clients c
+         WHERE UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
+           AND c.agency_id = ?
+           AND c.provider_id = ?
+         ORDER BY COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code) ASC, c.id ASC`,
+        [agencyId, userId]
+      );
+      clientRows = rows || [];
+    }
+
+    const clients = (clientRows || []).map((r) => ({
+      id: Number(r.id || 0),
+      fullName: String(r.full_name || '').trim() || null,
+      initials: String(r.initials || '').trim() || null,
+      identifierCode: String(r.identifier_code || '').trim() || null,
+      displayName: virtualSessionClientDisplayName(r),
+      clientType: String(r.client_type || '').trim().toLowerCase() || null,
+      statusKey: String(r.client_status_key || '').trim().toLowerCase() || null,
+      statusLabel: String(r.client_status_label || '').trim() || null
+    })).filter((c) => c.id > 0);
+
+    let guardians = [];
+    if (includeGuardians && clients.length) {
+      const clientIds = clients.map((c) => c.id);
+      const placeholders = clientIds.map(() => '?').join(',');
+      try {
+        const [guardianRows] = await pool.execute(
+          `SELECT
+             cg.client_id,
+             cg.guardian_user_id,
+             cg.relationship_type,
+             gu.first_name,
+             gu.last_name,
+             gu.email
+           FROM client_guardians cg
+           JOIN users gu ON gu.id = cg.guardian_user_id
+           WHERE cg.client_id IN (${placeholders})
+             AND (gu.is_active IS NULL OR gu.is_active = TRUE)
+             AND (gu.is_archived IS NULL OR gu.is_archived = FALSE)
+           ORDER BY gu.last_name ASC, gu.first_name ASC, cg.guardian_user_id ASC`,
+          clientIds
+        );
+        const clientNameById = new Map(clients.map((c) => [c.id, c.displayName]));
+        guardians = (guardianRows || []).map((r) => {
+          const userIdNum = Number(r.guardian_user_id || 0);
+          const clientId = Number(r.client_id || 0);
+          const first = String(r.first_name || '').trim();
+          const last = String(r.last_name || '').trim();
+          const name = `${first} ${last}`.trim() || String(r.email || '').trim() || `Guardian ${userIdNum}`;
+          return {
+            userId: userIdNum,
+            clientId,
+            clientName: clientNameById.get(clientId) || null,
+            firstName: first || null,
+            lastName: last || null,
+            email: String(r.email || '').trim().toLowerCase() || null,
+            displayName: name,
+            relationshipType: String(r.relationship_type || 'guardian').trim().toLowerCase()
+          };
+        }).filter((g) => g.userId > 0 && g.clientId > 0);
+      } catch {
+        guardians = [];
+      }
+    }
+
+    return res.json({
+      ok: true,
+      agencyId,
+      clients,
+      guardians
     });
   } catch (e) {
     next(e);

@@ -114,14 +114,22 @@ async function assertCanManageHiring(reqUser) {
 // can cross agencies via an explicit agencyId argument.
 // ---------------------------------------------------------------------------
 
+// Keep My Account deep-links + routeNames aligned with frontend
+// `frontend/src/navigation/quickNavCatalog.js` (Overview search + assistant navigate).
 const NAVIGATION_ROUTE_WHITELIST = {
   // Dashboards / core (match frontend router paths)
   Dashboard: { path: '/dashboard', roles: null },
-  Schedule: { path: '/schedule', roles: null },
-  AccountInfo: { path: '/account-info', roles: null },
-  Preferences: { path: '/preferences', roles: null },
-  Credentials: { path: '/credentials', roles: null },
-  Notifications: { path: '/admin/notifications', roles: null },
+  Schedule: { path: '/dashboard?tab=my_schedule', roles: null },
+  AccountInfo: { path: '/dashboard?tab=my&my=account', roles: null },
+  Preferences: { path: '/dashboard?tab=my&my=preferences', roles: null },
+  Credentials: { path: '/dashboard?tab=my&my=credentials', roles: null },
+  MyPayroll: { path: '/dashboard?tab=my&my=payroll', roles: null },
+  MyCompensation: { path: '/dashboard?tab=my&my=compensation', roles: null },
+  MyBenefits: { path: '/dashboard?tab=my&my=benefits', roles: null },
+  MyKudos: { path: '/dashboard?tab=my&my=kudos', roles: null },
+  MyDocuments: { path: '/dashboard?tab=my&my=documents', roles: null },
+  LifeBalance: { path: '/dashboard?tab=my&my=life-balance', roles: null },
+  Notifications: { path: '/dashboard?tab=notifications', roles: null },
 
   // Admin surfaces (gated via requiresRole in router; tool checks role too)
   ClientManagement: { path: '/admin/clients', roles: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'] },
@@ -134,7 +142,8 @@ const NAVIGATION_ROUTE_WHITELIST = {
   AuditCenter: { path: '/admin/audit-center', roles: ['admin', 'support', 'super_admin'] },
   NoteAid: { path: '/admin/note-aid', roles: ['admin', 'support', 'staff', 'provider', 'super_admin'] },
   ComplianceCorner: { path: '/admin/compliance-corner', roles: ['admin', 'super_admin'] },
-  PresenceTeamBoard: { path: '/admin/presence', roles: ['admin', 'super_admin'] }
+  PresenceTeamBoard: { path: '/admin/presence', roles: ['admin', 'super_admin'] },
+  AdminPayroll: { path: '/admin/payroll', roles: ['admin', 'super_admin', 'support', 'staff'] }
 };
 
 const ENTITY_KINDS = new Set(['school', 'event', 'user']);

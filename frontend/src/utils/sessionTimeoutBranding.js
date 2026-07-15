@@ -104,6 +104,11 @@ export function getSessionEndedImageUrl(tenantKey) {
   return `/branding/session/${key}SessionEnded.png`;
 }
 
+/** Shared mobile background used for both the timedown warning and session-ended screens on small devices. */
+export function getMobileTimedownBgUrl() {
+  return '/branding/session/MobileBackground.png';
+}
+
 export function rememberSessionEndedContext({ loginUrl, tenantKey }) {
   try {
     if (loginUrl) sessionStorage.setItem(SESSION_ENDED_STORAGE.loginUrl, String(loginUrl));

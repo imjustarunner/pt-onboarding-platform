@@ -63,6 +63,7 @@ import {
   setSstcSurfaceChoice,
   setPreferredWorkAgencyId
 } from '../../utils/sstcSurfaceChoice.js';
+import { isBookClubAgency } from '../../utils/bookClubAgency.js';
 
 const props = defineProps({
   // Optional. If omitted, sources from agencyStore.userAgencies.
@@ -109,23 +110,14 @@ const isAffiliation = (a) => {
 };
 
 // Book Clubs intentionally mimic the SSTC affiliation structure (organization_type='affiliation'),
-// but they are their own surface under agencies and must NOT appear in the "My SSTC Clubs" list.
-// Distinguishing signal: agencies.club_kind = 'book_club' (set in bookClub.controller.js).
-const isBookClub = (a) => {
-  const kind = String(a?.club_kind || a?.clubKind || '').trim().toLowerCase();
-  return kind === 'book_club';
-};
-
-// Positive SSTC signal: parent slug is one of the Summit tenants (e.g. 'sstc', 'ssc').
-// Falls back to "any non-book-club affiliation" when parent info is missing, to preserve
-// legacy behavior for SSTC clubs that predate the club_kind column.
+// but they are their own surface and must NOT appear in the "My SSTC Clubs" list.
 const SUMMIT_PARENT_SLUGS = new Set(['sstc', 'ssc']);
 const isSstcClub = (a) => {
   if (!isAffiliation(a)) return false;
-  if (isBookClub(a)) return false;
+  if (isBookClubAgency(a)) return false;
   const parentSlug = String(a?.parent_slug || a?.parentSlug || '').trim().toLowerCase();
   if (parentSlug) return SUMMIT_PARENT_SLUGS.has(parentSlug);
-  // No parent context available — assume SSTC (historical default for affiliations).
+  // No parent context — only treat as SSTC when clearly not a book club (already checked).
   return true;
 };
 

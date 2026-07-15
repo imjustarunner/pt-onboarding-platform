@@ -1,4 +1,4 @@
-import VonageVideoService from './vonageVideo.service.js';
+import VonageVideoService, { resolveVideoProjectId } from './vonageVideo.service.js';
 
 /**
  * Video provider — CONFIGURED VIA VONAGE.
@@ -6,6 +6,42 @@ import VonageVideoService from './vonageVideo.service.js';
 
 export function isVideoConfigured() {
   return VonageVideoService.isVideoConfigured();
+}
+
+export { resolveVideoProjectId };
+
+/** Safe, non-secret diagnostics for clients troubleshooting video auth. */
+export function getVideoClientDiagnostics({ token = null, sessionId = null } = {}) {
+  const projectId = resolveVideoProjectId();
+  const tokenStr = token == null ? '' : String(token);
+  return {
+    applicationIdPresent: !!String(process.env.VONAGE_APPLICATION_ID || '').trim(),
+    applicationIdFormat: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      String(process.env.VONAGE_APPLICATION_ID || '').trim()
+    )
+      ? 'uuid'
+      : process.env.VONAGE_APPLICATION_ID
+        ? 'other'
+        : 'missing',
+    projectIdPresent: !!projectId,
+    projectIdFormat: projectId
+      ? /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectId)
+        ? 'uuid'
+        : /^[0-9]+$/.test(projectId)
+          ? 'numeric'
+          : 'other'
+      : 'missing',
+    sessionIdPresent: !!sessionId,
+    sessionIdLength: sessionId ? String(sessionId).length : 0,
+    tokenPresent: !!tokenStr,
+    tokenFormat: tokenStr.startsWith('eyJ')
+      ? 'jwt'
+      : tokenStr.startsWith('T1==')
+        ? 'opentok_legacy'
+        : tokenStr
+          ? 'unknown'
+          : 'missing'
+  };
 }
 
 /**

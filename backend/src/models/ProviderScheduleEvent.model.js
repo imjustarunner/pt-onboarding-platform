@@ -21,6 +21,7 @@ class ProviderScheduleEvent {
     googleEventId = null,
     googleHtmlLink = null,
     googleMeetLink = null,
+    platformVideoLink = null,
     createdByUserId = null,
     clientId = null,
     entitlementId = null,
@@ -32,8 +33,8 @@ class ProviderScheduleEvent {
         (agency_id, provider_id, client_id, entitlement_id, package_payment_id, session_index,
          kind, title, description, reason_code, is_private, all_day, start_at, end_at, start_date, end_date, status,
          recurrence_series_id, recurrence_frequency, recurrence_policy, recurrence_index,
-         google_event_id, google_html_link, google_meet_link, created_by_user_id, updated_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         google_event_id, google_html_link, google_meet_link, platform_video_link, created_by_user_id, updated_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         agencyId == null ? null : Number(agencyId),
         Number(providerId),
@@ -58,6 +59,7 @@ class ProviderScheduleEvent {
         googleEventId ? String(googleEventId) : null,
         googleHtmlLink ? String(googleHtmlLink) : null,
         googleMeetLink ? String(googleMeetLink).trim().slice(0, 1024) : null,
+        platformVideoLink == null ? null : (platformVideoLink ? 1 : 0),
         createdByUserId ? Number(createdByUserId) : null,
         createdByUserId ? Number(createdByUserId) : null
       ]

@@ -221,7 +221,7 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
 
     // Team meetings starting in 5-8 min
     const [teamRows] = await pool.execute(
-      `SELECT pse.id, pse.agency_id, pse.provider_id, pse.title, pse.google_meet_link
+      `SELECT pse.id, pse.agency_id, pse.provider_id, pse.title, pse.google_meet_link, pse.platform_video_link
        FROM provider_schedule_events pse
        WHERE UPPER(COALESCE(pse.kind, '')) = 'TEAM_MEETING'
          AND (pse.status IS NULL OR pse.status = 'ACTIVE')
@@ -238,7 +238,8 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
         agencyId = agencies?.[0]?.id || 0;
       }
       const label = String(r.title || 'Team meeting').trim() || 'Team meeting';
-      const joinUrl = useAppJoin
+      const hasPlatformLink = r.platform_video_link == null || Number(r.platform_video_link) === 1;
+      const joinUrl = useAppJoin && hasPlatformLink
         ? `${FRONTEND_URL}/join/team-meeting/${sessionId}`
         : (r.google_meet_link ? String(r.google_meet_link).trim() : null);
       if (!joinUrl) continue;

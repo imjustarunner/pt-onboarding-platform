@@ -27,6 +27,7 @@
     "@tiptap/extension-link": "^3.15.0",
     "@tiptap/starter-kit": "^3.15.0",
     "@tiptap/vue-3": "^3.15.0",
+    "@vonage/client-sdk-video": "^2.34.2",
     "axios": "^1.6.5",
     "chart.js": "^4.5.1",
     "dompurify": "^3.3.1",

@@ -13,6 +13,8 @@ import { isStandalonePwa } from './utils/pwa';
 import { i18n } from './i18n';
 
 const CHUNK_RELOAD_KEY = '__pt_chunk_reload__';
+/** Bump when shell assets change materially (forces one reload so users pick up new schedule UI). */
+const APP_SHELL_VERSION = '2026-07-15-virtual-session-clients';
 
 let pendingChunkReloadPath = null;
 
@@ -89,6 +91,15 @@ window.addEventListener('vite:preloadError', () => {
 });
 
 async function bootstrap() {
+  const priorShell = localStorage.getItem('appShellVersion');
+  if (priorShell !== APP_SHELL_VERSION) {
+    localStorage.setItem('appShellVersion', APP_SHELL_VERSION);
+    if (sessionStorage.getItem('appShellReload') !== APP_SHELL_VERSION) {
+      sessionStorage.setItem('appShellReload', APP_SHELL_VERSION);
+      window.location.reload();
+      return;
+    }
+  }
   if (isStandalonePwa()) {
     document.documentElement.classList.add('is-standalone-pwa');
     document.documentElement.setAttribute('data-display-mode', 'standalone');

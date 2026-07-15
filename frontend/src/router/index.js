@@ -980,6 +980,30 @@ const routes = [
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/counseling',
+    name: 'OrganizationCounselingLobby',
+    component: () => import('../views/counseling/CounselingLobbyView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/counseling/session/:sessionId',
+    name: 'OrganizationCounselingSession',
+    component: () => import('../views/counseling/CounselingSessionView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/counseling/join/:sessionId',
+    name: 'OrganizationCounselingJoin',
+    component: () => import('../views/counseling/CounselingSessionView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/counseling/invite/:token',
+    name: 'OrganizationCounselingInvite',
+    component: () => import('../views/counseling/CounselingInviteView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/guardian',
     name: 'OrganizationGuardianPortal',
     component: () => import('../views/guardian/GuardianPortalView.vue'),
@@ -1883,6 +1907,30 @@ const routes = [
     path: '/tutoring-session/:sessionId',
     name: 'VirtualTutoringSession',
     component: () => import('../views/tutoring/VirtualTutoringSessionView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/counseling',
+    name: 'CounselingLobby',
+    component: () => import('../views/counseling/CounselingLobbyView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/counseling/session/:sessionId',
+    name: 'CounselingSession',
+    component: () => import('../views/counseling/CounselingSessionView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/counseling/join/:sessionId',
+    name: 'CounselingJoin',
+    component: () => import('../views/counseling/CounselingSessionView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/counseling/invite/:token',
+    name: 'CounselingInvite',
+    component: () => import('../views/counseling/CounselingInviteView.vue'),
     meta: { requiresAuth: true }
   },
   {

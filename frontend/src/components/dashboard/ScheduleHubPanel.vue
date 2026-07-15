@@ -1,27 +1,22 @@
 <template>
   <div class="sched-hub">
-    <header class="sched-hub__header">
+    <header
+      v-if="(activeTitle && activeTitle !== 'My schedule') || contextLine || $slots['header-actions']"
+      class="sched-hub__header"
+    >
       <div class="sched-hub__header-left">
         <div class="sched-hub__title-row">
-          <span class="sched-hub__title-icon" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="4" width="18" height="18" rx="2" />
-              <line x1="16" y1="2" x2="16" y2="6" />
-              <line x1="8" y1="2" x2="8" y2="6" />
-              <line x1="3" y1="10" x2="21" y2="10" />
-            </svg>
-          </span>
           <div>
-            <h2 class="sched-hub__title">My Schedule</h2>
-            <p class="sched-hub__active-title">{{ activeTitle }}</p>
+            <p v-if="activeTitle && activeTitle !== 'My schedule'" class="sched-hub__view-label">{{ activeTitle }}</p>
+            <p
+              v-if="contextLine"
+              class="sched-hub__context"
+              :class="{ 'sched-hub__context--other': contextIsOther }"
+            >
+              {{ contextLine }}
+            </p>
           </div>
         </div>
-        <p
-          class="sched-hub__context"
-          :class="{ 'sched-hub__context--other': contextIsOther }"
-        >
-          {{ contextLine }}
-        </p>
       </div>
       <div v-if="$slots['header-actions']" class="sched-hub__header-actions">
         <slot name="header-actions" />
@@ -127,8 +122,8 @@ const viewIcon = (name) => ICONS[name] || ICONS.calendar;
   flex-wrap: wrap;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 16px;
-  margin-bottom: 20px;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
 .sched-hub__title-row {
@@ -137,30 +132,17 @@ const viewIcon = (name) => ICONS[name] || ICONS.calendar;
   gap: 10px;
 }
 
-.sched-hub__title-icon {
-  display: flex;
-  color: var(--hub-green);
-  margin-top: 4px;
-}
-
-.sched-hub__title {
+.sched-hub__view-label {
   margin: 0;
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.sched-hub__active-title {
-  margin: 4px 0 0;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   color: #374151;
 }
 
 .sched-hub__context {
-  margin: 10px 0 0;
-  font-size: 14px;
-  line-height: 1.5;
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
   color: var(--hub-muted);
   max-width: 72ch;
 }
@@ -301,10 +283,10 @@ const viewIcon = (name) => ICONS[name] || ICONS.calendar;
 
 .sched-hub__stage {
   background: #fff;
-  border: 1px solid var(--hub-border);
-  border-radius: 10px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-  padding: 14px 16px 16px;
+  border: 1px solid #e8eef5;
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  padding: 18px 18px 20px;
   min-width: 0;
 }
 

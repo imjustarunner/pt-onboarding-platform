@@ -90,6 +90,12 @@ const attemptLogin = async (lastNameValue = null) => {
     
     // Mark that we just logged in to help with cookie timing issues
     sessionStorage.setItem('justLoggedIn', 'true');
+    try {
+      const { signalFreshLogin } = await import('../composables/useReminderSnooze.js');
+      signalFreshLogin();
+    } catch {
+      // ignore
+    }
     
     // Fetch user's agencies before redirecting (similar to regular login)
     // This ensures the cookie is available and agencies are loaded

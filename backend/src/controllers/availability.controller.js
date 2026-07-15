@@ -1426,16 +1426,6 @@ export const createMySchoolAvailabilityRequest = async (req, res, next) => {
     const notes = String(req.body?.notes || '').trim().slice(0, 2000);
     const blocks = Array.isArray(req.body?.blocks) ? req.body.blocks : [];
 
-    const [existing] = await pool.execute(
-      `SELECT id FROM provider_school_availability_requests
-       WHERE agency_id = ? AND provider_id = ? AND status = 'PENDING'
-       LIMIT 1`,
-      [agencyId, providerId]
-    );
-    if (existing?.[0]?.id) {
-      return res.status(409).json({ error: { message: 'You already have a pending school availability request.' } });
-    }
-
     const normalizedBlocks = [];
     for (const b of blocks) {
       const dayOfWeek = normalizeDayName(b?.dayOfWeek);
@@ -1456,6 +1446,33 @@ export const createMySchoolAvailabilityRequest = async (req, res, next) => {
 
     conn = await pool.getConnection();
     await conn.beginTransaction();
+
+    // Replace any existing pending school request for this provider/agency so users can
+    // resubmit/update availability without a dead-end 409 after an earlier request.
+    const [existing] = await conn.execute(
+      `SELECT id FROM provider_school_availability_requests
+       WHERE agency_id = ? AND provider_id = ? AND status = 'PENDING'`,
+      [agencyId, providerId]
+    );
+    for (const row of existing || []) {
+      const prevId = Number(row?.id || 0);
+      if (!prevId) continue;
+      await conn.execute(
+        `UPDATE provider_school_availability_requests
+         SET status = 'CANCELLED',
+             resolved_at = NOW(),
+             resolved_by_user_id = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND status = 'PENDING'`,
+        [providerId, prevId]
+      );
+      try {
+        await Notification.markAllAsResolvedForFilter(agencyId, {
+          relatedEntityType: 'provider_school_availability_request',
+          relatedEntityId: prevId
+        });
+      } catch { /* non-blocking */ }
+    }
 
     const [result] = await conn.execute(
       `INSERT INTO provider_school_availability_requests

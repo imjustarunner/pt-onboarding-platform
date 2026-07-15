@@ -1,5 +1,5 @@
 export const DASHBOARD_TOUR_ID = 'dashboard';
-export const DASHBOARD_TOUR_VERSION = 6;
+export const DASHBOARD_TOUR_VERSION = 7;
 
 const dashboardTour = {
   id: DASHBOARD_TOUR_ID,
@@ -26,7 +26,16 @@ const dashboardTour = {
       element: '[data-tour="dash-overview"]',
       popover: {
         title: 'Overview',
-        description: 'Your new home landing: today’s schedule, pay-period snapshot, events, and quick actions. Use any card to jump into the full section.',
+        description: 'Your new home landing: today’s schedule, pay-period snapshot, events, and quick actions. Use the Jump to search to type “Payroll”, “Schedule”, etc. and go straight there — or click any card to open that section.',
+        side: 'bottom',
+        align: 'start'
+      }
+    },
+    {
+      element: '[data-tour="dash-overview-search"]',
+      popover: {
+        title: 'Jump to search',
+        description: 'Type to find My Account tabs and other areas you can access. Use ↑↓ Enter to open a result. Try “pay”, “benef”, or “sched”.',
         side: 'bottom',
         align: 'start'
       }
@@ -44,7 +53,7 @@ const dashboardTour = {
       element: '[data-tour="dash-overview-schedule"]',
       popover: {
         title: "Today's schedule",
-        description: 'A quick look at today’s appointments. Use “View Full Schedule” for the full week grid and availability tools.',
+        description: 'A quick look at today’s appointments. Use Book or Book virtual from this card, or “View Full Schedule” for the full week grid.',
         side: 'bottom',
         align: 'start'
       }

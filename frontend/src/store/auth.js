@@ -202,7 +202,13 @@ export const useAuthStore = defineStore('auth', () => {
       
       // Mark that we just logged in to help with cookie timing issues
       sessionStorage.setItem('justLoggedIn', 'true');
-      
+      try {
+        const { signalFreshLogin } = await import('../composables/useReminderSnooze.js');
+        signalFreshLogin();
+      } catch {
+        // ignore
+      }
+
       return { success: true, agencies: response.data.agencies };
     } catch (error) {
       // Log full error for debugging

@@ -16,6 +16,7 @@ import PayrollRateCard from '../models/PayrollRateCard.model.js';
 import PayrollRate from '../models/PayrollRate.model.js';
 import { callGeminiText } from '../services/geminiText.service.js';
 import pool from '../config/database.js';
+import { isAdminLikeRole, isSupervisorActor } from '../utils/supervisorSchoolAccess.js';
 
 function requireValid(req, res) {
   const errors = validationResult(req);
@@ -530,8 +531,10 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
     const actorId = Number(req.user?.id || 0);
     const role = String(req.user?.role || '').trim().toLowerCase();
     if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
-    const allowedRoles = ['supervisor', 'admin', 'super_admin', 'support'];
-    if (!allowedRoles.includes(role)) {
+    // Supervisors are usually role=provider + has_supervisor_privileges (not role=supervisor).
+    const actorIsSupervisor = await isSupervisorActor({ userId: actorId, role, user: req.user });
+    const actorIsAdminLike = isAdminLikeRole(role);
+    if (!actorIsSupervisor && !actorIsAdminLike) {
       return res.status(403).json({ error: { message: 'Supervision participant selection is limited to supervisors and admins.' } });
     }
 
@@ -574,8 +577,9 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
         }
         providers = Array.from(deduped.values());
       }
-      // Admins without supervisee assignments: show all providers in agency for session creation
-      if (providers.length === 0 && allowedRoles.includes(role)) {
+      // Admins without supervisee assignments: show all agency users for session creation.
+      // Privilege-based supervisors only see their assigned supervisees (empty if none).
+      if (providers.length === 0 && actorIsAdminLike) {
         const [rows] = await pool.execute(
           `SELECT u.id, u.first_name, u.last_name, u.email, u.role
            FROM user_agencies ua

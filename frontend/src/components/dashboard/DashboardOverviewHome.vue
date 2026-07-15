@@ -26,6 +26,18 @@
       </div>
     </header>
 
+    <OverviewQuickNav
+      class="ov-quick-nav"
+      :is-club-context="false"
+      :kudos-enabled="kudosEnabled"
+      :show-schedule="showSchedule"
+      :show-payroll="showPayroll"
+      :show-claims="showClaims"
+      :show-supervision="showSupervision"
+      :show-my-supervision="showMySupervision"
+      :show-chats="showChats"
+    />
+
     <div v-if="error" class="ov-error">{{ error }}</div>
 
     <OverviewMetricCards
@@ -55,7 +67,10 @@
         class="ov-mid-schedule"
         :items="todayScheduleItems"
         :loading="loading"
+        :show-virtual-book="showVirtualBook"
         @navigate="navigate"
+        @book="onBookSchedule"
+        @book-virtual="onBookVirtual"
       />
       <OverviewPayPeriodCard
         v-if="showPayroll"
@@ -126,6 +141,7 @@ import OverviewEventsCard from './OverviewEventsCard.vue';
 import OverviewNotesSnapshot from './OverviewNotesSnapshot.vue';
 import OverviewRecentActivity from './OverviewRecentActivity.vue';
 import OverviewQuickActions from './OverviewQuickActions.vue';
+import OverviewQuickNav from './OverviewQuickNav.vue';
 
 const props = defineProps({
   agencyId: { type: [Number, String], default: null },
@@ -139,6 +155,9 @@ const props = defineProps({
   showMySupervision: { type: Boolean, default: false },
   showChats: { type: Boolean, default: false },
   isSupervisor: { type: Boolean, default: false },
+  /** Show Book virtual → My Schedule calendar booking (Virtual modality) when org context exists. */
+  showVirtualBook: { type: Boolean, default: false },
+  kudosEnabled: { type: Boolean, default: false },
   enabled: { type: Boolean, default: true }
 });
 
@@ -147,7 +166,9 @@ const emit = defineEmits([
   'open-last-paycheck',
   'open-company-events',
   'open-submit-action',
-  'join-event'
+  'join-event',
+  'book-schedule',
+  'book-virtual'
 ]);
 
 const authStore = useAuthStore();
@@ -294,6 +315,14 @@ const navigate = (tab) => {
   emit('navigate', tab);
 };
 
+const onBookSchedule = () => {
+  emit('book-schedule');
+};
+
+const onBookVirtual = () => {
+  emit('book-virtual');
+};
+
 const openPaycheck = () => {
   const pid = payPeriod.value?.lastPaycheck?.payrollPeriodId;
   if (!pid) return;
@@ -344,6 +373,9 @@ const onQuickAction = (action) => {
   gap: 12px;
   flex-wrap: wrap;
   margin-bottom: -2px;
+}
+.ov-quick-nav {
+  margin-top: 2px;
 }
 .ov-header-actions {
   display: flex;

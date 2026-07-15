@@ -1,13 +1,30 @@
 <template>
   <div class="sched-wrap" :class="{ 'sched-wrap-quarter': showQuarterDetail }" :style="scheduleWrapVars" data-tour="my-schedule-grid">
     <div class="sched-toolbar" data-tour="my-schedule-toolbar">
-      <div class="sched-toolbar-top" data-tour="my-schedule-week-nav">
-        <h2 class="sched-week-title">Week of {{ weekStart }}</h2>
-        <div class="sched-week-meta">
-          <div class="sched-today-label">Today {{ todayMmdd }}</div>
-          <button class="btn btn-secondary btn-sm sched-btn" type="button" @click="goToTodayWeek" :disabled="loading" data-tour="my-schedule-today-btn">
+      <div class="sched-chrome-top" data-tour="my-schedule-week-nav">
+        <div class="sched-chrome-title-block">
+          <h2 class="sched-page-title">Schedule</h2>
+          <p class="sched-page-sub">View and manage your availability.</p>
+          <p class="sched-week-range">Week of {{ weekStart }} · Today {{ todayMmdd }}</p>
+        </div>
+        <div class="sched-chrome-nav" role="group" aria-label="Week navigation">
+          <button class="sched-nav-btn" type="button" @click="goToTodayWeek" :disabled="loading" data-tour="my-schedule-today-btn">
             Today
           </button>
+          <div class="sched-nav-arrows">
+            <button class="sched-nav-icon-btn" type="button" aria-label="Previous week" @click="prevWeek" :disabled="loading">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button class="sched-nav-icon-btn" type="button" aria-label="Next week" @click="nextWeek" :disabled="loading">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+          <button class="sched-nav-icon-btn" type="button" aria-label="Refresh schedule" title="Refresh" @click="load" :disabled="loading">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <span class="sched-nav-view-pill" title="Weekly schedule view">Week view</span>
         </div>
       </div>
       <div class="sched-toolbar-main">
@@ -34,7 +51,7 @@
               </span>
               <span class="sched-office-cta-copy">
                 <span class="sched-office-cta-title">{{ viewMode === 'office_layout' ? 'My Schedule' : 'Request office or room' }}</span>
-                <span class="sched-office-cta-sub">{{ viewMode === 'office_layout' ? 'Back to your personal calendar' : 'Submit a time for staff approval' }}</span>
+                <span class="sched-office-cta-sub">{{ viewMode === 'office_layout' ? 'Back to your personal calendar' : 'Send a time for staff approval' }}</span>
               </span>
             </button>
             <div class="sched-view-switch" role="tablist" aria-label="Schedule view" data-tour="my-schedule-view-switch">
@@ -56,8 +73,6 @@
               </button>
             </div>
           </div>
-          <button class="btn btn-secondary btn-sm sched-btn" type="button" @click="prevWeek" :disabled="loading">← Prev</button>
-          <button class="btn btn-secondary btn-sm sched-btn" type="button" @click="nextWeek" :disabled="loading">Next →</button>
         </div>
 
         <div v-if="officeReminderToast && !hideOfficeAndCalendarIntegration" class="sched-office-reminder-toast">
@@ -211,7 +226,6 @@
           </button>
 
           <button
-            v-if="hideOfficeAndCalendarIntegration"
             type="button"
             class="sched-pill"
             :class="{ on: showAllHours }"
@@ -219,9 +233,11 @@
             :aria-checked="String(!!showAllHours)"
             :disabled="loading"
             @click="showAllHours = !showAllHours"
-            title="Show full 24 hours (early morning runs, late night)"
+            :title="showAllHours
+              ? 'Switch back to working hours (default day range)'
+              : 'Show all 24 hours (12 AM–11 PM)'"
           >
-            {{ showAllHours ? 'Main hours' : 'Show all hours' }}
+            {{ showAllHours ? 'Working hours' : 'Full day (24h)' }}
           </button>
 
           <button
@@ -261,7 +277,6 @@
             Show calendars
           </button>
 
-          <button class="btn btn-secondary btn-sm sched-btn" type="button" @click="load" :disabled="loading">Refresh</button>
         </div>
       </div>
 
@@ -473,27 +488,25 @@
       </div>
 
       <div v-else-if="summary" class="sched-grid-wrap">
-      <div class="legend">
+      <div class="sched-legend" aria-label="Schedule legend">
         <template v-if="hideOfficeAndCalendarIntegration">
-          <div class="legend-note muted" style="font-size: 11px; margin-bottom: 6px;">Team meetings</div>
-          <div class="legend-item"><span class="swatch swatch-sevt"></span> Team meeting</div>
-          <div class="legend-item"><span class="swatch swatch-request"></span> Pending</div>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--sevt" aria-hidden="true"></span> Team meeting</span>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--request" aria-hidden="true"></span> Pending</span>
         </template>
         <template v-else>
-          <div class="legend-note muted" style="font-size: 11px; margin-bottom: 6px;">Block color = booking/event type; dot = agency</div>
-          <div class="legend-item"><span class="swatch swatch-request"></span> Requested (pending)</div>
-          <div class="legend-item"><span class="swatch swatch-school"></span> School assigned</div>
-          <div class="legend-item"><span class="swatch swatch-supv"></span> Supervision</div>
-          <div class="legend-item"><span class="swatch swatch-sevt"></span> Schedule event</div>
-          <div class="legend-item"><span class="swatch swatch-oa"></span> Assigned</div>
-          <div class="legend-item"><span class="swatch swatch-ot"></span> Temporary hold</div>
-          <div class="legend-item"><span class="swatch swatch-ob"></span> Booked</div>
-          <div class="legend-item"><span class="swatch swatch-intake-ip"></span> In-person intake</div>
-          <div class="legend-item"><span class="swatch swatch-intake-vi"></span> Virtual intake</div>
-          <div class="legend-item" v-if="showGoogleBusy"><span class="swatch swatch-gbusy"></span> Google busy</div>
-          <div class="legend-item" v-if="showGoogleEvents"><span class="swatch swatch-gevt"></span> Google event</div>
-          <div class="legend-item" v-if="showExternalBusy && selectedExternalCalendarIds.length"><span class="swatch swatch-ebusy"></span> Therapy Notes busy</div>
-          <div class="legend-item"><span class="cell-block-agency-dot"></span> Agency marker</div>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--request" aria-hidden="true"></span> Requested (pending)</span>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--school" aria-hidden="true"></span> School assigned</span>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--supv sched-legend-dot--ring" aria-hidden="true"></span> Supervision</span>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--sevt" aria-hidden="true"></span> Schedule event</span>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--oa" aria-hidden="true"></span> Assigned</span>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--ot sched-legend-dot--ring" aria-hidden="true"></span> Temporary hold</span>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--ob" aria-hidden="true"></span> Booked</span>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--intake-ip sched-legend-dot--ring" aria-hidden="true"></span> In-person intake</span>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--intake-vi sched-legend-dot--ring" aria-hidden="true"></span> Virtual intake</span>
+          <span v-if="showGoogleBusy" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--gbusy" aria-hidden="true"></span> Google busy</span>
+          <span v-if="showGoogleEvents" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--gevt" aria-hidden="true"></span> Google event</span>
+          <span v-if="showExternalBusy && selectedExternalCalendarIds.length" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--ebusy" aria-hidden="true"></span> Therapy Notes busy</span>
+          <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--agency" aria-hidden="true"></span> Agency</span>
         </template>
       </div>
 
@@ -512,8 +525,7 @@
           @keydown.space.prevent="toggleFocusedDay(d, $event)"
         >
           <div class="sched-head-day">
-            <div class="sched-head-dow">{{ d }}</div>
-            <div class="sched-head-date">{{ dayDateLabel(d) }}</div>
+            <div class="sched-head-dow">{{ d }} {{ dayDateLabel(d) }}</div>
           </div>
         </div>
 
@@ -578,6 +590,11 @@
                   :title="agencyBadgeTitle(b)"
                 ></span>
                 <span v-if="b.shortLabel" class="cell-block-text">{{ b.shortLabel }}</span>
+                <span
+                  v-if="b.hasPendingRequest"
+                  class="cell-block-pending-badge"
+                  :title="b.pendingRequestCount > 1 ? `${b.pendingRequestCount} pending requests` : 'Pending request'"
+                >{{ b.pendingRequestCount > 1 ? `Req×${b.pendingRequestCount}` : 'Req' }}</span>
               </div>
             </div>
           </div>
@@ -620,12 +637,31 @@
       </div>
     </div>
 
-    <div v-if="showRequestModal" class="modal-backdrop modal-backdrop--request" @click.self="closeModal">
-      <div class="modal modal--request">
-        <div class="modal-head">
-          <div class="modal-title">Request / book time</div>
-          <button class="btn btn-secondary btn-sm" type="button" @click="closeModal">Close</button>
+    <div v-if="showRequestModal" class="modal-backdrop modal-backdrop--request" data-schedule-ui="v2" @click.self="closeModal">
+      <div class="modal modal--request modal--new-request" role="dialog" aria-labelledby="nr-title">
+        <div class="nr-head">
+          <div class="nr-head-main">
+            <span class="nr-head-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none">
+                <rect x="3" y="5" width="18" height="16" rx="3" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M3 10h18" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                <path d="M12 13v5M9.5 15.5h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              </svg>
+            </span>
+            <div>
+              <div id="nr-title" class="nr-title">Schedule</div>
+              <div class="nr-subtitle">{{ modalScheduleSubtitle }}</div>
+              <div class="nr-slot-meta">{{ modalDay }} • {{ modalTimeRangeLabel }}</div>
+            </div>
+          </div>
+          <button class="nr-close" type="button" aria-label="Close" @click="closeModal">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M6 6l12 12M18 6L6 18"/>
+            </svg>
+          </button>
         </div>
+
         <!-- Admin slot info header: shows booked provider info when viewing another user's slot -->
         <div v-if="isAdminMode && modalContext.assignedProviderId && (modalContext.assignedProviderName || modalContext.bookedProviderName)" class="admin-slot-info-header">
           <div class="admin-slot-info-row">
@@ -641,55 +677,315 @@
           </div>
         </div>
 
-        <div class="muted" style="margin-top: 6px;">
-          {{ modalDay }} • {{ modalTimeRangeLabel }}
-        </div>
-        <div v-if="canUnrequestAllPending" style="margin-top: 8px;">
-          <button
-            class="btn btn-secondary btn-sm"
-            type="button"
-            :disabled="submitting"
-            @click="unrequestAllPendingRequests"
-          >
-            {{ submitting ? 'Updating…' : `Unrequest all pending requests (${pendingRequestTotalCount})` }}
-          </button>
-        </div>
+        <div class="nr-layout">
+          <aside class="nr-sidebar">
+            <div class="nr-sidebar-title">Actions</div>
+            <div class="nr-action-list">
+              <button
+                v-if="canUnrequestAllPending"
+                type="button"
+                class="nr-action"
+                :disabled="submitting"
+                @click="unrequestAllPendingRequests({ keepModalOpen: true })"
+              >
+                <span class="nr-action-icon tone-cyan" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
+                    <path d="M4 8h16v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8z" />
+                    <path d="M4 8l2.2-3.2A2 2 0 0 1 7.9 4h8.2a2 2 0 0 1 1.7.8L20 8" />
+                    <path d="M9 13h6" stroke-linecap="round"/>
+                  </svg>
+                </span>
+                <span class="nr-action-copy">
+                  <span class="nr-action-label">Unrequest all pending requests ({{ pendingRequestTotalCount }})</span>
+                  <span class="nr-action-desc">Clear all outstanding requests</span>
+                </span>
+                <span class="nr-action-chevron" aria-hidden="true">›</span>
+              </button>
 
-        <div class="modal-body">
-          <div class="action-grid">
-            <button
-              v-for="act in visibleQuickActions"
-              :key="`act-${act.id}`"
-              type="button"
-              class="action-chip"
-              :class="[ `tone-${act.tone || 'slate'}`, { on: requestType === act.id } ]"
-              :disabled="!!act.disabledReason"
-              :title="act.disabledReason || act.description"
-              @click="requestType = act.id; requestTypeChosenByUser = true"
-            >
-              <span class="action-chip-label">{{ (hideOfficeAndCalendarIntegration && act.id === 'agency_meeting') ? 'Team meeting' : act.label }}</span>
-              <span v-if="act.disabledReason" class="action-chip-note">{{ act.disabledReason }}</span>
-              <span v-else-if="act.description" class="action-chip-note">{{ act.description }}</span>
-            </button>
-          </div>
-          <div v-if="!visibleQuickActions.length" class="modern-help" style="margin-top: 10px;">
-            No actions are available for this slot. Choose an assigned/booked office slot or select an office from the toolbar.
-          </div>
+              <button
+                v-for="act in visibleQuickActions"
+                :key="`act-${act.id}`"
+                type="button"
+                class="nr-action"
+                :class="[{ on: requestType === act.id }, `icon-${quickActionIconKey(act.id)}`]"
+                :disabled="!!act.disabledReason"
+                :title="act.disabledReason || act.description"
+                @click="requestType = act.id; requestTypeChosenByUser = true"
+              >
+                <span class="nr-action-icon" :class="`tone-${act.tone || 'slate'}`" aria-hidden="true">
+                  <!-- office -->
+                  <svg v-if="quickActionIconKey(act.id) === 'office'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
+                    <path d="M4 20V7a2 2 0 0 1 2-2h5v15H4zM13 20V4h5a2 2 0 0 1 2 2v14h-7z"/>
+                    <path d="M7 9h2M7 12h2M16 8h2M16 11h2M16 14h2" stroke-linecap="round"/>
+                  </svg>
+                  <!-- school daytime -->
+                  <svg v-else-if="quickActionIconKey(act.id) === 'school'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
+                    <rect x="3" y="5" width="18" height="15" rx="2"/>
+                    <path d="M3 10h18M8 3v4M16 3v4M8 14h2M12 14h2M16 14h2M8 17h2M12 17h2" stroke-linecap="round"/>
+                  </svg>
+                  <!-- individual session -->
+                  <svg v-else-if="quickActionIconKey(act.id) === 'session'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
+                    <rect x="3" y="5" width="18" height="14" rx="2"/>
+                    <circle cx="12" cy="11" r="2.5"/>
+                    <path d="M8 16c.7-1.5 2-2.3 4-2.3s3.3.8 4 2.3" stroke-linecap="round"/>
+                  </svg>
+                  <!-- portal intake -->
+                  <svg v-else-if="quickActionIconKey(act.id) === 'portal'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
+                    <circle cx="12" cy="12" r="8"/>
+                    <path d="M4 12h16M12 4c2.5 2.8 2.5 13.2 0 16M12 4c-2.5 2.8-2.5 13.2 0 16" stroke-linecap="round"/>
+                  </svg>
+                  <!-- meeting -->
+                  <svg v-else-if="quickActionIconKey(act.id) === 'meeting'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
+                    <circle cx="9" cy="9" r="3"/><circle cx="17" cy="10" r="2.5"/>
+                    <path d="M3.5 19c.6-3 2.8-4.5 5.5-4.5S14 16 14.5 19M14 14.5c1.7.2 3.2 1.2 3.8 3.5"/>
+                  </svg>
+                  <!-- person -->
+                  <svg v-else-if="quickActionIconKey(act.id) === 'person'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
+                    <circle cx="12" cy="8" r="3.2"/>
+                    <path d="M5 19c1-3.5 3.4-5.2 7-5.2S18 15.5 19 19"/>
+                  </svg>
+                  <!-- hold / clock -->
+                  <svg v-else-if="quickActionIconKey(act.id) === 'hold'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
+                    <circle cx="12" cy="12" r="8"/>
+                    <path d="M12 8v5l3 2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <!-- sun -->
+                  <svg v-else-if="quickActionIconKey(act.id) === 'sun'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
+                    <circle cx="12" cy="12" r="4"/>
+                    <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4l1.4-1.4M17 7l1.4-1.4" stroke-linecap="round"/>
+                  </svg>
+                  <!-- hourglass -->
+                  <svg v-else-if="quickActionIconKey(act.id) === 'hourglass'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
+                    <path d="M7 4h10M7 20h10M8 4c0 4 4 4 4 8s-4 4-4 8M16 4c0 4-4 4-4 8s4 4 4 8"/>
+                  </svg>
+                  <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
+                    <rect x="3" y="5" width="18" height="15" rx="2"/>
+                    <path d="M3 10h18" stroke-linecap="round"/>
+                  </svg>
+                </span>
+                <span class="nr-action-copy">
+                  <span class="nr-action-label">{{ quickActionDisplayLabel(act) }}</span>
+                  <span class="nr-action-desc">{{ act.disabledReason || quickActionDisplayDescription(act) }}</span>
+                </span>
+              </button>
+            </div>
 
-          <div v-if="actionRequiresAgency && actionAgencyOptions.length" style="margin-top: 10px;">
+            <div v-if="!visibleQuickActions.length" class="nr-empty-actions">
+              No actions are available for this slot. Choose an assigned/booked office slot or select an office from the toolbar.
+            </div>
+
+            <div class="nr-tip">
+              <span class="nr-tip-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7">
+                  <path d="M9 18h6M10 21h4"/>
+                  <path d="M12 3a6 6 0 0 0-3.5 10.8c.6.4 1 1.1 1.1 1.9h4.8c.1-.8.5-1.5 1.1-1.9A6 6 0 0 0 12 3z"/>
+                </svg>
+              </span>
+              <div>
+                <div class="nr-tip-title">Tip</div>
+                <p class="nr-tip-text">
+                  <template v-if="!canScheduleSupervisionFromGrid && !hideOfficeAndCalendarIntegration">
+                    <strong>Supervision</strong> can be scheduled only by supervisors.
+                    If you are a supervisee, open <strong>My Supervision</strong> to view and join sessions your supervisor books.
+                  </template>
+                  <template v-else>
+                    Use <strong>Individual session → Virtual</strong> to book a video session without an office.
+                    Use <strong>Open for new clients</strong> for portal intake hours (not office-tied).
+                    <strong>School daytime availability</strong> is for school assignment blocks — not telehealth.
+                  </template>
+                </p>
+              </div>
+            </div>
+          </aside>
+
+          <div class="nr-main modal-body">
+          <div v-if="actionRequiresAgency && actionAgencyOptions.length" class="nr-field">
             <label class="lbl">Agency for this action</label>
-            <select v-model.number="selectedActionAgencyId" class="input" :disabled="actionAgencyOptions.length === 1">
-              <option v-for="opt in actionAgencyOptions" :key="`action-agency-${opt.id}`" :value="Number(opt.id)">
-                {{ opt.label }}
-              </option>
-            </select>
-            <div class="muted" style="margin-top: 6px; font-size: 12px;">
-              Schedule view can include multiple agencies; this chooses where the new item is created. For supervision groups, use the in-section all-agencies toggle to widen participant discovery.
+            <div class="nr-input-wrap">
+              <span class="nr-input-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7">
+                  <path d="M4 20V8l4-3 4 3v12H4zM12 20V6l4-2 4 2v14h-8z"/>
+                </svg>
+              </span>
+              <select v-model.number="selectedActionAgencyId" class="input nr-input" :disabled="actionAgencyOptions.length === 1">
+                <option v-for="opt in actionAgencyOptions" :key="`action-agency-${opt.id}`" :value="Number(opt.id)">
+                  {{ opt.label }}
+                </option>
+              </select>
+            </div>
+            <div class="muted nr-help">
+              Chooses which organization this action is created under.
             </div>
           </div>
 
-          <div v-if="requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)" class="muted" style="margin-top: 6px;">
-            School daytime availability must be on weekdays and between 06:00 and 18:00.
+          <div v-if="requestType === 'school' && !schoolWindowValid" class="nr-warn">
+            School daytime availability must be on weekdays between 6 AM and 6 PM.
+          </div>
+          <div v-if="requestType === 'portal_intake'" class="nr-info-banner">
+            <strong>Not tied to an office.</strong>
+            This publishes virtual intake hours to the online portal so new clients can request time.
+            You can still request an office for the same window below if you want a room later.
+            <label
+              v-if="Number(selectedOfficeLocationId || 0) > 0"
+              class="sched-toggle"
+              style="margin-top: 10px; display: flex;"
+            >
+              <input type="checkbox" v-model="sessionAlsoRequestOffice" />
+              <span>Also request an office for this time (optional)</span>
+            </label>
+            <div v-else class="muted nr-help" style="margin-top: 8px;">
+              Select an office in the toolbar if you also want to request a room for this window.
+            </div>
+          </div>
+          <div v-if="requestType === 'individual_session'" class="nr-field" style="margin-top: 0;">
+            <label class="lbl">Session modality</label>
+            <div class="nr-modality-row" role="group" aria-label="Session modality">
+              <button
+                type="button"
+                class="nr-modality"
+                :class="{ on: bookingModality === 'TELEHEALTH' }"
+                @click="bookingModality = 'TELEHEALTH'"
+              >
+                Virtual
+              </button>
+              <button
+                type="button"
+                class="nr-modality"
+                :class="{ on: bookingModality === 'IN_PERSON' }"
+                @click="bookingModality = 'IN_PERSON'"
+              >
+                In-person
+              </button>
+            </div>
+            <div v-if="bookingModality === 'TELEHEALTH'" class="muted nr-help">
+              Virtual sessions do not require an office or prior “available” hours.
+            </div>
+            <div v-else-if="bookingModality === 'IN_PERSON'" class="muted nr-help">
+              In-person needs an office selected in the schedule toolbar.
+            </div>
+            <div v-else class="muted nr-help">Choose Virtual or In-person to continue.</div>
+
+            <div v-if="bookingModality === 'TELEHEALTH'" class="nr-virtual-platform" style="margin-top: 12px;">
+              <label class="sched-toggle nr-virtual-link-toggle">
+                <input type="checkbox" v-model="linkPlatformVideoRoom" />
+                <span>Link platform counseling video room</span>
+              </label>
+              <div v-if="linkPlatformVideoRoom" class="muted nr-help" style="margin-top: 6px;">
+                Creates a Vonage video room on the platform. Share the join link with clients or guardians after scheduling.
+              </div>
+
+              <div v-if="linkPlatformVideoRoom" class="nr-virtual-share" style="margin-top: 12px;">
+                <label class="lbl">Session join link</label>
+                <div v-if="virtualSessionShareUrl" class="nr-share-row">
+                  <input :value="virtualSessionShareUrl" class="input nr-share-input" type="text" readonly />
+                  <button type="button" class="btn btn-secondary btn-sm" @click="copyVirtualSessionShareUrl">
+                    {{ virtualSessionShareCopied ? 'Copied' : 'Copy link' }}
+                  </button>
+                </div>
+                <p v-if="virtualSessionShareUrl" class="muted nr-help" style="margin-top: 6px;">
+                  Link is active — share it with selected clients or guardians, then open the room when you are ready.
+                </p>
+                <p v-else class="muted nr-help" style="margin-top: 4px;">
+                  The shareable link appears here after you schedule. It does not work until the session is saved.
+                </p>
+              </div>
+
+              <template v-if="linkPlatformVideoRoom">
+                <div v-if="virtualSessionClientsLoading" class="muted" style="margin-top: 10px;">
+                  Loading your clients…
+                </div>
+                <label class="lbl" style="margin-top: 10px;">Clients (optional)</label>
+                <div class="muted nr-help">
+                  {{ virtualSessionIsGroup ? 'Group virtual session — add clients who should attend.' : 'No clients added yet — this stays an individual virtual session. Add a client to make it a group session.' }}
+                </div>
+                <label class="sched-toggle" style="margin-top: 8px;">
+                  <input type="checkbox" v-model="virtualSessionIncludeGuardians" />
+                  <span>Include guardians</span>
+                </label>
+                <input
+                  v-model="virtualSessionParticipantSearch"
+                  class="input"
+                  type="text"
+                  placeholder="Search clients or guardians"
+                  style="margin-top: 8px; margin-bottom: 8px;"
+                />
+                <div class="row" style="gap: 8px; flex-wrap: wrap;">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="addAllFilteredVirtualSessionParticipants">
+                    Add all shown
+                  </button>
+                  <button class="btn btn-secondary btn-sm" type="button" @click="clearVirtualSessionParticipants">
+                    Clear selection
+                  </button>
+                </div>
+                <div class="muted" style="margin-top: 6px;">
+                  Selected: {{ virtualSessionSelectedCount }}
+                </div>
+                <div v-if="virtualSessionParticipantChips.length" class="supervision-selected-chips" style="margin-top: 6px;">
+                  <button
+                    v-for="chip in virtualSessionParticipantChips"
+                    :key="`virtual-attendee-${chip.key}`"
+                    type="button"
+                    class="supervision-chip"
+                    @click="removeVirtualSessionParticipant(chip)"
+                  >
+                    <span>{{ chip.label }}</span>
+                    <span aria-hidden="true">×</span>
+                  </button>
+                </div>
+                <div v-if="filteredVirtualSessionClients.length" style="margin-top: 10px;">
+                  <div class="muted nr-help" style="margin-bottom: 6px;">Clients</div>
+                  <div class="participant-scroll">
+                    <div class="participant-grid">
+                      <button
+                        v-for="c in filteredVirtualSessionClients"
+                        :key="`virtual-client-${c.id}`"
+                        type="button"
+                        class="participant-card"
+                        :class="{ on: virtualSessionSelectedClientIdSet.has(Number(c.id)) }"
+                        @click="toggleVirtualSessionClient(Number(c.id))"
+                      >
+                        <span class="participant-name">{{ c.displayName }}</span>
+                        <span class="participant-role">{{ virtualSessionClientRoleLabel(c) }}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div v-if="virtualSessionIncludeGuardians && filteredVirtualSessionGuardians.length" style="margin-top: 10px;">
+                  <div class="muted nr-help" style="margin-bottom: 6px;">Guardians</div>
+                  <div class="participant-scroll">
+                    <div class="participant-grid">
+                      <button
+                        v-for="g in filteredVirtualSessionGuardians"
+                        :key="`virtual-guardian-${g.userId}-${g.clientId}`"
+                        type="button"
+                        class="participant-card"
+                        :class="{ on: virtualSessionSelectedGuardianKeySet.has(virtualSessionGuardianKey(g)) }"
+                        @click="toggleVirtualSessionGuardian(g)"
+                      >
+                        <span class="participant-name">{{ g.displayName }}</span>
+                        <span class="participant-role">Guardian{{ g.clientName ? ` · ${g.clientName}` : '' }}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  v-else-if="!virtualSessionClientsLoading && !filteredVirtualSessionClients.length && (!virtualSessionIncludeGuardians || !filteredVirtualSessionGuardians.length)"
+                  class="muted"
+                  style="margin-top: 6px;"
+                >
+                  No matching clients{{ virtualSessionIncludeGuardians ? ' or guardians' : '' }} for this agency.
+                </div>
+              </template>
+            </div>
+
+            <label
+              v-if="bookingModality === 'TELEHEALTH' && Number(selectedOfficeLocationId || 0) > 0"
+              class="sched-toggle"
+              style="margin-top: 8px;"
+            >
+              <input type="checkbox" v-model="sessionAlsoRequestOffice" />
+              <span>Also request an office room for this time (optional)</span>
+            </label>
           </div>
           <div v-if="requestType === 'supervision' && supervisionProvidersLoading" class="muted" style="margin-top: 6px;">
             Loading providers…
@@ -937,7 +1233,14 @@
             <div class="muted" style="margin-top: 6px;">
               Busy participants can still be invited, but they are marked above before booking.
             </div>
-            <label v-if="!summary?.twilioVideoConfigured" class="sched-toggle" style="margin-top: 8px;">
+            <label v-if="scheduleVideoConfigured" class="sched-toggle" style="margin-top: 8px;">
+              <input type="checkbox" v-model="linkMeetingPlatformVideo" />
+              <span>Link platform video room</span>
+            </label>
+            <div v-if="scheduleVideoConfigured && linkMeetingPlatformVideo" class="muted nr-help" style="margin-top: 6px;">
+              Creates an in-app video room for this meeting. The join link is added to the calendar invite.
+            </div>
+            <label v-if="!scheduleVideoConfigured || !linkMeetingPlatformVideo" class="sched-toggle" style="margin-top: 8px;">
               <input type="checkbox" v-model="createMeetingMeetLink" />
               <span>Create Google Meet link</span>
             </label>
@@ -962,7 +1265,10 @@
             </div>
           </div>
 
-          <div v-if="requestType === 'office' || requestType === 'office_request_only' || requestType === 'individual_session' || requestType === 'group_session'" style="margin-top: 10px;">
+          <div
+            v-if="showSessionOfficeBookingPanel"
+            style="margin-top: 10px;"
+          >
             <div v-if="!selectedOfficeLocationId" class="muted">
               Select an office from the toolbar above to view open/assigned/booked time and place a booking request.
             </div>
@@ -1034,12 +1340,7 @@
                   </option>
                 </select>
 
-                <label class="lbl" style="margin-top: 10px;">Modality (optional)</label>
-                <select v-model="bookingModality" class="input" :disabled="bookingMetadataLoading">
-                  <option value="">Optional modality…</option>
-                  <option value="IN_PERSON">In person</option>
-                  <option value="TELEHEALTH">Telehealth</option>
-                </select>
+                <!-- Modality is chosen via Virtual / In-person controls above for individual sessions -->
               </template>
 
               <label v-if="viewMode === 'office_layout'" class="lbl" style="margin-top: 10px;">Room</label>
@@ -1221,16 +1522,27 @@
           </div>
 
           <template v-if="requestType !== 'admin_assign' && requestType !== 'cancel_booking'">
-            <label class="lbl" style="margin-top: 10px;">End time</label>
-            <select
-              v-model.number="modalEndHour"
-              class="input"
-              :disabled="disableEndTimeInput"
-            >
-              <option v-for="h in endHourOptions" :key="`end-${h}`" :value="h">
-                {{ hourLabel(h) }}
-              </option>
-            </select>
+            <div class="nr-field">
+              <label class="lbl">End time</label>
+              <div class="nr-input-wrap">
+                <span class="nr-input-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7">
+                    <circle cx="12" cy="12" r="8"/>
+                    <path d="M12 8v5l3 2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </span>
+                <select
+                  v-model.number="modalEndHour"
+                  class="input nr-input"
+                  :disabled="disableEndTimeInput"
+                >
+                  <option v-for="h in endHourOptions" :key="`end-${h}`" :value="h">
+                    {{ hourLabel(h) }}
+                  </option>
+                </select>
+              </div>
+              <div class="muted nr-help">When this should end.</div>
+            </div>
 
             <div v-if="canUseQuarterHourInput && !disableEndTimeInput" class="row" style="gap: 8px; margin-top: 8px;">
               <label class="sched-inline compact" style="flex: 1;">
@@ -1243,10 +1555,42 @@
               </label>
             </div>
 
-            <label class="lbl" style="margin-top: 10px;">Notes (optional)</label>
-            <textarea v-model="requestNotes" class="input" rows="3" :placeholder="requestNotesPlaceholder" />
+            <div class="nr-field">
+              <label class="lbl">Notes (optional)</label>
+              <div class="nr-notes-wrap">
+                <textarea
+                  v-model="requestNotes"
+                  class="input nr-notes"
+                  rows="3"
+                  maxlength="500"
+                  :placeholder="requestNotesPlaceholder"
+                />
+                <span class="nr-notes-count">{{ requestNotesCount }}/{{ REQUEST_NOTES_MAX }}</span>
+              </div>
+            </div>
+
+            <div class="nr-summary">
+              <div class="nr-summary-title">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+                  <rect x="6" y="3" width="12" height="18" rx="2"/>
+                  <path d="M9 8h6M9 12h6M9 16h4" stroke-linecap="round"/>
+                </svg>
+                Summary
+              </div>
+              <dl class="nr-summary-grid">
+                <div><dt>Type</dt><dd>{{ virtualSessionSummaryTypeLabel }}</dd></div>
+                <div v-if="isVirtualTelehealthSession && linkPlatformVideoRoom"><dt>Video</dt><dd>Platform counseling room</dd></div>
+                <div v-if="virtualSessionSelectedCount"><dt>Attendees</dt><dd>{{ virtualSessionSelectedCount }}</dd></div>
+                <div><dt>Agency</dt><dd>{{ selectedActionAgencyLabel }}</dd></div>
+                <div><dt>End time</dt><dd>{{ requestSummaryEndTimeLabel }}</dd></div>
+                <div><dt>Notes</dt><dd>{{ requestNotes.trim() ? requestNotes.trim() : '—' }}</dd></div>
+              </dl>
+            </div>
 
             <div v-if="modalError" class="error" style="margin-top: 10px;">{{ modalError }}</div>
+            <div v-else-if="requestSubmitBlockedReason && requestType" class="muted nr-help" style="margin-top: 8px;">
+              {{ requestSubmitBlockedReason }}
+            </div>
           </template>
 
           <!-- Cancel booking form (admin only) -->
@@ -1414,27 +1758,25 @@
               </button>
             </div>
           </div>
-        </div>
 
-        <div v-if="!intakeConfirmStep && requestType !== 'admin_assign' && requestType !== 'cancel_booking'" class="modal-actions">
+          </div><!-- /.nr-main -->
+        </div><!-- /.nr-layout -->
+
+        <div v-if="!intakeConfirmStep && requestType !== 'admin_assign' && requestType !== 'cancel_booking'" class="nr-footer">
+          <button class="btn btn-secondary nr-btn-cancel" type="button" @click="closeModal">
+            Cancel
+          </button>
           <button
-            class="btn btn-primary"
+            class="btn nr-btn-submit"
             type="button"
             @click="submitRequest"
-            :disabled="
-              submitting ||
-              !requestType ||
-              ((requestType === 'office' || requestType === 'individual_session' || requestType === 'group_session') && (bookingMetadataLoading || !officeBookingValid || !!bookingClassificationInvalidReason)) ||
-              (requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)) ||
-              (requestType === 'supervision' && !supervisionCanSubmit) ||
-              ((requestType === 'agency_meeting' || requestType === 'huddle') && !meetingCanSubmit) ||
-              ((requestType === 'intake_virtual_on' || requestType === 'intake_virtual_off' || requestType === 'intake_inperson_on' || requestType === 'intake_inperson_off') && !modalContext.officeEventId) ||
-              (requestType === 'extend_assignment' && !(modalContext.standingAssignmentId > 0)) ||
-              (requestType === 'forfeit_slot' && (!ackForfeit || !selectedActionContexts().some((x) => (Number(x?.officeEventId || 0) > 0 || Number(x?.standingAssignmentId || 0) > 0) && Number(x?.officeLocationId || 0) > 0))) ||
-              (isScheduleEventRequestType && !scheduleEventCanSubmit)
-            "
+            :disabled="requestSubmitDisabled"
+            :title="requestSubmitBlockedReason || submitActionLabel"
           >
-            {{ submitting ? 'Submitting…' : submitActionLabel }}
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path d="M4 12l15-8-4 16-4-6-7-2z" stroke-linejoin="round"/>
+            </svg>
+            {{ submitting ? submitBusyLabel : submitActionLabel }}
           </button>
         </div>
       </div>
@@ -1994,8 +2336,10 @@
 </template>
 
 <script setup>
+import './schedule-new-request-modal.css';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
+import { createCounselingSession, openCounselingFromAppointment } from '../../services/counselingApi.js';
 import { isSupervisor } from '../../utils/helpers.js';
 import api from '../../services/api';
 import { getScheduleSummary, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
@@ -2030,6 +2374,7 @@ const props = defineProps({
 const emit = defineEmits(['update:weekStartYmd', 'open-skill-builders-programs', 'open-company-events-calendar']);
 
 const route = useRoute();
+const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 
@@ -2182,15 +2527,16 @@ const dayIdxFromWeekStartMonday = (dayName) => {
   return idx;
 };
 
-// Club context: runners start early. Main view 5–22 (5 AM–10 PM); expand to full 0–23.
+// Default working-hours band; Full day (24h) expands to 0–23 (12 AM–11 PM).
 const showAllHours = ref(false);
 const hours = computed(() => {
-  if (props.hideOfficeAndCalendarIntegration) {
-    return showAllHours.value
-      ? Array.from({ length: 24 }, (_, i) => i) // 0..23 full 24h
-      : Array.from({ length: 18 }, (_, i) => 5 + i); // 5..22 main part of day
+  if (showAllHours.value) {
+    return Array.from({ length: 24 }, (_, i) => i); // 0..23 full 24h
   }
-  return Array.from({ length: 15 }, (_, i) => 7 + i); // 7..21 default
+  if (props.hideOfficeAndCalendarIntegration) {
+    return Array.from({ length: 18 }, (_, i) => 5 + i); // 5..22 club / early starts
+  }
+  return Array.from({ length: 15 }, (_, i) => 7 + i); // 7..21 default clinical day
 });
 const gridMinHour = computed(() => (hours.value?.length ? Math.min(...hours.value) : 7));
 const gridMaxHour = computed(() => (hours.value?.length ? Math.max(...hours.value) + 1 : 22));
@@ -2256,6 +2602,13 @@ const hideWeekendPrefsKey = computed(() => {
   return `schedule.hideWeekend.v1:${uid}`;
 });
 
+const showAllHoursPrefsKey = computed(() => {
+  if (props.mode !== 'self') return '';
+  const uid = Number(authStore.user?.id || props.userId || 0);
+  if (!uid) return '';
+  return `schedule.showAllHours.v1:${uid}`;
+});
+
 const lastCalendarPrefs = ref(null); // { showGoogleBusy, showGoogleEvents, selectedExternalCalendarIds }
 const overlayPrefsLoaded = ref(false);
 const shouldDefaultSelectAllExternal = ref(false);
@@ -2300,6 +2653,29 @@ const saveHideWeekendPref = () => {
   }
 };
 
+const loadShowAllHoursPref = () => {
+  if (!showAllHoursPrefsKey.value) return null;
+  try {
+    const raw = window?.localStorage?.getItem?.(showAllHoursPrefsKey.value);
+    if (raw === null || raw === undefined) return null;
+    const value = String(raw).trim().toLowerCase();
+    if (value === '1' || value === 'true') return true;
+    if (value === '0' || value === 'false') return false;
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+const saveShowAllHoursPref = () => {
+  if (!showAllHoursPrefsKey.value) return;
+  try {
+    window?.localStorage?.setItem?.(showAllHoursPrefsKey.value, showAllHours.value ? '1' : '0');
+  } catch {
+    // ignore best-effort persistence
+  }
+};
+
 const saveOverlayPrefs = () => {
   if (!overlayPrefsKey.value) return;
   try {
@@ -2311,6 +2687,7 @@ const saveOverlayPrefs = () => {
       hideExternalIcsTitles: !!hideExternalIcsTitles.value,
       selectedExternalCalendarIds: coerceIdArray(selectedExternalCalendarIds.value),
       hideWeekend: !!hideWeekend.value,
+      showAllHours: !!showAllHours.value,
       viewMode: String(viewMode.value || 'open_finder'),
       lastCalendarPrefs: lastCalendarPrefs.value
         ? {
@@ -2469,6 +2846,125 @@ const openQuickOfficeRoomRequest = async () => {
   });
 };
 
+/**
+ * Dashboard overview "Book" / "Book virtual" deep-link:
+ * open today's slot action modal on the personal schedule (existing booking flow).
+ */
+const openQuickBook = async ({ virtual = false } = {}) => {
+  if (!canBookFromGrid.value) {
+    officeReminderToast.value = 'Open a time on the schedule to book.';
+    setTimeout(() => { officeReminderToast.value = ''; }, 5000);
+    return;
+  }
+  // Prefer personal calendar so clinical session booking is available without office layout.
+  if (viewMode.value === 'office_layout') {
+    viewMode.value = 'open_finder';
+    await nextTick();
+  }
+  if (!props.hideOfficeAndCalendarIntegration) {
+    const offices = officeLocations.value || [];
+    if (!Number(selectedOfficeLocationId.value || 0) && offices.length === 1) {
+      selectedOfficeLocationId.value = Number(offices[0].id);
+    }
+  }
+  const ymd = String(todayLocalYmd.value || weekStart.value || '').slice(0, 10);
+  const dayName = dayNameForDateYmd(ymd) || 'Monday';
+  const nowHour = new Date().getHours();
+  const hour = Math.max(7, Math.min(20, Number.isFinite(nowHour) ? nowHour : 9));
+  const flags = effectiveAgencyFeatureFlags.value || {};
+  const hasClinicalOrLearning = !!(flags.hasClinicalOrg || flags.hasLearningOrg);
+  const hasOffice = Number(selectedOfficeLocationId.value || 0) > 0;
+  let initialRequestType = '';
+  if (virtual) {
+    // Virtual session is always Individual session + Telehealth (office optional).
+    initialRequestType = 'individual_session';
+  } else if (hasClinicalOrLearning && hasOffice) {
+    initialRequestType = 'individual_session';
+  } else if (!props.hideOfficeAndCalendarIntegration && hasOffice) {
+    initialRequestType = 'office_request_only';
+  } else {
+    initialRequestType = 'individual_session';
+  }
+  openSlotActionModal({
+    dayName,
+    hour,
+    dateYmd: ymd,
+    preserveSelectionRange: false,
+    initialRequestType,
+    initialModality: virtual ? 'TELEHEALTH' : (hasOffice ? '' : 'TELEHEALTH'),
+    actionSource: virtual ? 'overview_book_virtual' : 'overview_book'
+  });
+  if (virtual) {
+    officeReminderToast.value = hasOffice
+      ? 'Virtual session selected — confirm time and submit (office is optional for telehealth).'
+      : 'Virtual session selected — no office required. Confirm time and submit.';
+    setTimeout(() => { officeReminderToast.value = ''; }, 5500);
+  } else if (!hasOffice && !props.hideOfficeAndCalendarIntegration) {
+    officeReminderToast.value = 'Choose Virtual for an office-free session, or pick an office for in-person.';
+    setTimeout(() => { officeReminderToast.value = ''; }, 6000);
+  } else {
+    officeReminderToast.value = 'Adjust the time if needed, then choose a booking type.';
+    setTimeout(() => { officeReminderToast.value = ''; }, 4500);
+  }
+};
+
+const clearScheduleActionQuery = () => {
+  if (!route.query?.scheduleAction) return;
+  const nextQuery = { ...route.query };
+  delete nextQuery.scheduleAction;
+  router.replace({ query: nextQuery }).catch(() => {});
+};
+
+const waitForScheduleReady = async (timeoutMs = 4500) => {
+  await nextTick();
+  // Deferred load may not have flipped `loading` yet — give it a beat.
+  if (!loading.value) {
+    await new Promise((r) => setTimeout(r, 80));
+  }
+  if (!loading.value && (officeLocations.value || []).length) return;
+  if (!loading.value) {
+    // Wait for load to start, then finish (or timeout).
+    await new Promise((resolve) => {
+      let stopLoading = null;
+      const finish = () => {
+        stopBoot?.();
+        stopLoading?.();
+        resolve();
+      };
+      const stopBoot = watch(loading, (isLoading) => {
+        if (!isLoading) return;
+        stopBoot();
+        stopLoading = watch(loading, (still) => {
+          if (!still) finish();
+        });
+      });
+      setTimeout(finish, timeoutMs);
+    });
+    return;
+  }
+  await new Promise((resolve) => {
+    const stop = watch(loading, (isLoading) => {
+      if (!isLoading) {
+        stop();
+        resolve();
+      }
+    });
+    setTimeout(() => {
+      stop();
+      resolve();
+    }, timeoutMs);
+  });
+};
+
+const consumeScheduleActionQuery = async () => {
+  const action = String(route.query?.scheduleAction || '').trim().toLowerCase();
+  if (!action || (action !== 'book' && action !== 'book_virtual')) return;
+  clearScheduleActionQuery();
+  // Wait for schedule/office locations so session booking can preselect an office when possible.
+  await waitForScheduleReady();
+  await openQuickBook({ virtual: action === 'book_virtual' });
+};
+
 const loadSelfScheduleAgencies = async () => {
   if (props.mode !== 'self') {
     selfScheduleAgencyOptions.value = [];
@@ -2517,6 +3013,10 @@ try {
       hideWeekend.value = dedicatedHideWeekend !== null
         ? dedicatedHideWeekend
         : (saved.hideWeekend !== undefined ? !!saved.hideWeekend : true);
+      const dedicatedShowAllHours = loadShowAllHoursPref();
+      showAllHours.value = dedicatedShowAllHours !== null
+        ? dedicatedShowAllHours
+        : !!saved.showAllHours;
       viewMode.value = saved.viewMode === 'office_layout' ? 'office_layout' : 'open_finder';
       lastCalendarPrefs.value = saved.lastCalendarPrefs ? { ...saved.lastCalendarPrefs } : null;
       // If saved selection is empty, we do NOT auto-select all — user explicitly hid calendars.
@@ -2529,6 +3029,8 @@ try {
       showOfficeOverlay.value = true;
       const dedicatedHideWeekend = loadHideWeekendPref();
       hideWeekend.value = dedicatedHideWeekend !== null ? dedicatedHideWeekend : true;
+      const dedicatedShowAllHours = loadShowAllHoursPref();
+      showAllHours.value = dedicatedShowAllHours !== null ? dedicatedShowAllHours : false;
       shouldDefaultSelectAllExternal.value = true;
     }
   }
@@ -2566,7 +3068,19 @@ onMounted(() => {
   joinPromptTimer = setInterval(() => {
     joinPromptNowMs.value = Date.now();
   }, 30000);
+  // Deep-link from dashboard overview Book / Book virtual CTAs.
+  void consumeScheduleActionQuery();
 });
+
+watch(
+  () => String(route.query?.scheduleAction || ''),
+  (action) => {
+    const a = String(action || '').trim().toLowerCase();
+    if (a === 'book' || a === 'book_virtual') {
+      void consumeScheduleActionQuery();
+    }
+  }
+);
 
 onUnmounted(() => {
   clearSupvMeetPolling();
@@ -3313,7 +3827,7 @@ watch(externalCalendarsAvailable, (next) => {
 });
 
 // Persist overlay/view settings (provider UX only).
-watch([showGoogleBusy, showGoogleEvents, showExternalBusy, showOfficeOverlay, hideExternalIcsTitles, selectedExternalCalendarIds, hideWeekend, viewMode], () => {
+watch([showGoogleBusy, showGoogleEvents, showExternalBusy, showOfficeOverlay, hideExternalIcsTitles, selectedExternalCalendarIds, hideWeekend, showAllHours, viewMode], () => {
   if (props.mode !== 'self' || !overlayPrefsLoaded.value) return;
   saveOverlayPrefs();
 }, { deep: true });
@@ -3321,6 +3835,11 @@ watch([showGoogleBusy, showGoogleEvents, showExternalBusy, showOfficeOverlay, hi
 watch(hideWeekend, () => {
   if (props.mode !== 'self') return;
   saveHideWeekendPref();
+});
+
+watch(showAllHours, () => {
+  if (props.mode !== 'self') return;
+  saveShowAllHoursPref();
 });
 
 const prevWeek = () => {
@@ -3385,15 +3904,17 @@ const pendingRequestTotalCount = computed(() => {
 
 const canUnrequestAllPending = computed(() => props.mode === 'self' && pendingRequestTotalCount.value > 0);
 
-const unrequestAllPendingRequests = async () => {
+const unrequestAllPendingRequests = async ({ keepModalOpen = false } = {}) => {
   if (!canUnrequestAllPending.value) return;
   try {
     submitting.value = true;
     modalError.value = '';
-    await api.post('/availability/me/requests/unrequest-all');
+    await api.post('/availability/me/requests/unrequest-all', {
+      agencyId: effectiveAgencyId.value || undefined
+    });
     invalidateScheduleSummaryCacheForUser(props.userId);
     await load();
-    closeModal();
+    if (!keepModalOpen) closeModal();
   } catch (e) {
     modalError.value = e.response?.data?.error?.message || 'Failed to unrequest pending availability requests.';
   } finally {
@@ -4247,16 +4768,32 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     });
   }
 
+  // Week grid: fold pending requests into a primary assigned block (school/office)
+  // so the same hour isn't split into two competing columns (e.g. Hogwarts | Req).
+  const PRIMARY_OVERLAP_KINDS = new Set(['school', 'ob', 'ot', 'oa']);
+  const requestBlocks = blocks.filter((b) => b.kind === 'request');
+  const primaryBlock = blocks.find((b) => PRIMARY_OVERLAP_KINDS.has(b.kind));
+  let displayBlocks = blocks;
+  if (!singleDayFocused && primaryBlock && requestBlocks.length) {
+    primaryBlock.hasPendingRequest = true;
+    primaryBlock.pendingRequestCount = requestBlocks.length;
+    const reqHint = requestBlocks.length === 1
+      ? 'Pending request in this slot'
+      : `${requestBlocks.length} pending requests in this slot`;
+    primaryBlock.title = `${primaryBlock.title} · ${reqHint}`;
+    displayBlocks = blocks.filter((b) => b.kind !== 'request');
+  }
+
   // Side-by-side if multiple; keep it readable: show at most 3 blocks, then "+N".
-  if (!singleDayFocused && blocks.length > 3) {
-    const extra = blocks.length - 2;
+  if (!singleDayFocused && displayBlocks.length > 3) {
+    const extra = displayBlocks.length - 2;
     return [
-      blocks[0],
-      blocks[1],
+      displayBlocks[0],
+      displayBlocks[1],
       { key: 'more', kind: 'more', shortLabel: `+${extra}`, title: `${extra} more items in this hour` }
     ];
   }
-  return blocks;
+  return displayBlocks;
 };
 
 const isCellVisuallyBlank = (dayName, hour) => cellBlocks(dayName, hour).length === 0;
@@ -4378,6 +4915,20 @@ const bookingAppointmentType = ref(DEFAULT_BOOKING_TYPE);
 const bookingAppointmentSubtype = ref('');
 const bookingServiceCode = ref('');
 const bookingModality = ref('');
+/** When booking a virtual individual session with an office selected, optionally also submit an office request. */
+const sessionAlsoRequestOffice = ref(false);
+/** Link schedule block to platform counseling video room (Vonage). */
+const linkPlatformVideoRoom = ref(true);
+const virtualSessionParticipantSearch = ref('');
+const virtualSessionSelectedClientIds = ref([]);
+const virtualSessionSelectedGuardianKeys = ref([]);
+const virtualSessionIncludeGuardians = ref(false);
+const virtualSessionClients = ref([]);
+const virtualSessionGuardians = ref([]);
+const virtualSessionClientsLoading = ref(false);
+const virtualSessionShareUrl = ref('');
+const virtualSessionShareCopied = ref(false);
+const virtualSessionScheduledSessionKey = ref('');
 const modalContext = ref({
   officeEventId: null,
   officeLocationId: null,
@@ -4460,9 +5011,11 @@ const availableQuickActions = computed(() => {
     {
       id: 'individual_session',
       label: 'Individual session',
-      description: hasOffice ? 'Book individual session and office together' : 'Select office first',
-      disabledReason: hasOffice ? '' : 'Select office',
-      visible: !supervisionOnlyMode && hasClinicalOrLearningOrg,
+      description: hasOffice
+        ? 'Book a session — Virtual or In-person'
+        : 'Book a virtual session now (office optional)',
+      disabledReason: '',
+      visible: !supervisionOnlyMode,
       tone: 'sky'
     },
     {
@@ -4472,6 +5025,14 @@ const availableQuickActions = computed(() => {
       disabledReason: hasOffice ? '' : 'Select office',
       visible: !supervisionOnlyMode && hasClinicalOrLearningOrg,
       tone: 'violet'
+    },
+    {
+      id: 'portal_intake',
+      label: 'Open for new clients',
+      description: 'Portal intake hours — not tied to an office',
+      disabledReason: '',
+      visible: !supervisionOnlyMode && !isAdminMode.value,
+      tone: 'cyan'
     },
     {
       id: 'office',
@@ -4537,8 +5098,8 @@ const availableQuickActions = computed(() => {
     },
     {
       id: 'school',
-      label: 'Virtual availability (school)',
-      description: 'Weekday daytime availability block',
+      label: 'School daytime availability',
+      description: 'Weekday school assignment block (not a virtual session)',
       disabledReason: !isAdminMode.value && schoolWindowOk ? '' : 'Weekday 6AM-6PM only',
       visible: !supervisionOnlyMode && !isAdminMode.value,
       tone: 'indigo'
@@ -4546,11 +5107,14 @@ const availableQuickActions = computed(() => {
     {
       id: 'supervision',
       label: 'Supervision',
-      description: supervisionProvidersLoading.value ? 'Loading participants...' : 'Schedule individual supervision',
+      description: supervisionOptionVisible
+        ? (supervisionProvidersLoading.value ? 'Loading participants...' : 'Schedule supervision with your supervisees')
+        : 'Supervisors schedule sessions; supervisees join from My Supervision',
       disabledReason: !supervisionOptionVisible
-        ? 'Supervisors only'
+        ? 'Available when you have supervisor privileges'
         : (supervisionProvidersLoading.value ? 'Loading providers' : ''),
-      visible: supervisionOptionVisible,
+      // Always list the action so non-supervisors see why it is unavailable (not a missing feature).
+      visible: !supervisionOnlyMode || supervisionOptionVisible,
       tone: 'violet'
     },
     {
@@ -4608,6 +5172,14 @@ const availableQuickActions = computed(() => {
       disabledReason: booked ? '' : 'Needs booked office slot',
       visible: !supervisionOnlyMode && booked,
       tone: 'amber'
+    },
+    {
+      id: 'start_video',
+      label: 'Start video session',
+      description: 'Open in-app telehealth video (client optional — share invite link later)',
+      disabledReason: booked && Number(ctx.officeEventId || 0) > 0 ? '' : 'Needs booked office slot',
+      visible: !supervisionOnlyMode && booked,
+      tone: 'emerald'
     },
     {
       id: 'booked_record',
@@ -4677,6 +5249,7 @@ const OFFICE_LAYOUT_ONLY_ACTIONS = new Set([
   'admin_assign',
   'unbook_slot',
   'booked_note',
+  'start_video',
   'booked_record',
   'cancel_booking'
 ]);
@@ -4695,6 +5268,7 @@ const OFFICE_BLOCK_ONLY_ACTIONS = new Set([
   'admin_assign',
   'unbook_slot',
   'booked_note',
+  'start_video',
   'booked_record',
   'cancel_booking'
 ]);
@@ -4728,20 +5302,22 @@ const intakeActionHelpText = computed(() => {
   return labels[String(requestType.value || '')] || '';
 });
 
+/** Primary CTA: "Schedule" by default; "Request…" only for pending-approval office flows. */
 const submitActionLabel = computed(() => {
   const labels = {
-    individual_session: 'Book individual session',
-    group_session: 'Book group session',
-    office: 'Submit office booking',
-    office_request_only: 'Submit office request',
-    school: 'Submit school request',
+    individual_session: 'Schedule session',
+    group_session: 'Schedule session',
+    office: 'Request office',
+    office_request_only: 'Request office',
+    portal_intake: 'Publish availability',
+    school: 'Schedule school hours',
     supervision: isGroupSupervisionType.value ? 'Schedule group supervision' : 'Schedule supervision',
-    agency_meeting: props.hideOfficeAndCalendarIntegration ? 'Create team meeting' : 'Create agency meeting',
-    huddle: 'Create huddle',
-    personal_event: 'Create personal event',
-    schedule_hold: 'Create schedule hold',
-    schedule_hold_all_day: 'Create all-day hold',
-    indirect_services: 'Create indirect service event',
+    agency_meeting: 'Schedule meeting',
+    huddle: 'Schedule huddle',
+    personal_event: 'Schedule event',
+    schedule_hold: 'Schedule hold',
+    schedule_hold_all_day: 'Schedule all-day hold',
+    indirect_services: 'Schedule event',
     forfeit_slot: 'Forfeit selected slot(s)',
     extend_assignment: 'Extend assignment',
     intake_virtual_on: 'Enable virtual intake',
@@ -4749,11 +5325,186 @@ const submitActionLabel = computed(() => {
     intake_inperson_on: 'Enable in-person intake',
     intake_inperson_off: 'Disable in-person intake',
     booked_note: 'Open Note Aid',
+    start_video: 'Start video session',
     booked_record: 'Open recorder',
     unbook_slot: 'Unbook selected slot(s)'
   };
-  return labels[String(requestType.value || '')] || 'Submit request';
+  const t = String(requestType.value || '');
+  if (virtualSessionShareUrl.value && isVirtualTelehealthSession.value) {
+    return 'Open video room';
+  }
+  if (isVirtualTelehealthSession.value && linkPlatformVideoRoom.value) {
+    return virtualSessionIsGroup.value ? 'Schedule group video session' : 'Schedule & link video room';
+  }
+  if ((t === 'agency_meeting' || t === 'huddle') && scheduleVideoConfigured.value && linkMeetingPlatformVideo.value) {
+    return 'Schedule & link video room';
+  }
+  return labels[t] || 'Schedule';
 });
+
+const submitBusyLabel = computed(() => {
+  const t = String(requestType.value || '');
+  if (['office', 'office_request_only'].includes(t)) return 'Requesting…';
+  if (t === 'portal_intake') return 'Publishing…';
+  if (['forfeit_slot', 'unbook_slot', 'extend_assignment'].includes(t)) return 'Working…';
+  if (String(t).startsWith('intake_')) return 'Updating…';
+  if (['booked_note', 'start_video', 'booked_record'].includes(t)) return 'Opening…';
+  return 'Scheduling…';
+});
+
+const REQUEST_NOTES_MAX = 500;
+const selectedActionAgencyLabel = computed(() => {
+  const id = Number(effectiveAgencyId.value || selectedActionAgencyId.value || 0);
+  const opt = (actionAgencyOptions.value || []).find((row) => Number(row?.id) === id);
+  return String(opt?.label || opt?.name || '').trim() || (id ? `Agency ${id}` : '—');
+});
+const selectedQuickActionLabel = computed(() => {
+  const t = String(requestType.value || '');
+  if (!t) return 'Not selected';
+  const act = (visibleQuickActions.value || []).find((row) => String(row?.id) === t);
+  if (act?.label) {
+    return (props.hideOfficeAndCalendarIntegration && act.id === 'agency_meeting') ? 'Team meeting' : act.label;
+  }
+  return submitActionLabel.value || t;
+});
+const modalScheduleSubtitle = computed(() => {
+  const t = String(requestType.value || '');
+  if (!t) return 'Book time or schedule an event.';
+  if (['office', 'office_request_only'].includes(t)) return 'Send an office or room request for approval.';
+  if (t === 'portal_intake') return 'Publish open hours for new clients on the portal.';
+  if (t === 'school') return 'Mark school daytime availability (not virtual).';
+  if (t === 'individual_session') return 'Schedule an individual session — virtual or in-person.';
+  if (t === 'group_session') return 'Schedule a group session.';
+  if (selectedQuickActionLabel.value && selectedQuickActionLabel.value !== 'Not selected') {
+    return selectedQuickActionLabel.value;
+  }
+  return 'Confirm details, then schedule.';
+});
+const requestSummaryEndTimeLabel = computed(() => {
+  if (isScheduleEventRequestType.value && scheduleEventAllDay.value) return 'All day';
+  if (canUseQuarterHourInput.value) {
+    return hourMinuteLabel(modalEndHour.value, modalEndMinute.value);
+  }
+  return hourLabel(modalEndHour.value);
+});
+const requestNotesCount = computed(() => String(requestNotes.value || '').length);
+const requestSubmitBlockedReason = computed(() => {
+  if (submitting.value) return submitBusyLabel.value;
+  if (!String(requestType.value || '').trim()) return 'Select an action to continue.';
+  if (actionRequiresAgency.value && !effectiveAgencyId.value) return 'Select an agency for this action.';
+  const t = String(requestType.value || '');
+  if (['office', 'group_session'].includes(t)) {
+    if (bookingMetadataLoading.value) return 'Loading booking options…';
+    if (!officeBookingValid.value) return 'Choose a valid office booking window.';
+    if (bookingClassificationInvalidReason.value) return String(bookingClassificationInvalidReason.value);
+  }
+  if (t === 'individual_session') {
+    const modality = String(bookingModality.value || '').toUpperCase();
+    const hasOffice = Number(selectedOfficeLocationId.value || 0) > 0;
+    if (!modality) return 'Choose Virtual or In-person.';
+    if (modality === 'IN_PERSON' && !hasOffice) return 'In-person sessions need an office selected in the toolbar.';
+    if (modality === 'TELEHEALTH' && linkPlatformVideoRoom.value) {
+      if (!effectiveAgencyId.value) return 'Select an agency for this virtual session.';
+      if (sessionAlsoRequestOffice.value && hasOffice) {
+        if (bookingMetadataLoading.value) return 'Loading booking options…';
+        if (!officeBookingValid.value) return 'Choose a valid office booking window.';
+        if (bookingClassificationInvalidReason.value) return String(bookingClassificationInvalidReason.value);
+      }
+      return '';
+    }
+    if (modality === 'IN_PERSON' || (modality === 'TELEHEALTH' && hasOffice)) {
+      if (bookingMetadataLoading.value) return 'Loading booking options…';
+      if (hasOffice && !officeBookingValid.value) return 'Choose a valid office booking window.';
+      if (bookingClassificationInvalidReason.value) return String(bookingClassificationInvalidReason.value);
+    }
+    if (modality === 'TELEHEALTH' && !effectiveAgencyId.value) return 'Select an agency for this virtual session.';
+  }
+  if (t === 'portal_intake') {
+    if (!effectiveAgencyId.value) return 'Select an agency for portal availability.';
+    const endH = Number(modalEndHour.value);
+    const startH = Number(modalHour.value);
+    if (!(endH > startH)) return 'Choose an end time after the start.';
+  }
+  if (t === 'school' && !schoolWindowValid.value) {
+    return 'School daytime availability must be on weekdays between 6 AM and 6 PM.';
+  }
+  if (t === 'supervision' && !supervisionCanSubmit.value) {
+    return 'Add the required supervision participants before submitting.';
+  }
+  if ((t === 'agency_meeting' || t === 'huddle') && !meetingCanSubmit.value) {
+    return 'Add meeting participants before submitting.';
+  }
+  if (['intake_virtual_on', 'intake_virtual_off', 'intake_inperson_on', 'intake_inperson_off'].includes(t)
+    && !Number(modalContext.value?.officeEventId || 0)) {
+    return 'Select an assigned office slot for intake changes.';
+  }
+  if (t === 'extend_assignment' && !(Number(modalContext.value?.standingAssignmentId || 0) > 0)) {
+    return 'Select an assigned office slot with a standing assignment.';
+  }
+  if (t === 'forfeit_slot') {
+    if (!ackForfeit.value) return 'Acknowledge the forfeit before submitting.';
+    const ok = selectedActionContexts().some(
+      (x) => (Number(x?.officeEventId || 0) > 0 || Number(x?.standingAssignmentId || 0) > 0)
+        && Number(x?.officeLocationId || 0) > 0
+    );
+    if (!ok) return 'Select an assigned/booked office slot to forfeit.';
+  }
+  if (isScheduleEventRequestType.value && !scheduleEventCanSubmit.value) {
+    return 'Enter an event title before submitting.';
+  }
+  return '';
+});
+const requestSubmitDisabled = computed(() => !!requestSubmitBlockedReason.value);
+
+const isVirtualGroupFromClients = computed(() => (
+  isVirtualTelehealthSession.value
+  && linkPlatformVideoRoom.value
+  && virtualSessionIsGroup.value
+));
+
+const quickActionDisplayLabel = (act) => {
+  if (hideOfficeAndCalendarIntegration.value && act.id === 'agency_meeting') return 'Team meeting';
+  if (act.id === 'individual_session' && isVirtualGroupFromClients.value) return 'Group session';
+  return act.label;
+};
+
+const quickActionDisplayDescription = (act) => {
+  if (act.id === 'individual_session' && isVirtualGroupFromClients.value) {
+    return `Group virtual session — ${virtualSessionSelectedCount.value} client${virtualSessionSelectedCount.value === 1 ? '' : 's'} selected`;
+  }
+  return act.description;
+};
+
+const quickActionIconKey = (actionId) => {
+  const map = {
+    office_request_only: 'office',
+    office: 'office',
+    school: 'school',
+    portal_intake: 'portal',
+    agency_meeting: 'meeting',
+    huddle: 'meeting',
+    personal_event: 'person',
+    schedule_hold: 'hold',
+    schedule_hold_all_day: 'sun',
+    indirect_services: 'hourglass',
+    supervision: 'meeting',
+    individual_session: 'session',
+    group_session: 'meeting',
+    forfeit_slot: 'hold',
+    unbook_slot: 'unrequest',
+    start_video: 'school',
+    booked_note: 'notes',
+    booked_record: 'notes',
+    admin_assign: 'office',
+    cancel_booking: 'close',
+    extend_assignment: 'check',
+    intake_virtual_on: 'school',
+    intake_virtual_off: 'school',
+    intake_inperson_on: 'office',
+    intake_inperson_off: 'office'
+  };
+  return map[String(actionId || '')] || 'school';
+};
 
 const bookingTypeOptions = computed(() => {
   const rows = Array.isArray(bookingMetadata.value?.appointmentTypes) ? bookingMetadata.value.appointmentTypes : [];
@@ -4843,7 +5594,7 @@ const normalizeBookingSelectionPayload = () => ({
   serviceCode: (showClinicalBookingFields.value && isSessionBookingRequestType.value)
     ? (normalizeCodeValue(bookingServiceCode.value) || null)
     : null,
-  modality: (showClinicalBookingFields.value && isSessionBookingRequestType.value)
+  modality: isSessionBookingRequestType.value
     ? (normalizeCodeValue(bookingModality.value) || null)
     : null
 });
@@ -4991,13 +5742,18 @@ const modalLockedRoomLabel = computed(() => {
   return String(opt?.label || '').trim() || `Room ${rid}`;
 });
 
+const isTelehealthModality = computed(
+  () => String(bookingModality.value || '').toUpperCase() === 'TELEHEALTH'
+);
 const officeBookingValid = computed(() => {
   if (!['office', 'individual_session', 'group_session'].includes(String(requestType.value || ''))) return true;
-  const officeId = Number(selectedOfficeLocationId.value || 0);
-  if (!officeId) return false;
   const endH = Number(modalEndHour.value);
   const startH = Number(modalHour.value);
   if (!(endH > startH)) return false;
+  // Virtual individual sessions do not require an office.
+  if (String(requestType.value) === 'individual_session' && isTelehealthModality.value) return true;
+  const officeId = Number(selectedOfficeLocationId.value || 0);
+  if (!officeId) return false;
   // In Open Finder, room picker is intentionally hidden and booking uses any open room.
   if (viewMode.value !== 'office_layout') return true;
   // If a specific room is picked, it must be requestable in the options list.
@@ -5208,6 +5964,9 @@ const meetingCandidates = ref([]);
 const meetingParticipantSearch = ref('');
 const selectedMeetingParticipantIds = ref([]);
 const createMeetingMeetLink = ref(true);
+const linkMeetingPlatformVideo = ref(true);
+
+const scheduleVideoConfigured = computed(() => !!summary.value?.videoConfigured);
 
 function addCreateAgendaDraftItem() {
   const t = String(createAgendaDraftTitle.value || '').trim();
@@ -5318,6 +6077,191 @@ const removeSelectedMeetingParticipant = (userId) => {
     .filter((n) => n > 0 && n !== id);
 };
 
+const isVirtualTelehealthSession = computed(() => (
+  String(requestType.value || '') === 'individual_session'
+  && String(bookingModality.value || '').toUpperCase() === 'TELEHEALTH'
+));
+const virtualSessionSelectedClientIdSet = computed(
+  () => new Set((virtualSessionSelectedClientIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0))
+);
+const virtualSessionSelectedGuardianKeySet = computed(
+  () => new Set((virtualSessionSelectedGuardianKeys.value || []).map((k) => String(k || '').trim()).filter(Boolean))
+);
+const virtualSessionSelectedCount = computed(() => (
+  virtualSessionSelectedClientIdSet.value.size + virtualSessionSelectedGuardianKeySet.value.size
+));
+const virtualSessionIsGroup = computed(() => virtualSessionSelectedCount.value >= 1);
+const virtualSessionGuardianKey = (guardian) => `${Number(guardian?.userId || 0)}:${Number(guardian?.clientId || 0)}`;
+const virtualSessionClientRoleLabel = (client) => {
+  const type = String(client?.clientType || '').trim();
+  const status = String(client?.statusLabel || client?.statusKey || '').trim();
+  const parts = [];
+  if (type) parts.push(type.replace(/_/g, ' '));
+  if (status) parts.push(status);
+  return parts.length ? parts.join(' · ') : 'client';
+};
+const filterVirtualSessionRows = (rows, labelKeys = ['displayName', 'fullName', 'initials', 'identifierCode', 'email']) => {
+  const q = String(virtualSessionParticipantSearch.value || '').trim().toLowerCase();
+  const list = Array.isArray(rows) ? rows : [];
+  if (!q) return list;
+  return list.filter((row) => labelKeys.some((key) => String(row?.[key] || '').trim().toLowerCase().includes(q)));
+};
+const filteredVirtualSessionClients = computed(() => filterVirtualSessionRows(virtualSessionClients.value));
+const filteredVirtualSessionGuardians = computed(() => filterVirtualSessionRows(
+  virtualSessionGuardians.value,
+  ['displayName', 'firstName', 'lastName', 'email', 'clientName']
+));
+const virtualSessionParticipantChips = computed(() => {
+  const clientById = new Map((virtualSessionClients.value || []).map((c) => [Number(c.id), c]));
+  const guardianByKey = new Map((virtualSessionGuardians.value || []).map((g) => [virtualSessionGuardianKey(g), g]));
+  const chips = [];
+  for (const id of virtualSessionSelectedClientIdSet.value.values()) {
+    const row = clientById.get(id);
+    chips.push({
+      key: `client-${id}`,
+      kind: 'client',
+      id,
+      label: row?.displayName || `Client ${id}`
+    });
+  }
+  for (const key of virtualSessionSelectedGuardianKeySet.value.values()) {
+    const row = guardianByKey.get(key);
+    chips.push({
+      key: `guardian-${key}`,
+      kind: 'guardian',
+      guardianKey: key,
+      label: row?.displayName || 'Guardian'
+    });
+  }
+  return chips;
+});
+const virtualSessionSummaryTypeLabel = computed(() => {
+  if (isVirtualTelehealthSession.value && linkPlatformVideoRoom.value) {
+    return virtualSessionIsGroup.value ? 'Group virtual session' : 'Individual virtual session';
+  }
+  return selectedQuickActionLabel.value;
+});
+const showSessionOfficeBookingPanel = computed(() => {
+  const t = String(requestType.value || '');
+  const hasOffice = Number(selectedOfficeLocationId.value || 0) > 0;
+  const modality = String(bookingModality.value || '').toUpperCase();
+  if (t === 'individual_session' && modality === 'TELEHEALTH' && linkPlatformVideoRoom.value && !sessionAlsoRequestOffice.value) {
+    return false;
+  }
+  return t === 'office'
+    || t === 'office_request_only'
+    || t === 'group_session'
+    || (t === 'individual_session' && (modality === 'IN_PERSON' || hasOffice));
+});
+const toggleVirtualSessionClient = (clientId) => {
+  const id = Number(clientId || 0);
+  if (!id) return;
+  const next = new Set((virtualSessionSelectedClientIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0));
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  virtualSessionSelectedClientIds.value = Array.from(next.values());
+};
+const toggleVirtualSessionGuardian = (guardian) => {
+  const key = virtualSessionGuardianKey(guardian);
+  if (!key || key === '0:0') return;
+  const next = new Set((virtualSessionSelectedGuardianKeys.value || []).map((k) => String(k || '').trim()).filter(Boolean));
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  virtualSessionSelectedGuardianKeys.value = Array.from(next.values());
+};
+const addAllFilteredVirtualSessionParticipants = () => {
+  const clientNext = new Set((virtualSessionSelectedClientIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0));
+  for (const row of (filteredVirtualSessionClients.value || [])) {
+    const id = Number(row?.id || 0);
+    if (id > 0) clientNext.add(id);
+  }
+  virtualSessionSelectedClientIds.value = Array.from(clientNext.values());
+  if (virtualSessionIncludeGuardians.value) {
+    const guardianNext = new Set((virtualSessionSelectedGuardianKeys.value || []).map((k) => String(k || '').trim()).filter(Boolean));
+    for (const row of (filteredVirtualSessionGuardians.value || [])) {
+      const key = virtualSessionGuardianKey(row);
+      if (key && key !== '0:0') guardianNext.add(key);
+    }
+    virtualSessionSelectedGuardianKeys.value = Array.from(guardianNext.values());
+  }
+};
+const clearVirtualSessionParticipants = () => {
+  virtualSessionSelectedClientIds.value = [];
+  virtualSessionSelectedGuardianKeys.value = [];
+};
+const removeVirtualSessionParticipant = (chip) => {
+  if (!chip) return;
+  if (chip.kind === 'client') {
+    const id = Number(chip.id || 0);
+    virtualSessionSelectedClientIds.value = (virtualSessionSelectedClientIds.value || [])
+      .map((n) => Number(n || 0))
+      .filter((n) => n > 0 && n !== id);
+    return;
+  }
+  const key = String(chip.guardianKey || '').trim();
+  if (!key) return;
+  virtualSessionSelectedGuardianKeys.value = (virtualSessionSelectedGuardianKeys.value || [])
+    .map((k) => String(k || '').trim())
+    .filter((k) => k && k !== key);
+};
+const resetVirtualSessionShareState = () => {
+  virtualSessionShareUrl.value = '';
+  virtualSessionShareCopied.value = false;
+  virtualSessionScheduledSessionKey.value = '';
+};
+const buildVirtualSessionShareUrl = (sharePath) => {
+  const path = String(sharePath || '').trim();
+  if (!path) return '';
+  const origin = window.location.origin;
+  const slug = String(
+    route.params.organizationSlug ||
+      agencyStore?.currentAgency?.slug ||
+      agencyStore?.currentAgency?.portal_url ||
+      ''
+  ).trim();
+  if (slug && path.startsWith('/counseling/')) {
+    return `${origin}/${slug}${path}`;
+  }
+  return `${origin}${path}`;
+};
+const copyVirtualSessionShareUrl = async () => {
+  if (!virtualSessionShareUrl.value) return;
+  try {
+    await navigator.clipboard.writeText(virtualSessionShareUrl.value);
+    virtualSessionShareCopied.value = true;
+    setTimeout(() => {
+      virtualSessionShareCopied.value = false;
+    }, 2000);
+  } catch {
+    /* ignore */
+  }
+};
+const loadVirtualSessionClients = async () => {
+  const uid = Number(props.userId || authStore.user?.id || 0);
+  const agencyId = Number(effectiveAgencyId.value || 0);
+  if (!uid || !agencyId) {
+    virtualSessionClients.value = [];
+    virtualSessionGuardians.value = [];
+    return;
+  }
+  try {
+    virtualSessionClientsLoading.value = true;
+    const r = await api.get(`/users/${uid}/virtual-session-clients`, {
+      params: {
+        agencyId,
+        includeGuardians: virtualSessionIncludeGuardians.value ? 'true' : 'false'
+      }
+    });
+    virtualSessionClients.value = Array.isArray(r?.data?.clients) ? r.data.clients : [];
+    virtualSessionGuardians.value = Array.isArray(r?.data?.guardians) ? r.data.guardians : [];
+  } catch {
+    virtualSessionClients.value = [];
+    virtualSessionGuardians.value = [];
+  } finally {
+    virtualSessionClientsLoading.value = false;
+  }
+};
+
 const hasBusyOverlapInSummary = (summaryPayload, ranges = []) => {
   const targetRanges = Array.isArray(ranges) ? ranges : [];
   if (!targetRanges.length) return false;
@@ -5396,13 +6340,14 @@ const loadMeetingBusyByParticipant = async () => {
 const loadMeetingCandidates = async () => {
   const uid = Number(props.userId || authStore.user?.id || 0);
   if (!uid) return;
-  if (!meetingUsingAllAgencies.value && !effectiveAgencyId.value) return;
+  const useAllAgencies = meetingUsingAllAgencies.value;
+  if (!useAllAgencies && !effectiveAgencyId.value) return;
   try {
     meetingCandidatesLoading.value = true;
     const params = {
-      allAgencies: meetingUsingAllAgencies.value ? 'true' : 'false'
+      allAgencies: useAllAgencies ? 'true' : 'false'
     };
-    if (!meetingUsingAllAgencies.value) params.agencyId = Number(effectiveAgencyId.value || 0);
+    if (!useAllAgencies) params.agencyId = Number(effectiveAgencyId.value || 0);
     const r = await api.get(`/users/${uid}/meeting-candidates`, { params });
     meetingCandidates.value = Array.isArray(r?.data?.users) ? r.data.users : [];
   } catch {
@@ -5448,7 +6393,7 @@ const loadSupervisionProviders = async () => {
 const effectiveModalStartHour = computed(() =>
   canUseQuarterHourInput.value ? Number(modalStartHour.value || modalHour.value || 0) : Number(modalHour.value || 0)
 );
-const modalGridMaxEnd = computed(() => (props.hideOfficeAndCalendarIntegration ? gridMaxHour.value : 22));
+const modalGridMaxEnd = computed(() => gridMaxHour.value);
 const startHourOptions = computed(() => {
   const clicked = Number(modalHour.value || 0);
   if (!canUseQuarterHourInput.value) return [clicked];
@@ -5508,14 +6453,21 @@ const ensureModalEndTimeValid = () => {
 };
 
 const isWeekdayName = (dayName) => ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(String(dayName || ''));
+/** Unwrap Vue refs if a caller accidentally passes them (Number(ref) === NaN). */
+const plainValue = (v) => (v && typeof v === 'object' && v.__v_isRef ? v.value : v);
 const canUseSchool = (dayName, startHour, endHour) => {
-  const sh = Number(startHour);
-  const eh = Number(endHour);
-  if (!isWeekdayName(dayName)) return false;
+  const day = String(plainValue(dayName) || '').trim();
+  const sh = Number(plainValue(startHour));
+  const eh = Number(plainValue(endHour));
+  if (!isWeekdayName(day)) return false;
+  if (!Number.isFinite(sh) || !Number.isFinite(eh)) return false;
   if (!(eh > sh)) return false;
   // School daytime availability must be between 06:00 and 18:00.
   return sh >= 6 && eh <= 18;
 };
+const schoolWindowValid = computed(() =>
+  canUseSchool(modalDay.value, effectiveModalStartHour.value, modalEndHour.value)
+);
 
 const actionSlotKey = ({ dateYmd, hour, roomId = 0 }) => `${String(dateYmd).slice(0, 10)}|${Number(hour)}|${Number(roomId || 0)}`;
 const parseActionSlotKey = (key) => {
@@ -5612,6 +6564,7 @@ const openSlotActionModal = ({
   dateYmd = null,
   preserveSelectionRange = true,
   initialRequestType = '',
+  initialModality = '',
   actionSource = 'general'
 } = {}) => {
   if (!canBookFromGrid.value) return;
@@ -5647,7 +6600,20 @@ const openSlotActionModal = ({
   officeBookingOccurrenceCount.value = 6;
   selectedOfficeRoomId.value = viewMode.value === 'office_layout' ? (Number(roomId || 0) || 0) : 0;
   resetBookingSelectionDefaults();
+  sessionAlsoRequestOffice.value = false;
+  const modality = String(initialModality || '').trim().toUpperCase();
+  if (modality === 'TELEHEALTH' || modality === 'IN_PERSON') {
+    bookingModality.value = modality;
+  } else if (normalizedInitialRequestType === 'individual_session') {
+    bookingModality.value = 'TELEHEALTH';
+  }
   resetBookingMetadataState();
+  linkPlatformVideoRoom.value = true;
+  virtualSessionParticipantSearch.value = '';
+  virtualSessionSelectedClientIds.value = [];
+  virtualSessionSelectedGuardianKeys.value = [];
+  virtualSessionIncludeGuardians.value = false;
+  resetVirtualSessionShareState();
   supervisionParticipantSearch.value = '';
   supervisionIncludeAllAgencies.value = false;
   selectedSupervisionParticipantId.value = 0;
@@ -5657,7 +6623,8 @@ const openSlotActionModal = ({
   selectedMeetingParticipantIds.value = [];
   meetingIncludeAllAgencies.value = false;
   meetingBusyByUserId.value = {};
-  createMeetingMeetLink.value = !summary.value?.twilioVideoConfigured;
+  createMeetingMeetLink.value = !scheduleVideoConfigured.value;
+  linkMeetingPlatformVideo.value = scheduleVideoConfigured.value;
   createAgendaDraftTitle.value = '';
   createAgendaDraftItems.value = [];
   modalContext.value = buildModalContext({ dayName: modalDay.value, hour: modalHour.value, roomId, slot, dateYmd });
@@ -6561,6 +7528,13 @@ const closeModal = () => {
   requestType.value = '';
   requestTypeChosenByUser.value = false;
   showAdditionalParticipantsPicker.value = false;
+  sessionAlsoRequestOffice.value = false;
+  linkPlatformVideoRoom.value = true;
+  virtualSessionParticipantSearch.value = '';
+  virtualSessionSelectedClientIds.value = [];
+  virtualSessionSelectedGuardianKeys.value = [];
+  virtualSessionIncludeGuardians.value = false;
+  resetVirtualSessionShareState();
   requestNotes.value = '';
   scheduleEventTitle.value = '';
   scheduleEventAllDay.value = false;
@@ -6811,8 +7785,125 @@ const browserIanaTimeZone = () => {
   return tz || null;
 };
 
+const buildVirtualAttendeeNotes = () => {
+  const clientById = new Map((virtualSessionClients.value || []).map((c) => [Number(c.id), c]));
+  const guardianByKey = new Map((virtualSessionGuardians.value || []).map((g) => [virtualSessionGuardianKey(g), g]));
+  const lines = [];
+  for (const id of virtualSessionSelectedClientIdSet.value.values()) {
+    const row = clientById.get(id);
+    lines.push(row?.displayName || `Client ${id}`);
+  }
+  for (const key of virtualSessionSelectedGuardianKeySet.value.values()) {
+    const row = guardianByKey.get(key);
+    lines.push(row?.displayName ? `${row.displayName} (guardian)` : 'Guardian');
+  }
+  if (!lines.length) return '';
+  return `Attendees: ${lines.join(', ')}`;
+};
+
+const pushCounselingSessionRoute = async (sessionKey) => {
+  const slug = String(
+    route.params.organizationSlug ||
+      agencyStore?.currentAgency?.slug ||
+      agencyStore?.currentAgency?.portal_url ||
+      ''
+  ).trim();
+  const path = slug
+    ? `/${slug}/counseling/session/${sessionKey}`
+    : `/counseling/session/${sessionKey}`;
+  await router.push(path);
+};
+
+const completePlatformVirtualSessionBooking = async ({
+  dayName,
+  hour,
+  startMinute,
+  endHour,
+  endMinute,
+  alsoBookOffice,
+  officeId
+}) => {
+  const uid = Number(props.userId || authStore.user?.id || 0);
+  if (!uid) throw new Error('Provider is required.');
+  const agencyId = Number(effectiveAgencyId.value || 0);
+  if (!agencyId) throw new Error('Select an agency for this virtual session.');
+  const isGroup = virtualSessionSelectedCount.value >= 1;
+  const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
+  const startAt = `${dateYmd}T${pad2(hour)}:${pad2(startMinute)}:00`;
+  const endAt = `${dateYmd}T${pad2(endHour)}:${pad2(endMinute)}:00`;
+  const baseTitle = isGroup ? 'Group virtual session' : 'Virtual session';
+  const attendeeNote = buildVirtualAttendeeNotes();
+  const descriptionParts = [
+    String(requestNotes.value || '').trim() || 'Platform counseling video session.',
+    attendeeNote
+  ].filter(Boolean);
+  const description = descriptionParts.join('\n\n');
+  const firstGuardianUserId = Array.from(virtualSessionSelectedGuardianKeySet.value.values())
+    .map((key) => Number(String(key || '').split(':')[0] || 0))
+    .find((n) => n > 0) || null;
+
+  let appointmentId = null;
+  if (alsoBookOffice && officeId) {
+    if (!officeBookingValid.value) throw new Error('Choose a valid office booking window.');
+    if (showClinicalBookingFields.value && bookingClassificationInvalidReason.value) {
+      throw new Error(bookingClassificationInvalidReason.value);
+    }
+    const roomId = viewMode.value === 'office_layout'
+      ? (Number(selectedOfficeRoomId.value || 0) || null)
+      : null;
+    const recurrence = String(officeBookingRecurrence.value || 'ONCE');
+    const r = await api.post('/office-schedule/booking-requests', {
+      officeLocationId: officeId,
+      roomId,
+      startAt,
+      endAt,
+      recurrence,
+      openToAlternativeRoom: !roomId,
+      notes: description,
+      ...normalizeBookingSelectionPayload(),
+      ...(isAdminMode.value ? { requestedProviderId: Number(props.userId) } : {})
+    });
+    appointmentId = Number(r?.data?.appointmentId || r?.data?.eventId || r?.data?.officeEventId || 0) || null;
+    if (r?.data?.kind === 'auto_booked') await loadSelectedOfficeGrid();
+  }
+
+  await api.post(`/users/${uid}/schedule-events`, {
+    agencyId,
+    kind: 'PERSONAL_EVENT',
+    title: baseTitle,
+    description,
+    allDay: false,
+    startAt,
+    endAt,
+    isPrivate: false
+  });
+
+  const data = await createCounselingSession({
+    agencyId,
+    title: baseTitle,
+    clientUserId: firstGuardianUserId,
+    ...(appointmentId ? { appointmentId } : {})
+  });
+  const sessionKey = data?.session?.publicId || data?.session?.id;
+  if (!sessionKey) throw new Error('Session was scheduled, but the platform video room could not be created.');
+
+  virtualSessionScheduledSessionKey.value = String(sessionKey);
+  virtualSessionShareUrl.value = buildVirtualSessionShareUrl(data?.sharePath || '');
+  virtualSessionShareCopied.value = false;
+  clearSelectedActionSlots();
+  invalidateScheduleSummaryCacheForUser(props.userId);
+  await load({ forceRefresh: true });
+};
+
 const submitRequest = async () => {
-  if (actionRequiresAgency.value && !effectiveAgencyId.value) return;
+  if (actionRequiresAgency.value && !effectiveAgencyId.value) {
+    modalError.value = 'Select an agency for this action.';
+    return;
+  }
+  if (requestType.value === 'school' && !schoolWindowValid.value) {
+    modalError.value = 'School daytime availability must be on weekdays between 6 AM and 6 PM.';
+    return;
+  }
 
   // Intake confirmation step (in-person office assigned slots only)
   if (requestType.value === 'intake_inperson_on' && !intakeConfirmStep.value) {
@@ -6848,6 +7939,37 @@ const submitRequest = async () => {
       return;
     } else if (requestType.value === 'booked_record') {
       openNoteAidFromContext('record_session');
+      return;
+    } else if (requestType.value === 'start_video') {
+      const ctx = modalContext.value || {};
+      const appointmentId = Number(ctx.officeEventId || 0);
+      if (!appointmentId) throw new Error('Booked office event is required for video.');
+      const agencyId = Number(
+        ctx.agencyId ||
+          props.agencyId ||
+          agencyStore?.currentAgency?.id ||
+          authStore.user?.agencyId ||
+          0
+      );
+      if (!agencyId) throw new Error('Organization context is required for video.');
+      const data = await openCounselingFromAppointment({
+        appointmentId,
+        agencyId,
+        title: 'Telehealth Session'
+      });
+      const sessionKey = data?.session?.publicId || data?.session?.id;
+      if (!sessionKey) throw new Error('Video session could not be created.');
+      const slug = String(
+        route.params.organizationSlug ||
+          agencyStore?.currentAgency?.slug ||
+          agencyStore?.currentAgency?.portal_url ||
+          ''
+      ).trim();
+      const path = slug
+        ? `/${slug}/counseling/session/${sessionKey}`
+        : `/counseling/session/${sessionKey}`;
+      closeModal();
+      await router.push(path);
       return;
     } else if (requestType.value === 'unbook_slot') {
       const contexts = selectedActionContexts().filter(
@@ -6917,8 +8039,11 @@ const submitRequest = async () => {
         ? (recurrenceEndMode === 'indefinite' ? 'INDEFINITE' : 'FINITE')
         : null;
       let recurrenceIndex = 0;
+      const createPlatformVideoLink = isMeetingAction
+        && scheduleVideoConfigured.value
+        && !!linkMeetingPlatformVideo.value;
       const createMeetLink = isMeetingAction
-        ? (!summary.value?.twilioVideoConfigured && !!createMeetingMeetLink.value)
+        ? (createPlatformVideoLink ? false : !!createMeetingMeetLink.value)
         : false;
       if (scheduleEventAllDay.value || normalizedAction === 'schedule_hold_all_day') {
         const ranges = mergeSelectedSlotsByDay({ dayName: dn, startHour: h, endHour: endH });
@@ -6944,6 +8069,7 @@ const submitRequest = async () => {
               ? {
                   attendeeUserIds: meetingAttendeeUserIds,
                   createMeetLink,
+                  createPlatformVideoLink,
                   recurrenceSeriesId,
                   recurrenceFrequency: recurringRecurrences.includes(recurrence) ? recurrence : null,
                   recurrencePolicy,
@@ -6978,6 +8104,7 @@ const submitRequest = async () => {
                 ? {
                     attendeeUserIds: meetingAttendeeUserIds,
                     createMeetLink,
+                    createPlatformVideoLink,
                     recurrenceSeriesId,
                     recurrenceFrequency: recurringRecurrences.includes(recurrence) ? recurrence : null,
                     recurrencePolicy,
@@ -7084,7 +8211,38 @@ const submitRequest = async () => {
       }
     } else if (requestType.value === 'individual_session' || requestType.value === 'group_session') {
       const officeId = Number(selectedOfficeLocationId.value || 0);
-      if (!officeId) throw new Error('Select an office first.');
+      const modality = String(bookingModality.value || '').toUpperCase();
+      const isVirtualIndividual = requestType.value === 'individual_session' && modality === 'TELEHEALTH';
+
+      if (requestType.value === 'individual_session' && !modality) {
+        throw new Error('Choose Virtual or In-person.');
+      }
+      if (requestType.value === 'individual_session' && modality === 'IN_PERSON' && !officeId) {
+        throw new Error('In-person sessions need an office selected in the toolbar.');
+      }
+      if (requestType.value === 'group_session' && !officeId) {
+        throw new Error('Select an office first.');
+      }
+
+      // Platform-linked virtual session: calendar block + counseling video room.
+      if (isVirtualIndividual && linkPlatformVideoRoom.value) {
+        if (virtualSessionScheduledSessionKey.value) {
+          await pushCounselingSessionRoute(virtualSessionScheduledSessionKey.value);
+          closeModal();
+          return;
+        }
+        await completePlatformVirtualSessionBooking({
+          dayName: dn,
+          hour: h,
+          startMinute,
+          endHour: endH,
+          endMinute,
+          alsoBookOffice: sessionAlsoRequestOffice.value && officeId > 0,
+          officeId
+        });
+        return;
+      }
+
       if (!officeBookingValid.value) throw new Error('Select an available room (or choose “Any open room”).');
       if (showClinicalBookingFields.value && bookingClassificationInvalidReason.value) {
         throw new Error(bookingClassificationInvalidReason.value);
@@ -7122,6 +8280,39 @@ const submitRequest = async () => {
           await loadSelectedOfficeGrid();
         }
       }
+      // Optional: also request office when virtual + office already selected (user opted in).
+      if (isVirtualIndividual && officeId && sessionAlsoRequestOffice.value) {
+        // Office booking-request above already covers the room; no separate request needed.
+      }
+    } else if (requestType.value === 'portal_intake') {
+      const agencyId = Number(effectiveAgencyId.value || 0);
+      if (!agencyId) throw new Error('Select an agency for portal availability.');
+      if (!(endH > h)) throw new Error('End time must be after start time.');
+      await ensureVirtualWorkingHoursForRange({ dayName: dn, startHour: h, endHour: endH });
+      // Optionally also submit an office request for the same window when an office is selected.
+      const officeId = Number(selectedOfficeLocationId.value || 0);
+      if (sessionAlsoRequestOffice.value && officeId) {
+        const baseDateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn));
+        const slots = [{
+          weekday: weekdayFromYmd(baseDateYmd),
+          startHour: h,
+          endHour: endH
+        }];
+        await api.post('/availability/office-requests', {
+          agencyId,
+          notes: requestNotes.value || 'Linked to portal intake availability (optional office request).',
+          officeLocationIds: [officeId],
+          recurrence: 'ONCE',
+          requestedStartDate: baseDateYmd,
+          slots
+        });
+        needsOfficeRefresh = true;
+      }
+      forceRefreshSummary = true;
+      officeReminderToast.value = sessionAlsoRequestOffice.value && officeId
+        ? 'Portal intake hours published. Office request submitted for the same window.'
+        : 'Portal intake hours published — not tied to an office. New clients can request this time online.';
+      setTimeout(() => { officeReminderToast.value = ''; }, 6000);
     } else if (requestType.value === 'office_request_only') {
       // Always use modal's hour range (End time dropdown) as source of truth; shift/drag select is unreliable in office layout
       const recurrence = String(officeBookingRecurrence.value || 'ONCE').toUpperCase();
@@ -7463,7 +8654,8 @@ watch(requestType, (t) => {
     supervisionOccurrenceCount.value = Math.min(104, Math.max(1, Number(supervisionOccurrenceCount.value) || 6));
     void loadSupervisionProviders();
   } else if (t === 'agency_meeting' || t === 'huddle') {
-    createMeetingMeetLink.value = !summary.value?.twilioVideoConfigured;
+    createMeetingMeetLink.value = !scheduleVideoConfigured.value;
+  linkMeetingPlatformVideo.value = scheduleVideoConfigured.value;
     if (!['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(String(scheduleEventRecurrence.value || '').toUpperCase())) {
       scheduleEventRecurrence.value = 'ONCE';
     }
@@ -7472,7 +8664,22 @@ watch(requestType, (t) => {
     }
     scheduleEventOccurrenceCount.value = Math.min(104, Math.max(1, Number(scheduleEventOccurrenceCount.value) || 6));
     void loadMeetingCandidates();
-  } else if ((t === 'office' || t === 'individual_session' || t === 'group_session') && showClinicalBookingFields.value) {
+  } else if (t === 'individual_session') {
+    sessionAlsoRequestOffice.value = false;
+    linkPlatformVideoRoom.value = true;
+    virtualSessionParticipantSearch.value = '';
+    virtualSessionSelectedClientIds.value = [];
+    virtualSessionSelectedGuardianKeys.value = [];
+    virtualSessionIncludeGuardians.value = false;
+    resetVirtualSessionShareState();
+    if (!String(bookingModality.value || '').trim()) {
+      bookingModality.value = Number(selectedOfficeLocationId.value || 0) > 0 ? 'TELEHEALTH' : 'TELEHEALTH';
+    }
+    if (showClinicalBookingFields.value) void loadBookingMetadataForProvider();
+    if (String(bookingModality.value || '').toUpperCase() === 'TELEHEALTH' && linkPlatformVideoRoom.value) {
+      void loadVirtualSessionClients();
+    }
+  } else if ((t === 'office' || t === 'group_session') && showClinicalBookingFields.value) {
     void loadBookingMetadataForProvider();
   } else if (SCHEDULE_EVENT_ACTIONS.has(String(t || ''))) {
     if (!String(scheduleEventTitle.value || '').trim() || scheduleEventTitle.value === defaultScheduleEventTitleForAction('personal_event')) {
@@ -7527,8 +8734,32 @@ watch(meetingIncludeAllAgencies, () => {
   void loadMeetingCandidates();
 });
 
+watch([bookingModality, linkPlatformVideoRoom, virtualSessionIncludeGuardians], () => {
+  if (!isVirtualTelehealthSession.value || !showRequestModal.value) return;
+  if (!linkPlatformVideoRoom.value) {
+    resetVirtualSessionShareState();
+    return;
+  }
+  if (!virtualSessionIncludeGuardians.value) {
+    virtualSessionSelectedGuardianKeys.value = [];
+  }
+  void loadVirtualSessionClients();
+});
+
 watch([showRequestModal, requestType, effectiveAgencyId], ([isOpen, type, agencyId], [prevOpen, prevType, prevAgencyId]) => {
   if (!isOpen) return;
+  if (isVirtualTelehealthSession.value && linkPlatformVideoRoom.value) {
+    const currentAgencyId = Number(agencyId || 0);
+    const previousAgencyId = Number(prevAgencyId || 0);
+    if (currentAgencyId > 0 && currentAgencyId !== previousAgencyId) {
+      virtualSessionSelectedClientIds.value = [];
+      virtualSessionSelectedGuardianKeys.value = [];
+      virtualSessionParticipantSearch.value = '';
+      resetVirtualSessionShareState();
+      void loadVirtualSessionClients();
+    }
+    return;
+  }
   if (!['agency_meeting', 'huddle'].includes(String(type || ''))) return;
   if (meetingUsingAllAgencies.value) return;
   const currentAgencyId = Number(agencyId || 0);
@@ -8890,37 +10121,117 @@ const resetToOpenFinder = () => {
   viewMode.value = 'open_finder';
 };
 
-defineExpose({ resetToOpenFinder });
+defineExpose({ resetToOpenFinder, openQuickBook });
 </script>
 
 <style scoped>
-.sched-toolbar { margin-top: 10px; }
-.sched-toolbar-top {
+.sched-wrap {
+  --sched-ink: #0f172a;
+  --sched-muted: #64748b;
+  --sched-line: rgba(15, 23, 42, 0.08);
+  --sched-soft: #f8fafc;
+  --sched-today: rgba(167, 139, 250, 0.12);
+}
+.sched-toolbar { margin-top: 4px; }
+.sched-chrome-top {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
 }
-.sched-week-title {
+.sched-chrome-title-block { min-width: 0; }
+.sched-page-title {
   margin: 0;
-  font-size: 22px;
+  font-size: 28px;
   font-weight: 800;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
-  line-height: 1.2;
+  color: var(--sched-ink);
+  letter-spacing: -0.03em;
+  line-height: 1.15;
 }
-.sched-week-meta {
+.sched-page-sub {
+  margin: 4px 0 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--sched-muted);
+  line-height: 1.35;
+}
+.sched-week-range {
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-weight: 650;
+  color: #94a3b8;
+}
+.sched-chrome-nav {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex: 0 0 auto;
+  flex-wrap: wrap;
 }
-.sched-today-label {
-  font-size: 12px;
-  font-weight: 900;
-  color: var(--text-secondary);
+.sched-nav-btn {
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #334155;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.sched-nav-btn:hover:not(:disabled) {
+  background: var(--sched-soft);
+  border-color: #cbd5e1;
+}
+.sched-nav-btn:disabled,
+.sched-nav-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.sched-nav-arrows {
+  display: inline-flex;
+  gap: 4px;
+}
+.sched-nav-icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #475569;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+.sched-nav-icon-btn:hover:not(:disabled) {
+  background: var(--sched-soft);
+  border-color: #cbd5e1;
+}
+.sched-nav-view-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #334155;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: 10px;
   white-space: nowrap;
+}
+.sched-nav-view-pill::after {
+  content: '';
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid #94a3b8;
+  margin-left: 2px;
 }
 .sched-toolbar-main {
   display: flex;
@@ -9335,21 +10646,62 @@ defineExpose({ resetToOpenFinder });
   white-space: nowrap;
 }
 .sched-grid-wrap {
-  margin-top: 12px;
+  margin-top: 14px;
   overflow-x: auto;
 }
-.legend {
+.sched-legend {
   display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
+  flex-flow: row wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
   color: var(--text-secondary);
   font-size: 13px;
+  width: 100%;
 }
-.legend-item {
+.sched-legend-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
+  padding: 5px 10px 5px 8px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid #e8eef5;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+  line-height: 1.2;
+  flex: 0 0 auto;
+}
+.sched-legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  flex: 0 0 9px;
+  display: inline-block;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.06);
+}
+.sched-legend-dot--ring {
+  background: transparent !important;
+  box-shadow: inset 0 0 0 2px currentColor;
+}
+.sched-legend-dot--request { background: #f2c94c; }
+.sched-legend-dot--school { background: #56a8e8; }
+.sched-legend-dot--supv { color: #8b5cf6; background: rgba(139, 92, 246, 0.18); }
+.sched-legend-dot--sevt { background: #34d399; }
+.sched-legend-dot--oa { background: #4ade80; }
+.sched-legend-dot--ot { color: #f472b6; background: rgba(244, 114, 182, 0.16); }
+.sched-legend-dot--ob { background: #f87171; }
+.sched-legend-dot--intake-ip { color: #22c55e; background: rgba(34, 197, 94, 0.14); }
+.sched-legend-dot--intake-vi { color: #3b82f6; background: rgba(59, 130, 246, 0.14); }
+.sched-legend-dot--gbusy { background: #94a3b8; }
+.sched-legend-dot--gevt { background: #60a5fa; }
+.sched-legend-dot--ebusy { background: #9ca3af; }
+.sched-legend-dot--agency {
+  background: #cbd5e1;
+  box-shadow: inset 0 0 0 2px #64748b;
 }
 .swatch {
   width: 14px;
@@ -9372,16 +10724,18 @@ defineExpose({ resetToOpenFinder });
 .swatch-ebusy { background: var(--sched-ebusy-bg, rgba(107, 114, 128, 0.18)); border-color: var(--sched-ebusy-border, rgba(107, 114, 128, 0.45)); }
 .sched-grid {
   display: grid;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid #e8eef5;
+  border-radius: 14px;
   overflow: hidden;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
 }
 .sched-head-cell {
-  padding: 8px 10px;
-  font-weight: 900;
-  background: var(--bg-alt);
-  border-bottom: 1px solid var(--border);
-  border-left: 1px solid var(--border);
+  padding: 12px 10px;
+  font-weight: 750;
+  background: #fff;
+  border-bottom: 1px solid #e8eef5;
+  border-left: 1px solid var(--sched-line);
   text-align: center;
   display: flex;
   align-items: center;
@@ -9391,14 +10745,14 @@ defineExpose({ resetToOpenFinder });
   cursor: pointer;
 }
 .sched-head-cell-day:hover {
-  background: color-mix(in srgb, var(--bg-alt) 84%, rgba(59, 130, 246, 0.10));
+  background: color-mix(in srgb, #fff 84%, rgba(167, 139, 250, 0.12));
 }
 .sched-head-focused {
-  box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.45);
+  box-shadow: inset 0 0 0 2px rgba(99, 102, 241, 0.35);
 }
 .sched-head-today {
-  background: linear-gradient(180deg, rgba(59, 130, 246, 0.16), rgba(59, 130, 246, 0.06));
-  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.24), 0 0 0 2px rgba(59, 130, 246, 0.14);
+  background: var(--sched-today);
+  box-shadow: none;
 }
 .sched-grid > .sched-head-cell:first-child {
   border-left: none;
@@ -9412,91 +10766,98 @@ defineExpose({ resetToOpenFinder });
   line-height: 1.05;
 }
 .sched-head-dow {
-  font-weight: 900;
+  font-weight: 750;
+  font-size: 13px;
+  color: #334155;
+  letter-spacing: -0.01em;
 }
 .sched-head-date {
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 650;
   color: var(--text-secondary);
 }
 .sched-hour {
   padding: 8px 10px;
-  font-weight: 800;
-  border-top: 1px solid var(--border);
-  background: var(--bg-alt);
+  font-weight: 650;
+  font-size: 12px;
+  color: #64748b;
+  border-top: 1px solid var(--sched-line);
+  background: #fff;
 }
 .sched-hour-quarter {
-  font-weight: 650;
+  font-weight: 600;
   font-size: 11px;
-  color: var(--text-secondary);
-  border-top: 1px solid rgba(15, 23, 42, 0.12);
+  color: #94a3b8;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
   padding-top: 5px;
   padding-bottom: 5px;
 }
 .sched-cell {
-  border-top: 1px solid rgba(15, 23, 42, 0.08);
-  border-left: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(255, 255, 255, 0.65);
-  min-height: var(--sched-cell-min-height, 32px);
-  padding: 4px 6px;
+  border-top: 1px solid var(--sched-line);
+  border-left: 1px solid var(--sched-line);
+  background: #fff;
+  min-height: var(--sched-cell-min-height, 36px);
+  padding: 3px 5px;
   text-align: left;
   position: relative;
   overflow: hidden;
 }
 .sched-cell-quarter {
-  border-top: 1px solid rgba(15, 23, 42, 0.12);
-  min-height: max(18px, calc(var(--sched-cell-min-height, 32px) * 0.7));
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  min-height: max(18px, calc(var(--sched-cell-min-height, 36px) * 0.7));
   padding-top: 2px;
   padding-bottom: 2px;
 }
 .sched-wrap-quarter .sched-cell-quarter {
-  border-top-color: rgba(15, 23, 42, 0.08);
+  border-top-color: rgba(15, 23, 42, 0.05);
   padding-top: 0;
   padding-bottom: 0;
 }
 .sched-cell-today {
-  background: rgba(59, 130, 246, 0.05);
-  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.18);
+  background: rgba(167, 139, 250, 0.05);
+  box-shadow: none;
 }
 .sched-cell.clickable {
   cursor: pointer;
 }
 .sched-cell.clickable:hover {
-  background: rgba(2, 132, 199, 0.06);
+  background: rgba(148, 163, 184, 0.06);
 }
 .sched-cell-selected {
-  box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.9);
+  box-shadow: inset 0 0 0 2px rgba(99, 102, 241, 0.55);
 }
 .cell-plus-btn {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 20px;
-  height: 20px;
-  border-radius: 999px;
-  border: 1px solid rgba(15, 23, 42, 0.25);
-  background: rgba(255, 255, 255, 0.86);
-  color: rgba(15, 23, 42, 0.85);
-  font-weight: 800;
-  font-size: 14px;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #cbd5e1;
+  font-weight: 600;
+  font-size: 16px;
   line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   cursor: pointer;
-  opacity: 0.5;
-  transform: translateY(-1px);
-  transition: opacity 120ms ease, transform 120ms ease, background 120ms ease;
+  opacity: 0.55;
+  transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
   z-index: 3;
 }
 .sched-cell:hover .cell-plus-btn,
 .sched-cell-selected .cell-plus-btn {
-  opacity: 1;
+  opacity: 0.95;
+  color: #94a3b8;
 }
 .cell-plus-btn:hover {
-  background: rgba(219, 234, 254, 0.95);
-  transform: translateY(-2px);
+  background: rgba(226, 232, 240, 0.7);
+  color: #64748b;
+  transform: translateY(-50%);
 }
 .selection-toolbar {
   margin-top: 10px;
@@ -9733,17 +11094,17 @@ defineExpose({ resetToOpenFinder });
   flex: 1 1 0;
   min-width: 0;
   border-radius: 8px;
-  border: 1px solid rgba(0,0,0,0.12);
-  padding: 2px 6px;
+  border: 1px solid transparent;
+  padding: 3px 7px;
   display: flex;
   align-items: center;
   justify-content: flex-start;
   gap: 6px;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.01em;
-  color: rgba(15, 23, 42, 0.92);
-  backdrop-filter: blur(1px);
+  color: rgba(15, 23, 42, 0.88);
+  backdrop-filter: none;
 }
 .sched-wrap-quarter .cell-blocks {
   gap: 0;
@@ -9818,12 +11179,26 @@ defineExpose({ resetToOpenFinder });
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cell-block-request { background: var(--blockFill, var(--sched-request-bg, rgba(242, 201, 76, 0.35))); border-color: var(--blockBorder, var(--sched-request-border, rgba(242, 201, 76, 0.65))); }
-.cell-block-school { background: var(--blockFill, var(--sched-school-bg, rgba(45, 156, 219, 0.28))); border-color: var(--blockBorder, var(--sched-school-border, rgba(45, 156, 219, 0.60))); }
-.cell-block-supv { background: var(--blockFill, var(--sched-supv-bg, rgba(147, 51, 234, 0.24))); border-color: var(--blockBorder, var(--sched-supv-border, rgba(126, 34, 206, 0.60))); }
-.cell-block-oa { background: var(--blockFill, var(--sched-oa-bg, rgba(59, 130, 246, 0.24))); border-color: var(--blockBorder, var(--sched-oa-border, rgba(37, 99, 235, 0.60))); }
-.cell-block-ot { background: var(--blockFill, var(--sched-ot-bg, rgba(249, 115, 22, 0.24))); border-color: var(--blockBorder, var(--sched-ot-border, rgba(194, 65, 12, 0.62))); }
-.cell-block-ob { background: var(--blockFill, var(--sched-ob-bg, rgba(239, 68, 68, 0.24))); border-color: var(--blockBorder, var(--sched-ob-border, rgba(185, 28, 28, 0.62))); }
+.cell-block-request { background: var(--blockFill, rgba(253, 224, 71, 0.42)); border-color: var(--blockBorder, rgba(234, 179, 8, 0.28)); }
+.cell-block-school { background: var(--blockFill, rgba(147, 197, 253, 0.45)); border-color: var(--blockBorder, rgba(59, 130, 246, 0.22)); }
+.cell-block-pending-badge {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 999px;
+  color: rgba(113, 63, 18, 0.95);
+  background: rgba(253, 224, 71, 0.92);
+  border: 1px solid rgba(234, 179, 8, 0.45);
+  white-space: nowrap;
+}
+.cell-block-supv { background: var(--blockFill, rgba(216, 180, 254, 0.42)); border-color: var(--blockBorder, rgba(147, 51, 234, 0.22)); }
+.cell-block-oa { background: var(--blockFill, rgba(191, 219, 254, 0.55)); border-color: var(--blockBorder, rgba(59, 130, 246, 0.2)); }
+.cell-block-ot { background: var(--blockFill, rgba(251, 207, 232, 0.5)); border-color: var(--blockBorder, rgba(236, 72, 153, 0.22)); }
+.cell-block-ob { background: var(--blockFill, rgba(254, 202, 202, 0.55)); border-color: var(--blockBorder, rgba(239, 68, 68, 0.22)); }
 
 .office-room-picker {
   display: flex;
@@ -9855,12 +11230,12 @@ defineExpose({ resetToOpenFinder });
   color: var(--text-secondary);
   white-space: nowrap;
 }
-.cell-block-gbusy { background: var(--sched-gbusy-bg, rgba(17, 24, 39, 0.14)); border-color: var(--sched-gbusy-border, rgba(17, 24, 39, 0.42)); color: rgba(17, 24, 39, 0.9); }
-.cell-block-gevt { background: rgba(59, 130, 246, 0.14); border-color: rgba(59, 130, 246, 0.35); cursor: pointer; }
-.cell-block-sevt { background: var(--blockFill, rgba(20, 184, 166, 0.20)); border-color: var(--blockBorder, rgba(13, 148, 136, 0.50)); color: rgba(15, 118, 110, 0.96); cursor: pointer; }
-.cell-block-ebusy { background: var(--sched-ebusy-bg, rgba(107, 114, 128, 0.16)); border-color: var(--sched-ebusy-border, rgba(107, 114, 128, 0.45)); color: rgba(17, 24, 39, 0.9); }
-.cell-block-intake-ip { background: rgba(34, 197, 94, 0.20); border-color: rgba(21, 128, 61, 0.45); color: rgba(21, 128, 61, 0.95); }
-.cell-block-intake-vi { background: rgba(59, 130, 246, 0.20); border-color: rgba(29, 78, 216, 0.45); color: rgba(29, 78, 216, 0.95); }
+.cell-block-gbusy { background: var(--sched-gbusy-bg, rgba(148, 163, 184, 0.22)); border-color: var(--sched-gbusy-border, rgba(100, 116, 139, 0.28)); color: rgba(51, 65, 85, 0.9); }
+.cell-block-gevt { background: rgba(191, 219, 254, 0.45); border-color: rgba(59, 130, 246, 0.2); cursor: pointer; }
+.cell-block-sevt { background: var(--blockFill, rgba(167, 243, 208, 0.55)); border-color: var(--blockBorder, rgba(16, 185, 129, 0.22)); color: rgba(6, 95, 70, 0.95); cursor: pointer; }
+.cell-block-ebusy { background: var(--sched-ebusy-bg, rgba(203, 213, 225, 0.4)); border-color: var(--sched-ebusy-border, rgba(100, 116, 139, 0.28)); color: rgba(51, 65, 85, 0.9); }
+.cell-block-intake-ip { background: rgba(187, 247, 208, 0.55); border-color: rgba(34, 197, 94, 0.25); color: rgba(21, 128, 61, 0.95); }
+.cell-block-intake-vi { background: rgba(191, 219, 254, 0.55); border-color: rgba(59, 130, 246, 0.22); color: rgba(29, 78, 216, 0.95); }
 .cell-block-more { background: rgba(148, 163, 184, 0.18); border-color: rgba(148, 163, 184, 0.45); color: rgba(51, 65, 85, 0.92); }
 
 .cell-block-selected,
@@ -9907,6 +11282,375 @@ defineExpose({ resetToOpenFinder });
   max-height: calc(100vh - 24px);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+}
+.modal--new-request {
+  --nr-purple: #4F46E5;
+  --nr-purple-deep: #4338CA;
+  --nr-teal: #0D9488;
+  --nr-cyan: #0891B2;
+  --nr-green: #16A34A;
+  --nr-orange: #EA580C;
+  --nr-blue: #2563EB;
+  --nr-grey: #94A3B8;
+  --nr-ink: #0f172a;
+  --nr-muted: #64748b;
+  --nr-line: #e8eef5;
+  --nr-soft: #f8fafc;
+  max-width: min(920px, 100%);
+  padding: 0;
+  background: #fff;
+  border-radius: 18px;
+  border: 1px solid var(--nr-line);
+  box-shadow: 0 24px 56px rgba(15, 23, 42, 0.22);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.nr-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 22px 16px;
+  border-bottom: 1px solid var(--nr-line);
+  background: #fff;
+}
+.nr-head-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+.nr-head-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--nr-purple);
+  background: rgba(79, 70, 229, 0.08);
+  flex: 0 0 auto;
+  box-shadow: none;
+}
+.nr-title {
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--nr-ink);
+  line-height: 1.15;
+}
+.nr-subtitle {
+  margin-top: 3px;
+  font-size: 0.9rem;
+  color: var(--nr-muted);
+  line-height: 1.35;
+  max-width: 42ch;
+}
+.nr-slot-meta {
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #475569;
+  background: var(--nr-soft);
+  border: 1px solid var(--nr-line);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+.nr-close {
+  border: none;
+  background: transparent;
+  color: var(--nr-grey);
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.nr-close:hover { background: #f1f5f9; color: #334155; }
+.nr-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+.nr-sidebar {
+  padding: 16px 14px 18px;
+  border-right: 1px solid var(--nr-line);
+  background: var(--nr-soft);
+  overflow-y: auto;
+  max-height: min(70vh, 640px);
+}
+.nr-sidebar-title {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #94a3b8;
+  margin: 0 0 10px 2px;
+}
+.nr-action-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.nr-action {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  border: 1px solid transparent;
+  background: #fff;
+  border-radius: 12px;
+  padding: 9px 10px;
+  cursor: pointer;
+  box-shadow: 0 0 0 1px #e8eef5;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+.nr-action:hover:not(:disabled) {
+  box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.28);
+  background: #fff;
+}
+.nr-action.on {
+  background: #fff;
+  border-color: transparent;
+  color: var(--nr-ink);
+  box-shadow: 0 0 0 2px var(--nr-purple), 0 8px 18px rgba(79, 70, 229, 0.12);
+}
+.nr-action.on .nr-action-desc { color: var(--nr-muted); }
+.nr-action.on .nr-action-icon {
+  background: rgba(79, 70, 229, 0.12);
+  color: var(--nr-purple);
+  border-color: transparent;
+}
+.nr-action.on .nr-action-label { color: var(--nr-purple-deep); }
+.nr-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.nr-action-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: #f8fafc;
+  color: #475569;
+}
+.nr-action-icon.tone-teal,
+.nr-action-icon.tone-cyan { color: var(--nr-teal); background: rgba(20, 184, 166, 0.1); }
+.nr-action-icon.tone-sky,
+.nr-action-icon.tone-indigo,
+.nr-action-icon.tone-violet { color: var(--nr-purple); background: rgba(99, 102, 241, 0.12); }
+.nr-action-icon.tone-emerald,
+.nr-action-icon.tone-green { color: var(--nr-green); background: rgba(34, 197, 94, 0.12); }
+.nr-action-icon.tone-orange,
+.nr-action-icon.tone-amber { color: var(--nr-orange); background: rgba(249, 115, 22, 0.12); }
+.nr-action-icon.tone-blue { color: var(--nr-blue); background: rgba(59, 130, 246, 0.12); }
+.nr-action-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.nr-action-label {
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.nr-action-desc {
+  font-size: 0.74rem;
+  color: #64748b;
+  line-height: 1.3;
+}
+.nr-action-chevron {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: inherit;
+  opacity: 0.75;
+}
+.nr-empty-actions {
+  font-size: 0.85rem;
+  color: #64748b;
+  padding: 8px 4px;
+}
+.nr-tip {
+  margin-top: 14px;
+  display: flex;
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--nr-line);
+}
+.nr-tip-icon { color: var(--nr-muted); flex: 0 0 auto; margin-top: 1px; }
+.nr-tip-title { font-size: 0.75rem; font-weight: 800; color: #475569; }
+.nr-tip-text { margin: 2px 0 0; font-size: 0.74rem; color: var(--nr-muted); line-height: 1.4; }
+.nr-main {
+  padding: 18px 20px 12px;
+  overflow-y: auto;
+  max-height: min(70vh, 640px);
+  background: #fff;
+}
+.nr-field { margin-top: 14px; }
+.nr-field:first-child { margin-top: 0; }
+.nr-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.nr-input-icon {
+  position: absolute;
+  left: 12px;
+  color: var(--nr-grey);
+  display: inline-flex;
+  pointer-events: none;
+}
+.nr-input { padding-left: 36px !important; }
+.nr-help { margin-top: 6px; font-size: 12px; }
+.nr-warn {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+  font-size: 0.85rem;
+}
+.nr-info-banner {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(6, 182, 212, 0.08);
+  border: 1px solid rgba(6, 182, 212, 0.22);
+  color: #0f766e;
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+.nr-modality-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.nr-modality {
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px 10px;
+  font-weight: 800;
+  color: #334155;
+  cursor: pointer;
+}
+.nr-modality.on {
+  background: rgba(79, 70, 229, 0.08);
+  border-color: var(--nr-purple);
+  color: var(--nr-purple-deep);
+  box-shadow: none;
+}
+.nr-notes-wrap { position: relative; }
+.nr-notes { resize: vertical; min-height: 72px; padding-bottom: 26px !important; }
+.nr-notes-count {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--nr-grey);
+}
+.nr-summary {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--nr-soft);
+  border: 1px solid var(--nr-line);
+}
+.nr-summary-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  color: var(--nr-ink);
+  margin-bottom: 10px;
+  font-size: 0.9rem;
+}
+.nr-summary-grid {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+.nr-summary-grid > div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 0.86rem;
+}
+.nr-summary-grid dt {
+  margin: 0;
+  color: var(--nr-muted);
+  font-weight: 650;
+}
+.nr-summary-grid dd {
+  margin: 0;
+  color: var(--nr-ink);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.nr-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px 16px;
+  border-top: 1px solid var(--nr-line);
+  background: var(--nr-soft);
+}
+.nr-btn-cancel {
+  min-width: 96px;
+}
+.nr-btn-submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 148px;
+  justify-content: center;
+  background: #166534 !important;
+  border-color: transparent !important;
+  color: #fff !important;
+  font-weight: 800;
+  border-radius: 10px;
+  box-shadow: 0 6px 16px rgba(22, 101, 52, 0.22);
+}
+.nr-btn-submit:hover:not(:disabled) {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+.nr-btn-submit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+@media (max-width: 820px) {
+  .nr-layout {
+    grid-template-columns: 1fr;
+  }
+  .nr-sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--nr-line);
+    max-height: none;
+  }
+  .nr-main {
+    max-height: none;
+  }
+  .sched-chrome-top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .sched-chrome-nav {
+    width: 100%;
+  }
 }
 
 /* Supervision video modal – larger, with logo and fullscreen */
@@ -10240,6 +11984,12 @@ defineExpose({ resetToOpenFinder });
 .slot-info-status--open { background: #f3f4f6; color: #374151; }
 
 /* Admin slot info header inside the request modal */
+.modal--new-request .admin-slot-info-header {
+  margin: 0 20px;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+}
 .admin-slot-info-header {
   margin: 10px 0 6px;
   padding: 10px 14px;

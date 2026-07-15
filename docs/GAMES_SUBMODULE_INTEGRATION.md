@@ -4,6 +4,8 @@ This document describes how the PlotTwist main app uses the **`games`** git subm
 
 **Product context:** see `docs/MENTAL_HEALTH_GAMES_PLATFORM_PLAN.md` in this repo and the same file under `games/docs/` in the submodule (kept in sync for collaborators working primarily in the games repository).
 
+**Unified activity registry:** counseling-session activities and standalone games share one registry model. See [`docs/COUNSELING_SESSION_ACTIVITY_SYSTEM_SPEC.md`](./COUNSELING_SESSION_ACTIVITY_SYSTEM_SPEC.md). Games nav and Activity Library both resolve launchable titles from that registry (Thought Explorer remains standalone via `/games-content/...`).
+
 ---
 
 ## 1. Submodule setup

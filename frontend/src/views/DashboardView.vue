@@ -29,8 +29,7 @@
       </button>
     </div>
 
-    <!-- My SSTC Clubs (visible to any user with one or more SSTC affiliations) -->
-    <MySstcClubsCard v-if="!previewMode" />
+    <!-- My SSTC Clubs lives in AgencySelector (portal strip) — do not duplicate here. -->
 
     <!-- Agency announcement banner (Dashboard) -->
     <div v-if="!previewMode && dashboardBannerTexts.length > 0" class="agency-announcement-banner">
@@ -412,12 +411,16 @@
               :show-my-supervision="overviewFlags.showMySupervision"
               :show-chats="overviewFlags.showChats"
               :is-supervisor="overviewFlags.isSupervisor"
+              :show-virtual-book="!!currentAgencyId && !isClubContext"
+              :kudos-enabled="canSeeKudosWidget"
               :enabled="activeTab === 'overview'"
               @navigate="onOverviewNavigate"
               @open-last-paycheck="openLastPaycheckModal"
               @open-company-events="openCompanyEventsCalendar"
               @open-submit-action="onOverviewSubmitAction"
               @join-event="onOverviewJoinEvent"
+              @book-schedule="onOverviewBookSchedule"
+              @book-virtual="onOverviewBookVirtual"
             />
           </div>
 
@@ -1121,7 +1124,6 @@ import { useMomentumListAddon } from '../composables/useMomentumListAddon';
 import DashboardOverviewHome from '../components/dashboard/DashboardOverviewHome.vue';
 import PendingCompletionButton from '../components/PendingCompletionButton.vue';
 import BrandingLogo from '../components/BrandingLogo.vue';
-import MySstcClubsCard from '../components/sstc/MySstcClubsCard.vue';
 import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilityGrid.vue';
 import CompanyEventsCalendarModal from '../components/schedule/CompanyEventsCalendarModal.vue';
 import PersonSearchSelect from '../components/schedule/PersonSearchSelect.vue';
@@ -1164,6 +1166,7 @@ import { toUploadsUrl } from '../utils/uploadsUrl';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
 import { setDarkMode } from '../utils/darkMode';
 import { useSummitStatsChallengeChrome } from '../composables/useSummitStatsChallengeChrome';
+import { isBookClubAgency as isBookClubPortalOrg } from '../utils/bookClubAgency.js';
 
 const props = defineProps({
   previewMode: {
@@ -1203,6 +1206,7 @@ const isClubContext = computed(() => {
   ).toLowerCase();
   return t === 'affiliation' || t === 'clubwebapp';
 });
+const isBookClubContext = computed(() => isBookClubPortalOrg(agencyStore.currentAgency));
 /** Summit Stats (SSTC route or club) — align Account / My panel with mobile Summit dashboard cards. */
 const isSummitStatsSurface = useSummitStatsChallengeChrome();
 const userPrefsStore = useUserPreferencesStore();
@@ -1224,7 +1228,7 @@ const PROGRAM_WORKSPACE_TAB = '__program_workspace__';
 const activeTab = ref('checklist');
 const previousContentTab = ref('checklist');
 const selectedRailCardId = ref('checklist');
-const myTab = ref('account'); // 'account' | 'credentials' | 'documents' | 'life-balance' | 'payroll' | 'compensation' | 'kudos' | 'preferences'
+const myTab = ref('account'); // 'account' | 'credentials' | 'documents' | 'life-balance' | 'payroll' | 'compensation' | 'benefits' | 'kudos' | 'preferences'
 
 const onboardingCompletion = ref(100);
 const trainingCount = ref(0);
@@ -3066,14 +3070,6 @@ const isSchoolPortalOrganization = (org) =>
   String(org?.organization_type || org?.organizationType || '').toLowerCase() === 'school';
 
 /** Book Club lives in the top portals strip — never duplicate it on the left rail. */
-const isBookClubPortalOrg = (org) => {
-  const kind = String(org?.club_kind || org?.clubKind || '').toLowerCase();
-  if (kind === 'book_club') return true;
-  const slug = String(org?.slug || org?.portal_url || org?.portalUrl || '').toLowerCase();
-  if (slug.includes('book-club') || slug.includes('book_club')) return true;
-  const name = String(org?.name || '').toLowerCase();
-  return name.includes('book club');
-};
 
 const portalOrgType = (org) =>
   String(org?.organization_type || org?.organizationType || '').toLowerCase().trim();
@@ -3448,8 +3444,8 @@ const dashboardCards = computed(() => {
         description: 'Always available after onboarding is complete.'
       });
     }
-    // Summit Stats Team Challenge: Challenges/seasons card when user has challenge memberships
-    if (myChallenges.value?.length > 0) {
+    // Summit Stats Team Challenge only — never on Book Club affiliations
+    if (!isBookClubContext.value && myChallenges.value?.length > 0) {
       cards.push({
         id: 'challenges',
         label: isClubContext.value ? 'Current Seasons' : 'Seasons',
@@ -3459,8 +3455,12 @@ const dashboardCards = computed(() => {
         description: isClubContext.value ? 'Your enrolled seasons. View leaderboards and log workouts.' : 'Your assigned fitness seasons. View leaderboards and log workouts.'
       });
     }
-    // Club admin: Start new season card
-    if (isClubContext.value && (role === 'admin' || role === 'super_admin')) {
+    // Club admin: Start new season card (SSTC clubs only)
+    if (
+      !isBookClubContext.value &&
+      isClubContext.value &&
+      (role === 'admin' || role === 'super_admin')
+    ) {
       cards.push({
         id: 'start_new_season',
         label: 'Start New Season',
@@ -3846,6 +3846,36 @@ const onOverviewNavigate = (tab) => {
   }
 };
 
+/** Overview My Schedule → open booking modal on full schedule (existing grid flow). */
+const onOverviewBookSchedule = () => {
+  closeInlineProgramHub();
+  scheduleViewMode.value = 'self';
+  activeTab.value = 'my_schedule';
+  previousContentTab.value = 'my_schedule';
+  selectedRailCardId.value = 'my_schedule';
+  if (props.previewMode) return;
+  const nextQuery = { ...route.query, tab: 'my_schedule', scheduleAction: 'book' };
+  delete nextQuery.scheduleMode;
+  delete nextQuery.superviseeId;
+  delete nextQuery.employeeId;
+  router.push({ query: nextQuery }).catch(() => {});
+};
+
+/** Overview My Schedule → calendar booking modal with Individual session → Virtual preselected. */
+const onOverviewBookVirtual = () => {
+  closeInlineProgramHub();
+  scheduleViewMode.value = 'self';
+  activeTab.value = 'my_schedule';
+  previousContentTab.value = 'my_schedule';
+  selectedRailCardId.value = 'my_schedule';
+  if (props.previewMode) return;
+  const nextQuery = { ...route.query, tab: 'my_schedule', scheduleAction: 'book_virtual' };
+  delete nextQuery.scheduleMode;
+  delete nextQuery.superviseeId;
+  delete nextQuery.employeeId;
+  router.push({ query: nextQuery }).catch(() => {});
+};
+
 const onOverviewSubmitAction = ({ event, tab } = {}) => {
   const targetTab = String(tab || 'submit');
   const card = (railCards.value || []).find((c) => String(c?.id) === targetTab);
@@ -3938,9 +3968,9 @@ const syncFromQuery = () => {
   const qMy = route.query?.my;
   if (
     typeof qMy === 'string' &&
-    ['account', 'credentials', 'documents', 'payroll', 'compensation', 'kudos', 'preferences'].includes(qMy)
+    ['account', 'credentials', 'documents', 'life-balance', 'payroll', 'compensation', 'benefits', 'kudos', 'preferences'].includes(qMy)
   ) {
-    const hiddenInClub = ['credentials', 'payroll', 'compensation'];
+    const hiddenInClub = ['credentials', 'payroll', 'compensation', 'benefits'];
     if (isClubContext.value && hiddenInClub.includes(qMy)) {
       myTab.value = 'account';
       router.replace({ query: { ...route.query, tab: 'my', my: 'account' } });
@@ -4448,7 +4478,7 @@ watch(
 
 function syncClubContextTabs() {
   if (!isClubContext.value) return;
-  const hidden = ['credentials', 'payroll', 'compensation'];
+  const hidden = ['credentials', 'payroll', 'compensation', 'benefits'];
   if (hidden.includes(myTab.value)) {
     myTab.value = 'account';
     if (!props.previewMode) router.replace({ query: { ...route.query, tab: 'my', my: 'account' } });
