@@ -35,8 +35,9 @@ export async function requireNoteAidEnabledForAgency(agencyId) {
   if (!Number.isFinite(aid) || aid <= 0) return { ok: false, error: 'Invalid agency' };
   const agency = await Agency.findById(aid);
   const flags = parseFlags(agency?.feature_flags);
-  const enabled = isTruthyFlag(flags?.noteAidEnabled) || isTruthyFlag(flags?.clinicalNoteGeneratorEnabled);
-  if (!enabled) return { ok: false, error: 'Clinical Note Generator is disabled for this organization' };
+  const explicitlyOff =
+    flags?.noteAidEnabled === false && flags?.clinicalNoteGeneratorEnabled === false;
+  if (explicitlyOff) return { ok: false, error: 'Clinical Note Generator is disabled for this organization' };
   return { ok: true };
 }
 

@@ -4194,12 +4194,12 @@ const TENANT_FEATURE_PROFILES = {
       presenceEnabled: false,
       kudosEnabled: false,
       aiProviderSearchEnabled: false,
-      noteAidEnabled: false,
+      noteAidEnabled: true,
       trainingAiBuilderEnabled: false,
       standardsLearningEnabled: false,
       groupClassSessionsEnabled: false,
       guardianWaiversEnabled: false,
-      clinicalNoteGeneratorEnabled: false,
+      clinicalNoteGeneratorEnabled: true,
       publicProviderFinderEnabled: false,
       momentumListEnabled: false,
       budgetManagementEnabled: false,
@@ -4230,11 +4230,11 @@ const TENANT_FEATURE_PROFILES = {
       presenceEnabled: true,
       kudosEnabled: true,
       aiProviderSearchEnabled: false,
-      noteAidEnabled: false,
+      noteAidEnabled: true,
       standardsLearningEnabled: false,
       groupClassSessionsEnabled: false,
       guardianWaiversEnabled: true,
-      clinicalNoteGeneratorEnabled: false,
+      clinicalNoteGeneratorEnabled: true,
       publicProviderFinderEnabled: false,
       momentumListEnabled: true,
       budgetManagementEnabled: true,
@@ -4265,11 +4265,11 @@ const TENANT_FEATURE_PROFILES = {
       presenceEnabled: true,
       kudosEnabled: true,
       aiProviderSearchEnabled: false,
-      noteAidEnabled: false,
+      noteAidEnabled: true,
       standardsLearningEnabled: true,
       groupClassSessionsEnabled: true,
       guardianWaiversEnabled: true,
-      clinicalNoteGeneratorEnabled: false,
+      clinicalNoteGeneratorEnabled: true,
       publicProviderFinderEnabled: false,
       momentumListEnabled: true,
       budgetManagementEnabled: true,
@@ -6573,7 +6573,7 @@ const defaultAgencyForm = () => ({
     aiProviderSearchEnabled: false,
 
     // Default OFF until explicitly enabled (requires GEMINI_API_KEY in backend).
-    noteAidEnabled: false,
+    noteAidEnabled: true,
 
     trainingAiBuilderEnabled: false,
 
@@ -6586,8 +6586,8 @@ const defaultAgencyForm = () => ({
     // Guardian portal waivers + optional kiosk gate before check-in
     guardianWaiversEnabled: false,
 
-    // Default OFF until explicitly enabled (agency-paid)
-    clinicalNoteGeneratorEnabled: false,
+    // Default ON for all tenants (admins can still disable per org)
+    clinicalNoteGeneratorEnabled: true,
 
     // Default OFF until explicitly enabled (agency-paid)
     publicProviderFinderEnabled: false,

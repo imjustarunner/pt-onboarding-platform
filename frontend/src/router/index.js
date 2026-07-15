@@ -64,6 +64,20 @@ const SKILL_BUILDERS_PROGRAM_EVENTS_ROLES = [
   'clinical_practice_assistant'
 ];
 const PROVIDER_PLUS_EXPERIENCE_ROLES = ['provider_plus', 'clinical_practice_assistant'];
+const NOTE_AID_EMPLOYEE_ROLES = [
+  'admin',
+  'support',
+  'staff',
+  'provider',
+  'provider_plus',
+  'super_admin',
+  'intern',
+  'intern_plus',
+  'clinical_practice_assistant',
+  'supervisor',
+  'facilitator',
+  'school_staff'
+];
 const TOOLS_AIDS_ROUTE_SEGMENTS = ['/admin/tools-aids', '/admin/note-aid', '/admin/clinical-note-generator'];
 const isSscPortalSlug = isSummitPlatformRouteSlug;
 
@@ -1035,7 +1049,7 @@ const routes = [
     component: () => import('../views/admin/ClinicalNoteGeneratorView.vue'),
     meta: {
       requiresAuth: true,
-      requiresRole: ['admin', 'support', 'staff', 'provider', 'super_admin', 'intern'],
+      requiresRole: NOTE_AID_EMPLOYEE_ROLES,
       organizationSlug: true
     }
   },
@@ -1342,7 +1356,7 @@ const routes = [
     redirect: (to) => `/${to.params.organizationSlug}/admin/note-aid`,
     meta: {
       requiresAuth: true,
-      requiresRole: ['admin', 'support', 'staff', 'provider', 'super_admin', 'intern'],
+      requiresRole: NOTE_AID_EMPLOYEE_ROLES,
       organizationSlug: true
     }
   },
@@ -1445,7 +1459,7 @@ const routes = [
     path: '/:organizationSlug/admin/tools-aids',
     name: 'OrganizationToolsAids',
     component: () => import('../views/admin/ToolsAidsView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'provider', 'staff', 'clinical_practice_assistant', 'supervisor'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: NOTE_AID_EMPLOYEE_ROLES, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/communications/messages',
@@ -2168,7 +2182,7 @@ const routes = [
     name: 'NoteAid',
     // Note Aid now runs the Clinical Director Agent note generator.
     component: () => import('../views/admin/ClinicalNoteGeneratorView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'super_admin'] }
+    meta: { requiresAuth: true, requiresRole: NOTE_AID_EMPLOYEE_ROLES }
   },
   {
     path: '/admin/compliance-corner',
@@ -2211,7 +2225,7 @@ const routes = [
     path: '/admin/clinical-note-generator',
     name: 'ClinicalNoteGenerator',
     redirect: '/admin/note-aid',
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'super_admin', 'intern'] }
+    meta: { requiresAuth: true, requiresRole: NOTE_AID_EMPLOYEE_ROLES }
   },
   {
     path: '/admin/schools/import',
@@ -2312,7 +2326,7 @@ const routes = [
     path: '/admin/tools-aids',
     name: 'ToolsAids',
     component: () => import('../views/admin/ToolsAidsView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'provider', 'staff', 'clinical_practice_assistant', 'supervisor'] }
+    meta: { requiresAuth: true, requiresRole: NOTE_AID_EMPLOYEE_ROLES }
   },
   {
     path: '/admin/communications/messages',

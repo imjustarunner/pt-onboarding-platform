@@ -67,14 +67,10 @@ function getKbFoldersForTool(tool, flags = {}) {
 async function requireNoteAidEnabled(req, res, agencyId) {
   try {
     const agency = await Agency.findById(agencyId);
-    const orgType = String(agency?.organization_type || agency?.organizationType || 'agency').toLowerCase();
-    if (orgType !== 'agency') {
-      res.status(403).json({ error: { message: 'Tools & Aids is agency-level only and available via My Dashboard' } });
-      return false;
-    }
     const flags = parseFlags(agency?.feature_flags);
-    const enabled = isTruthyFlag(flags?.noteAidEnabled);
-    if (!enabled) {
+    const explicitlyOff =
+      flags?.noteAidEnabled === false && flags?.clinicalNoteGeneratorEnabled === false;
+    if (explicitlyOff) {
       res.status(403).json({ error: { message: 'Note Aid is disabled for this organization' } });
       return false;
     }

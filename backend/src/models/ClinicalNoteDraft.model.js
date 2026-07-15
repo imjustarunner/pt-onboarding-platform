@@ -105,6 +105,17 @@ class ClinicalNoteDraft {
       updates.push('output_json = ?');
       values.push(out);
     }
+    if (patch.archivedAt !== undefined) {
+      // null clears archive; Date/string sets it; true uses NOW()
+      if (patch.archivedAt === null) {
+        updates.push('archived_at = NULL');
+      } else if (patch.archivedAt === true) {
+        updates.push('archived_at = NOW()');
+      } else {
+        updates.push('archived_at = ?');
+        values.push(patch.archivedAt);
+      }
+    }
 
     if (!updates.length) return this.findByIdForUser({ draftId: id, userId: uid });
 
@@ -121,17 +132,23 @@ class ClinicalNoteDraft {
     return this.findByIdForUser({ draftId: id, userId: uid });
   }
 
-  static async listRecentForUser({ userId, agencyId = null, days = 7, limit = 50 }) {
+  static async listRecentForUser({ userId, agencyId = null, days = 7, limit = 50, archiveStatus = 'all' }) {
     const uid = safeInt(userId);
     if (!uid) return [];
     const aid = agencyId === null || agencyId === undefined ? null : safeInt(agencyId);
     const lim = Math.max(1, Math.min(200, Number(limit) || 50));
     const d = Math.max(1, Math.min(30, Number(days) || 7));
+    const status = String(archiveStatus || 'all').toLowerCase();
     const where = [
       'user_id = ?',
       ...(aid ? ['agency_id = ?'] : []),
       'created_at >= (NOW() - INTERVAL ? DAY)'
     ];
+    if (status === 'active') {
+      where.push('archived_at IS NULL');
+    } else if (status === 'archived') {
+      where.push('archived_at IS NOT NULL');
+    }
     const params = [uid, ...(aid ? [aid] : []), d];
     const [rows] = await pool.execute(
       `SELECT *
@@ -142,6 +159,14 @@ class ClinicalNoteDraft {
       params
     );
     return rows || [];
+  }
+
+  static async setArchivedForUser({ draftId, userId, archived }) {
+    return this.updateForUser({
+      draftId,
+      userId,
+      patch: { archivedAt: archived ? true : null }
+    });
   }
 
   static async hardDeleteOlderThanDays({ days = 14 }) {

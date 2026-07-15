@@ -224,13 +224,26 @@ function buildAppEntries() {
     {
       id: 'workspace-tools',
       routeName: 'NoteAid',
-      label: 'Tools & Aids',
-      description: 'Note Aid and documentation helpers.',
+      label: 'Note Aid',
+      description: 'AI clinical note assistant and documentation helpers.',
       group: 'workspace',
       keywords: ['tools', 'aids', 'note aid', 'noteaid', 'clinical note'],
       kind: 'dashboard',
       tab: 'tools_aids',
-      rolesAny: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin', 'intern', 'intern_plus', 'clinical_practice_assistant']
+      rolesAny: [
+        'admin',
+        'support',
+        'staff',
+        'provider',
+        'provider_plus',
+        'super_admin',
+        'intern',
+        'intern_plus',
+        'clinical_practice_assistant',
+        'supervisor',
+        'facilitator',
+        'school_staff'
+      ]
     },
     {
       id: 'admin-payroll',

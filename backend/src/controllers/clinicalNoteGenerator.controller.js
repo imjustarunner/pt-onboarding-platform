@@ -85,12 +85,8 @@ function isTruthyFlag(v) {
   return s === '1' || s === 'true' || s === 'yes' || s === 'on';
 }
 
-function requireNotSchoolStaff(req, res) {
-  const role = String(req.user?.role || '').toLowerCase();
-  if (role === 'school_staff') {
-    res.status(403).json({ error: { message: 'Access denied' } });
-    return false;
-  }
+function requireNotSchoolStaff(_req, _res) {
+  // Note Aid is available to all employee roles, including school_staff.
   return true;
 }
 
@@ -114,21 +110,13 @@ async function requireUserHasAgencyAccess(req, res, agencyId) {
 
 async function requireClinicalNoteGeneratorEnabled(req, res, agencyId) {
   try {
-    const roleNorm = String(req.user?.role || '').toLowerCase();
     const agency = await Agency.findById(agencyId);
     const flags = parseFlags(agency?.feature_flags);
-    // Back-compat: treat Note Aid as the paid feature toggle.
-    const enabled = isTruthyFlag(flags?.noteAidEnabled) || isTruthyFlag(flags?.clinicalNoteGeneratorEnabled);
-    if (!enabled) {
+    // Default ON for all tenants. Explicitly disable only when both toggles are false.
+    const explicitlyOff =
+      flags?.noteAidEnabled === false && flags?.clinicalNoteGeneratorEnabled === false;
+    if (explicitlyOff) {
       res.status(403).json({ error: { message: 'Clinical Note Generator is disabled for this organization' } });
-      return false;
-    }
-    // Super admin can bypass hasClinicalOrg (e.g. for support/testing when agency structure is incomplete).
-    if (roleNorm === 'super_admin') return true;
-    const { OrganizationAffiliation } = await import('../models/OrganizationAffiliation.model.js');
-    const hasClinicalOrg = await OrganizationAffiliation.agencyHasClinicalOrg(agencyId);
-    if (!hasClinicalOrg) {
-      res.status(403).json({ error: { message: 'Clinical Note Generator is only available for agencies with a clinical organization attached' } });
       return false;
     }
     return true;
@@ -223,8 +211,11 @@ function intersectCodes(a, b) {
 
 function maybeEncryptText(value) {
   if (value === null || value === undefined) return null;
-  if (!isChatEncryptionConfigured()) return String(value);
-  const { ciphertextB64, ivB64, authTagB64, keyId } = encryptChatText(String(value));
+  const plain = String(value);
+  // Don't wrap empty strings as encrypted envelopes — they can't decrypt cleanly.
+  if (!plain) return null;
+  if (!isChatEncryptionConfigured()) return plain;
+  const { ciphertextB64, ivB64, authTagB64, keyId } = encryptChatText(plain);
   return JSON.stringify({
     _enc: true,
     keyId,
@@ -239,7 +230,8 @@ function maybeDecryptText(value) {
   if (!raw) return raw;
   try {
     const parsed = JSON.parse(raw);
-    if (parsed?._enc && parsed.ciphertext && parsed.iv && parsed.tag) {
+    if (parsed?._enc && parsed.iv && parsed.tag) {
+      if (!parsed.ciphertext) return '';
       return decryptChatText({
         ciphertextB64: parsed.ciphertext,
         ivB64: parsed.iv,
@@ -251,6 +243,15 @@ function maybeDecryptText(value) {
     // not encrypted JSON
   }
   return raw;
+}
+
+function sanitizeDraftRow(draft) {
+  if (!draft) return draft;
+  return {
+    ...draft,
+    input_text: maybeDecryptText(draft?.input_text),
+    output_json: maybeDecryptText(draft?.output_json)
+  };
 }
 
 function resolveClinicalToolId({ serviceCode, programId }) {
@@ -289,13 +290,23 @@ function parseNoteSections(text) {
   if (!raw) return {};
 
   const known = new Map([
-    ['Symptom Description and Subjective Report', 'Symptom Description and Subjective Report'],
-    ['Objective Content', 'Objective Content'],
-    ['Interventions Used', 'Interventions Used'],
+    ['Symptom Description and Subjective Report', 'Subjective'],
+    ['Subjective', 'Subjective'],
+    ['S - Subjective', 'Subjective'],
+    ['S Subjective', 'Subjective'],
+    ['Objective Content', 'Objective'],
+    ['Objective', 'Objective'],
+    ['O - Objective', 'Objective'],
+    ['O Objective', 'Objective'],
+    ['Interventions Used', 'Interventions'],
+    ['Interventions', 'Interventions'],
+    ['I - Interventions', 'Interventions'],
+    ['I Interventions', 'Interventions'],
     ['Plan', 'Plan'],
+    ['P - Plan', 'Plan'],
+    ['P Plan', 'Plan'],
     ['Additional Notes / Assessment', 'Additional Notes / Assessment'],
     ['Assessment', 'Assessment'],
-    ['Interventions', 'Interventions Used'],
     ['Code', 'Code'],
     ['Rationale', 'Rationale'],
     ['Progress Note', 'Progress Note'],
@@ -336,12 +347,12 @@ function parseNoteSections(text) {
   }
 
   flush();
-  if (sections['Interventions Used']) {
-    sections['Interventions Used'] = normalizeInterventionsList(sections['Interventions Used']);
+  if (sections['Interventions Used'] && !sections.Interventions) {
+    sections.Interventions = normalizeInterventionsList(sections['Interventions Used']);
+    delete sections['Interventions Used'];
   }
-  if (sections.Interventions && !sections['Interventions Used']) {
-    sections['Interventions Used'] = normalizeInterventionsList(sections.Interventions);
-    delete sections.Interventions;
+  if (sections.Interventions) {
+    sections.Interventions = normalizeInterventionsList(sections.Interventions);
   }
   return sections;
 }
@@ -629,7 +640,7 @@ export const createClinicalNoteDraft = async (req, res, next) => {
       inputText: encryptedInputText,
       outputJson: null
     });
-    res.status(201).json({ draft });
+    res.status(201).json({ draft: sanitizeDraftRow(draft) });
   } catch (e) {
     next(e);
   }
@@ -676,7 +687,7 @@ export const patchClinicalNoteDraft = async (req, res, next) => {
       patch
     });
     if (!updated) return res.status(404).json({ error: { message: 'Draft not found' } });
-    res.json({ draft: updated });
+    res.json({ draft: sanitizeDraftRow(updated) });
   } catch (e) {
     next(e);
   }
@@ -696,13 +707,55 @@ export const listRecentClinicalNoteDrafts = async (req, res, next) => {
     if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
 
     const days = req.query?.days ? Number(req.query.days) : 7;
-    const drafts = await ClinicalNoteDraft.listRecentForUser({ userId: req.user.id, agencyId, days, limit: 50 });
-    const sanitized = (drafts || []).map((d) => ({
-      ...d,
-      input_text: maybeDecryptText(d?.input_text),
-      output_json: maybeDecryptText(d?.output_json)
-    }));
+    const archiveStatus = String(req.query?.archiveStatus || req.query?.status || 'all').toLowerCase();
+    const drafts = await ClinicalNoteDraft.listRecentForUser({
+      userId: req.user.id,
+      agencyId,
+      days,
+      limit: 50,
+      archiveStatus
+    });
+    const sanitized = (drafts || []).map((d) => sanitizeDraftRow(d));
     res.json({ drafts: sanitized });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const archiveClinicalNoteDraft = async (req, res, next) => {
+  try {
+    if (!requireNotSchoolStaff(req, res)) return;
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    const draftId = safeInt(req.params.draftId);
+    if (!draftId) return res.status(400).json({ error: { message: 'Invalid draftId' } });
+
+    const agencyId = req.body?.agencyId ? safeInt(req.body.agencyId) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
+    if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
+
+    const existing = await ClinicalNoteDraft.findByIdForUser({ draftId, userId: req.user.id });
+    if (!existing) return res.status(404).json({ error: { message: 'Draft not found' } });
+    const existingAgencyId = existing?.agency_id === null || existing?.agency_id === undefined ? null : safeInt(existing.agency_id);
+    if (existingAgencyId && existingAgencyId !== agencyId) {
+      return res.status(403).json({ error: { message: 'Draft belongs to a different organization' } });
+    }
+
+    const archived = req.body?.archived === undefined ? true : !!parseBool(req.body.archived);
+    const draft = await ClinicalNoteDraft.setArchivedForUser({
+      draftId,
+      userId: req.user.id,
+      archived
+    });
+    if (!draft) return res.status(404).json({ error: { message: 'Draft not found' } });
+
+    res.json({
+      draft: sanitizeDraftRow(draft)
+    });
   } catch (e) {
     next(e);
   }
@@ -795,6 +848,8 @@ export const generateClinicalNote = async (req, res, next) => {
       ? String(req.body.revisionInstruction).trim().slice(0, 1500)
       : '';
     const draftId = req.body?.draftId ? safeInt(req.body.draftId) : null;
+    const includeInteractiveComplexity = parseBool(req.body?.includeInteractiveComplexity);
+    const dateWritten = req.body?.dateWritten ? normalizeDateOnly(req.body.dateWritten) : null;
 
     if (programId) {
       // Enforce program access (similar to requireProgramAccess middleware),
@@ -889,6 +944,29 @@ export const generateClinicalNote = async (req, res, next) => {
     if (programLabel && serviceCode === 'H2014') {
       prompt = [prompt, '', `Program: ${programLabel}`].join('\n');
     }
+    if (includeInteractiveComplexity) {
+      prompt = [
+        prompt,
+        '',
+        'Include Interactive Complexity: Yes.',
+        'Document interactive complexity factors when supported by the session details (e.g., communication barriers, caregiver involvement, emotional/behavioral complications).',
+        'Structure the clinical note with clear SOAP-style section headers when writing a progress note:',
+        'Subjective:',
+        'Objective:',
+        'Interventions:',
+        'Plan:'
+      ].join('\n');
+    } else if (!effectiveAutoSelect) {
+      prompt = [
+        prompt,
+        '',
+        'Prefer clear SOAP-style section headers when writing a progress note:',
+        'Subjective:',
+        'Objective:',
+        'Interventions:',
+        'Plan:'
+      ].join('\n');
+    }
     if (revisionInstruction) {
       prompt = [
         prompt,
@@ -965,7 +1043,12 @@ export const generateClinicalNote = async (req, res, next) => {
       meta: {
         toolId,
         model: modelName,
-        latencyMs
+        latencyMs,
+        includeInteractiveComplexity: !!includeInteractiveComplexity,
+        dateWritten: dateWritten || null,
+        dateOfService: dateOfService || null,
+        initials: initials || null,
+        serviceCode: effectiveAutoSelect ? (sections.Code || null) : serviceCode || null
       }
     };
 

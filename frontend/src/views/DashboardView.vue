@@ -1451,21 +1451,10 @@ const providerSurfacesEnabled = computed(
 const inSchoolEnabled = computed(() => agencyFlags.value?.inSchoolSubmissionsEnabled !== false);
 const medcancelEnabledForAgency = computed(() => inSchoolEnabled.value && agencyFlags.value?.medcancelEnabled !== false);
 const clinicalNoteGeneratorEnabledForAgency = computed(() => {
-  // Clinical notes/billing are only for agencies with a clinical organization attached
-  const hasClinicalOrg = agencyStore.currentAgency?.hasClinicalOrg === true;
-  if (!hasClinicalOrg) return false;
-  const base =
-    isTruthyFlag(agencyFlags.value?.noteAidEnabled) || isTruthyFlag(agencyFlags.value?.clinicalNoteGeneratorEnabled);
-  if (base) return true;
-  // For providers/interns: default to showing Tools & Aids when feature flags are not explicitly disabled
-  const role = String(authStore.user?.role || '').toLowerCase();
-  if (role === 'provider' || role === 'intern') {
-    const flags = agencyFlags.value;
-    if (!flags || (flags.noteAidEnabled === undefined && flags.clinicalNoteGeneratorEnabled === undefined)) return true;
-    if (flags.noteAidEnabled === false && flags.clinicalNoteGeneratorEnabled === false) return false;
-    return true;
-  }
-  return false;
+  // On for all tenants by default. Admins can turn both flags off in Company Profile.
+  const flags = agencyFlags.value || {};
+  if (flags.noteAidEnabled === false && flags.clinicalNoteGeneratorEnabled === false) return false;
+  return true;
 });
 const shiftProgramsEnabledForAgency = computed(() => isTruthyFlag(agencyFlags.value?.shiftProgramsEnabled));
 
@@ -3059,9 +3048,21 @@ const isAgencyDashboardContext = computed(() => {
 });
 const canAccessToolsAids = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
-  // Keep role access aligned with router permissions for /admin/tools-aids.
-  if (!isAgencyDashboardContext.value) return false;
-  return ['admin', 'super_admin', 'support', 'provider', 'staff', 'clinical_practice_assistant', 'provider_plus', 'supervisor'].includes(role);
+  // All employee roles across tenants (excludes client / client_guardian).
+  return [
+    'admin',
+    'super_admin',
+    'support',
+    'provider',
+    'provider_plus',
+    'staff',
+    'clinical_practice_assistant',
+    'supervisor',
+    'intern',
+    'intern_plus',
+    'facilitator',
+    'school_staff'
+  ].includes(role);
 });
 
 const isAgencyOrgType = (org) => String(org?.organization_type || org?.organizationType || 'agency').toLowerCase() === 'agency';
@@ -3396,8 +3397,8 @@ const dashboardCards = computed(() => {
           });
         }
       }
-      // Show Tools & Aids for eligible roles. Privileged roles (admin/super_admin/support) always see it
-      // even when no agency is selected; others require the feature flag on current agency.
+      // Tools & Aids (Note Aid): all employee roles when tenant flags are on.
+      // Also show for privileged roles when no agency is selected yet.
       const showToolsAids =
         canAccessToolsAids.value &&
         (clinicalNoteGeneratorEnabledForAgency.value ||
@@ -3425,6 +3426,20 @@ const dashboardCards = computed(() => {
           });
         }
       }
+    } else if (
+      canAccessToolsAids.value &&
+      (clinicalNoteGeneratorEnabledForAgency.value ||
+        ['admin', 'super_admin', 'support'].includes(role))
+    ) {
+      // School staff and other employees still get Note Aid even when payroll surfaces are hidden.
+      cards.push({
+        id: 'tools_aids',
+        label: 'Tools & Aids',
+        kind: 'content',
+        badgeCount: 0,
+        iconUrl: brandingStore.getDashboardCardIconUrl('tools_aids', iconOrg),
+        description: 'Note Aid and upcoming clinical tools.'
+      });
     }
     cards.push({
       id: 'my',

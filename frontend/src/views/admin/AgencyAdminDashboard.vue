@@ -715,7 +715,8 @@ const isTruthyFlag = (v) => {
 const clinicalNoteGeneratorEnabledForAgency = computed(() =>
   (() => {
     const flags = parseFeatureFlags(agencyData.value?.feature_flags || currentAgency.value?.feature_flags);
-    return isTruthyFlag(flags?.noteAidEnabled) || isTruthyFlag(flags?.clinicalNoteGeneratorEnabled);
+    if (flags?.noteAidEnabled === false && flags?.clinicalNoteGeneratorEnabled === false) return false;
+    return true;
   })()
 );
 const bookClubEnabledForAgency = computed(() =>

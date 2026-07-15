@@ -12,6 +12,7 @@ import {
   createClinicalNoteDraft,
   patchClinicalNoteDraft,
   listRecentClinicalNoteDrafts,
+  archiveClinicalNoteDraft,
   deleteClinicalNoteDrafts,
   transcribeClinicalNoteAudio,
   generateClinicalNote
@@ -56,7 +57,12 @@ router.post(
 router.get(
   '/recent',
   apiLimiter,
-  [query('agencyId').isInt({ min: 1 }), query('days').optional().isInt({ min: 1, max: 30 })],
+  [
+    query('agencyId').isInt({ min: 1 }),
+    query('days').optional().isInt({ min: 1, max: 30 }),
+    query('archiveStatus').optional().isIn(['all', 'active', 'archived']),
+    query('status').optional().isIn(['all', 'active', 'archived'])
+  ],
   listRecentClinicalNoteDrafts
 );
 
@@ -104,6 +110,17 @@ router.post(
 );
 
 router.post(
+  '/drafts/:draftId/archive',
+  apiLimiter,
+  [
+    param('draftId').isInt({ min: 1 }),
+    body('agencyId').isInt({ min: 1 }),
+    body('archived').optional().isBoolean()
+  ],
+  archiveClinicalNoteDraft
+);
+
+router.post(
   '/transcribe',
   apiLimiter,
   transcribeUpload.single('audio'),
@@ -126,7 +143,9 @@ router.post(
     body('initials').optional().isString().isLength({ min: 0, max: 16 }),
     body('revisionInstruction').optional().isString().isLength({ min: 1, max: 1500 }),
     body('inputText').isString().isLength({ min: 1, max: 12000 }),
-    body('draftId').optional().isInt({ min: 1 })
+    body('draftId').optional().isInt({ min: 1 }),
+    body('includeInteractiveComplexity').optional(),
+    body('dateWritten').optional().isString().isLength({ min: 1, max: 32 })
   ],
   generateClinicalNote
 );
