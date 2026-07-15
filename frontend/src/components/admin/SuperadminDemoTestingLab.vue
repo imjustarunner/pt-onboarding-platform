@@ -225,6 +225,7 @@ const surfaceGroups = computed(() => {
         { id: 'mens-life', label: "Men's Life Assessment (public)", pathSuffix: 'mens-life', absolute: true },
         { id: 'marriage-alignment', label: 'Marriage Alignment (public)', pathSuffix: 'marriage-alignment', absolute: true },
         { id: 'parenting-confidence', label: 'Parenting Confidence (public)', pathSuffix: 'parenting-confidence', absolute: true },
+        { id: 'burden-purpose', label: 'Burden & Purpose (public)', pathSuffix: 'burden-purpose', absolute: true },
         { id: 'readiness', label: 'Athlete Readiness (public)', pathSuffix: 'athlete-readiness', absolute: true },
         { id: 'student', label: 'Student Success (public)', pathSuffix: 'student-success', absolute: true },
         { id: 'college', label: 'College Readiness (public)', pathSuffix: 'college-readiness', absolute: true },
