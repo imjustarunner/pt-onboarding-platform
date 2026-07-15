@@ -127,6 +127,11 @@ export const putValueHandler = async (req, res, next) => {
       valueKey: req.params.valueKey,
       importanceScore: req.body?.importanceScore,
       alignmentScore: req.body?.alignmentScore,
+      currentLifeScore: req.body?.currentLifeScore,
+      idealLifeScore: req.body?.idealLifeScore,
+      confidenceToChangeScore: req.body?.confidenceToChangeScore,
+      personalDefinition: req.body?.personalDefinition,
+      seasonStatus: req.body?.seasonStatus,
       reflectionChips: req.body?.reflectionChips,
       note: req.body?.note
     });
@@ -146,7 +151,8 @@ export const completeAssessmentHandler = async (req, res, next) => {
     }
     const updated = await completeAssessment({
       assessmentId: assessment.id,
-      priorityKeys: req.body?.priorityKeys || []
+      priorityKeys: req.body?.priorityKeys || [],
+      context: req.body?.context
     });
     res.json({ ok: true, assessment: updated });
   } catch (e) {
@@ -229,6 +235,11 @@ export const putPublicValueHandler = async (req, res, next) => {
       valueKey: req.params.valueKey,
       importanceScore: req.body?.importanceScore,
       alignmentScore: req.body?.alignmentScore,
+      currentLifeScore: req.body?.currentLifeScore,
+      idealLifeScore: req.body?.idealLifeScore,
+      confidenceToChangeScore: req.body?.confidenceToChangeScore,
+      personalDefinition: req.body?.personalDefinition,
+      seasonStatus: req.body?.seasonStatus,
       reflectionChips: req.body?.reflectionChips,
       note: req.body?.note
     });
@@ -245,7 +256,8 @@ export const completePublicAssessmentHandler = async (req, res, next) => {
     if (!assessment) return res.status(404).json({ error: { message: 'Assessment not found' } });
     const updated = await completeAssessment({
       assessmentId: assessment.id,
-      priorityKeys: req.body?.priorityKeys || []
+      priorityKeys: req.body?.priorityKeys || [],
+      context: req.body?.context
     });
     res.json({ ok: true, assessment: updated });
   } catch (e) {

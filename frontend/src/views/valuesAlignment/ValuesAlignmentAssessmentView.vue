@@ -6,192 +6,218 @@
       <!-- Welcome -->
       <section v-if="step === 'welcome'" class="va-shell va-shell--narrow">
         <p class="va-eyebrow">Values Alignment Assessment</p>
-        <h1 class="va-title">Are You Living What Matters Most?</h1>
+        <h1 class="va-title">Does Your Daily Life Reflect What Matters Most?</h1>
         <p class="va-lead">
-          Your values influence the choices you make, the relationships you build, and the life you create.
-          This assessment will help you identify what matters most and explore how closely your current life
-          reflects those priorities.
+          Values are not only ideas. They become visible through how time, attention, energy, money, and
+          decisions are used.
         </p>
         <p class="va-note">
-          There are no correct values and no ideal score. The goal is not perfection—it is greater awareness
-          and intentional alignment.
+          This assessment compares your current life with the life you would ideally like to build. The goal
+          is not perfection. It is greater awareness and intentional choice.
         </p>
-        <p class="va-meta">About 10–15 minutes</p>
+        <p class="va-meta">12 to 18 minutes · Life Alignment Wheel</p>
         <div class="va-actions">
-          <button type="button" class="va-btn primary" @click="step = 'explore'">Explore My Values</button>
-          <button type="button" class="va-btn ghost" @click="step = 'how'">How This Works</button>
+          <button type="button" class="va-btn primary" @click="step = 'context'">
+            Build My Life Alignment Wheel
+          </button>
+          <button type="button" class="va-btn ghost" @click="step = 'how'">How This Assessment Works</button>
         </div>
       </section>
 
       <section v-else-if="step === 'how'" class="va-shell va-shell--narrow">
-        <h1 class="va-title">How This Works</h1>
+        <h1 class="va-title">How This Assessment Works</h1>
         <ol class="va-steps">
-          <li>Explore and select the values that feel most meaningful.</li>
-          <li>Narrow and rank the ones you would protect first.</li>
-          <li>Rate how important each value is—and how consistently you live it.</li>
-          <li>Review your Values Compass and choose where to act.</li>
-          <li>Create a small alignment commitment you can keep.</li>
+          <li>Share optional context about your current season.</li>
+          <li>Rate Current Life and Ideal Life for each value.</li>
+          <li>Watch your dual Life Alignment Wheel take shape.</li>
+          <li>Review gaps, alignment, and possible tradeoffs.</li>
+          <li>Choose one to three priorities and turn them into behaviors.</li>
         </ol>
-        <div class="va-actions">
-          <button type="button" class="va-btn primary" @click="step = 'explore'">Begin</button>
-        </div>
-      </section>
-
-      <!-- Explore / select -->
-      <section v-else-if="step === 'explore'" class="va-shell">
-        <header class="va-header">
-          <div>
-            <p class="va-eyebrow">Step 1 · Values exploration</p>
-            <h1 class="va-title">Choose what matters most</h1>
-            <p class="va-lead">Choose the values that feel most important to the life you want to build.</p>
-          </div>
-          <div class="va-count" :data-ready="selectedKeys.length >= minSelect">
-            {{ selectedKeys.length }} of {{ maxSelect }} selected
-            <span v-if="selectedKeys.length < minSelect">(min {{ minSelect }})</span>
-          </div>
-        </header>
-        <div v-for="cat in categoryOrder" :key="cat" class="va-group">
-          <h2>{{ categoryLabels[cat] }}</h2>
-          <div class="va-cards">
-            <button
-              v-for="v in valuesByCategory(cat)"
-              :key="v.key"
-              type="button"
-              class="va-card"
-              :class="{ selected: selectedKeys.includes(v.key) }"
-              :disabled="!selectedKeys.includes(v.key) && selectedKeys.length >= maxSelect"
-              @click="toggleSelect(v.key)"
-            >
-              <span class="va-card__swatch" :style="{ background: v.color }" />
-              <strong>{{ v.label }}</strong>
-              <span>{{ v.definition }}</span>
-            </button>
-          </div>
-        </div>
-        <footer class="va-footer">
-          <button type="button" class="va-btn ghost" @click="step = 'welcome'">Back</button>
-          <button
-            type="button"
-            class="va-btn primary"
-            :disabled="selectedKeys.length < minSelect"
-            @click="goRank"
-          >
-            Continue to prioritize →
-          </button>
-        </footer>
-      </section>
-
-      <!-- Rank -->
-      <section v-else-if="step === 'rank'" class="va-shell va-shell--narrow">
-        <p class="va-eyebrow">Step 2 · Values ladder</p>
-        <h1 class="va-title">Protect what matters most</h1>
-        <p class="va-lead">
-          If you could protect only a few values during a difficult season, which ones would matter most?
-          Narrow to {{ minRank }}–{{ maxRank }} and arrange your ladder.
+        <p class="va-note">
+          Ideal Life scores do not all need to be 10. Rate the emphasis you want in your current season—not
+          a perfect life without limits. This is not a personality diagnosis or a moral evaluation.
         </p>
-        <ol class="va-ladder">
-          <li v-for="(key, idx) in rankedKeys" :key="key" class="va-ladder__row">
-            <span class="va-ladder__n">{{ idx + 1 }}</span>
-            <span class="va-ladder__label" :style="{ borderColor: valueMap[key]?.color }">
-              {{ valueMap[key]?.label || key }}
-            </span>
-            <div class="va-ladder__moves">
-              <button type="button" :disabled="idx === 0" @click="moveRank(idx, -1)">Up</button>
-              <button type="button" :disabled="idx === rankedKeys.length - 1" @click="moveRank(idx, 1)">Down</button>
-              <button type="button" :disabled="idx === 0" @click="moveRankTo(idx, 0)">Top</button>
-              <button type="button" :disabled="idx === rankedKeys.length - 1" @click="moveRankTo(idx, rankedKeys.length - 1)">Bottom</button>
-              <button type="button" class="danger" @click="removeFromRank(key)">Remove</button>
-            </div>
-          </li>
-        </ol>
-        <div v-if="availableForRank.length" class="va-pool">
-          <p>Add from your selection:</p>
+        <div class="va-actions">
+          <button type="button" class="va-btn primary" @click="step = 'context'">Continue</button>
+          <button type="button" class="va-btn ghost" @click="step = 'welcome'">Back</button>
+        </div>
+      </section>
+
+      <!-- Context -->
+      <section v-else-if="step === 'context'" class="va-shell va-shell--narrow">
+        <p class="va-eyebrow">Before you begin</p>
+        <h1 class="va-title">Your current season</h1>
+
+        <label class="va-field">
+          Current life season
+          <select v-model="context.lifeSeason">
+            <option value="">Select (optional)</option>
+            <option v-for="o in LIFE_SEASON_OPTIONS" :key="o" :value="o">{{ o }}</option>
+          </select>
+        </label>
+
+        <p class="va-field-label">Primary concerns (optional)</p>
+        <div class="va-chips">
           <button
-            v-for="key in availableForRank"
-            :key="key"
+            v-for="c in PRIMARY_CONCERN_OPTIONS"
+            :key="c"
             type="button"
             class="va-chip"
-            :disabled="rankedKeys.length >= maxRank"
-            @click="addToRank(key)"
+            :class="{ on: context.concerns.includes(c) }"
+            @click="toggleList(context.concerns, c)"
           >
-            + {{ valueMap[key]?.label }}
+            {{ c }}
           </button>
         </div>
-        <footer class="va-footer">
-          <button type="button" class="va-btn ghost" @click="step = 'explore'">Back</button>
+
+        <p class="va-field-label">Current goal (optional)</p>
+        <div class="va-chips">
           <button
+            v-for="c in CURRENT_GOAL_OPTIONS"
+            :key="c"
             type="button"
-            class="va-btn primary"
-            :disabled="rankedKeys.length < minRank"
-            @click="startScoring"
+            class="va-chip"
+            :class="{ on: context.goals.includes(c) }"
+            @click="toggleList(context.goals, c)"
           >
-            Rate importance &amp; alignment →
+            {{ c }}
           </button>
-        </footer>
+        </div>
+
+        <label class="va-field">
+          Assessment timeframe
+          <select v-model="context.timeframe">
+            <option value="current-season">Current season (default)</option>
+            <option value="thirty-days">Past 30 days</option>
+            <option value="ninety-days">Past 90 days</option>
+            <option value="past-year">Past year</option>
+          </select>
+        </label>
+
+        <div class="va-actions">
+          <button type="button" class="va-btn ghost" @click="step = 'welcome'">Back</button>
+          <button type="button" class="va-btn primary" @click="startScoring">
+            Continue to Ideal Life guidance →
+          </button>
+        </div>
       </section>
 
-      <!-- Score -->
-      <section v-else-if="step === 'score'" class="va-shell">
+      <!-- Ideal guidance -->
+      <section v-else-if="step === 'ideal-guide'" class="va-shell va-shell--narrow">
+        <p class="va-eyebrow">Before Ideal Life scores</p>
+        <h1 class="va-title">Your Ideal Life scores do not all need to be 10</h1>
+        <ul class="va-bullets">
+          <li>your current season</li>
+          <li>limited time and energy</li>
+          <li>responsibilities you cannot ignore</li>
+          <li>natural tradeoffs between values</li>
+          <li>what deserves emphasis now</li>
+          <li>what is realistic during the next three to six months</li>
+        </ul>
+        <p class="va-note">
+          Rate the level of emphasis you would ideally want in your current season, not in a perfect life
+          without limits.
+        </p>
+        <div class="va-actions">
+          <button type="button" class="va-btn ghost" @click="step = 'context'">Back</button>
+          <button type="button" class="va-btn primary" @click="step = 'score'">Begin scoring →</button>
+        </div>
+      </section>
+
+      <!-- Progressive scoring -->
+      <section v-else-if="step === 'score'" class="va-shell va-shell--split">
         <header class="va-header">
           <div>
-            <p class="va-eyebrow">Values Alignment Assessment</p>
+            <p class="va-eyebrow">Values Alignment Assessment · {{ scoredCount }} of {{ coreValues.length }} completed</p>
             <h1 class="va-title">{{ activeValue?.label }}</h1>
             <p class="va-lead">{{ activeValue?.definition }}</p>
           </div>
-          <div class="va-count">{{ scoredCount }} of {{ rankedKeys.length }} values completed</div>
+          <div class="va-save" :data-status="saveStatus">{{ saveStatus || 'Ready' }}</div>
         </header>
-        <div class="va-progress"><div :style="{ width: scoreProgress + '%' }" /></div>
 
-        <div class="va-columns">
-          <div class="va-main">
+        <div class="va-split">
+          <div class="va-panel">
             <div class="va-score-block">
-              <h2>How important is this value in the life you want to build?</h2>
-              <p class="va-scale-hint">1 — Not central right now · 5 — Meaningful · 10 — Essential</p>
-              <div class="va-score-row" role="radiogroup" aria-label="Importance score">
+              <h2>Current Life</h2>
+              <p>How strongly is this value reflected in the way you currently use your time, attention, and energy?</p>
+              <div class="va-scale-labels">
+                <span>Rarely reflected</span>
+                <span>Strongly &amp; consistently reflected</span>
+              </div>
+              <div class="va-scores" role="group" aria-label="Current Life score">
                 <button
                   v-for="n in 10"
-                  :key="`imp-${n}`"
+                  :key="`c-${n}`"
                   type="button"
-                  class="va-score-btn"
-                  :class="{ active: currentImportance === n }"
-                  :style="currentImportance === n ? { background: activeValue?.color, borderColor: activeValue?.color } : null"
-                  @click="setImportance(n)"
+                  class="va-score"
+                  :class="{ on: currentLife === n }"
+                  @click="setCurrent(n)"
                 >
                   {{ n }}
                 </button>
               </div>
             </div>
 
-            <div v-if="currentImportance != null" class="va-score-block">
-              <h2>How consistently does your current life reflect this value?</h2>
-              <p class="va-scale-hint">
-                Consider your choices, routines, relationships, and use of time during the past four weeks.
-                1 — Rarely reflected · 5 — Sometimes · 10 — Consistently reflected
-              </p>
-              <div class="va-score-row" role="radiogroup" aria-label="Alignment score">
+            <div v-if="currentLife != null" class="va-score-block">
+              <h2>Ideal Life</h2>
+              <p>How strongly would you ideally like this value to be reflected in your current season?</p>
+              <div class="va-scale-labels">
+                <span>Little emphasis</span>
+                <span>Central priority</span>
+              </div>
+              <div class="va-scores" role="group" aria-label="Ideal Life score">
                 <button
                   v-for="n in 10"
-                  :key="`al-${n}`"
+                  :key="`i-${n}`"
                   type="button"
-                  class="va-score-btn"
-                  :class="{ active: currentAlignment === n }"
-                  :style="currentAlignment === n ? { background: activeValue?.color, borderColor: activeValue?.color } : null"
-                  @click="setAlignment(n)"
+                  class="va-score ideal"
+                  :class="{ on: idealLife === n }"
+                  @click="setIdeal(n)"
                 >
                   {{ n }}
                 </button>
               </div>
-              <p v-if="currentGap != null" class="va-gap-live" role="status" aria-live="polite">
-                Gap: {{ currentGap }} — {{ currentStatus }}
-                <span v-if="currentAlignment > currentImportance"> · More present than currently prioritized.</span>
-              </p>
             </div>
 
-            <div v-if="currentImportance != null && currentAlignment != null" class="va-reflect">
-              <h2>What is helping or preventing you from living this value more consistently?</h2>
+            <div v-if="signedGap != null" class="va-gap-card" role="status" aria-live="polite">
+              <div>
+                <span>Alignment Gap</span>
+                <strong>{{ formatGap(signedGap) }}</strong>
+              </div>
+              <div>
+                <span>Alignment Score</span>
+                <strong>{{ valueAlignmentScore }} / 100</strong>
+              </div>
+              <p>{{ interpretation }}</p>
+              <p class="va-status-pill">{{ gapStatus }}</p>
+            </div>
+
+            <div v-if="idealLife != null && enableConfidence" class="va-score-block">
+              <h2>Confidence to Change</h2>
+              <p>How confident are you that you can make a meaningful change in this area?</p>
+              <div class="va-scale-labels">
+                <span>Not confident yet</span>
+                <span>Highly confident</span>
+              </div>
+              <div class="va-scores" role="group" aria-label="Confidence to Change">
+                <button
+                  v-for="n in 10"
+                  :key="`f-${n}`"
+                  type="button"
+                  class="va-score conf"
+                  :class="{ on: confidence === n }"
+                  @click="setConfidence(n)"
+                >
+                  {{ n }}
+                </button>
+              </div>
+            </div>
+
+            <div v-if="idealLife != null" class="va-reflect">
+              <h2>What most affects alignment with this value?</h2>
               <div class="va-chips">
                 <button
-                  v-for="chip in reflectionChips"
+                  v-for="chip in activeReflectionOptions"
                   :key="chip"
                   type="button"
                   class="va-chip"
@@ -201,213 +227,356 @@
                   {{ chip }}
                 </button>
               </div>
-              <details class="va-note-box">
-                <summary>What would living this value one point more consistently look like?</summary>
-                <textarea v-model="currentNote" rows="3" @change="persistActive" />
-              </details>
-            </div>
 
-            <footer class="va-footer sticky">
-              <button type="button" class="va-btn ghost" :disabled="scoreIndex === 0" @click="scoreIndex -= 1">Back</button>
+              <label class="va-field">
+                What does this value mean to you? (optional)
+                <textarea
+                  :value="personalDefinition"
+                  rows="2"
+                  placeholder="Rewrite the definition in your own words"
+                  @input="patchResponse(activeKey, { personalDefinition: $event.target.value })"
+                />
+              </label>
+
+              <details class="va-details">
+                <summary>Optional private note</summary>
+                <textarea
+                  :value="currentNote"
+                  rows="3"
+                  placeholder="Private to you"
+                  @input="patchResponse(activeKey, { note: $event.target.value })"
+                />
+              </details>
+
               <button
+                v-if="enableNotRelevant"
                 type="button"
-                class="va-btn primary"
-                :disabled="currentImportance == null || currentAlignment == null"
-                @click="nextScore"
+                class="va-btn ghost small"
+                @click="markNotRelevant"
               >
-                {{ scoreIndex >= rankedKeys.length - 1 ? 'Review Values Compass →' : 'Continue to next value →' }}
+                Not relevant in this season
               </button>
-            </footer>
+            </div>
           </div>
 
           <aside class="va-aside">
-            <h2 class="va-aside-title">Your Values Compass</h2>
-            <ValuesCompass
-              mode="bars"
-              :values="template.values"
+            <LifeAlignmentWheel
+              :categories="coreValues"
               :responses="responses"
-              :ordered-keys="rankedKeys"
-              :active-value-id="activeKey"
-              :interactive="true"
-              :animated="true"
-              @value-select="jumpToValue"
+              :values-alignment-index="summary.valuesAlignmentIndex"
+              :active-category-id="activeKey"
+              :selected-priority-category-ids="priorityKeys"
+              :aligned-value-count="summary.alignedValueCount"
+              :positive-gap-count="summary.positiveGapCount"
+              display-mode="current-and-ideal"
+              interactive
+              animated
+              @category-select="jumpToValue"
             />
+            <div class="va-aside-stats">
+              <div><span>Aligned</span><strong>{{ summary.alignedValueCount || 0 }}</strong></div>
+              <div><span>Growth gaps</span><strong>{{ summary.positiveGapCount || 0 }}</strong></div>
+              <div><span>Rebalance</span><strong>{{ summary.rebalancingOpportunityCount || 0 }}</strong></div>
+            </div>
+            <button type="button" class="va-btn ghost small mobile-only" @click="showMobileWheel = !showMobileWheel">
+              {{ showMobileWheel ? 'Hide' : 'View' }} My Alignment Wheel
+            </button>
           </aside>
+        </div>
+
+        <footer class="va-footer sticky">
+          <button type="button" class="va-btn ghost" :disabled="scoreIndex === 0" @click="scoreIndex -= 1">
+            Back
+          </button>
+          <button
+            type="button"
+            class="va-btn primary"
+            :disabled="!canAdvanceValue"
+            @click="nextScore"
+          >
+            {{ scoreIndex >= coreValues.length - 1 ? 'Review profile →' : `Continue to ${nextLabel} →` }}
+          </button>
+        </footer>
+      </section>
+
+      <!-- Completion preview -->
+      <section v-else-if="step === 'complete-preview'" class="va-shell va-shell--narrow">
+        <h1 class="va-title">Your Values Alignment Profile Is Ready</h1>
+        <div class="va-stats">
+          <div class="va-stat highlight">
+            <span>Values Alignment Index</span>
+            <strong>{{ summary.valuesAlignmentIndex ?? '—' }} / 100</strong>
+          </div>
+          <div class="va-stat">
+            <span>Description</span>
+            <strong>{{ summary.alignmentLevel || '—' }}</strong>
+          </div>
+          <div class="va-stat">
+            <span>Closest alignment</span>
+            <strong>{{ summary.closelyAligned?.[0]?.label || '—' }}</strong>
+          </div>
+          <div class="va-stat">
+            <span>Largest positive gap</span>
+            <strong>{{ summary.needingMoreAttention?.[0]?.label || '—' }}</strong>
+          </div>
+          <div class="va-stat">
+            <span>Rebalancing opportunity</span>
+            <strong>{{ summary.rebalancingOpportunities?.[0]?.label || '—' }}</strong>
+          </div>
+          <div class="va-stat">
+            <span>Highest ideal priority</span>
+            <strong>{{ summary.highestIdealPriorities?.[0]?.label || '—' }}</strong>
+          </div>
+        </div>
+        <p class="va-note">
+          Alignment does not require every value to receive equal attention. Your profile is a starting point
+          for choosing what deserves emphasis in your current season.
+        </p>
+        <div class="va-actions">
+          <button type="button" class="va-btn primary" @click="step = 'review'">
+            Explore My Values Alignment Profile
+          </button>
+          <button type="button" class="va-btn ghost" @click="step = 'score'; scoreIndex = 0">
+            Review My Responses
+          </button>
         </div>
       </section>
 
-      <!-- Review -->
+      <!-- Results -->
       <section v-else-if="step === 'review'" class="va-shell">
-        <p class="va-eyebrow">Your Values Compass</p>
-        <h1 class="va-title">Your Values Compass</h1>
-        <p class="va-lead">
-          This snapshot shows which values matter most to you and how closely your current life reflects them.
-        </p>
+        <header class="va-header">
+          <div>
+            <p class="va-eyebrow">Your Values Alignment Profile</p>
+            <h1 class="va-title">Current Life compared with Ideal Life</h1>
+            <p class="va-lead">
+              This profile compares how your values currently appear in daily life with the level of emphasis
+              you would ideally prefer in your present season.
+            </p>
+          </div>
+        </header>
 
-        <div class="va-summary-grid">
-          <div class="va-stat"><span>Average Importance</span><strong>{{ summary.averageImportance ?? '—' }}</strong></div>
-          <div class="va-stat"><span>Average Alignment</span><strong>{{ summary.averageAlignment ?? '—' }}</strong></div>
-          <div class="va-stat"><span>Average Gap</span><strong>{{ summary.averageGap ?? '—' }}</strong></div>
-          <div class="va-stat highlight"><span>Overall</span><strong>{{ summary.alignmentLevel || '—' }}</strong></div>
-          <div class="va-stat"><span>Strongly Aligned</span><strong>{{ summary.stronglyAlignedCount }}</strong></div>
-          <div class="va-stat"><span>Priority Opportunities</span><strong>{{ summary.priorityOpportunityCount }}</strong></div>
+        <p class="va-clarify">{{ summary.indexClarification }}</p>
+
+        <div class="va-stats">
+          <div class="va-stat highlight">
+            <span>Alignment Index</span>
+            <strong>{{ summary.valuesAlignmentIndex ?? '—' }}</strong>
+          </div>
+          <div class="va-stat">
+            <span>Level</span>
+            <strong>{{ summary.alignmentLevel || '—' }}</strong>
+          </div>
+          <div class="va-stat">
+            <span>Aligned values</span>
+            <strong>{{ summary.alignedValueCount || 0 }}</strong>
+          </div>
+          <div class="va-stat">
+            <span>Growth opportunities</span>
+            <strong>{{ summary.positiveGapCount || 0 }}</strong>
+          </div>
         </div>
 
-        <div class="va-columns">
-          <div class="va-main">
-            <ValuesCompass
-              mode="bars"
-              :values="template.values"
-              :responses="responses"
-              :ordered-keys="rankedKeys"
-              :interactive="false"
-            />
-            <h2 class="va-section">Quadrant map</h2>
-            <ValuesCompass
-              mode="quadrant"
-              :values="template.values"
-              :responses="responses"
-              :ordered-keys="rankedKeys"
-              :interactive="false"
-            />
-          </div>
-          <aside class="va-aside">
-            <div v-if="summary.coreStrengths?.length" class="va-insight-block">
-              <h3>Core Strengths</h3>
-              <article v-for="x in summary.coreStrengths" :key="x.valueKey">
+        <div class="va-viz-row">
+          <LifeAlignmentWheel
+            :categories="coreValues"
+            :responses="responses"
+            :values-alignment-index="summary.valuesAlignmentIndex"
+            :aligned-value-count="summary.alignedValueCount"
+            :positive-gap-count="summary.positiveGapCount"
+            :selected-priority-category-ids="priorityKeys"
+            display-mode="current-and-ideal"
+          />
+        </div>
+
+        <ValuesGapMap
+          v-model:sort-mode="gapSortMode"
+          :categories="coreValues"
+          :responses="responses"
+          :selected-priority-category-ids="priorityKeys"
+        />
+
+        <div class="va-insight-grid">
+          <article>
+            <h2>Closely Aligned</h2>
+            <ul>
+              <li v-for="x in summary.closelyAligned?.slice(0, 4) || []" :key="x.valueKey">
                 <strong>{{ x.label }}</strong>
-                <p>Importance {{ x.importanceScore }} · Alignment {{ x.alignmentScore }}</p>
-                <p class="muted">Your actions appear to consistently reflect this value.</p>
-              </article>
-            </div>
-            <div v-if="summary.priorityOpportunities?.length" class="va-insight-block">
-              <h3>Priority Opportunities</h3>
-              <article v-for="x in summary.priorityOpportunities" :key="x.valueKey">
+                — Current {{ x.currentLifeScore }} / Ideal {{ x.idealLifeScore }}
+              </li>
+              <li v-if="!(summary.closelyAligned || []).length">None yet identified.</li>
+            </ul>
+          </article>
+          <article>
+            <h2>Needing More Attention</h2>
+            <ul>
+              <li v-for="x in summary.needingMoreAttention?.slice(0, 4) || []" :key="x.valueKey">
                 <strong>{{ x.label }}</strong>
-                <p>Importance {{ x.importanceScore }} · Alignment {{ x.alignmentScore }} · Gap {{ x.gap }}</p>
-                <p class="muted">This value matters deeply to you but may not currently have enough space in your life.</p>
-              </article>
-            </div>
-            <div v-if="summary.insights?.length" class="va-insight-block">
-              <h3>Insights</h3>
-              <p v-for="(line, i) in summary.insights" :key="i" class="muted">{{ line }}</p>
-            </div>
-          </aside>
+                — Gap {{ formatGap(x.signedGap) }}
+              </li>
+              <li v-if="!(summary.needingMoreAttention || []).length">No major positive gaps.</li>
+            </ul>
+          </article>
+          <article>
+            <h2>Rebalancing Opportunities</h2>
+            <ul>
+              <li v-for="x in summary.rebalancingOpportunities?.slice(0, 4) || []" :key="x.valueKey">
+                <strong>{{ x.label }}</strong>
+                — Gap {{ formatGap(x.signedGap) }}
+              </li>
+              <li v-if="!(summary.rebalancingOpportunities || []).length">No major rebalancing signals.</li>
+            </ul>
+          </article>
+        </div>
+
+        <div v-if="summary.insights?.length" class="va-insights">
+          <h2>Insights</h2>
+          <ul>
+            <li v-for="(t, i) in summary.insights" :key="i">{{ t }}</li>
+          </ul>
         </div>
 
         <footer class="va-footer">
           <button type="button" class="va-btn ghost" @click="step = 'score'; scoreIndex = 0">Edit scores</button>
-          <button type="button" class="va-btn primary" @click="step = 'priorities'">Choose focus values →</button>
+          <button type="button" class="va-btn primary" @click="step = 'priorities'">Choose priorities →</button>
         </footer>
       </section>
 
       <!-- Priorities -->
       <section v-else-if="step === 'priorities'" class="va-shell va-shell--narrow">
-        <h1 class="va-title">Which values would you most like to express more intentionally?</h1>
-        <p class="va-lead">Select one to three. You do not have to choose the largest gaps.</p>
-        <div class="va-focus-tray" v-if="priorityKeys.length">
-          <span>My Focus Values:</span>
-          <em v-for="k in priorityKeys" :key="k">{{ valueMap[k]?.label }}</em>
-        </div>
-        <div class="va-prio-list">
-          <label v-for="key in rankedKeys" :key="key" class="va-prio">
+        <p class="va-eyebrow">Priority selection</p>
+        <h1 class="va-title">Which values deserve intentional attention?</h1>
+        <p class="va-lead">
+          Which values would most improve your sense of alignment if addressed during the next season? Choose
+          one to three. You do not have to select the largest gaps.
+        </p>
+        <div class="va-priority-list">
+          <label v-for="v in coreValues" :key="v.key" class="va-priority-card">
             <input
               type="checkbox"
-              :checked="priorityKeys.includes(key)"
-              :disabled="!priorityKeys.includes(key) && priorityKeys.length >= maxPriorities"
-              @change="togglePriority(key, $event.target.checked)"
+              :checked="priorityKeys.includes(v.key)"
+              :disabled="!priorityKeys.includes(v.key) && priorityKeys.length >= maxPriorities"
+              @change="togglePriority(v.key, $event.target.checked)"
             />
-            <span class="va-dot" :style="{ background: valueMap[key]?.color }" />
-            <span class="grow">
-              <strong>{{ valueMap[key]?.label }}</strong>
-              <small>
-                Imp {{ responseMap[key]?.importanceScore }} · Align {{ responseMap[key]?.alignmentScore }} ·
-                Gap {{ gapFor(key) }}
-              </small>
-            </span>
+            <div>
+              <strong>{{ v.label }}</strong>
+              <p>
+                Current {{ responseMap[v.key]?.currentLifeScore ?? '—' }} · Ideal
+                {{ responseMap[v.key]?.idealLifeScore ?? '—' }} · Gap
+                {{ formatGap(signedGapFor(v.key)) }}
+              </p>
+              <select
+                v-if="priorityKeys.includes(v.key)"
+                :value="priorityTypes[v.key] || 'increase'"
+                @change="priorityTypes[v.key] = $event.target.value"
+              >
+                <option v-for="t in PRIORITY_TYPES" :key="t.id" :value="t.id">{{ t.label }}</option>
+              </select>
+            </div>
           </label>
         </div>
         <footer class="va-footer">
           <button type="button" class="va-btn ghost" @click="step = 'review'">Back</button>
-          <button type="button" class="va-btn primary" :disabled="!priorityKeys.length" @click="goCommitments">
-            Create alignment commitments →
+          <button
+            type="button"
+            class="va-btn primary"
+            :disabled="!priorityKeys.length"
+            @click="goCommitments"
+          >
+            Build Values Alignment Plan →
           </button>
         </footer>
       </section>
 
-      <!-- Commitments -->
+      <!-- Plans / Values-to-Action Bridge -->
       <section v-else-if="step === 'commitments'" class="va-shell va-shell--narrow">
-        <h1 class="va-title">Alignment commitments</h1>
-        <p class="va-lead">Turn awareness into one meaningful next step for each focus value.</p>
-        <div v-for="key in priorityKeys" :key="key" class="va-commit">
+        <p class="va-eyebrow">Values-to-Action Bridge</p>
+        <h1 class="va-title">Translate values into observable behavior</h1>
+        <p class="va-lead">What would another person notice if this value were more visible in your life?</p>
+
+        <article v-for="key in priorityKeys" :key="key" class="va-bridge">
           <h2>{{ valueMap[key]?.label }}</h2>
-          <label>
-            What would living this value one point more fully look like?
-            <textarea v-model="commitmentDrafts[key].title" rows="2" />
+          <div class="va-bridge-flow">
+            <span>Value</span>
+            <span>Meaning</span>
+            <span>Current</span>
+            <span>Desired</span>
+            <span>Commitment</span>
+            <span>Boundary</span>
+            <span>Review</span>
+          </div>
+          <label class="va-field">
+            What this value means to me
+            <textarea v-model="commitmentDrafts[key].personalDefinition" rows="2" />
           </label>
-          <label>
-            What is one behavior that would demonstrate this value?
-            <input v-model="commitmentDrafts[key].behavior" type="text" />
+          <label class="va-field">
+            Current pattern
+            <textarea v-model="commitmentDrafts[key].currentBehavior" rows="2" />
           </label>
-          <label>
-            What could interfere with that behavior?
-            <input v-model="commitmentDrafts[key].obstacles" type="text" />
+          <label class="va-field">
+            Desired behavior
+            <textarea v-model="commitmentDrafts[key].desiredBehavior" rows="2" />
           </label>
-          <label>
-            What boundary or support would make it easier?
-            <input v-model="commitmentDrafts[key].supportNeeded" type="text" />
-          </label>
-          <label>
-            When will you take the first step?
-            <input v-model="commitmentDrafts[key].targetDate" type="date" />
-          </label>
-          <label>
-            First step
+          <label class="va-field">
+            Smallest first action
             <input v-model="commitmentDrafts[key].firstStep" type="text" />
           </label>
-          <label>
+          <label class="va-field">
+            Recurring action
+            <input v-model="commitmentDrafts[key].recurringAction" type="text" />
+          </label>
+          <label class="va-field">
+            Boundary or tradeoff
+            <input v-model="commitmentDrafts[key].boundaryOrTradeoff" type="text" />
+          </label>
+          <label class="va-field">
+            Success indicator
+            <input v-model="commitmentDrafts[key].successIndicator" type="text" />
+          </label>
+          <label class="va-field">
+            Review date
+            <input v-model="commitmentDrafts[key].targetDate" type="date" />
+          </label>
+          <label class="va-field">
             Confidence (1–10)
             <input v-model.number="commitmentDrafts[key].confidenceScore" type="number" min="1" max="10" />
           </label>
-          <p v-if="commitmentDrafts[key].confidenceScore && commitmentDrafts[key].confidenceScore < 7" class="va-hint">
-            How could this commitment become smaller or more realistic?
+          <p v-if="(commitmentDrafts[key].confidenceScore || 10) < 7" class="va-note">
+            How could this plan become smaller, simpler, or more realistic?
           </p>
-        </div>
+        </article>
+
         <footer class="va-footer">
-          <button type="button" class="va-btn ghost" @click="finishAssessment">Skip for now</button>
-          <button type="button" class="va-btn primary" @click="finishAssessment">Save &amp; view results</button>
+          <button type="button" class="va-btn ghost" @click="step = 'priorities'">Back</button>
+          <button type="button" class="va-btn primary" @click="finishAssessment">Finish profile →</button>
         </footer>
       </section>
 
       <!-- Done -->
       <section v-else-if="step === 'done'" class="va-shell va-shell--narrow va-print">
-        <p class="va-eyebrow">Values Compass</p>
-        <h1 class="va-title">Your results</h1>
-        <p class="va-lead">
-          {{ isGuest
-            ? 'Download or print your Values Compass. Nothing was linked to an account.'
-            : 'Your Values Alignment Assessment is saved.' }}
-        </p>
-        <div class="va-summary-grid compact">
-          <div class="va-stat"><span>Importance</span><strong>{{ summary.averageImportance }}</strong></div>
-          <div class="va-stat"><span>Alignment</span><strong>{{ summary.averageAlignment }}</strong></div>
-          <div class="va-stat"><span>Gap</span><strong>{{ summary.averageGap }}</strong></div>
-          <div class="va-stat highlight"><span>Level</span><strong>{{ summary.alignmentLevel }}</strong></div>
+        <p class="va-eyebrow">Complete</p>
+        <h1 class="va-title">Your Values Alignment Profile</h1>
+        <div class="va-stats">
+          <div class="va-stat highlight">
+            <span>Index</span>
+            <strong>{{ summary.valuesAlignmentIndex }} / 100</strong>
+          </div>
+          <div class="va-stat">
+            <span>Level</span>
+            <strong>{{ summary.alignmentLevel }}</strong>
+          </div>
         </div>
-        <ValuesCompass
-          mode="bars"
-          :values="template.values"
+        <LifeAlignmentWheel
+          :categories="coreValues"
           :responses="responses"
-          :ordered-keys="rankedKeys"
-          :interactive="false"
+          :values-alignment-index="summary.valuesAlignmentIndex"
+          :selected-priority-category-ids="priorityKeys"
+          display-mode="current-and-ideal"
         />
-        <p v-if="priorityKeys.length" class="va-focus-done">
-          Focus values: <strong>{{ priorityKeys.map((k) => valueMap[k]?.label).join(', ') }}</strong>
-        </p>
-        <div class="va-actions" style="justify-content: center;">
-          <button type="button" class="va-btn primary" @click="downloadPdf">Download / print PDF</button>
+        <p class="va-clarify">{{ summary.indexClarification }}</p>
+        <div class="va-actions">
+          <button type="button" class="va-btn primary" @click="downloadPdf">Print / Save PDF</button>
           <button type="button" class="va-btn ghost" @click="downloadJson">Download JSON</button>
-          <button v-if="isGuest" type="button" class="va-btn ghost" @click="resetGuest">Start over</button>
+          <button type="button" class="va-btn ghost" @click="resetGuest">Start over</button>
         </div>
       </section>
     </template>
@@ -418,89 +587,146 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
-import ValuesCompass from '../../components/valuesAlignment/ValuesCompass.vue';
+import LifeAlignmentWheel from '../../components/valuesAlignment/LifeAlignmentWheel.vue';
+import ValuesGapMap from '../../components/valuesAlignment/ValuesGapMap.vue';
 import {
-  REFLECTION_CHIPS,
-  CATEGORY_LABELS,
-  calculateAlignmentGap,
-  gapStatusLabel,
-  buildValuesSummary
+  CORE_VALUE_KEYS,
+  REFLECTION_OPTIONS_BY_VALUE,
+  LIFE_SEASON_OPTIONS,
+  PRIMARY_CONCERN_OPTIONS,
+  CURRENT_GOAL_OPTIONS,
+  PRIORITY_TYPES,
+  buildLifeAlignmentSummary,
+  calculateSignedAlignmentGap,
+  calculateValueAlignmentScore,
+  signedGapStatusLabel,
+  interpretCurrentIdealPair
 } from '../../utils/valuesAlignment.js';
 
 const route = useRoute();
 const isGuest = computed(() => !!route.meta?.guestValuesAlignment);
-const GUEST_KEY = 'va-guest-assessment-v1';
+const GUEST_KEY = 'va-guest-assessment-v2-life-wheel';
 const quiet = { skipGlobalLoading: true };
 
 const loading = ref(true);
 const error = ref('');
 const template = ref(null);
 const step = ref('welcome');
-const selectedKeys = ref([]);
-const rankedKeys = ref([]);
 const responses = ref([]);
 const priorityKeys = ref([]);
+const priorityTypes = reactive({});
 const scoreIndex = ref(0);
 const saveStatus = ref('');
 const commitmentDrafts = reactive({});
-const reflectionChips = REFLECTION_CHIPS;
-const categoryLabels = CATEGORY_LABELS;
-const categoryOrder = ['connection', 'character', 'growth', 'purpose', 'lifestyle'];
+const gapSortMode = ref('default');
+const showMobileWheel = ref(false);
+const context = reactive({
+  lifeSeason: '',
+  concerns: [],
+  goals: [],
+  timeframe: 'current-season',
+  mode: 'full'
+});
 
 const settings = computed(() => template.value?.settings || {});
-const minSelect = computed(() => Number(settings.value.minSelect || 5));
-const maxSelect = computed(() => Number(settings.value.maxSelect || 12));
-const minRank = computed(() => Number(settings.value.minRank || 6));
-const maxRank = computed(() => Number(settings.value.maxRank || 8));
 const maxPriorities = computed(() => Number(settings.value.maxPriorities || 3));
+const enableConfidence = computed(() => settings.value.enableConfidenceToChange !== false);
+const enableNotRelevant = computed(() => settings.value.enableNotRelevant !== false);
+
+const coreKeys = computed(() => {
+  const keys = settings.value.coreValueKeys || CORE_VALUE_KEYS;
+  return keys.map(String);
+});
+
+const coreValues = computed(() => {
+  const all = template.value?.values || [];
+  const byKey = Object.fromEntries(all.map((v) => [v.key, v]));
+  return coreKeys.value
+    .map((k) => byKey[k])
+    .filter(Boolean)
+    .map((v) => ({
+      ...v,
+      shortLabel: v.label?.split(' ')[0] || v.label
+    }));
+});
 
 const valueMap = computed(() => {
   const m = {};
-  for (const v of template.value?.values || []) m[v.key] = v;
+  for (const v of coreValues.value) m[v.key] = v;
   return m;
 });
+
 const responseMap = computed(() => {
   const m = {};
   for (const r of responses.value) m[r.valueKey] = r;
   return m;
 });
 
-const activeKey = computed(() => rankedKeys.value[scoreIndex.value] || '');
+const activeKey = computed(() => coreValues.value[scoreIndex.value]?.key || '');
 const activeValue = computed(() => valueMap.value[activeKey.value] || null);
-const currentImportance = computed(() => responseMap.value[activeKey.value]?.importanceScore ?? null);
-const currentAlignment = computed(() => responseMap.value[activeKey.value]?.alignmentScore ?? null);
+const currentLife = computed(() => responseMap.value[activeKey.value]?.currentLifeScore ?? null);
+const idealLife = computed(() => responseMap.value[activeKey.value]?.idealLifeScore ?? null);
+const confidence = computed(
+  () => responseMap.value[activeKey.value]?.confidenceToChangeScore ?? null
+);
+const personalDefinition = computed(
+  () => responseMap.value[activeKey.value]?.personalDefinition || ''
+);
 const currentChips = computed(() => responseMap.value[activeKey.value]?.reflectionChips || []);
-const currentNote = computed({
-  get: () => responseMap.value[activeKey.value]?.note || '',
-  set: (v) => patchResponse(activeKey.value, { note: v })
-});
-const currentGap = computed(() => calculateAlignmentGap(currentImportance.value, currentAlignment.value));
-const currentStatus = computed(() => gapStatusLabel(currentGap.value));
+const currentNote = computed(() => responseMap.value[activeKey.value]?.note || '');
+const signedGap = computed(() => calculateSignedAlignmentGap(currentLife.value, idealLife.value));
+const valueAlignmentScore = computed(() =>
+  calculateValueAlignmentScore(currentLife.value, idealLife.value)
+);
+const gapStatus = computed(() => signedGapStatusLabel(signedGap.value));
+const interpretation = computed(() =>
+  interpretCurrentIdealPair(currentLife.value, idealLife.value)
+);
+const activeReflectionOptions = computed(
+  () => REFLECTION_OPTIONS_BY_VALUE[activeKey.value] || REFLECTION_OPTIONS_BY_VALUE.integrity
+);
+
 const scoredCount = computed(
   () =>
-    rankedKeys.value.filter((k) => {
-      const r = responseMap.value[k];
-      return r?.importanceScore != null && r?.alignmentScore != null;
+    coreValues.value.filter((v) => {
+      const r = responseMap.value[v.key];
+      return (
+        r?.seasonStatus === 'not_relevant' ||
+        (r?.currentLifeScore != null && r?.idealLifeScore != null)
+      );
     }).length
 );
-const scoreProgress = computed(() => {
-  if (!rankedKeys.value.length) return 0;
-  return Math.round((scoredCount.value / rankedKeys.value.length) * 100);
+
+const canAdvanceValue = computed(() => {
+  const r = responseMap.value[activeKey.value];
+  return (
+    r?.seasonStatus === 'not_relevant' ||
+    (r?.currentLifeScore != null && r?.idealLifeScore != null)
+  );
 });
-const availableForRank = computed(() =>
-  selectedKeys.value.filter((k) => !rankedKeys.value.includes(k))
-);
-const summary = computed(() =>
-  buildValuesSummary(template.value, responses.value, priorityKeys.value)
+
+const nextLabel = computed(
+  () => coreValues.value[scoreIndex.value + 1]?.label || 'next'
 );
 
-function valuesByCategory(cat) {
-  return (template.value?.values || []).filter((v) => v.category === cat);
+const summary = computed(() =>
+  buildLifeAlignmentSummary(template.value, responses.value, priorityKeys.value)
+);
+
+function toggleList(arr, item) {
+  const i = arr.indexOf(item);
+  if (i >= 0) arr.splice(i, 1);
+  else arr.push(item);
 }
 
-function gapFor(key) {
+function formatGap(g) {
+  if (g == null) return '—';
+  return g > 0 ? `+${g}` : String(g);
+}
+
+function signedGapFor(key) {
   const r = responseMap.value[key];
-  return calculateAlignmentGap(r?.importanceScore, r?.alignmentScore);
+  return calculateSignedAlignmentGap(r?.currentLifeScore, r?.idealLifeScore);
 }
 
 function persistGuest() {
@@ -510,12 +736,12 @@ function persistGuest() {
       GUEST_KEY,
       JSON.stringify({
         step: step.value,
-        selectedKeys: selectedKeys.value,
-        rankedKeys: rankedKeys.value,
         responses: responses.value,
         priorityKeys: priorityKeys.value,
+        priorityTypes: { ...priorityTypes },
         scoreIndex: scoreIndex.value,
         commitmentDrafts: { ...commitmentDrafts },
+        context: { ...context, concerns: [...context.concerns], goals: [...context.goals] },
         templateId: template.value?.id,
         savedAt: new Date().toISOString()
       })
@@ -526,75 +752,45 @@ function persistGuest() {
   }
 }
 
-watch([step, selectedKeys, rankedKeys, responses, priorityKeys, scoreIndex], () => persistGuest(), {
-  deep: true
-});
-
-function toggleSelect(key) {
-  if (selectedKeys.value.includes(key)) {
-    selectedKeys.value = selectedKeys.value.filter((k) => k !== key);
-    rankedKeys.value = rankedKeys.value.filter((k) => k !== key);
-  } else if (selectedKeys.value.length < maxSelect.value) {
-    selectedKeys.value = [...selectedKeys.value, key];
-  }
-}
-
-function goRank() {
-  rankedKeys.value = [...selectedKeys.value].slice(0, maxRank.value);
-  step.value = 'rank';
-}
-
-function moveRank(idx, dir) {
-  const next = [...rankedKeys.value];
-  const j = idx + dir;
-  if (j < 0 || j >= next.length) return;
-  [next[idx], next[j]] = [next[j], next[idx]];
-  rankedKeys.value = next;
-}
-
-function moveRankTo(idx, target) {
-  const next = [...rankedKeys.value];
-  const [item] = next.splice(idx, 1);
-  next.splice(target, 0, item);
-  rankedKeys.value = next;
-}
-
-function removeFromRank(key) {
-  rankedKeys.value = rankedKeys.value.filter((k) => k !== key);
-}
-
-function addToRank(key) {
-  if (rankedKeys.value.length >= maxRank.value) return;
-  rankedKeys.value = [...rankedKeys.value, key];
-}
-
-function startScoring() {
-  scoreIndex.value = 0;
-  step.value = 'score';
-}
+watch(
+  [step, responses, priorityKeys, scoreIndex, context],
+  () => persistGuest(),
+  { deep: true }
+);
 
 function ensureResponse(key) {
   if (!responseMap.value[key]) {
     responses.value = [
       ...responses.value,
-      { valueKey: key, importanceScore: null, alignmentScore: null, reflectionChips: [], note: '' }
+      {
+        valueKey: key,
+        currentLifeScore: null,
+        idealLifeScore: null,
+        confidenceToChangeScore: null,
+        personalDefinition: '',
+        seasonStatus: 'active',
+        reflectionChips: [],
+        note: ''
+      }
     ];
   }
 }
 
 function patchResponse(key, patch) {
   ensureResponse(key);
-  responses.value = responses.value.map((r) =>
-    r.valueKey === key ? { ...r, ...patch } : r
-  );
+  responses.value = responses.value.map((r) => (r.valueKey === key ? { ...r, ...patch } : r));
 }
 
-function setImportance(n) {
-  patchResponse(activeKey.value, { importanceScore: n });
+function setCurrent(n) {
+  patchResponse(activeKey.value, { currentLifeScore: n, seasonStatus: 'active' });
 }
 
-function setAlignment(n) {
-  patchResponse(activeKey.value, { alignmentScore: n });
+function setIdeal(n) {
+  patchResponse(activeKey.value, { idealLifeScore: n });
+}
+
+function setConfidence(n) {
+  patchResponse(activeKey.value, { confidenceToChangeScore: n });
 }
 
 function toggleChip(chip) {
@@ -604,20 +800,31 @@ function toggleChip(chip) {
   patchResponse(activeKey.value, { reflectionChips: [...set] });
 }
 
-function persistActive() {
-  persistGuest();
+function markNotRelevant() {
+  patchResponse(activeKey.value, {
+    seasonStatus: 'not_relevant',
+    currentLifeScore: null,
+    idealLifeScore: null
+  });
+  nextScore();
+}
+
+function startScoring() {
+  scoreIndex.value = 0;
+  for (const v of coreValues.value) ensureResponse(v.key);
+  step.value = 'ideal-guide';
 }
 
 function nextScore() {
-  if (scoreIndex.value >= rankedKeys.value.length - 1) {
-    step.value = 'review';
+  if (scoreIndex.value >= coreValues.value.length - 1) {
+    step.value = 'complete-preview';
   } else {
     scoreIndex.value += 1;
   }
 }
 
 function jumpToValue(key) {
-  const idx = rankedKeys.value.indexOf(key);
+  const idx = coreValues.value.findIndex((v) => v.key === key);
   if (idx >= 0) {
     scoreIndex.value = idx;
     step.value = 'score';
@@ -628,6 +835,7 @@ function togglePriority(key, checked) {
   if (checked) {
     if (priorityKeys.value.length >= maxPriorities.value) return;
     priorityKeys.value = [...priorityKeys.value, key];
+    if (!priorityTypes[key]) priorityTypes[key] = 'increase';
   } else {
     priorityKeys.value = priorityKeys.value.filter((k) => k !== key);
   }
@@ -637,18 +845,17 @@ function goCommitments() {
   for (const key of priorityKeys.value) {
     if (!commitmentDrafts[key]) {
       commitmentDrafts[key] = {
-        title: '',
-        behavior: '',
-        obstacles: '',
-        supportNeeded: '',
+        personalDefinition:
+          responseMap.value[key]?.personalDefinition || valueMap.value[key]?.definition || '',
+        currentBehavior: '',
+        desiredBehavior: '',
         firstStep: '',
+        recurringAction: '',
+        boundaryOrTradeoff: '',
+        successIndicator: '',
         targetDate: '',
-        confidenceScore: null,
-        startingAlignmentScore: responseMap.value[key]?.alignmentScore ?? null,
-        desiredAlignmentScore: Math.min(
-          10,
-          (responseMap.value[key]?.alignmentScore || 5) + 1
-        )
+        confidenceScore: responseMap.value[key]?.confidenceToChangeScore ?? null,
+        priorityType: priorityTypes[key] || 'increase'
       };
     }
   }
@@ -662,19 +869,19 @@ function finishAssessment() {
 
 function buildExport() {
   return {
-    type: 'values_alignment_guest',
+    type: 'values_alignment_life_wheel_guest',
     title: 'Values Alignment Assessment',
-    compassName: 'Values Compass',
+    visualExperience: 'Life Alignment Wheel',
     exportedAt: new Date().toISOString(),
+    context: { ...context },
     summary: summary.value,
-    rankedValues: rankedKeys.value.map((key) => ({
-      key,
-      label: valueMap.value[key]?.label,
-      category: valueMap.value[key]?.category,
-      ...(responseMap.value[key] || {})
+    values: coreValues.value.map((v) => ({
+      key: v.key,
+      label: v.label,
+      ...(responseMap.value[v.key] || {})
     })),
     priorityKeys: priorityKeys.value,
-    commitments: priorityKeys.value.map((key) => ({
+    plans: priorityKeys.value.map((key) => ({
       valueKey: key,
       label: valueMap.value[key]?.label,
       ...(commitmentDrafts[key] || {})
@@ -702,12 +909,14 @@ async function resetGuest() {
   } catch {
     // ignore
   }
-  selectedKeys.value = [];
-  rankedKeys.value = [];
   responses.value = [];
   priorityKeys.value = [];
   scoreIndex.value = 0;
   Object.keys(commitmentDrafts).forEach((k) => delete commitmentDrafts[k]);
+  context.lifeSeason = '';
+  context.concerns = [];
+  context.goals = [];
+  context.timeframe = 'current-season';
   step.value = 'welcome';
 }
 
@@ -718,7 +927,8 @@ async function load() {
     const res = await api.get('/values-alignment/guest/template', quiet);
     template.value = res.data?.template || null;
     if (!template.value?.values?.length) {
-      error.value = 'Values Alignment template is not available yet. Run migration 918.';
+      error.value =
+        'Values Alignment template is not available yet. Run migrations 918 and 923.';
       return;
     }
     if (isGuest.value) {
@@ -726,14 +936,21 @@ async function load() {
         const raw = localStorage.getItem(GUEST_KEY);
         if (raw) {
           const cached = JSON.parse(raw);
-          if (cached?.selectedKeys) selectedKeys.value = cached.selectedKeys;
-          if (cached?.rankedKeys) rankedKeys.value = cached.rankedKeys;
           if (cached?.responses) responses.value = cached.responses;
           if (cached?.priorityKeys) priorityKeys.value = cached.priorityKeys;
           if (cached?.step) step.value = cached.step;
           if (typeof cached?.scoreIndex === 'number') scoreIndex.value = cached.scoreIndex;
+          if (cached?.context) {
+            context.lifeSeason = cached.context.lifeSeason || '';
+            context.concerns = cached.context.concerns || [];
+            context.goals = cached.context.goals || [];
+            context.timeframe = cached.context.timeframe || 'current-season';
+          }
           for (const [k, v] of Object.entries(cached.commitmentDrafts || {})) {
             commitmentDrafts[k] = { ...v };
+          }
+          for (const [k, v] of Object.entries(cached.priorityTypes || {})) {
+            priorityTypes[k] = v;
           }
         }
       } catch {
@@ -762,320 +979,460 @@ onMounted(load);
   min-height: 100vh;
   background:
     radial-gradient(900px 420px at 10% -10%, rgba(180, 83, 9, 0.08), transparent 55%),
-    radial-gradient(700px 360px at 100% 0%, rgba(29, 78, 216, 0.05), transparent 50%),
+    radial-gradient(700px 360px at 100% 0%, rgba(29, 78, 216, 0.06), transparent 50%),
     var(--va-bg);
   color: var(--va-ink);
   font-family: 'Source Sans 3', system-ui, sans-serif;
   padding: 1.5rem 1rem 4rem;
 }
-.va-title,
-.va-aside-title,
-.va-section,
-.va-commit h2,
-.va-group h2 {
-  font-family: Fraunces, Georgia, serif;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
+
 .va-state {
-  max-width: 480px;
+  max-width: 40rem;
   margin: 4rem auto;
   text-align: center;
   color: var(--va-muted);
 }
-.va-state.error { color: #b91c1c; }
+.va-state.error {
+  color: #9f1239;
+}
+
 .va-shell {
   max-width: 1100px;
   margin: 0 auto;
+  background: rgba(255, 250, 245, 0.88);
+  border: 1px solid var(--va-line);
+  border-radius: 22px;
+  padding: 1.5rem 1.35rem 1.75rem;
+  box-shadow: 0 18px 40px rgba(28, 25, 23, 0.05);
 }
-.va-shell--narrow { max-width: 720px; }
+
+.va-shell--narrow {
+  max-width: 640px;
+}
+
 .va-eyebrow {
-  margin: 0 0 0.35rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: #a16207;
+  font-weight: 700;
 }
+
 .va-title {
-  margin: 0 0 0.65rem;
-  font-size: clamp(1.6rem, 3vw, 2.2rem);
-  color: var(--va-ink);
+  margin: 0.35rem 0 0.65rem;
+  font-family: Fraunces, Georgia, serif;
+  font-size: clamp(1.55rem, 3vw, 2.15rem);
+  font-weight: 650;
+  line-height: 1.2;
 }
-.va-lead {
-  margin: 0 0 1rem;
-  color: #44403c;
-  line-height: 1.55;
-  font-size: 1.05rem;
+
+.va-lead,
+.va-note,
+.va-meta,
+.va-clarify {
+  color: #57534e;
+  line-height: 1.6;
 }
-.va-note, .va-meta, .va-scale-hint, .va-hint, .muted {
-  color: var(--va-muted);
-  line-height: 1.45;
+
+.va-clarify {
+  font-size: 0.9rem;
+  padding: 0.75rem 1rem;
+  background: #f5f5f4;
+  border-radius: 12px;
 }
-.va-actions, .va-footer {
+
+.va-actions,
+.va-footer {
   display: flex;
   flex-wrap: wrap;
   gap: 0.65rem;
-  margin-top: 1.5rem;
+  margin-top: 1.35rem;
 }
-.va-footer {
-  justify-content: space-between;
-  align-items: center;
-  padding-top: 1rem;
-  border-top: 1px solid var(--va-line);
-}
+
 .va-footer.sticky {
   position: sticky;
-  bottom: 0;
-  background: linear-gradient(transparent, var(--va-bg) 30%);
-  padding-bottom: 0.5rem;
+  bottom: 0.5rem;
+  background: rgba(255, 250, 245, 0.95);
+  padding: 0.75rem 0 0;
   z-index: 5;
 }
+
 .va-btn {
-  border-radius: 999px;
   border: 1px solid var(--va-line);
   background: #fff;
   color: var(--va-ink);
-  font-weight: 700;
+  border-radius: 999px;
   padding: 0.7rem 1.15rem;
+  font-weight: 700;
   cursor: pointer;
-  font-size: 0.95rem;
+  font-family: inherit;
 }
+
 .va-btn.primary {
   background: #1c1917;
   color: #fffaf5;
   border-color: #1c1917;
 }
-.va-btn.ghost { background: transparent; }
-.va-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.va-steps { line-height: 1.7; color: #44403c; }
-.va-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  align-items: flex-start;
-  margin-bottom: 1rem;
-  flex-wrap: wrap;
+
+.va-btn.ghost {
+  background: transparent;
 }
-.va-count {
+
+.va-btn.small {
+  padding: 0.4rem 0.8rem;
   font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--va-muted);
-  background: #fff;
-  border: 1px solid var(--va-line);
-  border-radius: 999px;
-  padding: 0.45rem 0.85rem;
 }
-.va-count[data-ready='true'] { color: #166534; border-color: #bbf7d0; background: #f0fdf4; }
-.va-group { margin-bottom: 1.5rem; }
-.va-group h2 { font-size: 1.1rem; margin: 0 0 0.75rem; }
-.va-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 0.75rem;
+
+.va-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
-.va-card {
-  text-align: left;
-  border: 1px solid var(--va-line);
-  background: var(--va-card);
-  border-radius: 14px;
-  padding: 0.9rem;
-  display: grid;
-  gap: 0.35rem;
-  cursor: pointer;
-  color: inherit;
-}
-.va-card.selected {
-  border-color: #1c1917;
-  box-shadow: 0 0 0 1px #1c1917;
-}
-.va-card strong { font-size: 0.98rem; }
-.va-card span:last-child { font-size: 0.82rem; color: var(--va-muted); line-height: 1.4; }
-.va-card__swatch { width: 12px; height: 12px; border-radius: 50%; }
-.va-ladder { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.55rem; }
-.va-ladder__row {
-  display: grid;
-  grid-template-columns: 2rem 1fr;
-  gap: 0.55rem;
-  align-items: center;
-  background: #fff;
-  border: 1px solid var(--va-line);
-  border-radius: 12px;
-  padding: 0.55rem 0.75rem;
-}
-.va-ladder__n { font-weight: 800; color: var(--va-muted); }
-.va-ladder__label {
-  font-weight: 700;
-  border-left: 3px solid;
-  padding-left: 0.55rem;
-}
-.va-ladder__moves {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-.va-ladder__moves button {
-  font-size: 0.72rem;
-  border: 1px solid var(--va-line);
-  background: #fafaf9;
-  border-radius: 8px;
-  padding: 0.25rem 0.45rem;
-  cursor: pointer;
-}
-.va-ladder__moves button.danger { color: #9f1239; }
-.va-pool { margin-top: 1rem; }
-.va-chips, .va-pool {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-.va-chip {
-  border: 1px solid var(--va-line);
-  background: #fff;
-  border-radius: 999px;
-  padding: 0.35rem 0.7rem;
-  font-size: 0.82rem;
-  cursor: pointer;
-}
-.va-chip.on { background: #1c1917; color: #fff; border-color: #1c1917; }
-.va-progress {
-  height: 6px;
-  background: #e7e5e4;
-  border-radius: 999px;
-  overflow: hidden;
-  margin-bottom: 1.25rem;
-}
-.va-progress > div {
-  height: 100%;
-  background: #a16207;
-  transition: width 0.35s ease;
-}
-.va-columns {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
-  gap: 1.25rem;
-  align-items: start;
-}
-.va-aside {
-  position: sticky;
-  top: 1rem;
-  background: #fff;
-  border: 1px solid var(--va-line);
-  border-radius: 16px;
-  padding: 1rem;
-}
-.va-aside-title { margin: 0 0 0.85rem; font-size: 1.15rem; }
-.va-score-block { margin-bottom: 1.35rem; }
-.va-score-block h2 { font-size: 1.05rem; margin: 0 0 0.45rem; }
-.va-score-row { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-.va-score-btn {
-  width: 2.4rem;
-  height: 2.4rem;
-  border-radius: 10px;
-  border: 1.5px solid var(--va-line);
-  background: #fff;
-  font-weight: 700;
-  cursor: pointer;
-}
-.va-score-btn.active { color: #fff; }
-.va-gap-live {
-  margin: 0.75rem 0 0;
-  font-weight: 700;
+
+.va-steps,
+.va-bullets {
+  line-height: 1.7;
   color: #44403c;
 }
-.va-note-box { margin-top: 0.85rem; }
-.va-note-box textarea,
-.va-commit input,
-.va-commit textarea {
-  width: 100%;
-  margin-top: 0.35rem;
+
+.va-field,
+.va-field-label {
+  display: grid;
+  gap: 0.35rem;
+  margin: 1rem 0 0.5rem;
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.va-field select,
+.va-field input,
+.va-field textarea {
   border: 1px solid var(--va-line);
   border-radius: 10px;
   padding: 0.55rem 0.7rem;
   font: inherit;
   background: #fff;
 }
-.va-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 0.65rem;
-  margin: 1rem 0 1.5rem;
-}
-.va-summary-grid.compact { margin-bottom: 1rem; }
-.va-stat {
-  background: #fff;
-  border: 1px solid var(--va-line);
-  border-radius: 12px;
-  padding: 0.75rem;
-  display: grid;
-  gap: 0.2rem;
-}
-.va-stat span { font-size: 0.72rem; color: var(--va-muted); font-weight: 650; }
-.va-stat strong { font-size: 1.25rem; font-family: Fraunces, Georgia, serif; }
-.va-stat.highlight { background: #1c1917; color: #fffaf5; border-color: #1c1917; }
-.va-stat.highlight span { color: #a8a29e; }
-.va-section { margin: 1.5rem 0 0.75rem; font-size: 1.2rem; }
-.va-insight-block {
-  margin-bottom: 1.15rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid var(--va-line);
-}
-.va-insight-block h3 { margin: 0 0 0.55rem; font-size: 0.95rem; }
-.va-insight-block article { margin-bottom: 0.75rem; }
-.va-insight-block p { margin: 0.15rem 0; font-size: 0.88rem; }
-.va-prio-list { display: grid; gap: 0.5rem; }
-.va-prio {
-  display: flex;
-  gap: 0.65rem;
-  align-items: center;
-  background: #fff;
-  border: 1px solid var(--va-line);
-  border-radius: 12px;
-  padding: 0.7rem 0.85rem;
-}
-.va-prio .grow { display: grid; gap: 0.1rem; flex: 1; }
-.va-prio small { color: var(--va-muted); }
-.va-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-.va-focus-tray {
+
+.va-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-  align-items: center;
-  margin-bottom: 1rem;
-  font-size: 0.9rem;
 }
-.va-focus-tray em {
-  font-style: normal;
+
+.va-chip {
+  border: 1px solid var(--va-line);
+  background: #fff;
+  border-radius: 999px;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.va-chip.on {
   background: #1c1917;
   color: #fff;
-  border-radius: 999px;
-  padding: 0.2rem 0.65rem;
-  font-size: 0.8rem;
-  font-weight: 650;
+  border-color: #1c1917;
 }
-.va-commit {
+
+.va-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.va-save {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #78716c;
+  white-space: nowrap;
+}
+
+.va-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.va-aside {
+  position: sticky;
+  top: 1rem;
+}
+
+.va-aside-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.va-aside-stats div {
+  background: #fff;
+  border: 1px solid var(--va-line);
+  border-radius: 12px;
+  padding: 0.55rem;
+  text-align: center;
+}
+
+.va-aside-stats span {
+  display: block;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #a8a29e;
+  font-weight: 700;
+}
+
+.va-aside-stats strong {
+  font-size: 1.1rem;
+}
+
+.va-score-block {
+  margin-bottom: 1.25rem;
+}
+
+.va-score-block h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.05rem;
+}
+
+.va-score-block p {
+  margin: 0 0 0.55rem;
+  color: #57534e;
+  font-size: 0.92rem;
+}
+
+.va-scale-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: #a8a29e;
+  margin-bottom: 0.35rem;
+}
+
+.va-scores {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+
+.va-score {
+  aspect-ratio: 1;
+  border: 1px solid var(--va-line);
+  border-radius: 10px;
+  background: #fff;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 2.4rem;
+}
+
+.va-score.on {
+  background: #b45309;
+  color: #fff;
+  border-color: #b45309;
+}
+
+.va-score.ideal.on {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+.va-score.conf.on {
+  background: #0f766e;
+  border-color: #0f766e;
+}
+
+.va-gap-card {
   background: #fff;
   border: 1px solid var(--va-line);
   border-radius: 14px;
-  padding: 1rem;
+  padding: 0.9rem 1rem;
   margin-bottom: 1rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.va-gap-card > div {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+}
+
+.va-gap-card p {
+  margin: 0;
+  color: #57534e;
+  font-size: 0.9rem;
+}
+
+.va-status-pill {
+  font-weight: 700 !important;
+  color: #1c1917 !important;
+}
+
+.va-reflect h2 {
+  font-size: 1rem;
+}
+
+.va-details {
+  margin-top: 0.75rem;
+}
+
+.va-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.65rem;
+  margin: 1rem 0;
+}
+
+.va-stat {
+  background: #fff;
+  border: 1px solid var(--va-line);
+  border-radius: 14px;
+  padding: 0.75rem;
+}
+
+.va-stat.highlight {
+  background: #1c1917;
+  color: #fffaf5;
+  border-color: #1c1917;
+}
+
+.va-stat span {
+  display: block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.75;
+  font-weight: 700;
+}
+
+.va-stat strong {
+  font-size: 1.05rem;
+}
+
+.va-viz-row {
+  margin: 1rem 0 1.5rem;
+  max-width: 420px;
+}
+
+.va-insight-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.85rem;
+  margin: 1.25rem 0;
+}
+
+.va-insight-grid article,
+.va-insights,
+.va-bridge {
+  background: #fff;
+  border: 1px solid var(--va-line);
+  border-radius: 14px;
+  padding: 0.9rem 1rem;
+}
+
+.va-insight-grid h2,
+.va-insights h2,
+.va-bridge h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.va-insight-grid ul,
+.va-insights ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: #44403c;
+  line-height: 1.55;
+  font-size: 0.9rem;
+}
+
+.va-priority-list {
   display: grid;
   gap: 0.65rem;
 }
-.va-commit h2 { margin: 0; font-size: 1.15rem; }
-.va-commit label { display: grid; gap: 0.25rem; font-size: 0.85rem; font-weight: 650; }
-.va-focus-done { text-align: center; color: var(--va-muted); }
+
+.va-priority-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.75rem;
+  align-items: start;
+  background: #fff;
+  border: 1px solid var(--va-line);
+  border-radius: 14px;
+  padding: 0.85rem 1rem;
+  cursor: pointer;
+}
+
+.va-priority-card p {
+  margin: 0.2rem 0 0.45rem;
+  color: #78716c;
+  font-size: 0.85rem;
+}
+
+.va-priority-card select {
+  width: 100%;
+  border: 1px solid var(--va-line);
+  border-radius: 8px;
+  padding: 0.35rem;
+}
+
+.va-bridge {
+  margin-bottom: 1rem;
+}
+
+.va-bridge-flow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #a8a29e;
+}
+
+.va-bridge-flow span::after {
+  content: ' →';
+  color: #d6d3d1;
+}
+
+.va-bridge-flow span:last-child::after {
+  content: '';
+}
+
+.mobile-only {
+  display: none;
+}
 
 @media (max-width: 900px) {
-  .va-columns { grid-template-columns: 1fr; }
-  .va-aside { position: static; order: -1; }
+  .va-split {
+    grid-template-columns: 1fr;
+  }
+  .va-aside {
+    position: static;
+    order: -1;
+  }
+  .va-scores {
+    gap: 0.35rem;
+  }
+  .va-score {
+    min-height: 2.75rem;
+  }
 }
-@media (prefers-reduced-motion: reduce) {
-  .va-progress > div { transition: none; }
-}
+
 @media print {
-  .va-btn, .va-footer { display: none !important; }
-  .va-page { background: #fff; }
+  .va-page {
+    background: #fff;
+    padding: 0;
+  }
+  .va-btn,
+  .va-footer,
+  .va-actions {
+    display: none !important;
+  }
 }
 </style>

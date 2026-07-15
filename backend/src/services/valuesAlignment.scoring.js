@@ -1,30 +1,7 @@
 /**
  * Values Alignment — Life Alignment Wheel scoring (Current Life vs Ideal Life).
- * Mirrors backend/src/services/valuesAlignment.scoring.js for guest mode.
+ * Pure functions; no DB. Confidence to Change never affects alignment math.
  */
-
-/** @deprecated Prefer REFLECTION_OPTIONS_BY_VALUE */
-export const REFLECTION_CHIPS = [
-  'Work demands',
-  'Limited time',
-  'Unclear priorities',
-  'Competing pressures',
-  'Already well represented',
-  'Other',
-  'Prefer not to answer'
-];
-
-export const CATEGORY_LABELS = {
-  connection: 'Connection',
-  character: 'Character',
-  growth: 'Growth',
-  purpose: 'Purpose',
-  lifestyle: 'Lifestyle'
-};
-
-export function buildValuesSummary(template, responses, priorityKeys = []) {
-  return buildLifeAlignmentSummary(template, responses, priorityKeys);
-}
 
 export function calculateSignedAlignmentGap(currentLifeScore, idealLifeScore) {
   const current = Number(currentLifeScore);

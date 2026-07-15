@@ -1,5 +1,22 @@
 import crypto from 'crypto';
 import pool from '../config/database.js';
+import {
+  buildLifeAlignmentSummary,
+  calculateAlignmentGap,
+  calculateAlignmentOpportunity,
+  gapStatusLabel,
+  averageGapLabel,
+  CORE_VALUE_KEYS
+} from './valuesAlignment.scoring.js';
+
+export {
+  calculateAlignmentGap,
+  calculateAlignmentOpportunity,
+  gapStatusLabel,
+  averageGapLabel,
+  buildLifeAlignmentSummary,
+  CORE_VALUE_KEYS
+};
 
 function parseJson(raw, fallback = null) {
   if (raw == null) return fallback;
@@ -19,35 +36,6 @@ function err(status, message) {
   const e = new Error(message);
   e.status = status;
   return e;
-}
-
-export function calculateAlignmentGap(importanceScore, alignmentScore) {
-  const imp = Number(importanceScore);
-  const al = Number(alignmentScore);
-  if (!Number.isFinite(imp) || !Number.isFinite(al)) return null;
-  return Math.max(0, imp - al);
-}
-
-export function calculateAlignmentOpportunity(importanceScore, alignmentScore) {
-  const gap = calculateAlignmentGap(importanceScore, alignmentScore);
-  if (gap == null) return null;
-  return gap * Number(importanceScore);
-}
-
-export function gapStatusLabel(gap) {
-  if (gap == null) return '';
-  if (gap <= 1) return 'Strongly Aligned';
-  if (gap <= 3) return 'Mostly Aligned';
-  if (gap <= 5) return 'Meaningful Opportunity';
-  return 'Significant Alignment Gap';
-}
-
-export function averageGapLabel(avgGap) {
-  if (avgGap == null) return null;
-  if (avgGap <= 1) return 'Strongly Aligned';
-  if (avgGap <= 2.5) return 'Generally Aligned';
-  if (avgGap <= 4) return 'Partially Aligned';
-  return 'Ready for Realignment';
 }
 
 function mapValueRow(c) {
@@ -102,111 +90,13 @@ export async function getDefaultTemplate({ agencyId = null } = {}) {
 }
 
 function buildSummary(template, responses, priorityKeys = []) {
-  const settings = template?.settings || {};
-  const highImp = Number(settings.highImportanceThreshold || 7);
-  const highAl = Number(settings.highAlignmentThreshold || 7);
-  const scored = (responses || []).filter(
-    (r) => r.importanceScore != null && r.alignmentScore != null
-  );
-  if (!scored.length) {
-    return {
-      averageImportance: null,
-      averageAlignment: null,
-      averageGap: null,
-      alignmentLevel: null,
-      stronglyAlignedCount: 0,
-      priorityOpportunityCount: 0,
-      coreStrengths: [],
-      priorityOpportunities: [],
-      stableSupports: [],
-      lowerPriority: [],
-      insights: []
-    };
-  }
+  return buildLifeAlignmentSummary(template, responses, priorityKeys);
+}
 
-  const withMeta = scored.map((r) => {
-    const gap = calculateAlignmentGap(r.importanceScore, r.alignmentScore);
-    const opportunity = calculateAlignmentOpportunity(r.importanceScore, r.alignmentScore);
-    const val = (template.values || []).find((v) => v.key === r.valueKey);
-    return {
-      valueKey: r.valueKey,
-      label: val?.label || r.valueKey,
-      color: val?.color || '#64748b',
-      category: val?.category || null,
-      importanceScore: r.importanceScore,
-      alignmentScore: r.alignmentScore,
-      gap,
-      opportunity,
-      status: gapStatusLabel(gap),
-      morePresentThanPrioritized: Number(r.alignmentScore) > Number(r.importanceScore)
-    };
-  });
-
-  const avgImp =
-    withMeta.reduce((s, x) => s + x.importanceScore, 0) / withMeta.length;
-  const avgAl =
-    withMeta.reduce((s, x) => s + x.alignmentScore, 0) / withMeta.length;
-  const avgGap = withMeta.reduce((s, x) => s + (x.gap || 0), 0) / withMeta.length;
-
-  const coreStrengths = withMeta
-    .filter((x) => x.importanceScore >= highImp && x.alignmentScore >= highAl && (x.gap || 0) <= 2)
-    .sort((a, b) => b.importanceScore - a.importanceScore);
-  const priorityOpportunities = withMeta
-    .filter((x) => x.importanceScore >= highImp && (x.gap || 0) >= 3)
-    .sort((a, b) => (b.opportunity || 0) - (a.opportunity || 0));
-  const stableSupports = withMeta
-    .filter((x) => x.importanceScore < highImp && x.alignmentScore >= highAl)
-    .sort((a, b) => b.alignmentScore - a.alignmentScore);
-  const lowerPriority = withMeta
-    .filter((x) => x.importanceScore < highImp && x.alignmentScore < highAl)
-    .sort((a, b) => a.importanceScore - b.importanceScore);
-
-  const insights = [];
-  if (coreStrengths.length) {
-    insights.push(
-      `${coreStrengths
-        .slice(0, 2)
-        .map((x) => x.label)
-        .join(' and ')} appear to be deeply important and strongly reflected in your current life.`
-    );
-  }
-  if (priorityOpportunities[0]) {
-    const top = priorityOpportunities[0];
-    insights.push(
-      `${top.label} is highly important to you but currently has one of your largest alignment gaps.`
-    );
-  }
-  const cats = [...new Set(withMeta.map((x) => x.category).filter(Boolean))];
-  if (cats.length >= 2) {
-    const labels = { connection: 'connection', character: 'character', growth: 'growth', purpose: 'purpose', lifestyle: 'lifestyle' };
-    insights.push(
-      `Your selected values emphasize ${cats
-        .slice(0, 3)
-        .map((c) => labels[c] || c)
-        .join(', ')}.`
-    );
-  }
-  if (priorityKeys?.length) {
-    insights.push(
-      `You chose to focus intentional action on ${priorityKeys
-        .map((k) => withMeta.find((x) => x.valueKey === k)?.label || k)
-        .join(', ')}.`
-    );
-  }
-
-  return {
-    averageImportance: Math.round(avgImp * 10) / 10,
-    averageAlignment: Math.round(avgAl * 10) / 10,
-    averageGap: Math.round(avgGap * 10) / 10,
-    alignmentLevel: averageGapLabel(avgGap),
-    stronglyAlignedCount: withMeta.filter((x) => (x.gap || 0) <= 1).length,
-    priorityOpportunityCount: priorityOpportunities.length,
-    coreStrengths,
-    priorityOpportunities,
-    stableSupports,
-    lowerPriority,
-    insights
-  };
+function coreKeysForTemplate(template) {
+  const fromSettings = template?.settings?.coreValueKeys;
+  if (Array.isArray(fromSettings) && fromSettings.length) return fromSettings.map(String);
+  return CORE_VALUE_KEYS;
 }
 
 async function loadResponses(assessmentId) {
@@ -214,13 +104,34 @@ async function loadResponses(assessmentId) {
     `SELECT * FROM values_alignment_responses WHERE assessment_id = ?`,
     [assessmentId]
   );
-  return (rows || []).map((r) => ({
-    valueKey: r.value_key,
-    importanceScore: r.importance_score == null ? null : Number(r.importance_score),
-    alignmentScore: r.alignment_score == null ? null : Number(r.alignment_score),
-    reflectionChips: parseJson(r.reflection_chips_json, []) || [],
-    note: r.note || ''
-  }));
+  return (rows || []).map((r) => {
+    const current =
+      r.current_life_score != null
+        ? Number(r.current_life_score)
+        : r.alignment_score == null
+          ? null
+          : Number(r.alignment_score);
+    const ideal =
+      r.ideal_life_score != null
+        ? Number(r.ideal_life_score)
+        : r.importance_score == null
+          ? null
+          : Number(r.importance_score);
+    return {
+      valueKey: r.value_key,
+      currentLifeScore: current,
+      idealLifeScore: ideal,
+      confidenceToChangeScore:
+        r.confidence_to_change_score == null ? null : Number(r.confidence_to_change_score),
+      personalDefinition: r.personal_definition || '',
+      seasonStatus: r.season_status || 'active',
+      // Legacy mirrors (Ideal ≈ importance, Current ≈ alignment)
+      importanceScore: ideal,
+      alignmentScore: current,
+      reflectionChips: parseJson(r.reflection_chips_json, []) || [],
+      note: r.note || ''
+    };
+  });
 }
 
 async function loadCommitments(assessmentId) {
@@ -293,6 +204,7 @@ async function hydrateAssessment(row) {
     selectedKeys: parseJson(row.selected_keys_json, []) || [],
     rankedKeys: parseJson(row.ranked_keys_json, []) || [],
     priorityKeys,
+    context: parseJson(row.context_json, {}) || {},
     responses,
     commitments,
     summary,
@@ -383,6 +295,11 @@ export async function upsertValueResponse({
   valueKey,
   importanceScore = undefined,
   alignmentScore = undefined,
+  currentLifeScore = undefined,
+  idealLifeScore = undefined,
+  confidenceToChangeScore = undefined,
+  personalDefinition = undefined,
+  seasonStatus = undefined,
   reflectionChips = undefined,
   note = undefined
 }) {
@@ -400,14 +317,32 @@ export async function upsertValueResponse({
     const v = Number(n);
     if (!Number.isInteger(v) || v < 1 || v > 10) throw err(400, `${label} must be 1–10`);
   };
-  validateScore(importanceScore, 'Importance');
-  validateScore(alignmentScore, 'Alignment');
+
+  // Prefer explicit Current/Ideal; fall back to legacy Importance/Alignment naming
+  const incomingCurrent =
+    currentLifeScore !== undefined ? currentLifeScore : alignmentScore;
+  const incomingIdeal =
+    idealLifeScore !== undefined ? idealLifeScore : importanceScore;
+
+  validateScore(incomingCurrent, 'Current Life');
+  validateScore(incomingIdeal, 'Ideal Life');
+  validateScore(confidenceToChangeScore, 'Confidence to Change');
 
   const existing = assessment.responses.find((r) => r.valueKey === key);
-  const nextImp =
-    importanceScore === undefined ? existing?.importanceScore ?? null : importanceScore;
-  const nextAl =
-    alignmentScore === undefined ? existing?.alignmentScore ?? null : alignmentScore;
+  const nextCurrent =
+    incomingCurrent === undefined ? existing?.currentLifeScore ?? null : incomingCurrent;
+  const nextIdeal =
+    incomingIdeal === undefined ? existing?.idealLifeScore ?? null : incomingIdeal;
+  const nextConfidence =
+    confidenceToChangeScore === undefined
+      ? existing?.confidenceToChangeScore ?? null
+      : confidenceToChangeScore;
+  const nextDefinition =
+    personalDefinition === undefined
+      ? existing?.personalDefinition ?? ''
+      : String(personalDefinition || '');
+  const nextSeason =
+    seasonStatus === undefined ? existing?.seasonStatus || 'active' : String(seasonStatus);
   const nextChips =
     reflectionChips === undefined
       ? existing?.reflectionChips || []
@@ -418,19 +353,31 @@ export async function upsertValueResponse({
 
   await pool.execute(
     `INSERT INTO values_alignment_responses
-      (assessment_id, value_key, importance_score, alignment_score, reflection_chips_json, note)
-     VALUES (?, ?, ?, ?, ?, ?)
+      (assessment_id, value_key, importance_score, alignment_score,
+       current_life_score, ideal_life_score, confidence_to_change_score,
+       personal_definition, season_status, reflection_chips_json, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        importance_score = VALUES(importance_score),
        alignment_score = VALUES(alignment_score),
+       current_life_score = VALUES(current_life_score),
+       ideal_life_score = VALUES(ideal_life_score),
+       confidence_to_change_score = VALUES(confidence_to_change_score),
+       personal_definition = VALUES(personal_definition),
+       season_status = VALUES(season_status),
        reflection_chips_json = VALUES(reflection_chips_json),
        note = VALUES(note),
        updated_at = CURRENT_TIMESTAMP`,
     [
       Number(assessmentId),
       key,
-      nextImp,
-      nextAl,
+      nextIdeal,
+      nextCurrent,
+      nextCurrent,
+      nextIdeal,
+      nextConfidence,
+      nextDefinition || null,
+      nextSeason,
       JSON.stringify(nextChips),
       nextNote || null
     ]
@@ -446,20 +393,32 @@ export async function upsertValueResponse({
   return getAssessmentById(assessmentId);
 }
 
-export async function completeAssessment({ assessmentId, priorityKeys = [] }) {
+export async function completeAssessment({ assessmentId, priorityKeys = [], context = undefined }) {
   const assessment = await getAssessmentById(assessmentId);
   if (!assessment) throw err(404, 'Assessment not found');
   if (assessment.status === 'completed') return assessment;
 
+  const coreKeys = coreKeysForTemplate(assessment.template);
   const ranked = assessment.rankedKeys?.length
     ? assessment.rankedKeys
-    : assessment.selectedKeys || [];
+    : assessment.selectedKeys?.length
+      ? assessment.selectedKeys
+      : coreKeys;
+
   const missing = ranked.filter((k) => {
     const r = assessment.responses.find((x) => x.valueKey === k);
-    return !r || r.importanceScore == null || r.alignmentScore == null;
+    if (r?.seasonStatus === 'not_relevant') return false;
+    return (
+      !r ||
+      r.currentLifeScore == null ||
+      r.idealLifeScore == null
+    );
   });
   if (missing.length) {
-    throw err(400, `All ranked values need importance and alignment scores. Missing: ${missing.join(', ')}`);
+    throw err(
+      400,
+      `All assessed values need Current Life and Ideal Life scores. Missing: ${missing.join(', ')}`
+    );
   }
 
   const maxP = Number(assessment.template.settings?.maxPriorities || 3);
@@ -468,15 +427,28 @@ export async function completeAssessment({ assessmentId, priorityKeys = [] }) {
     .slice(0, maxP);
 
   const summary = buildSummary(assessment.template, assessment.responses, priorities);
+  const nextContext =
+    context === undefined ? assessment.context || {} : { ...(assessment.context || {}), ...context };
+
   await pool.execute(
     `UPDATE values_alignment_assessments
      SET status = 'completed',
          priority_keys_json = ?,
          summary_json = ?,
+         context_json = ?,
+         selected_keys_json = ?,
+         ranked_keys_json = ?,
          completed_at = NOW(),
          updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`,
-    [JSON.stringify(priorities), JSON.stringify(summary), Number(assessmentId)]
+    [
+      JSON.stringify(priorities),
+      JSON.stringify(summary),
+      JSON.stringify(nextContext),
+      JSON.stringify(ranked),
+      JSON.stringify(ranked),
+      Number(assessmentId)
+    ]
   );
   return getAssessmentById(assessmentId);
 }
