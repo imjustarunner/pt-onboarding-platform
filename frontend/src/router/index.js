@@ -256,6 +256,12 @@ const routes = [
     meta: { requiresGuest: false, guestRelationshipHealth: true }
   },
   {
+    path: '/teen-wellbeing',
+    name: 'TeenWellBeingGuest',
+    component: () => import('../views/teenWellBeing/TeenWellBeingAssessmentView.vue'),
+    meta: { requiresGuest: false, guestTeenWellBeing: true }
+  },
+  {
     path: '/life-balance',
     name: 'LifeBalanceGuest',
     component: () => import('../views/lifeBalance/LifeBalanceAssessmentView.vue'),
