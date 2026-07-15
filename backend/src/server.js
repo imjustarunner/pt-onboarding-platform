@@ -152,6 +152,7 @@ import valuesAlignmentRoutes from './routes/valuesAlignment.routes.js';
 import athleteReadinessRoutes from './routes/athleteReadiness.routes.js';
 import studentSuccessRoutes from './routes/studentSuccess.routes.js';
 import collegeReadinessRoutes from './routes/collegeReadiness.routes.js';
+import relationshipHealthRoutes from './routes/relationshipHealth.routes.js';
 import communicationTrackingRoutes from './routes/communicationTracking.routes.js';
 import publicMarketingPagesRoutes from './routes/publicMarketingPages.routes.js';
 import publicMarketingPagesAdminRoutes from './routes/publicMarketingPagesAdmin.routes.js';
@@ -620,6 +621,7 @@ app.use('/api/values-alignment', valuesAlignmentRoutes);
 app.use('/api/athlete-readiness', athleteReadinessRoutes);
 app.use('/api/student-success', studentSuccessRoutes);
 app.use('/api/college-readiness', collegeReadinessRoutes);
+app.use('/api/relationship-health', relationshipHealthRoutes);
 app.use('/api/email', communicationTrackingRoutes);
 app.use('/api/company-events', companyEventsPublicRoutes);
 
