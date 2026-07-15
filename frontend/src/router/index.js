@@ -226,6 +226,12 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/values-alignment',
+    name: 'ValuesAlignmentGuest',
+    component: () => import('../views/valuesAlignment/ValuesAlignmentAssessmentView.vue'),
+    meta: { requiresGuest: false, guestValuesAlignment: true }
+  },
+  {
     path: '/life-balance',
     name: 'LifeBalanceGuest',
     component: () => import('../views/lifeBalance/LifeBalanceAssessmentView.vue'),

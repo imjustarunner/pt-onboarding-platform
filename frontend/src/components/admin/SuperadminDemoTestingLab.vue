@@ -216,7 +216,9 @@ const surfaceGroups = computed(() => {
       ],
       publicPages: [
         { id: 'book', label: 'Book coaching (solo)', pathSuffix: 'find-coach' },
-        { id: 'settings', label: 'Public Services settings', pathSuffix: 'admin/public-services' }
+        { id: 'settings', label: 'Public Services settings', pathSuffix: 'admin/public-services' },
+        { id: 'lbw', label: 'Life Balance (public)', pathSuffix: 'life-balance', absolute: true },
+        { id: 'values', label: 'Values Alignment (public)', pathSuffix: 'values-alignment', absolute: true }
       ]
     }
   ];
@@ -305,7 +307,14 @@ const openPreview = (group, mode) => {
 
 const openPublicPage = (group, page) => {
   const tenant = group?.tenant;
-  if (!tenant || !page?.pathSuffix) return;
+  if (!page?.pathSuffix) return;
+  // Platform-level absolute paths (guest assessments) do not need a tenant slug
+  if (page.absolute || !tenant) {
+    const href = router.resolve({ path: `/${page.pathSuffix}`.replace(/\/+/g, '/') }).href;
+    window.open(href, `pt-public-${page.id}`, 'noopener,noreferrer');
+    lastLaunch.value = `Opened ${page.label}.`;
+    return;
+  }
   const slug = slugOf(tenant);
   if (!slug) return;
   const path = `/${slug}/${page.pathSuffix}`.replace(/\/+/g, '/');
