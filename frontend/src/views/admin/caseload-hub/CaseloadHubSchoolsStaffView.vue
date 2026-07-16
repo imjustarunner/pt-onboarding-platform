@@ -205,11 +205,18 @@
               </td>
               <td>
                 <div class="provider-schools">
-                  <div
+                  <button
                     v-for="s in providerSchoolsForList(p)"
                     :key="`${p.providerId}-${s.schoolId}`"
+                    type="button"
                     class="provider-school-chip"
-                    :title="s.schoolName"
+                    :class="{
+                      editable: canManageCaseload,
+                      tight: Number(s.slotsAvailable || 0) === 0 && Number(s.clients || 0) > 0,
+                      over: Number(s.clients || 0) > Number(s.slotsTotal || 0)
+                    }"
+                    :title="schoolCaseloadTitle(s)"
+                    @click.stop="openCaseloadEditor(p, s)"
                   >
                     <div class="school-logo school-logo-sm">
                       <img
@@ -222,7 +229,8 @@
                       <span v-else class="school-logo-fallback" aria-hidden="true">{{ schoolInitials(s) }}</span>
                     </div>
                     <span class="provider-school-name">{{ s.schoolName }}</span>
-                  </div>
+                    <span class="provider-school-slots">{{ Number(s.clients || 0) }}/{{ Number(s.slotsAvailable || 0) }}</span>
+                  </button>
                   <span v-if="!providerSchoolsForList(p).length" class="muted">No school days assigned</span>
                 </div>
               </td>
@@ -249,9 +257,12 @@
         </div>
         <p v-if="providerDetail.noDayAssigned" class="inline-warn">Assigned to school(s) but no day selected.</p>
         <h3>Schools &amp; caseload</h3>
+        <p class="muted caseload-hint">
+          Shows assigned clients / available slots. {{ canManageCaseload ? 'Click a school to edit day capacity (writes to provider school assignments).' : '' }}
+        </p>
         <table class="data-table compact">
           <thead>
-            <tr><th>School</th><th>Days</th><th>Clients</th><th>Capacity</th></tr>
+            <tr><th>School</th><th>Days</th><th>Assigned / avail</th><th></th></tr>
           </thead>
           <tbody>
             <tr v-for="s in providerDetail.schools || []" :key="s.schoolId">
@@ -274,8 +285,22 @@
                 </div>
               </td>
               <td>{{ (s.days || []).map((d) => d.dayOfWeek.slice(0, 3)).join(', ') || '—' }}</td>
-              <td>{{ s.clients }}</td>
-              <td>{{ s.slotsUsed }}/{{ s.slotsTotal }}</td>
+              <td>
+                <span class="slot-ratio" :class="{ tight: Number(s.slotsAvailable || 0) === 0 && Number(s.clients || 0) > 0 }">
+                  {{ Number(s.clients || 0) }}/{{ Number(s.slotsAvailable || 0) }}
+                </span>
+                <div class="muted tiny">{{ Number(s.slotsUsed || s.clients || 0) }} of {{ Number(s.slotsTotal || 0) }} capacity</div>
+              </td>
+              <td>
+                <button
+                  v-if="canManageCaseload && (s.fromAssignment || (s.days || []).length)"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="openCaseloadEditor(providerDetail, s)"
+                >
+                  Edit
+                </button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -490,6 +515,76 @@
       </table>
       <p v-if="applyMsg" class="apply-msg">{{ applyMsg }}</p>
     </div>
+
+    <!-- Inline caseload editor (provider × school day slots) -->
+    <div v-if="caseloadEditor" class="caseload-modal-backdrop" @click.self="closeCaseloadEditor">
+      <div class="caseload-modal" role="dialog" aria-modal="true" :aria-label="`Edit caseload for ${caseloadEditor.schoolName}`">
+        <header class="caseload-modal-header">
+          <div>
+            <h2>{{ caseloadEditor.providerName }}</h2>
+            <p class="muted">{{ caseloadEditor.schoolName }} · assigned clients / available slots by day</p>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" @click="closeCaseloadEditor">Close</button>
+        </header>
+        <p class="caseload-modal-summary">
+          School total:
+          <strong>{{ caseloadEditor.clients }}</strong> assigned ·
+          <strong>{{ caseloadEditor.slotsAvailable }}</strong> available ·
+          <strong>{{ caseloadEditor.slotsTotal }}</strong> capacity
+        </p>
+        <p class="muted tiny">
+          Assigned clients come from live client–provider assignments (read-only here).
+          Edit total slots to change available capacity — same source as Provider Scheduling / School Portal.
+        </p>
+        <table class="data-table compact caseload-edit-table">
+          <thead>
+            <tr>
+              <th>Day</th>
+              <th>Assigned</th>
+              <th>Total slots</th>
+              <th>Available</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="d in caseloadEditor.days" :key="d.dayOfWeek">
+              <td>{{ d.dayOfWeek }}</td>
+              <td>{{ d.clients }}</td>
+              <td>
+                <input
+                  v-model.number="d.slotsTotal"
+                  type="number"
+                  min="0"
+                  step="1"
+                  class="slot-input"
+                  :disabled="caseloadSaving"
+                  @change="clampDaySlots(d)"
+                />
+              </td>
+              <td>
+                <span :class="{ warn: d.slotsTotal < d.clients }">{{ Math.max(0, d.slotsTotal - d.clients) }}</span>
+                <div v-if="d.slotsTotal < d.clients" class="warn tiny">Below assigned</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-if="caseloadError" class="error">{{ caseloadError }}</p>
+        <p v-if="caseloadMsg" class="apply-msg">{{ caseloadMsg }}</p>
+        <footer class="caseload-modal-actions">
+          <router-link
+            class="btn btn-secondary"
+            :to="`/admin/users/${caseloadEditor.providerId}`"
+          >
+            Full profile
+          </router-link>
+          <button type="button" class="btn btn-secondary" :disabled="caseloadSaving" @click="closeCaseloadEditor">
+            Cancel
+          </button>
+          <button type="button" class="btn btn-primary" :disabled="caseloadSaving || !caseloadDirty" @click="saveCaseloadEditor">
+            {{ caseloadSaving ? 'Saving…' : 'Save slots' }}
+          </button>
+        </footer>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -509,7 +604,8 @@ import {
   fetchProviderDetail,
   fetchCoverageSuggestions,
   expireStaleSchoolRequests,
-  applyForOpenSchoolDay
+  applyForOpenSchoolDay,
+  upsertProviderDaySlots
 } from '../../../services/schoolCoverageApi';
 
 const route = useRoute();
@@ -553,10 +649,25 @@ const providerDetail = ref(null);
 const applyingId = ref(null);
 const applyMsg = ref('');
 const failedLogoIds = ref(new Set());
+const caseloadEditor = ref(null);
+const caseloadEditorBaseline = ref(null);
+const caseloadSaving = ref(false);
+const caseloadError = ref('');
+const caseloadMsg = ref('');
 
 const canApply = computed(() =>
   ['provider', 'provider_plus', 'intern', 'intern_plus', 'admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'].includes(role.value)
 );
+const canManageCaseload = computed(() =>
+  ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role.value)
+);
+const caseloadDirty = computed(() => {
+  if (!caseloadEditor.value || !caseloadEditorBaseline.value) return false;
+  const cur = caseloadEditor.value.days || [];
+  const base = caseloadEditorBaseline.value;
+  if (cur.length !== base.length) return true;
+  return cur.some((d, i) => Number(d.slotsTotal) !== Number(base[i]?.slotsTotal));
+});
 
 function schoolLogoUrl(school) {
   const candidates = [
@@ -595,6 +706,94 @@ function providerSchoolsForList(provider) {
   const schools = Array.isArray(provider?.schools) ? provider.schools : [];
   const staffed = schools.filter((s) => s.fromAssignment || (s.days || []).length > 0);
   return staffed.length ? staffed : schools;
+}
+
+function schoolCaseloadTitle(school) {
+  const assigned = Number(school?.clients || 0);
+  const avail = Number(school?.slotsAvailable || 0);
+  const total = Number(school?.slotsTotal || 0);
+  return `${school?.schoolName || 'School'}: ${assigned} assigned / ${avail} available (${total} total capacity)${canManageCaseload.value ? ' — click to edit' : ''}`;
+}
+
+function clampDaySlots(day) {
+  const n = Number(day.slotsTotal);
+  day.slotsTotal = Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+}
+
+function openCaseloadEditor(provider, school, { keepMessage = false } = {}) {
+  if (!canManageCaseload.value) {
+    selectProvider(provider.providerId);
+    return;
+  }
+  if (!(school.fromAssignment || (school.days || []).length)) return;
+  const days = (school.days || []).map((d) => ({
+    dayOfWeek: d.dayOfWeek,
+    clients: Number(d.clients || d.slotsUsed || 0),
+    slotsTotal: Number(d.slotsTotal || 0),
+    startTime: d.startTime || null,
+    endTime: d.endTime || null
+  }));
+  caseloadError.value = '';
+  if (!keepMessage) caseloadMsg.value = '';
+  caseloadEditorBaseline.value = days.map((d) => ({ ...d }));
+  caseloadEditor.value = {
+    providerId: provider.providerId,
+    providerName: provider.name,
+    schoolId: school.schoolId,
+    schoolName: school.schoolName,
+    clients: Number(school.clients || 0),
+    slotsAvailable: Number(school.slotsAvailable || 0),
+    slotsTotal: Number(school.slotsTotal || 0),
+    days
+  };
+  selectProvider(provider.providerId);
+}
+
+function closeCaseloadEditor() {
+  if (caseloadSaving.value) return;
+  caseloadEditor.value = null;
+  caseloadEditorBaseline.value = null;
+  caseloadError.value = '';
+  caseloadMsg.value = '';
+}
+
+async function saveCaseloadEditor() {
+  if (!caseloadEditor.value || !agencyId.value || !caseloadDirty.value) return;
+  caseloadSaving.value = true;
+  caseloadError.value = '';
+  caseloadMsg.value = '';
+  try {
+    const ed = caseloadEditor.value;
+    const baseByDay = new Map((caseloadEditorBaseline.value || []).map((d) => [d.dayOfWeek, d]));
+    for (const d of ed.days || []) {
+      clampDaySlots(d);
+      const prev = baseByDay.get(d.dayOfWeek);
+      if (prev && Number(prev.slotsTotal) === Number(d.slotsTotal)) continue;
+      await upsertProviderDaySlots(agencyId.value, {
+        providerUserId: ed.providerId,
+        schoolOrganizationId: ed.schoolId,
+        dayOfWeek: d.dayOfWeek,
+        slotsTotal: Number(d.slotsTotal),
+        startTime: d.startTime,
+        endTime: d.endTime,
+        isActive: true
+      });
+    }
+    await reload();
+    const refreshed = providers.value.find((p) => p.providerId === ed.providerId);
+    const school = (refreshed?.schools || []).find((s) => s.schoolId === ed.schoolId);
+    if (school) {
+      openCaseloadEditor(refreshed, school, { keepMessage: true });
+      caseloadMsg.value = 'Slots saved to provider school assignments.';
+    } else {
+      closeCaseloadEditor();
+      applyMsg.value = 'Slots saved to provider school assignments.';
+    }
+  } catch (e) {
+    caseloadError.value = e?.response?.data?.error?.message || e?.message || 'Failed to save slots';
+  } finally {
+    caseloadSaving.value = false;
+  }
 }
 
 function onLogoError(schoolId) {
@@ -1117,17 +1316,36 @@ watch(
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem 0.5rem;
-  max-width: 42rem;
+  max-width: 52rem;
 }
 .provider-school-chip {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  padding: 0.15rem 0.45rem 0.15rem 0.15rem;
+  padding: 0.15rem 0.4rem 0.15rem 0.15rem;
   border: 1px solid #e2e8f0;
   border-radius: 999px;
   background: #f8fafc;
-  max-width: 14rem;
+  max-width: 18rem;
+  font: inherit;
+  color: inherit;
+  cursor: default;
+  text-align: left;
+}
+.provider-school-chip.editable {
+  cursor: pointer;
+}
+.provider-school-chip.editable:hover {
+  border-color: #c4b5fd;
+  background: #f5f3ff;
+}
+.provider-school-chip.tight {
+  border-color: #fdba74;
+  background: #fff7ed;
+}
+.provider-school-chip.over {
+  border-color: #fca5a5;
+  background: #fef2f2;
 }
 .provider-school-name {
   font-size: 0.78rem;
@@ -1135,6 +1353,99 @@ watch(
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 8.5rem;
+}
+.provider-school-slots {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #475569;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+}
+.provider-school-chip.tight .provider-school-slots {
+  color: #c2410c;
+  border-color: #fdba74;
+}
+.provider-school-chip.over .provider-school-slots {
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+.slot-ratio {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.slot-ratio.tight {
+  color: #c2410c;
+}
+.tiny {
+  font-size: 0.72rem;
+  margin-top: 0.1rem;
+}
+.caseload-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+}
+.caseload-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 80;
+  padding: 1rem;
+}
+.caseload-modal {
+  width: min(36rem, 100%);
+  max-height: min(90vh, 40rem);
+  overflow: auto;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.18);
+  padding: 1rem 1.1rem 1.1rem;
+}
+.caseload-modal-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+.caseload-modal-header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+.caseload-modal-header .muted {
+  margin: 0.2rem 0 0;
+}
+.caseload-modal-summary {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 0.9rem;
+}
+.caseload-edit-table {
+  margin-top: 0.75rem;
+}
+.slot-input {
+  width: 5rem;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.warn {
+  color: #b91c1c;
+  font-weight: 600;
+}
+.caseload-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
 }
 .school-logo-img {
   width: 100%;

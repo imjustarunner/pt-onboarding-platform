@@ -8,7 +8,15 @@ import {
 } from '../services/schoolCoverageMetrics.service.js';
 import { getCoverageWarnings } from '../services/schoolCoverageWarnings.service.js';
 import { getOpenSchoolDays } from '../services/openSchoolDays.service.js';
+import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
 import pool from '../config/database.js';
+
+const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+function normalizeDay(d) {
+  const s = String(d || '').trim();
+  return WEEKDAYS.includes(s) ? s : null;
+}
 
 function canViewCoverage(role) {
   const r = String(role || '').toLowerCase();
@@ -365,6 +373,110 @@ export const expireStaleRequests = async (req, res, next) => {
       [req.user.id, days, agencyId, days]
     );
     res.json({ ok: true, expired: result?.affectedRows || 0, days });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Upsert provider_school_assignments slots for a provider+school+day.
+ * Same SoT path as /provider-scheduling/assignments (portal day sync included).
+ */
+export const upsertProviderDaySlots = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await assertAgencyAccess(req, res, agencyId))) return;
+    if (!canManageCoverage(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const providerUserId = safeInt(req.body?.providerUserId);
+    const schoolOrganizationId = safeInt(req.body?.schoolOrganizationId);
+    const dayOfWeek = normalizeDay(req.body?.dayOfWeek);
+    const slotsTotal = parseInt(req.body?.slotsTotal, 10);
+    const startTime = req.body?.startTime || null;
+    const endTime = req.body?.endTime || null;
+    const isActive =
+      req.body?.isActive === undefined
+        ? true
+        : req.body.isActive === true || req.body.isActive === 'true' || req.body.isActive === 1;
+
+    if (!providerUserId || !schoolOrganizationId || !dayOfWeek || !Number.isFinite(slotsTotal) || slotsTotal < 0) {
+      return res.status(400).json({
+        error: { message: 'providerUserId, schoolOrganizationId, dayOfWeek, and non-negative slotsTotal are required' }
+      });
+    }
+
+    const [aff] = await pool.execute(
+      `SELECT id FROM organization_affiliations
+       WHERE agency_id = ? AND organization_id = ? AND is_active = TRUE
+       LIMIT 1`,
+      [agencyId, schoolOrganizationId]
+    );
+    if (!aff[0] && String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'School is not linked to this agency' } });
+    }
+
+    try {
+      await pool.execute(
+        `INSERT INTO user_agencies (user_id, agency_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE user_id = user_id`,
+        [providerUserId, schoolOrganizationId]
+      );
+    } catch {
+      /* best-effort */
+    }
+
+    const [existing] = await pool.execute(
+      `SELECT id, slots_total, slots_available, start_time, end_time FROM provider_school_assignments
+       WHERE provider_user_id = ? AND school_organization_id = ? AND day_of_week = ?
+       LIMIT 1`,
+      [providerUserId, schoolOrganizationId, dayOfWeek]
+    );
+
+    let rowId;
+    if (!existing[0]) {
+      const [result] = await pool.execute(
+        `INSERT INTO provider_school_assignments
+          (provider_user_id, school_organization_id, day_of_week, slots_total, slots_available, start_time, end_time, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          providerUserId,
+          schoolOrganizationId,
+          dayOfWeek,
+          slotsTotal,
+          slotsTotal,
+          startTime,
+          endTime,
+          isActive ? 1 : 0
+        ]
+      );
+      rowId = result.insertId;
+    } else {
+      const oldTotal = parseInt(existing[0].slots_total ?? 0, 10);
+      const oldAvail = parseInt(existing[0].slots_available ?? 0, 10);
+      const used = Math.max(0, oldTotal - oldAvail);
+      const nextSlotsAvailable = Math.max(0, slotsTotal - used);
+      const nextStart = startTime != null ? startTime : existing[0].start_time;
+      const nextEnd = endTime != null ? endTime : existing[0].end_time;
+      await pool.execute(
+        `UPDATE provider_school_assignments
+         SET slots_total = ?, slots_available = ?, start_time = ?, end_time = ?, is_active = ?
+         WHERE id = ?`,
+        [slotsTotal, nextSlotsAvailable, nextStart, nextEnd, isActive ? 1 : 0, existing[0].id]
+      );
+      rowId = existing[0].id;
+    }
+
+    await syncSchoolPortalDayProvider({
+      schoolId: schoolOrganizationId,
+      providerUserId,
+      weekday: dayOfWeek,
+      isActive,
+      actorUserId: req.user?.id
+    });
+
+    const [rows] = await pool.execute(`SELECT * FROM provider_school_assignments WHERE id = ?`, [rowId]);
+    res.json(rows[0] || null);
   } catch (e) {
     next(e);
   }

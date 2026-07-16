@@ -9,7 +9,8 @@ import {
   getProvider,
   listHubEvents,
   getSuggestions,
-  expireStaleRequests
+  expireStaleRequests,
+  upsertProviderDaySlots
 } from '../controllers/schoolCoverage.controller.js';
 
 const router = express.Router();
@@ -23,5 +24,6 @@ router.get('/providers/:providerId/detail', authenticate, requireAgencyAccess, g
 router.get('/events', authenticate, requireAgencyAccess, listHubEvents);
 router.get('/suggestions', authenticate, requireAgencyAccess, getSuggestions);
 router.post('/expire-stale-requests', authenticate, requireAgencyAccess, expireStaleRequests);
+router.post('/provider-day-slots', authenticate, requireAgencyAccess, upsertProviderDaySlots);
 
 export default router;

@@ -87,3 +87,24 @@ export async function applyForOpenSchoolDay(agencyId, { schoolId, dayOfWeek, not
   });
   return data;
 }
+
+/** Upsert slots on canonical provider_school_assignments (same SoT as provider scheduling). */
+export async function upsertProviderDaySlots(
+  agencyId,
+  { providerUserId, schoolOrganizationId, dayOfWeek, slotsTotal, startTime, endTime, isActive }
+) {
+  const { data } = await api.post(
+    '/school-coverage/provider-day-slots',
+    {
+      providerUserId,
+      schoolOrganizationId,
+      dayOfWeek,
+      slotsTotal,
+      startTime,
+      endTime,
+      isActive
+    },
+    { params: withAgency({}, agencyId) }
+  );
+  return data;
+}

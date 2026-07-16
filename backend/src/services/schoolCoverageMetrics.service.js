@@ -435,6 +435,7 @@ export async function getProviderCoverageSummary(agencyId) {
             days: [],
             slotsTotal: 0,
             slotsUsed: 0,
+            slotsAvailable: 0,
             clients: 0,
             fromAssignment: true
           },
@@ -448,7 +449,9 @@ export async function getProviderCoverageSummary(agencyId) {
         startTime: r.start_time ? String(r.start_time).slice(0, 5) : null,
         endTime: r.end_time ? String(r.end_time).slice(0, 5) : null,
         slotsTotal: Number(r.slots_total || 0),
-        slotsAvailable: Number(r.slots_available || 0)
+        slotsUsed: 0,
+        slotsAvailable: Number(r.slots_available || 0),
+        clients: 0
       });
       schoolEntry.slotsTotal += Number(r.slots_total || 0);
     }
@@ -464,6 +467,7 @@ export async function getProviderCoverageSummary(agencyId) {
         `SELECT
            cpa.provider_user_id AS provider_id,
            cpa.organization_id AS school_id,
+           cpa.service_day AS day_of_week,
            COUNT(*) AS cnt
          FROM client_provider_assignments cpa
          JOIN clients c ON c.id = cpa.client_id
@@ -473,7 +477,7 @@ export async function getProviderCoverageSummary(agencyId) {
            AND cpa.organization_id IN (${placeholders})
            AND cpa.provider_user_id IS NOT NULL
            AND cpa.service_day IS NOT NULL
-         GROUP BY cpa.provider_user_id, cpa.organization_id`,
+         GROUP BY cpa.provider_user_id, cpa.organization_id, cpa.service_day`,
         [...providerIds, ...schoolIds]
       );
       for (const r of rows || []) {
@@ -486,6 +490,14 @@ export async function getProviderCoverageSummary(agencyId) {
         if (schoolEntry) {
           schoolEntry.slotsUsed += used;
           schoolEntry.clients += used;
+          const day = (schoolEntry.days || []).find(
+            (d) => String(d.dayOfWeek || '').toLowerCase() === String(r.day_of_week || '').toLowerCase()
+          );
+          if (day) {
+            day.clients = used;
+            day.slotsUsed = used;
+            day.slotsAvailable = Math.max(0, Number(day.slotsTotal || 0) - used);
+          }
         }
       }
     } catch (e) {
@@ -562,6 +574,7 @@ export async function getProviderCoverageSummary(agencyId) {
               days: [],
               slotsTotal: 0,
               slotsUsed: 0,
+              slotsAvailable: 0,
               clients: 0,
               fromAssignment: false
             },
@@ -581,6 +594,7 @@ export async function getProviderCoverageSummary(agencyId) {
                 days: [],
                 slotsTotal: 0,
                 slotsUsed: 0,
+                slotsAvailable: 0,
                 clients: 0,
                 fromAssignment: false
               },
@@ -606,6 +620,14 @@ export async function getProviderCoverageSummary(agencyId) {
     const staffedSchools = p.schools.filter((s) => s.fromAssignment || (s.days || []).length > 0);
     p.assignedSchools = staffedSchools.length || p._schoolSet.size;
     p.assignedDays = p._daySet.size;
+    for (const s of p.schools || []) {
+      s.slotsAvailable = Math.max(0, Number(s.slotsTotal || 0) - Number(s.slotsUsed || 0));
+      for (const d of s.days || []) {
+        d.slotsUsed = Number(d.slotsUsed || d.clients || 0);
+        d.clients = Number(d.clients || d.slotsUsed || 0);
+        d.slotsAvailable = Math.max(0, Number(d.slotsTotal || 0) - d.slotsUsed);
+      }
+    }
     p.slotsAvailable = Math.max(0, p.slotsTotal - p.slotsUsed);
     p.capacityUtilization = p.slotsTotal > 0 ? Math.round((p.slotsUsed / p.slotsTotal) * 100) : 0;
     p.noDayAssigned = p._schoolSet.size > 0 && p.assignedDays === 0;
