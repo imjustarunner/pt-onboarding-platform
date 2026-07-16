@@ -116,6 +116,9 @@ COPY backend/src ./src
 # stays permanently on 503 "Server is loading". Copy the whole directory so
 # any future files added there are included automatically.
 COPY frontend/src/navigation/ /frontend/src/navigation/
+# Mark these files as ES modules so Node resolves named exports correctly.
+# Without this, Node treats the .js files as CommonJS and named imports fail.
+RUN echo '{"type":"module"}' > /frontend/package.json
 
 # Copy database migrations (run automatically on startup via bootstrap.js)
 COPY database/migrations ./database/migrations
