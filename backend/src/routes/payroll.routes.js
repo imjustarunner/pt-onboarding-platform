@@ -162,6 +162,8 @@ import {
   ,putPtoPolicy
   ,getUserPtoAccount
   ,upsertUserPtoAccount
+  ,listAgencyPtoAccounts
+  ,bulkUpdateAgencyPtoAccounts
   ,listPayrollTodoTemplates
   ,createPayrollTodoTemplate
   ,patchPayrollTodoTemplate
@@ -363,6 +365,8 @@ router.get('/holiday-bonus-claims', listHolidayBonusClaims);
 router.patch('/holiday-bonus-claims/:id', patchHolidayBonusClaim);
 router.get('/pto-policy', getPtoPolicy);
 router.put('/pto-policy', putPtoPolicy);
+router.get('/pto-accounts', listAgencyPtoAccounts);
+router.put('/pto-accounts', bulkUpdateAgencyPtoAccounts);
 router.get('/users/:userId/pto-account', getUserPtoAccount);
 router.put('/users/:userId/pto-account', upsertUserPtoAccount);
 router.get('/users/:userId/salary-positions', listUserSalaryPositions);

@@ -92,6 +92,7 @@ const AUDIT_ACTION_REGISTRY = {
   support_ticket_created: { label: 'Support ticket created', category: 'Support' },
   support_ticket_message: { label: 'Support ticket message sent', category: 'Support' },
   payroll_write: { label: 'Payroll data entered or updated', category: 'Billing & Payroll' },
+  pto_balance_updated: { label: 'PTO balance updated', category: 'Billing & Payroll' },
   BILLING_POLICY_PROFILE_PUBLISHED: { label: 'Billing policy profile published', category: 'Billing & Payroll' },
   BILLING_POLICY_RULE_UPSERTED: { label: 'Billing rule updated', category: 'Billing & Payroll' },
   BILLING_POLICY_ACTIVATED: { label: 'Billing policy activated', category: 'Billing & Payroll' },

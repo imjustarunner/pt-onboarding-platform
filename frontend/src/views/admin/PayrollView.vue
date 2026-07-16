@@ -137,6 +137,10 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>
               Add Note
             </button>
+            <button class="pr-quick-btn" type="button" @click="openPtoSheetModal" :disabled="!agencyId">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>
+              PTO Sheet
+            </button>
           </div>
           <div class="pr-secondary-actions">
             <button class="btn btn-secondary btn-sm" type="button" @click="showStageModal = true" :disabled="!selectedPeriodId">Payroll Stage</button>
@@ -306,6 +310,11 @@
 
     <!-- Global modals (must not be nested under Payroll Stage) -->
     <teleport to="body">
+      <PayrollPtoSheetModal
+        :open="showPtoSheetModal"
+        :agency-id="agencyId"
+        @close="showPtoSheetModal = false"
+      />
       <div v-if="showTodoModal" class="modal-backdrop">
         <div class="modal" style="width: min(920px, 100%);">
           <div class="modal-header">
@@ -1886,6 +1895,9 @@
           </button>
           <button class="btn btn-secondary btn-sm" type="button" @click="openSubmitOnBehalfModal" :disabled="!agencyId">
             Submit on behalf
+          </button>
+          <button class="btn btn-secondary btn-sm" type="button" @click="openPtoSheetModal" :disabled="!agencyId">
+            PTO Sheet
           </button>
           <button class="btn btn-secondary btn-sm" type="button" @click="openTodoModal" :disabled="!selectedPeriodId">
             Add Note / To-Do
@@ -6411,6 +6423,7 @@ import { useOrganizationStore } from '../../store/organization';
 import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import AdminPayrollSubmitOverride from '../../components/admin/AdminPayrollSubmitOverride.vue';
+import PayrollPtoSheetModal from '../../components/admin/PayrollPtoSheetModal.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -6621,6 +6634,7 @@ const runsSideBySideSortDirection = ref('asc');
 const showRunModal = ref(false);
 const showSubmitOnBehalfModal = ref(false);
 const showTodoModal = ref(false);
+const showPtoSheetModal = ref(false);
 const showHolidayHoursModal = ref(false);
 const showSupervisionAttendanceModal = ref(false);
 const showSupervisionConflictsModal = ref(false);
@@ -7764,6 +7778,11 @@ const openTodoModal = async () => {
   todoTab.value = 'period';
   await loadPayrollTodos();
   await loadTodoTemplates();
+};
+
+const openPtoSheetModal = () => {
+  if (!agencyId.value) return;
+  showPtoSheetModal.value = true;
 };
 
 // ==========================

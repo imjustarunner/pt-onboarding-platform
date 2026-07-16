@@ -7,7 +7,7 @@ import {
   matchDeterministicCapabilityIntent,
   matchProfileSectionJumpIntent
 } from '../services/agents/assistantCapabilityCatalog.service.js';
-import { isUserProfileContext } from '../../../../frontend/src/navigation/profileSearchCatalog.js';
+import { isUserProfileContext } from '../../../frontend/src/navigation/profileSearchCatalog.js';
 import { hasTenantAccess } from '../utils/meDashboardTenantScope.js';
 
 function normalizeUiCommands(raw) {

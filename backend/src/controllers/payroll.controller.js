@@ -102,6 +102,9 @@ import {
   getPtoBalances,
   applyStartingBalances,
   setCurrentBalances,
+  listAgencyPtoSheet,
+  isPtoSheetEligibleUser,
+  resolvePtoSheetDisplayEmail,
   computePtoPolicyWarnings,
   approvePtoRequestAndPostToPayroll,
   runPtoAccrualForPostedPeriod,
@@ -18018,16 +18021,206 @@ export const upsertUserPtoAccount = async (req, res, next) => {
     // Set current balances directly (writes ledger entries for audit).
     const hasSick = body.sickBalanceHours !== undefined && body.sickBalanceHours !== null && body.sickBalanceHours !== '';
     const hasTraining = body.trainingBalanceHours !== undefined && body.trainingBalanceHours !== null && body.trainingBalanceHours !== '';
-    const updated = await setCurrentBalances({
+    const balanceResult = await setCurrentBalances({
       agencyId,
       userId,
       sickBalanceHours: hasSick ? body.sickBalanceHours : undefined,
       trainingBalanceHours: hasTraining ? body.trainingBalanceHours : undefined,
       ptoPayRate: undefined, // already handled above via upsert
-      updatedByUserId: req.user.id
+      updatedByUserId: req.user.id,
+      note: 'Balance set by admin (profile)'
     });
 
-    res.json({ ok: true, agencyId, userId, account: updated });
+    if (balanceResult.sickChanged || balanceResult.trainingChanged) {
+      try {
+        await AdminAuditLog.logAction({
+          actionType: 'pto_balance_updated',
+          actorUserId: req.user.id,
+          targetUserId: userId,
+          moduleId: null,
+          trackId: null,
+          agencyId,
+          metadata: {
+            source: 'user_payroll_tab',
+            previous: {
+              sickHours: balanceResult.previousSickHours,
+              trainingHours: balanceResult.previousTrainingHours
+            },
+            next: {
+              sickHours: balanceResult.nextSickHours,
+              trainingHours: balanceResult.nextTrainingHours
+            },
+            changed: {
+              sick: balanceResult.sickChanged,
+              training: balanceResult.trainingChanged
+            }
+          }
+        });
+      } catch (e) {
+        console.warn('Admin audit log failed (pto_balance_updated):', e?.message || e);
+      }
+    }
+
+    res.json({ ok: true, agencyId, userId, account: balanceResult.account });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listAgencyPtoAccounts = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    const [{ policy, defaultPayRate }, rows] = await Promise.all([
+      getAgencyPtoPolicy({ agencyId }),
+      listAgencyPtoSheet({ agencyId })
+    ]);
+
+    const accounts = (rows || []).map((r) => {
+      const displayEmail = resolvePtoSheetDisplayEmail({
+        workEmail: r.work_email,
+        personalEmail: r.personal_email,
+        email: r.email
+      });
+      return {
+        userId: Number(r.user_id),
+        firstName: r.first_name || '',
+        lastName: r.last_name || '',
+        email: displayEmail,
+        workEmail: String(r.work_email || '').trim() || null,
+        role: r.role || null,
+        hasAccount: Number(r.has_account || 0) === 1,
+        employmentType: r.employment_type || 'hourly',
+        trainingPtoEligible: !!r.training_pto_eligible,
+        sickBalanceHours: Number(r.sick_balance_hours || 0),
+        trainingBalanceHours: Number(r.training_balance_hours || 0),
+        ptoPayRate: (r.pto_pay_rate !== null && r.pto_pay_rate !== undefined) ? Number(r.pto_pay_rate) : null,
+        accountUpdatedAt: r.account_updated_at || null
+      };
+    });
+
+    res.json({
+      ok: true,
+      agencyId,
+      policy,
+      agencyDefaultPtoPayRate: Number(defaultPayRate || 0),
+      accounts
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const bulkUpdateAgencyPtoAccounts = async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const agencyId = body.agencyId ? parseInt(body.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    const updates = Array.isArray(body.updates) ? body.updates : [];
+    if (!updates.length) {
+      return res.status(400).json({ error: { message: 'updates array is required' } });
+    }
+    if (updates.length > 500) {
+      return res.status(400).json({ error: { message: 'Too many updates (max 500)' } });
+    }
+
+    const note = body.note ? String(body.note).slice(0, 255) : 'Balance set via PTO sheet';
+    const results = [];
+    let updatedCount = 0;
+
+    for (const raw of updates) {
+      const userId = raw?.userId ? parseInt(raw.userId, 10) : null;
+      if (!userId) {
+        results.push({ userId: null, ok: false, error: 'userId is required' });
+        continue;
+      }
+
+      const eligible = await isPtoSheetEligibleUser({ agencyId, userId });
+      if (!eligible) {
+        results.push({ userId, ok: false, error: 'User is not an employee with a company work email in this agency' });
+        continue;
+      }
+
+      const hasSick = raw.sickBalanceHours !== undefined && raw.sickBalanceHours !== null && raw.sickBalanceHours !== '';
+      const hasTraining = raw.trainingBalanceHours !== undefined && raw.trainingBalanceHours !== null && raw.trainingBalanceHours !== '';
+      if (!hasSick && !hasTraining) {
+        results.push({ userId, ok: true, changed: false });
+        continue;
+      }
+
+      try {
+        const balanceResult = await setCurrentBalances({
+          agencyId,
+          userId,
+          sickBalanceHours: hasSick ? raw.sickBalanceHours : undefined,
+          trainingBalanceHours: hasTraining ? raw.trainingBalanceHours : undefined,
+          ptoPayRate: undefined,
+          updatedByUserId: req.user.id,
+          note
+        });
+
+        const changed = balanceResult.sickChanged || balanceResult.trainingChanged;
+        if (changed) {
+          updatedCount += 1;
+          try {
+            await AdminAuditLog.logAction({
+              actionType: 'pto_balance_updated',
+              actorUserId: req.user.id,
+              targetUserId: userId,
+              moduleId: null,
+              trackId: null,
+              agencyId,
+              metadata: {
+                source: 'pto_sheet',
+                previous: {
+                  sickHours: balanceResult.previousSickHours,
+                  trainingHours: balanceResult.previousTrainingHours
+                },
+                next: {
+                  sickHours: balanceResult.nextSickHours,
+                  trainingHours: balanceResult.nextTrainingHours
+                },
+                changed: {
+                  sick: balanceResult.sickChanged,
+                  training: balanceResult.trainingChanged
+                },
+                note
+              }
+            });
+          } catch (e) {
+            console.warn('Admin audit log failed (pto_balance_updated):', e?.message || e);
+          }
+        }
+
+        results.push({
+          userId,
+          ok: true,
+          changed,
+          account: balanceResult.account,
+          previous: {
+            sickHours: balanceResult.previousSickHours,
+            trainingHours: balanceResult.previousTrainingHours
+          },
+          next: {
+            sickHours: balanceResult.nextSickHours,
+            trainingHours: balanceResult.nextTrainingHours
+          }
+        });
+      } catch (e) {
+        results.push({ userId, ok: false, error: e?.message || 'Failed to update' });
+      }
+    }
+
+    res.json({
+      ok: true,
+      agencyId,
+      updatedCount,
+      results
+    });
   } catch (e) {
     next(e);
   }

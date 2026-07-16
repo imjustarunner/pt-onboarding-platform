@@ -300,6 +300,7 @@ export async function applyStartingBalances({
  * Directly set a user's current PTO balances and/or PTO pay rate.
  * Each changed bucket writes a `manual_adjustment` ledger entry for the audit trail.
  * ptoPayRate: undefined = don't touch; null = clear to NULL; number = override.
+ * Returns { account, previousSickHours, previousTrainingHours, sickChanged, trainingChanged }.
  */
 export async function setCurrentBalances({
   agencyId,
@@ -307,21 +308,28 @@ export async function setCurrentBalances({
   sickBalanceHours,
   trainingBalanceHours,
   ptoPayRate,
-  updatedByUserId
+  updatedByUserId,
+  note = 'Balance set by admin'
 }) {
   const acct = await ensurePtoAccount({ agencyId, userId, updatedByUserId });
   const today = todayYmd();
+  const ledgerNote = String(note || 'Balance set by admin').slice(0, 255);
 
   const hasSick = sickBalanceHours !== undefined && sickBalanceHours !== null;
   const hasTraining = trainingBalanceHours !== undefined && trainingBalanceHours !== null;
 
-  let nextSick = Number(acct.sick_balance_hours || 0);
-  let nextTraining = Number(acct.training_balance_hours || 0);
+  const previousSickHours = Number(acct.sick_balance_hours || 0);
+  const previousTrainingHours = Number(acct.training_balance_hours || 0);
+  let nextSick = previousSickHours;
+  let nextTraining = previousTrainingHours;
+  let sickChanged = false;
+  let trainingChanged = false;
 
   if (hasSick) {
     const newSick = Math.max(0, Number(sickBalanceHours));
     const delta = Math.round((newSick - nextSick) * 100) / 100;
     if (Math.abs(delta) > 1e-9) {
+      sickChanged = true;
       await PayrollPtoLedger.create({
         agencyId,
         userId,
@@ -331,7 +339,7 @@ export async function setCurrentBalances({
         effectiveDate: today,
         payrollPeriodId: null,
         requestId: null,
-        note: 'Balance set by admin',
+        note: ledgerNote,
         createdByUserId: updatedByUserId
       });
     }
@@ -342,6 +350,7 @@ export async function setCurrentBalances({
     const newTraining = Math.max(0, Number(trainingBalanceHours));
     const delta = Math.round((newTraining - nextTraining) * 100) / 100;
     if (Math.abs(delta) > 1e-9) {
+      trainingChanged = true;
       await PayrollPtoLedger.create({
         agencyId,
         userId,
@@ -351,14 +360,14 @@ export async function setCurrentBalances({
         effectiveDate: today,
         payrollPeriodId: null,
         requestId: null,
-        note: 'Balance set by admin',
+        note: ledgerNote,
         createdByUserId: updatedByUserId
       });
     }
     nextTraining = newTraining;
   }
 
-  return PayrollPtoAccount.upsert({
+  const account = await PayrollPtoAccount.upsert({
     agencyId,
     userId,
     employmentType: acct.employment_type,
@@ -375,6 +384,146 @@ export async function setCurrentBalances({
     ptoPayRate,
     updatedByUserId
   });
+
+  return {
+    account,
+    previousSickHours,
+    previousTrainingHours,
+    sickChanged,
+    trainingChanged,
+    nextSickHours: nextSick,
+    nextTrainingHours: nextTraining
+  };
+}
+
+const NON_EMPLOYEE_ROLES = new Set([
+  'guardian',
+  'client_guardian',
+  'client',
+  'school_staff',
+  'school_support',
+  'applicant',
+  'super_admin'
+]);
+
+const FREEMAIL_DOMAINS = new Set([
+  'gmail.com',
+  'googlemail.com',
+  'yahoo.com',
+  'yahoo.co.uk',
+  'hotmail.com',
+  'outlook.com',
+  'live.com',
+  'msn.com',
+  'icloud.com',
+  'me.com',
+  'mac.com',
+  'aol.com',
+  'proton.me',
+  'protonmail.com',
+  'mail.com',
+  'gmx.com',
+  'ymail.com'
+]);
+
+const PREHIRE_STATUSES = new Set([
+  'pending',
+  'ready_for_review',
+  'prospective',
+  'pending_setup',
+  'prehire_open',
+  'prehire_review'
+]);
+
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function emailDomain(email) {
+  const e = normalizeEmail(email);
+  if (!e.includes('@')) return '';
+  return e.split('@').pop().replace(/^\.+|\.+$/g, '');
+}
+
+function isFreemailAddress(email) {
+  const domain = emailDomain(email);
+  return !!domain && FREEMAIL_DOMAINS.has(domain);
+}
+
+/**
+ * Prefer a company-facing address for display.
+ * Many employees still have a personal/gmail login while work_email is set (or vice versa).
+ */
+export function resolvePtoSheetDisplayEmail({ workEmail, personalEmail, email } = {}) {
+  const work = normalizeEmail(workEmail);
+  const personal = normalizeEmail(personalEmail);
+  const login = normalizeEmail(email);
+
+  if (work && work !== personal && !isFreemailAddress(work)) return work;
+  if (login && login !== personal && !isFreemailAddress(login)) return login;
+  if (work) return work;
+  if (login && login !== personal) return login;
+  return work || login || null;
+}
+
+function isPtoSheetEmployeeRow(row) {
+  const role = String(row?.role || '').trim().toLowerCase();
+  if (NON_EMPLOYEE_ROLES.has(role)) return false;
+  const status = String(row?.status || '').trim().toLowerCase();
+  if (PREHIRE_STATUSES.has(status)) return false;
+  if (row?.is_archived === true || row?.is_archived === 1 || row?.is_archived === '1') return false;
+  // Must have a work email on file (may still be provisional / personal for some staff).
+  return !!normalizeEmail(row?.work_email);
+}
+
+/**
+ * Agency-wide PTO sheet: agency employees with a work email on file.
+ * Excludes school staff / guardians / applicants / prehire. Does not freemail-filter
+ * work_email (personal addresses are often attached; display prefers company email).
+ */
+export async function listAgencyPtoSheet({ agencyId }) {
+  const [rows] = await pool.execute(
+    `SELECT
+       u.id AS user_id,
+       u.first_name,
+       u.last_name,
+       u.work_email,
+       u.personal_email,
+       u.email,
+       u.role,
+       u.status,
+       u.is_archived,
+       a.employment_type,
+       a.training_pto_eligible,
+       COALESCE(a.sick_balance_hours, 0) AS sick_balance_hours,
+       COALESCE(a.training_balance_hours, 0) AS training_balance_hours,
+       a.pto_pay_rate,
+       a.updated_at AS account_updated_at,
+       CASE WHEN a.user_id IS NULL THEN 0 ELSE 1 END AS has_account
+     FROM users u
+     INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+     LEFT JOIN payroll_pto_accounts a ON a.user_id = u.id AND a.agency_id = ?
+     WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
+       AND u.work_email IS NOT NULL
+       AND TRIM(u.work_email) <> ''
+     ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+    [agencyId, agencyId]
+  );
+
+  return (rows || []).filter((r) => isPtoSheetEmployeeRow(r));
+}
+
+/** True when a user may be edited on the agency PTO sheet. */
+export async function isPtoSheetEligibleUser({ agencyId, userId }) {
+  const [rows] = await pool.execute(
+    `SELECT u.id, u.role, u.status, u.work_email, u.personal_email, u.email, u.is_archived
+     FROM users u
+     INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+     WHERE u.id = ?
+     LIMIT 1`,
+    [agencyId, userId]
+  );
+  return isPtoSheetEmployeeRow(rows?.[0] || null);
 }
 
 async function findPayrollPeriodIdForDate({ agencyId, dateYmd }) {
