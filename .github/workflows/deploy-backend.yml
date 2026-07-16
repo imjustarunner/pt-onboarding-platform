@@ -69,7 +69,7 @@ jobs:
           fi
           echo "✅  No illegal frontend/src imports found."
 
-      - name: Build and push Docker image
+      - name: Build Docker image
         run: |
           # DEBUG: Print the Admin folder to confirm the file exists and check casing
           echo "=== DEBUG: Checking Admin Component Folder ==="
@@ -86,7 +86,37 @@ jobs:
             -t $IMAGE_NAME:$GITHUB_SHA \
             -t $IMAGE_NAME:latest .
 
-          # Push to Google Artifact Registry
+      - name: Smoke test — app module graph loads inside the image
+        run: |
+          # Catch boot failures (missing shared files, ESM/CJS mismatches, bad imports,
+          # syntax errors) BEFORE the image is pushed or deployed. This is DB-free:
+          # it only verifies the module graph resolves, which is exactly the class of
+          # failure that caused the 2026-07-16 "degraded" 503 outage (TCP probe alone
+          # cannot detect it — bootstrap.js binds the port before the app loads).
+          echo "=== Verifying server + shared navigation modules import cleanly ==="
+          docker run --rm --entrypoint node "$IMAGE_NAME:$GITHUB_SHA" -e "
+            (async () => {
+              try {
+                const nav = await import('/frontend/src/navigation/profileSearchCatalog.js');
+                if (typeof nav.isUserProfileContext !== 'function') {
+                  throw new Error('profileSearchCatalog.js missing named export isUserProfileContext (ESM/CJS issue)');
+                }
+                // Importing the assistant catalog proves the full backend->frontend
+                // shared import chain resolves as ESM inside the image.
+                await import('./src/services/agents/assistantCapabilityCatalog.service.js');
+                console.log('✅ SMOKE_OK: shared navigation + assistant catalog load as ES modules');
+                process.exit(0);
+              } catch (e) {
+                console.error('❌ SMOKE_FAIL: app would boot degraded in production');
+                console.error(e && e.stack ? e.stack : e);
+                process.exit(1);
+              }
+            })();
+          "
+
+      - name: Push Docker image
+        run: |
+          # Only reached if the smoke test above passed.
           docker push $IMAGE_NAME:$GITHUB_SHA
           docker push $IMAGE_NAME:latest
 
@@ -418,6 +448,37 @@ jobs:
           gcloud run services update-traffic $SERVICE_NAME \
             --region $REGION \
             --to-latest
+
+      - name: Post-deploy health gate — fail if app boots degraded
+        run: |
+          # Belt-and-suspenders: even if a boot failure slips past the build smoke
+          # test, verify the LIVE app actually finished loading. NOTE: the /health
+          # endpoint returns status:"ok" even during bootstrap.js's degraded mode
+          # (so Cloud Run keeps the instance alive), so we must key off the `phase`
+          # field, NOT `status`:
+          #   phase "app"      → fully loaded (served by server.js)          → PASS
+          #   phase "degraded" → server.js failed to import (loadError)       → FAIL
+          #   phase "bootstrap"/"starting" → still loading                    → wait
+          SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region $REGION --format='value(status.url)')
+          echo "Checking boot phase at ${SERVICE_URL}/health"
+          OK=0
+          for attempt in $(seq 1 20); do
+            BODY=$(curl -sS --max-time 10 "${SERVICE_URL}/health" || echo '{}')
+            echo "attempt ${attempt}: ${BODY}"
+            PHASE=$(echo "$BODY" | jq -r '.phase // empty' 2>/dev/null || echo "")
+            if [ "$PHASE" = "app" ] || [ "$PHASE" = "ready" ]; then OK=1; break; fi
+            if [ "$PHASE" = "degraded" ]; then
+              echo "❌ Service booted DEGRADED — server.js failed to import. Failing deploy."
+              echo "$BODY"
+              exit 1
+            fi
+            sleep 15
+          done
+          if [ "$OK" -ne 1 ]; then
+            echo "❌ App never reached loaded phase after ~5 minutes. Failing deploy."
+            exit 1
+          fi
+          echo "✅ Live app fully loaded (phase=app)."
 
       - name: Verify env vars on Cloud Run
         run: |
