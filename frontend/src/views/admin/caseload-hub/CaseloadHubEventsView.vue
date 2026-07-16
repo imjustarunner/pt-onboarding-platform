@@ -19,9 +19,67 @@
           {{ loading ? 'Refreshing…' : 'Refresh' }}
         </button>
         <button type="button" class="btn btn-secondary" @click="exportCsv">Export</button>
+        <button type="button" class="btn btn-secondary" @click="showKioskSettings = true">School events kiosk</button>
         <button type="button" class="btn btn-primary" @click="openAddEvent">+ Add Event</button>
       </div>
     </header>
+
+    <div v-if="showKioskSettings" class="caseload-modal-backdrop" @click.self="showKioskSettings = false">
+      <div class="caseload-modal kiosk-settings-modal">
+        <header class="caseload-modal-header">
+          <h2>School events kiosk</h2>
+          <button type="button" class="icon-btn" @click="showKioskSettings = false">×</button>
+        </header>
+        <div class="caseload-modal-body">
+          <p class="muted">
+            One agency station PIN unlocks a kiosk that lists school events. Staff pick an event and clock in;
+            time posts to payroll as indirect by default.
+          </p>
+          <p v-if="kioskSettingsError" class="error-inline">{{ kioskSettingsError }}</p>
+          <dl class="kiosk-dl">
+            <dt>Station PIN</dt>
+            <dd>
+              <code v-if="kioskSettings?.pinCode">{{ kioskSettings.pinCode }}</code>
+              <span v-else class="muted">{{ kioskSettings?.pinSet ? 'Set (code hidden)' : 'Not set' }}</span>
+            </dd>
+            <dt>Public link</dt>
+            <dd>
+              <a v-if="kioskSettings?.kioskUrl" :href="kioskSettings.kioskUrl" target="_blank" rel="noopener">
+                {{ kioskSettings.kioskUrl }}
+              </a>
+              <span v-else class="muted">—</span>
+            </dd>
+          </dl>
+          <label class="kiosk-set-pin">
+            <span>Set custom PIN (4–6 digits)</span>
+            <input
+              v-model="kioskCustomPin"
+              type="text"
+              inputmode="numeric"
+              maxlength="6"
+              placeholder="e.g. 5373"
+              class="kiosk-pin-input"
+            />
+          </label>
+          <div class="kiosk-actions">
+            <button type="button" class="btn btn-secondary" :disabled="kioskSettingsBusy" @click="loadKioskSettings">
+              Reload
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary"
+              :disabled="kioskSettingsBusy || !/^\d{4,6}$/.test(String(kioskCustomPin || '').trim())"
+              @click="setCustomKioskPin"
+            >
+              Save PIN
+            </button>
+            <button type="button" class="btn btn-primary" :disabled="kioskSettingsBusy" @click="rotateKioskPin">
+              {{ kioskSettingsBusy ? 'Working…' : (kioskSettings?.pinSet ? 'Randomize PIN' : 'Generate PIN') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <nav class="hub-tabs">
       <router-link class="hub-tab" :to="orgTo('/admin/caseload-hub/calendar')">Calendar</router-link>
@@ -115,6 +173,7 @@
                 <td>
                   <div class="primary">{{ formatDateLong(e.startsAt, e.timezone) }}</div>
                   <div class="muted time-tz">{{ formatTimeRange(e.startsAt, e.endsAt, e.timezone) }}</div>
+                  <div v-if="reportByLabel(e)" class="muted report-by">{{ reportByLabel(e) }}</div>
                 </td>
                 <td>
                   <div class="name-cell">
@@ -210,12 +269,15 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
   formatSchoolEventDate,
   formatSchoolEventTimeRange,
+  formatSchoolEventReportTime,
   schoolEventTimezoneLabel,
+  timezoneAbbrevAt,
   SCHOOL_EVENT_FALLBACK_TIMEZONE
 } from '../../../utils/timezones';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../../store/auth';
 import { useAgencyStore } from '../../../store/agency';
+import api from '../../../services/api';
 import { fetchHubEvents, fetchSchoolCoverageSummary } from '../../../services/schoolCoverageApi';
 import SchoolEventStaffingPanel from '../../../components/caseload-hub/SchoolEventStaffingPanel.vue';
 import PostSchoolEventModal from '../../../components/school/PostSchoolEventModal.vue';
@@ -227,6 +289,11 @@ const agencyStore = useAgencyStore();
 
 const tab = ref(String(route.query.tab || 'list'));
 const agencyId = ref(null);
+const showKioskSettings = ref(false);
+const kioskSettings = ref(null);
+const kioskSettingsBusy = ref(false);
+const kioskSettingsError = ref('');
+const kioskCustomPin = ref('5373');
 const agencies = computed(() => agencyStore.agencies || []);
 const events = ref([]);
 const summary = ref(null);
@@ -308,6 +375,66 @@ function formatDateLong(v, timezone) {
 function formatTimeRange(a, b, timezone) {
   return formatSchoolEventTimeRange(a, b, timezone);
 }
+
+function reportByLabel(e) {
+  const t = formatSchoolEventReportTime(
+    e?.employeeReportTime,
+    timezoneAbbrevAt(e?.startsAt || new Date(), e?.timezone)
+  );
+  return t ? `Report by ${t}` : '';
+}
+
+async function loadKioskSettings() {
+  if (!agencyId.value) return;
+  try {
+    kioskSettingsBusy.value = true;
+    kioskSettingsError.value = '';
+    const res = await api.get('/school-portal/school-events/kiosk-settings', {
+      params: { agencyId: agencyId.value },
+      skipGlobalLoading: true
+    });
+    kioskSettings.value = res.data || null;
+  } catch (e) {
+    kioskSettingsError.value = e?.response?.data?.error?.message || 'Failed to load kiosk settings';
+  } finally {
+    kioskSettingsBusy.value = false;
+  }
+}
+
+async function rotateKioskPin(customPin = null) {
+  if (!agencyId.value) return;
+  try {
+    kioskSettingsBusy.value = true;
+    kioskSettingsError.value = '';
+    const body = { agencyId: agencyId.value };
+    const pin = customPin != null ? String(customPin).trim() : '';
+    if (pin) body.pin = pin;
+    const res = await api.post(
+      '/school-portal/school-events/kiosk-settings/rotate-pin',
+      body,
+      { skipGlobalLoading: true }
+    );
+    kioskSettings.value = res.data || null;
+    if (res.data?.pinCode) kioskCustomPin.value = String(res.data.pinCode);
+  } catch (e) {
+    kioskSettingsError.value = e?.response?.data?.error?.message || 'Failed to rotate PIN';
+  } finally {
+    kioskSettingsBusy.value = false;
+  }
+}
+
+async function setCustomKioskPin() {
+  const pin = String(kioskCustomPin.value || '').trim();
+  if (!/^\d{4,6}$/.test(pin)) {
+    kioskSettingsError.value = 'PIN must be 4–6 digits';
+    return;
+  }
+  await rotateKioskPin(pin);
+}
+
+watch(showKioskSettings, (open) => {
+  if (open) loadKioskSettings();
+});
 
 function stopPolling() {
   if (pollTimer) {
@@ -954,6 +1081,91 @@ watch(
   justify-content: center;
   text-align: center;
   min-height: 12rem;
+}
+.caseload-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 90;
+  padding: 1rem;
+}
+.caseload-modal {
+  width: min(32rem, 100%);
+  background: #fff;
+  border-radius: 14px;
+  padding: 1.15rem 1.2rem;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.18);
+}
+.caseload-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.caseload-modal-header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+.caseload-modal-body .muted {
+  color: #64748b;
+  line-height: 1.4;
+}
+.kiosk-dl {
+  display: grid;
+  grid-template-columns: 7rem 1fr;
+  gap: 0.45rem 0.75rem;
+  margin: 1rem 0;
+}
+.kiosk-dl dt {
+  font-weight: 700;
+  color: #475569;
+}
+.kiosk-dl dd {
+  margin: 0;
+  word-break: break-all;
+}
+.kiosk-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.kiosk-set-pin {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.75rem 0 1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+}
+.kiosk-pin-input {
+  max-width: 10rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 1.05rem;
+  letter-spacing: 0.12em;
+}
+.error-inline {
+  color: #b91c1c;
+}
+.icon-btn {
+  border: none;
+  background: transparent;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #64748b;
+}
+.report-by {
+  color: #b45309;
+  font-weight: 600;
 }
 .modal-backdrop {
   position: fixed;

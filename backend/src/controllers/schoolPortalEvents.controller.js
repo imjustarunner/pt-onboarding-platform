@@ -17,10 +17,13 @@ import {
   getSchoolEventOverviewForAgency,
   listSchoolEventsForOrg,
   markPostTokenUsed,
+  parseSchoolEventWallTime,
   resolveAgencyIdForSchoolOrg,
   updateSchoolPortalEvent,
   validatePostToken
 } from '../services/schoolPortalEvents.service.js';
+import KioskModel from '../models/Kiosk.model.js';
+import crypto from 'crypto';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -197,6 +200,24 @@ function pickRecipientEmail(userRow) {
   return work || personal || '';
 }
 
+async function userCanEditSchoolEventPayrollFields({ userId, role, agencyId }) {
+  const r = String(role || '').toLowerCase();
+  if (r === 'super_admin' || r === 'admin') return true;
+  const uid = parseInt(String(userId || ''), 10);
+  const aid = parseInt(String(agencyId || ''), 10);
+  if (!uid || !aid) return false;
+  try {
+    const [rows] = await pool.execute(
+      'SELECT has_payroll_access FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+      [uid, aid]
+    );
+    const flag = rows?.[0]?.has_payroll_access;
+    return flag === 1 || flag === true || flag === '1';
+  } catch {
+    return false;
+  }
+}
+
 function parseSchoolEventBody(body) {
   const category = String(body?.category || body?.eventCategory || '').trim().toLowerCase();
   const title = String(body?.title || body?.name || '').trim();
@@ -213,6 +234,13 @@ function parseSchoolEventBody(body) {
   const flierFileUrl = body?.flierFileUrl ?? body?.flier_file_url;
   const timezone = body?.timezone;
   const statusRaw = body?.schoolEventStatus ?? body?.school_event_status ?? body?.status;
+  const reportRaw = body?.employeeReportTime ?? body?.employee_report_time;
+  const directRaw = body?.skillBuilderDirectHours ?? body?.skill_builder_direct_hours;
+  let skillBuilderDirectHours;
+  if (directRaw !== undefined && directRaw !== null && directRaw !== '') {
+    const n = Number(directRaw);
+    skillBuilderDirectHours = Number.isFinite(n) && n >= 0 ? n : undefined;
+  }
   return {
     category,
     title,
@@ -225,7 +253,11 @@ function parseSchoolEventBody(body) {
     timezone,
     schoolEventStatus: statusRaw !== undefined && statusRaw !== null && statusRaw !== ''
       ? String(statusRaw).trim().toLowerCase()
-      : undefined
+      : undefined,
+    employeeReportTime: reportRaw !== undefined
+      ? (reportRaw === null || reportRaw === '' ? null : parseSchoolEventWallTime(reportRaw))
+      : undefined,
+    skillBuilderDirectHours
   };
 }
 
@@ -256,7 +288,7 @@ export const getSchoolPortalEventsMissing = async (req, res, next) => {
 
 export const createSchoolPortalEventHandler = async (req, res, next) => {
   try {
-    const { orgId, userId } = await assertSchoolStaffPortalAccess(req, req.params.organizationId);
+    const { orgId, userId, role } = await assertSchoolStaffPortalAccess(req, req.params.organizationId);
     const agencyId = await resolveAgencyIdForSchoolOrg(orgId);
     if (!agencyId) return res.status(400).json({ error: { message: 'School is not linked to an agency' } });
 
@@ -269,6 +301,13 @@ export const createSchoolPortalEventHandler = async (req, res, next) => {
     if (!parsed.title) return res.status(400).json({ error: { message: 'title is required' } });
     if (!parsed.startsAt || !parsed.endsAt) {
       return res.status(400).json({ error: { message: 'startsAt and endsAt are required' } });
+    }
+
+    const canEditPayroll = await userCanEditSchoolEventPayrollFields({ userId, role, agencyId });
+    if (parsed.skillBuilderDirectHours !== undefined && !canEditPayroll) {
+      return res.status(403).json({
+        error: { message: 'Only payroll or admin can set direct hours for school events' }
+      });
     }
 
     const event = await createSchoolPortalEvent({
@@ -284,7 +323,11 @@ export const createSchoolPortalEventHandler = async (req, res, next) => {
       outreachTableInvited: parsed.outreachTableInvited,
       eventImageUrl: parsed.eventImageUrl,
       flierFileUrl: parsed.flierFileUrl,
-      schoolEventStatus: parsed.schoolEventStatus || 'scheduled'
+      schoolEventStatus: parsed.schoolEventStatus || 'scheduled',
+      employeeReportTime: parsed.employeeReportTime,
+      skillBuilderDirectHours: canEditPayroll && parsed.skillBuilderDirectHours !== undefined
+        ? parsed.skillBuilderDirectHours
+        : 0
     });
 
     const postToken = String(req.body?.postToken || req.body?.setk || '').trim();
@@ -301,7 +344,7 @@ export const createSchoolPortalEventHandler = async (req, res, next) => {
 
 export const updateSchoolPortalEventHandler = async (req, res, next) => {
   try {
-    const { orgId, userId } = await assertSchoolStaffPortalAccess(req, req.params.organizationId);
+    const { orgId, userId, role } = await assertSchoolStaffPortalAccess(req, req.params.organizationId);
     const eventId = parseInt(String(req.params.eventId || ''), 10);
     if (!eventId) return res.status(400).json({ error: { message: 'Invalid eventId' } });
     const agencyId = await resolveAgencyIdForSchoolOrg(orgId);
@@ -310,6 +353,13 @@ export const updateSchoolPortalEventHandler = async (req, res, next) => {
     const parsed = parseSchoolEventBody(req.body || {});
     if (parsed.category && !SCHOOL_EVENT_CATEGORIES.includes(parsed.category)) {
       return res.status(400).json({ error: { message: 'Invalid category' } });
+    }
+
+    const canEditPayroll = await userCanEditSchoolEventPayrollFields({ userId, role, agencyId });
+    if (parsed.skillBuilderDirectHours !== undefined && !canEditPayroll) {
+      return res.status(403).json({
+        error: { message: 'Only payroll or admin can set direct hours for school events' }
+      });
     }
 
     const event = await updateSchoolPortalEvent({
@@ -327,7 +377,9 @@ export const updateSchoolPortalEventHandler = async (req, res, next) => {
       eventImageUrl: parsed.eventImageUrl,
       flierFileUrl: parsed.flierFileUrl,
       clearFlier: req.body?.clearFlier === true || req.body?.clear_flier === true,
-      schoolEventStatus: parsed.schoolEventStatus
+      schoolEventStatus: parsed.schoolEventStatus,
+      employeeReportTime: parsed.employeeReportTime,
+      skillBuilderDirectHours: canEditPayroll ? parsed.skillBuilderDirectHours : undefined
     });
     res.json(event);
   } catch (e) {
@@ -475,6 +527,91 @@ export const requestSchoolEventSubmissions = async (req, res, next) => {
       targetSchoolCount: targetSchools.length,
       category,
       year
+    });
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+function generateSixDigitPin() {
+  return String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+}
+
+function normalizeSchoolEventsHubPin(pin) {
+  const p = String(pin || '').trim();
+  return /^\d{4,6}$/.test(p) ? p : null;
+}
+
+/** GET /api/school-portal/school-events/kiosk-settings?agencyId= */
+export const getSchoolEventsKioskSettings = async (req, res, next) => {
+  try {
+    const agencyId = await assertAgencyAdminAccess(req, req.query?.agencyId);
+    const [rows] = await pool.execute(
+      `SELECT school_events_kiosk_pin_code, school_events_kiosk_pin_hash, portal_url, slug
+       FROM agencies WHERE id = ? LIMIT 1`,
+      [agencyId]
+    ).catch((e) => {
+      if (e?.code === 'ER_BAD_FIELD_ERROR') return [[{}]];
+      throw e;
+    });
+    const row = rows?.[0] || {};
+    const pinSet = !!(row.school_events_kiosk_pin_hash);
+    const slug = String(row.portal_url || row.slug || '').trim().toLowerCase();
+    const frontendBase = getFrontendBaseUrl();
+    res.json({
+      agencyId,
+      pinSet,
+      pinCode: pinSet && row.school_events_kiosk_pin_code
+        ? String(row.school_events_kiosk_pin_code).trim()
+        : null,
+      kioskPath: slug ? `/${slug}/school-events/kiosk` : null,
+      kioskUrl: slug ? `${frontendBase}/${slug}/school-events/kiosk` : null
+    });
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+/** POST /api/school-portal/school-events/kiosk-settings/rotate-pin { agencyId, pin? } */
+export const rotateSchoolEventsKioskPin = async (req, res, next) => {
+  try {
+    const agencyId = await assertAgencyAdminAccess(req, req.body?.agencyId ?? req.query?.agencyId);
+    const requested = normalizeSchoolEventsHubPin(req.body?.pin);
+    if (req.body?.pin != null && req.body?.pin !== '' && !requested) {
+      return res.status(400).json({ error: { message: 'PIN must be 4–6 digits' } });
+    }
+    const pin = requested || generateSixDigitPin();
+    const pinHash = KioskModel.hashPin(pin);
+    try {
+      await pool.execute(
+        `UPDATE agencies
+         SET school_events_kiosk_pin_hash = ?, school_events_kiosk_pin_code = ?
+         WHERE id = ?`,
+        [pinHash, pin, agencyId]
+      );
+    } catch (e) {
+      if (e?.code === 'ER_BAD_FIELD_ERROR') {
+        return res.status(503).json({
+          error: { message: 'Run migration 957 for school events kiosk PIN columns' }
+        });
+      }
+      throw e;
+    }
+    const [rows] = await pool.execute(
+      `SELECT portal_url, slug FROM agencies WHERE id = ? LIMIT 1`,
+      [agencyId]
+    );
+    const slug = String(rows?.[0]?.portal_url || rows?.[0]?.slug || '').trim().toLowerCase();
+    const frontendBase = getFrontendBaseUrl();
+    res.json({
+      ok: true,
+      agencyId,
+      pinSet: true,
+      pinCode: pin,
+      kioskPath: slug ? `/${slug}/school-events/kiosk` : null,
+      kioskUrl: slug ? `${frontendBase}/${slug}/school-events/kiosk` : null
     });
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: { message: e.message } });

@@ -137,6 +137,10 @@ export function buildEventKioskEntryPath(portalSlug, parentOrgSlug = null, hostI
   return buildOrgScopedPath(portalSlug, '/kiosk', parentOrgSlug, hostImpliedAgencySlug);
 }
 
+export function buildSchoolEventsKioskPath(portalSlug, parentOrgSlug = null, hostImpliedAgencySlug = null) {
+  return buildOrgScopedPath(portalSlug, '/school-events/kiosk', parentOrgSlug, hostImpliedAgencySlug);
+}
+
 export function buildEventKioskStationPath(
   portalSlug,
   { eventId, kind = 'skill_builders' },

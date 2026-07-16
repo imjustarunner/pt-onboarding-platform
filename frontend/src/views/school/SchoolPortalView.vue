@@ -830,6 +830,7 @@
                 </strong>
                 <span class="muted">
                   {{ formatSchoolEventWhen(ev) }}
+                  <template v-if="formatSchoolEventReportBy(ev)"> · {{ formatSchoolEventReportBy(ev) }}</template>
                   · {{ formatSchoolEventCategory(ev.category) }}
                   · {{ ev.schoolEventStatus === 'canceled' ? 'Canceled' : (ev.isActive ? 'Published' : 'Inactive') }}
                   <template v-if="ev.outreachTableInvited"> · Outreach staffing</template>
@@ -1443,7 +1444,11 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { formatSchoolEventWhen as formatSchoolEventWhenUtil } from '../../utils/timezones';
+import {
+  formatSchoolEventWhen as formatSchoolEventWhenUtil,
+  formatSchoolEventReportTime,
+  timezoneAbbrevAt
+} from '../../utils/timezones';
 import { useOrganizationStore } from '../../store/organization';
 import { useBrandingStore } from '../../store/branding';
 import { useAgencyStore } from '../../store/agency';
@@ -1522,6 +1527,14 @@ const formatSchoolEventWhen = (evOrStartsAt, endsAt, timezone) => {
     return formatSchoolEventWhenUtil(ev.startsAt, ev.endsAt, ev.timezone);
   }
   return formatSchoolEventWhenUtil(evOrStartsAt, endsAt, timezone);
+};
+
+const formatSchoolEventReportBy = (ev) => {
+  const t = formatSchoolEventReportTime(
+    ev?.employeeReportTime,
+    timezoneAbbrevAt(ev?.startsAt || new Date(), ev?.timezone)
+  );
+  return t ? `Report by ${t}` : '';
 };
 
 const formatSchoolEventCategory = (c) => {

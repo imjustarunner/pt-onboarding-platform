@@ -755,6 +755,18 @@ const routes = [
     component: () => import('../views/public/PublicEventDayKioskView.vue'),
     meta: { requiresGuest: false, organizationSlug: true }
   },
+  {
+    path: '/:organizationSlug/school-events/kiosk',
+    name: 'OrganizationSchoolEventsKiosk',
+    component: () => import('../views/public/PublicSchoolEventsKioskView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/school-events/kiosk',
+    name: 'FlatSchoolEventsKiosk',
+    component: () => import('../views/public/PublicSchoolEventsKioskView.vue'),
+    meta: { requiresGuest: false, flatEventKiosk: true }
+  },
   // Public services hub + finder pages (counseling, tutoring)
   {
     path: '/:organizationSlug/services',

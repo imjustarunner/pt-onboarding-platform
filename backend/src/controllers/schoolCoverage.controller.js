@@ -183,7 +183,9 @@ export const listHubEvents = async (req, res, next) => {
     let sql = `
       SELECT ce.id, ce.title, ce.description, ce.event_type, ce.starts_at, ce.ends_at,
              ce.timezone, ce.is_active, ce.organization_id, ce.outreach_table_invited,
-             ce.staffing_config_json, ce.school_event_status, a.name AS school_name, sp.district_name
+             ce.staffing_config_json, ce.school_event_status,
+             ce.employee_report_time, ce.skill_builder_direct_hours,
+             a.name AS school_name, sp.district_name
       FROM company_events ce
       LEFT JOIN agencies a ON a.id = ce.organization_id
       LEFT JOIN school_profiles sp ON sp.school_organization_id = ce.organization_id
@@ -344,6 +346,13 @@ export const listHubEvents = async (req, res, next) => {
         startsAt: r.starts_at,
         endsAt: r.ends_at,
         timezone: r.timezone,
+        employeeReportTime: r.employee_report_time != null && r.employee_report_time !== ''
+          ? String(r.employee_report_time).slice(0, 8)
+          : null,
+        skillBuilderDirectHours:
+          r.skill_builder_direct_hours != null && r.skill_builder_direct_hours !== ''
+            ? Number(r.skill_builder_direct_hours)
+            : 0,
         isActive: !!(r.is_active === 1 || r.is_active === true),
         schoolEventStatus,
         schoolId: r.organization_id != null ? Number(r.organization_id) : null,

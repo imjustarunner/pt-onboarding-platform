@@ -424,6 +424,7 @@
             <div class="agenda-date">
               <div class="primary">{{ eventsFormatDate(e.startsAt, e.timezone) }}</div>
               <div class="muted time-tz">{{ eventsFormatTime(e.startsAt, e.endsAt, e.timezone) }}</div>
+              <div v-if="eventsReportBy(e)" class="muted report-by">{{ eventsReportBy(e) }}</div>
             </div>
             <div class="agenda-info">
               <div class="primary">{{ e.title }}</div>
@@ -748,7 +749,9 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
   formatSchoolEventDate,
   formatSchoolEventTimeRange,
+  formatSchoolEventReportTime,
   schoolEventTimezoneLabel,
+  timezoneAbbrevAt,
   SCHOOL_EVENT_FALLBACK_TIMEZONE
 } from '../../../utils/timezones';
 import { useRoute, useRouter } from 'vue-router';
@@ -943,6 +946,14 @@ function eventsFormatDate(v, timezone) {
 
 function eventsFormatTime(a, b, timezone) {
   return formatSchoolEventTimeRange(a, b, timezone);
+}
+
+function eventsReportBy(e) {
+  const t = formatSchoolEventReportTime(
+    e?.employeeReportTime,
+    timezoneAbbrevAt(e?.startsAt || new Date(), e?.timezone)
+  );
+  return t ? `Report by ${t}` : '';
 }
 
 function eventsLabelType(t) {

@@ -59,6 +59,10 @@
               <input v-model="form.date" type="date" class="input" />
             </label>
             <label class="field">
+              <span class="lbl">Report by</span>
+              <input v-model="form.reportTime" type="time" class="input" />
+            </label>
+            <label class="field">
               <span class="lbl">Start time</span>
               <input v-model="form.startTime" type="time" class="input" />
             </label>
@@ -67,7 +71,23 @@
               <input v-model="form.endTime" type="time" class="input" />
             </label>
           </div>
-          <p class="tz-hint">Times are saved in {{ timezoneLabel }} ({{ timezoneAbbrev }}).</p>
+          <p class="tz-hint">
+            Report by is when staff should arrive. Times are saved in {{ timezoneLabel }} ({{ timezoneAbbrev }}).
+          </p>
+
+          <label v-if="canEditPayrollFields" class="field">
+            <span class="lbl">Direct hours cap (payroll)</span>
+            <input
+              v-model.number="form.skillBuilderDirectHours"
+              type="number"
+              min="0"
+              step="0.25"
+              class="input"
+            />
+            <span class="hint">
+              Defaults to 0 (all time posts as indirect). Only payroll and admin can change this.
+            </span>
+          </label>
 
           <label class="field">
             <span class="lbl">Flier (optional)</span>
@@ -101,6 +121,7 @@
 <script setup>
 import { onMounted, reactive, ref, watch, computed } from 'vue';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import {
   detectLocalTimezone,
@@ -118,25 +139,41 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['close', 'saved']);
+const authStore = useAuthStore();
 
 const submitting = ref(false);
 const uploading = ref(false);
 const error = ref('');
 const success = ref('');
 
+const canEditPayrollFields = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  if (role === 'super_admin' || role === 'admin') return true;
+  return !!authStore.user?.capabilities?.canManagePayroll;
+});
+
 const form = reactive({
   category: 'back_to_school',
   title: '',
   description: '',
   date: '',
+  reportTime: '',
   startTime: '17:00',
   endTime: '19:00',
+  skillBuilderDirectHours: 0,
   schoolEventStatus: 'scheduled',
   outreachTableInvited: false,
   flierFileUrl: '',
   eventImageUrl: '',
   timezone: SCHOOL_EVENT_FALLBACK_TIMEZONE
 });
+
+const wallTimeToInput = (value) => {
+  const s = String(value || '').trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return '';
+  return `${String(m[1]).padStart(2, '0')}:${m[2]}`;
+};
 
 const timezoneLabel = computed(() => schoolEventTimezoneLabel(form.timezone));
 const timezoneAbbrev = computed(() => {
@@ -217,11 +254,15 @@ const submit = async () => {
       endsAt: range.endsAt,
       timezone: form.timezone || detectLocalTimezone() || SCHOOL_EVENT_FALLBACK_TIMEZONE,
       schoolEventStatus: form.schoolEventStatus || 'scheduled',
+      employeeReportTime: form.reportTime ? `${form.reportTime}:00` : null,
       outreachTableInvited: form.outreachTableInvited,
       flierFileUrl: form.flierFileUrl || null,
       eventImageUrl: form.eventImageUrl || null,
       postToken: props.postToken || undefined
     };
+    if (canEditPayrollFields.value) {
+      payload.skillBuilderDirectHours = Number(form.skillBuilderDirectHours) || 0;
+    }
     let res;
     if (props.editEvent?.id) {
       res = await api.put(
@@ -254,8 +295,13 @@ const hydrateFromEdit = () => {
   form.title = e.title || '';
   form.description = e.description || '';
   form.date = toLocalDateInput(e.startsAt);
+  form.reportTime = wallTimeToInput(e.employeeReportTime);
   form.startTime = toLocalTimeInput(e.startsAt) || '17:00';
   form.endTime = toLocalTimeInput(e.endsAt) || '19:00';
+  form.skillBuilderDirectHours =
+    e.skillBuilderDirectHours != null && e.skillBuilderDirectHours !== ''
+      ? Number(e.skillBuilderDirectHours)
+      : 0;
   form.schoolEventStatus = e.schoolEventStatus || e.status || 'scheduled';
   form.outreachTableInvited = !!e.outreachTableInvited;
   form.flierFileUrl = e.flierFileUrl || '';
@@ -355,7 +401,7 @@ watch(
 .textarea { resize: vertical; min-height: 72px; }
 .field-row {
   display: grid;
-  grid-template-columns: 1.2fr 1fr 1fr;
+  grid-template-columns: 1.1fr 1fr 1fr 1fr;
   gap: 10px;
 }
 .hint {

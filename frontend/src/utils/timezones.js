@@ -413,3 +413,22 @@ export function formatSchoolEventWhen(startsAt, endsAt, timezone) {
   if (!date || date === '—') return time;
   return `${date} · ${time}`;
 }
+
+/**
+ * Format employee report wall time (HH:MM[:SS]) for display, e.g. "4:30 PM".
+ * Optional timezoneAbbrev appends MST/MDT when provided.
+ */
+export function formatSchoolEventReportTime(reportTime, timezoneAbbrev = '') {
+  const raw = String(reportTime || '').trim();
+  const m = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return '';
+  let h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(min)) return '';
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12;
+  if (h === 0) h = 12;
+  const label = `${h}:${String(min).padStart(2, '0')} ${ampm}`;
+  const abbr = String(timezoneAbbrev || '').trim();
+  return abbr ? `${label} ${abbr}` : label;
+}

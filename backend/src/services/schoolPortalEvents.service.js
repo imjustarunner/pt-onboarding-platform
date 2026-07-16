@@ -164,9 +164,24 @@ export async function enableSchoolEventProviderStaffing({
   return mapSchoolEventRow(next?.[0], schoolMeta);
 }
 
+/** Wall-clock HH:MM[:SS] → MySQL TIME string, or null. */
+export function parseSchoolEventWallTime(raw) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return null;
+  const hh = String(Math.min(23, Math.max(0, parseInt(m[1], 10)))).padStart(2, '0');
+  const mm = String(Math.min(59, Math.max(0, parseInt(m[2], 10)))).padStart(2, '0');
+  const ss = m[3] ? String(Math.min(59, Math.max(0, parseInt(m[3], 10)))).padStart(2, '0') : '00';
+  return `${hh}:${mm}:${ss}`;
+}
+
 export function mapSchoolEventRow(row, schoolMeta = {}) {
   if (!row) return null;
   const eventType = String(row.event_type || '').trim();
+  const reportRaw = row.employee_report_time;
+  const directRaw = row.skill_builder_direct_hours;
   return {
     id: Number(row.id),
     agencyId: Number(row.agency_id),
@@ -178,6 +193,13 @@ export function mapSchoolEventRow(row, schoolMeta = {}) {
     startsAt: row.starts_at,
     endsAt: row.ends_at,
     timezone: row.timezone || 'UTC',
+    employeeReportTime: reportRaw != null && reportRaw !== ''
+      ? String(reportRaw).slice(0, 8)
+      : null,
+    skillBuilderDirectHours:
+      directRaw != null && directRaw !== '' && Number.isFinite(Number(directRaw))
+        ? Number(directRaw)
+        : 0,
     isActive: !!(row.is_active === 1 || row.is_active === true),
     outreachTableInvited: !!(row.outreach_table_invited === 1 || row.outreach_table_invited === true),
     eventImageUrl: row.event_image_url ? String(row.event_image_url).trim() : '',
@@ -378,7 +400,9 @@ export async function createSchoolPortalEvent({
   outreachTableInvited,
   eventImageUrl,
   flierFileUrl,
-  schoolEventStatus
+  schoolEventStatus,
+  employeeReportTime = null,
+  skillBuilderDirectHours = 0
 }) {
   const eventType = categoryToEventType(category);
   if (!eventType) throw Object.assign(new Error('Invalid event category'), { status: 400 });
@@ -413,6 +437,12 @@ export async function createSchoolPortalEvent({
   const status = normalizeSchoolEventStatus(schoolEventStatus, { fallback: 'scheduled' });
   // School portal events are staffable by default so providers can apply from hub / schedule.
   const staffingConfig = buildSchoolEventStaffingConfig();
+  const reportTime = parseSchoolEventWallTime(employeeReportTime);
+  // Default all-indirect for school-event kiosk payroll (cap 0 → only indirect claim).
+  const directHours =
+    skillBuilderDirectHours != null && Number.isFinite(Number(skillBuilderDirectHours))
+      ? Math.max(0, Number(skillBuilderDirectHours))
+      : 0;
 
   let insertResult;
   try {
@@ -421,8 +451,9 @@ export async function createSchoolPortalEvent({
         (agency_id, organization_id, created_by_user_id, updated_by_user_id,
          title, description, event_type, starts_at, ends_at, timezone,
          recurrence_json, is_active, rsvp_mode, outreach_table_invited,
-         event_image_url, flier_file_url, staffing_config_json, school_event_status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'none', ?, ?, ?, ?, ?)`,
+         event_image_url, flier_file_url, staffing_config_json, school_event_status,
+         employee_report_time, skill_builder_direct_hours)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'none', ?, ?, ?, ?, ?, ?, ?)`,
       [
         agencyId,
         organizationId,
@@ -439,7 +470,9 @@ export async function createSchoolPortalEvent({
         eventImageUrl || null,
         flierFileUrl || null,
         JSON.stringify(staffingConfig),
-        status
+        status,
+        reportTime,
+        directHours
       ]
     );
   } catch (e) {
@@ -504,7 +537,9 @@ export async function updateSchoolPortalEvent({
   eventImageUrl,
   flierFileUrl,
   clearFlier,
-  schoolEventStatus
+  schoolEventStatus,
+  employeeReportTime,
+  skillBuilderDirectHours
 }) {
   const [existingRows] = await pool.execute(
     `SELECT * FROM company_events WHERE id = ? AND agency_id = ? AND organization_id = ? LIMIT 1`,
@@ -577,13 +612,30 @@ export async function updateSchoolPortalEvent({
 
   const tz = String(timezone || existing.timezone || 'America/Denver').trim();
 
+  let nextReportTime = existing.employee_report_time ?? null;
+  if (employeeReportTime !== undefined) {
+    nextReportTime = employeeReportTime === null || employeeReportTime === ''
+      ? null
+      : parseSchoolEventWallTime(employeeReportTime);
+  }
+
+  let nextDirectHours =
+    existing.skill_builder_direct_hours != null && existing.skill_builder_direct_hours !== ''
+      ? Number(existing.skill_builder_direct_hours)
+      : 0;
+  if (skillBuilderDirectHours !== undefined && skillBuilderDirectHours !== null) {
+    const n = Number(skillBuilderDirectHours);
+    if (Number.isFinite(n) && n >= 0) nextDirectHours = n;
+  }
+
   try {
     await pool.execute(
       `UPDATE company_events
        SET updated_by_user_id = ?, title = ?, description = ?, event_type = ?,
            starts_at = ?, ends_at = ?, timezone = ?, outreach_table_invited = ?,
            event_image_url = ?, flier_file_url = ?, staffing_config_json = ?,
-           school_event_status = ?, is_active = 1
+           school_event_status = ?, employee_report_time = ?, skill_builder_direct_hours = ?,
+           is_active = 1
        WHERE id = ? AND agency_id = ? AND organization_id = ?`,
       [
         userId,
@@ -598,6 +650,8 @@ export async function updateSchoolPortalEvent({
         nextFlier,
         staffingConfig,
         status,
+        nextReportTime,
+        nextDirectHours,
         eventId,
         agencyId,
         organizationId

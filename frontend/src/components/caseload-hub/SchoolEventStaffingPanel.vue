@@ -6,6 +6,7 @@
         <p class="muted">
           {{ event?.schoolName || 'Unassigned school' }}
           <span v-if="event?.startsAt"> · {{ formatWhen(event.startsAt, event.endsAt, event.timezone) }}</span>
+          <span v-if="reportByText" class="report-by"> · {{ reportByText }}</span>
         </p>
       </div>
       <div class="head-actions">
@@ -192,7 +193,11 @@ import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { enableSchoolEventStaffing, fetchProviderCoverageSummary } from '../../services/schoolCoverageApi';
-import { formatSchoolEventWhen } from '../../utils/timezones';
+import {
+  formatSchoolEventWhen,
+  formatSchoolEventReportTime,
+  timezoneAbbrevAt
+} from '../../utils/timezones';
 import PostSchoolEventModal from '../school/PostSchoolEventModal.vue';
 
 const props = defineProps({
@@ -282,11 +287,22 @@ const editEventPayload = computed(() => {
     startsAt: e.startsAt,
     endsAt: e.endsAt,
     timezone: e.timezone,
+    employeeReportTime: e.employeeReportTime || null,
+    skillBuilderDirectHours: e.skillBuilderDirectHours != null ? Number(e.skillBuilderDirectHours) : 0,
     schoolEventStatus: e.schoolEventStatus || 'scheduled',
     outreachTableInvited: !!e.outreachTableInvited,
     flierFileUrl: e.flierFileUrl || '',
     eventImageUrl: e.eventImageUrl || ''
   };
+});
+
+const reportByText = computed(() => {
+  const e = props.event;
+  const t = formatSchoolEventReportTime(
+    e?.employeeReportTime,
+    timezoneAbbrevAt(e?.startsAt || new Date(), e?.timezone)
+  );
+  return t ? `Report by ${t}` : '';
 });
 
 function labelStatus(s) {
