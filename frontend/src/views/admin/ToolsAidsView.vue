@@ -150,7 +150,7 @@
         <p>Browse assessments by population, try a session game, or open Note Aid for documentation.</p>
       </div>
       <button type="button" class="btn-cta" @click="setTab(activeTab === 'assessments' ? 'ai' : 'assessments')">
-        Explore {{ activeTab === 'assessments' ? 'AI Tools' : 'Assessments' }}
+        Explore {{ activeTab === 'assessments' ? 'AI Tools' : 'Assessments & Evaluations' }}
       </button>
     </div>
 
@@ -204,6 +204,14 @@ import ToolCard from '../../components/tools/ToolCard.vue';
 import ToolsAssignModal from '../../components/tools/ToolsAssignModal.vue';
 import ToolsEditModal from '../../components/tools/ToolsEditModal.vue';
 
+const props = defineProps({
+  /** When embedded in My Dashboard, parent sets the hub tab (assessments | games | ai). */
+  initialTab: {
+    type: String,
+    default: ''
+  }
+});
+
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
@@ -221,7 +229,7 @@ const toast = ref('');
 const assignState = ref(null);
 const editState = ref(null);
 /** Local hub tab — always drives the UI; route query synced only on standalone hub. */
-const hubTab = ref('assessments');
+const hubTab = ref(parseToolsTab(props.initialTab) || 'assessments');
 let toastTimer = null;
 
 const orgTo = (path) => {
@@ -633,6 +641,15 @@ watch(
   () => {
     syncHubTabFromRoute();
   }
+);
+
+watch(
+  () => props.initialTab,
+  (tab) => {
+    if (!tab || isStandaloneHub.value) return;
+    hubTab.value = parseToolsTab(tab);
+  },
+  { immediate: true }
 );
 </script>
 

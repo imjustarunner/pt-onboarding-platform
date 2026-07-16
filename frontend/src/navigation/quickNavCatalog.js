@@ -224,8 +224,8 @@ function buildAppEntries() {
     {
       id: 'workspace-tools',
       routeName: 'ToolsAids',
-      label: 'Tools & Aids',
-      description: 'Assessments, games, Note Aid, and other clinical productivity aids.',
+      label: 'Tools',
+      description: 'Assessments & evaluations, games, and AI tools.',
       group: 'workspace',
       keywords: [
         'tools',
@@ -235,6 +235,7 @@ function buildAppEntries() {
         'noteaid',
         'clinical note',
         'assessments',
+        'evaluations',
         'games',
         'ai tools'
       ],

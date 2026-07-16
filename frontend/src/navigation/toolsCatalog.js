@@ -8,7 +8,7 @@
  */
 
 export const TOOLS_TABS = [
-  { id: 'assessments', label: 'Assessments' },
+  { id: 'assessments', label: 'Assessments & Evaluations' },
   { id: 'games', label: 'Games' },
   { id: 'ai', label: 'AI Tools' }
 ];
@@ -22,7 +22,7 @@ export const TOOLS_CATEGORIES = [
   },
   {
     id: 'assessments',
-    label: 'Assessments',
+    label: 'Assessments & Evaluations',
     tab: 'assessments',
     description: 'Guest and assigned assessments for discovery and progress tracking.'
   },

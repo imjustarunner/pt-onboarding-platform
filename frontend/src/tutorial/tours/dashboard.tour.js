@@ -149,10 +149,10 @@ const dashboardTour = {
       }
     },
     {
-      element: '[data-tour="dash-rail-card-tools_aids"]',
+      element: '[data-tour="dash-rail-card-tools_nest"]',
       popover: {
-        title: 'Tools & Aids',
-        description: 'Open Note Aid and related helper tools for your documentation workflow.',
+        title: 'Tools',
+        description: 'Open Assessments & Evaluations, Games, or AI Tools from your dashboard.',
         side: 'right',
         align: 'center'
       }

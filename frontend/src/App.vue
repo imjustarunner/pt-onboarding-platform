@@ -1910,7 +1910,6 @@ import {
   toolsAidsHubLocation
 } from './navigation/toolsCatalog.js';
 import { getToolOverrides, applyToolOverride } from './navigation/toolsCatalogOverrides.js';
-import { isNoteAidEmployeeRole } from './config/noteAidAccess.js';
 import ToolsAssignModal from './components/tools/ToolsAssignModal.vue';
 import AgencySelector from './components/AgencySelector.vue';
 import PlatformChatDrawer from './components/PlatformChatDrawer.vue';
@@ -3077,15 +3076,13 @@ const canSeeGamesNav = computed(() => {
   return isTruthyFlag(user.value?.has_games_access) || isTruthyFlag(user.value?.hasGamesAccess);
 });
 
-/** Tools mega-menu: full portal roles, or providers/roles that already see Games or Note Aid. */
+/** Tools mega-menu: only roles that get the full top portal navigation. */
 const canSeeToolsNav = computed(() => {
   if (!authStore.isAuthenticated) return false;
   if (hideGlobalNavForSchoolStaff.value) return false;
   if (isSummitStatsChallengeChrome.value) return false;
   if (isSscSstcTenant.value) return false;
-  if (canSeeFullPortalNav.value) return true;
-  if (canSeeGamesNav.value) return true;
-  return isNoteAidEmployeeRole(user.value?.role);
+  return canSeeFullPortalNav.value;
 });
 
 watch(

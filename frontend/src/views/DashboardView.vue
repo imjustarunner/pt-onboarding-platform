@@ -299,7 +299,7 @@
               'rail-card--nested': !!card.nestedUnder
             }"
             :aria-current="isRailCardActive(card) ? 'page' : undefined"
-            :aria-expanded="card.kind === 'nest' ? (portalsNestExpanded ? 'true' : 'false') : undefined"
+            :aria-expanded="card.kind === 'nest' ? (isNestExpanded(card.id) ? 'true' : 'false') : undefined"
             :disabled="previewMode"
             :title="card.label"
             :data-label="card.label"
@@ -331,7 +331,7 @@
                 {{ card.badgeCount }}
               </span>
               <span v-if="card.kind === 'nest'" class="rail-card-cta" aria-hidden="true">
-                {{ portalsNestExpanded ? '▾' : '▸' }}
+                {{ isNestExpanded(card.id) ? '▾' : '▸' }}
               </span>
               <span v-else class="rail-card-cta">{{ card.kind === 'link' || card.kind === 'modal' ? 'Open' : (card.kind === 'action' ? 'Open' : 'View') }}</span>
             </div>
@@ -860,7 +860,7 @@
           </div>
 
           <div v-if="!previewMode && isOnboardingComplete && activeTab === 'tools_aids'" class="my-panel dashboard-embedded-view">
-            <ToolsAidsView />
+            <ToolsAidsView :initial-tab="toolsHubTab" />
           </div>
           <div v-if="!previewMode && isOnboardingComplete && activeTab === 'communications'" class="my-panel dashboard-embedded-view">
             <CommunicationsFeedView />
@@ -1258,7 +1258,7 @@ const inlineProgramHubState = ref({
 function isRailCardActive(card) {
   const id = String(card?.id || '');
   if (!id) return false;
-  if (id === 'portals_nest' && Array.isArray(card.children)) {
+  if ((id === 'portals_nest' || id === 'tools_nest') && Array.isArray(card.children)) {
     return card.children.some((c) => isRailCardActive(c));
   }
   if (card?.kind === 'link' && card?.to) {
@@ -1267,6 +1267,11 @@ function isRailCardActive(card) {
     if (to && (path === to || path.startsWith(`${to}/`))) return true;
   }
   if (activeTab.value === PROGRAM_WORKSPACE_TAB) return selectedRailCardId.value === id;
+  // Tools nest children all embed tools_aids with a sub-tab.
+  if (id === 'tools_assessments') return activeTab.value === 'tools_aids' && toolsHubTab.value === 'assessments';
+  if (id === 'tools_games') return activeTab.value === 'tools_aids' && toolsHubTab.value === 'games';
+  if (id === 'tools_ai') return activeTab.value === 'tools_aids' && toolsHubTab.value === 'ai';
+  if (id === 'tools_aids') return activeTab.value === 'tools_aids';
   if (card?.kind === 'content') return activeTab.value === id;
   return selectedRailCardId.value === id;
 }
@@ -1668,6 +1673,10 @@ const CARD_HUE_PRESETS = {
   program_shifts: 300,
   clients: 34,
   tools_aids: 264,
+  tools_nest: 264,
+  tools_assessments: 265,
+  tools_games: 166,
+  tools_ai: 200,
   submit: 196,
   payroll: 261,
   my: 42,
@@ -3171,6 +3180,24 @@ const portalsNestLabel = computed(() => {
 });
 
 const portalsNestExpanded = ref(false);
+const toolsNestExpanded = ref(true);
+const toolsHubTab = ref('assessments');
+
+function isNestExpanded(nestId) {
+  if (nestId === 'tools_nest') return toolsNestExpanded.value;
+  if (nestId === 'portals_nest') return portalsNestExpanded.value;
+  return false;
+}
+
+function toggleNest(nestId) {
+  if (nestId === 'tools_nest') {
+    toolsNestExpanded.value = !toolsNestExpanded.value;
+    return;
+  }
+  if (nestId === 'portals_nest') {
+    portalsNestExpanded.value = !portalsNestExpanded.value;
+  }
+}
 
 /** Admin / provider hub cards that belong under the portals nest (not top-level rail). */
 const portalsNestHubChildren = computed(() => {
@@ -3397,20 +3424,46 @@ const dashboardCards = computed(() => {
           });
         }
       }
-      // Tools & Aids (Note Aid): all employee roles when tenant flags are on.
-      // Also show for privileged roles when no agency is selected yet.
-      const showToolsAids =
-        canAccessToolsAids.value &&
-        (clinicalNoteGeneratorEnabledForAgency.value ||
-          ['admin', 'super_admin', 'support'].includes(role));
-      if (showToolsAids) {
+      // Tools hub for My Dashboard rail (Assessments, Games, AI Tools).
+      // Top-nav Tools mega-menu is reserved for full portal roles; everyone else uses this nest.
+      if (canAccessToolsAids.value) {
+        const iconUrl = brandingStore.getDashboardCardIconUrl('tools_aids', iconOrg);
         cards.push({
-          id: 'tools_aids',
-          label: 'Tools & Aids',
-          kind: 'content',
-          badgeCount: 0,
-          iconUrl: brandingStore.getDashboardCardIconUrl('tools_aids', iconOrg),
-          description: 'Note Aid and upcoming clinical tools.'
+          id: 'tools_nest',
+          label: 'Tools',
+          kind: 'nest',
+          badgeCount: 3,
+          iconUrl,
+          description: 'Assessments & evaluations, games, and AI tools.',
+          children: [
+            {
+              id: 'tools_assessments',
+              label: 'Assessments & Evaluations',
+              kind: 'content',
+              toolsTab: 'assessments',
+              badgeCount: 0,
+              iconUrl,
+              description: 'Guest and assigned assessments for discovery and progress.'
+            },
+            {
+              id: 'tools_games',
+              label: 'Games',
+              kind: 'content',
+              toolsTab: 'games',
+              badgeCount: 0,
+              iconUrl,
+              description: 'Interactive activities for sessions and practice.'
+            },
+            {
+              id: 'tools_ai',
+              label: 'AI Tools',
+              kind: 'content',
+              toolsTab: 'ai',
+              badgeCount: 0,
+              iconUrl,
+              description: 'Note Aid and other AI documentation aids.'
+            }
+          ]
         });
       }
       // My Shifts: also show for staff/facilitator/intern (shift program participants) when agency has flag
@@ -3426,19 +3479,45 @@ const dashboardCards = computed(() => {
           });
         }
       }
-    } else if (
-      canAccessToolsAids.value &&
-      (clinicalNoteGeneratorEnabledForAgency.value ||
-        ['admin', 'super_admin', 'support'].includes(role))
-    ) {
-      // School staff and other employees still get Note Aid even when payroll surfaces are hidden.
+    } else if (canAccessToolsAids.value) {
+      // School staff and other employees still get the Tools hub when payroll surfaces are hidden.
+      const iconUrl = brandingStore.getDashboardCardIconUrl('tools_aids', iconOrg);
       cards.push({
-        id: 'tools_aids',
-        label: 'Tools & Aids',
-        kind: 'content',
-        badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('tools_aids', iconOrg),
-        description: 'Note Aid and upcoming clinical tools.'
+        id: 'tools_nest',
+        label: 'Tools',
+        kind: 'nest',
+        badgeCount: 3,
+        iconUrl,
+        description: 'Assessments & evaluations, games, and AI tools.',
+        children: [
+          {
+            id: 'tools_assessments',
+            label: 'Assessments & Evaluations',
+            kind: 'content',
+            toolsTab: 'assessments',
+            badgeCount: 0,
+            iconUrl,
+            description: 'Guest and assigned assessments for discovery and progress.'
+          },
+          {
+            id: 'tools_games',
+            label: 'Games',
+            kind: 'content',
+            toolsTab: 'games',
+            badgeCount: 0,
+            iconUrl,
+            description: 'Interactive activities for sessions and practice.'
+          },
+          {
+            id: 'tools_ai',
+            label: 'AI Tools',
+            kind: 'content',
+            toolsTab: 'ai',
+            badgeCount: 0,
+            iconUrl,
+            description: 'Note Aid and other AI documentation aids.'
+          }
+        ]
       });
     }
     cards.push({
@@ -3606,7 +3685,11 @@ const railCards = computed(() => {
         provider_program_portals: 3.8,
         skill_builders_availability: 4,
         clients: 5,
-        tools_aids: 6,
+        tools_nest: 6,
+        tools_assessments: 6.1,
+        tools_games: 6.2,
+        tools_ai: 6.3,
+        tools_aids: 6.4,
         checklist: 7,
         training: 8,
         documents: 9,
@@ -3636,7 +3719,11 @@ const railCards = computed(() => {
       sub_coordinator_program_overview: 5.5,
       skill_builders_availability: 6,
       clients: 7,
-      tools_aids: 7,
+      tools_nest: 7.1,
+      tools_assessments: 7.2,
+      tools_games: 7.3,
+      tools_ai: 7.4,
+      tools_aids: 7.5,
       submit: 8,
       payroll: 9,
       my: 10,
@@ -3666,13 +3753,13 @@ const railCardsForDisplay = computed(() => {
   for (const card of railCards.value || []) {
     out.push(card);
     if (
-      card?.id === 'portals_nest' &&
-      portalsNestExpanded.value &&
+      card?.kind === 'nest' &&
+      isNestExpanded(card.id) &&
       Array.isArray(card.children) &&
       card.children.length
     ) {
       for (const child of card.children) {
-        out.push({ ...child, nestedUnder: 'portals_nest' });
+        out.push({ ...child, nestedUnder: card.id });
       }
     }
   }
@@ -3749,8 +3836,26 @@ const handleCardClick = (card) => {
     router.push(String(card.to));
     return;
   }
-  if (card.id === 'portals_nest' || card.kind === 'nest') {
-    portalsNestExpanded.value = !portalsNestExpanded.value;
+  if (card.id === 'portals_nest' || card.id === 'tools_nest' || card.kind === 'nest') {
+    toggleNest(card.id);
+    return;
+  }
+  if (
+    card.id === 'tools_assessments' ||
+    card.id === 'tools_games' ||
+    card.id === 'tools_ai' ||
+    card.id === 'tools_aids'
+  ) {
+    closeInlineProgramHub();
+    toolsNestExpanded.value = true;
+    const tab =
+      card.toolsTab ||
+      (card.id === 'tools_games' ? 'games' : card.id === 'tools_ai' ? 'ai' : 'assessments');
+    toolsHubTab.value = tab;
+    activeTab.value = 'tools_aids';
+    previousContentTab.value = 'tools_aids';
+    selectedRailCardId.value = String(card.id);
+    navFn({ query: { ...route.query, tab: 'tools_aids', toolsTab: tab } });
     return;
   }
   if (card.id === 'skill_builders_provider_hub') {
@@ -3949,7 +4054,20 @@ const syncFromQuery = () => {
 
   if (typeof qTab === 'string') {
     const allowed = new Set((railCards.value || []).map((c) => String(c?.id || '')).filter(Boolean));
-    if (allowed.has(qTab)) {
+    const toolsChildIds = new Set(['tools_assessments', 'tools_games', 'tools_ai']);
+    if (qTab === 'tools_aids' || toolsChildIds.has(qTab)) {
+      toolsNestExpanded.value = true;
+      const toolsTabRaw = route.query?.toolsTab || (qTab === 'tools_games' ? 'games' : qTab === 'tools_ai' ? 'ai' : qTab === 'tools_assessments' ? 'assessments' : 'assessments');
+      const toolsTab =
+        toolsTabRaw === 'games' || toolsTabRaw === 'ai' || toolsTabRaw === 'assessments'
+          ? toolsTabRaw
+          : 'assessments';
+      toolsHubTab.value = toolsTab;
+      activeTab.value = 'tools_aids';
+      previousContentTab.value = 'tools_aids';
+      selectedRailCardId.value =
+        toolsTab === 'games' ? 'tools_games' : toolsTab === 'ai' ? 'tools_ai' : 'tools_assessments';
+    } else if (allowed.has(qTab)) {
       activeTab.value = qTab;
       previousContentTab.value = qTab;
       selectedRailCardId.value = qTab;
