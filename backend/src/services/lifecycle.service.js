@@ -30,6 +30,27 @@ const MILESTONE_FIELD_KEYS = [
   'probation_end_date',
 ];
 
+/**
+ * Normalize MySQL DATE/DATETIME (Date object or string) to YYYY-MM-DD.
+ * NEVER use String(date).slice(0, 10) — that yields "Tue Jun 09", which breaks
+ * <input type="date"> bindings and makes termination dates look unsaved.
+ */
+function toYmd(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    const y = value.getUTCFullYear();
+    const m = String(value.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(value.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const parsed = new Date(s);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return toYmd(parsed);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -70,7 +91,7 @@ async function fetchFirstSupervisionDate(userId) {
       [userId]
     );
     const raw = rows[0]?.session_finalized_at;
-    return raw ? String(raw).slice(0, 10) : null;
+    return toYmd(raw);
   } catch {
     // Table may not exist in all environments
     return null;
@@ -112,13 +133,14 @@ async function fetchMilestoneDates(userId) {
 function buildTimeline(user, dates, firstSupervisionDate) {
   const events = [];
   const add = (label, value) => {
-    if (value) events.push({ label, date: String(value).slice(0, 10) });
+    const ymd = toYmd(value);
+    if (ymd) events.push({ label, date: ymd });
   };
 
   add('Offer Accepted', dates.offer_accepted_date);
   // hired_at is the hiring pipeline timestamp — label it "Hired / Pre-Hire Started"
   if (user.hired_at && !dates.offer_accepted_date) {
-    add('Hired / Pre-Hire Started', String(user.hired_at).slice(0, 10));
+    add('Hired / Pre-Hire Started', user.hired_at);
   }
   add('Start Date', dates.start_date || user.provider_start_date);
   add('Orientation', dates.orientation_date);
@@ -126,7 +148,7 @@ function buildTimeline(user, dates, firstSupervisionDate) {
   add('First Supervision', firstSupervisionDate);
   add('First Client', dates.first_client_date);
   add('First Payroll', dates.first_payroll_submission_date);
-  add('Became Active Employee', user.completed_at ? String(user.completed_at).slice(0, 10) : null);
+  add('Became Active Employee', user.completed_at);
 
   // Sort chronologically
   events.sort((a, b) => (a.date > b.date ? 1 : -1));
@@ -372,12 +394,12 @@ export async function getLifecycleData(userId) {
     summary: {
       employeeStatus: user.status,
       isActive: user.is_active,
-      startDate: milestones.start_date || (user.provider_start_date ? String(user.provider_start_date).slice(0, 10) : null),
+      startDate: milestones.start_date || toYmd(user.provider_start_date),
       firstClientDate: milestones.first_client_date || null,
       supervisorName: supervisor ? `${supervisor.first_name} ${supervisor.last_name}`.trim() : null,
       supervisorEmail: supervisor?.email || null,
-      lastDayWorked: separation?.last_day_worked || null,
-      terminationDate: user.termination_date ? String(user.termination_date).slice(0, 10) : null,
+      lastDayWorked: toYmd(separation?.last_day_worked),
+      terminationDate: toYmd(user.termination_date),
       offboardingStatus,
       // Birthday — read-only mirror; source of truth is Provider Info EAV.
       // Anniversary automation uses EAV `start_date` (not provider_start_date).
@@ -400,16 +422,16 @@ export async function getLifecycleData(userId) {
       firstSupervisionDate,
       employmentDates: {
         offerAcceptedDate: milestones.offer_accepted_date || null,
-        startDate: milestones.start_date || (user.provider_start_date ? String(user.provider_start_date).slice(0, 10) : null),
+        startDate: milestones.start_date || toYmd(user.provider_start_date),
         orientationDate: milestones.orientation_date || null,
         therapyNotesTrainingDate: milestones.therapy_notes_training_date || null,
         firstClientDate: milestones.first_client_date || null,
         firstPayrollSubmissionDate: milestones.first_payroll_submission_date || null,
         probationEndDate: milestones.probation_end_date || null,
         // Read-only: stamped by hiring pipeline, not editable on profile
-        hiredAt: user.hired_at ? String(user.hired_at).slice(0, 10) : null,
+        hiredAt: toYmd(user.hired_at),
         // Read-only: set when status becomes ACTIVE_EMPLOYEE
-        completedAt: user.completed_at ? String(user.completed_at).slice(0, 10) : null,
+        completedAt: toYmd(user.completed_at),
       },
       groups: onboardingGroupList,
     },
@@ -422,17 +444,15 @@ export async function getLifecycleData(userId) {
     })),
     offboarding: {
       enabled: !!user.termination_date,
-      terminationDate: user.termination_date ? String(user.termination_date).slice(0, 10) : null,
+      terminationDate: toYmd(user.termination_date),
       // Exact timestamp when Mark Terminated was pressed (separate from the date field)
-      terminatedAt: user.terminated_at ? String(user.terminated_at).slice(0, 10) : null,
+      terminatedAt: toYmd(user.terminated_at),
       // 7-day grace period expiry
-      statusExpiresAt: user.status_expires_at
-        ? String(user.status_expires_at).slice(0, 10)
-        : null,
+      statusExpiresAt: toYmd(user.status_expires_at),
       separation: {
-        lastDayWorked: separation?.last_day_worked || null,
+        lastDayWorked: toYmd(separation?.last_day_worked),
         separationType: separation?.separation_type || null,
-        resignationReceivedDate: separation?.resignation_received_date || null,
+        resignationReceivedDate: toYmd(separation?.resignation_received_date),
         rehireEligible: separation?.rehire_eligible != null ? !!separation.rehire_eligible : null,
         exitInterviewCompleted: !!separation?.exit_interview_completed,
         offboardingNotes: separation?.offboarding_notes || null,

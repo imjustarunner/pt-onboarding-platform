@@ -413,6 +413,8 @@
               @change="onTerminationDateChange"
             />
             <p class="lc-hint">Once a termination date is set, offboarding tasks will become active.</p>
+            <p v-if="sepSaved" class="lc-save-confirm">Termination date saved — offboarding is now active.</p>
+            <p v-if="sepError" class="lc-save-error">{{ sepError }}</p>
             <div v-if="data.offboarding.terminatedAt || data.offboarding.statusExpiresAt" class="lc-readonly-dates" style="margin-top: 8px;">
               <div v-if="data.offboarding.terminatedAt" class="lc-readonly-date-row">
                 <span class="lc-readonly-label">Terminated On</span>
@@ -671,9 +673,23 @@ const statusBadgeClass = computed(() => {
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+/** Normalize API dates to YYYY-MM-DD for <input type="date">. */
+function toYmd(val) {
+  if (val == null || val === '') return '';
+  const s = String(val).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return '';
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function fmtDate(val) {
-  if (!val) return '';
-  const d = new Date(String(val).includes('T') ? val : val + 'T00:00:00');
+  const ymd = toYmd(val);
+  if (!ymd) return '';
+  const d = new Date(`${ymd}T00:00:00`);
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
 }
@@ -683,20 +699,20 @@ function populateForms() {
   if (!d) return;
   const ed = d.onboarding.employmentDates;
   datesForm.value = {
-    offer_accepted_date: ed.offerAcceptedDate || '',
-    start_date: ed.startDate || '',
-    orientation_date: ed.orientationDate || '',
-    therapy_notes_training_date: ed.therapyNotesTrainingDate || '',
-    first_client_date: ed.firstClientDate || '',
-    first_payroll_submission_date: ed.firstPayrollSubmissionDate || '',
-    probation_end_date: ed.probationEndDate || '',
+    offer_accepted_date: toYmd(ed.offerAcceptedDate),
+    start_date: toYmd(ed.startDate),
+    orientation_date: toYmd(ed.orientationDate),
+    therapy_notes_training_date: toYmd(ed.therapyNotesTrainingDate),
+    first_client_date: toYmd(ed.firstClientDate),
+    first_payroll_submission_date: toYmd(ed.firstPayrollSubmissionDate),
+    probation_end_date: toYmd(ed.probationEndDate),
   };
   const sep = d.offboarding.separation;
   separationForm.value = {
-    terminationDate: d.offboarding.terminationDate || '',
-    lastDayWorked: sep.lastDayWorked || '',
+    terminationDate: toYmd(d.offboarding.terminationDate),
+    lastDayWorked: toYmd(sep.lastDayWorked),
     separationType: sep.separationType || '',
-    resignationReceivedDate: sep.resignationReceivedDate || '',
+    resignationReceivedDate: toYmd(sep.resignationReceivedDate),
     rehireEligible: !!sep.rehireEligible,
     exitInterviewCompleted: !!sep.exitInterviewCompleted,
     offboardingNotes: sep.offboardingNotes || '',
@@ -743,21 +759,27 @@ async function onTerminationDateChange(event) {
 
 async function saveTerminationDate() {
   if (props.viewOnly) return;
-  const val = separationForm.value.terminationDate || null;
-  if (!val && !data.value?.offboarding?.terminationDate) return;
+  const val = toYmd(separationForm.value.terminationDate) || null;
+  if (!val && !toYmd(data.value?.offboarding?.terminationDate)) return;
   sepSaved.value = false;
   sepError.value = '';
   try {
     // Persist users.termination_date — this is what enables offboarding in the Lifecycle API.
     await api.patch(`/users/${props.userId}/lifecycle/separation`, {
       terminationDate: val,
-      lastDayWorked: separationForm.value.lastDayWorked || null,
+      lastDayWorked: toYmd(separationForm.value.lastDayWorked) || null,
       separationType: separationForm.value.separationType || null,
-      resignationReceivedDate: separationForm.value.resignationReceivedDate || null,
+      resignationReceivedDate: toYmd(separationForm.value.resignationReceivedDate) || null,
       rehireEligible: separationForm.value.rehireEligible,
       exitInterviewCompleted: separationForm.value.exitInterviewCompleted,
       offboardingNotes: separationForm.value.offboardingNotes || null,
     });
+    // Unlock immediately so Separable Info / checklist aren't stuck disabled
+    // while we refresh (and so a date-format bug can't leave UI locked).
+    if (data.value?.offboarding) {
+      data.value.offboarding.enabled = !!val;
+      data.value.offboarding.terminationDate = val;
+    }
     sepSaved.value = true;
     setTimeout(() => { sepSaved.value = false; }, 2500);
     await fetchLifecycle();
