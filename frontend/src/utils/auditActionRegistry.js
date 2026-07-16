@@ -111,6 +111,7 @@ export const AUDIT_ACTION_REGISTRY = {
   // Billing & Payroll
   payroll_write: { label: 'Payroll data entered or updated', category: 'Billing & Payroll' },
   pto_balance_updated: { label: 'PTO balance updated', category: 'Billing & Payroll' },
+  supervision_balance_updated: { label: 'Supervision hours updated', category: 'Billing & Payroll' },
   BILLING_POLICY_PROFILE_PUBLISHED: { label: 'Billing policy profile published', category: 'Billing & Payroll' },
   BILLING_POLICY_RULE_UPSERTED: { label: 'Billing rule updated', category: 'Billing & Payroll' },
   BILLING_POLICY_ACTIVATED: { label: 'Billing policy activated', category: 'Billing & Payroll' },

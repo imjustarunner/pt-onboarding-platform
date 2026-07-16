@@ -141,6 +141,10 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>
               PTO Sheet
             </button>
+            <button class="pr-quick-btn" type="button" @click="openSupervisionSheetModal" :disabled="!agencyId">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              Supervision Sheet
+            </button>
           </div>
           <div class="pr-secondary-actions">
             <button class="btn btn-secondary btn-sm" type="button" @click="showStageModal = true" :disabled="!selectedPeriodId">Payroll Stage</button>
@@ -314,6 +318,11 @@
         :open="showPtoSheetModal"
         :agency-id="agencyId"
         @close="showPtoSheetModal = false"
+      />
+      <PayrollSupervisionSheetModal
+        :open="showSupervisionSheetModal"
+        :agency-id="agencyId"
+        @close="showSupervisionSheetModal = false"
       />
       <div v-if="showTodoModal" class="modal-backdrop">
         <div class="modal" style="width: min(920px, 100%);">
@@ -1898,6 +1907,9 @@
           </button>
           <button class="btn btn-secondary btn-sm" type="button" @click="openPtoSheetModal" :disabled="!agencyId">
             PTO Sheet
+          </button>
+          <button class="btn btn-secondary btn-sm" type="button" @click="openSupervisionSheetModal" :disabled="!agencyId">
+            Supervision Sheet
           </button>
           <button class="btn btn-secondary btn-sm" type="button" @click="openTodoModal" :disabled="!selectedPeriodId">
             Add Note / To-Do
@@ -6424,6 +6436,7 @@ import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import AdminPayrollSubmitOverride from '../../components/admin/AdminPayrollSubmitOverride.vue';
 import PayrollPtoSheetModal from '../../components/admin/PayrollPtoSheetModal.vue';
+import PayrollSupervisionSheetModal from '../../components/admin/PayrollSupervisionSheetModal.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -6635,6 +6648,7 @@ const showRunModal = ref(false);
 const showSubmitOnBehalfModal = ref(false);
 const showTodoModal = ref(false);
 const showPtoSheetModal = ref(false);
+const showSupervisionSheetModal = ref(false);
 const showHolidayHoursModal = ref(false);
 const showSupervisionAttendanceModal = ref(false);
 const showSupervisionConflictsModal = ref(false);
@@ -7783,6 +7797,11 @@ const openTodoModal = async () => {
 const openPtoSheetModal = () => {
   if (!agencyId.value) return;
   showPtoSheetModal.value = true;
+};
+
+const openSupervisionSheetModal = () => {
+  if (!agencyId.value) return;
+  showSupervisionSheetModal.value = true;
 };
 
 // ==========================

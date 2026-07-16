@@ -104,6 +104,8 @@ import {
   ,getSupervisionPolicy
   ,putSupervisionPolicy
   ,listSupervisionAccountsForAgency
+  ,listAgencySupervisionSheetAccounts
+  ,bulkUpdateAgencySupervisionAccounts
   ,importSupervisionCsv
   ,createMyReimbursementClaim
   ,createUserReimbursementClaim
@@ -350,6 +352,8 @@ router.patch('/medcancel-claims/:id', patchMedcancelClaim);
 router.get('/supervision-policy', getSupervisionPolicy);
 router.put('/supervision-policy', putSupervisionPolicy);
 router.get('/supervision-accounts', listSupervisionAccountsForAgency);
+router.get('/supervision-sheet', listAgencySupervisionSheetAccounts);
+router.put('/supervision-sheet', bulkUpdateAgencySupervisionAccounts);
 router.get('/reimbursement-claims', listReimbursementClaims);
 router.patch('/reimbursement-claims/:id', patchReimbursementClaim);
 router.get('/company-card-expenses', listCompanyCardExpenses);

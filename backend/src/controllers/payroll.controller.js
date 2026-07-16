@@ -88,7 +88,10 @@ import {
   upsertAgencySupervisionPolicy,
   recomputeSupervisionAccountForUser,
   importSupervisionForPeriod,
-  listSupervisionAccounts
+  listSupervisionAccounts,
+  listAgencySupervisionSheet,
+  isSupervisionSheetEligibleUser,
+  setCurrentSupervisionBalances
 } from '../services/supervision.service.js';
 import {
   CLAIM_DEADLINE_ERROR_MESSAGE,
@@ -17911,6 +17914,160 @@ export const listSupervisionAccountsForAgency = async (req, res, next) => {
     if (!(await requirePayrollAccess(req, res, agencyId))) return;
     const rows = await listSupervisionAccounts({ agencyId, limit: req.query.limit ? parseInt(req.query.limit, 10) : 500 });
     res.json(rows);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listAgencySupervisionSheetAccounts = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    const [{ policy }, rows] = await Promise.all([
+      getAgencySupervisionPolicy({ agencyId }),
+      listAgencySupervisionSheet({ agencyId })
+    ]);
+
+    const accounts = (rows || []).map((r) => {
+      const displayEmail = resolvePtoSheetDisplayEmail({
+        workEmail: r.work_email,
+        personalEmail: r.personal_email,
+        email: r.email
+      });
+      return {
+        userId: Number(r.user_id),
+        firstName: r.first_name || '',
+        lastName: r.last_name || '',
+        email: displayEmail,
+        workEmail: String(r.work_email || '').trim() || null,
+        role: r.role || null,
+        isPrelicensed: !!(
+          r.supervision_is_prelicensed === 1
+          || r.supervision_is_prelicensed === true
+          || String(r.supervision_is_prelicensed || '') === '1'
+        ),
+        individualHours: Number(r.individual_hours || 0),
+        groupHours: Number(r.group_hours || 0),
+        requiredIndividualHours: Number(policy?.requiredIndividualHours ?? 50),
+        requiredGroupHours: Number(policy?.requiredGroupHours ?? 50),
+        accountUpdatedAt: r.account_updated_at || null
+      };
+    });
+
+    res.json({ ok: true, agencyId, policy, accounts });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const bulkUpdateAgencySupervisionAccounts = async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const agencyId = body.agencyId ? parseInt(body.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    const updates = Array.isArray(body.updates) ? body.updates : [];
+    if (!updates.length) {
+      return res.status(400).json({ error: { message: 'updates array is required' } });
+    }
+    if (updates.length > 500) {
+      return res.status(400).json({ error: { message: 'Too many updates (max 500)' } });
+    }
+
+    const note = body.note ? String(body.note).slice(0, 255) : 'Balance set via Supervision sheet';
+    const results = [];
+    let updatedCount = 0;
+
+    for (const raw of updates) {
+      const userId = raw?.userId ? parseInt(raw.userId, 10) : null;
+      if (!userId) {
+        results.push({ userId: null, ok: false, error: 'userId is required' });
+        continue;
+      }
+
+      const eligible = await isSupervisionSheetEligibleUser({ agencyId, userId });
+      if (!eligible) {
+        results.push({ userId, ok: false, error: 'User is not an employee with a work email in this agency' });
+        continue;
+      }
+
+      const hasInd = raw.individualHours !== undefined && raw.individualHours !== null && raw.individualHours !== '';
+      const hasGrp = raw.groupHours !== undefined && raw.groupHours !== null && raw.groupHours !== '';
+      if (!hasInd && !hasGrp) {
+        results.push({ userId, ok: true, changed: false });
+        continue;
+      }
+
+      try {
+        const balanceResult = await setCurrentSupervisionBalances({
+          agencyId,
+          userId,
+          individualHours: hasInd ? raw.individualHours : undefined,
+          groupHours: hasGrp ? raw.groupHours : undefined,
+          updatedByUserId: req.user.id
+        });
+
+        const changed = balanceResult.individualChanged || balanceResult.groupChanged;
+        if (changed) {
+          updatedCount += 1;
+          try {
+            await AdminAuditLog.logAction({
+              actionType: 'supervision_balance_updated',
+              actorUserId: req.user.id,
+              targetUserId: userId,
+              moduleId: null,
+              trackId: null,
+              agencyId,
+              metadata: {
+                source: 'supervision_sheet',
+                previous: {
+                  individualHours: balanceResult.previousIndividualHours,
+                  groupHours: balanceResult.previousGroupHours
+                },
+                next: {
+                  individualHours: balanceResult.nextIndividualHours,
+                  groupHours: balanceResult.nextGroupHours
+                },
+                changed: {
+                  individual: balanceResult.individualChanged,
+                  group: balanceResult.groupChanged
+                },
+                note
+              }
+            });
+          } catch (e) {
+            console.warn('Admin audit log failed (supervision_balance_updated):', e?.message || e);
+          }
+        }
+
+        results.push({
+          userId,
+          ok: true,
+          changed,
+          account: balanceResult.account,
+          previous: {
+            individualHours: balanceResult.previousIndividualHours,
+            groupHours: balanceResult.previousGroupHours
+          },
+          next: {
+            individualHours: balanceResult.nextIndividualHours,
+            groupHours: balanceResult.nextGroupHours
+          }
+        });
+      } catch (e) {
+        results.push({ userId, ok: false, error: e?.message || 'Failed to update' });
+      }
+    }
+
+    res.json({
+      ok: true,
+      agencyId,
+      updatedCount,
+      results
+    });
   } catch (e) {
     next(e);
   }

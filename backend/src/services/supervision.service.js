@@ -535,3 +535,198 @@ export async function listSupervisionAccounts({ agencyId, limit = 500 }) {
   return rows || [];
 }
 
+const NON_EMPLOYEE_ROLES = new Set([
+  'guardian',
+  'client_guardian',
+  'client',
+  'school_staff',
+  'school_support',
+  'applicant',
+  'super_admin'
+]);
+
+const PREHIRE_STATUSES = new Set([
+  'pending',
+  'ready_for_review',
+  'prospective',
+  'pending_setup',
+  'prehire_open',
+  'prehire_review'
+]);
+
+function isSupervisionSheetEmployeeRow(row) {
+  const role = String(row?.role || '').trim().toLowerCase();
+  if (NON_EMPLOYEE_ROLES.has(role)) return false;
+  const status = String(row?.status || '').trim().toLowerCase();
+  if (PREHIRE_STATUSES.has(status)) return false;
+  if (row?.is_archived === true || row?.is_archived === 1 || row?.is_archived === '1') return false;
+  return !!String(row?.work_email || '').trim();
+}
+
+/**
+ * Agency-wide supervision sheet: employees with a work email + current ind/group totals.
+ * Same population filter as the PTO sheet (excludes school staff / prehire).
+ */
+export async function listAgencySupervisionSheet({ agencyId }) {
+  const [rows] = await pool.execute(
+    `SELECT
+       u.id AS user_id,
+       u.first_name,
+       u.last_name,
+       u.work_email,
+       u.personal_email,
+       u.email,
+       u.role,
+       u.status,
+       u.is_archived,
+       ua.supervision_is_prelicensed,
+       ua.supervision_is_compensable,
+       ua.supervision_start_date,
+       COALESCE(ua.supervision_start_individual_hours, 0) AS start_individual_hours,
+       COALESCE(ua.supervision_start_group_hours, 0) AS start_group_hours,
+       COALESCE(sa.individual_hours, 0) AS individual_hours,
+       COALESCE(sa.group_hours, 0) AS group_hours,
+       sa.updated_at AS account_updated_at
+     FROM users u
+     INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+     LEFT JOIN supervision_accounts sa ON sa.user_id = u.id AND sa.agency_id = ?
+     WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
+       AND u.work_email IS NOT NULL
+       AND TRIM(u.work_email) <> ''
+     ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+    [agencyId, agencyId]
+  );
+  return (rows || []).filter((r) => isSupervisionSheetEmployeeRow(r));
+}
+
+export async function isSupervisionSheetEligibleUser({ agencyId, userId }) {
+  const [rows] = await pool.execute(
+    `SELECT u.id, u.role, u.status, u.work_email, u.is_archived
+     FROM users u
+     INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+     WHERE u.id = ?
+     LIMIT 1`,
+    [agencyId, userId]
+  );
+  return isSupervisionSheetEmployeeRow(rows?.[0] || null);
+}
+
+/**
+ * Set a user's current supervision totals (individual / group).
+ * Adjusts prelicensed baseline hours so recompute yields the desired totals,
+ * then recomputes the materialized supervision_accounts row.
+ *
+ * Cannot reduce below accrued period-entry hours (baseline cannot go negative).
+ */
+export async function setCurrentSupervisionBalances({
+  agencyId,
+  userId,
+  individualHours,
+  groupHours,
+  updatedByUserId
+}) {
+  const prev = await recomputeAccount({ agencyId, userId });
+  const previousIndividualHours = clampHours(prev?.individual_hours || 0);
+  const previousGroupHours = clampHours(prev?.group_hours || 0);
+
+  const hasInd = individualHours !== undefined && individualHours !== null && individualHours !== '';
+  const hasGrp = groupHours !== undefined && groupHours !== null && groupHours !== '';
+  const nextIndividualHours = hasInd ? clampHours(individualHours) : previousIndividualHours;
+  const nextGroupHours = hasGrp ? clampHours(groupHours) : previousGroupHours;
+
+  const individualChanged = Math.abs(nextIndividualHours - previousIndividualHours) > 1e-9;
+  const groupChanged = Math.abs(nextGroupHours - previousGroupHours) > 1e-9;
+  if (!individualChanged && !groupChanged) {
+    return {
+      account: prev,
+      previousIndividualHours,
+      previousGroupHours,
+      nextIndividualHours,
+      nextGroupHours,
+      individualChanged: false,
+      groupChanged: false
+    };
+  }
+
+  const [sumRows] = await pool.execute(
+    `SELECT
+       COALESCE(SUM(individual_hours), 0) AS periodIndividual,
+       COALESCE(SUM(group_hours), 0) AS periodGroup
+     FROM supervision_period_entries
+     WHERE agency_id = ? AND user_id = ?`,
+    [agencyId, userId]
+  );
+  const periodIndividual = clampHours(sumRows?.[0]?.periodIndividual || 0);
+  const periodGroup = clampHours(sumRows?.[0]?.periodGroup || 0);
+
+  if (hasInd && nextIndividualHours + 1e-9 < periodIndividual) {
+    const err = new Error(
+      `Cannot set individual hours below accrued period total (${periodIndividual}). Reduce period imports first.`
+    );
+    err.code = 'SUPERVISION_BELOW_PERIOD_FLOOR';
+    throw err;
+  }
+  if (hasGrp && nextGroupHours + 1e-9 < periodGroup) {
+    const err = new Error(
+      `Cannot set group hours below accrued period total (${periodGroup}). Reduce period imports first.`
+    );
+    err.code = 'SUPERVISION_BELOW_PERIOD_FLOOR';
+    throw err;
+  }
+
+  const [uaRows] = await pool.execute(
+    `SELECT supervision_is_prelicensed, supervision_is_compensable, supervision_start_date,
+            supervision_start_individual_hours, supervision_start_group_hours
+     FROM user_agencies
+     WHERE agency_id = ? AND user_id = ?
+     LIMIT 1`,
+    [agencyId, userId]
+  );
+  const ua = uaRows?.[0];
+  if (!ua) {
+    const err = new Error('User is not in this agency');
+    err.code = 'NOT_IN_AGENCY';
+    throw err;
+  }
+
+  const newStartIndividual = clampHours(Math.max(0, nextIndividualHours - periodIndividual));
+  const newStartGroup = clampHours(Math.max(0, nextGroupHours - periodGroup));
+  const isCompensable = ua.supervision_is_compensable === 1
+    || ua.supervision_is_compensable === true
+    || String(ua.supervision_is_compensable || '') === '1';
+  const startDate = ua.supervision_start_date
+    ? String(ua.supervision_start_date).slice(0, 10)
+    : null;
+
+  await pool.execute(
+    `UPDATE user_agencies
+     SET supervision_is_prelicensed = 1,
+         supervision_is_compensable = ?,
+         supervision_start_date = ?,
+         supervision_start_individual_hours = ?,
+         supervision_start_group_hours = ?
+     WHERE agency_id = ? AND user_id = ?
+     LIMIT 1`,
+    [
+      isCompensable ? 1 : 0,
+      startDate,
+      newStartIndividual,
+      newStartGroup,
+      agencyId,
+      userId
+    ]
+  );
+
+  const account = await recomputeAccount({ agencyId, userId });
+  return {
+    account,
+    previousIndividualHours,
+    previousGroupHours,
+    nextIndividualHours: clampHours(account?.individual_hours || 0),
+    nextGroupHours: clampHours(account?.group_hours || 0),
+    individualChanged,
+    groupChanged,
+    updatedByUserId: updatedByUserId || null
+  };
+}
+
