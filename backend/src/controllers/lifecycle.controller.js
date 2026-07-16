@@ -6,6 +6,7 @@
  *   PATCH  /users/:id/lifecycle/dates      Update milestone dates
  *   PATCH  /users/:id/lifecycle/separation Update separation info
  *   POST   /users/:id/lifecycle/checklist/:definitionId/toggle  Check/uncheck item
+ *   POST   /users/:id/lifecycle/checklist/:definitionId/not-applicable  Mark not needed / restore
  *   POST   /users/:id/lifecycle/checklist/:definitionId/attachment  Upload retroactive doc
  *   GET    /users/:id/lifecycle/checklist/:definitionId/attachment  Download attachment
  *   DELETE /users/:id/lifecycle/checklist/:definitionId/attachment  Remove attachment
@@ -172,6 +173,37 @@ export const toggleLifecycleChecklistItem = async (req, res, next) => {
 
     const item = await UserLifecycleChecklistItem.toggle(userId, definitionId, completed, req.user?.id);
     await scopeLifecycleItem(userId, def.item_key, 'manual', definitionId);
+    res.json({ ok: true, item });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const setLifecycleChecklistNotApplicable = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    const definitionId = parseInt(req.params.definitionId, 10);
+    if (!userId || !definitionId) {
+      return res.status(400).json({ error: { message: 'Invalid user id or definition id' } });
+    }
+
+    const { notApplicable } = req.body || {};
+    if (typeof notApplicable !== 'boolean') {
+      return res.status(400).json({ error: { message: 'notApplicable (boolean) is required' } });
+    }
+
+    const def = await LifecycleChecklistDefinition.findById(definitionId);
+    if (!def) return res.status(404).json({ error: { message: 'Checklist item not found' } });
+
+    const item = await UserLifecycleChecklistItem.setNotApplicable(
+      userId,
+      definitionId,
+      notApplicable,
+      req.user?.id
+    );
+    if (notApplicable) {
+      await scopeLifecycleItem(userId, def.item_key, 'manual', definitionId);
+    }
     res.json({ ok: true, item });
   } catch (err) {
     next(err);

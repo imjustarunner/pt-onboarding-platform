@@ -240,19 +240,30 @@
             package is assigned, or when a tagged document task is sent to this person.
           </p>
           <template v-for="group in data.onboarding.groups" :key="group.category">
-            <div class="lc-checklist-group">
+            <div v-if="activeGroupItems(group).length" class="lc-checklist-group">
               <h4 class="lc-block-title">{{ group.label }}</h4>
               <div class="lc-checklist-table">
-                <div :class="['lc-checklist-head', group.category === 'compliance_documents' ? 'lc-checklist-head-docs' : '']">
+                <div
+                  :class="[
+                    'lc-checklist-head',
+                    group.category === 'compliance_documents' ? 'lc-checklist-head-docs' : '',
+                    !viewOnly ? 'lc-checklist-head-actions' : ''
+                  ]"
+                >
                   <span>Item</span>
                   <span>Complete</span>
                   <span>Date</span>
                   <span v-if="group.category === 'compliance_documents'">Doc</span>
+                  <span v-if="!viewOnly" class="lc-col-action"> </span>
                 </div>
                 <div
-                  v-for="item in group.items"
+                  v-for="item in activeGroupItems(group)"
                   :key="item.definitionId"
-                  :class="['lc-checklist-row', group.category === 'compliance_documents' ? 'lc-checklist-row-docs' : '']"
+                  :class="[
+                    'lc-checklist-row',
+                    group.category === 'compliance_documents' ? 'lc-checklist-row-docs' : '',
+                    !viewOnly ? 'lc-checklist-row-actions' : ''
+                  ]"
                 >
                   <span class="lc-item-label">{{ item.label }}</span>
                   <span class="lc-item-check">
@@ -309,10 +320,45 @@
                       </button>
                     </template>
                   </span>
+                  <span v-if="!viewOnly" class="lc-item-action">
+                    <button
+                      type="button"
+                      class="lc-remove-btn"
+                      title="Not needed for this person — exclude from completion"
+                      @click="setItemNotApplicable(item, true)"
+                    >Remove</button>
+                  </span>
                 </div>
               </div>
             </div>
           </template>
+
+          <div v-if="removedOnboardingItems.length" class="lc-removed-block">
+            <button
+              type="button"
+              class="lc-removed-toggle"
+              :aria-expanded="removedItemsExpanded"
+              @click="removedItemsExpanded = !removedItemsExpanded"
+            >
+              Not needed for this person ({{ removedOnboardingItems.length }})
+              <span class="lc-missing-chevron" :class="{ 'lc-missing-chevron--open': removedItemsExpanded }">›</span>
+            </button>
+            <div v-show="removedItemsExpanded" class="lc-removed-list">
+              <div
+                v-for="item in removedOnboardingItems"
+                :key="`na-${item.definitionId}`"
+                class="lc-removed-row"
+              >
+                <span class="lc-removed-label">{{ item.label }}</span>
+                <button
+                  v-if="!viewOnly"
+                  type="button"
+                  class="lc-restore-btn"
+                  @click="setItemNotApplicable(item, false)"
+                >Restore</button>
+              </div>
+            </div>
+          </div>
         </section>
         
         <!-- ══ OFFBOARDING COLUMN ═════════════════════════════════════════ -->
@@ -414,18 +460,19 @@
 
           <!-- Offboarding Checklist Groups -->
           <template v-for="group in data.offboarding.groups" :key="group.category">
-            <div :class="['lc-checklist-group', !data.offboarding.enabled && 'lc-sep-disabled']">
+            <div v-if="activeGroupItems(group).length" :class="['lc-checklist-group', !data.offboarding.enabled && 'lc-sep-disabled']">
               <h4 class="lc-block-title">{{ group.label }}</h4>
               <div class="lc-checklist-table">
-                <div class="lc-checklist-head">
+                <div :class="['lc-checklist-head', !viewOnly && data.offboarding.enabled ? 'lc-checklist-head-actions' : '']">
                   <span>Item</span>
                   <span>Complete</span>
                   <span>Date</span>
+                  <span v-if="!viewOnly && data.offboarding.enabled" class="lc-col-action"> </span>
                 </div>
                 <div
-                  v-for="item in group.items"
+                  v-for="item in activeGroupItems(group)"
                   :key="item.definitionId"
-                  class="lc-checklist-row"
+                  :class="['lc-checklist-row', !viewOnly && data.offboarding.enabled ? 'lc-checklist-row-actions' : '']"
                 >
                   <span class="lc-item-label">{{ item.label }}</span>
                   <span class="lc-item-check">
@@ -437,10 +484,45 @@
                     />
                   </span>
                   <span class="lc-item-date">{{ fmtDate(item.completedAt) || (item.isCompleted ? '✓' : '—') }}</span>
+                  <span v-if="!viewOnly && data.offboarding.enabled" class="lc-item-action">
+                    <button
+                      type="button"
+                      class="lc-remove-btn"
+                      title="Not needed for this person — exclude from completion"
+                      @click="setItemNotApplicable(item, true)"
+                    >Remove</button>
+                  </span>
                 </div>
               </div>
             </div>
           </template>
+
+          <div v-if="removedOffboardingItems.length" class="lc-removed-block">
+            <button
+              type="button"
+              class="lc-removed-toggle"
+              :aria-expanded="removedOffboardExpanded"
+              @click="removedOffboardExpanded = !removedOffboardExpanded"
+            >
+              Not needed for this person ({{ removedOffboardingItems.length }})
+              <span class="lc-missing-chevron" :class="{ 'lc-missing-chevron--open': removedOffboardExpanded }">›</span>
+            </button>
+            <div v-show="removedOffboardExpanded" class="lc-removed-list">
+              <div
+                v-for="item in removedOffboardingItems"
+                :key="`na-off-${item.definitionId}`"
+                class="lc-removed-row"
+              >
+                <span class="lc-removed-label">{{ item.label }}</span>
+                <button
+                  v-if="!viewOnly && data.offboarding.enabled"
+                  type="button"
+                  class="lc-restore-btn"
+                  @click="setItemNotApplicable(item, false)"
+                >Restore</button>
+              </div>
+            </div>
+          </div>
 
           <!-- Offboarding Notes -->
           <div :class="['lc-notes-block', !data.offboarding.enabled && 'lc-sep-disabled']">
@@ -491,6 +573,8 @@ const datesError = ref('');
 const sepSaved = ref(false);
 const sepError = ref('');
 const missingItemsExpanded = ref(false);
+const removedItemsExpanded = ref(false);
+const removedOffboardExpanded = ref(false);
 const attachmentFileInput = ref(null);
 const attachmentUploadTarget = ref(null);
 const attachmentUploadingId = ref(null);
@@ -678,6 +762,36 @@ async function toggleItem(item, checked) {
     // Revert
     item.isCompleted = prev;
     item.completedAt = prev ? item.completedAt : null;
+  }
+}
+
+function activeGroupItems(group) {
+  return (group?.items || []).filter((item) => !item.isNotApplicable);
+}
+
+const removedOnboardingItems = computed(() =>
+  (data.value?.onboarding?.groups || []).flatMap((g) =>
+    (g.items || []).filter((item) => item.isNotApplicable)
+  )
+);
+
+const removedOffboardingItems = computed(() =>
+  (data.value?.offboarding?.groups || []).flatMap((g) =>
+    (g.items || []).filter((item) => item.isNotApplicable)
+  )
+);
+
+async function setItemNotApplicable(item, notApplicable) {
+  if (props.viewOnly) return;
+  try {
+    await api.post(`/users/${props.userId}/lifecycle/checklist/${item.definitionId}/not-applicable`, {
+      notApplicable: !!notApplicable,
+    });
+    await fetchLifecycle();
+  } catch (e) {
+    // Surface via existing attachment error strip if present
+    attachmentError.value = e?.response?.data?.error?.message
+      || (notApplicable ? 'Failed to remove item' : 'Failed to restore item');
   }
 }
 
@@ -944,12 +1058,68 @@ watch(() => props.userId, () => {
 }
 .lc-checklist-row:last-child { border-bottom: none; }
 .lc-checklist-row:nth-child(even) { background: #fafafa; }
+.lc-checklist-head-actions,
+.lc-checklist-row-actions { grid-template-columns: 1fr 52px 90px 64px; }
+.lc-checklist-head-docs { grid-template-columns: 1fr 52px 90px 56px !important; }
+.lc-checklist-row-docs { grid-template-columns: 1fr 52px 90px 56px !important; }
+.lc-checklist-head-docs.lc-checklist-head-actions,
+.lc-checklist-row-docs.lc-checklist-row-actions { grid-template-columns: 1fr 52px 90px 56px 64px !important; }
 .lc-item-label { color: #111827; }
 .lc-item-check { display: flex; align-items: center; gap: 4px; }
 .lc-item-check input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; }
+.lc-item-action { display: flex; justify-content: flex-end; }
+.lc-remove-btn {
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 0;
+}
+.lc-remove-btn:hover { color: #b91c1c; }
+.lc-removed-block {
+  margin: 8px 0 16px;
+  border: 1px dashed #e5e7eb;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fafafa;
+}
+.lc-removed-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #6b7280;
+  cursor: pointer;
+}
+.lc-removed-list { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.lc-removed-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+.lc-removed-label { color: #9ca3af; text-decoration: line-through; }
+.lc-restore-btn {
+  border: 1px solid #d1d5db;
+  background: white;
+  color: #374151;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.lc-restore-btn:hover { border-color: #9ca3af; }
 .lc-item-check input[type="checkbox"]:disabled { cursor: not-allowed; opacity: 0.6; }
-.lc-checklist-head-docs { grid-template-columns: 1fr 52px 90px 56px !important; }
-.lc-checklist-row-docs { grid-template-columns: 1fr 52px 90px 56px !important; }
 .lc-attachment-error {
   margin: 0 0 12px;
   padding: 8px 12px;

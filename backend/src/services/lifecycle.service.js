@@ -166,15 +166,16 @@ function definitionIsVisible(definition, scopedKeys, state) {
   if (scopedKeys.has(definition.item_key)) return true;
   if (state?.is_completed) return true;
   if (state?.manually_overridden) return true;
+  if (state?.is_not_applicable) return true;
   if (state?.notes) return true;
   return false;
 }
 
 function computeOffboardingStatus(terminationDate, offboardItems) {
   if (!terminationDate) return 'N/A';
-  const required = offboardItems.filter((i) => i.is_required);
+  const required = offboardItems.filter((i) => i.isRequired && !i.isNotApplicable);
   if (!required.length) return 'Not Started';
-  const done = required.filter((i) => i.is_completed).length;
+  const done = required.filter((i) => i.isCompleted).length;
   if (done === 0) return 'Not Started';
   if (done >= required.length) return 'Complete';
   return 'In Progress';
@@ -287,6 +288,8 @@ export async function getLifecycleData(userId) {
       label: resolveLabelTemplate(def, supervisor),
       isRequired: !!def.is_required,
       isCompleted: !!state.is_completed,
+      isNotApplicable: !!state.is_not_applicable,
+      notApplicableAt: state.not_applicable_at || null,
       completedAt: state.completed_at || null,
       completionMethod: state.completion_method || 'manual',
       integrationTypeInfo: def.integration_type,
@@ -321,7 +324,8 @@ export async function getLifecycleData(userId) {
     }
 
     if (def.phase === 'onboarding') {
-      if (def.is_required) {
+      // Not-applicable items stay visible for restore, but never count toward progress.
+      if (def.is_required && !item.isNotApplicable) {
         onboardTotal++;
         if (item.isCompleted) {
           onboardDone++;

@@ -46,15 +46,49 @@ class UserLifecycleChecklistItem {
     const now = completed ? new Date() : null;
     await pool.execute(
       `INSERT INTO user_lifecycle_checklist_items
-         (user_id, definition_id, is_completed, completed_at, completed_by_user_id, completion_method, manually_overridden)
-       VALUES (?, ?, ?, ?, ?, 'manual', ?)
+         (user_id, definition_id, is_completed, completed_at, completed_by_user_id, completion_method, manually_overridden,
+          is_not_applicable, not_applicable_at, not_applicable_by_user_id)
+       VALUES (?, ?, ?, ?, ?, 'manual', ?, 0, NULL, NULL)
        ON DUPLICATE KEY UPDATE
          is_completed = VALUES(is_completed),
          completed_at = VALUES(completed_at),
          completed_by_user_id = VALUES(completed_by_user_id),
          completion_method = 'manual',
-         manually_overridden = VALUES(manually_overridden)`,
+         manually_overridden = VALUES(manually_overridden),
+         is_not_applicable = 0,
+         not_applicable_at = NULL,
+         not_applicable_by_user_id = NULL`,
       [userId, definitionId, completed ? 1 : 0, now, completedByUserId, completed ? 0 : 1]
+    );
+    return this.findByUserAndDefinition(userId, definitionId);
+  }
+
+  /**
+   * Mark an item not needed for this person (or restore it).
+   * Not-applicable items are excluded from completion progress.
+   */
+  static async setNotApplicable(userId, definitionId, notApplicable, byUserId) {
+    const now = notApplicable ? new Date() : null;
+    await pool.execute(
+      `INSERT INTO user_lifecycle_checklist_items
+         (user_id, definition_id, is_completed, completed_at, completed_by_user_id, completion_method, manually_overridden,
+          is_not_applicable, not_applicable_at, not_applicable_by_user_id)
+       VALUES (?, ?, 0, NULL, NULL, 'manual', 1, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         is_not_applicable = VALUES(is_not_applicable),
+         not_applicable_at = VALUES(not_applicable_at),
+         not_applicable_by_user_id = VALUES(not_applicable_by_user_id),
+         is_completed = CASE WHEN VALUES(is_not_applicable) = 1 THEN 0 ELSE is_completed END,
+         completed_at = CASE WHEN VALUES(is_not_applicable) = 1 THEN NULL ELSE completed_at END,
+         completed_by_user_id = CASE WHEN VALUES(is_not_applicable) = 1 THEN NULL ELSE completed_by_user_id END,
+         manually_overridden = CASE WHEN VALUES(is_not_applicable) = 1 THEN 1 ELSE manually_overridden END`,
+      [
+        userId,
+        definitionId,
+        notApplicable ? 1 : 0,
+        now,
+        notApplicable ? (byUserId || null) : null
+      ]
     );
     return this.findByUserAndDefinition(userId, definitionId);
   }
@@ -162,16 +196,25 @@ class UserLifecycleChecklistItem {
            (user_id, definition_id, is_completed, completed_at, completion_method, manually_overridden)
          VALUES (?, ?, 1, ?, 'auto', 0)
          ON DUPLICATE KEY UPDATE
-           is_completed = CASE WHEN manually_overridden = 1 THEN is_completed ELSE 1 END,
-           completed_at = CASE WHEN manually_overridden = 1 THEN completed_at ELSE VALUES(completed_at) END,
-           completion_method = CASE WHEN manually_overridden = 1 THEN completion_method ELSE 'auto' END`,
+           is_completed = CASE
+             WHEN manually_overridden = 1 OR is_not_applicable = 1 THEN is_completed
+             ELSE 1
+           END,
+           completed_at = CASE
+             WHEN manually_overridden = 1 OR is_not_applicable = 1 THEN completed_at
+             ELSE VALUES(completed_at)
+           END,
+           completion_method = CASE
+             WHEN manually_overridden = 1 OR is_not_applicable = 1 THEN completion_method
+             ELSE 'auto'
+           END`,
         [userId, definitionId, ts]
       );
     } else {
       await pool.execute(
         `UPDATE user_lifecycle_checklist_items
          SET is_completed = 0, completed_at = NULL, completion_method = 'auto'
-         WHERE user_id = ? AND definition_id = ? AND manually_overridden = 0`,
+         WHERE user_id = ? AND definition_id = ? AND manually_overridden = 0 AND is_not_applicable = 0`,
         [userId, definitionId]
       );
     }

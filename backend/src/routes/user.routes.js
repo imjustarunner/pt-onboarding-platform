@@ -26,6 +26,7 @@ import {
   updateLifecycleDates,
   updateSeparationInfo,
   toggleLifecycleChecklistItem,
+  setLifecycleChecklistNotApplicable,
   syncLifecycle,
   uploadLifecycleChecklistAttachment,
   downloadLifecycleChecklistAttachment,
@@ -134,6 +135,7 @@ router.get('/:id/lifecycle', authenticate, requireBackofficeAdminOrCpa, getUserL
 router.patch('/:id/lifecycle/dates', authenticate, requireBackofficeAdminOrCpa, updateLifecycleDates);
 router.patch('/:id/lifecycle/separation', authenticate, requireBackofficeAdminOrCpa, updateSeparationInfo);
 router.post('/:id/lifecycle/checklist/:definitionId/toggle', authenticate, requireBackofficeAdminOrCpa, toggleLifecycleChecklistItem);
+router.post('/:id/lifecycle/checklist/:definitionId/not-applicable', authenticate, requireBackofficeAdminOrCpa, setLifecycleChecklistNotApplicable);
 router.post('/:id/lifecycle/checklist/:definitionId/attachment', authenticate, requireBackofficeAdminOrCpa, uploadLifecycleChecklistAttachment);
 router.get('/:id/lifecycle/checklist/:definitionId/attachment', authenticate, requireBackofficeAdminOrCpa, downloadLifecycleChecklistAttachment);
 router.delete('/:id/lifecycle/checklist/:definitionId/attachment', authenticate, requireBackofficeAdminOrCpa, deleteLifecycleChecklistAttachment);
