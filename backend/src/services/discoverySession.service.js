@@ -6,7 +6,6 @@ import pool from '../config/database.js';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
 import { createOrGetRoomByUniqueName, createAccessTokenAsync, isVideoConfigured } from './video.service.js';
-
 const FRONTEND_URL = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
 
 function toSqlDatetimeSafe(value) {
@@ -28,6 +27,42 @@ function buildDiscoveryUrl(agencySlug, accessToken) {
 async function resolveAgencySlug(agencyId) {
   const agency = await Agency.findById(agencyId);
   return agency?.slug || agency?.portal_url || null;
+}
+
+/** Tenant schedule timezone for discovery labels (agency → office → America/Denver). */
+async function resolveDiscoveryScheduleTimezone(agencyId, agencyRow = null) {
+  const agencyTz = String(agencyRow?.timezone || '').trim();
+  if (agencyTz) return agencyTz;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT ol.timezone
+       FROM office_locations ol
+       JOIN office_location_agencies ola ON ola.office_location_id = ol.id
+       WHERE ola.agency_id = ?
+         AND ol.is_active = TRUE
+       ORDER BY ol.id ASC
+       LIMIT 1`,
+      [Number(agencyId)]
+    );
+    const officeTz = String(rows?.[0]?.timezone || '').trim();
+    if (officeTz) return officeTz;
+  } catch {
+    // ignore — fall through
+  }
+  // Also try office_locations.agency_id for older single-agency rows.
+  try {
+    const [rows] = await pool.execute(
+      `SELECT timezone FROM office_locations
+       WHERE agency_id = ? AND is_active = TRUE
+       ORDER BY id ASC LIMIT 1`,
+      [Number(agencyId)]
+    );
+    const officeTz = String(rows?.[0]?.timezone || '').trim();
+    if (officeTz) return officeTz;
+  } catch {
+    // ignore
+  }
+  return 'America/Denver';
 }
 
 async function getClientContact(clientId) {
@@ -173,6 +208,7 @@ export async function getPublicDiscoveryPayload(token) {
   );
   const provider = providerRows?.[0] || null;
   const agency = await Agency.findById(session.agency_id);
+  const scheduleTimezone = await resolveDiscoveryScheduleTimezone(session.agency_id, agency);
 
   return {
     expired: false,
@@ -185,7 +221,8 @@ export async function getPublicDiscoveryPayload(token) {
       bookedEndAt: session.booked_end_at,
       clientName: session.client_name,
       modalityLabel: 'Virtual',
-      joinUrl: buildDiscoveryUrl(slug, session.access_token)
+      joinUrl: buildDiscoveryUrl(slug, session.access_token),
+      timezone: scheduleTimezone
     },
     provider: provider
       ? {
@@ -199,7 +236,8 @@ export async function getPublicDiscoveryPayload(token) {
       name: agency?.name || '',
       slug,
       logoUrl: agency?.logo_url || null,
-      colorPalette: agency?.color_palette || null
+      colorPalette: agency?.color_palette || null,
+      timezone: scheduleTimezone
     }
   };
 }

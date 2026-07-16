@@ -107,6 +107,7 @@
       <div class="modal-card">
         <h3>Propose discovery times</h3>
         <p class="muted">{{ proposeClient?.full_name || proposeClient?.initials || 'Client' }} — options are selectable on their private link. Selecting one books your calendar.</p>
+        <p v-if="scheduleTimezoneLabel" class="muted tz-label">Times are in {{ scheduleTimezoneLabel }}</p>
         <label>Client email (required)
           <input v-model="proposeForm.clientEmail" type="email" placeholder="client@email.com" />
         </label>
@@ -265,6 +266,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import PractitionerShell from '../../layouts/PractitionerShell.vue';
 import api from '../../services/api';
+import { timezoneLabelFor } from '../../utils/timezones.js';
 import { usePractitionerDashboardData } from '../../composables/usePractitionerDashboardData';
 
 const route = useRoute();
@@ -417,12 +419,6 @@ const loadPipeline = async () => {
   }
 };
 
-onMounted(() => {
-  loadProspectives();
-  loadPipeline();
-  refreshDashboard();
-});
-
 const proposeOpen = ref(false);
 const proposeClient = ref(null);
 const proposeSaving = ref(false);
@@ -432,6 +428,40 @@ const proposeForm = ref({
   clientEmail: '',
   countdownMinutes: 15,
   options: [{ startLocal: '' }, { startLocal: '' }]
+});
+const scheduleTimezoneIana = ref('America/Denver');
+const scheduleTimezoneLabel = computed(() => timezoneLabelFor(scheduleTimezoneIana.value));
+
+async function loadScheduleTimezone() {
+  const agencyId = resolveAgencyId();
+  const agencyTz = String(
+    (agencyStore.currentAgency?.value ?? agencyStore.currentAgency)?.timezone || ''
+  ).trim();
+  if (agencyTz) {
+    scheduleTimezoneIana.value = agencyTz;
+    return;
+  }
+  try {
+    const r = await api.get('/offices');
+    const rows = Array.isArray(r.data) ? r.data : [];
+    const forAgency = agencyId
+      ? rows.filter((o) => {
+          const ids = Array.isArray(o?.agencyIds) ? o.agencyIds.map(Number) : [];
+          return ids.includes(agencyId) || Number(o?.agency_id || o?.agencyId || 0) === agencyId;
+        })
+      : rows;
+    const tz = String((forAgency[0] || rows[0])?.timezone || '').trim();
+    scheduleTimezoneIana.value = tz || 'America/Denver';
+  } catch {
+    scheduleTimezoneIana.value = 'America/Denver';
+  }
+}
+
+onMounted(() => {
+  loadProspectives();
+  loadPipeline();
+  refreshDashboard();
+  void loadScheduleTimezone();
 });
 
 function defaultLocalSlots() {
@@ -457,6 +487,7 @@ function openPropose(c) {
     options: defaultLocalSlots()
   };
   proposeOpen.value = true;
+  void loadScheduleTimezone();
 }
 
 function closePropose() {
@@ -736,6 +767,7 @@ async function debitSession(c) {
 .modal-card input {
   border: 1px solid #d1d5db; border-radius: 8px; padding: 0.45rem 0.55rem; font: inherit; font-weight: 500;
 }
+.tz-label { font-size: 0.8rem; font-weight: 700; color: #475569; margin: 0; }
 .opt-editor { display: grid; gap: 0.45rem; }
 .opt-row { display: flex; gap: 0.4rem; align-items: center; }
 .opt-row input { flex: 1; }

@@ -3,7 +3,10 @@
     <div class="header" data-tour="buildings-schedule-header">
       <div>
         <h3 style="margin: 0;" data-tour="buildings-schedule-title">Building Schedule</h3>
-        <div class="subtitle" data-tour="buildings-schedule-subtitle">Weekly office grid (7am–9pm).</div>
+        <div class="subtitle" data-tour="buildings-schedule-subtitle">
+          Weekly office grid (7am–9pm)
+          <span v-if="officeTimezoneLabel"> · Times are in {{ officeTimezoneLabel }}</span>
+        </div>
       </div>
       <div class="controls" data-tour="buildings-schedule-controls">
         <div class="field" data-tour="buildings-schedule-week">
@@ -291,6 +294,7 @@
         <div v-if="error" class="error-box" style="margin-bottom: 10px;">{{ error }}</div>
         <div class="muted" style="margin-bottom: 10px;">
           {{ modalSlot ? `${modalSlot.date} ${formatHour(modalSlot.hour)} — ${modalSlot.state}` : '' }}
+          <template v-if="officeTimezoneLabel"> · {{ officeTimezoneLabel }}</template>
         </div>
         <div class="recurrence-summary" v-if="modalSlot">
           <div><strong>Recurrence:</strong> {{ modalSlot.frequencyLabel || 'One-time' }}</div>
@@ -810,6 +814,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
+import { timezoneLabelFor } from '../utils/timezones.js';
 import PersonSearchSelect from '../components/schedule/PersonSearchSelect.vue';
 import ClinicalArtifactRetentionPanel from '../components/clinical/ClinicalArtifactRetentionPanel.vue';
 const route = useRoute();
@@ -853,6 +858,11 @@ const loading = ref(false);
 const refreshingEhrBookings = ref(false);
 const error = ref('');
 const grid = ref(null);
+const officeTimezoneIana = computed(() => {
+  const tz = String(grid.value?.location?.timezone || '').trim();
+  return tz || 'America/Denver';
+});
+const officeTimezoneLabel = computed(() => timezoneLabelFor(officeTimezoneIana.value));
 const weekStart = ref(new Date().toISOString().slice(0, 10));
 
 const searching = ref(false);

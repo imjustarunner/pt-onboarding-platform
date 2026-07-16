@@ -74,6 +74,13 @@
   border-radius: 999px;
   padding: 3px 10px;
 }
+.modal--new-request .nr-tz-label {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--nr-muted);
+  letter-spacing: 0.01em;
+}
 .modal--new-request .nr-close {
   border: none;
   background: transparent;

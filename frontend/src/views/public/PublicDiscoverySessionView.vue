@@ -27,6 +27,7 @@
         <section v-if="session.status === 'PROPOSED'" class="card">
           <h2>Available times</h2>
           <p class="hint">Select one option to book your discovery call. This link is private to you.</p>
+          <p v-if="scheduleTimezoneLabel" class="hint tz-label">Times are in {{ scheduleTimezoneLabel }}</p>
           <button
             v-for="(opt, idx) in session.proposedOptions || []"
             :key="idx"
@@ -47,6 +48,7 @@
         <section v-else-if="session.status === 'BOOKED'" class="card">
           <div class="confirmed">
             <div><span>When</span><strong>{{ bookedLabel }}</strong></div>
+            <div v-if="scheduleTimezoneLabel"><span>Timezone</span><strong>{{ scheduleTimezoneLabel }}</strong></div>
             <div><span>Duration</span><strong>{{ session.countdownMinutes || 15 }} minutes</strong></div>
             <div><span>Location</span><strong>Virtual</strong></div>
           </div>
@@ -83,6 +85,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import { timezoneLabelFor } from '../../utils/timezones.js';
 
 const route = useRoute();
 const token = computed(() => String(route.params.token || '').trim());
@@ -102,6 +105,12 @@ const videoMeta = ref({});
 const nowTick = ref(Date.now());
 let tickTimer = null;
 
+const scheduleTimezoneIana = computed(() => {
+  const tz = String(session.value?.timezone || agency.value?.timezone || '').trim();
+  return tz || 'America/Denver';
+});
+const scheduleTimezoneLabel = computed(() => timezoneLabelFor(scheduleTimezoneIana.value));
+
 const brandStyle = computed(() => {
   const p = agency.value.colorPalette || {};
   const primary = typeof p === 'object' ? p.primary || '#1b4332' : '#1b4332';
@@ -116,7 +125,8 @@ const bookedLabel = computed(() => {
     day: 'numeric',
     year: 'numeric',
     hour: 'numeric',
-    minute: '2-digit'
+    minute: '2-digit',
+    timeZone: scheduleTimezoneIana.value
   });
 });
 
@@ -157,13 +167,15 @@ function formatMs(ms) {
 
 function formatOption(opt) {
   const d = new Date(opt.startAt);
-  return d.toLocaleString('en-US', {
+  const when = d.toLocaleString('en-US', {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
-    minute: '2-digit'
+    minute: '2-digit',
+    timeZone: scheduleTimezoneIana.value
   });
+  return when;
 }
 
 async function load() {
@@ -298,6 +310,7 @@ onUnmounted(() => {
 }
 .primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .hint { color: #64748b; font-size: 0.85rem; margin: 0; }
+.tz-label { font-weight: 700; color: #475569; }
 .err { color: #b91c1c; }
 .state { padding: 2rem; text-align: center; }
 .confirmed { display: grid; gap: 0.55rem; }

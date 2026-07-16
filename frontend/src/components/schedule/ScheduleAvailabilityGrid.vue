@@ -663,6 +663,7 @@
               <div id="nr-title" class="nr-title">Schedule</div>
               <div class="nr-subtitle">{{ modalScheduleSubtitle }}</div>
               <div class="nr-slot-meta">{{ modalDay }} • {{ modalTimeRangeLabel }}</div>
+              <div v-if="bookingTimezoneLabel" class="nr-tz-label">Times are in {{ bookingTimezoneLabel }}</div>
             </div>
           </div>
           <button class="nr-close" type="button" aria-label="Close" @click="closeModal">
@@ -1885,6 +1886,9 @@
               <input v-model="supvEndIsoLocal" class="input" type="datetime-local" />
             </div>
           </div>
+          <p v-if="bookingTimezoneLabel" class="muted" style="margin-top: 6px; font-size: 12px;">
+            Times are in {{ bookingTimezoneLabel }}
+          </p>
 
           <div style="margin-top: 10px;">
             <label class="lbl">Notes</label>
@@ -2275,6 +2279,9 @@
                   <input v-model="googleEventEditForm.endAt" type="datetime-local" class="input" />
                 </div>
               </div>
+              <p v-if="bookingTimezoneLabel" class="muted" style="margin: -4px 0 12px; font-size: 12px;">
+                Times are in {{ bookingTimezoneLabel }}
+              </p>
               <div class="google-event-actions" style="display: flex; justify-content: space-between; align-items: center;">
                 <button type="button" class="btn btn-danger btn-sm" :disabled="googleEventSaving" @click="deleteGoogleEvent">Delete</button>
                 <div style="display: flex; gap: 8px;">
@@ -2413,6 +2420,7 @@ import { createCounselingSession, openCounselingFromAppointment } from '../../se
 import { isSupervisor } from '../../utils/helpers.js';
 import api from '../../services/api';
 import { getScheduleSummary, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
+import { timezoneLabelFor } from '../../utils/timezones.js';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useUserPreferencesStore } from '../../store/userPreferences';
@@ -7380,6 +7388,19 @@ const selectedOfficeLocationId = ref(0);
 const officeGridLoading = ref(false);
 const officeGridError = ref('');
 const officeGrid = ref(null); // { location, weekStart, days, hours, rooms, slots }
+
+/** IANA timezone for the selected (or first) office — schedule wall clock source of truth. */
+const bookingTimezoneIana = computed(() => {
+  const offices = officeLocations.value || [];
+  const selectedId = Number(selectedOfficeLocationId.value || modalContext.value?.officeLocationId || 0);
+  const selected = selectedId > 0
+    ? offices.find((o) => Number(o?.id || 0) === selectedId)
+    : null;
+  const fromOffice = String(selected?.timezone || offices[0]?.timezone || '').trim();
+  const fromGrid = String(officeGrid.value?.location?.timezone || '').trim();
+  return fromOffice || fromGrid || 'America/Denver';
+});
+const bookingTimezoneLabel = computed(() => timezoneLabelFor(bookingTimezoneIana.value));
 
 const actionAgencyOptions = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
