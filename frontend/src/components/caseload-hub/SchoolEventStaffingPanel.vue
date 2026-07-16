@@ -1,0 +1,490 @@
+<template>
+  <aside class="staffing-panel" data-tour="school-event-staffing">
+    <header class="panel-head">
+      <div>
+        <h2>{{ event?.title || 'Event staffing' }}</h2>
+        <p class="muted">
+          {{ event?.schoolName || 'Unassigned school' }}
+          <span v-if="event?.startsAt"> · {{ formatWhen(event.startsAt, event.endsAt) }}</span>
+        </p>
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm" @click="$emit('close')">Close</button>
+    </header>
+
+    <div v-if="!event" class="muted pad">Select an event to manage staffing.</div>
+    <div v-else-if="loading" class="muted pad">Loading staffing…</div>
+    <div v-else-if="error" class="error pad">{{ error }}</div>
+
+    <template v-else>
+      <div class="status-row">
+        <span class="sev" :class="sevClass(event.staffingStatus)">{{ labelStatus(event.staffingStatus) }}</span>
+        <span class="muted">
+          {{ event.providersAssigned || 0 }}/{{ event.providersRequested || 0 }} assigned
+          <template v-if="event.pendingRequests"> · {{ event.pendingRequests }} pending</template>
+        </span>
+      </div>
+
+      <div v-if="!staffingOpen" class="enable-box">
+        <p>
+          Provider applications are not open for this event yet. Opening staffing creates session dates and lets
+          providers apply; admins can approve and assign from here.
+        </p>
+        <button
+          v-if="canManage"
+          type="button"
+          class="btn btn-primary"
+          :disabled="enabling"
+          @click="enableStaffing"
+        >
+          {{ enabling ? 'Opening…' : 'Open for provider applications' }}
+        </button>
+        <p v-else class="muted">Ask an administrator to open this event for applications.</p>
+      </div>
+
+      <template v-else>
+        <p v-if="canApply" class="hint">
+          Providers can apply for open sessions below. Approvals assign them on the canonical company-event staffing tables.
+        </p>
+        <p v-else-if="canManage" class="hint">
+          Review pending applications and approve to assign, or deny. Providers apply from Caseload Hub, My Schedule, or Event shift requests.
+        </p>
+
+        <section v-for="s in sessions" :key="s.sessionDateId" class="session-card">
+          <div class="session-head">
+            <strong>{{ formatSession(s) }}</strong>
+            <span class="muted">
+              {{ s.approvedProvidersCount || 0 }}/{{ s.requiredProviders || 0 }} assigned
+              <template v-if="pendingCount(s)"> · {{ pendingCount(s) }} pending</template>
+            </span>
+          </div>
+
+          <div v-if="(s.approvedProviders || []).length" class="chip-row">
+            <span v-for="p in s.approvedProviders" :key="p.id" class="chip assigned">{{ p.name }}</span>
+          </div>
+          <p v-else class="muted tiny">No providers assigned yet.</p>
+
+          <div v-if="canManage" class="requests">
+            <h4>Applications</h4>
+            <div v-if="sessionRequestsLoading[s.sessionDateId]" class="muted tiny">Loading…</div>
+            <ul v-else class="req-list">
+              <li v-for="r in requestsFor(s.sessionDateId)" :key="r.id" class="req-row">
+                <div>
+                  <div class="primary">{{ r.providerName }}</div>
+                  <div class="muted tiny">{{ r.requestType }} · {{ r.status }}</div>
+                </div>
+                <div v-if="String(r.status).toLowerCase() === 'pending'" class="req-actions">
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    :disabled="decisionId === r.id"
+                    @click="approve(r)"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="decisionId === r.id"
+                    @click="deny(r)"
+                  >
+                    Deny
+                  </button>
+                </div>
+              </li>
+              <li v-if="!requestsFor(s.sessionDateId).length" class="muted tiny">No applications for this session.</li>
+            </ul>
+          </div>
+
+          <div v-if="canApply" class="apply-row">
+            <template v-if="myRequestFor(s.sessionDateId)">
+              <span class="pill">Your request: {{ myRequestFor(s.sessionDateId).status }}</span>
+              <button
+                v-if="String(myRequestFor(s.sessionDateId).status).toLowerCase() === 'pending'"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="savingSessionId === s.sessionDateId"
+                @click="withdraw(myRequestFor(s.sessionDateId).id)"
+              >
+                Withdraw
+              </button>
+            </template>
+            <button
+              v-else
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="savingSessionId === s.sessionDateId || isAssigned(s)"
+              @click="apply(s.sessionDateId)"
+            >
+              {{ isAssigned(s) ? 'Already assigned' : savingSessionId === s.sessionDateId ? 'Applying…' : 'Apply for this session' }}
+            </button>
+          </div>
+        </section>
+
+        <p v-if="!sessions.length" class="muted pad">
+          No session dates yet. Try opening staffing again, or edit the event dates in Event manager.
+        </p>
+      </template>
+
+      <p v-if="actionMsg" class="apply-msg">{{ actionMsg }}</p>
+      <p v-if="actionError" class="error">{{ actionError }}</p>
+    </template>
+  </aside>
+</template>
+
+<script setup>
+import { computed, ref, watch } from 'vue';
+import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
+import { enableSchoolEventStaffing } from '../../services/schoolCoverageApi';
+
+const props = defineProps({
+  event: { type: Object, default: null },
+  agencyId: { type: [Number, String], default: null }
+});
+
+const emit = defineEmits(['close', 'changed']);
+
+const authStore = useAuthStore();
+const role = computed(() => String(authStore.user?.role || '').toLowerCase());
+const canManage = computed(() =>
+  ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role.value)
+);
+const canApply = computed(() =>
+  [
+    'provider',
+    'provider_plus',
+    'intern',
+    'intern_plus',
+    'clinical_practice_assistant',
+    'admin',
+    'support',
+    'staff',
+    'super_admin'
+  ].includes(role.value)
+);
+
+const loading = ref(false);
+const enabling = ref(false);
+const error = ref('');
+const actionMsg = ref('');
+const actionError = ref('');
+const staffingSummary = ref(null);
+const myRequests = ref([]);
+const sessionRequests = ref({});
+const sessionRequestsLoading = ref({});
+const decisionId = ref(0);
+const savingSessionId = ref(0);
+
+const sessions = computed(() => staffingSummary.value?.sessions || []);
+const staffingOpen = computed(() => {
+  if (props.event?.staffingEnabled) return true;
+  const cfg = staffingSummary.value?.staffingConfig;
+  return !!(cfg && cfg.enabled !== false);
+});
+
+function labelStatus(s) {
+  return String(s || 'scheduled').replace(/_/g, ' ');
+}
+function sevClass(s) {
+  if (s === 'needs_providers' || s === 'partially_staffed') return 'critical';
+  if (s === 'requests_pending') return 'moderate';
+  if (s === 'fully_staffed') return 'informational';
+  return 'informational';
+}
+function formatWhen(a, b) {
+  try {
+    const s = new Date(a).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    if (!b) return s;
+    const e = new Date(b).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return `${s} – ${e}`;
+  } catch {
+    return String(a || '');
+  }
+}
+function formatSession(s) {
+  try {
+    const d = s.sessionDate || s.startsAt;
+    return new Date(d).toLocaleString(undefined, {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  } catch {
+    return `Session ${s.sessionDateId}`;
+  }
+}
+function pendingCount(s) {
+  const p = s?.requestStats?.pending || {};
+  return Number(p.regular || 0) + Number(p.waitlist || 0) + Number(p.on_call || 0);
+}
+function requestsFor(sessionDateId) {
+  return sessionRequests.value[sessionDateId] || [];
+}
+function myRequestFor(sessionDateId) {
+  return myRequests.value.find((r) => Number(r.sessionDateId) === Number(sessionDateId)) || null;
+}
+function isAssigned(s) {
+  const uid = Number(authStore.user?.id || 0);
+  return (s.approvedProviders || []).some((p) => Number(p.id) === uid);
+}
+
+async function loadAdminRequests(sessionDateId) {
+  if (!canManage.value || !props.agencyId || !props.event?.id) return;
+  sessionRequestsLoading.value = { ...sessionRequestsLoading.value, [sessionDateId]: true };
+  try {
+    const res = await api.get(`/company-events/${props.event.id}/session-requests`, {
+      params: { agencyId: props.agencyId, sessionDateId },
+      skipGlobalLoading: true
+    });
+    sessionRequests.value = {
+      ...sessionRequests.value,
+      [sessionDateId]: Array.isArray(res.data?.requests) ? res.data.requests : []
+    };
+  } catch {
+    sessionRequests.value = { ...sessionRequests.value, [sessionDateId]: [] };
+  } finally {
+    sessionRequestsLoading.value = { ...sessionRequestsLoading.value, [sessionDateId]: false };
+  }
+}
+
+async function reload() {
+  actionError.value = '';
+  if (!props.event?.id || !props.agencyId) {
+    staffingSummary.value = null;
+    myRequests.value = [];
+    sessionRequests.value = {};
+    return;
+  }
+  loading.value = true;
+  error.value = '';
+  try {
+    const [summaryRes, myRes] = await Promise.all([
+      api.get(`/company-events/${props.event.id}/session-staffing-summary`, {
+        params: { agencyId: props.agencyId },
+        skipGlobalLoading: true
+      }),
+      canApply.value
+        ? api.get(`/company-events/${props.event.id}/my-session-requests`, {
+            params: { agencyId: props.agencyId },
+            skipGlobalLoading: true
+          })
+        : Promise.resolve({ data: { requests: [] } })
+    ]);
+    staffingSummary.value = summaryRes.data || null;
+    myRequests.value = Array.isArray(myRes.data?.requests) ? myRes.data.requests : [];
+    const sess = staffingSummary.value?.sessions || [];
+    if (canManage.value) {
+      await Promise.all(sess.map((s) => loadAdminRequests(s.sessionDateId)));
+    }
+  } catch (e) {
+    staffingSummary.value = null;
+    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load staffing';
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function enableStaffing() {
+  if (!props.event?.id || !props.agencyId) return;
+  enabling.value = true;
+  actionError.value = '';
+  actionMsg.value = '';
+  try {
+    await enableSchoolEventStaffing(props.agencyId, props.event.id);
+    actionMsg.value = 'Event opened for provider applications.';
+    emit('changed');
+    await reload();
+  } catch (e) {
+    actionError.value = e?.response?.data?.error?.message || e?.message || 'Could not open staffing';
+  } finally {
+    enabling.value = false;
+  }
+}
+
+async function apply(sessionDateId) {
+  savingSessionId.value = sessionDateId;
+  actionError.value = '';
+  actionMsg.value = '';
+  try {
+    await api.post(
+      `/company-events/${props.event.id}/session-requests`,
+      { agencyId: props.agencyId, sessionDateId, requestType: 'regular' },
+      { skipGlobalLoading: true }
+    );
+    actionMsg.value = 'Application submitted. An admin will review it.';
+    emit('changed');
+    await reload();
+  } catch (e) {
+    actionError.value = e?.response?.data?.error?.message || e?.message || 'Could not apply';
+  } finally {
+    savingSessionId.value = 0;
+  }
+}
+
+async function withdraw(requestId) {
+  savingSessionId.value = -1;
+  actionError.value = '';
+  try {
+    await api.post(
+      `/company-events/${props.event.id}/session-requests/${requestId}/withdraw`,
+      { agencyId: props.agencyId },
+      { skipGlobalLoading: true }
+    );
+    actionMsg.value = 'Application withdrawn.';
+    emit('changed');
+    await reload();
+  } catch (e) {
+    actionError.value = e?.response?.data?.error?.message || e?.message || 'Could not withdraw';
+  } finally {
+    savingSessionId.value = 0;
+  }
+}
+
+async function approve(reqRow) {
+  decisionId.value = reqRow.id;
+  actionError.value = '';
+  try {
+    await api.post(
+      `/company-events/${props.event.id}/session-requests/${reqRow.id}/approve`,
+      { agencyId: props.agencyId },
+      { skipGlobalLoading: true }
+    );
+    actionMsg.value = `Approved ${reqRow.providerName}.`;
+    emit('changed');
+    await reload();
+  } catch (e) {
+    actionError.value = e?.response?.data?.error?.message || e?.message || 'Could not approve';
+  } finally {
+    decisionId.value = 0;
+  }
+}
+
+async function deny(reqRow) {
+  decisionId.value = reqRow.id;
+  actionError.value = '';
+  try {
+    await api.post(
+      `/company-events/${props.event.id}/session-requests/${reqRow.id}/deny`,
+      { agencyId: props.agencyId },
+      { skipGlobalLoading: true }
+    );
+    actionMsg.value = `Denied ${reqRow.providerName}.`;
+    emit('changed');
+    await reload();
+  } catch (e) {
+    actionError.value = e?.response?.data?.error?.message || e?.message || 'Could not deny';
+  } finally {
+    decisionId.value = 0;
+  }
+}
+
+watch(
+  () => [props.event?.id, props.agencyId],
+  () => {
+    actionMsg.value = '';
+    reload();
+  },
+  { immediate: true }
+);
+</script>
+
+<style scoped>
+.staffing-panel {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.9rem 1rem 1.1rem;
+  height: fit-content;
+  position: sticky;
+  top: 0.75rem;
+  max-height: calc(100vh - 6rem);
+  overflow: auto;
+}
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+  margin-bottom: 0.65rem;
+}
+.panel-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+.muted { color: #64748b; font-size: 0.8rem; margin: 0.15rem 0 0; }
+.tiny { font-size: 0.72rem; }
+.pad { padding: 0.75rem 0; }
+.hint { font-size: 0.8rem; color: #475569; margin: 0 0 0.75rem; }
+.status-row { display: flex; gap: 0.65rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem; }
+.enable-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.85rem;
+}
+.enable-box p { margin: 0 0 0.75rem; font-size: 0.875rem; color: #334155; }
+.session-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.7rem 0.75rem;
+  margin-bottom: 0.65rem;
+}
+.session-head { display: flex; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
+.chip-row { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.4rem; }
+.chip {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+.chip.assigned { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
+.requests h4 { margin: 0.5rem 0 0.35rem; font-size: 0.8rem; color: #475569; }
+.req-list { list-style: none; margin: 0; padding: 0; }
+.req-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.4rem 0;
+  border-top: 1px solid #f1f5f9;
+}
+.req-actions { display: flex; gap: 0.35rem; flex-shrink: 0; }
+.apply-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-top: 0.5rem; }
+.primary { font-weight: 600; font-size: 0.85rem; }
+.pill {
+  font-size: 0.75rem;
+  background: #ede9fe;
+  color: #5b21b6;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-size: 0.8rem;
+  cursor: pointer;
+  background: #fff;
+}
+.btn-sm { padding: 0.3rem 0.55rem; font-size: 0.75rem; }
+.btn-primary { background: #5b21b6; color: #fff; }
+.btn-secondary { border-color: #cbd5e1; color: #334155; }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.sev {
+  text-transform: capitalize;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.15rem 0.4rem;
+  border-radius: 999px;
+}
+.sev.critical { background: #fee2e2; color: #991b1b; }
+.sev.moderate { background: #fef3c7; color: #92400e; }
+.sev.informational { background: #e0e7ff; color: #3730a3; }
+.error { color: #991b1b; font-size: 0.85rem; margin: 0.5rem 0 0; }
+.apply-msg { color: #065f46; font-size: 0.85rem; margin: 0.5rem 0 0; }
+</style>

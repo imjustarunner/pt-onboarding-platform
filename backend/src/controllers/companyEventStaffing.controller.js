@@ -44,7 +44,15 @@ async function canRequestShifts(req, agencyId) {
   if (!(await userHasAgencyAccess(req, agencyId))) return false;
   const role = String(req.user?.role || '').toLowerCase();
   if (role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff') return true;
-  if (role === 'provider') return true;
+  if (
+    role === 'provider' ||
+    role === 'provider_plus' ||
+    role === 'intern' ||
+    role === 'intern_plus' ||
+    role === 'clinical_practice_assistant'
+  ) {
+    return true;
+  }
   return getProgramCoordinatorAccess(parsePositiveInt(req.user?.id));
 }
 

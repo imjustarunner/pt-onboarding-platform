@@ -9,6 +9,7 @@ import {
 import { getCoverageWarnings } from '../services/schoolCoverageWarnings.service.js';
 import { getOpenSchoolDays } from '../services/openSchoolDays.service.js';
 import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
+import { enableSchoolEventProviderStaffing } from '../services/schoolPortalEvents.service.js';
 import pool from '../config/database.js';
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -182,9 +183,10 @@ export const listHubEvents = async (req, res, next) => {
     let sql = `
       SELECT ce.id, ce.title, ce.description, ce.event_type, ce.starts_at, ce.ends_at,
              ce.timezone, ce.is_active, ce.organization_id, ce.outreach_table_invited,
-             ce.staffing_config_json, a.name AS school_name
+             ce.staffing_config_json, a.name AS school_name, sp.district_name
       FROM company_events ce
       LEFT JOIN agencies a ON a.id = ce.organization_id
+      LEFT JOIN school_profiles sp ON sp.school_organization_id = ce.organization_id
       WHERE ce.agency_id = ?
         AND (
           ce.event_type IN (
@@ -206,32 +208,89 @@ export const listHubEvents = async (req, res, next) => {
     }
     sql += ' ORDER BY ce.starts_at ASC LIMIT 500';
 
-    const [rows] = await pool.execute(sql, params);
+    let rows = [];
+    try {
+      const [result] = await pool.execute(sql, params);
+      rows = result || [];
+    } catch (e) {
+      // school_profiles may be missing in older envs
+      if (!String(e?.message || '').includes('school_profiles') && e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      let fallbackSql = `
+        SELECT ce.id, ce.title, ce.description, ce.event_type, ce.starts_at, ce.ends_at,
+               ce.timezone, ce.is_active, ce.organization_id, ce.outreach_table_invited,
+               ce.staffing_config_json, a.name AS school_name, NULL AS district_name
+        FROM company_events ce
+        LEFT JOIN agencies a ON a.id = ce.organization_id
+        WHERE ce.agency_id = ?
+          AND (ce.event_type LIKE 'school\\_%')
+          AND ce.is_active = ${archived ? 0 : 1}`;
+      const fallbackParams = [agencyId];
+      if (schoolId) {
+        fallbackSql += ' AND ce.organization_id = ?';
+        fallbackParams.push(schoolId);
+      }
+      fallbackSql += ' ORDER BY ce.starts_at ASC LIMIT 500';
+      const [result] = await pool.execute(fallbackSql, fallbackParams);
+      rows = result || [];
+    }
+
     const events = [];
     for (const r of rows || []) {
       let assigned = 0;
       let pending = 0;
       let requested = 1;
+      let staffingEnabled = false;
+      let providerSignupEnabled = false;
+      let assignedProviders = [];
       try {
         const cfg =
           typeof r.staffing_config_json === 'string'
             ? JSON.parse(r.staffing_config_json)
             : r.staffing_config_json || {};
+        staffingEnabled = !!(cfg && cfg.enabled !== false && r.staffing_config_json);
+        providerSignupEnabled = !!(cfg?.providerSignup?.enabled ?? staffingEnabled);
         requested = Number(cfg?.minProvidersPerSession || 1) || 1;
       } catch {
         requested = 1;
+        staffingEnabled = false;
+      }
+      // Legacy: outreach invitation implies staffable even if JSON missing/corrupt.
+      if (!staffingEnabled && r.outreach_table_invited) {
+        staffingEnabled = true;
+        providerSignupEnabled = true;
       }
       try {
         const [aRows] = await pool.execute(
-          `SELECT COUNT(DISTINCT csp.provider_user_id) AS cnt
+          `SELECT DISTINCT u.id, u.first_name, u.last_name
            FROM company_event_session_providers csp
            JOIN company_event_session_dates csd ON csd.id = csp.session_date_id
-           WHERE csd.company_event_id = ?`,
+           JOIN users u ON u.id = csp.provider_user_id
+           WHERE csd.company_event_id = ?
+           ORDER BY u.last_name ASC, u.first_name ASC
+           LIMIT 8`,
           [r.id]
         );
-        assigned = Number(aRows?.[0]?.cnt || 0);
+        assignedProviders = (aRows || []).map((p) => ({
+          id: Number(p.id),
+          firstName: p.first_name || '',
+          lastName: p.last_name || '',
+          name: `${p.first_name || ''} ${p.last_name || ''}`.trim() || `Provider ${p.id}`
+        }));
+        assigned = assignedProviders.length;
+        // If truncated, get true distinct count
+        if (assignedProviders.length >= 8) {
+          const [cRows] = await pool.execute(
+            `SELECT COUNT(DISTINCT csp.provider_user_id) AS cnt
+             FROM company_event_session_providers csp
+             JOIN company_event_session_dates csd ON csd.id = csp.session_date_id
+             WHERE csd.company_event_id = ?`,
+            [r.id]
+          );
+          assigned = Number(cRows?.[0]?.cnt || assigned);
+        }
       } catch {
         assigned = 0;
+        assignedProviders = [];
       }
       try {
         const [pRows] = await pool.execute(
@@ -245,13 +304,26 @@ export const listHubEvents = async (req, res, next) => {
       } catch {
         pending = 0;
       }
-      const remaining = Math.max(0, requested - assigned);
+      const remaining = staffingEnabled ? Math.max(0, requested - assigned) : 0;
+      const now = Date.now();
+      const startMs = r.starts_at ? new Date(r.starts_at).getTime() : NaN;
+      const endMs = r.ends_at ? new Date(r.ends_at).getTime() : startMs;
+      let lifecycleStatus = 'scheduled';
+      if (!r.is_active) lifecycleStatus = 'archived';
+      else if (Number.isFinite(endMs) && endMs < now) lifecycleStatus = 'completed';
+      else if (Number.isFinite(startMs) && startMs <= now + 14 * 86400000) lifecycleStatus = 'upcoming';
+      else lifecycleStatus = 'scheduled';
+
       let staffingStatus = 'scheduled';
       if (!r.is_active) staffingStatus = 'archived';
+      else if (!staffingEnabled) staffingStatus = 'not_open';
       else if (assigned === 0 && remaining > 0) staffingStatus = 'needs_providers';
       else if (pending > 0 && remaining > 0) staffingStatus = 'requests_pending';
       else if (remaining > 0) staffingStatus = 'partially_staffed';
       else staffingStatus = 'fully_staffed';
+
+      const isBackToSchool = String(r.event_type || '') === 'school_back_to_school';
+      const featured = !!(r.outreach_table_invited || (staffingEnabled && remaining > 0 && assigned === 0));
 
       events.push({
         id: r.id,
@@ -264,17 +336,35 @@ export const listHubEvents = async (req, res, next) => {
         isActive: !!(r.is_active === 1 || r.is_active === true),
         schoolId: r.organization_id != null ? Number(r.organization_id) : null,
         schoolName: r.school_name || null,
+        districtName: r.district_name || null,
         outreachTableInvited: !!r.outreach_table_invited,
-        providersRequested: requested,
+        staffingEnabled,
+        providerSignupEnabled,
+        providersRequested: staffingEnabled ? requested : 0,
         providersAssigned: assigned,
+        assignedProviders,
         pendingRequests: pending,
         remainingNeed: remaining,
         staffingStatus,
+        lifecycleStatus,
+        isBackToSchool,
+        featured,
         portalVisible: !!(r.organization_id && r.is_active)
       });
     }
 
-    res.json({ agencyId, refreshedAt: new Date().toISOString(), events });
+    const summary = {
+      totalEvents: events.length,
+      backToSchoolEvents: events.filter((e) => e.isBackToSchool).length,
+      schoolsInvolved: new Set(events.map((e) => e.schoolId).filter(Boolean)).size,
+      staffAssigned: events.reduce((sum, e) => sum + Number(e.providersAssigned || 0), 0),
+      upcomingEvents: events.filter((e) => e.lifecycleStatus === 'upcoming' || e.lifecycleStatus === 'scheduled').length,
+      completedEvents: events.filter((e) => e.lifecycleStatus === 'completed').length,
+      pendingRequests: events.reduce((sum, e) => sum + Number(e.pendingRequests || 0), 0),
+      needsProviders: events.filter((e) => e.staffingStatus === 'needs_providers' || e.staffingStatus === 'partially_staffed').length
+    };
+
+    res.json({ agencyId, refreshedAt: new Date().toISOString(), events, summary });
   } catch (e) {
     next(e);
   }
@@ -374,6 +464,32 @@ export const expireStaleRequests = async (req, res, next) => {
     );
     res.json({ ok: true, expired: result?.affectedRows || 0, days });
   } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Open a school event for provider applications (staffing config + session dates).
+ */
+export const enableEventStaffing = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await assertAgencyAccess(req, res, agencyId))) return;
+    if (!canManageCoverage(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const eventId = safeInt(req.params.eventId || req.body?.eventId);
+    if (!eventId) return res.status(400).json({ error: { message: 'eventId is required' } });
+    const minProviders = safeInt(req.body?.minProvidersPerSession) || 1;
+    const event = await enableSchoolEventProviderStaffing({
+      eventId,
+      agencyId,
+      userId: req.user?.id,
+      minProvidersPerSession: minProviders
+    });
+    res.json({ ok: true, event });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
 };

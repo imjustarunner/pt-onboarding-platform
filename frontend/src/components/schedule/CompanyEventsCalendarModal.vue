@@ -76,7 +76,13 @@ const events = ref([]);
 const requestingKey = ref('');
 
 const schoolOutreachEvents = computed(() =>
-  (events.value || []).filter((e) => e.canRequestOutreachShift || (e.isSchoolPortalEvent && e.outreachTableInvited))
+  (events.value || []).filter(
+    (e) =>
+      e.canRequestOutreachShift ||
+      (e.isSchoolPortalEvent &&
+        (e.outreachTableInvited ||
+          (e.staffingConfig?.enabled && e.staffingConfig?.providerSignup?.enabled !== false)))
+  )
 );
 
 const otherEvents = computed(() =>

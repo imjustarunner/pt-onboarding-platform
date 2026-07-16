@@ -583,6 +583,7 @@
                     </div>
                     <router-link :to="orgTo('/admin/school-portals-hub')" v-if="canSeeSchoolPortalsNav">School Portals</router-link>
                     <router-link :to="orgTo('/admin/caseload-hub/schools-staff')" v-if="canSeeSchoolPortalsNav">Caseload Hub</router-link>
+                    <router-link :to="orgTo('/admin/caseload-hub/events')" v-if="canSeeSchoolPortalsNav">School Events</router-link>
                     <router-link :to="orgTo('/admin/caseload-hub/calendar')" v-if="canSeeSchoolPortalsNav">School Calendar</router-link>
                     <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="canSeeProgramOverviewNav">Program Overview</router-link>
                     <router-link :to="orgTo('/admin/find-providers')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Provider Booking Interface</router-link>
@@ -1518,6 +1519,7 @@
 
                   <router-link :to="orgTo('/admin/school-portals-hub')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">School Portals</router-link>
                   <router-link :to="orgTo('/admin/caseload-hub/schools-staff')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Caseload Hub</router-link>
+                  <router-link :to="orgTo('/admin/caseload-hub/events')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">School Events</router-link>
                   <router-link :to="orgTo('/admin/caseload-hub/calendar')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">School Calendar</router-link>
                   <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="canSeeProgramOverviewNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Program Overview</router-link>
                   <router-link :to="orgTo('/admin/find-providers')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Provider Booking Interface</router-link>

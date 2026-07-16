@@ -159,7 +159,13 @@
         <h3>Upcoming events</h3>
         <ul class="simple-list">
           <li v-for="e in schoolDetail.events || []" :key="e.id">
-            {{ e.title }} · {{ formatDate(e.startAt) }}
+            <router-link
+              class="event-link"
+              :to="orgTo(`/admin/caseload-hub/events?eventId=${e.id}&tab=list`)"
+            >
+              {{ e.title }}
+            </router-link>
+            <span class="muted"> · {{ formatDate(e.startAt || e.startsAt) }}</span>
           </li>
           <li v-if="!(schoolDetail.events || []).length" class="muted">No school events.</li>
         </ul>
@@ -169,6 +175,7 @@
             class="btn btn-primary"
             :to="`/${schoolDetail.schoolSlug}/school-portal`"
           >Open school portal</router-link>
+          <router-link class="btn btn-secondary" :to="orgTo('/admin/caseload-hub/events')">School events</router-link>
           <button type="button" class="btn btn-secondary" @click="setTab('open-spots')">Open school spots</button>
         </div>
       </aside>
@@ -1577,6 +1584,14 @@ watch(
   padding: 0.4rem 0;
   border-bottom: 1px solid #f1f5f9;
   font-size: 0.875rem;
+}
+.event-link {
+  color: #5b21b6;
+  font-weight: 600;
+  text-decoration: none;
+}
+.event-link:hover {
+  text-decoration: underline;
 }
 .day-list li.danger {
   background: #fff1f2;

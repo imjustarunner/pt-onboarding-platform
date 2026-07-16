@@ -8,7 +8,7 @@
 
       <div class="body">
         <p class="muted intro">
-          Share your school's parent event with our team. If ITSCO is invited for an outreach table, staff can sign up from My Schedule.
+          Share your school's parent event with our team. Providers can apply to staff the event from Caseload Hub / My Schedule.
         </p>
 
         <label class="field">
@@ -194,8 +194,8 @@ const submit = async () => {
     success.value = props.editEvent?.id
       ? 'Event updated.'
       : form.outreachTableInvited
-        ? 'Event posted. Agency staff can sign up for outreach from My Schedule.'
-        : 'Event posted.';
+        ? 'Event posted. Providers can apply from Caseload Hub / My Schedule (outreach table noted).'
+        : 'Event posted. Providers can apply from Caseload Hub / My Schedule.';
     emit('saved', res.data);
     setTimeout(() => emit('close'), 1200);
   } catch (e) {

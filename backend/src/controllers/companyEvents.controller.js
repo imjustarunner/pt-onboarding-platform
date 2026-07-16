@@ -3518,7 +3518,10 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
         schoolName: row.school_name ? String(row.school_name).trim() : null,
         schoolSlug: String(row.school_portal_url || row.school_slug || '').trim() || null,
         sessions: sessionsByEvent.get(eid) || [],
-        canRequestOutreachShift: isSchoolEvent && !!(row.outreach_table_invited === 1 || row.outreach_table_invited === true)
+        canRequestOutreachShift:
+          isSchoolEvent &&
+          (!!(row.outreach_table_invited === 1 || row.outreach_table_invited === true) ||
+            !!(base.staffingConfig?.enabled && base.staffingConfig?.providerSignup?.enabled !== false))
       };
     });
 

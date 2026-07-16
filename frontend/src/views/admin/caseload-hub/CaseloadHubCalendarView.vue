@@ -3,7 +3,7 @@
     <header class="hub-header">
       <div>
         <h1>School Events Calendar</h1>
-        <p class="subtitle">Month, week, and list views of school events with staffing status.</p>
+        <p class="subtitle">View and manage school events, staffing, and special schedules.</p>
       </div>
       <div class="header-actions">
         <select v-if="agencies.length > 1" v-model="agencyId" class="agency-select" @change="reload">
@@ -17,85 +17,173 @@
         <button type="button" class="btn btn-secondary" @click="shift(-1)">‹</button>
         <button type="button" class="btn btn-secondary" @click="goToday">Today</button>
         <button type="button" class="btn btn-secondary" @click="shift(1)">›</button>
-        <router-link class="btn btn-primary" :to="orgTo('/admin/caseload-hub/events')">Event list</router-link>
+        <router-link class="btn btn-ghost" :to="orgTo('/admin/caseload-hub/events')">Event list</router-link>
+        <button type="button" class="btn btn-primary" @click="openAddEvent">+ Add Event</button>
       </div>
     </header>
 
     <div class="filters">
       <select v-model="schoolFilter">
-        <option value="">All schools</option>
+        <option value="">All Schools</option>
         <option v-for="s in schoolOptions" :key="s.id" :value="String(s.id)">{{ s.name }}</option>
       </select>
       <select v-model="typeFilter">
-        <option value="">All event types</option>
+        <option value="">All Event Types</option>
         <option value="school_back_to_school">Back to School</option>
         <option value="school_spring_event">Spring Event</option>
+        <option value="school_open_house">Open House</option>
+        <option value="school_resource_fair">Resource Fair</option>
+        <option value="school_family_night">Family Night</option>
+        <option value="school_orientation">Orientation</option>
+        <option value="school_other">Other</option>
       </select>
-      <select v-model="staffingFilter">
-        <option value="">All staffing</option>
-        <option value="needs_providers">Needs providers</option>
-        <option value="partially_staffed">Partially staffed</option>
-        <option value="fully_staffed">Fully staffed</option>
-      </select>
+      <span class="range-chip">{{ rangeLabel }}</span>
     </div>
 
     <div v-if="error" class="error-banner">{{ error }}</div>
     <div v-if="loading" class="loading">Loading calendar…</div>
 
     <template v-else>
-      <h2 class="range-label">{{ rangeLabel }}</h2>
+      <div class="kpi-row">
+        <div class="kpi"><strong>{{ metrics.upcoming }}</strong><span>Upcoming Events</span></div>
+        <div class="kpi"><strong>{{ metrics.schoolsAffected }}</strong><span>Schools Affected</span></div>
+        <div class="kpi"><strong>{{ metrics.sessionsImpacted }}</strong><span>Sessions Impacted</span></div>
+        <div class="kpi"><strong>{{ metrics.staffImpacted }}</strong><span>Staff Impacted</span></div>
+      </div>
 
-      <div v-if="view === 'list'" class="panel">
-        <div v-for="e in filteredEvents" :key="e.id" class="list-row">
-          <div class="dot" :class="colorFor(e)" />
-          <div>
-            <strong>{{ e.title }}</strong>
-            <div class="muted">{{ formatFull(e.startsAt) }} · {{ e.schoolName || '—' }} · {{ e.providersAssigned }}/{{ e.providersRequested }} staffed</div>
+      <div class="calendar-layout">
+        <div class="calendar-main">
+          <div v-if="view === 'list'" class="panel">
+            <button
+              v-for="e in filteredEvents"
+              :key="e.id"
+              type="button"
+              class="list-row list-row-btn"
+              @click="openEvent(e)"
+            >
+              <div class="dot" :class="typeColor(e)" />
+              <div>
+                <strong>{{ e.title }}</strong>
+                <div class="muted">
+                  {{ formatFull(e.startsAt) }} · {{ e.schoolName || '—' }} ·
+                  <template v-if="e.staffingEnabled">{{ e.providersAssigned }}/{{ e.providersRequested }} staffed</template>
+                  <template v-else>not open</template>
+                </div>
+              </div>
+            </button>
+            <p v-if="!filteredEvents.length" class="empty">No events in this range.</p>
+          </div>
+
+          <div v-else class="month-grid" :class="{ week: view === 'week' }">
+            <div v-for="dow in dowLabels" :key="dow" class="dow">{{ dow }}</div>
+            <div
+              v-for="cell in cells"
+              :key="cell.key"
+              class="cell"
+              :class="{ outside: cell.outside, today: cell.isToday }"
+            >
+              <div class="day-num">{{ cell.day }}</div>
+              <button
+                v-for="e in cell.events"
+                :key="e.id"
+                type="button"
+                class="evt"
+                :class="typeColor(e)"
+                :title="`${e.schoolName ? e.schoolName + ' — ' : ''}${e.title}`"
+                @click="openEvent(e)"
+              >
+                <span v-if="e.schoolName" class="evt-school">{{ shortSchool(e.schoolName) }}</span>
+                {{ e.title }}
+              </button>
+            </div>
+          </div>
+
+          <div class="legend">
+            <span><i class="lg bts" /> Back to School</span>
+            <span><i class="lg fair" /> Resource Fair / School Event</span>
+            <span><i class="lg open" /> Open House / Orientation</span>
+            <span><i class="lg family" /> Family Night</span>
+            <span><i class="lg spring" /> Spring / Other</span>
+            <span><i class="lg needs" /> Needs providers</span>
           </div>
         </div>
-        <p v-if="!filteredEvents.length" class="empty">No events in this range.</p>
-      </div>
 
-      <div v-else class="month-grid" :class="{ week: view === 'week' }">
-        <div v-for="dow in dowLabels" :key="dow" class="dow">{{ dow }}</div>
-        <div
-          v-for="cell in cells"
-          :key="cell.key"
-          class="cell"
-          :class="{ outside: cell.outside, today: cell.isToday }"
-        >
-          <div class="day-num">{{ cell.day }}</div>
-          <button
-            v-for="e in cell.events"
-            :key="e.id"
-            type="button"
-            class="evt"
-            :class="colorFor(e)"
-            :title="e.title"
-          >
-            {{ e.title }}
-          </button>
-        </div>
-      </div>
+        <aside class="side-panel">
+          <div class="mini-cal">
+            <div class="mini-head">
+              <button type="button" @click="shiftMini(-1)">‹</button>
+              <strong>{{ miniLabel }}</strong>
+              <button type="button" @click="shiftMini(1)">›</button>
+            </div>
+            <div class="mini-grid">
+              <span v-for="d in ['S','M','T','W','T','F','S']" :key="d" class="mini-dow">{{ d }}</span>
+              <button
+                v-for="c in miniCells"
+                :key="c.key"
+                type="button"
+                class="mini-day"
+                :class="{ outside: c.outside, today: c.isToday, has: c.hasEvents, active: c.key === selectedMiniKey }"
+                @click="jumpToDay(c.date)"
+              >
+                {{ c.day }}
+              </button>
+            </div>
+          </div>
 
-      <div class="legend">
-        <span><i class="lg needs" /> Needs providers</span>
-        <span><i class="lg partial" /> Partially staffed</span>
-        <span><i class="lg full" /> Fully staffed</span>
-        <span><i class="lg other" /> Scheduled</span>
+          <div class="side-block">
+            <h3>Event types</h3>
+            <label v-for="t in typeChecklist" :key="t.value" class="check">
+              <input v-model="enabledTypes" type="checkbox" :value="t.value" />
+              <i class="lg" :class="t.color" />
+              {{ t.label }}
+            </label>
+          </div>
+
+          <div class="side-block">
+            <h3>Quick filters</h3>
+            <button type="button" class="quick" @click="applyQuick('bts')">Back to School</button>
+            <button type="button" class="quick" @click="applyQuick('needs')">Needs providers</button>
+            <button type="button" class="quick" @click="applyQuick('clear')">Clear filters</button>
+          </div>
+        </aside>
       </div>
     </template>
+
+    <div v-if="showAddSchoolPicker" class="modal-backdrop" @click.self="showAddSchoolPicker = false">
+      <div class="modal-card">
+        <h2>Add school event</h2>
+        <p class="muted">Choose the school this event belongs to.</p>
+        <select v-model="addSchoolId" class="agency-select full">
+          <option :value="null">Select a school…</option>
+          <option v-for="s in schoolOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
+        </select>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" @click="showAddSchoolPicker = false">Cancel</button>
+          <button type="button" class="btn btn-primary" :disabled="!addSchoolId" @click="confirmAddSchool">Continue</button>
+        </div>
+      </div>
+    </div>
+
+    <PostSchoolEventModal
+      v-if="showPostModal && addSchoolId"
+      :school-organization-id="Number(addSchoolId)"
+      initial-category="back_to_school"
+      @close="showPostModal = false"
+      @saved="onEventSaved"
+    />
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../../store/auth';
 import { useAgencyStore } from '../../../store/agency';
-import { fetchHubEvents } from '../../../services/schoolCoverageApi';
+import { fetchHubEvents, fetchSchoolCoverageSummary } from '../../../services/schoolCoverageApi';
+import PostSchoolEventModal from '../../../components/school/PostSchoolEventModal.vue';
 
 const route = useRoute();
+const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 
@@ -108,9 +196,32 @@ const view = ref('month');
 const cursor = ref(startOfMonth(new Date()));
 const schoolFilter = ref('');
 const typeFilter = ref('');
-const staffingFilter = ref('');
+const staffingOnlyNeeds = ref(false);
+const schoolOptions = ref([]);
+const enabledTypes = ref([
+  'school_back_to_school',
+  'school_spring_event',
+  'school_open_house',
+  'school_resource_fair',
+  'school_family_night',
+  'school_orientation',
+  'school_other'
+]);
+const showAddSchoolPicker = ref(false);
+const showPostModal = ref(false);
+const addSchoolId = ref(null);
+const selectedMiniKey = ref('');
 
 const dowLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const typeChecklist = [
+  { value: 'school_back_to_school', label: 'Back to School', color: 'bts' },
+  { value: 'school_resource_fair', label: 'Resource Fair', color: 'fair' },
+  { value: 'school_open_house', label: 'Open House', color: 'open' },
+  { value: 'school_orientation', label: 'Orientation', color: 'open' },
+  { value: 'school_family_night', label: 'Family Night', color: 'family' },
+  { value: 'school_spring_event', label: 'Spring Event', color: 'spring' },
+  { value: 'school_other', label: 'Other school event', color: 'spring' }
+];
 
 function orgTo(path) {
   const slug = route.params.organizationSlug;
@@ -144,29 +255,39 @@ function shift(dir) {
   cursor.value = view.value === 'week' ? startOfWeek(d) : startOfMonth(d);
 }
 
+function shiftMini(dir) {
+  const d = startOfMonth(cursor.value);
+  d.setMonth(d.getMonth() + dir);
+  cursor.value = d;
+}
+
+function jumpToDay(date) {
+  selectedMiniKey.value = ymd(date);
+  cursor.value = view.value === 'week' ? startOfWeek(date) : startOfMonth(date);
+}
+
 const rangeLabel = computed(() => {
   const d = cursor.value;
   if (view.value === 'week') {
     const end = new Date(d);
     end.setDate(end.getDate() + 6);
-    return `${d.toLocaleDateString()} – ${end.toLocaleDateString()}`;
+    return `${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
   }
   return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 });
 
-const schoolOptions = computed(() => {
-  const map = new Map();
-  for (const e of events.value) {
-    if (e.schoolId) map.set(e.schoolId, { id: e.schoolId, name: e.schoolName || `School ${e.schoolId}` });
-  }
-  return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-});
+const miniLabel = computed(() =>
+  startOfMonth(cursor.value).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+);
 
 const filteredEvents = computed(() => {
   return events.value.filter((e) => {
     if (schoolFilter.value && String(e.schoolId) !== schoolFilter.value) return false;
     if (typeFilter.value && e.eventType !== typeFilter.value) return false;
-    if (staffingFilter.value && e.staffingStatus !== staffingFilter.value) return false;
+    if (enabledTypes.value.length && !enabledTypes.value.includes(e.eventType)) return false;
+    if (staffingOnlyNeeds.value && !['needs_providers', 'partially_staffed', 'requests_pending'].includes(e.staffingStatus)) {
+      return false;
+    }
     const t = e.startsAt ? new Date(e.startsAt) : null;
     if (!t || Number.isNaN(t.getTime())) return false;
     if (view.value === 'week') {
@@ -175,11 +296,23 @@ const filteredEvents = computed(() => {
       end.setDate(end.getDate() + 7);
       return t >= start && t < end;
     }
-    if (view.value === 'list' || view.value === 'month') {
-      return t.getMonth() === cursor.value.getMonth() && t.getFullYear() === cursor.value.getFullYear();
-    }
-    return true;
+    return t.getMonth() === cursor.value.getMonth() && t.getFullYear() === cursor.value.getFullYear();
   });
+});
+
+const metrics = computed(() => {
+  const list = filteredEvents.value;
+  const now = Date.now();
+  const upcoming = list.filter((e) => e.startsAt && new Date(e.startsAt).getTime() >= now).length;
+  const schools = new Set(list.map((e) => e.schoolId).filter(Boolean)).size;
+  const sessions = list.reduce((sum, e) => sum + Math.max(1, Number(e.providersRequested || 1)), 0);
+  const staff = list.reduce((sum, e) => sum + Number(e.providersAssigned || 0), 0);
+  return {
+    upcoming,
+    schoolsAffected: schools,
+    sessionsImpacted: sessions,
+    staffImpacted: staff
+  };
 });
 
 const cells = computed(() => {
@@ -225,11 +358,40 @@ const cells = computed(() => {
   return out;
 });
 
-function colorFor(e) {
+const miniCells = computed(() => {
+  const month = startOfMonth(cursor.value);
+  const gridStart = startOfWeek(month);
+  const byDay = new Set(filteredEvents.value.map((e) => ymd(new Date(e.startsAt))));
+  const out = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(gridStart);
+    d.setDate(gridStart.getDate() + i);
+    const key = ymd(d);
+    out.push({
+      key,
+      date: d,
+      day: d.getDate(),
+      outside: d.getMonth() !== month.getMonth(),
+      isToday: key === ymd(new Date()),
+      hasEvents: byDay.has(key)
+    });
+  }
+  return out;
+});
+
+function typeColor(e) {
   if (e.staffingStatus === 'needs_providers') return 'needs';
-  if (e.staffingStatus === 'partially_staffed' || e.staffingStatus === 'requests_pending') return 'partial';
-  if (e.staffingStatus === 'fully_staffed') return 'full';
-  return 'other';
+  const t = e.eventType;
+  if (t === 'school_back_to_school') return 'bts';
+  if (t === 'school_resource_fair' || t === 'school_other') return 'fair';
+  if (t === 'school_open_house' || t === 'school_orientation') return 'open';
+  if (t === 'school_family_night') return 'family';
+  return 'spring';
+}
+
+function shortSchool(name) {
+  const s = String(name || '');
+  return s.length > 18 ? `${s.slice(0, 16)}…` : s;
 }
 
 function formatFull(v) {
@@ -240,13 +402,65 @@ function formatFull(v) {
   }
 }
 
+function openEvent(e) {
+  if (!e?.id) return;
+  const tab = Number(e.pendingRequests || 0) > 0 ? 'provider-requests' : 'list';
+  router.push({
+    path: orgTo('/admin/caseload-hub/events'),
+    query: {
+      eventId: String(e.id),
+      tab,
+      type: '',
+      ...(agencyId.value ? { agencyId: String(agencyId.value) } : {})
+    }
+  });
+}
+
+function applyQuick(kind) {
+  if (kind === 'bts') {
+    typeFilter.value = 'school_back_to_school';
+    staffingOnlyNeeds.value = false;
+    enabledTypes.value = ['school_back_to_school'];
+  } else if (kind === 'needs') {
+    staffingOnlyNeeds.value = true;
+    typeFilter.value = '';
+  } else {
+    typeFilter.value = '';
+    staffingOnlyNeeds.value = false;
+    enabledTypes.value = typeChecklist.map((t) => t.value);
+  }
+}
+
+function openAddEvent() {
+  addSchoolId.value = schoolFilter.value ? Number(schoolFilter.value) : null;
+  if (addSchoolId.value) showPostModal.value = true;
+  else showAddSchoolPicker.value = true;
+}
+
+function confirmAddSchool() {
+  if (!addSchoolId.value) return;
+  showAddSchoolPicker.value = false;
+  showPostModal.value = true;
+}
+
+async function onEventSaved() {
+  showPostModal.value = false;
+  await reload();
+}
+
 async function reload() {
   if (!agencyId.value) return;
   loading.value = true;
   error.value = '';
   try {
-    const data = await fetchHubEvents(agencyId.value);
+    const [data, schools] = await Promise.all([
+      fetchHubEvents(agencyId.value),
+      fetchSchoolCoverageSummary(agencyId.value).catch(() => ({ schools: [] }))
+    ]);
     events.value = data.events || [];
+    schoolOptions.value = (schools.schools || [])
+      .map((s) => ({ id: s.schoolId, name: s.schoolName }))
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load calendar';
   } finally {
@@ -276,41 +490,410 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.hub-page { padding: 1rem 1.25rem 2rem; width: 100%; max-width: none; margin: 0; box-sizing: border-box; min-height: calc(100vh - 80px); }
-.hub-header { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
-.hub-header h1 { margin: 0 0 0.25rem; }
-.subtitle { margin: 0; color: #64748b; }
-.header-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
-.agency-select, .filters select { padding: 0.4rem 0.6rem; border: 1px solid #cbd5e1; border-radius: 6px; }
-.view-toggle { display: inline-flex; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; }
-.view-toggle button { border: 0; background: #fff; padding: 0.4rem 0.7rem; cursor: pointer; }
-.view-toggle button.active { background: #5b21b6; color: #fff; }
-.btn { display: inline-flex; padding: 0.4rem 0.75rem; border-radius: 6px; text-decoration: none; border: 1px solid #cbd5e1; background: #fff; color: #334155; cursor: pointer; font-size: 0.875rem; }
-.btn-primary { background: #5b21b6; color: #fff; border-color: transparent; }
-.filters { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
-.range-label { margin: 0 0 0.75rem; font-size: 1.1rem; }
-.month-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: #e2e8f0; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
-.month-grid.week .cell { min-height: 140px; }
-.dow { background: #f8fafc; padding: 0.45rem; font-size: 0.75rem; font-weight: 600; color: #64748b; text-align: center; }
-.cell { background: #fff; min-height: 100px; padding: 0.35rem; }
-.cell.outside { background: #f8fafc; color: #94a3b8; }
-.cell.today { outline: 2px solid #7c3aed; outline-offset: -2px; }
-.day-num { font-size: 0.75rem; font-weight: 600; margin-bottom: 0.25rem; }
-.evt { display: block; width: 100%; text-align: left; border: 0; border-radius: 4px; padding: 0.15rem 0.3rem; margin-bottom: 0.2rem; font-size: 0.68rem; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #fff; }
-.evt.needs, .lg.needs, .dot.needs { background: #dc2626; }
-.evt.partial, .lg.partial, .dot.partial { background: #ea580c; }
-.evt.full, .lg.full, .dot.full { background: #16a34a; }
-.evt.other, .lg.other, .dot.other { background: #7c3aed; }
-.legend { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.85rem; font-size: 0.8rem; color: #475569; }
-.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 0.3rem; }
-.panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 0.75rem; }
-.list-row { display: flex; gap: 0.65rem; padding: 0.55rem 0; border-bottom: 1px solid #f1f5f9; }
-.dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 0.35rem; flex-shrink: 0; }
-.muted { color: #64748b; font-size: 0.8rem; }
-.error-banner { background: #fef2f2; color: #991b1b; padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; }
-.empty, .loading { padding: 1.5rem; color: #64748b; text-align: center; }
+.hub-page {
+  padding: 1rem 1.25rem 2rem;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  box-sizing: border-box;
+  min-height: calc(100vh - 80px);
+  background: linear-gradient(180deg, #f8fafc 0%, #fff 220px);
+}
+.hub-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+.hub-header h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.65rem;
+  letter-spacing: -0.02em;
+}
+.subtitle {
+  margin: 0;
+  color: #64748b;
+}
+.header-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.agency-select,
+.filters select {
+  padding: 0.45rem 0.65rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+}
+.agency-select.full {
+  width: 100%;
+  margin: 0.75rem 0 1rem;
+}
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.view-toggle button {
+  border: 0;
+  background: #fff;
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+}
+.view-toggle button.active {
+  background: #2563eb;
+  color: #fff;
+}
+.btn {
+  display: inline-flex;
+  padding: 0.45rem 0.8rem;
+  border-radius: 8px;
+  text-decoration: none;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+.btn-primary {
+  background: #2563eb;
+  color: #fff;
+  border-color: transparent;
+}
+.btn-ghost {
+  border-color: transparent;
+  background: transparent;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.filters {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+  align-items: center;
+}
+.range-chip {
+  margin-left: auto;
+  font-weight: 650;
+  color: #334155;
+  font-size: 0.95rem;
+}
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+.kpi {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.85rem 0.9rem;
+}
+.kpi strong {
+  display: block;
+  font-size: 1.45rem;
+  letter-spacing: -0.02em;
+}
+.kpi span {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-weight: 600;
+}
+.calendar-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 17rem;
+  gap: 1rem;
+  align-items: start;
+}
+.calendar-main {
+  min-width: 0;
+}
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  background: #e2e8f0;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.month-grid.week .cell {
+  min-height: 150px;
+}
+.dow {
+  background: #f8fafc;
+  padding: 0.45rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #64748b;
+  text-align: center;
+}
+.cell {
+  background: #fff;
+  min-height: 108px;
+  padding: 0.35rem;
+}
+.cell.outside {
+  background: #f8fafc;
+  color: #94a3b8;
+}
+.cell.today {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+.day-num {
+  font-size: 0.75rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+.evt {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 5px;
+  padding: 0.18rem 0.3rem;
+  margin-bottom: 0.2rem;
+  font-size: 0.68rem;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #fff;
+  font-weight: 600;
+}
+.evt-school {
+  display: block;
+  font-size: 0.62rem;
+  opacity: 0.9;
+  font-weight: 500;
+}
+.evt.bts,
+.lg.bts {
+  background: #2563eb;
+}
+.evt.fair,
+.lg.fair {
+  background: #16a34a;
+}
+.evt.open,
+.lg.open {
+  background: #ea580c;
+}
+.evt.family,
+.lg.family {
+  background: #db2777;
+}
+.evt.spring,
+.lg.spring {
+  background: #7c3aed;
+}
+.evt.needs,
+.lg.needs {
+  background: #dc2626;
+}
+.legend {
+  display: flex;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+  margin-top: 0.85rem;
+  font-size: 0.8rem;
+  color: #475569;
+}
+.legend i,
+.side-block .lg {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 0.3rem;
+}
+.panel {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.75rem;
+}
+.list-row {
+  display: flex;
+  gap: 0.65rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+.list-row-btn {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.list-row-btn:hover {
+  background: #f8fafc;
+}
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: 0.35rem;
+  flex-shrink: 0;
+}
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  position: sticky;
+  top: 0.75rem;
+}
+.mini-cal,
+.side-block {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.75rem;
+}
+.mini-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+.mini-head button {
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 6px;
+  width: 1.75rem;
+  height: 1.75rem;
+  cursor: pointer;
+}
+.mini-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.mini-dow {
+  text-align: center;
+  font-size: 0.65rem;
+  color: #94a3b8;
+  font-weight: 700;
+  padding: 0.2rem 0;
+}
+.mini-day {
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  padding: 0.35rem 0;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.mini-day.outside {
+  color: #cbd5e1;
+}
+.mini-day.today {
+  font-weight: 800;
+  color: #2563eb;
+}
+.mini-day.has {
+  background: #eff6ff;
+}
+.mini-day.active {
+  background: #2563eb;
+  color: #fff;
+}
+.side-block h3 {
+  margin: 0 0 0.55rem;
+  font-size: 0.85rem;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: #334155;
+  margin-bottom: 0.4rem;
+  cursor: pointer;
+}
+.quick {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 0.45rem 0.6rem;
+  margin-bottom: 0.35rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.muted {
+  color: #64748b;
+  font-size: 0.8rem;
+}
+.error-banner {
+  background: #fef2f2;
+  color: #991b1b;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+.empty,
+.loading {
+  padding: 1.5rem;
+  color: #64748b;
+  text-align: center;
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 90;
+  padding: 1rem;
+}
+.modal-card {
+  width: min(28rem, 100%);
+  background: #fff;
+  border-radius: 14px;
+  padding: 1.15rem 1.2rem;
+  border: 1px solid #e2e8f0;
+}
+.modal-card h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.15rem;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+@media (max-width: 1100px) {
+  .calendar-layout {
+    grid-template-columns: 1fr;
+  }
+  .side-panel {
+    position: static;
+  }
+  .kpi-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 @media (max-width: 800px) {
-  .month-grid { font-size: 0.75rem; }
-  .cell { min-height: 72px; }
+  .month-grid {
+    font-size: 0.75rem;
+  }
+  .cell {
+    min-height: 72px;
+  }
 }
 </style>

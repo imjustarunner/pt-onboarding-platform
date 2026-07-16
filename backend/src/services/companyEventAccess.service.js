@@ -131,22 +131,49 @@ export async function isUserAssignedToAnyCompanyEventInAgency(userId, agencyId) 
   }
 }
 
-/** School portal parent events with optional outreach table staffing. */
+/** School portal parent events (staffable via company-event session requests). */
 export function isSchoolPortalEventType(eventType) {
   const t = String(eventType || '').trim().toLowerCase();
-  return t === 'school_back_to_school' || t === 'school_spring_event';
+  if (!t) return false;
+  if (t.startsWith('school_')) return true;
+  return (
+    t === 'school_back_to_school' ||
+    t === 'school_spring_event' ||
+    t === 'school_open_house' ||
+    t === 'school_resource_fair' ||
+    t === 'school_family_night' ||
+    t === 'school_orientation' ||
+    t === 'school_other'
+  );
+}
+
+function staffingSignupEnabled(staffingConfigJson) {
+  if (staffingConfigJson == null || staffingConfigJson === '') return false;
+  try {
+    const cfg =
+      typeof staffingConfigJson === 'string' ? JSON.parse(staffingConfigJson) : staffingConfigJson;
+    if (!cfg || cfg.enabled === false) return false;
+    if (cfg.providerSignup && cfg.providerSignup.enabled === false) return false;
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function isSchoolOutreachEvent(eventId) {
   const eid = parsePositiveInt(eventId);
   if (!eid) return false;
   const [rows] = await pool.execute(
-    `SELECT event_type, outreach_table_invited FROM company_events WHERE id = ? LIMIT 1`,
+    `SELECT event_type, outreach_table_invited, staffing_config_json FROM company_events WHERE id = ? LIMIT 1`,
     [eid]
   );
   const row = rows?.[0];
   if (!row) return false;
-  return isSchoolPortalEventType(row.event_type) && !!(row.outreach_table_invited === 1 || row.outreach_table_invited === true);
+  if (!isSchoolPortalEventType(row.event_type)) return false;
+  return (
+    !!(row.outreach_table_invited === 1 || row.outreach_table_invited === true) ||
+    staffingSignupEnabled(row.staffing_config_json)
+  );
 }
 
 /** Read-only event portal access: coordinators/staff or anyone assigned to the event. */

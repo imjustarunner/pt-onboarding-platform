@@ -3,111 +3,211 @@
     <header class="hub-header">
       <div>
         <h1>School Events</h1>
-        <p class="subtitle">View and manage school events and provider staffing. Canonical records are company events.</p>
+        <p class="subtitle">View and manage school events, provider staffing, and back-to-school outreach.</p>
       </div>
       <div class="header-actions">
         <select v-if="agencies.length > 1" v-model="agencyId" class="agency-select" @change="reload">
           <option v-for="a in agencies" :key="a.id" :value="Number(a.id)">{{ a.name }}</option>
         </select>
-        <router-link class="btn btn-secondary" :to="orgTo('/admin/company-events')">Event manager</router-link>
-        <router-link class="btn btn-primary" :to="orgTo('/admin/caseload-hub/calendar')">Calendar</router-link>
+        <router-link class="btn btn-ghost" :to="orgTo('/admin/caseload-hub/calendar')">Calendar</router-link>
+        <button type="button" class="btn btn-secondary" @click="exportCsv">Export</button>
+        <button type="button" class="btn btn-primary" @click="openAddEvent">+ Add Event</button>
       </div>
     </header>
 
     <nav class="hub-tabs">
-      <button type="button" class="hub-tab" :class="{ active: tab === 'list' }" @click="tab = 'list'">Event List</button>
-      <button type="button" class="hub-tab" :class="{ active: tab === 'provider-requests' }" @click="tab = 'provider-requests'">Provider Requests</button>
-      <button type="button" class="hub-tab" :class="{ active: tab === 'archived' }" @click="tab = 'archived'; reload()">Archived</button>
+      <router-link class="hub-tab" :to="orgTo('/admin/caseload-hub/calendar')">Calendar</router-link>
+      <button type="button" class="hub-tab" :class="{ active: tab === 'list' }" @click="setTab('list')">Event List</button>
+      <button type="button" class="hub-tab" :class="{ active: tab === 'provider-requests' }" @click="setTab('provider-requests')">
+        Provider Requests
+        <span v-if="pendingTotal" class="tab-badge">{{ pendingTotal }}</span>
+      </button>
+      <button type="button" class="hub-tab" :class="{ active: tab === 'archived' }" @click="setTab('archived')">Archived</button>
     </nav>
+
+    <div v-if="tab !== 'provider-requests' && tab !== 'archived'" class="filters-bar">
+      <label class="filter">
+        <span>Date range</span>
+        <div class="range-inputs">
+          <input v-model="dateFrom" type="date" />
+          <span class="muted">–</span>
+          <input v-model="dateTo" type="date" />
+        </div>
+      </label>
+      <label class="filter">
+        <span>School</span>
+        <select v-model="schoolFilter">
+          <option value="">All Schools</option>
+          <option v-for="s in schoolOptions" :key="s.id" :value="String(s.id)">{{ s.name }}</option>
+        </select>
+      </label>
+      <label class="filter">
+        <span>Status</span>
+        <select v-model="lifecycleFilter">
+          <option value="">All Statuses</option>
+          <option value="upcoming">Upcoming</option>
+          <option value="scheduled">Scheduled</option>
+          <option value="completed">Completed</option>
+        </select>
+      </label>
+      <input v-model="search" type="search" class="search" placeholder="Search events…" />
+    </div>
+
+    <div v-if="tab === 'list'" class="chip-row">
+      <button type="button" class="chip" :class="{ active: !typeFilter }" @click="typeFilter = ''">All types</button>
+      <button type="button" class="chip" :class="{ active: typeFilter === 'school_back_to_school' }" @click="typeFilter = 'school_back_to_school'">
+        Back to School
+      </button>
+      <button type="button" class="chip" :class="{ active: typeFilter === 'school_open_house' }" @click="typeFilter = 'school_open_house'">Open House</button>
+      <button type="button" class="chip" :class="{ active: typeFilter === 'school_resource_fair' }" @click="typeFilter = 'school_resource_fair'">Resource Fair</button>
+      <button type="button" class="chip" :class="{ active: typeFilter === 'school_family_night' }" @click="typeFilter = 'school_family_night'">Family Night</button>
+      <button type="button" class="chip" :class="{ active: typeFilter === 'school_orientation' }" @click="typeFilter = 'school_orientation'">Orientation</button>
+      <button type="button" class="chip" :class="{ active: typeFilter === 'school_spring_event' }" @click="typeFilter = 'school_spring_event'">Spring</button>
+      <button type="button" class="chip" :class="{ active: staffingFilter === 'needs_providers' }" @click="toggleStaffingFilter('needs_providers')">Needs providers</button>
+    </div>
 
     <div v-if="error" class="error-banner">{{ error }}</div>
     <div v-if="loading" class="loading">Loading events…</div>
 
-    <div v-else-if="tab === 'provider-requests'" class="panel">
-      <p class="muted">
-        Review and approve provider session requests in the staffing workspace.
-        Providers cannot assign themselves.
-      </p>
-      <router-link class="btn btn-primary" :to="orgTo('/schedule/event-staffing')">Open provider request review</router-link>
-      <table v-if="eventsNeedingReview.length" class="data-table" style="margin-top: 1rem;">
-        <thead>
-          <tr>
-            <th>Event</th>
-            <th>School</th>
-            <th>Pending</th>
-            <th>Assigned</th>
-            <th>Need</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="e in eventsNeedingReview" :key="e.id">
-            <td>{{ e.title }}</td>
-            <td>{{ e.schoolName || '—' }}</td>
-            <td>{{ e.pendingRequests }}</td>
-            <td>{{ e.providersAssigned }}</td>
-            <td>{{ e.remainingNeed }}</td>
-          </tr>
-        </tbody>
-      </table>
+    <template v-else>
+      <div v-if="tab === 'list'" class="kpi-row">
+        <div class="kpi"><strong>{{ kpis.totalEvents }}</strong><span>Total Events</span></div>
+        <div class="kpi accent"><strong>{{ kpis.backToSchoolEvents }}</strong><span>Back to School</span></div>
+        <div class="kpi"><strong>{{ kpis.schoolsInvolved }}</strong><span>Schools Involved</span></div>
+        <div class="kpi"><strong>{{ kpis.staffAssigned }}</strong><span>Staff Assigned</span></div>
+        <div class="kpi"><strong>{{ kpis.upcomingEvents }}</strong><span>Upcoming</span></div>
+        <div class="kpi"><strong>{{ kpis.completedEvents }}</strong><span>Completed</span></div>
+      </div>
+
+      <div class="split" :class="{ 'has-selection': !!selectedEvent }">
+        <div class="list-panel">
+          <div v-if="tab === 'provider-requests'" class="panel-intro">
+            <p class="muted">Pending provider applications. Select a row to approve or deny.</p>
+          </div>
+
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Date &amp; time</th>
+                <th>Event name</th>
+                <th>School</th>
+                <th>Event type</th>
+                <th>Assigned provider(s)</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="e in pagedList"
+                :key="e.id"
+                :class="{ selected: selectedEventId === e.id }"
+                @click="selectEvent(e.id)"
+              >
+                <td>
+                  <div class="primary">{{ formatDateLong(e.startsAt) }}</div>
+                  <div class="muted">{{ formatTimeRange(e.startsAt, e.endsAt) }}</div>
+                </td>
+                <td>
+                  <div class="name-cell">
+                    <span class="primary">{{ e.title }}</span>
+                    <span v-if="e.featured" class="featured">Featured</span>
+                  </div>
+                  <div class="muted clamp">{{ e.description || '—' }}</div>
+                </td>
+                <td>
+                  <div class="primary">{{ e.schoolName || '—' }}</div>
+                  <div class="muted">{{ e.districtName || '' }}</div>
+                </td>
+                <td><span class="type-pill" :class="typeClass(e.eventType)">{{ labelType(e.eventType) }}</span></td>
+                <td>
+                  <div v-if="(e.assignedProviders || []).length" class="provider-stack">
+                    <span
+                      v-for="p in (e.assignedProviders || []).slice(0, 3)"
+                      :key="p.id"
+                      class="avatar"
+                      :title="p.name"
+                    >{{ initials(p.name) }}</span>
+                    <span v-if="e.providersAssigned > 3" class="more">+{{ e.providersAssigned - 3 }}</span>
+                    <span class="provider-names">{{ providerNames(e) }}</span>
+                  </div>
+                  <span v-else-if="e.staffingEnabled" class="muted">Unassigned</span>
+                  <span v-else class="muted">Not open</span>
+                </td>
+                <td>
+                  <span class="life" :class="e.lifecycleStatus">{{ labelLifecycle(e.lifecycleStatus) }}</span>
+                  <div v-if="e.pendingRequests" class="muted tiny">{{ e.pendingRequests }} pending</div>
+                </td>
+                <td class="actions-cell" @click.stop>
+                  <button type="button" class="btn btn-secondary btn-sm" title="View staffing" @click="selectEvent(e.id)">
+                    View
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p v-if="!displayList.length" class="empty">No events found.</p>
+          <div v-else class="pager">
+            <span class="muted">Showing {{ pageStart }}–{{ pageEnd }} of {{ displayList.length }}</span>
+            <div class="pager-btns">
+              <button type="button" class="btn btn-secondary btn-sm" :disabled="page <= 1" @click="page -= 1">Prev</button>
+              <button type="button" class="btn btn-secondary btn-sm" :disabled="pageEnd >= displayList.length" @click="page += 1">Next</button>
+            </div>
+          </div>
+        </div>
+
+        <SchoolEventStaffingPanel
+          v-if="selectedEvent"
+          :event="selectedEvent"
+          :agency-id="agencyId"
+          @close="clearSelection"
+          @changed="onStaffingChanged"
+        />
+        <aside v-else class="detail-placeholder">
+          <p>Select an event to review staffing, open applications, approve requests, or apply.</p>
+        </aside>
+      </div>
+
+      <!-- provider-requests / archived reuse same split above via displayList -->
+    </template>
+
+    <!-- Add event: pick school then post -->
+    <div v-if="showAddSchoolPicker" class="modal-backdrop" @click.self="showAddSchoolPicker = false">
+      <div class="modal-card">
+        <h2>Add school event</h2>
+        <p class="muted">Choose the school this event belongs to.</p>
+        <select v-model="addSchoolId" class="agency-select full">
+          <option :value="null">Select a school…</option>
+          <option v-for="s in schoolOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
+        </select>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" @click="showAddSchoolPicker = false">Cancel</button>
+          <button type="button" class="btn btn-primary" :disabled="!addSchoolId" @click="confirmAddSchool">Continue</button>
+        </div>
+      </div>
     </div>
 
-    <div v-else class="panel">
-      <div class="list-toolbar">
-        <input v-model="search" type="search" class="search" placeholder="Search events…" />
-        <select v-model="statusFilter">
-          <option value="">All staffing statuses</option>
-          <option value="needs_providers">Needs providers</option>
-          <option value="requests_pending">Requests pending</option>
-          <option value="partially_staffed">Partially staffed</option>
-          <option value="fully_staffed">Fully staffed</option>
-        </select>
-      </div>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Date &amp; time</th>
-            <th>Event</th>
-            <th>School</th>
-            <th>Type</th>
-            <th>Providers</th>
-            <th>Status</th>
-            <th>Portal</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="e in filtered" :key="e.id">
-            <td>
-              <div class="primary">{{ formatDate(e.startsAt) }}</div>
-              <div class="muted">{{ formatTimeRange(e.startsAt, e.endsAt) }}</div>
-            </td>
-            <td>
-              <div class="primary">{{ e.title }}</div>
-              <div class="muted clamp">{{ e.description || '—' }}</div>
-            </td>
-            <td>{{ e.schoolName || '—' }}</td>
-            <td><span class="pill">{{ labelType(e.eventType) }}</span></td>
-            <td>
-              {{ e.providersAssigned }}/{{ e.providersRequested }}
-              <span v-if="e.pendingRequests" class="muted"> · {{ e.pendingRequests }} pending</span>
-            </td>
-            <td><span class="sev" :class="sevClass(e.staffingStatus)">{{ labelStatus(e.staffingStatus) }}</span></td>
-            <td>{{ e.portalVisible ? 'Visible' : 'Hidden' }}</td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-if="!filtered.length" class="empty">No events found.</p>
-    </div>
+    <PostSchoolEventModal
+      v-if="showPostModal && addSchoolId"
+      :school-organization-id="Number(addSchoolId)"
+      initial-category="back_to_school"
+      @close="showPostModal = false"
+      @saved="onEventSaved"
+    />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
-import { useRoute } from 'vue-router';
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../../store/auth';
 import { useAgencyStore } from '../../../store/agency';
-import { fetchHubEvents } from '../../../services/schoolCoverageApi';
+import { fetchHubEvents, fetchSchoolCoverageSummary } from '../../../services/schoolCoverageApi';
+import SchoolEventStaffingPanel from '../../../components/caseload-hub/SchoolEventStaffingPanel.vue';
+import PostSchoolEventModal from '../../../components/school/PostSchoolEventModal.vue';
 
 const route = useRoute();
+const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 
@@ -115,15 +215,41 @@ const tab = ref(String(route.query.tab || 'list'));
 const agencyId = ref(null);
 const agencies = computed(() => agencyStore.agencies || []);
 const events = ref([]);
+const summary = ref(null);
+const schoolOptions = ref([]);
 const loading = ref(false);
 const error = ref('');
 const search = ref('');
-const statusFilter = ref('');
+const schoolFilter = ref('');
+const typeFilter = ref(String(route.query.type || 'school_back_to_school'));
+const lifecycleFilter = ref('');
+const staffingFilter = ref('');
+const dateFrom = ref('');
+const dateTo = ref('');
+const selectedEventId = ref(null);
+const page = ref(1);
+const pageSize = 11;
+const showAddSchoolPicker = ref(false);
+const showPostModal = ref(false);
+const addSchoolId = ref(null);
 
 function orgTo(path) {
   const slug = route.params.organizationSlug;
   if (slug) return `/${slug}${path}`;
   return path;
+}
+
+function setTab(id) {
+  tab.value = id;
+  page.value = 1;
+  const q = { ...route.query, tab: id };
+  router.replace({ query: q });
+  reload();
+}
+
+function toggleStaffingFilter(v) {
+  staffingFilter.value = staffingFilter.value === v ? '' : v;
+  page.value = 1;
 }
 
 function labelType(t) {
@@ -132,28 +258,39 @@ function labelType(t) {
     school_spring_event: 'Spring Event',
     school_open_house: 'Open House',
     school_resource_fair: 'Resource Fair',
-    school_family_night: 'Family Night',
+    school_family_night: 'Family Event',
     school_orientation: 'Orientation',
-    school_other: 'Other'
+    school_other: 'School Event'
   };
   return map[t] || t || 'Event';
 }
 
-function labelStatus(s) {
-  return String(s || '').replace(/_/g, ' ');
+function typeClass(t) {
+  if (t === 'school_back_to_school') return 'bts';
+  if (t === 'school_resource_fair') return 'fair';
+  if (t === 'school_open_house') return 'open';
+  if (t === 'school_orientation') return 'orient';
+  if (t === 'school_family_night') return 'family';
+  if (t === 'school_spring_event') return 'spring';
+  return 'other';
 }
 
-function sevClass(s) {
-  if (s === 'needs_providers' || s === 'partially_staffed') return 'critical';
-  if (s === 'requests_pending') return 'moderate';
-  if (s === 'fully_staffed') return 'informational';
-  return 'informational';
+function labelLifecycle(s) {
+  if (s === 'upcoming') return 'Upcoming';
+  if (s === 'completed') return 'Completed';
+  if (s === 'archived') return 'Archived';
+  return 'Scheduled';
 }
 
-function formatDate(v) {
+function formatDateLong(v) {
   if (!v) return '—';
   try {
-    return new Date(v).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    return new Date(v).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      weekday: 'short'
+    });
   } catch {
     return String(v);
   }
@@ -169,6 +306,24 @@ function formatTimeRange(a, b) {
   }
 }
 
+function initials(name) {
+  const parts = String(name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
+}
+
+function providerNames(e) {
+  const list = e.assignedProviders || [];
+  if (!list.length) return '';
+  if (list.length === 1) return list[0].name;
+  if (e.providersAssigned > 3) return `${list[0].name} +${e.providersAssigned - 1}`;
+  return list.map((p) => p.name.split(' ')[0]).join(', ');
+}
+
 const filtered = computed(() => {
   let list = events.value;
   const q = search.value.trim().toLowerCase();
@@ -176,29 +331,140 @@ const filtered = computed(() => {
     list = list.filter(
       (e) =>
         String(e.title || '').toLowerCase().includes(q) ||
-        String(e.schoolName || '').toLowerCase().includes(q)
+        String(e.schoolName || '').toLowerCase().includes(q) ||
+        String(e.description || '').toLowerCase().includes(q)
     );
   }
-  if (statusFilter.value) list = list.filter((e) => e.staffingStatus === statusFilter.value);
+  if (schoolFilter.value) list = list.filter((e) => String(e.schoolId) === schoolFilter.value);
+  if (typeFilter.value) list = list.filter((e) => e.eventType === typeFilter.value);
+  if (lifecycleFilter.value) list = list.filter((e) => e.lifecycleStatus === lifecycleFilter.value);
+  if (staffingFilter.value) {
+    list = list.filter(
+      (e) => e.staffingStatus === staffingFilter.value || (staffingFilter.value === 'needs_providers' && e.staffingStatus === 'partially_staffed')
+    );
+  }
+  if (dateFrom.value) {
+    const from = new Date(`${dateFrom.value}T00:00:00`).getTime();
+    list = list.filter((e) => !e.startsAt || new Date(e.startsAt).getTime() >= from);
+  }
+  if (dateTo.value) {
+    const to = new Date(`${dateTo.value}T23:59:59`).getTime();
+    list = list.filter((e) => !e.startsAt || new Date(e.startsAt).getTime() <= to);
+  }
   return list;
 });
 
-const eventsNeedingReview = computed(() =>
-  events.value.filter((e) => e.pendingRequests > 0 || e.remainingNeed > 0)
-);
+const eventsNeedingReview = computed(() => events.value.filter((e) => Number(e.pendingRequests || 0) > 0));
+const pendingTotal = computed(() => events.value.reduce((sum, e) => sum + Number(e.pendingRequests || 0), 0));
+
+const displayList = computed(() => {
+  if (tab.value === 'provider-requests') return eventsNeedingReview.value;
+  return filtered.value;
+});
+
+const kpis = computed(() => {
+  const list = filtered.value;
+  return {
+    totalEvents: list.length,
+    backToSchoolEvents: list.filter((e) => e.isBackToSchool || e.eventType === 'school_back_to_school').length,
+    schoolsInvolved: new Set(list.map((e) => e.schoolId).filter(Boolean)).size,
+    staffAssigned: list.reduce((sum, e) => sum + Number(e.providersAssigned || 0), 0),
+    upcomingEvents: list.filter((e) => e.lifecycleStatus === 'upcoming').length,
+    completedEvents: list.filter((e) => e.lifecycleStatus === 'completed').length
+  };
+});
+
+const pageStart = computed(() => (displayList.value.length ? (page.value - 1) * pageSize + 1 : 0));
+const pageEnd = computed(() => Math.min(page.value * pageSize, displayList.value.length));
+const pagedList = computed(() => displayList.value.slice((page.value - 1) * pageSize, page.value * pageSize));
+
+const selectedEvent = computed(() => events.value.find((e) => e.id === selectedEventId.value) || null);
+
+watch([search, schoolFilter, typeFilter, lifecycleFilter, staffingFilter, dateFrom, dateTo, tab], () => {
+  page.value = 1;
+});
+
+function selectEvent(id) {
+  selectedEventId.value = Number(id);
+  router.replace({ query: { ...route.query, eventId: String(id), tab: tab.value } });
+}
+
+function clearSelection() {
+  selectedEventId.value = null;
+  const q = { ...route.query };
+  delete q.eventId;
+  router.replace({ query: q });
+}
+
+function openAddEvent() {
+  addSchoolId.value = schoolFilter.value ? Number(schoolFilter.value) : null;
+  if (addSchoolId.value) {
+    showPostModal.value = true;
+  } else {
+    showAddSchoolPicker.value = true;
+  }
+}
+
+function confirmAddSchool() {
+  if (!addSchoolId.value) return;
+  showAddSchoolPicker.value = false;
+  showPostModal.value = true;
+}
+
+async function onEventSaved() {
+  showPostModal.value = false;
+  await reload();
+}
+
+function exportCsv() {
+  const rows = displayList.value;
+  const header = ['Date', 'Title', 'School', 'Type', 'Assigned', 'Status', 'Pending'];
+  const lines = [header.join(',')];
+  for (const e of rows) {
+    lines.push(
+      [
+        e.startsAt ? new Date(e.startsAt).toISOString() : '',
+        JSON.stringify(e.title || ''),
+        JSON.stringify(e.schoolName || ''),
+        e.eventType || '',
+        e.providersAssigned || 0,
+        e.lifecycleStatus || '',
+        e.pendingRequests || 0
+      ].join(',')
+    );
+  }
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'school-events.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 async function reload() {
   if (!agencyId.value) return;
   loading.value = true;
   error.value = '';
   try {
-    const data = await fetchHubEvents(agencyId.value, { archived: tab.value === 'archived' });
+    const [data, schools] = await Promise.all([
+      fetchHubEvents(agencyId.value, { archived: tab.value === 'archived' }),
+      fetchSchoolCoverageSummary(agencyId.value).catch(() => ({ schools: [] }))
+    ]);
     events.value = data.events || [];
+    summary.value = data.summary || null;
+    schoolOptions.value = (schools.schools || [])
+      .map((s) => ({ id: s.schoolId, name: s.schoolName }))
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load events';
   } finally {
     loading.value = false;
   }
+}
+
+async function onStaffingChanged() {
+  await reload();
 }
 
 onMounted(async () => {
@@ -214,36 +480,460 @@ onMounted(async () => {
     Number(agencies.value[0]?.id) ||
     null;
   if (route.query.tab) tab.value = String(route.query.tab);
+  if (route.query.eventId) selectedEventId.value = Number(route.query.eventId);
+  if (route.query.type !== undefined) typeFilter.value = String(route.query.type || '');
+  // Default BTS chip for Event List; clear when deep-linking to provider-requests / archived
+  if (tab.value === 'provider-requests' || tab.value === 'archived') typeFilter.value = '';
   await reload();
+  if (!selectedEventId.value && tab.value === 'provider-requests' && eventsNeedingReview.value[0]) {
+    selectEvent(eventsNeedingReview.value[0].id);
+  }
 });
+
+watch(
+  () => route.query.eventId,
+  (v) => {
+    if (v) selectedEventId.value = Number(v);
+  }
+);
 </script>
 
 <style scoped>
-.hub-page { padding: 1rem 1.25rem 2rem; width: 100%; max-width: none; margin: 0; box-sizing: border-box; min-height: calc(100vh - 80px); }
-.hub-header { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
-.hub-header h1 { margin: 0 0 0.25rem; }
-.subtitle { margin: 0; color: #64748b; }
-.header-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
-.agency-select, .search, .list-toolbar select { padding: 0.4rem 0.6rem; border: 1px solid #cbd5e1; border-radius: 6px; }
-.btn { display: inline-flex; padding: 0.45rem 0.85rem; border-radius: 6px; text-decoration: none; border: 1px solid transparent; font-size: 0.875rem; }
-.btn-primary { background: #5b21b6; color: #fff; }
-.btn-secondary { background: #fff; border-color: #cbd5e1; color: #334155; }
-.hub-tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid #e2e8f0; margin-bottom: 1rem; }
-.hub-tab { border: 0; background: transparent; padding: 0.65rem 0.9rem; cursor: pointer; color: #64748b; border-bottom: 2px solid transparent; margin-bottom: -1px; }
-.hub-tab.active { color: #5b21b6; border-bottom-color: #5b21b6; font-weight: 600; }
-.panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 0.85rem; }
-.list-toolbar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
-.search { flex: 1; min-width: 160px; }
-.data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
-.data-table th, .data-table td { text-align: left; padding: 0.55rem 0.4rem; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
-.primary { font-weight: 600; }
-.muted { color: #64748b; font-size: 0.8rem; }
-.clamp { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pill { background: #ede9fe; color: #5b21b6; padding: 0.15rem 0.45rem; border-radius: 999px; font-size: 0.75rem; }
-.sev { text-transform: capitalize; font-size: 0.75rem; font-weight: 600; padding: 0.15rem 0.4rem; border-radius: 999px; }
-.sev.critical { background: #fee2e2; color: #991b1b; }
-.sev.moderate { background: #fef3c7; color: #92400e; }
-.sev.informational { background: #e0e7ff; color: #3730a3; }
-.error-banner { background: #fef2f2; color: #991b1b; padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; }
-.empty, .loading { padding: 1.5rem; color: #64748b; text-align: center; }
+.hub-page {
+  padding: 1rem 1.25rem 2rem;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  box-sizing: border-box;
+  min-height: calc(100vh - 80px);
+  background: linear-gradient(180deg, #f8fafc 0%, #fff 220px);
+}
+.hub-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+.hub-header h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.65rem;
+  letter-spacing: -0.02em;
+}
+.subtitle {
+  margin: 0;
+  color: #64748b;
+}
+.header-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.agency-select,
+.filters-bar select,
+.filters-bar input,
+.range-inputs input,
+.search {
+  padding: 0.45rem 0.65rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 0.875rem;
+}
+.agency-select.full {
+  width: 100%;
+  margin: 0.75rem 0 1rem;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 0.9rem;
+  border-radius: 8px;
+  text-decoration: none;
+  border: 1px solid transparent;
+  font-size: 0.875rem;
+  cursor: pointer;
+  background: #fff;
+}
+.btn-sm {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+}
+.btn-primary {
+  background: #2563eb;
+  color: #fff;
+}
+.btn-secondary {
+  border-color: #cbd5e1;
+  color: #334155;
+}
+.btn-ghost {
+  border-color: transparent;
+  color: #475569;
+  background: transparent;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.hub-tabs {
+  display: flex;
+  gap: 0.15rem;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 0.85rem;
+}
+.hub-tab {
+  border: 0;
+  background: transparent;
+  padding: 0.7rem 0.95rem;
+  cursor: pointer;
+  color: #64748b;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  text-decoration: none;
+  font-size: 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.hub-tab.active {
+  color: #1d4ed8;
+  border-bottom-color: #2563eb;
+  font-weight: 650;
+}
+.tab-badge {
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+}
+.filters-bar {
+  display: flex;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  align-items: end;
+  margin-bottom: 0.65rem;
+}
+.filter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #64748b;
+}
+.range-inputs {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+.search {
+  flex: 1;
+  min-width: 180px;
+  align-self: end;
+}
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.85rem;
+}
+.chip {
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #475569;
+  border-radius: 999px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.chip.active {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+  font-weight: 650;
+}
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+.kpi {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.85rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.kpi strong {
+  font-size: 1.45rem;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+}
+.kpi span {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-weight: 600;
+}
+.kpi.accent {
+  border-color: #bfdbfe;
+  background: linear-gradient(180deg, #eff6ff, #fff);
+}
+.split {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+.split.has-selection {
+  grid-template-columns: minmax(0, 1.45fr) minmax(20rem, 0.85fr);
+}
+.list-panel {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 0.35rem 0.65rem 0.75rem;
+  min-width: 0;
+  overflow: auto;
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.data-table th,
+.data-table td {
+  text-align: left;
+  padding: 0.7rem 0.45rem;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: top;
+}
+.data-table th {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+}
+.data-table tbody tr {
+  cursor: pointer;
+}
+.data-table tbody tr.selected,
+.data-table tbody tr:hover {
+  background: #f8fafc;
+}
+.primary {
+  font-weight: 650;
+  color: #0f172a;
+}
+.muted {
+  color: #64748b;
+  font-size: 0.8rem;
+}
+.tiny {
+  font-size: 0.72rem;
+}
+.clamp {
+  max-width: 240px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.name-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.featured {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #6d28d9;
+  background: #ede9fe;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+}
+.type-pill {
+  display: inline-flex;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+.type-pill.bts {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.type-pill.fair {
+  background: #dcfce7;
+  color: #166534;
+}
+.type-pill.open {
+  background: #ffedd5;
+  color: #c2410c;
+}
+.type-pill.orient {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+.type-pill.family {
+  background: #fce7f3;
+  color: #9d174d;
+}
+.type-pill.spring {
+  background: #ecfccb;
+  color: #3f6212;
+}
+.type-pill.other {
+  background: #f1f5f9;
+  color: #475569;
+}
+.provider-stack {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+.avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1e40af;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  border: 2px solid #fff;
+  margin-left: -6px;
+}
+.avatar:first-child {
+  margin-left: 0;
+}
+.more {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748b;
+}
+.provider-names {
+  font-size: 0.78rem;
+  color: #334155;
+  margin-left: 0.25rem;
+}
+.life {
+  display: inline-flex;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+.life.scheduled {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.life.upcoming {
+  background: #ffedd5;
+  color: #c2410c;
+}
+.life.completed {
+  background: #e2e8f0;
+  color: #475569;
+}
+.life.archived {
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+.actions-cell {
+  white-space: nowrap;
+}
+.icon-btn {
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 8px;
+  width: 2rem;
+  height: 2rem;
+  cursor: pointer;
+}
+.pager {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.25rem 0.15rem;
+  flex-wrap: wrap;
+}
+.pager-btns {
+  display: flex;
+  gap: 0.4rem;
+}
+.error-banner {
+  background: #fef2f2;
+  color: #991b1b;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+.empty,
+.loading {
+  padding: 1.5rem;
+  color: #64748b;
+  text-align: center;
+}
+.detail-placeholder {
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 14px;
+  padding: 1.5rem;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 12rem;
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 90;
+  padding: 1rem;
+}
+.modal-card {
+  width: min(28rem, 100%);
+  background: #fff;
+  border-radius: 14px;
+  padding: 1.15rem 1.2rem;
+  border: 1px solid #e2e8f0;
+}
+.modal-card h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.15rem;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+@media (max-width: 1100px) {
+  .kpi-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .split.has-selection {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 700px) {
+  .kpi-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 </style>

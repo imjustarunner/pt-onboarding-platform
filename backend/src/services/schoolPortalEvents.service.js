@@ -95,16 +95,63 @@ export async function findExistingSchoolEventForYear({ organizationId, eventType
   return rows?.[0] || null;
 }
 
-function buildOutreachStaffingConfig() {
+export function buildSchoolEventStaffingConfig({ minProvidersPerSession = 1 } = {}) {
   return {
     enabled: true,
-    minProvidersPerSession: 1,
+    minProvidersPerSession: Math.max(1, Number(minProvidersPerSession) || 1),
     clientRule: { enabled: false, confirmedStepSize: 1, additionalProvidersPerStep: 0, threshold: null },
     groupRule: { enabled: false, baseProvidersForOneGroup: 0, additionalProvidersPerGroup: 0 },
     onCall: { enabled: false, leadHours: 0 },
     waitlist: { enabled: false },
     providerSignup: { enabled: true }
   };
+}
+
+/** @deprecated use buildSchoolEventStaffingConfig */
+function buildOutreachStaffingConfig() {
+  return buildSchoolEventStaffingConfig();
+}
+
+/**
+ * Enable provider apply/assign staffing on a school company_event and materialize sessions.
+ * Used by Caseload Hub so events are staffable even if posted without outreach checkbox.
+ */
+export async function enableSchoolEventProviderStaffing({
+  eventId,
+  agencyId,
+  userId,
+  minProvidersPerSession = 1
+}) {
+  const eid = Number(eventId);
+  const aid = Number(agencyId);
+  if (!eid || !aid) throw Object.assign(new Error('eventId and agencyId are required'), { status: 400 });
+
+  const [rows] = await pool.execute(
+    `SELECT id, event_type, organization_id, staffing_config_json, outreach_table_invited
+     FROM company_events
+     WHERE id = ? AND agency_id = ?
+     LIMIT 1`,
+    [eid, aid]
+  );
+  const row = rows?.[0];
+  if (!row) throw Object.assign(new Error('Event not found'), { status: 404 });
+  if (!isSchoolPortalEventType(row.event_type)) {
+    throw Object.assign(new Error('Not a school portal event'), { status: 400 });
+  }
+
+  const staffingConfig = buildSchoolEventStaffingConfig({ minProvidersPerSession });
+  await pool.execute(
+    `UPDATE company_events
+     SET staffing_config_json = ?,
+         updated_by_user_id = ?
+     WHERE id = ? AND agency_id = ?`,
+    [JSON.stringify(staffingConfig), userId || null, eid, aid]
+  );
+  await materializeSessionsForEvent(pool, { companyEventId: eid });
+
+  const [next] = await pool.execute('SELECT * FROM company_events WHERE id = ? LIMIT 1', [eid]);
+  const schoolMeta = await loadSchoolMeta(row.organization_id);
+  return mapSchoolEventRow(next?.[0], schoolMeta);
 }
 
 export function mapSchoolEventRow(row, schoolMeta = {}) {
@@ -191,7 +238,8 @@ export async function createSchoolPortalEvent({
     }
   }
 
-  const staffingConfig = outreachTableInvited ? buildOutreachStaffingConfig() : null;
+  // School portal events are staffable by default so providers can apply from hub / schedule.
+  const staffingConfig = buildSchoolEventStaffingConfig();
 
   const [insertResult] = await pool.execute(
     `INSERT INTO company_events
@@ -215,14 +263,12 @@ export async function createSchoolPortalEvent({
       outreachTableInvited ? 1 : 0,
       eventImageUrl || null,
       flierFileUrl || null,
-      staffingConfig ? JSON.stringify(staffingConfig) : null
+      JSON.stringify(staffingConfig)
     ]
   );
 
   const eventId = Number(insertResult.insertId);
-  if (outreachTableInvited) {
-    await materializeSessionsForEvent(pool, { companyEventId: eventId });
-  }
+  await materializeSessionsForEvent(pool, { companyEventId: eventId });
 
   const [rows] = await pool.execute('SELECT * FROM company_events WHERE id = ? LIMIT 1', [eventId]);
   const schoolMeta = await loadSchoolMeta(organizationId);
@@ -287,11 +333,10 @@ export async function updateSchoolPortalEvent({
       ? !!outreachTableInvited
       : !!(existing.outreach_table_invited === 1 || existing.outreach_table_invited === true);
 
+  // Keep school events staffable; outreach flag is independent of provider signup.
   let staffingConfig = existing.staffing_config_json;
-  if (outreach) {
-    staffingConfig = JSON.stringify(buildOutreachStaffingConfig());
-  } else if (outreachTableInvited === false) {
-    staffingConfig = null;
+  if (!staffingConfig || outreach) {
+    staffingConfig = JSON.stringify(buildSchoolEventStaffingConfig());
   }
 
   const nextImage =
@@ -324,9 +369,7 @@ export async function updateSchoolPortalEvent({
     ]
   );
 
-  if (outreach) {
-    await materializeSessionsForEvent(pool, { companyEventId: eventId });
-  }
+  await materializeSessionsForEvent(pool, { companyEventId: eventId });
 
   const [rows] = await pool.execute('SELECT * FROM company_events WHERE id = ? LIMIT 1', [eventId]);
   const schoolMeta = await loadSchoolMeta(organizationId);

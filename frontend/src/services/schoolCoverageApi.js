@@ -88,6 +88,15 @@ export async function applyForOpenSchoolDay(agencyId, { schoolId, dayOfWeek, not
   return data;
 }
 
+export async function enableSchoolEventStaffing(agencyId, eventId, { minProvidersPerSession = 1 } = {}) {
+  const { data } = await api.post(
+    `/school-coverage/events/${eventId}/enable-staffing`,
+    { minProvidersPerSession },
+    { params: withAgency({}, agencyId) }
+  );
+  return data;
+}
+
 /** Upsert slots on canonical provider_school_assignments (same SoT as provider scheduling). */
 export async function upsertProviderDaySlots(
   agencyId,
