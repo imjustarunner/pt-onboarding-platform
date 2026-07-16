@@ -47,7 +47,7 @@
         </div>
       </template>
 
-      <!-- Candidates stuck in PENDING_SETUP (> 3 days) -->
+      <!-- True hire-pipeline candidates stuck in PENDING_SETUP (> 3 days) -->
       <template v-if="stalePendingCandidates.length > 0">
         <div class="phaw-group-label">Setup link not started (3+ days)</div>
         <div
@@ -58,7 +58,7 @@
           <span class="phaw-item-icon">⏳</span>
           <div class="phaw-item-body">
             <div class="phaw-item-title">{{ fullName(u) }}</div>
-            <div class="phaw-item-sub">{{ daysSince(u.created_at) }} days since hired</div>
+            <div class="phaw-item-sub">{{ daysSince(hireAnchorDate(u)) }} days since hired</div>
           </div>
           <span class="phaw-badge phaw-badge-warn">Stale</span>
         </div>
@@ -71,7 +71,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
@@ -90,8 +90,6 @@ const preHireRoute = computed(() => {
   return slug ? `/${slug}/admin/pre-hire` : '/admin/pre-hire';
 });
 
-const PRE_HIRE_STATUSES = new Set(['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW', 'pending', 'ready_for_review']);
-
 const normalizeStatus = (s) => {
   if (!s) return s;
   const map = { pending: 'PENDING_SETUP', ready_for_review: 'PREHIRE_REVIEW', prehire_review: 'PREHIRE_REVIEW' };
@@ -102,8 +100,10 @@ const reviewCandidates = computed(() =>
   users.value.filter((u) => normalizeStatus(u.status) === 'PREHIRE_REVIEW')
 );
 
+const hireAnchorDate = (u) => u?.hired_at || u?.created_at || null;
+
 const stalePendingCandidates = computed(() =>
-  users.value.filter((u) => normalizeStatus(u.status) === 'PENDING_SETUP' && daysSince(u.created_at) >= 3)
+  users.value.filter((u) => normalizeStatus(u.status) === 'PENDING_SETUP' && daysSince(hireAnchorDate(u)) >= 3)
 );
 
 const hasItems = computed(() =>
@@ -124,16 +124,16 @@ const load = async () => {
   try {
     const params = agencyId.value ? { agencyId: agencyId.value } : {};
 
-    const [usersRes, tasksRes] = await Promise.all([
-      api.get('/users'),
+    // Same hire-pipeline source as Pre-Hire admin (requires hiring_profile OR hired_at).
+    // Do NOT use /users — PENDING_SETUP is also used for guardians, school staff, etc.
+    const [candidatesRes, tasksRes] = await Promise.all([
+      api.get('/hiring/prehire-candidates', { params }).catch(() => ({ data: [] })),
       api.get('/tasks/all', { params: { ...params, taskType: 'document' } }).catch(() => ({ data: [] }))
     ]);
 
-    users.value = (usersRes.data || [])
-      .map((u) => ({ ...u, status: normalizeStatus(u.status) }))
-      .filter((u) => PRE_HIRE_STATUSES.has(u.status) || ['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW'].includes(u.status));
+    users.value = (Array.isArray(candidatesRes.data) ? candidatesRes.data : [])
+      .map((u) => ({ ...u, status: normalizeStatus(u.status) }));
 
-    // My pending countersign tasks
     const myId = authStore.user?.id;
     countersignTasks.value = (tasksRes.data || []).filter(
       (t) =>
@@ -145,6 +145,7 @@ const load = async () => {
 };
 
 onMounted(load);
+watch(agencyId, () => { void load(); });
 </script>
 
 <style scoped>
