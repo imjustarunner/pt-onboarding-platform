@@ -109,6 +109,7 @@ const AUDIT_ACTION_REGISTRY = {
   OFFICE_EVENT_DELETE_EXECUTED: { label: 'Office event deleted', category: 'Office & Scheduling' },
   note_aid_execute: { label: 'Note Aid used', category: 'AI & Tools' },
   agent_assist: { label: 'Focus Assistant used', category: 'AI & Tools' },
+  agent_assist_feedback: { label: 'Focus Assistant feedback', category: 'AI & Tools' },
   agent_tool_execute: { label: 'Focus Assistant tool executed', category: 'AI & Tools' },
   training_module_draft_generated: { label: 'Training module AI draft generated', category: 'AI & Tools' },
   training_module_draft_applied: { label: 'Training module AI draft applied', category: 'AI & Tools' },

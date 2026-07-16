@@ -5,10 +5,45 @@ import {
   buildCapabilityUiPayload,
   matchCatalogBackedPageNavigationIntent,
   matchDeterministicCapabilityIntent,
-  matchProfileSectionJumpIntent
+  matchProfileSectionJumpIntent,
+  getCapabilityCatalogForTests
 } from '../services/agents/assistantCapabilityCatalog.service.js';
+import {
+  shouldAttemptAgencyResearch,
+  researchAgencyKnowledge,
+  buildResearchAssistantText,
+  looksLikeServiceCodeQuery,
+  extractServiceCodes,
+  looksLikeBillingOrServiceCodeTopic
+} from '../services/agents/assistantResearch.service.js';
 import { isUserProfileContext } from '../../../frontend/src/navigation/profileSearchCatalog.js';
 import { hasTenantAccess } from '../utils/meDashboardTenantScope.js';
+import {
+  insertAssistantRouteFeedback,
+  clearPromotedSemanticExamplesCache,
+  listAssistantAssistSignalsForAdmin,
+  updateAssistantAssistSignalReviewStatus,
+  countPendingAssistantAssistSignals
+} from '../services/agents/assistantRouteFeedback.service.js';
+
+function askAssistantAllowsVertex() {
+  const v = String(process.env.ASK_ASSISTANT_ALLOW_VERTEX || '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+}
+
+function withAssistFeedbackMeta(payload, { prompt, capabilityId, runtime } = {}) {
+  const p = payload && typeof payload === 'object' ? payload : {};
+  return {
+    ...p,
+    capabilityId: capabilityId ?? p.capabilityId ?? null,
+    runtime: runtime ?? p.runtime ?? null,
+    feedback: {
+      prompt: String(prompt || '').trim().slice(0, 500) || null,
+      capabilityId: capabilityId ?? p.capabilityId ?? null,
+      runtime: runtime ?? p.runtime ?? null
+    }
+  };
+}
 
 function normalizeUiCommands(raw) {
   const arr = Array.isArray(raw) ? raw : [];
@@ -263,21 +298,28 @@ function tryDisambiguationFollowUp(prompt, history) {
  * Handles:
  *   - Explicit entity searches ("open X portal", "find Y event")
  *   - Generic page navigation ("take me to schedule")
+ *   - TF–IDF + Gemini catalog verify (when hard matchers miss)
  *
  * Returns null when the prompt is genuinely conversational and needs an LLM.
  */
-function detectExplicitIntent({ prompt, allowedToolNames, context }) {
+async function detectExplicitIntent({ prompt, allowedToolNames, context, forceCapabilityId }) {
   const lower = String(prompt || '').toLowerCase().trim();
   if (!lower) return null;
 
   // On a user profile, prefer in-profile section jumps (equipment, licenses, …)
   // so short asks like "gear" don't need Vertex and scroll to the right block.
-  const profileJump = matchProfileSectionJumpIntent({ prompt: lower, context });
-  if (profileJump) return profileJump;
+  if (!forceCapabilityId) {
+    const profileJump = matchProfileSectionJumpIntent({ prompt: lower, context });
+    if (profileJump) return profileJump;
+  }
 
   // Capability-catalog fast path: high-frequency deterministic asks are
   // matched from a single shared registry used by both backend and frontend.
-  const capabilityIntent = matchDeterministicCapabilityIntent({ prompt: lower, allowedToolNames });
+  const capabilityIntent = await matchDeterministicCapabilityIntent({
+    prompt: lower,
+    allowedToolNames,
+    forceCapabilityId
+  });
   if (capabilityIntent) return capabilityIntent;
 
   // Remaining fallback: generic page navigation, also owned by catalog service.
@@ -300,7 +342,9 @@ function detectExplicitIntent({ prompt, allowedToolNames, context }) {
         'ProviderDirectory',
         'NoteAid',
         'ComplianceCorner',
-        'PresenceTeamBoard'
+        'PresenceTeamBoard',
+        'ModuleManager',
+        'TrainingKnowledgeBase'
       ]);
       // Stay on the profile unless they clearly asked for an admin hub page.
       if (!leaveProfileOk.has(routeName)) return null;
@@ -558,20 +602,23 @@ function dedupeNextActions(actions) {
   const seen = new Set();
   const out = [];
   for (const a of actions || []) {
-    const type = String(a?.type || '').trim() || (a?.toolCall ? 'tool' : a?.prefillText ? 'prefill' : '');
+    const type = String(a?.type || '').trim() || (a?.toolCall ? 'tool' : a?.prefillText ? 'prefill' : a?.copyText ? 'copy' : '');
     const label = String(a?.label || '').trim();
     const tc = a?.toolCall && typeof a.toolCall === 'object' ? a.toolCall : null;
     const name = String(tc?.name || '').trim();
     const args = tc?.args && typeof tc.args === 'object' ? tc.args : {};
     const prefillText = a?.prefillText == null ? '' : String(a.prefillText);
+    const copyText = a?.copyText == null ? '' : String(a.copyText);
     if (!label) continue;
     if (type === 'tool' && !name) continue;
     if (type === 'prefill' && !String(prefillText || '').trim()) continue;
-    const k = `${type}::${label}::${name}::${JSON.stringify(args)}::${prefillText}`;
+    if (type === 'copy' && !String(copyText || '').trim()) continue;
+    const k = `${type}::${label}::${name}::${JSON.stringify(args)}::${prefillText}::${copyText}`;
     if (seen.has(k)) continue;
     seen.add(k);
     if (type === 'tool') out.push({ type: 'tool', label, toolCall: { name, args } });
     else if (type === 'prefill') out.push({ type: 'prefill', label, prefillText });
+    else if (type === 'copy') out.push({ type: 'copy', label, copyText });
     else continue;
     if (out.length >= 8) break;
   }
@@ -589,7 +636,8 @@ function buildNextActionsFromToolResults({ toolResults, allowedToolNames }) {
   );
 
   if (canOpen) {
-    const schoolRes = lastOkToolResult(toolResults, 'searchSchools');
+    const schoolRes = lastOkToolResult(toolResults, 'searchSchools')
+      || lastOkToolResult(toolResults, 'getSchoolClientStats');
     const schools = schoolRes?.result?.results;
     if (Array.isArray(schools) && schools.length >= 1 && !openedKinds.has('school')) {
       for (const s of schools.slice(0, 6)) {
@@ -685,6 +733,19 @@ function buildNextActionsFromToolResults({ toolResults, allowedToolNames }) {
     actions.push({ type: 'prefill', label: 'Filter audit: password reset links (last 7 days)', prefillText: 'Who sent password reset links in the last 7 days?' });
   }
 
+  const smRes = lastOkToolResult(toolResults, 'startMeeting');
+  if (smRes?.result?.eventId && allowedToolNames?.has?.('openWorkspaceEvent')) {
+    actions.push({
+      type: 'tool',
+      label: 'Join now',
+      toolCall: { name: 'openWorkspaceEvent', args: { eventId: Number(smRes.result.eventId) } }
+    });
+    const joinUrl = smRes.result.joinUrl || smRes.result.joinPath;
+    if (joinUrl) {
+      actions.push({ type: 'copy', label: 'Copy link', copyText: String(joinUrl) });
+    }
+  }
+
   return dedupeNextActions(actions);
 }
 
@@ -711,7 +772,8 @@ function buildNextCardsFromToolResults({ toolResults, allowedToolNames }) {
     });
   };
 
-  const schoolRes = lastOkToolResult(toolResults, 'searchSchools');
+  const schoolRes = lastOkToolResult(toolResults, 'searchSchools')
+    || lastOkToolResult(toolResults, 'getSchoolClientStats');
   const schools = schoolRes?.result?.results;
   if (Array.isArray(schools) && schools.length && canOpen) {
     for (const s of schools.slice(0, 6)) {
@@ -719,13 +781,22 @@ function buildNextCardsFromToolResults({ toolResults, allowedToolNames }) {
       if (!id) continue;
       const name = safeTitle(s.name, 'School');
       const portalPath = s.portalPath || (s.slug ? `/${s.slug}/admin/school-portals` : null);
+      const hasCounts = s.clientsActive != null || s.clientsCurrent != null || s.clientsOnRoster != null;
+      const subtitle = hasCounts
+        ? `Current ${Number(s.clientsActive ?? s.clientsCurrent ?? 0)} · Waitlist ${Number(s.clientsWaitlist || 0)} · On roster ${Number(s.clientsOnRoster || 0)}`
+        : (portalPath ? 'School portal' : '');
       pushCard({
         kind: 'school',
         title: name,
-        subtitle: portalPath ? 'School portal' : '',
+        subtitle,
         details: {
           slug: s.slug || null,
-          portalPath: portalPath || null
+          portalPath: portalPath || null,
+          clientsActive: s.clientsActive ?? s.clientsCurrent ?? null,
+          clientsWaitlist: s.clientsWaitlist ?? null,
+          clientsOnRoster: s.clientsOnRoster ?? null,
+          clientsPacket: s.clientsPacket ?? null,
+          clientsScreener: s.clientsScreener ?? null
         },
         actions: [
           { type: 'tool', label: 'Open portal', toolCall: { name: 'openEntity', args: { kind: 'school', id } } },
@@ -793,7 +864,7 @@ function buildNextCardsFromToolResults({ toolResults, allowedToolNames }) {
   const fpaProviders = fpaRes?.result?.providers;
   if (Array.isArray(fpaProviders) && fpaProviders.length && canOpen) {
     const canStartMeeting = allowedToolNames.has('startMeeting');
-    for (const p of fpaProviders.slice(0, 8)) {
+    for (const p of fpaProviders.slice(0, 25)) {
       const id = p?.id == null ? null : Number(p.id);
       if (!id) continue;
       pushCard({
@@ -817,25 +888,51 @@ function buildNextCardsFromToolResults({ toolResults, allowedToolNames }) {
     }
   }
 
+  const kbRes = lastOkToolResult(toolResults, 'searchTrainingKnowledgeBase');
+  const kbHits = kbRes?.result?.hits;
+  if (Array.isArray(kbHits) && kbHits.length) {
+    for (const h of kbHits.slice(0, 6)) {
+      const source = `${h.folder || 'handbook'}/${h.name || 'document'}`;
+      const preview = (h.snippets && h.snippets[0]) || h.preview || '';
+      pushCard({
+        kind: 'policy',
+        title: safeTitle(h.name, 'Policy document'),
+        subtitle: `${h.folder || 'handbook'} · Training Knowledge Base`,
+        details: {
+          source,
+          preview: preview ? String(preview).slice(0, 420) : null
+        },
+        actions: []
+      });
+    }
+  }
+
   const smRes = lastOkToolResult(toolResults, 'startMeeting');
   if (smRes?.result?.eventId) {
     const m = smRes.result;
     const time = String(m.startAt || '').slice(11, 16);
+    const joinUrl = m.joinUrl || m.joinPath || null;
+    const actions = [
+      {
+        type: 'tool',
+        label: 'Join now',
+        toolCall: { name: 'openWorkspaceEvent', args: { eventId: Number(m.eventId) } }
+      }
+    ];
+    if (joinUrl) {
+      actions.push({ type: 'copy', label: 'Copy link', copyText: String(joinUrl) });
+    }
     pushCard({
-      kind: 'event',
-      title: m.title,
+      kind: 'meeting',
+      title: safeTitle(m.title, 'Meeting ready'),
       subtitle: `Meeting with ${m.withUser?.name || 'them'} · ${time}`,
       details: {
-        'Join URL': m.joinUrl,
-        'Duration': `${m.durationMinutes} min`
+        joinUrl,
+        joinPath: m.joinPath || null,
+        durationMinutes: m.durationMinutes || null,
+        withName: m.withUser?.name || null
       },
-      actions: [
-        {
-          type: 'tool',
-          label: 'Join now',
-          toolCall: { name: 'openWorkspaceEvent', args: { eventId: Number(m.eventId) } }
-        }
-      ]
+      actions
     });
   }
 
@@ -933,6 +1030,34 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
         const names = list.map((x) => x.name).join(', ');
         lines.push(`Found ${list.length} schools matching that search — ${names}. Which one did you mean?`);
       }
+    } else if (r.tool === 'getSchoolClientStats') {
+      const list = r.result?.results || [];
+      if (!list.length) {
+        lines.push(
+          'No affiliated school matched that name. Try a shorter name, or open School Portals Hub / School Overview to browse affiliates.'
+        );
+      } else if (list.length === 1) {
+        const s = list[0];
+        const current = Number(s.clientsActive ?? s.clientsCurrent ?? 0);
+        const waitlist = Number(s.clientsWaitlist || 0);
+        const onRoster = Number(s.clientsOnRoster || 0);
+        const packet = Number(s.clientsPacket || 0);
+        const screener = Number(s.clientsScreener || 0);
+        lines.push(
+          `${s.name}: ${current} current (active) student${current === 1 ? '' : 's'}` +
+            `, ${waitlist} on waitlist, ${onRoster} total on roster` +
+            (packet || screener ? ` (packet ${packet}, screener ${screener})` : '') +
+            '.'
+        );
+      } else {
+        const parts = list.map((s) => {
+          const current = Number(s.clientsActive ?? s.clientsCurrent ?? 0);
+          return `${s.name}: ${current} current`;
+        });
+        lines.push(
+          `Found ${list.length} matching schools — ${parts.join('; ')}. Which one did you mean?`
+        );
+      }
     } else if (r.tool === 'searchEvents') {
       const list = r.result?.results || [];
       if (!list.length) lines.push('No program events matched that search. Try different keywords or open Program Events to browse.');
@@ -1029,6 +1154,29 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
         lines.push(`1 provider matches "${approach}": ${p.name} (${p.matchedFieldLabel}: ${p.matchedOption}).`);
       } else {
         lines.push(`${providers.length} providers match "${approach}". Pick one to open their profile or start a meeting.`);
+      }
+    } else if (r.tool === 'searchTrainingKnowledgeBase') {
+      const out = r.result || {};
+      const hits = out.hits || [];
+      const q = out.query || 'that topic';
+      if (!out.totalDocuments) {
+        lines.push(
+          `I don’t see any handbook or policy documents uploaded for this agency yet. An admin can add them under Training Knowledge Base (handbook / policies).`
+        );
+      } else if (!hits.length) {
+        lines.push(`I searched the workplace handbook and policies for “${q}” but didn’t find a clear match. Try different wording, or open the source docs from Training Knowledge Base.`);
+      } else {
+        const parts = [`Here’s what I found in your agency handbook / policies for “${q}”:`];
+        for (const h of hits.slice(0, 5)) {
+          const source = `${h.folder || 'handbook'}/${h.name || 'document'}`;
+          const snips = (h.snippets && h.snippets.length ? h.snippets : [h.preview]).filter(Boolean);
+          parts.push(`\n• ${source}`);
+          for (const snip of snips.slice(0, 2)) {
+            parts.push(`  ${String(snip)}`);
+          }
+        }
+        parts.push(`\nSourced from uploaded Training Knowledge Base files — verify against the full document for decisions.`);
+        lines.push(parts.join('\n'));
       }
     } else if (r.tool === 'startMeeting') {
       const out = r.result || {};
@@ -1231,6 +1379,151 @@ function promptAsksForCapabilities(prompt) {
   );
 }
 
+function buildCapabilityHelpResponse(capabilityPayload) {
+  const lines = [];
+  for (const g of capabilityPayload.groups || []) {
+    const prompts = (g.prompts || []).slice(0, 3).map((p) => `• ${p}`).join('\n');
+    lines.push(`${g.title}:\n${prompts}`);
+  }
+  const intro =
+    'I look things up in your agency tools and documents — not a free-form AI chat. Try one of these:';
+  return {
+    assistantText: lines.length
+      ? `${intro}\n\n${lines.join('\n\n')}`
+      : `${intro} open workspace, start a meeting, or ask about a handbook policy.`,
+    uiCommands: [],
+    toolCalls: [],
+    toolResults: [],
+    nextActions: [
+      {
+        type: 'prefill',
+        label: 'Try one now',
+        prefillText: capabilityPayload.inChatAction || 'Open my workspace for today'
+      }
+    ],
+    nextCards: [],
+    runtime: 'capability_help'
+  };
+}
+
+async function runAgencyResearchAssistResponse({
+  req,
+  prompt,
+  context,
+  allowedToolNames,
+  started,
+  capabilityPayload
+}) {
+  const agencyId =
+    Number(context?.agencyId || req.headers['x-agency-id'] || req.user?.agencyId || 0) || null;
+  const research = await researchAgencyKnowledge({
+    agencyId,
+    query: prompt,
+    canSearchTrainingKb: allowedToolNames.has('searchTrainingKnowledgeBase')
+  });
+  if (!research.hasHits) {
+    const codes = extractServiceCodes(prompt);
+    if (codes.length || looksLikeBillingOrServiceCodeTopic(prompt)) {
+      const label = codes.length ? codes.join(', ') : 'those billing/service codes';
+      return {
+        assistantText:
+          `I looked in your agency handbook, policies, and clinical knowledge for ${label} but didn’t find matching billing/code excerpts.\n\n` +
+          `Class or program lesson plans won’t appear for code questions — ask about the class by name if that’s what you need.\n\n` +
+          `Add a billing/service-code reference under Training Knowledge Base (or clinical KB), then ask again.`,
+        uiCommands: [],
+        toolCalls: [],
+        toolResults: research.trainingToolResult ? [research.trainingToolResult] : [],
+        nextActions: [
+          {
+            type: 'prefill',
+            label: 'Open Training Knowledge Base',
+            prefillText: 'Open Training Knowledge Base'
+          }
+        ],
+        nextCards: [],
+        runtime: 'agency_research_empty'
+      };
+    }
+    return buildCapabilityHelpResponse(capabilityPayload);
+  }
+
+  const trainingHits = (research.hits || []).filter((h) => h.kind !== 'clinical');
+  const clinicalHits = (research.hits || []).filter((h) => h.kind === 'clinical');
+  const mergedHits = [
+    ...trainingHits.map((h) => ({
+      name: h.name,
+      folder: h.folder || 'handbook',
+      score: h.score,
+      snippets: h.snippets || [],
+      preview: h.preview || null
+    })),
+    ...clinicalHits.map((h) => ({
+      name: h.name,
+      folder: 'clinical',
+      score: h.score,
+      snippets: h.snippets || [],
+      preview: h.preview || null
+    }))
+  ];
+  const toolResults = [
+    {
+      ok: true,
+      tool: 'searchTrainingKnowledgeBase',
+      result: {
+        query: prompt,
+        totalDocuments: Math.max(
+          research.trainingToolResult?.result?.totalDocuments || 0,
+          mergedHits.length
+        ),
+        folders: ['handbook', 'policies', 'clinical'],
+        hits: mergedHits
+      }
+    }
+  ];
+  let nextCards = buildNextCardsFromToolResults({ toolResults, allowedToolNames });
+  if (!nextCards.length) {
+    for (const h of research.hits.slice(0, 6)) {
+      nextCards.push({
+        kind: 'policy',
+        title: String(h.name || 'Document'),
+        subtitle: `${h.folder || h.kind || 'knowledge'} · Agency knowledge`,
+        details: {
+          source: `${h.folder || h.kind}/${h.name}`,
+          preview: (h.snippets && h.snippets[0]) || h.preview || null
+        },
+        actions: []
+      });
+    }
+  }
+  try {
+    ActivityLogService.logActivity(
+      {
+        actionType: 'agent_assist',
+        userId: req.user?.id ?? null,
+        agencyId: context?.agencyId ?? null,
+        metadata: {
+          runtime: 'agency_research',
+          hits: research.hits.length,
+          codes: extractServiceCodes(prompt),
+          latencyMs: Date.now() - started
+        }
+      },
+      req
+    );
+  } catch {
+    /* ignore */
+  }
+  return {
+    assistantText: String(buildResearchAssistantText(research) || '').trim() || 'Found matching documents.',
+    uiCommands: [],
+    toolCalls: [{ name: 'searchTrainingKnowledgeBase', args: { query: prompt, limit: 5 } }],
+    toolResults,
+    nextActions: [],
+    nextCards,
+    runtime: 'agency_research'
+  };
+}
+
 export const getCapabilities = async (req, res, next) => {
   try {
     const agentConfig = req.body?.agentConfig && typeof req.body.agentConfig === 'object' ? req.body.agentConfig : null;
@@ -1241,11 +1534,207 @@ export const getCapabilities = async (req, res, next) => {
   }
 };
 
+/**
+ * Thumbs feedback, disengage signals, or optional correction.
+ * When correctedCapabilityId is set on a thumbs-down, promotes the prompt
+ * as a semantic example and tells the client to re-run.
+ */
+export const submitAssistFeedback = async (req, res, next) => {
+  try {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const eventType = String(body.eventType || 'feedback').trim().toLowerCase() || 'feedback';
+    if (!['feedback', 'disengage'].includes(eventType)) {
+      return res.status(400).json({ error: { message: 'Invalid eventType' } });
+    }
+
+    const prompt = String(body.prompt || '').trim();
+    const runtime = body.runtime == null ? null : String(body.runtime);
+    const routedCapabilityId = body.capabilityId == null ? null : String(body.capabilityId);
+    const correctedCapabilityId =
+      body.correctedCapabilityId == null ? null : String(body.correctedCapabilityId).trim();
+    const note = body.note == null ? null : String(body.note).trim();
+    const assistantExcerpt =
+      body.assistantExcerpt == null ? null : String(body.assistantExcerpt).trim().slice(0, 1500);
+    const metadata =
+      body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata)
+        ? body.metadata
+        : null;
+
+    if (!prompt) return res.status(400).json({ error: { message: 'prompt is required' } });
+
+    const knownIds = new Set(getCapabilityCatalogForTests().map((c) => c.id));
+    if (correctedCapabilityId && !knownIds.has(correctedCapabilityId)) {
+      return res.status(400).json({ error: { message: 'Unknown correctedCapabilityId' } });
+    }
+
+    const agencyId =
+      parseInt(body.agencyId || req.headers['x-agency-id'] || req.user?.agencyId || 0, 10) || null;
+
+    if (eventType === 'disengage') {
+      const { id } = await insertAssistantRouteFeedback({
+        agencyId: agencyId > 0 ? agencyId : null,
+        userId: req.user?.id,
+        eventType: 'disengage',
+        prompt,
+        helpful: null,
+        runtime,
+        routedCapabilityId,
+        note: note || String(metadata?.reason || 'closed_without_engagement'),
+        assistantExcerpt,
+        reviewStatus: 'pending',
+        metadata: {
+          reason: metadata?.reason || 'closed_without_engagement',
+          offeredActionCount: Number(metadata?.offeredActionCount || 0) || 0,
+          offeredCardCount: Number(metadata?.offeredCardCount || 0) || 0,
+          offeredActionLabels: Array.isArray(metadata?.offeredActionLabels)
+            ? metadata.offeredActionLabels.slice(0, 12).map((x) => String(x).slice(0, 80))
+            : [],
+          msOpen: metadata?.msOpen != null ? Number(metadata.msOpen) : null,
+          path: metadata?.path ? String(metadata.path).slice(0, 200) : null
+        }
+      });
+
+      try {
+        ActivityLogService.logActivity(
+          {
+            actionType: 'agent_assist_disengage',
+            userId: req.user?.id ?? null,
+            agencyId: agencyId > 0 ? agencyId : null,
+            metadata: { feedbackId: id, capabilityId: routedCapabilityId }
+          },
+          req
+        );
+      } catch {
+        /* ignore */
+      }
+
+      return res.json({ ok: true, id, eventType: 'disengage' });
+    }
+
+    const helpful = body.helpful === true || body.helpful === 1 || body.helpful === '1';
+    const promoteAsExample = !helpful && Boolean(correctedCapabilityId);
+
+    const { id } = await insertAssistantRouteFeedback({
+      agencyId: agencyId > 0 ? agencyId : null,
+      userId: req.user?.id,
+      eventType: 'feedback',
+      prompt,
+      helpful,
+      runtime,
+      routedCapabilityId,
+      correctedCapabilityId: correctedCapabilityId || null,
+      note,
+      promoteAsExample,
+      assistantExcerpt,
+      reviewStatus: helpful ? 'reviewed' : 'pending',
+      metadata
+    });
+
+    if (promoteAsExample) clearPromotedSemanticExamplesCache();
+
+    try {
+      ActivityLogService.logActivity(
+        {
+          actionType: 'agent_assist_feedback',
+          userId: req.user?.id ?? null,
+          agencyId: agencyId > 0 ? agencyId : null,
+          metadata: {
+            helpful,
+            capabilityId: routedCapabilityId,
+            correctedCapabilityId: correctedCapabilityId || null,
+            promoted: promoteAsExample,
+            feedbackId: id
+          }
+        },
+        req
+      );
+    } catch {
+      /* ignore */
+    }
+
+    return res.json({
+      ok: true,
+      id,
+      promoted: promoteAsExample,
+      reroute: promoteAsExample,
+      forceCapabilityId: promoteAsExample ? correctedCapabilityId : null
+    });
+  } catch (e) {
+    return next(e);
+  }
+};
+
+/** SuperAdmin: pending thumbs-down + disengage count */
+export const getAssistReviewPendingCount = async (req, res, next) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Super admin access required' } });
+    }
+    const count = await countPendingAssistantAssistSignals();
+    return res.json({ count });
+  } catch (e) {
+    return next(e);
+  }
+};
+
+/** SuperAdmin: list thumbs-down + disengage signals for training review */
+export const listAssistReviewSignals = async (req, res, next) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Super admin access required' } });
+    }
+    const q = req.query || {};
+    const eventType = q.eventType ? String(q.eventType) : null;
+    const disableQueue = q.reviewQueue === '0' || q.reviewQueue === 'false';
+    const explicitQueue = q.reviewQueue === '1' || q.reviewQueue === 'true';
+    // Default: review queue (pending thumbs-down + disengages). Pass eventType or reviewQueue=0 to browse freely.
+    const useQueue = !disableQueue && (explicitQueue || !eventType);
+
+    let reviewStatus = null;
+    if (q.reviewStatus != null && String(q.reviewStatus) !== '') {
+      reviewStatus = String(q.reviewStatus);
+    } else if (useQueue) {
+      reviewStatus = 'pending';
+    }
+
+    const result = await listAssistantAssistSignalsForAdmin({
+      eventType: useQueue ? null : eventType,
+      reviewStatus,
+      helpful: q.helpful != null ? q.helpful : null,
+      agencyId: q.agencyId ? parseInt(q.agencyId, 10) : null,
+      dateFrom: q.dateFrom || null,
+      dateTo: q.dateTo || null,
+      reviewQueue: useQueue,
+      limit: q.limit,
+      offset: q.offset
+    });
+    return res.json(result);
+  } catch (e) {
+    return next(e);
+  }
+};
+
+/** SuperAdmin: mark a signal reviewed / dismissed / pending */
+export const patchAssistReviewSignal = async (req, res, next) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Super admin access required' } });
+    }
+    const id = parseInt(req.params.id, 10);
+    const reviewStatus = String(req.body?.reviewStatus || '').trim();
+    const result = await updateAssistantAssistSignalReviewStatus({ id, reviewStatus });
+    return res.json({ ok: true, ...result });
+  } catch (e) {
+    return next(e);
+  }
+};
+
 export const assist = async (req, res, next) => {
   try {
     const context = req.body?.context && typeof req.body.context === 'object' ? req.body.context : {};
     const agentConfig = req.body?.agentConfig && typeof req.body.agentConfig === 'object' ? req.body.agentConfig : null;
     const prompt = String(req.body?.prompt || req.body?.message || '').trim();
+    const forceCapabilityId = String(req.body?.forceCapabilityId || '').trim() || null;
     const clientToolCall =
       req.body?.clientAction?.toolCall && typeof req.body.clientAction.toolCall === 'object'
         ? req.body.clientAction.toolCall
@@ -1269,22 +1758,13 @@ export const assist = async (req, res, next) => {
     const { payload: capabilityPayload, allowedToolNames } = buildCapabilityPayloadForReq(req, agentConfig);
 
     if (promptAsksForCapabilities(prompt)) {
-      const lines = [];
-      for (const g of capabilityPayload.groups || []) {
-        const prompts = (g.prompts || []).slice(0, 3).map((p) => `• ${p}`).join('\n');
-        lines.push(`${g.title}:\n${prompts}`);
-      }
-      return res.json({
-        assistantText: lines.length
-          ? `Here’s what I can do for your role right now:\n\n${lines.join('\n\n')}`
-          : 'I can help with navigation and common workflows.',
-        uiCommands: [],
-        toolCalls: [],
-        toolResults: [],
-        nextActions: [{ type: 'prefill', label: 'Try one now', prefillText: capabilityPayload.inChatAction || 'Open my workspace for today' }],
-        nextCards: [],
-        runtime: 'capability_help'
-      });
+      return res.json(
+        withAssistFeedbackMeta(buildCapabilityHelpResponse(capabilityPayload), {
+          prompt,
+          capabilityId: null,
+          runtime: 'capability_help'
+        })
+      );
     }
 
     // Fast path: UI-clickable "next action" buttons execute a single, explicit tool call.
@@ -1315,6 +1795,10 @@ export const assist = async (req, res, next) => {
         const uiCommands = Array.isArray(result?.uiCommands) ? normalizeUiCommands(result.uiCommands) : [];
         const toolResults = [result];
         const assistantText = buildAssistantReplyFromTools('', toolResults);
+        // Write actions (e.g. startMeeting) need post-run cards — Join now / Copy link —
+        // otherwise the success text references UI that never arrives.
+        const nextCards = buildNextCardsFromToolResults({ toolResults, allowedToolNames });
+        const nextActions = buildNextActionsFromToolResults({ toolResults, allowedToolNames });
 
         try {
           ActivityLogService.logActivity(
@@ -1335,8 +1819,8 @@ export const assist = async (req, res, next) => {
           uiCommands,
           toolCalls: [tc],
           toolResults,
-          nextActions: [],
-          nextCards: [],
+          nextActions,
+          nextCards,
           runtime: 'client_action'
         });
       } catch (e) {
@@ -1394,7 +1878,40 @@ export const assist = async (req, res, next) => {
     }
 
     // 2. Explicit entity search / navigation intent.
-    const explicit = detectExplicitIntent({ prompt, allowedToolNames, context });
+    const explicit = await detectExplicitIntent({
+      prompt,
+      allowedToolNames,
+      context,
+      forceCapabilityId
+    });
+    if (explicit?.followUpAgencyResearch) {
+      try {
+        const payload = await runAgencyResearchAssistResponse({
+          req,
+          prompt: explicit.researchQuery || prompt,
+          context,
+          allowedToolNames,
+          started,
+          capabilityPayload
+        });
+        return res.json(
+          withAssistFeedbackMeta(payload, {
+            prompt: explicit.researchQuery || prompt,
+            capabilityId: explicit.capabilityId || 'service_code_research',
+            runtime: payload.runtime || 'agency_research'
+          })
+        );
+      } catch (e) {
+        console.warn('[assist] service-code research failed', e?.message || e);
+        return res.json(
+          withAssistFeedbackMeta(buildCapabilityHelpResponse(capabilityPayload), {
+            prompt,
+            capabilityId: null,
+            runtime: 'capability_help'
+          })
+        );
+      }
+    }
     if (explicit) {
       const uiCommands = [];
       const toolResults = [];
@@ -1626,17 +2143,28 @@ export const assist = async (req, res, next) => {
       }
 
       try {
+        const usedGeminiRouter =
+          Boolean(explicit.semanticRouted) &&
+          (Boolean(explicit.geminiVerified) ||
+            Boolean(explicit.geminiCorrected) ||
+            Boolean(explicit.geminiRouterError));
         ActivityLogService.logActivity(
           {
             actionType: 'agent_assist',
             userId: req.user?.id ?? null,
             agencyId: context?.agencyId ?? null,
             metadata: {
-              runtime: 'deterministic',
+              runtime: usedGeminiRouter ? 'gemini_catalog_router' : 'deterministic',
               intent: explicit.intent,
               capabilityId: explicit.capabilityId || null,
               toolCalls: (explicit.toolCalls || []).length,
               uiCommands: uiCommands.length,
+              semanticRouted: Boolean(explicit.semanticRouted),
+              geminiVerified: Boolean(explicit.geminiVerified),
+              geminiCorrected: Boolean(explicit.geminiCorrected),
+              geminiConfidence: explicit.geminiConfidence || null,
+              semanticScore: explicit.semanticScore ?? null,
+              tfidfTopId: explicit.tfidfTopId || null,
               latencyMs: Date.now() - started
             }
           },
@@ -1646,26 +2174,109 @@ export const assist = async (req, res, next) => {
         // ignore
       }
 
-      return res.json({
-        assistantText: String(assistantText || '').trim() || 'Done.',
-        uiCommands,
-        toolCalls: explicit.toolCalls || [],
-        toolResults,
-        nextActions,
-        nextCards,
-        runtime: 'deterministic'
-      });
+      return res.json(
+        withAssistFeedbackMeta(
+          {
+            assistantText: String(assistantText || '').trim() || 'Done.',
+            uiCommands,
+            toolCalls: explicit.toolCalls || [],
+            toolResults,
+            nextActions,
+            nextCards,
+            runtime: explicit.semanticRouted && (explicit.geminiVerified || explicit.geminiCorrected)
+              ? 'gemini_catalog_router'
+              : explicit.forcedCapability
+                ? 'feedback_reroute'
+                : 'deterministic'
+          },
+          {
+            prompt,
+            capabilityId: explicit.capabilityId || null,
+            runtime: explicit.semanticRouted && (explicit.geminiVerified || explicit.geminiCorrected)
+              ? 'gemini_catalog_router'
+              : explicit.forcedCapability
+                ? 'feedback_reroute'
+                : 'deterministic'
+          }
+        )
+      );
     }
 
-    const { rawText, runtime } = await runAgentAssist({
-      userId: req.user?.id || null,
-      user: req.user,
-      prompt,
-      context,
-      agentConfig,
-      allowSearch: wantsSearch,
-      history: historyArr
-    });
+    // ---- No-LLM research fallback (Training KB + clinical KB) ----
+    if (shouldAttemptAgencyResearch(prompt)) {
+      try {
+        const payload = await runAgencyResearchAssistResponse({
+          req,
+          prompt,
+          context,
+          allowedToolNames,
+          started,
+          capabilityPayload
+        });
+        if (payload.runtime !== 'capability_help') {
+          return res.json(
+            withAssistFeedbackMeta(payload, {
+              prompt,
+              capabilityId: null,
+              runtime: payload.runtime || 'agency_research'
+            })
+          );
+        }
+        // Empty research with no service codes → fall through to capability help below.
+        if (payload.runtime === 'agency_research_empty') {
+          return res.json(
+            withAssistFeedbackMeta(payload, {
+              prompt,
+              capabilityId: null,
+              runtime: 'agency_research_empty'
+            })
+          );
+        }
+      } catch (e) {
+        console.warn('[assist] agency research failed', e?.message || e);
+      }
+    }
+
+    // Vertex is opt-in only — default is tool/data routing to avoid token abuse.
+    if (!askAssistantAllowsVertex()) {
+      try {
+        ActivityLogService.logActivity(
+          {
+            actionType: 'agent_assist',
+            userId: req.user?.id ?? null,
+            agencyId: context?.agencyId ?? null,
+            metadata: {
+              runtime: 'capability_help',
+              reason: 'vertex_disabled',
+              latencyMs: Date.now() - started
+            }
+          },
+          req
+        );
+      } catch {
+        /* ignore */
+      }
+      return res.json(buildCapabilityHelpResponse(capabilityPayload));
+    }
+
+    let rawText;
+    let runtime;
+    try {
+      const ai = await runAgentAssist({
+        userId: req.user?.id || null,
+        user: req.user,
+        prompt,
+        context,
+        agentConfig,
+        allowSearch: wantsSearch,
+        history: historyArr
+      });
+      rawText = ai.rawText;
+      runtime = ai.runtime;
+    } catch (e) {
+      console.warn('[assist] Vertex unavailable', e?.message || e);
+      return res.json(buildCapabilityHelpResponse(capabilityPayload));
+    }
 
     const parsed = safeParseAgentJson(rawText);
     const merged = mergeAssistParsedModelShape(parsed);

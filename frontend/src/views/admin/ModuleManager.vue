@@ -2947,6 +2947,18 @@ onMounted(async () => {
     if (route.query.filter) {
       filterType.value = route.query.filter;
     }
+
+    // Assistant / deep-link: open Training Reference Docs modal
+    if (String(route.query.trainingKb || '') === '1' || String(route.query.trainingKb || '').toLowerCase() === 'true') {
+      showTrainingKbModal.value = true;
+      try {
+        const nextQuery = { ...route.query };
+        delete nextQuery.trainingKb;
+        router.replace({ query: nextQuery });
+      } catch {
+        /* noop */
+      }
+    }
     
     // Check for view query parameter
     if (route.query.view === 'table') {

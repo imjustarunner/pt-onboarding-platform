@@ -30,7 +30,7 @@
             type="button"
             class="aap-clear"
             title="Clear conversation"
-            @click="clearChat"
+            @click="clearChat({ report: true })"
           >
             Clear
           </button>
@@ -42,7 +42,7 @@
         </div>
       </header>
 
-      <div ref="turnsRef" class="aap-body">
+      <div ref="turnsRef" class="aap-body" @scroll.passive="onBodyScroll">
         <div v-if="turns.length === 0" class="aap-empty">
           <div class="aap-empty-visual" aria-hidden="true">
             <div class="aap-empty-orbit" />
@@ -157,6 +157,28 @@
                           <span class="aap-card-k">Ends</span>
                           <span class="aap-card-v">{{ formatIso(c.details.endsAtIso, c.details.timezone) }}</span>
                         </div>
+                        <div v-if="c.details.joinUrl || c.details.joinPath" class="aap-card-detail">
+                          <span class="aap-card-k">Join link</span>
+                          <a
+                            class="aap-card-v mono aap-card-link"
+                            :href="c.details.joinUrl || c.details.joinPath"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            @click.stop
+                          >{{ c.details.joinUrl || c.details.joinPath }}</a>
+                        </div>
+                        <div v-if="c.details.durationMinutes" class="aap-card-detail">
+                          <span class="aap-card-k">Duration</span>
+                          <span class="aap-card-v">{{ c.details.durationMinutes }} min</span>
+                        </div>
+                        <div v-if="c.details.source" class="aap-card-detail">
+                          <span class="aap-card-k">Source</span>
+                          <span class="aap-card-v mono">{{ c.details.source }}</span>
+                        </div>
+                        <div v-if="c.details.preview" class="aap-card-detail aap-card-detail--block">
+                          <span class="aap-card-k">Excerpt</span>
+                          <span class="aap-card-v">{{ c.details.preview }}</span>
+                        </div>
                       </template>
                     </div>
                     <div v-if="c.actions && c.actions.length" class="aap-card-actions">
@@ -184,6 +206,72 @@
                   >
                     {{ a.label }}
                   </button>
+                </div>
+                <div
+                  v-if="t.role === 'assistant' && t.feedback"
+                  class="aap-feedback"
+                >
+                  <div v-if="!t.feedback.submitted && !t.feedback.showCorrection" class="aap-feedback-row">
+                    <span class="aap-feedback-label">Was this helpful?</span>
+                    <button
+                      type="button"
+                      class="aap-fb-btn"
+                      :disabled="busy || t.feedback.busy"
+                      title="Helpful"
+                      @click="submitTurnFeedback(idx, true)"
+                    >
+                      Yes
+                    </button>
+                    <button
+                      type="button"
+                      class="aap-fb-btn"
+                      :disabled="busy || t.feedback.busy"
+                      title="Not helpful"
+                      @click="openTurnCorrection(idx)"
+                    >
+                      No
+                    </button>
+                  </div>
+                  <div v-else-if="t.feedback.submitted" class="aap-feedback-thanks">Thanks for the feedback.</div>
+                  <div v-if="t.feedback.showCorrection && !t.feedback.submitted" class="aap-feedback-correct">
+                    <div class="aap-feedback-correct-title">What did you mean?</div>
+                    <div class="aap-feedback-choices">
+                      <button
+                        v-for="c in correctionChoices"
+                        :key="c.id"
+                        type="button"
+                        class="aap-feedback-chip"
+                        :disabled="busy || t.feedback.busy"
+                        @click="submitTurnFeedback(idx, false, c.id)"
+                      >
+                        {{ c.label }}
+                      </button>
+                    </div>
+                    <textarea
+                      v-model="t.feedback.note"
+                      class="aap-feedback-note"
+                      rows="2"
+                      placeholder="Or describe what you wanted (optional)"
+                    />
+                    <div class="aap-feedback-correct-actions">
+                      <button
+                        type="button"
+                        class="aap-fb-btn"
+                        :disabled="busy || t.feedback.busy"
+                        @click="submitTurnFeedback(idx, false, null)"
+                      >
+                        Send feedback
+                      </button>
+                      <button
+                        type="button"
+                        class="aap-fb-btn aap-fb-btn--ghost"
+                        :disabled="t.feedback.busy"
+                        @click="t.feedback.showCorrection = false"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -407,12 +495,221 @@ const capabilityActionPrompt = computed(() => {
   return 'What can you do for me right now?';
 });
 
+const correctionChoices = computed(() => {
+  const list = capabilityPayload.value?.correctionChoices;
+  if (Array.isArray(list) && list.length) {
+    return list.slice(0, 16).map((c) => ({
+      id: String(c.id || ''),
+      label: String(c.label || c.id || '').slice(0, 80)
+    })).filter((c) => c.id && c.label);
+  }
+  const map = capabilityPayload.value?.promptToCapabilityId || {};
+  return Object.entries(map)
+    .slice(0, 16)
+    .map(([label, id]) => ({ id: String(id), label: String(label).slice(0, 80) }));
+});
+
+function findPriorUserPrompt(assistantIdx) {
+  for (let i = assistantIdx - 1; i >= 0; i--) {
+    if (turns.value[i]?.role === 'user') return String(turns.value[i].text || '').trim();
+  }
+  return '';
+}
+
+function attachFeedbackMeta(data, fallbackPrompt = '') {
+  const fb = data?.feedback && typeof data.feedback === 'object' ? data.feedback : {};
+  return {
+    prompt: String(fb.prompt || fallbackPrompt || '').trim().slice(0, 500),
+    capabilityId: fb.capabilityId ?? data?.capabilityId ?? null,
+    runtime: fb.runtime ?? data?.runtime ?? null,
+    submitted: false,
+    showCorrection: false,
+    busy: false,
+    note: ''
+  };
+}
+
+/** Track whether the user did anything useful with the latest assistant reply. */
+const sessionEngagement = ref({
+  interacted: false,
+  disengageSent: false,
+  openedAt: 0,
+  lastPrompt: '',
+  lastExcerpt: '',
+  lastCapabilityId: null,
+  lastRuntime: null,
+  offeredActionLabels: [],
+  offeredActionCount: 0,
+  offeredCardCount: 0
+});
+
+function markEngaged() {
+  sessionEngagement.value.interacted = true;
+}
+
+function rememberAssistantTurn(data, promptText) {
+  const actions = Array.isArray(data?.nextActions) ? data.nextActions : [];
+  const cards = Array.isArray(data?.nextCards) ? data.nextCards : [];
+  const cardActions = cards.flatMap((c) => (Array.isArray(c?.actions) ? c.actions : []));
+  const allActions = [...actions, ...cardActions];
+  const labels = allActions
+    .map((a) => String(a?.label || a?.type || '').trim())
+    .filter(Boolean)
+    .slice(0, 12);
+
+  sessionEngagement.value = {
+    ...sessionEngagement.value,
+    interacted: false,
+    disengageSent: false,
+    lastPrompt: String(promptText || '').trim().slice(0, 500),
+    lastExcerpt: String(data?.assistantText || '').trim().slice(0, 1500),
+    lastCapabilityId: data?.feedback?.capabilityId ?? data?.capabilityId ?? null,
+    lastRuntime: data?.feedback?.runtime ?? data?.runtime ?? null,
+    offeredActionLabels: labels,
+    offeredActionCount: allActions.length,
+    offeredCardCount: cards.length
+  };
+}
+
+async function reportDisengage(reason = 'closed_without_engagement') {
+  const e = sessionEngagement.value;
+  if (e.interacted || e.disengageSent) return;
+  if (!e.lastPrompt) return;
+  // Only flag when they got an answer and walked away without using it.
+  e.disengageSent = true;
+  try {
+    await api.post(
+      '/agents/assist/feedback',
+      {
+        eventType: 'disengage',
+        prompt: e.lastPrompt,
+        capabilityId: e.lastCapabilityId,
+        runtime: e.lastRuntime,
+        assistantExcerpt: e.lastExcerpt || null,
+        agencyId: agencyStore.currentAgency?.id || authStore.user?.agencyId || null,
+        metadata: {
+          reason,
+          offeredActionCount: e.offeredActionCount,
+          offeredCardCount: e.offeredCardCount,
+          offeredActionLabels: e.offeredActionLabels,
+          msOpen: e.openedAt ? Date.now() - e.openedAt : null,
+          path: String(route?.fullPath || route?.path || '').slice(0, 200)
+        }
+      },
+      { skipGlobalLoading: true }
+    );
+  } catch {
+    /* best-effort analytics */
+  }
+}
+
+function resetSessionEngagement() {
+  sessionEngagement.value = {
+    interacted: false,
+    disengageSent: false,
+    openedAt: Date.now(),
+    lastPrompt: '',
+    lastExcerpt: '',
+    lastCapabilityId: null,
+    lastRuntime: null,
+    offeredActionLabels: [],
+    offeredActionCount: 0,
+    offeredCardCount: 0
+  };
+}
+
+function openTurnCorrection(idx) {
+  const t = turns.value[idx];
+  if (!t?.feedback || t.feedback.submitted) return;
+  t.feedback.showCorrection = true;
+  scrollTurnsToBottom({ force: true });
+}
+
+async function submitTurnFeedback(idx, helpful, correctedCapabilityId = null) {
+  const t = turns.value[idx];
+  if (!t?.feedback || t.feedback.submitted || t.feedback.busy) return;
+  const promptText = t.feedback.prompt || findPriorUserPrompt(idx);
+  if (!promptText) return;
+
+  t.feedback.busy = true;
+  error.value = '';
+  try {
+    const resp = await api.post(
+      '/agents/assist/feedback',
+      {
+        helpful: Boolean(helpful),
+        prompt: promptText,
+        capabilityId: t.feedback.capabilityId,
+        runtime: t.feedback.runtime,
+        correctedCapabilityId: correctedCapabilityId || null,
+        note: String(t.feedback.note || '').trim() || null,
+        assistantExcerpt: String(t.text || '').trim().slice(0, 1500) || null,
+        agencyId: agencyStore.currentAgency?.id || authStore.user?.agencyId || null
+      },
+      { skipGlobalLoading: true }
+    );
+    const data = resp?.data || {};
+    t.feedback.submitted = true;
+    t.feedback.showCorrection = false;
+    markEngaged();
+
+    if (!helpful && data.reroute && data.forceCapabilityId) {
+      await rerouteWithCapability(promptText, data.forceCapabilityId);
+    }
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Could not save feedback';
+  } finally {
+    t.feedback.busy = false;
+  }
+}
+
+async function rerouteWithCapability(promptText, forceCapabilityId) {
+  if (!promptText || !forceCapabilityId || busy.value) return;
+  busy.value = true;
+  error.value = '';
+  turns.value.push({
+    role: 'user',
+    text: `(Trying again: ${promptText})`
+  });
+  try {
+    const resp = await api.post(
+      '/agents/assist',
+      {
+        prompt: promptText,
+        forceCapabilityId,
+        context: buildContextPayload(),
+        history: buildHistoryPayload()
+      },
+      { skipGlobalLoading: true }
+    );
+    const data = resp?.data || {};
+    const navs = await executeUiCommands(data.uiCommands);
+    rememberAssistantTurn(data, promptText);
+    if (navs.length) markEngaged();
+    turns.value.push({
+      role: 'assistant',
+      text: String(data.assistantText || '').trim() || '(No response)',
+      navs,
+      actions: Array.isArray(data.nextActions) ? data.nextActions : [],
+      cards: Array.isArray(data.nextCards) ? data.nextCards : [],
+      feedback: attachFeedbackMeta(data, promptText)
+    });
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Re-route failed';
+  } finally {
+    busy.value = false;
+    await nextTick();
+    scrollTurnsToBottom({ force: true });
+  }
+}
+
 const prompt = ref('');
 const busy = ref(false);
 const error = ref('');
 const turns = ref([]);
 const textareaRef = ref(null);
 const turnsRef = ref(null);
+const stickToBottom = ref(true);
 
 const { isListening, isSupported: sttSupported, startListening, stopListening } = useSpeechToText({
   onFinal: (text) => {
@@ -423,22 +720,29 @@ const { isListening, isSupported: sttSupported, startListening, stopListening } 
   }
 });
 
-function scrollTurnsToBottom() {
+function onBodyScroll() {
+  const el = turnsRef.value;
+  if (!el) return;
+  const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+  stickToBottom.value = distFromBottom < 96;
+}
+
+function scrollTurnsToBottom({ force = false } = {}) {
   // Double nextTick: first tick lets Vue patch the DOM, second lets it finish rendering
   // card lists (which can be tall) before we measure scrollHeight.
   nextTick(() => nextTick(() => {
     const el = turnsRef.value;
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    if (!el) return;
+    // Don't yank the user back down while they're scanning a long card list.
+    if (!force && !stickToBottom.value) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
+    stickToBottom.value = true;
   }));
 }
 
 watch(
   () => turns.value.length,
-  () => scrollTurnsToBottom()
-);
-watch(
-  () => busy.value,
-  () => scrollTurnsToBottom()
+  () => scrollTurnsToBottom({ force: true })
 );
 
 function autoGrow() {
@@ -457,15 +761,22 @@ function applySuggestion(s) {
 }
 
 function close() {
+  reportDisengage('closed_without_engagement');
   if (isListening.value) stopListening();
   emit('close');
 }
 
 /** Nothing is written to disk; this clears in-memory transcript and draft (also runs when the drawer closes). */
-function clearChat() {
+function clearChat({ report = false } = {}) {
+  if (report) reportDisengage('cleared_without_engagement');
   turns.value = [];
   error.value = '';
   prompt.value = '';
+  stickToBottom.value = true;
+  sessionEngagement.value.lastPrompt = '';
+  sessionEngagement.value.lastExcerpt = '';
+  sessionEngagement.value.interacted = false;
+  sessionEngagement.value.disengageSent = false;
   if (isListening.value) stopListening();
   nextTick(() => {
     const ta = textareaRef.value;
@@ -491,6 +802,7 @@ async function executeUiCommands(commands) {
       if (!to) continue;
       navs.push(to);
       try {
+        markEngaged();
         await router.push(to);
         close();
       } catch (e) {
@@ -503,6 +815,7 @@ async function executeUiCommands(commands) {
       if (!tabId) continue;
       navs.push(`profile:${tabId}${sectionId ? `#${sectionId}` : ''}${clinicalSubTab ? `/${clinicalSubTab}` : ''}`);
       try {
+        markEngaged();
         window.dispatchEvent(
           new CustomEvent('pt-profile-jump', { detail: { tabId, sectionId, clinicalSubTab } })
         );
@@ -538,6 +851,8 @@ async function executeUiCommands(commands) {
 async function submit() {
   const q = prompt.value.trim();
   if (!q || busy.value) return;
+  // A follow-up question counts as engagement with the prior answer.
+  if (sessionEngagement.value.lastPrompt) markEngaged();
   busy.value = true;
   error.value = '';
   turns.value.push({ role: 'user', text: q });
@@ -550,12 +865,15 @@ async function submit() {
     const resp = await api.post('/agents/assist', { prompt: q, context: buildContextPayload(), history: buildHistoryPayload() }, { skipGlobalLoading: true });
     const data = resp?.data || {};
     const navs = await executeUiCommands(data.uiCommands);
+    rememberAssistantTurn(data, q);
+    if (navs.length) markEngaged();
     turns.value.push({
       role: 'assistant',
       text: String(data.assistantText || '').trim() || '(No response)',
       navs,
       actions: Array.isArray(data.nextActions) ? data.nextActions : [],
-      cards: Array.isArray(data.nextCards) ? data.nextCards : []
+      cards: Array.isArray(data.nextCards) ? data.nextCards : [],
+      feedback: attachFeedbackMeta(data, q)
     });
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Assistant request failed';
@@ -608,6 +926,7 @@ function prefillActionText(a) {
 
 function handleActionClick(a) {
   const type = String(a?.type || '').trim() || (a?.toolCall ? 'tool' : a?.prefillText ? 'prefill' : '');
+  markEngaged();
   if (type === 'prefill') {
     const txt = prefillActionText(a);
     if (!txt) return;
@@ -618,7 +937,40 @@ function handleActionClick(a) {
     });
     return;
   }
+  if (type === 'copy') {
+    const text = String(a?.copyText || a?.text || '').trim();
+    if (!text) return;
+    copyTextToClipboard(text).then((ok) => {
+      if (!ok) error.value = 'Could not copy link';
+    });
+    return;
+  }
   runNextAction(a);
+}
+
+async function copyTextToClipboard(text) {
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* fall through */
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
 }
 
 async function runNextAction(a) {
@@ -645,12 +997,16 @@ async function runNextAction(a) {
     );
     const data = resp?.data || {};
     const navs = await executeUiCommands(data.uiCommands);
+    const priorPrompt = findPriorUserPrompt(turns.value.length);
+    rememberAssistantTurn(data, priorPrompt);
+    if (navs.length) markEngaged();
     turns.value.push({
       role: 'assistant',
       text: String(data.assistantText || '').trim() || '(No response)',
       navs,
       actions: Array.isArray(data.nextActions) ? data.nextActions : [],
-      cards: Array.isArray(data.nextCards) ? data.nextCards : []
+      cards: Array.isArray(data.nextCards) ? data.nextCards : [],
+      feedback: attachFeedbackMeta(data, priorPrompt)
     });
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Action failed';
@@ -707,9 +1063,11 @@ watch(
   () => props.open,
   (v) => {
     if (!v) {
-      clearChat();
+      reportDisengage('closed_without_engagement');
+      clearChat({ report: false });
       return;
     }
+    resetSessionEngagement();
     loadCapabilities();
     nextTick(() => {
       textareaRef.value?.focus?.();
@@ -775,6 +1133,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0;
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.7) inset,
     -32px 0 64px -16px rgba(15, 23, 42, 0.18),
@@ -808,6 +1167,7 @@ onUnmounted(() => {
   gap: 12px;
   padding: 16px 18px 14px;
   border-bottom: 1px solid var(--aap-line);
+  flex-shrink: 0;
 }
 
 .aap-head-actions {
@@ -898,11 +1258,14 @@ onUnmounted(() => {
 }
 
 .aap-body {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   padding: 16px 18px;
-  scroll-behavior: smooth;
 }
 
 .aap-body::-webkit-scrollbar {
@@ -1282,6 +1645,8 @@ onUnmounted(() => {
 
 .aap-card.is-school { border-left-color: #0d9488; }
 .aap-card.is-event  { border-left-color: #6366f1; }
+.aap-card.is-meeting { border-left-color: #2563eb; }
+.aap-card.is-policy { border-left-color: #0f766e; }
 .aap-card.is-user   { border-left-color: #f59e0b; }
 .aap-card.is-referral { border-left-color: #10b981; }
 .aap-card.is-confirm {
@@ -1322,6 +1687,17 @@ onUnmounted(() => {
   line-height: 1.3;
 }
 
+.aap-card-detail--block {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.aap-card-detail--block .aap-card-v {
+  white-space: pre-wrap;
+  line-height: 1.4;
+}
+
 .aap-card-k {
   min-width: 52px;
   font-weight: 800;
@@ -1339,6 +1715,16 @@ onUnmounted(() => {
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 11px;
+}
+
+.aap-card-link {
+  color: var(--aap-teal-d);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.aap-card-link:hover {
+  color: #0f766e;
 }
 
 .aap-card-actions {
@@ -1419,8 +1805,116 @@ onUnmounted(() => {
   border-radius: 12px;
 }
 
+.aap-feedback {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.aap-feedback-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.aap-feedback-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  margin-right: 2px;
+}
+
+.aap-fb-btn {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.aap-fb-btn:hover:not(:disabled) {
+  border-color: rgba(13, 148, 136, 0.45);
+  background: #f0fdfa;
+}
+
+.aap-fb-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.aap-fb-btn--ghost {
+  background: transparent;
+  font-weight: 600;
+}
+
+.aap-feedback-thanks {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.aap-feedback-correct {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.aap-feedback-correct-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.aap-feedback-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 120px;
+  overflow: auto;
+}
+
+.aap-feedback-chip {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  max-width: 100%;
+}
+
+.aap-feedback-chip:hover:not(:disabled) {
+  border-color: rgba(13, 148, 136, 0.5);
+  background: #f0fdfa;
+}
+
+.aap-feedback-note {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+  min-height: 48px;
+}
+
+.aap-feedback-correct-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 /* Footer */
 .aap-foot {
+  flex-shrink: 0;
   padding: 12px 16px 16px;
   border-top: 1px solid var(--aap-line);
   background: rgba(255, 255, 255, 0.65);

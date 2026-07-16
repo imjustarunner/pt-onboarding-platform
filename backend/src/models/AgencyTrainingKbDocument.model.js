@@ -26,14 +26,86 @@ class AgencyTrainingKbDocument {
     return rows[0] || null;
   }
 
-  static async create({ agencyId, folder, fileName, gcsPath, contentType, sizeBytes, uploadedByUserId }) {
+  static async findByAgencyAndSourceUrl(agencyId, sourceUrl) {
+    const [rows] = await pool.execute(
+      `SELECT * FROM agency_training_kb_documents
+       WHERE agency_id = ? AND source_url = ?
+       LIMIT 1`,
+      [agencyId, sourceUrl]
+    );
+    return rows[0] || null;
+  }
+
+  static async create({
+    agencyId,
+    folder,
+    fileName,
+    gcsPath,
+    contentType,
+    sizeBytes,
+    uploadedByUserId,
+    sourceUrl = null,
+    sourceKind = null,
+    lastSyncedAt = null
+  }) {
     const [result] = await pool.execute(
       `INSERT INTO agency_training_kb_documents
-        (agency_id, folder, file_name, gcs_path, content_type, size_bytes, uploaded_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [agencyId, folder, fileName, gcsPath, contentType || null, sizeBytes || null, uploadedByUserId || null]
+        (agency_id, folder, file_name, gcs_path, content_type, size_bytes, uploaded_by_user_id,
+         source_url, source_kind, last_synced_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        agencyId,
+        folder,
+        fileName,
+        gcsPath,
+        contentType || null,
+        sizeBytes || null,
+        uploadedByUserId || null,
+        sourceUrl || null,
+        sourceKind || null,
+        lastSyncedAt || null
+      ]
     );
     return this.findById(result.insertId);
+  }
+
+  static async updateSnapshot(id, {
+    folder,
+    fileName,
+    gcsPath,
+    contentType,
+    sizeBytes,
+    uploadedByUserId,
+    sourceUrl,
+    sourceKind,
+    lastSyncedAt
+  }) {
+    await pool.execute(
+      `UPDATE agency_training_kb_documents
+       SET folder = ?,
+           file_name = ?,
+           gcs_path = ?,
+           content_type = ?,
+           size_bytes = ?,
+           uploaded_by_user_id = COALESCE(?, uploaded_by_user_id),
+           source_url = ?,
+           source_kind = ?,
+           last_synced_at = ?
+       WHERE id = ?`,
+      [
+        folder,
+        fileName,
+        gcsPath,
+        contentType || null,
+        sizeBytes || null,
+        uploadedByUserId || null,
+        sourceUrl || null,
+        sourceKind || null,
+        lastSyncedAt || null,
+        id
+      ]
+    );
+    return this.findById(id);
   }
 
   static async deleteById(id) {

@@ -131,7 +131,13 @@ function normalizeFolderPrefix(folder) {
   return raw.endsWith('/') ? raw : `${raw}/`;
 }
 
-export async function getKnowledgeBaseContext({ query, maxChars = 4000, maxDocs = 5, folders = [] } = {}) {
+export async function getKnowledgeBaseContext({
+  query,
+  maxChars = 4000,
+  maxDocs = 5,
+  folders = [],
+  requireScore = false
+} = {}) {
   const bucketName = resolveKnowledgeBaseBucket();
   if (!bucketName) return '';
 
@@ -156,10 +162,18 @@ export async function getKnowledgeBaseContext({ query, maxChars = 4000, maxDocs 
   if (!docs.length) return '';
 
   const queryText = String(query || '').toLowerCase();
+  // Drop stopwords so "what codes for psychotherapy" doesn't match every doc on "what".
+  const STOP = new Set([
+    'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was', 'one', 'our',
+    'out', 'has', 'have', 'been', 'what', 'whats', "what's", 'where', 'when', 'who', 'how', 'why',
+    'does', 'did', 'about', 'with', 'from', 'this', 'that', 'they', 'them', 'their', 'your', 'into',
+    'please', 'tell', 'me', 'find', 'look', 'looking', 'explain', 'define', 'meaning', 'which',
+    'code', 'codes' // alone too weak; specialty + billing terms carry the match
+  ]);
   const terms = queryText
     .split(/\W+/)
     .map((t) => t.trim())
-    .filter((t) => t.length >= 3)
+    .filter((t) => t.length >= 3 && !STOP.has(t))
     .slice(0, 20);
 
   const ranked = docs
@@ -170,7 +184,12 @@ export async function getKnowledgeBaseContext({ query, maxChars = 4000, maxDocs 
     .sort((a, b) => b.score - a.score);
 
   const selected = ranked.filter((d) => d.score > 0).slice(0, maxDocs);
-  const fallback = selected.length ? selected : ranked.slice(0, Math.min(maxDocs, ranked.length));
+  // Unscored fallback dumps unrelated PDFs into Ask Assistant — only allow when callers opt in.
+  const fallback = selected.length
+    ? selected
+    : requireScore
+      ? []
+      : ranked.slice(0, Math.min(maxDocs, ranked.length));
 
   const chunks = [];
   for (const doc of fallback) {

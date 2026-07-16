@@ -20,6 +20,7 @@ import {
 import UserActivityLog from '../../models/UserActivityLog.model.js';
 import auditActionRegistry from '../../config/auditActionRegistry.js';
 import { getUserCapabilities } from '../../utils/capabilities.js';
+import { searchTrainingKnowledgeBase } from '../trainingKnowledgeBase.service.js';
 
 function str(v, maxLen = 2000) {
   const s = String(v ?? '').trim();
@@ -144,7 +145,13 @@ const NAVIGATION_ROUTE_WHITELIST = {
   ComplianceCorner: { path: '/admin/compliance-corner', roles: ['admin', 'super_admin'] },
   PresenceTeamBoard: { path: '/admin/presence', roles: ['admin', 'super_admin'] },
   AdminPayroll: { path: '/admin/payroll', roles: ['admin', 'super_admin', 'support', 'staff'] },
-  GearInventory: { path: '/admin/gear-inventory', roles: ['admin', 'super_admin', 'support', 'staff'] }
+  GearInventory: { path: '/admin/gear-inventory', roles: ['admin', 'super_admin', 'support', 'staff'] },
+  // Module Manager → Training Reference Docs modal (handbook / policies Google Doc link)
+  ModuleManager: { path: '/admin/modules', roles: ['admin', 'support', 'super_admin'] },
+  TrainingKnowledgeBase: {
+    path: '/admin/modules?trainingKb=1',
+    roles: ['admin', 'support', 'super_admin']
+  }
 };
 
 const ENTITY_KINDS = new Set(['school', 'event', 'user']);
@@ -216,7 +223,7 @@ const ASSISTANT_AUDIT_ACTION_TYPES = new Set([
   'dashboard_view', 'admin_dashboard_view', 'admin_page_view', 'audit_center_viewed',
   'module_start', 'module_end', 'module_complete',
   'intake_approval', 'public_intake_login_help',
-  'note_aid_execute', 'agent_assist', 'agent_tool_execute',
+  'note_aid_execute', 'agent_assist', 'agent_assist_feedback', 'agent_tool_execute',
   'hiring_reference_event',
   'demo_switch_view',
   'sms_sent', 'sms_send_failed', 'sms_inbound_received',
@@ -389,6 +396,146 @@ async function resolveSchoolPortalPath(agencyIdScope, schoolId) {
   return { slug: row.slug, name: row.name, path: `/${row.slug}/admin/school-portals` };
 }
 
+const SCHOOL_NAME_GENERIC_TOKENS = new Set([
+  'school', 'schools', 'elementary', 'middle', 'high', 'upper', 'lower',
+  'academy', 'charter', 'institute', 'the', 'and', 'or', 'of', 'portal',
+  'portals', 'hub', 'program', 'programs', 'learning'
+]);
+
+/** Search affiliated school orgs by name (agency_schools). */
+async function searchAffiliatedSchoolsByName(agencyId, query, limit = 10) {
+  const q = String(query || '').trim();
+  const lim = Math.min(Math.max(1, Number(limit) || 10), 25);
+  if (!q) return [];
+
+  const runQuery = async (likeArg) => {
+    const [rs] = await pool.execute(
+      `SELECT a.id, a.name, a.slug, a.organization_type
+       FROM agency_schools asx
+       JOIN agencies a ON a.id = asx.school_organization_id
+       WHERE asx.agency_id = ?
+         AND asx.is_active = TRUE
+         AND a.is_active = TRUE
+         AND a.name LIKE ?
+       ORDER BY a.name ASC
+       LIMIT ${lim}`,
+      [agencyId, likeArg]
+    );
+    return rs || [];
+  };
+
+  let rows = await runQuery(`%${q}%`);
+  if (!rows.length && q.includes(' ')) {
+    const tokens = q
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((t) => t.length >= 3 && !SCHOOL_NAME_GENERIC_TOKENS.has(t));
+    if (tokens.length) {
+      rows = await runQuery(`%${tokens.join(' ')}%`);
+      if (!rows.length && tokens.length > 1) {
+        rows = await runQuery(`%${tokens[0]}%`);
+      }
+    }
+  }
+
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    slug: r.slug,
+    organizationType: r.organization_type || null,
+    portalPath: r.slug ? `/${r.slug}/admin/school-portals` : null
+  }));
+}
+
+/**
+ * Roster counts for school orgs — same status buckets as School Overview.
+ * Prefers client_organization_assignments; falls back to clients.organization_id.
+ */
+async function loadClientRosterCountsBySchoolIds(schoolIds) {
+  const ids = (schoolIds || []).map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0);
+  const empty = () => ({
+    clientsCurrent: 0,
+    clientsPacket: 0,
+    clientsScreener: 0,
+    clientsWaitlist: 0,
+    clientsOnRoster: 0
+  });
+  if (!ids.length) return new Map();
+
+  const placeholders = ids.map(() => '?').join(',');
+  const byId = new Map(ids.map((id) => [id, empty()]));
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT
+         coa.organization_id AS school_id,
+         SUM(CASE WHEN cs.status_key = 'current' THEN 1 ELSE 0 END) AS clients_current,
+         SUM(CASE WHEN cs.status_key = 'packet' THEN 1 ELSE 0 END) AS clients_packet,
+         SUM(CASE WHEN cs.status_key = 'screener' THEN 1 ELSE 0 END) AS clients_screener,
+         SUM(CASE WHEN cs.status_key = 'waitlist' THEN 1 ELSE 0 END) AS waitlist_count,
+         COUNT(DISTINCT c.id) AS clients_on_roster
+       FROM client_organization_assignments coa
+       JOIN clients c ON c.id = coa.client_id
+       LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+       WHERE coa.is_active = TRUE
+         AND UPPER(COALESCE(c.status,'')) <> 'ARCHIVED'
+         AND (cs.status_key IS NULL OR LOWER(cs.status_key) <> 'archived')
+         AND coa.organization_id IN (${placeholders})
+       GROUP BY coa.organization_id`,
+      ids
+    );
+    for (const r of rows || []) {
+      const sid = Number(r.school_id);
+      if (!byId.has(sid)) continue;
+      byId.set(sid, {
+        clientsCurrent: Number(r.clients_current || 0),
+        clientsPacket: Number(r.clients_packet || 0),
+        clientsScreener: Number(r.clients_screener || 0),
+        clientsWaitlist: Number(r.waitlist_count || 0),
+        clientsOnRoster: Number(r.clients_on_roster || 0)
+      });
+    }
+    return byId;
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing =
+      msg.includes("doesn't exist") ||
+      msg.includes('ER_NO_SUCH_TABLE') ||
+      msg.includes('Unknown column') ||
+      msg.includes('ER_BAD_FIELD_ERROR');
+    if (!missing) throw e;
+  }
+
+  const [rows] = await pool.execute(
+    `SELECT
+       c.organization_id AS school_id,
+       SUM(CASE WHEN cs.status_key = 'current' THEN 1 ELSE 0 END) AS clients_current,
+       SUM(CASE WHEN cs.status_key = 'packet' THEN 1 ELSE 0 END) AS clients_packet,
+       SUM(CASE WHEN cs.status_key = 'screener' THEN 1 ELSE 0 END) AS clients_screener,
+       SUM(CASE WHEN cs.status_key = 'waitlist' THEN 1 ELSE 0 END) AS waitlist_count,
+       COUNT(DISTINCT c.id) AS clients_on_roster
+     FROM clients c
+     LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+     WHERE UPPER(COALESCE(c.status,'')) <> 'ARCHIVED'
+       AND (cs.status_key IS NULL OR LOWER(cs.status_key) <> 'archived')
+       AND c.organization_id IN (${placeholders})
+     GROUP BY c.organization_id`,
+    ids
+  );
+  for (const r of rows || []) {
+    const sid = Number(r.school_id);
+    if (!byId.has(sid)) continue;
+    byId.set(sid, {
+      clientsCurrent: Number(r.clients_current || 0),
+      clientsPacket: Number(r.clients_packet || 0),
+      clientsScreener: Number(r.clients_screener || 0),
+      clientsWaitlist: Number(r.waitlist_count || 0),
+      clientsOnRoster: Number(r.clients_on_roster || 0)
+    });
+  }
+  return byId;
+}
+
 /** Route names this user may use with navigateTo (matches NAVIGATION_ROUTE_WHITELIST role gates). */
 export function navigableRouteNamesForUser(reqUser) {
   if (!reqUser) return [];
@@ -444,6 +591,7 @@ export function getToolSchemasForUser(reqUser, agentConfig = null) {
       case 'getAgencyActivityStats':
         return roleAllowed(reqUser, AUDIT_SEARCH_TOOL_ROLES);
       case 'searchSchools':
+      case 'getSchoolClientStats':
         return roleAllowed(reqUser, SCHOOL_PORTAL_SEARCH_ROLES);
       case 'searchEvents':
         return roleAllowed(reqUser, PROGRAM_EVENTS_SEARCH_ROLES);
@@ -489,6 +637,20 @@ export function getToolSchemasForUser(reqUser, agentConfig = null) {
       case 'openWorkspaceEvent':
         // Anyone signed in: returns whatever events the actor is part of today.
         return true;
+      case 'searchTrainingKnowledgeBase':
+        // Agency handbook / policies — available to signed-in staff (not guardians/clients).
+        return roleAllowed(reqUser, [
+          'admin',
+          'super_admin',
+          'support',
+          'staff',
+          'provider',
+          'provider_plus',
+          'supervisor',
+          'clinical_practice_assistant',
+          'intern',
+          'intern_plus'
+        ]);
       case 'lookupStandardCrosswalk':
         return roleAllowed(reqUser, LEARNING_STANDARDS_TOOL_ROLES);
       default:
@@ -654,6 +816,20 @@ export function getToolSchemas() {
         properties: {
           query: { type: 'string' },
           limit: { type: 'integer' }
+        },
+        required: ['query']
+      }
+    },
+    {
+      name: 'getSchoolClientStats',
+      description:
+        'Look up affiliated school (or program/learning) orgs by name and return live roster counts: current/active students, waitlist, packet, screener, and total on roster. Use for “how many clients/students are active at [school]?” — not handbook search.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          query: { type: 'string', description: 'School / affiliate name fragment (e.g. "Rudy Elementary").' },
+          limit: { type: 'integer', description: 'Max matching schools (default 10, max 25).' }
         },
         required: ['query']
       }
@@ -1058,6 +1234,26 @@ export function getToolSchemas() {
           }
         }
       }
+    },
+    {
+      name: 'searchTrainingKnowledgeBase',
+      description:
+        'Search this agency\'s uploaded workplace handbook and policy documents (Training Knowledge Base). Use for questions about PTO, vacation, sick leave, benefits, dress code, remote work, holiday pay, code of conduct, or anything covered by the employee handbook / HR policies. Returns relevant excerpts with source file names.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Natural-language question or topic (e.g. "PTO policy", "sick leave", "remote work").'
+          },
+          limit: {
+            type: 'integer',
+            description: 'Max documents to return. Default 5.'
+          }
+        },
+        required: ['query']
+      }
     }
   ];
 }
@@ -1096,6 +1292,74 @@ export async function executeToolCall({ req, toolCall }) {
       tool: name,
       result: { routeName, path: entry.path },
       uiCommands: [{ type: 'navigate', to: entry.path }]
+    };
+  }
+
+  // ---------------------------------------------------------------------
+  // searchTrainingKnowledgeBase — handbook + policies uploaded in Training KB
+  // ---------------------------------------------------------------------
+  if (name === 'searchTrainingKnowledgeBase') {
+    requireAuthed(req);
+    if (!roleAllowed(req.user, [
+      'admin',
+      'super_admin',
+      'support',
+      'staff',
+      'provider',
+      'provider_plus',
+      'supervisor',
+      'clinical_practice_assistant',
+      'intern',
+      'intern_plus'
+    ])) {
+      const err = new Error('Workplace handbook search is not available for your role');
+      err.status = 403;
+      throw err;
+    }
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) {
+      const err = new Error('Your session has no agency context');
+      err.status = 400;
+      throw err;
+    }
+    const query = str(args.query, 240).trim();
+    if (!query) {
+      const err = new Error('query is required');
+      err.status = 400;
+      throw err;
+    }
+    const limit = Math.min(Math.max(1, intOrNull(args.limit) || 5), 10);
+    let search;
+    try {
+      search = await searchTrainingKnowledgeBase({
+        agencyId,
+        query,
+        maxDocs: limit,
+        maxSnippetsPerDoc: 3,
+        snippetChars: 750,
+        folders: ['handbook', 'policies']
+      });
+    } catch (e) {
+      const err = new Error(e?.message || 'Knowledge base search failed');
+      err.status = 500;
+      throw err;
+    }
+
+    return {
+      ok: true,
+      tool: name,
+      result: {
+        query,
+        totalDocuments: search.totalDocuments || 0,
+        folders: search.folders || ['handbook', 'policies'],
+        hits: (search.hits || []).map((h) => ({
+          name: h.name,
+          folder: h.folder,
+          score: h.score,
+          snippets: h.snippets || [],
+          preview: h.preview || null
+        }))
+      }
     };
   }
 
@@ -1438,55 +1702,45 @@ export async function executeToolCall({ req, toolCall }) {
     const query = str(args.query, 200);
     const limit = Math.min(Math.max(1, intOrNull(args.limit) || 10), 25);
     if (!query) return { ok: true, tool: name, result: { results: [] } };
-
-    const runQuery = async (likeArg) => {
-      const [rs] = await pool.execute(
-        `SELECT a.id, a.name, a.slug
-         FROM agency_schools asx
-         JOIN agencies a ON a.id = asx.school_organization_id
-         WHERE asx.agency_id = ?
-           AND asx.is_active = TRUE
-           AND a.is_active = TRUE
-           AND a.name LIKE ?
-         ORDER BY a.name ASC
-         LIMIT ${limit}`,
-        [agencyId, likeArg]
-      );
-      return rs || [];
-    };
-
-    // Try the full phrase first.
-    let rows = await runQuery(`%${query}%`);
-
-    // If nothing found and the query is multi-word, retry with just the most
-    // distinctive token (skipping generic education words) so that e.g.
-    // "Twain Elementary School" still matches "Twain Elementary".
-    if (!rows.length && query.includes(' ')) {
-      const GENERIC = new Set([
-        'school', 'schools', 'elementary', 'middle', 'high', 'upper', 'lower',
-        'academy', 'charter', 'institute', 'the', 'and', 'or', 'of', 'portal',
-        'portals', 'hub'
-      ]);
-      const tokens = query
-        .toLowerCase()
-        .split(/\s+/)
-        .filter((t) => t.length >= 3 && !GENERIC.has(t));
-      if (tokens.length) {
-        rows = await runQuery(`%${tokens.join(' ')}%`);
-        // If the joined tokens still return nothing, try just the first token.
-        if (!rows.length && tokens.length > 1) {
-          rows = await runQuery(`%${tokens[0]}%`);
-        }
-      }
-    }
-
-    const results = rows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      slug: r.slug,
-      portalPath: r.slug ? `/${r.slug}/admin/school-portals` : null
-    }));
+    const results = await searchAffiliatedSchoolsByName(agencyId, query, limit);
     return { ok: true, tool: name, result: { results } };
+  }
+
+  if (name === 'getSchoolClientStats') {
+    requireAuthed(req);
+    if (!roleAllowed(req.user, SCHOOL_PORTAL_SEARCH_ROLES)) {
+      const err = new Error('School portals are not available for your role');
+      err.status = 403;
+      throw err;
+    }
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) {
+      const err = new Error('Your session has no agency context');
+      err.status = 400;
+      throw err;
+    }
+    const query = str(args.query, 200);
+    const limit = Math.min(Math.max(1, intOrNull(args.limit) || 10), 25);
+    if (!query) return { ok: true, tool: name, result: { query: '', results: [] } };
+
+    const schools = await searchAffiliatedSchoolsByName(agencyId, query, limit);
+    const countsById = await loadClientRosterCountsBySchoolIds(schools.map((s) => s.id));
+    const results = schools.map((s) => {
+      const counts = countsById.get(Number(s.id)) || {
+        clientsCurrent: 0,
+        clientsPacket: 0,
+        clientsScreener: 0,
+        clientsWaitlist: 0,
+        clientsOnRoster: 0
+      };
+      return {
+        ...s,
+        ...counts,
+        // "Active" in staff language ≈ Current status on School Overview.
+        clientsActive: counts.clientsCurrent
+      };
+    });
+    return { ok: true, tool: name, result: { query, results } };
   }
 
   if (name === 'searchEvents') {
@@ -1582,6 +1836,8 @@ export async function executeToolCall({ req, toolCall }) {
          WHERE (u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?
                 OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?)
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.is_active IS NULL OR u.is_active = TRUE)
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
          ORDER BY u.last_name, u.first_name
          LIMIT ${limit}`,
         [agencyId, likeArg, likeArg, likeArg, likeArg]
@@ -2364,6 +2620,9 @@ export async function executeToolCall({ req, toolCall }) {
              LOWER(psi.value_option) = LOWER(?)
              OR LOWER(psi.value_option) LIKE LOWER(?)
            )
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.is_active IS NULL OR u.is_active = TRUE)
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
          ORDER BY
            CASE WHEN LOWER(psi.value_option) = LOWER(?) THEN 0 ELSE 1 END,
            CASE psi.field_key
@@ -2407,6 +2666,9 @@ export async function executeToolCall({ req, toolCall }) {
            WHERE psi.agency_id = ?
              AND psi.field_key IN (${tbPlaceholders})
              AND LOWER(psi.value_text) LIKE LOWER(?)
+             AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+             AND (u.is_active IS NULL OR u.is_active = TRUE)
+             AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
            ORDER BY u.last_name, u.first_name
            LIMIT 200`,
           [agencyId, ...TEXTAREA_FALLBACK_FIELDS, likeArg]

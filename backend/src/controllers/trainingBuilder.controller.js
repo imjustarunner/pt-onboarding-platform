@@ -6,7 +6,9 @@ import ActivityLogService from '../services/activityLog.service.js';
 import {
   uploadTrainingKbDocument,
   deleteTrainingKbDocument,
-  getTrainingKbGcsPrefix
+  getTrainingKbGcsPrefix,
+  linkGoogleDocToTrainingKb,
+  refreshTrainingKbGoogleDoc
 } from '../services/trainingKnowledgeBase.service.js';
 import {
   generateModuleDraft,
@@ -104,12 +106,93 @@ export const listTrainingKbDocuments = async (req, res, next) => {
         gcsPath: d.gcs_path,
         contentType: d.content_type,
         sizeBytes: d.size_bytes,
+        sourceUrl: d.source_url || null,
+        sourceKind: d.source_kind || null,
+        lastSyncedAt: d.last_synced_at || null,
         uploadedByUserId: d.uploaded_by_user_id,
         uploadedByName: [d.uploaded_by_first_name, d.uploaded_by_last_name].filter(Boolean).join(' ').trim() || null,
         createdAt: d.created_at
       }))
     });
   } catch (e) {
+    next(e);
+  }
+};
+
+export const linkTrainingKbGoogleDocHandler = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    const agencyId = parseAgencyId(req.body?.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
+    if (!(await requireTrainingAiBuilderEnabled(req, res, agencyId))) return;
+    if (!isAdminLike(req.user?.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const docUrl = String(req.body?.docUrl || req.body?.url || '').trim();
+    if (!docUrl) return res.status(400).json({ error: { message: 'Google Doc URL is required' } });
+
+    const folder = normalizeFolder(req.body?.folder);
+    const displayName = String(req.body?.displayName || '').trim() || null;
+
+    const row = await linkGoogleDocToTrainingKb({
+      agencyId,
+      folder,
+      docUrl,
+      uploadedByUserId: req.user?.id,
+      displayName
+    });
+
+    res.status(201).json({
+      document: {
+        id: row.id,
+        agencyId: row.agency_id,
+        folder: row.folder,
+        fileName: row.file_name,
+        sourceUrl: row.source_url || null,
+        sourceKind: row.source_kind || null,
+        lastSyncedAt: row.last_synced_at || null,
+        sizeBytes: row.size_bytes,
+        createdAt: row.created_at
+      }
+    });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const refreshTrainingKbDocumentHandler = async (req, res, next) => {
+  try {
+    const docId = parseAgencyId(req.params?.id);
+    if (!docId) return res.status(400).json({ error: { message: 'Invalid document id' } });
+
+    const doc = await AgencyTrainingKbDocument.findById(docId);
+    if (!doc) return res.status(404).json({ error: { message: 'Document not found' } });
+
+    if (!(await requireUserHasAgencyAccess(req, res, doc.agency_id))) return;
+    if (!(await requireTrainingAiBuilderEnabled(req, res, doc.agency_id))) return;
+    if (!isAdminLike(req.user?.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const row = await refreshTrainingKbGoogleDoc(doc, { uploadedByUserId: req.user?.id });
+    res.json({
+      document: {
+        id: row.id,
+        agencyId: row.agency_id,
+        folder: row.folder,
+        fileName: row.file_name,
+        sourceUrl: row.source_url || null,
+        sourceKind: row.source_kind || null,
+        lastSyncedAt: row.last_synced_at || null,
+        sizeBytes: row.size_bytes,
+        createdAt: row.created_at
+      }
+    });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
 };

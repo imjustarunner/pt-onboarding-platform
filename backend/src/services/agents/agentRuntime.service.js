@@ -97,6 +97,7 @@ function buildSystemPrompt({ includeSearch, agentConfig, user }) {
     '    (the server resolves the user, then surfaces a startMeeting confirmation card)',
     '  - "open my workspace" / "what\'s active right now" → openTodaysWorkspace({ activeOnly?: true })',
     '  - "who uses CBT" / "who does EMDR" / "find a trauma therapist" → findProvidersByApproach({ approach: "CBT" })',
+    '  - handbook / PTO / vacation / sick leave / company policy / dress code / remote work → searchTrainingKnowledgeBase({ query })',
     '  - "cancel my next meeting" / "cancel my meeting" → findNextMeeting({})',
     '    (the server resolves which meeting, then surfaces a cancelMeeting confirmation card)',
     '  - "cancel the meeting with X" → findMyMeetings({ withName: "X" })',

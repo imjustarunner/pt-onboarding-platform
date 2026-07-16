@@ -109,6 +109,12 @@ RUN npm config set fetch-retries 5 && \
 # Copy backend source code
 COPY backend/src ./src
 
+# Backend Ask Assistant imports this Vue-free catalog at module load time.
+# Paths like ../../../frontend/... resolve to /frontend/... when src lives at /app/src
+# (Docker layout), not repo-root/frontend (local monorepo). Without this file,
+# import('./server.js') fails and bootstrap stays on 503 "Server is loading".
+COPY frontend/src/navigation/profileSearchCatalog.js /frontend/src/navigation/profileSearchCatalog.js
+
 # Copy database migrations (run automatically on startup via bootstrap.js)
 COPY database/migrations ./database/migrations
 

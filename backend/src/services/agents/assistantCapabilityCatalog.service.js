@@ -4,6 +4,7 @@
  * Single source of truth for:
  * - role-aware "what can I do" UI prompts
  * - deterministic intent aliases for high-frequency asks
+ * - semantic (TF–IDF) catalog routing for paraphrases after hard matchers
  * - acceptance/drift checks for visible prompts
  */
 
@@ -11,6 +12,21 @@ import {
   isUserProfileContext,
   resolveBestProfileSection
 } from '../../../../frontend/src/navigation/profileSearchCatalog.js';
+import {
+  extractServiceCodes,
+  looksLikeServiceCodeQuery
+} from './assistantResearch.service.js';
+import {
+  pickBestCapabilityBySimilarity,
+  rankCapabilitiesBySimilarity,
+  SEMANTIC_MIN_SCORE,
+  SEMANTIC_MARGIN
+} from './assistantCapabilitySemanticRouter.service.js';
+import {
+  askAssistantGeminiRouterEnabled,
+  verifyOrCorrectCapabilityRoute
+} from './assistantCapabilityGeminiRouter.service.js';
+import { getCachedPromotedSemanticExamples } from './assistantRouteFeedback.service.js';
 
 const PROVIDER_LIKE_ROLES = new Set([
   'provider',
@@ -94,6 +110,32 @@ function guessEntityQueryFromPrompt(promptLower, extraStopwords = []) {
     .slice(0, 120);
 }
 
+/** Optional channel adjectives before meeting/call nouns ("virtual meeting", "zoom call"). */
+const MEETING_CHANNEL =
+  '(?:virtual|video|online|remote|zoom|teams|google\\s*meet|facetime|skype|webex)\\s+';
+/** Nouns that mean a 1:1 / huddle-style meeting. */
+const MEETING_NOUN =
+  `(?:${MEETING_CHANNEL})?(?:meeting|huddle|video\\s*chat|video\\s*call|call|chat|1\\s*[-:on]\\s*1)`;
+/**
+ * "start/schedule a (virtual) meeting with X", "let's meet with X", "hop on a call with X".
+ * Kept broad so natural phrasing never falls through to Vertex for this write action.
+ */
+const START_MEETING_WITH_RE = new RegExp(
+  String.raw`\b(?:(?:start|launch|begin|open|schedule|book|create|set\s*up)\s+(?:a |an )?${MEETING_NOUN}|let'?s meet|hop on (?:a )?${MEETING_NOUN}|jump on (?:a )?${MEETING_NOUN})\s+(?:with|w\/)\s+`,
+  'i'
+);
+const START_MEETING_TARGET_RE = new RegExp(
+  String.raw`${START_MEETING_WITH_RE.source}(.+?)(?:\s+(?:now|today|please|pls|asap|right now))?[.?!]?$`,
+  'i'
+);
+
+function extractStartMeetingTarget(promptLower) {
+  const m = String(promptLower || '').match(START_MEETING_TARGET_RE);
+  const target = (m?.[1] || '').trim().replace(/^(the\s+|a\s+|an\s+)/, '');
+  if (!target || target.length < 2 || target.length > 80) return null;
+  return target;
+}
+
 export function resolveNavigateRouteNameFromPrompt(promptLower) {
   const s = String(promptLower || '').toLowerCase();
   if (!s) return null;
@@ -110,6 +152,16 @@ export function resolveNavigateRouteNameFromPrompt(promptLower) {
   if (/\b(program events|program event|skill builders|events)\b/.test(s)) return 'SkillBuildersProgramsEvents';
   if (/\b(provider directory|provider list)\b/.test(s)) return 'ProviderDirectory';
   if (/\b(gear|inventory|stock levels?|unique assets?)\b/.test(s)) return 'GearInventory';
+  if (
+    /\b(training\s+(knowledge\s+)?base|training\s+reference|reference\s+docs?|training\s+docs?|training\s+documents?)\b/.test(s) ||
+    (
+      /\b(handbook|polic(?:y|ies))\b/.test(s) &&
+      /\b(add|link|upload|open|manage|edit|go\s+to|take\s+me)\b/.test(s)
+    )
+  ) {
+    return 'TrainingKnowledgeBase';
+  }
+  if (/\b(module manager|training modules|admin modules)\b/.test(s)) return 'ModuleManager';
   if (/\b(hiring|candidates|hire)\b/.test(s)) return 'HiringCandidates';
   if (/\b(admin payroll|payroll management|payroll admin)\b/.test(s)) return 'AdminPayroll';
   if (/\b(my payroll|pay stubs?|paycheck|pay check|payroll)\b/.test(s)) return 'MyPayroll';
@@ -188,6 +240,221 @@ function canUseAny(requiredTools, allowedToolNames) {
   return requiredTools.some((t) => allowedToolNames.has(t));
 }
 
+const HINT_STOPWORDS = new Set([
+  'a', 'an', 'the', 'my', 'me', 'to', 'for', 'of', 'and', 'or', 'with', 'on', 'in', 'at',
+  'is', 'are', 'what', 'who', 'how', 'show', 'open', 'find', 'go'
+]);
+
+/** Derive document hints from prompt, subtitle, and optional routeHints (also used by semantic docs). */
+export function deriveCapabilityRouteHints(entry) {
+  const hints = new Set();
+  for (const h of entry?.routeHints || []) {
+    const t = String(h || '').toLowerCase().trim();
+    if (t.length >= 2) hints.add(t);
+  }
+  const tag = String(entry?.subtitleTag || '').toLowerCase().trim();
+  if (tag.length >= 2) hints.add(tag);
+  const prompt = String(entry?.prompt || '').toLowerCase();
+  for (const tok of prompt.split(/\W+/)) {
+    if (!tok || tok.length < 3) continue;
+    if (HINT_STOPWORDS.has(tok)) continue;
+    hints.add(tok);
+  }
+  const words = prompt.split(/\s+/).filter(Boolean);
+  for (let n = 2; n <= 4; n++) {
+    for (let i = 0; i + n <= words.length; i++) {
+      const slice = words.slice(i, i + n);
+      const contentful = slice.filter((w) => w.length >= 3 && !HINT_STOPWORDS.has(w));
+      if (contentful.length < 1) continue;
+      const phrase = slice.join(' ');
+      if (phrase.length >= 8 && phrase.length <= 40) hints.add(phrase);
+    }
+  }
+  return Array.from(hints);
+}
+
+function isSemanticRoutableEntry(entry, allowedToolNames) {
+  if (!entry || entry.softRoute === false) return false;
+  if (typeof entry.buildIntent !== 'function') return false;
+  if (Array.isArray(entry.requiredToolsAll) && !canUseAll(entry.requiredToolsAll, allowedToolNames)) return false;
+  if (Array.isArray(entry.requiredToolsAny) && !canUseAny(entry.requiredToolsAny, allowedToolNames)) return false;
+  return true;
+}
+
+function isToolEligibleEntry(entry, allowedToolNames) {
+  if (!entry) return false;
+  if (typeof entry.buildIntent !== 'function') return false;
+  if (Array.isArray(entry.requiredToolsAll) && !canUseAll(entry.requiredToolsAll, allowedToolNames)) return false;
+  if (Array.isArray(entry.requiredToolsAny) && !canUseAny(entry.requiredToolsAny, allowedToolNames)) return false;
+  return true;
+}
+
+function withPromotedExamples(entries, examplesById) {
+  if (!examplesById?.size) return entries;
+  return entries.map((entry) => {
+    const extra = examplesById.get(entry.id);
+    if (!extra?.length) return entry;
+    return {
+      ...entry,
+      semanticExamples: [...(entry.semanticExamples || []), ...extra]
+    };
+  });
+}
+
+/**
+ * Semantic catalog router after hard regexes fail.
+ * TF–IDF proposes; Gemini verifies / course-corrects (unless disabled).
+ * Skips write-action capabilities (softRoute === false) and service-code asks.
+ *
+ * @param {{ prompt: string, allowedToolNames: Set<string>, callGemini?: Function }} args
+ */
+export async function matchSemanticCapabilityIntent({ prompt, allowedToolNames, callGemini } = {}) {
+  const lower = String(prompt || '').toLowerCase().trim();
+  if (!lower) return null;
+  if (looksLikeServiceCodeQuery(lower) || extractServiceCodes(lower).length) return null;
+
+  let candidates = catalogEntries().filter((entry) => isSemanticRoutableEntry(entry, allowedToolNames));
+  if (!candidates.length) return null;
+
+  try {
+    const promoted = await getCachedPromotedSemanticExamples();
+    candidates = withPromotedExamples(candidates, promoted);
+  } catch {
+    /* ignore — route without learned examples */
+  }
+
+  const ranked = rankCapabilitiesBySimilarity({ prompt: lower, entries: candidates });
+  const tfidfBest = pickBestCapabilityBySimilarity({
+    prompt: lower,
+    entries: candidates,
+    minScore: SEMANTIC_MIN_SCORE,
+    margin: SEMANTIC_MARGIN
+  });
+
+  const buildFromEntry = (entry, meta = {}) => {
+    if (!entry || typeof entry.buildIntent !== 'function') return null;
+    const intent = entry.buildIntent(lower, allowedToolNames);
+    if (!intent) return null;
+    return {
+      ...intent,
+      capabilityId: intent.capabilityId || entry.id,
+      softRouted: true,
+      semanticRouted: true,
+      semanticScore: meta.semanticScore ?? null,
+      geminiVerified: Boolean(meta.geminiVerified),
+      geminiCorrected: Boolean(meta.geminiCorrected),
+      geminiConfidence: meta.geminiConfidence || null,
+      geminiRouterError: meta.geminiRouterError || null,
+      tfidfTopId: meta.tfidfTopId || null
+    };
+  };
+
+  if (!askAssistantGeminiRouterEnabled()) {
+    if (!tfidfBest?.entry) return null;
+    return buildFromEntry(tfidfBest.entry, {
+      semanticScore: tfidfBest.score,
+      tfidfTopId: tfidfBest.capabilityId
+    });
+  }
+
+  const gemini = await verifyOrCorrectCapabilityRoute({
+    prompt: lower,
+    ranked,
+    eligibleEntries: candidates,
+    callGemini
+  });
+
+  if (gemini.capabilityId) {
+    const entry = candidates.find((e) => e.id === gemini.capabilityId);
+    const built = buildFromEntry(entry, {
+      semanticScore: ranked.find((r) => r.capabilityId === gemini.capabilityId)?.score ?? null,
+      geminiVerified: gemini.geminiVerified,
+      geminiCorrected: gemini.geminiCorrected,
+      geminiConfidence: gemini.confidence,
+      tfidfTopId: gemini.tfidfTopId
+    });
+    if (built) return built;
+  }
+
+  // Gemini down / null / invalid → clear TF–IDF winner if any.
+  if (gemini.error && tfidfBest?.entry) {
+    return buildFromEntry(tfidfBest.entry, {
+      semanticScore: tfidfBest.score,
+      tfidfTopId: tfidfBest.capabilityId,
+      geminiRouterError: gemini.error
+    });
+  }
+
+  return null;
+}
+
+/** @deprecated Use matchSemanticCapabilityIntent — kept as alias for older imports/tests. */
+export async function matchSoftCapabilityIntent(args) {
+  return matchSemanticCapabilityIntent(args);
+}
+
+/** Test helper: rank without committing to an intent. */
+export function rankSemanticCapabilityMatches({ prompt, allowedToolNames }) {
+  const lower = String(prompt || '').toLowerCase().trim();
+  const candidates = catalogEntries().filter((entry) => isSemanticRoutableEntry(entry, allowedToolNames));
+  return rankCapabilitiesBySimilarity({ prompt: lower, entries: candidates }).map((r) => ({
+    capabilityId: r.capabilityId,
+    score: r.score
+  }));
+}
+
+/**
+ * Hard matchers first, then TF–IDF + Gemini catalog router.
+ * Async because Gemini verify may run after hard matchers miss.
+ */
+export async function matchDeterministicCapabilityIntent({
+  prompt,
+  allowedToolNames,
+  callGemini,
+  forceCapabilityId
+} = {}) {
+  const lower = String(prompt || '').toLowerCase().trim();
+  if (!lower) return null;
+
+  const forcedId = String(forceCapabilityId || '').trim();
+  if (forcedId) {
+    const entry = catalogEntries().find((e) => e.id === forcedId);
+    if (entry && isToolEligibleEntry(entry, allowedToolNames)) {
+      const intent = entry.buildIntent(lower, allowedToolNames);
+      if (intent) {
+        return {
+          ...intent,
+          capabilityId: intent.capabilityId || entry.id,
+          forcedCapability: true
+        };
+      }
+    }
+  }
+
+  // Service codes first — never let soft/fuzzy English steal "what is H2014".
+  if (looksLikeServiceCodeQuery(lower) || extractServiceCodes(lower).length) {
+    return {
+      intent: 'agency_research',
+      capabilityId: 'service_code_research',
+      followUpAgencyResearch: true,
+      researchQuery: lower,
+      toolCalls: []
+    };
+  }
+
+  for (const entry of catalogEntries()) {
+    if (Array.isArray(entry.requiredToolsAll) && !canUseAll(entry.requiredToolsAll, allowedToolNames)) continue;
+    if (Array.isArray(entry.requiredToolsAny) && !canUseAny(entry.requiredToolsAny, allowedToolNames)) continue;
+    if (typeof entry.matcher !== 'function') continue;
+    if (!entry.matcher(lower, allowedToolNames)) continue;
+    if (typeof entry.buildIntent !== 'function') return null;
+    const intent = entry.buildIntent(lower, allowedToolNames);
+    if (intent) return intent;
+  }
+  // Semantic catalog routing for read/nav capabilities only.
+  return matchSemanticCapabilityIntent({ prompt: lower, allowedToolNames, callGemini });
+}
+
 function catalogEntries() {
   return [
     {
@@ -197,6 +464,12 @@ function catalogEntries() {
       prompt: 'Open my workspace for today',
       requiredToolsAll: ['openTodaysWorkspace'],
       subtitleTag: 'workspace',
+      semanticExamples: [
+        'what is going on today',
+        'show todays active sessions',
+        'open my events for today',
+        'whats happening right now in my workspace'
+      ],
       matcher: (lower, allowedTools) =>
         allowedTools.has('openTodaysWorkspace') &&
         (
@@ -221,16 +494,14 @@ function catalogEntries() {
       prompt: 'Start a meeting with Sarah',
       requiredToolsAll: ['startMeeting', 'searchUsers'],
       subtitleTag: 'meetings',
+      softRoute: false,
       matcher: (lower, allowedTools) =>
         allowedTools.has('startMeeting') &&
         allowedTools.has('searchUsers') &&
-        /\b(?:start (?:a |an )?(?:meeting|video chat|video call|call|chat|1\s*[-:on]\s*1)|let'?s meet)\s+(?:with|w\/)\s+/.test(lower),
+        START_MEETING_WITH_RE.test(lower),
       buildIntent: (lower) => {
-        const m = lower.match(
-          /\b(?:start (?:a |an )?(?:meeting|video chat|video call|call|chat|1\s*[-:on]\s*1)|let'?s meet)\s+(?:with|w\/)\s+(.+?)(?:\s+(?:now|today|please|pls|asap|right now))?[.?!]?$/
-        );
-        const target = (m?.[1] || '').trim().replace(/^(the\s+|a\s+)/, '');
-        if (!target || target.length < 2 || target.length > 80) return null;
+        const target = extractStartMeetingTarget(lower);
+        if (!target) return null;
         return {
           intent: 'start_meeting',
           capabilityId: 'meeting_start',
@@ -246,6 +517,7 @@ function catalogEntries() {
       prompt: 'Move my 3pm to 4pm',
       requiredToolsAll: ['rescheduleMeeting', 'findMyMeetings'],
       subtitleTag: 'meetings',
+      softRoute: false,
       matcher: (lower, allowedTools) =>
         allowedTools.has('rescheduleMeeting') &&
         allowedTools.has('findMyMeetings') &&
@@ -276,6 +548,7 @@ function catalogEntries() {
       prompt: 'Push everything 30 minutes',
       requiredToolsAll: ['pushTodaysRemainingMeetings'],
       subtitleTag: 'meetings',
+      softRoute: false,
       matcher: (lower, allowedTools) =>
         allowedTools.has('pushTodaysRemainingMeetings') &&
         (
@@ -308,6 +581,7 @@ function catalogEntries() {
       prompt: 'Cancel the meeting with Sarah',
       requiredToolsAll: ['cancelMeeting', 'findMyMeetings'],
       subtitleTag: 'meetings',
+      softRoute: false,
       matcher: (lower, allowedTools) =>
         allowedTools.has('cancelMeeting') &&
         allowedTools.has('findMyMeetings') &&
@@ -338,6 +612,7 @@ function catalogEntries() {
       prompt: 'Cancel the rest of my day',
       requiredToolsAll: ['cancelTodaysRemainingMeetings'],
       subtitleTag: 'meetings',
+      softRoute: false,
       matcher: (lower, allowedTools) =>
         allowedTools.has('cancelTodaysRemainingMeetings') &&
         /\b(cancel|clear|wipe|kill)\b/.test(lower) &&
@@ -366,6 +641,7 @@ function catalogEntries() {
       prompt: 'Cancel my next meeting',
       requiredToolsAll: ['cancelMeeting', 'findNextMeeting'],
       subtitleTag: 'meetings',
+      softRoute: false,
       matcher: (lower, allowedTools) =>
         allowedTools.has('cancelMeeting') &&
         allowedTools.has('findNextMeeting') &&
@@ -380,12 +656,108 @@ function catalogEntries() {
       })
     },
     {
+      id: 'training_kb_open',
+      audience: ['admin_like'],
+      group: 'Handbook and policies',
+      prompt: 'Open Training Knowledge Base',
+      requiredToolsAll: ['navigateTo'],
+      subtitleTag: 'handbook',
+      routeHints: [
+        'training knowledge base',
+        'training reference',
+        'reference docs',
+        'handbook link',
+        'google doc',
+        'upload handbook',
+        'add handbook'
+      ],
+      semanticExamples: [
+        'upload handbook google doc please',
+        'paste handbook link',
+        'manage training reference docs',
+        'open handbook upload settings'
+      ],
+      matcher: (lower, allowedTools) =>
+        allowedTools.has('navigateTo') &&
+        (
+          /\b(training\s+(knowledge\s+)?base|training\s+reference|reference\s+docs?|training\s+docs?|training\s+documents?)\b/.test(lower) ||
+          (
+            /\b(handbook|polic(?:y|ies)|google\s+doc)\b/.test(lower) &&
+            /\b(add|link|upload|open|manage|edit|go\s+to|take\s+me|set\s*up)\b/.test(lower)
+          )
+        ),
+      buildIntent: () => ({
+        intent: 'page_navigate',
+        capabilityId: 'training_kb_open',
+        assistantText:
+          'Opening Training Reference Docs — paste your public Google Docs handbook link there (Anyone with the link → Viewer).',
+        toolCalls: [{ name: 'navigateTo', args: { routeName: 'TrainingKnowledgeBase' } }]
+      })
+    },
+    {
+      id: 'training_kb_search',
+      audience: ['provider_like', 'admin_like', 'general'],
+      group: 'Handbook and policies',
+      prompt: "What's the company policy on PTO?",
+      requiredToolsAll: ['searchTrainingKnowledgeBase'],
+      subtitleTag: 'handbook',
+      routeHints: [
+        'pto',
+        'paid time off',
+        'sick leave',
+        'vacation',
+        'company policy',
+        'employee handbook',
+        'dress code',
+        'remote work',
+        'fmla'
+      ],
+      semanticExamples: [
+        'what does the handbook say about sick leave',
+        'look up remote work policy',
+        'company policy on vacation days',
+        'explain dress code from handbook',
+        'hr policy for bereavement'
+      ],
+      matcher: (lower, allowedTools) => {
+        if (!allowedTools.has('searchTrainingKnowledgeBase')) return false;
+        // Manage/open/add flows belong to training_kb_open (navigate), not search.
+        if (
+          /\b(training\s+(knowledge\s+)?base|training\s+reference|reference\s+docs?|training\s+docs?|training\s+documents?)\b/.test(lower) ||
+          (
+            /\b(handbook|polic(?:y|ies)|google\s+doc)\b/.test(lower) &&
+            /\b(add|link|upload|open|manage|edit|go\s+to|take\s+me|set\s*up)\b/.test(lower)
+          )
+        ) {
+          return false;
+        }
+        return (
+          /\b(handbook|workplace\s+polic(?:y|ies)|company\s+polic(?:y|ies)|employee\s+handbook|hr\s+polic(?:y|ies)|code\s+of\s+conduct|dress\s+code)\b/.test(lower) ||
+          /\b(pto|paid\s+time\s+off|vacation|sick\s+(?:leave|time|days?)|bereavement|parental\s+leave|maternity|paternity|fmla|holiday\s+pay|remote\s+work|work\s+from\s+home|time\s+off)\b/.test(lower) ||
+          (
+            /\b(polic(?:y|ies)|benefit(?:s)?)\b/.test(lower) &&
+            /\b(what|whats|what's|where|how|explain|tell|find|look\s*up|company|our|the|on|about)\b/.test(lower)
+          )
+        );
+      },
+      buildIntent: (lower) => ({
+        intent: 'training_kb_search',
+        capabilityId: 'training_kb_search',
+        toolCalls: [{ name: 'searchTrainingKnowledgeBase', args: { query: lower.slice(0, 200), limit: 5 } }]
+      })
+    },
+    {
       id: 'intake_openings',
       audience: ['provider_like', 'admin_like'],
       group: 'Coverage and referrals',
       prompt: 'Who has an intake opening today?',
       requiredToolsAll: ['findIntakeOpenings'],
       subtitleTag: 'intake openings',
+      semanticExamples: [
+        'any intake slots available today',
+        'who is free for a new intake',
+        'intake availability this week'
+      ],
       matcher: (lower, allowedTools) =>
         allowedTools.has('findIntakeOpenings') &&
         /\bintake\b/.test(lower) &&
@@ -410,17 +782,25 @@ function catalogEntries() {
       prompt: 'Who uses CBT?',
       requiredToolsAll: ['findProvidersByApproach'],
       subtitleTag: 'provider search',
+      semanticExamples: [
+        'find a therapist who does DBT',
+        'which providers use EMDR',
+        'anyone who does trauma therapy'
+      ],
       matcher: (lower, allowedTools) =>
         allowedTools.has('findProvidersByApproach') &&
         (
           /\bwho\b.*\b(use|uses|does)\b.*\b(cbt|dbt|emdr|act|ifs|trauma|adhd|play therapy)\b/.test(lower) ||
-          /\bfind\b.*\b(provider|therapist)\b.*\b(cbt|dbt|emdr|act|ifs|trauma|adhd|play therapy)\b/.test(lower)
+          /\bfind\b.*\b(provider|therapist)\b.*\b(cbt|dbt|emdr|act|ifs|trauma|adhd|play therapy)\b/.test(lower) ||
+          /\b(?:which|any)\s+providers?\b.*\b(cbt|dbt|emdr|act|ifs|trauma|adhd|play therapy)\b/.test(lower) ||
+          /\b(?:cbt|dbt|emdr|act|ifs|trauma|adhd|play therapy)\b.*\b(provider|therapist|clinician)s?\b/.test(lower)
         ),
       buildIntent: (lower) => {
         const approachMatch =
           lower.match(/\b(?:who|anyone|which\s+providers?)\s+(?:use|uses|does|do)\s+([a-zA-Z][\w\s&\-/().'+]{1,40})\??$/) ||
-          lower.match(/\bfind\s+(?:a\s+|me\s+)?([a-zA-Z][\w\s&\-/().'+]{1,40})\s+(?:provider|therapist|specialist)/);
-        const approach = String(approachMatch?.[1] || '').trim();
+          lower.match(/\bfind\s+(?:a\s+|me\s+)?([a-zA-Z][\w\s&\-/().'+]{1,40})\s+(?:provider|therapist|specialist)/) ||
+          lower.match(/\b(?:cbt|dbt|emdr|act|ifs|trauma(?:\s+therapy)?|adhd|play\s+therapy)\b/);
+        const approach = String(approachMatch?.[1] || approachMatch?.[0] || '').trim();
         if (!approach) return null;
         return {
           intent: 'find_providers_by_approach',
@@ -436,6 +816,11 @@ function catalogEntries() {
       prompt: 'Find pediatric psychiatry referrals',
       requiredToolsAll: ['searchReferralDirectory'],
       subtitleTag: 'referrals',
+      semanticExamples: [
+        'need a pediatric psychiatry referral',
+        'referral directory for speech therapy',
+        'who can I refer to for OT'
+      ],
       matcher: (lower, allowedTools) =>
         allowedTools.has('searchReferralDirectory') &&
         /\breferral|referrals|psychiatry|pediatric(s)?\b/.test(lower),
@@ -446,16 +831,93 @@ function catalogEntries() {
       })
     },
     {
+      id: 'school_client_counts',
+      audience: ['admin_like'],
+      group: 'Navigation and lookup',
+      prompt: 'How many clients are active at Rudy Elementary?',
+      requiredToolsAll: ['getSchoolClientStats'],
+      subtitleTag: 'schools',
+      softRoute: false,
+      semanticExamples: [
+        'how many students at this school affiliate',
+        'active client count for an elementary school',
+        'caseload size at a school portal'
+      ],
+      matcher: (lower, allowedTools) => {
+        if (!allowedTools.has('getSchoolClientStats')) return false;
+        const countAsk =
+          /\b(how many|count|number of|# of)\b/.test(lower) &&
+          /\b(client|clients|student|students|kids|caseload|roster)\b/.test(lower);
+        const activeAtAsk =
+          /\b(active|current)\b/.test(lower) &&
+          /\b(client|clients|student|students)\b/.test(lower) &&
+          /\b(at|for|in|with)\b/.test(lower);
+        const rosterAsk =
+          /\b(roster|caseload)\b/.test(lower) &&
+          /\b(school|elementary|middle|high|academy|program)\b/.test(lower);
+        return countAsk || activeAtAsk || rosterAsk;
+      },
+      buildIntent: (lower) => {
+        const query = guessEntityQueryFromPrompt(lower, [
+          'how',
+          'many',
+          'count',
+          'number',
+          'of',
+          'client',
+          'clients',
+          'student',
+          'students',
+          'kids',
+          'caseload',
+          'roster',
+          'active',
+          'current',
+          'are',
+          'is',
+          'at',
+          'for',
+          'in',
+          'with',
+          'school',
+          'schools',
+          'elementary',
+          'middle',
+          'high',
+          'academy',
+          'program',
+          'affiliate',
+          'affiliates'
+        ]);
+        if (!query || query.length < 2) return null;
+        return {
+          intent: 'school_client_stats',
+          capabilityId: 'school_client_counts',
+          toolCalls: [{ name: 'getSchoolClientStats', args: { query, limit: 10 } }]
+        };
+      }
+    },
+    {
       id: 'school_portal_lookup',
       audience: ['admin_like'],
       group: 'Navigation and lookup',
       prompt: 'Open Twain school portal',
       requiredToolsAll: ['searchSchools'],
       subtitleTag: 'schools',
+      semanticExamples: [
+        'find the school portal for Twain',
+        'take me to an elementary school portal',
+        'search affiliated schools by name'
+      ],
       matcher: (lower, allowedTools) =>
         allowedTools.has('searchSchools') &&
-        /\b(school|portal|portals)\b/.test(lower) &&
-        /\b(open|show|find|search|take me to|go to|navigate)\b/.test(lower),
+        /\b(school|portal|portals|elementary|middle|high|academy)\b/.test(lower) &&
+        /\b(open|show|find|search|take me to|go to|navigate)\b/.test(lower) &&
+        // Count / caseload asks belong to getSchoolClientStats, not portal search.
+        !(
+          /\b(how many|count|number of|# of|caseload|roster)\b/.test(lower) &&
+          /\b(client|clients|student|students|kids)\b/.test(lower)
+        ),
       buildIntent: (lower) => {
         const query = guessEntityQueryFromPrompt(lower, ['school', 'schools', 'portal', 'portals', 'hub']);
         if (!query) return null;
@@ -473,6 +935,11 @@ function catalogEntries() {
       prompt: 'Open upcoming events',
       requiredToolsAny: ['searchEvents', 'navigateTo'],
       subtitleTag: 'events',
+      semanticExamples: [
+        'show program events',
+        'find skill builders events',
+        'upcoming company events'
+      ],
       matcher: (lower, allowedTools) =>
         /\bevents?\b/.test(lower) &&
         /\b(open|show|upcoming|program)\b/.test(lower) &&
@@ -501,6 +968,11 @@ function catalogEntries() {
       prompt: 'Open payroll summary',
       requiredToolsAll: ['getMyPayrollSummary'],
       subtitleTag: 'payroll',
+      semanticExamples: [
+        'show my paycheck summary',
+        'how much was my last paycheck',
+        'payroll unpaid documentation summary'
+      ],
       matcher: (lower, allowedTools) =>
         allowedTools.has('getMyPayrollSummary') &&
         /\bpayroll|paycheck|pay check|my pay|my payroll|pay summary\b/.test(lower),
@@ -517,6 +989,11 @@ function catalogEntries() {
       prompt: 'What offices are open today?',
       requiredToolsAll: ['getOfficeSchedule'],
       subtitleTag: 'offices',
+      semanticExamples: [
+        'which offices are open',
+        'office hours today',
+        'is the main office open'
+      ],
       matcher: (lower, allowedTools) =>
         allowedTools.has('getOfficeSchedule') &&
         /\boffice(s)?\b/.test(lower) &&
@@ -538,6 +1015,11 @@ function catalogEntries() {
       prompt: 'Who RSVP for this Friday event?',
       requiredToolsAll: ['getEventResponses'],
       subtitleTag: 'event responses',
+      semanticExamples: [
+        'who responded to the friday event',
+        'event RSVP list',
+        'show RSVPs for this weeks event'
+      ],
       matcher: (lower, allowedTools) =>
         allowedTools.has('getEventResponses') &&
         /\b(rsvp|rsvp'?d|responded|said yes|attending|attendance)\b/.test(lower),
@@ -559,6 +1041,11 @@ function catalogEntries() {
       prompt: 'What activity happened in my agency this week?',
       requiredToolsAny: ['searchAgencyActivity', 'getAgencyActivityStats'],
       subtitleTag: 'audit activity',
+      semanticExamples: [
+        'agency audit log this week',
+        'what did the team do in the last 7 days',
+        'show agency activity stats'
+      ],
       matcher: (lower, allowedTools) =>
         (allowedTools.has('searchAgencyActivity') || allowedTools.has('getAgencyActivityStats')) &&
         /\b(activity|audit|who did|happened)\b/.test(lower) &&
@@ -590,9 +1077,11 @@ function catalogEntries() {
       prompt: 'Show me what I did today',
       requiredToolsAll: ['listMyRecentActivity'],
       subtitleTag: 'recent activity',
+      softRoute: false,
       matcher: (lower, allowedTools) =>
         allowedTools.has('listMyRecentActivity') &&
-        /\b(what i did|my activity|last log(?:in)?|when did i last log in|show me what i did)\b/.test(lower),
+        /\b(what i did|my activity|last log(?:in)?|when did i last log in|show me what i did)\b/.test(lower) &&
+        !looksLikeServiceCodeQuery(lower),
       buildIntent: (lower) => {
         const since = /\btoday\b/.test(lower) ? new Date().toISOString().slice(0, 10) : undefined;
         const actionType = /\blog(?:in)?\b/.test(lower) ? 'login' : undefined;
@@ -631,7 +1120,7 @@ export function buildCapabilityUiPayload({ role, allowedToolNames }) {
   const subtitle =
     subtitleParts.length > 0
       ? `I can help with ${subtitleParts.slice(0, 5).join(', ')}.`
-      : 'I can help with navigation and common workflows.';
+      : 'I look up agency tools and documents — not free-form AI chat.';
 
   const groupedMap = new Map();
   for (const e of entries) {
@@ -657,23 +1146,13 @@ export function buildCapabilityUiPayload({ role, allowedToolNames }) {
     suggestions,
     inChatAction,
     promptToCapabilityId,
-    capabilityIds: entries.map((e) => e.id)
+    capabilityIds: entries.map((e) => e.id),
+    correctionChoices: entries.map((e) => ({
+      id: e.id,
+      label: e.prompt,
+      tag: e.subtitleTag || ''
+    }))
   };
-}
-
-export function matchDeterministicCapabilityIntent({ prompt, allowedToolNames }) {
-  const lower = String(prompt || '').toLowerCase().trim();
-  if (!lower) return null;
-  for (const entry of catalogEntries()) {
-    if (Array.isArray(entry.requiredToolsAll) && !canUseAll(entry.requiredToolsAll, allowedToolNames)) continue;
-    if (Array.isArray(entry.requiredToolsAny) && !canUseAny(entry.requiredToolsAny, allowedToolNames)) continue;
-    if (typeof entry.matcher !== 'function') continue;
-    if (!entry.matcher(lower, allowedToolNames)) continue;
-    if (typeof entry.buildIntent !== 'function') return null;
-    const intent = entry.buildIntent(lower, allowedToolNames);
-    if (intent) return intent;
-  }
-  return null;
 }
 
 export function getCapabilityCatalogForTests() {

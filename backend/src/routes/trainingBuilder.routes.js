@@ -7,6 +7,8 @@ import {
   listTrainingKbDocuments,
   uploadTrainingKbDocumentHandler,
   deleteTrainingKbDocumentHandler,
+  linkTrainingKbGoogleDocHandler,
+  refreshTrainingKbDocumentHandler,
   generateModuleDraftHandler,
   applyModuleDraftHandler
 } from '../controllers/trainingBuilder.controller.js';
@@ -35,6 +37,20 @@ router.post(
   ],
   uploadTrainingKbDocumentHandler
 );
+
+router.post(
+  '/kb/link-google-doc',
+  [
+    body('agencyId').isInt({ min: 1 }),
+    body('docUrl').optional().isString().isLength({ max: 1024 }),
+    body('url').optional().isString().isLength({ max: 1024 }),
+    body('folder').optional().isString().isLength({ max: 64 }),
+    body('displayName').optional().isString().isLength({ max: 200 })
+  ],
+  linkTrainingKbGoogleDocHandler
+);
+
+router.post('/kb/documents/:id/refresh', refreshTrainingKbDocumentHandler);
 
 router.delete('/kb/documents/:id', deleteTrainingKbDocumentHandler);
 

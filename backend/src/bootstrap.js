@@ -36,7 +36,12 @@ const placeholder = (req, res) => {
     }));
   } else {
     res.writeHead(503, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'starting', message: 'Server is loading, please retry' }));
+    res.end(JSON.stringify({
+      status: loadError ? 'degraded' : 'starting',
+      message: loadError
+        ? `App failed to load: ${loadError}`
+        : 'Server is loading, please retry'
+    }));
   }
 };
 

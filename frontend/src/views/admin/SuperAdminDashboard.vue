@@ -294,10 +294,12 @@ const filteredTenants = computed(() => {
 const selectedOrgId = ref(null);
 const orgOverviewSummary = ref({ counts: { school: 0, program: 0, learning: 0, other: 0 } });
 const betaFeedbackPendingCount = ref(0);
+const askAssistReviewPendingCount = ref(0);
 const tenantSearchQuery = ref('');
 
 const betaFeedbackBadgeCounts = computed(() => ({
-  beta_feedback: betaFeedbackPendingCount.value > 0 ? betaFeedbackPendingCount.value : 0
+  beta_feedback: betaFeedbackPendingCount.value > 0 ? betaFeedbackPendingCount.value : 0,
+  ask_assistant_review: askAssistReviewPendingCount.value > 0 ? askAssistReviewPendingCount.value : 0
 }));
 
 // Use branding from store instead of local ref
@@ -312,14 +314,16 @@ const fetchStats = async () => {
       await brandingStore.fetchPlatformBranding();
     }
     
-    const [agenciesRes, usersRes, modulesRes, templatesRes, pendingRes] = await Promise.all([
+    const [agenciesRes, usersRes, modulesRes, templatesRes, pendingRes, askAssistPendingRes] = await Promise.all([
       api.get('/agencies'),
       api.get('/users'),
       api.get('/modules'),
       api.get('/training-focuses/templates'),
-      api.get('/beta-feedback/pending-count', { skipGlobalLoading: true }).catch(() => ({ data: { count: 0 } }))
+      api.get('/beta-feedback/pending-count', { skipGlobalLoading: true }).catch(() => ({ data: { count: 0 } })),
+      api.get('/agents/assist/review/pending-count', { skipGlobalLoading: true }).catch(() => ({ data: { count: 0 } }))
     ]);
     betaFeedbackPendingCount.value = pendingRes?.data?.count ?? 0;
+    askAssistReviewPendingCount.value = askAssistPendingRes?.data?.count ?? 0;
 
     const rawOrgs = Array.isArray(agenciesRes.data) ? agenciesRes.data : [];
     const primaryAgencies = rawOrgs.filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
@@ -811,6 +815,17 @@ const quickActions = computed(() => {
     to: '/admin/beta-feedback',
     emoji: '🐛',
     iconKey: 'beta_feedback',
+    category: 'System',
+    roles: ['super_admin'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'ask_assistant_review',
+    title: 'Ask Assistant Review',
+    description: 'Thumbs-downs and unanswered asks — train routing from real misses',
+    to: '/admin/ask-assistant-review',
+    emoji: '🤖',
+    iconKey: 'ask_assistant_review',
     category: 'System',
     roles: ['super_admin'],
     capabilities: ['canAccessPlatform']

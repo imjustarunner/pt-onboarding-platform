@@ -4,7 +4,9 @@
       <div class="kb-header">
         <div>
           <h2>Training Reference Documents</h2>
-          <p class="muted">Upload your workplace handbook and policies for AI module generation.</p>
+          <p class="muted">
+            Link a public Google Doc or upload PDF/TXT for AI module generation and Ask Assistant answers.
+          </p>
         </div>
         <button type="button" class="btn btn-secondary" @click="$emit('close')">Close</button>
       </div>
@@ -20,6 +22,30 @@
 
       <div v-else>
         <div v-if="error" class="error">{{ error }}</div>
+
+        <div class="kb-section">
+          <h3>Link Google Doc</h3>
+          <p class="muted kb-help">
+            Share the doc as <strong>Anyone with the link can view</strong>, paste the link below, and we’ll keep a snapshot
+            for Ask Assistant. Edits in Google Docs are pulled in automatically about every 15 minutes, or tap Refresh.
+          </p>
+          <div class="kb-upload-row">
+            <select v-model="linkFolder" class="input">
+              <option value="handbook">Handbook</option>
+              <option value="policies">Policies</option>
+            </select>
+            <input
+              v-model="googleDocUrl"
+              type="url"
+              class="input kb-url"
+              placeholder="https://docs.google.com/document/d/…"
+            />
+            <button class="btn btn-primary" :disabled="linking" @click="linkGoogleDoc">
+              {{ linking ? 'Linking…' : 'Link doc' }}
+            </button>
+          </div>
+          <small v-if="linkSuccess" class="hint success">{{ linkSuccess }}</small>
+        </div>
 
         <div class="kb-section">
           <h3>Upload PDF or TXT</h3>
@@ -39,19 +65,41 @@
         <div class="kb-section">
           <h3>Documents ({{ documents.length }})</h3>
           <div v-if="loading" class="muted">Loading…</div>
-          <div v-else-if="!documents.length" class="muted">No documents yet. Upload your workplace handbook to get started.</div>
+          <div v-else-if="!documents.length" class="muted">
+            No documents yet. Link your workplace handbook Google Doc or upload a PDF to get started.
+          </div>
           <div v-else class="kb-file-list">
             <div v-for="doc in documents" :key="doc.id" class="kb-file-row">
               <div>
                 <div class="kb-file-name">{{ doc.fileName }}</div>
                 <div class="kb-file-meta">
                   {{ doc.folder }} · {{ formatSize(doc.sizeBytes) }}
-                  <span v-if="doc.uploadedByName"> · {{ doc.uploadedByName }}</span>
+                  <span v-if="doc.sourceKind === 'google_doc'"> · Google Doc</span>
+                  <span v-if="doc.lastSyncedAt"> · synced {{ formatWhen(doc.lastSyncedAt) }}</span>
+                  <span v-else-if="doc.uploadedByName"> · {{ doc.uploadedByName }}</span>
                 </div>
+                <a
+                  v-if="doc.sourceUrl"
+                  class="kb-source-link"
+                  :href="doc.sourceUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >Open in Google Docs</a>
               </div>
-              <button type="button" class="btn btn-danger btn-sm" :disabled="deletingId === doc.id" @click="removeDoc(doc)">
-                {{ deletingId === doc.id ? '…' : 'Delete' }}
-              </button>
+              <div class="kb-file-actions">
+                <button
+                  v-if="doc.sourceKind === 'google_doc'"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="refreshingId === doc.id"
+                  @click="refreshDoc(doc)"
+                >
+                  {{ refreshingId === doc.id ? '…' : 'Refresh' }}
+                </button>
+                <button type="button" class="btn btn-danger btn-sm" :disabled="deletingId === doc.id" @click="removeDoc(doc)">
+                  {{ deletingId === doc.id ? '…' : 'Delete' }}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -74,17 +122,29 @@ defineEmits(['close', 'updated']);
 
 const loading = ref(false);
 const uploading = ref(false);
+const linking = ref(false);
 const error = ref('');
 const uploadSuccess = ref('');
+const linkSuccess = ref('');
 const uploadFolder = ref('handbook');
+const linkFolder = ref('handbook');
+const googleDocUrl = ref('');
 const fileInput = ref(null);
 const documents = ref([]);
 const deletingId = ref(null);
+const refreshingId = ref(null);
 
 const formatSize = (bytes) => {
   const n = Number(bytes) || 0;
   if (n < 1024) return `${n} B`;
   return `${Math.round(n / 1024)} KB`;
+};
+
+const formatWhen = (value) => {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString();
 };
 
 const loadDocuments = async () => {
@@ -104,6 +164,46 @@ const loadDocuments = async () => {
     documents.value = [];
   } finally {
     loading.value = false;
+  }
+};
+
+const linkGoogleDoc = async () => {
+  if (!props.agencyId) return;
+  const docUrl = String(googleDocUrl.value || '').trim();
+  if (!docUrl) {
+    error.value = 'Paste a Google Docs link first.';
+    return;
+  }
+  try {
+    linking.value = true;
+    error.value = '';
+    linkSuccess.value = '';
+    await api.post('/training-builder/kb/link-google-doc', {
+      agencyId: props.agencyId,
+      folder: linkFolder.value,
+      docUrl
+    });
+    linkSuccess.value = 'Google Doc linked. Ask Assistant will use this snapshot (auto-refreshes about every 15 minutes).';
+    googleDocUrl.value = '';
+    await loadDocuments();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Could not link Google Doc';
+  } finally {
+    linking.value = false;
+  }
+};
+
+const refreshDoc = async (doc) => {
+  try {
+    refreshingId.value = doc.id;
+    error.value = '';
+    await api.post(`/training-builder/kb/documents/${doc.id}/refresh`);
+    linkSuccess.value = `Refreshed “${doc.fileName}” from Google Docs.`;
+    await loadDocuments();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Refresh failed';
+  } finally {
+    refreshingId.value = null;
   }
 };
 
@@ -170,7 +270,7 @@ watch(
 .kb-modal {
   background: var(--surface, #fff);
   border-radius: 12px;
-  max-width: 640px;
+  max-width: 720px;
   width: 100%;
   max-height: 90vh;
   overflow: auto;
@@ -192,6 +292,10 @@ watch(
   color: var(--text-secondary, #64748b);
   font-size: 0.875rem;
 }
+.kb-help {
+  margin: 0 0 10px;
+  line-height: 1.4;
+}
 .kb-section {
   margin-bottom: 24px;
 }
@@ -212,6 +316,10 @@ watch(
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 6px;
 }
+.kb-url {
+  flex: 2;
+  min-width: 220px;
+}
 .kb-file-list {
   display: flex;
   flex-direction: column;
@@ -220,33 +328,45 @@ watch(
 .kb-file-row {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  padding: 10px 12px;
-  background: var(--bg-secondary, #f8fafc);
-  border-radius: 8px;
+  align-items: flex-start;
   gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
 }
 .kb-file-name {
   font-weight: 600;
-  font-size: 0.9rem;
 }
 .kb-file-meta {
   font-size: 0.8rem;
   color: var(--text-secondary, #64748b);
+  margin-top: 2px;
 }
-.error {
-  color: #b91c1c;
-  margin-bottom: 12px;
-  font-size: 0.875rem;
+.kb-source-link {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 0.8rem;
+}
+.kb-file-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
 }
 .hint.success {
   color: #15803d;
   display: block;
-  margin-top: 6px;
+  margin-top: 8px;
+}
+.error {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
 }
 .empty-state {
-  padding: 24px;
+  padding: 24px 8px;
   text-align: center;
-  color: var(--text-secondary, #64748b);
 }
 </style>

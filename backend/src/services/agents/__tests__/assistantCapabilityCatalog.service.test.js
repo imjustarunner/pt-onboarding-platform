@@ -12,7 +12,15 @@ function setOf(...items) {
   return new Set(items);
 }
 
-test('deterministic acceptance matrix for top prompts', () => {
+// Existing suite exercises hard matchers + TF–IDF; keep Gemini off so CI needs no API key.
+const PREV_GEMINI_ROUTER = process.env.ASK_ASSISTANT_GEMINI_ROUTER;
+process.env.ASK_ASSISTANT_GEMINI_ROUTER = '0';
+test.after(() => {
+  if (PREV_GEMINI_ROUTER === undefined) delete process.env.ASK_ASSISTANT_GEMINI_ROUTER;
+  else process.env.ASK_ASSISTANT_GEMINI_ROUTER = PREV_GEMINI_ROUTER;
+});
+
+test('deterministic acceptance matrix for top prompts', async () => {
   const allTools = setOf(
     'openTodaysWorkspace',
     'startMeeting',
@@ -34,13 +42,19 @@ test('deterministic acceptance matrix for top prompts', () => {
     'getEventResponses',
     'searchAgencyActivity',
     'getAgencyActivityStats',
-    'listMyRecentActivity'
+    'listMyRecentActivity',
+    'searchTrainingKnowledgeBase'
   );
 
   const cases = [
     ['Open my workspace for today', 'openTodaysWorkspace'],
     ['what is active right now', 'openTodaysWorkspace'],
     ['start a meeting with Sarah', 'searchUsers'],
+    ['start a virtual meeting with melissa', 'searchUsers'],
+    ['schedule a meeting with melissa', 'searchUsers'],
+    ['start a zoom meeting with Bob', 'searchUsers'],
+    ['hop on a call with Jane', 'searchUsers'],
+    ['set up a video meeting with Alex', 'searchUsers'],
     ['Move my 3pm to 4pm', 'findMyMeetings'],
     ['push everything 30 minutes', null],
     ['cancel the meeting with Sarah', 'findMyMeetings'],
@@ -57,11 +71,18 @@ test('deterministic acceptance matrix for top prompts', () => {
     ['who rsvp for this friday event', 'getEventResponses'],
     ['what activity happened in my agency this week', 'searchAgencyActivity'],
     ['show me what i did today', 'listMyRecentActivity'],
-    ['when did I last log in?', 'listMyRecentActivity']
+    ['when did I last log in?', 'listMyRecentActivity'],
+    ['whats the company policy on PTO', 'searchTrainingKnowledgeBase'],
+    ['What does the handbook say about sick leave?', 'searchTrainingKnowledgeBase'],
+    ['dress code policy', 'searchTrainingKnowledgeBase'],
+    ['go to training knowledge base', 'navigateTo'],
+    ['open training reference doc', 'navigateTo'],
+    ['add handbook link', 'navigateTo'],
+    ['add training doc', 'navigateTo']
   ];
 
   for (const [prompt, expectedToolName] of cases) {
-    const intent = matchDeterministicCapabilityIntent({ prompt, allowedToolNames: allTools });
+    const intent = await matchDeterministicCapabilityIntent({ prompt, allowedToolNames: allTools });
     assert.ok(intent, `Expected deterministic intent for "${prompt}"`);
     if (expectedToolName) {
       assert.equal(intent.toolCalls?.[0]?.name, expectedToolName, `Wrong tool for "${prompt}"`);
@@ -88,7 +109,7 @@ test('capability payload only returns role/tool-eligible prompts', () => {
   assert.equal(allPrompts.some((p) => /twain school portal/i.test(p)), false, 'Provider payload should not include school portal without searchSchools tool');
 });
 
-test('drift guard: every visible prompt maps to a deterministic capability and catalog id', () => {
+test('drift guard: every visible prompt maps to a deterministic capability and catalog id', async () => {
   const adminTools = setOf(
     'openTodaysWorkspace',
     'startMeeting',
@@ -110,7 +131,8 @@ test('drift guard: every visible prompt maps to a deterministic capability and c
     'getEventResponses',
     'searchAgencyActivity',
     'getAgencyActivityStats',
-    'listMyRecentActivity'
+    'listMyRecentActivity',
+    'searchTrainingKnowledgeBase'
   );
   const payload = buildCapabilityUiPayload({ role: 'admin', allowedToolNames: adminTools });
   const catalogIds = new Set(getCapabilityCatalogForTests().map((c) => c.id));
@@ -124,7 +146,7 @@ test('drift guard: every visible prompt maps to a deterministic capability and c
     const capabilityId = payload.promptToCapabilityId?.[prompt];
     assert.ok(capabilityId, `Prompt "${prompt}" missing prompt->capability mapping`);
     assert.ok(catalogIds.has(capabilityId), `Prompt "${prompt}" points to unknown capability id "${capabilityId}"`);
-    const intent = matchDeterministicCapabilityIntent({ prompt, allowedToolNames: adminTools });
+    const intent = await matchDeterministicCapabilityIntent({ prompt, allowedToolNames: adminTools });
     assert.ok(intent, `Visible prompt "${prompt}" is not deterministically routable`);
     assert.equal(
       String(intent.capabilityId || ''),
@@ -192,5 +214,31 @@ test('profile section jump ignored off-profile', () => {
     context: { routeName: 'Dashboard', path: '/dashboard' }
   });
   assert.equal(intent, null);
+});
+
+test('manage handbook phrases navigate; policy questions search', async () => {
+  const tools = setOf('navigateTo', 'searchTrainingKnowledgeBase');
+  const open = await matchDeterministicCapabilityIntent({
+    prompt: 'add handbook link',
+    allowedToolNames: tools
+  });
+  assert.equal(open?.toolCalls?.[0]?.name, 'navigateTo');
+  assert.equal(open?.toolCalls?.[0]?.args?.routeName, 'TrainingKnowledgeBase');
+
+  const search = await matchDeterministicCapabilityIntent({
+    prompt: 'whats the company policy on PTO',
+    allowedToolNames: tools
+  });
+  assert.equal(search?.toolCalls?.[0]?.name, 'searchTrainingKnowledgeBase');
+});
+
+test('soft routing matches training kb open from loose phrasing', async () => {
+  const tools = setOf('navigateTo', 'searchTrainingKnowledgeBase');
+  const intent = await matchDeterministicCapabilityIntent({
+    prompt: 'upload handbook google doc please',
+    allowedToolNames: tools
+  });
+  assert.ok(intent, 'Expected soft or hard route for handbook upload phrasing');
+  assert.equal(intent.toolCalls?.[0]?.name, 'navigateTo');
 });
 

@@ -2391,6 +2391,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['super_admin'] }
   },
   {
+    path: '/admin/ask-assistant-review',
+    name: 'AskAssistantReviewAdmin',
+    component: () => import('../views/admin/AskAssistantReviewAdminView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['super_admin'] }
+  },
+  {
     path: '/admin/public-marketing-pages',
     name: 'PublicMarketingPagesAdmin',
     component: () => import('../views/admin/PublicMarketingPagesAdminView.vue'),
