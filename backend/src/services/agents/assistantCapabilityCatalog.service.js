@@ -117,11 +117,12 @@ const MEETING_CHANNEL =
 const MEETING_NOUN =
   `(?:${MEETING_CHANNEL})?(?:meeting|huddle|video\\s*chat|video\\s*call|call|chat|1\\s*[-:on]\\s*1)`;
 /**
- * "start/schedule a (virtual) meeting with X", "let's meet with X", "hop on a call with X".
- * Kept broad so natural phrasing never falls through to Vertex for this write action.
+ * "start/schedule a (virtual) meeting with X", "let's meet with X", "hop on a call with X",
+ * and bare natural phrasing: "chat with melissa", "meet with Bob", "talk to Sarah".
+ * Kept broad so these never fall through to agency-document research.
  */
 const START_MEETING_WITH_RE = new RegExp(
-  String.raw`\b(?:(?:start|launch|begin|open|schedule|book|create|set\s*up)\s+(?:a |an )?${MEETING_NOUN}|let'?s meet|hop on (?:a )?${MEETING_NOUN}|jump on (?:a )?${MEETING_NOUN})\s+(?:with|w\/)\s+`,
+  String.raw`\b(?:(?:start|launch|begin|open|schedule|book|create|set\s*up)\s+(?:a |an )?${MEETING_NOUN}|let'?s meet|hop on (?:a )?${MEETING_NOUN}|jump on (?:a )?${MEETING_NOUN}|${MEETING_NOUN}|meet|talk)\s+(?:with|w\/|to)\s+`,
   'i'
 );
 const START_MEETING_TARGET_RE = new RegExp(
@@ -498,6 +499,8 @@ function catalogEntries() {
       matcher: (lower, allowedTools) =>
         allowedTools.has('startMeeting') &&
         allowedTools.has('searchUsers') &&
+        // Bare "meeting/chat with X" is allowed, but never steal cancel/reschedule phrasing.
+        !/\b(cancel|reschedule|move|push|shift|delay|bump)\b/.test(lower) &&
         START_MEETING_WITH_RE.test(lower),
       buildIntent: (lower) => {
         const target = extractStartMeetingTarget(lower);

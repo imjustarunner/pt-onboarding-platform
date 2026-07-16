@@ -99,10 +99,21 @@ export function looksLikeOperationalDataQuery(prompt) {
  * Always safe to try — empty hits fall through to capability help.
  * Skips operational DB asks (school client counts, etc.).
  */
+/** "chat with melissa" / "meet with Bob" — person actions, not document search. */
+export function looksLikeStartMeetingWithPerson(prompt) {
+  const lower = String(prompt || '').toLowerCase().trim();
+  if (!lower) return false;
+  if (/\b(cancel|reschedule|move|push|shift|delay|bump)\b/.test(lower)) return false;
+  return /\b(?:(?:start|launch|begin|open|schedule|book|create|set\s*up)\s+(?:a |an )?)?(?:(?:virtual|video|online|remote|zoom|teams|google\s*meet|facetime|skype|webex)\s+)?(?:meeting|huddle|video\s*chat|video\s*call|call|chat|1\s*[-:on]\s*1|meet|talk)\s+(?:with|w\/|to)\s+\S+/i.test(
+    lower
+  );
+}
+
 export function shouldAttemptAgencyResearch(prompt) {
   const lower = String(prompt || '').toLowerCase().trim();
   if (!lower || lower.length < 2) return false;
   if (looksLikeOperationalDataQuery(lower)) return false;
+  if (looksLikeStartMeetingWithPerson(lower)) return false;
   if (looksLikeBillingOrServiceCodeTopic(lower)) return true;
   if (looksLikeServiceCodeQuery(lower) || extractServiceCodes(lower).length) return true;
   if (/\b(what|whats|what's|who|where|when|how|why|explain|define|tell me|look up|lookup|meaning)\b/.test(lower)) {

@@ -69,6 +69,13 @@ test('shouldAttemptAgencyResearch covers definition and code asks', () => {
   assert.equal(shouldAttemptAgencyResearch(''), false);
 });
 
+test('shouldAttemptAgencyResearch skips chat/meet-with-person asks', () => {
+  assert.equal(shouldAttemptAgencyResearch('chat with melissa'), false);
+  assert.equal(shouldAttemptAgencyResearch('meet with Bob'), false);
+  assert.equal(shouldAttemptAgencyResearch('talk to Sarah'), false);
+  assert.equal(shouldAttemptAgencyResearch('start a meeting with melissa'), false);
+});
+
 test('operational school client counts never go to document research', () => {
   assert.equal(shouldAttemptAgencyResearch('how many clients are active at Rudy Elementary'), false);
   assert.equal(shouldAttemptAgencyResearch('how many students at Twain'), false);
