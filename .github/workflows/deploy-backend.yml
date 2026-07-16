@@ -45,6 +45,30 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker us-west3-docker.pkg.dev --quiet
 
+      - name: Lint — no backend imports of frontend source outside allowed paths
+        run: |
+          # backend/src may only import from frontend/src/navigation/ (shared pure-JS catalogs).
+          # Any import of frontend/src outside that directory will fail the build here
+          # rather than silently booting a 503 in production.
+          echo "=== Checking backend for illegal frontend/src imports ==="
+          ILLEGAL=$(grep -rn \
+            --include='*.js' --include='*.mjs' --include='*.ts' \
+            "from ['\"].*frontend/src/" \
+            backend/src/ \
+            | grep -v "frontend/src/navigation/" \
+            | grep -v "^\s*//" || true)
+          if [ -n "$ILLEGAL" ]; then
+            echo ""
+            echo "❌  Backend imports frontend source files outside frontend/src/navigation/:"
+            echo "$ILLEGAL"
+            echo ""
+            echo "Shared code must live in frontend/src/navigation/ (pure JS, no Vue)."
+            echo "If you need new shared files, add them there AND copy the directory"
+            echo "in backend/Dockerfile (see the existing COPY for profileSearchCatalog)."
+            exit 1
+          fi
+          echo "✅  No illegal frontend/src imports found."
+
       - name: Build and push Docker image
         run: |
           # DEBUG: Print the Admin folder to confirm the file exists and check casing
