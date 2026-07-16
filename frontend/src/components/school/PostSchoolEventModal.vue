@@ -2,13 +2,15 @@
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal post-school-event-modal" @click.stop>
       <div class="modal-header">
-        <h2>Post school event</h2>
+        <h2>{{ editEvent ? 'Edit school event' : 'Post school event' }}</h2>
         <button class="close" type="button" @click="$emit('close')">×</button>
       </div>
 
       <div class="body">
         <p class="muted intro">
-          Share your school's parent event with our team. Providers can apply to staff the event from Caseload Hub / My Schedule.
+          {{ editEvent
+            ? 'Update this school event. Providers can apply to staff it from Caseload Hub / My Schedule.'
+            : "Share your school's parent event with our team. Providers can apply to staff the event from Caseload Hub / My Schedule." }}
         </p>
 
         <label class="field">
@@ -69,7 +71,7 @@
         <div class="actions">
           <button type="button" class="btn btn-secondary" @click="$emit('close')">Cancel</button>
           <button type="button" class="btn btn-primary" :disabled="submitting || uploading" @click="submit">
-            {{ submitting ? 'Posting…' : (editEvent ? 'Save changes' : 'Post event') }}
+            {{ submitting ? (editEvent ? 'Saving…' : 'Posting…') : (editEvent ? 'Save changes' : 'Post event') }}
           </button>
         </div>
       </div>

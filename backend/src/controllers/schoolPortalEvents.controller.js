@@ -115,10 +115,21 @@ async function assertSchoolPortalReadAccess(req, organizationId) {
   return { orgId, userId, role };
 }
 
+/** Roles that may create/update school portal events (school staff + agency managers with portal access). */
+const SCHOOL_EVENT_MANAGE_ROLES = new Set([
+  'school_staff',
+  'super_admin',
+  'admin',
+  'support',
+  'staff',
+  'clinical_practice_assistant',
+  'provider_plus'
+]);
+
 async function assertSchoolStaffPortalAccess(req, organizationId) {
   const { orgId, userId, role } = await assertSchoolPortalReadAccess(req, organizationId);
-  if (role !== 'school_staff' && role !== 'super_admin') {
-    const err = new Error('School staff access required');
+  if (!SCHOOL_EVENT_MANAGE_ROLES.has(role)) {
+    const err = new Error('Not authorized to manage school events');
     err.status = 403;
     throw err;
   }

@@ -581,23 +581,46 @@
                         </template>
                       </div>
                     </div>
-                    <router-link :to="orgTo('/admin/school-portals-hub')" v-if="canSeeSchoolPortalsNav">School Portals</router-link>
-                    <router-link :to="orgTo('/admin/caseload-hub/schools-staff')" v-if="canSeeSchoolPortalsNav">Caseload Hub</router-link>
-                    <router-link :to="orgTo('/admin/caseload-hub/events')" v-if="canSeeSchoolPortalsNav">School Events</router-link>
-                    <router-link :to="orgTo('/admin/caseload-hub/calendar')" v-if="canSeeSchoolPortalsNav">School Calendar</router-link>
+                    <div
+                      v-if="canSeeSchoolPortalsNav || canSeeSchoolClientsNav"
+                      class="nav-dropdown-group nav-dropdown-group-collapsible"
+                    >
+                      <button
+                        type="button"
+                        class="nav-dropdown-group-trigger"
+                        :aria-expanded="directorySchoolsNavExpanded ? 'true' : 'false'"
+                        @click.stop="directorySchoolsNavExpanded = !directorySchoolsNavExpanded"
+                      >
+                        <span>Schools</span>
+                        <span
+                          v-if="schoolClientsPendingCount > 0"
+                          class="nav-badge nav-badge-pulse"
+                          :title="`${schoolClientsPendingCount} pending school client(s)`"
+                        >
+                          {{ schoolClientsPendingCount }}
+                        </span>
+                        <span class="nav-dropdown-group-caret" :class="{ open: directorySchoolsNavExpanded }" aria-hidden="true">▸</span>
+                      </button>
+                      <div v-show="directorySchoolsNavExpanded" class="nav-dropdown-group-items">
+                        <router-link :to="orgTo('/admin/school-portals-hub')" v-if="canSeeSchoolPortalsNav">School Portals</router-link>
+                        <router-link :to="orgTo('/admin/caseload-hub/schools-staff')" v-if="canSeeSchoolPortalsNav">Caseload Hub</router-link>
+                        <router-link :to="orgTo('/admin/caseload-hub/events')" v-if="canSeeSchoolPortalsNav">School Events</router-link>
+                        <router-link :to="orgTo('/admin/caseload-hub/calendar')" v-if="canSeeSchoolPortalsNav">School Calendar</router-link>
+                        <router-link :to="orgTo('/admin/school-clients')" v-if="canSeeSchoolClientsNav">
+                          <span>School Clients</span>
+                          <span
+                            v-if="schoolClientsPendingCount > 0"
+                            class="nav-badge nav-badge-pulse"
+                            :title="`${schoolClientsPendingCount} pending school client(s)`"
+                          >
+                            {{ schoolClientsPendingCount }}
+                          </span>
+                        </router-link>
+                      </div>
+                    </div>
                     <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="canSeeProgramOverviewNav">Program Overview</router-link>
                     <router-link :to="orgTo('/admin/find-providers')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Provider Booking Interface</router-link>
                     <router-link :to="orgTo('/admin/provider-availability')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext" >Provider Management</router-link>
-                    <router-link :to="orgTo('/admin/school-clients')" v-if="canSeeSchoolClientsNav">
-                      <span>School Clients</span>
-                      <span
-                        v-if="schoolClientsPendingCount > 0"
-                        class="nav-badge nav-badge-pulse"
-                        :title="`${schoolClientsPendingCount} pending school client(s)`"
-                      >
-                        {{ schoolClientsPendingCount }}
-                      </span>
-                    </router-link>
                     <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" >{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
                     <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" >Guardians</router-link>
                     <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" >Clients</router-link>
@@ -1517,17 +1540,37 @@
                 </template>
               </div>
 
-                  <router-link :to="orgTo('/admin/school-portals-hub')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">School Portals</router-link>
-                  <router-link :to="orgTo('/admin/caseload-hub/schools-staff')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Caseload Hub</router-link>
-                  <router-link :to="orgTo('/admin/caseload-hub/events')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">School Events</router-link>
-                  <router-link :to="orgTo('/admin/caseload-hub/calendar')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">School Calendar</router-link>
+                  <div v-if="canSeeSchoolPortalsNav || canSeeSchoolClientsNav" class="mobile-nav-group mobile-nav-group-collapsible">
+                    <button
+                      type="button"
+                      class="mobile-nav-group-trigger mobile-nav-sublink"
+                      :aria-expanded="directorySchoolsNavExpanded ? 'true' : 'false'"
+                      @click="directorySchoolsNavExpanded = !directorySchoolsNavExpanded"
+                    >
+                      <span>Schools</span>
+                      <span
+                        v-if="schoolClientsPendingCount > 0"
+                        class="nav-badge nav-badge-pulse"
+                        :title="`${schoolClientsPendingCount} pending school client(s)`"
+                      >
+                        {{ schoolClientsPendingCount }}
+                      </span>
+                      <span class="mobile-nav-group-caret" :class="{ open: directorySchoolsNavExpanded }" aria-hidden="true">▸</span>
+                    </button>
+                    <template v-if="directorySchoolsNavExpanded">
+                      <router-link :to="orgTo('/admin/school-portals-hub')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">School Portals</router-link>
+                      <router-link :to="orgTo('/admin/caseload-hub/schools-staff')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Caseload Hub</router-link>
+                      <router-link :to="orgTo('/admin/caseload-hub/events')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">School Events</router-link>
+                      <router-link :to="orgTo('/admin/caseload-hub/calendar')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">School Calendar</router-link>
+                      <router-link :to="orgTo('/admin/school-clients')" v-if="canSeeSchoolClientsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">
+                        <span>School Clients</span>
+                        <span v-if="schoolClientsPendingCount > 0" class="nav-badge nav-badge-pulse" style="margin-left: 8px;">{{ schoolClientsPendingCount }}</span>
+                      </router-link>
+                    </template>
+                  </div>
                   <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="canSeeProgramOverviewNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Program Overview</router-link>
                   <router-link :to="orgTo('/admin/find-providers')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Provider Booking Interface</router-link>
                   <router-link :to="orgTo('/admin/provider-availability')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Provider Management</router-link>
-                  <router-link :to="orgTo('/admin/school-clients')" v-if="canSeeSchoolClientsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">
-                    <span>School Clients</span>
-                    <span v-if="schoolClientsPendingCount > 0" class="nav-badge nav-badge-pulse" style="margin-left: 8px;">{{ schoolClientsPendingCount }}</span>
-                  </router-link>
                   <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
                   <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Guardians</router-link>
                   <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Clients</router-link>
@@ -2261,6 +2304,7 @@ const directoryMenuOpen = ref(false);
 const directorySchedulesNavExpanded = ref(false);
 const directorySkillBuildersNavExpanded = ref(false);
 const directoryPublicLinksNavExpanded = ref(false);
+const directorySchoolsNavExpanded = ref(false);
 const directoryPublicLinksLoading = ref(false);
 const directoryPublicLinksError = ref('');
 const directoryPublicLinksData = ref({
@@ -2409,9 +2453,14 @@ function applyDirectorySubgroupStateFromRoute() {
     p.includes('/intake/') ||
     p.includes('/find-provider') ||
     /\/p\/[^/]+/.test(p);
+  const inSchools =
+    p.includes('/school-portals') ||
+    p.includes('/caseload-hub') ||
+    p.includes('/school-clients');
   directorySchedulesNavExpanded.value = inSchedules;
   directorySkillBuildersNavExpanded.value = inSkillBuilders;
   directoryPublicLinksNavExpanded.value = inPublicLinks;
+  directorySchoolsNavExpanded.value = inSchools;
 }
 
 const toggleDirectoryMenu = () => {

@@ -327,6 +327,141 @@
       </aside>
     </div>
 
+    <!-- Events tab: inline calendar + agenda toggle -->
+    <div v-else-if="tab === 'events'" class="events-tab">
+      <div class="events-toolbar">
+        <div class="events-nav">
+          <button type="button" class="btn btn-secondary btn-sm" @click="eventsShift(-1)">‹</button>
+          <button type="button" class="btn btn-secondary btn-sm" @click="eventsGoToday">Today</button>
+          <button type="button" class="btn btn-secondary btn-sm" @click="eventsShift(1)">›</button>
+          <span class="events-range">{{ eventsRangeLabel }}</span>
+        </div>
+        <div class="events-filters">
+          <select v-model="eventsSchoolFilter">
+            <option value="">All schools</option>
+            <option v-for="s in eventSchoolOptions" :key="s.id" :value="String(s.id)">{{ s.name }}</option>
+          </select>
+          <select v-model="eventsTypeFilter">
+            <option value="">All event types</option>
+            <option value="school_back_to_school">Back to School</option>
+            <option value="school_open_house">Open House</option>
+            <option value="school_resource_fair">Resource Fair</option>
+            <option value="school_family_night">Family Night</option>
+            <option value="school_orientation">Orientation</option>
+            <option value="school_spring_event">Spring</option>
+            <option value="school_other">Other</option>
+          </select>
+        </div>
+        <div class="events-view-toggle">
+          <button type="button" :class="{ active: eventsView === 'calendar' }" @click="eventsView = 'calendar'">Calendar</button>
+          <button type="button" :class="{ active: eventsView === 'agenda' }" @click="eventsView = 'agenda'">Agenda</button>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" @click="openEventsAddEvent">+ Add Event</button>
+        <router-link class="btn btn-secondary btn-sm" :to="orgTo('/admin/caseload-hub/events')">Full event hub →</router-link>
+      </div>
+
+      <div class="events-body" :class="{ 'has-panel': !!eventsSelectedEvent }">
+        <!-- Calendar view -->
+        <div v-if="eventsView === 'calendar'" class="evt-cal-wrap">
+          <div class="evt-month-grid">
+            <div v-for="dow in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']" :key="dow" class="evt-dow">{{ dow }}</div>
+            <div
+              v-for="cell in calendarCells"
+              :key="cell.key"
+              class="evt-cell"
+              :class="{ outside: cell.outside, today: cell.isToday }"
+            >
+              <div class="evt-day-num">{{ cell.day }}</div>
+              <button
+                v-for="e in cell.events"
+                :key="e.id"
+                type="button"
+                class="evt-chip"
+                :class="[eventsTypeColor(e), { active: eventsSelectedId === e.id }]"
+                :title="`${e.schoolName ? e.schoolName + ' — ' : ''}${e.title}`"
+                @click="selectEventsEvent(e.id)"
+              >
+                <span v-if="e.schoolName" class="evt-chip-school">{{ e.schoolName }}</span>
+                {{ e.title }}
+              </button>
+            </div>
+          </div>
+          <div class="evt-legend">
+            <span><i class="evtdot bts" />Back to School</span>
+            <span><i class="evtdot fair" />Resource Fair</span>
+            <span><i class="evtdot open" />Open House / Orientation</span>
+            <span><i class="evtdot family" />Family Night</span>
+            <span><i class="evtdot spring" />Spring / Other</span>
+            <span><i class="evtdot needs" />Needs staff</span>
+          </div>
+          <p v-if="!eventsInRange.length" class="empty">No school events this month.</p>
+        </div>
+
+        <!-- Agenda view -->
+        <div v-else class="evt-agenda">
+          <div v-if="!agendaEvents.length" class="empty">No school events this month.</div>
+          <div
+            v-for="e in agendaEvents"
+            :key="e.id"
+            class="agenda-row"
+            :class="{ active: eventsSelectedId === e.id }"
+            @click="selectEventsEvent(e.id)"
+          >
+            <div class="agenda-dot" :class="eventsTypeColor(e)" />
+            <div class="agenda-date">
+              <div class="primary">{{ eventsFormatDate(e.startsAt) }}</div>
+              <div class="muted">{{ eventsFormatTime(e.startsAt, e.endsAt) }}</div>
+            </div>
+            <div class="agenda-info">
+              <div class="primary">{{ e.title }}</div>
+              <div class="muted">{{ e.schoolName || '—' }} <span v-if="e.districtName">· {{ e.districtName }}</span></div>
+            </div>
+            <div class="agenda-meta">
+              <span class="evttype" :class="eventsTypeColor(e)">{{ eventsLabelType(e.eventType) }}</span>
+              <div class="muted">{{ eventsLabelStatus(e.staffingStatus) }}</div>
+              <div v-if="e.staffingEnabled" class="muted">{{ e.providersAssigned }}/{{ e.providersRequested }} staffed</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Staffing side-panel -->
+        <SchoolEventStaffingPanel
+          v-if="eventsSelectedEvent"
+          :event="eventsSelectedEvent"
+          :agency-id="agencyId"
+          class="evt-side-panel"
+          @close="eventsSelectedId = null"
+          @changed="reload"
+        />
+      </div>
+
+      <!-- Add event flow -->
+      <div v-if="eventsShowSchoolPicker" class="caseload-modal-backdrop" @click.self="eventsShowSchoolPicker = false">
+        <div class="caseload-modal">
+          <header class="caseload-modal-header">
+            <h2>Add school event</h2>
+            <button type="button" class="btn btn-secondary btn-sm" @click="eventsShowSchoolPicker = false">Cancel</button>
+          </header>
+          <p class="muted">Choose the school this event belongs to.</p>
+          <select v-model="eventsPostSchoolId" class="search" style="width:100%;margin-top:0.5rem;">
+            <option :value="null">Select a school…</option>
+            <option v-for="s in eventSchoolOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
+          </select>
+          <footer class="caseload-modal-actions" style="margin-top:1rem;">
+            <button type="button" class="btn btn-secondary" @click="eventsShowSchoolPicker = false">Cancel</button>
+            <button type="button" class="btn btn-primary" :disabled="!eventsPostSchoolId" @click="eventsShowSchoolPicker = false; showEventsPostModal = true">Continue</button>
+          </footer>
+        </div>
+      </div>
+      <PostSchoolEventModal
+        v-if="showEventsPostModal && eventsPostSchoolId"
+        :school-organization-id="Number(eventsPostSchoolId)"
+        initial-category="back_to_school"
+        @close="showEventsPostModal = false"
+        @saved="onEventsEventSaved"
+      />
+    </div>
+
     <!-- Coverage Needs -->
     <div v-else-if="tab === 'coverage-needs'" class="coverage-needs-wrap">
       <div class="coverage-quick-filters" data-tour="coverage-category-buttons">
@@ -612,8 +747,11 @@ import {
   fetchCoverageSuggestions,
   expireStaleSchoolRequests,
   applyForOpenSchoolDay,
-  upsertProviderDaySlots
+  upsertProviderDaySlots,
+  fetchHubEvents
 } from '../../../services/schoolCoverageApi';
+import SchoolEventStaffingPanel from '../../../components/caseload-hub/SchoolEventStaffingPanel.vue';
+import PostSchoolEventModal from '../../../components/school/PostSchoolEventModal.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -623,6 +761,7 @@ const agencyStore = useAgencyStore();
 const tabs = [
   { id: 'by-school', label: 'By School' },
   { id: 'by-person', label: 'By Person' },
+  { id: 'events', label: 'Events' },
   { id: 'coverage-needs', label: 'Coverage Needs' },
   { id: 'open-spots', label: 'Open School Spots' }
 ];
@@ -644,6 +783,165 @@ const needs = ref([]);
 const openDays = ref([]);
 const openDaysSummary = ref({ total: 0, highUrgency: 0, schoolsAffected: 0 });
 const suggestions = ref([]);
+
+// --- Events tab ---
+const hubEvents = ref([]);
+const eventsView = ref('calendar'); // 'calendar' | 'agenda'
+const eventsCursor = ref(eventsStartOfMonth(new Date()));
+const eventsSchoolFilter = ref('');
+const eventsTypeFilter = ref('');
+const eventsSelectedId = ref(null);
+const showEventsPostModal = ref(false);
+const eventsPostSchoolId = ref(null);
+const eventsShowSchoolPicker = ref(false);
+
+function eventsStartOfMonth(d) {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+function eventsStartOfWeek(d) {
+  const x = new Date(d);
+  x.setDate(x.getDate() - x.getDay());
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+function eventsYmd(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function eventsShift(dir) {
+  const d = new Date(eventsCursor.value);
+  d.setMonth(d.getMonth() + dir);
+  eventsCursor.value = eventsStartOfMonth(d);
+}
+function eventsGoToday() {
+  eventsCursor.value = eventsStartOfMonth(new Date());
+}
+
+const eventsRangeLabel = computed(() =>
+  eventsCursor.value.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+);
+
+const filteredHubEvents = computed(() => {
+  let list = hubEvents.value;
+  if (eventsSchoolFilter.value) list = list.filter((e) => String(e.schoolId) === eventsSchoolFilter.value);
+  if (eventsTypeFilter.value) list = list.filter((e) => e.eventType === eventsTypeFilter.value);
+  return list;
+});
+
+const eventsInRange = computed(() => {
+  return filteredHubEvents.value.filter((e) => {
+    const t = e.startsAt ? new Date(e.startsAt) : null;
+    if (!t || Number.isNaN(t.getTime())) return false;
+    return t.getMonth() === eventsCursor.value.getMonth() && t.getFullYear() === eventsCursor.value.getFullYear();
+  });
+});
+
+const calendarCells = computed(() => {
+  const byDay = new Map();
+  for (const e of eventsInRange.value) {
+    const key = eventsYmd(new Date(e.startsAt));
+    if (!byDay.has(key)) byDay.set(key, []);
+    byDay.get(key).push(e);
+  }
+  const first = eventsStartOfMonth(eventsCursor.value);
+  const gridStart = eventsStartOfWeek(first);
+  const today = eventsYmd(new Date());
+  const out = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(gridStart);
+    d.setDate(gridStart.getDate() + i);
+    const key = eventsYmd(d);
+    out.push({
+      key,
+      day: d.getDate(),
+      outside: d.getMonth() !== eventsCursor.value.getMonth(),
+      isToday: key === today,
+      events: byDay.get(key) || []
+    });
+  }
+  return out;
+});
+
+const agendaEvents = computed(() =>
+  eventsInRange.value.slice().sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt))
+);
+
+const eventSchoolOptions = computed(() => {
+  const map = new Map();
+  for (const e of hubEvents.value) {
+    if (e.schoolId) map.set(e.schoolId, e.schoolName || `School ${e.schoolId}`);
+  }
+  return Array.from(map.entries())
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+});
+
+const eventsSelectedEvent = computed(() => hubEvents.value.find((e) => e.id === eventsSelectedId.value) || null);
+
+function eventsTypeColor(e) {
+  if (e.staffingStatus === 'needs_providers' || e.staffingStatus === 'partially_staffed') return 'needs';
+  const t = String(e.eventType || '');
+  if (t === 'school_back_to_school') return 'bts';
+  if (t === 'school_resource_fair' || t === 'school_other') return 'fair';
+  if (t === 'school_open_house' || t === 'school_orientation') return 'open';
+  if (t === 'school_family_night') return 'family';
+  return 'spring';
+}
+
+function eventsFormatDate(v) {
+  if (!v) return '';
+  try {
+    return new Date(v).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  } catch { return String(v); }
+}
+
+function eventsFormatTime(a, b) {
+  try {
+    const s = new Date(a).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const e = b ? new Date(b).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+    return e ? `${s} – ${e}` : s;
+  } catch { return ''; }
+}
+
+function eventsLabelType(t) {
+  const m = {
+    school_back_to_school: 'Back to School',
+    school_spring_event: 'Spring',
+    school_open_house: 'Open House',
+    school_resource_fair: 'Resource Fair',
+    school_family_night: 'Family Night',
+    school_orientation: 'Orientation',
+    school_other: 'School Event'
+  };
+  return m[t] || t || 'Event';
+}
+
+function eventsLabelStatus(s) {
+  if (s === 'needs_providers') return 'Needs staff';
+  if (s === 'requests_pending') return 'Requests pending';
+  if (s === 'partially_staffed') return 'Partially staffed';
+  if (s === 'fully_staffed') return 'Fully staffed';
+  if (s === 'not_open') return 'Not open';
+  return 'Scheduled';
+}
+
+function openEventsAddEvent() {
+  if (eventsSchoolFilter.value) {
+    eventsPostSchoolId.value = Number(eventsSchoolFilter.value);
+    showEventsPostModal.value = true;
+  } else {
+    eventsShowSchoolPicker.value = true;
+  }
+}
+
+async function onEventsEventSaved() {
+  showEventsPostModal.value = false;
+  eventsShowSchoolPicker.value = false;
+  hubEvents.value = (await fetchHubEvents(agencyId.value).catch(() => ({ events: [] }))).events || [];
+}
+
+function selectEventsEvent(id) {
+  eventsSelectedId.value = eventsSelectedId.value === id ? null : id;
+}
 
 const schoolSearch = ref('');
 const schoolSort = ref('name');
@@ -1052,7 +1350,7 @@ async function reload() {
   error.value = '';
   failedLogoIds.value = new Set();
   try {
-    const [sum, prov, warn, open, sug] = await Promise.all([
+    const [sum, prov, warn, open, sug, evts] = await Promise.all([
       fetchSchoolCoverageSummary(agencyId.value),
       fetchProviderCoverageSummary(agencyId.value).catch((e) => {
         console.error('Provider coverage failed', e);
@@ -1060,7 +1358,8 @@ async function reload() {
       }),
       fetchCoverageWarnings(agencyId.value).catch(() => ({ cards: [], items: [] })),
       fetchOpenSchoolDays(agencyId.value).catch(() => ({ days: [], summary: { total: 0, highUrgency: 0, schoolsAffected: 0 } })),
-      fetchCoverageSuggestions(agencyId.value).catch(() => ({ suggestions: [] }))
+      fetchCoverageSuggestions(agencyId.value).catch(() => ({ suggestions: [] })),
+      fetchHubEvents(agencyId.value).catch(() => ({ events: [] }))
     ]);
     schools.value = sum.schools || [];
     providers.value = prov.providers || [];
@@ -1069,6 +1368,7 @@ async function reload() {
     openDays.value = open.days || [];
     openDaysSummary.value = open.summary || { total: 0, highUrgency: 0, schoolsAffected: 0 };
     suggestions.value = sug.suggestions || [];
+    hubEvents.value = evts.events || [];
 
     if (selectedSchoolId.value) await selectSchool(selectedSchoolId.value);
     if (selectedProviderId.value) await selectProvider(selectedProviderId.value);
@@ -1672,6 +1972,165 @@ watch(
 .suggestions ul {
   padding-left: 1.1rem;
 }
+/* ── Events tab ─────────────────────────────────────────── */
+.events-tab { display: flex; flex-direction: column; gap: 0.75rem; }
+.events-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.65rem 0.85rem;
+}
+.events-nav { display: flex; gap: 0.35rem; align-items: center; }
+.events-range { font-weight: 650; font-size: 0.95rem; margin-left: 0.35rem; color: #0f172a; }
+.events-filters { display: flex; gap: 0.4rem; }
+.events-filters select {
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  background: #fff;
+}
+.events-view-toggle {
+  display: inline-flex;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-left: auto;
+}
+.events-view-toggle button {
+  border: 0;
+  background: #fff;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #475569;
+}
+.events-view-toggle button.active {
+  background: #5b21b6;
+  color: #fff;
+}
+.events-body {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+.events-body.has-panel {
+  grid-template-columns: minmax(0, 1fr) 22rem;
+}
+.evt-side-panel { height: fit-content; }
+.evt-cal-wrap { min-width: 0; }
+.evt-month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  background: #e2e8f0;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.evt-dow {
+  background: #f8fafc;
+  padding: 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748b;
+  text-align: center;
+}
+.evt-cell {
+  background: #fff;
+  min-height: 90px;
+  padding: 0.3rem;
+}
+.evt-cell.outside { background: #f8fafc; color: #94a3b8; }
+.evt-cell.today { outline: 2px solid #7c3aed; outline-offset: -2px; }
+.evt-day-num { font-size: 0.72rem; font-weight: 700; margin-bottom: 0.2rem; }
+.evt-chip {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 4px;
+  padding: 0.18rem 0.3rem;
+  margin-bottom: 0.18rem;
+  font-size: 0.66rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #fff;
+  font: inherit;
+}
+.evt-chip.active { outline: 2px solid #0f172a; outline-offset: 1px; }
+.evt-chip-school { display: block; font-size: 0.58rem; opacity: 0.88; font-weight: 500; margin-bottom: 0.05rem; }
+.evt-chip.bts, .evtdot.bts { background: #2563eb; }
+.evt-chip.fair, .evtdot.fair { background: #16a34a; }
+.evt-chip.open, .evtdot.open { background: #ea580c; }
+.evt-chip.family, .evtdot.family { background: #db2777; }
+.evt-chip.spring, .evtdot.spring { background: #7c3aed; }
+.evt-chip.needs, .evtdot.needs { background: #dc2626; }
+.evt-legend {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 0.65rem;
+  font-size: 0.75rem;
+  color: #475569;
+}
+.evtdot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  margin-right: 0.3rem;
+}
+/* Agenda */
+.evt-agenda {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.agenda-row {
+  display: grid;
+  grid-template-columns: 0.5rem 7rem 1fr auto;
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid #f1f5f9;
+  cursor: pointer;
+}
+.agenda-row:hover, .agenda-row.active { background: #f8fafc; }
+.agenda-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  margin-top: 0.45rem;
+  flex-shrink: 0;
+}
+.agenda-date { flex-shrink: 0; }
+.agenda-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  align-items: flex-end;
+  text-align: right;
+  flex-shrink: 0;
+}
+.evttype {
+  display: inline-flex;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #fff;
+}
+/* ─────────────────────────────────────────────────────── */
 .coverage-needs-wrap {
   display: flex;
   flex-direction: column;

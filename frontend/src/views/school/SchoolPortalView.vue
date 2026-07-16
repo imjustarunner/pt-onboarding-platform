@@ -174,12 +174,12 @@
             Display weekly splash
           </button>
           <button
-            v-if="isSchoolStaff && !props.previewMode"
+            v-if="canManageSchoolEvents"
             class="btn btn-secondary btn-sm"
             type="button"
             @click="openPostSchoolEvent()"
           >
-            Post school event
+            Add school event
           </button>
           <button v-if="!props.previewMode" class="btn btn-secondary btn-sm" type="button" @click="showHelpDesk = true">Contact admin</button>
           <button
@@ -820,31 +820,51 @@
           <div class="roster-header">
             <div>
               <h2>School events</h2>
-              <p class="muted">Events posted for this school appear here from the shared company events record.</p>
+              <p class="muted">Post and edit parent events for this school. Providers can apply to staff them from Caseload Hub / My Schedule.</p>
             </div>
             <button
-              v-if="isSchoolStaff && !props.previewMode"
+              v-if="canManageSchoolEvents"
               class="btn btn-primary btn-sm"
               type="button"
               @click="openPostSchoolEvent()"
             >
-              Post school event
+              + Add event
             </button>
           </div>
           <div v-if="schoolPortalEventsLoading" class="empty-state">Loading events…</div>
           <div v-else-if="schoolPortalEventsError" class="empty-state">{{ schoolPortalEventsError }}</div>
           <ul v-else-if="schoolPortalEvents.length" class="school-events-list">
-            <li v-for="ev in schoolPortalEvents" :key="ev.id">
-              <strong>{{ ev.title }}</strong>
-              <span class="muted">
-                {{ formatSchoolEventWhen(ev.startsAt) }}
-                · {{ formatSchoolEventCategory(ev.category) }}
-                · {{ ev.isActive ? 'Published' : 'Inactive' }}
-                <template v-if="ev.outreachTableInvited"> · Outreach staffing</template>
-              </span>
+            <li v-for="ev in schoolPortalEvents" :key="ev.id" class="school-event-row">
+              <div class="school-event-main">
+                <strong>{{ ev.title }}</strong>
+                <span class="muted">
+                  {{ formatSchoolEventWhen(ev.startsAt) }}
+                  · {{ formatSchoolEventCategory(ev.category) }}
+                  · {{ ev.isActive ? 'Published' : 'Inactive' }}
+                  <template v-if="ev.outreachTableInvited"> · Outreach staffing</template>
+                </span>
+              </div>
+              <button
+                v-if="canManageSchoolEvents"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="openEditSchoolEvent(ev)"
+              >
+                Edit
+              </button>
             </li>
           </ul>
-          <div v-else class="empty-state">No school events posted yet.</div>
+          <div v-else class="empty-state school-events-empty">
+            <p>No school events posted yet.</p>
+            <button
+              v-if="canManageSchoolEvents"
+              type="button"
+              class="btn btn-primary"
+              @click="openPostSchoolEvent()"
+            >
+              + Add event
+            </button>
+          </div>
         </div>
           </div>
 
@@ -976,6 +996,7 @@
       :initial-category="postSchoolEventCategory"
       :locked-category="!!postSchoolEventToken"
       :post-token="postSchoolEventToken"
+      :edit-event="editingSchoolEvent"
       @close="closePostSchoolEvent"
       @saved="handleSchoolEventSaved"
     />
@@ -1491,6 +1512,7 @@ const tutorialStore = useTutorialStore();
 
 const showHelpDesk = ref(false);
 const showPostSchoolEvent = ref(false);
+const editingSchoolEvent = ref(null);
 const postSchoolEventCategory = ref('back_to_school');
 const postSchoolEventToken = ref('');
 const showSchoolEventPrompt = ref(false);
@@ -1544,7 +1566,16 @@ const openSchoolEventsPanel = async () => {
 };
 
 const openPostSchoolEvent = (category = 'back_to_school') => {
+  editingSchoolEvent.value = null;
   postSchoolEventCategory.value = String(category || 'back_to_school');
+  showPostSchoolEvent.value = true;
+};
+
+const openEditSchoolEvent = (ev) => {
+  if (!ev?.id || !canManageSchoolEvents.value) return;
+  editingSchoolEvent.value = ev;
+  postSchoolEventCategory.value = String(ev.category || 'back_to_school');
+  postSchoolEventToken.value = '';
   showPostSchoolEvent.value = true;
 };
 
@@ -1556,12 +1587,14 @@ const openPostSchoolEventFromPrompt = (category) => {
 const closePostSchoolEvent = () => {
   showPostSchoolEvent.value = false;
   postSchoolEventToken.value = '';
+  editingSchoolEvent.value = null;
 };
 
 const handleSchoolEventSaved = async () => {
   await loadSchoolEventsMissing();
   await loadSchoolPortalEvents();
   showSchoolEventPrompt.value = false;
+  editingSchoolEvent.value = null;
 };
 
 const promptDismissKey = (orgId, category, year) =>
@@ -2000,6 +2033,20 @@ const hasSupervisorCapability = computed(() => isSupervisor(authStore.user));
 const isProvider = computed(() => roleNorm.value === 'provider' && !hasSupervisorCapability.value);
 const isSupervisorProviderContext = computed(() => hasSupervisorCapability.value && roleNorm.value === 'provider');
 const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
+/** School staff and agency managers can add/edit events on this portal. */
+const canManageSchoolEvents = computed(() => {
+  if (props.previewMode) return false;
+  if (!authStore.user?.id) return false;
+  return [
+    'school_staff',
+    'super_admin',
+    'admin',
+    'support',
+    'staff',
+    'clinical_practice_assistant',
+    'provider_plus'
+  ].includes(roleNorm.value);
+});
 const canManageMarketingCampaigns = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
   return ['admin', 'super_admin', 'support'].includes(r);
@@ -4336,6 +4383,40 @@ watch(() => store.selectedWeekday, async (weekday) => {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 10px;
+}
+.school-events-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.school-event-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--bg-alt, #f9fafb);
+}
+.school-event-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.school-event-main strong {
+  font-size: 0.95rem;
+}
+.school-events-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px 0;
 }
 .muted {
   color: var(--text-secondary);
