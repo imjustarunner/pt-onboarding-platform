@@ -360,7 +360,15 @@ export async function completeAssessment({ assessmentId }) {
      WHERE id = ?`,
     [JSON.stringify(summary), summary.readinessScore, Number(assessmentId)]
   );
-  return getAssessmentById(assessmentId);
+  const __completed = await getAssessmentById(assessmentId);
+  /* assessment-deliverables-hub-hook */
+  try {
+    const { scheduleDeliverableGeneration } = await import('./assessmentDeliverable.service.js');
+    scheduleDeliverableGeneration({ family: 'athlete_readiness', assessment: __completed });
+  } catch (e) {
+    console.warn('[athlete_readiness] deliverable hook failed', e?.message || e);
+  }
+  return __completed;
 }
 
 export async function listAssessmentsForAthlete({ agencyId, athleteUserId = null, clientId = null }) {

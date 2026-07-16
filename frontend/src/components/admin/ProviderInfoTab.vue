@@ -145,7 +145,7 @@
                 </button>
               </div>
 
-              <div v-if="fileValueUrl(fieldValues[field.id])" style="margin-bottom: 6px;">
+              <div v-if="fileValueUrl(fieldValues[field.id])" class="pi-file-current" style="margin-bottom: 6px;">
                 <a :href="fileValueUrl(fieldValues[field.id])" target="_blank" rel="noopener noreferrer">View uploaded file</a>
               </div>
 
@@ -222,6 +222,26 @@
                   @change="canEditField(field) && (fieldValues[field.id] = $event.target.checked ? 'true' : 'false')"
                 />
                 <label :for="`provider-field-${field.id}`" class="checkbox-label">Yes</label>
+              </div>
+
+              <div
+                v-else-if="field.field_type === 'file' || isLicenseUploadField(field)"
+                class="pi-file-upload"
+              >
+                <input
+                  :id="`provider-field-${field.id}`"
+                  type="file"
+                  accept=".pdf,application/pdf,image/jpeg,image/png,image/webp"
+                  :disabled="!canEditField(field) || fileUploadingId === field.id"
+                  @change="onFileFieldSelected(field, $event)"
+                />
+                <p class="muted" style="margin: 6px 0 0; font-size: 12px;">
+                  {{ isLicenseUploadField(field) ? 'Upload a PDF of the practicing license.' : 'Upload a PDF or image.' }}
+                  <span v-if="fileUploadingId === field.id"> Uploading…</span>
+                </p>
+                <p v-if="fileUploadErrorById[field.id]" class="error" style="margin: 6px 0 0; font-size: 13px;">
+                  {{ fileUploadErrorById[field.id] }}
+                </p>
               </div>
             </div>
           </div>
@@ -378,6 +398,8 @@ const userAgencies = ref([]);
 const showEmptyAssignedFields = ref(false);
 const showFieldKeys = ref(false);
 const collapsedSections = ref(new Set());
+const fileUploadingId = ref(null);
+const fileUploadErrorById = ref({});
 
 const isSectionCollapsed = (key) => collapsedSections.value.has(String(key || ''));
 const toggleSection = (key) => {
@@ -673,9 +695,9 @@ const showInstallCard = computed(() => {
   return providerFields.value.length === 0 || (providerSections.value.length > 0 && providerFields.value.length < 5);
 });
 
-const refresh = async () => {
+const refresh = async ({ quiet = false } = {}) => {
   try {
-    loading.value = true;
+    if (!quiet) loading.value = true;
     error.value = '';
     saveError.value = '';
     saveSuccess.value = '';
@@ -683,9 +705,12 @@ const refresh = async () => {
     installSuccess.value = '';
 
     const [infoRes, catsRes, agenciesRes] = await Promise.all([
-      api.get(`/users/${props.userId}/user-info`, { params: { assignedOrHasValueOnly: true } }),
-      api.get('/user-info-categories'),
-      api.get(`/users/${props.userId}/agencies`)
+      api.get(`/users/${props.userId}/user-info`, {
+        params: { assignedOrHasValueOnly: true },
+        ...(quiet ? { skipGlobalLoading: true } : {}),
+      }),
+      api.get('/user-info-categories', quiet ? { skipGlobalLoading: true } : undefined),
+      api.get(`/users/${props.userId}/agencies`, quiet ? { skipGlobalLoading: true } : undefined)
     ]);
 
     let fields = infoRes.data || [];
@@ -754,10 +779,52 @@ const saveAll = async () => {
 const fileValueUrl = (raw) => {
   const v = String(raw || '').trim();
   if (!v) return '';
+  if (v.startsWith('http://') || v.startsWith('https://')) return v;
   if (v.startsWith('/uploads/')) return v;
   if (v.startsWith('uploads/')) return `/uploads/${v.substring('uploads/'.length)}`;
+  // Stored as GCS key / relative path without uploads/ prefix
+  if (v.includes('/')) return `/uploads/${v.replace(/^\/+/, '')}`;
   return '';
 };
+
+const isLicenseUploadField = (field) => {
+  const key = String(field?.field_key || '').toLowerCase();
+  return key === 'license_upload' || key.endsWith('_license_upload');
+};
+
+async function onFileFieldSelected(field, event) {
+  const file = event?.target?.files?.[0] || null;
+  if (event?.target) event.target.value = '';
+  if (!file || !canEditField(field)) return;
+
+  fileUploadErrorById.value = { ...fileUploadErrorById.value, [field.id]: '' };
+  fileUploadingId.value = field.id;
+  try {
+    if (isLicenseUploadField(field)) {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('documentType', 'license');
+      fd.append('userId', String(props.userId));
+      fd.append('notes', 'Uploaded from Clinical Information');
+      const res = await api.post('/user-compliance-documents', fd, { skipGlobalLoading: true });
+      const path = res?.data?.file_path || res?.data?.filePath || '';
+      if (path) fieldValues.value[field.id] = path;
+      await refresh({ quiet: true });
+      saveSuccess.value = 'License uploaded.';
+      setTimeout(() => { saveSuccess.value = ''; }, 2500);
+    } else {
+      // Persist path via compliance-style upload when possible; otherwise reject clearly.
+      throw new Error('This file field type is not supported for direct upload yet. Use license_upload.');
+    }
+  } catch (e) {
+    fileUploadErrorById.value = {
+      ...fileUploadErrorById.value,
+      [field.id]: e?.response?.data?.error?.message || e.message || 'Upload failed',
+    };
+  } finally {
+    fileUploadingId.value = null;
+  }
+}
 
 // ---- Template provisioning (legacy) ----
 // This component used to include a hard-coded template installer. The UI for it is disabled.

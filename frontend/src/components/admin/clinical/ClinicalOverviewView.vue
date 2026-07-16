@@ -38,7 +38,16 @@
             <div v-if="card.rows.length" class="field-rows">
               <div v-for="row in card.rows" :key="row.key" class="field-row">
                 <div class="field-label">{{ row.label }}</div>
-                <div class="field-value">{{ row.display }}</div>
+                <div class="field-value">
+                  <a
+                    v-if="row.href"
+                    :href="row.href"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="field-file-link"
+                  >{{ row.display }}</a>
+                  <template v-else>{{ row.display }}</template>
+                </div>
               </div>
             </div>
             <p v-else class="empty-card">Not provided yet.</p>
@@ -115,14 +124,23 @@ const cards = computed(() => {
       return { ...card, pills: unique, rows: [], prose: '', hasContent: unique.length > 0 };
     }
 
-    const rows = matched.map((f) => ({
-      key: f.field_key,
-      label: f.field_label || f.field_key,
-      display: (() => {
-        const v = formatClinicalFieldValue(f);
-        return Array.isArray(v) ? v.join(', ') : v;
-      })()
-    }));
+    const rows = matched.map((f) => {
+      const v = formatClinicalFieldValue(f);
+      const display = Array.isArray(v) ? v.join(', ') : v;
+      const raw = String(f?.value || '').trim();
+      let href = '';
+      if (f.field_type === 'file' && raw) {
+        if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('/uploads/')) href = raw;
+        else if (raw.startsWith('uploads/')) href = `/uploads/${raw.substring('uploads/'.length)}`;
+        else if (raw.includes('/')) href = `/uploads/${raw.replace(/^\/+/, '')}`;
+      }
+      return {
+        key: f.field_key,
+        label: f.field_label || f.field_key,
+        display: href ? (String(f.field_key || '').includes('license') ? 'View license PDF' : 'View file') : display,
+        href
+      };
+    });
     return { ...card, pills: [], rows, prose: '', hasContent: rows.length > 0 };
   });
 });
@@ -198,6 +216,12 @@ const emptyCount = computed(() => cards.value.filter((c) => !c.hasContent).lengt
   line-height: 1.5;
   white-space: pre-wrap;
 }
+.field-file-link {
+  color: #0f766e;
+  font-weight: 600;
+  text-decoration: none;
+}
+.field-file-link:hover { text-decoration: underline; }
 .pill-list {
   display: flex;
   flex-wrap: wrap;

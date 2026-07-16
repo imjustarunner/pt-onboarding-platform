@@ -703,7 +703,15 @@ export async function completeAssessment({
       Number(assessmentId)
     ]
   );
-  return getAssessmentById(assessmentId);
+  const __completed = await getAssessmentById(assessmentId);
+  /* assessment-deliverables-hub-hook */
+  try {
+    const { scheduleDeliverableGeneration } = await import('./assessmentDeliverable.service.js');
+    scheduleDeliverableGeneration({ family: 'reward_regulation', assessment: __completed });
+  } catch (e) {
+    console.warn('[reward_regulation] deliverable hook failed', e?.message || e);
+  }
+  return __completed;
 }
 
 export async function listSubjectAssessments({ participantUserId = null, clientId = null } = {}) {

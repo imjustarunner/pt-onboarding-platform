@@ -78,7 +78,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import api from '../../../services/api';
 import { useAuthStore } from '../../../store/auth';
 import {
@@ -169,6 +169,20 @@ watch(
   () => refresh(),
   { immediate: true }
 );
+
+const onClinicalSubtabJump = (event) => {
+  const sub = String(event?.detail?.subTab || event?.detail?.clinicalSubTab || '').trim();
+  if (!sub) return;
+  if (!CLINICAL_SUB_TABS.some((t) => t.id === sub)) return;
+  activeSubTab.value = sub;
+};
+
+onMounted(() => {
+  window.addEventListener('pt-clinical-subtab', onClinicalSubtabJump);
+});
+onUnmounted(() => {
+  window.removeEventListener('pt-clinical-subtab', onClinicalSubtabJump);
+});
 </script>
 
 <style scoped>

@@ -365,6 +365,188 @@ const routes = [
     component: () => import('../views/lifeBalance/LifeBalanceAssessmentView.vue'),
     meta: { requiresAuth: true, organizationSlug: true }
   },
+
+  // Assessment Deliverables Hub — assigned token routes (all 16 families)
+  {
+    path: '/values-alignment/:accessToken',
+    name: 'ValuesAlignmentToken',
+    component: () => import('../views/valuesAlignment/ValuesAlignmentAssessmentView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/values-alignment/:accessToken',
+    name: 'ValuesAlignmentTokenOrg',
+    component: () => import('../views/valuesAlignment/ValuesAlignmentAssessmentView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/teen-wellbeing/:accessToken',
+    name: 'TeenWellBeingToken',
+    component: () => import('../views/teenWellBeing/TeenWellBeingAssessmentView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/teen-wellbeing/:accessToken',
+    name: 'TeenWellBeingTokenOrg',
+    component: () => import('../views/teenWellBeing/TeenWellBeingAssessmentView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/personal-fulfillment/:accessToken',
+    name: 'PersonalFulfillmentToken',
+    component: () => import('../views/personalFulfillment/PersonalFulfillmentAssessmentView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/personal-fulfillment/:accessToken',
+    name: 'PersonalFulfillmentTokenOrg',
+    component: () => import('../views/personalFulfillment/PersonalFulfillmentAssessmentView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/digital-wellness/:accessToken',
+    name: 'DigitalWellnessToken',
+    component: () => import('../views/digitalWellness/DigitalWellnessAssessmentView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/digital-wellness/:accessToken',
+    name: 'DigitalWellnessTokenOrg',
+    component: () => import('../views/digitalWellness/DigitalWellnessAssessmentView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/mens-life/:accessToken',
+    name: 'MensLifeToken',
+    component: () => import('../views/mensLife/MensLifeAssessmentView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/mens-life/:accessToken',
+    name: 'MensLifeTokenOrg',
+    component: () => import('../views/mensLife/MensLifeAssessmentView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/marriage-alignment/:accessToken',
+    name: 'MarriageAlignmentToken',
+    component: () => import('../views/marriageAlignment/MarriageAlignmentAssessmentView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/marriage-alignment/:accessToken',
+    name: 'MarriageAlignmentTokenOrg',
+    component: () => import('../views/marriageAlignment/MarriageAlignmentAssessmentView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/parenting-confidence/:accessToken',
+    name: 'ParentingConfidenceToken',
+    component: () => import('../views/parentingConfidence/ParentingConfidenceAssessmentView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/parenting-confidence/:accessToken',
+    name: 'ParentingConfidenceTokenOrg',
+    component: () => import('../views/parentingConfidence/ParentingConfidenceAssessmentView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/burden-purpose/:accessToken',
+    name: 'BurdenPurposeToken',
+    component: () => import('../views/burdenPurpose/BurdenPurposeAssessmentView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/burden-purpose/:accessToken',
+    name: 'BurdenPurposeTokenOrg',
+    component: () => import('../views/burdenPurpose/BurdenPurposeAssessmentView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/family-functioning/:accessToken',
+    name: 'FamilyFunctioningToken',
+    component: () => import('../views/familyFunctioning/FamilyFunctioningAssessmentView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/family-functioning/:accessToken',
+    name: 'FamilyFunctioningTokenOrg',
+    component: () => import('../views/familyFunctioning/FamilyFunctioningAssessmentView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/savage-blueprint/:accessToken',
+    name: 'SavageBlueprintToken',
+    component: () => import('../views/savageBlueprint/SavageBlueprintAssessmentView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/savage-blueprint/:accessToken',
+    name: 'SavageBlueprintTokenOrg',
+    component: () => import('../views/savageBlueprint/SavageBlueprintAssessmentView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/reward-regulation/:accessToken',
+    name: 'RewardRegulationToken',
+    component: () => import('../views/rewardRegulation/RewardRegulationAssessmentView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/reward-regulation/:accessToken',
+    name: 'RewardRegulationTokenOrg',
+    component: () => import('../views/rewardRegulation/RewardRegulationAssessmentView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/athlete-readiness/:accessToken',
+    name: 'AthleteReadinessToken',
+    component: () => import('../views/athleteReadiness/AthleteReadinessAssessmentView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/athlete-readiness/:accessToken',
+    name: 'AthleteReadinessTokenOrg',
+    component: () => import('../views/athleteReadiness/AthleteReadinessAssessmentView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/student-success/:accessToken',
+    name: 'StudentSuccessToken',
+    component: () => import('../views/studentSuccess/StudentSuccessAssessmentView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/student-success/:accessToken',
+    name: 'StudentSuccessTokenOrg',
+    component: () => import('../views/studentSuccess/StudentSuccessAssessmentView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/college-readiness/:accessToken',
+    name: 'CollegeReadinessToken',
+    component: () => import('../views/collegeReadiness/CollegeReadinessAssessmentView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/college-readiness/:accessToken',
+    name: 'CollegeReadinessTokenOrg',
+    component: () => import('../views/collegeReadiness/CollegeReadinessAssessmentView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/relationship-health/:accessToken',
+    name: 'RelationshipHealthToken',
+    component: () => import('../views/relationshipHealth/RelationshipHealthAssessmentView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/relationship-health/:accessToken',
+    name: 'RelationshipHealthTokenOrg',
+    component: () => import('../views/relationshipHealth/RelationshipHealthAssessmentView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
   {
     path: '/careers/:agencySlug',
     name: 'PublicCareers',
@@ -1716,6 +1898,12 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canAccessBudgetManagement', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/gear-inventory',
+    name: 'OrganizationGearInventory',
+    component: () => import('../views/admin/GearInventoryView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'super_admin', 'support', 'staff'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/event/:eventSlug',
     name: 'BudgetEventPortal',
     component: () => import('../views/budget/BudgetEventPortalView.vue'),
@@ -2567,6 +2755,12 @@ const routes = [
     name: 'Expenses',
     component: () => import('../views/admin/ExpensesView.vue'),
     meta: { requiresAuth: true, requiresCapability: 'canManagePayroll' }
+  },
+  {
+    path: '/admin/gear-inventory',
+    name: 'GearInventory',
+    component: () => import('../views/admin/GearInventoryView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'super_admin', 'support', 'staff'] }
   },
   {
     path: '/admin/providers',

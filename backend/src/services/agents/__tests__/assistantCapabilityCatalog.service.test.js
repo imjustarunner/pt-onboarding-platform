@@ -4,7 +4,8 @@ import {
   buildCapabilityUiPayload,
   getCapabilityCatalogForTests,
   matchCatalogBackedPageNavigationIntent,
-  matchDeterministicCapabilityIntent
+  matchDeterministicCapabilityIntent,
+  matchProfileSectionJumpIntent
 } from '../assistantCapabilityCatalog.service.js';
 
 function setOf(...items) {
@@ -142,5 +143,54 @@ test('generic page navigation fallback is catalog-backed', () => {
   assert.ok(nav, 'Expected generic nav intent');
   assert.equal(nav.toolCalls?.[0]?.name, 'navigateTo');
   assert.equal(nav.toolCalls?.[0]?.args?.routeName, 'ReferralDirectory');
+});
+
+test('short prompt gear navigates to GearInventory off-profile', () => {
+  const tools = setOf('navigateTo');
+  const nav = matchCatalogBackedPageNavigationIntent({
+    prompt: 'gear',
+    allowedToolNames: tools
+  });
+  assert.ok(nav);
+  assert.equal(nav.toolCalls?.[0]?.args?.routeName, 'GearInventory');
+});
+
+test('profile section jump: gear opens lifecycle equipment on profile', () => {
+  const intent = matchProfileSectionJumpIntent({
+    prompt: 'gear',
+    context: { routeName: 'UserProfile', profileUserId: 42, path: '/admin/users/42' }
+  });
+  assert.ok(intent);
+  assert.equal(intent.uiCommands?.[0]?.type, 'profileJump');
+  assert.equal(intent.uiCommands?.[0]?.tabId, 'lifecycle');
+  assert.equal(intent.uiCommands?.[0]?.sectionId, 'lifecycle-equipment');
+});
+
+test('profile section jump: licenses opens account licenses', () => {
+  const intent = matchProfileSectionJumpIntent({
+    prompt: 'open licenses',
+    context: { routeName: 'OrganizationUserProfile', profileUserId: 7 }
+  });
+  assert.ok(intent);
+  assert.equal(intent.uiCommands?.[0]?.tabId, 'account');
+  assert.equal(intent.uiCommands?.[0]?.sectionId, 'licenses');
+});
+
+test('profile section jump: specialties opens clinical subtab', () => {
+  const intent = matchProfileSectionJumpIntent({
+    prompt: 'specialties',
+    context: { path: '/org/admin/users/9', profileUserId: 9 }
+  });
+  assert.ok(intent);
+  assert.equal(intent.uiCommands?.[0]?.tabId, 'provider_info');
+  assert.equal(intent.uiCommands?.[0]?.clinicalSubTab, 'specialties');
+});
+
+test('profile section jump ignored off-profile', () => {
+  const intent = matchProfileSectionJumpIntent({
+    prompt: 'gear',
+    context: { routeName: 'Dashboard', path: '/dashboard' }
+  });
+  assert.equal(intent, null);
 });
 

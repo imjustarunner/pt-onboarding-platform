@@ -4,8 +4,10 @@ import { executeToolCall, getToolSchemasForUser } from '../services/agents/toolR
 import {
   buildCapabilityUiPayload,
   matchCatalogBackedPageNavigationIntent,
-  matchDeterministicCapabilityIntent
+  matchDeterministicCapabilityIntent,
+  matchProfileSectionJumpIntent
 } from '../services/agents/assistantCapabilityCatalog.service.js';
+import { isUserProfileContext } from '../../../../frontend/src/navigation/profileSearchCatalog.js';
 import { hasTenantAccess } from '../utils/meDashboardTenantScope.js';
 
 function normalizeUiCommands(raw) {
@@ -16,6 +18,14 @@ function normalizeUiCommands(raw) {
       if (!type) return null;
       if (type === 'navigate') return { type, to: String(c?.to || '').trim() };
       if (type === 'highlight') return { type, selector: String(c?.selector || '').trim() };
+      if (type === 'profileJump') {
+        return {
+          type,
+          tabId: String(c?.tabId || '').trim(),
+          sectionId: String(c?.sectionId || '').trim(),
+          clinicalSubTab: String(c?.clinicalSubTab || '').trim()
+        };
+      }
       if (type === 'openHelper') return { type };
       if (type === 'closeHelper') return { type };
       return null;
@@ -256,9 +266,14 @@ function tryDisambiguationFollowUp(prompt, history) {
  *
  * Returns null when the prompt is genuinely conversational and needs an LLM.
  */
-function detectExplicitIntent({ prompt, allowedToolNames }) {
+function detectExplicitIntent({ prompt, allowedToolNames, context }) {
   const lower = String(prompt || '').toLowerCase().trim();
   if (!lower) return null;
+
+  // On a user profile, prefer in-profile section jumps (equipment, licenses, …)
+  // so short asks like "gear" don't need Vertex and scroll to the right block.
+  const profileJump = matchProfileSectionJumpIntent({ prompt: lower, context });
+  if (profileJump) return profileJump;
 
   // Capability-catalog fast path: high-frequency deterministic asks are
   // matched from a single shared registry used by both backend and frontend.
@@ -266,8 +281,32 @@ function detectExplicitIntent({ prompt, allowedToolNames }) {
   if (capabilityIntent) return capabilityIntent;
 
   // Remaining fallback: generic page navigation, also owned by catalog service.
+  // When already on a user profile, skip short page-nav that would yank the user
+  // away to My Account / Schedule / etc. — those belong to profileJump above.
   const navIntent = matchCatalogBackedPageNavigationIntent({ prompt: lower, allowedToolNames });
-  if (navIntent) return navIntent;
+  if (navIntent) {
+    if (isUserProfileContext(context)) {
+      const routeName = navIntent.toolCalls?.[0]?.args?.routeName;
+      const leaveProfileOk = new Set([
+        'GearInventory',
+        'UserManager',
+        'ReferralDirectory',
+        'ClientManagement',
+        'HiringCandidates',
+        'AdminPayroll',
+        'AuditCenter',
+        'SchoolPortalsHub',
+        'SkillBuildersProgramsEvents',
+        'ProviderDirectory',
+        'NoteAid',
+        'ComplianceCorner',
+        'PresenceTeamBoard'
+      ]);
+      // Stay on the profile unless they clearly asked for an admin hub page.
+      if (!leaveProfileOk.has(routeName)) return null;
+    }
+    return navIntent;
+  }
 
   return null;
 }
@@ -1355,13 +1394,17 @@ export const assist = async (req, res, next) => {
     }
 
     // 2. Explicit entity search / navigation intent.
-    const explicit = detectExplicitIntent({ prompt, allowedToolNames });
+    const explicit = detectExplicitIntent({ prompt, allowedToolNames, context });
     if (explicit) {
       const uiCommands = [];
       const toolResults = [];
       const skipOpenEntityKinds = new Set();
 
-      for (const tc of explicit.toolCalls) {
+      if (Array.isArray(explicit.uiCommands) && explicit.uiCommands.length) {
+        for (const cmd of normalizeUiCommands(explicit.uiCommands)) uiCommands.push(cmd);
+      }
+
+      for (const tc of explicit.toolCalls || []) {
         if (!allowedToolNames.has(tc.name)) continue;
         try {
           const r = await executeToolCall({ req, toolCall: tc });
@@ -1422,7 +1465,8 @@ export const assist = async (req, res, next) => {
         }
       }
 
-      let assistantText = buildAssistantReplyFromTools('', toolResults);
+      let assistantText = explicit.assistantText
+        || buildAssistantReplyFromTools('', toolResults);
       const nextActions = buildNextActionsFromToolResults({ toolResults, allowedToolNames });
       let nextCards = buildNextCardsFromToolResults({ toolResults, allowedToolNames });
 
@@ -1591,7 +1635,7 @@ export const assist = async (req, res, next) => {
               runtime: 'deterministic',
               intent: explicit.intent,
               capabilityId: explicit.capabilityId || null,
-              toolCalls: explicit.toolCalls.length,
+              toolCalls: (explicit.toolCalls || []).length,
               uiCommands: uiCommands.length,
               latencyMs: Date.now() - started
             }
@@ -1605,7 +1649,7 @@ export const assist = async (req, res, next) => {
       return res.json({
         assistantText: String(assistantText || '').trim() || 'Done.',
         uiCommands,
-        toolCalls: explicit.toolCalls,
+        toolCalls: explicit.toolCalls || [],
         toolResults,
         nextActions,
         nextCards,

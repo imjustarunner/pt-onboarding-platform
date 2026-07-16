@@ -421,7 +421,15 @@ export async function completeAssessment({ assessmentId }) {
      WHERE id = ?`,
     [JSON.stringify(summary), summary.studentSuccessScore, Number(assessmentId)]
   );
-  return getAssessmentById(assessmentId);
+  const __completed = await getAssessmentById(assessmentId);
+  /* assessment-deliverables-hub-hook */
+  try {
+    const { scheduleDeliverableGeneration } = await import('./assessmentDeliverable.service.js');
+    scheduleDeliverableGeneration({ family: 'student_success', assessment: __completed });
+  } catch (e) {
+    console.warn('[student_success] deliverable hook failed', e?.message || e);
+  }
+  return __completed;
 }
 
 export async function listAssessmentsForStudent({

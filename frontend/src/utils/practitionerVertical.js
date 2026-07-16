@@ -58,6 +58,7 @@ export function practitionerNavForRole({ orgType, isClient, isOwner = true, perm
         { id: 'packages', label: 'Packages', to: 'client-dashboard', hash: 'packages' },
         { id: 'payments', label: 'Payments', to: 'client-dashboard', hash: 'payments' },
         { id: 'goals', label: 'Goals', to: 'client-dashboard', hash: 'goals' },
+        { id: 'assessment-docs', label: 'Assessment docs', to: 'client-dashboard', hash: 'assessment-docs' },
         { id: 'messages', label: 'Messages', to: 'client-dashboard', hash: 'messages' },
         { id: 'settings', label: 'Settings', to: 'client-dashboard', hash: 'settings' }
       ];
@@ -68,6 +69,7 @@ export function practitionerNavForRole({ orgType, isClient, isOwner = true, perm
       { id: 'packages', label: 'Packages', to: 'client-dashboard', hash: 'packages' },
       { id: 'payments', label: 'Payments', to: 'client-dashboard', hash: 'payments' },
       { id: 'goals', label: 'Goals', to: 'client-dashboard', hash: 'goals' },
+      { id: 'assessment-docs', label: 'Assessment docs', to: 'client-dashboard', hash: 'assessment-docs' },
       { id: 'messages', label: 'Messages', to: 'client-dashboard', hash: 'messages' },
       { id: 'account', label: 'Account', to: 'client-dashboard', hash: 'account' }
     ];

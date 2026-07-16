@@ -22,7 +22,8 @@ export const upload = multer({
 
 function canManageDoc(requestingUser, docUserId) {
   if (!requestingUser) return false;
-  if (requestingUser.role === 'super_admin' || requestingUser.role === 'admin' || requestingUser.role === 'support') return true;
+  const role = String(requestingUser.role || '').toLowerCase();
+  if (['super_admin', 'admin', 'support', 'staff'].includes(role)) return true;
   return requestingUser.id === docUserId;
 }
 

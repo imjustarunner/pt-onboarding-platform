@@ -7,6 +7,11 @@
  * - acceptance/drift checks for visible prompts
  */
 
+import {
+  isUserProfileContext,
+  resolveBestProfileSection
+} from '../../../../frontend/src/navigation/profileSearchCatalog.js';
+
 const PROVIDER_LIKE_ROLES = new Set([
   'provider',
   'provider_plus',
@@ -104,6 +109,7 @@ export function resolveNavigateRouteNameFromPrompt(promptLower) {
   if (/\b(school portal|school portals|portals hub|school-portals)\b/.test(s)) return 'SchoolPortalsHub';
   if (/\b(program events|program event|skill builders|events)\b/.test(s)) return 'SkillBuildersProgramsEvents';
   if (/\b(provider directory|provider list)\b/.test(s)) return 'ProviderDirectory';
+  if (/\b(gear|inventory|stock levels?|unique assets?)\b/.test(s)) return 'GearInventory';
   if (/\b(hiring|candidates|hire)\b/.test(s)) return 'HiringCandidates';
   if (/\b(admin payroll|payroll management|payroll admin)\b/.test(s)) return 'AdminPayroll';
   if (/\b(my payroll|pay stubs?|paycheck|pay check|payroll)\b/.test(s)) return 'MyPayroll';
@@ -122,13 +128,51 @@ export function resolveNavigateRouteNameFromPrompt(promptLower) {
   return null;
 }
 
+/**
+ * Profile section jump (when Ask Assistant is used on a user profile page).
+ * Uses the shared frontend profileSearchCatalog so aliases stay in sync.
+ */
+export function matchProfileSectionJumpIntent({ prompt, context }) {
+  const lower = String(prompt || '').toLowerCase().trim();
+  if (!lower) return null;
+  if (!isUserProfileContext(context)) return null;
+
+  // Explicit hub override: leave the profile for inventory management.
+  if (/\b(gear inventory|inventory (page|hub|management)|stock levels?)\b/.test(lower)) {
+    return null;
+  }
+
+  const best = resolveBestProfileSection(lower);
+  if (!best) return null;
+
+  return {
+    intent: 'profile_section_jump',
+    capabilityId: 'profile_section_jump',
+    toolCalls: [],
+    assistantText: `Opening ${best.label} on this profile…`,
+    uiCommands: [
+      {
+        type: 'profileJump',
+        tabId: best.tabId,
+        sectionId: best.sectionId || '',
+        clinicalSubTab: best.clinicalSubTab || ''
+      }
+    ]
+  };
+}
+
 export function matchCatalogBackedPageNavigationIntent({ prompt, allowedToolNames }) {
   const lower = String(prompt || '').toLowerCase().trim();
   if (!lower || !allowedToolNames?.has?.('navigateTo')) return null;
   const hasAction = /\b(open|show|find|go to|take me to|navigate to|visit|search( for)?|look (up|for))\b/.test(lower);
-  if (!hasAction) return null;
   const routeName = resolveNavigateRouteNameFromPrompt(lower);
   if (!routeName) return null;
+  // Allow bare destination keywords ("gear", "payroll") without action verbs when the
+  // prompt is short — otherwise send conversational asks to the LLM.
+  if (!hasAction) {
+    const words = lower.split(/\s+/).filter(Boolean);
+    if (words.length > 4) return null;
+  }
   return {
     intent: 'page_navigate',
     capabilityId: 'page_navigation_generic',

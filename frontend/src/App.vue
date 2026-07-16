@@ -98,7 +98,13 @@
                     :to="myClubPublicNav.to"
                     @click="closeMobileMenu"
                   >{{ myClubPublicNav.label }}</router-link>
-                  <div v-else class="nav-dropdown" @click.stop>
+                  <div
+                    v-else
+                    class="nav-dropdown"
+                    @click.stop
+                    @mouseenter="onNavMenuEnter('myClubs')"
+                    @mouseleave="onNavMenuLeave('myClubs')"
+                  >
                     <button
                       type="button"
                       class="nav-dropdown-trigger"
@@ -132,7 +138,13 @@
                       @click="closeMobileMenu"
                     >↳ {{ sstcActiveSeasonList[0].myTeamName }}</router-link>
                   </div>
-                  <div v-else class="nav-dropdown nav-active-season-dropdown" @click.stop>
+                  <div
+                    v-else
+                    class="nav-dropdown nav-active-season-dropdown"
+                    @click.stop
+                    @mouseenter="onNavMenuEnter('activeSeasons')"
+                    @mouseleave="onNavMenuLeave('activeSeasons')"
+                  >
                     <button
                       type="button"
                       class="nav-dropdown-trigger nav-active-season-link"
@@ -158,7 +170,12 @@
                     </div>
                   </div>
                 </template>
-                <div class="nav-dropdown" @click.stop>
+                <div
+                  class="nav-dropdown"
+                  @click.stop
+                  @mouseenter="onNavMenuEnter('clubManagement')"
+                  @mouseleave="onNavMenuLeave('clubManagement')"
+                >
                   <button
                     type="button"
                     class="nav-dropdown-trigger"
@@ -192,7 +209,13 @@
                     :to="sstcMemberMyClubNav.to"
                     @click="closeMobileMenu"
                   >{{ sstcMemberMyClubNav.label }}</router-link>
-                  <div v-else class="nav-dropdown" @click.stop>
+                  <div
+                    v-else
+                    class="nav-dropdown"
+                    @click.stop
+                    @mouseenter="onNavMenuEnter('myClubs')"
+                    @mouseleave="onNavMenuLeave('myClubs')"
+                  >
                     <button
                       type="button"
                       class="nav-dropdown-trigger"
@@ -226,7 +249,13 @@
                       @click="closeMobileMenu"
                     >↳ {{ sstcActiveSeasonList[0].myTeamName }}</router-link>
                   </div>
-                  <div v-else class="nav-dropdown nav-active-season-dropdown" @click.stop>
+                  <div
+                    v-else
+                    class="nav-dropdown nav-active-season-dropdown"
+                    @click.stop
+                    @mouseenter="onNavMenuEnter('activeSeasons')"
+                    @mouseleave="onNavMenuLeave('activeSeasons')"
+                  >
                     <button
                       type="button"
                       class="nav-dropdown-trigger nav-active-season-link"
@@ -326,7 +355,13 @@
               <!-- Portal navigation (admins must see this even if ACTIVE_EMPLOYEE) -->
               <template v-if="canSeePortalNav && canSeeFullPortalNav">
 
-                <div v-if="!isAffiliationContext && (hasPeopleOpsFeature || hasHiringFeature)" class="nav-dropdown" @click.stop>
+                <div
+                  v-if="!isAffiliationContext && (hasPeopleOpsFeature || hasHiringFeature)"
+                  class="nav-dropdown"
+                  @click.stop
+                  @mouseenter="onNavMenuEnter('peopleOps')"
+                  @mouseleave="onNavMenuLeave('peopleOps')"
+                >
                   <button
                     type="button"
                     class="nav-dropdown-trigger"
@@ -349,7 +384,13 @@
                   </div>
                 </div>
 
-                <div v-if="!isSscSstcTenant" class="nav-dropdown" @click.stop>
+                <div
+                  v-if="!isSscSstcTenant"
+                  class="nav-dropdown"
+                  @click.stop
+                  @mouseenter="onNavMenuEnter('directory')"
+                  @mouseleave="onNavMenuLeave('directory')"
+                >
                   <button
                     type="button"
                     class="nav-dropdown-trigger"
@@ -561,7 +602,12 @@
                   </div>
                 </div>
 
-                <div class="nav-dropdown" @click.stop>
+                <div
+                  class="nav-dropdown"
+                  @click.stop
+                  @mouseenter="onNavMenuEnter('management')"
+                  @mouseleave="onNavMenuLeave('management')"
+                >
                   <button
                     type="button"
                     class="nav-dropdown-trigger"
@@ -639,6 +685,7 @@
                     >Facilitator Availability</router-link>
                     <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" >Expense/Reimbursements</router-link>
                     <router-link :to="orgTo('/admin/budget-management')" v-if="canSeeBudgetManagement" >Budget Management</router-link>
+                    <router-link :to="orgTo('/admin/gear-inventory')" v-if="isAdmin && !isAffiliationContext" >Gear &amp; Inventory</router-link>
                     <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" >Revenue</router-link>
                     <router-link :to="availabilityIntakeNavLink" v-if="canSeeAvailabilityIntake && !isAffiliationContext" >Provider Availability</router-link>
 
@@ -664,6 +711,8 @@
                   class="nav-dropdown"
                   v-if="showEngagementMenu"
                   @click.stop
+                  @mouseenter="onNavMenuEnter('engagement')"
+                  @mouseleave="onNavMenuLeave('engagement')"
                 >
                   <button
                     type="button"
@@ -751,28 +800,105 @@
                 </div>
               </template>
 
-                <div v-if="canSeeGamesNav" class="nav-dropdown" @click.stop>
+                <div
+                  v-if="canSeeToolsNav"
+                  class="nav-dropdown nav-tools-dropdown"
+                  @click.stop
+                  @mouseenter="onNavMenuEnter('tools')"
+                  @mouseleave="onNavMenuLeave('tools')"
+                >
                   <button
                     type="button"
                     class="nav-dropdown-trigger"
-                    title="Games"
-                    :aria-expanded="gamesMenuOpen ? 'true' : 'false'"
-                    @click.stop="toggleGamesMenu"
+                    title="Tools"
+                    :aria-expanded="toolsMenuOpen ? 'true' : 'false'"
+                    @click.stop="toggleToolsMenu"
                   >
-                    <span class="nav-dropdown-label">Games</span> <span class="brand-caret">▾</span>
+                    <span class="nav-dropdown-label">Tools</span> <span class="brand-caret">▾</span>
                   </button>
-                  <div v-if="gamesMenuOpen" class="nav-dropdown-menu">
-                    <a
-                      v-for="game in standaloneGamesForNav"
-                      :key="game.id"
-                      href="#"
-                      role="menuitem"
-                      @click.prevent="openRegistryGame(game)"
-                    >{{ game.displayName }}</a>
-                    <span v-if="!standaloneGamesForNav.length" class="nav-dropdown-empty">No games available</span>
+                  <div v-if="toolsMenuOpen" class="nav-dropdown-menu nav-tools-menu" @click.stop>
+                    <div class="nav-tools-panel">
+                      <div class="nav-tools-categories">
+                        <button
+                          v-for="cat in toolsNavCategories"
+                          :key="cat.id"
+                          type="button"
+                          class="nav-tools-cat"
+                          :class="{ active: toolsFlyoutCategory === cat.id }"
+                          @mouseenter="toolsFlyoutCategory = cat.id"
+                          @focus="toolsFlyoutCategory = cat.id"
+                          @click="openToolsHubTab(cat.tab)"
+                        >
+                          <span class="nav-tools-cat-label">{{ cat.label }}</span>
+                          <span class="nav-tools-cat-chevron" aria-hidden="true">›</span>
+                        </button>
+                      </div>
+                      <div class="nav-tools-flyout">
+                        <template v-if="toolsFlyoutCategory === 'games'">
+                          <template v-if="canSeeGamesNav">
+                            <div
+                              v-for="game in standaloneGamesForNav"
+                              :key="game.id"
+                              class="nav-tools-item"
+                            >
+                              <button type="button" class="nav-tools-item-main" @click="openRegistryGame(game)">
+                                {{ game.displayName }}
+                              </button>
+                              <div class="nav-tools-item-actions">
+                                <button type="button" title="Open" @click="openRegistryGame(game)">Open</button>
+                                <button type="button" title="Copy link" @click="copyToolsGameLink(game)">Share</button>
+                                <button type="button" title="Assign to client" @click="openToolsAssign('game', gameAsToolsAssignTool(game))">Assign</button>
+                                <button type="button" title="Add to appointment" @click="goToolsScheduleWithTool(game.displayName || game.id)">Appt</button>
+                              </div>
+                            </div>
+                            <span v-if="!standaloneGamesForNav.length" class="nav-dropdown-empty">No games available</span>
+                          </template>
+                          <span v-else class="nav-dropdown-empty">Games not enabled for your account</span>
+                        </template>
+                        <template v-else-if="toolsFlyoutCategory === 'assessments'">
+                          <div
+                            v-for="tool in assessmentToolsForNav"
+                            :key="tool.id"
+                            class="nav-tools-item"
+                          >
+                            <button type="button" class="nav-tools-item-main" @click="openToolsAssessment(tool)">
+                              {{ tool.title }}
+                            </button>
+                            <div class="nav-tools-item-actions">
+                              <button type="button" title="Open" @click="openToolsAssessment(tool)">Open</button>
+                              <button type="button" title="Copy link" @click="copyToolsAssessmentLink(tool)">Share</button>
+                              <button type="button" title="Assign to client" @click="openToolsAssign('assessment', tool)">Assign</button>
+                              <button type="button" title="Add to appointment" @click="goToolsScheduleWithTool(tool.title)">Appt</button>
+                            </div>
+                          </div>
+                        </template>
+                        <template v-else>
+                          <div
+                            v-for="tool in aiToolsForNav"
+                            :key="tool.id"
+                            class="nav-tools-item"
+                            :class="{ 'nav-tools-item--disabled': tool.status === 'coming_soon' }"
+                          >
+                            <button
+                              type="button"
+                              class="nav-tools-item-main"
+                              :disabled="tool.status === 'coming_soon'"
+                              @click="openToolsAi(tool)"
+                            >
+                              {{ tool.title }}
+                              <span v-if="tool.status === 'coming_soon'" class="nav-tools-soon">Soon</span>
+                            </button>
+                            <div v-if="tool.status === 'live'" class="nav-tools-item-actions">
+                              <button type="button" title="Open" @click="openToolsAi(tool)">Open</button>
+                              <button type="button" title="Copy link" @click="copyToolsAiLink(tool)">Share</button>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              
+
               <div v-if="showGlobalAvailabilityToggle" class="nav-availability" @click.stop>
                 <div class="nav-availability-label">Global availability</div>
                 <label class="switch" :title="globalAvailabilityTitle">
@@ -1129,13 +1255,50 @@
               class="mobile-nav-link"
             >Office</router-link>
 
-            <button
-              v-for="game in standaloneGamesForNav"
-              :key="`m-${game.id}`"
-              type="button"
-              class="mobile-nav-link mobile-nav-button"
-              @click="openRegistryGame(game); closeMobileMenu()"
-            >Games — {{ game.displayName }}</button>
+            <div v-if="canSeeToolsNav" class="mobile-nav-group mobile-nav-group-collapsible">
+              <button
+                type="button"
+                class="mobile-nav-group-trigger"
+                :aria-expanded="mobileToolsExpanded ? 'true' : 'false'"
+                @click="mobileToolsExpanded = !mobileToolsExpanded"
+              >
+                <span>Tools</span>
+                <span class="mobile-nav-group-caret" :class="{ open: mobileToolsExpanded }" aria-hidden="true">▸</span>
+              </button>
+              <template v-if="mobileToolsExpanded">
+                <button
+                  v-for="cat in toolsNavCategories"
+                  :key="`m-tools-cat-${cat.id}`"
+                  type="button"
+                  class="mobile-nav-link mobile-nav-sublink mobile-nav-button"
+                  @click="openToolsHubTab(cat.tab); closeMobileMenu()"
+                >{{ cat.label }}</button>
+                <template v-if="canSeeGamesNav">
+                  <button
+                    v-for="game in standaloneGamesForNav"
+                    :key="`m-game-${game.id}`"
+                    type="button"
+                    class="mobile-nav-link mobile-nav-sublink mobile-nav-button"
+                    @click="openRegistryGame(game); closeMobileMenu()"
+                  >Game — {{ game.displayName }}</button>
+                </template>
+                <button
+                  v-for="tool in assessmentToolsForNav"
+                  :key="`m-assess-${tool.id}`"
+                  type="button"
+                  class="mobile-nav-link mobile-nav-sublink mobile-nav-button"
+                  @click="openToolsAssessment(tool); closeMobileMenu()"
+                >{{ tool.title }}</button>
+                <button
+                  v-for="tool in aiToolsForNav"
+                  :key="`m-ai-${tool.id}`"
+                  type="button"
+                  class="mobile-nav-link mobile-nav-sublink mobile-nav-button"
+                  :disabled="tool.status === 'coming_soon'"
+                  @click="openToolsAi(tool); closeMobileMenu()"
+                >{{ tool.title }}{{ tool.status === 'coming_soon' ? ' (Soon)' : '' }}</button>
+              </template>
+            </div>
 
             <template v-if="canSeePortalNav && canSeeFullPortalNav">
               <!-- People Ops (mirrors top-nav dropdown) -->
@@ -1407,6 +1570,7 @@
                   <router-link :to="orgTo('/admin/facilitator-availability')" v-if="isAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Facilitator Availability</router-link>
                   <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Expense/Reimbursements</router-link>
                   <router-link :to="orgTo('/admin/budget-management')" v-if="canSeeBudgetManagement" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Budget Management</router-link>
+                  <router-link :to="orgTo('/admin/gear-inventory')" v-if="isAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Gear &amp; Inventory</router-link>
                   <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Revenue</router-link>
                   <router-link :to="availabilityIntakeNavLink" v-if="canSeeAvailabilityIntake && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Provider Availability</router-link>
                   <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
@@ -1703,6 +1867,15 @@
       <OfficeMandatoryReviewSplash v-if="showOfficeMandatorySplashHost" />
       <InterviewCapsuleSplashModal v-if="isAuthenticated && hasCapability('canManageHiring')" />
       <TimeCapsuleRevealSplashModal v-if="isAuthenticated && hasCapability('canManageHiring')" />
+      <ToolsAssignModal
+        v-if="toolsAssignState"
+        :kind="toolsAssignState.kind"
+        :tool="toolsAssignState.tool"
+        :agency-id="toolsAgencyId"
+        :organization-slug="navBucketSlug || ''"
+        :org-to="orgTo"
+        @close="toolsAssignState = null"
+      />
       </div>
     </div>
   </BrandingProvider>
@@ -1728,7 +1901,17 @@ import { isSupervisor } from './utils/helpers.js';
 import { buildFormUrl } from './utils/publicIntakeUrl.js';
 import api from './services/api';
 import { listActivities } from './services/counselingApi.js';
-import { launchActivity, isStandaloneLaunchable } from './services/launchActivity.js';
+import { launchActivity, isStandaloneLaunchable, resolveStandaloneUrl } from './services/launchActivity.js';
+import {
+  TOOLS_CATEGORIES,
+  ASSESSMENT_TOOLS,
+  getAiToolsForNav,
+  getAssessmentPublicUrl,
+  toolsAidsHubLocation
+} from './navigation/toolsCatalog.js';
+import { getToolOverrides, applyToolOverride } from './navigation/toolsCatalogOverrides.js';
+import { isNoteAidEmployeeRole } from './config/noteAidAccess.js';
+import ToolsAssignModal from './components/tools/ToolsAssignModal.vue';
 import AgencySelector from './components/AgencySelector.vue';
 import PlatformChatDrawer from './components/PlatformChatDrawer.vue';
 import BrandingProvider from './components/BrandingProvider.vue';
@@ -2082,7 +2265,10 @@ const directoryPublicLinksData = ref({
   publicEventPages: []
 });
 const managementMenuOpen = ref(false);
-const gamesMenuOpen = ref(false);
+const toolsMenuOpen = ref(false);
+const toolsFlyoutCategory = ref('assessments');
+const toolsAssignState = ref(null);
+const navMenuHoverTimer = ref(null);
 const clubManagementMenuOpen = ref(false);
 const mobileClubMgmtExpanded = ref(false);
 const myClubsMenuOpen = ref(false);
@@ -2098,6 +2284,7 @@ const mobilePeopleOpsExpanded = ref(false);
 const mobileDirectoryExpanded = ref(false);
 const mobileManagementExpanded = ref(false);
 const mobileCommsExpanded = ref(false);
+const mobileToolsExpanded = ref(false);
 
 const navDropdownOpen = computed(() => {
   return (
@@ -2105,20 +2292,28 @@ const navDropdownOpen = computed(() => {
     directoryMenuOpen.value ||
     managementMenuOpen.value ||
     engagementMenuOpen.value ||
-    gamesMenuOpen.value ||
+    toolsMenuOpen.value ||
     clubManagementMenuOpen.value ||
     myClubsMenuOpen.value ||
     activeSeasonsMenuOpen.value
   );
 });
 
+const clearNavMenuHoverTimer = () => {
+  if (navMenuHoverTimer.value) {
+    clearTimeout(navMenuHoverTimer.value);
+    navMenuHoverTimer.value = null;
+  }
+};
+
 const closeAllNavMenus = () => {
+  clearNavMenuHoverTimer();
   brandMenuOpen.value = false;
   peopleOpsMenuOpen.value = false;
   directoryMenuOpen.value = false;
   managementMenuOpen.value = false;
   engagementMenuOpen.value = false;
-  gamesMenuOpen.value = false;
+  toolsMenuOpen.value = false;
   clubManagementMenuOpen.value = false;
   myClubsMenuOpen.value = false;
   activeSeasonsMenuOpen.value = false;
@@ -2240,11 +2435,84 @@ const toggleEngagementMenu = () => {
   engagementMenuOpen.value = next;
 };
 
-const toggleGamesMenu = () => {
-  const next = !gamesMenuOpen.value;
-  closeAllNavMenus();
-  gamesMenuOpen.value = next;
+const ensureToolsFlyoutCategory = () => {
+  const cats = toolsNavCategories.value.map((c) => c.id);
+  if (!cats.includes(toolsFlyoutCategory.value)) {
+    toolsFlyoutCategory.value = cats[0] || 'assessments';
+  }
 };
+
+const toggleToolsMenu = () => {
+  const next = !toolsMenuOpen.value;
+  closeAllNavMenus();
+  toolsMenuOpen.value = next;
+  if (next) ensureToolsFlyoutCategory();
+};
+
+const navMenuOpenByKey = {
+  peopleOps: peopleOpsMenuOpen,
+  directory: directoryMenuOpen,
+  management: managementMenuOpen,
+  engagement: engagementMenuOpen,
+  tools: toolsMenuOpen,
+  clubManagement: clubManagementMenuOpen,
+  myClubs: myClubsMenuOpen,
+  activeSeasons: activeSeasonsMenuOpen
+};
+
+const isNavMenuOpen = (key) => Boolean(navMenuOpenByKey[key]?.value);
+
+const openNavMenuByKey = (key) => {
+  const menuRef = navMenuOpenByKey[key];
+  if (!menuRef) return;
+  menuRef.value = true;
+  if (key === 'tools') ensureToolsFlyoutCategory();
+  if (key === 'directory') applyDirectorySubgroupStateFromRoute();
+};
+
+const closeNavMenuByKey = (key) => {
+  const menuRef = navMenuOpenByKey[key];
+  if (menuRef) menuRef.value = false;
+};
+
+/** Desktop hover open — mirrors Tools mega-menu (short leave delay; click still toggles). */
+const onNavMenuEnter = (key) => {
+  clearNavMenuHoverTimer();
+  if (!isNavMenuOpen(key)) {
+    closeAllNavMenus();
+    openNavMenuByKey(key);
+  }
+};
+
+const onNavMenuLeave = (key) => {
+  clearNavMenuHoverTimer();
+  navMenuHoverTimer.value = setTimeout(() => {
+    closeNavMenuByKey(key);
+    navMenuHoverTimer.value = null;
+  }, 180);
+};
+
+const toolsNavCategories = computed(() => {
+  return TOOLS_CATEGORIES.filter((cat) => {
+    if (cat.id === 'games') return canSeeGamesNav.value;
+    return true;
+  });
+});
+
+const assessmentToolsForNav = computed(() => {
+  const uid = authStore.user?.id || authStore.user?.userId || 'anon';
+  const overrides = getToolOverrides(uid);
+  return ASSESSMENT_TOOLS.map((t) => applyToolOverride(t, overrides[t.id]));
+});
+const aiToolsForNav = computed(() => {
+  const uid = authStore.user?.id || authStore.user?.userId || 'anon';
+  const overrides = getToolOverrides(uid);
+  return getAiToolsForNav().map((t) => applyToolOverride(t, overrides[t.id]));
+});
+
+const toolsAgencyId = computed(
+  () => agencyStore.currentAgency?.id || agencyStore.currentAgency?.value?.id || user.value?.agencyId
+);
 
 const registryGames = ref([]);
 
@@ -2282,8 +2550,74 @@ const loadRegistryGames = async () => {
 };
 
 const openRegistryGame = (game) => {
-  gamesMenuOpen.value = false;
+  toolsMenuOpen.value = false;
   launchActivity(game, { mode: 'standalone' });
+};
+
+const openToolsHubTab = (tab) => {
+  toolsMenuOpen.value = false;
+  router.push(toolsAidsHubLocation(tab, orgTo)).catch(() => {});
+};
+
+const openToolsAssessment = (tool) => {
+  toolsMenuOpen.value = false;
+  const url = getAssessmentPublicUrl(window.location.origin, tool.path, navBucketSlug.value || '');
+  window.open(url, '_blank', 'noopener,noreferrer');
+};
+
+const copyToolsAssessmentLink = async (tool) => {
+  const url = getAssessmentPublicUrl(window.location.origin, tool.path, navBucketSlug.value || '');
+  try {
+    await navigator.clipboard?.writeText(url);
+  } catch {
+    // ignore
+  }
+};
+
+const gameAsToolsAssignTool = (game) => ({
+  id: game.id,
+  title: game.displayName || game.id,
+  openUrl: resolveStandaloneUrl(game) || ''
+});
+
+const copyToolsGameLink = async (game) => {
+  const url = resolveStandaloneUrl(game);
+  if (!url) return;
+  try {
+    await navigator.clipboard?.writeText(url);
+  } catch {
+    // ignore
+  }
+};
+
+const openToolsAi = (tool) => {
+  if (tool.status === 'coming_soon' || !tool.routePath) return;
+  toolsMenuOpen.value = false;
+  router.push(orgTo(tool.routePath));
+};
+
+const copyToolsAiLink = async (tool) => {
+  if (!tool.routePath) return;
+  const path = orgTo(tool.routePath);
+  const url = `${window.location.origin}${path.startsWith('/') ? path : `/${path}`}`;
+  try {
+    await navigator.clipboard?.writeText(url);
+  } catch {
+    // ignore
+  }
+};
+
+const openToolsAssign = (kind, tool) => {
+  toolsMenuOpen.value = false;
+  toolsAssignState.value = { kind, tool };
+};
+
+const goToolsScheduleWithTool = (toolLabel) => {
+  toolsMenuOpen.value = false;
+  router.push({
+    path: orgTo('/schedule'),
+    query: { tool: String(toolLabel || '').slice(0, 80) }
+  });
 };
 
 const pushWithSlug = (slug) => {
@@ -2741,6 +3075,17 @@ const canSeeGamesNav = computed(() => {
   const role = String(user.value?.role || '').toLowerCase();
   if (role === 'super_admin') return true;
   return isTruthyFlag(user.value?.has_games_access) || isTruthyFlag(user.value?.hasGamesAccess);
+});
+
+/** Tools mega-menu: full portal roles, or providers/roles that already see Games or Note Aid. */
+const canSeeToolsNav = computed(() => {
+  if (!authStore.isAuthenticated) return false;
+  if (hideGlobalNavForSchoolStaff.value) return false;
+  if (isSummitStatsChallengeChrome.value) return false;
+  if (isSscSstcTenant.value) return false;
+  if (canSeeFullPortalNav.value) return true;
+  if (canSeeGamesNav.value) return true;
+  return isNoteAidEmployeeRole(user.value?.role);
 });
 
 watch(
@@ -4966,6 +5311,125 @@ onUnmounted(() => {
   padding: 8px 10px;
   color: var(--text-secondary, #64748b);
   font-size: 0.85rem;
+}
+
+.nav-tools-dropdown .nav-tools-menu {
+  left: 0;
+  transform: none;
+  min-width: min(520px, calc(100vw - 24px));
+  max-width: min(560px, calc(100vw - 24px));
+  padding: 8px;
+}
+.nav-tools-panel {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 6px;
+  min-height: 220px;
+}
+.nav-tools-categories {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-right: 1px solid #e2e8f0;
+  padding-right: 6px;
+}
+.nav-tools-cat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 10px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-family: var(--agency-font-family, var(--font-body));
+}
+.nav-tools-cat:hover,
+.nav-tools-cat.active {
+  background: #f0fdfa;
+  color: #0f766e;
+}
+.nav-tools-cat-label { font-weight: 600; }
+.nav-tools-cat-chevron { color: #94a3b8; }
+.nav-tools-flyout {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(60vh, 360px);
+  overflow-y: auto;
+  padding-left: 4px;
+}
+.nav-tools-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-radius: 10px;
+  padding: 4px 4px 4px 8px;
+}
+.nav-tools-item:hover {
+  background: #f8fafc;
+}
+.nav-tools-item--disabled {
+  opacity: 0.7;
+}
+.nav-tools-item-main {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  padding: 6px 4px;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-family: var(--agency-font-family, var(--font-body));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.nav-tools-item-main:disabled {
+  cursor: default;
+  color: #64748b;
+}
+.nav-tools-soon {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #92400e;
+  background: #fef3c7;
+  border-radius: 999px;
+  padding: 2px 6px;
+}
+.nav-tools-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  opacity: 0.35;
+}
+.nav-tools-item:hover .nav-tools-item-actions,
+.nav-tools-item:focus-within .nav-tools-item-actions {
+  opacity: 1;
+}
+.nav-tools-item-actions button {
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 8px;
+  padding: 3px 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+}
+.nav-tools-item-actions button:hover {
+  border-color: #99f6e4;
+  color: #0f766e;
 }
 
 .nav-dropdown-menu-wide {

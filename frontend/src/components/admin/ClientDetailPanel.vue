@@ -1268,8 +1268,8 @@
           />
         </div>
 
-        <div v-if="activeTab === 'life-balance'" class="detail-section">
-          <ClientLifeBalanceTab
+        <div v-if="activeTab === 'assessments' || activeTab === 'life-balance'" class="detail-section">
+          <ClientAssessmentsTab
             :agency-id="Number(props.client?.agency_id || 0)"
             :client-id="Number(props.client?.id || 0)"
             :organization-slug="String(route.params?.organizationSlug || '')"
@@ -2295,7 +2295,7 @@ import ClientSchoolRoiAccessTab from './ClientSchoolRoiAccessTab.vue';
 import ClientCommunicationsTab from './ClientCommunicationsTab.vue';
 import GuardianBillingTab from '../guardian/GuardianBillingTab.vue';
 import PractitionerClientPackagesTab from './PractitionerClientPackagesTab.vue';
-import ClientLifeBalanceTab from './ClientLifeBalanceTab.vue';
+import ClientAssessmentsTab from './ClientAssessmentsTab.vue';
 import { isPractitionerOrgType } from '../../utils/practitionerVertical';
 import ClientSkillBuildersProgramTab from '../skillBuilders/ClientSkillBuildersProgramTab.vue';
 import { isSkillsClientFlag } from '../../utils/skillsClientFlag.js';
@@ -3014,7 +3014,7 @@ const tabs = computed(() => {
   }
   if (['super_admin', 'admin', 'support', 'staff', 'provider', 'provider_plus', 'supervisor'].includes(roleNorm.value)) {
     const idx = base.findIndex((t) => t.id === 'messages');
-    base.splice(idx < 0 ? base.length : idx, 0, { id: 'life-balance', label: 'Life Balance' });
+    base.splice(idx < 0 ? base.length : idx, 0, { id: 'assessments', label: 'Assessments' });
   }
   return base;
 });

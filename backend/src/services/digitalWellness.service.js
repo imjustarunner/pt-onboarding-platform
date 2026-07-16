@@ -520,7 +520,15 @@ export async function completeAssessment({
       Number(assessmentId)
     ]
   );
-  return getAssessmentById(assessmentId);
+  const __completed = await getAssessmentById(assessmentId);
+  /* assessment-deliverables-hub-hook */
+  try {
+    const { scheduleDeliverableGeneration } = await import('./assessmentDeliverable.service.js');
+    scheduleDeliverableGeneration({ family: 'digital_wellness', assessment: __completed });
+  } catch (e) {
+    console.warn('[digital_wellness] deliverable hook failed', e?.message || e);
+  }
+  return __completed;
 }
 
 export async function listSubjectAssessments({ participantUserId = null, clientId = null } = {}) {

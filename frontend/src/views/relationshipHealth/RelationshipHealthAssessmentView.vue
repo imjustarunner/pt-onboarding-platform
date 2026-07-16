@@ -761,7 +761,7 @@ async function load() {
       return;
     }
 
-    const routeToken = route.query?.token;
+    const routeToken = route.params?.accessToken || route.query?.token;
     if (routeToken) {
       token.value = String(routeToken);
       await loadPartner(token.value);

@@ -143,7 +143,8 @@ const NAVIGATION_ROUTE_WHITELIST = {
   NoteAid: { path: '/admin/note-aid', roles: ['admin', 'support', 'staff', 'provider', 'super_admin'] },
   ComplianceCorner: { path: '/admin/compliance-corner', roles: ['admin', 'super_admin'] },
   PresenceTeamBoard: { path: '/admin/presence', roles: ['admin', 'super_admin'] },
-  AdminPayroll: { path: '/admin/payroll', roles: ['admin', 'super_admin', 'support', 'staff'] }
+  AdminPayroll: { path: '/admin/payroll', roles: ['admin', 'super_admin', 'support', 'staff'] },
+  GearInventory: { path: '/admin/gear-inventory', roles: ['admin', 'super_admin', 'support', 'staff'] }
 };
 
 const ENTITY_KINDS = new Set(['school', 'event', 'user']);

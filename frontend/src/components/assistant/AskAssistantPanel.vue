@@ -496,6 +496,20 @@ async function executeUiCommands(commands) {
       } catch (e) {
         console.warn('[AskAssistantPanel] navigation failed', e?.message);
       }
+    } else if (type === 'profileJump') {
+      const tabId = String(cmd?.tabId || '').trim();
+      const sectionId = String(cmd?.sectionId || '').trim();
+      const clinicalSubTab = String(cmd?.clinicalSubTab || '').trim();
+      if (!tabId) continue;
+      navs.push(`profile:${tabId}${sectionId ? `#${sectionId}` : ''}${clinicalSubTab ? `/${clinicalSubTab}` : ''}`);
+      try {
+        window.dispatchEvent(
+          new CustomEvent('pt-profile-jump', { detail: { tabId, sectionId, clinicalSubTab } })
+        );
+        close();
+      } catch (e) {
+        console.warn('[AskAssistantPanel] profile jump failed', e?.message);
+      }
     } else if (type === 'highlight') {
       const sel = String(cmd?.selector || '').trim();
       if (!sel) continue;
@@ -558,8 +572,13 @@ async function submit() {
 }
 
 function buildContextPayload() {
+  const path = String(route?.fullPath || route?.path || '');
+  const profileUserId = Number(route?.params?.userId || 0) || null;
   return {
     routeName: route?.name ? String(route.name) : '',
+    path,
+    fullPath: path,
+    profileUserId,
     placementKey: 'ask_assistant',
     agencyId: agencyStore.currentAgency?.id || authStore.user?.agencyId || null
   };

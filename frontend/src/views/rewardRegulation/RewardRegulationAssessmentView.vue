@@ -337,7 +337,18 @@
         </div>
       </section>
 
-      <section v-else-if="step === 'results'" class="rr-shell">
+      <AssessmentBrandedShell
+        v-else-if="step === 'results'"
+        title="Reward Regulation Results"
+        eyebrow="Reward Command Center"
+        :organization-slug="organizationSlug"
+        footer="Self-reported patterns · Not a clinical diagnosis"
+      >
+        <template #actions>
+          <button type="button" class="rr-btn ghost" @click="printResults">Print / PDF</button>
+          <button type="button" class="rr-btn ghost" @click="downloadJson">Download JSON</button>
+        </template>
+        <section class="rr-shell">
         <p class="rr-eyebrow">Reward Command Center</p>
         <h1 class="rr-title">{{ summary.statusLabel || 'Your regulation profile' }}</h1>
         <p class="rr-lead">
@@ -385,6 +396,7 @@
           <button type="button" class="rr-btn primary" @click="goPriorities">Choose priorities →</button>
         </div>
       </section>
+      </AssessmentBrandedShell>
 
       <section v-else-if="step === 'priorities'" class="rr-shell rr-shell--narrow">
         <p class="rr-eyebrow">Focus</p>
@@ -417,7 +429,17 @@
         </div>
       </section>
 
-      <section v-else-if="step === 'plans'" class="rr-shell">
+      <AssessmentBrandedShell
+        v-else-if="step === 'plans'"
+        title="Regulation Action Plan"
+        eyebrow="Friction · Replace · Protect"
+        :organization-slug="organizationSlug"
+        footer="Bring this plan to your next coaching session"
+      >
+        <template #actions>
+          <button type="button" class="rr-btn ghost" @click="printResults">Print / PDF</button>
+        </template>
+        <section class="rr-shell">
         <p class="rr-eyebrow">Friction &amp; Replacement Board</p>
         <h1 class="rr-title">Your regulation plan</h1>
         <p class="rr-lead">
@@ -466,8 +488,19 @@
           <button type="button" class="rr-btn primary" @click="finish">Finish</button>
         </div>
       </section>
+      </AssessmentBrandedShell>
 
-      <section v-else-if="step === 'done'" class="rr-shell rr-shell--narrow">
+      <AssessmentBrandedShell
+        v-else-if="step === 'done'"
+        title="Assessment complete"
+        eyebrow="Reward Regulation"
+        :organization-slug="organizationSlug"
+      >
+        <template #actions>
+          <button type="button" class="rr-btn ghost" @click="printResults">Print / PDF</button>
+          <button type="button" class="rr-btn ghost" @click="downloadJson">Download JSON</button>
+        </template>
+        <section class="rr-shell rr-shell--narrow">
         <p class="rr-eyebrow">Complete</p>
         <h1 class="rr-title">Your Reward Command Center is ready</h1>
         <p class="rr-lead">
@@ -485,6 +518,7 @@
           <button type="button" class="rr-btn ghost" @click="resetGuest">Start over</button>
         </div>
       </section>
+      </AssessmentBrandedShell>
     </template>
   </div>
 </template>
@@ -492,6 +526,12 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
+import AssessmentBrandedShell from '../../components/assessments/AssessmentBrandedShell.vue';
+import {
+  flushRewardRegulation,
+  loadAssignedAssessment,
+  readAccessTokenFromRoute
+} from '../../utils/assessmentAssignedSession.js';
 import api from '../../services/api';
 import RewardRegulationSystem from '../../components/rewardRegulation/RewardRegulationSystem.vue';
 import RewardChannelHeatmap from '../../components/rewardRegulation/RewardChannelHeatmap.vue';
@@ -510,7 +550,9 @@ import {
 } from '../../utils/rewardRegulation.js';
 
 const route = useRoute();
-const isGuest = computed(() => !!route.meta?.guestRewardRegulation);
+const assignedToken = computed(() => readAccessTokenFromRoute(route));
+const organizationSlug = computed(() => String(route.params.organizationSlug || '').trim());
+const isGuest = computed(() => !!route.meta?.guestRewardRegulation || !assignedToken.value);
 const GUEST_KEY = 'rr-guest-assessment-v1';
 const quiet = { skipGlobalLoading: true };
 
@@ -877,9 +919,36 @@ function goPlans() {
   step.value = 'plans';
 }
 
-function finish() {
+async function finish() {
+  if (assignedToken.value) {
+    try {
+      saveStatus.value = 'Saving…';
+      const plans = priorityKeys.value.map((key) => ({
+        domainKey: key,
+        ...(planDrafts[key] || {})
+      }));
+      await flushRewardRegulation({
+        token: assignedToken.value,
+        responses: responses.value,
+        channelResponses: channelResponses.value,
+        selectedPriorities: priorityKeys.value,
+        regulationPlans: plans,
+        frictionBoard: {}
+      });
+      saveStatus.value = 'Saved to profile';
+    } catch (e) {
+      error.value = e?.response?.data?.error || e.message || 'Could not save assessment';
+      saveStatus.value = 'Save failed';
+      return;
+    }
+  } else {
+    persistGuest();
+  }
   step.value = 'done';
-  persistGuest();
+}
+
+function printResults() {
+  window.print();
 }
 
 function quickExit() {
@@ -957,7 +1026,22 @@ async function load() {
       error.value = 'Reward Regulation template is not available yet. Run migration 933.';
       return;
     }
-    if (isGuest.value) {
+    if (assignedToken.value) {
+      try {
+        const assessment = await loadAssignedAssessment('/reward-regulation', assignedToken.value);
+        if (assessment) {
+          if (assessment.responses?.length) responses.value = assessment.responses;
+          if (assessment.channelResponses?.length) channelResponses.value = assessment.channelResponses;
+          if (assessment.selectedPriorities?.length) priorityKeys.value = assessment.selectedPriorities;
+          if (assessment.mode) mode.value = assessment.mode;
+          if (assessment.participantVersion) participantVersion.value = assessment.participantVersion;
+          if (assessment.status === 'completed') step.value = 'results';
+          else if (assessment.responses?.length) step.value = 'score';
+        }
+      } catch (e) {
+        error.value = e?.response?.data?.error || e.message || 'Could not load assigned assessment';
+      }
+    } else if (isGuest.value) {
       try {
         const raw = localStorage.getItem(GUEST_KEY);
         if (raw) {

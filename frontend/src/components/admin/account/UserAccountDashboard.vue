@@ -231,7 +231,7 @@
             title="Licenses & Certifications"
             :can-edit="canEditUser"
             :editing="isEditing('licenses')"
-            :saving="saving"
+            :saving="saving || licenseUploading"
             @edit="startEdit('licenses')"
             @save="saveCard"
             @cancel="cancelEdit"
@@ -240,7 +240,6 @@
               <div class="acct-license-active-head">
                 <strong>Active License</strong>
                 <span v-if="isFullyLicensed" class="acct-license-eligible-badge">Insurance credentialing eligible</span>
-                <a v-if="license.uploadUrl" :href="license.uploadUrl" target="_blank" rel="noopener" class="acct-link-btn">View PDF</a>
               </div>
               <dl class="acct-field-grid">
                 <div class="acct-field"><span class="acct-field-label">License Type & Number</span><span class="acct-field-value">{{ license.typeNumber || '—' }}</span></div>
@@ -252,6 +251,36 @@
               No practicing license on file yet.
               <span v-if="isFullyLicensed" class="acct-license-eligible-badge" style="display:block; margin-top: 4px;">Credential marks as insurance credentialing eligible</span>
             </div>
+
+            <div class="acct-license-upload-row">
+              <div class="acct-license-upload-status">
+                <template v-if="license.uploadUrl">
+                  <a :href="license.uploadUrl" target="_blank" rel="noopener" class="acct-link-btn">View license PDF</a>
+                  <span v-if="license.uploadedAt" class="acct-license-uploaded-at">Uploaded {{ license.uploadedAt }}</span>
+                </template>
+                <span v-else class="acct-license-missing">No license PDF uploaded</span>
+              </div>
+              <div v-if="canEditUser" class="acct-license-upload-actions">
+                <input
+                  ref="licenseFileInput"
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  style="display:none"
+                  @change="onLicenseFileSelected"
+                />
+                <button
+                  type="button"
+                  class="acct-btn acct-btn--primary"
+                  :disabled="licenseUploading"
+                  @click="licenseFileInput?.click()"
+                >
+                  {{ licenseUploading ? 'Uploading…' : (license.uploadUrl ? 'Replace PDF' : 'Upload license PDF') }}
+                </button>
+              </div>
+            </div>
+            <p v-if="licenseUploadError" class="acct-license-upload-error">{{ licenseUploadError }}</p>
+            <p v-if="licenseUploadSuccess" class="acct-license-upload-success">{{ licenseUploadSuccess }}</p>
+
             <div v-if="isEditing('licenses')" class="acct-field acct-field--edit acct-field--full" style="margin-top: 12px;">
               <label>Credential (display)</label>
               <input v-model="form.credential" type="text" placeholder="e.g. LPCC, LCSW" />
@@ -470,6 +499,10 @@ const unwrap = (v) => (v && typeof v === 'object' && 'value' in v ? v.value : v)
 const editingCard = ref(null);
 const clinicalFields = ref([]);
 const activeNav = ref('account-info');
+const licenseFileInput = ref(null);
+const licenseUploading = ref(false);
+const licenseUploadError = ref('');
+const licenseUploadSuccess = ref('');
 
 const form = computed(() => unwrap(ctx.accountForm) || {});
 const user = computed(() => unwrap(ctx.user) || {});
@@ -477,19 +510,26 @@ const overview = computed(() => unwrap(ctx.overview) || null);
 const canEditUser = computed(() => !!unwrap(ctx.canEditUser));
 const saving = computed(() => !!unwrap(ctx.saving));
 const isFullyLicensed = computed(() => !!unwrap(ctx.isFullyLicensedForCredentialing));
+const licenseSummaryFromCtx = computed(() => unwrap(ctx.licenseCredentialSummary) || null);
+const userId = computed(() => Number(unwrap(ctx.userId) || user.value?.id || 0) || 0);
+const api = computed(() => ctx.api);
+
 const license = computed(() => {
+  const fromCtx = licenseSummaryFromCtx.value;
   const typeField = findFieldByKeys(fieldByKey.value, ['license_type_number', 'provider_credential_license_type_number']);
   const issuedField = findFieldByKeys(fieldByKey.value, ['license_issued', 'provider_credential_license_issued_date']);
   const expiresField = findFieldByKeys(fieldByKey.value, ['license_expires', 'provider_credential_license_expiration_date']);
-  const typeNumber = typeField?.value || form.value.credential || '';
-  const issuedDate = issuedField?.value || '';
-  const expirationDate = expiresField?.value || '';
+  const typeNumber = fromCtx?.typeNumber || typeField?.value || form.value.credential || '';
+  const issuedDate = fromCtx?.issuedDate || issuedField?.value || '';
+  const expirationDate = fromCtx?.expirationDate || expiresField?.value || '';
+  const uploadUrl = fromCtx?.uploadUrl || '';
   return {
-    hasDetails: !!(typeNumber || issuedDate || expirationDate),
+    hasDetails: !!(typeNumber || issuedDate || expirationDate || uploadUrl || fromCtx?.hasDetails),
     typeNumber: String(typeNumber || ''),
     issuedDate: String(issuedDate || ''),
     expirationDate: String(expirationDate || ''),
-    uploadUrl: ''
+    uploadUrl: String(uploadUrl || ''),
+    uploadedAt: String(fromCtx?.uploadedAt || ''),
   };
 });
 
@@ -676,12 +716,43 @@ const loadClinicalFields = async () => {
   const uid = ctx.userId?.value ?? ctx.userId;
   if (!uid || !ctx.api) return;
   try {
-    const res = await ctx.api.get(`/users/${uid}/user-info`, { params: { assignedOrHasValueOnly: true } });
+    const res = await ctx.api.get(`/users/${uid}/user-info`, {
+      params: { assignedOrHasValueOnly: true },
+      skipGlobalLoading: true,
+    });
     clinicalFields.value = res.data || [];
   } catch {
     clinicalFields.value = [];
   }
 };
+
+async function onLicenseFileSelected(event) {
+  const file = event?.target?.files?.[0] || null;
+  if (event?.target) event.target.value = '';
+  if (!file || !canEditUser.value || !userId.value || !api.value) return;
+
+  licenseUploading.value = true;
+  licenseUploadError.value = '';
+  licenseUploadSuccess.value = '';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('documentType', 'license');
+    fd.append('userId', String(userId.value));
+    fd.append('notes', 'Uploaded from Account profile');
+    await api.value.post('/user-compliance-documents', fd, { skipGlobalLoading: true });
+    if (typeof ctx.refreshLicenseCredentialSummary === 'function') {
+      await ctx.refreshLicenseCredentialSummary();
+    }
+    await loadClinicalFields();
+    licenseUploadSuccess.value = 'License PDF uploaded.';
+    setTimeout(() => { licenseUploadSuccess.value = ''; }, 2500);
+  } catch (e) {
+    licenseUploadError.value = e?.response?.data?.error?.message || e.message || 'Upload failed';
+  } finally {
+    licenseUploading.value = false;
+  }
+}
 
 onMounted(loadClinicalFields);
 watch(() => ctx.userId?.value ?? ctx.userId, loadClinicalFields);
@@ -970,6 +1041,46 @@ watch([compUserId, compAgencyId], ([uid, aid]) => {
   color: #166534;
   border: 1px solid #bbf7d0;
   white-space: nowrap;
+}
+.acct-license-upload-row {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+.acct-license-upload-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.acct-license-missing {
+  font-size: 13px;
+  color: #b45309;
+  font-weight: 600;
+}
+.acct-license-uploaded-at {
+  font-size: 12px;
+  color: var(--acct-muted, #6b7280);
+}
+.acct-license-upload-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.acct-license-upload-error {
+  margin: 8px 0 0;
+  color: #b91c1c;
+  font-size: 13px;
+}
+.acct-license-upload-success {
+  margin: 8px 0 0;
+  color: #047857;
+  font-size: 13px;
 }
 
 .acct-timeline { display: flex; flex-direction: column; gap: 8px; }

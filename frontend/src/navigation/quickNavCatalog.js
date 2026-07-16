@@ -223,13 +223,47 @@ function buildAppEntries() {
     },
     {
       id: 'workspace-tools',
-      routeName: 'NoteAid',
-      label: 'Note Aid',
-      description: 'AI clinical note assistant and documentation helpers.',
+      routeName: 'ToolsAids',
+      label: 'Tools & Aids',
+      description: 'Assessments, games, Note Aid, and other clinical productivity aids.',
       group: 'workspace',
-      keywords: ['tools', 'aids', 'note aid', 'noteaid', 'clinical note'],
+      keywords: [
+        'tools',
+        'aids',
+        'tools aids',
+        'note aid',
+        'noteaid',
+        'clinical note',
+        'assessments',
+        'games',
+        'ai tools'
+      ],
       kind: 'dashboard',
       tab: 'tools_aids',
+      rolesAny: [
+        'admin',
+        'support',
+        'staff',
+        'provider',
+        'provider_plus',
+        'super_admin',
+        'intern',
+        'intern_plus',
+        'clinical_practice_assistant',
+        'supervisor',
+        'facilitator',
+        'school_staff'
+      ]
+    },
+    {
+      id: 'workspace-note-aid',
+      routeName: 'NoteAid',
+      label: 'Note Aid',
+      description: 'AI clinical note assistant for documentation.',
+      group: 'workspace',
+      keywords: ['note aid', 'noteaid', 'clinical note', 'documentation'],
+      kind: 'path',
+      path: '/admin/note-aid',
       rolesAny: [
         'admin',
         'support',
@@ -255,6 +289,17 @@ function buildAppEntries() {
       kind: 'path',
       path: '/admin/payroll',
       requires: ['canManagePayroll']
+    },
+    {
+      id: 'admin-gear-inventory',
+      routeName: 'GearInventory',
+      label: 'Gear & Inventory',
+      description: 'Catalog, sized stock, unique assets, and issue history.',
+      group: 'admin',
+      keywords: ['gear', 'inventory', 'stock', 'assets', 'cart', 'hoodie', 'equipment'],
+      kind: 'path',
+      path: '/admin/gear-inventory',
+      rolesAny: ['admin', 'super_admin', 'support', 'staff']
     },
     {
       id: 'admin-users',

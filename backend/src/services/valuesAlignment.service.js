@@ -450,7 +450,15 @@ export async function completeAssessment({ assessmentId, priorityKeys = [], cont
       Number(assessmentId)
     ]
   );
-  return getAssessmentById(assessmentId);
+  const __completed = await getAssessmentById(assessmentId);
+  /* assessment-deliverables-hub-hook */
+  try {
+    const { scheduleDeliverableGeneration } = await import('./assessmentDeliverable.service.js');
+    scheduleDeliverableGeneration({ family: 'values_alignment', assessment: __completed });
+  } catch (e) {
+    console.warn('[values_alignment] deliverable hook failed', e?.message || e);
+  }
+  return __completed;
 }
 
 export async function upsertCommitment({

@@ -101,7 +101,12 @@ export function formatClinicalFieldValue(field) {
       return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     }
   }
-  if (field?.field_type === 'file') return raw ? 'File on record' : '';
+  if (field?.field_type === 'file') {
+    const key = String(field?.field_key || '').toLowerCase();
+    if (!raw) return '';
+    if (key === 'license_upload' || key.includes('license')) return 'License PDF on file';
+    return 'File on record';
+  }
   return String(raw).trim();
 }
 

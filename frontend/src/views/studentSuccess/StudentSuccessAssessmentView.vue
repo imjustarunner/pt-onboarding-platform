@@ -457,6 +457,10 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
+import {
+  flushStandardGuestAssessment,
+  readAccessTokenFromRoute
+} from '../../utils/assessmentAssignedSession.js';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import StudentSuccessPathway from '../../components/studentSuccess/StudentSuccessPathway.vue';
@@ -474,6 +478,7 @@ import {
 } from '../../utils/studentSuccess.js';
 
 const route = useRoute();
+const assignedToken = computed(() => readAccessTokenFromRoute(route));
 const isGuest = computed(() => !!route.meta?.guestStudentSuccess);
 const GUEST_KEY = 'ss-guest-assessment-v1';
 const quiet = { skipGlobalLoading: true };
@@ -719,8 +724,27 @@ function startCheckIn() {
 function prevDomain() {
   if (domainIndex.value > 0) domainIndex.value -= 1;
 }
-function nextDomain() {
+async function nextDomain() {
   if (domainIndex.value >= activeDomains.value.length - 1) {
+    if (assignedToken.value) {
+      try {
+        await flushStandardGuestAssessment({
+          apiPrefix: '/student-success',
+          token: assignedToken.value,
+          responses: responses.value || [],
+          mapResponse: (r) => ({
+            domainKey: r.domainKey || r.key,
+            ...r
+          }),
+          completePayload: {}
+        });
+      } catch (e) {
+        error.value = e?.response?.data?.error || e.message || 'Could not save assessment';
+        return;
+      }
+    } else if (typeof persistGuest === 'function') {
+      persistGuest();
+    }
     step.value = 'complete';
   } else {
     domainIndex.value += 1;

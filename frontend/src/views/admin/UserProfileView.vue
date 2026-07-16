@@ -88,6 +88,42 @@
               <div class="ph-mv">{{ headerSupervisorName }}</div>
             </div>
           </div>
+
+          <div class="ph-search-wrap" data-tour="user-profile-search">
+            <input
+              v-model="profileSearchQuery"
+              type="search"
+              class="ph-search-input"
+              placeholder="Search profile sections…"
+              autocomplete="off"
+              @focus="profileSearchOpen = true"
+              @keydown.down.prevent="profileSearchMove(1)"
+              @keydown.up.prevent="profileSearchMove(-1)"
+              @keydown.enter.prevent="profileSearchSelectHighlighted"
+              @keydown.esc="closeProfileSearch"
+            />
+            <div
+              v-if="profileSearchOpen && profileSearchResults.length"
+              class="ph-search-dropdown"
+              role="listbox"
+            >
+              <button
+                v-for="(hit, idx) in profileSearchResults"
+                :key="hit.id"
+                type="button"
+                class="ph-search-option"
+                :class="{ on: idx === profileSearchHighlight }"
+                role="option"
+                @mousedown.prevent="jumpToProfileSection(hit)"
+              >
+                <span class="ph-search-option-label">{{ hit.label }}</span>
+                <span class="ph-search-option-tab">{{ hit.tabLabel }}</span>
+              </button>
+            </div>
+            <p v-else-if="profileSearchOpen && profileSearchQuery.trim() && !profileSearchResults.length" class="ph-search-empty">
+              No matching sections
+            </p>
+          </div>
         </div>
 
         <div v-if="user.status || headerServiceFocus || headerLanguages" class="ph-panel-col">
@@ -151,6 +187,46 @@
     <div v-if="loading" class="loading">Loading user profile...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else class="profile-content">
+      <div
+        v-if="!isViewingGuardian && !isSscMemberProfileMode && !isViewingSchoolStaff"
+        class="ph-search-wrap ph-search-wrap--tabs"
+        data-tour="user-profile-search-tabs"
+      >
+        <input
+          v-model="profileSearchQuery"
+          type="search"
+          class="ph-search-input"
+          placeholder="Search profile sections (equipment, licenses, payroll…)"
+          autocomplete="off"
+          @focus="profileSearchOpen = true"
+          @keydown.down.prevent="profileSearchMove(1)"
+          @keydown.up.prevent="profileSearchMove(-1)"
+          @keydown.enter.prevent="profileSearchSelectHighlighted"
+          @keydown.esc="closeProfileSearch"
+        />
+        <div
+          v-if="profileSearchOpen && profileSearchResults.length"
+          class="ph-search-dropdown"
+          role="listbox"
+        >
+          <button
+            v-for="(hit, idx) in profileSearchResults"
+            :key="hit.id"
+            type="button"
+            class="ph-search-option"
+            :class="{ on: idx === profileSearchHighlight }"
+            role="option"
+            @mousedown.prevent="jumpToProfileSection(hit)"
+          >
+            <span class="ph-search-option-label">{{ hit.label }}</span>
+            <span class="ph-search-option-tab">{{ hit.tabLabel }}</span>
+          </button>
+        </div>
+        <p v-else-if="profileSearchOpen && profileSearchQuery.trim() && !profileSearchResults.length" class="ph-search-empty">
+          No matching sections
+        </p>
+      </div>
+
       <div class="profile-tabs" data-tour="user-profile-tabs">
         <button
           v-for="tab in tabs"
@@ -2216,6 +2292,7 @@
           :userId="userId"
           :viewOnly="!canEditUser"
           :user="user"
+          :agency-id="agencyStore.currentAgency?.id"
         />
 
       </div>
@@ -2443,7 +2520,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch, nextTick, provide } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, nextTick, provide } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -2473,6 +2550,7 @@ import UserDepartmentTab from '../../components/admin/UserDepartmentTab.vue';
 import UserSupervisionTab from '../../components/admin/UserSupervisionTab.vue';
 import UserLifecycleTab from '../../components/admin/UserLifecycleTab.vue';
 import UserBenefitsTab from '../../components/admin/UserBenefitsTab.vue';
+import { filterProfileSearchTargets } from '../../navigation/profileSearchCatalog.js';
 import SupervisorAssignmentManager from '../../components/admin/SupervisorAssignmentManager.vue';
 import MovePendingToActiveModal from '../../components/admin/MovePendingToActiveModal.vue';
 import LeaveOfAbsenceModal from '../../components/admin/LeaveOfAbsenceModal.vue';
@@ -2545,17 +2623,30 @@ const LEGACY_AFFILIATION_TAB_IDS = ['school_affiliation', 'program_affiliation',
 
 function resolveInitialProfileTab() {
   let raw = String(route.query.tab || '').trim();
+  const sectionFromQuery = String(route.query.section || '').trim();
   if (raw === 'additional') raw = 'account';
   if (LEGACY_AFFILIATION_TAB_IDS.includes(raw)) {
-    return { tab: 'affiliations', section: raw };
+    return {
+      tab: 'affiliations',
+      affiliationSection: raw,
+      section: sectionFromQuery,
+    };
   }
-  return { tab: raw || 'overview', section: 'school_affiliation' };
+  return {
+    tab: raw || 'overview',
+    affiliationSection: 'school_affiliation',
+    section: sectionFromQuery,
+  };
 }
 
 const _initialProfileTab = resolveInitialProfileTab();
-const activeAffiliationSection = ref(_initialProfileTab.section);
+const activeAffiliationSection = ref(_initialProfileTab.affiliationSection);
 // Initialize activeTab from query parameter or default to 'overview' (employee profiles)
 const activeTab = ref(_initialProfileTab.tab);
+const pendingProfileSection = ref(_initialProfileTab.section || '');
+const profileSearchQuery = ref('');
+const profileSearchOpen = ref(false);
+const profileSearchHighlight = ref(0);
 const saving = ref(false);
 const memberSeasonHistoryLoading = ref(false);
 const memberSeasonHistoryError = ref('');
@@ -4195,7 +4286,7 @@ const isFullyLicensedForCredentialing = computed(() => {
 
 const fetchLicenseCredentialSummary = async () => {
   try {
-    const res = await api.get(`/users/${userId.value}/user-info`);
+    const res = await api.get(`/users/${userId.value}/user-info`, { skipGlobalLoading: true });
     const rows = Array.isArray(res.data) ? res.data : [];
     const typeNumber = pickUserInfoFieldValue(rows, LICENSE_INFO_FIELD_KEYS.typeNumber);
     const issuedDate = formatLicenseDisplayDate(pickUserInfoFieldValue(rows, LICENSE_INFO_FIELD_KEYS.issuedDate));
@@ -6316,7 +6407,9 @@ provide(USER_ACCOUNT_CONTEXT_KEY, {
   canEditSkillBuilderCoordinatorAccess,
   canShowSkillBuildersSchoolProgramUserFields,
   openExternalCalendarsModal,
-  isFullyLicensedForCredentialing
+  isFullyLicensedForCredentialing,
+  licenseCredentialSummary,
+  refreshLicenseCredentialSummary: fetchLicenseCredentialSummary
 });
 
 const markComplete = async () => {
@@ -6639,7 +6732,46 @@ const copyAllCredentials = async () => {
 
 const tabIds = computed(() => (tabs.value || []).map((t) => t.id));
 
-const selectTab = (tabId, sectionId = '') => {
+/** Jump targets for in-profile search (tab + optional DOM section id). */
+const profileSearchResults = computed(() => {
+  const q = String(profileSearchQuery.value || '').trim();
+  if (!q) return [];
+  const tabLabelById = Object.fromEntries((tabs.value || []).map((t) => [t.id, t.label]));
+  return filterProfileSearchTargets(q, tabIds.value).map((t) => ({
+    ...t,
+    tabLabel: tabLabelById[t.tabId] || t.tabId,
+  }));
+});
+
+watch(profileSearchResults, () => {
+  profileSearchHighlight.value = 0;
+});
+
+function closeProfileSearch() {
+  profileSearchOpen.value = false;
+  profileSearchHighlight.value = 0;
+}
+
+function profileSearchMove(delta) {
+  const n = profileSearchResults.value.length;
+  if (!n) return;
+  profileSearchOpen.value = true;
+  profileSearchHighlight.value = (profileSearchHighlight.value + delta + n) % n;
+}
+
+function profileSearchSelectHighlighted() {
+  const hit = profileSearchResults.value[profileSearchHighlight.value];
+  if (hit) jumpToProfileSection(hit);
+}
+
+function jumpToProfileSection(hit) {
+  if (!hit) return;
+  profileSearchQuery.value = '';
+  closeProfileSearch();
+  selectTab(hit.tabId, hit.sectionId || '', hit.clinicalSubTab || '');
+}
+
+const selectTab = (tabId, sectionId = '', clinicalSubTab = '') => {
   const id = String(tabId || '').trim();
   if (!id) return;
   if (!tabIds.value.includes(id)) return;
@@ -6648,22 +6780,67 @@ const selectTab = (tabId, sectionId = '') => {
   // (nextSibling/subTree/emitsOptions) when the route update races with VDOM patching.
   activeTab.value = id;
 
+  const clinical = String(clinicalSubTab || '').trim();
+  if (clinical && id === 'provider_info') {
+    nextTick(() => {
+      const fire = () =>
+        window.dispatchEvent(new CustomEvent('pt-clinical-subtab', { detail: { subTab: clinical } }));
+      fire();
+      setTimeout(fire, 150);
+      setTimeout(fire, 450);
+    });
+  }
+
   // Optionally scroll to a specific section within the newly activated tab.
   const anchor = String(sectionId || '').trim();
   if (!anchor) return;
-  // The target section may need a tick (or two) to mount before it exists in the DOM.
+
+  // Tabs like Lifecycle fetch async data before section anchors exist — retry longer.
+  const maxAttempts = 50; // ~8s with backoff below
   const tryScroll = (attempt = 0) => {
     const el = document.getElementById(anchor);
     if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // Double rAF: wait for layout after async tab content swaps in.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          el.classList.add('profile-section-flash');
+          setTimeout(() => el.classList.remove('profile-section-flash'), 1600);
+        });
+      });
       return;
     }
-    if (attempt < 10) {
-      setTimeout(() => tryScroll(attempt + 1), 60);
+    if (attempt < maxAttempts) {
+      const delay = attempt < 15 ? 80 : 160;
+      setTimeout(() => tryScroll(attempt + 1), delay);
     }
   };
   nextTick(() => tryScroll());
 };
+
+const onProfileJumpEvent = (event) => {
+  const tabId = String(event?.detail?.tabId || '').trim();
+  const sectionId = String(event?.detail?.sectionId || '').trim();
+  const clinicalSubTab = String(event?.detail?.clinicalSubTab || '').trim();
+  if (!tabId) return;
+  selectTab(tabId, sectionId, clinicalSubTab);
+};
+
+// Honor ?tab=&section= when assistant (or links) update the query while already on this profile.
+watch(
+  () => [route.query.tab, route.query.section],
+  ([tab, section], [prevTab, prevSection]) => {
+    const nextTab = String(tab || '').trim();
+    const nextSection = String(section || '').trim();
+    if (!nextTab && !nextSection) return;
+    if (String(prevTab || '') === nextTab && String(prevSection || '') === nextSection) return;
+    if (nextTab && tabIds.value.includes(nextTab)) {
+      selectTab(nextTab, nextSection);
+    } else if (nextSection) {
+      selectTab(activeTab.value, nextSection);
+    }
+  }
+);
 
 /** Keep Account tab permission checkboxes in sync after Overview quick-save. */
 const onOverviewPermsSaved = (perms = {}) => {
@@ -6766,8 +6943,28 @@ watch(
   { immediate: true }
 );
 
+const onProfileSearchDocClick = (e) => {
+  const wraps = document.querySelectorAll('[data-tour="user-profile-search"], [data-tour="user-profile-search-tabs"]');
+  for (const wrap of wraps) {
+    if (wrap.contains(e.target)) return;
+  }
+  closeProfileSearch();
+};
+
 onMounted(() => {
   void Promise.allSettled([fetchSupervisees(), fetchSupervisors()]);
+  if (pendingProfileSection.value) {
+    const section = pendingProfileSection.value;
+    pendingProfileSection.value = '';
+    nextTick(() => selectTab(activeTab.value, section));
+  }
+  document.addEventListener('click', onProfileSearchDocClick);
+  window.addEventListener('pt-profile-jump', onProfileJumpEvent);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', onProfileSearchDocClick);
+  window.removeEventListener('pt-profile-jump', onProfileJumpEvent);
 });
 </script>
 
@@ -6981,6 +7178,71 @@ onMounted(() => {
   text-overflow: ellipsis;
 }
 
+.ph-search-wrap {
+  position: relative;
+  margin-top: 12px;
+  max-width: 420px;
+}
+.ph-search-wrap--tabs {
+  margin: 0 0 12px;
+  max-width: 520px;
+}
+.ph-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  background: #fff;
+  color: #111827;
+}
+.ph-search-input:focus {
+  outline: none;
+  border-color: #0f766e;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.15);
+}
+.ph-search-dropdown {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+  overflow: hidden;
+}
+.ph-search-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  font-size: 14px;
+}
+.ph-search-option:hover,
+.ph-search-option.on {
+  background: #f0fdfa;
+}
+.ph-search-option-label { font-weight: 600; color: #111827; }
+.ph-search-option-tab {
+  font-size: 12px;
+  color: #6b7280;
+  flex-shrink: 0;
+}
+.ph-search-empty {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #9ca3af;
+}
+
 .ph-panel-col {
   width: 190px;
   flex-shrink: 0;
@@ -7120,6 +7382,16 @@ onMounted(() => {
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 transparent;
+}
+
+/* Brief highlight when profile search scrolls to a section */
+:deep(.profile-section-flash) {
+  animation: profile-section-flash 1.5s ease;
+}
+@keyframes profile-section-flash {
+  0% { box-shadow: 0 0 0 0 rgba(15, 118, 110, 0.45); }
+  30% { box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.28); background-color: rgba(240, 253, 250, 0.9); }
+  100% { box-shadow: 0 0 0 0 rgba(15, 118, 110, 0); }
 }
 
 .tab-button,

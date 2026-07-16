@@ -585,6 +585,10 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
+import {
+  flushValuesAlignment,
+  readAccessTokenFromRoute
+} from '../../utils/assessmentAssignedSession.js';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import LifeAlignmentWheel from '../../components/valuesAlignment/LifeAlignmentWheel.vue';
@@ -604,6 +608,7 @@ import {
 } from '../../utils/valuesAlignment.js';
 
 const route = useRoute();
+const assignedToken = computed(() => readAccessTokenFromRoute(route));
 const isGuest = computed(() => !!route.meta?.guestValuesAlignment);
 const GUEST_KEY = 'va-guest-assessment-v2-life-wheel';
 const quiet = { skipGlobalLoading: true };
@@ -862,9 +867,27 @@ function goCommitments() {
   step.value = 'commitments';
 }
 
-function finishAssessment() {
+async function finishAssessment() {
+  if (assignedToken.value) {
+    try {
+      await flushValuesAlignment({
+        token: assignedToken.value,
+        responses: responses.value || [],
+        priorityKeys: priorityKeys.value || [],
+        commitments: (priorityKeys.value || []).map((key) => ({
+          valueKey: key,
+          ...(commitmentDrafts[key] || {})
+        })),
+        context: { ...context }
+      });
+    } catch (e) {
+      error.value = e?.response?.data?.error || e.message || 'Could not save assessment';
+      return;
+    }
+  } else {
+    persistGuest();
+  }
   step.value = 'done';
-  persistGuest();
 }
 
 function buildExport() {

@@ -386,6 +386,19 @@ const executeUiCommands = async (commands) => {
           // ignore
         }
       }
+    } else if (type === 'profileJump') {
+      const tabId = String(cmd?.tabId || '').trim();
+      const sectionId = String(cmd?.sectionId || '').trim();
+      const clinicalSubTab = String(cmd?.clinicalSubTab || '').trim();
+      if (tabId) {
+        try {
+          window.dispatchEvent(
+            new CustomEvent('pt-profile-jump', { detail: { tabId, sectionId, clinicalSubTab } })
+          );
+        } catch {
+          // ignore
+        }
+      }
     } else if (type === 'highlight') {
       highlightSelector(cmd?.selector);
     } else if (type === 'openHelper') {
@@ -418,6 +431,9 @@ const askAgent = async () => {
         agentConfig: activeAgentConfig.value,
         context: {
           routeName: routeName.value,
+          path: String(route.fullPath || route.path || ''),
+          fullPath: String(route.fullPath || route.path || ''),
+          profileUserId: Number(route.params?.userId || 0) || null,
           placementKey: placementKey.value,
           agencyId: currentAgencyId.value || null,
           organizationId: currentOrganizationId.value || null

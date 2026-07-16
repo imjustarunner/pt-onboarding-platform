@@ -119,7 +119,7 @@ export const CLINICAL_SUB_TABS = Object.freeze([
       'provider_marketing_specialties'
     ]
   },
-  {
+    {
     id: 'administrative',
     label: 'Administrative & Schedule',
     fieldKeys: [
@@ -134,6 +134,17 @@ export const CLINICAL_SUB_TABS = Object.freeze([
       'mailing_address',
       'previous_addresses',
       'itsco_position',
+      // License & certifications (Edit from overview License card lands here)
+      'license_type_number',
+      'provider_credential_license_type_number',
+      'license_issued',
+      'provider_credential_license_issued_date',
+      'license_expires',
+      'provider_credential_license_expiration_date',
+      'license_upload',
+      'certs_general',
+      'certs_clinical',
+      'provider_credential',
       'npi_status',
       'npi_number',
       'taxonomy_code',

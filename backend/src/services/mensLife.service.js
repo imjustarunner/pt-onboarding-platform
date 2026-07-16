@@ -555,7 +555,15 @@ export async function completeAssessment({
       Number(assessmentId)
     ]
   );
-  return getAssessmentById(assessmentId);
+  const __completed = await getAssessmentById(assessmentId);
+  /* assessment-deliverables-hub-hook */
+  try {
+    const { scheduleDeliverableGeneration } = await import('./assessmentDeliverable.service.js');
+    scheduleDeliverableGeneration({ family: 'mens_life', assessment: __completed });
+  } catch (e) {
+    console.warn('[mens_life] deliverable hook failed', e?.message || e);
+  }
+  return __completed;
 }
 
 export async function listSubjectAssessments({ participantUserId = null, clientId = null } = {}) {

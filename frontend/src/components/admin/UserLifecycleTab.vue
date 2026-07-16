@@ -67,7 +67,7 @@
       <div class="lc-columns">
 
         <!-- ══ ONBOARDING COLUMN ══════════════════════════════════════════ -->
-        <section class="lc-onboarding">
+        <section id="lifecycle-onboarding" class="lc-onboarding lc-section-anchor">
           <h3 class="lc-section-title">Onboarding</h3>
 
           <!-- Progress -->
@@ -239,9 +239,38 @@
             No onboarding checklist items are in scope yet. Items appear here when a pre-hire or onboarding
             package is assigned, or when a tagged document task is sent to this person.
           </p>
+
+          <!-- Gear issuance (always available; Equipment checklist may also appear below) -->
+          <section
+            v-if="!hasEquipmentGroup"
+            id="lifecycle-equipment"
+            class="lc-checklist-group lc-section-anchor"
+          >
+            <h4 class="lc-block-title">Equipment</h4>
+            <LifecycleGearPanel
+              :user-id="userId"
+              :agency-id="agencyId"
+              :view-only="viewOnly"
+              @changed="onGearChanged"
+            />
+          </section>
+
           <template v-for="group in data.onboarding.groups" :key="group.category">
-            <div v-if="activeGroupItems(group).length" class="lc-checklist-group">
+            <div
+              v-if="activeGroupItems(group).length || group.category === 'equipment'"
+              class="lc-checklist-group"
+              :class="{ 'lc-section-anchor': group.category === 'equipment' }"
+              :id="group.category === 'equipment' ? 'lifecycle-equipment' : undefined"
+            >
               <h4 class="lc-block-title">{{ group.label }}</h4>
+              <LifecycleGearPanel
+                v-if="group.category === 'equipment'"
+                :user-id="userId"
+                :agency-id="agencyId"
+                :view-only="viewOnly"
+                @changed="onGearChanged"
+              />
+              <template v-if="activeGroupItems(group).length">
               <div class="lc-checklist-table">
                 <div
                   :class="[
@@ -330,6 +359,7 @@
                   </span>
                 </div>
               </div>
+              </template>
             </div>
           </template>
 
@@ -362,7 +392,11 @@
         </section>
         
         <!-- ══ OFFBOARDING COLUMN ═════════════════════════════════════════ -->
-        <section :class="['lc-offboarding', !data.offboarding.enabled && 'lc-offboarding-disabled']">
+        <section
+          id="lifecycle-offboarding"
+          class="lc-section-anchor"
+          :class="['lc-offboarding', !data.offboarding.enabled && 'lc-offboarding-disabled']"
+        >
           <h3 class="lc-section-title">
             Offboarding
             <span v-if="!data.offboarding.enabled" class="lc-offboard-note">(only active when termination date is set)</span>
@@ -376,8 +410,7 @@
               class="lc-date-input"
               :value="separationForm.terminationDate"
               :disabled="viewOnly"
-              @change="separationForm.terminationDate = $event.target.value"
-              @blur="saveTerminationDate"
+              @change="onTerminationDateChange"
             />
             <p class="lc-hint">Once a termination date is set, offboarding tasks will become active.</p>
             <div v-if="data.offboarding.terminatedAt || data.offboarding.statusExpiresAt" class="lc-readonly-dates" style="margin-top: 8px;">
@@ -557,11 +590,13 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import api from '../../services/api';
+import LifecycleGearPanel from './LifecycleGearPanel.vue';
 
 const props = defineProps({
   userId: { type: [Number, String], required: true },
   viewOnly: { type: Boolean, default: false },
   user: { type: Object, default: null },
+  agencyId: { type: [Number, String], default: null },
 });
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -701,6 +736,11 @@ async function saveDates() {
   }
 }
 
+async function onTerminationDateChange(event) {
+  separationForm.value.terminationDate = event?.target?.value || '';
+  await saveTerminationDate();
+}
+
 async function saveTerminationDate() {
   if (props.viewOnly) return;
   const val = separationForm.value.terminationDate || null;
@@ -708,9 +748,9 @@ async function saveTerminationDate() {
   sepSaved.value = false;
   sepError.value = '';
   try {
-    // Set termination date via existing mark-terminated endpoint when a date is being set
-    // for the first time; otherwise update separation info for clearing / corrections
+    // Persist users.termination_date — this is what enables offboarding in the Lifecycle API.
     await api.patch(`/users/${props.userId}/lifecycle/separation`, {
+      terminationDate: val,
       lastDayWorked: separationForm.value.lastDayWorked || null,
       separationType: separationForm.value.separationType || null,
       resignationReceivedDate: separationForm.value.resignationReceivedDate || null,
@@ -722,7 +762,7 @@ async function saveTerminationDate() {
     setTimeout(() => { sepSaved.value = false; }, 2500);
     await fetchLifecycle();
   } catch (e) {
-    sepError.value = e?.response?.data?.error?.message || 'Failed to save separation info';
+    sepError.value = e?.response?.data?.error?.message || 'Failed to save termination date';
   }
 }
 
@@ -767,6 +807,14 @@ async function toggleItem(item, checked) {
 
 function activeGroupItems(group) {
   return (group?.items || []).filter((item) => !item.isNotApplicable);
+}
+
+const hasEquipmentGroup = computed(() =>
+  (data.value?.onboarding?.groups || []).some((g) => g.category === 'equipment')
+);
+
+async function onGearChanged() {
+  await fetchLifecycle();
 }
 
 const removedOnboardingItems = computed(() =>
@@ -1035,6 +1083,9 @@ watch(() => props.userId, () => {
 
 /* Checklist Tables */
 .lc-checklist-group { margin-bottom: 20px; }
+.lc-section-anchor {
+  scroll-margin-top: 96px;
+}
 .lc-checklist-table { border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
 .lc-checklist-head {
   display: grid;

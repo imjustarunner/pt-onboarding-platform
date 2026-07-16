@@ -392,6 +392,7 @@ import {
 } from '../../utils/athleteReadiness.js';
 
 const route = useRoute();
+const assignedToken = computed(() => readAccessTokenFromRoute(route));
 const isGuest = computed(() => !!route.meta?.guestAthleteReadiness);
 const GUEST_KEY = 'ar-guest-assessment-v1';
 const quiet = { skipGlobalLoading: true };
@@ -597,8 +598,27 @@ function prevDomain() {
   if (domainIndex.value > 0) domainIndex.value -= 1;
 }
 
-function nextDomain() {
+async function nextDomain() {
   if (domainIndex.value >= activeDomains.value.length - 1) {
+    if (assignedToken.value) {
+      try {
+        await flushStandardGuestAssessment({
+          apiPrefix: '/athlete-readiness',
+          token: assignedToken.value,
+          responses: responses.value || [],
+          mapResponse: (r) => ({
+            domainKey: r.domainKey || r.key,
+            ...r
+          }),
+          completePayload: {}
+        });
+      } catch (e) {
+        error.value = e?.response?.data?.error || e.message || 'Could not save assessment';
+        return;
+      }
+    } else if (typeof persistGuest === 'function') {
+      persistGuest();
+    }
     step.value = 'complete';
   } else {
     domainIndex.value += 1;

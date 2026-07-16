@@ -123,6 +123,27 @@
       <p v-else class="muted">No Life Balance Wheel yet. Ask your consultant to assign one, or open a shared link.</p>
     </section>
 
+    <section id="assessment-docs" class="card" style="margin-top: 1rem;">
+      <div class="card-head"><h2>Assessment documents</h2></div>
+      <p v-if="docsLoading" class="muted">Loading…</p>
+      <p v-else-if="!sharedDocs.length" class="muted">
+        No shared assessment documents yet. Your consultant can share results and action plans when ready.
+      </p>
+      <ul v-else class="session-list">
+        <li v-for="d in sharedDocs" :key="d.id">
+          <div class="title">{{ d.title }}</div>
+          <div class="meta">
+            {{ d.kind === 'plan' ? 'Action plan' : 'Results' }}
+            · Shared {{ formatWhen(d.sharedAt || d.updatedAt) }}
+          </div>
+          <div class="cta-row" style="margin-top: 0.4rem;">
+            <button type="button" class="ps-btn primary" @click="openSharedDoc(d)">View</button>
+            <button type="button" class="ps-btn" @click="downloadSharedPdf(d)">Download PDF</button>
+          </div>
+        </li>
+      </ul>
+    </section>
+
     <section id="messages" class="card coming-soon" style="margin-top: 1rem;">
       <div class="card-head"><h2>Messages</h2></div>
       <p class="muted">Coming soon — messaging with your consultant will live here.</p>
@@ -162,6 +183,8 @@ const loadError = ref('');
 const unreadMessages = ref(0);
 const lbwLoading = ref(false);
 const latestLbw = ref(null);
+const docsLoading = ref(false);
+const sharedDocs = ref([]);
 const overview = ref({
   balance: {},
   entitlements: [],
@@ -196,6 +219,32 @@ function formatWhen(d) {
 }
 function scrollTo(id) {
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function openSharedDoc(d) {
+  const w = window.open('', '_blank');
+  if (!w) return;
+  w.document.write(d.htmlBody || '<p>No content</p>');
+  w.document.close();
+}
+
+async function downloadSharedPdf(d) {
+  try {
+    const res = await api.post(
+      `/assessment-deliverables/${d.id}/export`,
+      { format: 'pdf' },
+      { responseType: 'blob' }
+    );
+    const blob = new Blob([res.data], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(d.title || 'assessment').replace(/\s+/g, '_')}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    loadError.value = e?.response?.data?.error || e.message || 'PDF download failed';
+  }
 }
 
 async function scrollToHash() {
@@ -265,6 +314,15 @@ async function load() {
       latestLbw.value = null;
     } finally {
       lbwLoading.value = false;
+    }
+    docsLoading.value = true;
+    try {
+      const docsRes = await api.get(`/assessment-deliverables/clients/${clientId}/shared`);
+      sharedDocs.value = docsRes.data?.deliverables || [];
+    } catch {
+      sharedDocs.value = [];
+    } finally {
+      docsLoading.value = false;
     }
   } catch (e) {
     loadError.value = e?.response?.data?.error?.message || e.message || 'Could not load dashboard';

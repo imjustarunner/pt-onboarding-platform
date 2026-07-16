@@ -130,11 +130,43 @@ export const updateSeparationInfo = async (req, res, next) => {
       rehireEligible,
       exitInterviewCompleted,
       offboardingNotes,
+      terminationDate,
     } = req.body || {};
 
-    const validSepTypes = [null, undefined, 'voluntary', 'involuntary'];
+    const validSepTypes = [null, undefined, 'voluntary', 'involuntary', ''];
     if (separationType !== undefined && !validSepTypes.includes(separationType)) {
       return res.status(400).json({ error: { message: 'separationType must be voluntary or involuntary' } });
+    }
+
+    // Setting / clearing termination_date enables (or disables) Lifecycle offboarding.
+    if (terminationDate !== undefined) {
+      const pool = (await import('../config/database.js')).default;
+      const User = (await import('../models/User.model.js')).default;
+      const existing = await User.findById(userId);
+      if (!existing) return res.status(404).json({ error: { message: 'User not found' } });
+
+      const nextDate = terminationDate
+        ? String(terminationDate).trim().slice(0, 10)
+        : null;
+      if (nextDate && !/^\d{4}-\d{2}-\d{2}$/.test(nextDate)) {
+        return res.status(400).json({ error: { message: 'terminationDate must be YYYY-MM-DD' } });
+      }
+
+      const hadDate = !!existing.termination_date;
+      await pool.execute(
+        `UPDATE users SET termination_date = ? WHERE id = ?`,
+        [nextDate, userId]
+      );
+
+      // First time a termination date is set → scope offboarding checklist items.
+      if (nextDate && !hadDate) {
+        try {
+          const { scopeOffboardingChecklist } = await import('../services/lifecycleScope.service.js');
+          await scopeOffboardingChecklist(userId);
+        } catch (scopeErr) {
+          console.warn('[updateSeparationInfo] offboarding scope failed:', scopeErr?.message);
+        }
+      }
     }
 
     const row = await UserSeparationInfo.upsert(

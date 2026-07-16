@@ -466,7 +466,15 @@ export async function completeAssessment({ assessmentId }) {
      WHERE id = ?`,
     [JSON.stringify(summary), summary.collegeReadinessScore, Number(assessmentId)]
   );
-  return getAssessmentById(assessmentId);
+  const __completed = await getAssessmentById(assessmentId);
+  /* assessment-deliverables-hub-hook */
+  try {
+    const { scheduleDeliverableGeneration } = await import('./assessmentDeliverable.service.js');
+    scheduleDeliverableGeneration({ family: 'college_readiness', assessment: __completed });
+  } catch (e) {
+    console.warn('[college_readiness] deliverable hook failed', e?.message || e);
+  }
+  return __completed;
 }
 
 export async function listAssessmentsForStudent({

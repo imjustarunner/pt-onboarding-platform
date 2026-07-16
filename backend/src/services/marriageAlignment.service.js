@@ -192,6 +192,7 @@ async function hydrateCycle(row, { viewerToken = null } = {}) {
   return {
     id: Number(row.id),
     agencyId: row.agency_id == null ? null : Number(row.agency_id),
+    clientId: row.client_id == null ? null : Number(row.client_id),
     templateId: Number(row.template_id),
     templateVersion: Number(row.template_version || 1),
     displayName: row.display_name || 'Marriage Alignment Assessment',
@@ -508,6 +509,26 @@ export async function submitPartnerAssessment({ token }) {
        WHERE id = ?`,
       [JSON.stringify(comparison), refreshed.id]
     );
+    /* assessment-deliverables-hub-hook */
+    try {
+      const cycleForDocs = await getCycleById(refreshed.id);
+      const { scheduleDeliverableGeneration } = await import('./assessmentDeliverable.service.js');
+      scheduleDeliverableGeneration({
+        family: 'marriage_alignment',
+        assessment: {
+          ...cycleForDocs,
+          summary: comparison,
+          responses: [
+            ...(cycleForDocs.partnerA?.responses || []),
+            ...(cycleForDocs.partnerB?.responses || [])
+          ],
+          alignmentPlans: cycleForDocs.alignmentPlans,
+          selectedPriorities: cycleForDocs.selectedPriorities
+        }
+      });
+    } catch (e) {
+      console.warn('[marriage_alignment] deliverable hook failed', e?.message || e);
+    }
   } else {
     await pool.execute(
       `UPDATE marriage_alignment_cycles

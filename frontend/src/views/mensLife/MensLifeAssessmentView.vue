@@ -598,6 +598,11 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
+import {
+  flushStandardGuestAssessment,
+  loadAssignedAssessment,
+  readAccessTokenFromRoute
+} from '../../utils/assessmentAssignedSession.js';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import MensLifeFramework from '../../components/mensLife/MensLifeFramework.vue';
@@ -622,6 +627,8 @@ import {
 } from '../../utils/mensLife.js';
 
 const route = useRoute();
+const assignedToken = computed(() => readAccessTokenFromRoute(route));
+const organizationSlug = computed(() => String(route.params.organizationSlug || '').trim());
 const isGuest = computed(() => !!route.meta?.guestMensLife);
 const GUEST_KEY = 'ml-guest-assessment-v1';
 const quiet = { skipGlobalLoading: true };
@@ -896,9 +903,32 @@ function goPlans() {
   step.value = 'plans';
 }
 
-function finish() {
+async function finish() {
+  if (assignedToken.value) {
+    try {
+      await flushStandardGuestAssessment({
+        apiPrefix: '/mens-life',
+        token: assignedToken.value,
+        responses: responses.value || [],
+        mapResponse: (r) => ({
+          domainKey: r.domainKey || r.key,
+          ...r
+        }),
+        plansPayload: {
+          selectedPriorities: (typeof priorityKeys !== 'undefined' && priorityKeys?.value) ? priorityKeys.value : [],
+        },
+        completePayload: {
+          selectedPriorities: (typeof priorityKeys !== 'undefined' && priorityKeys?.value) ? priorityKeys.value : []
+        }
+      });
+    } catch (e) {
+      error.value = e?.response?.data?.error || e.message || 'Could not save assessment';
+      return;
+    }
+  } else if (typeof persistGuest === 'function') {
+    persistGuest();
+  }
   step.value = 'done';
-  persistGuest();
 }
 
 function buildExport() {
