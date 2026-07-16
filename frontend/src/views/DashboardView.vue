@@ -3434,7 +3434,7 @@ const dashboardCards = computed(() => {
           kind: 'nest',
           badgeCount: 3,
           iconUrl,
-          description: 'Assessments & evaluations, games, and AI tools.',
+          description: 'Assessments & evaluations, games and activities, and AI tools.',
           children: [
             {
               id: 'tools_assessments',
@@ -3447,12 +3447,12 @@ const dashboardCards = computed(() => {
             },
             {
               id: 'tools_games',
-              label: 'Games',
+              label: 'Games and Activities',
               kind: 'content',
               toolsTab: 'games',
               badgeCount: 0,
               iconUrl,
-              description: 'Interactive activities for sessions and practice.'
+              description: 'Interactive games and session activities for practice and counseling.'
             },
             {
               id: 'tools_ai',
@@ -3488,7 +3488,7 @@ const dashboardCards = computed(() => {
         kind: 'nest',
         badgeCount: 3,
         iconUrl,
-        description: 'Assessments & evaluations, games, and AI tools.',
+        description: 'Assessments & evaluations, games and activities, and AI tools.',
         children: [
           {
             id: 'tools_assessments',
@@ -3501,12 +3501,12 @@ const dashboardCards = computed(() => {
           },
           {
             id: 'tools_games',
-            label: 'Games',
+            label: 'Games and Activities',
             kind: 'content',
             toolsTab: 'games',
             badgeCount: 0,
             iconUrl,
-            description: 'Interactive activities for sessions and practice.'
+            description: 'Interactive games and session activities for practice and counseling.'
           },
           {
             id: 'tools_ai',

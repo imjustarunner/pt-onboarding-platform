@@ -152,7 +152,7 @@ const dashboardTour = {
       element: '[data-tour="dash-rail-card-tools_nest"]',
       popover: {
         title: 'Tools',
-        description: 'Open Assessments & Evaluations, Games, or AI Tools from your dashboard.',
+        description: 'Open Assessments & Evaluations, Games and Activities, or AI Tools from your dashboard.',
         side: 'right',
         align: 'center'
       }

@@ -9,16 +9,16 @@
 
 export const TOOLS_TABS = [
   { id: 'assessments', label: 'Assessments & Evaluations' },
-  { id: 'games', label: 'Games' },
+  { id: 'games', label: 'Games and Activities' },
   { id: 'ai', label: 'AI Tools' }
 ];
 
 export const TOOLS_CATEGORIES = [
   {
     id: 'games',
-    label: 'Games',
+    label: 'Games and Activities',
     tab: 'games',
-    description: 'Interactive standalone activities for sessions and practice.'
+    description: 'Interactive games and session activities for practice and counseling.'
   },
   {
     id: 'assessments',

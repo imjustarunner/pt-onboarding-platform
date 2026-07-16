@@ -1421,8 +1421,19 @@ export const createMySchoolAvailabilityRequest = async (req, res, next) => {
     if (!(await requireAgencyMembership(req, res, agencyId))) return;
     const providerId = req.user.id;
 
-    // Daytime school availability does not allow selecting a school.
-    const schoolOrgIds = [];
+    // Preferred schools optional (Caseload Hub open-day apply); empty = staff assigns school.
+    const rawPreferred = Array.isArray(req.body?.preferredSchoolOrgIds)
+      ? req.body.preferredSchoolOrgIds
+      : Array.isArray(req.body?.schoolOrgIds)
+        ? req.body.schoolOrgIds
+        : [];
+    const schoolOrgIds = [
+      ...new Set(
+        rawPreferred
+          .map((x) => parseIntSafe(x))
+          .filter((n) => Number.isInteger(n) && n > 0)
+      )
+    ].slice(0, 20);
     const notes = String(req.body?.notes || '').trim().slice(0, 2000);
     const blocks = Array.isArray(req.body?.blocks) ? req.body.blocks : [];
 
@@ -1474,11 +1485,12 @@ export const createMySchoolAvailabilityRequest = async (req, res, next) => {
       } catch { /* non-blocking */ }
     }
 
+    const preferredJson = schoolOrgIds.length ? JSON.stringify(schoolOrgIds) : null;
     const [result] = await conn.execute(
       `INSERT INTO provider_school_availability_requests
         (agency_id, provider_id, preferred_school_org_ids_json, notes, status)
        VALUES (?, ?, ?, ?, 'PENDING')`,
-      [agencyId, providerId, null, notes || null]
+      [agencyId, providerId, preferredJson, notes || null]
     );
     const requestId = result.insertId;
 
@@ -2717,7 +2729,7 @@ export const denySchoolAvailabilityRequest = async (req, res, next) => {
     if (!requestId) return res.status(400).json({ error: { message: 'Request ID is required' } });
 
     const [reqRows] = await pool.execute(
-      `SELECT id, status
+      `SELECT id, status, provider_id
        FROM provider_school_availability_requests
        WHERE id = ? AND agency_id = ?
        LIMIT 1`,
@@ -2738,6 +2750,29 @@ export const denySchoolAvailabilityRequest = async (req, res, next) => {
        WHERE id = ?`,
       [req.user.id, requestId]
     );
+
+    try {
+      await Notification.markAllAsResolvedForFilter(agencyId, {
+        relatedEntityType: 'provider_school_availability_request',
+        relatedEntityId: requestId
+      });
+    } catch { /* non-blocking */ }
+    try {
+      const providerUserId = Number(reqRow.provider_id);
+      if (providerUserId) {
+        await Notification.create({
+          type: 'school_availability_request_denied',
+          severity: 'info',
+          title: 'School day request denied',
+          message: 'Your school availability request was not approved. Contact your administrator if you have questions.',
+          userId: providerUserId,
+          agencyId,
+          relatedEntityType: 'provider_school_availability_request',
+          relatedEntityId: requestId,
+          actorUserId: req.user.id
+        });
+      }
+    } catch { /* non-blocking */ }
 
     res.json({ ok: true });
   } catch (e) {
@@ -3023,6 +3058,27 @@ export const assignSchoolFromRequest = async (req, res, next) => {
     );
 
     await conn.commit();
+
+    try {
+      await Notification.markAllAsResolvedForFilter(agencyId, {
+        relatedEntityType: 'provider_school_availability_request',
+        relatedEntityId: requestId
+      });
+    } catch { /* non-blocking */ }
+    try {
+      await Notification.create({
+        type: 'school_availability_request_approved',
+        severity: 'info',
+        title: 'School day request approved',
+        message: `Your school availability request was approved for ${dayOfWeek}.`,
+        userId: providerUserId,
+        agencyId,
+        relatedEntityType: 'provider_school_availability_request',
+        relatedEntityId: requestId,
+        actorUserId: req.user.id
+      });
+    } catch { /* non-blocking */ }
+
     res.json({ ok: true, providerSchoolAssignmentId: assignmentId });
   } catch (e) {
     if (conn) {

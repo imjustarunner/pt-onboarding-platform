@@ -15,6 +15,11 @@
           <span class="lbl">Event type</span>
           <select v-model="form.category" class="input" :disabled="!!lockedCategory">
             <option value="back_to_school">Back to School</option>
+            <option value="open_house">Open House</option>
+            <option value="resource_fair">Resource Fair</option>
+            <option value="family_night">Family Night</option>
+            <option value="orientation">Orientation</option>
+            <option value="other">Other school event</option>
             <option value="spring">Spring Event</option>
           </select>
         </label>

@@ -1582,6 +1582,65 @@ const routes = [
     }
   },
   {
+    path: '/:organizationSlug/admin/caseload-hub/schools-staff',
+    name: 'OrganizationCaseloadHubSchoolsStaff',
+    component: () => import('../views/admin/caseload-hub/CaseloadHubSchoolsStaffView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: [
+        'admin',
+        'support',
+        'staff',
+        'super_admin',
+        'provider_plus',
+        'provider',
+        'clinical_practice_assistant',
+        'schedule_manager',
+        'supervisor'
+      ],
+      allowSubCoordinator: true,
+      organizationSlug: true
+    }
+  },
+  {
+    path: '/:organizationSlug/admin/caseload-hub/events',
+    name: 'OrganizationCaseloadHubEvents',
+    component: () => import('../views/admin/caseload-hub/CaseloadHubEventsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: [
+        'admin',
+        'support',
+        'staff',
+        'super_admin',
+        'provider_plus',
+        'provider',
+        'clinical_practice_assistant'
+      ],
+      allowSubCoordinator: true,
+      organizationSlug: true
+    }
+  },
+  {
+    path: '/:organizationSlug/admin/caseload-hub/calendar',
+    name: 'OrganizationCaseloadHubCalendar',
+    component: () => import('../views/admin/caseload-hub/CaseloadHubCalendarView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: [
+        'admin',
+        'support',
+        'staff',
+        'super_admin',
+        'provider_plus',
+        'provider',
+        'clinical_practice_assistant'
+      ],
+      allowSubCoordinator: true,
+      organizationSlug: true
+    }
+  },
+  {
     path: '/:organizationSlug/admin/settings',
     name: 'OrganizationSettings',
     component: () => import('../views/admin/SettingsView.vue'),
@@ -2454,6 +2513,62 @@ const routes = [
     meta: {
       requiresAuth: true,
       requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true
+    }
+  },
+  {
+    path: '/admin/caseload-hub/schools-staff',
+    name: 'CaseloadHubSchoolsStaff',
+    component: () => import('../views/admin/caseload-hub/CaseloadHubSchoolsStaffView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: [
+        'admin',
+        'support',
+        'staff',
+        'super_admin',
+        'provider_plus',
+        'provider',
+        'clinical_practice_assistant',
+        'schedule_manager',
+        'supervisor'
+      ],
+      allowSubCoordinator: true
+    }
+  },
+  {
+    path: '/admin/caseload-hub/events',
+    name: 'CaseloadHubEvents',
+    component: () => import('../views/admin/caseload-hub/CaseloadHubEventsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: [
+        'admin',
+        'support',
+        'staff',
+        'super_admin',
+        'provider_plus',
+        'provider',
+        'clinical_practice_assistant'
+      ],
+      allowSubCoordinator: true
+    }
+  },
+  {
+    path: '/admin/caseload-hub/calendar',
+    name: 'CaseloadHubCalendar',
+    component: () => import('../views/admin/caseload-hub/CaseloadHubCalendarView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: [
+        'admin',
+        'support',
+        'staff',
+        'super_admin',
+        'provider_plus',
+        'provider',
+        'clinical_practice_assistant'
+      ],
       allowSubCoordinator: true
     }
   },

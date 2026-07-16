@@ -128,6 +128,7 @@ import staffRoutes from './routes/staff.routes.js';
 import supportTicketsRoutes from './routes/supportTickets.routes.js';
 import faqRoutes from './routes/faq.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
+import schoolCoverageRoutes from './routes/schoolCoverage.routes.js';
 import officeSettingsRoutes from './routes/officeSettings.routes.js';
 import officeSlotActionsRoutes from './routes/officeSlotActions.routes.js';
 import officeReviewRoutes from './routes/officeReview.routes.js';
@@ -826,6 +827,7 @@ app.use('/api/staff', staffRoutes);
 app.use('/api/support-tickets', supportTicketsRoutes);
 app.use('/api/faqs', faqRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/school-coverage', schoolCoverageRoutes);
 app.use('/api/phi-documents', phiDocumentsRoutes);
 
 // Error handling middleware

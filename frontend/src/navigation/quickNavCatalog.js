@@ -225,7 +225,7 @@ function buildAppEntries() {
       id: 'workspace-tools',
       routeName: 'ToolsAids',
       label: 'Tools',
-      description: 'Assessments & evaluations, games, and AI tools.',
+      description: 'Assessments & evaluations, games and activities, and AI tools.',
       group: 'workspace',
       keywords: [
         'tools',
@@ -237,6 +237,8 @@ function buildAppEntries() {
         'assessments',
         'evaluations',
         'games',
+        'games and activities',
+        'activities',
         'ai tools'
       ],
       kind: 'dashboard',
@@ -334,6 +336,65 @@ function buildAppEntries() {
       kind: 'path',
       path: '/admin/school-portals-hub',
       rolesAny: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']
+    },
+    {
+      id: 'admin-caseload-hub-schools-staff',
+      routeName: 'CaseloadHubSchoolsStaff',
+      label: 'Caseload Hub',
+      description: 'Schools & staff coverage, open school days, and coverage needs.',
+      group: 'admin',
+      keywords: ['caseload', 'coverage', 'schools staff', 'open school spots', 'by school', 'by person'],
+      kind: 'path',
+      path: '/admin/caseload-hub/schools-staff',
+      rolesAny: [
+        'admin',
+        'support',
+        'staff',
+        'super_admin',
+        'provider_plus',
+        'provider',
+        'clinical_practice_assistant',
+        'schedule_manager',
+        'supervisor'
+      ]
+    },
+    {
+      id: 'admin-caseload-hub-calendar',
+      routeName: 'CaseloadHubCalendar',
+      label: 'School Events Calendar',
+      description: 'Calendar of school events and staffing status.',
+      group: 'admin',
+      keywords: ['calendar', 'school events', 'caseload hub'],
+      kind: 'path',
+      path: '/admin/caseload-hub/calendar',
+      rolesAny: [
+        'admin',
+        'support',
+        'staff',
+        'super_admin',
+        'provider_plus',
+        'provider',
+        'clinical_practice_assistant'
+      ]
+    },
+    {
+      id: 'admin-caseload-hub-events',
+      routeName: 'CaseloadHubEvents',
+      label: 'School Events',
+      description: 'School event list and provider request review.',
+      group: 'admin',
+      keywords: ['school events', 'event list', 'provider requests'],
+      kind: 'path',
+      path: '/admin/caseload-hub/events',
+      rolesAny: [
+        'admin',
+        'support',
+        'staff',
+        'super_admin',
+        'provider_plus',
+        'provider',
+        'clinical_practice_assistant'
+      ]
     },
     {
       id: 'admin-program-events',

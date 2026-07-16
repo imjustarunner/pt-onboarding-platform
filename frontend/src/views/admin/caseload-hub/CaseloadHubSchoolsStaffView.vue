@@ -1,0 +1,1514 @@
+<template>
+  <div class="hub-page" data-tour="caseload-hub-schools-staff">
+    <header class="hub-header">
+      <div>
+        <h1>Schools &amp; Staff</h1>
+        <p class="subtitle">View caseloads by school or by person. Coverage needs and open school days surface live data.</p>
+      </div>
+      <div class="header-actions">
+        <select v-if="agencies.length > 1" v-model="agencyId" class="agency-select" @change="reload">
+          <option v-for="a in agencies" :key="a.id" :value="Number(a.id)">{{ a.name }}</option>
+        </select>
+        <button type="button" class="btn btn-secondary" :disabled="loading" @click="reload">
+          {{ loading ? 'Refreshing…' : 'Refresh' }}
+        </button>
+        <router-link class="btn btn-secondary" :to="orgTo('/admin/school-portals-hub')">School Portals</router-link>
+      </div>
+    </header>
+
+    <div v-if="error" class="error-banner">{{ error }}</div>
+
+    <section v-if="warningCards.length" class="warning-cards" data-tour="coverage-warning-cards">
+      <button
+        v-for="c in warningCards.filter((x) => x.count > 0)"
+        :key="c.type"
+        type="button"
+        class="warning-card"
+        :class="c.severity"
+        @click="goCoverageNeeds(c.type)"
+      >
+        <span class="wc-count">{{ c.count }}</span>
+        <span class="wc-title">{{ c.title }}</span>
+      </button>
+    </section>
+
+    <nav class="hub-tabs" role="tablist">
+      <button
+        v-for="t in tabs"
+        :key="t.id"
+        type="button"
+        role="tab"
+        class="hub-tab"
+        :class="{ active: tab === t.id }"
+        :aria-selected="tab === t.id"
+        @click="setTab(t.id)"
+      >
+        {{ t.label }}
+      </button>
+    </nav>
+
+    <div v-if="loading && !schools.length && !providers.length" class="loading">Loading coverage…</div>
+
+    <!-- By School -->
+    <div v-else-if="tab === 'by-school'" class="split" :class="{ 'has-selection': !!selectedSchoolId }">
+      <div class="list-panel">
+        <div class="list-toolbar">
+          <input v-model="schoolSearch" type="search" placeholder="Search schools…" class="search" />
+          <select v-model="schoolSort">
+            <option value="name">Name</option>
+            <option value="capacity">Capacity</option>
+            <option value="waitlist">Waitlist</option>
+            <option value="warnings">Warnings</option>
+          </select>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>School</th>
+              <th>Staff</th>
+              <th>Clients</th>
+              <th>Capacity</th>
+              <th>Days</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="s in filteredSchools"
+              :key="s.schoolId"
+              :class="{ selected: selectedSchoolId === s.schoolId }"
+              @click="selectSchool(s.schoolId)"
+            >
+              <td>
+                <div class="school-cell">
+                  <div class="school-logo">
+                    <img
+                      v-if="schoolLogoUrl(s) && !failedLogoIds.has(String(s.schoolId))"
+                      :src="schoolLogoUrl(s)"
+                      :alt="`${s.schoolName} logo`"
+                      class="school-logo-img"
+                      @error="onLogoError(s.schoolId)"
+                    />
+                    <span v-else class="school-logo-fallback" aria-hidden="true">{{ schoolInitials(s) }}</span>
+                  </div>
+                  <div class="school-text">
+                    <div class="primary">{{ s.schoolName }}</div>
+                    <div class="muted">{{ s.districtName || '—' }}</div>
+                  </div>
+                </div>
+              </td>
+              <td>{{ s.providersCount }}</td>
+              <td>{{ s.clientsAssigned }} / {{ s.clientsCurrent }}</td>
+              <td>
+                <div class="cap-bar">
+                  <div class="cap-fill" :style="{ width: Math.min(100, s.capacityUtilization) + '%' }" />
+                </div>
+                <span class="muted">{{ s.capacityUtilization }}% · {{ s.slotsAvailable }} open</span>
+              </td>
+              <td>
+                <span
+                  v-for="d in s.days"
+                  :key="d.dayOfWeek"
+                  class="day-chip"
+                  :class="{ on: d.providersCount > 0, danger: d.unstaffed }"
+                  :title="d.dayOfWeek"
+                >{{ d.dayOfWeek.slice(0, 2) }}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-if="!filteredSchools.length" class="empty">No schools match.</p>
+      </div>
+      <aside v-if="schoolDetail" class="detail-panel">
+        <div class="detail-header">
+          <div class="school-logo school-logo-lg">
+            <img
+              v-if="schoolLogoUrl(schoolDetail) && !failedLogoIds.has(String(schoolDetail.schoolId))"
+              :src="schoolLogoUrl(schoolDetail)"
+              :alt="`${schoolDetail.schoolName} logo`"
+              class="school-logo-img"
+              @error="onLogoError(schoolDetail.schoolId)"
+            />
+            <span v-else class="school-logo-fallback" aria-hidden="true">{{ schoolInitials(schoolDetail) }}</span>
+          </div>
+          <div>
+            <h2>{{ schoolDetail.schoolName }}</h2>
+            <p class="muted">{{ schoolDetail.districtName || 'No district' }}</p>
+          </div>
+        </div>
+        <div class="stat-row">
+          <div><strong>{{ schoolDetail.providersCount }}</strong><span>Staff</span></div>
+          <div><strong>{{ schoolDetail.clientsAssigned }}</strong><span>Clients</span></div>
+          <div><strong>{{ schoolDetail.capacityUtilization }}%</strong><span>Capacity</span></div>
+          <div><strong>{{ schoolDetail.waitlistCount }}</strong><span>Waitlist</span></div>
+        </div>
+        <h3>Staffing by day</h3>
+        <ul class="day-list">
+          <li v-for="d in schoolDetail.days" :key="d.dayOfWeek" :class="{ danger: d.unstaffed }">
+            <strong>{{ d.dayOfWeek }}</strong>
+            <span>{{ d.providersCount }} provider(s) · {{ d.clientsCount }} clients · {{ d.slotsAvailable }} open</span>
+            <em v-if="d.unstaffed">Unstaffed</em>
+          </li>
+        </ul>
+        <h3>Providers</h3>
+        <ul class="simple-list">
+          <li v-for="p in schoolDetail.providers || []" :key="p.providerId">
+            {{ p.name }} — {{ (p.days || []).map((x) => x.dayOfWeek.slice(0, 3)).join(', ') || 'No days' }}
+          </li>
+          <li v-if="!(schoolDetail.providers || []).length" class="muted">No providers assigned.</li>
+        </ul>
+        <h3>Upcoming events</h3>
+        <ul class="simple-list">
+          <li v-for="e in schoolDetail.events || []" :key="e.id">
+            {{ e.title }} · {{ formatDate(e.startAt) }}
+          </li>
+          <li v-if="!(schoolDetail.events || []).length" class="muted">No school events.</li>
+        </ul>
+        <div class="detail-actions">
+          <router-link
+            v-if="schoolDetail.schoolSlug"
+            class="btn btn-primary"
+            :to="`/${schoolDetail.schoolSlug}/school-portal`"
+          >Open school portal</router-link>
+          <button type="button" class="btn btn-secondary" @click="setTab('open-spots')">Open school spots</button>
+        </div>
+      </aside>
+      <aside v-else class="detail-panel muted-panel">
+        <p>Select a school to see staffing, capacity, and events.</p>
+      </aside>
+    </div>
+
+    <!-- By Person -->
+    <div v-else-if="tab === 'by-person'" class="split has-selection">
+      <div class="list-panel">
+        <div class="list-toolbar">
+          <input v-model="providerSearch" type="search" placeholder="Search staff…" class="search" />
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Staff member</th>
+              <th>Schools</th>
+              <th>Clients</th>
+              <th>Capacity</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="p in filteredProviders"
+              :key="p.providerId"
+              :class="{ selected: selectedProviderId === p.providerId }"
+              @click="selectProvider(p.providerId)"
+            >
+              <td>
+                <div class="primary">{{ p.name }}</div>
+                <div class="muted">{{ formatRole(p.role) }}</div>
+              </td>
+              <td>
+                <div class="provider-schools">
+                  <div
+                    v-for="s in providerSchoolsForList(p)"
+                    :key="`${p.providerId}-${s.schoolId}`"
+                    class="provider-school-chip"
+                    :title="s.schoolName"
+                  >
+                    <div class="school-logo school-logo-sm">
+                      <img
+                        v-if="schoolLogoUrl(s) && !failedLogoIds.has(`p-${p.providerId}-${s.schoolId}`)"
+                        :src="schoolLogoUrl(s)"
+                        :alt="`${s.schoolName} logo`"
+                        class="school-logo-img"
+                        @error="onLogoError(`p-${p.providerId}-${s.schoolId}`)"
+                      />
+                      <span v-else class="school-logo-fallback" aria-hidden="true">{{ schoolInitials(s) }}</span>
+                    </div>
+                    <span class="provider-school-name">{{ s.schoolName }}</span>
+                  </div>
+                  <span v-if="!providerSchoolsForList(p).length" class="muted">No school days assigned</span>
+                </div>
+              </td>
+              <td>{{ p.clientsCurrent }}</td>
+              <td>
+                <div class="cap-bar">
+                  <div class="cap-fill" :style="{ width: Math.min(100, p.capacityUtilization) + '%' }" />
+                </div>
+                <span class="muted">{{ p.capacityUtilization }}%</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-if="!filteredProviders.length" class="empty">No staff found for affiliated schools.</p>
+      </div>
+      <aside v-if="providerDetail" class="detail-panel">
+        <h2>{{ providerDetail.name }}</h2>
+        <p class="muted">{{ formatRole(providerDetail.role) }} · {{ providerDetail.email || '—' }}</p>
+        <div class="stat-row">
+          <div><strong>{{ providerDetail.clientsCurrent }}</strong><span>Clients</span></div>
+          <div><strong>{{ providerDetail.capacityUtilization }}%</strong><span>Capacity</span></div>
+          <div><strong>{{ providerSchoolsForList(providerDetail).length }}</strong><span>Schools</span></div>
+          <div><strong>{{ providerDetail.assignedDays }}</strong><span>Days</span></div>
+        </div>
+        <p v-if="providerDetail.noDayAssigned" class="inline-warn">Assigned to school(s) but no day selected.</p>
+        <h3>Schools &amp; caseload</h3>
+        <table class="data-table compact">
+          <thead>
+            <tr><th>School</th><th>Days</th><th>Clients</th><th>Capacity</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="s in providerDetail.schools || []" :key="s.schoolId">
+              <td>
+                <div class="school-cell">
+                  <div class="school-logo school-logo-sm">
+                    <img
+                      v-if="schoolLogoUrl(s) && !failedLogoIds.has(`pd-${s.schoolId}`)"
+                      :src="schoolLogoUrl(s)"
+                      :alt="`${s.schoolName} logo`"
+                      class="school-logo-img"
+                      @error="onLogoError(`pd-${s.schoolId}`)"
+                    />
+                    <span v-else class="school-logo-fallback" aria-hidden="true">{{ schoolInitials(s) }}</span>
+                  </div>
+                  <div class="school-text">
+                    <div class="primary">{{ s.schoolName }}</div>
+                    <div v-if="!(s.fromAssignment || (s.days || []).length)" class="muted">Membership only</div>
+                  </div>
+                </div>
+              </td>
+              <td>{{ (s.days || []).map((d) => d.dayOfWeek.slice(0, 3)).join(', ') || '—' }}</td>
+              <td>{{ s.clients }}</td>
+              <td>{{ s.slotsUsed }}/{{ s.slotsTotal }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <h3>Requests</h3>
+        <ul class="simple-list">
+          <li v-for="r in providerDetail.requests || []" :key="r.id">
+            {{ r.status }} · {{ formatDate(r.createdAt) }}
+          </li>
+          <li v-if="!(providerDetail.requests || []).length" class="muted">No school-day requests.</li>
+        </ul>
+        <div class="detail-actions">
+          <router-link class="btn btn-secondary" :to="`/admin/users/${providerDetail.providerId}`">View full profile</router-link>
+        </div>
+      </aside>
+      <aside v-else class="detail-panel muted-panel">
+        <p>Select a staff member to see schools, days, and requests.</p>
+      </aside>
+    </div>
+
+    <!-- Coverage Needs -->
+    <div v-else-if="tab === 'coverage-needs'" class="coverage-needs-wrap">
+      <div class="coverage-quick-filters" data-tour="coverage-category-buttons">
+        <button
+          type="button"
+          class="coverage-quick-btn"
+          :class="{ active: !needTypeFilter }"
+          @click="needTypeFilter = ''"
+        >
+          <span class="coverage-quick-count">{{ needs.length }}</span>
+          <span class="coverage-quick-label">All</span>
+        </button>
+        <button
+          v-for="section in needsByCategory"
+          :key="`quick-${section.type}`"
+          type="button"
+          class="coverage-quick-btn"
+          :class="[section.severity, { active: needTypeFilter === section.type }]"
+          @click="needTypeFilter = needTypeFilter === section.type ? '' : section.type"
+        >
+          <span class="coverage-quick-count">{{ section.entries.length }}</span>
+          <span class="coverage-quick-label">{{ section.title }}</span>
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm coverage-expire-btn" @click="runExpireStale">
+          Expire stale (30d)
+        </button>
+      </div>
+
+      <div class="coverage-split">
+      <div class="list-panel coverage-list-panel">
+        <div class="list-toolbar">
+          <select v-model="needTypeFilter">
+            <option value="">All need types</option>
+            <option v-for="c in warningCards" :key="c.type" :value="c.type">{{ c.title }}</option>
+          </select>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Severity</th>
+              <th>Need</th>
+              <th>School / Provider</th>
+              <th>Count</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="item in filteredNeeds"
+              :key="item.id"
+              :class="{ selected: needTypeFilter === item.type }"
+              @click="needTypeFilter = item.type"
+            >
+              <td><span class="sev" :class="item.severity">{{ item.severity }}</span></td>
+              <td>
+                <div class="primary">{{ item.title }}</div>
+                <div class="muted">{{ item.message }}</div>
+              </td>
+              <td>{{ item.schoolName || item.providerName || '—' }}</td>
+              <td>{{ item.count }}</td>
+              <td>
+                <router-link v-if="item.resolutionPath" class="link" :to="item.resolutionPath" @click.stop>Resolve</router-link>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-if="!filteredNeeds.length" class="empty">No coverage needs{{ needTypeFilter ? ' for this filter' : '' }}.</p>
+
+        <section v-if="suggestions.length" class="suggestions">
+          <h3>Suggested matches</h3>
+          <ul>
+            <li v-for="(s, idx) in suggestions" :key="idx">
+              {{ s.providerName }} →
+              {{ (s.matches || []).map((m) => `${m.dayOfWeek} @ ${m.schoolName}`).join('; ') }}
+              <router-link class="link" to="/admin/availability-intake">Review intake</router-link>
+            </li>
+          </ul>
+        </section>
+      </div>
+
+      <aside class="detail-panel coverage-browse-panel" data-tour="coverage-needs-browse">
+        <div class="coverage-browse-header">
+          <h2>Browse by category</h2>
+          <p class="muted">Each category lists every school or provider affected, with counts.</p>
+          <button
+            v-if="needTypeFilter"
+            type="button"
+            class="btn btn-secondary btn-sm"
+            @click="needTypeFilter = ''"
+          >
+            Show all categories
+          </button>
+        </div>
+
+        <section
+          v-for="section in needsByCategory"
+          :key="section.type"
+          class="coverage-category"
+          :class="[section.severity, { collapsed: needTypeFilter && needTypeFilter !== section.type }]"
+        >
+          <button type="button" class="coverage-category-head" @click="needTypeFilter = section.type">
+            <span class="sev" :class="section.severity">{{ section.severity }}</span>
+            <span class="coverage-category-title">{{ section.title }}</span>
+            <span class="coverage-category-meta">
+              {{ section.entries.length }}
+              {{ section.entityLabel }}{{ section.entries.length === 1 ? '' : 's' }}
+              · {{ section.totalCount }} {{ section.countLabel }}
+            </span>
+          </button>
+          <ul v-if="!needTypeFilter || needTypeFilter === section.type" class="coverage-category-list">
+            <li v-for="entry in section.entries" :key="entry.key">
+              <div class="school-cell">
+                <div v-if="entry.kind === 'school'" class="school-logo school-logo-sm">
+                  <img
+                    v-if="schoolLogoUrl(entry) && !failedLogoIds.has(`need-${entry.key}`)"
+                    :src="schoolLogoUrl(entry)"
+                    :alt="`${entry.label} logo`"
+                    class="school-logo-img"
+                    @error="onLogoError(`need-${entry.key}`)"
+                  />
+                  <span v-else class="school-logo-fallback" aria-hidden="true">{{ schoolInitials({ schoolName: entry.label }) }}</span>
+                </div>
+                <div v-else class="school-logo school-logo-sm person-fallback" aria-hidden="true">
+                  <span class="school-logo-fallback">{{ personInitials(entry.label) }}</span>
+                </div>
+                <div class="school-text">
+                  <div class="primary">{{ entry.label }}</div>
+                  <div v-if="entry.detail" class="muted">{{ entry.detail }}</div>
+                </div>
+              </div>
+              <div class="coverage-entry-count">
+                <strong>{{ entry.count }}</strong>
+                <span>{{ entry.countLabel }}</span>
+              </div>
+            </li>
+            <li v-if="!section.entries.length" class="muted">None in this category.</li>
+          </ul>
+        </section>
+        <p v-if="!needsByCategory.length" class="empty">No coverage categories to browse.</p>
+      </aside>
+      </div>
+    </div>
+
+    <!-- Open School Spots -->
+    <div v-else-if="tab === 'open-spots'" class="full-panel" data-tour="open-school-spots">
+      <OpenSchoolDaysToast
+        :count="openDaysSummary.total || 0"
+        :storage-key="`osd-toast-${agencyId || 'x'}`"
+      />
+      <div class="open-banner" data-tour="open-school-days-banner">
+        <div>
+          <h2>Available days at schools</h2>
+          <p v-if="openDaysSummary.total">
+            {{ openDaysSummary.total }} opening(s) across {{ openDaysSummary.schoolsAffected }} school(s)
+            <span v-if="openDaysSummary.highUrgency"> · {{ openDaysSummary.highUrgency }} high urgency</span>
+          </p>
+          <p v-else class="muted">No open school days right now.</p>
+        </div>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>School</th>
+            <th>Day</th>
+            <th>Open slots</th>
+            <th>Waitlist</th>
+            <th>Urgency</th>
+            <th>Reason</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="d in openDays" :key="d.id">
+            <td>{{ d.schoolName }}</td>
+            <td>{{ d.dayOfWeek }}</td>
+            <td>{{ d.openSlots }}</td>
+            <td>{{ d.waitlist }}</td>
+            <td><span class="sev" :class="d.urgency === 'high' ? 'critical' : d.urgency === 'medium' ? 'moderate' : 'informational'">{{ d.urgency }}</span></td>
+            <td class="muted">{{ (d.reasons || []).join(', ') }}</td>
+            <td>
+              <button
+                v-if="canApply"
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="applyingId === d.id"
+                @click="applyDay(d)"
+              >
+                {{ applyingId === d.id ? 'Applying…' : 'Apply' }}
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-if="applyMsg" class="apply-msg">{{ applyMsg }}</p>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useAuthStore } from '../../../store/auth';
+import { useAgencyStore } from '../../../store/agency';
+import { toUploadsUrl } from '../../../utils/uploadsUrl';
+import OpenSchoolDaysToast from '../../../components/caseload-hub/OpenSchoolDaysToast.vue';
+import {
+  fetchSchoolCoverageSummary,
+  fetchProviderCoverageSummary,
+  fetchCoverageWarnings,
+  fetchOpenSchoolDays,
+  fetchSchoolDetail,
+  fetchProviderDetail,
+  fetchCoverageSuggestions,
+  expireStaleSchoolRequests,
+  applyForOpenSchoolDay
+} from '../../../services/schoolCoverageApi';
+
+const route = useRoute();
+const router = useRouter();
+const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
+
+const tabs = [
+  { id: 'by-school', label: 'By School' },
+  { id: 'by-person', label: 'By Person' },
+  { id: 'coverage-needs', label: 'Coverage Needs' },
+  { id: 'open-spots', label: 'Open School Spots' }
+];
+
+const tab = ref('by-school');
+const loading = ref(false);
+const error = ref('');
+const agencyId = ref(null);
+const role = computed(() => String(authStore.user?.role || '').toLowerCase());
+const isSuperAdmin = computed(() => role.value === 'super_admin');
+const agencies = computed(() =>
+  isSuperAdmin.value ? agencyStore.agencies || [] : agencyStore.userAgencies || agencyStore.agencies || []
+);
+
+const schools = ref([]);
+const providers = ref([]);
+const warningCards = ref([]);
+const needs = ref([]);
+const openDays = ref([]);
+const openDaysSummary = ref({ total: 0, highUrgency: 0, schoolsAffected: 0 });
+const suggestions = ref([]);
+
+const schoolSearch = ref('');
+const schoolSort = ref('name');
+const providerSearch = ref('');
+const needTypeFilter = ref('');
+const selectedSchoolId = ref(null);
+const selectedProviderId = ref(null);
+const schoolDetail = ref(null);
+const providerDetail = ref(null);
+const applyingId = ref(null);
+const applyMsg = ref('');
+const failedLogoIds = ref(new Set());
+
+const canApply = computed(() =>
+  ['provider', 'provider_plus', 'intern', 'intern_plus', 'admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'].includes(role.value)
+);
+
+function schoolLogoUrl(school) {
+  const candidates = [
+    school?.logoPath,
+    school?.logo_path,
+    school?.iconFilePath,
+    school?.icon_file_path,
+    school?.iconPath,
+    school?.icon_path,
+    school?.logoUrl,
+    school?.logo_url,
+    school?.iconUrl,
+    school?.icon_url
+  ];
+  const raw = candidates.find((v) => String(v || '').trim());
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('data:')) return s;
+  return toUploadsUrl(s);
+}
+
+function schoolInitials(school) {
+  const name = String(school?.schoolName || school?.school_name || '').trim();
+  if (!name) return '?';
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
+}
+
+function formatRole(role) {
+  return String(role || '—').replace(/_/g, ' ');
+}
+
+/** Schools with day assignments first; hide membership-only noise in the main list. */
+function providerSchoolsForList(provider) {
+  const schools = Array.isArray(provider?.schools) ? provider.schools : [];
+  const staffed = schools.filter((s) => s.fromAssignment || (s.days || []).length > 0);
+  return staffed.length ? staffed : schools;
+}
+
+function onLogoError(schoolId) {
+  failedLogoIds.value = new Set([...failedLogoIds.value, String(schoolId)]);
+}
+
+function orgTo(path) {
+  const slug = route.params.organizationSlug;
+  if (slug) return `/${slug}${path}`;
+  return path;
+}
+
+function setTab(id) {
+  tab.value = id;
+  const q = { ...route.query, tab: id };
+  router.replace({ query: q });
+}
+
+function goCoverageNeeds(type) {
+  needTypeFilter.value = type || '';
+  setTab('coverage-needs');
+}
+
+const filteredSchools = computed(() => {
+  let list = [...schools.value];
+  const q = schoolSearch.value.trim().toLowerCase();
+  if (q) {
+    list = list.filter(
+      (s) =>
+        String(s.schoolName || '').toLowerCase().includes(q) ||
+        String(s.districtName || '').toLowerCase().includes(q)
+    );
+  }
+  if (schoolSort.value === 'capacity') list.sort((a, b) => b.capacityUtilization - a.capacityUtilization);
+  else if (schoolSort.value === 'waitlist') list.sort((a, b) => b.waitlistCount - a.waitlistCount);
+  else if (schoolSort.value === 'warnings') list.sort((a, b) => b.warningCount - a.warningCount);
+  else list.sort((a, b) => String(a.schoolName || '').localeCompare(String(b.schoolName || '')));
+  return list;
+});
+
+const filteredProviders = computed(() => {
+  const q = providerSearch.value.trim().toLowerCase();
+  if (!q) return providers.value;
+  return providers.value.filter(
+    (p) =>
+      String(p.name || '').toLowerCase().includes(q) ||
+      String(p.role || '').toLowerCase().includes(q)
+  );
+});
+
+const filteredNeeds = computed(() => {
+  if (!needTypeFilter.value) return needs.value;
+  return needs.value.filter((n) => n.type === needTypeFilter.value);
+});
+
+const CATEGORY_META = {
+  clients_without_provider: {
+    title: 'Schools with clients without providers',
+    entityLabel: 'school',
+    countLabel: 'clients'
+  },
+  clients_without_service_day: {
+    title: 'Schools with clients without service days',
+    entityLabel: 'school',
+    countLabel: 'clients'
+  },
+  providers_without_assigned_days: {
+    title: 'Providers without assigned days',
+    entityLabel: 'provider',
+    countLabel: 'providers'
+  },
+  unstaffed_school_days: {
+    title: 'Schools with unstaffed days',
+    entityLabel: 'school',
+    countLabel: 'unstaffed days'
+  },
+  waitlist_no_capacity: {
+    title: 'Schools with waitlists (no capacity)',
+    entityLabel: 'school',
+    countLabel: 'waitlisted'
+  },
+  waitlist_unused_capacity: {
+    title: 'Schools with waitlists (unused capacity)',
+    entityLabel: 'school',
+    countLabel: 'waitlisted'
+  },
+  school_nearing_capacity: {
+    title: 'Schools nearing capacity',
+    entityLabel: 'school',
+    countLabel: 'schools'
+  },
+  events_needing_providers: {
+    title: 'Events needing providers',
+    entityLabel: 'event',
+    countLabel: 'openings'
+  },
+  pending_event_requests: {
+    title: 'Events with pending provider requests',
+    entityLabel: 'event',
+    countLabel: 'requests'
+  },
+  pending_additional_day_requests: {
+    title: 'Pending additional-day requests',
+    entityLabel: 'request',
+    countLabel: 'requests'
+  }
+};
+
+const needsByCategory = computed(() => {
+  const schoolById = new Map((schools.value || []).map((s) => [Number(s.schoolId), s]));
+  const order = warningCards.value?.length
+    ? warningCards.value.map((c) => c.type)
+    : Object.keys(CATEGORY_META);
+
+  const grouped = new Map();
+  for (const item of needs.value || []) {
+    if (!grouped.has(item.type)) grouped.set(item.type, []);
+    grouped.get(item.type).push(item);
+  }
+
+  return order
+    .filter((type) => grouped.has(type) || (warningCards.value || []).some((c) => c.type === type && c.count > 0))
+    .map((type) => {
+      const meta = CATEGORY_META[type] || {
+        title: (warningCards.value || []).find((c) => c.type === type)?.title || type,
+        entityLabel: 'item',
+        countLabel: 'total'
+      };
+      const items = grouped.get(type) || [];
+      const card = (warningCards.value || []).find((c) => c.type === type);
+      const entries = items
+        .map((item) => {
+          const school = item.schoolId ? schoolById.get(Number(item.schoolId)) : null;
+          const isSchool = !!item.schoolName || !!item.schoolId;
+          const isProvider = !!item.providerName || !!item.providerId;
+          let countLabel = meta.countLabel;
+          if (type === 'school_nearing_capacity') countLabel = `${item.utilization || item.count}% used`;
+          else if (type === 'unstaffed_school_days' && item.days?.length) {
+            countLabel = item.days.join(', ');
+          }
+          return {
+            key: item.id,
+            kind: isProvider && !isSchool ? 'person' : isSchool ? 'school' : 'other',
+            label: item.schoolName || item.providerName || item.title || '—',
+            detail: item.eventId ? item.message : item.days?.length ? item.days.join(', ') : null,
+            count: item.count,
+            countLabel,
+            schoolName: item.schoolName || school?.schoolName,
+            logoPath: school?.logoPath,
+            logoUrl: school?.logoUrl,
+            iconFilePath: school?.iconFilePath,
+            iconPath: school?.iconPath
+          };
+        })
+        .sort((a, b) => Number(b.count || 0) - Number(a.count || 0) || String(a.label).localeCompare(String(b.label)));
+
+      return {
+        type,
+        title: meta.title,
+        entityLabel: meta.entityLabel,
+        countLabel: meta.countLabel,
+        severity: card?.severity || items[0]?.severity || 'informational',
+        entries,
+        totalCount: entries.reduce((sum, e) => sum + Number(e.count || 0), 0)
+      };
+    })
+    .filter((section) => section.entries.length > 0);
+});
+
+function personInitials(name) {
+  const parts = String(name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
+}
+
+function formatDate(v) {
+  if (!v) return '—';
+  try {
+    return new Date(v).toLocaleString();
+  } catch {
+    return String(v);
+  }
+}
+
+async function selectSchool(id) {
+  selectedSchoolId.value = id;
+  if (!agencyId.value) return;
+  const fromList = schools.value.find((s) => s.schoolId === id) || null;
+  try {
+    const detail = await fetchSchoolDetail(agencyId.value, id);
+    schoolDetail.value = {
+      ...(fromList || {}),
+      ...detail,
+      logoPath: detail?.logoPath || fromList?.logoPath,
+      logoUrl: detail?.logoUrl || fromList?.logoUrl,
+      iconFilePath: detail?.iconFilePath || fromList?.iconFilePath,
+      iconPath: detail?.iconPath || fromList?.iconPath
+    };
+  } catch (e) {
+    schoolDetail.value = fromList;
+  }
+}
+
+async function selectProvider(id) {
+  selectedProviderId.value = id;
+  if (!agencyId.value) return;
+  try {
+    providerDetail.value = await fetchProviderDetail(agencyId.value, id);
+  } catch (e) {
+    providerDetail.value = providers.value.find((p) => p.providerId === id) || null;
+  }
+}
+
+async function applyDay(d) {
+  applyMsg.value = '';
+  applyingId.value = d.id;
+  try {
+    await applyForOpenSchoolDay(agencyId.value, {
+      schoolId: d.schoolId,
+      dayOfWeek: d.dayOfWeek,
+      notes: d.applyHint || ''
+    });
+    applyMsg.value = 'Application submitted. An administrator will review it in Availability Intake.';
+  } catch (e) {
+    applyMsg.value = e?.response?.data?.error?.message || e?.message || 'Failed to apply';
+  } finally {
+    applyingId.value = null;
+  }
+}
+
+async function runExpireStale() {
+  if (!agencyId.value) return;
+  try {
+    const r = await expireStaleSchoolRequests(agencyId.value, 30);
+    applyMsg.value = `Expired ${r.expired || 0} stale request(s).`;
+    await reload();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Expire failed';
+  }
+}
+
+async function reload() {
+  if (!agencyId.value) return;
+  loading.value = true;
+  error.value = '';
+  failedLogoIds.value = new Set();
+  try {
+    const [sum, prov, warn, open, sug] = await Promise.all([
+      fetchSchoolCoverageSummary(agencyId.value),
+      fetchProviderCoverageSummary(agencyId.value).catch((e) => {
+        console.error('Provider coverage failed', e);
+        return { providers: [] };
+      }),
+      fetchCoverageWarnings(agencyId.value).catch(() => ({ cards: [], items: [] })),
+      fetchOpenSchoolDays(agencyId.value).catch(() => ({ days: [], summary: { total: 0, highUrgency: 0, schoolsAffected: 0 } })),
+      fetchCoverageSuggestions(agencyId.value).catch(() => ({ suggestions: [] }))
+    ]);
+    schools.value = sum.schools || [];
+    providers.value = prov.providers || [];
+    warningCards.value = warn.cards || [];
+    needs.value = warn.items || [];
+    openDays.value = open.days || [];
+    openDaysSummary.value = open.summary || { total: 0, highUrgency: 0, schoolsAffected: 0 };
+    suggestions.value = sug.suggestions || [];
+
+    if (selectedSchoolId.value) await selectSchool(selectedSchoolId.value);
+    if (selectedProviderId.value) await selectProvider(selectedProviderId.value);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load coverage';
+  } finally {
+    loading.value = false;
+  }
+}
+
+function resolveAgency() {
+  const q = route.query.agencyId ? Number(route.query.agencyId) : null;
+  if (q) return q;
+  if (agencyStore.currentAgency?.id) return Number(agencyStore.currentAgency.id);
+  if (authStore.user?.agencyId) return Number(authStore.user.agencyId);
+  if (agencies.value[0]?.id) return Number(agencies.value[0].id);
+  return null;
+}
+
+onMounted(async () => {
+  try {
+    if (!agencyStore.agencies?.length && agencyStore.fetchAgencies) {
+      await agencyStore.fetchAgencies();
+    }
+  } catch {
+    /* ignore */
+  }
+  agencyId.value = resolveAgency();
+  const t = String(route.query.tab || 'by-school');
+  if (tabs.some((x) => x.id === t)) tab.value = t;
+  needTypeFilter.value = String(route.query.type || '');
+  if (route.query.schoolId) selectedSchoolId.value = Number(route.query.schoolId);
+  if (route.query.providerId) selectedProviderId.value = Number(route.query.providerId);
+  await reload();
+});
+
+watch(
+  () => route.query.tab,
+  (t) => {
+    if (t && tabs.some((x) => x.id === t)) tab.value = String(t);
+  }
+);
+</script>
+
+<style scoped>
+.hub-page {
+  padding: 1rem 1.25rem 2rem;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  box-sizing: border-box;
+  min-height: calc(100vh - 80px);
+}
+.hub-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+.hub-header h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.6rem;
+}
+.subtitle {
+  margin: 0;
+  color: #64748b;
+  max-width: 48rem;
+}
+.header-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.agency-select,
+.search,
+.list-toolbar select {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.45rem 0.85rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  text-decoration: none;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+.btn-primary {
+  background: #5b21b6;
+  color: #fff;
+}
+.btn-secondary {
+  background: #fff;
+  border-color: #cbd5e1;
+  color: #334155;
+}
+.btn-sm {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+}
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.error-banner {
+  background: #fef2f2;
+  color: #991b1b;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+.warning-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+.warning-card {
+  text-align: left;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.75rem;
+  cursor: pointer;
+}
+.warning-card.critical {
+  border-color: #fecaca;
+  background: #fff1f2;
+}
+.warning-card.moderate {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+.warning-card.informational {
+  border-color: #c7d2fe;
+  background: #eef2ff;
+}
+.wc-count {
+  display: block;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+.wc-title {
+  font-size: 0.78rem;
+  color: #475569;
+}
+.hub-tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+.hub-tab {
+  border: 0;
+  background: transparent;
+  padding: 0.65rem 0.9rem;
+  cursor: pointer;
+  color: #64748b;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.hub-tab.active {
+  color: #5b21b6;
+  border-bottom-color: #5b21b6;
+  font-weight: 600;
+}
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 26%);
+  gap: 1rem;
+  align-items: stretch;
+  min-height: 60vh;
+}
+.split:not(.has-selection) {
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 22%);
+}
+@media (max-width: 1100px) {
+  .split,
+  .split:not(.has-selection) {
+    grid-template-columns: 1fr;
+  }
+}
+.list-panel,
+.detail-panel,
+.full-panel {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  min-width: 0;
+}
+.list-panel {
+  overflow: auto;
+}
+.detail-panel {
+  position: sticky;
+  top: 0.75rem;
+  align-self: start;
+  max-height: calc(100vh - 120px);
+  overflow: auto;
+}
+.muted-panel {
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  text-align: center;
+}
+.school-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+.school-text {
+  min-width: 0;
+}
+.school-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.school-logo-lg {
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+}
+.school-logo-sm {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+.school-logo-sm .school-logo-fallback {
+  font-size: 0.6rem;
+}
+.provider-schools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
+  max-width: 42rem;
+}
+.provider-school-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.45rem 0.15rem 0.15rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: #f8fafc;
+  max-width: 14rem;
+}
+.provider-school-name {
+  font-size: 0.78rem;
+  color: #334155;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.school-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #fff;
+}
+.school-logo-fallback {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #5b21b6;
+  letter-spacing: 0.02em;
+}
+.school-logo-lg .school-logo-fallback {
+  font-size: 0.95rem;
+}
+.detail-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+.detail-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+.detail-header .muted {
+  margin: 0.15rem 0 0;
+}
+.list-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+.search {
+  flex: 1;
+  min-width: 160px;
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.data-table th,
+.data-table td {
+  text-align: left;
+  padding: 0.55rem 0.4rem;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: top;
+}
+.data-table tbody tr {
+  cursor: pointer;
+}
+.data-table tbody tr.selected,
+.data-table tbody tr:hover {
+  background: #f8fafc;
+}
+.data-table.compact td,
+.data-table.compact th {
+  padding: 0.35rem 0.3rem;
+}
+.primary {
+  font-weight: 600;
+}
+.muted {
+  color: #64748b;
+  font-size: 0.8rem;
+}
+.cap-bar {
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 99px;
+  overflow: hidden;
+  margin-bottom: 0.2rem;
+  width: 100%;
+  min-width: 88px;
+  max-width: 160px;
+}
+.cap-fill {
+  height: 100%;
+  background: #7c3aed;
+}
+.day-chip {
+  display: inline-block;
+  font-size: 0.65rem;
+  padding: 0.1rem 0.28rem;
+  margin: 0 0.1rem 0.1rem 0;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+.day-chip.on {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+.day-chip.danger {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  margin: 0.75rem 0 1rem;
+}
+.stat-row div {
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 0.5rem;
+  text-align: center;
+}
+.stat-row strong {
+  display: block;
+  font-size: 1.1rem;
+}
+.stat-row span {
+  font-size: 0.7rem;
+  color: #64748b;
+}
+.day-list,
+.simple-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+}
+.day-list li,
+.simple-list li {
+  padding: 0.4rem 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 0.875rem;
+}
+.day-list li.danger {
+  background: #fff1f2;
+  padding-left: 0.4rem;
+  border-radius: 4px;
+}
+.day-list em {
+  color: #b91c1c;
+  font-style: normal;
+  margin-left: 0.35rem;
+  font-size: 0.75rem;
+}
+.detail-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.inline-warn {
+  background: #fff1f2;
+  color: #991b1b;
+  padding: 0.5rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+.sev {
+  text-transform: capitalize;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.15rem 0.4rem;
+  border-radius: 999px;
+}
+.sev.critical {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.sev.moderate {
+  background: #fef3c7;
+  color: #92400e;
+}
+.sev.informational {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+.link {
+  color: #5b21b6;
+  font-size: 0.85rem;
+}
+.empty,
+.loading {
+  padding: 1.5rem;
+  color: #64748b;
+  text-align: center;
+}
+.open-banner {
+  background: linear-gradient(135deg, #ede9fe, #f5f3ff);
+  border: 1px solid #ddd6fe;
+  border-radius: 12px;
+  padding: 1rem 1.15rem;
+  margin-bottom: 1rem;
+}
+.open-banner h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.15rem;
+}
+.open-banner p {
+  margin: 0;
+}
+.apply-msg {
+  margin-top: 0.75rem;
+  color: #166534;
+  font-size: 0.9rem;
+}
+.suggestions {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e2e8f0;
+}
+.suggestions ul {
+  padding-left: 1.1rem;
+}
+.coverage-needs-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.coverage-quick-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+.coverage-quick-btn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  min-width: 7.5rem;
+  max-width: 14rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+}
+.coverage-quick-btn:hover {
+  border-color: #c4b5fd;
+  background: #faf5ff;
+}
+.coverage-quick-btn.active {
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15);
+  background: #f5f3ff;
+}
+.coverage-quick-btn.critical {
+  border-color: #fecaca;
+  background: #fff1f2;
+}
+.coverage-quick-btn.moderate {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+.coverage-quick-btn.informational {
+  border-color: #c7d2fe;
+  background: #eef2ff;
+}
+.coverage-quick-btn.critical.active,
+.coverage-quick-btn.moderate.active,
+.coverage-quick-btn.informational.active {
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.08);
+}
+.coverage-quick-count {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.1;
+}
+.coverage-quick-label {
+  font-size: 0.72rem;
+  color: #475569;
+  line-height: 1.25;
+}
+.coverage-expire-btn {
+  margin-left: auto;
+  align-self: center;
+}
+.coverage-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.95fr);
+  gap: 1rem;
+  align-items: start;
+  min-height: 60vh;
+}
+@media (max-width: 1100px) {
+  .coverage-split {
+    grid-template-columns: 1fr;
+  }
+}
+.coverage-list-panel,
+.coverage-browse-panel {
+  max-height: calc(100vh - 140px);
+  overflow: auto;
+}
+.coverage-browse-header {
+  margin-bottom: 0.85rem;
+}
+.coverage-browse-header h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.15rem;
+}
+.coverage-browse-header .muted {
+  margin: 0 0 0.65rem;
+}
+.coverage-category {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  margin-bottom: 0.75rem;
+  overflow: hidden;
+  background: #fff;
+}
+.coverage-category.critical {
+  border-color: #fecaca;
+}
+.coverage-category.moderate {
+  border-color: #fde68a;
+}
+.coverage-category.informational {
+  border-color: #c7d2fe;
+}
+.coverage-category.collapsed {
+  opacity: 0.45;
+}
+.coverage-category-head {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.65rem;
+  text-align: left;
+  border: 0;
+  background: #f8fafc;
+  padding: 0.65rem 0.75rem;
+  cursor: pointer;
+}
+.coverage-category-title {
+  font-weight: 700;
+  color: #0f172a;
+  flex: 1 1 auto;
+}
+.coverage-category-meta {
+  font-size: 0.78rem;
+  color: #64748b;
+}
+.coverage-category-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.35rem 0.65rem 0.65rem;
+}
+.coverage-category-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 0.15rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+.coverage-category-list li:last-child {
+  border-bottom: 0;
+}
+.coverage-entry-count {
+  text-align: right;
+  flex-shrink: 0;
+}
+.coverage-entry-count strong {
+  display: block;
+  font-size: 1.05rem;
+  color: #0f172a;
+}
+.coverage-entry-count span {
+  font-size: 0.7rem;
+  color: #64748b;
+}
+.person-fallback {
+  background: #ede9fe;
+}
+</style>

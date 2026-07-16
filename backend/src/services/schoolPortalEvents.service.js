@@ -5,14 +5,38 @@ import AgencySchool from '../models/AgencySchool.model.js';
 import ProviderAvailabilityService from './providerAvailability.service.js';
 import { materializeSessionsForEvent } from './companyEventSessionDates.service.js';
 
-export const SCHOOL_PORTAL_EVENT_TYPES = new Set(['school_back_to_school', 'school_spring_event']);
+export const SCHOOL_PORTAL_EVENT_TYPES = new Set([
+  'school_back_to_school',
+  'school_spring_event',
+  'school_open_house',
+  'school_resource_fair',
+  'school_family_night',
+  'school_orientation',
+  'school_other'
+]);
 
-export const SCHOOL_EVENT_CATEGORIES = ['back_to_school', 'spring'];
+/** Categories that enforce one active event per school per calendar year. */
+export const YEARLY_UNIQUE_SCHOOL_EVENT_CATEGORIES = new Set(['back_to_school', 'spring']);
+
+export const SCHOOL_EVENT_CATEGORIES = [
+  'back_to_school',
+  'spring',
+  'open_house',
+  'resource_fair',
+  'family_night',
+  'orientation',
+  'other'
+];
 
 export function categoryToEventType(category) {
   const c = String(category || '').trim().toLowerCase();
   if (c === 'back_to_school') return 'school_back_to_school';
   if (c === 'spring') return 'school_spring_event';
+  if (c === 'open_house') return 'school_open_house';
+  if (c === 'resource_fair') return 'school_resource_fair';
+  if (c === 'family_night') return 'school_family_night';
+  if (c === 'orientation') return 'school_orientation';
+  if (c === 'other') return 'school_other';
   return null;
 }
 
@@ -20,6 +44,11 @@ export function eventTypeToCategory(eventType) {
   const t = String(eventType || '').trim().toLowerCase();
   if (t === 'school_back_to_school') return 'back_to_school';
   if (t === 'school_spring_event') return 'spring';
+  if (t === 'school_open_house') return 'open_house';
+  if (t === 'school_resource_fair') return 'resource_fair';
+  if (t === 'school_family_night') return 'family_night';
+  if (t === 'school_orientation') return 'orientation';
+  if (t === 'school_other') return 'other';
   return null;
 }
 
@@ -143,12 +172,14 @@ export async function createSchoolPortalEvent({
   if (end <= start) throw Object.assign(new Error('End time must be after start time'), { status: 400 });
 
   const year = currentCalendarYear(start);
-  const existing = await findExistingSchoolEventForYear({ organizationId, eventType, year });
-  if (existing) {
-    throw Object.assign(
-      new Error('This school already has an active event of this type for this year'),
-      { status: 409 }
-    );
+  if (YEARLY_UNIQUE_SCHOOL_EVENT_CATEGORIES.has(String(category || '').trim().toLowerCase())) {
+    const existing = await findExistingSchoolEventForYear({ organizationId, eventType, year });
+    if (existing) {
+      throw Object.assign(
+        new Error('This school already has an active event of this type for this year'),
+        { status: 409 }
+      );
+    }
   }
 
   let tz = String(timezone || '').trim();
@@ -235,17 +266,20 @@ export async function updateSchoolPortalEvent({
   if (end <= start) throw Object.assign(new Error('End time must be after start time'), { status: 400 });
 
   const year = currentCalendarYear(start);
-  const dup = await findExistingSchoolEventForYear({
-    organizationId,
-    eventType,
-    year,
-    excludeEventId: eventId
-  });
-  if (dup) {
-    throw Object.assign(
-      new Error('This school already has an active event of this type for this year'),
-      { status: 409 }
-    );
+  const categoryForUniqueness = eventTypeToCategory(eventType);
+  if (YEARLY_UNIQUE_SCHOOL_EVENT_CATEGORIES.has(String(categoryForUniqueness || '').toLowerCase())) {
+    const dup = await findExistingSchoolEventForYear({
+      organizationId,
+      eventType,
+      year,
+      excludeEventId: eventId
+    });
+    if (dup) {
+      throw Object.assign(
+        new Error('This school already has an active event of this type for this year'),
+        { status: 409 }
+      );
+    }
   }
 
   const outreach =
@@ -325,7 +359,8 @@ export async function getMissingCategoriesForOrg(organizationId, year = currentC
       .map((e) => e.category)
       .filter(Boolean)
   );
-  return SCHOOL_EVENT_CATEGORIES.filter((c) => !posted.has(c));
+  // Prompt / request-submissions only track yearly-required categories.
+  return [...YEARLY_UNIQUE_SCHOOL_EVENT_CATEGORIES].filter((c) => !posted.has(c));
 }
 
 export async function listAffiliatedSchoolsForAgency(agencyId) {

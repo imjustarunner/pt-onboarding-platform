@@ -3,7 +3,7 @@
     <div class="tools-aids__header">
       <router-link v-if="isStandaloneHub" :to="orgTo('/dashboard')" class="back-link">← Back to Dashboard</router-link>
       <h1>Tools &amp; Aids</h1>
-      <p class="subtitle">Assessments, games, and AI aids for sessions and client care.</p>
+      <p class="subtitle">Assessments, games and activities, and AI aids for sessions and client care.</p>
     </div>
 
     <div class="toolbar">

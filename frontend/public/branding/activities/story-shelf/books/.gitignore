@@ -1,0 +1,6 @@
+# Full-resolution source PDFs (~347MB) — keep local only
+*.pdf
+
+# Mobile / session-ready compressed exports are safe to commit
+!*-mobile.pdf
+!.gitkeep

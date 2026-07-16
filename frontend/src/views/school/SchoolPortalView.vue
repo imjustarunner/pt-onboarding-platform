@@ -284,6 +284,19 @@
             <div class="nav-label">Skill Builders</div>
           </button>
 
+          <button
+            data-tour="school-nav-events"
+            class="nav-item"
+            type="button"
+            @click="openSchoolEventsPanel"
+            :class="{ active: portalMode === 'events' }"
+          >
+            <div class="nav-icon">
+              <div class="nav-icon-fallback" aria-hidden="true">EV</div>
+            </div>
+            <div class="nav-label">Events</div>
+          </button>
+
           <button data-tour="school-nav-staff" class="nav-item" type="button" @click="setPortalMode('school_staff')" :class="{ active: portalMode === 'school_staff' }">
             <div class="nav-icon">
               <img
@@ -547,6 +560,18 @@
             </div>
           </button>
 
+          <button data-tour="school-home-card-events" class="dash-card" type="button" @click="openSchoolEventsPanel">
+            <div class="dash-card-icon">
+              <div class="dash-card-icon-fallback" aria-hidden="true">EV</div>
+            </div>
+            <div class="dash-card-title">Events</div>
+            <div class="dash-card-desc">School events associated with this portal (canonical company events).</div>
+            <div class="dash-card-meta">
+              <span class="dash-card-cta">Open</span>
+              <span v-if="schoolPortalEvents.length" class="dash-card-badge">{{ schoolPortalEvents.length }}</span>
+            </div>
+          </button>
+
           <button data-tour="school-home-card-staff" class="dash-card" type="button" @click="setPortalMode('school_staff')">
             <div class="dash-card-icon">
               <img
@@ -789,6 +814,39 @@
         :client-label-mode="clientLabelMode"
         :focus-unassigned="skillsUnassignedOnly"
       />
+
+          <div v-else-if="portalMode === 'events'">
+        <div data-tour="school-events-panel" class="school-events-panel">
+          <div class="roster-header">
+            <div>
+              <h2>School events</h2>
+              <p class="muted">Events posted for this school appear here from the shared company events record.</p>
+            </div>
+            <button
+              v-if="isSchoolStaff && !props.previewMode"
+              class="btn btn-primary btn-sm"
+              type="button"
+              @click="openPostSchoolEvent()"
+            >
+              Post school event
+            </button>
+          </div>
+          <div v-if="schoolPortalEventsLoading" class="empty-state">Loading events…</div>
+          <div v-else-if="schoolPortalEventsError" class="empty-state">{{ schoolPortalEventsError }}</div>
+          <ul v-else-if="schoolPortalEvents.length" class="school-events-list">
+            <li v-for="ev in schoolPortalEvents" :key="ev.id">
+              <strong>{{ ev.title }}</strong>
+              <span class="muted">
+                {{ formatSchoolEventWhen(ev.startsAt) }}
+                · {{ formatSchoolEventCategory(ev.category) }}
+                · {{ ev.isActive ? 'Published' : 'Inactive' }}
+                <template v-if="ev.outreachTableInvited"> · Outreach staffing</template>
+              </span>
+            </li>
+          </ul>
+          <div v-else class="empty-state">No school events posted yet.</div>
+        </div>
+          </div>
 
           <div v-else-if="portalMode === 'school_staff'">
         <div data-tour="school-staff-panel">
@@ -1439,6 +1497,52 @@ const showSchoolEventPrompt = ref(false);
 const schoolEventPromptCategory = ref('back_to_school');
 const schoolEventPromptYear = ref(new Date().getFullYear());
 const schoolEventsMissingCategories = ref([]);
+const schoolPortalEvents = ref([]);
+const schoolPortalEventsLoading = ref(false);
+const schoolPortalEventsError = ref('');
+
+const formatSchoolEventWhen = (v) => {
+  if (!v) return '—';
+  try {
+    return new Date(v).toLocaleString();
+  } catch {
+    return String(v);
+  }
+};
+
+const formatSchoolEventCategory = (c) => {
+  const map = {
+    back_to_school: 'Back to School',
+    spring: 'Spring',
+    open_house: 'Open House',
+    resource_fair: 'Resource Fair',
+    family_night: 'Family Night',
+    orientation: 'Orientation',
+    other: 'Other'
+  };
+  return map[String(c || '')] || c || 'Event';
+};
+
+const loadSchoolPortalEvents = async () => {
+  if (!organizationId.value) return;
+  schoolPortalEventsLoading.value = true;
+  schoolPortalEventsError.value = '';
+  try {
+    const res = await api.get(`/school-portal/${organizationId.value}/school-events`);
+    schoolPortalEvents.value = Array.isArray(res.data?.events) ? res.data.events : (Array.isArray(res.data) ? res.data : []);
+  } catch (e) {
+    schoolPortalEventsError.value = e?.response?.data?.error?.message || 'Failed to load school events';
+    schoolPortalEvents.value = [];
+  } finally {
+    schoolPortalEventsLoading.value = false;
+  }
+};
+
+const openSchoolEventsPanel = async () => {
+  setPortalMode('events');
+  await loadSchoolPortalEvents();
+};
+
 const openPostSchoolEvent = (category = 'back_to_school') => {
   postSchoolEventCategory.value = String(category || 'back_to_school');
   showPostSchoolEvent.value = true;
@@ -1456,6 +1560,7 @@ const closePostSchoolEvent = () => {
 
 const handleSchoolEventSaved = async () => {
   await loadSchoolEventsMissing();
+  await loadSchoolPortalEvents();
   showSchoolEventPrompt.value = false;
 };
 
@@ -3286,6 +3391,7 @@ onMounted(async () => {
     await loadBannerAnnouncements();
     await refreshWaiverGateStatus({ force: true });
     await loadSchoolEventsMissing();
+    await loadSchoolPortalEvents();
     await applySchoolEventDeepLink();
     if (!showPostSchoolEvent.value) maybeShowSchoolEventPrompt();
     if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);

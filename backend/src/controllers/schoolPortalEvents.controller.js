@@ -86,7 +86,7 @@ async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, user = null, s
   return (userOrgs || []).some((org) => parseInt(org.id, 10) === parseInt(activeAgencyId, 10));
 }
 
-async function assertSchoolStaffPortalAccess(req, organizationId) {
+async function assertSchoolPortalReadAccess(req, organizationId) {
   const orgId = parseInt(String(organizationId || ''), 10);
   if (!orgId) {
     const err = new Error('Invalid organizationId');
@@ -112,6 +112,11 @@ async function assertSchoolStaffPortalAccess(req, organizationId) {
     err.status = 403;
     throw err;
   }
+  return { orgId, userId, role };
+}
+
+async function assertSchoolStaffPortalAccess(req, organizationId) {
+  const { orgId, userId, role } = await assertSchoolPortalReadAccess(req, organizationId);
   if (role !== 'school_staff' && role !== 'super_admin') {
     const err = new Error('School staff access required');
     err.status = 403;
@@ -151,6 +156,11 @@ function getFrontendBaseUrl() {
 function categoryLabel(category) {
   if (category === 'back_to_school') return 'Back to School';
   if (category === 'spring') return 'Spring Event';
+  if (category === 'open_house') return 'Open House';
+  if (category === 'resource_fair') return 'Resource Fair';
+  if (category === 'family_night') return 'Family Night';
+  if (category === 'orientation') return 'Orientation';
+  if (category === 'other') return 'School Event';
   return 'School Event';
 }
 
@@ -206,7 +216,7 @@ function parseSchoolEventBody(body) {
 
 export const listSchoolPortalEvents = async (req, res, next) => {
   try {
-    const { orgId } = await assertSchoolStaffPortalAccess(req, req.params.organizationId);
+    const { orgId } = await assertSchoolPortalReadAccess(req, req.params.organizationId);
     const events = await listSchoolEventsForOrg(orgId);
     const year = currentCalendarYear();
     const missingCategories = await getMissingCategoriesForOrg(orgId, year);
@@ -237,7 +247,9 @@ export const createSchoolPortalEventHandler = async (req, res, next) => {
 
     const parsed = parseSchoolEventBody(req.body || {});
     if (!parsed.category || !SCHOOL_EVENT_CATEGORIES.includes(parsed.category)) {
-      return res.status(400).json({ error: { message: 'category must be back_to_school or spring' } });
+      return res.status(400).json({
+        error: { message: `category must be one of: ${SCHOOL_EVENT_CATEGORIES.join(', ')}` }
+      });
     }
     if (!parsed.title) return res.status(400).json({ error: { message: 'title is required' } });
     if (!parsed.startsAt || !parsed.endsAt) {
@@ -373,7 +385,9 @@ export const requestSchoolEventSubmissions = async (req, res, next) => {
     const agencyId = await assertAgencyAdminAccess(req, req.body?.agencyId ?? req.query?.agencyId);
     const category = String(req.body?.category || req.body?.eventCategory || 'back_to_school').trim().toLowerCase();
     if (!SCHOOL_EVENT_CATEGORIES.includes(category)) {
-      return res.status(400).json({ error: { message: 'category must be back_to_school or spring' } });
+      return res.status(400).json({
+        error: { message: `category must be one of: ${SCHOOL_EVENT_CATEGORIES.join(', ')}` }
+      });
     }
     const year = parseInt(String(req.body?.year || currentCalendarYear()), 10) || currentCalendarYear();
     const customMessage = String(req.body?.message || '').trim();

@@ -582,6 +582,8 @@
                       </div>
                     </div>
                     <router-link :to="orgTo('/admin/school-portals-hub')" v-if="canSeeSchoolPortalsNav">School Portals</router-link>
+                    <router-link :to="orgTo('/admin/caseload-hub/schools-staff')" v-if="canSeeSchoolPortalsNav">Caseload Hub</router-link>
+                    <router-link :to="orgTo('/admin/caseload-hub/calendar')" v-if="canSeeSchoolPortalsNav">School Calendar</router-link>
                     <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="canSeeProgramOverviewNav">Program Overview</router-link>
                     <router-link :to="orgTo('/admin/find-providers')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Provider Booking Interface</router-link>
                     <router-link :to="orgTo('/admin/provider-availability')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext" >Provider Management</router-link>
@@ -851,9 +853,9 @@
                                 <button type="button" title="Add to appointment" @click="goToolsScheduleWithTool(game.displayName || game.id)">Appt</button>
                               </div>
                             </div>
-                            <span v-if="!standaloneGamesForNav.length" class="nav-dropdown-empty">No games available</span>
+                            <span v-if="!standaloneGamesForNav.length" class="nav-dropdown-empty">No games or activities available</span>
                           </template>
-                          <span v-else class="nav-dropdown-empty">Games not enabled for your account</span>
+                          <span v-else class="nav-dropdown-empty">Games and Activities not enabled for your account</span>
                         </template>
                         <template v-else-if="toolsFlyoutCategory === 'assessments'">
                           <div
@@ -1515,6 +1517,8 @@
               </div>
 
                   <router-link :to="orgTo('/admin/school-portals-hub')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">School Portals</router-link>
+                  <router-link :to="orgTo('/admin/caseload-hub/schools-staff')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Caseload Hub</router-link>
+                  <router-link :to="orgTo('/admin/caseload-hub/calendar')" v-if="canSeeSchoolPortalsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">School Calendar</router-link>
                   <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="canSeeProgramOverviewNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Program Overview</router-link>
                   <router-link :to="orgTo('/admin/find-providers')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Provider Booking Interface</router-link>
                   <router-link :to="orgTo('/admin/provider-availability')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Provider Management</router-link>

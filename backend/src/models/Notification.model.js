@@ -100,6 +100,10 @@ class Notification {
     'office_availability_request_approved',
     // School availability request pending review (availability intake)
     'school_availability_request_pending',
+    // School availability request approved (provider notified)
+    'school_availability_request_approved',
+    // School availability request denied
+    'school_availability_request_denied',
     // School portal: provider confirmed weekly availability/slots/hours
     'school_provider_availability_confirmed',
     // School portal: provider directly updated slots/hours
