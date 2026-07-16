@@ -28,6 +28,16 @@ export const SCHOOL_EVENT_CATEGORIES = [
   'other'
 ];
 
+/** Lifecycle for school portal events (shown in UI + drives banner copy). */
+export const SCHOOL_EVENT_STATUSES = new Set(['scheduled', 'rescheduled', 'canceled']);
+
+export function normalizeSchoolEventStatus(raw, { fallback = 'scheduled' } = {}) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (s === 'cancelled') return 'canceled';
+  if (SCHOOL_EVENT_STATUSES.has(s)) return s;
+  return fallback;
+}
+
 export function categoryToEventType(category) {
   const c = String(category || '').trim().toLowerCase();
   if (c === 'back_to_school') return 'school_back_to_school';
@@ -172,11 +182,172 @@ export function mapSchoolEventRow(row, schoolMeta = {}) {
     outreachTableInvited: !!(row.outreach_table_invited === 1 || row.outreach_table_invited === true),
     eventImageUrl: row.event_image_url ? String(row.event_image_url).trim() : '',
     flierFileUrl: row.flier_file_url ? String(row.flier_file_url).trim() : '',
+    schoolEventStatus: normalizeSchoolEventStatus(row.school_event_status, {
+      fallback: row.is_active ? 'scheduled' : 'canceled'
+    }),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     schoolName: schoolMeta.name || null,
     schoolSlug: schoolMeta.slug || null
   };
+}
+
+function categoryLabel(category) {
+  const map = {
+    back_to_school: 'Back to School',
+    spring: 'Spring Event',
+    open_house: 'Open House',
+    resource_fair: 'Resource Fair',
+    family_night: 'Family Night',
+    orientation: 'Orientation',
+    other: 'School Event'
+  };
+  return map[String(category || '')] || 'School Event';
+}
+
+function formatEventWhenForBanner(startsAt, timezone) {
+  const d = startsAt instanceof Date ? startsAt : new Date(startsAt);
+  if (!Number.isFinite(d.getTime())) return '';
+  const tz = String(timezone || 'America/Denver').trim() || 'America/Denver';
+  try {
+    return d.toLocaleString('en-US', {
+      timeZone: tz,
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  } catch {
+    return d.toLocaleString();
+  }
+}
+
+/** Monday 00:00 local-ish of the event week through end of event day (capped at 14 days for announcement rules). */
+function announcementWindowForEvent(startsAt, timezone) {
+  const start = startsAt instanceof Date ? startsAt : new Date(startsAt);
+  if (!Number.isFinite(start.getTime())) return null;
+  const tz = String(timezone || 'America/Denver').trim() || 'America/Denver';
+
+  // Derive calendar Y-M-D in event timezone
+  let y;
+  let m;
+  let day;
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(start);
+    const get = (t) => parts.find((p) => p.type === t)?.value;
+    y = Number(get('year'));
+    m = Number(get('month'));
+    day = Number(get('day'));
+  } catch {
+    y = start.getUTCFullYear();
+    m = start.getUTCMonth() + 1;
+    day = start.getUTCDate();
+  }
+
+  // Approximate Monday of that week using UTC noon anchor for the local calendar day
+  const noonUtc = new Date(Date.UTC(y, m - 1, day, 12, 0, 0));
+  const dow = noonUtc.getUTCDay(); // 0 Sun … 6 Sat
+  const daysFromMonday = dow === 0 ? 6 : dow - 1;
+  const monday = new Date(noonUtc);
+  monday.setUTCDate(monday.getUTCDate() - daysFromMonday);
+  monday.setUTCHours(0, 0, 0, 0);
+
+  const endOfDay = new Date(Date.UTC(y, m - 1, day, 23, 59, 59, 999));
+  // Ensure window is at least a few hours and within 14 days
+  let ends = endOfDay;
+  if (ends.getTime() <= monday.getTime()) {
+    ends = new Date(monday.getTime() + 24 * 60 * 60 * 1000 - 1);
+  }
+  const maxEnd = new Date(monday.getTime() + 14 * 24 * 60 * 60 * 1000 - 1);
+  if (ends.getTime() > maxEnd.getTime()) ends = maxEnd;
+
+  return { startsAt: monday, endsAt: ends };
+}
+
+/**
+ * Upsert a scrolling school-portal announcement for this event
+ * (week of the event through the event day).
+ */
+export async function syncSchoolEventAnnouncement({
+  organizationId,
+  companyEventId,
+  userId,
+  title,
+  category,
+  startsAt,
+  timezone,
+  schoolEventStatus
+}) {
+  const orgId = Number(organizationId);
+  const eventId = Number(companyEventId);
+  if (!orgId || !eventId) return null;
+
+  const status = normalizeSchoolEventStatus(schoolEventStatus);
+  const when = formatEventWhenForBanner(startsAt, timezone);
+  const typeLabel = categoryLabel(category);
+
+  let message;
+  let titleOut;
+  if (status === 'canceled') {
+    titleOut = 'Event canceled';
+    message = `${title || typeLabel} has been canceled${when ? ` (was ${when})` : ''}.`;
+  } else if (status === 'rescheduled') {
+    titleOut = 'Event rescheduled';
+    message = `${title || typeLabel} has been rescheduled to ${when || 'a new date/time'}.`;
+  } else {
+    titleOut = typeLabel;
+    message = `${title || typeLabel} — ${when || 'upcoming'}. Providers can apply to staff this event.`;
+  }
+
+  // End any prior linked banner immediately when canceled (still leave a short notice window)
+  const window = announcementWindowForEvent(startsAt, timezone);
+  if (!window) return null;
+
+  let startsAtAnn = window.startsAt;
+  let endsAtAnn = window.endsAt;
+  if (status === 'canceled') {
+    startsAtAnn = new Date();
+    endsAtAnn = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+  }
+
+  try {
+    const [existing] = await pool.execute(
+      `SELECT id FROM school_portal_announcements
+       WHERE organization_id = ? AND company_event_id = ?
+       ORDER BY id DESC LIMIT 1`,
+      [orgId, eventId]
+    );
+    if (existing?.[0]?.id) {
+      await pool.execute(
+        `UPDATE school_portal_announcements
+         SET title = ?, message = ?, display_type = 'announcement', audience = 'everyone',
+             starts_at = ?, ends_at = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [titleOut, message, startsAtAnn, endsAtAnn, existing[0].id]
+      );
+      return Number(existing[0].id);
+    }
+    if (!userId) return null;
+    const [ins] = await pool.execute(
+      `INSERT INTO school_portal_announcements
+        (organization_id, created_by_user_id, title, message, display_type, audience, starts_at, ends_at, company_event_id)
+       VALUES (?, ?, ?, ?, 'announcement', 'everyone', ?, ?, ?)`,
+      [orgId, userId, titleOut, message, startsAtAnn, endsAtAnn, eventId]
+    );
+    return Number(ins?.insertId || 0) || null;
+  } catch (e) {
+    // Column may be missing before migration 955; don't fail event save
+    if (e?.code === 'ER_BAD_FIELD_ERROR' || String(e?.message || '').includes('company_event_id')) {
+      return null;
+    }
+    throw e;
+  }
 }
 
 export async function loadSchoolMeta(organizationId) {
@@ -206,7 +377,8 @@ export async function createSchoolPortalEvent({
   timezone,
   outreachTableInvited,
   eventImageUrl,
-  flierFileUrl
+  flierFileUrl,
+  schoolEventStatus
 }) {
   const eventType = categoryToEventType(category);
   if (!eventType) throw Object.assign(new Error('Invalid event category'), { status: 400 });
@@ -234,41 +406,83 @@ export async function createSchoolPortalEvent({
     try {
       tz = await ProviderAvailabilityService.resolveAgencyTimeZone({ agencyId });
     } catch {
-      tz = 'UTC';
+      tz = 'America/Denver';
     }
   }
 
+  const status = normalizeSchoolEventStatus(schoolEventStatus, { fallback: 'scheduled' });
   // School portal events are staffable by default so providers can apply from hub / schedule.
   const staffingConfig = buildSchoolEventStaffingConfig();
 
-  const [insertResult] = await pool.execute(
-    `INSERT INTO company_events
-      (agency_id, organization_id, created_by_user_id, updated_by_user_id,
-       title, description, event_type, starts_at, ends_at, timezone,
-       recurrence_json, is_active, rsvp_mode, outreach_table_invited,
-       event_image_url, flier_file_url, staffing_config_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'none', ?, ?, ?, ?)`,
-    [
-      agencyId,
-      organizationId,
-      userId,
-      userId,
-      String(title || '').trim(),
-      String(description || '').trim() || null,
-      eventType,
-      start,
-      end,
-      tz,
-      JSON.stringify({ frequency: 'none' }),
-      outreachTableInvited ? 1 : 0,
-      eventImageUrl || null,
-      flierFileUrl || null,
-      JSON.stringify(staffingConfig)
-    ]
-  );
+  let insertResult;
+  try {
+    [insertResult] = await pool.execute(
+      `INSERT INTO company_events
+        (agency_id, organization_id, created_by_user_id, updated_by_user_id,
+         title, description, event_type, starts_at, ends_at, timezone,
+         recurrence_json, is_active, rsvp_mode, outreach_table_invited,
+         event_image_url, flier_file_url, staffing_config_json, school_event_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'none', ?, ?, ?, ?, ?)`,
+      [
+        agencyId,
+        organizationId,
+        userId,
+        userId,
+        String(title || '').trim(),
+        String(description || '').trim() || null,
+        eventType,
+        start,
+        end,
+        tz,
+        JSON.stringify({ frequency: 'none' }),
+        outreachTableInvited ? 1 : 0,
+        eventImageUrl || null,
+        flierFileUrl || null,
+        JSON.stringify(staffingConfig),
+        status
+      ]
+    );
+  } catch (e) {
+    if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    [insertResult] = await pool.execute(
+      `INSERT INTO company_events
+        (agency_id, organization_id, created_by_user_id, updated_by_user_id,
+         title, description, event_type, starts_at, ends_at, timezone,
+         recurrence_json, is_active, rsvp_mode, outreach_table_invited,
+         event_image_url, flier_file_url, staffing_config_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'none', ?, ?, ?, ?)`,
+      [
+        agencyId,
+        organizationId,
+        userId,
+        userId,
+        String(title || '').trim(),
+        String(description || '').trim() || null,
+        eventType,
+        start,
+        end,
+        tz,
+        JSON.stringify({ frequency: 'none' }),
+        outreachTableInvited ? 1 : 0,
+        eventImageUrl || null,
+        flierFileUrl || null,
+        JSON.stringify(staffingConfig)
+      ]
+    );
+  }
 
   const eventId = Number(insertResult.insertId);
   await materializeSessionsForEvent(pool, { companyEventId: eventId });
+  await syncSchoolEventAnnouncement({
+    organizationId,
+    companyEventId: eventId,
+    userId,
+    title,
+    category,
+    startsAt: start,
+    timezone: tz,
+    schoolEventStatus: status
+  }).catch(() => null);
 
   const [rows] = await pool.execute('SELECT * FROM company_events WHERE id = ? LIMIT 1', [eventId]);
   const schoolMeta = await loadSchoolMeta(organizationId);
@@ -289,7 +503,8 @@ export async function updateSchoolPortalEvent({
   outreachTableInvited,
   eventImageUrl,
   flierFileUrl,
-  clearFlier
+  clearFlier,
+  schoolEventStatus
 }) {
   const [existingRows] = await pool.execute(
     `SELECT * FROM company_events WHERE id = ? AND agency_id = ? AND organization_id = ? LIMIT 1`,
@@ -345,31 +560,91 @@ export async function updateSchoolPortalEvent({
   if (clearFlier) nextFlier = null;
   else if (flierFileUrl !== undefined) nextFlier = flierFileUrl || null;
 
-  await pool.execute(
-    `UPDATE company_events
-     SET updated_by_user_id = ?, title = ?, description = ?, event_type = ?,
-         starts_at = ?, ends_at = ?, timezone = ?, outreach_table_invited = ?,
-         event_image_url = ?, flier_file_url = ?, staffing_config_json = ?
-     WHERE id = ? AND agency_id = ? AND organization_id = ?`,
-    [
-      userId,
-      String(title ?? existing.title).trim(),
-      String(description ?? existing.description ?? '').trim() || null,
-      eventType,
-      start,
-      end,
-      String(timezone || existing.timezone || 'UTC').trim(),
-      outreach ? 1 : 0,
-      nextImage,
-      nextFlier,
-      staffingConfig,
-      eventId,
-      agencyId,
-      organizationId
-    ]
-  );
+  const prevStatus = normalizeSchoolEventStatus(existing.school_event_status, { fallback: 'scheduled' });
+  let status = schoolEventStatus !== undefined
+    ? normalizeSchoolEventStatus(schoolEventStatus, { fallback: prevStatus })
+    : prevStatus;
+  // Changing the date/time without an explicit status marks the event rescheduled
+  if (
+    schoolEventStatus === undefined &&
+    status !== 'canceled' &&
+    startsAt &&
+    existing.starts_at &&
+    new Date(existing.starts_at).getTime() !== start.getTime()
+  ) {
+    status = 'rescheduled';
+  }
 
-  await materializeSessionsForEvent(pool, { companyEventId: eventId });
+  const tz = String(timezone || existing.timezone || 'America/Denver').trim();
+
+  try {
+    await pool.execute(
+      `UPDATE company_events
+       SET updated_by_user_id = ?, title = ?, description = ?, event_type = ?,
+           starts_at = ?, ends_at = ?, timezone = ?, outreach_table_invited = ?,
+           event_image_url = ?, flier_file_url = ?, staffing_config_json = ?,
+           school_event_status = ?, is_active = 1
+       WHERE id = ? AND agency_id = ? AND organization_id = ?`,
+      [
+        userId,
+        String(title ?? existing.title).trim(),
+        String(description ?? existing.description ?? '').trim() || null,
+        eventType,
+        start,
+        end,
+        tz,
+        outreach ? 1 : 0,
+        nextImage,
+        nextFlier,
+        staffingConfig,
+        status,
+        eventId,
+        agencyId,
+        organizationId
+      ]
+    );
+  } catch (e) {
+    if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    await pool.execute(
+      `UPDATE company_events
+       SET updated_by_user_id = ?, title = ?, description = ?, event_type = ?,
+           starts_at = ?, ends_at = ?, timezone = ?, outreach_table_invited = ?,
+           event_image_url = ?, flier_file_url = ?, staffing_config_json = ?,
+           is_active = 1
+       WHERE id = ? AND agency_id = ? AND organization_id = ?`,
+      [
+        userId,
+        String(title ?? existing.title).trim(),
+        String(description ?? existing.description ?? '').trim() || null,
+        eventType,
+        start,
+        end,
+        tz,
+        outreach ? 1 : 0,
+        nextImage,
+        nextFlier,
+        staffingConfig,
+        eventId,
+        agencyId,
+        organizationId
+      ]
+    );
+  }
+
+  if (status !== 'canceled') {
+    await materializeSessionsForEvent(pool, { companyEventId: eventId });
+  }
+
+  await syncSchoolEventAnnouncement({
+    organizationId,
+    companyEventId: eventId,
+    userId,
+    title: title ?? existing.title,
+    category: categoryForUniqueness,
+    startsAt: start,
+    timezone: tz,
+    schoolEventStatus: status
+  }).catch(() => null);
 
   const [rows] = await pool.execute('SELECT * FROM company_events WHERE id = ? LIMIT 1', [eventId]);
   const schoolMeta = await loadSchoolMeta(organizationId);

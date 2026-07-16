@@ -56,30 +56,14 @@
           </button>
         </div>
       </div>
-      <div
-        v-if="scrollingBannerItems.length > 0"
-        class="portal-banner"
-        role="button"
-        tabindex="0"
-        title="Open announcements"
-        @click="openNotificationsPanel"
-        @keydown.enter.prevent="openNotificationsPanel"
-        @keydown.space.prevent="openNotificationsPanel"
-      >
-        <div class="portal-banner-inner">
-          <div class="portal-banner-track" aria-label="School announcements banner">
-            <span v-for="(t, idx) in bannerTexts" :key="`${idx}-${t.slice(0, 16)}`" class="portal-banner-item">
-              {{ t }}
-              <span class="sep" aria-hidden="true"> • </span>
-            </span>
-            <!-- Repeat once to ensure continuous scroll -->
-            <span v-for="(t, idx) in bannerTexts" :key="`r-${idx}-${t.slice(0, 16)}`" class="portal-banner-item">
-              {{ t }}
-              <span class="sep" aria-hidden="true"> • </span>
-            </span>
-          </div>
-        </div>
-      </div>
+      <AnnouncementMarquee
+        v-if="bannerTexts.length > 0"
+        :items="bannerTexts"
+        variant="brand"
+        aria-label="School announcements banner"
+        interactive
+        @activate="openNotificationsPanel"
+      />
     </div>
 
     <SurveyPromptCard v-if="authStore.user?.id && !props.previewMode" :splash="true" />
@@ -836,11 +820,18 @@
           <ul v-else-if="schoolPortalEvents.length" class="school-events-list">
             <li v-for="ev in schoolPortalEvents" :key="ev.id" class="school-event-row">
               <div class="school-event-main">
-                <strong>{{ ev.title }}</strong>
+                <strong>
+                  {{ ev.title }}
+                  <span
+                    v-if="ev.schoolEventStatus && ev.schoolEventStatus !== 'scheduled'"
+                    class="school-event-status"
+                    :class="ev.schoolEventStatus"
+                  >{{ formatSchoolEventStatus(ev.schoolEventStatus) }}</span>
+                </strong>
                 <span class="muted">
-                  {{ formatSchoolEventWhen(ev.startsAt) }}
+                  {{ formatSchoolEventWhen(ev) }}
                   · {{ formatSchoolEventCategory(ev.category) }}
-                  · {{ ev.isActive ? 'Published' : 'Inactive' }}
+                  · {{ ev.schoolEventStatus === 'canceled' ? 'Canceled' : (ev.isActive ? 'Published' : 'Inactive') }}
                   <template v-if="ev.outreachTableInvited"> · Outreach staffing</template>
                 </span>
               </div>
@@ -1452,6 +1443,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { formatSchoolEventWhen as formatSchoolEventWhenUtil } from '../../utils/timezones';
 import { useOrganizationStore } from '../../store/organization';
 import { useBrandingStore } from '../../store/branding';
 import { useAgencyStore } from '../../store/agency';
@@ -1459,6 +1451,7 @@ import { useTutorialStore } from '../../store/tutorial';
 import ClientListGrid from '../../components/school/ClientListGrid.vue';
 import SchoolHelpDeskModal from '../../components/school/SchoolHelpDeskModal.vue';
 import PostSchoolEventModal from '../../components/school/PostSchoolEventModal.vue';
+import AnnouncementMarquee from '../../components/common/AnnouncementMarquee.vue';
 import SchoolEventPromptModal from '../../components/school/SchoolEventPromptModal.vue';
 import ReviewPromptModal from '../../components/school/ReviewPromptModal.vue';
 import ClientTicketThreadModal from '../../components/school/ClientTicketThreadModal.vue';
@@ -1523,13 +1516,12 @@ const schoolPortalEvents = ref([]);
 const schoolPortalEventsLoading = ref(false);
 const schoolPortalEventsError = ref('');
 
-const formatSchoolEventWhen = (v) => {
-  if (!v) return '—';
-  try {
-    return new Date(v).toLocaleString();
-  } catch {
-    return String(v);
+const formatSchoolEventWhen = (evOrStartsAt, endsAt, timezone) => {
+  if (evOrStartsAt && typeof evOrStartsAt === 'object') {
+    const ev = evOrStartsAt;
+    return formatSchoolEventWhenUtil(ev.startsAt, ev.endsAt, ev.timezone);
   }
+  return formatSchoolEventWhenUtil(evOrStartsAt, endsAt, timezone);
 };
 
 const formatSchoolEventCategory = (c) => {
@@ -1543,6 +1535,13 @@ const formatSchoolEventCategory = (c) => {
     other: 'Other'
   };
   return map[String(c || '')] || c || 'Event';
+};
+
+const formatSchoolEventStatus = (s) => {
+  const v = String(s || '').toLowerCase();
+  if (v === 'rescheduled') return 'Rescheduled';
+  if (v === 'canceled' || v === 'cancelled') return 'Canceled';
+  return 'Scheduled';
 };
 
 const loadSchoolPortalEvents = async () => {
@@ -4417,6 +4416,25 @@ watch(() => store.selectedWeekday, async (weekday) => {
   align-items: flex-start;
   gap: 12px;
   padding: 20px 0;
+}
+.school-event-status {
+  display: inline-flex;
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  vertical-align: middle;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.school-event-status.rescheduled {
+  background: #fef3c7;
+  color: #92400e;
+}
+.school-event-status.canceled {
+  background: #fee2e2;
+  color: #991b1b;
 }
 .muted {
   color: var(--text-secondary);

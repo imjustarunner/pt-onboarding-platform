@@ -54,7 +54,11 @@
       <div class="list-panel">
         <div class="list-toolbar">
           <input v-model="schoolSearch" type="search" placeholder="Search schools…" class="search" />
-          <select v-model="schoolSort">
+          <select v-model="schoolDistrictFilter" aria-label="Filter by district">
+            <option value="">All districts</option>
+            <option v-for="d in schoolDistrictOptions" :key="d" :value="d">{{ d }}</option>
+          </select>
+          <select v-model="schoolSort" aria-label="Sort schools">
             <option value="name">Name</option>
             <option value="capacity">Capacity</option>
             <option value="waitlist">Waitlist</option>
@@ -337,11 +341,15 @@
           <span class="events-range">{{ eventsRangeLabel }}</span>
         </div>
         <div class="events-filters">
-          <select v-model="eventsSchoolFilter">
+          <select v-model="eventsDistrictFilter" aria-label="Filter events by district">
+            <option value="">All districts</option>
+            <option v-for="d in schoolDistrictOptions" :key="`evt-d-${d}`" :value="d">{{ d }}</option>
+          </select>
+          <select v-model="eventsSchoolFilter" aria-label="Filter events by school">
             <option value="">All schools</option>
             <option v-for="s in eventSchoolOptions" :key="s.id" :value="String(s.id)">{{ s.name }}</option>
           </select>
-          <select v-model="eventsTypeFilter">
+          <select v-model="eventsTypeFilter" aria-label="Filter by event type">
             <option value="">All event types</option>
             <option value="school_back_to_school">Back to School</option>
             <option value="school_open_house">Open House</option>
@@ -359,6 +367,11 @@
         <button type="button" class="btn btn-primary btn-sm" @click="openEventsAddEvent">+ Add Event</button>
         <router-link class="btn btn-secondary btn-sm" :to="orgTo('/admin/caseload-hub/events')">Full event hub →</router-link>
       </div>
+      <p class="events-tz-note">
+        Times shown in the school/tenant timezone
+        <strong>{{ eventsTimezoneLabel }}</strong>
+        (MST/MDT). This tab auto-refreshes every {{ pollSeconds }}s while open.
+      </p>
 
       <div class="events-body" :class="{ 'has-panel': !!eventsSelectedEvent }">
         <!-- Calendar view -->
@@ -409,8 +422,8 @@
           >
             <div class="agenda-dot" :class="eventsTypeColor(e)" />
             <div class="agenda-date">
-              <div class="primary">{{ eventsFormatDate(e.startsAt) }}</div>
-              <div class="muted">{{ eventsFormatTime(e.startsAt, e.endsAt) }}</div>
+              <div class="primary">{{ eventsFormatDate(e.startsAt, e.timezone) }}</div>
+              <div class="muted time-tz">{{ eventsFormatTime(e.startsAt, e.endsAt, e.timezone) }}</div>
             </div>
             <div class="agenda-info">
               <div class="primary">{{ e.title }}</div>
@@ -731,7 +744,13 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import {
+  formatSchoolEventDate,
+  formatSchoolEventTimeRange,
+  schoolEventTimezoneLabel,
+  SCHOOL_EVENT_FALLBACK_TIMEZONE
+} from '../../../utils/timezones';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../../store/auth';
 import { useAgencyStore } from '../../../store/agency';
@@ -788,6 +807,7 @@ const suggestions = ref([]);
 const hubEvents = ref([]);
 const eventsView = ref('calendar'); // 'calendar' | 'agenda'
 const eventsCursor = ref(eventsStartOfMonth(new Date()));
+const eventsDistrictFilter = ref('');
 const eventsSchoolFilter = ref('');
 const eventsTypeFilter = ref('');
 const eventsSelectedId = ref(null);
@@ -820,8 +840,18 @@ const eventsRangeLabel = computed(() =>
   eventsCursor.value.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
 );
 
+function eventDistrictName(e) {
+  const direct = String(e?.districtName || '').trim();
+  if (direct) return direct;
+  const school = schools.value.find((s) => Number(s.schoolId) === Number(e?.schoolId));
+  return String(school?.districtName || '').trim();
+}
+
 const filteredHubEvents = computed(() => {
   let list = hubEvents.value;
+  if (eventsDistrictFilter.value) {
+    list = list.filter((e) => eventDistrictName(e) === eventsDistrictFilter.value);
+  }
   if (eventsSchoolFilter.value) list = list.filter((e) => String(e.schoolId) === eventsSchoolFilter.value);
   if (eventsTypeFilter.value) list = list.filter((e) => e.eventType === eventsTypeFilter.value);
   return list;
@@ -867,8 +897,22 @@ const agendaEvents = computed(() =>
 
 const eventSchoolOptions = computed(() => {
   const map = new Map();
-  for (const e of hubEvents.value) {
-    if (e.schoolId) map.set(e.schoolId, e.schoolName || `School ${e.schoolId}`);
+  // Prefer full school list so district filter can show schools even before they have events
+  const source = schools.value.length
+    ? schools.value.map((s) => ({
+        id: s.schoolId,
+        name: s.schoolName || `School ${s.schoolId}`,
+        district: String(s.districtName || '').trim()
+      }))
+    : hubEvents.value.map((e) => ({
+        id: e.schoolId,
+        name: e.schoolName || `School ${e.schoolId}`,
+        district: eventDistrictName(e)
+      }));
+  for (const s of source) {
+    if (!s.id) continue;
+    if (eventsDistrictFilter.value && s.district !== eventsDistrictFilter.value) continue;
+    map.set(s.id, s.name);
   }
   return Array.from(map.entries())
     .map(([id, name]) => ({ id, name }))
@@ -876,6 +920,12 @@ const eventSchoolOptions = computed(() => {
 });
 
 const eventsSelectedEvent = computed(() => hubEvents.value.find((e) => e.id === eventsSelectedId.value) || null);
+
+watch(eventsDistrictFilter, () => {
+  if (!eventsSchoolFilter.value) return;
+  const stillValid = eventSchoolOptions.value.some((s) => String(s.id) === eventsSchoolFilter.value);
+  if (!stillValid) eventsSchoolFilter.value = '';
+});
 
 function eventsTypeColor(e) {
   if (e.staffingStatus === 'needs_providers' || e.staffingStatus === 'partially_staffed') return 'needs';
@@ -887,19 +937,12 @@ function eventsTypeColor(e) {
   return 'spring';
 }
 
-function eventsFormatDate(v) {
-  if (!v) return '';
-  try {
-    return new Date(v).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-  } catch { return String(v); }
+function eventsFormatDate(v, timezone) {
+  return formatSchoolEventDate(v, timezone);
 }
 
-function eventsFormatTime(a, b) {
-  try {
-    const s = new Date(a).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    const e = b ? new Date(b).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
-    return e ? `${s} – ${e}` : s;
-  } catch { return ''; }
+function eventsFormatTime(a, b, timezone) {
+  return formatSchoolEventTimeRange(a, b, timezone);
 }
 
 function eventsLabelType(t) {
@@ -944,6 +987,7 @@ function selectEventsEvent(id) {
 }
 
 const schoolSearch = ref('');
+const schoolDistrictFilter = ref('');
 const schoolSort = ref('name');
 const providerSearch = ref('');
 const needTypeFilter = ref('');
@@ -1122,8 +1166,22 @@ function goCoverageNeeds(type) {
   setTab('coverage-needs');
 }
 
+const schoolDistrictOptions = computed(() => {
+  const set = new Set();
+  for (const s of schools.value) {
+    const d = String(s.districtName || '').trim();
+    if (d) set.add(d);
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+});
+
 const filteredSchools = computed(() => {
   let list = [...schools.value];
+  if (schoolDistrictFilter.value) {
+    list = list.filter(
+      (s) => String(s.districtName || '').trim() === schoolDistrictFilter.value
+    );
+  }
   const q = schoolSearch.value.trim().toLowerCase();
   if (q) {
     list = list.filter(
@@ -1344,6 +1402,54 @@ async function runExpireStale() {
   }
 }
 
+const POLL_MS = 30000;
+const pollSeconds = POLL_MS / 1000;
+const eventsTimezoneLabel = schoolEventTimezoneLabel(SCHOOL_EVENT_FALLBACK_TIMEZONE);
+let pollTimer = null;
+
+async function silentRefresh() {
+  if (!agencyId.value || loading.value) return;
+  try {
+    const [warn, open, evts] = await Promise.all([
+      fetchCoverageWarnings(agencyId.value).catch(() => null),
+      fetchOpenSchoolDays(agencyId.value).catch(() => null),
+      fetchHubEvents(agencyId.value).catch(() => null)
+    ]);
+    if (warn) {
+      warningCards.value = warn.cards || [];
+      needs.value = warn.items || [];
+    }
+    if (open) {
+      openDays.value = open.days || [];
+      openDaysSummary.value = open.summary || { total: 0, highUrgency: 0, schoolsAffected: 0 };
+    }
+    if (evts) hubEvents.value = evts.events || [];
+  } catch {
+    /* ignore background refresh errors */
+  }
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(() => {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+    silentRefresh();
+  }, POLL_MS);
+}
+
+function onVisibilityChange() {
+  if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+    silentRefresh();
+  }
+}
+
 async function reload() {
   if (!agencyId.value) return;
   loading.value = true;
@@ -1403,6 +1509,17 @@ onMounted(async () => {
   if (route.query.schoolId) selectedSchoolId.value = Number(route.query.schoolId);
   if (route.query.providerId) selectedProviderId.value = Number(route.query.providerId);
   await reload();
+  startPolling();
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', onVisibilityChange);
+  }
+});
+
+onUnmounted(() => {
+  stopPolling();
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+  }
 });
 
 watch(
@@ -1974,6 +2091,13 @@ watch(
 }
 /* ── Events tab ─────────────────────────────────────────── */
 .events-tab { display: flex; flex-direction: column; gap: 0.75rem; }
+.events-tz-note {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #475569;
+}
+.events-tz-note strong { color: #0f172a; font-weight: 700; }
+.time-tz { font-weight: 650; color: #334155; }
 .events-toolbar {
   display: flex;
   gap: 0.5rem;

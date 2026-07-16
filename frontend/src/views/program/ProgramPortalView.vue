@@ -43,23 +43,14 @@
           </label>
         </div>
       </div>
-      <div
+      <AnnouncementMarquee
         v-if="bannerTexts.length"
-        class="pp-banner"
-        role="button"
-        tabindex="0"
-        @click="goToNotifications"
-        @keydown.enter.prevent="goToNotifications"
-        @keydown.space.prevent="goToNotifications"
-        title="Open notifications"
-      >
-        <div class="pp-banner-track">
-          <span v-for="(t, idx) in bannerLoop" :key="`${idx}-${t.slice(0, 16)}`" class="pp-banner-item">
-            {{ t }}
-            <span class="pp-banner-sep" aria-hidden="true"> • </span>
-          </span>
-        </div>
-      </div>
+        :items="bannerTexts"
+        variant="brand"
+        aria-label="Program announcements"
+        interactive
+        @activate="goToNotifications"
+      />
     </header>
 
     <SurveyPromptCard v-if="authStore.user?.id && !props.previewMode" :splash="true" />
@@ -232,6 +223,7 @@ import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import { setDarkMode, getStoredDarkMode } from '../../utils/darkMode';
 import SurveyPromptCard from '../../components/dashboard/SurveyPromptCard.vue';
+import AnnouncementMarquee from '../../components/common/AnnouncementMarquee.vue';
 import PlatformPreviewBanner from '../../components/admin/PlatformPreviewBanner.vue';
 import OrganizationSettingsModal from '../../components/school/OrganizationSettingsModal.vue';
 import FocusedClientBanner from './FocusedClientBanner.vue';

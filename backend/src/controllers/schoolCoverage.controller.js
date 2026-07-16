@@ -183,7 +183,7 @@ export const listHubEvents = async (req, res, next) => {
     let sql = `
       SELECT ce.id, ce.title, ce.description, ce.event_type, ce.starts_at, ce.ends_at,
              ce.timezone, ce.is_active, ce.organization_id, ce.outreach_table_invited,
-             ce.staffing_config_json, a.name AS school_name, sp.district_name
+             ce.staffing_config_json, ce.school_event_status, a.name AS school_name, sp.district_name
       FROM company_events ce
       LEFT JOIN agencies a ON a.id = ce.organization_id
       LEFT JOIN school_profiles sp ON sp.school_organization_id = ce.organization_id
@@ -213,12 +213,16 @@ export const listHubEvents = async (req, res, next) => {
       const [result] = await pool.execute(sql, params);
       rows = result || [];
     } catch (e) {
-      // school_profiles may be missing in older envs
-      if (!String(e?.message || '').includes('school_profiles') && e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      const msg = String(e?.message || '');
+      const missingProfiles = msg.includes('school_profiles') || e?.code === 'ER_NO_SUCH_TABLE';
+      const missingStatus = msg.includes('school_event_status') || e?.code === 'ER_BAD_FIELD_ERROR';
+      if (!missingProfiles && !missingStatus) throw e;
+
+      // Retry without school_profiles and/or school_event_status for older schemas
       let fallbackSql = `
         SELECT ce.id, ce.title, ce.description, ce.event_type, ce.starts_at, ce.ends_at,
                ce.timezone, ce.is_active, ce.organization_id, ce.outreach_table_invited,
-               ce.staffing_config_json, a.name AS school_name, NULL AS district_name
+               ce.staffing_config_json, NULL AS school_event_status, a.name AS school_name, NULL AS district_name
         FROM company_events ce
         LEFT JOIN agencies a ON a.id = ce.organization_id
         WHERE ce.agency_id = ?
@@ -325,6 +329,13 @@ export const listHubEvents = async (req, res, next) => {
       const isBackToSchool = String(r.event_type || '') === 'school_back_to_school';
       const featured = !!(r.outreach_table_invited || (staffingEnabled && remaining > 0 && assigned === 0));
 
+      const schoolEventStatus = (() => {
+        const s = String(r.school_event_status || '').trim().toLowerCase();
+        if (s === 'cancelled') return 'canceled';
+        if (s === 'rescheduled' || s === 'canceled' || s === 'scheduled') return s;
+        return 'scheduled';
+      })();
+
       events.push({
         id: r.id,
         title: r.title,
@@ -334,6 +345,7 @@ export const listHubEvents = async (req, res, next) => {
         endsAt: r.ends_at,
         timezone: r.timezone,
         isActive: !!(r.is_active === 1 || r.is_active === true),
+        schoolEventStatus,
         schoolId: r.organization_id != null ? Number(r.organization_id) : null,
         schoolName: r.school_name || null,
         districtName: r.district_name || null,

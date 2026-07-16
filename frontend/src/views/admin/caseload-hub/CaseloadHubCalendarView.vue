@@ -4,9 +4,14 @@
       <div>
         <h1>School Events Calendar</h1>
         <p class="subtitle">View and manage school events, staffing, and special schedules.</p>
+        <p class="tz-note">
+          Times shown in the school/tenant timezone
+          <strong>{{ defaultTimezoneLabel }}</strong>
+          (MST/MDT). Auto-refreshes every {{ pollSeconds }}s while open.
+        </p>
       </div>
       <div class="header-actions">
-        <select v-if="agencies.length > 1" v-model="agencyId" class="agency-select" @change="reload">
+        <select v-if="agencies.length > 1" v-model="agencyId" class="agency-select" @change="reload()">
           <option v-for="a in agencies" :key="a.id" :value="Number(a.id)">{{ a.name }}</option>
         </select>
         <div class="view-toggle">
@@ -65,7 +70,7 @@
               <div>
                 <strong>{{ e.title }}</strong>
                 <div class="muted">
-                  {{ formatFull(e.startsAt) }} · {{ e.schoolName || '—' }} ·
+                  {{ formatFull(e.startsAt, e.endsAt, e.timezone) }} · {{ e.schoolName || '—' }} ·
                   <template v-if="e.staffingEnabled">{{ e.providersAssigned }}/{{ e.providersRequested }} staffed</template>
                   <template v-else>not open</template>
                 </div>
@@ -175,12 +180,17 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../../store/auth';
 import { useAgencyStore } from '../../../store/agency';
 import { fetchHubEvents, fetchSchoolCoverageSummary } from '../../../services/schoolCoverageApi';
 import PostSchoolEventModal from '../../../components/school/PostSchoolEventModal.vue';
+import {
+  formatSchoolEventWhen,
+  schoolEventTimezoneLabel,
+  SCHOOL_EVENT_FALLBACK_TIMEZONE
+} from '../../../utils/timezones';
 
 const route = useRoute();
 const router = useRouter();
@@ -394,11 +404,34 @@ function shortSchool(name) {
   return s.length > 18 ? `${s.slice(0, 16)}…` : s;
 }
 
-function formatFull(v) {
-  try {
-    return new Date(v).toLocaleString();
-  } catch {
-    return String(v || '');
+const POLL_MS = 30000;
+const pollSeconds = POLL_MS / 1000;
+const defaultTimezoneLabel = schoolEventTimezoneLabel(SCHOOL_EVENT_FALLBACK_TIMEZONE);
+let pollTimer = null;
+
+function formatFull(startsAt, endsAt, timezone) {
+  return formatSchoolEventWhen(startsAt, endsAt, timezone);
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(() => {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+    if (loading.value) return;
+    reload({ silent: true });
+  }, POLL_MS);
+}
+
+function onVisibilityChange() {
+  if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+    reload({ silent: true });
   }
 }
 
@@ -448,10 +481,12 @@ async function onEventSaved() {
   await reload();
 }
 
-async function reload() {
+async function reload({ silent = false } = {}) {
   if (!agencyId.value) return;
-  loading.value = true;
-  error.value = '';
+  if (!silent) {
+    loading.value = true;
+    error.value = '';
+  }
   try {
     const [data, schools] = await Promise.all([
       fetchHubEvents(agencyId.value),
@@ -462,9 +497,11 @@ async function reload() {
       .map((s) => ({ id: s.schoolId, name: s.schoolName }))
       .sort((a, b) => String(a.name).localeCompare(String(b.name)));
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load calendar';
+    if (!silent) {
+      error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load calendar';
+    }
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
 }
 
@@ -486,6 +523,17 @@ onMounted(async () => {
     Number(agencies.value[0]?.id) ||
     null;
   await reload();
+  startPolling();
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', onVisibilityChange);
+  }
+});
+
+onUnmounted(() => {
+  stopPolling();
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+  }
 });
 </script>
 
@@ -510,6 +558,15 @@ onMounted(async () => {
   margin: 0 0 0.25rem;
   font-size: 1.65rem;
   letter-spacing: -0.02em;
+}
+.tz-note {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: #475569;
+}
+.tz-note strong {
+  color: #0f172a;
+  font-weight: 700;
 }
 .subtitle {
   margin: 0;

@@ -10,28 +10,12 @@
         subtitle="This platform preview keeps the season experience visible while workout and enrollment actions stay read-only."
         tone="warm"
       />
-      <div
+      <AnnouncementMarquee
         v-if="clubDashboardBannerTexts.length"
-        class="sstc-announcement-banner"
-        role="region"
+        :items="clubDashboardBannerTexts"
+        variant="club"
         aria-label="Club announcements"
-      >
-        <div class="sstc-announcement-inner">
-          <div class="sstc-announcement-track">
-            <span
-              v-for="(t, idx) in clubDashboardBannerTexts"
-              :key="`b-${idx}-${String(t).slice(0, 24)}`"
-              class="sstc-announcement-item"
-            >{{ t }}</span>
-            <span
-              v-for="(t, idx) in clubDashboardBannerTexts"
-              :key="`br-${idx}-${String(t).slice(0, 24)}`"
-              class="sstc-announcement-item"
-              aria-hidden="true"
-            >{{ t }}</span>
-          </div>
-        </div>
-      </div>
+      />
       <!-- Manager trophy-posting prompt (per-login, dismissible) -->
       <RecognitionWeekPrompt
         v-if="challenge?.id && isChallengeManager"
@@ -1851,6 +1835,7 @@ import { useBrandingStore } from '../store/branding';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 import { NATIVE_APP_ORG_SLUG, isSummitPlatformRouteSlug } from '../utils/summitPlatformSlugs.js';
 import { useAffiliationClubAnnouncements } from '../composables/useAffiliationClubAnnouncements.js';
+import AnnouncementMarquee from '../components/common/AnnouncementMarquee.vue';
 import { useSeasonWeeks } from '../composables/useSeasonWeeks.js';
 import { useSuperadminPlatformPreview } from '../composables/useSuperadminPlatformPreview.js';
 import { challengeProofPolicyLabel } from '../utils/challengeProofPolicies.js';

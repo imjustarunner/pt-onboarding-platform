@@ -328,3 +328,88 @@ export function getTodayDeadline(timezone = 'UTC', dailyTime = '23:59', weekDead
   }
   return result;
 }
+
+/** Default IANA zone for school/tenant event display when event.timezone is missing or UTC. */
+export const SCHOOL_EVENT_FALLBACK_TIMEZONE = 'America/Denver';
+
+/**
+ * Resolve the IANA timezone used to display a school event.
+ * Prefers the event/agency timezone; falls back to Mountain (America/Denver) when unset/UTC.
+ */
+export function schoolEventDisplayTimezone(timezone) {
+  const tz = String(timezone || '').trim();
+  if (!tz || tz.toUpperCase() === 'UTC' || tz.toUpperCase() === 'ETC/UTC') {
+    return SCHOOL_EVENT_FALLBACK_TIMEZONE;
+  }
+  return tz;
+}
+
+/** e.g. America/Denver → MST / MDT for that instant. */
+export function timezoneAbbrevAt(date, timezone) {
+  const id = schoolEventDisplayTimezone(timezone);
+  const d = date instanceof Date ? date : new Date(date);
+  if (!Number.isFinite(d.getTime())) return '';
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: id,
+      timeZoneName: 'short'
+    }).formatToParts(d);
+    return String(parts.find((p) => p.type === 'timeZoneName')?.value || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+/** Human label like "Mountain Time (MST)" or "America/Denver (MDT)". */
+export function schoolEventTimezoneLabel(timezone, atDate = new Date()) {
+  const id = schoolEventDisplayTimezone(timezone);
+  const abbr = timezoneAbbrevAt(atDate, id);
+  const name = timezoneLabelFor(id);
+  if (abbr) return `${name} (${abbr})`;
+  return name || id;
+}
+
+export function formatSchoolEventDate(startsAt, timezone) {
+  const d = startsAt instanceof Date ? startsAt : new Date(startsAt);
+  if (!Number.isFinite(d.getTime())) return '—';
+  const tz = schoolEventDisplayTimezone(timezone);
+  try {
+    return d.toLocaleDateString('en-US', {
+      timeZone: tz,
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  } catch {
+    return String(startsAt);
+  }
+}
+
+/**
+ * Time range with overt timezone abbreviation, e.g. "4:00 PM – 5:00 PM MST".
+ */
+export function formatSchoolEventTimeRange(startsAt, endsAt, timezone) {
+  const a = startsAt instanceof Date ? startsAt : new Date(startsAt);
+  if (!Number.isFinite(a.getTime())) return '';
+  const tz = schoolEventDisplayTimezone(timezone);
+  const abbr = timezoneAbbrevAt(a, tz) || 'MT';
+  try {
+    const opts = { timeZone: tz, hour: 'numeric', minute: '2-digit' };
+    const start = a.toLocaleTimeString('en-US', opts);
+    const b = endsAt ? (endsAt instanceof Date ? endsAt : new Date(endsAt)) : null;
+    const end = b && Number.isFinite(b.getTime()) ? b.toLocaleTimeString('en-US', opts) : '';
+    return end ? `${start} – ${end} ${abbr}` : `${start} ${abbr}`;
+  } catch {
+    return '';
+  }
+}
+
+/** Date + time range with timezone, e.g. "Mon, Aug 10, 2026 · 4:00 PM – 5:00 PM MST". */
+export function formatSchoolEventWhen(startsAt, endsAt, timezone) {
+  const date = formatSchoolEventDate(startsAt, timezone);
+  const time = formatSchoolEventTimeRange(startsAt, endsAt, timezone);
+  if (!time) return date;
+  if (!date || date === '—') return time;
+  return `${date} · ${time}`;
+}

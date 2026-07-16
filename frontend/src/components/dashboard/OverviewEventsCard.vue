@@ -11,6 +11,7 @@
         <span class="ov-featured-title">{{ featured.title }}</span>
       </div>
       <div class="ov-featured-meta">{{ featured.subtitle }}</div>
+      <div v-if="whereText(featured)" class="ov-featured-where">{{ whereText(featured) }}</div>
       <button
         v-if="featured.joinUrl"
         type="button"
@@ -39,6 +40,7 @@
         <div class="ov-event-body">
           <div class="ov-event-title">{{ ev.title }}</div>
           <div class="ov-event-sub">{{ ev.subtitle }}</div>
+          <div v-if="whereText(ev)" class="ov-event-where">{{ whereText(ev) }}</div>
         </div>
       </li>
     </ul>
@@ -73,6 +75,18 @@ const monthShort = (ms) => {
   if (ms == null) return '';
   return new Date(ms).toLocaleDateString([], { month: 'short' });
 };
+
+/** Prefer school affiliation, then explicit location / whereLine. */
+function whereText(ev) {
+  if (!ev) return '';
+  if (ev.whereLine) return ev.whereLine;
+  const school = String(ev.schoolName || '').trim();
+  const loc = String(ev.location || '').trim();
+  if (school && loc && school.toLowerCase() !== loc.toLowerCase()) return `${school} · ${loc}`;
+  if (school) return school;
+  if (loc) return loc;
+  return '';
+}
 </script>
 
 <style scoped>
@@ -147,6 +161,12 @@ const monthShort = (ms) => {
   color: #6b7280;
   margin-top: 4px;
 }
+.ov-featured-where {
+  font-size: 12px;
+  color: #4b5563;
+  margin-top: 4px;
+  font-weight: 600;
+}
 .ov-join {
   margin-top: 10px;
   width: 100%;
@@ -189,6 +209,12 @@ const monthShort = (ms) => {
 .ov-date-mon { font-size: 10px; color: #6b7280; text-transform: uppercase; }
 .ov-event-title { font-size: 13px; font-weight: 600; color: #111827; }
 .ov-event-sub { font-size: 12px; color: #6b7280; }
+.ov-event-where {
+  font-size: 11px;
+  color: #4b5563;
+  font-weight: 600;
+  margin-top: 2px;
+}
 
 [data-theme="dark"] .ov-card {
   background: #1e2126;
@@ -205,6 +231,8 @@ const monthShort = (ms) => {
 }
 [data-theme="dark"] .ov-featured-title { color: var(--text-primary, #cbd5e1); }
 [data-theme="dark"] .ov-featured-meta { color: var(--text-secondary, #94a3b8); }
+[data-theme="dark"] .ov-featured-where { color: var(--text-secondary, #94a3b8); }
+[data-theme="dark"] .ov-event-where { color: var(--text-secondary, #94a3b8); }
 [data-theme="dark"] .ov-link--block { border-top-color: #3a3f48; }
 [data-theme="dark"] .ov-date-tile { background: #2a2f38; }
 [data-theme="dark"] .ov-date-day { color: var(--text-primary, #cbd5e1); }

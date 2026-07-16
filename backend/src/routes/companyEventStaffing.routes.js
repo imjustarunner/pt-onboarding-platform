@@ -11,7 +11,9 @@ import {
   withdrawCompanyEventSessionRequest,
   listCompanyEventSessionRequests,
   approveCompanyEventSessionRequest,
-  denyCompanyEventSessionRequest
+  denyCompanyEventSessionRequest,
+  assignProviderToSession,
+  unassignProviderFromSession
 } from '../controllers/companyEventStaffing.controller.js';
 
 const router = express.Router();
@@ -32,6 +34,9 @@ router.post('/:eventId/session-requests/:requestId/withdraw', withdrawCompanyEve
 router.get('/:eventId/session-requests', listCompanyEventSessionRequests);
 router.post('/:eventId/session-requests/:requestId/approve', approveCompanyEventSessionRequest);
 router.post('/:eventId/session-requests/:requestId/deny', denyCompanyEventSessionRequest);
+
+router.post('/:eventId/session-providers/assign', assignProviderToSession);
+router.post('/:eventId/session-providers/unassign', unassignProviderFromSession);
 
 export default router;
 

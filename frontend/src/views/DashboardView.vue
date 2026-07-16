@@ -32,21 +32,12 @@
     <!-- My SSTC Clubs lives in AgencySelector (portal strip) — do not duplicate here. -->
 
     <!-- Agency announcement banner (Dashboard) -->
-    <div v-if="!previewMode && dashboardBannerTexts.length > 0" class="agency-announcement-banner">
-      <div class="agency-announcement-inner">
-        <div class="agency-announcement-track" aria-label="Agency announcements banner">
-          <span v-for="(t, idx) in dashboardBannerTexts" :key="`${idx}-${t.slice(0, 16)}`" class="agency-announcement-item">
-            {{ t }}
-            <span class="sep" aria-hidden="true"> • </span>
-          </span>
-          <!-- Repeat once to ensure continuous scroll -->
-          <span v-for="(t, idx) in dashboardBannerTexts" :key="`r-${idx}-${t.slice(0, 16)}`" class="agency-announcement-item">
-            {{ t }}
-            <span class="sep" aria-hidden="true"> • </span>
-          </span>
-        </div>
-      </div>
-    </div>
+    <AnnouncementMarquee
+      v-if="!previewMode && dashboardBannerTexts.length > 0"
+      :items="dashboardBannerTexts"
+      variant="brand"
+      aria-label="Agency announcements banner"
+    />
 
     <!--
       The legacy "Upcoming company events" strip was removed (felt noisy at the
@@ -1107,6 +1098,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, onBeforeUnmount, computed, watch, nextTick } from 'vue';
 import SchoolMarketingSplash from '../components/marketing/SchoolMarketingSplash.vue';
+import AnnouncementMarquee from '../components/common/AnnouncementMarquee.vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
@@ -1752,8 +1744,62 @@ const dashboardBannerTexts = computed(() => {
       return String(base || '').trim();
     })
     .filter(Boolean);
-  const birthdayText = String(dashboardBanner.value?.message || '').trim();
-  return [...scheduledTexts, birthdayText].filter(Boolean).slice(0, 10);
+
+  const todayDateLabel = (() => {
+    try {
+      return new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    } catch {
+      return '';
+    }
+  })();
+
+  const celebrationItems = [];
+  const rawItems = Array.isArray(dashboardBanner.value?.items) ? dashboardBanner.value.items : [];
+  for (const item of rawItems) {
+    let text = String(item?.text || '').trim();
+    let dateLabel = String(item?.dateLabel || '').trim();
+    if (!dateLabel) {
+      const m = text.match(/^(.*?)\s*[·•]\s*([A-Za-z]{3,9}\s+\d{1,2})\s*$/);
+      if (m) {
+        text = m[1].trim();
+        dateLabel = m[2].trim();
+      }
+    }
+    text = text.replace(/\s*[·•]\s*$/, '').trim();
+    if (!text) continue;
+    celebrationItems.push({
+      kind: item?.kind || 'celebration',
+      text,
+      dateLabel: dateLabel || todayDateLabel,
+      userId: item?.userId || null,
+      fullName: item?.fullName || null,
+      profilePhotoPath: item?.profilePhotoPath || null
+    });
+  }
+
+  // Back-compat: older API only returned a joined message string
+  if (!celebrationItems.length) {
+    const legacy = String(dashboardBanner.value?.message || '').trim();
+    for (const part of legacy.split(/\s*\|\s*/).map((s) => s.trim()).filter(Boolean)) {
+      let text = part;
+      let dateLabel = '';
+      const m = text.match(/^(.*?)\s*[·•]\s*([A-Za-z]{3,9}\s+\d{1,2})\s*$/);
+      if (m) {
+        text = m[1].trim();
+        dateLabel = m[2].trim();
+      }
+      text = text.replace(/\s*[·•]\s*$/, '').trim();
+      if (text) {
+        celebrationItems.push({
+          kind: 'celebration',
+          text,
+          dateLabel: dateLabel || todayDateLabel
+        });
+      }
+    }
+  }
+
+  return [...scheduledTexts, ...celebrationItems].filter(Boolean).slice(0, 12);
 });
 
 const SPLASH_DISMISS_STORAGE_PREFIX = 'dashboardSplashDismissed.v1';

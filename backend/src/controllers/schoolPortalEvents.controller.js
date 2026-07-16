@@ -212,6 +212,7 @@ function parseSchoolEventBody(body) {
   const eventImageUrl = body?.eventImageUrl ?? body?.event_image_url;
   const flierFileUrl = body?.flierFileUrl ?? body?.flier_file_url;
   const timezone = body?.timezone;
+  const statusRaw = body?.schoolEventStatus ?? body?.school_event_status ?? body?.status;
   return {
     category,
     title,
@@ -221,7 +222,10 @@ function parseSchoolEventBody(body) {
     outreachTableInvited,
     eventImageUrl: eventImageUrl !== undefined ? String(eventImageUrl || '').trim() || null : undefined,
     flierFileUrl: flierFileUrl !== undefined ? String(flierFileUrl || '').trim() || null : undefined,
-    timezone
+    timezone,
+    schoolEventStatus: statusRaw !== undefined && statusRaw !== null && statusRaw !== ''
+      ? String(statusRaw).trim().toLowerCase()
+      : undefined
   };
 }
 
@@ -279,7 +283,8 @@ export const createSchoolPortalEventHandler = async (req, res, next) => {
       timezone: parsed.timezone,
       outreachTableInvited: parsed.outreachTableInvited,
       eventImageUrl: parsed.eventImageUrl,
-      flierFileUrl: parsed.flierFileUrl
+      flierFileUrl: parsed.flierFileUrl,
+      schoolEventStatus: parsed.schoolEventStatus || 'scheduled'
     });
 
     const postToken = String(req.body?.postToken || req.body?.setk || '').trim();
@@ -321,7 +326,8 @@ export const updateSchoolPortalEventHandler = async (req, res, next) => {
       outreachTableInvited: req.body?.outreachTableInvited ?? req.body?.outreach_table_invited,
       eventImageUrl: parsed.eventImageUrl,
       flierFileUrl: parsed.flierFileUrl,
-      clearFlier: req.body?.clearFlier === true || req.body?.clear_flier === true
+      clearFlier: req.body?.clearFlier === true || req.body?.clear_flier === true,
+      schoolEventStatus: parsed.schoolEventStatus
     });
     res.json(event);
   } catch (e) {

@@ -852,3 +852,121 @@ export const denyCompanyEventSessionRequest = async (req, res, next) => {
   }
 };
 
+/** Admin direct-assign a provider to a session (no prior application required). */
+export const assignProviderToSession = async (req, res, next) => {
+  try {
+    const eventId = parsePositiveInt(req.params.eventId);
+    const agencyId = parsePositiveInt(req.body?.agencyId ?? req.query?.agencyId);
+    const sessionDateId = parsePositiveInt(req.body?.sessionDateId);
+    const providerUserId = parsePositiveInt(req.body?.providerUserId);
+    const userId = parsePositiveInt(req.user?.id);
+    if (!eventId || !agencyId || !sessionDateId || !providerUserId || !userId) {
+      return res.status(400).json({
+        error: { message: 'eventId, agencyId, sessionDateId, and providerUserId are required' }
+      });
+    }
+    if (!(await canManageProgramEvent(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Insufficient role to assign providers' } });
+    }
+
+    const eventRow = await loadEventForAgency(eventId, agencyId);
+    if (!eventRow) return res.status(404).json({ error: { message: 'Event not found' } });
+    const scope = await ensureProgramEventScope(eventRow);
+    if (!scope.ok) return res.status(scope.status).json({ error: { message: scope.message } });
+
+    const [sessionRows] = await pool.execute(
+      `SELECT id FROM company_event_session_dates
+       WHERE id = ? AND company_event_id = ? AND agency_id = ?
+       LIMIT 1`,
+      [sessionDateId, eventId, agencyId]
+    );
+    if (!sessionRows?.length) {
+      return res.status(404).json({ error: { message: 'Session date not found for this event' } });
+    }
+
+    const [userRows] = await pool.execute(
+      `SELECT id, first_name, last_name FROM users WHERE id = ? LIMIT 1`,
+      [providerUserId]
+    );
+    if (!userRows?.length) {
+      return res.status(404).json({ error: { message: 'Provider not found' } });
+    }
+
+    await pool.execute(
+      `INSERT INTO company_event_session_providers
+        (company_event_id, agency_id, session_date_id, provider_user_id, assigned_by_user_id, assigned_at)
+       VALUES (?, ?, ?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE assigned_by_user_id = VALUES(assigned_by_user_id), assigned_at = VALUES(assigned_at)`,
+      [eventId, agencyId, sessionDateId, providerUserId, userId]
+    );
+
+    // Mark any pending request from this provider as approved for audit consistency
+    try {
+      await pool.execute(
+        `UPDATE company_event_session_provider_requests
+         SET status = 'approved', decided_by_user_id = ?, decided_at = NOW()
+         WHERE company_event_id = ? AND agency_id = ? AND session_date_id = ?
+           AND provider_user_id = ? AND UPPER(status) = 'PENDING'`,
+        [userId, eventId, agencyId, sessionDateId, providerUserId]
+      );
+    } catch {
+      /* optional */
+    }
+
+    syncCompanySessionProviderBySlotBestEffort({ sessionDateId, providerUserId }).catch(() => {});
+    const name = `${userRows[0].first_name || ''} ${userRows[0].last_name || ''}`.trim();
+    res.json({
+      ok: true,
+      provider: { id: providerUserId, name: name || `Provider ${providerUserId}` }
+    });
+  } catch (e) {
+    if (String(e?.message || '').includes('company_event_session_providers')) {
+      return res.status(503).json({
+        error: { message: 'Run database migration 740_company_events_staffing_and_session_groups.sql' }
+      });
+    }
+    next(e);
+  }
+};
+
+/** Admin remove a provider assignment from a session. */
+export const unassignProviderFromSession = async (req, res, next) => {
+  try {
+    const eventId = parsePositiveInt(req.params.eventId);
+    const agencyId = parsePositiveInt(req.body?.agencyId ?? req.query?.agencyId);
+    const sessionDateId = parsePositiveInt(req.body?.sessionDateId);
+    const providerUserId = parsePositiveInt(req.body?.providerUserId ?? req.params?.providerUserId);
+    if (!eventId || !agencyId || !sessionDateId || !providerUserId) {
+      return res.status(400).json({
+        error: { message: 'eventId, agencyId, sessionDateId, and providerUserId are required' }
+      });
+    }
+    if (!(await canManageProgramEvent(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Insufficient role to unassign providers' } });
+    }
+
+    const eventRow = await loadEventForAgency(eventId, agencyId);
+    if (!eventRow) return res.status(404).json({ error: { message: 'Event not found' } });
+
+    await cancelCompanySessionProvidersBeforeDelete({
+      companyEventId: eventId,
+      agencyId,
+      sessionDateId,
+      providerUserId
+    });
+    await pool.execute(
+      `DELETE FROM company_event_session_providers
+       WHERE company_event_id = ? AND agency_id = ? AND session_date_id = ? AND provider_user_id = ?`,
+      [eventId, agencyId, sessionDateId, providerUserId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    if (String(e?.message || '').includes('company_event_session_providers')) {
+      return res.status(503).json({
+        error: { message: 'Run database migration 740_company_events_staffing_and_session_groups.sql' }
+      });
+    }
+    next(e);
+  }
+};
+

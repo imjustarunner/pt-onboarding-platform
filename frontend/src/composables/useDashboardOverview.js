@@ -237,6 +237,9 @@ export function useDashboardOverview(opts = {}) {
         id: `prompt-${p.id}`,
         title: p.sessionTypeLabel || p.title || 'Supervision',
         subtitle: p.timeLabel || formatTimeRange(startMs, endMs),
+        whereLine: String(p.location || p.where || '').trim(),
+        schoolName: '',
+        location: String(p.location || p.where || '').trim(),
         startMs,
         endMs,
         isLive: !!p.isLive || statusForWindow(startMs, endMs, now) === 'in_progress',
@@ -248,10 +251,30 @@ export function useDashboardOverview(opts = {}) {
     const fromCompany = (effectiveCompanyEvents.value || []).map((e) => {
       const startMs = parseAt(e.nextOccurrenceStart || e.startsAt);
       const endMs = parseAt(e.endsAt);
+      const title = String(e.title || e.name || 'Company event').trim();
+      const schoolName = String(e.schoolName || e.organizationName || '').trim();
+      const location = String(
+        e.location || e.eventLocationName || e.eventLocationAddress || e.publicLocationAddress || ''
+      ).trim();
+      const whereParts = [];
+      // Show affiliated school when it adds info beyond the title
+      if (schoolName && schoolName.toLowerCase() !== title.toLowerCase()) {
+        whereParts.push(schoolName);
+      }
+      if (
+        location &&
+        location.toLowerCase() !== schoolName.toLowerCase() &&
+        location.toLowerCase() !== title.toLowerCase()
+      ) {
+        whereParts.push(location);
+      }
       return {
         id: `ce-${e.id}`,
-        title: e.title || e.name || 'Company event',
-        subtitle: e.location || formatTimeRange(startMs, endMs),
+        title,
+        subtitle: formatTimeRange(startMs, endMs),
+        whereLine: whereParts.length ? whereParts.join(' · ') : '',
+        schoolName: schoolName || '',
+        location: location || '',
         startMs,
         endMs,
         isLive: statusForWindow(startMs, endMs, now) === 'in_progress',

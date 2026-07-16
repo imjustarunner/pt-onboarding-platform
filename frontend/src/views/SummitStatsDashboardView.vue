@@ -117,28 +117,12 @@
     </section>
 
     <!-- Club-wide banner + splashes (same API as main org dashboard) -->
-    <div
+    <AnnouncementMarquee
       v-if="!loading && !dashboardError && clubDashboardBannerTexts.length"
-      class="sstc-announcement-banner"
-      role="region"
+      :items="clubDashboardBannerTexts"
+      variant="club"
       aria-label="Club announcements"
-    >
-      <div class="sstc-announcement-inner">
-        <div class="sstc-announcement-track">
-          <span
-            v-for="(t, idx) in clubDashboardBannerTexts"
-            :key="`b-${idx}-${String(t).slice(0, 24)}`"
-            class="sstc-announcement-item"
-          >{{ t }}</span>
-          <span
-            v-for="(t, idx) in clubDashboardBannerTexts"
-            :key="`br-${idx}-${String(t).slice(0, 24)}`"
-            class="sstc-announcement-item"
-            aria-hidden="true"
-          >{{ t }}</span>
-        </div>
-      </div>
-    </div>
+    />
 
     <section v-if="loading" class="card dash-section dash-section--loading">
       Loading your dashboard…
@@ -867,6 +851,7 @@ import ClubFeedPanel from '../components/sstc/ClubFeedPanel.vue';
 import OnlineMembersPill from '../components/sstc/OnlineMembersPill.vue';
 import SeasonParticipationPill from '../components/sstc/SeasonParticipationPill.vue';
 import SeasonAnnouncementSplash from '../components/sstc/SeasonAnnouncementSplash.vue';
+import AnnouncementMarquee from '../components/common/AnnouncementMarquee.vue';
 import AnnounceSeasonModal from '../components/sstc/AnnounceSeasonModal.vue';
 import ClubDismissalsCard from '../components/sstc/ClubDismissalsCard.vue';
 import MemberTrophyCase from '../components/summit/MemberTrophyCase.vue';

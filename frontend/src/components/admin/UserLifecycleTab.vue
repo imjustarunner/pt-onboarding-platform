@@ -217,7 +217,8 @@
 
             <!-- Anniversary note -->
             <p class="lc-hint lc-anniversary-note">
-              Work anniversary banners use <strong>Start Date</strong> above. Editing Start Date here also updates the tenure field used in Provider Management.
+              Work anniversary banners use <strong>First Client Date</strong> above.
+              Editing Start Date here also updates the tenure field used in Provider Management.
             </p>
 
             <p v-if="datesSaved" class="lc-save-confirm">Saved.</p>

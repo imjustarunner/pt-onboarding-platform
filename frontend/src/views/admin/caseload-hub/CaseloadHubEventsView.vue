@@ -4,12 +4,20 @@
       <div>
         <h1>School Events</h1>
         <p class="subtitle">View and manage school events, provider staffing, and back-to-school outreach.</p>
+        <p class="tz-note">
+          All times shown in the school/tenant timezone
+          <strong>{{ defaultTimezoneLabel }}</strong>
+          (e.g. MST/MDT). Updates refresh automatically every {{ pollSeconds }}s while this page is open.
+        </p>
       </div>
       <div class="header-actions">
-        <select v-if="agencies.length > 1" v-model="agencyId" class="agency-select" @change="reload">
+        <select v-if="agencies.length > 1" v-model="agencyId" class="agency-select" @change="reload()">
           <option v-for="a in agencies" :key="a.id" :value="Number(a.id)">{{ a.name }}</option>
         </select>
         <router-link class="btn btn-ghost" :to="orgTo('/admin/caseload-hub/calendar')">Calendar</router-link>
+        <button type="button" class="btn btn-secondary" :disabled="loading" @click="reload()">
+          {{ loading ? 'Refreshing…' : 'Refresh' }}
+        </button>
         <button type="button" class="btn btn-secondary" @click="exportCsv">Export</button>
         <button type="button" class="btn btn-primary" @click="openAddEvent">+ Add Event</button>
       </div>
@@ -88,7 +96,7 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>Date &amp; time</th>
+                <th>Date &amp; time <span class="th-tz">(timezone)</span></th>
                 <th>Event name</th>
                 <th>School</th>
                 <th>Event type</th>
@@ -105,8 +113,8 @@
                 @click="selectEvent(e.id)"
               >
                 <td>
-                  <div class="primary">{{ formatDateLong(e.startsAt) }}</div>
-                  <div class="muted">{{ formatTimeRange(e.startsAt, e.endsAt) }}</div>
+                  <div class="primary">{{ formatDateLong(e.startsAt, e.timezone) }}</div>
+                  <div class="muted time-tz">{{ formatTimeRange(e.startsAt, e.endsAt, e.timezone) }}</div>
                 </td>
                 <td>
                   <div class="name-cell">
@@ -198,7 +206,13 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import {
+  formatSchoolEventDate,
+  formatSchoolEventTimeRange,
+  schoolEventTimezoneLabel,
+  SCHOOL_EVENT_FALLBACK_TIMEZONE
+} from '../../../utils/timezones';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../../store/auth';
 import { useAgencyStore } from '../../../store/agency';
@@ -282,28 +296,38 @@ function labelLifecycle(s) {
   return 'Scheduled';
 }
 
-function formatDateLong(v) {
-  if (!v) return '—';
-  try {
-    return new Date(v).toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      weekday: 'short'
-    });
-  } catch {
-    return String(v);
+const POLL_MS = 30000;
+const pollSeconds = POLL_MS / 1000;
+const defaultTimezoneLabel = schoolEventTimezoneLabel(SCHOOL_EVENT_FALLBACK_TIMEZONE);
+let pollTimer = null;
+
+function formatDateLong(v, timezone) {
+  return formatSchoolEventDate(v, timezone);
+}
+
+function formatTimeRange(a, b, timezone) {
+  return formatSchoolEventTimeRange(a, b, timezone);
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
   }
 }
 
-function formatTimeRange(a, b) {
-  try {
-    const s = new Date(a).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    const e = b ? new Date(b).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
-    return e ? `${s} – ${e}` : s;
-  } catch {
-    return '';
-  }
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(() => {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+    if (loading.value) return;
+    reload({ silent: true });
+  }, POLL_MS);
+}
+
+function onVisibilityChange() {
+  if (typeof document === 'undefined') return;
+  if (document.visibilityState === 'visible') reload({ silent: true });
 }
 
 function initials(name) {
@@ -442,10 +466,12 @@ function exportCsv() {
   URL.revokeObjectURL(url);
 }
 
-async function reload() {
+async function reload({ silent = false } = {}) {
   if (!agencyId.value) return;
-  loading.value = true;
-  error.value = '';
+  if (!silent) {
+    loading.value = true;
+    error.value = '';
+  }
   try {
     const [data, schools] = await Promise.all([
       fetchHubEvents(agencyId.value, { archived: tab.value === 'archived' }),
@@ -457,9 +483,11 @@ async function reload() {
       .map((s) => ({ id: s.schoolId, name: s.schoolName }))
       .sort((a, b) => String(a.name).localeCompare(String(b.name)));
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load events';
+    if (!silent) {
+      error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load events';
+    }
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
 }
 
@@ -487,6 +515,17 @@ onMounted(async () => {
   await reload();
   if (!selectedEventId.value && tab.value === 'provider-requests' && eventsNeedingReview.value[0]) {
     selectEvent(eventsNeedingReview.value[0].id);
+  }
+  startPolling();
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', onVisibilityChange);
+  }
+});
+
+onUnmounted(() => {
+  stopPolling();
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', onVisibilityChange);
   }
 });
 
@@ -519,6 +558,25 @@ watch(
   margin: 0 0 0.25rem;
   font-size: 1.65rem;
   letter-spacing: -0.02em;
+}
+.tz-note {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: #475569;
+}
+.tz-note strong {
+  color: #0f172a;
+  font-weight: 700;
+}
+.th-tz {
+  font-weight: 500;
+  color: #64748b;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.time-tz {
+  font-weight: 650;
+  color: #334155;
 }
 .subtitle {
   margin: 0;

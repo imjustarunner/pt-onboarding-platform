@@ -1977,7 +1977,8 @@
                 <ToggleSwitch v-model="announcementsDraft.birthdayEnabled" />
               </div>
               <small class="hint" style="display:block; margin-top: 6px;">
-                Uses Birthdate from employee info. Message template supports <code>{fullName}</code>.
+                Uses Birthdate from employee info. Shows all day on that calendar day with a small date label.
+                Message template supports <code>{fullName}</code>.
               </small>
 
               <div class="form-group" style="margin-top: 12px;">
@@ -1991,11 +1992,13 @@
               </div>
 
               <div class="toggle-row" style="margin-top: 14px;">
-                <span><strong>Work anniversary banner</strong> (uses profile start date)</span>
+                <span><strong>Work anniversary banner</strong> (uses first client date)</span>
                 <ToggleSwitch v-model="announcementsDraft.anniversaryEnabled" />
               </div>
               <small class="hint" style="display:block; margin-top: 6px;">
-                Message template supports <code>{fullName}</code> and <code>{years}</code>.
+                Uses First Client Date from Lifecycle / Employment Dates (not Start Date).
+                Shows all day on that calendar day with a small date label.
+                Template supports <code>{fullName}</code> and <code>{years}</code>.
               </small>
               <div class="form-group" style="margin-top: 12px;">
                 <label>Anniversary message template</label>

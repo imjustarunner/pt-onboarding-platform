@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import { canUserManageClub } from '../utils/sscClubAccess.js';
 import { getOrCreateClubThread } from './chat.controller.js';
+import { getTodayCelebrationBannerItems } from '../services/agencyAnnouncementAutomation.service.js';
 
 const DEFAULT_BIRTHDAY_TEMPLATE = 'Happy Birthday, {fullName}';
 const DEFAULT_ANNIVERSARY_TEMPLATE = 'Happy {years}-year anniversary, {fullName}';
@@ -262,113 +263,34 @@ export const getAgencyDashboardBanner = async (req, res, next) => {
     const anniversaryEnabled = cfg ? Boolean(cfg.anniversary_enabled) : false;
     if (!birthdayEnabled && !anniversaryEnabled) return res.json({ banner: null });
 
-    const template = String(cfg?.birthday_template || DEFAULT_BIRTHDAY_TEMPLATE);
-    const anniversaryTemplate = String(cfg?.anniversary_template || DEFAULT_ANNIVERSARY_TEMPLATE);
+    // Whole calendar day via CURDATE() month-day match (birthday + first_client_date anniversary).
+    const items = await getTodayCelebrationBannerItems(agencyId, {
+      birthdayEnabled,
+      birthdayTemplate: cfg?.birthday_template || DEFAULT_BIRTHDAY_TEMPLATE,
+      anniversaryEnabled,
+      anniversaryTemplate: cfg?.anniversary_template || DEFAULT_ANNIVERSARY_TEMPLATE
+    });
 
-    const messageParts = [];
+    if (!items.length) return res.json({ banner: null });
 
-    if (birthdayEnabled) {
-      // Birthday is stored as YYYY-MM-DD in user_info_values.value.
-      // Read both historical keys (`provider_birthdate`) and canonical key (`date_of_birth`).
-      const [rows] = await pool.execute(
-        `
-        SELECT
-          u.id,
-          u.first_name,
-          u.last_name,
-          uifd.field_key,
-          uifd.is_platform_template,
-          uifd.agency_id,
-          CASE
-            WHEN uifd.field_key = 'date_of_birth' THEN 2
-            WHEN uifd.field_key = 'provider_birthdate' THEN 1
-            ELSE 0
-          END AS field_priority
-        FROM users u
-        INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
-        INNER JOIN user_info_values uiv ON uiv.user_id = u.id
-        INNER JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
-        WHERE
-          u.is_active = 1
-          AND (u.status = 'ACTIVE_EMPLOYEE' OR LOWER(u.status) = 'active')
-          AND uifd.field_key IN ('date_of_birth', 'provider_birthdate')
-          AND (uifd.agency_id IS NULL OR uifd.agency_id = ?)
-          AND uiv.value IS NOT NULL AND uiv.value <> ''
-          AND uiv.value REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-          AND SUBSTRING(uiv.value, 6, 5) = DATE_FORMAT(CURDATE(), '%m-%d')
-        ORDER BY field_priority DESC, uifd.is_platform_template DESC, uifd.agency_id IS NULL DESC, uifd.order_index ASC
-        `,
-        [agencyId, agencyId]
-      );
-
-      // Pick the highest-precedence birthdate value per user, then show all birthday people.
-      const seen = new Set();
-      const names = [];
-      for (const r of rows || []) {
-        const id = Number(r?.id);
-        if (!id || seen.has(id)) continue;
-        seen.add(id);
-        const fullName = `${String(r?.first_name || '').trim()} ${String(r?.last_name || '').trim()}`.trim();
-        if (fullName) names.push(fullName);
-      }
-      if (names.length) {
-        const fullName = formatNameList(names);
-        const message = template.includes('{fullName}') ? template.replaceAll('{fullName}', fullName) : `${template} ${fullName}`;
-        messageParts.push(String(message || '').trim());
-      }
-    }
-
-    if (anniversaryEnabled) {
-      const [rows] = await pool.execute(
-        `
-        SELECT
-          u.id,
-          u.first_name,
-          u.last_name,
-          uifd.is_platform_template,
-          uifd.agency_id,
-          uiv.value AS start_date_value,
-          TIMESTAMPDIFF(YEAR, STR_TO_DATE(uiv.value, '%Y-%m-%d'), CURDATE()) AS service_years
-        FROM users u
-        INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
-        INNER JOIN user_info_values uiv ON uiv.user_id = u.id
-        INNER JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
-        WHERE
-          u.is_active = 1
-          AND (u.status = 'ACTIVE_EMPLOYEE' OR LOWER(u.status) = 'active')
-          AND uifd.field_key = 'start_date'
-          AND (uifd.agency_id IS NULL OR uifd.agency_id = ?)
-          AND uiv.value IS NOT NULL AND uiv.value <> ''
-          AND uiv.value REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-          AND SUBSTRING(uiv.value, 6, 5) = DATE_FORMAT(CURDATE(), '%m-%d')
-        ORDER BY uifd.is_platform_template DESC, uifd.agency_id IS NULL DESC, uifd.order_index ASC
-        `,
-        [agencyId, agencyId]
-      );
-
-      const seen = new Set();
-      const anniversaries = [];
-      for (const r of rows || []) {
-        const id = Number(r?.id);
-        if (!id || seen.has(id)) continue;
-        seen.add(id);
-        const fullName = `${String(r?.first_name || '').trim()} ${String(r?.last_name || '').trim()}`.trim();
-        const years = Number(r?.service_years);
-        if (!fullName || !Number.isFinite(years) || years < 1) continue;
-        anniversaries.push({ fullName, years });
-      }
-      if (anniversaries.length) {
-        const message = renderAnniversaryTemplate(anniversaryTemplate, anniversaries);
-        if (message) messageParts.push(message);
-      }
-    }
-
-    if (!messageParts.length) return res.json({ banner: null });
+    const messageParts = items.map((item) => {
+      const text = String(item?.text || '').trim();
+      const dateLabel = String(item?.dateLabel || '').trim();
+      return dateLabel ? `${text} · ${dateLabel}` : text;
+    }).filter(Boolean);
 
     return res.json({
       banner: {
         type: 'automated',
         message: messageParts.join(' | '),
+        items: items.map((item) => ({
+          kind: item.kind,
+          text: item.text,
+          dateLabel: item.dateLabel || null,
+          userId: item.userId || null,
+          fullName: item.fullName || null,
+          profilePhotoPath: item.profilePhotoPath || null
+        })),
         agencyId
       }
     });

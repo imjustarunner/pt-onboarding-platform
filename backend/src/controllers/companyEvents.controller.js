@@ -451,7 +451,31 @@ function mapEventRow(row, req, opts = {}) {
     publicRegistrationStatus: String(row.public_registration_status || 'open').trim().toLowerCase(),
     publicRegistrationStatusLabel: row.public_registration_status_label
       ? String(row.public_registration_status_label).trim()
-      : ''
+      : '',
+    // Affiliated org (school/program) + best-effort "where" for dashboard / calendars
+    organizationName: row.organization_name
+      ? String(row.organization_name).trim()
+      : row.school_name
+        ? String(row.school_name).trim()
+        : null,
+    organizationType: row.organization_type ? String(row.organization_type).trim().toLowerCase() : null,
+    schoolName: (() => {
+      if (row.school_name) return String(row.school_name).trim();
+      const orgType = String(row.organization_type || '').trim().toLowerCase();
+      const orgName = row.organization_name ? String(row.organization_name).trim() : '';
+      if (orgName && (orgType === 'school' || orgType === 'program' || orgType === 'learning')) {
+        return orgName;
+      }
+      // School portal event types imply organization_id is the school
+      const et = String(row.event_type || '').trim().toLowerCase();
+      if (orgName && et.startsWith('school_')) return orgName;
+      return null;
+    })(),
+    location:
+      (row.event_location_name && String(row.event_location_name).trim()) ||
+      (row.event_location_address && String(row.event_location_address).trim()) ||
+      (row.public_location_address && String(row.public_location_address).trim()) ||
+      ''
   };
   const nextOccurrence = computeNextOccurrence(base);
   const calendarSource = nextOccurrence || { startsAt, endsAt };
@@ -976,8 +1000,11 @@ async function listEventsVisibleToUser(userId, agencyIds = [], options = {}) {
        )`
     : '';
   const [rows] = await pool.execute(
-    `SELECT ce.*
+    `SELECT ce.*,
+            org.name AS organization_name,
+            org.organization_type AS organization_type
      FROM company_events ce
+     LEFT JOIN agencies org ON org.id = ce.organization_id
      WHERE ce.agency_id IN (${placeholders})
        AND ce.is_active = 1
        ${skillsGroupExclusion}

@@ -5,10 +5,20 @@
         <h2>{{ event?.title || 'Event staffing' }}</h2>
         <p class="muted">
           {{ event?.schoolName || 'Unassigned school' }}
-          <span v-if="event?.startsAt"> · {{ formatWhen(event.startsAt, event.endsAt) }}</span>
+          <span v-if="event?.startsAt"> · {{ formatWhen(event.startsAt, event.endsAt, event.timezone) }}</span>
         </p>
       </div>
-      <button type="button" class="btn btn-secondary btn-sm" @click="$emit('close')">Close</button>
+      <div class="head-actions">
+        <button
+          v-if="canEditDetails && canEditEvent"
+          type="button"
+          class="btn btn-secondary btn-sm"
+          @click="openEdit"
+        >
+          Edit event
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" @click="$emit('close')">Close</button>
+      </div>
     </header>
 
     <div v-if="!event" class="muted pad">Select an event to manage staffing.</div>
@@ -27,7 +37,7 @@
       <div v-if="!staffingOpen" class="enable-box">
         <p>
           Provider applications are not open for this event yet. Opening staffing creates session dates and lets
-          providers apply; admins can approve and assign from here.
+          providers apply; you can also assign staff directly once open.
         </p>
         <button
           v-if="canManage"
@@ -42,11 +52,11 @@
       </div>
 
       <template v-else>
-        <p v-if="canApply" class="hint">
-          Providers can apply for open sessions below. Approvals assign them on the canonical company-event staffing tables.
+        <p v-if="canManage" class="hint">
+          Edit the event details above, assign providers directly below, or approve pending applications.
         </p>
-        <p v-else-if="canManage" class="hint">
-          Review pending applications and approve to assign, or deny. Providers apply from Caseload Hub, My Schedule, or Event shift requests.
+        <p v-else-if="canApply" class="hint">
+          Providers can apply for open sessions below. Approvals assign them on the canonical company-event staffing tables.
         </p>
 
         <section v-for="s in sessions" :key="s.sessionDateId" class="session-card">
@@ -59,9 +69,46 @@
           </div>
 
           <div v-if="(s.approvedProviders || []).length" class="chip-row">
-            <span v-for="p in s.approvedProviders" :key="p.id" class="chip assigned">{{ p.name }}</span>
+            <span v-for="p in s.approvedProviders" :key="p.id" class="chip assigned">
+              {{ p.name }}
+              <button
+                v-if="canManage"
+                type="button"
+                class="chip-x"
+                title="Remove assignment"
+                :disabled="unassigningKey === assignKey(s.sessionDateId, p.id)"
+                @click="unassign(s.sessionDateId, p)"
+              >
+                ×
+              </button>
+            </span>
           </div>
           <p v-else class="muted tiny">No providers assigned yet.</p>
+
+          <div v-if="canManage" class="assign-row">
+            <select
+              v-model="assignPick[s.sessionDateId]"
+              class="assign-select"
+              :disabled="assigningSessionId === s.sessionDateId"
+            >
+              <option value="">Assign someone…</option>
+              <option
+                v-for="p in assignableProviders(s)"
+                :key="p.id"
+                :value="String(p.id)"
+              >
+                {{ p.name }}{{ p.role ? ` (${p.role})` : '' }}
+              </option>
+            </select>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="!assignPick[s.sessionDateId] || assigningSessionId === s.sessionDateId"
+              @click="assign(s.sessionDateId)"
+            >
+              {{ assigningSessionId === s.sessionDateId ? 'Assigning…' : 'Assign' }}
+            </button>
+          </div>
 
           <div v-if="canManage" class="requests">
             <h4>Applications</h4>
@@ -95,7 +142,7 @@
             </ul>
           </div>
 
-          <div v-if="canApply" class="apply-row">
+          <div v-if="canApply && !canManage" class="apply-row">
             <template v-if="myRequestFor(s.sessionDateId)">
               <span class="pill">Your request: {{ myRequestFor(s.sessionDateId).status }}</span>
               <button
@@ -121,21 +168,32 @@
         </section>
 
         <p v-if="!sessions.length" class="muted pad">
-          No session dates yet. Try opening staffing again, or edit the event dates in Event manager.
+          No session dates yet. Try opening staffing again, or edit the event dates.
         </p>
       </template>
 
       <p v-if="actionMsg" class="apply-msg">{{ actionMsg }}</p>
       <p v-if="actionError" class="error">{{ actionError }}</p>
     </template>
+
+    <PostSchoolEventModal
+      v-if="showEditModal && editSchoolOrgId"
+      :school-organization-id="editSchoolOrgId"
+      :edit-event="editEventPayload"
+      :initial-category="editEventPayload?.category || 'back_to_school'"
+      @close="showEditModal = false"
+      @saved="onEventSaved"
+    />
   </aside>
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
-import { enableSchoolEventStaffing } from '../../services/schoolCoverageApi';
+import { enableSchoolEventStaffing, fetchProviderCoverageSummary } from '../../services/schoolCoverageApi';
+import { formatSchoolEventWhen } from '../../utils/timezones';
+import PostSchoolEventModal from '../school/PostSchoolEventModal.vue';
 
 const props = defineProps({
   event: { type: Object, default: null },
@@ -146,7 +204,12 @@ const emit = defineEmits(['close', 'changed']);
 
 const authStore = useAuthStore();
 const role = computed(() => String(authStore.user?.role || '').toLowerCase());
+/** Matches company-event staffing manage roles (approve/assign). */
 const canManage = computed(() =>
+  ['super_admin', 'admin', 'support', 'staff'].includes(role.value)
+);
+/** School portal event edit (time/title/etc.) — includes CPA / provider_plus. */
+const canEditDetails = computed(() =>
   ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role.value)
 );
 const canApply = computed(() =>
@@ -174,12 +237,56 @@ const sessionRequests = ref({});
 const sessionRequestsLoading = ref({});
 const decisionId = ref(0);
 const savingSessionId = ref(0);
+const assigningSessionId = ref(0);
+const unassigningKey = ref('');
+const assignPick = reactive({});
+const providerOptions = ref([]);
+const showEditModal = ref(false);
 
 const sessions = computed(() => staffingSummary.value?.sessions || []);
 const staffingOpen = computed(() => {
   if (props.event?.staffingEnabled) return true;
   const cfg = staffingSummary.value?.staffingConfig;
   return !!(cfg && cfg.enabled !== false);
+});
+
+const editSchoolOrgId = computed(() => {
+  const id = Number(props.event?.schoolId || props.event?.organizationId || 0);
+  return id || null;
+});
+
+const canEditEvent = computed(() => !!editSchoolOrgId.value);
+
+function eventTypeToCategory(eventType) {
+  const t = String(eventType || '').trim().toLowerCase();
+  const map = {
+    school_back_to_school: 'back_to_school',
+    school_spring_event: 'spring',
+    school_open_house: 'open_house',
+    school_resource_fair: 'resource_fair',
+    school_family_night: 'family_night',
+    school_orientation: 'orientation',
+    school_other: 'other'
+  };
+  return map[t] || props.event?.category || 'other';
+}
+
+const editEventPayload = computed(() => {
+  const e = props.event;
+  if (!e?.id) return null;
+  return {
+    id: e.id,
+    title: e.title,
+    description: e.description,
+    category: eventTypeToCategory(e.eventType),
+    startsAt: e.startsAt,
+    endsAt: e.endsAt,
+    timezone: e.timezone,
+    schoolEventStatus: e.schoolEventStatus || 'scheduled',
+    outreachTableInvited: !!e.outreachTableInvited,
+    flierFileUrl: e.flierFileUrl || '',
+    eventImageUrl: e.eventImageUrl || ''
+  };
 });
 
 function labelStatus(s) {
@@ -191,29 +298,17 @@ function sevClass(s) {
   if (s === 'fully_staffed') return 'informational';
   return 'informational';
 }
-function formatWhen(a, b) {
-  try {
-    const s = new Date(a).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-    if (!b) return s;
-    const e = new Date(b).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    return `${s} – ${e}`;
-  } catch {
-    return String(a || '');
-  }
+function formatWhen(a, b, timezone) {
+  return formatSchoolEventWhen(a, b, timezone || props.event?.timezone);
 }
 function formatSession(s) {
-  try {
-    const d = s.sessionDate || s.startsAt;
-    return new Date(d).toLocaleString(undefined, {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit'
-    });
-  } catch {
-    return `Session ${s.sessionDateId}`;
-  }
+  return (
+    formatSchoolEventWhen(
+      s.startsAt || s.sessionDate,
+      s.endsAt || null,
+      s.timezone || props.event?.timezone
+    ) || `Session ${s.sessionDateId}`
+  );
 }
 function pendingCount(s) {
   const p = s?.requestStats?.pending || {};
@@ -228,6 +323,60 @@ function myRequestFor(sessionDateId) {
 function isAssigned(s) {
   const uid = Number(authStore.user?.id || 0);
   return (s.approvedProviders || []).some((p) => Number(p.id) === uid);
+}
+function assignKey(sessionDateId, providerId) {
+  return `${sessionDateId}:${providerId}`;
+}
+function assignableProviders(session) {
+  const assignedIds = new Set((session.approvedProviders || []).map((p) => Number(p.id)));
+  return providerOptions.value.filter((p) => !assignedIds.has(Number(p.id)));
+}
+
+function openEdit() {
+  if (!canEditEvent.value) {
+    actionError.value = 'This event is not linked to a school, so it cannot be edited here.';
+    return;
+  }
+  showEditModal.value = true;
+}
+
+async function onEventSaved() {
+  showEditModal.value = false;
+  actionMsg.value = 'Event updated.';
+  emit('changed');
+  await reload();
+}
+
+async function loadProviders() {
+  if (!canManage.value || !props.agencyId) {
+    providerOptions.value = [];
+    return;
+  }
+  try {
+    const data = await fetchProviderCoverageSummary(props.agencyId);
+    const list = (data.providers || []).map((p) => ({
+      id: Number(p.providerId || p.id),
+      name: p.name || `${p.firstName || ''} ${p.lastName || ''}`.trim() || `Provider ${p.providerId}`,
+      role: p.role || ''
+    }));
+    // Prefer providers tied to this school first
+    const schoolId = Number(props.event?.schoolId || 0);
+    if (schoolId) {
+      list.sort((a, b) => {
+        const ap = (data.providers || []).find((x) => Number(x.providerId) === a.id);
+        const bp = (data.providers || []).find((x) => Number(x.providerId) === b.id);
+        const aAt = (ap?.schools || []).some((s) => Number(s.schoolId) === schoolId) ? 0 : 1;
+        const bAt = (bp?.schools || []).some((s) => Number(s.schoolId) === schoolId) ? 0 : 1;
+        if (aAt !== bAt) return aAt - bAt;
+        return String(a.name).localeCompare(String(b.name));
+      });
+    } else {
+      list.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    }
+    providerOptions.value = list.filter((p) => p.id);
+  } catch {
+    providerOptions.value = [];
+  }
 }
 
 async function loadAdminRequests(sessionDateId) {
@@ -270,11 +419,15 @@ async function reload() {
             params: { agencyId: props.agencyId },
             skipGlobalLoading: true
           })
-        : Promise.resolve({ data: { requests: [] } })
+        : Promise.resolve({ data: { requests: [] } }),
+      loadProviders()
     ]);
     staffingSummary.value = summaryRes.data || null;
     myRequests.value = Array.isArray(myRes.data?.requests) ? myRes.data.requests : [];
     const sess = staffingSummary.value?.sessions || [];
+    for (const s of sess) {
+      if (assignPick[s.sessionDateId] === undefined) assignPick[s.sessionDateId] = '';
+    }
     if (canManage.value) {
       await Promise.all(sess.map((s) => loadAdminRequests(s.sessionDateId)));
     }
@@ -300,6 +453,54 @@ async function enableStaffing() {
     actionError.value = e?.response?.data?.error?.message || e?.message || 'Could not open staffing';
   } finally {
     enabling.value = false;
+  }
+}
+
+async function assign(sessionDateId) {
+  const providerUserId = Number(assignPick[sessionDateId] || 0);
+  if (!providerUserId || !props.event?.id) return;
+  assigningSessionId.value = sessionDateId;
+  actionError.value = '';
+  actionMsg.value = '';
+  try {
+    const res = await api.post(
+      `/company-events/${props.event.id}/session-providers/assign`,
+      { agencyId: props.agencyId, sessionDateId, providerUserId },
+      { skipGlobalLoading: true }
+    );
+    actionMsg.value = `Assigned ${res.data?.provider?.name || 'provider'}.`;
+    assignPick[sessionDateId] = '';
+    emit('changed');
+    await reload();
+  } catch (e) {
+    actionError.value = e?.response?.data?.error?.message || e?.message || 'Could not assign provider';
+  } finally {
+    assigningSessionId.value = 0;
+  }
+}
+
+async function unassign(sessionDateId, provider) {
+  if (!props.event?.id || !provider?.id) return;
+  unassigningKey.value = assignKey(sessionDateId, provider.id);
+  actionError.value = '';
+  actionMsg.value = '';
+  try {
+    await api.post(
+      `/company-events/${props.event.id}/session-providers/unassign`,
+      {
+        agencyId: props.agencyId,
+        sessionDateId,
+        providerUserId: provider.id
+      },
+      { skipGlobalLoading: true }
+    );
+    actionMsg.value = `Removed ${provider.name}.`;
+    emit('changed');
+    await reload();
+  } catch (e) {
+    actionError.value = e?.response?.data?.error?.message || e?.message || 'Could not remove assignment';
+  } finally {
+    unassigningKey.value = '';
   }
 }
 
@@ -384,6 +585,7 @@ watch(
   () => [props.event?.id, props.agencyId],
   () => {
     actionMsg.value = '';
+    showEditModal.value = false;
     reload();
   },
   { immediate: true }
@@ -413,6 +615,11 @@ watch(
   margin: 0;
   font-size: 1.1rem;
 }
+.head-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
 .muted { color: #64748b; font-size: 0.8rem; margin: 0.15rem 0 0; }
 .tiny { font-size: 0.72rem; }
 .pad { padding: 0.75rem 0; }
@@ -434,6 +641,9 @@ watch(
 .session-head { display: flex; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.4rem; }
 .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   font-size: 0.72rem;
   padding: 0.15rem 0.45rem;
   border-radius: 999px;
@@ -441,6 +651,31 @@ watch(
   background: #f8fafc;
 }
 .chip.assigned { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
+.chip-x {
+  border: 0;
+  background: transparent;
+  color: #047857;
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0 0.1rem;
+}
+.chip-x:disabled { opacity: 0.5; cursor: not-allowed; }
+.assign-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin: 0.5rem 0 0.35rem;
+}
+.assign-select {
+  flex: 1;
+  min-width: 0;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  background: #fff;
+}
 .requests h4 { margin: 0.5rem 0 0.35rem; font-size: 0.8rem; color: #475569; }
 .req-list { list-style: none; margin: 0; padding: 0; }
 .req-row {
